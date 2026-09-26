@@ -210,11 +210,8 @@ export const previewTheme = EditorView.theme({
     borderRadius: "9999px",
     padding: "0.15em 0.7em",
   },
-  // Editable table grid — a rounded card with inner hairlines, header layer,
-  // and an always-visible controls strip along the bottom. Styling lives in
-  // markdownTables.css (imported by MarkdownTableEditor.jsx) so the same
-  // sheet reaches the portalled dialogs and expanded workspace; the grid
-  // keeps the .cm-lp-table hook class for compatibility.
+  // Editable tables are styled in markdownTables.css (imported by
+  // MarkdownTableEditor.jsx).
 });
 
 /**

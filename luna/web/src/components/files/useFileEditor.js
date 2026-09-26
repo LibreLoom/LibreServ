@@ -36,12 +36,7 @@ import {
   sourceHighlighting,
 } from "./editorTheme.js";
 import { markdownLivePreview } from "./markdownLivePreview.js";
-import {
-  flushTableDrafts,
-  registerTableRecoveryHandler,
-  registerTableUndoManager,
-  runActiveTableAction,
-} from "./markdownTables.js";
+import { registerTableUndoManager, runActiveTableAction } from "./markdownTables.js";
 import { applyMarkdownAction } from "../../lib/markdown.js";
 
 /**
@@ -54,8 +49,8 @@ import { applyMarkdownAction } from "../../lib/markdown.js";
  * @param {string} action
  */
 export function runMarkdownAction(view, action) {
-  // A focused table grid owns the inline marks and refuses block actions —
-  // the document selection can't be seen while the cursor is in a cell.
+  // A table cell with the caret takes inline marks; block actions have no
+  // meaning inside a cell and are dropped.
   if (runActiveTableAction(view, action)) return;
   const { from, to } = view.state.selection.main;
   const doc = view.state.doc.toString();
@@ -115,7 +110,6 @@ const markdownKeymap = keymap.of([
  *   livePreview?: boolean,
  *   resolveImage?: (src: string) => string | null,
  *   onStats?: (stats: { line: number, col: number, words: number }) => void,
- *   onTableRecovery?: (text: string) => void,
  *   ariaLabel?: string,
  * }} opts
  * @returns {{
@@ -131,7 +125,6 @@ export function useFileEditor({
   livePreview = true,
   resolveImage,
   onStats,
-  onTableRecovery,
   ariaLabel = "File contents",
 }) {
   const viewRef = useRef(/** @type {EditorView | null} */ (null));
@@ -140,19 +133,14 @@ export function useFileEditor({
   const undoManagerRef = useRef(/** @type {UndoManager | null} */ (null));
   // Latest options for (re)mounts — the callback ref reads these, so a host
   // that remounts mid-session gets the current mode rather than the first.
-  const optsRef = useRef({ livePreview, resolveImage, canWrite, ariaLabel, onStats, onTableRecovery });
-  optsRef.current = { livePreview, resolveImage, canWrite, ariaLabel, onStats, onTableRecovery };
+  const optsRef = useRef({ livePreview, resolveImage, canWrite, ariaLabel, onStats });
+  optsRef.current = { livePreview, resolveImage, canWrite, ariaLabel, onStats };
 
   const attachHost = useCallback(
     (/** @type {HTMLDivElement | null} */ host) => {
       if (viewRef.current) {
         const prev = viewRef.current;
         viewRef.current = null;
-        // Commit live cell drafts while the view is still whole — widget
-        // teardown never writes, so this is the last chance to land text.
-        // A read-only view skips the flush entirely: a commit would be a
-        // write, and the draft moves to recovery instead.
-        if (isMarkdown) flushTableDrafts(prev, optsRef.current.canWrite);
         const prevHost = /** @type {HTMLElement & { __cmView?: EditorView }} */ (
           prev.dom.parentElement
         );
@@ -167,7 +155,7 @@ export function useFileEditor({
 
       const opts = optsRef.current;
       // One UndoManager per mounted view, shared between yCollab and the
-      // table controllers so grid edits and document edits undo together.
+      // table controllers so cell typing and document edits undo together.
       const undoManager = new UndoManager(ytext);
       undoManagerRef.current = undoManager;
       const previewExtensions = isMarkdown
@@ -227,14 +215,7 @@ export function useFileEditor({
       });
       // Test/debug handle: the host element carries the view.
       /** @type {HTMLDivElement & { __cmView?: EditorView }} */ (host).__cmView = view;
-      if (isMarkdown) {
-        registerTableUndoManager(view, undoManager);
-        // Recovered draft text goes to the editor-owned panel so it
-        // survives view teardowns and mode flips — not just the next grid.
-        registerTableRecoveryHandler(view, (text) =>
-          optsRef.current.onTableRecovery?.(text),
-        );
-      }
+      if (isMarkdown) registerTableUndoManager(view, undoManager);
       viewRef.current = view;
     },
     [ytext, awareness, isMarkdown],
@@ -244,9 +225,6 @@ export function useFileEditor({
   useEffect(() => {
     const view = viewRef.current;
     if (!view || !isMarkdown) return;
-    // Land any in-progress cell edit before the widgets are swapped out —
-    // never when write permission is off (a flush would be a write).
-    flushTableDrafts(view, canWrite);
     view.dispatch({
       effects: modeCompartment.current.reconfigure(
         livePreview
@@ -254,19 +232,18 @@ export function useFileEditor({
           : [sourceTheme, sourceHighlighting],
       ),
     });
-  }, [livePreview, isMarkdown, resolveImage, canWrite]);
+  }, [livePreview, isMarkdown, resolveImage]);
 
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
-    if (isMarkdown && canWrite) flushTableDrafts(view);
     view.dispatch({
       effects: editableCompartment.current.reconfigure([
         EditorView.editable.of(canWrite),
         EditorView.contentAttributes.of({ "aria-label": ariaLabel }),
       ]),
     });
-  }, [canWrite, ariaLabel, isMarkdown]);
+  }, [canWrite, ariaLabel]);
 
   return { attachHost, viewRef };
 }

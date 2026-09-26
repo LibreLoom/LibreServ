@@ -1,30 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
-  clearTableCells,
   decodeTableCell,
-  deleteTableCols,
-  deleteTableRows,
-  duplicateTableCols,
-  duplicateTableRows,
+  deleteTableCol,
+  deleteTableRow,
   encodeTableCell,
-  fillTableCells,
-  insertTableRows,
-  moveTableCols,
-  moveTableRows,
-  parseDelimitedRows,
+  insertTableCol,
+  insertTableRow,
   parseMarkdownTable,
-  parseTableClipboard,
   parseTableDocument,
-  pasteTableRows,
-  serializeDelimitedRows,
   serializeMarkdownTable,
   setTableAlign,
-  setTableCell,
   sortTableRows,
   splitTableLine,
   tableCellValue,
-  tableSelection,
-  validateTableRows,
 } from "./markdownTableModel.js";
 
 const SRC = "| A | B |\n| --- | ---: |\n| 1 | 2 |\n| 3 | 4 |";
@@ -151,80 +139,30 @@ describe("parseTableDocument", () => {
 describe("structure operations", () => {
   const m = () => parseMarkdownTable(SRC);
 
-  it("inserts and deletes body rows, never the header", () => {
-    expect(insertTableRows(m(), 2).body).toHaveLength(3);
-    expect(deleteTableRows(m(), 0, 0)).toBeNull();
-    expect(deleteTableRows(m(), 1, 1).body).toEqual([["3", "4"]]);
+  it("inserts body rows at a position, clamped below the header", () => {
+    expect(insertTableRow(m(), 2).body).toEqual([["1", "2"], ["", ""], ["3", "4"]]);
+    expect(insertTableRow(m(), 0).body[0]).toEqual(["", ""]);
+    expect(insertTableRow(m(), 99).body[2]).toEqual(["", ""]);
   });
 
-  it("moves a contiguous row block by one step", () => {
-    const three = parseMarkdownTable(
-      "| A |\n| --- |\n| 1 |\n| 2 |\n| 3 |",
-    );
-    expect(moveTableRows(three, 1, 2, 1).body).toEqual([["3"], ["1"], ["2"]]);
-    expect(moveTableRows(three, 2, 3, -1).body).toEqual([["2"], ["3"], ["1"]]);
-    expect(moveTableRows(three, 1, 1, -1)).toBeNull();
+  it("deletes body rows, never the header", () => {
+    expect(deleteTableRow(m(), 0)).toBeNull();
+    expect(deleteTableRow(m(), 1).body).toEqual([["3", "4"]]);
+    expect(deleteTableRow(m(), 3)).toBeNull();
   });
 
-  it("duplicates rows and columns", () => {
-    expect(duplicateTableRows(m(), 1, 1).body).toEqual([
-      ["1", "2"],
-      ["1", "2"],
-      ["3", "4"],
-    ]);
-    const dup = duplicateTableCols(m(), 0, 0);
-    expect(dup.header).toEqual(["A", "A", "B"]);
-    expect(dup.body[0]).toEqual(["1", "1", "2"]);
+  it("inserts a column with its own alignment slot", () => {
+    const t = insertTableCol(m(), 1);
+    expect(t.header).toEqual(["A", "", "B"]);
+    expect(t.align).toEqual(["", "", "right"]);
+    expect(t.body[1]).toEqual(["3", "", "4"]);
   });
 
-  it("moves a column block and keeps alignment attached", () => {
-    const moved = moveTableCols(m(), 1, 1, -1);
-    expect(moved.header).toEqual(["B", "A"]);
-    expect(moved.align).toEqual(["right", ""]);
-    expect(moved.body[0]).toEqual(["2", "1"]);
-  });
-
-  it("refuses to delete the last column", () => {
-    const one = parseMarkdownTable("| A |\n| --- |\n| 1 |");
-    expect(deleteTableCols(one, 0, 0)).toBeNull();
-    expect(deleteTableCols(m(), 0, 1)).toBeNull();
-    expect(deleteTableCols(m(), 0, 0).header).toEqual(["B"]);
-  });
-
-  it("clears and fills rectangular selections", () => {
-    const sel = tableSelection({ r: 0, c: 0 }, { r: 2, c: 1 });
-    const cleared = clearTableCells(m(), sel);
-    expect(cleared.header).toEqual(["", ""]);
-    expect(cleared.body).toEqual([["", ""], ["", ""]]);
-    const filled = fillTableCells(
-      m(),
-      tableSelection({ r: 1, c: 0 }, { r: 1, c: 1 }),
-      "x",
-    );
-    expect(filled.body[0]).toEqual(["x", "x"]);
-    expect(filled.body[1]).toEqual(["3", "4"]);
-  });
-
-  it("pastes a rectangle, expanding rows and columns once", () => {
-    const pasted = pasteTableRows(m(), 2, 1, [
-      ["p", "q", "r"],
-      ["s", "t", "u"],
-    ]);
-    expect(pasted.header).toEqual(["A", "B", "", ""]);
-    expect(pasted.body).toEqual([
-      ["1", "2", "", ""],
-      ["3", "p", "q", "r"],
-      ["", "s", "t", "u"],
-    ]);
-  });
-
-  it("pastes over the header row too", () => {
-    const pasted = pasteTableRows(m(), 0, 0, [["H1", "H2"]]);
-    expect(pasted.header).toEqual(["H1", "H2"]);
-    expect(pasted.body).toEqual([
-      ["1", "2"],
-      ["3", "4"],
-    ]);
+  it("deletes a column, but never the last one", () => {
+    const t = deleteTableCol(m(), 0);
+    expect(t.header).toEqual(["B"]);
+    expect(t.align).toEqual(["right"]);
+    expect(deleteTableCol(t, 0)).toBeNull();
   });
 
   it("sorts stably with numeric collation, header fixed, empties last", () => {
@@ -241,188 +179,16 @@ describe("structure operations", () => {
     expect(desc.body.map((r) => r[0])).toEqual(["10", "10", "2", ""]);
   });
 
-  it("sets alignment over a column interval", () => {
-    const a = setTableAlign(m(), 0, 1, "center");
-    expect(a.align).toEqual(["center", "center"]);
+  it("sets one column's alignment", () => {
+    expect(setTableAlign(m(), 0, "center").align).toEqual(["center", "right"]);
   });
 
-  it("reads and writes cells in r-space (0 = header)", () => {
+  it("reads cells in r-space (0 = header)", () => {
     expect(tableCellValue(m(), 0, 1)).toBe("B");
     expect(tableCellValue(m(), 2, 0)).toBe("3");
-    expect(setTableCell(m(), 0, 0, "H").header[0]).toBe("H");
-    expect(setTableCell(m(), 1, 1, "x").body[0][1]).toBe("x");
-  });
-});
-
-describe("clipboard formats", () => {
-  it("parses TSV with empty trailing cells and rows intact", () => {
-    const { rows } = parseDelimitedRows("a\tb\t\n\t\n1\t2\t3", "\t");
-    expect(rows).toEqual([
-      ["a", "b", ""],
-      ["", ""],
-      ["1", "2", "3"],
-    ]);
   });
 
-  it("round-trips a terminal empty row losslessly", () => {
-    // A lone empty row serializes as `""` so a trailing newline can't
-    // silently drop it.
-    const t = serializeDelimitedRows([["a"], [""]], "\t");
-    expect(t).toBe('a\n""');
-    expect(parseDelimitedRows(t, "\t").rows).toEqual([["a"], [""]]);
-    expect(
-      parseDelimitedRows(serializeDelimitedRows([[""]], "\t"), "\t").rows,
-    ).toEqual([[""]]);
-    expect(
-      parseDelimitedRows(
-        serializeDelimitedRows([["", ""], ["", ""]], "\t"),
-        "\t",
-      ).rows,
-    ).toEqual([
-      ["", ""],
-      ["", ""],
-    ]);
-    // ...while a spreadsheet-style trailing newline stays one row.
-    expect(parseDelimitedRows("a\n", "\t").rows).toEqual([["a"]]);
-  });
-
-  it("reports an unmatched quote instead of swallowing the input", () => {
-    const { error, rows } = parseDelimitedRows('"a,b\nc,d', ",");
-    expect(error).toMatch(/unmatched/i);
-    expect(rows).toEqual([]);
-  });
-
-  it("honours quoted delimiters and quoted newlines", () => {
-    const { rows, normalizedLineBreaks } = parseDelimitedRows(
-      '"a\tb"\t"multi\nline"',
-      "\t",
-    );
-    expect(rows).toEqual([["a\tb", "multi\nline"]]);
-    expect(normalizedLineBreaks).toBe(true);
-  });
-
-  it("parses a Markdown table from the clipboard", () => {
-    const p = parseTableClipboard(SRC, "auto");
-    expect(p.format).toBe("markdown");
-    expect(p.rows).toEqual([
-      ["A", "B"],
-      ["1", "2"],
-      ["3", "4"],
-    ]);
-  });
-
-  it("auto-detects TSV but never comma prose", () => {
-    expect(parseTableClipboard("a\tb", "auto").rows).toEqual([["a", "b"]]);
-    const prose = parseTableClipboard("hello, world", "auto");
-    expect(prose.rows).toEqual([["hello, world"]]);
-    // The import dialog opts in to comma detection.
-    const csv = parseTableClipboard("a,b\nc,d", "auto", { sniffCsv: true });
-    expect(csv.rows).toEqual([
-      ["a", "b"],
-      ["c", "d"],
-    ]);
-  });
-
-  it("treats multi-line single-column paste as one row per line", () => {
-    expect(parseTableClipboard("one\ntwo\nthree", "auto").rows).toEqual([
-      ["one"],
-      ["two"],
-      ["three"],
-    ]);
-  });
-
-  it("keeps leading zeros as text", () => {
-    expect(parseTableClipboard("001\tx", "auto").rows[0][0]).toBe("001");
-  });
-
-  it("reports empty or invalid input", () => {
-    expect(parseTableClipboard("", "auto").error).toBeTruthy();
-    expect(parseTableClipboard("not a table", "markdown").error).toBeTruthy();
-  });
-
-  it("serializes RFC-quoted delimited output", () => {
-    expect(
-      serializeDelimitedRows(
-        [
-          ["a\tb", "c"],
-          ["say", '"hi"'],
-        ],
-        "\t",
-      ),
-    ).toBe('"a\tb"\tc\nsay\t"""hi"""');
-  });
-
-  it("prefixes formula-looking cells only when safe export is on", () => {
-    const rows = [["=1+1", " plain"], ["-2", "@x"]];
-    expect(serializeDelimitedRows(rows, ",", true)).toBe(
-      "'=1+1, plain\n'-2,'@x",
-    );
-    expect(serializeDelimitedRows(rows, ",", false)).toBe(
-      "=1+1, plain\n-2,@x",
-    );
-    // Tab- and CR-leading formula values are guarded too (the CR value is
-    // also newline-quoted since it contains a raw carriage return).
-    expect(serializeDelimitedRows([["\t=x"], ["\r+1"]], ",", true)).toBe(
-      `'\t=x\n"'\r+1"`,
-    );
-    // A leading tab/CR/LF is prefixed even when no formula char follows —
-    // some apps evaluate the trimmed text.
-    expect(serializeDelimitedRows([["\tplain"], ["\n9"]], ",", true)).toBe(
-      `'\tplain\n"'\n9"`,
-    );
-  });
-});
-
-describe("validateTableRows bounds", () => {
-  it("accepts a small rectangle and reports null", () => {
-    expect(
-      validateTableRows([
-        ["a", "b"],
-        ["c"],
-      ]),
-    ).toBeNull();
-  });
-
-  it("rejects the padded product, not just the ragged sum", () => {
-    // 200 rows summing to 399 cells but squaring up to 40,000.
-    const rows = [
-      Array.from({ length: 200 }, () => "x"),
-      ...Array.from({ length: 199 }, () => ["y"]),
-    ];
-    expect(validateTableRows(rows)).toMatch(/squared up|cells/i);
-  });
-
-  it("rejects malformed structure instead of throwing", () => {
-    expect(validateTableRows(null)).toBeTruthy();
-    expect(validateTableRows([])).toBeTruthy();
-    expect(validateTableRows([null])).toBeTruthy();
-    expect(validateTableRows([[]])).toBeTruthy();
-    expect(validateTableRows([["a"], ["b", 5]])).toBeTruthy();
-  });
-
-  it("rejects over-wide rows", () => {
-    const rows = [Array.from({ length: 201 }, () => "x")];
-    expect(validateTableRows(rows)).toMatch(/columns/);
-  });
-
-  it("bounds TSV import by the padded cell product", () => {
-    const text = [
-      Array.from({ length: 200 }, () => "x").join("\t"),
-      ...Array.from({ length: 199 }, () => "y"),
-    ].join("\n");
-    const res = parseTableClipboard(text, "tsv");
-    expect(res.error).toBeTruthy();
-    expect(res.rows).toBeUndefined();
-  });
-
-  it("bounds Markdown table import by the padded cell product", () => {
-    const text = [
-      `|${" x |".repeat(200)}`,
-      `|${" --- |".repeat(200)}`,
-      ...Array.from({ length: 198 }, () => "| y |"),
-    ].join("\n");
-    const res = parseTableClipboard(text, "markdown");
-    expect(res.error).toMatch(/cells/i);
-    expect(res.rows).toBeUndefined();
+  it("round-trips through serialize", () => {
+    expect(serializeMarkdownTable(m())).toBe(SRC);
   });
 });

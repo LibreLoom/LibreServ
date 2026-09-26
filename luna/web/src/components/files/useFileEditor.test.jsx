@@ -47,13 +47,13 @@ describe("useFileEditor", () => {
     expect(cmText()).toBe("persisted");
   });
 
-  it("renders a markdown table as the interactive grid widget", async () => {
+  it("renders a markdown table as the editable table widget", async () => {
     const sync = makeSync();
     sync.ytext.insert(0, "intro\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n");
     render(<Surface sync={sync} />);
     // The parse finishes off the first frame — wait for the widget.
     await vi.waitFor(() => {
-      if (!document.querySelector(".cm-lp-table")) {
+      if (!document.querySelector(".md-table-grid")) {
         throw new Error("table widget not rendered yet");
       }
     });
@@ -65,25 +65,36 @@ describe("useFileEditor", () => {
     return /** @type {any} */ (host).__cmView;
   }
 
-  async function mountedTable(sync) {
-    render(<Surface sync={sync} />);
+  async function mountedTable(sync, canWrite = true) {
+    const utils = render(<Surface sync={sync} canWrite={canWrite} />);
     await vi.waitFor(() => {
       if (!document.querySelector(".md-table-grid")) {
-        throw new Error("table grid not rendered yet");
+        throw new Error("table not rendered yet");
       }
     });
     const view = cmView();
     const [ctrl] = tableControllers(view);
     if (!ctrl) throw new Error("no table controller");
-    return { view, ctrl };
+    return { view, ctrl, ...utils };
   }
 
-  it("grid structural edits undo and redo through the shared Yjs undo manager", async () => {
+  /** Click a cell and wait for its text box to take the caret. */
+  async function openCell(view, r, c) {
+    const cell = view.dom.querySelector(`[data-cell="${r},${c}"]`);
+    fireEvent.mouseDown(cell, { button: 0 });
+    return vi.waitFor(() => {
+      const ta = cell.querySelector("textarea");
+      if (!ta || document.activeElement !== ta) throw new Error("cell not open");
+      return /** @type {HTMLTextAreaElement} */ (ta);
+    });
+  }
+
+  it("table edits undo and redo through the shared Yjs undo manager", async () => {
     const sync = makeSync();
     sync.ytext.insert(0, "intro\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n");
     const { ctrl } = await mountedTable(sync);
 
-    ctrl.appendRow();
+    ctrl.addRowAfter(ctrl.rows);
     expect(cmText()).toContain("| 1 | 2 |\n|  |  |");
 
     // The Yjs UndoManager useFileEditor wired in — not CM history.
@@ -99,165 +110,54 @@ describe("useFileEditor", () => {
     });
   });
 
-  it("formatting actions route into the focused table cell, not the document", async () => {
+  it("cell typing lands in the shared doc and undoes with Ctrl+Z", async () => {
+    const sync = makeSync();
+    sync.ytext.insert(0, "| A |\n| --- |\n| 1 |\n");
+    const { view } = await mountedTable(sync);
+    const ta = await openCell(view, 1, 0);
+    fireEvent.change(ta, { target: { value: "12" } });
+    expect(sync.ytext.toString()).toBe("| A |\n| --- |\n| 12 |\n");
+    fireEvent.keyDown(ta, { key: "z", ctrlKey: true });
+    await vi.waitFor(() => {
+      if (sync.ytext.toString() !== "| A |\n| --- |\n| 1 |\n") {
+        throw new Error(`undo not applied: ${sync.ytext.toString()}`);
+      }
+    });
+    await vi.waitFor(() => {
+      const open = view.dom.querySelector("textarea.md-table-input");
+      if (open && open.value !== "1") throw new Error("text box not refreshed");
+    });
+  });
+
+  it("formatting actions route into the open table cell, not the document", async () => {
     const sync = makeSync();
     sync.ytext.insert(0, "para\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n");
-    const { view, ctrl } = await mountedTable(sync);
-
-    ctrl.select({ r: 1, c: 0 });
+    const { view } = await mountedTable(sync);
+    const ta = await openCell(view, 1, 0);
+    ta.setSelectionRange(0, 1);
     runMarkdownAction(view, "bold");
     expect(cmText()).toContain("| **1** | 2 |");
 
-    // Block-level actions are refused inside the grid — paragraph untouched.
+    // Block-level actions do nothing inside a cell — paragraph untouched.
     runMarkdownAction(view, "heading");
-    expect(cmText()).not.toContain("##");
+    expect(cmText()).not.toContain("#");
   });
 
-  it("losing write permission mid-draft keeps the draft without writing", async () => {
+  it("losing write permission closes the open cell and hides the menus", async () => {
     const sync = makeSync();
     sync.ytext.insert(0, "intro\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n");
-    const { rerender } = render(<Surface sync={sync} canWrite />);
-    await vi.waitFor(() => {
-      if (!document.querySelector(".md-table-grid")) {
-        throw new Error("table grid not rendered yet");
-      }
-    });
-    const view = cmView();
-    const [ctrl] = tableControllers(view);
-    ctrl.startEdit(1, 0);
-    ctrl.setDraft("mine");
+    const { view, ctrl, rerender } = await mountedTable(sync);
+    await openCell(view, 1, 0);
 
     rerender(<Surface sync={sync} canWrite={false} />);
     await vi.waitFor(() => {
       if (ctrl.editable) throw new Error("still editable");
     });
-    // No write happened — the draft stays buffered, read-only and copyable.
-    expect(sync.ytext.toString()).not.toContain("mine");
-    expect(ctrl.draft?.text).toBe("mine");
-    const ta = /** @type {HTMLTextAreaElement | null} */ (
-      document.querySelector("textarea.md-table-editor")
-    );
-    expect(ta?.readOnly).toBe(true);
-  });
-
-  it("a remote table deletion surfaces the draft in the editor recovery panel", async () => {
-    const sync = makeSync();
-    sync.ytext.insert(0, "| A |\n| --- |\n| 1 |\n");
-    render(
-      <MarkdownEditor
-        sync={sync}
-        driveId="d1"
-        path="a.md"
-        name="a.md"
-        mode="write"
-      />,
-    );
     await vi.waitFor(() => {
-      if (!document.querySelector(".md-table-grid")) {
-        throw new Error("table grid not rendered yet");
+      if (view.dom.querySelector("textarea, .md-table-actions")) {
+        throw new Error("cell or menus still showing");
       }
     });
-    const host = document.querySelector("[data-slot='markdown-editor-surface']");
-    const [ctrl] = tableControllers(/** @type {any} */ (host).__cmView);
-    ctrl.startEdit(1, 0);
-    ctrl.setDraft("rescue me");
-    // A peer deletes the whole table — no new grid ever mounts.
-    sync.ytext.delete(0, sync.ytext.length);
-    await vi.waitFor(() => {
-      const ta = /** @type {HTMLTextAreaElement | null} */ (
-        screen.queryByLabelText("Recovered cell text")
-      );
-      if (!ta || ta.value !== "rescue me") {
-        throw new Error("recovered draft not shown");
-      }
-    });
-    expect(document.querySelector(".md-table-grid")).toBeNull();
-    expect(sync.ytext.toString()).toBe("");
-  });
-
-  it("a Write→Read flip with a live draft surfaces it in the recovery panel", async () => {
-    const sync = makeSync();
-    sync.ytext.insert(0, "| A |\n| --- |\n| 1 |\n");
-    const { rerender } = render(
-      <MarkdownEditor
-        sync={sync}
-        driveId="d1"
-        path="a.md"
-        name="a.md"
-        mode="write"
-      />,
-    );
-    await vi.waitFor(() => {
-      if (!document.querySelector(".md-table-grid")) {
-        throw new Error("table grid not rendered yet");
-      }
-    });
-    const host = document.querySelector("[data-slot='markdown-editor-surface']");
-    const [ctrl] = tableControllers(/** @type {any} */ (host).__cmView);
-    ctrl.startEdit(1, 0);
-    ctrl.setDraft("keep me");
-    rerender(
-      <MarkdownEditor
-        sync={sync}
-        driveId="d1"
-        path="a.md"
-        name="a.md"
-        mode="read"
-      />,
-    );
-    await vi.waitFor(() => {
-      const ta = /** @type {HTMLTextAreaElement | null} */ (
-        screen.queryByLabelText("Recovered cell text")
-      );
-      if (!ta || ta.value !== "keep me") {
-        throw new Error("recovered draft not shown in Read mode");
-      }
-    });
-    // The draft was never committed into the document.
-    expect(sync.ytext.toString()).not.toContain("keep me");
-  });
-
-  it("a refused clipboard write keeps the recovered text on screen", async () => {
-    const sync = makeSync();
-    sync.ytext.insert(0, "| A |\n| --- |\n| 1 |\n");
-    render(
-      <MarkdownEditor
-        sync={sync}
-        driveId="d1"
-        path="a.md"
-        name="a.md"
-        mode="write"
-      />,
-    );
-    await vi.waitFor(() => {
-      if (!document.querySelector(".md-table-grid")) {
-        throw new Error("table grid not rendered yet");
-      }
-    });
-    const host = document.querySelector("[data-slot='markdown-editor-surface']");
-    const [ctrl] = tableControllers(/** @type {any} */ (host).__cmView);
-    ctrl.startEdit(1, 0);
-    ctrl.setDraft("keep me");
-    sync.ytext.delete(0, sync.ytext.length);
-    await vi.waitFor(() => {
-      if (!screen.queryByLabelText("Recovered cell text")) {
-        throw new Error("recovered draft not shown");
-      }
-    });
-    Object.defineProperty(window.navigator, "clipboard", {
-      configurable: true,
-      value: { writeText: () => Promise.reject(new Error("denied")) },
-    });
-    try {
-      fireEvent.click(screen.getByRole("button", { name: "Copy text" }));
-      await new Promise((r) => setTimeout(r, 20));
-      const ta = /** @type {HTMLTextAreaElement | null} */ (
-        screen.queryByLabelText("Recovered cell text")
-      );
-      expect(ta?.value).toBe("keep me");
-    } finally {
-      delete /** @type {any} */ (window.navigator).clipboard;
-    }
   });
 });
 
@@ -420,35 +320,27 @@ describe("heading level dropdown", () => {
     expect(view.dom.textContent).toContain("## Title");
   });
 
-  it("heading levels are refused inside an active table grid", async () => {
+  it("heading levels do nothing while a table cell is open", async () => {
     const sync = makeSync();
-    sync.ytext.insert(0, "intro\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n");
+    const source = "intro\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n";
+    sync.ytext.insert(0, source);
     const view = mountEditor(sync);
     await vi.waitFor(() => {
       if (!document.querySelector(".md-table-grid")) {
-        throw new Error("table grid not rendered yet");
+        throw new Error("table not rendered yet");
       }
     });
-    const [ctrl] = tableControllers(view);
-    ctrl.select({ r: 1, c: 0 });
-    ctrl.startEdit(1, 0);
-    ctrl.setDraft("unfinished");
+    const cell = view.dom.querySelector('[data-cell="1,0"]');
+    fireEvent.mouseDown(cell, { button: 0 });
     await vi.waitFor(() => {
-      expect(view.dom.querySelector("textarea.md-table-editor")).toBeTruthy();
+      if (!cell.querySelector("textarea")) throw new Error("cell not open");
     });
     fireEvent.click(screen.getByRole("button", { name: "Heading level" }));
     fireEvent.click(
       await screen.findByRole("option", { name: "Heading 6 (H6)" }),
     );
-    await vi.waitFor(() => {
-      expect(view.dom.querySelector(".md-table-note")?.textContent).toContain(
-        "isn't available inside a table",
-      );
-    });
-    expect(cmText()).toBe(
-      "intro\n\n| A | B |\n| --- | --- |\n| unfinished | 2 |\n",
-    );
-    expect(ctrl.draft).toBeNull();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(cmText()).toBe(source);
   });
 });
 
@@ -539,7 +431,7 @@ describe("live preview heading marks", () => {
   });
 });
 
-describe("insert table dialog", () => {
+describe("Table toolbar button", () => {
   /** @param {CollabDocSync} sync */
   function mountEditor(sync) {
     render(
@@ -557,104 +449,46 @@ describe("insert table dialog", () => {
     return /** @type {any} */ (host).__cmView;
   }
 
-  it("renders its overlay above the fullscreen file viewer (z-[80])", async () => {
-    const sync = makeSync();
-    sync.ytext.insert(0, "Hello\n\nbody text");
-    mountEditor(sync);
-    fireEvent.click(screen.getByRole("button", { name: "Table" }));
-    await screen.findByRole("dialog");
-    const overlay = document.querySelector("[data-slot='dialog-overlay']");
-    // Without the nested overlay class the default z-50 portal sits under
-    // the z-[80] editor frame — the dialog paints but real clicks land on
-    // the editor, so "Insert" never fires.
-    expect(overlay?.className).toContain("z-[90]");
-  });
-
-  it("clicking Insert writes a pipe table, mounts the grid, selects the first cell", async () => {
+  it("inserts a 3×3 table right away and opens its first heading cell", async () => {
     const sync = makeSync();
     sync.ytext.insert(0, "Hello\n\nbody text");
     const view = mountEditor(sync);
     view.dispatch({ selection: { anchor: 5 } });
     fireEvent.click(screen.getByRole("button", { name: "Table" }));
-    const dialog = await screen.findByRole("dialog");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Insert" }));
+    expect(sync.ytext.toString()).toBe(
+      "Hello\n\n|  |  |  |\n| --- | --- | --- |\n|  |  |  |\n|  |  |  |\n\nbody text",
+    );
+    expect(screen.queryByRole("dialog")).toBeNull();
     await vi.waitFor(() => {
-      if (!sync.ytext.toString().includes("| --- |")) {
-        throw new Error(`no table inserted: ${sync.ytext.toString()}`);
+      const open = document.activeElement?.closest("[data-cell]");
+      if (open?.getAttribute("data-cell") !== "0,0") {
+        throw new Error("first cell not focused");
       }
-    });
-    await vi.waitFor(() => {
-      if (!view.dom.querySelector(".md-table-grid")) {
-        throw new Error("table grid not rendered");
-      }
-    });
-    const [ctrl] = tableControllers(view);
-    expect(ctrl.getSnapshot().sel).toMatchObject({
-      top: 0,
-      bottom: 0,
-      left: 0,
-      right: 0,
     });
   });
-});
 
-describe("dock Delete through shared Yjs undo", () => {
-  it("menu row deletion undoes and redoes with prose intact", async () => {
+  it("row deletion from the row menu undoes and redoes with prose intact", async () => {
     const sync = makeSync();
-    sync.ytext.insert(
-      0,
-      "intro\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n\nafter",
-    );
-    render(
-      <MarkdownEditor
-        sync={sync}
-        driveId="d1"
-        path="a.md"
-        name="a.md"
-        mode="write"
-      />,
-    );
-    const host = document.querySelector(
-      "[data-slot='markdown-editor-surface']",
-    );
-    const view = /** @type {any} */ (host).__cmView;
+    const source = "intro\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n\nafter";
+    sync.ytext.insert(0, source);
+    const view = mountEditor(sync);
     await vi.waitFor(() => {
       if (!document.querySelector(".md-table-grid")) {
-        throw new Error("table grid not rendered yet");
+        throw new Error("table not rendered yet");
       }
     });
-    const [ctrl] = tableControllers(view);
-    ctrl.select({ r: 1, c: 0 }, { r: 1, c: 1 });
-    const host2 = document.querySelector(
-      "[data-slot='markdown-editor-surface'] .md-table-dock",
-    );
-    if (!(host2 instanceof HTMLElement)) throw new Error("no dock");
-    const dock = host2;
-    fireEvent.click(within(dock).getByRole("button", { name: "Delete" }));
-    await vi.waitFor(() => {
-      if (!document.querySelector("[data-slot='dropdown-menu']")) {
-        throw new Error("delete menu not open");
-      }
-    });
-    const menus = document.querySelectorAll("[data-slot='dropdown-menu']");
-    const menu = /** @type {HTMLElement} */ (menus[menus.length - 1]);
-    fireEvent.click(within(menu).getByRole("option", { name: "Delete row" }));
+    fireEvent.click(within(view.dom).getByRole("button", { name: "Row 1 options" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Delete this row" }));
     const deleted = "intro\n\n| A | B |\n| --- | --- |\n\nafter";
-    await vi.waitFor(() => {
-      if (sync.ytext.toString() !== deleted) {
-        throw new Error(`delete not committed: ${sync.ytext.toString()}`);
-      }
-    });
+    expect(sync.ytext.toString()).toBe(deleted);
+    const [ctrl] = tableControllers(view);
     ctrl.undoManager.undo();
     await vi.waitFor(() => {
-      if (!sync.ytext.toString().includes("| 1 | 2 |")) {
+      if (sync.ytext.toString() !== source) {
         throw new Error("undo did not restore the row");
       }
     });
-    expect(sync.ytext.toString()).toBe(
-      "intro\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n\nafter",
-    );
-    ctrl.undoManager.redo();
+    tableControllers(view)[0].undoManager.redo();
     await vi.waitFor(() => {
       if (sync.ytext.toString() !== deleted) {
         throw new Error("redo did not re-delete the row");

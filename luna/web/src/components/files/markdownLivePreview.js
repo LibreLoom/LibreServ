@@ -321,15 +321,14 @@ function buildDecorations(view, resolveImage) {
 }
 
 /**
- * Table grids. Block-level widget decorations can't be provided by a
+ * Tables. Block-level widget decorations can't be provided by a
  * ViewPlugin, so tables get their own provider: a StateField feeding
  * `EditorView.decorations`. It iterates the whole document (tables are rare
  * — cheaper than tracking the viewport) and rebuilds when the doc, the
  * editable facet, or the parsed tree changes — the last case also fires
- * when the background parser first reaches a table. The grid is stable:
- * the document cursor moving inside the range no longer flips it back to
- * source — the table menu's Markdown view and the editor's Source mode
- * cover that.
+ * when the background parser first reaches a table. The table stays a
+ * table while the document cursor moves around it — the editor's Source
+ * mode shows the raw pipes.
  * @param {import("@codemirror/state").EditorState} state
  */
 function buildTableDecorations(state) {
@@ -375,14 +374,14 @@ const tableGridField = StateField.define({
   },
   provide: (f) => [
     EditorView.decorations.from(f),
-    // The grid owns the range: arrow-key motion and block selection step
+    // The table owns the range: arrow-key motion and block selection step
     // over it, and the keymap below is the deliberate way in.
     EditorView.atomicRanges.of((view) => view.state.field(f)),
   ],
 });
 
 /**
- * Enter an adjacent table grid from document focus. byLine covers
+ * Enter an adjacent table from document focus. byLine covers
  * ArrowUp/Down (whole-line adjacency); Left/Right check positions. Returns
  * true when a table claimed the key.
  * @param {EditorView} view @param {1|-1} dir @param {boolean} byLine
@@ -427,8 +426,8 @@ function enterAdjacentTable(view, dir, byLine) {
 }
 
 /**
- * Keyboard entry into a grid: arrows that would cross the widget boundary
- * focus the edge cell instead of skipping over the atomic range.
+ * Keyboard entry into a table: arrows that would cross the widget boundary
+ * put the caret in the edge cell instead of skipping over the atomic range.
  */
 const tableEntryKeymap = keymap.of([
   { key: "ArrowRight", run: (view) => enterAdjacentTable(view, 1, false) },
@@ -439,7 +438,7 @@ const tableEntryKeymap = keymap.of([
 
 /**
  * Selection entry hook: a programmatic cursor that lands inside a table
- * range (search, select-all, API) focuses the matching grid cell. Only
+ * range (search, select-all, API) focuses the matching table cell. Only
  * actual selection transactions trigger this — document edits (local or
  * remote) never refocus anything. Scheduled outside the view update, then
  * rechecked against the LATEST selection: if the user moved on (typed,
@@ -463,7 +462,7 @@ const tableEntryPlugin = ViewPlugin.fromClass(
         if (
           active instanceof Element &&
           active.closest(
-            "textarea, input, .md-table-dialog, [data-slot='dropdown-menu'], [data-slot='dialog-overlay']",
+            "textarea, input, [data-slot='dropdown-menu'], [data-slot='dialog-overlay']",
           )
         ) {
           return;

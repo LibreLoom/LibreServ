@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import PropTypes from "prop-types";
 import {
   Bold,
@@ -16,13 +16,11 @@ import {
 } from "lucide-react";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
-import ModalCard, { NESTED_OVERLAY_CLASS } from "@libreloom/ui/components/cards/ModalCard.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import MarkdownPreview from "./MarkdownPreview.jsx";
 import { ActionTooltipGroup, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { useFileEditor, runMarkdownAction } from "./useFileEditor.js";
-import { insertMarkdownTable } from "./markdownTables.js";
-import { TableImportDialog } from "./MarkdownTableEditor.jsx";
+import { insertMarkdownTable, runActiveTableAction } from "./markdownTables.js";
 import { useFileSource } from "../../lib/fileSource.jsx";
 import { joinPath, parentPath } from "../../lib/paths.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
@@ -51,152 +49,6 @@ const HEADING_OPTIONS = Array.from({ length: 6 }, (_, i) => ({
   value: `heading${i + 1}`,
   label: `Heading ${i + 1} (H${i + 1})`,
 }));
-
-const SIZE_CHOOSER_MAX = 6;
-
-/**
- * New-table dialog: pick columns/rows (fields or the quick-size grid), or
- * import CSV/TSV instead. Confirming inserts a pipe table at the caret and
- * focuses its first header cell.
- */
-function TableCreateDialog({ open, view, onClose }) {
-  const [cols, setCols] = useState(3);
-  const [rows, setRows] = useState(3);
-  const [importOpen, setImportOpen] = useState(false);
-  return (
-    <ModalCard
-      open={open}
-      onClose={onClose}
-      title="Insert table"
-      overlayClassName={NESTED_OVERLAY_CLASS}
-    >
-      <div className="space-y-3 text-sm text-primary">
-        <div className="flex flex-wrap items-center gap-4">
-          <div
-            className="grid gap-1"
-            style={{
-              gridTemplateColumns: `repeat(${SIZE_CHOOSER_MAX}, minmax(0,1fr))`,
-            }}
-            role="presentation"
-            aria-hidden="true"
-          >
-            {Array.from({ length: SIZE_CHOOSER_MAX * SIZE_CHOOSER_MAX }, (_, i) => {
-              const c = (i % SIZE_CHOOSER_MAX) + 1;
-              const r = Math.floor(i / SIZE_CHOOSER_MAX) + 1;
-              const on = c <= cols && r <= rows;
-              return (
-                <button
-                  key={i}
-                  type="button"
-                  tabIndex={-1}
-                  aria-label={`${c} columns, ${r} rows`}
-                  onClick={() => {
-                    setCols(c);
-                    setRows(r);
-                  }}
-                  className={`md-table-size-cell ${
-                    on
-                      ? "border-primary bg-primary text-secondary"
-                      : "border-accent bg-secondary text-primary"
-                  }`}
-                />
-              );
-            })}
-          </div>
-          <div className="space-y-2">
-            <p className="text-xs" aria-live="polite">
-              {cols} columns × {rows} rows, plus headings
-            </p>
-            <label className="flex items-center gap-2">
-              <span className="font-mono text-xs">Columns</span>
-              <input
-                type="number"
-                min={1}
-                max={24}
-                value={cols}
-                onChange={(e) =>
-                  setCols(Math.max(1, Math.min(24, Number(e.target.value) || 1)))
-                }
-                className="w-16 rounded-xl border border-secondary/40 bg-primary px-2 py-1 text-secondary"
-              />
-            </label>
-            <label className="flex items-center gap-2">
-              <span className="font-mono text-xs">Body rows</span>
-              <input
-                type="number"
-                min={0}
-                max={99}
-                value={rows}
-                onChange={(e) =>
-                  setRows(Math.max(0, Math.min(99, Number(e.target.value) || 0)))
-                }
-                className="w-16 rounded-xl border border-secondary/40 bg-primary px-2 py-1 text-secondary"
-              />
-            </label>
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            surface="secondary"
-            onClick={() => setImportOpen(true)}
-          >
-            Import CSV/TSV…
-          </Button>
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              surface="secondary"
-              onClick={onClose}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              variant="primary"
-              surface="secondary"
-              onClick={() => {
-                if (view) insertMarkdownTable(view, { columns: cols, rows });
-                onClose();
-              }}
-            >
-              Insert
-            </Button>
-          </div>
-        </div>
-      </div>
-      <TableImportDialog
-        open={importOpen}
-        onClose={() => setImportOpen(false)}
-        onApply={(dataRows, firstRowHeadings) => {
-          if (view && dataRows.length) {
-            const count = Math.max(...dataRows.map((r) => r.length), 1);
-            const data = firstRowHeadings
-              ? { header: dataRows[0], body: dataRows.slice(1) }
-              : {
-                  header: Array.from(
-                    { length: count },
-                    (_, i) => `Column ${i + 1}`,
-                  ),
-                  body: dataRows,
-                };
-            if (insertMarkdownTable(view, { data }) === false) return false;
-          }
-          onClose();
-          return true;
-        }}
-      />
-    </ModalCard>
-  );
-}
-
-TableCreateDialog.propTypes = {
-  open: PropTypes.bool.isRequired,
-  view: PropTypes.object,
-  onClose: PropTypes.func.isRequired,
-};
 
 /**
  * First-class Markdown editing surface for .md/.markdown drive files,
@@ -260,32 +112,6 @@ export default function MarkdownEditor({
     [source, driveId, path],
   );
 
-  // Draft text recovered from a torn-down table widget (remote delete,
-  // mode flip mid-edit). Editor-owned state survives the CodeMirror view
-  // itself, so the panel is reachable in Read and Source too — copy or
-  // dismiss only, never auto-applied.
-  const recoverySeq = useRef(0);
-  const [recovered, setRecovered] = useState(
-    /** @type {{ id: number, text: string }[]} */ ([]),
-  );
-  const onTableRecovery = useCallback((text) => {
-    recoverySeq.current += 1;
-    const id = recoverySeq.current;
-    setRecovered((list) => [...list, { id, text }]);
-  }, []);
-  const dismissRecovered = useCallback((id) => {
-    setRecovered((list) => list.filter((item) => item.id !== id));
-  }, []);
-  const copyRecovered = useCallback(async (item) => {
-    if (!navigator.clipboard?.writeText) return;
-    try {
-      await navigator.clipboard.writeText(item.text);
-      setRecovered((list) => list.filter((x) => x.id !== item.id));
-    } catch {
-      // A refused clipboard keeps the text on screen for manual copy.
-    }
-  }, []);
-
   const { attachHost, viewRef } = useFileEditor({
     ytext: sync.ytext,
     awareness: sync.awareness,
@@ -294,18 +120,20 @@ export default function MarkdownEditor({
     livePreview: mode !== "source",
     ariaLabel: `Contents of ${name}`,
     onStats,
-    onTableRecovery,
     resolveImage: resolveImageSrc,
   });
-
-  const [tableDialogOpen, setTableDialogOpen] = useState(false);
 
   /** @param {string} action */
   function applyAction(action) {
     const view = viewRef.current;
     if (!view || !canWrite) return;
+    // Like Nextcloud: the Table button drops in a 3×3 table right away and
+    // puts the caret in its first heading cell. Inside a cell it does
+    // nothing — tables don't nest.
     if (action === "table") {
-      setTableDialogOpen(true);
+      if (runActiveTableAction(view, action)) return;
+      insertMarkdownTable(view);
+      view.focus();
       return;
     }
     runMarkdownAction(view, action);
@@ -358,41 +186,6 @@ export default function MarkdownEditor({
           </div>
         </ActionTooltipGroup>
       )}
-      {recovered.length > 0 && (
-        <div className="md-table-recoverylist" role="status">
-          {recovered.map((item) => (
-            <div key={item.id} className="md-table-recovery">
-              <span>Text recovered from an unfinished table cell edit:</span>
-              <textarea
-                className="md-table-sourceta"
-                readOnly
-                rows={2}
-                value={item.text}
-                aria-label="Recovered cell text"
-                onFocus={(e) => e.target.select()}
-              />
-              <span className="md-table-recovery-actions">
-                <Button
-                  variant="outline"
-                  surface="primary"
-                  size="sm"
-                  onClick={() => void copyRecovered(item)}
-                >
-                  Copy text
-                </Button>
-                <Button
-                  variant="ghost"
-                  surface="primary"
-                  size="sm"
-                  onClick={() => dismissRecovered(item.id)}
-                >
-                  Dismiss
-                </Button>
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
       <ShakeTarget
         shake={error}
         className={cn("min-h-0", fill && "flex flex-1 flex-col")}
@@ -418,11 +211,6 @@ export default function MarkdownEditor({
           />
         )}
       </ShakeTarget>
-      <TableCreateDialog
-        open={tableDialogOpen}
-        view={viewRef.current}
-        onClose={() => setTableDialogOpen(false)}
-      />
     </div>
   );
 }
