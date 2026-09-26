@@ -64,7 +64,8 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             role TEXT NOT NULL,
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL,
-            token_version INTEGER NOT NULL DEFAULT 0
+            token_version INTEGER NOT NULL DEFAULT 0,
+            home_drive_id TEXT NOT NULL DEFAULT ''
         );
         CREATE TABLE IF NOT EXISTS access_members (
             id TEXT PRIMARY KEY,
@@ -130,6 +131,16 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             window_start INTEGER NOT NULL,
             locked_until INTEGER NOT NULL DEFAULT 0
         );
+        CREATE TABLE IF NOT EXISTS pending_home_ops (
+            id TEXT PRIMARY KEY,
+            kind TEXT NOT NULL,
+            drive_id TEXT NOT NULL,
+            username TEXT NOT NULL DEFAULT '',
+            dst_username TEXT NOT NULL DEFAULT '',
+            dst_drive_id TEXT NOT NULL DEFAULT '',
+            user_id TEXT NOT NULL DEFAULT '',
+            created_at INTEGER NOT NULL
+        );
         ",
     )?;
     // Thin upgrade path for boxes that already had an older CREATE.
@@ -159,6 +170,15 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
         "device_token_usage",
         "origin",
         "TEXT NOT NULL DEFAULT ''",
+    )?;
+    // Member homes live in `.luna-home-<user_id>` on the member-home drive.
+    ensure_column(&conn, "users", "home_drive_id", "TEXT NOT NULL DEFAULT ''")?;
+    // CAP_SHARE split: members who held "full" were subtree managers under
+    // the old model — keep their manage rights. View/upload grants never
+    // carried share-management, so they gain nothing.
+    conn.execute(
+        "UPDATE access_members SET caps = caps | 16 WHERE (caps & 7) = 7 AND (caps & 16) = 0",
+        [],
     )?;
     Ok(conn)
 }
@@ -475,6 +495,9 @@ pub struct UserRow {
     pub password_hash: String,
     pub role: String,
     pub token_version: i64,
+    /// Drive holding this member's `.luna-home-<id>` folder; "" until the
+    /// home is first materialized (or for admins, who have no home).
+    pub home_drive_id: String,
 }
 
 fn user_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<UserRow> {
@@ -485,6 +508,7 @@ fn user_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<UserRow> {
         password_hash: row.get(3)?,
         role: row.get(4)?,
         token_version: row.get(5)?,
+        home_drive_id: row.get::<_, String>(6).unwrap_or_default(),
     })
 }
 
@@ -507,7 +531,7 @@ pub fn insert_user(
 
 pub fn get_user_by_username(conn: &Connection, username: &str) -> anyhow::Result<Option<UserRow>> {
     let mut stmt = conn.prepare(
-        "SELECT id, username, display_name, password_hash, role, token_version FROM users WHERE username = ?1",
+        "SELECT id, username, display_name, password_hash, role, token_version, home_drive_id FROM users WHERE username = ?1",
     )?;
     let mut rows = stmt.query_map(params![username], user_from_row)?;
     Ok(rows.next().transpose()?)
@@ -515,7 +539,7 @@ pub fn get_user_by_username(conn: &Connection, username: &str) -> anyhow::Result
 
 pub fn get_user(conn: &Connection, id: &str) -> anyhow::Result<Option<UserRow>> {
     let mut stmt = conn.prepare(
-        "SELECT id, username, display_name, password_hash, role, token_version FROM users WHERE id = ?1",
+        "SELECT id, username, display_name, password_hash, role, token_version, home_drive_id FROM users WHERE id = ?1",
     )?;
     let mut rows = stmt.query_map(params![id], user_from_row)?;
     Ok(rows.next().transpose()?)
@@ -523,7 +547,7 @@ pub fn get_user(conn: &Connection, id: &str) -> anyhow::Result<Option<UserRow>> 
 
 pub fn list_users(conn: &Connection) -> anyhow::Result<Vec<UserRow>> {
     let mut stmt = conn.prepare(
-        "SELECT id, username, display_name, password_hash, role, token_version FROM users ORDER BY username",
+        "SELECT id, username, display_name, password_hash, role, token_version, home_drive_id FROM users ORDER BY username",
     )?;
     let rows = stmt.query_map([], user_from_row)?;
     Ok(rows.collect::<Result<Vec<_>, _>>()?)
@@ -533,9 +557,20 @@ pub fn count_users(conn: &Connection) -> anyhow::Result<i64> {
     Ok(conn.query_row("SELECT COUNT(*) FROM users", [], |row| row.get(0))?)
 }
 
+/// Forget a user and everything that keeps working in their name: member
+/// rows, public links they minted, and the account itself. Links are
+/// `created_by`-keyed — an expelled member's shared URLs must die with the
+/// account, not live on anonymously. One transaction so a partial delete
+/// never leaves grants behind for a user who no longer exists.
 pub fn delete_user(conn: &Connection, id: &str) -> anyhow::Result<()> {
-    conn.execute("DELETE FROM access_members WHERE user_id = ?1", params![id])?;
-    conn.execute("DELETE FROM users WHERE id = ?1", params![id])?;
+    let tx = conn.unchecked_transaction()?;
+    tx.execute("DELETE FROM access_members WHERE user_id = ?1", params![id])?;
+    tx.execute(
+        "DELETE FROM access_links WHERE created_by = ?1",
+        params![id],
+    )?;
+    tx.execute("DELETE FROM users WHERE id = ?1", params![id])?;
+    tx.commit()?;
     Ok(())
 }
 
@@ -555,9 +590,209 @@ pub fn set_user_password_hash(
     Ok(())
 }
 
+pub fn set_user_display_name(
+    conn: &Connection,
+    id: &str,
+    display_name: &str,
+) -> anyhow::Result<()> {
+    let n = conn.execute(
+        "UPDATE users SET display_name = ?2, updated_at = ?3 WHERE id = ?1",
+        params![id, display_name, now_unix()],
+    )?;
+    if n == 0 {
+        anyhow::bail!("user not found");
+    }
+    Ok(())
+}
+
+/// Rename a user's login handle. The caller handles the on-disk home
+/// folder rename — the home dir name is the username itself.
+pub fn set_user_username(conn: &Connection, id: &str, username: &str) -> anyhow::Result<()> {
+    let n = conn.execute(
+        "UPDATE users SET username = ?2, updated_at = ?3 WHERE id = ?1",
+        params![id, username, now_unix()],
+    )?;
+    if n == 0 {
+        anyhow::bail!("user not found");
+    }
+    Ok(())
+}
+
+pub fn set_user_role(conn: &Connection, id: &str, role: &str) -> anyhow::Result<()> {
+    let n = conn.execute(
+        "UPDATE users SET role = ?2, updated_at = ?3 WHERE id = ?1",
+        params![id, role, now_unix()],
+    )?;
+    if n == 0 {
+        anyhow::bail!("user not found");
+    }
+    Ok(())
+}
+
+/// Point a member's home folder at a drive. The `.luna-<uuid>-members/<name>`
+/// directory itself is moved by a job — this only records where it lives.
+pub fn set_user_home_drive(conn: &Connection, id: &str, drive_id: &str) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE users SET home_drive_id = ?2, updated_at = ?3 WHERE id = ?1",
+        params![id, drive_id, now_unix()],
+    )?;
+    Ok(())
+}
+
+/// Meta key holding the admin's chosen member-home drive. New member homes
+/// land on this drive; switching it migrates existing homes.
+pub const MEMBER_HOME_DRIVE_KEY: &str = "member_home_drive";
+
+/// The drive member homes live on. When the admin never chose one, the
+/// oldest adopted drive is the default — first-drive-becomes-default keeps
+/// blank-state boxes working with zero configuration. `None` when no drive
+/// is adopted at all.
+pub fn member_home_drive(conn: &Connection) -> anyhow::Result<Option<String>> {
+    if let Some(id) = get_meta(conn, MEMBER_HOME_DRIVE_KEY)?
+        && get_drive(conn, &id)?.is_some()
+    {
+        return Ok(Some(id));
+    }
+    // A stale configured id (drive removed) still wins nothing — fall back
+    // to the oldest adopted drive so homes resolve somewhere rather than
+    // nowhere. Detected-but-unadopted drives can never hold homes.
+    let mut stmt = conn.prepare(
+        "SELECT id FROM drives WHERE state = 'as_is' ORDER BY created_at ASC, id ASC LIMIT 1",
+    )?;
+    Ok(stmt.query_row([], |row| row.get(0)).ok())
+}
+
+/// Whether the member-home drive was explicitly chosen (vs. the
+/// first-drive default). Drives UI uses this to distinguish "configured"
+/// from "automatic" on the home-drive pill.
+pub fn member_home_drive_configured(conn: &Connection) -> anyhow::Result<Option<String>> {
+    match get_meta(conn, MEMBER_HOME_DRIVE_KEY)? {
+        Some(id) if get_drive(conn, &id)?.is_some() => Ok(Some(id)),
+        _ => Ok(None),
+    }
+}
+
+pub fn set_member_home_drive(conn: &Connection, drive_id: &str) -> anyhow::Result<()> {
+    set_meta(conn, MEMBER_HOME_DRIVE_KEY, drive_id)
+}
+
+/// A deferred member-home operation, queued while the home's drive was
+/// unplugged. Kinds:
+///  - `rename`: `username` dir → `dst_username` dir (account renamed while
+///    the drive was away — subjects repath when it lands).
+///  - `trash`: park `username`'s dir in the drive's trash (member deleted
+///    while the drive was away — the folder must never be inherited by a
+///    future same-name account).
+///  - `move`: copy `username`'s home to `dst_drive_id`'s members container
+///    (home-drive repin while the source drive was away); becomes a real
+///    move job once both drives are mounted.
+#[derive(Debug, Clone)]
+pub struct PendingHomeOp {
+    pub id: String,
+    pub kind: String,
+    pub drive_id: String,
+    pub username: String,
+    pub dst_username: String,
+    pub dst_drive_id: String,
+    pub user_id: String,
+    pub created_at: i64,
+}
+
+/// Queue a home op for a drive that isn't mounted. `trash` ops dedupe on
+/// (drive, username) — deleting a member twice must not stack work.
+pub fn queue_pending_home_op(
+    conn: &Connection,
+    kind: &str,
+    drive_id: &str,
+    username: &str,
+    dst_username: &str,
+    dst_drive_id: &str,
+    user_id: &str,
+) -> anyhow::Result<()> {
+    if kind == "trash" {
+        let dup: Option<String> = conn
+            .query_row(
+                "SELECT id FROM pending_home_ops WHERE kind = 'trash' AND drive_id = ?1 AND username = ?2",
+                params![drive_id, username],
+                |r| r.get(0),
+            )
+            .ok();
+        if dup.is_some() {
+            return Ok(());
+        }
+    }
+    conn.execute(
+        "INSERT INTO pending_home_ops (id, kind, drive_id, username, dst_username, dst_drive_id, user_id, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![
+            uuid::Uuid::new_v4().to_string(),
+            kind,
+            drive_id,
+            username,
+            dst_username,
+            dst_drive_id,
+            user_id,
+            now_unix()
+        ],
+    )?;
+    Ok(())
+}
+
+/// All queued home ops in insertion order — rename chains must apply
+/// oldest first so `a→b` then `b→c` lands files at `c`, not mid-chain.
+/// `rowid`, not `created_at`: two ops queued inside the same second need
+/// the insertion sequence, not the clock.
+pub fn list_pending_home_ops(conn: &Connection) -> anyhow::Result<Vec<PendingHomeOp>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, kind, drive_id, username, dst_username, dst_drive_id, user_id, created_at
+         FROM pending_home_ops ORDER BY rowid ASC",
+    )?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok(PendingHomeOp {
+                id: r.get(0)?,
+                kind: r.get(1)?,
+                drive_id: r.get(2)?,
+                username: r.get(3)?,
+                dst_username: r.get(4)?,
+                dst_drive_id: r.get(5)?,
+                user_id: r.get(6)?,
+                created_at: r.get(7)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
+pub fn delete_pending_home_op(conn: &Connection, id: &str) -> anyhow::Result<()> {
+    conn.execute("DELETE FROM pending_home_ops WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+/// Drop queued work made moot by a member's deletion — a pending `move`
+/// would copy a deleted person's files onto the new drive (stranding them
+/// under a name nobody owns), and a pending `rename` *from* their current
+/// username would move the dir the queued `trash` op targets. Renames
+/// *into* the username stay: they fire first, then the trash takes the
+/// whole folder.
+pub fn cancel_pending_home_ops_for_delete(
+    conn: &Connection,
+    drive_id: &str,
+    username: &str,
+    user_id: &str,
+) -> anyhow::Result<()> {
+    conn.execute(
+        "DELETE FROM pending_home_ops
+         WHERE (kind = 'move' AND user_id = ?3)
+            OR (kind = 'rename' AND drive_id = ?1 AND username = ?2)",
+        params![drive_id, username, user_id],
+    )?;
+    Ok(())
+}
+
 pub fn first_admin(conn: &Connection) -> anyhow::Result<Option<UserRow>> {
     let mut stmt = conn.prepare(
-        "SELECT id, username, display_name, password_hash, role, token_version FROM users WHERE role = 'admin' ORDER BY created_at ASC LIMIT 1",
+        "SELECT id, username, display_name, password_hash, role, token_version, home_drive_id FROM users WHERE role = 'admin' ORDER BY created_at ASC LIMIT 1",
     )?;
     let mut rows = stmt.query_map([], user_from_row)?;
     Ok(rows.next().transpose()?)
@@ -565,7 +800,7 @@ pub fn first_admin(conn: &Connection) -> anyhow::Result<Option<UserRow>> {
 
 pub fn list_admins(conn: &Connection) -> anyhow::Result<Vec<UserRow>> {
     let mut stmt = conn.prepare(
-        "SELECT id, username, display_name, password_hash, role, token_version FROM users WHERE role = 'admin' ORDER BY username ASC",
+        "SELECT id, username, display_name, password_hash, role, token_version, home_drive_id FROM users WHERE role = 'admin' ORDER BY username ASC",
     )?;
     let rows = stmt.query_map([], user_from_row)?;
     let mut admins = Vec::new();
@@ -950,6 +1185,23 @@ pub struct UploadRow {
     pub size: u64,
     pub received: u64,
     pub state: String,
+    /// Who opened this session — `user:{id}` for members, `link:{id}` for
+    /// public share uploads, empty for rows that predate the column.
+    /// Sessions belong to their creator; nobody else may drive them.
+    pub principal: String,
+}
+
+fn upload_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<UploadRow> {
+    Ok(UploadRow {
+        id: row.get(0)?,
+        drive_id: row.get(1)?,
+        path: row.get(2)?,
+        name: row.get(3)?,
+        size: row.get::<_, i64>(4)? as u64,
+        received: row.get::<_, i64>(5)? as u64,
+        state: row.get(6)?,
+        principal: row.get(7)?,
+    })
 }
 
 pub fn insert_upload(
@@ -959,32 +1211,34 @@ pub fn insert_upload(
     path: &str,
     name: &str,
     size: u64,
+    principal: &str,
 ) -> anyhow::Result<()> {
     let now = now_unix();
     conn.execute(
-        "INSERT INTO uploads (id, drive_id, path, name, size, received, state, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, 0, 'active', ?6, ?6)",
-        params![id, drive_id, path, name, size as i64, now],
+        "INSERT INTO uploads (id, drive_id, path, name, size, received, state, principal, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, 0, 'active', ?6, ?7, ?7)",
+        params![id, drive_id, path, name, size as i64, principal, now],
     )?;
     Ok(())
 }
 
 pub fn get_upload(conn: &Connection, id: &str) -> anyhow::Result<Option<UploadRow>> {
     let mut stmt = conn.prepare(
-        "SELECT id, drive_id, path, name, size, received, state FROM uploads WHERE id = ?1",
+        "SELECT id, drive_id, path, name, size, received, state, principal FROM uploads WHERE id = ?1",
     )?;
-    let mut rows = stmt.query_map(params![id], |row| {
-        Ok(UploadRow {
-            id: row.get(0)?,
-            drive_id: row.get(1)?,
-            path: row.get(2)?,
-            name: row.get(3)?,
-            size: row.get::<_, i64>(4)? as u64,
-            received: row.get::<_, i64>(5)? as u64,
-            state: row.get(6)?,
-        })
-    })?;
+    let mut rows = stmt.query_map(params![id], upload_from_row)?;
     Ok(rows.next().transpose()?)
+}
+
+/// Upload sessions whose last activity is older than `idle_before` (unix
+/// seconds) — the candidates for the boot-time orphan sweep.
+pub fn list_stale_uploads(conn: &Connection, idle_before: i64) -> anyhow::Result<Vec<UploadRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, drive_id, path, name, size, received, state, principal FROM uploads
+         WHERE updated_at < ?1",
+    )?;
+    let rows = stmt.query_map(params![idle_before], upload_from_row)?;
+    Ok(rows.collect::<Result<Vec<_>, _>>()?)
 }
 
 pub fn update_upload_received(conn: &Connection, id: &str, received: u64) -> anyhow::Result<()> {
@@ -1490,6 +1744,59 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn delete_user_takes_their_links_and_grants_down() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&dir.path().join("luna.db")).unwrap();
+        insert_user(&conn, "u1", "jamie", "Jamie", "hash", "user").unwrap();
+        insert_user(&conn, "u2", "kim", "Kim", "hash", "user").unwrap();
+        insert_access_member(
+            &conn,
+            &AccessMemberRow {
+                id: "m1".into(),
+                subject_kind: "path".into(),
+                drive_id: "d1".into(),
+                path: "docs".into(),
+                album_id: String::new(),
+                user_id: "u1".into(),
+                caps: 1,
+                created_by: "u2".into(),
+            },
+        )
+        .unwrap();
+        let link = |id: &str, by: &str| AccessLinkRow {
+            id: id.into(),
+            token_hash: format!("hash-{id}"),
+            token: String::new(),
+            subject_kind: "path".into(),
+            drive_id: "d1".into(),
+            path: "docs".into(),
+            album_id: String::new(),
+            caps: 1,
+            password_hash: String::new(),
+            expires_at: None,
+            created_by: by.into(),
+            created_at: now_unix(),
+        };
+        insert_access_link(&conn, &link("l-mine", "u1")).unwrap();
+        insert_access_link(&conn, &link("l-theirs", "u2")).unwrap();
+
+        delete_user(&conn, "u1").unwrap();
+
+        assert!(get_user(&conn, "u1").unwrap().is_none());
+        assert!(
+            list_access_members_for_user(&conn, "u1")
+                .unwrap()
+                .is_empty()
+        );
+        // The expelled member's public link is gone — links they made
+        // must not keep working after the account is deleted.
+        assert!(get_access_link(&conn, "l-mine").unwrap().is_none());
+        // Other people's access is untouched.
+        assert!(get_access_link(&conn, "l-theirs").unwrap().is_some());
+        assert!(get_user(&conn, "u2").unwrap().is_some());
     }
 
     #[test]

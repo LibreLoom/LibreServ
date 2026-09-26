@@ -148,12 +148,30 @@ async fn run(
             "Only an Admin can run a protection now.",
         ));
     }
+    // Answer 404 for an id Luna doesn't know — claiming a refresh started
+    // for a protection that does not exist hides typos and stale rows.
+    let conn = state.db.lock().map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna's index is busy. Try again.",
+        )
+    })?;
+    let row = crate::db::get_protection(&conn, &id)
+        .map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't read the protected folders.",
+            )
+        })?
+        .ok_or_else(|| {
+            json_error(
+                StatusCode::NOT_FOUND,
+                "Luna doesn't know this protected folder.",
+            )
+        })?;
     let db = state.db.clone();
     tokio::task::spawn_blocking(move || {
         let conn = db.lock().unwrap();
-        let Some(row) = crate::db::get_protection(&conn, &id).unwrap_or(None) else {
-            return 0;
-        };
         crate::backup::protect::sync(&conn, &row).unwrap_or(0)
     });
     Ok(Json(

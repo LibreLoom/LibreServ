@@ -18,9 +18,10 @@ import { haptic } from "@libreloom/ui/utils/haptics.js";
  * @param {{
  *   onPick: (kind: import("../../lib/createKinds.js").CreateKind) => void,
  *   ids?: string[],
+ *   surface?: "primary" | "secondary",
  * }} props
  */
-export default function NewItemMenu({ onPick, ids }) {
+export default function NewItemMenu({ onPick, ids, surface = "secondary" }) {
   const kinds = useMemo(() => createKindsFor(ids), [ids]);
   const groups = useMemo(() => groupedCreateKinds(kinds), [kinds]);
   const showGroupLabels = groups.length > 1;
@@ -124,7 +125,7 @@ export default function NewItemMenu({ onPick, ids }) {
       <span ref={buttonRef} className="inline-flex">
       <Button
         variant="outline"
-        surface="secondary"
+        surface={surface}
         size="sm"
         type="button"
         aria-haspopup={single ? undefined : "menu"}
@@ -216,4 +217,5 @@ export default function NewItemMenu({ onPick, ids }) {
 NewItemMenu.propTypes = {
   onPick: PropTypes.func.isRequired,
   ids: PropTypes.arrayOf(PropTypes.string),
+  surface: PropTypes.oneOf(["primary", "secondary"]),
 };

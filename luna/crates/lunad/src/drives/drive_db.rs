@@ -448,6 +448,7 @@ pub fn migrate_schema(conn: &Connection) -> anyhow::Result<()> {
             received INTEGER NOT NULL DEFAULT 0,
             state TEXT NOT NULL,
             error TEXT NOT NULL DEFAULT '',
+            principal TEXT NOT NULL DEFAULT '',
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
          );
@@ -485,6 +486,9 @@ pub fn migrate_schema(conn: &Connection) -> anyhow::Result<()> {
     ensure_column(conn, "photos", "place_city", "TEXT NOT NULL DEFAULT ''")?;
     ensure_column(conn, "photos", "place_region", "TEXT NOT NULL DEFAULT ''")?;
     ensure_column(conn, "photos", "place_country", "TEXT NOT NULL DEFAULT ''")?;
+    // Rows that predate `principal` keep the empty default — they can only
+    // be driven by an admin, never silently adopted by another session.
+    ensure_column(conn, "uploads", "principal", "TEXT NOT NULL DEFAULT ''")?;
     backfill_photo_places(conn)?;
     Ok(())
 }

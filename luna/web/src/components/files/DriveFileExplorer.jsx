@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, Download, FolderInput, HardDrive, Pencil, RotateCcw, Trash2 } from "lucide-react";
+import { Copy, Download, FolderInput, HardDrive, Lock, Pencil, RotateCcw, Trash2 } from "lucide-react";
 import PropTypes from "prop-types";
 import FileBrowser from "./FileBrowser.jsx";
 import FileViewer from "./FileViewer.jsx";
@@ -19,8 +20,10 @@ import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import { ActionTooltipGroup, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import ModalErrorNotice from "@libreloom/ui/components/common/ModalErrorNotice.jsx";
+import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
+import { useOptionalAuth } from "../../context/AuthContext.jsx";
 import {
   apiErrorMessage,
   getDrives,
@@ -30,7 +33,14 @@ import {
 import { fileListKey, fileSourceScope, useFileSource } from "../../lib/fileSource.jsx";
 import UploadFilesPanel from "./UploadFilesPanel.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
-import { CAP, CAP_FULL, capsOnPath, hasCapOnDrive } from "../../lib/shareTree.js";
+import {
+  CAP,
+  capsOnPath,
+  hasCapOnDrive,
+  memberFileHref,
+  memberPathFloor,
+} from "../../lib/shareTree.js";
+import { CAP_MANAGE, capsBits } from "../../lib/access.js";
 import { isPresentDrive, isWritableDrive } from "../../lib/drives.js";
 import { filesFromFileList, uploadDestForFile } from "../../lib/collectUploadFiles.js";
 import { parseCreateName } from "../../lib/createName.js";
@@ -39,10 +49,12 @@ import {
   fileHref as defaultFileHref,
   folderHref as defaultFolderHref,
   fmtSize,
+  isMemberHomePath,
   isTrashPath,
   joinPath,
   parentPath,
   pathBasename,
+  trashDisplayName,
   TRASH_PATH,
 } from "../../lib/paths.js";
 
@@ -276,7 +288,7 @@ export default function DriveFileExplorer({
   const [deletePaths, setDeletePaths] = useState(/** @type {string[]|null} */ (null));
   const [renameTarget, setRenameTarget] = useState(/** @type {{ fullPath: string, name: string }|null} */ (null));
   const [renameValue, setRenameValue] = useState("");
-  const [transfer, setTransfer] = useState(/** @type {null|{ kind: "copy"|"move", paths: string[] }} */ (null));
+  const [transfer, setTransfer] = useState(/** @type {null|{ kind: "copy"|"move", paths: string[], label?: string }} */ (null));
   const [innerViewerPath, setInnerViewerPath] = useState(/** @type {string|null} */ (null));
   const viewerPath = controlledViewerPath !== undefined ? controlledViewerPath : innerViewerPath;
 
@@ -334,15 +346,60 @@ export default function DriveFileExplorer({
   });
   const protectAvailable = useCanProtect(!guest && isAdmin);
   const showProtect = !guest && isAdmin && protectAvailable;
-  // Trash is a normal folder to look at — but strictly read-only. Every
-  // write affordance (upload, rename, move, delete-to-trash) stays off.
+  // Trash browses like a normal folder — same chrome, same actions. The
+  // only affordances that stay off are the ones that would put NEW things
+  // inside it (upload, create): items reach trash by being deleted.
+  // Guests (share links) have no AuthProvider — optional auth.
+  const user = useOptionalAuth()?.user;
   const inTrash = !guest && isTrashPath(path);
-  const myFolderCaps = guest ? guestCaps : isAdmin ? CAP_FULL : capsOnPath(access.data, driveId, path);
+  // The member's own home isn't a grant row — their whole
+  // `.luna-<uuid>-members/<username>` tree is theirs (the backend never
+  // lets them into anyone else's home, so full manage rights here can't
+  // leak sideways). The path comes from `/me` — the frontend can't derive
+  // it (the members container carries the drive's marker prefix).
+  const ownHomeRoot = !guest && !isAdmin && user?.home?.path
+    ? user.home.path
+    : null;
+  const inOwnHome = Boolean(ownHomeRoot
+    && (path === ownHomeRoot || path.startsWith(`${ownHomeRoot}/`)));
+  /** Capability bits for `p`: home tree → manage, else union of grants. */
+  const capsForPath = (p) => (ownHomeRoot
+    && (p === ownHomeRoot || p.startsWith(`${ownHomeRoot}/`)))
+    ? CAP_MANAGE
+    : capsOnPath(access.data, driveId, p);
+  const myFolderCaps = guest
+    ? guestCaps
+    : isAdmin
+      ? CAP_MANAGE
+      : capsForPath(path);
   const trashVisible = !guest && (isAdmin || hasCapOnDrive(access.data, driveId, CAP.EDIT));
   const folderCanUpload = !inTrash && (myFolderCaps & CAP.UPLOAD) !== 0;
-  const folderCanEdit = !inTrash && (myFolderCaps & CAP.EDIT) !== 0;
+  const folderCanEdit = inTrash ? trashVisible : (myFolderCaps & CAP.EDIT) !== 0;
+  const folderCanShare = !inTrash && (myFolderCaps & CAP.SHARE) !== 0;
   // Upload-only links can write but never read — downloads stay hidden.
   const canView = inTrash ? trashVisible : (myFolderCaps & CAP.VIEW) !== 0;
+
+  // Member grants are virtual roots: the shallowest row containing `path`
+  // is the top of the member's world (ancestors of a grant 403), so the
+  // browser never offers a crumb, Up, or drop target above it. Trash has
+  // its own scoped paths — no floor there.
+  const memberRows = !guest && !isAdmin && Array.isArray(access.data)
+    ? access.data
+    : null;
+  // Inside the member's own home the floor is the home root itself — the
+  // `.luna-<uuid>-members` container above it is bookkeeping, never a crumb.
+  const pathFloor = inTrash
+    ? ""
+    : inOwnHome
+      ? ownHomeRoot
+      : memberRows
+        ? memberPathFloor(memberRows, driveId, path)
+        : "";
+  // A file whose parent folder isn't browsable for this member is itself
+  // the root: `?path=<file>` gets the one-entry listing, `?file=` opens it.
+  const rowFileHref = memberRows
+    ? (/** @type {string} */ d, /** @type {string} */ p) => memberFileHref(memberRows, d, p)
+    : fileHref;
 
   // The crumb trail inside trash reads "Trash / <where it was>" — the stat
   // endpoint reports the folder's pre-trash path ("" at the trash root).
@@ -351,12 +408,18 @@ export default function DriveFileExplorer({
     queryFn: () => source.stat(driveId, path),
     enabled: inTrash,
   });
-  const segmentLabel = useMemo(() => {
-    if (!inTrash) return undefined;
-    const origin = String(trashStat.data?.trashed_from || "");
+  const trashedFrom = trashStat.data?.trashed_from;
+  let segmentLabel;
+  if (inTrash) {
+    const origin = String(trashedFrom || "");
     const labels = ["Trash", ...origin.split("/").filter(Boolean)];
-    return (/** @type {string} */ segment, /** @type {number} */ i) => labels[i] ?? segment;
-  }, [inTrash, trashStat.data]);
+    segmentLabel = (/** @type {string} */ segment, /** @type {number} */ i) => labels[i] ?? segment;
+  } else if (isMemberHomePath(path)) {
+    // Crumbs floor at the home root, so the username segment (index 1) is
+    // the root crumb — it reads "Home", not the raw username.
+    segmentLabel = (/** @type {string} */ segment, /** @type {number} */ i) =>
+      i === 1 ? "Home" : segment;
+  }
 
   // The trash listing — same query key as FileBrowser's, so this shares the
   // cache rather than refetching. Drives "Empty trash" being disabled when
@@ -630,11 +693,17 @@ export default function DriveFileExplorer({
   // Trash's two writes: restore a whole entry, or delete it permanently.
   // Both stay top-level — the API only accepts `{trash}/{entry}` paths.
   const restoreMutation = useMutation({
-    mutationFn: (/** @type {{ path: string, dest: string }} */ vars) =>
-      postJson(`/api/v1/drives/${driveId}/files/restore`, vars),
-    onSuccess: (_d, vars) => {
-      addToast({ type: "success", message: "Restored." });
-      invalidate([vars.dest, vars.path]);
+    mutationFn: async (/** @type {{ path: string, dest: string }[]} */ items) => {
+      for (const item of items) {
+        await postJson(`/api/v1/drives/${driveId}/files/restore`, item);
+      }
+    },
+    onSuccess: (_d, items) => {
+      addToast({
+        type: "success",
+        message: items.length === 1 ? "Restored." : `Restored ${items.length} items.`,
+      });
+      invalidate(items.flatMap((i) => [i.dest, i.path]));
     },
     onError: (err) =>
       setActionError(apiErrorMessage(err, "Couldn't restore that. Try again.")),
@@ -737,10 +806,24 @@ export default function DriveFileExplorer({
         driveId={driveId}
         driveLabel={driveLabel}
         path={path}
+        pathFloor={pathFloor}
+        forbiddenState={!guest && !isAdmin ? (
+          <EmptyState
+            className="mt-4"
+            icon={Lock}
+            title="You don't have access to this folder"
+            description="Open items shared with you from Shared instead."
+            action={(
+              <Button size="sm" variant="primary" asChild>
+                <Link to="/shared">Open Shared</Link>
+              </Button>
+            )}
+          />
+        ) : null}
         onPathChange={setPath}
         linkNavigation={linkNavigation}
         folderHref={folderHref}
-        fileHref={fileHref}
+        fileHref={rowFileHref}
         enableDownload={canView}
         enableUploadDrop={!inTrash && folderCanUpload}
         dense={dense}
@@ -757,14 +840,19 @@ export default function DriveFileExplorer({
         onShare={guest || inTrash ? undefined : (ctx) => setAccessTarget({
           path: ctx.fullPath,
         })}
-        onCopy={guest || inTrash ? undefined : (paths) => setTransfer({ kind: "copy", paths })}
+        onCopy={guest ? undefined : (paths) => setTransfer({ kind: "copy", paths })}
         onMove={folderCanEdit && !source.isFile ? (paths) => setTransfer({ kind: "move", paths }) : undefined}
         onRename={folderCanEdit && !source.isFile ? (ctx) => {
           setActionError(null);
-          setRenameTarget({ fullPath: ctx.fullPath, name: ctx.entry.name });
-          setRenameValue(ctx.entry.name);
+          setRenameTarget({ fullPath: ctx.fullPath, name: ctx.displayName });
+          setRenameValue(ctx.displayName);
         } : undefined}
-        onDelete={folderCanEdit && !source.isFile ? setDeletePaths : undefined}
+        onDelete={folderCanEdit && !source.isFile ? (inTrash
+          ? (paths) => setPurgeTarget({
+              paths,
+              label: paths.length === 1 ? trashDisplayName(paths[0]) : `${paths.length} items`,
+            })
+          : setDeletePaths) : undefined}
         trashHref={showTrashLink && trashVisible && !inTrash ? folderHref(driveId, TRASH_PATH) : null}
         segmentLabel={segmentLabel}
         folderActions={folderCanUpload && !source.isFile ? <NewItemMenu onPick={openCreate} /> : null}
@@ -778,40 +866,42 @@ export default function DriveFileExplorer({
             <NewItemMenu onPick={openCreate} />
           </div>
         ) : null}
-        breadcrumbExtra={inTrash ? (
-          canView && !source.isFile ? (
-            <DownloadButton
-              driveId={driveId}
-              path={path}
-              kind="dir"
-              label="Trash"
-            />
-          )
-            : null
-        ) : (
-          <>
-            {!guest && (
-              <ShareButton
-                label={path || driveLabel || "this folder"}
-                onClick={() => setAccessTarget({ path })}
-              />
-            )}
-            {canView && !source.isFile && (
-              <DownloadButton
-                driveId={driveId}
-                path={path}
-                kind="dir"
-                label={path || driveLabel || "this folder"}
-              />
-            )}
-            {showProtect && (
-              <ProtectButton
-                label={path || driveLabel || "this folder"}
-                onClick={() => setProtectTarget({ path })}
-              />
-            )}
-          </>
-        )}
+        breadcrumbExtra={(() => {
+          // Same buttons a folder's breadcrumb row gets — the label just
+          // reads "Trash" / the item's original name instead of the
+          // generated on-disk name. Share/protect stay on the Trash root
+          // itself but not on folders inside it (they're trash children).
+          const label = inTrash
+            ? (path === TRASH_PATH ? "Trash" : trashDisplayName(path))
+            : inOwnHome && path === ownHomeRoot
+              ? "Home"
+              : (path || driveLabel || "this folder");
+          const trashChildFolder = inTrash && path !== TRASH_PATH;
+          return (
+            <>
+              {!guest && !trashChildFolder && folderCanShare && (
+                <ShareButton
+                  label={label}
+                  onClick={() => setAccessTarget({ path })}
+                />
+              )}
+              {canView && !source.isFile && (
+                <DownloadButton
+                  driveId={driveId}
+                  path={path}
+                  kind="dir"
+                  label={label}
+                />
+              )}
+              {showProtect && !trashChildFolder && (
+                <ProtectButton
+                  label={label}
+                  onClick={() => setProtectTarget({ path })}
+                />
+              )}
+            </>
+          );
+        })()}
         headerExtra={inTrash && path === TRASH_PATH ? (
           <>
             <Button
@@ -830,63 +920,74 @@ export default function DriveFileExplorer({
             {headerExtra}
           </>
         ) : headerExtra}
-        renderRowActions={inTrash ? (ctx) => (
+        renderSelectionActions={inTrash ? (paths, rows) => {
+          // Restore only works on whole top-level trash entries — a mixed
+          // or nested selection doesn't get the button at all.
+          if (paths.length === 0 || !paths.every((p) => parentPath(p) === TRASH_PATH)) return null;
+          const rowsByPath = new Map(rows.map((r) => [r.fullPath, r]));
+          return (
+            <Button
+              variant="outline"
+              surface="secondary"
+              size="sm"
+              className="shrink-0"
+              loading={restoreMutation.isPending}
+              onClick={() => {
+                setActionError(null);
+                restoreMutation.mutateAsync(
+                  paths.map((p) => {
+                    const row = rowsByPath.get(p);
+                    const origin = row?.entry.original_path || "";
+                    return {
+                      path: p,
+                      dest: joinPath(parentPath(origin), row?.displayName || pathBasename(p)),
+                    };
+                  }),
+                ).catch(() => {});
+              }}
+            >
+              <RotateCcw size={14} aria-hidden="true" />
+              Restore
+            </Button>
+          );
+        } : undefined}
+        renderRowActions={(ctx) => {
+          // Same action row as any folder, with trash deltas. The Trash row
+          // itself (the drive-root entry that opens trash) behaves like a
+          // folder: share, protect, download, copy, properties. Items INSIDE
+          // trash lose share/protect/rename, top-level entries gain Restore,
+          // and delete becomes Delete permanently (there is nowhere deeper
+          // to move things to). The API maps trash paths to the item's
+          // original location for permission checks.
+          const trashRoot = ctx.fullPath === TRASH_PATH;
+          const trashChild = isTrashPath(ctx.fullPath) && !trashRoot;
+          const capPath = trashChild ? (ctx.entry.original_path || ctx.fullPath) : ctx.fullPath;
+          // The server stamps each entry's caps — fall back to the grant
+          // union for rows that arrive without them (guest listings).
+          const rowCaps = ctx.entry.caps != null
+            ? capsBits(ctx.entry.caps)
+            : isAdmin
+              ? CAP_MANAGE
+              : capsForPath(capPath);
+          const rowCanEdit = guest
+            ? (guestCaps & CAP.EDIT) !== 0 && !source.isFile
+            : (rowCaps & CAP.EDIT) !== 0;
+          const rowCanShare = !guest && !trashChild && (rowCaps & CAP.SHARE) !== 0;
+          // The member-home root is Luna-owned: browsable and shareable,
+          // never renameable, movable, copyable, or deletable.
+          const isHomeRow = ctx.entry.home === true;
+          return (
           <ActionTooltipGroup>
             <div className="flex items-center gap-0.5 flex-wrap justify-end">
-              <DownloadButton
-                driveId={driveId}
-                path={ctx.fullPath}
-                kind={ctx.entry.kind}
-                label={ctx.displayName}
-              />
-              {ctx.path === TRASH_PATH && (
-                <>
-                  <Tooltip content="Restore">
-                    <Button
-                      variant="ghost"
-                      surface="secondary"
-                      size="iconSm"
-                      aria-label={`Restore ${ctx.displayName}`}
-                      onClick={() => {
-                        setActionError(null);
-                        setRestoreTarget({
-                          fullPath: ctx.fullPath,
-                          displayName: ctx.displayName,
-                          originalPath: ctx.entry.original_path || "",
-                        });
-                        setRestoreName(ctx.displayName);
-                      }}
-                    >
-                      <RotateCcw size={ICON_SIZE.sm} />
-                    </Button>
-                  </Tooltip>
-                  <Tooltip content="Delete permanently">
-                    <Button
-                      variant="ghost"
-                      surface="secondary"
-                      size="iconSm"
-                      aria-label={`Delete ${ctx.displayName} permanently`}
-                      onClick={() => setPurgeTarget({ paths: [ctx.fullPath], label: ctx.displayName })}
-                    >
-                      <Trash2 size={ICON_SIZE.sm} />
-                    </Button>
-                  </Tooltip>
-                </>
-              )}
-            </div>
-          </ActionTooltipGroup>
-        ) : (ctx) => (
-          <ActionTooltipGroup>
-            <div className="flex items-center gap-0.5 flex-wrap justify-end">
-              {!guest && (
+              {rowCanShare && (
                 <ShareButton
-                  label={ctx.entry.name}
+                  label={ctx.displayName}
                   onClick={() => setAccessTarget({ path: ctx.fullPath })}
                 />
               )}
-              {showProtect && ctx.entry.kind === "dir" && (
+              {showProtect && ctx.entry.kind === "dir" && !trashChild && (
                 <ProtectButton
-                  label={ctx.entry.name}
+                  label={ctx.displayName}
                   onClick={() => setProtectTarget({ path: ctx.fullPath })}
                 />
               )}
@@ -895,60 +996,84 @@ export default function DriveFileExplorer({
                   driveId={driveId}
                   path={ctx.fullPath}
                   kind={ctx.entry.kind}
-                  label={ctx.entry.name}
+                  label={ctx.displayName}
                 />
               )}
-              {!guest && (
+              {trashChild && ctx.path === TRASH_PATH && (
+                <Tooltip content="Restore">
+                  <Button
+                    variant="ghost"
+                    surface="secondary"
+                    size="iconSm"
+                    aria-label={`Restore ${ctx.displayName}`}
+                    onClick={() => {
+                      setActionError(null);
+                      setRestoreTarget({
+                        fullPath: ctx.fullPath,
+                        displayName: ctx.displayName,
+                        originalPath: ctx.entry.original_path || "",
+                      });
+                      setRestoreName(ctx.displayName);
+                    }}
+                  >
+                    <RotateCcw size={ICON_SIZE.sm} />
+                  </Button>
+                </Tooltip>
+              )}
+              {!guest && !isHomeRow && (
                 <Tooltip content="Copy">
                   <Button
                     variant="ghost"
                     surface="secondary"
                     size="iconSm"
-                    aria-label={`Copy ${ctx.entry.name}`}
-                    onClick={() => setTransfer({ kind: "copy", paths: [ctx.fullPath] })}
+                    aria-label={`Copy ${ctx.displayName}`}
+                    onClick={() => setTransfer({ kind: "copy", paths: [ctx.fullPath], label: ctx.displayName })}
                   >
                     <Copy size={ICON_SIZE.sm} />
                   </Button>
                 </Tooltip>
               )}
-              {(guest
-                ? (guestCaps & CAP.EDIT) !== 0 && !source.isFile
-                : isAdmin || (capsOnPath(access.data, driveId, ctx.fullPath) & CAP.EDIT) !== 0
-              ) && (
+              {rowCanEdit && !trashRoot && !isHomeRow && (
                 <>
                   <Tooltip content="Move">
                     <Button
                       variant="ghost"
                       surface="secondary"
                       size="iconSm"
-                      aria-label={`Move ${ctx.entry.name}`}
-                      onClick={() => setTransfer({ kind: "move", paths: [ctx.fullPath] })}
+                      aria-label={`Move ${ctx.displayName}`}
+                      onClick={() => setTransfer({ kind: "move", paths: [ctx.fullPath], label: ctx.displayName })}
                     >
                       <FolderInput size={ICON_SIZE.sm} />
                     </Button>
                   </Tooltip>
-                  <Tooltip content="Rename">
+                  {!trashChild && (
+                    <Tooltip content="Rename">
+                      <Button
+                        variant="ghost"
+                        surface="secondary"
+                        size="iconSm"
+                        aria-label={`Rename ${ctx.displayName}`}
+                        onClick={() => {
+                          setActionError(null);
+                          setRenameTarget({ fullPath: ctx.fullPath, name: ctx.displayName });
+                          setRenameValue(ctx.displayName);
+                        }}
+                      >
+                        <Pencil size={ICON_SIZE.sm} />
+                      </Button>
+                    </Tooltip>
+                  )}
+                  <Tooltip content={trashChild ? "Delete permanently" : "Move to trash"}>
                     <Button
                       variant="ghost"
                       surface="secondary"
                       size="iconSm"
-                      aria-label={`Rename ${ctx.entry.name}`}
-                      onClick={() => {
-                        setActionError(null);
-                        setRenameTarget({ fullPath: ctx.fullPath, name: ctx.entry.name });
-                        setRenameValue(ctx.entry.name);
-                      }}
-                    >
-                      <Pencil size={ICON_SIZE.sm} />
-                    </Button>
-                  </Tooltip>
-                  <Tooltip content="Move to trash">
-                    <Button
-                      variant="ghost"
-                      surface="secondary"
-                      size="iconSm"
-                      aria-label={`Move ${ctx.entry.name} to trash`}
-                      onClick={() => setDeletePaths([ctx.fullPath])}
+                      aria-label={trashChild
+                        ? `Delete ${ctx.displayName} permanently`
+                        : `Move ${ctx.displayName} to trash`}
+                      onClick={() => (trashChild
+                        ? setPurgeTarget({ paths: [ctx.fullPath], label: ctx.displayName })
+                        : setDeletePaths([ctx.fullPath]))}
                     >
                       <Trash2 size={ICON_SIZE.sm} />
                     </Button>
@@ -957,7 +1082,8 @@ export default function DriveFileExplorer({
               )}
             </div>
           </ActionTooltipGroup>
-        )}
+          );
+        }}
       />
       )}
 
@@ -968,7 +1094,7 @@ export default function DriveFileExplorer({
         name={viewerPath === "" && source.isFile ? driveLabel : undefined}
         canWrite={!inTrash && (guest
           ? (guestCaps & CAP.EDIT) !== 0
-          : isAdmin || (capsOnPath(access.data, driveId, viewerPath || "") & CAP.EDIT) !== 0)}
+          : isAdmin || (capsForPath(viewerPath || "") & CAP.EDIT) !== 0)}
         onClose={() => setViewerPath(null)}
         onSaved={() => viewerPath && invalidate([viewerPath])}
         onOpenPath={(next) => {
@@ -979,14 +1105,20 @@ export default function DriveFileExplorer({
 
       <FolderPickerModal
         open={transfer != null}
-        title={
-          transfer?.kind === "move"
-            ? `Move ${transfer.paths.length === 1 ? pathBasename(transfer.paths[0]) : `${transfer.paths.length} items`}`
-            : `Copy ${transfer?.paths.length === 1 ? pathBasename(transfer.paths[0]) : `${transfer?.paths.length || 0} items`}`
-        }
+        title={(() => {
+          // The modal names what is being moved — trash paths show the
+          // display name, never the `{nonce}-` storage name.
+          const one = transfer?.paths.length === 1
+            ? (transfer.label
+                || (isTrashPath(transfer.paths[0])
+                  ? trashDisplayName(transfer.paths[0])
+                  : pathBasename(transfer.paths[0])))
+            : `${transfer?.paths.length || 0} items`;
+          return transfer?.kind === "move" ? `Move ${one}` : `Copy ${one}`;
+        })()}
         drives={writableDrives.length > 0 ? writableDrives : [{ id: driveId, label: driveLabel }]}
         initialDriveId={driveId}
-        initialPath={path}
+        initialPath={inTrash ? "" : path}
         confirmLabel={transfer?.kind === "move" ? "Start moving" : "Start copying"}
         busy={transferMutation.isPending}
         error={transfer != null ? actionError : null}
@@ -1066,10 +1198,10 @@ export default function DriveFileExplorer({
                 loading={restoreMutation.isPending}
                 onClick={() => {
                   if (!restoreTarget) return;
-                  restoreMutation.mutateAsync({
+                  restoreMutation.mutateAsync([{
                     path: restoreTarget.fullPath,
                     dest: joinPath(restoreDestFolder, restoreName.trim()),
-                  })
+                  }])
                     .then(() => close())
                     .catch(() => {});
                 }}

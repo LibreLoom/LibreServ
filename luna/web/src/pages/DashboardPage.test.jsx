@@ -240,9 +240,47 @@ describe("DashboardPage", () => {
     expect(screen.getByText("report.pdf")).toBeInTheDocument();
     const open = screen.getAllByRole("link", { name: /^Open$/i })
       .find((a) => a.closest("li")?.textContent?.includes("report.pdf"));
-    expect(open).toHaveAttribute("href", "/drives/d1?path=docs&file=report.pdf");
+    expect(open).toHaveAttribute("href", "/drives/d1?path=docs%2Freport.pdf");
     expect(screen.getByRole("link", { name: /See all shared items/i }))
       .toHaveAttribute("href", "/shared");
+  });
+
+  it("deep-links a member's drive card to their grant when the root isn't browsable", async () => {
+    stubFetch({
+      username: "jamie",
+      role: "user",
+      drives: [{ id: "d1", label: "Photos Drive", state: "as_is", device: "sda1", fs_type: "exfat" }],
+      access: [
+        {
+          id: "m3",
+          kind: "path",
+          drive_id: "d1",
+          drive_label: "Photos Drive",
+          path: "docs/drop",
+          name: "drop",
+          caps: "upload",
+        },
+      ],
+      summaries: {
+        d1: {
+          id: "d1",
+          mounted: true,
+          total_bytes: 64_000_000_000,
+          free_bytes: 12_000_000_000,
+          used_bytes: 52_000_000_000,
+          folders: 0,
+          files: 0,
+          shortcuts: [],
+        },
+      },
+    });
+    renderPage();
+    // The drive root would 403 for this member — the card's open button
+    // lands on their drop folder instead.
+    const open = await screen.findAllByRole("link", { name: /Browse files|Open/i });
+    expect(open.some((a) =>
+      a.getAttribute("href") === "/drives/d1?path=docs%2Fdrop")).toBe(true);
+    expect(open.every((a) => a.getAttribute("href") !== "/drives/d1")).toBe(true);
   });
 
   it("flags a newly plugged-in USB for admins", async () => {

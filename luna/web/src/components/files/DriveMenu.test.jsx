@@ -21,7 +21,7 @@ function lunaDrag(paths = ["a.txt"], sourceDrive = "d1") {
   };
 }
 
-/** @param {{ drives?: any[], onDropPaths?: (driveId: string, paths: string[], sourceDriveId?: string) => void }} props */
+/** @param {{ drives?: any[], onDropPaths?: (driveId: string, path: string, paths: string[], sourceDriveId?: string) => void }} props */
 function Harness({ drives = DRIVES, onDropPaths = vi.fn() }) {
   const { id } = useParams();
   const location = useLocation();
@@ -33,7 +33,7 @@ function Harness({ drives = DRIVES, onDropPaths = vi.fn() }) {
   );
 }
 
-/** @param {{ drives?: any[], onDropPaths?: (driveId: string, paths: string[], sourceDriveId?: string) => void }} [opts] */
+/** @param {{ drives?: any[], onDropPaths?: (driveId: string, path: string, paths: string[], sourceDriveId?: string) => void }} [opts] */
 function renderMenu({ drives, onDropPaths } = {}) {
   return render(
     <MemoryRouter initialEntries={["/drives/d1"]}>
@@ -58,15 +58,15 @@ describe("DriveMenu", () => {
         />
       </MemoryRouter>,
     );
-    expect(screen.queryByRole("button", { name: /Drives/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Places/ })).not.toBeInTheDocument();
   });
 
   it("lists the other drives and navigates to a picked drive's root", async () => {
     renderMenu();
-    const trigger = screen.getByRole("button", { name: "Drives: Photos Drive" });
+    const trigger = screen.getByRole("button", { name: "Places: Photos Drive" });
     expect(trigger).toHaveAttribute("aria-haspopup", "menu");
     fireEvent.click(trigger);
-    const menu = await screen.findByRole("menu", { name: "Drives" });
+    const menu = await screen.findByRole("menu", { name: "Places" });
     expect(menu).toHaveClass("no-scrollbar");
     // The drive being browsed is on the trigger, not in the list.
     expect(within(menu).queryByRole("menuitem", { name: "Photos Drive" })).not.toBeInTheDocument();
@@ -77,13 +77,13 @@ describe("DriveMenu", () => {
   it("dropping on a drive item moves files to its root without navigating", async () => {
     const onDropPaths = vi.fn();
     renderMenu({ onDropPaths });
-    fireEvent.click(screen.getByRole("button", { name: "Drives: Photos Drive" }));
+    fireEvent.click(screen.getByRole("button", { name: "Places: Photos Drive" }));
     const item = await screen.findByRole("menuitem", { name: "Spare Drive" });
     const dataTransfer = lunaDrag(["docs/a.txt"]);
     fireEvent.dragOver(item, { dataTransfer });
     expect(item.className).toMatch(/ring-accent/);
     fireEvent.drop(item, { dataTransfer });
-    expect(onDropPaths).toHaveBeenCalledWith("d2", ["docs/a.txt"], "d1");
+    expect(onDropPaths).toHaveBeenCalledWith("d2", "", ["docs/a.txt"], "d1");
     expect(screen.getByTestId("location").textContent).toBe("/drives/d1");
   });
 
@@ -93,7 +93,7 @@ describe("DriveMenu", () => {
       drives: [DRIVES[0], { id: "d4", label: "Read Only", state: "readonly" }],
       onDropPaths,
     });
-    fireEvent.click(screen.getByRole("button", { name: "Drives: Photos Drive" }));
+    fireEvent.click(screen.getByRole("button", { name: "Places: Photos Drive" }));
     const item = await screen.findByRole("menuitem", { name: "Read Only" });
     const dataTransfer = lunaDrag();
     fireEvent.dragOver(item, { dataTransfer });
@@ -106,7 +106,7 @@ describe("DriveMenu", () => {
     vi.useFakeTimers();
     try {
       renderMenu();
-      const trigger = screen.getByRole("button", { name: "Drives: Photos Drive" });
+      const trigger = screen.getByRole("button", { name: "Places: Photos Drive" });
       const dataTransfer = lunaDrag();
       fireEvent.dragOver(trigger, { dataTransfer });
       // A quick pass does not open it.
@@ -117,7 +117,7 @@ describe("DriveMenu", () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(150);
       });
-      expect(screen.getByRole("menu", { name: "Drives" })).toBeInTheDocument();
+      expect(screen.getByRole("menu", { name: "Places" })).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
@@ -127,7 +127,7 @@ describe("DriveMenu", () => {
     vi.useFakeTimers();
     try {
       renderMenu();
-      const trigger = screen.getByRole("button", { name: "Drives: Photos Drive" });
+      const trigger = screen.getByRole("button", { name: "Places: Photos Drive" });
       fireEvent.dragOver(trigger, { dataTransfer: { types: ["text/plain"] } });
       await act(async () => {
         await vi.advanceTimersByTimeAsync(DRIVE_MENU_OPEN_MS + 200);
@@ -142,7 +142,7 @@ describe("DriveMenu", () => {
     vi.useFakeTimers();
     try {
       renderMenu();
-      fireEvent.click(screen.getByRole("button", { name: "Drives: Photos Drive" }));
+      fireEvent.click(screen.getByRole("button", { name: "Places: Photos Drive" }));
       const item = screen.getByRole("menuitem", { name: "Spare Drive" });
       fireEvent.dragOver(item, { dataTransfer: lunaDrag() });
       expect(screen.getByTestId("location").textContent).toBe("/drives/d1");
@@ -166,7 +166,7 @@ describe("DriveMenu", () => {
     vi.useFakeTimers();
     try {
       renderMenu();
-      fireEvent.click(screen.getByRole("button", { name: "Drives: Photos Drive" }));
+      fireEvent.click(screen.getByRole("button", { name: "Places: Photos Drive" }));
       const item = screen.getByRole("menuitem", { name: "Spare Drive" });
       const dataTransfer = lunaDrag();
       fireEvent.dragOver(item, { dataTransfer });
@@ -181,5 +181,42 @@ describe("DriveMenu", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("member mode lists writable roots and drops into their paths", async () => {
+    const onDropPaths = vi.fn();
+    const destinations = /** @type {{ driveId: string, path: string, label: string, sub?: string, icon?: "home"|"folder"|"drive", writable?: boolean }[]} */ ([
+      { driveId: "d1", path: ".luna-u1", label: "Home", sub: "Photos Drive", icon: "home" },
+      { driveId: "d2", path: "shared/inbox", label: "inbox", sub: "Spare Drive", icon: "folder" },
+    ]);
+    render(
+      <MemoryRouter initialEntries={["/drives/d1?path=docs"]}>
+        <Routes>
+          <Route
+            path="/drives/:id"
+            element={(
+              <DriveMenu
+                destinations={destinations}
+                currentDriveId="d1"
+                currentPath="docs"
+                currentLabel="docs"
+                onDropPaths={onDropPaths}
+              />
+            )}
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+    const trigger = screen.getByRole("button", { name: "Places: docs" });
+    fireEvent.click(trigger);
+    const menu = await screen.findByRole("menu", { name: "Places" });
+    // The Home destination stays in the list even though it is on the
+    // browsed drive — dropping into Home is a real move, not the current
+    // folder.
+    const homeItem = within(menu).getByRole("menuitem", { name: /Home/ });
+    const dataTransfer = lunaDrag(["docs/a.txt"], "d1");
+    fireEvent.dragOver(homeItem, { dataTransfer });
+    fireEvent.drop(homeItem, { dataTransfer });
+    expect(onDropPaths).toHaveBeenCalledWith("d1", ".luna-u1", ["docs/a.txt"], "d1");
   });
 });

@@ -1,14 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
   CAP,
+  CAP_MANAGE,
   capsBits,
   capsCover,
   capsHint,
   capsLabel,
   capsOptions,
   hasCap,
+  joinShareCaps,
   shareSubjectFromRow,
   sharedItemHref,
+  splitShareCaps,
   subjectKey,
   subjectQuery,
 } from "./access.js";
@@ -24,6 +27,23 @@ describe("capsBits / capsCover / hasCap", () => {
     expect(capsBits(null)).toBe(0);
   });
 
+  it("parses the +share tail into the share bit", () => {
+    expect(capsBits("full+share")).toBe(CAP_MANAGE);
+    expect(capsBits("edit+share")).toBe(CAP_MANAGE);
+    expect(capsBits("view+share")).toBe(CAP.VIEW | CAP.SHARE);
+    // Plain "full" is content only — no share-management bit.
+    expect(capsBits("full") & CAP.SHARE).toBe(0);
+    expect(hasCap("full+share", CAP.SHARE)).toBe(true);
+    expect(hasCap("full", CAP.SHARE)).toBe(false);
+  });
+
+  it("splits and rejoins the share bit", () => {
+    expect(splitShareCaps("full+share")).toEqual({ content: "full", share: true });
+    expect(splitShareCaps("view")).toEqual({ content: "view", share: false });
+    expect(joinShareCaps("full", true)).toBe("full+share");
+    expect(joinShareCaps("full", false)).toBe("full");
+  });
+
   it("covers subsets, not siblings", () => {
     expect(capsCover("full", "view")).toBe(true);
     expect(capsCover("full", "view+upload")).toBe(true);
@@ -34,6 +54,16 @@ describe("capsBits / capsCover / hasCap", () => {
     expect(capsCover("view+upload", "full")).toBe(false);
     expect(capsCover("view", "respond")).toBe(false);
     expect(capsCover("view+upload", "respond")).toBe(false);
+  });
+
+  it("treats +share as a separate capability the holder must carry", () => {
+    // A full-content member without SHARE cannot hand out sharing rights.
+    expect(capsCover("full", "full+share")).toBe(false);
+    expect(capsCover("full", "view+share")).toBe(false);
+    // A manager covers both content and share grants.
+    expect(capsCover("full+share", "full")).toBe(true);
+    expect(capsCover("full+share", "full+share")).toBe(true);
+    expect(capsCover("full+share", "view+share")).toBe(true);
   });
 
   it("hasCap reads single bits", () => {
@@ -144,7 +174,9 @@ describe("sharedItemHref / shareSubjectFromRow", () => {
   });
 
   it("opens a file at the file itself, not its folder", () => {
-    expect(sharedItemHref(fileRow)).toBe("/drives/d1?path=docs&file=report.pdf");
+    // The file path is the member's virtual root — the parent folder
+    // isn't browsable, so `?path=` carries the whole file path.
+    expect(sharedItemHref(fileRow)).toBe("/drives/d1?path=docs%2Freport.pdf");
   });
 
   it("opens an album in the gallery", () => {

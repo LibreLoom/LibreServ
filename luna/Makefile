@@ -37,7 +37,7 @@ dev: build-daemon
 	  echo "    Tip: office editing needs the EuroOffice pack: make eurooffice"
 	@[ -d "$(DATA_DIR)/drawio" ] || \
 	  echo "    Tip: diagram editing needs the draw.io pack: make drawio"
-	@trap 'kill 0' INT TERM EXIT; \
+	@trap 'trap - INT TERM EXIT; kill 0' INT TERM EXIT; \
 	  if [ -p /dev/stdin ]; then \
 	    ( while read -r _; do :; done; kill 0 2>/dev/null ) <&0 & \
 	  fi; \

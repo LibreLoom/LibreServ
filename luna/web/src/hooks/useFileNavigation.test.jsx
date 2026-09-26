@@ -76,6 +76,25 @@ describe("useFileNavigation", () => {
     expect(result.current.nav.path).toBe("");
   });
 
+  it("keeps a file-root path in place when its own row opens", () => {
+    const { result } = harness("/drives/d1?path=docs%2Freport.pdf");
+    expect(result.current.nav.path).toBe("docs/report.pdf");
+    act(() => result.current.nav.onViewerPathChange("docs/report.pdf"));
+    // The file IS the browsed path — `path` never climbs to the parent,
+    // which isn't browsable for a member with only this file grant.
+    expect(result.current.nav.path).toBe("docs/report.pdf");
+    expect(result.current.nav.viewerPath).toBe("docs/report.pdf");
+    expect(result.current.loc.search).toContain("file=docs%2Freport.pdf");
+  });
+
+  it("keeps the browsed path when the opened file lives outside it", () => {
+    const { result } = harness("/drives/d1?path=docs");
+    act(() => result.current.nav.onViewerPathChange("other/y.txt"));
+    expect(result.current.nav.path).toBe("docs");
+    expect(result.current.nav.viewerPath).toBe("other/y.txt");
+    expect(result.current.loc.search).toContain("file=other%2Fy.txt");
+  });
+
   it("closing a hash-opened viewer clears the hash through the router", () => {
     const { result } = harness("/drives/d1?path=docs#photo.jpg");
     expect(result.current.nav.viewerPath).toBe("docs/photo.jpg");

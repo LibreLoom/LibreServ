@@ -130,6 +130,8 @@ pub enum UploadError {
     Io(#[source] std::io::Error),
     #[error("The chunk size doesn't match the upload.")]
     SizeMismatch,
+    #[error("You don't have permission to finish this upload.")]
+    Denied,
 }
 
 impl From<FilesError> for UploadError {
@@ -139,7 +141,9 @@ impl From<FilesError> for UploadError {
 }
 
 /// Create an upload session: resolve + jail the destination, create the temp
-/// file, and persist the row.
+/// file, and persist the row. The session is unscoped — callers with a real
+/// principal should use [`create_scoped`] so the session can only be driven
+/// by whoever opened it.
 pub fn create(
     conn: &Connection,
     drive_id: &str,
@@ -147,12 +151,36 @@ pub fn create(
     name: &str,
     size: u64,
 ) -> Result<Upload, UploadError> {
+    create_scoped(conn, drive_id, dest_path, name, size, "")
+}
+
+/// Like [`create`], but stamps the session with its owner — `user:{id}` for
+/// members, `link:{id}` for public share uploads. The API layer refuses to
+/// drive a session whose principal does not match the caller.
+pub fn create_scoped(
+    conn: &Connection,
+    drive_id: &str,
+    dest_path: &str,
+    name: &str,
+    size: u64,
+    principal: &str,
+) -> Result<Upload, UploadError> {
     let name = files::safe_name(name).map_err(|_| {
         FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             "invalid file name",
         ))
     })?;
+    // A `.part`-style or Luna-namespace leaf mints a file no listing can
+    // ever show — session names are held to the create-path bar so a
+    // stranded invisible file can never be uploaded.
+    if files::is_blocked_create_path(&name) {
+        return Err(FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "that name is reserved for Luna",
+        ))
+        .into());
+    }
     let dir = files::dest_dir_create(conn, drive_id, dest_path)?;
     let id = Uuid::new_v4().to_string();
     let temp = temp_for(conn, drive_id, &dir, &id)?;
@@ -164,8 +192,16 @@ pub fn create(
         .map_err(UploadError::Io)?;
 
     let drive_conn = drive_db_for(conn, drive_id)?;
-    db::insert_upload(&drive_conn, &id, drive_id, dest_path, &name, size)
-        .map_err(UploadError::Db)?;
+    db::insert_upload(
+        &drive_conn,
+        &id,
+        drive_id,
+        dest_path,
+        &name,
+        size,
+        principal,
+    )
+    .map_err(UploadError::Db)?;
     Ok(Upload {
         id,
         drive_id: drive_id.into(),
@@ -344,11 +380,40 @@ pub fn complete(
 
     let dir = files::dest_dir_create(&conn, &upload.drive_id, &upload.path)?;
     let mut name = upload.name;
+    // Defense in depth on the leaf name — a session row predating the
+    // create-time check must not mint an invisible file either.
+    if files::is_blocked_create_path(&name) {
+        return Err(FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "that name is reserved for Luna",
+        ))
+        .into());
+    }
+    // Re-authorize at install time: the API's checks ran before the bytes
+    // arrived, and a file may have appeared (or a grant been revoked)
+    // since. Only a principal still holding UPLOAD on the folder — and
+    // EDIT on the destination file — may install over something existing.
+    let may_overwrite = match install_rights(&conn, &row, &dir.join(&name), overwrite) {
+        Ok(may) => may,
+        Err(e) => {
+            if matches!(e, UploadError::Denied) {
+                let _ = db::set_upload_state(&dconn, id, "error", "denied");
+            }
+            return Err(e);
+        }
+    };
     let dest = dir.join(&name);
-    if dest.exists() && !overwrite {
-        if rename_on_conflict {
+    if dest.exists() {
+        if may_overwrite {
+            // EDIT verified above — the install below may clobber.
+        } else if rename_on_conflict {
             name = find_free_name(&dir, &name);
             db::update_upload_name(&dconn, id, &name).map_err(UploadError::Db)?;
+        } else if overwrite {
+            // Asked to overwrite but the fresh check says this file is not
+            // theirs to replace.
+            let _ = db::set_upload_state(&dconn, id, "error", "denied");
+            return Err(UploadError::Denied);
         } else {
             return Err(UploadError::Files(FilesError::Io(std::io::Error::new(
                 std::io::ErrorKind::AlreadyExists,
@@ -357,7 +422,10 @@ pub fn complete(
         }
     }
     let dest = dir.join(&name);
-    if let Err(e) = files::install_temp(&upload.temp, &dest, overwrite) {
+    // Effective overwrite comes from the recheck, never the caller's flag:
+    // upload-only sessions land on install_temp's atomic no-overwrite path
+    // even if a destination raced into existence after the check above.
+    if let Err(e) = files::install_temp(&upload.temp, &dest, may_overwrite) {
         files::note_write_failure(&conn, &upload.drive_id, &e.to_string());
         return Err(e.into());
     }
@@ -381,7 +449,58 @@ pub fn complete(
         saving: false,
         original_name: None,
         original_path: None,
+        link_target: None,
+        caps: String::new(),
+        home: false,
     })
+}
+
+/// Re-authorize a finishing upload against its own session principal,
+/// evaluated NOW — the API's checks ran before the bytes arrived and the
+/// destination may have changed since. `Err(Denied)` when a `user:`
+/// principal lost CAP_UPLOAD on the folder entirely; otherwise the
+/// returned bool is the *effective* overwrite right — `false` for every
+/// principal lacking CAP_EDIT on the destination file, so `install_temp`'s
+/// atomic no-overwrite path is the only way their bytes can land.
+fn install_rights(
+    conn: &Connection,
+    row: &UploadRow,
+    dest: &Path,
+    want_overwrite: bool,
+) -> Result<bool, UploadError> {
+    let Some(uid) = row.principal.strip_prefix("user:") else {
+        // `link:` sessions are upload-only drop boxes, and rows predating
+        // principals have no user to re-verify — neither may overwrite.
+        return Ok(false);
+    };
+    let Some(u) = db::get_user(conn, uid).map_err(UploadError::Db)? else {
+        return Err(UploadError::Denied);
+    };
+    let user = crate::auth::CurrentUser {
+        id: u.id,
+        username: u.username,
+        role: u.role,
+    };
+    if !crate::auth::has_cap(
+        &user,
+        conn,
+        &row.drive_id,
+        &row.path,
+        crate::access::CAP_UPLOAD,
+    ) {
+        return Err(UploadError::Denied);
+    }
+    if !want_overwrite || !dest.exists() {
+        return Ok(false);
+    }
+    let rel = crate::gallery::gallery_indexer::join_rel(&row.path, &row.name);
+    Ok(crate::auth::has_cap(
+        &user,
+        conn,
+        &row.drive_id,
+        &rel,
+        crate::access::CAP_EDIT,
+    ))
 }
 
 /// Pick the first free name in `dir` by appending ` (n)` before the extension,
@@ -426,6 +545,41 @@ pub fn cancel(db: &Arc<Mutex<Connection>>, id: &str) -> Result<(), UploadError> 
     db::delete_upload(&dconn, id).map_err(UploadError::Db)?;
     db::delete_upload_chunks(&dconn, id).map_err(UploadError::Db)?;
     Ok(())
+}
+
+/// A session idle this long is orphaned — the client that opened it is gone.
+const ORPHAN_IDLE_SECS: i64 = 24 * 60 * 60;
+
+/// Boot-time cleanup: on every mounted drive, upload sessions idle past
+/// [`ORPHAN_IDLE_SECS`] lose their `.part` temp file and their microdb row.
+/// Runs once at daemon start so a crash or an abandoned upload never leaves
+/// a resumable session — or its partial file — behind.
+pub fn sweep_orphans(db: &Arc<Mutex<Connection>>) {
+    let conn = match db.lock() {
+        Ok(conn) => conn,
+        Err(_) => return,
+    };
+    let cutoff = db::now_unix() - ORPHAN_IDLE_SECS;
+    for drive in db::list_drives(&conn).unwrap_or_default() {
+        if drive.state != "as_is" || drive.mount_point.is_empty() {
+            continue;
+        }
+        let root = Path::new(&drive.mount_point);
+        let Ok(dconn) = crate::drives::drive_db::open_migrating(root, &conn, &drive.id) else {
+            continue;
+        };
+        for row in db::list_stale_uploads(&dconn, cutoff).unwrap_or_default() {
+            // The `.part` file sits inside the destination folder; when that
+            // folder is gone the temp went with it.
+            if let Ok(dir) = files::dest_dir(&conn, &row.drive_id, &row.path)
+                && let Ok(temp) = temp_for(&conn, &row.drive_id, &dir, &row.id)
+            {
+                let _ = std::fs::remove_file(&temp);
+            }
+            let _ = db::delete_upload(&dconn, &row.id);
+            let _ = db::delete_upload_chunks(&dconn, &row.id);
+        }
+    }
 }
 
 impl Upload {
@@ -513,6 +667,141 @@ mod tests {
         ));
     }
 
+    /// A non-admin member holding `caps` on `path` on the test drive.
+    fn grant(conn: &Connection, user: &str, path: &str, caps: crate::access::Caps) {
+        if db::get_user(conn, user).unwrap().is_none() {
+            db::insert_user(conn, user, user, user, "hash", "member").unwrap();
+        }
+        db::insert_access_member(
+            conn,
+            &db::AccessMemberRow {
+                id: format!("g-{user}-{path}"),
+                subject_kind: crate::access::KIND_PATH.into(),
+                drive_id: "d1".into(),
+                path: path.into(),
+                album_id: String::new(),
+                user_id: user.into(),
+                caps,
+                created_by: "test".into(),
+            },
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn session_names_cannot_mint_invisible_files() {
+        let (_dir, db, drive) = setup();
+        let conn = db.lock().unwrap();
+        // `.x.part`-style leaves vanish from every listing — session
+        // creation holds the same bar as `files::create`.
+        assert!(create(&conn, &drive, "", ".x.part", 10).is_err());
+        assert!(create_scoped(&conn, &drive, "", ".y.part", 10, "user:x").is_err());
+        let luna = format!(
+            ".luna-{}-upload.1.2.part",
+            "3f6a8c1e-9b2d-4a7c-8e5f-1a2b3c4d5e6f"
+        );
+        assert!(create(&conn, &drive, "", &luna, 10).is_err());
+        assert!(create(&conn, &drive, "", "fine.txt", 10).is_ok());
+    }
+
+    #[test]
+    fn complete_rechecks_caps_at_install() {
+        // An upload-only member may finish into an EMPTY slot, but must not
+        // clobber a file that appeared after the session's existence check —
+        // and losing the grant mid-upload must stop the install outright.
+        let (_dir, db, drive) = setup();
+        let root = {
+            let conn = db.lock().unwrap();
+            grant(&conn, "mara", "", crate::access::CAP_UPLOAD);
+            db::get_drive(&conn, &drive).unwrap().unwrap().mount_point
+        };
+        let up = {
+            let conn = db.lock().unwrap();
+            create_scoped(&conn, &drive, "", "note.txt", 4, "user:mara").unwrap()
+        };
+        write_chunk(&db, &up.id, 0, &[1u8; 4]).unwrap();
+
+        // A file lands at the destination after the session opened.
+        std::fs::write(Path::new(&root).join("note.txt"), b"taken").unwrap();
+        assert!(matches!(
+            complete(&db, &up.id, true, false, None),
+            Err(UploadError::Denied)
+        ));
+        assert_eq!(
+            std::fs::read(Path::new(&root).join("note.txt")).unwrap(),
+            b"taken",
+            "upload-only bytes never clobber an existing file"
+        );
+
+        // With EDIT on the destination the same overwrite is legitimate.
+        {
+            let conn = db.lock().unwrap();
+            db::insert_access_member(
+                &conn,
+                &db::AccessMemberRow {
+                    id: "g-mara-edit".into(),
+                    subject_kind: crate::access::KIND_PATH.into(),
+                    drive_id: drive.clone(),
+                    path: "".into(),
+                    album_id: String::new(),
+                    user_id: "mara".into(),
+                    caps: crate::access::CAP_ALL,
+                    created_by: "test".into(),
+                },
+            )
+            .unwrap();
+        }
+        let up = {
+            let conn = db.lock().unwrap();
+            create_scoped(&conn, &drive, "", "note.txt", 4, "user:mara").unwrap()
+        };
+        write_chunk(&db, &up.id, 0, &[9u8; 4]).unwrap();
+        complete(&db, &up.id, true, false, None).unwrap();
+        assert_eq!(
+            std::fs::read(Path::new(&root).join("note.txt")).unwrap(),
+            vec![9u8; 4]
+        );
+
+        // Revoke the write grant mid-upload: completion must refuse even
+        // though the session opened while the grant existed.
+        let up = {
+            let conn = db.lock().unwrap();
+            grant(&conn, "evie", "", crate::access::CAP_UPLOAD);
+            let up = create_scoped(&conn, &drive, "", "e.bin", 4, "user:evie").unwrap();
+            db::delete_access_member(&conn, "g-evie-").unwrap();
+            up
+        };
+        write_chunk(&db, &up.id, 0, &[5u8; 4]).unwrap();
+        assert!(matches!(
+            complete(&db, &up.id, false, false, None),
+            Err(UploadError::Denied)
+        ));
+        assert!(!Path::new(&root).join("e.bin").exists());
+    }
+
+    #[test]
+    fn link_sessions_never_overwrite() {
+        // Drop-box sessions have no user caps to recheck — they stay
+        // upload-only and land under a fresh name instead of clobbering.
+        let (_dir, db, drive) = setup();
+        let root = {
+            let conn = db.lock().unwrap();
+            db::get_drive(&conn, &drive).unwrap().unwrap().mount_point
+        };
+        std::fs::write(Path::new(&root).join("report.pdf"), b"original").unwrap();
+        let up = {
+            let conn = db.lock().unwrap();
+            create_scoped(&conn, &drive, "", "report.pdf", 4, "link:l1").unwrap()
+        };
+        write_chunk(&db, &up.id, 0, &[7u8; 4]).unwrap();
+        let entry = complete(&db, &up.id, true, true, None).unwrap();
+        assert_eq!(entry.name, "report (1).pdf");
+        assert_eq!(
+            std::fs::read(Path::new(&root).join("report.pdf")).unwrap(),
+            b"original"
+        );
+    }
+
     #[test]
     fn upload_into_missing_subfolders_creates_them() {
         // Regression: a backup/sync subfolder (or a folder dropped on the web
@@ -575,5 +864,47 @@ mod tests {
             std::fs::read_to_string(root.join("clash.txt")).unwrap(),
             "zed"
         );
+    }
+
+    #[test]
+    fn scoped_upload_remembers_its_principal() {
+        let (_dir, db, drive) = setup();
+        let conn = db.lock().unwrap();
+        let up = create_scoped(&conn, &drive, "", "x.bin", 10, "user:u1").unwrap();
+        let row = get_row(&conn, &up.id).unwrap();
+        assert_eq!(row.principal, "user:u1");
+        // The unscoped constructor leaves the principal empty — the API
+        // layer must refuse anyone but an admin driving such a session.
+        let legacy = create(&conn, &drive, "", "y.bin", 10).unwrap();
+        assert_eq!(get_row(&conn, &legacy.id).unwrap().principal, "");
+    }
+
+    #[test]
+    fn boot_sweep_removes_only_idle_sessions() {
+        let (dir, db, drive) = setup();
+        let conn = db.lock().unwrap();
+        let stale = create_scoped(&conn, &drive, "", "old.bin", 10, "user:u1").unwrap();
+        let fresh = create_scoped(&conn, &drive, "", "new.bin", 10, "user:u2").unwrap();
+        drop(conn);
+        assert!(stale.temp.exists() && fresh.temp.exists());
+
+        // Age the stale row past the idle bound.
+        let root = dir.path().join("drive");
+        let dconn = crate::drives::drive_db::open(&root).unwrap();
+        dconn
+            .execute(
+                "UPDATE uploads SET updated_at = ?2 WHERE id = ?1",
+                rusqlite::params![stale.id, db::now_unix() - ORPHAN_IDLE_SECS - 60],
+            )
+            .unwrap();
+        drop(dconn);
+
+        sweep_orphans(&db);
+
+        let conn = db.lock().unwrap();
+        assert!(get_row(&conn, &stale.id).is_err());
+        assert!(!stale.temp.exists(), "stale .part file is removed");
+        assert!(get_row(&conn, &fresh.id).is_ok());
+        assert!(fresh.temp.exists(), "fresh sessions are untouched");
     }
 }

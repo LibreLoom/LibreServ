@@ -45,7 +45,7 @@ describe("FolderPickerModal", () => {
     );
   }
 
-  it("renders segmented buttons when drives <= 4", async () => {
+  it("renders the destination drive selector as a dropdown", async () => {
     renderModal({
       drives: [
         { id: "d1", label: "Drive 1", state: "healthy" },
@@ -55,12 +55,16 @@ describe("FolderPickerModal", () => {
     });
 
     expect(await screen.findByText("Destination drive")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Drive 1 \(current\)/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Drive 2$/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Drive 3$/i })).toBeInTheDocument();
+    const dropdownTrigger = document.querySelector('[data-slot="dropdown-trigger"]');
+    expect(dropdownTrigger).toBeInTheDocument();
+    fireEvent.click(dropdownTrigger);
+
+    expect(await screen.findByRole("option", { name: /Drive 1 \(current\)/i })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /^Drive 2$/i })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /^Drive 3$/i })).toBeInTheDocument();
   });
 
-  it("renders a dropdown when drives > 4 (supporting 10+ drives gracefully)", async () => {
+  it("renders every drive in the dropdown (supporting 10+ drives gracefully)", async () => {
     const twelveDrives = Array.from({ length: 12 }, (_, i) => ({
       id: `d${i + 1}`,
       label: `Drive ${i + 1}`,
@@ -96,12 +100,16 @@ describe("FolderPickerModal", () => {
     });
 
     expect(await screen.findByText("Destination drive")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Drive 1 \(current\)/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Drive 2$/i })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Unplugged/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Ejected/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Broken/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Read Only/i })).not.toBeInTheDocument();
+    const dropdownTrigger = document.querySelector('[data-slot="dropdown-trigger"]');
+    expect(dropdownTrigger).toBeInTheDocument();
+    fireEvent.click(dropdownTrigger);
+
+    expect(await screen.findByRole("option", { name: /Drive 1 \(current\)/i })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /^Drive 2$/i })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /Unplugged/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /Ejected/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /Broken/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /Read Only/i })).not.toBeInTheDocument();
   });
 
   it("calls onConfirm with selected destination drive and folder", async () => {
@@ -115,8 +123,10 @@ describe("FolderPickerModal", () => {
       onConfirm,
     });
 
-    expect(await screen.findByRole("button", { name: /Drive 2/i })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Drive 2/i }));
+    const dropdownTrigger = document.querySelector('[data-slot="dropdown-trigger"]');
+    expect(dropdownTrigger).toBeInTheDocument();
+    fireEvent.click(dropdownTrigger);
+    fireEvent.click(await screen.findByRole("option", { name: /^Drive 2$/i }));
 
     const startBtn = screen.getByRole("button", { name: /Start moving/i });
     fireEvent.click(startBtn);

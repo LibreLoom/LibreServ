@@ -29,7 +29,7 @@ const BATCH_UPSERT: usize = 64;
 /// Top-level user-accessible folder for shared album uploads on the home drive.
 pub const USER_SHARED_ALBUMS_DIR: &str = "Shared Photos";
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct Photo {
     pub drive_id: String,
     pub path: String,
@@ -40,37 +40,76 @@ pub struct Photo {
     pub height: u32,
     pub thumb: String,
     pub kind: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub lat: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub lon: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub place_label: Option<String>,
-    #[serde(default)]
     pub camera_make: String,
-    #[serde(default)]
     pub camera_model: String,
-    #[serde(default)]
     pub lens: String,
-    #[serde(default)]
     pub iso: u32,
-    #[serde(default)]
     pub focal_mm: f64,
     /// `-1` unknown, `0` off, `1` on.
-    #[serde(default = "flash_unknown")]
     pub flash: i64,
-    #[serde(default)]
     pub duration_secs: u32,
-    #[serde(default)]
     pub favorited: bool,
 }
 
-fn flash_unknown() -> i64 {
-    -1
+impl Photo {
+    /// Stable opaque handle for a photo — safe to hand to guests, unlike the
+    /// raw `drive_id`/`path` coordinates.
+    pub fn opaque_id(&self) -> String {
+        blake3::hash(format!("{}\0{}", self.drive_id, self.path).as_bytes())
+            .to_hex()
+            .to_string()
+    }
 }
 
-// Keep serde's `default = "flash_unknown"` reachable for rustc unused checks.
-const _: fn() -> i64 = flash_unknown;
+/// `Photo`'s serialized form is the guest-safe projection: an opaque `id`,
+/// the display name, and media metadata — never the real `drive_id` or
+/// `path`, which would reveal drive layout (member homes live under
+/// `.luna-<uuid>-members`). Member-facing handlers re-attach the real
+/// coordinates explicitly through `api::gallery::member_photo_json`;
+/// anything that serializes a `Photo` directly — like the anonymous
+/// album-link surface — stays safe by default. `path` carries the same
+/// opaque id so per-item UI keys (selection, lightbox) stay unique without
+/// disclosing where the file lives.
+impl Serialize for Photo {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let optional = self.lat.is_some() as usize
+            + self.lon.is_some() as usize
+            + self.place_label.is_some() as usize;
+        let opaque = self.opaque_id();
+        let mut st = s.serialize_struct("Photo", 17 + optional)?;
+        st.serialize_field("id", &opaque)?;
+        st.serialize_field("path", &opaque)?;
+        st.serialize_field("name", &self.name)?;
+        st.serialize_field("size", &self.size)?;
+        st.serialize_field("taken_at", &self.taken_at)?;
+        st.serialize_field("width", &self.width)?;
+        st.serialize_field("height", &self.height)?;
+        st.serialize_field("thumb", &self.thumb)?;
+        st.serialize_field("kind", &self.kind)?;
+        if let Some(v) = self.lat {
+            st.serialize_field("lat", &v)?;
+        }
+        if let Some(v) = self.lon {
+            st.serialize_field("lon", &v)?;
+        }
+        if let Some(v) = &self.place_label {
+            st.serialize_field("place_label", v)?;
+        }
+        st.serialize_field("camera_make", &self.camera_make)?;
+        st.serialize_field("camera_model", &self.camera_model)?;
+        st.serialize_field("lens", &self.lens)?;
+        st.serialize_field("iso", &self.iso)?;
+        st.serialize_field("focal_mm", &self.focal_mm)?;
+        st.serialize_field("flash", &self.flash)?;
+        st.serialize_field("duration_secs", &self.duration_secs)?;
+        st.serialize_field("favorited", &self.favorited)?;
+        st.end()
+    }
+}
 
 #[derive(Debug, Default)]
 pub struct ScanReport {
@@ -737,8 +776,56 @@ pub fn finish_thumb(drive_id: &str, root: &Path, rel: &str) -> anyhow::Result<()
     Ok(())
 }
 
+/// Magic-byte check that a file really is the media its extension claims.
+/// Only the formats the gallery accepts need recognizing — the gate is
+/// "looks like photo or video bytes", not exact format identification. A
+/// `.jpg` holding markup (or anything else a browser could render) fails it.
+pub fn sniff_media_file(path: &Path) -> bool {
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return false;
+    };
+    let mut head = [0u8; 32];
+    let n = std::io::Read::read(&mut file, &mut head).unwrap_or(0);
+    sniff_media_bytes(&head[..n])
+}
+
+/// Magic-byte media recognizer on the file's first bytes.
+pub(crate) fn sniff_media_bytes(head: &[u8]) -> bool {
+    // JPEG: SOI + marker.
+    if head.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        return true;
+    }
+    // PNG signature.
+    if head.starts_with(&[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) {
+        return true;
+    }
+    // GIF87a / GIF89a.
+    if head.starts_with(b"GIF87a") || head.starts_with(b"GIF89a") {
+        return true;
+    }
+    // ISO-BMFF family — HEIC/HEIF/HIF and MP4/MOV/M4V all open with a box
+    // length followed by `ftyp` at offset 4.
+    if head.len() >= 12 && &head[4..8] == b"ftyp" {
+        return true;
+    }
+    // WebM / Matroska EBML header.
+    if head.starts_with(&[0x1A, 0x45, 0xDF, 0xA3]) {
+        return true;
+    }
+    false
+}
+
 /// Index a single media file (meta + thumb). Used by shared-album uploads and tests.
 pub fn index_one(drive_id: &str, root: &Path, rel: &str) -> anyhow::Result<Option<Photo>> {
+    // Contribution accept path: the extension alone doesn't prove media —
+    // a renamed HTML file must not land in shared albums. `resolve_child`
+    // also keeps planted links inside the drive.
+    let Ok(abs) = luna_core::path::resolve_child(root, rel) else {
+        return Ok(None);
+    };
+    if !is_media(&abs) || !sniff_media_file(&abs) {
+        return Ok(None);
+    }
     if index_one_meta(drive_id, root, rel)?.is_none() {
         return Ok(None);
     }
@@ -880,6 +967,15 @@ fn should_reindex_after_rename(rel: &str) -> bool {
 pub fn ensure_thumb(src: &Path, dest: &Path, kind: &str) -> anyhow::Result<(u32, u32, bool)> {
     if dest.exists() {
         return Ok((0, 0, false));
+    }
+    // A source that resolves into Luna's own namespace (member homes,
+    // thumbs, trash, the microdb itself) must never be thumbnailed: album
+    // and link surfaces reach here through paths a member only *named*, and
+    // a symlink they planted must not read out `.luna-*` contents for them.
+    if let Ok(canonical) = src.canonicalize()
+        && crate::files::is_internal_temp(&canonical.to_string_lossy())
+    {
+        anyhow::bail!("Luna can't make a thumbnail from that file");
     }
     let limits = crate::budget::limits();
     let meta = std::fs::symlink_metadata(src)?;
@@ -2126,6 +2222,47 @@ pub struct Album {
     pub item_count: u64,
 }
 
+/// What a non-manager sees of an album: everything the UI needs to render
+/// and address it, without the on-disk layout (`contrib_path`,
+/// `cover_path`/`cover_drive_id`) or the owner's user id. `cover_thumb`
+/// stays — it is a display URL, and album viewers can already reach every
+/// item's thumbnail through album membership.
+#[derive(Debug, Clone, Serialize)]
+pub struct AlbumPublic {
+    pub id: String,
+    pub home_drive_id: String,
+    pub name: String,
+    pub created_at: i64,
+    pub cover_thumb: String,
+    pub locked: bool,
+    pub item_count: u64,
+}
+
+impl Album {
+    /// Strip the internal fields for viewers who do not manage the album.
+    /// `cover_thumb` becomes an album-scoped URL instead of the item's
+    /// `?drive_id=&path=` thumb URL — album viewers get the same image
+    /// without learning where the cover file lives on the drive.
+    pub fn public_view(&self) -> AlbumPublic {
+        AlbumPublic {
+            id: self.id.clone(),
+            home_drive_id: self.home_drive_id.clone(),
+            name: self.name.clone(),
+            created_at: self.created_at,
+            cover_thumb: if self.cover_thumb.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    "/api/v1/gallery/albums/{}/{}/cover",
+                    self.home_drive_id, self.id
+                )
+            },
+            locked: self.locked,
+            item_count: self.item_count,
+        }
+    }
+}
+
 fn album_cover_thumb(home_drive_id: &str, cover_drive_id: &str, cover_path: &str) -> String {
     if cover_path.is_empty() {
         return String::new();
@@ -2251,9 +2388,16 @@ pub fn allocate_contrib_dir(
     if let Some(path) = existing
         && !path.trim().is_empty()
     {
-        let target = root.join(&path);
-        if !target.exists() {
-            std::fs::create_dir_all(&target)?;
+        // The stored folder must be real directories all the way down — a
+        // symlink swapped in afterwards must never steer contributor uploads
+        // into a different folder on (or off) the drive.
+        match luna_core::path::resolve_child_nofollow(root, &path) {
+            Ok(target) if target.is_dir() => return Ok(path),
+            Ok(_) => anyhow::bail!("the album's upload folder is blocked by a file"),
+            Err(luna_core::path::PathError::NotFound(_)) => {
+                create_dir_all_locked(root, &path)?;
+            }
+            Err(e) => return Err(e.into()),
         }
         return Ok(path);
     }
@@ -2278,7 +2422,9 @@ pub fn allocate_contrib_dir(
 
     let check_collision = |cand: &str| -> anyhow::Result<bool> {
         let p = root.join(cand);
-        if p.exists() {
+        // `symlink_metadata` so a dangling symlink also counts as taken —
+        // Luna must not write through a planted link.
+        if std::fs::symlink_metadata(&p).is_ok() {
             return Ok(true);
         }
         let count: i64 = conn.query_row(
@@ -2315,13 +2461,53 @@ pub fn allocate_contrib_dir(
         },
     };
 
-    std::fs::create_dir_all(root.join(&chosen_path))?;
+    create_dir_all_locked(root, &chosen_path)?;
     conn.execute(
         "UPDATE albums SET contrib_path = ?1 WHERE id = ?2",
         params![chosen_path, album_id],
     )?;
 
     Ok(chosen_path)
+}
+
+/// Create `rel` (and every missing parent) under `root` without following
+/// any symlink component. Mirrors `files::dest_dir_create`'s per-prefix
+/// walk: each existing component must be a real directory, each new one is
+/// re-verified right after creation, and the finished path is canonicalized
+/// once more before callers write into it — a symlink planted between steps
+/// can never steer creation outside the drive root.
+fn create_dir_all_locked(root: &Path, rel: &str) -> anyhow::Result<PathBuf> {
+    let mut prefix = String::new();
+    for part in rel.split('/').filter(|s| !s.is_empty()) {
+        if !prefix.is_empty() {
+            prefix.push('/');
+        }
+        prefix.push_str(part);
+        let p = luna_core::path::resolve_for_create_nofollow(root, &prefix)?;
+        match std::fs::symlink_metadata(&p) {
+            Ok(m) if m.is_dir() && !m.file_type().is_symlink() => {}
+            Ok(_) => {
+                anyhow::bail!("a file is in the way of the album's upload folder");
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                match std::fs::create_dir(&p) {
+                    Ok(()) => {}
+                    // A concurrent create won the race — fine, as long as
+                    // what exists now is a real directory.
+                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+                    Err(e) => return Err(e.into()),
+                }
+                match std::fs::symlink_metadata(&p) {
+                    Ok(m) if m.is_dir() && !m.file_type().is_symlink() => {}
+                    _ => {
+                        anyhow::bail!("a file is in the way of the album's upload folder");
+                    }
+                }
+            }
+            Err(e) => return Err(e.into()),
+        }
+    }
+    Ok(luna_core::path::resolve_child(root, rel)?)
 }
 
 pub fn get_album(
@@ -2593,7 +2779,9 @@ pub fn ensure_heic_preview_jpeg(src: &Path, thumb_dest: &Path) -> anyhow::Result
 }
 
 /// Write a zip of absolute files. `entries` is `(archive_path, absolute_file)`.
-/// Caps at `max_files` (returns Err on overflow).
+/// Caps at `max_files` (returns Err on overflow). Files living inside Luna's
+/// own namespace (member homes, thumbs, trash, the microdb) are never
+/// packed, and duplicate archive names are made unique with ` (n)` suffixes.
 pub fn write_items_zip(
     entries: &[(String, PathBuf)],
     writer: impl std::io::Write + std::io::Seek,
@@ -2610,13 +2798,21 @@ pub fn write_items_zip(
     let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
     let mut file_count = 0usize;
     let mut buf = vec![0u8; 64 * 1024];
+    let mut used_names: HashSet<String> = HashSet::new();
     for (archive_name, abs) in entries {
         let meta = std::fs::symlink_metadata(abs)?;
         if meta.file_type().is_symlink() || !meta.is_file() {
             continue;
         }
-        zip.start_file(archive_name, options)?;
-        let mut input = std::fs::File::open(abs)?;
+        // Entry paths arrive canonicalized — a `.luna-*` segment means a
+        // symlinked item or contrib row resolved onto Luna bookkeeping
+        // (a member home, thumbs, the drive's microdb). Never ship those.
+        if crate::files::is_internal_temp(&abs.to_string_lossy()) {
+            continue;
+        }
+        let name = unique_zip_name(&mut used_names, archive_name);
+        zip.start_file(&name, options)?;
+        let mut input = open_verified_abs(abs)?;
         loop {
             let n = input.read(&mut buf)?;
             if n == 0 {
@@ -2628,6 +2824,52 @@ pub fn write_items_zip(
     }
     zip.finish()?;
     Ok(file_count)
+}
+
+/// `archive_name` or `archive_name (n)` — never two identical entry names in
+/// one zip (basenames collide when items come from different folders).
+fn unique_zip_name(used: &mut HashSet<String>, archive_name: &str) -> String {
+    if used.insert(archive_name.to_string()) {
+        return archive_name.to_string();
+    }
+    let (stem, ext) = match archive_name.rsplit_once('.') {
+        Some((s, e)) if !s.is_empty() => (s.to_string(), format!(".{e}")),
+        _ => (archive_name.to_string(), String::new()),
+    };
+    for n in 2.. {
+        let cand = format!("{stem} ({n}){ext}");
+        if used.insert(cand.clone()) {
+            return cand;
+        }
+    }
+    unreachable!()
+}
+
+/// Open `abs` for reading, refusing a last-minute symlink swap and proving
+/// via `/proc/self/fd` that the descriptor really is the canonical path the
+/// caller resolved (check-then-open TOCTOU guard).
+fn open_verified_abs(abs: &Path) -> std::io::Result<std::fs::File> {
+    let mut opts = std::fs::OpenOptions::new();
+    opts.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.custom_flags(libc::O_NOFOLLOW);
+    }
+    let file = opts.open(abs)?;
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::io::AsRawFd;
+        let canonical = abs.canonicalize()?;
+        let link = std::fs::read_link(format!("/proc/self/fd/{}", file.as_raw_fd()))?;
+        if link != canonical {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "path changed between check and open",
+            ));
+        }
+    }
+    Ok(file)
 }
 
 fn now_unix() -> i64 {
@@ -3388,6 +3630,127 @@ mod tests {
         let p3 = allocate_contrib_dir(root, &album3.id, &album3.name).unwrap();
         assert_eq!(p3, "Shared Photos/Summer Fun (4)");
         assert!(root.join(&p3).is_dir());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn allocate_contrib_dir_never_writes_through_symlinks() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        adopt(root, "d1");
+        let album = create_album(root, "d1", "user1", "Trip").unwrap();
+
+        // A planted symlink where a path component should be: "Shared
+        // Photos" points outside the contrib namespace. Allocation must
+        // refuse to create inside the target rather than follow the link.
+        let outside = dir.path().join("elsewhere");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("Shared Photos")).unwrap();
+        let err = allocate_contrib_dir(root, &album.id, &album.name)
+            .expect_err("symlinked contrib parent must not be followed");
+        let _ = err; // any refusal is correct — the target must stay empty
+        assert!(
+            std::fs::read_dir(&outside).unwrap().next().is_none(),
+            "nothing may be created through the planted symlink"
+        );
+
+        // A stored contrib path later replaced by a symlink is refused too.
+        std::fs::remove_file(root.join("Shared Photos")).unwrap();
+        let path = allocate_contrib_dir(root, &album.id, &album.name).unwrap();
+        let legit = root.join(&path);
+        std::fs::remove_dir_all(&legit).unwrap();
+        let hijack = dir.path().join("hijack");
+        std::fs::create_dir_all(&hijack).unwrap();
+        std::os::unix::fs::symlink(&hijack, &legit).unwrap();
+        assert!(
+            allocate_contrib_dir(root, &album.id, &album.name).is_err(),
+            "contrib dir swapped for a symlink must not be reused"
+        );
+    }
+
+    #[test]
+    fn sniff_media_file_tells_real_media_from_markup() {
+        let dir = tempfile::tempdir().unwrap();
+        let jpg = dir.path().join("a.jpg");
+        std::fs::write(&jpg, &[0xFF, 0xD8, 0xFF, 0xE0, 0x00]).unwrap();
+        assert!(sniff_media_file(&jpg));
+
+        // HTML bytes named like a photo — the extension lies.
+        let fake = dir.path().join("party.jpg");
+        std::fs::write(&fake, b"<html><body>not a photo</body></html>").unwrap();
+        assert!(!sniff_media_file(&fake));
+
+        let mp4 = dir.path().join("clip.mp4");
+        std::fs::write(&mp4, b"\x00\x00\x00\x18ftypisom\x00\x00\x00\x00").unwrap();
+        assert!(sniff_media_file(&mp4));
+
+        assert!(!sniff_media_file(&dir.path().join("missing.jpg")));
+    }
+
+    #[test]
+    fn index_one_rejects_markup_named_as_media() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        adopt(root, "d1");
+        // A contribution upload that is really markup must not index.
+        std::fs::write(root.join("party.jpg"), b"<html><body>x</body></html>").unwrap();
+        assert!(
+            index_one("d1", root, "party.jpg").unwrap().is_none(),
+            "renamed markup must not be accepted as a photo"
+        );
+        // A real image still indexes.
+        let img = image::RgbImage::from_pixel(4, 4, image::Rgb([1, 2, 3]));
+        img.save(root.join("ok.jpg")).unwrap();
+        assert!(index_one("d1", root, "ok.jpg").unwrap().is_some());
+    }
+
+    #[test]
+    fn write_items_zip_dedupes_names_and_skips_luna_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let a = root.join("a");
+        let b = root.join("b");
+        std::fs::create_dir_all(&a).unwrap();
+        std::fs::create_dir_all(&b).unwrap();
+        std::fs::write(a.join("same.jpg"), b"aaa").unwrap();
+        std::fs::write(b.join("same.jpg"), b"bbbb").unwrap();
+        // A file sitting inside Luna's namespace — never pack it.
+        let prefix = luna_core::marker::pick_prefix(root).unwrap();
+        let member_home = root.join(format!("{prefix}-members/sam"));
+        std::fs::create_dir_all(&member_home).unwrap();
+        let private = member_home.join("private.jpg");
+        std::fs::write(&private, b"secret").unwrap();
+
+        let zip_path = root.join("out.zip");
+        let file = std::fs::File::create(&zip_path).unwrap();
+        let n = write_items_zip(
+            &[
+                ("same.jpg".into(), a.join("same.jpg")),
+                ("same.jpg".into(), b.join("same.jpg")),
+                ("private.jpg".into(), private),
+            ],
+            file,
+            10,
+        )
+        .unwrap();
+        assert_eq!(n, 2, "the member-home file must be skipped");
+
+        let archive = std::fs::File::open(&zip_path).unwrap();
+        let mut zip = zip::ZipArchive::new(archive).unwrap();
+        let names: Vec<String> = (0..zip.len())
+            .map(|i| zip.by_index(i).unwrap().name().to_string())
+            .collect();
+        assert!(names.contains(&"same.jpg".to_string()));
+        assert!(
+            names
+                .iter()
+                .any(|n| n.starts_with("same (") && n.ends_with(").jpg")),
+            "duplicate basename must be made unique, got {names:?}"
+        );
+        assert!(
+            !names.iter().any(|n| n.contains("private")),
+            "Luna-internal file must not appear in the zip"
+        );
     }
 
     #[test]

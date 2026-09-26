@@ -23,6 +23,7 @@ import {
   sharedItemAction,
   sharedItemHref,
 } from "../lib/access.js";
+import { isMemberHomePath } from "../lib/paths.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 
 function SubjectIcon({ kind, isFile }) {
@@ -30,8 +31,23 @@ function SubjectIcon({ kind, isFile }) {
   return <Icon size={18} className="text-accent shrink-0" aria-hidden="true" />;
 }
 
-function subjectSubtitle(row) {
+function subjectSubtitle(row, ownHomePath = "") {
   if (row.kind === KIND_ALBUM) return `Album · ${row.drive_label}`;
+  if (row.is_home) return "Your private folder";
+  // Inside the viewer's own home: "Home · docs" — the internal
+  // `.luna-<uuid>-members/<name>` prefix never renders. Inside someone
+  // else's home (a deep share) it reads "<name>'s home".
+  if (isMemberHomePath(row.path)) {
+    const segs = String(row.path).split("/");
+    const rest = segs.slice(2).join("/");
+    const owner = segs[1];
+    if (ownHomePath && segs.slice(0, 2).join("/") === ownHomePath) {
+      return rest ? `Home · ${rest}` : "Home";
+    }
+    return rest
+      ? `${row.drive_label} · ${owner}'s home · ${rest}`
+      : `${row.drive_label} · ${owner}'s home`;
+  }
   if (row.path) return `${row.drive_label} · ${row.path}`;
   // Whole-drive grants name the drive in the header — don't repeat it.
   return "Whole drive";
@@ -166,7 +182,7 @@ export default function SharedPage() {
                       {
                         key: "where",
                         label: "Where",
-                        render: (row) => subjectSubtitle(row),
+                        render: (row) => subjectSubtitle(row, user?.home?.path || ""),
                       },
                       {
                         key: "access",
@@ -269,7 +285,7 @@ export default function SharedPage() {
                       {
                         key: "where",
                         label: "Where",
-                        render: (s) => subjectSubtitle(s),
+                        render: (s) => subjectSubtitle(s, user?.home?.path || ""),
                       },
                       {
                         key: "shared",

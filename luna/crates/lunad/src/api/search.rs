@@ -60,7 +60,10 @@ async fn search(
         } else {
             format!("{}/{}", hit.parent, hit.name)
         };
-        if crate::files::is_internal_temp(&full)
+        // Luna bookkeeping never surfaces; member homes pass through to the
+        // capability check so the owner can search their own files while
+        // everyone else's home results stay invisible.
+        if crate::files::is_blocked_user_path(&full)
             || crate::backup::protect::is_protected_store(&full)
         {
             continue;

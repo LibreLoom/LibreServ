@@ -316,7 +316,7 @@ describe("DrivesPage", () => {
     renderPage();
     expect(await screen.findByText("report.pdf")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Open" }))
-      .toHaveAttribute("href", "/drives/d1?path=docs&file=report.pdf");
+      .toHaveAttribute("href", "/drives/d1?path=docs%2Freport.pdf");
   });
 
   it("shows granted folders for a household member", async () => {

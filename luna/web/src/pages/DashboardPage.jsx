@@ -9,7 +9,6 @@ import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
-import TextLink from "../components/ui/TextLink.jsx";
 import { TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { ROOT_TERM_HINT } from "../lib/rootTerm.js";
 import { useAuth } from "../context/AuthContext.jsx";
@@ -18,9 +17,9 @@ import { dashboard as greetingMessages } from "../assets/greetings.jsx";
 import SystemHealthPill from "../components/common/SystemHealthPill.jsx";
 import SoftwareUpdatePill from "../components/common/SoftwareUpdatePill.jsx";
 import { ApiError, apiErrorMessage, getDrives, getHealth, getJson, postJson } from "../lib/api.js";
-import { folderHref as driveFolderHref } from "../lib/paths.js";
-import { KIND_ALBUM, sharedItemAction, sharedItemHref } from "../lib/access.js";
-import { memberAccessRoots } from "../lib/shareTree.js";
+import { folderHref as driveFolderHref, homeAwareLabel } from "../lib/paths.js";
+import { CAP, KIND_ALBUM, sharedItemAction, sharedItemHref } from "../lib/access.js";
+import { capsOnPath, memberAccessRoots } from "../lib/shareTree.js";
 import {
   formatRecentAgo,
   readRecentItems,
@@ -106,9 +105,9 @@ function DriveStateLabel({ state }) {
  * GET /api/v1/drives/{id}/summary. Never invents numbers when the drive is
  * unplugged or the summary is still loading.
  *
- * @param {{ drive: { id: string, label?: string, state: string }, isAdmin?: boolean }} props
+ * @param {{ drive: { id: string, label?: string, state: string }, isAdmin?: boolean, grants?: any[] }} props
  */
-function DriveHomeCard({ drive, isAdmin = false }) {
+function DriveHomeCard({ drive, isAdmin = false, grants = [] }) {
   const ready = drive.state === "as_is" || drive.state === "readonly";
   const summary = useQuery({
     queryKey: ["drive-summary", drive.id],
@@ -135,6 +134,24 @@ function DriveHomeCard({ drive, isAdmin = false }) {
   const shortcuts = Array.isArray(data?.shortcuts) ? data.shortcuts : [];
   const variant = STATE_PILLS[drive.state] || "info";
 
+  // A member without view on the drive root lands on a 403 if the card
+  // links there — point their open button at the shallowest grant instead
+  // (whole-drive grants keep `/drives/{id}`). Admins always browse the root.
+  const canBrowseRoot =
+    isAdmin || (capsOnPath(grants, drive.id, "") & CAP.VIEW) !== 0;
+  const entryGrant = grants.reduce((best, grant) => {
+    const depth = (p) => String(p || "").split("/").filter(Boolean).length;
+    return !best || depth(grant.path) < depth(best.path) ? grant : best;
+  }, null);
+  const openHref =
+    !isAdmin && !canBrowseRoot && entryGrant
+      ? sharedItemHref(entryGrant)
+      : `/drives/${drive.id}`;
+  const openLabel =
+    !isAdmin && !canBrowseRoot && entryGrant
+      ? sharedItemAction(entryGrant)
+      : "Browse files";
+
   let body;
   if (!ready) {
     body = (
@@ -157,7 +174,16 @@ function DriveHomeCard({ drive, isAdmin = false }) {
     );
   } else if (summary.isError) {
     body = (
-      <p className="text-primary text-sm">Open this drive to see your files.</p>
+      <div className="space-y-3">
+        <p className="text-primary text-sm">Open this drive to see your files.</p>
+        {!isAdmin && entryGrant ? (
+          <div>
+            <Button size="sm" variant="primary" asChild>
+              <Link to={openHref}>{openLabel}</Link>
+            </Button>
+          </div>
+        ) : null}
+      </div>
     );
   } else {
     body = (
@@ -219,7 +245,7 @@ function DriveHomeCard({ drive, isAdmin = false }) {
 
         <div>
           <Button size="sm" variant="primary" asChild>
-            <Link to={`/drives/${drive.id}`}>Browse files</Link>
+            <Link to={openHref}>{openLabel}</Link>
           </Button>
         </div>
       </div>
@@ -549,14 +575,14 @@ const RECENT_KIND_LABELS = {
  *   drives: Array<{ id: string, label?: string }>,
  * }} props
  */
-function RecentItemsCard({ items, drives }) {
+function RecentItemsCard({ items, drives, ownHomePath = "" }) {
   return (
     <Card icon={History} title="Recents">
       <ul className="space-y-3">
         {items.map((item) => {
           const liveLabel = drives.find((d) => d.id === item.driveId)?.label;
-          const name = recentItemName(item, liveLabel);
-          const locationLine = recentItemLocationLine(item, liveLabel);
+          const name = recentItemName(item, liveLabel, ownHomePath);
+          const locationLine = recentItemLocationLine(item, liveLabel, ownHomePath);
           return (
             <li
               key={`${item.kind}:${item.driveId}:${item.path}`}
@@ -768,13 +794,18 @@ export default function DashboardPage() {
             deviceTokenError={deviceTokenError}
           />
           {recentItems.length > 0 && (
-            <RecentItemsCard items={recentItems} drives={adopted} />
+            <RecentItemsCard items={recentItems} drives={adopted} ownHomePath={user?.home?.path || ""} />
           )}
         </div>
 
         <div className="flex-1 grid grid-cols-1 gap-6 content-start order-2 md:order-1">
           {adopted.map((drive) => (
-            <DriveHomeCard key={drive.id} drive={drive} isAdmin={isAdmin} />
+            <DriveHomeCard
+              key={drive.id}
+              drive={drive}
+              isAdmin={isAdmin}
+              grants={grants.filter((g) => g.drive_id === drive.id)}
+            />
           ))}
 
           {isAdmin && pluggedIn.length > 0 && (
@@ -847,7 +878,9 @@ export default function DashboardPage() {
                         {grant.name || grant.drive_label}
                       </span>
                       <span className="block text-primary text-xs truncate">
-                        {grant.path ? `${grant.drive_label} · ${grant.path}` : "Whole drive"}
+                        {grant.path
+                          ? `${grant.drive_label} · ${homeAwareLabel(grant.path, user?.home?.path || "")}`
+                          : "Whole drive"}
                       </span>
                     </span>
                     <Button size="sm" variant="primary" asChild>
@@ -857,9 +890,9 @@ export default function DashboardPage() {
                 ))}
               </ul>
               <div className="mt-3">
-                <TextLink surface="secondary" to="/shared">
-                  See all shared items
-                </TextLink>
+                <Button size="sm" variant="outline" asChild>
+                  <Link to="/shared">See all shared items</Link>
+                </Button>
               </div>
             </Card>
           )}
@@ -878,9 +911,9 @@ export default function DashboardPage() {
               </ul>
               {albumsShared.length > 8 ? (
                 <div className="mt-3">
-                  <TextLink surface="secondary" to="/gallery#albums">
-                    See all albums
-                  </TextLink>
+                  <Button size="sm" variant="outline" asChild>
+                    <Link to="/gallery#albums">See all albums</Link>
+                  </Button>
                 </div>
               ) : null}
             </Card>

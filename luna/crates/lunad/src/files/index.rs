@@ -83,6 +83,9 @@ pub fn fresh_entries(
                 saving: false,
                 original_name: None,
                 original_path: None,
+                link_target: None,
+                caps: String::new(),
+                home: false,
             })
         })
         .ok()?;
@@ -281,13 +284,49 @@ pub fn folder_totals_indexed(
 /// Recursively index an adopted drive. Runs in the background; never blocks
 /// a request. Directories are read once each, then kept fresh by mtime.
 pub fn scan_drive(
+    central: &Connection,
+    drive_id: &str,
+    root: &std::path::Path,
+) -> anyhow::Result<u64> {
+    scan_drive_inner(
+        central,
+        drive_id,
+        root,
+        &member_home_rels(central, drive_id),
+    )
+}
+
+/// Drive-relative paths of member homes that live (or would live) on this
+/// drive.
+fn member_home_rels(conn: &Connection, drive_id: &str) -> Vec<String> {
+    db::list_users(conn)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|u| u.role != "admin")
+        .filter(|u| crate::member_home::home_on_drive(conn, &u.id, drive_id))
+        .filter_map(|u| crate::member_home::home_rel(conn, drive_id, &u.username))
+        .collect()
+}
+
+fn scan_drive_inner(
     _central: &Connection,
     drive_id: &str,
     root: &std::path::Path,
+    home_rels: &[String],
 ) -> anyhow::Result<u64> {
     let conn = crate::drives::drive_db::open(root)?;
     let mut dirs = 0u64;
     let mut stack = vec![(String::new(), root.to_path_buf())];
+    // Member homes are hidden from directory reads but still indexed — the
+    // owner searches their own files. Every search hit is re-checked
+    // against capabilities before it leaves the API, so an indexed home
+    // leaks nothing to anyone else.
+    for rel in home_rels {
+        let dir = root.join(rel);
+        if dir.is_dir() {
+            stack.push((rel.clone(), dir));
+        }
+    }
     while let Some((rel, dir)) = stack.pop() {
         let meta = std::fs::metadata(&dir)?;
         let mtime = mtime(&meta);
@@ -313,13 +352,18 @@ pub fn scan_drive(
 /// Like [`scan_drive`], but releases the DB mutex between directories so
 /// listings and search stay responsive during a full reindex.
 pub fn scan_drive_unlocked(
-    _db: &std::sync::Mutex<Connection>,
+    db: &std::sync::Mutex<Connection>,
     drive_id: &str,
     root: &std::path::Path,
 ) -> anyhow::Result<u64> {
-    // Index lives on the drive `.luna-<uuid>.sqlite3` microdb — central lock is unused.
+    // Index lives on the drive `.luna-<uuid>.sqlite3` microdb — the central
+    // lock is held only for the brief member-home lookup.
+    let home_rels = db
+        .lock()
+        .map(|conn| member_home_rels(&conn, drive_id))
+        .unwrap_or_default();
     let unused = Connection::open_in_memory()?;
-    scan_drive(&unused, drive_id, root)
+    scan_drive_inner(&unused, drive_id, root, &home_rels)
 }
 
 fn mtime(meta: &std::fs::Metadata) -> i64 {
@@ -354,6 +398,9 @@ mod tests {
                 saving: false,
                 original_name: None,
                 original_path: None,
+                link_target: None,
+                caps: String::new(),
+                home: false,
             },
             FileEntry {
                 name: "a".into(),
@@ -364,6 +411,9 @@ mod tests {
                 saving: false,
                 original_name: None,
                 original_path: None,
+                link_target: None,
+                caps: String::new(),
+                home: false,
             },
         ];
         replace_dir(&conn, "d1", "sub", 42, &entries).unwrap();
@@ -468,6 +518,9 @@ mod tests {
                 saving: false,
                 original_name: None,
                 original_path: None,
+                link_target: None,
+                caps: String::new(),
+                home: false,
             }],
         )
         .unwrap();

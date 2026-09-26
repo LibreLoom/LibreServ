@@ -3,6 +3,7 @@ import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { canViewerOpen } from "../lib/officeConvert.js";
 import { viewerNeedsSession } from "../lib/fileKinds.js";
 import { isTrashPath, joinPath, parentPath, pathBasename, TRASH_PATH } from "../lib/paths.js";
+import { pathContains } from "../lib/shareTree.js";
 
 function safeDecode(value) {
   try {
@@ -61,10 +62,14 @@ export default function useFileNavigation({ defaultFile = null, singleFile = fal
     }
     const params = new URLSearchParams(searchParams);
     if (next) {
-      const fileName = pathBasename(next);
-      params.set("file", fileName);
       const dir = parentPath(next);
-      if (dir !== null && dir !== path) {
+      // When `dir` isn't the folder being browsed, `next` isn't a leaf of
+      // it — a grant's virtual root IS the file, or a full-path `?file=`
+      // deep link. The param then carries the whole path, and `path` only
+      // ever moves down into the tree: ancestors of a grant aren't
+      // browsable, so `path` must never climb to one.
+      params.set("file", dir === path ? pathBasename(next) : next);
+      if (dir !== null && dir !== path && pathContains(path, dir)) {
         if (dir) params.set("path", dir);
         else params.delete("path");
       }

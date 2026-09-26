@@ -38,7 +38,14 @@ import { TermHint, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { apiErrorMessage } from "../../lib/api.js";
 import { fileExtension, openableKind } from "../../lib/fileKinds.js";
 import { fileSourceScope, useFileSource } from "../../lib/fileSource.jsx";
-import { fmtSize, parentPath, pathBasename } from "../../lib/paths.js";
+import {
+  fmtSize,
+  homeAwareLabel,
+  isMemberHomePath,
+  parentPath,
+  pathBasename,
+} from "../../lib/paths.js";
+import { useOptionalAuth } from "../../context/AuthContext.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 const TYPE_LABELS = {
@@ -126,7 +133,10 @@ function childrenLabel(children) {
 }
 
 /** "Drive / folder / subfolder" — the folder this item lives in. */
-function locationLabel(driveLabel, rel) {
+function locationLabel(driveLabel, rel, ownHomePath = "") {
+  if (isMemberHomePath(rel)) {
+    return `${driveLabel} / ${homeAwareLabel(rel, ownHomePath)}`;
+  }
   const segments = rel ? rel.split("/").filter(Boolean) : [];
   return [driveLabel, ...segments].join(" / ");
 }
@@ -195,12 +205,13 @@ MiniStat.propTypes = {
 /**
  * @param {{ label: string, onClick: () => void }} props
  */
-export function PropertiesButton({ label, onClick }) {
+/** @param {{ label: string, onClick: () => void, surface?: "primary" | "secondary" }} props */
+export function PropertiesButton({ label, onClick, surface = "secondary" }) {
   return (
     <Tooltip content="Properties">
       <Button
         variant="ghost"
-        surface="secondary"
+        surface={surface}
         size="iconSm"
         aria-label={`Properties for ${label}`}
         onClick={onClick}
@@ -214,6 +225,7 @@ export function PropertiesButton({ label, onClick }) {
 PropertiesButton.propTypes = {
   label: PropTypes.string.isRequired,
   onClick: PropTypes.func.isRequired,
+  surface: PropTypes.oneOf(["primary", "secondary"]),
 };
 
 /**
@@ -241,6 +253,7 @@ export default function PropertiesSheet({
   inTrash = false,
 }) {
   const source = useFileSource();
+  const ownHomePath = useOptionalAuth()?.user?.home?.path || "";
   const stat = useQuery({
     queryKey: ["file-stat", fileSourceScope(source, driveId), path],
     queryFn: () => source.stat(driveId, path),
@@ -254,7 +267,7 @@ export default function PropertiesSheet({
   const trashedParent = data?.trashed_from ? parentPath(data.trashed_from) : null;
   const location = inTrash
     ? `Trash on ${driveLabel}`
-    : locationLabel(driveLabel, parent);
+    : locationLabel(driveLabel, parent, ownHomePath);
   const saving = Boolean(data?.saving ?? entry?.saving);
   const hidden = Boolean(data?.hidden ?? entry?.hidden);
   const modified = data?.modified ?? entry?.modified;
@@ -418,7 +431,7 @@ export default function PropertiesSheet({
               <DetailRow
                 icon={Undo2}
                 label="Was in"
-                value={locationLabel(driveLabel, trashedParent || "")}
+                value={locationLabel(driveLabel, trashedParent || "", ownHomePath)}
                 mono
               />
             ) : null}

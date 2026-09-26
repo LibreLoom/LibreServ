@@ -101,7 +101,14 @@ function stubFilesApi(byPath) {
       return new Response(JSON.stringify(stat), { status: 200, headers: { "Content-Type": "application/json" } });
     }
     if (u.includes("/files?")) {
-      const listing = byPath[filesPath(u)] ?? [];
+      const p = filesPath(u);
+      if (byPath.__errors?.[p]) {
+        return new Response(
+          JSON.stringify({ error: byPath.__errors[p].message || "Forbidden" }),
+          { status: byPath.__errors[p].status, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      const listing = byPath[p] ?? [];
       return new Response(JSON.stringify(listing), { status: 200, headers: { "Content-Type": "application/json" } });
     }
     if (u.endsWith("/users") || u.includes("/users/directory")) {
@@ -123,7 +130,9 @@ function stubFilesApi(byPath) {
           exists: true,
           name: path.split("/").pop() || "Photos Drive",
         },
-        my_caps: byPath.__myCaps || "full",
+        // The stub user is an admin — the API hands them manage caps
+        // (content + the share bit), not bare "full".
+        my_caps: byPath.__myCaps || "full+share",
         members: byPath.__members || [],
         links: byPath.__links || [],
       }), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -188,15 +197,99 @@ describe("FilesPage", () => {
     expect(screen.queryByLabelText("Find in this folder")).not.toBeInTheDocument();
   });
 
+  it("lands an upload-only member on the upload surface with no list/stat calls", async () => {
+    const fetchMock = stubFilesApi({
+      __role: "user",
+      __access: [
+        { id: "g1", kind: "path", drive_id: "d1", path: "docs/drop", caps: "upload", name: "drop" },
+      ],
+    });
+    renderFiles("/drives/d1?path=docs%2Fdrop");
+    expect(await screen.findByText("Upload files")).toBeInTheDocument();
+    // list and stat would both 403 for an upload-only grant — never fire them.
+    expect(fetchMock.mock.calls.some(([u]) =>
+      String(u).includes("/files?") || String(u).includes("/files/stat"))).toBe(false);
+  });
+
+  it("lands a member file grant on the file itself as a virtual root", async () => {
+    stubFilesApi({
+      __role: "user",
+      __access: [
+        {
+          id: "g1", kind: "path", drive_id: "d1", path: "docs/report.txt",
+          caps: "view", name: "report.txt", is_file: true,
+        },
+      ],
+      "docs/report.txt": [
+        { name: "report.txt", kind: "file", size: 10, modified: 0, hidden: false },
+      ],
+      __stat: {
+        "docs/report.txt": {
+          name: "report.txt", kind: "file", size: 10, modified: 0,
+          writable: false, trashed_from: null,
+        },
+      },
+    });
+    renderFiles("/drives/d1?path=docs%2Freport.txt");
+    // The row maps back onto the granted path — not a doubled joinPath.
+    await waitFor(() => {
+      expect(document.querySelector('[data-file-path="docs/report.txt"]')).toBeTruthy();
+    });
+    // The grant is the virtual root: its basename is the only crumb, no Up,
+    // and nothing links to the parent folder or the drive root.
+    expect(screen.queryByRole("link", { name: "docs" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Photos Drive" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /↑ Up one folder/i })).not.toBeInTheDocument();
+    const rowLinks = screen.getAllByRole("link", { name: "report.txt" });
+    expect(rowLinks.some((a) =>
+      a.getAttribute("href") === "/drives/d1?path=docs%2Freport.txt")).toBe(true);
+  });
+
+  it("floors a member's breadcrumbs and Up at the granted folder", async () => {
+    stubFilesApi({
+      __role: "user",
+      __access: [
+        { id: "g1", kind: "path", drive_id: "d1", path: "docs", caps: "view", name: "docs" },
+      ],
+      "docs/reports": [
+        { name: "q1.txt", kind: "file", size: 10, modified: 0, hidden: false },
+      ],
+    });
+    renderFiles("/drives/d1?path=docs%2Freports");
+    expect(await screen.findByText("q1.txt")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Photos Drive" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "docs" }))
+      .toHaveAttribute("href", "/drives/d1?path=docs");
+    expect(screen.getByRole("link", { name: "reports" }))
+      .toHaveAttribute("href", "/drives/d1?path=docs%2Freports");
+    expect(screen.getByRole("link", { name: /↑ Up one folder/i }))
+      .toHaveAttribute("href", "/drives/d1?path=docs");
+  });
+
+  it("points a member at Shared when the browsed folder isn't granted", async () => {
+    stubFilesApi({
+      __role: "user",
+      __access: [
+        { id: "g1", kind: "path", drive_id: "d1", path: "docs", caps: "view", name: "docs" },
+      ],
+      __errors: { "": { status: 403, message: "You don't have permission to view this folder." } },
+    });
+    renderFiles();
+    expect(await screen.findByText("You don't have access to this folder")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open Shared" }))
+      .toHaveAttribute("href", "/shared");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("shows a drive menu when more than one drive is ready", async () => {
     stubFilesApi({
       "": [{ name: "photo.jpg", kind: "file", size: 1000, modified: 0, hidden: false }],
     });
     renderFiles();
-    const trigger = await screen.findByRole("button", { name: "Drives: Photos Drive" });
+    const trigger = await screen.findByRole("button", { name: "Places: Photos Drive" });
     expect(trigger).toHaveAttribute("aria-haspopup", "menu");
     fireEvent.click(trigger);
-    const menu = await screen.findByRole("menu", { name: "Drives" });
+    const menu = await screen.findByRole("menu", { name: "Places" });
     // The drive being browsed sits on the trigger, not in the list.
     expect(within(menu).queryByRole("menuitem", { name: "Photos Drive" })).not.toBeInTheDocument();
     fireEvent.click(within(menu).getByRole("menuitem", { name: "Spare Drive" }));
@@ -208,7 +301,7 @@ describe("FilesPage", () => {
       "": [{ name: "photo.jpg", kind: "file", size: 1000, modified: 0, hidden: false }],
     });
     renderFiles();
-    fireEvent.click(await screen.findByRole("button", { name: "Drives: Photos Drive" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Places: Photos Drive" }));
     const item = await screen.findByRole("menuitem", { name: "Spare Drive" });
     const dataTransfer = {
       types: ["application/x-luna-paths"],
@@ -361,16 +454,32 @@ describe("FilesPage", () => {
     // Up and the root crumb lead back to the drive, like any folder.
     expect(screen.getByRole("link", { name: "↑ Up one folder" })).toHaveAttribute("href", "/drives/d1");
     expect(screen.getByRole("link", { name: "Photos Drive" })).toHaveAttribute("href", "/drives/d1");
-    // Read-only: no upload/create/mutate affordances — and no selection.
+    // Items inside trash keep the folder row minus share/protect/rename —
+    // plus Restore and Delete permanently. Upload/create stay off (nothing
+    // is written INTO trash).
     expect(screen.queryByRole("button", { name: /Upload/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Move photo.jpg/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Rename photo.jpg/i })).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Select photo.jpg")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Select all in this folder")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Sharing for photo.jpg" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Copy photo.jpg" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Move photo.jpg" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Rename photo.jpg" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete photo.jpg permanently" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Properties for photo.jpg" })).toBeInTheDocument();
+    // Multi-select works in trash like any folder.
+    expect(screen.getByLabelText("Select photo.jpg")).toBeInTheDocument();
+    expect(screen.getByLabelText("Select all in this folder")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Download photo.jpg" })).toHaveAttribute(
       "href",
       "/api/v1/drives/d1/files/content?path=.luna-trash%2F171-photo.jpg&download=1",
     );
+
+    // The move/copy modal names the item by its display name — the
+    // `{nonce}-` storage name never reaches a title.
+    fireEvent.click(screen.getByRole("button", { name: "Copy photo.jpg" }));
+    const picker = await screen.findByRole("dialog", { name: "Copy photo.jpg" });
+    fireEvent.click(within(picker).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
 
     fireEvent.click(screen.getByRole("button", { name: "Restore photo.jpg" }));
     const dialog = await screen.findByRole("dialog", { name: "Restore this?" });
@@ -381,6 +490,29 @@ describe("FilesPage", () => {
     await waitFor(() => {
       expect(screen.queryByText("Request failed (500)")).not.toBeInTheDocument();
     });
+  });
+
+  it("gives the drive-root Trash row folder actions", async () => {
+    stubFilesApi({
+      "": [{ name: "album", kind: "dir", size: 0, modified: 0, hidden: false }],
+      __backupUnlocked: true,
+    });
+    renderFiles();
+    expect(await screen.findByText("album")).toBeInTheDocument();
+    // The Trash entry acts like a folder row: share, protect, download,
+    // copy, properties — but no move/rename/delete (the trash dir itself
+    // can't be moved, renamed, or trashed).
+    expect(screen.getByRole("button", { name: "Sharing for Trash" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Protect Trash" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Download Trash" })).toHaveAttribute(
+      "href",
+      "/api/v1/drives/d1/files/content?path=.luna-trash&download=1",
+    );
+    expect(screen.getByRole("button", { name: "Copy Trash" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Properties for Trash" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Move Trash" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Rename Trash" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Move Trash to trash" })).not.toBeInTheDocument();
   });
 
   it("shows the trash empty state through the regular browser", async () => {
@@ -559,7 +691,9 @@ describe("FilesPage", () => {
       expect(create).toBeTruthy();
       expect(JSON.parse(create[1].body)).toEqual({ path: "note.txt" });
     });
-    expect(await screen.findByRole("dialog", { name: "note.txt" })).toBeInTheDocument();
+    // The editor mounts an async text fetch — under full-suite load this
+    // clears the default 1s findByRole timeout, so give it headroom.
+    expect(await screen.findByRole("dialog", { name: "note.txt" }, { timeout: 5000 })).toBeInTheDocument();
     expect(await screen.findByLabelText("Contents of note.txt")).toBeInTheDocument();
   });
 
@@ -571,7 +705,7 @@ describe("FilesPage", () => {
         { id: "2", role: "user", username: "sam", display_name: "Sam" },
         { id: "3", role: "user", username: "jo", display_name: "Jo" },
       ],
-      __members: [{ id: "m1", user_id: "2", name: "Sam", caps: "view" }],
+      __members: [{ id: "m1", user_id: "2", name: "Sam", caps: "view", can_manage: true, can_remove: true }],
       __links: [],
     });
     renderFiles();

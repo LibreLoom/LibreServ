@@ -171,6 +171,51 @@ describe("FileBrowser", () => {
     );
   });
 
+  it("never offers trash paths as picker destinations", async () => {
+    const onSelect = vi.fn();
+    stubListing({
+      ".luna-trash": [
+        { name: "1-docs", kind: "dir", size: 0, hidden: false },
+      ],
+      ".luna-trash/1-docs": [],
+    });
+    renderBrowser({
+      pickerMode: "folder",
+      selectedPath: null,
+      onSelect,
+      multiSelect: false,
+      path: ".luna-trash",
+    });
+    // The trash folder itself can't be a destination — nothing writes into it.
+    expect(await screen.findByRole("button", { name: /Use this folder/i })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /Select 1-docs/i })).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByText("1-docs"));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Use this folder/i })).toBeDisabled();
+    });
+    expect(screen.queryByRole("button", { name: /Select/i })).not.toBeInTheDocument();
+  });
+
+  it("flips its cards to the primary surface inside a modal", async () => {
+    stubListing({ "": [{ name: "album", kind: "dir", size: 0, hidden: false }] });
+    const { container } = renderBrowser({
+      pickerMode: "folder",
+      selectedPath: null,
+      onSelect: vi.fn(),
+      multiSelect: false,
+      surface: "primary",
+    });
+    expect(await screen.findByText("album")).toBeInTheDocument();
+    const cards = container.querySelectorAll('[data-surface="primary"]');
+    expect(cards.length).toBeGreaterThanOrEqual(2);
+    // Toolbar ghost buttons sit on the inverted well and legitimately stamp
+    // secondary — the flip check is about cards and rows.
+    const stale = [...container.querySelectorAll('[data-surface="secondary"]')].filter(
+      (el) => el.getAttribute("data-slot") !== "button",
+    );
+    expect(stale).toHaveLength(0);
+  });
+
   it("multi-selects rows and fires bulk copy", async () => {
     const onCopy = vi.fn();
     stubListing({
@@ -894,7 +939,7 @@ describe("FileBrowser", () => {
     );
   });
 
-  it("in trash has no checkboxes but renders the caller's row actions", async () => {
+  it("in trash keeps multi-select and renders the caller's row actions", async () => {
     const onRestore = vi.fn();
     const onPurge = vi.fn();
     stubListing({
@@ -925,9 +970,10 @@ describe("FileBrowser", () => {
       ),
     });
     expect(await screen.findByText("photo.jpg")).toBeInTheDocument();
-    // Trash rows are never selectable — no row or select-all checkboxes.
-    expect(screen.queryByLabelText("Select photo.jpg")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Select all in this folder")).not.toBeInTheDocument();
+    // Trash rows select like any folder's — row and select-all checkboxes.
+    fireEvent.click(screen.getByLabelText("Select photo.jpg"));
+    expect(await screen.findByText("1 selected")).toBeInTheDocument();
+    expect(screen.getByLabelText("Select all in this folder")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Restore photo.jpg" }));
     expect(onRestore).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -962,7 +1008,7 @@ describe("FileBrowser", () => {
     ]);
   });
 
-  it("in trash does not drag rows, accept drops, or open session-backed files", async () => {
+  it("in trash drags and drops like a folder but keeps session-backed files closed", async () => {
     const onOpenFile = vi.fn();
     const onInternalMove = vi.fn();
     stubListing({
@@ -1010,21 +1056,153 @@ describe("FileBrowser", () => {
     expect(onOpenFile).toHaveBeenCalledWith(
       expect.objectContaining({ fullPath: ".luna-trash/171-note.txt" }),
     );
-    // Rows don't drag, and trash folders aren't drop targets.
+    // Rows drag like a normal folder — the payload carries the trash paths.
     const noteRow = document.querySelector('[data-file-path=".luna-trash/171-note.txt"]');
-    expect(noteRow?.getAttribute("draggable")).not.toBe("true");
+    expect(noteRow?.getAttribute("draggable")).toBe("true");
     const setData = vi.fn();
     fireEvent.dragStart(noteRow, { dataTransfer: { setData, effectAllowed: "", types: [] } });
-    expect(setData).not.toHaveBeenCalled();
+    expect(setData).toHaveBeenCalledWith(
+      "application/x-luna-paths",
+      JSON.stringify([".luna-trash/171-note.txt"]),
+    );
+    // Folder rows accept drops exactly like a normal folder — the jobs
+    // backend decides whether the destination is allowed.
     const dirRow = document.querySelector('[data-file-path=".luna-trash/171-docs"]');
     const dataTransfer = {
       types: ["application/x-luna-paths"],
-      getData: vi.fn(() => JSON.stringify(["other/x.txt"])),
+      getData: vi.fn((type) => (type === "application/x-luna-paths" ? JSON.stringify(["other/x.txt"]) : "")),
     };
     fireEvent.dragOver(dirRow, { dataTransfer });
     fireEvent.drop(dirRow, { dataTransfer });
     await act(async () => {});
-    expect(onInternalMove).not.toHaveBeenCalled();
+    expect(onInternalMove).toHaveBeenCalledWith(
+      ["other/x.txt"],
+      ".luna-trash/171-docs",
+      undefined,
+      undefined,
+    );
+  });
+
+  it("floors breadcrumbs and Up at a member grant path", async () => {
+    stubListing({
+      "docs/reports": [{ name: "q1.txt", kind: "file", size: 10, hidden: false }],
+    });
+    renderBrowser({
+      path: "docs/reports",
+      pathFloor: "docs",
+      linkNavigation: true,
+      multiSelect: false,
+    });
+    expect(await screen.findByText("q1.txt")).toBeInTheDocument();
+    // The grant is the root crumb — no drive-root or ancestor links exist.
+    expect(screen.queryByRole("link", { name: "Photos" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "docs" }))
+      .toHaveAttribute("href", "/drives/d1?path=docs");
+    expect(screen.getByRole("link", { name: "reports" }))
+      .toHaveAttribute("href", "/drives/d1?path=docs%2Freports");
+    expect(screen.getByRole("link", { name: /↑ Up one folder/i }))
+      .toHaveAttribute("href", "/drives/d1?path=docs");
+  });
+
+  it("stops Up and ancestor drops at the grant floor", async () => {
+    stubListing({
+      docs: [{ name: "q1.txt", kind: "file", size: 10, hidden: false }],
+    });
+    const onInternalMove = vi.fn();
+    renderBrowser({
+      path: "docs",
+      pathFloor: "docs",
+      linkNavigation: true,
+      onInternalMove,
+      multiSelect: false,
+    });
+    expect(await screen.findByText("q1.txt")).toBeInTheDocument();
+    // At the floor there is no Up and no crumb above the grant.
+    expect(screen.queryByRole("link", { name: /↑ Up one folder/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Photos" })).not.toBeInTheDocument();
+    const floorCrumb = screen.getByRole("link", { name: "docs" });
+    expect(floorCrumb).toHaveAttribute("href", "/drives/d1?path=docs");
+    // The floor crumb still accepts drops into itself.
+    const dataTransfer = {
+      types: ["application/x-luna-paths"],
+      getData: vi.fn((type) => (
+        type === "application/x-luna-paths" ? JSON.stringify(["other/b.txt"]) : ""
+      )),
+    };
+    fireEvent.dragOver(floorCrumb, { dataTransfer });
+    fireEvent.drop(floorCrumb, { dataTransfer });
+    await waitFor(() => {
+      expect(onInternalMove).toHaveBeenCalledWith(["other/b.txt"], "docs", undefined, undefined);
+    });
+  });
+
+  it("maps a one-entry file listing back onto the browsed path", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      const u = String(url);
+      try {
+        const parsed = new URL(u, "http://luna.test");
+        const p = parsed.searchParams.get("path") || "";
+        if (parsed.pathname.endsWith("/files/stat")) {
+          return new Response(JSON.stringify(
+            p === "docs/report.txt"
+              ? { name: "report.txt", kind: "file", size: 10 }
+              : { name: "folder", kind: "dir" },
+          ), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (parsed.pathname.includes("/files")) {
+          return new Response(JSON.stringify(
+            p === "docs/report.txt"
+              ? [{ name: "report.txt", kind: "file", size: 10, hidden: false }]
+              : [],
+          ), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+      } catch {
+        // fall through
+      }
+      return new Response("{}", { status: 500 });
+    }));
+    const onOpenFile = vi.fn();
+    renderBrowser({
+      path: "docs/report.txt",
+      pathFloor: "docs/report.txt",
+      onOpenFile,
+      multiSelect: false,
+    });
+    // The row is the browsed file itself — not a doubled joinPath.
+    await waitFor(() => {
+      expect(document.querySelector('[data-file-path="docs/report.txt"]')).toBeTruthy();
+    });
+    const row = /** @type {HTMLElement} */ (document.querySelector('[data-file-path="docs/report.txt"]'));
+    fireEvent.click(within(row).getByRole("button", { name: "report.txt" }));
+    expect(onOpenFile).toHaveBeenCalledWith(
+      expect.objectContaining({ fullPath: "docs/report.txt", path: "docs/report.txt" }),
+    );
+  });
+
+  it("shows the caller's notice instead of an error on a 403 listing", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(
+      JSON.stringify({ error: "You don't have permission to view this folder." }),
+      { status: 403, headers: { "Content-Type": "application/json" } },
+    )));
+    renderBrowser({
+      multiSelect: false,
+      forbiddenState: <p>Shared items only</p>,
+    });
+    expect(await screen.findByText("Shared items only")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("keeps the plain-language error when a non-403 listing fails", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(
+      JSON.stringify({ error: "Luna couldn't open this folder. Try again." }),
+      { status: 500, headers: { "Content-Type": "application/json" } },
+    )));
+    renderBrowser({
+      multiSelect: false,
+      forbiddenState: <p>Shared items only</p>,
+    });
+    expect(await screen.findByRole("alert")).toHaveTextContent("couldn't open this folder");
+    expect(screen.queryByText("Shared items only")).not.toBeInTheDocument();
   });
 });
 

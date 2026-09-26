@@ -21,7 +21,14 @@ pub const CAP_VIEW: Caps = 1;
 pub const CAP_UPLOAD: Caps = 2;
 pub const CAP_EDIT: Caps = 4;
 pub const CAP_RESPOND: Caps = 8;
+/// Manage sharing on a subtree: add/retune/remove members and mint or manage
+/// guest links. Deliberately separate from content bits — "full" is full file
+/// access, not silent subtree-admin powers. Granted only alongside a content
+/// capability.
+pub const CAP_SHARE: Caps = 16;
 pub const CAP_ALL: Caps = CAP_VIEW | CAP_UPLOAD | CAP_EDIT;
+/// Everything an admin (or a member on their own home) holds.
+pub const CAP_MANAGE: Caps = CAP_ALL | CAP_SHARE;
 
 pub const KIND_PATH: &str = "path";
 pub const KIND_ALBUM: &str = "album";
@@ -35,32 +42,61 @@ pub fn normalize_subject_kind(kind: &str) -> Option<&'static str> {
 }
 
 /// Stable wire names for capability sets. "view+upload" is both bits;
-/// "full" is all three.
-pub fn caps_to_str(caps: Caps) -> &'static str {
-    match caps {
+/// "full" is all three. A trailing "+share" marks share-management rights —
+/// "full+share" is what admins and subtree managers hold.
+pub fn caps_to_str(caps: Caps) -> String {
+    let base = match caps & !CAP_SHARE {
         CAP_ALL => "full",
         CAP_RESPOND => "respond",
         c if c == CAP_VIEW | CAP_UPLOAD => "view+upload",
         CAP_UPLOAD => "upload",
         0 => "none",
         _ => "view",
+    };
+    if caps & CAP_SHARE != 0 {
+        format!("{base}+share")
+    } else {
+        base.to_string()
     }
 }
 
 pub fn caps_from_str(s: &str) -> Option<Caps> {
-    match s.trim().to_ascii_lowercase().as_str() {
-        "view" => Some(CAP_VIEW),
-        "upload" => Some(CAP_UPLOAD),
-        "view+upload" | "read_write" | "write" => Some(CAP_VIEW | CAP_UPLOAD),
-        "full" | "edit" => Some(CAP_ALL),
-        "respond" => Some(CAP_RESPOND),
-        _ => None,
+    let s = s.trim().to_ascii_lowercase();
+    // Aliases that do not split cleanly on '+' must match before the part
+    // loop — "full" is not a sum of parts.
+    match s.as_str() {
+        "read_write" | "write" => return Some(CAP_VIEW | CAP_UPLOAD),
+        "full" | "edit" => return Some(CAP_ALL),
+        "full+share" | "edit+share" => return Some(CAP_MANAGE),
+        "respond" => return Some(CAP_RESPOND),
+        "none" => return Some(0),
+        _ => {}
     }
+    let mut bits: Caps = 0;
+    for part in s.split('+') {
+        match part {
+            "view" | "read" => bits |= CAP_VIEW,
+            "upload" => bits |= CAP_UPLOAD,
+            "share" => bits |= CAP_SHARE,
+            "" => {}
+            _ => return None,
+        }
+    }
+    if bits != 0 { Some(bits) } else { None }
 }
 
 /// `mine` can grant `want` when want is a subset of mine.
 pub fn caps_cover(mine: Caps, want: Caps) -> bool {
     mine & want == want
+}
+
+/// Strict superiority: `mine` properly contains `theirs` — equal caps are
+/// peers, not superiors. A `view+share` member can manage a `view` row but
+/// never another `view+share` row, so delegated authority can't retune or
+/// kick at its own level. Owners and admins are intrinsically superior —
+/// callers exempt them separately, before consulting this.
+pub fn caps_strictly_cover(mine: Caps, theirs: Caps) -> bool {
+    caps_cover(mine, theirs) && !caps_cover(theirs, mine)
 }
 
 /// A link stops working the moment `expires_at` passes.
@@ -70,22 +106,31 @@ pub fn link_expired(link: &db::AccessLinkRow) -> bool {
 
 /// Which capability sets are valid for a subject. Upload alone is only
 /// meaningful on a folder (drop box) or album (contribute-only); a single
-/// file has nothing to "upload into".
+/// file has nothing to "upload into". CAP_SHARE may ride any otherwise-valid
+/// set but never stands alone — sharing without content rights is a no-op
+/// grant.
 pub fn caps_valid_for(caps: Caps, subject_kind: &str, is_file: bool) -> bool {
+    let content = caps & !CAP_SHARE;
     match subject_kind {
-        KIND_ALBUM => caps == CAP_VIEW || caps == CAP_UPLOAD || caps == CAP_VIEW | CAP_UPLOAD,
-        _ if is_file => caps == CAP_VIEW || caps == CAP_ALL,
+        KIND_ALBUM => {
+            content == CAP_VIEW || content == CAP_UPLOAD || content == CAP_VIEW | CAP_UPLOAD
+        }
+        _ if is_file => content == CAP_VIEW || content == CAP_ALL,
         _ => {
-            caps == CAP_VIEW
-                || caps == CAP_UPLOAD
-                || caps == CAP_VIEW | CAP_UPLOAD
-                || caps == CAP_ALL
+            content == CAP_VIEW
+                || content == CAP_UPLOAD
+                || content == CAP_VIEW | CAP_UPLOAD
+                || content == CAP_ALL
         }
     }
 }
 
-/// Links accept the member matrix plus `respond` on `.lunaform` files.
+/// Links accept the member matrix plus `respond` on `.lunaform` files —
+/// but never CAP_SHARE: a guest URL has no identity to manage shares with.
 pub fn caps_valid_for_link(caps: Caps, subject_kind: &str, is_file: bool, is_form: bool) -> bool {
+    if caps & CAP_SHARE != 0 {
+        return false;
+    }
     if caps == CAP_RESPOND {
         return subject_kind == KIND_PATH && is_file && is_form;
     }
@@ -119,42 +164,6 @@ pub fn path_contains(parent: &str, child: &str) -> bool {
         return true;
     }
     child.starts_with(parent) && child.as_bytes().get(parent.len()) == Some(&b'/')
-}
-
-fn same_subject(a: &db::AccessMemberRow, b: &db::AccessMemberRow) -> bool {
-    a.subject_kind == b.subject_kind
-        && a.drive_id == b.drive_id
-        && a.path == b.path
-        && a.album_id == b.album_id
-}
-
-/// Rows the new member row fully covers (same user, inside scope, subset caps).
-/// A stronger child row stays — a member keeping more access on a nested
-/// folder is a deliberate exception, not a duplicate.
-pub fn superseded_member_ids(
-    rows: &[db::AccessMemberRow],
-    new: &db::AccessMemberRow,
-) -> Vec<String> {
-    let mut doomed = Vec::new();
-    for row in rows {
-        if row.user_id != new.user_id || row.subject_kind != new.subject_kind {
-            continue;
-        }
-        if !caps_cover(new.caps, row.caps) {
-            continue;
-        }
-        if same_subject(row, new) {
-            doomed.push(row.id.clone());
-            continue;
-        }
-        if new.subject_kind == KIND_PATH
-            && row.drive_id == new.drive_id
-            && path_contains(&new.path, &row.path)
-        {
-            doomed.push(row.id.clone());
-        }
-    }
-    doomed
 }
 
 /// Insert a member row. Explicit grants on nested subjects survive a wider
@@ -193,6 +202,7 @@ pub fn member_access_roots(rows: Vec<db::AccessMemberRow>) -> Vec<db::AccessMemb
 
 /// The member's effective capabilities on a filesystem path: union of every
 /// path row whose scope contains it. Album rows don't apply here.
+#[cfg(test)]
 pub fn member_caps_on_path(rows: &[db::AccessMemberRow], drive_id: &str, path: &str) -> Caps {
     let mut caps: Caps = 0;
     for row in rows {
@@ -381,7 +391,7 @@ mod tests {
             ("full", CAP_ALL),
         ] {
             assert_eq!(caps_from_str(s), Some(c));
-            assert_eq!(caps_from_str(caps_to_str(c)), Some(c));
+            assert_eq!(caps_from_str(&caps_to_str(c)), Some(c));
         }
         assert_eq!(caps_from_str("nonsense"), None);
     }
@@ -425,32 +435,6 @@ mod tests {
         assert!(!path_contains("a", "ab"));
         assert_eq!(clean_subject_path("../escape"), None);
         assert_eq!(clean_subject_path("a/../b"), None);
-    }
-
-    #[test]
-    fn supersede_rules() {
-        let mk = |id: &str, path: &str, caps: Caps| db::AccessMemberRow {
-            id: id.into(),
-            subject_kind: KIND_PATH.into(),
-            drive_id: "d".into(),
-            path: path.into(),
-            album_id: String::new(),
-            user_id: "u".into(),
-            caps,
-            created_by: "a".into(),
-        };
-        let rows = vec![
-            mk("old-same", "a", CAP_VIEW),
-            mk("child-write", "a/b", CAP_ALL),
-        ];
-        // equal-caps same-path row is replaced; the stronger child stays
-        let new = mk("new", "a", CAP_VIEW);
-        assert_eq!(superseded_member_ids(&rows, &new), vec!["old-same"]);
-        // a parent widened to full access covers the child too — both go
-        let new = mk("new", "a", CAP_ALL);
-        let doomed = superseded_member_ids(&rows, &new);
-        assert!(doomed.contains(&"old-same".to_string()));
-        assert!(doomed.contains(&"child-write".to_string()));
     }
 
     fn member(id: &str, path: &str, caps: Caps) -> db::AccessMemberRow {

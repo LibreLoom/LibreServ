@@ -26,7 +26,9 @@ function subjectBody(path, overrides = {}) {
       name: path ? path.split("/").pop() : "Photos Drive",
       item_count: 0,
     },
-    my_caps: "full",
+    // A manager holds full+share; tests that want a narrower caller
+    // override my_caps explicitly.
+    my_caps: "full+share",
     members: [],
     links: [],
     inherited_members: [],

@@ -154,6 +154,13 @@ fn dav_handler_for(
             "Luna's index is busy. Try again.",
         )
     })?;
+    // `/dav/home` is the member's private home mount — their `.luna-<prefix>-members/<username>`
+    // folder presented as if it were the whole drive. A drive literally
+    // id'd "home" would keep its own mount; the alias only fills the slot
+    // when no drive claims it.
+    if id == "home" && crate::db::get_drive(&conn, "home").ok().flatten().is_none() {
+        return dav_home_handler(state, &conn, &user);
+    }
     let Some(drive) = crate::db::get_drive(&conn, id).map_err(|e| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -200,6 +207,60 @@ fn dav_handler_for(
 /// Handlers are built per request now, so this is a no-op.
 pub fn drop_cached_handler(_state: &AppState, _drive_id: &str) {}
 
+/// `/dav/home`: the member's `.luna-<prefix>-members/<username>` folder as a DAV root. The jail
+/// sits *inside* the home dir while `GrantFs::scoped` still evaluates
+/// capabilities against the real `.luna-<prefix>-members/<username>` subject path — the owner
+/// gets full access, everyone else (admins included) is turned away.
+fn dav_home_handler(
+    state: &AppState,
+    conn: &rusqlite::Connection,
+    user: &CurrentUser,
+) -> Result<crate::DavHandler, (StatusCode, axum::Json<serde_json::Value>)> {
+    if user.role == "admin" {
+        return Err(json_error(
+            StatusCode::NOT_FOUND,
+            "Admins don't have a home folder — mount a drive instead.",
+        ));
+    }
+    let row = crate::db::get_user(conn, &user.id)
+        .ok()
+        .flatten()
+        .ok_or_else(|| json_error(StatusCode::UNAUTHORIZED, "Sign in to Luna first."))?;
+    let home = crate::member_home::ensure(conn, &row)
+        .ok()
+        .flatten()
+        .filter(|h| h.ready)
+        .ok_or_else(|| {
+            json_error(
+                StatusCode::NOT_FOUND,
+                "Your files aren't available — the drive with your home folder isn't connected.",
+            )
+        })?;
+    let drive = crate::db::get_drive(conn, &home.drive_id)
+        .ok()
+        .flatten()
+        .filter(|d| !d.mount_point.is_empty())
+        .ok_or_else(|| {
+            json_error(
+                StatusCode::NOT_FOUND,
+                "Your files aren't available — the drive with your home folder isn't connected.",
+            )
+        })?;
+    let rel = home.rel.clone();
+    let root = std::path::PathBuf::from(&drive.mount_point).join(&rel);
+    Ok(crate::DavHandler::builder()
+        .filesystem(Box::new(GrantFs::scoped(
+            &root,
+            rel,
+            user.clone(),
+            drive.id.clone(),
+            state.db.clone(),
+        )))
+        .locksystem(FakeLs::new())
+        .strip_prefix("/dav/home".to_string())
+        .build_handler())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -221,6 +282,15 @@ mod tests {
     fn test_app(mount: &std::path::Path) -> (tempfile::TempDir, axum::Router, crate::AppState) {
         let dir = tempfile::tempdir().unwrap();
         let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+        // The members container name comes from the drive's marker prefix —
+        // member homes can't resolve without it.
+        let prefix = luna_core::marker::pick_prefix(mount).unwrap();
+        crate::drives::drive_db::create(
+            mount,
+            &luna_core::marker::Marker::new("photos", "Photos"),
+            &prefix,
+        )
+        .unwrap();
         crate::db::upsert_drive(
             &conn,
             "photos",
@@ -590,6 +660,21 @@ mod tests {
         )
         .await;
         assert_eq!(res.status(), 200);
+        let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let sam_id = serde_json::from_slice::<serde_json::Value>(&body).unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        {
+            // Pin Sam's home to a different drive — otherwise his home gives
+            // him legitimate access to `photos` and the forbidden check
+            // below never exercises the no-grant path.
+            let conn = _state.db.lock().unwrap();
+            crate::db::upsert_drive(&conn, "other", "Other", "as_is", "ext4", "sdb", "").unwrap();
+            crate::db::set_user_home_drive(&conn, &sam_id, "other").unwrap();
+        }
         let member_token = login_and_token(&app, "sam", "hunter22hunter1", "Sam no grant").await;
 
         let res = call(
@@ -681,6 +766,98 @@ mod tests {
         assert_eq!(res.status(), StatusCode::OK);
     }
 
+    /// Waypoint ancestors must answer PROPFIND with masked metadata: the dir
+    /// stays a dir, but real mtimes/sizes on an unviewable ancestor would be
+    /// an activity-timing oracle.
+    #[tokio::test]
+    async fn dav_waypoint_ancestor_propfind_masks_metadata() {
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(mount.path().join("family/photos")).unwrap();
+        std::fs::write(mount.path().join("family/photos/a.txt"), b"a").unwrap();
+        let (_dir, app, state) = test_app(mount.path());
+        let (_admin, member_token, _) =
+            setup_admin_member_grant(&app, &state, "family/photos", "read").await;
+
+        async fn propfind(app: &axum::Router, uri: &str, token: &str) -> String {
+            let mut http = HttpReq::builder()
+                .method(Method::from_bytes(b"PROPFIND").unwrap())
+                .uri(uri)
+                .header("authorization", basic("sam", token))
+                .header("depth", "1")
+                .body(Body::empty())
+                .unwrap();
+            http.extensions_mut().insert(ConnectInfo(CLIENT));
+            let res = call(app, http).await;
+            assert_eq!(res.status(), StatusCode::MULTI_STATUS, "PROPFIND {uri}");
+            let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+                .await
+                .unwrap();
+            String::from_utf8_lossy(&body).into_owned()
+        }
+
+        // The ancestor dir reports the fixed epoch mtime…
+        let text = propfind(&app, "/dav/photos/", &member_token).await;
+        let family_block = text
+            .split("<D:response>")
+            .find(|b| b.contains("family/</D:href>"))
+            .expect("family ancestor should be listed");
+        assert!(
+            family_block.contains("Jan 1970"),
+            "waypoint ancestor mtime must be epoch-masked: {family_block}"
+        );
+
+        // …while the granted dir keeps its real one.
+        let text = propfind(&app, "/dav/photos/family/photos/", &member_token).await;
+        let granted_block = text
+            .split("<D:response>")
+            .find(|b| b.contains("family/photos/</D:href>"))
+            .expect("granted dir should be listed");
+        assert!(
+            !granted_block.contains("Jan 1970"),
+            "viewable dir keeps real metadata: {granted_block}"
+        );
+    }
+
+    /// DELETE on a folder tree must land in trash as ONE entry for the
+    /// requested path — not a scatter of per-child entries.
+    #[tokio::test]
+    async fn dav_delete_tree_lands_as_single_trash_entry() {
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(mount.path().join("family/sub")).unwrap();
+        std::fs::write(mount.path().join("family/a.txt"), b"a").unwrap();
+        std::fs::write(mount.path().join("family/sub/b.txt"), b"b").unwrap();
+        let (_dir, app, _state) = test_app(mount.path());
+        let token = setup_admin_and_token(&app).await;
+
+        let res = call(
+            &app,
+            req(
+                Method::DELETE,
+                "/dav/photos/family",
+                Some(&basic("max", &token)),
+            ),
+        )
+        .await;
+        let st = res.status();
+        assert!(st.is_success(), "DELETE family got {st}");
+        // Buffered removes flush when the response body finishes — consume it.
+        let _ = axum::body::to_bytes(res.into_body(), 1 << 20).await;
+
+        assert!(!mount.path().join("family").exists());
+        let prefix = crate::drives::drive_db::prefix_for(mount.path()).unwrap();
+        let trash = mount.path().join(format!("{prefix}-trash"));
+        let entries: Vec<String> = std::fs::read_dir(&trash)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(entries.len(), 1, "one tree delete = one trash entry");
+        assert!(entries[0].ends_with("-family"));
+        // The whole subtree moved with the top-level entry.
+        assert!(trash.join(&entries[0]).join("sub/b.txt").exists());
+        assert!(trash.join(&entries[0]).join("a.txt").exists());
+    }
+
     #[test]
     fn hashed_device_token_is_not_the_household_password() {
         assert_ne!(hash_device_token("hunter22hunter1"), hash_device_token(""));
@@ -730,5 +907,127 @@ mod tests {
             !text.contains("secret-bytes"),
             "symlink escape must not leak outside the drive: {text}"
         );
+    }
+
+    /// `/dav/home` is the member's private mount: they can put and read
+    /// files inside their `.luna-<prefix>-members/<username>` folder while admins get a 404 —
+    /// member files are not browseable by anyone else through Luna.
+    #[tokio::test]
+    async fn dav_home_mount_serves_only_the_members_home() {
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::write(mount.path().join("outside.txt"), b"not yours").unwrap();
+        let (_dir, app, _state) = test_app(mount.path());
+        let admin_token = setup_admin_and_token(&app).await;
+
+        // Register the member through the admin's browser session.
+        let res = call(
+            &app,
+            json_req(
+                Method::POST,
+                "/api/v1/auth/login",
+                r#"{"username":"max","password":"hunter22hunter1"}"#,
+                None,
+                None,
+            ),
+        )
+        .await;
+        let (session, csrf) = auth_cookies(&res);
+        let cookie = format!("{session}; luna_csrf={csrf}");
+        let res = call(
+            &app,
+            json_req(
+                Method::POST,
+                "/api/v1/users",
+                r#"{"username":"sam","display_name":"Sam","password":"hunter22hunter1","role":"user"}"#,
+                Some(&cookie),
+                Some(&csrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+        let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let _sam_id = serde_json::from_slice::<serde_json::Value>(&body).unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let member_token = login_and_token(&app, "sam", "hunter22hunter1", "Sam DAV").await;
+
+        // The home mount answers and takes writes; files land inside the
+        // member's hidden `.luna-<prefix>-members/<username>` dir on the drive.
+        let res = call(
+            &app,
+            req(
+                Method::from_bytes(b"PROPFIND").unwrap(),
+                "/dav/home/",
+                Some(&basic("sam", &member_token)),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::MULTI_STATUS);
+
+        let res = call(
+            &app,
+            req_body(
+                Method::PUT,
+                "/dav/home/note.txt",
+                Some(&basic("sam", &member_token)),
+                b"hi sam",
+            ),
+        )
+        .await;
+        let st = res.status();
+        assert!(st.is_success(), "PUT /dav/home/note.txt got {st}");
+        let prefix = crate::drives::drive_db::prefix_for(mount.path()).unwrap();
+        let home = format!("{}/sam", crate::member_home::members_dir_name(&prefix));
+        assert!(mount.path().join(format!("{home}/note.txt")).exists());
+
+        let res = call(
+            &app,
+            req(
+                Method::GET,
+                "/dav/home/note.txt",
+                Some(&basic("sam", &member_token)),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        assert_eq!(&body[..], b"hi sam");
+
+        // The drive mount never exposes the hidden home dir — the member
+        // sees their grants and nothing else on /dav/photos.
+        let res = call(
+            &app,
+            req(
+                Method::from_bytes(b"PROPFIND").unwrap(),
+                "/dav/photos/",
+                Some(&basic("sam", &member_token)),
+            ),
+        )
+        .await;
+        if res.status() == StatusCode::MULTI_STATUS {
+            let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+                .await
+                .unwrap();
+            let text = String::from_utf8_lossy(&body);
+            assert!(!text.contains(&home), "drive mount hides .luna-* names");
+            assert!(!text.contains("note.txt"));
+        }
+
+        // Admins have no home — the mount answers 404.
+        let res = call(
+            &app,
+            req(
+                Method::GET,
+                "/dav/home/note.txt",
+                Some(&basic("max", &admin_token)),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::NOT_FOUND);
     }
 }

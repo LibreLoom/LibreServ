@@ -71,6 +71,40 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    // Upload sessions idle past the orphan cutoff lose their `.part` temp
+    // and their microdb row — a crash or an abandoned upload never leaves
+    // resumable state behind. Runs after the migration above so rows that
+    // just moved into drive microdbs are swept too.
+    lunad::files::uploads::sweep_orphans(&state.db);
+
+    // Home work queued while a drive was unplugged (account renames,
+    // member deletions, repins) applies now — before the HTTP listener
+    // binds, so no request can resolve a stale home path ahead of it.
+    // rename/trash run inline; cross-drive moves whose drives are both up
+    // become real move jobs.
+    let ready_moves = {
+        let db = state.db.lock().expect("db");
+        lunad::member_home::reconcile_pending(&db).unwrap_or_default()
+    };
+    for mv in ready_moves {
+        if state
+            .job_manager
+            .enqueue(
+                "move",
+                &mv.src_drive,
+                &mv.src_rel,
+                &mv.dst_drive,
+                &mv.dst_members,
+                &mv.user_id,
+            )
+            .await
+            .is_ok()
+        {
+            let db = state.db.lock().expect("db");
+            let _ = lunad::db::delete_pending_home_op(&db, &mv.op_id);
+        }
+    }
+
     // Catch-up gallery index for every adopted mount already on disk.
     {
         let mounts = {
@@ -538,6 +572,21 @@ async fn touch_io_activity(
     next.run(req).await
 }
 
+// OpenRC/systemd stop lunad with SIGTERM, not SIGINT — without terminate()
+// wired here, every service stop kills the daemon with no graceful shutdown
+// (no WAL checkpoint, orphaned cloudflared).
 async fn shutdown_signal() {
-    let _ = tokio::signal::ctrl_c().await;
+    let ctrl_c = tokio::signal::ctrl_c();
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+        if let Ok(mut term) = signal(SignalKind::terminate()) {
+            tokio::select! {
+                _ = ctrl_c => {},
+                _ = term.recv() => {},
+            }
+            return;
+        }
+    }
+    let _ = ctrl_c.await;
 }

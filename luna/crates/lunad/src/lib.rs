@@ -12,6 +12,7 @@ pub mod files;
 pub mod gallery;
 pub mod hibp;
 pub mod jobs;
+pub mod member_home;
 pub mod net;
 pub mod office;
 pub mod password;

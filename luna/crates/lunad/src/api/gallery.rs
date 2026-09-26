@@ -131,7 +131,27 @@ fn can_view_gallery_path(
             let Ok(Some(album)) = gallery::get_album(&root, home, album_id) else {
                 return false;
             };
-            album_item_allowed(home, &root, &album, drive_id, path)
+            if !album_item_allowed(home, &root, &album, drive_id, path) {
+                return false;
+            }
+            // Items stored on a different drive than the album home can't
+            // be checked against the home root — re-verify on the item's
+            // own mount that no symlink component stands in for the bytes.
+            if drive_id != home {
+                let Ok(Some(item_drive)) = crate::db::get_drive(&conn, drive_id) else {
+                    return false;
+                };
+                if item_drive.mount_point.is_empty()
+                    || luna_core::path::resolve_child_nofollow(
+                        FsPath::new(&item_drive.mount_point),
+                        path,
+                    )
+                    .is_err()
+                {
+                    return false;
+                }
+            }
+            true
         },
     ))
 }
@@ -278,6 +298,7 @@ pub fn router() -> Router<AppState> {
             "/api/v1/gallery/albums/{home}/{id}",
             get(get_album).patch(patch_album).delete(delete_album),
         )
+        .route("/api/v1/gallery/albums/{home}/{id}/cover", get(cover))
         .route(
             "/api/v1/gallery/albums/{home}/{id}/items",
             get(list_items).post(add_items).delete(remove_item),
@@ -398,11 +419,24 @@ fn resolve_mount(state: &AppState, drive_id: &str) -> Result<PathBuf, (StatusCod
     Ok(PathBuf::from(drive.mount_point))
 }
 
+/// Member-facing photo JSON: the guest-safe projection plus `drive_id` and
+/// `path`, which the member UI needs to address media and diff album
+/// selections. Anonymous album links serialize `Photo` directly (see
+/// `api::access::public_items`) and never get these coordinates.
+fn member_photo_json(p: &gallery::Photo) -> Value {
+    let mut v = serde_json::to_value(p).unwrap_or_else(|_| json!({}));
+    if let Some(obj) = v.as_object_mut() {
+        obj.insert("drive_id".into(), json!(p.drive_id));
+        obj.insert("path".into(), json!(p.path));
+    }
+    v
+}
+
 async fn timeline(
     State(state): State<AppState>,
     Extension(user): Extension<crate::auth::CurrentUser>,
     Query(query): Query<GalleryQuery>,
-) -> Result<Json<gallery::GalleryPage>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let album_id = query
         .album_id
         .as_deref()
@@ -566,11 +600,11 @@ async fn timeline(
         items.truncate(limit as usize);
         has_more = true;
     }
-    Ok(Json(gallery::GalleryPage {
-        has_more,
-        next_offset,
-        items,
-    }))
+    Ok(Json(json!({
+        "items": items.iter().map(member_photo_json).collect::<Vec<_>>(),
+        "next_offset": next_offset,
+        "has_more": has_more,
+    })))
 }
 
 async fn places(
@@ -665,7 +699,18 @@ async fn duplicates(
         });
     }
     groups.retain(|g| g.items.len() > 1);
-    Ok(Json(json!({ "groups": groups })))
+    let groups_json: Vec<Value> = groups
+        .iter()
+        .map(|g| {
+            json!({
+                "key": g.key,
+                "size": g.size,
+                "name": g.name,
+                "items": g.items.iter().map(member_photo_json).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    Ok(Json(json!({ "groups": groups_json })))
 }
 
 async fn status(
@@ -701,6 +746,14 @@ async fn status(
         let name = label.map_or_else(|| "this drive".to_string(), |l| format!("\"{l}\""));
         last_error = last_error.map(|m| m.replace("{drive}", &name));
     }
+    // `found_count` is the whole-index photo total — global regardless of
+    // which paths the caller may see. Members only get the progress fields;
+    // a raw count of everyone else's photos is not theirs to know.
+    let found_count = if is_admin(&user) {
+        serde_json::json!(st.found_count)
+    } else {
+        serde_json::Value::Null
+    };
     Json(json!({
         "scanning": st.scanning,
         "pending": st.pending,
@@ -708,7 +761,7 @@ async fn status(
         "phase": st.phase,
         "drive_id": drive_id,
         "drive_label": drive_label,
-        "found_count": st.found_count,
+        "found_count": found_count,
         "last_error": last_error,
     }))
 }
@@ -765,7 +818,7 @@ async fn thumb(
         let (drive_id, path) = (query.drive_id.clone(), query.path.clone());
         let root2 = root.clone();
         tokio::task::spawn_blocking(move || -> Result<(), ()> {
-            let src = luna_core::path::resolve_child(&root2, &path).map_err(|_| ())?;
+            let src = luna_core::path::resolve_child_nofollow(&root2, &path).map_err(|_| ())?;
             let dest = gallery::thumb_path(&root2, &drive_id, &path).ok_or(())?;
             let kind = if gallery::is_video(&src) {
                 "video"
@@ -799,7 +852,12 @@ async fn serve_thumb_file(
     path: PathBuf,
     headers: &axum::http::HeaderMap,
 ) -> Result<Response, (StatusCode, Json<Value>)> {
-    let meta = std::fs::metadata(&path)
+    // Verified open: the thumb path was resolved by `thumb_path` — this
+    // guards against the leaf being swapped for a symlink in between.
+    let mut file = open_checked(&path)
+        .map_err(|_| json_error(StatusCode::NOT_FOUND, "This thumbnail isn't ready yet."))?;
+    let meta = file
+        .metadata()
         .map_err(|_| json_error(StatusCode::NOT_FOUND, "This thumbnail isn't ready yet."))?;
     let mtime_secs = meta
         .modified()
@@ -821,8 +879,8 @@ async fn serve_thumb_file(
             .unwrap()
             .into_response());
     }
-    let bytes = tokio::fs::read(&path)
-        .await
+    let mut bytes = Vec::with_capacity(meta.len() as usize);
+    std::io::Read::read_to_end(&mut file, &mut bytes)
         .map_err(|_| json_error(StatusCode::NOT_FOUND, "This thumbnail isn't ready yet."))?;
     state
         .ram_cache
@@ -868,7 +926,12 @@ fn serve_thumb_bytes(
 
 pub(crate) async fn serve_thumb(path: PathBuf) -> Result<Response, (StatusCode, Json<Value>)> {
     // Public album thumbs still use the on-disk path; validators without RAM.
-    let meta = std::fs::metadata(&path)
+    // Open is verified so a swapped-in symlink can't point the stream at a
+    // different file.
+    let file = open_checked(&path)
+        .map_err(|_| json_error(StatusCode::NOT_FOUND, "This thumbnail isn't ready yet."))?;
+    let meta = file
+        .metadata()
         .map_err(|_| json_error(StatusCode::NOT_FOUND, "This thumbnail isn't ready yet."))?;
     let mtime_secs = meta
         .modified()
@@ -877,10 +940,7 @@ pub(crate) async fn serve_thumb(path: PathBuf) -> Result<Response, (StatusCode, 
         .map(|d| d.as_secs())
         .unwrap_or(0);
     let etag = crate::drives::ram_cache::thumb_etag(meta.len(), mtime_secs);
-    let file = tokio::fs::File::open(&path)
-        .await
-        .map_err(|_| json_error(StatusCode::NOT_FOUND, "This thumbnail isn't ready yet."))?;
-    let stream = tokio_util::io::ReaderStream::new(file);
+    let stream = tokio_util::io::ReaderStream::new(tokio::fs::File::from_std(file));
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header(axum::http::header::CONTENT_TYPE, "image/jpeg")
@@ -893,6 +953,22 @@ pub(crate) async fn serve_thumb(path: PathBuf) -> Result<Response, (StatusCode, 
         .into_response())
 }
 
+/// `resolve_child` only pins the target under the drive root — a symlink
+/// inside the contribution folder would still satisfy the lexical prefix
+/// check while pointing anywhere on the drive, and a symlinked contribution
+/// folder itself would alias a whole other directory into the album. The
+/// contrib path Luna allocated is real directories all the way down, so any
+/// symlink component means tampering: refuse it.
+fn contrib_stays_inside(root: &FsPath, contrib_rel: &str, rel: &str) -> bool {
+    let Ok(contrib) = luna_core::path::resolve_child_nofollow(root, contrib_rel) else {
+        return false;
+    };
+    let Ok(target) = luna_core::path::resolve_child_nofollow(root, rel) else {
+        return false;
+    };
+    target.starts_with(&contrib)
+}
+
 /// Guest may see this file when it is in album_items or under the contrib folder.
 pub(crate) fn album_item_allowed(
     home: &str,
@@ -901,6 +977,19 @@ pub(crate) fn album_item_allowed(
     drive_id: &str,
     path: &str,
 ) -> bool {
+    // Albums only ever serve media. Gating here (not just at add time) means
+    // a non-media row already in album_items — or a file planted in the
+    // contribution folder off-Luna — can never reach the inline preview and
+    // media routes, where `text/html` on this origin would be stored XSS.
+    if !gallery::is_media(FsPath::new(path)) {
+        return false;
+    }
+    // Luna's own namespace — member homes, thumbs, trash, the microdb, temp
+    // parts — is never album content, not as a stored row and not through a
+    // lexical contrib-path match.
+    if crate::files::is_internal_temp(path) {
+        return false;
+    }
     let in_album = {
         let Ok(conn) = gallery::open_drive_db(root) else {
             return false;
@@ -914,10 +1003,72 @@ pub(crate) fn album_item_allowed(
             .unwrap_or(0);
         n > 0
     };
+    let item_ok = in_album && {
+        // The stored row is only servable when the lexical path really is
+        // the file: a symlinked component anywhere in it aliases bytes Luna
+        // never indexed (a member home, a path outside the drive). Home
+        // items are verified here; items on other mounts are re-checked by
+        // the serving paths themselves.
+        drive_id != home || luna_core::path::resolve_child_nofollow(root, path).is_ok()
+    };
     let under_contrib = !album.contrib_path.is_empty()
         && drive_id == home
-        && (path == album.contrib_path || path.starts_with(&format!("{}/", album.contrib_path)));
-    in_album || under_contrib
+        && (path == album.contrib_path || path.starts_with(&format!("{}/", album.contrib_path)))
+        && contrib_stays_inside(root, &album.contrib_path, path)
+        && contrib_file_is_media(root, path);
+    item_ok || under_contrib
+}
+
+/// Contribution uploads are verified on magic bytes, not just the name — an
+/// HTML file renamed `party.jpg` must never be servable to album guests.
+fn contrib_file_is_media(root: &FsPath, rel: &str) -> bool {
+    let Ok(abs) = luna_core::path::resolve_child_nofollow(root, rel) else {
+        return false;
+    };
+    gallery::sniff_media_file(&abs)
+}
+
+/// Is `abs` — an already-canonicalized path — inside a namespace Luna owns?
+/// Member homes, thumbs, trash, the microdb and temp parts all live under
+/// `.luna-*`/`*.part`-style names. Generated thumbnails under `*-thumbs`
+/// are the exception: media routes legitimately stream those.
+fn is_protected_target(abs: &FsPath) -> bool {
+    use crate::files::is_internal_temp;
+    for comp in abs.components() {
+        let name = comp.as_os_str().to_string_lossy();
+        if is_internal_temp(&name) && !name.ends_with("-thumbs") {
+            return true;
+        }
+    }
+    false
+}
+
+/// Open `abs` for reading without following a last-minute symlink swap, and
+/// prove via `/proc/self/fd` that the descriptor is the canonical path the
+/// caller resolved — the check-then-open race guard used for every gallery
+/// file read.
+fn open_checked(abs: &FsPath) -> std::io::Result<std::fs::File> {
+    let mut opts = std::fs::OpenOptions::new();
+    opts.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.custom_flags(libc::O_NOFOLLOW);
+    }
+    let file = opts.open(abs)?;
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::io::AsRawFd;
+        let canonical = abs.canonicalize()?;
+        let link = std::fs::read_link(format!("/proc/self/fd/{}", file.as_raw_fd()))?;
+        if link != canonical {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "path changed between check and open",
+            ));
+        }
+    }
+    Ok(file)
 }
 
 /// Browser-safe media path: HEIC → JPEG preview; everything else → original.
@@ -926,7 +1077,11 @@ pub(crate) async fn resolve_browser_safe_file(
     drive_id: &str,
     rel: &str,
 ) -> Result<(PathBuf, String, String), ApiError> {
-    let src = luna_core::path::resolve_child(mount, rel)
+    // Nofollow all the way down: the file served must be the file the path
+    // names, not whatever a planted symlink aliases (a member home, a path
+    // outside the drive). The media type is then read from the resolved
+    // name below.
+    let src = luna_core::path::resolve_child_nofollow(mount, rel)
         .map_err(|_| json_error(StatusCode::NOT_FOUND, "Luna couldn't find that photo."))?;
     let original_name = src
         .file_name()
@@ -935,12 +1090,10 @@ pub(crate) async fn resolve_browser_safe_file(
     if gallery::is_heic_image(&src) {
         let thumb = gallery::thumb_path(mount, drive_id, rel)
             .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna couldn't find that photo."))?;
-        let mount2 = mount.to_path_buf();
-        let rel2 = rel.to_string();
+        let src2 = src.clone();
         let thumb2 = thumb.clone();
         let jpeg = tokio::task::spawn_blocking(move || {
-            let src = luna_core::path::resolve_child(&mount2, &rel2).map_err(|_| ())?;
-            gallery::ensure_heic_preview_jpeg(&src, &thumb2).map_err(|_| ())?;
+            gallery::ensure_heic_preview_jpeg(&src2, &thumb2).map_err(|_| ())?;
             Ok::<PathBuf, ()>(thumb2)
         })
         .await
@@ -979,8 +1132,27 @@ pub(crate) async fn serve_media_path(
     disposition: &str,
     headers: &HeaderMap,
 ) -> Result<Response, ApiError> {
-    let meta = std::fs::metadata(&abs)
+    // `abs` arrives canonicalized. If it lands inside Luna's own namespace
+    // — a member home, thumbs, trash, the microdb — a planted symlink got
+    // it there; serve nothing. Generated thumbnails under `*-thumbs` are
+    // the one exception: HEIC previews legitimately stream from there.
+    if is_protected_target(&abs) {
+        return Err(json_error(
+            StatusCode::NOT_FOUND,
+            "Luna couldn't find that photo.",
+        ));
+    }
+    // Open once, verified: between the caller's path resolution and this
+    // open the leaf could have been swapped for a symlink — O_NOFOLLOW plus
+    // an fd identity check pins the bytes to the path we authorized.
+    let std_file = open_checked(&abs)
         .map_err(|_| json_error(StatusCode::NOT_FOUND, "Luna couldn't find that photo."))?;
+    let meta = std_file.metadata().map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't open this file. Try again.",
+        )
+    })?;
     if !meta.is_file() {
         return Err(json_error(
             StatusCode::BAD_REQUEST,
@@ -1007,12 +1179,7 @@ pub(crate) async fn serve_media_path(
             .unwrap());
     }
 
-    let mut file = tokio::fs::File::open(&abs).await.map_err(|_| {
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't open this file. Try again.",
-        )
-    })?;
+    let mut file = tokio::fs::File::from_std(std_file);
 
     let (status, stream_len, content_range) =
         match headers.get(header::RANGE).and_then(|v| v.to_str().ok()) {
@@ -1052,6 +1219,15 @@ pub(crate) async fn serve_media_path(
     }
 
     let stream = ReaderStream::new(file.take(stream_len));
+    // Markup (or anything a browser could run as a document) never renders
+    // inline on this origin — download it instead. `.jpg` holds that a
+    // media row claims a photo must not become stored XSS via a crafted
+    // content type.
+    let disposition = if crate::files::inline_safe(content_type) {
+        disposition
+    } else {
+        "attachment"
+    };
     let mut builder = Response::builder()
         .status(status)
         .header(header::CONTENT_TYPE, content_type)
@@ -1163,9 +1339,19 @@ pub(crate) async fn stream_zip_response(
         .unwrap())
 }
 
-pub(crate) fn zip_entry_name(drive_id: &str, path: &str) -> String {
+/// Archive member name inside a download zip: just the file's display name.
+/// Drive ids and drive-relative folders stay server-side — a guest
+/// unzipping an album must not learn the on-disk layout. `drive_id` is kept
+/// in the signature because duplicate basenames are deduplicated by the zip
+/// writer (`"name (2).ext"`).
+pub(crate) fn zip_entry_name(_drive_id: &str, path: &str) -> String {
     let clean = path.trim().replace('\\', "/").trim_matches('/').to_string();
-    format!("{drive_id}/{clean}")
+    let name = clean.rsplit('/').next().unwrap_or("file");
+    if name.is_empty() {
+        "file".to_string()
+    } else {
+        name.to_string()
+    }
 }
 
 async fn preview(
@@ -1178,6 +1364,14 @@ async fn preview(
         return Err(json_error(
             StatusCode::FORBIDDEN,
             "You don't have permission to view this.",
+        ));
+    }
+    // Gallery preview serves inline on this origin — only real media may be
+    // rendered, or a viewable HTML/SVG file becomes stored XSS.
+    if !gallery::is_media(FsPath::new(&query.path)) {
+        return Err(json_error(
+            StatusCode::NOT_FOUND,
+            "Luna couldn't find that photo.",
         ));
     }
     let root = resolve_mount(&state, &query.drive_id)?;
@@ -1219,13 +1413,14 @@ async fn download_zip(
     let mut entries: Vec<(String, PathBuf)> = Vec::with_capacity(body.items.len());
     for item in &body.items {
         let root = resolve_mount(&state, &item.drive_id)?;
-        let abs = luna_core::path::resolve_child(&root, &item.path).map_err(|_| {
-            json_error(
-                StatusCode::NOT_FOUND,
-                "Luna couldn't find one of those photos.",
-            )
-        })?;
-        if !abs.is_file() {
+        // Nofollow: the zipped bytes must be the file the path names — a
+        // symlinked component must not alias a member home or a path
+        // outside the drive into the archive.
+        let abs = match luna_core::path::resolve_child_nofollow(&root, &item.path) {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
+        if !abs.is_file() || crate::files::is_internal_temp(&abs.to_string_lossy()) {
             continue;
         }
         entries.push((zip_entry_name(&item.drive_id, &item.path), abs));
@@ -1309,6 +1504,26 @@ async fn delete_favorite(
     Extension(user): Extension<crate::auth::CurrentUser>,
     Json(body): Json<FavoriteBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    {
+        let conn = state.db.lock().map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna's index is busy. Try again.",
+            )
+        })?;
+        if !crate::auth::has_cap(
+            &user,
+            &conn,
+            &body.drive_id,
+            &body.path,
+            crate::access::CAP_VIEW,
+        ) {
+            return Err(json_error(
+                StatusCode::FORBIDDEN,
+                "You don't have permission to change this favorite.",
+            ));
+        }
+    }
     let root = resolve_mount(&state, &body.drive_id)?;
     gallery::set_favorite(&root, &user.id, &body.path, false).map_err(|_| {
         json_error(
@@ -1319,10 +1534,20 @@ async fn delete_favorite(
     Ok(Json(json!({ "ok": true })))
 }
 
+/// Serialize an album for this caller: managers get the full row; other
+/// viewers get the member-facing projection (no fs layout, no owner id).
+fn album_json(user: &crate::auth::CurrentUser, album: &gallery::Album) -> Value {
+    if can_manage_album(user, album) {
+        serde_json::to_value(album).unwrap_or_else(|_| json!({}))
+    } else {
+        serde_json::to_value(album.public_view()).unwrap_or_else(|_| json!({}))
+    }
+}
+
 async fn list_albums(
     State(state): State<AppState>,
     Extension(user): Extension<crate::auth::CurrentUser>,
-) -> Result<Json<Vec<gallery::Album>>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Vec<Value>>, (StatusCode, Json<Value>)> {
     // Scan every mounted drive so Members still see albums they own or joined
     // even without a folder grant on that drive. SQL still filters by membership.
     let mounts = all_mounted(&state)?;
@@ -1356,7 +1581,7 @@ async fn list_albums(
                 "Luna couldn't list albums.",
             )
         })?;
-    Ok(Json(albums))
+    Ok(Json(albums.iter().map(|a| album_json(&user, a)).collect()))
 }
 
 async fn create_album(
@@ -1406,7 +1631,7 @@ async fn get_album(
     State(state): State<AppState>,
     Extension(user): Extension<crate::auth::CurrentUser>,
     Path((home, id)): Path<(String, String)>,
-) -> Result<Json<gallery::Album>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let root = resolve_mount(&state, &home)?;
     let album = gallery::get_album(&root, &home, &id)
         .map_err(|_| {
@@ -1422,7 +1647,7 @@ async fn get_album(
             "You don't have permission to view this album.",
         ));
     }
-    Ok(Json(album))
+    Ok(Json(album_json(&user, &album)))
 }
 
 async fn patch_album(
@@ -1541,32 +1766,92 @@ async fn add_items(
             "You don't have permission to add photos to this album.",
         ));
     }
+    if album.locked {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "This album is locked. Unlock it before changing its photos.",
+        ));
+    }
     let conn = state.db.lock().map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Luna's index is busy. Try again.",
         )
     })?;
+    // Drives can be resolved once — resolve_mount would re-lock the db per
+    // item and deadlock with `conn` still held.
+    let mounts: std::collections::HashMap<String, PathBuf> = crate::db::list_drives(&conn)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|d| !d.mount_point.is_empty())
+        .map(|d| (d.id, PathBuf::from(d.mount_point)))
+        .collect();
     let mut allowed = Vec::new();
     let mut forbidden = 0usize;
+    let mut not_media = 0usize;
     for item in body.items {
-        if crate::auth::has_cap(
+        // Same media gate as link uploads: an HTML/SVG in an album could be
+        // served inline on this origin, which is stored XSS.
+        if !gallery::is_media(FsPath::new(&item.path)) {
+            not_media += 1;
+            continue;
+        }
+        // Luna's own namespace (member homes, thumbs, trash, the microdb)
+        // can never be album content — a stored row there would hand every
+        // album viewer bytes that were never meant to be shared.
+        if crate::files::is_internal_temp(&item.path) {
+            forbidden += 1;
+            continue;
+        }
+        // Publishing into a shared album is a sharing act: the member must
+        // hold share rights on the source, not just be able to view it —
+        // otherwise a view-only member could republish any readable file
+        // to the album's members and anonymous link guests.
+        let can = crate::auth::has_cap(
             &user,
             &conn,
             &item.drive_id,
             &item.path,
             crate::access::CAP_VIEW,
-        ) {
-            allowed.push((item.drive_id, item.path));
-        } else {
+        ) && crate::auth::has_cap(
+            &user,
+            &conn,
+            &item.drive_id,
+            &item.path,
+            crate::access::CAP_SHARE,
+        );
+        if !can {
             forbidden += 1;
+            continue;
         }
+        // The file itself must be there and really be media: the name alone
+        // doesn't prove it, and a symlinked component must not alias bytes
+        // Luna never indexed into the album.
+        let Some(mount) = mounts.get(&item.drive_id) else {
+            forbidden += 1;
+            continue;
+        };
+        let Ok(abs) = luna_core::path::resolve_child_nofollow(mount, &item.path) else {
+            forbidden += 1;
+            continue;
+        };
+        if !gallery::sniff_media_file(&abs) {
+            not_media += 1;
+            continue;
+        }
+        allowed.push((item.drive_id, item.path));
     }
     drop(conn);
     if allowed.is_empty() {
+        if not_media > 0 {
+            return Err(json_error(
+                StatusCode::BAD_REQUEST,
+                "Albums can only hold photos and videos.",
+            ));
+        }
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "None of those photos can be added — you don't have permission to view them.",
+            "None of those photos can be added — you can only add photos you're allowed to share.",
         ));
     }
     gallery::add_album_items(&root, &id, &allowed).map_err(|_| {
@@ -1579,6 +1864,7 @@ async fn add_items(
         "ok": true,
         "added": allowed.len(),
         "skipped_forbidden": forbidden,
+        "skipped_not_media": not_media,
     })))
 }
 
@@ -1597,10 +1883,18 @@ async fn remove_item(
             )
         })?
         .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that album."))?;
-    if !can_contribute_album(&state, &user, &home, &album) {
+    // album_items carries no added_by, so own-vs-others can't be told apart —
+    // removing is a manage act (owner/Admin), not a contributor one.
+    if !can_manage_album(&user, &album) {
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "You don't have permission to change this album.",
+            "Only the album owner or an Admin can remove photos from this album.",
+        ));
+    }
+    if album.locked {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "This album is locked. Unlock it before changing its photos.",
         ));
     }
     gallery::remove_album_item(&root, &id, &body.drive_id, &body.path).map_err(|_| {
@@ -1640,12 +1934,143 @@ async fn list_items(
             "Luna couldn't list that album's photos.",
         )
     })?;
-    Ok(Json(json!(
-        items
+    let mounts: std::collections::HashMap<String, PathBuf> = {
+        let conn = state.db.lock().map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna's index is busy. Try again.",
+            )
+        })?;
+        crate::db::list_drives(&conn)
+            .unwrap_or_default()
             .into_iter()
-            .map(|(drive_id, path)| json!({ "drive_id": drive_id, "path": path }))
-            .collect::<Vec<_>>()
-    )))
+            .filter(|d| !d.mount_point.is_empty())
+            .map(|d| (d.id, PathBuf::from(d.mount_point)))
+            .collect()
+    };
+    // Rows that could never serve — stale paths, symlinked files, anything
+    // inside Luna's own namespace — are dropped rather than advertised.
+    // `drive_id`/`path` stay in the projection for album viewers: the
+    // member UI diffs selections and addresses media by them (this endpoint
+    // is behind login — anonymous link guests never reach it). Each item
+    // also gets an opaque `id` plus its display `name` for callers that
+    // should not depend on raw coordinates.
+    let visible: Vec<Value> = items
+        .into_iter()
+        .filter(|(drive_id, path)| {
+            if !album_item_allowed(&home, &root, &album, drive_id, path) {
+                return false;
+            }
+            // Home-drive items were nofollow-verified by album_item_allowed;
+            // items on other mounts get the same check against their own root.
+            drive_id == &home
+                || mounts
+                    .get(drive_id)
+                    .and_then(|m| luna_core::path::resolve_child_nofollow(m, path).ok())
+                    .is_some()
+        })
+        .map(|(drive_id, path)| {
+            let name = FsPath::new(&path)
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("photo")
+                .to_string();
+            let opaque = blake3::hash(format!("album:{}:{}:{}", id, drive_id, path).as_bytes())
+                .to_hex()
+                .to_string();
+            json!({
+                "id": opaque,
+                "name": name,
+                "drive_id": drive_id,
+                "path": path,
+            })
+        })
+        .collect();
+    Ok(Json(json!(visible)))
+}
+
+/// `GET …/cover` — the album cover's thumbnail, looked up server-side from
+/// the album's stored cover item. Lets `AlbumPublic::cover_thumb` be an
+/// opaque album-scoped URL instead of leaking the cover's drive path.
+async fn cover(
+    State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
+    Path((home, id)): Path<(String, String)>,
+    headers: axum::http::HeaderMap,
+) -> Result<Response, (StatusCode, Json<Value>)> {
+    let root = resolve_mount(&state, &home)?;
+    let album = gallery::get_album(&root, &home, &id)
+        .map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't open that album.",
+            )
+        })?
+        .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that album."))?;
+    if !can_view_album(&state, &user, &home, &album) {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "You don't have permission to view this album.",
+        ));
+    }
+    if album.cover_path.is_empty() {
+        return Err(json_error(
+            StatusCode::NOT_FOUND,
+            "This album has no cover photo.",
+        ));
+    }
+    let cover_drive = if album.cover_drive_id.is_empty() {
+        home.clone()
+    } else {
+        album.cover_drive_id.clone()
+    };
+    let mount = if cover_drive == home {
+        root.clone()
+    } else {
+        resolve_mount(&state, &cover_drive)?
+    };
+    let Some(thumb_path) = gallery::thumb_path(&mount, &cover_drive, &album.cover_path) else {
+        return Err(json_error(
+            StatusCode::NOT_FOUND,
+            "Luna couldn't find that photo.",
+        ));
+    };
+    if !thumb_path.exists() {
+        let mount2 = mount.clone();
+        let (cdrive, cpath) = (cover_drive.clone(), album.cover_path.clone());
+        tokio::task::spawn_blocking(move || -> Result<(), ()> {
+            let src = luna_core::path::resolve_child_nofollow(&mount2, &cpath).map_err(|_| ())?;
+            let dest = gallery::thumb_path(&mount2, &cdrive, &cpath).ok_or(())?;
+            let kind = if gallery::is_video(&src) {
+                "video"
+            } else {
+                "image"
+            };
+            gallery::ensure_thumb(&src, &dest, kind).map_err(|_| ())?;
+            Ok(())
+        })
+        .await
+        .map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't build the thumbnail.",
+            )
+        })?
+        .map_err(|_| {
+            json_error(
+                StatusCode::NOT_FOUND,
+                "Luna couldn't make a thumbnail for this file.",
+            )
+        })?;
+    }
+    serve_thumb_file(
+        &state,
+        &cover_drive,
+        &album.cover_path,
+        thumb_path,
+        &headers,
+    )
+    .await
 }
 
 #[cfg(test)]
@@ -1653,9 +2078,11 @@ mod tests {
     use super::THUMB_CACHE_CONTROL;
     use crate::drives::DriveManager;
     use crate::drives::mount::shared_mock;
-    use crate::{AppState, db};
+    use crate::{AppState, db, gallery};
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
+    use serde_json::Value;
+    use std::path::PathBuf;
     use tower::ServiceExt;
 
     #[test]
@@ -1844,6 +2271,12 @@ mod tests {
             &luna_core::marker::pick_prefix(root).unwrap(),
         )
         .unwrap();
+        // The contrib branch resolves on the filesystem — a lexical prefix
+        // match is not enough; the folder and file must really exist, and
+        // the content must sniff as media (JPEG magic bytes here).
+        let contrib = root.join("Shared Photos/Shared");
+        std::fs::create_dir_all(&contrib).unwrap();
+        std::fs::write(contrib.join("guest.jpg"), &[0xFF, 0xD8, 0xFF, 0xE0]).unwrap();
         let album = crate::gallery::create_album(root, "home", "u1", "Shared").unwrap();
         crate::gallery::add_album_items(root, &album.id, &[("d1".into(), "a.jpg".into())]).unwrap();
         let mut album = crate::gallery::get_album(root, "home", &album.id)
@@ -1874,6 +2307,198 @@ mod tests {
             "other",
             "Shared Photos/Shared/guest.jpg"
         ));
+    }
+
+    #[test]
+    fn album_item_allowed_denies_non_media_and_contrib_symlinks() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        crate::drives::drive_db::create(
+            root,
+            &luna_core::marker::Marker::new("home", "Home"),
+            &luna_core::marker::pick_prefix(root).unwrap(),
+        )
+        .unwrap();
+        let contrib = root.join("Shared Photos/Shared");
+        std::fs::create_dir_all(&contrib).unwrap();
+        std::fs::write(contrib.join("guest.jpg"), &[0xFF, 0xD8, 0xFF, 0xE0]).unwrap();
+        // A real media file outside the contrib folder on the same drive.
+        std::fs::write(root.join("outside.jpg"), &[0xFF, 0xD8, 0xFF, 0xE0]).unwrap();
+        let album = crate::gallery::create_album(root, "home", "u1", "Shared").unwrap();
+        // A pre-existing bad row: a non-media file already in album_items.
+        crate::gallery::add_album_items(root, &album.id, &[("home".into(), "evil.html".into())])
+            .unwrap();
+        let mut album = crate::gallery::get_album(root, "home", &album.id)
+            .unwrap()
+            .unwrap();
+        album.contrib_path = "Shared Photos/Shared".into();
+
+        // The media gate covers rows added before the add-time check existed.
+        assert!(!super::album_item_allowed(
+            "home",
+            root,
+            &album,
+            "home",
+            "evil.html"
+        ));
+        // A non-media file sitting inside the contrib folder is denied too.
+        std::fs::write(contrib.join("page.html"), b"<html>").unwrap();
+        assert!(!super::album_item_allowed(
+            "home",
+            root,
+            &album,
+            "home",
+            "Shared Photos/Shared/page.html"
+        ));
+
+        // A symlink inside contrib pointing elsewhere on the drive must not
+        // widen the album's scope — the canonical target leaves the folder.
+        std::os::unix::fs::symlink(root.join("outside.jpg"), contrib.join("escape.jpg")).unwrap();
+        assert!(!super::album_item_allowed(
+            "home",
+            root,
+            &album,
+            "home",
+            "Shared Photos/Shared/escape.jpg"
+        ));
+        // A symlinked contrib *directory* is refused the same way.
+        let real = root.join("real-contrib");
+        std::fs::create_dir_all(&real).unwrap();
+        std::fs::write(real.join("shot.jpg"), b"x").unwrap();
+        std::fs::remove_dir_all(&contrib).unwrap();
+        std::os::unix::fs::symlink(&real, &contrib).unwrap();
+        assert!(!super::album_item_allowed(
+            "home",
+            root,
+            &album,
+            "home",
+            "Shared Photos/Shared/shot.jpg"
+        ));
+    }
+
+    #[test]
+    fn album_item_allowed_denies_markup_named_as_media() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        crate::drives::drive_db::create(
+            root,
+            &luna_core::marker::Marker::new("home", "Home"),
+            &luna_core::marker::pick_prefix(root).unwrap(),
+        )
+        .unwrap();
+        let contrib = root.join("Shared Photos/Shared");
+        std::fs::create_dir_all(&contrib).unwrap();
+        // An HTML document dropped in under a photo's name must not serve —
+        // extension checks alone let it through.
+        std::fs::write(
+            contrib.join("party.jpg"),
+            b"<html><body>not a photo</body></html>",
+        )
+        .unwrap();
+        let album = crate::gallery::create_album(root, "home", "u1", "Shared").unwrap();
+        let mut album = crate::gallery::get_album(root, "home", &album.id)
+            .unwrap()
+            .unwrap();
+        album.contrib_path = "Shared Photos/Shared".into();
+        assert!(!super::album_item_allowed(
+            "home",
+            root,
+            &album,
+            "home",
+            "Shared Photos/Shared/party.jpg"
+        ));
+    }
+
+    #[test]
+    fn album_item_allowed_denies_symlinked_and_internal_items() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let prefix = luna_core::marker::pick_prefix(root).unwrap();
+        crate::drives::drive_db::create(
+            root,
+            &luna_core::marker::Marker::new("home", "Home"),
+            &prefix,
+        )
+        .unwrap();
+        // A member-home photo inside Luna's own namespace.
+        let member_home = root.join(format!("{prefix}-members/sam"));
+        std::fs::create_dir_all(&member_home).unwrap();
+        std::fs::write(member_home.join("private.jpg"), [0xFF, 0xD8, 0xFF, 0xE0]).unwrap();
+        let member_home_rel = format!("{prefix}-members/sam/private.jpg");
+        // A `.jpg` whose leaf is a symlink — whether the target is a member
+        // home or a path outside the drive, serving it would leak bytes the
+        // album was never granted.
+        std::os::unix::fs::symlink(member_home.join("private.jpg"), root.join("link.jpg")).unwrap();
+        std::os::unix::fs::symlink("/etc/passwd", root.join("escape.jpg")).unwrap();
+        // The real photo, as a control.
+        std::fs::write(root.join("real.jpg"), [0xFF, 0xD8, 0xFF, 0xE0]).unwrap();
+        let album = crate::gallery::create_album(root, "home", "u1", "Trip").unwrap();
+        crate::gallery::add_album_items(
+            root,
+            &album.id,
+            &[
+                ("home".into(), member_home_rel.clone()),
+                ("home".into(), "link.jpg".into()),
+                ("home".into(), "escape.jpg".into()),
+                ("home".into(), "real.jpg".into()),
+            ],
+        )
+        .unwrap();
+        let album = crate::gallery::get_album(root, "home", &album.id)
+            .unwrap()
+            .unwrap();
+
+        assert!(
+            !super::album_item_allowed("home", root, &album, "home", &member_home_rel),
+            "Luna-internal paths must never be album content"
+        );
+        assert!(
+            !super::album_item_allowed("home", root, &album, "home", "link.jpg"),
+            "a symlinked item aliasing a member home must not serve"
+        );
+        assert!(
+            !super::album_item_allowed("home", root, &album, "home", "escape.jpg"),
+            "a symlinked item escaping the drive must not serve"
+        );
+        assert!(
+            super::album_item_allowed("home", root, &album, "home", "real.jpg"),
+            "a genuine photo row must still serve"
+        );
+    }
+
+    #[test]
+    fn zip_entry_name_uses_only_the_display_name() {
+        assert_eq!(super::zip_entry_name("d1", "a/b/photo.jpg"), "photo.jpg");
+        assert_eq!(super::zip_entry_name("d1", "photo.jpg"), "photo.jpg");
+        assert_eq!(super::zip_entry_name("d1", "a\\b\\photo.jpg"), "photo.jpg");
+        assert_eq!(super::zip_entry_name("d1", ""), "file");
+    }
+
+    #[tokio::test]
+    async fn serve_media_path_never_serves_markup_inline() {
+        let dir = tempfile::tempdir().unwrap();
+        let page = dir.path().join("page.html");
+        std::fs::write(&page, b"<html><body>x</body></html>").unwrap();
+        let response = super::serve_media_path(
+            page,
+            "text/html",
+            "page.html",
+            "inline",
+            &axum::http::HeaderMap::new(),
+        )
+        .await
+        .unwrap();
+        let disposition = response
+            .headers()
+            .get(axum::http::header::CONTENT_DISPOSITION)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+        assert!(
+            disposition.starts_with("attachment"),
+            "markup must download, never render inline — got {disposition}"
+        );
     }
 
     #[test]
@@ -1983,5 +2608,580 @@ mod tests {
             StatusCode::FORBIDDEN,
             "non-members must not view albums they were not invited to"
         );
+    }
+
+    /// An admin + an album-contributor member, one mounted drive with a real
+    /// file tree, one album owned by the admin. Returns everything a test
+    /// needs to drive the album items endpoints.
+    struct AlbumFixture {
+        _dir: tempfile::TempDir,
+        state: AppState,
+        router: axum::Router,
+        admin_token: String,
+        member_token: String,
+        album: gallery::Album,
+        mount: PathBuf,
+    }
+
+    async fn album_fixture() -> AlbumFixture {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        let mount = dir.path().join("photos-vol");
+        std::fs::create_dir_all(&mount).unwrap();
+        // Real media bytes — item acceptance sniffs content, not names.
+        let img = image::RgbImage::from_pixel(4, 4, image::Rgb([3, 6, 9]));
+        img.save(mount.join("pic.jpg")).unwrap();
+        std::fs::write(
+            mount.join("clip.mp4"),
+            b"\x00\x00\x00\x18ftypisom\x00\x00\x00\x00",
+        )
+        .unwrap();
+        std::fs::write(mount.join("evil.html"), b"<script>alert(1)</script>").unwrap();
+        crate::drives::drive_db::create(
+            &mount,
+            &luna_core::marker::Marker::new("d-photos", "Family Photos"),
+            &luna_core::marker::pick_prefix(&mount).unwrap(),
+        )
+        .unwrap();
+        db::upsert_drive(
+            &conn,
+            "d-photos",
+            "Family Photos",
+            "as_is",
+            "ext4",
+            "sdz",
+            mount.to_str().unwrap(),
+        )
+        .unwrap();
+        let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
+        let state = AppState::new(conn, drive_manager, dir.path());
+        let auth = state.auth.clone();
+        let admin = auth
+            .register("Admin", "Admin", "hunter22hunter1", "admin")
+            .unwrap();
+        let member = auth
+            .register("Member", "Member", "hunter22hunter1", "user")
+            .unwrap();
+        let album = gallery::create_album(&mount, "d-photos", &admin.id, "Trip").unwrap();
+        {
+            let conn = state.db.lock().unwrap();
+            // Contributor on the album…
+            db::insert_access_member(
+                &conn,
+                &db::AccessMemberRow {
+                    id: "m-album".into(),
+                    subject_kind: crate::access::KIND_ALBUM.into(),
+                    drive_id: "d-photos".into(),
+                    path: String::new(),
+                    album_id: album.id.clone(),
+                    user_id: member.id.clone(),
+                    caps: crate::access::CAP_VIEW | crate::access::CAP_UPLOAD,
+                    created_by: admin.id.clone(),
+                },
+            )
+            .unwrap();
+            // …and a whole-drive view+share grant so the file paths resolve
+            // and republishing into albums is permitted for them.
+            db::insert_access_member(
+                &conn,
+                &db::AccessMemberRow {
+                    id: "m-drive".into(),
+                    subject_kind: crate::access::KIND_PATH.into(),
+                    drive_id: "d-photos".into(),
+                    path: String::new(),
+                    album_id: String::new(),
+                    user_id: member.id.clone(),
+                    caps: crate::access::CAP_VIEW | crate::access::CAP_SHARE,
+                    created_by: admin.id.clone(),
+                },
+            )
+            .unwrap();
+        }
+        let router = axum::Router::new()
+            .merge(super::router())
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                crate::auth::guard,
+            ))
+            .with_state(state.clone());
+        AlbumFixture {
+            _dir: dir,
+            state,
+            router,
+            admin_token: auth.issue(&admin).unwrap(),
+            member_token: auth.issue(&member).unwrap(),
+            album,
+            mount,
+        }
+    }
+
+    fn json_req(method: &str, uri: &str, token: &str, body: &str) -> Request<Body> {
+        Request::builder()
+            .method(method)
+            .uri(uri)
+            .header("Authorization", format!("Bearer {token}"))
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap()
+    }
+
+    async fn call(router: &axum::Router, req: Request<Body>) -> axum::response::Response {
+        router.clone().oneshot(req).await.unwrap()
+    }
+
+    async fn call_json(router: &axum::Router, req: Request<Body>) -> (StatusCode, Value) {
+        let res = call(router, req).await;
+        let status = res.status();
+        let bytes = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        (
+            status,
+            serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+        )
+    }
+
+    #[tokio::test]
+    async fn add_items_rejects_non_media() {
+        let f = album_fixture().await;
+        let base = format!("/api/v1/gallery/albums/d-photos/{}/items", f.album.id);
+        // A contributor cannot drop an HTML file into the album — inline
+        // preview of it would be stored XSS on this origin.
+        let (status, _) = call_json(
+            &f.router,
+            json_req(
+                "POST",
+                &base,
+                &f.member_token,
+                r#"{"items":[{"drive_id":"d-photos","path":"evil.html"}]}"#,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+
+        // Mixed batches keep the media and report the rest skipped.
+        let (status, v) = call_json(
+            &f.router,
+            json_req(
+                "POST",
+                &base,
+                &f.member_token,
+                r#"{"items":[
+                    {"drive_id":"d-photos","path":"pic.jpg"},
+                    {"drive_id":"d-photos","path":"clip.mp4"},
+                    {"drive_id":"d-photos","path":"evil.html"}
+                ]}"#,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(v["added"], 2);
+        assert_eq!(v["skipped_not_media"], 1);
+        let refs = gallery::list_album_item_refs(&f.mount, &f.album.id).unwrap();
+        assert_eq!(refs.len(), 2);
+        assert!(refs.iter().all(|(_, p)| p != "evil.html"));
+    }
+
+    #[tokio::test]
+    async fn add_items_rejects_fake_media_and_needs_share() {
+        let f = album_fixture().await;
+        // HTML bytes wearing a photo's name — extension checks alone would
+        // publish it to every album viewer.
+        std::fs::write(f.mount.join("party.jpg"), b"<html><body>x</body></html>").unwrap();
+        let base = format!("/api/v1/gallery/albums/d-photos/{}/items", f.album.id);
+        let (status, v) = call_json(
+            &f.router,
+            json_req(
+                "POST",
+                &base,
+                &f.member_token,
+                r#"{"items":[{"drive_id":"d-photos","path":"party.jpg"}]}"#,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        let _ = v;
+
+        // A view-only contributor can see the file but must not republish
+        // it into a shared album — adding is a sharing act.
+        let auth = f.state.auth.clone();
+        let viewer = auth
+            .register("Viewer", "Viewer", "hunter22hunter1", "user")
+            .unwrap();
+        let viewer_token = auth.issue(&viewer).unwrap();
+        {
+            let conn = f.state.db.lock().unwrap();
+            let admin = crate::db::list_users(&conn).unwrap()[0].id.clone();
+            db::insert_access_member(
+                &conn,
+                &db::AccessMemberRow {
+                    id: "v-album".into(),
+                    subject_kind: crate::access::KIND_ALBUM.into(),
+                    drive_id: "d-photos".into(),
+                    path: String::new(),
+                    album_id: f.album.id.clone(),
+                    user_id: viewer.id.clone(),
+                    caps: crate::access::CAP_VIEW | crate::access::CAP_UPLOAD,
+                    created_by: admin.clone(),
+                },
+            )
+            .unwrap();
+            db::insert_access_member(
+                &conn,
+                &db::AccessMemberRow {
+                    id: "v-drive".into(),
+                    subject_kind: crate::access::KIND_PATH.into(),
+                    drive_id: "d-photos".into(),
+                    path: String::new(),
+                    album_id: String::new(),
+                    user_id: viewer.id.clone(),
+                    caps: crate::access::CAP_VIEW, // view only — no share
+                    created_by: admin,
+                },
+            )
+            .unwrap();
+        }
+        let (status, _) = call_json(
+            &f.router,
+            json_req(
+                "POST",
+                &base,
+                &viewer_token,
+                r#"{"items":[{"drive_id":"d-photos","path":"pic.jpg"}]}"#,
+            ),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::FORBIDDEN,
+            "a view-only member must not republish photos into the album"
+        );
+        assert!(
+            gallery::list_album_item_refs(&f.mount, &f.album.id)
+                .unwrap()
+                .is_empty()
+        );
+
+        // Grant share and the same request succeeds.
+        {
+            let conn = f.state.db.lock().unwrap();
+            let admin = crate::db::list_users(&conn).unwrap()[0].id.clone();
+            db::insert_access_member(
+                &conn,
+                &db::AccessMemberRow {
+                    id: "v-drive-share".into(),
+                    subject_kind: crate::access::KIND_PATH.into(),
+                    drive_id: "d-photos".into(),
+                    path: String::new(),
+                    album_id: String::new(),
+                    user_id: viewer.id.clone(),
+                    caps: crate::access::CAP_VIEW | crate::access::CAP_SHARE,
+                    created_by: admin,
+                },
+            )
+            .unwrap();
+        }
+        let (status, v) = call_json(
+            &f.router,
+            json_req(
+                "POST",
+                &base,
+                &viewer_token,
+                r#"{"items":[{"drive_id":"d-photos","path":"pic.jpg"}]}"#,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(v["added"], 1);
+    }
+
+    #[tokio::test]
+    async fn status_hides_global_count_from_members() {
+        let f = album_fixture().await;
+        let uri = "/api/v1/gallery/status";
+        let (_, v) = call_json(&f.router, json_req("GET", uri, &f.admin_token, "")).await;
+        assert!(
+            v["found_count"].is_number(),
+            "admins keep the full-index count"
+        );
+        let (_, v) = call_json(&f.router, json_req("GET", uri, &f.member_token, "")).await;
+        assert!(
+            v["found_count"].is_null(),
+            "members must not learn the global photo count"
+        );
+    }
+
+    #[tokio::test]
+    async fn member_view_gets_opaque_cover_url_and_item_ids() {
+        let f = album_fixture().await;
+        gallery::add_album_items(
+            &f.mount,
+            &f.album.id,
+            &[("d-photos".into(), "pic.jpg".into())],
+        )
+        .unwrap();
+        gallery::update_album(
+            &f.mount,
+            &f.album.id,
+            None,
+            None,
+            Some(("d-photos".into(), "pic.jpg".into())),
+        )
+        .unwrap();
+
+        // Member-facing album JSON carries an album-scoped cover URL — no
+        // drive path inside it.
+        let (status, v) = call_json(
+            &f.router,
+            json_req(
+                "GET",
+                &format!("/api/v1/gallery/albums/d-photos/{}", f.album.id),
+                &f.member_token,
+                "",
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let cover = v["cover_thumb"].as_str().unwrap_or("");
+        assert_eq!(
+            cover,
+            format!("/api/v1/gallery/albums/d-photos/{}/cover", f.album.id)
+        );
+        assert!(!cover.contains("pic.jpg"));
+
+        // The cover route serves the thumbnail through that opaque URL.
+        let res = call(&f.router, json_req("GET", cover, &f.member_token, "")).await;
+        assert_eq!(res.status(), StatusCode::OK);
+        let ctype = res
+            .headers()
+            .get(axum::http::header::CONTENT_TYPE)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+        assert_eq!(ctype, "image/jpeg");
+
+        // Admin full view still shows the real coordinates.
+        let (status, v) = call_json(
+            &f.router,
+            json_req(
+                "GET",
+                &format!("/api/v1/gallery/albums/d-photos/{}", f.album.id),
+                &f.admin_token,
+                "",
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(v["cover_path"], "pic.jpg");
+
+        // Item listing carries an opaque id + display name per item, and
+        // rows that could never serve are dropped.
+        let (status, v) = call_json(
+            &f.router,
+            json_req(
+                "GET",
+                &format!("/api/v1/gallery/albums/d-photos/{}/items", f.album.id),
+                &f.member_token,
+                "",
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let items = v.as_array().unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["name"], "pic.jpg");
+        assert!(items[0]["id"].as_str().unwrap().len() > 20);
+    }
+
+    #[tokio::test]
+    async fn list_items_drops_symlinked_rows() {
+        let f = album_fixture().await;
+        // Row pointing through a symlink — could never serve, so it must
+        // not be advertised to album members either.
+        std::os::unix::fs::symlink("/etc/passwd", f.mount.join("escape.jpg")).unwrap();
+        gallery::add_album_items(
+            &f.mount,
+            &f.album.id,
+            &[
+                ("d-photos".into(), "pic.jpg".into()),
+                ("d-photos".into(), "escape.jpg".into()),
+            ],
+        )
+        .unwrap();
+        let (status, v) = call_json(
+            &f.router,
+            json_req(
+                "GET",
+                &format!("/api/v1/gallery/albums/d-photos/{}/items", f.album.id),
+                &f.member_token,
+                "",
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let items = v.as_array().unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["path"], "pic.jpg");
+    }
+
+    #[tokio::test]
+    async fn remove_item_needs_a_manager_and_locked_blocks_changes() {
+        let f = album_fixture().await;
+        gallery::add_album_items(
+            &f.mount,
+            &f.album.id,
+            &[("d-photos".into(), "pic.jpg".into())],
+        )
+        .unwrap();
+        let base = format!("/api/v1/gallery/albums/d-photos/{}/items", f.album.id);
+
+        // A contributor (CAP_UPLOAD) must not remove anyone's items.
+        let (status, _) = call_json(
+            &f.router,
+            json_req(
+                "DELETE",
+                &base,
+                &f.member_token,
+                r#"{"drive_id":"d-photos","path":"pic.jpg"}"#,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(
+            gallery::list_album_item_refs(&f.mount, &f.album.id)
+                .unwrap()
+                .len(),
+            1
+        );
+
+        // Locking freezes the album for everyone, managers included.
+        let (status, _) = call_json(
+            &f.router,
+            json_req(
+                "PATCH",
+                &format!("/api/v1/gallery/albums/d-photos/{}", f.album.id),
+                &f.admin_token,
+                r#"{"locked":true}"#,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, _) = call_json(
+            &f.router,
+            json_req(
+                "POST",
+                &base,
+                &f.admin_token,
+                r#"{"items":[{"drive_id":"d-photos","path":"clip.mp4"}]}"#,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "locked album refuses adds");
+        let (status, _) = call_json(
+            &f.router,
+            json_req(
+                "DELETE",
+                &base,
+                &f.admin_token,
+                r#"{"drive_id":"d-photos","path":"pic.jpg"}"#,
+            ),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::FORBIDDEN,
+            "locked album refuses removes"
+        );
+
+        // Unlock, then the owner can remove again.
+        let (status, _) = call_json(
+            &f.router,
+            json_req(
+                "PATCH",
+                &format!("/api/v1/gallery/albums/d-photos/{}", f.album.id),
+                &f.admin_token,
+                r#"{"locked":false}"#,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, _) = call_json(
+            &f.router,
+            json_req(
+                "DELETE",
+                &base,
+                &f.admin_token,
+                r#"{"drive_id":"d-photos","path":"pic.jpg"}"#,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            gallery::list_album_item_refs(&f.mount, &f.album.id)
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn album_json_hides_layout_from_non_managers() {
+        let f = album_fixture().await;
+        // Give the album the internals a viewer must never see.
+        gallery::allocate_contrib_dir(&f.mount, &f.album.id, &f.album.name).unwrap();
+        gallery::update_album(
+            &f.mount,
+            &f.album.id,
+            None,
+            None,
+            Some(("d-photos".into(), "pic.jpg".into())),
+        )
+        .unwrap();
+        let album_uri = format!("/api/v1/gallery/albums/d-photos/{}", f.album.id);
+
+        let (status, v) =
+            call_json(&f.router, json_req("GET", &album_uri, &f.member_token, "")).await;
+        assert_eq!(status, StatusCode::OK);
+        for leaked in [
+            "contrib_path",
+            "cover_path",
+            "cover_drive_id",
+            "owner_user_id",
+        ] {
+            assert!(
+                v.get(leaked).is_none(),
+                "member view must not leak {leaked}: {v}"
+            );
+        }
+        for kept in [
+            "id",
+            "home_drive_id",
+            "name",
+            "cover_thumb",
+            "locked",
+            "item_count",
+        ] {
+            assert!(v.get(kept).is_some(), "member view needs {kept}: {v}");
+        }
+
+        // list_albums applies the same projection.
+        let (status, v) = call_json(
+            &f.router,
+            json_req("GET", "/api/v1/gallery/albums", &f.member_token, ""),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let list = v.as_array().unwrap();
+        assert_eq!(list.len(), 1);
+        assert!(list[0].get("contrib_path").is_none());
+        assert!(list[0].get("owner_user_id").is_none());
+
+        // The owner still gets the full row.
+        let (status, v) =
+            call_json(&f.router, json_req("GET", &album_uri, &f.admin_token, "")).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(v["owner_user_id"].is_string());
+        assert!(v["contrib_path"].is_string());
+        assert_eq!(v["cover_path"], "pic.jpg");
     }
 }

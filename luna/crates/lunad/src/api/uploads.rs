@@ -63,7 +63,14 @@ async fn create(
     }
     let path = body.path.unwrap_or_default();
     let upload = with_db(&state, |conn| {
-        uploads::create(conn, &body.drive_id, &path, &body.name, body.size)
+        uploads::create_scoped(
+            conn,
+            &body.drive_id,
+            &path,
+            &body.name,
+            body.size,
+            &format!("user:{}", user.id),
+        )
     })
     .map_err(map_upload_err)?;
     Ok(Json(json!({
@@ -127,7 +134,7 @@ async fn complete(
 ) -> Result<Json<crate::files::FileEntry>, (StatusCode, Json<Value>)> {
     check_upload_access(&state, &user, &id)?;
     let overwrite = query.overwrite.as_deref() == Some("1");
-    let (drive_id, rel) = {
+    let (drive_id, rel, exists) = {
         let conn = state.db.lock().map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -135,13 +142,37 @@ async fn complete(
             )
         })?;
         let row = uploads::get_row(&conn, &id).map_err(map_upload_err)?;
-        (
-            row.drive_id,
-            crate::gallery::gallery_indexer::join_rel(&row.path, &row.name),
-        )
+        let rel = crate::gallery::gallery_indexer::join_rel(&row.path, &row.name);
+        let exists = crate::files::dest_dir(&conn, &row.drive_id, &row.path)
+            .map(|dir| dir.join(&row.name).exists())
+            .unwrap_or(false);
+        (row.drive_id, rel, exists)
     };
-    let entry = uploads::complete(&state.db, &id, overwrite, false, query.hash.as_deref())
+    // Overwriting is an edit, not an upload: a drop-only member cannot
+    // replace a file that is already there. Same rule as the multipart
+    // upload path.
+    if overwrite && exists {
+        let conn = state.db.lock().map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna's index is busy. Try again.",
+            )
+        })?;
+        if !crate::auth::has_cap(&user, &conn, &drive_id, &rel, crate::access::CAP_EDIT) {
+            return Err(json_error(
+                StatusCode::FORBIDDEN,
+                "You don't have permission to change this file.",
+            ));
+        }
+    }
+    let mut entry = uploads::complete(&state.db, &id, overwrite, false, query.hash.as_deref())
         .map_err(map_upload_err)?;
+    // Stamp the caller's real caps on the new file — the browser uses them
+    // for row affordances (rename/delete/share) without a second lookup.
+    if let Ok(conn) = state.db.lock() {
+        entry.caps =
+            crate::access::caps_to_str(crate::auth::caps_on_path(&user, &conn, &drive_id, &rel));
+    }
     state.gallery.upsert(&drive_id, &rel);
     state.touch_io_activity();
     Ok(Json(entry))
@@ -191,6 +222,19 @@ fn check_upload_access(
         )
     })?;
     let row = uploads::get_row(&conn, upload_id).map_err(map_upload_err)?;
+    // Sessions belong to the principal that opened them — a member may only
+    // drive their own `user:{id}` uploads. Admins keep the override for
+    // ordinary destinations, but inside a member home the principal rule
+    // binds them too: an admin must not complete or cancel an upload that
+    // lands bytes in a private folder they hold zero caps on.
+    let principal_bound =
+        user.role != "admin" || crate::member_home::is_member_home_path(&row.path);
+    if principal_bound && row.principal != format!("user:{}", user.id) {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "That upload belongs to someone else.",
+        ));
+    }
     // Reuse this lock — do not call check_access (it would deadlock on the
     // non-reentrant Mutex).
     if crate::auth::has_cap(
@@ -258,9 +302,341 @@ fn map_upload_err(err: UploadError) -> (StatusCode, Json<Value>) {
             StatusCode::CONFLICT,
             "A file with this name is already here. Rename it or choose another.",
         ),
+        // Access was pulled (or never held) between session open and install.
+        UploadError::Denied => json_error(
+            StatusCode::FORBIDDEN,
+            "You don't have permission to upload here.",
+        ),
         _ => json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Luna couldn't finish this upload. Check the drive and try again.",
         ),
+    }
+}
+
+#[cfg(test)]
+mod http_tests {
+    use axum::body::Body;
+    use axum::extract::ConnectInfo;
+    use axum::http::{Method, Request as HttpReq, header};
+    use tower::ServiceExt;
+
+    use super::*;
+    use crate::api;
+    use crate::drives::DriveManager;
+    use crate::drives::mount::shared_mock;
+
+    const CLIENT: std::net::SocketAddr = std::net::SocketAddr::new(
+        std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
+        4242,
+    );
+
+    fn test_app(mount: &std::path::Path) -> (tempfile::TempDir, axum::Router) {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+        let prefix = luna_core::marker::pick_prefix(mount).unwrap();
+        crate::drives::drive_db::create(
+            mount,
+            &luna_core::marker::Marker::new("photos", "Photos"),
+            &prefix,
+        )
+        .unwrap();
+        crate::db::upsert_drive(
+            &conn,
+            "photos",
+            "Photos",
+            "as_is",
+            "ext4",
+            "sda",
+            mount.to_str().unwrap(),
+        )
+        .unwrap();
+        let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
+        let state = crate::AppState::new(conn, drive_manager, dir.path());
+        let app = api::router()
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                crate::auth::guard,
+            ))
+            .with_state(state);
+        (dir, app)
+    }
+
+    fn req(
+        method: Method,
+        uri: impl AsRef<str>,
+        cookie: &str,
+        csrf: &str,
+        body: Body,
+        extra: &[(&str, &str)],
+    ) -> HttpReq<Body> {
+        let mut builder = HttpReq::builder().method(method).uri(uri.as_ref());
+        if !cookie.is_empty() {
+            builder = builder.header("cookie", cookie);
+        }
+        if !csrf.is_empty() {
+            builder = builder.header("x-csrf-token", csrf);
+        }
+        for (k, v) in extra {
+            builder = builder.header(*k, *v);
+        }
+        let mut http = builder.body(body).unwrap();
+        http.extensions_mut().insert(ConnectInfo(CLIENT));
+        http
+    }
+
+    fn session_cookie(res: &axum::response::Response) -> (String, String) {
+        let mut session = String::new();
+        let mut csrf = String::new();
+        for value in res.headers().get_all(header::SET_COOKIE) {
+            let s = value.to_str().unwrap();
+            let part = s.split(';').next().unwrap_or("");
+            if part.starts_with("luna_session=") {
+                session = part.to_string();
+            } else if let Some(token) = part.strip_prefix("luna_csrf=") {
+                csrf = token.to_string();
+            }
+        }
+        (format!("{session}; luna_csrf={csrf}"), csrf)
+    }
+
+    async fn login(app: &axum::Router, name: &str) -> (String, String) {
+        let res = app
+            .clone()
+            .oneshot(req(
+                Method::POST,
+                "/api/v1/auth/login",
+                "",
+                "",
+                Body::from(format!(
+                    r#"{{"username":"{name}","password":"hunter22hunter1"}}"#
+                )),
+                &[("content-type", "application/json")],
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), 200);
+        session_cookie(&res)
+    }
+
+    async fn register(app: &axum::Router, name: &str, cookie: &str, csrf: &str) -> String {
+        let res = app
+            .clone()
+            .oneshot(req(
+                Method::POST,
+                "/api/v1/auth/register",
+                cookie,
+                csrf,
+                Body::from(format!(
+                    r#"{{"username":"{name}","display_name":"{name}","password":"hunter22hunter1"}}"#
+                )),
+                &[("content-type", "application/json")],
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), 200);
+        let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        v["id"].as_str().unwrap_or_default().to_string()
+    }
+
+    fn grant(dir: &tempfile::TempDir, user_id: &str, path: &str, caps: crate::access::Caps) {
+        let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+        crate::db::insert_access_member(
+            &conn,
+            &crate::db::AccessMemberRow {
+                id: uuid::Uuid::new_v4().to_string(),
+                subject_kind: crate::access::KIND_PATH.into(),
+                drive_id: "photos".into(),
+                path: path.into(),
+                album_id: String::new(),
+                user_id: user_id.into(),
+                caps,
+                created_by: "test".into(),
+            },
+        )
+        .unwrap();
+    }
+
+    /// First user is admin; registering another makes them a member.
+    async fn two_members(
+        app: &axum::Router,
+    ) -> ((String, String, String), (String, String, String)) {
+        let res = app
+            .clone()
+            .oneshot(req(
+                Method::POST,
+                "/api/v1/auth/register",
+                "",
+                "",
+                Body::from(
+                    r#"{"username":"max","display_name":"Max","password":"hunter22hunter1"}"#,
+                ),
+                &[("content-type", "application/json")],
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), 200);
+        let (admin_cookie, admin_csrf) = login(app, "max").await;
+        let sam_id = register(app, "sam", &admin_cookie, &admin_csrf).await;
+        let eve_id = register(app, "eve", &admin_cookie, &admin_csrf).await;
+        let (sam_cookie, sam_csrf) = login(app, "sam").await;
+        let (eve_cookie, eve_csrf) = login(app, "eve").await;
+        (
+            (sam_cookie, sam_csrf, sam_id),
+            (eve_cookie, eve_csrf, eve_id),
+        )
+    }
+
+    #[tokio::test]
+    async fn upload_session_belongs_to_its_creator() {
+        // Sam opens a session; Eve — with the same folder grant — cannot
+        // write chunks to it, complete it, or cancel it.
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(mount.path().join("drop")).unwrap();
+        let (dir, app) = test_app(mount.path());
+        let ((sam_cookie, sam_csrf, sam_id), (eve_cookie, eve_csrf, eve_id)) =
+            two_members(&app).await;
+        grant(&dir, &sam_id, "drop", crate::access::CAP_ALL);
+        grant(&dir, &eve_id, "drop", crate::access::CAP_ALL);
+
+        let res = app
+            .clone()
+            .oneshot(req(
+                Method::POST,
+                "/api/v1/uploads",
+                &sam_cookie,
+                &sam_csrf,
+                Body::from(r#"{"drive_id":"photos","path":"drop","name":"x.bin","size":4}"#),
+                &[("content-type", "application/json")],
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), 200);
+        let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let upload_id = v["upload_id"].as_str().unwrap().to_string();
+
+        // Eve tries to drive Sam's session three ways — all refused.
+        for (method, uri) in [
+            (Method::PUT, format!("/api/v1/uploads/{upload_id}")),
+            (
+                Method::POST,
+                format!("/api/v1/uploads/{upload_id}/complete"),
+            ),
+            (Method::DELETE, format!("/api/v1/uploads/{upload_id}")),
+        ] {
+            let res = app
+                .clone()
+                .oneshot(req(
+                    method,
+                    &uri,
+                    &eve_cookie,
+                    &eve_csrf,
+                    Body::from("data"),
+                    &[("content-range", "bytes 0-3/4")],
+                ))
+                .await
+                .unwrap();
+            assert_eq!(res.status(), StatusCode::FORBIDDEN, "{uri}");
+        }
+
+        // Sam's own session still works.
+        let res = app
+            .clone()
+            .oneshot(req(
+                Method::PUT,
+                format!("/api/v1/uploads/{upload_id}"),
+                &sam_cookie,
+                &sam_csrf,
+                Body::from("data"),
+                &[("content-range", "bytes 0-3/4")],
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), 200);
+        let res = app
+            .clone()
+            .oneshot(req(
+                Method::POST,
+                format!("/api/v1/uploads/{upload_id}/complete"),
+                &sam_cookie,
+                &sam_csrf,
+                Body::empty(),
+                &[],
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), 200);
+        assert_eq!(
+            std::fs::read(mount.path().join("drop/x.bin")).unwrap(),
+            b"data"
+        );
+    }
+
+    #[tokio::test]
+    async fn chunked_overwrite_needs_edit() {
+        // Upload-only member: a chunked session completing onto an existing
+        // name with overwrite=1 is an edit, not an upload.
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(mount.path().join("drop")).unwrap();
+        std::fs::write(mount.path().join("drop/x.bin"), b"old!").unwrap();
+        let (dir, app) = test_app(mount.path());
+        let ((sam_cookie, sam_csrf, sam_id), _) = two_members(&app).await;
+        grant(&dir, &sam_id, "drop", crate::access::CAP_UPLOAD);
+
+        let res = app
+            .clone()
+            .oneshot(req(
+                Method::POST,
+                "/api/v1/uploads",
+                &sam_cookie,
+                &sam_csrf,
+                Body::from(r#"{"drive_id":"photos","path":"drop","name":"x.bin","size":4}"#),
+                &[("content-type", "application/json")],
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), 200);
+        let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let upload_id = v["upload_id"].as_str().unwrap().to_string();
+
+        let res = app
+            .clone()
+            .oneshot(req(
+                Method::PUT,
+                format!("/api/v1/uploads/{upload_id}"),
+                &sam_cookie,
+                &sam_csrf,
+                Body::from("new!"),
+                &[("content-range", "bytes 0-3/4")],
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), 200);
+        let res = app
+            .clone()
+            .oneshot(req(
+                Method::POST,
+                format!("/api/v1/uploads/{upload_id}/complete?overwrite=1"),
+                &sam_cookie,
+                &sam_csrf,
+                Body::empty(),
+                &[],
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+        assert_eq!(
+            std::fs::read(mount.path().join("drop/x.bin")).unwrap(),
+            b"old!"
+        );
     }
 }

@@ -11,17 +11,21 @@ import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
+import Toggle from "@libreloom/ui/components/common/Toggle.jsx";
 import { Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import CreateLinkModal from "./CreateLinkModal.jsx";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { deleteJson, getJson, patchJson, postJson, apiErrorMessage } from "../../lib/api";
 import {
+  CAP,
   KIND_ALBUM,
-  capsCover,
   capsHint,
   capsLabel,
   capsOptions,
+  hasCap,
+  joinShareCaps,
+  splitShareCaps,
   subjectQuery,
   subjectKey,
 } from "../../lib/access.js";
@@ -96,6 +100,8 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
   const [linkError, setLinkError] = useState(null);
   const [personId, setPersonId] = useState("");
   const [caps, setCaps] = useState("");
+  // Whether the next member grant also carries the share bit.
+  const [shareBit, setShareBit] = useState(false);
   const [updatingId, setUpdatingId] = useState(null);
   const [parentSubject, setParentSubject] = useState(null);
 
@@ -116,6 +122,9 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
   const data = stateQuery.data;
   const subj = data?.subject || null;
   const myCaps = data?.my_caps || "";
+  // Managing the roster — adding people, minting links, retuning grants —
+  // needs the share bit, not just content rights.
+  const iCanShare = hasCap(myCaps, CAP.SHARE);
   const isAlbum = subj?.kind === KIND_ALBUM;
   const isFile = subj?.is_file === true || subject?.isFile === true;
   const isForm = isFile && isFormFile(subj?.path || "");
@@ -152,6 +161,7 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
       addToast({ type: "success", message: "Access granted." });
       invalidate();
       setPersonId("");
+      setShareBit(false);
     },
     onError: (err) => {
       haptic("error");
@@ -200,7 +210,9 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
 
   const memberUserIds = new Set(members.map((m) => m.user_id));
   const people = asList(directory.data).filter(
-    (u) => u.role !== "admin" && u.id !== user?.id && !memberUserIds.has(u.id),
+    // `shareable` is the server flag — admins already hold everything, so a
+    // member row against them is meaningless.
+    (u) => u.shareable !== false && u.id !== user?.id && !memberUserIds.has(u.id),
   );
   const noPeopleToAdd = directory.isSuccess && people.length === 0;
   const defaultCaps = memberOptions[0]?.value || "";
@@ -278,10 +290,17 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
               <section className="space-y-2">
                 <h3 className="text-primary text-sm font-semibold">People</h3>
                 {members.map((m) => {
-                  const canManage = m.can_manage ?? capsCover(myCaps, m.caps);
-                  const canRemove = m.can_remove ?? (m.user_id === user?.id || canManage);
+                  // The server decides manageability per row — never
+                  // infer it from capability math here (equal-cap peers
+                  // can't retune each other, and a plain member can't
+                  // touch anyone's grant).
+                  const canManage = m.can_manage === true && iCanShare;
+                  const canRemove = m.can_remove === true;
+                  // The share bit rides alongside the content level —
+                  // editing splits them so the dropdown stays content-only.
+                  const grant = splitShareCaps(m.caps);
                   const options = canManage
-                    ? [...new Set([m.caps, ...memberOptions.map((o) => o.value)])].map((v) => ({
+                    ? [...new Set([grant.content, ...memberOptions.map((o) => o.value)])].map((v) => ({
                         value: v,
                         label: capsLabel(v, { album: isAlbum, file: isFile }),
                       }))
@@ -297,9 +316,10 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
                           {canManage ? (
                             <Dropdown
                               options={options}
-                              value={m.caps}
+                              value={grant.content}
                               onChange={(next) => {
-                                if (next !== m.caps) updateMember.mutate({ id: m.id, caps: next });
+                                const joined = joinShareCaps(next, grant.share);
+                                if (joined !== m.caps) updateMember.mutate({ id: m.id, caps: joined });
                               }}
                               disabled={updatingId === m.id}
                               aria-label={`Access for ${m.name}`}
@@ -311,6 +331,19 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
                             </span>
                           )}
                         </div>
+                        {canManage && (
+                          <Toggle
+                            surface="primary"
+                            checked={grant.share}
+                            disabled={updatingId === m.id}
+                            onChange={(next) =>
+                              updateMember.mutate({ id: m.id, caps: joinShareCaps(grant.content, next) })
+                            }
+                            label="Can share"
+                            description="They can pass this access on and create links."
+                            className="mt-2"
+                          />
+                        )}
                         {m.effective_caps && m.effective_caps !== m.caps && (
                           <p className="text-secondary text-xs mt-1">
                             Also has {capsLabel(m.effective_caps, { album: isAlbum, file: isFile })} through a parent folder.
@@ -334,7 +367,7 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
                 {noPeopleToAdd ? (
                   <div className="space-y-3 rounded-large-element bg-primary text-secondary p-3">
                     <p className="text-secondary text-sm">
-                      {asList(directory.data).filter((u) => u.role !== "admin" && u.id !== user?.id).length === 0
+                      {asList(directory.data).filter((u) => u.shareable !== false && u.id !== user?.id).length === 0
                         ? "No people to share with yet."
                         : "Everyone already has access."}
                     </p>
@@ -347,7 +380,7 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
                     )}
                   </div>
                 ) : (
-                  memberOptions.length > 0 && (
+                  memberOptions.length > 0 && iCanShare && (
                     <>
                       <ShakeTarget shake={error}>
                         <Dropdown
@@ -373,6 +406,13 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
                       <p className="text-primary text-xs">
                         {capsHint(pickCaps, { album: isAlbum, file: isFile, form: isForm })}
                       </p>
+                      <Toggle
+                        surface="primary"
+                        checked={shareBit}
+                        onChange={setShareBit}
+                        label="Can share"
+                        description="They can pass this access on and create links."
+                      />
                       <Button
                         variant="primary"
                         size="sm"
@@ -385,7 +425,7 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
                             path: subj.path || "",
                             album_id: subj.album_id || "",
                             user_id: personId,
-                            caps: pickCaps,
+                            caps: joinShareCaps(pickCaps, shareBit),
                           })
                         }
                       >
@@ -399,7 +439,10 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
               <section className="space-y-2">
                 <h3 className="text-primary text-sm font-semibold">Links</h3>
                 {links.map((l) => {
-                  const canManage = l.can_manage ?? Boolean(l.url);
+                  // Server-issued `can_manage` only — a URL's presence is
+                  // already gated the same way, but the flag is the
+                  // contract, never inference from visible fields.
+                  const canManage = l.can_manage === true;
                   const url = canManage && l.url ? window.location.origin + l.url : null;
                   return (
                     <div
@@ -452,7 +495,7 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
                     </div>
                   );
                 })}
-                {capsOptions({ kind: subj?.kind, isFile, isForm }, myCaps, { forLink: true }).length > 0 && (
+                {iCanShare && capsOptions({ kind: subj?.kind, isFile, isForm }, myCaps, { forLink: true }).length > 0 && (
                   <Button
                     size="sm"
                     variant="primary"

@@ -367,6 +367,16 @@ export default function GalleryPage() {
     pages: 0,
     done: !(initialHash.y > 0 || initialHash.photo),
   });
+  // Bumped when a hashchange re-arms the restore above, so the restore
+  // effect re-runs even when no query data moved.
+  const [restoreTick, setRestoreTick] = useState(0);
+  // `#albums/<home>/<id>` names an album, not an object — the hash can only
+  // open the album once the albums query has delivered it.
+  const pendingAlbumRef = useRef(
+    initialHash.albumId
+      ? { home: initialHash.albumHome, id: initialHash.albumId }
+      : null,
+  );
   const hashStateRef = useRef(
     /** @type {{ activeSegment: string, albumView: object|null, viewLabel: string|null, filters: import("../components/gallery/GalleryFilterSheet.jsx").GalleryFilters, duplicatesView: boolean, lightbox: object|null }|null} */ (null),
   );
@@ -380,7 +390,7 @@ export default function GalleryPage() {
   };
 
   // Compose + write the deep-link hash. `?y=`/`p=` ride on list views only and
-  // always replaceState — scrolling must not flood history.
+  // stay replaceState — scrolling must not flood history.
   const writeHash = useCallback(() => {
     const s = hashStateRef.current;
     if (!s) return;
@@ -411,7 +421,24 @@ export default function GalleryPage() {
       if (s.lightbox) params.push(`p=${photoHashParam(s.lightbox.key)}`);
     }
     const next = params.length ? `${base}?${params.join("&")}` : base;
-    if (window.location.hash !== next) window.history.replaceState(null, "", next);
+    if (window.location.hash === next) return;
+    // Stepping INTO a scoped view — an album, a day, on-this-day, an open
+    // photo — is real navigation: push so browser Back steps back out. Param
+    // churn (?y=, swiping between photos) and stepping back out stay
+    // replaceState so history isn't flooded. The push marker lives only on
+    // entries that still ARE a detail view — a detail entry rewritten to a
+    // root head drops it, or a later detail view's Back pops to the wrong
+    // place.
+    const curHead = window.location.hash.split("?")[0];
+    const detail = (h) => h.length > 1 && !SEGMENT_IDS.includes(h.slice(1));
+    const openingPhoto =
+      s.lightbox && !parseGalleryHash(window.location.hash).photo;
+    if ((detail(base) && !detail(curHead)) || openingPhoto) {
+      window.history.pushState({ lunaGalleryDetail: true }, "", next);
+    } else {
+      const isDetailEntry = detail(base) || s.lightbox;
+      window.history.replaceState(isDetailEntry ? window.history.state : null, "", next);
+    }
   }, []);
 
   useEffect(() => {
@@ -427,6 +454,22 @@ export default function GalleryPage() {
     if (!restoreRef.current.done) return;
     writeHash();
   }, [activeSegment, albumView, viewLabel, filters, duplicatesView, lightbox, writeHash]);
+
+  const tryOpenAlbum = useCallback((album) => {
+    if (album.locked) {
+      try {
+        if (sessionStorage.getItem(unlockKey(album)) === "1") {
+          setAlbumView(album);
+          return;
+        }
+      } catch {
+        /* ignore */
+      }
+      setLockedGate(album);
+      return;
+    }
+    setAlbumView(album);
+  }, []);
 
   useEffect(() => {
     const onHashChange = () => {
@@ -450,17 +493,40 @@ export default function GalleryPage() {
         if (parsed.segment !== "places") next.place = null;
         return next;
       });
-      if (!parsed.albumId) {
-        // leave albumView; segment switch clears below
+      if (parsed.photo || parsed.y) {
+        // Back/forward onto a `?y=`/`?p=` entry restores scroll and reopens
+        // the photo through the same page-until-found restore a load runs.
+        restoreRef.current = {
+          y: parsed.y || 0,
+          photo: parsed.photo || null,
+          pages: 0,
+          done: false,
+        };
+        setRestoreTick((t) => t + 1);
+      } else {
+        setLightbox(null);
+        setSlideshow(false);
       }
-      if (parsed.segment !== "albums") {
+      if (parsed.albumId) {
+        // Back/forward (or a pasted link) names the album — reopen it. If the
+        // albums query hasn't landed yet, the resolver effect picks it up.
+        const list = queryClient.getQueryData(["gallery-albums"]);
+        const found = Array.isArray(list)
+          ? list.find(
+              (a) => a.id === parsed.albumId && a.home_drive_id === parsed.albumHome,
+            )
+          : null;
+        if (found) tryOpenAlbum(found);
+        else pendingAlbumRef.current = { home: parsed.albumHome, id: parsed.albumId };
+      } else {
+        pendingAlbumRef.current = null;
         setAlbumView(null);
         setViewLabel(null);
       }
     };
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
-  }, []);
+  }, [queryClient, tryOpenAlbum]);
 
   const handleSegmentChange = useCallback(
     (next) => {
@@ -731,6 +797,22 @@ export default function GalleryPage() {
 
   const driveList = drives.data || [];
   const albumList = Array.isArray(albums.data) ? albums.data : [];
+
+  // A `#albums/<home>/<id>` hash names an album, not an object — resolve it
+  // once the list arrives (deep link on load, or a back/forward nav that
+  // outran the albums query).
+  useEffect(() => {
+    const pending = pendingAlbumRef.current;
+    if (!pending) return;
+    const list = Array.isArray(albums.data) ? albums.data : [];
+    const found = list.find(
+      (a) => a.id === pending.id && a.home_drive_id === pending.home,
+    );
+    if (!found) return;
+    pendingAlbumRef.current = null;
+    tryOpenAlbum(found);
+  }, [albums.data, tryOpenAlbum]);
+
   const looking = gallery.isLoading || (indexing && photos.length === 0);
   const noDrives = !drives.isLoading && driveList.length === 0;
   const memberAlbumsGatePending =
@@ -1167,22 +1249,6 @@ export default function GalleryPage() {
     [activeSegment, handleSegmentChange, setQ],
   );
 
-  function tryOpenAlbum(album) {
-    if (album.locked) {
-      try {
-        if (sessionStorage.getItem(unlockKey(album)) === "1") {
-          setAlbumView(album);
-          return;
-        }
-      } catch {
-        /* ignore */
-      }
-      setLockedGate(album);
-      return;
-    }
-    setAlbumView(album);
-  }
-
   // Page-level drag-drop upload on library.
   useEffect(() => {
     if (activeSegment !== "library" || albumView || filters.place) return undefined;
@@ -1264,7 +1330,7 @@ export default function GalleryPage() {
     }
     if (r.photo && photoHit >= 0) setLightbox({ key: r.photo });
     writeHash();
-  }, [photos, gallery, writeHash]);
+  }, [photos, gallery, writeHash, restoreTick]);
 
   const actionModalOpen =
     newAlbumOpen
@@ -1451,6 +1517,13 @@ export default function GalleryPage() {
               surface="primary"
               size="sm"
               onClick={() => {
+                // Album views push a history entry — pop it so Back lands on
+                // the albums grid through the same path browser Back takes.
+                if (window.history.state?.lunaGalleryDetail) {
+                  window.history.back();
+                  return;
+                }
+                pendingAlbumRef.current = null;
                 setAlbumView(null);
                 setViewLabel(null);
                 setDuplicatesView(false);
@@ -1938,7 +2011,12 @@ export default function GalleryPage() {
           photoKey={lightbox.key}
           index={lightboxIndex}
           onClose={() => {
-            setLightbox(null);
+            // A pushed `?p=` entry pops — Forward can reopen the photo.
+            if (window.history.state?.lunaGalleryDetail) {
+              window.history.back();
+            } else {
+              setLightbox(null);
+            }
             setSlideshow(false);
           }}
           onIndexChange={(i) => {

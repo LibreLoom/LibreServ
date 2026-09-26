@@ -81,10 +81,10 @@ describe("AccessCategory", () => {
 
   it("token list uses contrasting text on primary surface", async () => {
     stubFetch([{ id: "t1", name: "Kitchen Mac", last_used_at: null }]);
-    const { container } = renderAccess();
+    renderAccess();
     expect(await screen.findByText("Kitchen Mac")).toBeTruthy();
 
-    const surface = container.querySelector("div.bg-primary.text-secondary");
+    const surface = screen.getByText("Kitchen Mac").closest("div.bg-primary.text-secondary");
     expect(surface).toBeTruthy();
     // Children must inherit text-secondary — text-primary on bg-primary is invisible in dark mode.
     expect(surface.querySelector(".text-primary")).toBeNull();

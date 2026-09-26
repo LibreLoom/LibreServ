@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { fileHref, folderHref, parentPath, searchResultHref } from "./paths.js";
+import {
+  fileHref,
+  folderHref,
+  isHomeRootPath,
+  isMemberHomePath,
+  parentPath,
+  searchResultHref,
+  segmentDisplayName,
+} from "./paths.js";
+
+const DRIVE_UUID = "550e8400-e29b-41d4-a716-446655440000";
+const MEMBERS = `.luna-${DRIVE_UUID}-members`;
 
 describe("searchResultHref", () => {
   it("opens a folder hit into that folder", () => {
@@ -54,6 +65,39 @@ describe("searchResultHref", () => {
         kind: "file",
       }),
     ).toBe("/drives/d1?path=Documents&select=Documents%2Ftaxes.pdf");
+  });
+});
+
+describe("member-home paths", () => {
+  it("detects only real members-container homes, not other bookkeeping", () => {
+    expect(isMemberHomePath(`${MEMBERS}/sam`)).toBe(true);
+    expect(isMemberHomePath(`${MEMBERS}/sam/photos/beach.jpg`)).toBe(true);
+    // The bare container is bookkeeping, not a home.
+    expect(isMemberHomePath(MEMBERS)).toBe(false);
+    // Drive bookkeeping uses .luna-* too but never with a -members suffix —
+    // .luna-trash, .luna-index, non-UUID names must not read as homes.
+    expect(isMemberHomePath(".luna-trash")).toBe(false);
+    expect(isMemberHomePath(".luna-trash/1-note.txt")).toBe(false);
+    expect(isMemberHomePath(".luna-not-a-uuid-members/sam")).toBe(false);
+    expect(isMemberHomePath(".luna-members/sam")).toBe(false);
+    expect(isMemberHomePath(`.luna-${DRIVE_UUID}/sam`)).toBe(false);
+    expect(isMemberHomePath("photos/beach.jpg")).toBe(false);
+    expect(isMemberHomePath("")).toBe(false);
+  });
+
+  it("marks only the owner directory as the home root", () => {
+    expect(isHomeRootPath(`${MEMBERS}/sam`)).toBe(true);
+    expect(isHomeRootPath(`${MEMBERS}/sam/docs`)).toBe(false);
+    expect(isHomeRootPath(MEMBERS)).toBe(false);
+    expect(isHomeRootPath("docs")).toBe(false);
+  });
+
+  it("shows the owner segment as Home", () => {
+    const rel = `${MEMBERS}/sam/docs`;
+    expect(segmentDisplayName("sam", 1, rel)).toBe("Home");
+    expect(segmentDisplayName("docs", 2, rel)).toBe("docs");
+    expect(segmentDisplayName(MEMBERS, 0, rel)).toBe(MEMBERS);
+    expect(segmentDisplayName("anything", 1, "docs/anything")).toBe("anything");
   });
 });
 

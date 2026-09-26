@@ -669,11 +669,11 @@ fn csrf_valid(headers: &HeaderMap) -> bool {
             == 0
 }
 fn uses_session_cookie(headers: &HeaderMap) -> bool {
-    token_from_headers(headers).is_some()
-        && headers
-            .get(axum::http::header::AUTHORIZATION)
-            .and_then(|v| v.to_str().ok())
-            .is_none_or(|v| !v.starts_with("Bearer "))
+    // Only an absent Authorization header means cookie auth — Bearer AND
+    // Basic (WebDAV clients) are non-browser credentials that send no CSRF
+    // cookie and must not fail the double-submit check.
+    headers.get(axum::http::header::AUTHORIZATION).is_none()
+        && token_from_headers(headers).is_some()
 }
 fn new_csrf_token() -> String {
     let mut bytes = [0u8; 16];
@@ -1073,17 +1073,106 @@ pub fn caps_on_path(
     drive_id: &str,
     path: &str,
 ) -> crate::access::Caps {
-    if user.role == "admin" {
-        return crate::access::CAP_ALL;
-    }
-    let Ok(rows) = db::list_access_members_for_user(conn, &user.id) else {
-        return 0;
-    };
     let mount = db::get_drive(conn, drive_id)
         .ok()
         .flatten()
         .filter(|d| !d.mount_point.is_empty())
         .map(|d| d.mount_point);
+    // Trash paths inherit the grants of where the item came from — the same
+    // origin-ACL model the trash listing uses to decide what a member may
+    // see or change. An entry with no metadata maps to nothing and grants
+    // on `.luna-trash` itself never exist, so it simply gets no caps.
+    let origin;
+    let path = if crate::files::is_trash_api(path) {
+        match crate::files::trash_original_path(conn, drive_id, path) {
+            Ok(Some(o)) => {
+                origin = o;
+                origin.as_str()
+            }
+            _ => path,
+        }
+    } else {
+        path
+    };
+    // Member homes (`.luna-<uuid>-members/<username>/…`): the owner holds
+    // everything. For everyone else — admins included — only explicit member
+    // rows inside that same home apply. This is the privacy boundary: admin
+    // access never opens another member's files through any Luna surface.
+    if crate::member_home::is_member_home_path(path) {
+        // Only a container minted by THIS drive's marker counts. A foreign
+        // `.luna-<uuid>-members` tree — adopted from another Luna or
+        // planted in a drive image — is nobody's home: seal it for
+        // everyone, member rows included.
+        if !crate::member_home::container_matches_drive(conn, drive_id, path) {
+            return 0;
+        }
+        if crate::member_home::owner_of(conn, drive_id, path).as_deref() == Some(user.id.as_str()) {
+            return crate::access::CAP_MANAGE;
+        }
+        return member_row_caps(user, conn, drive_id, path, mount.as_deref());
+    }
+    if user.role == "admin" {
+        return crate::access::CAP_MANAGE;
+    }
+    member_row_caps(user, conn, drive_id, path, mount.as_deref())
+}
+
+/// [`caps_on_path`] with the caller's member rows already fetched — for
+/// stamping capabilities onto a whole listing without one user-row query
+/// per entry. `path` is a plain rel (no `.luna-trash` alias mapping).
+pub fn caps_on_path_rows(
+    user: &CurrentUser,
+    conn: &Connection,
+    drive_id: &str,
+    path: &str,
+    rows: &[db::AccessMemberRow],
+) -> crate::access::Caps {
+    let mount = db::get_drive(conn, drive_id)
+        .ok()
+        .flatten()
+        .filter(|d| !d.mount_point.is_empty())
+        .map(|d| d.mount_point);
+    if crate::member_home::is_member_home_path(path) {
+        // Same seal as caps_on_path: a foreign members container opens for
+        // nobody, whatever rows exist inside it.
+        if !crate::member_home::container_matches_drive(conn, drive_id, path) {
+            return 0;
+        }
+        if crate::member_home::owner_of(conn, drive_id, path).as_deref() == Some(user.id.as_str()) {
+            return crate::access::CAP_MANAGE;
+        }
+        return member_row_caps_rows(rows, drive_id, path, mount.as_deref());
+    }
+    if user.role == "admin" {
+        return crate::access::CAP_MANAGE;
+    }
+    member_row_caps_rows(rows, drive_id, path, mount.as_deref())
+}
+
+fn member_row_caps(
+    user: &CurrentUser,
+    conn: &Connection,
+    drive_id: &str,
+    path: &str,
+    mount: Option<&str>,
+) -> crate::access::Caps {
+    let Ok(rows) = db::list_access_members_for_user(conn, &user.id) else {
+        return 0;
+    };
+    member_row_caps_rows(&rows, drive_id, path, mount)
+}
+
+/// `rows` must already belong to the user (the caller fetched
+/// `list_access_members_for_user` once for a batch).
+fn member_row_caps_rows(
+    rows: &[db::AccessMemberRow],
+    drive_id: &str,
+    path: &str,
+    mount: Option<&str>,
+) -> crate::access::Caps {
+    // Inside a member home only grants *rooted in that same home* count —
+    // a drive-wide `""` row must never reach across the home boundary.
+    let home_root = crate::member_home::home_root_of(path);
     let mut caps: crate::access::Caps = 0;
     for row in rows {
         if row.subject_kind != crate::access::KIND_PATH || row.drive_id != drive_id {
@@ -1092,7 +1181,13 @@ pub fn caps_on_path(
         if !crate::access::path_contains(&row.path, path) {
             continue;
         }
-        let covers = match mount.as_deref() {
+        if let Some(home_root) = home_root {
+            let row_path = crate::access::normalize_subject_path(&row.path);
+            if !crate::access::path_contains(home_root, &row_path) {
+                continue;
+            }
+        }
+        let covers = match mount {
             Some(root) => grant_covers_canonical(
                 root,
                 &crate::access::normalize_subject_path(&row.path),
@@ -1183,8 +1278,13 @@ fn grant_covers_canonical(root: &str, grant_rel: &str, request_rel: &str) -> boo
 }
 
 /// True if the user may see anything on this drive (whole drive or a folder).
+/// A member also sees the drive their home folder lives on — it is their
+/// only writable root when nothing is shared with them.
 pub fn has_drive_access(user: &CurrentUser, conn: &Connection, drive_id: &str) -> bool {
     if user.role == "admin" {
+        return true;
+    }
+    if crate::member_home::home_on_drive(conn, &user.id, drive_id) {
         return true;
     }
     let Ok(rows) = db::list_access_members_for_user(conn, &user.id) else {
@@ -1195,9 +1295,13 @@ pub fn has_drive_access(user: &CurrentUser, conn: &Connection, drive_id: &str) -
 }
 
 /// True if the user may change anything on this drive (upload or edit,
-/// whole drive or a folder).
+/// whole drive or a folder). Owning a home on the drive counts — the member
+/// can always write inside their own home.
 pub fn has_write_on_drive(user: &CurrentUser, conn: &Connection, drive_id: &str) -> bool {
     if user.role == "admin" {
+        return true;
+    }
+    if crate::member_home::home_on_drive(conn, &user.id, drive_id) {
         return true;
     }
     let Ok(rows) = db::list_access_members_for_user(conn, &user.id) else {
@@ -1217,34 +1321,189 @@ pub fn has_write_on_drive(user: &CurrentUser, conn: &Connection, drive_id: &str)
 /// folder. Sibling folders outside the member's scope stay hidden. Writes
 /// still use capability checks.
 pub fn can_browse_path(user: &CurrentUser, conn: &Connection, drive_id: &str, path: &str) -> bool {
-    if can_access(user, conn, drive_id, path, false) {
+    let norm = crate::access::normalize_subject_path(path);
+    // The members container itself is bookkeeping — nobody walks it,
+    // whoever holds grants inside one of its homes.
+    if crate::member_home::is_members_dir(&norm) {
+        return false;
+    }
+    // Inside a member home the admin fast-path does not exist: admins only
+    // see what was shared with them, like any other member.
+    let in_member_home = crate::member_home::is_member_home_path(&norm);
+    // A foreign members container seals like it does in caps_on_path —
+    // rows inside it must not unlock a tree this drive never minted.
+    if in_member_home && !crate::member_home::container_matches_drive(conn, drive_id, &norm) {
+        return false;
+    }
+    if can_access(user, conn, drive_id, &norm, false) {
         return true;
     }
-    if user.role == "admin" {
+    if user.role == "admin" && !in_member_home {
+        return true;
+    }
+    if norm.is_empty() && crate::member_home::home_on_drive(conn, &user.id, drive_id) {
         return true;
     }
     let Ok(rows) = db::list_access_members_for_user(conn, &user.id) else {
         return false;
     };
+    browse_rows_walk(drive_id, &norm, &rows)
+}
+
+/// The row-walk half of [`can_browse_path`]: may any `CAP_VIEW` row on this
+/// drive see `norm`, directly or as an ancestor of the grant? Grants
+/// outside a member home never unlock paths inside it.
+fn browse_rows_walk(drive_id: &str, norm: &str, rows: &[db::AccessMemberRow]) -> bool {
+    let home_root = crate::member_home::home_root_of(norm);
     rows.iter().any(|r| {
         if r.subject_kind != crate::access::KIND_PATH || r.drive_id != drive_id {
             return false;
         }
+        if let Some(home_root) = home_root {
+            if !crate::access::path_contains(
+                home_root,
+                &crate::access::normalize_subject_path(&r.path),
+            ) {
+                return false;
+            }
+        }
+        // Upload-only rows are browse-blind: PUT lands on a known path, but
+        // nothing under or above the grant opens for walking.
+        if r.caps & crate::access::CAP_VIEW == 0 {
+            return false;
+        }
         let member_path = crate::access::normalize_subject_path(&r.path);
-        let walk = crate::access::normalize_subject_path(path);
-        // A whole-drive row with view caps was already handled by
-        // can_access. An upload-only whole-drive row must NOT make every
-        // path browsable — only the root, so the member can reach their
-        // drop target (children still fail the ancestor check below).
+        // A whole-drive view row was already handled by the caps check;
+        // reaching here it covers nothing extra.
         if member_path.is_empty() {
-            return walk.is_empty() || (r.caps & crate::access::CAP_VIEW) != 0;
+            return norm.is_empty();
         }
         // Empty path is the drive root — always an ancestor of any member row.
-        if walk.is_empty() {
+        if norm.is_empty() {
             return true;
         }
         // path is a proper prefix of the member's scope (ancestor walk).
-        crate::access::path_contains(&walk, &member_path)
+        crate::access::path_contains(norm, &member_path)
+    })
+}
+
+/// [`caps_on_path`] for batch evaluators (DAV PROPFIND) that preload the
+/// per-request context once instead of re-reading the member rows, the
+/// drive row, and the drive's marker for every entry.
+///
+/// `members_name` is the drive's own `.luna-<uuid>-members` container name
+/// (`None` when the marker can't be read — home paths then seal).
+/// `path` is a raw drive-relative path; unlike [`caps_on_path`] no
+/// `.luna-trash` origin remap runs — callers on raw rels don't need it.
+pub fn caps_on_path_preloaded(
+    user: &CurrentUser,
+    drive_id: &str,
+    path: &str,
+    rows: &[db::AccessMemberRow],
+    mount: Option<&str>,
+    members_name: Option<&str>,
+) -> crate::access::Caps {
+    if crate::member_home::is_member_home_path(path) {
+        let first = path.split('/').next().unwrap_or("");
+        if Some(first) != members_name {
+            return 0;
+        }
+        // The requesting user's username matching the home segment IS the
+        // owner check — no users-table lookup needed for self-comparison.
+        if crate::member_home::owner_username(path) == Some(user.username.as_str()) {
+            return crate::access::CAP_MANAGE;
+        }
+        return member_row_caps_rows(rows, drive_id, path, mount);
+    }
+    if user.role == "admin" {
+        return crate::access::CAP_MANAGE;
+    }
+    member_row_caps_rows(rows, drive_id, path, mount)
+}
+
+/// [`can_browse_path`] with the per-request context preloaded — see
+/// [`caps_on_path_preloaded`]. `caps` must be the result of evaluating
+/// [`caps_on_path_preloaded`] (or [`caps_on_path`]) on the same path.
+pub fn can_browse_path_preloaded(
+    user: &CurrentUser,
+    drive_id: &str,
+    path: &str,
+    caps: crate::access::Caps,
+    rows: &[db::AccessMemberRow],
+    members_name: Option<&str>,
+    home_here: bool,
+) -> bool {
+    let norm = crate::access::normalize_subject_path(path);
+    if crate::member_home::is_members_dir(&norm) {
+        return false;
+    }
+    let in_member_home = crate::member_home::is_member_home_path(&norm);
+    if in_member_home && norm.split('/').next() != members_name {
+        return false;
+    }
+    if caps & crate::access::CAP_VIEW == crate::access::CAP_VIEW {
+        return true;
+    }
+    if user.role == "admin" && !in_member_home {
+        return true;
+    }
+    if norm.is_empty() && home_here {
+        return true;
+    }
+    browse_rows_walk(drive_id, &norm, rows)
+}
+
+/// Stricter than [`can_browse_path`], for the member HTTP files API: true
+/// when the user holds `CAP_VIEW` on `path`, when `path` is exactly a member
+/// row's own path (any caps — an upload-only member still resolves their
+/// drop folder as a landing), or when `path` is the drive root and the user
+/// holds any member row on the drive.
+///
+/// Unlike `can_browse_path` it never opens the ancestors of a deep grant:
+/// `docs/reports/2024/file.pdf` does not make `docs` listable or statable.
+/// Directory structure outside the grant is not the member's to see. WebDAV
+/// keeps the wider ancestor walk in [`can_browse_path`] — this gate is only
+/// for the HTTP surface.
+pub fn can_inspect_path(user: &CurrentUser, conn: &Connection, drive_id: &str, path: &str) -> bool {
+    let norm = crate::access::normalize_subject_path(path);
+    // The members container itself is bookkeeping — nobody inspects it,
+    // whoever holds grants inside one of its homes.
+    if crate::member_home::is_members_dir(&norm) {
+        return false;
+    }
+    // Same member-home carve as can_browse_path: admin rights stop at the
+    // edge of another member's home.
+    let in_member_home = crate::member_home::is_member_home_path(path);
+    if can_access(user, conn, drive_id, path, false) {
+        return true;
+    }
+    if user.role == "admin" && !in_member_home {
+        return true;
+    }
+    let home_here = crate::member_home::home_on_drive(conn, &user.id, drive_id);
+    if norm.is_empty() && home_here {
+        return true;
+    }
+    // The member's own home dir is inspectable even before it exists (the
+    // "your files" card links here on a fresh account).
+    if home_here
+        && crate::member_home::home_rel(conn, drive_id, &user.username).as_deref()
+            == Some(norm.as_str())
+    {
+        return true;
+    }
+    let Ok(rows) = db::list_access_members_for_user(conn, &user.id) else {
+        return false;
+    };
+    if norm.is_empty() {
+        return rows
+            .iter()
+            .any(|r| r.subject_kind == crate::access::KIND_PATH && r.drive_id == drive_id);
+    }
+    rows.iter().any(|r| {
+        r.subject_kind == crate::access::KIND_PATH
+            && r.drive_id == drive_id
+            && crate::access::normalize_subject_path(&r.path) == norm
     })
 }
 
@@ -1265,7 +1524,7 @@ pub(crate) fn verify_password_hash(
         .map_err(|_| AuthError::BadLogin)
 }
 
-fn normalize_username(username: &str) -> Result<String, AuthError> {
+pub(crate) fn normalize_username(username: &str) -> Result<String, AuthError> {
     let username = username.trim().to_lowercase();
     let valid = !username.is_empty()
         && username.len() <= 32
@@ -1460,8 +1719,8 @@ mod tests {
             username: sam.username.clone(),
             role: "user".into(),
         };
-        // Whole-drive upload-only grant: the member may land on the drive
-        // root to drop files, but nothing on it becomes browsable.
+        // Whole-drive upload-only grant: fully browse-blind — PUT lands on
+        // the granted path but no folder on the drive opens for walking.
         member(
             &conn,
             "gu",
@@ -1470,11 +1729,11 @@ mod tests {
             "",
             crate::access::CAP_UPLOAD,
         );
-        assert!(can_browse_path(&sam_user, &conn, "drive-c", ""));
+        assert!(!can_browse_path(&sam_user, &conn, "drive-c", ""));
         assert!(!can_browse_path(&sam_user, &conn, "drive-c", "photos"));
         assert!(!can_browse_path(&sam_user, &conn, "drive-c", "photos/2024"));
-        // Folder-scoped upload-only grant: ancestors stay walkable, the
-        // grant folder opens (empty listing), its children stay hidden.
+        // Folder-scoped upload-only grant: same blindness — no ancestors,
+        // no grant dir, no children.
         member(
             &conn,
             "gu2",
@@ -1483,9 +1742,9 @@ mod tests {
             "drop/inbox",
             crate::access::CAP_UPLOAD,
         );
-        assert!(can_browse_path(&sam_user, &conn, "drive-d", ""));
-        assert!(can_browse_path(&sam_user, &conn, "drive-d", "drop"));
-        assert!(can_browse_path(&sam_user, &conn, "drive-d", "drop/inbox"));
+        assert!(!can_browse_path(&sam_user, &conn, "drive-d", ""));
+        assert!(!can_browse_path(&sam_user, &conn, "drive-d", "drop"));
+        assert!(!can_browse_path(&sam_user, &conn, "drive-d", "drop/inbox"));
         assert!(!can_browse_path(
             &sam_user,
             &conn,
@@ -1493,6 +1752,102 @@ mod tests {
             "drop/inbox/file.txt"
         ));
         assert!(!can_browse_path(&sam_user, &conn, "drive-d", "other"));
+        // Blind, not powerless: the upload capability itself still holds
+        // on both granted paths.
+        assert!(has_cap(
+            &sam_user,
+            &conn,
+            "drive-c",
+            "",
+            crate::access::CAP_UPLOAD
+        ));
+        assert!(has_cap(
+            &sam_user,
+            &conn,
+            "drive-d",
+            "drop/inbox",
+            crate::access::CAP_UPLOAD
+        ));
+        // The grant folder still resolves as an inspectable landing — the
+        // member's own row makes it addressable (empty listing, hidden
+        // children), it just isn't browsable.
+        assert!(can_inspect_path(&sam_user, &conn, "drive-d", "drop/inbox"));
+        drop(conn);
+        drop((dir, auth));
+    }
+
+    #[test]
+    fn inspect_path_never_opens_grant_ancestors() {
+        let (dir, auth) = service();
+        let _admin = auth
+            .register("Max", "Max", "hunter22hunter1", "user")
+            .unwrap();
+        let sam = auth
+            .register("sam", "Sam", "hunter22hunter1", "user")
+            .unwrap();
+        let conn = auth.db.lock().unwrap();
+        let sam_user = CurrentUser {
+            id: sam.id.clone(),
+            username: sam.username.clone(),
+            role: "user".into(),
+        };
+        // A deep file grant: the file itself and the drive root inspect,
+        // every ancestor stays closed.
+        member(
+            &conn,
+            "g1",
+            &sam.id,
+            "drive-a",
+            "docs/reports/2024/file.pdf",
+            crate::access::CAP_VIEW,
+        );
+        assert!(can_inspect_path(&sam_user, &conn, "drive-a", ""));
+        assert!(!can_inspect_path(&sam_user, &conn, "drive-a", "docs"));
+        assert!(!can_inspect_path(
+            &sam_user,
+            &conn,
+            "drive-a",
+            "docs/reports"
+        ));
+        assert!(!can_inspect_path(
+            &sam_user,
+            &conn,
+            "drive-a",
+            "docs/reports/2024"
+        ));
+        assert!(can_inspect_path(
+            &sam_user,
+            &conn,
+            "drive-a",
+            "docs/reports/2024/file.pdf"
+        ));
+        assert!(!can_inspect_path(&sam_user, &conn, "drive-a", "secret"));
+        // A member with no rows at all can't even inspect the drive root.
+        let nobody = CurrentUser {
+            id: "nobody".into(),
+            username: "nobody".into(),
+            role: "user".into(),
+        };
+        assert!(!can_inspect_path(&nobody, &conn, "drive-a", ""));
+        // An upload-only member resolves exactly their grant path — the
+        // landing folder must open so uploads can drop there.
+        member(
+            &conn,
+            "g2",
+            &sam.id,
+            "drive-b",
+            "drop/inbox",
+            crate::access::CAP_UPLOAD,
+        );
+        assert!(can_inspect_path(&sam_user, &conn, "drive-b", "drop/inbox"));
+        assert!(!can_inspect_path(&sam_user, &conn, "drive-b", "drop"));
+        assert!(!can_inspect_path(
+            &sam_user,
+            &conn,
+            "drive-b",
+            "drop/inbox/file.txt"
+        ));
+        assert!(can_inspect_path(&sam_user, &conn, "drive-b", ""));
         drop(conn);
         drop((dir, auth));
     }
@@ -1723,6 +2078,17 @@ mod guard_tests {
         std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
         54321,
     );
+    /// A public-internet peer — off-LAN, so first registration needs the
+    /// device token. `client_ip` won't trust its forwarding headers.
+    const REMOTE: std::net::SocketAddr = std::net::SocketAddr::new(
+        std::net::IpAddr::V4(std::net::Ipv4Addr::new(203, 0, 113, 9)),
+        54321,
+    );
+
+    fn from_remote(mut r: HttpReq<Body>) -> HttpReq<Body> {
+        r.extensions_mut().insert(ConnectInfo(REMOTE));
+        r
+    }
 
     fn test_app() -> (tempfile::TempDir, axum::Router) {
         let dir = tempfile::tempdir().unwrap();
@@ -2138,24 +2504,26 @@ mod guard_tests {
             .layer(axum::middleware::from_fn_with_state(state.clone(), guard))
             .with_state(state);
 
-        let mut denied = req(
+        // A genuinely remote client (public peer IP): the public hostname
+        // alone no longer opens setup — the device token is the proof.
+        let mut denied = from_remote(req(
             Method::POST,
             "/api/v1/auth/register",
             Some(r#"{"username":"max","password":"hunter22hunter1"}"#),
             None,
-        );
+        ));
         denied
             .headers_mut()
             .insert("host", "photos.luna.servers.libreloom.org".parse().unwrap());
         let res = call(&app, denied).await;
         assert_eq!(res.status(), 403, "{}", text(res).await);
 
-        let mut via_query = req(
+        let mut via_query = from_remote(req(
             Method::POST,
             "/api/v1/auth/register?setup=one-time-secret",
             Some(r#"{"username":"max","password":"hunter22hunter1"}"#),
             None,
-        );
+        ));
         via_query
             .headers_mut()
             .insert("host", "photos.luna.servers.libreloom.org".parse().unwrap());
@@ -2167,12 +2535,12 @@ mod guard_tests {
             text(res).await
         );
 
-        let mut via_cookie = req(
+        let mut via_cookie = from_remote(req(
             Method::POST,
             "/api/v1/auth/register",
             Some(r#"{"username":"max","password":"hunter22hunter1"}"#),
             None,
-        );
+        ));
         via_cookie
             .headers_mut()
             .insert("host", "photos.luna.servers.libreloom.org".parse().unwrap());
@@ -2187,14 +2555,14 @@ mod guard_tests {
             text(res).await
         );
 
-        let mut ok = req(
+        let mut ok = from_remote(req(
             Method::POST,
             "/api/v1/auth/register",
             Some(
                 r#"{"username":"max","password":"hunter22hunter1","setup_secret":"one-time-secret"}"#,
             ),
             None,
-        );
+        ));
         ok.headers_mut()
             .insert("host", "photos.luna.servers.libreloom.org".parse().unwrap());
         let res = call(&app, ok).await;

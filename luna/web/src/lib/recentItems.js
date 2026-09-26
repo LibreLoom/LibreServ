@@ -9,6 +9,8 @@ import { canViewerOpen } from "./officeConvert.js";
 import {
   fileHref,
   folderHref,
+  homeAwareLabel,
+  isHomeRootPath,
   isTrashPath,
   joinPath,
   parentPath,
@@ -133,8 +135,11 @@ export function recentItemHref(item) {
   return folderHref(item.driveId, item.kind === "folder" ? item.path : "");
 }
 
-/** Display name — basename for files/folders, drive label at a drive root. */
-export function recentItemName(item, driveLabel) {
+/** Display name — basename for files/folders, "Home" at a home root, drive label at a drive root. */
+export function recentItemName(item, driveLabel, ownHomePath = "") {
+  if (isHomeRootPath(item.path)) {
+    return homeAwareLabel(item.path, ownHomePath);
+  }
   const base = pathBasename(item.path);
   if (base) return base;
   return driveLabel || item.driveLabel || "Drive";
@@ -142,13 +147,14 @@ export function recentItemName(item, driveLabel) {
 
 /**
  * "Drive · containing/folder" context line, or null for a whole-drive item
- * (the name already says it all).
+ * (the name already says it all). Member-home prefixes collapse to the
+ * home label — the internal path never renders.
  */
-export function recentItemLocationLine(item, driveLabel) {
+export function recentItemLocationLine(item, driveLabel, ownHomePath = "") {
   if (item.kind === "drive") return null;
   const label = driveLabel || item.driveLabel || "Drive";
   const parent = parentPath(item.path);
-  return parent ? `${label} · ${parent}` : label;
+  return parent ? `${label} · ${homeAwareLabel(parent, ownHomePath)}` : label;
 }
 
 /** Short relative stamp for the row, e.g. "Just now", "3 h ago", "Mar 4". */

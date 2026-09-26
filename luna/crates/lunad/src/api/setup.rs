@@ -161,31 +161,13 @@ fn is_lan_request(addr: &std::net::SocketAddr, headers: &HeaderMap) -> bool {
     {
         return true;
     }
-    let ip = client_ip(addr, headers);
+    // The shared resolver honors forwarding headers only from a loopback
+    // peer — a remote caller's spoofed X-Forwarded-For can't fake LAN.
+    let ip = crate::api::auth::client_ip(addr, headers);
     match ip {
         std::net::IpAddr::V4(v4) => v4.is_loopback() || v4.is_private() || v4.is_link_local(),
         std::net::IpAddr::V6(v6) => v6.is_loopback() || (v6.segments()[0] & 0xfe00) == 0xfc00,
     }
-}
-
-fn client_ip(addr: &std::net::SocketAddr, headers: &HeaderMap) -> std::net::IpAddr {
-    if let Some(ip) = headers
-        .get("cf-connecting-ip")
-        .or_else(|| headers.get("x-real-ip"))
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.trim().parse().ok())
-    {
-        return ip;
-    }
-    if let Some(ip) = headers
-        .get("x-forwarded-for")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|raw| raw.split(',').next())
-        .and_then(|s| s.trim().parse().ok())
-    {
-        return ip;
-    }
-    addr.ip()
 }
 
 fn enrich_setup(

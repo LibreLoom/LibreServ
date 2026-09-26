@@ -31,8 +31,100 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/auth/logout", post(logout))
         .route("/api/v1/auth/revoke-sessions", post(revoke_sessions))
         .route("/api/v1/auth/revoke-devices", post(revoke_devices))
-        .route("/api/v1/auth/me", get(me))
+        .route("/api/v1/auth/me", get(me).patch(update_me))
         .route("/api/v1/auth/status", get(status))
+}
+
+#[derive(Deserialize)]
+struct UpdateMeBody {
+    display_name: Option<String>,
+    current_password: Option<String>,
+    new_password: Option<String>,
+}
+
+/// Self-service profile: display name, and password change with the
+/// current password as proof. Admins use the same endpoint; resetting
+/// other people's passwords is an Admin action on /api/v1/users.
+async fn update_me(
+    State(state): State<AppState>,
+    current: Option<Extension<CurrentUser>>,
+    Json(body): Json<UpdateMeBody>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let Some(Extension(user)) = current else {
+        return Err(json_error(
+            StatusCode::UNAUTHORIZED,
+            "Sign in to Luna first.",
+        ));
+    };
+    let conn = state.db.lock().map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna's index is busy. Try again.",
+        )
+    })?;
+    let mut changed_password = false;
+
+    if let Some(name) = body.display_name.as_deref() {
+        let name = name.trim();
+        if name.is_empty() || name.len() > 80 {
+            return Err(json_error(
+                StatusCode::BAD_REQUEST,
+                "Names are 1-80 characters.",
+            ));
+        }
+        crate::db::set_user_display_name(&conn, &user.id, name).map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't save that. Try again.",
+            )
+        })?;
+    }
+
+    if let Some(new_password) = body.new_password.as_deref() {
+        let current_password = body.current_password.as_deref().unwrap_or("");
+        state
+            .auth
+            .verify_password_for_user(&user.id, current_password)
+            .map_err(|_| json_error(StatusCode::FORBIDDEN, "That's not your current password."))?;
+        if let Err(e) = crate::password::validate_password(new_password) {
+            return Err(json_error(StatusCode::BAD_REQUEST, e.message()));
+        }
+        if let Err(e) = crate::hibp::ensure_password_not_breached(new_password) {
+            return Err(json_error(StatusCode::BAD_REQUEST, e.message()));
+        }
+        let hash = auth::hash_password(new_password).map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't save that. Try again.",
+            )
+        })?;
+        crate::db::set_user_password_hash(&conn, &user.id, &hash).map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't save that. Try again.",
+            )
+        })?;
+        // Every session and device token signed in with the old password is
+        // suspect — sign them all out, this browser included.
+        let _ = crate::db::bump_user_token_version(&conn, &user.id);
+        let _ = crate::db::revoke_device_tokens_for_user(&conn, &user.id);
+        changed_password = true;
+    }
+
+    let row = crate::db::get_user(&conn, &user.id).ok().flatten();
+    Ok(Json(json!({
+        "ok": true,
+        "id": user.id,
+        "username": user.username,
+        "display_name": row.as_ref().map(|r| r.display_name.clone()).unwrap_or_default(),
+        "role": user.role,
+        "signed_out": changed_password,
+        "message": if changed_password {
+            "Password changed. Sign in again with your new password."
+        } else {
+            "Saved."
+        },
+    })))
 }
 
 async fn register(
@@ -42,7 +134,10 @@ async fn register(
     current: Option<Extension<CurrentUser>>,
     Json(body): Json<RegisterBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    if !state.login_limiter.allow(&addr.ip().to_string()) {
+    if !state
+        .login_limiter
+        .allow(&client_ip(&addr, &headers).to_string())
+    {
         return Err(json_error(
             StatusCode::TOO_MANY_REQUESTS,
             "Too many tries. Wait a few minutes and try again.",
@@ -62,8 +157,13 @@ async fn register(
                 "Only an Admin can manage accounts.",
             ));
         }
-    } else if let Err(msg) = first_user_on_public_host(&state, &headers, &body) {
-        return Err(json_error(StatusCode::FORBIDDEN, msg));
+    } else if !is_lan_request(&addr, &headers) {
+        // Setup is open on the LAN. Off it, the first login can only be
+        // created by someone holding the full device token — the flow
+        // Connect's onboarding finishes with.
+        if let Err(msg) = first_user_device_token(&state, &body) {
+            return Err(json_error(StatusCode::FORBIDDEN, msg));
+        }
     }
     let user = state
         .auth
@@ -91,7 +191,21 @@ async fn login(
     headers: HeaderMap,
     Json(body): Json<LoginBody>,
 ) -> Result<Response, (StatusCode, Json<Value>)> {
-    if !state.login_limiter.allow(&addr.ip().to_string()) {
+    if !state
+        .login_limiter
+        .allow(&client_ip(&addr, &headers).to_string())
+    {
+        return Err(json_error(
+            StatusCode::TOO_MANY_REQUESTS,
+            "Too many tries. Wait a few minutes and try again.",
+        ));
+    }
+    // Second bucket keyed on the account itself: behind the Connect tunnel
+    // every request arrives from the same relay peer, so a shared-IP cap
+    // alone either lets one attacker lock out every tunneled user or lets
+    // them brute-force one account from rotating addresses. Ten tries per
+    // window per username bounds both.
+    if !state.login_limiter.allow(&login_user_key(&body.username)) {
         return Err(json_error(
             StatusCode::TOO_MANY_REQUESTS,
             "Too many tries. Wait a few minutes and try again.",
@@ -183,13 +297,46 @@ async fn revoke_devices(
     })))
 }
 
-async fn me(req: Request) -> Json<Value> {
+async fn me(State(state): State<AppState>, req: Request) -> Json<Value> {
     match auth::current_user(&req) {
-        Some(user) => Json(json!({
-            "id": user.id,
-            "username": user.username,
-            "role": user.role,
-        })),
+        Some(user) => {
+            let conn = match state.db.lock() {
+                Ok(c) => c,
+                Err(_) => {
+                    return Json(json!({
+                        "id": user.id,
+                        "username": user.username,
+                        "role": user.role,
+                    }));
+                }
+            };
+            let row = crate::db::get_user(&conn, &user.id).ok().flatten();
+            let (display_name, home) = match &row {
+                Some(row) => {
+                    // Materialize the member's home on first visit — a fresh
+                    // account lands on a real folder, not an empty state.
+                    let home = crate::member_home::ensure(&conn, row)
+                        .ok()
+                        .flatten()
+                        .map(|h| {
+                            json!({
+                                "drive_id": h.drive_id,
+                                "path": h.rel,
+                                "ready": h.ready,
+                            })
+                        });
+                    (row.display_name.clone(), home)
+                }
+                None => (String::new(), None),
+            };
+            Json(json!({
+                "id": user.id,
+                "username": user.username,
+                "display_name": display_name,
+                "role": user.role,
+                "home": home,
+            }))
+        }
         None => Json(Value::Null),
     }
 }
@@ -202,32 +349,76 @@ async fn status(State(state): State<AppState>) -> Json<Value> {
     }))
 }
 
-fn first_user_on_public_host(
-    state: &AppState,
-    headers: &HeaderMap,
-    body: &RegisterBody,
-) -> Result<(), String> {
-    if !state.connect.is_connect_active() {
-        return Ok(());
+/// The client IP security decisions key on. `CF-Connecting-IP`,
+/// `X-Real-IP`, and `X-Forwarded-For` are honored only when the TCP peer is
+/// loopback — that is the Luna Connect tunnel or an on-box proxy forwarding
+/// the real address. From any other peer those headers are the caller
+/// inventing an identity (a spoofed "192.168.x.x" must not buy LAN trust
+/// or a fresh lockout bucket).
+pub(crate) fn client_ip(addr: &std::net::SocketAddr, headers: &HeaderMap) -> std::net::IpAddr {
+    if addr.ip().is_loopback() {
+        if let Some(ip) = headers
+            .get("cf-connecting-ip")
+            .or_else(|| headers.get("x-real-ip"))
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.trim().parse().ok())
+        {
+            return ip;
+        }
+        if let Some(ip) = headers
+            .get("x-forwarded-for")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|raw| raw.split(',').next())
+            .and_then(|s| s.trim().parse().ok())
+        {
+            return ip;
+        }
     }
-    let Some(hostname) = state.connect.public_hostname() else {
-        return Ok(());
-    };
-    let host = headers
-        .get(header::HOST)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("")
-        .split(':')
-        .next()
-        .unwrap_or("");
-    if !host.eq_ignore_ascii_case(&hostname) {
-        return Ok(());
-    }
+    addr.ip()
+}
 
+fn ip_is_lan(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v4) => v4.is_loopback() || v4.is_private() || v4.is_link_local(),
+        std::net::IpAddr::V6(v6) => v6.is_loopback() || (v6.segments()[0] & 0xfe00) == 0xfc00,
+    }
+}
+
+/// Setup is open on the LAN: the first account may be created only by a
+/// client on Luna's own network. Decided on the *resolved* client IP —
+/// loopback/private/link-local counts, everything else needs the device
+/// token. The Host header is deliberately ignored here: it is
+/// client-supplied, so a remote caller claiming `luna.local` (or
+/// `*.local`) must not win LAN trust. Every genuine LAN path — direct
+/// connection, or a local proxy/tunnel forwarding the real address —
+/// already resolves to a LAN client.
+fn is_lan_request(addr: &std::net::SocketAddr, headers: &HeaderMap) -> bool {
+    ip_is_lan(client_ip(addr, headers))
+}
+
+/// Per-account lockout bucket for `login` — namespaced so it never shares a
+/// key with the IP-keyed buckets (an address can never look like `login-user:*`).
+fn login_user_key(username: &str) -> String {
+    format!(
+        "login-user:{}",
+        username
+            .trim()
+            .to_ascii_lowercase()
+            .chars()
+            .take(40)
+            .collect::<String>()
+    )
+}
+
+/// Off-LAN first-user registration: allowed only with the full device
+/// token — either the one-time `first_user_secret` Connect hands out during
+/// onboarding or the permanent token on this Luna. Empty secret → a plain
+/// refusal that says where to set up instead.
+fn first_user_device_token(state: &AppState, body: &RegisterBody) -> Result<(), String> {
     let offered = body.setup_secret.as_deref().unwrap_or("").trim();
     if offered.is_empty() {
         return Err(
-            "Paste the device token from connect.luna.libreloom.org after you named this Luna. It confirms you finished setup there, so nobody else on the internet can create this first login.".into(),
+            "Create the first login while you're on the same network as Luna — or paste the device token from connect.luna.libreloom.org, which proves you finished setup there.".into(),
         );
     }
 
@@ -298,9 +489,203 @@ pub fn user_json(user: &crate::db::UserRow) -> Value {
         "username": user.username,
         "display_name": user.display_name,
         "role": user.role,
+        "home_drive_id": user.home_drive_id,
     })
 }
 
 pub fn current_or_null(req: &Request) -> Option<CurrentUser> {
     auth::current_user(req).cloned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::drives::DriveManager;
+    use crate::drives::mount::shared_mock;
+    use std::net::SocketAddr;
+    use tower::ServiceExt;
+
+    fn state() -> (tempfile::TempDir, AppState) {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+        let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
+        let state = AppState::new(conn, drive_manager, dir.path());
+        // Poll-refreshes must fail fast, not reach the real Connect service.
+        let connect = std::sync::Arc::new(crate::net::connect::ConnectService::new(
+            dir.path(),
+            Some("http://127.0.0.1:1".into()),
+        ));
+        (dir, state.with_connect(connect))
+    }
+
+    fn addr(ip: &str) -> SocketAddr {
+        format!("{ip}:40000").parse().unwrap()
+    }
+
+    fn headers(pairs: &[(&str, &str)]) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        for (k, v) in pairs {
+            h.insert(
+                axum::http::header::HeaderName::from_bytes(k.as_bytes()).unwrap(),
+                axum::http::header::HeaderValue::from_str(v).unwrap(),
+            );
+        }
+        h
+    }
+
+    #[test]
+    fn client_ip_only_trusts_forwarding_headers_from_loopback() {
+        // A remote peer inventing LAN headers keeps its real address.
+        let h = headers(&[("x-forwarded-for", "192.168.1.9")]);
+        assert_eq!(
+            client_ip(&addr("203.0.113.7"), &h),
+            "203.0.113.7".parse::<std::net::IpAddr>().unwrap()
+        );
+        // Same header from the on-box tunnel/proxy resolves the real client.
+        assert_eq!(
+            client_ip(&addr("127.0.0.1"), &h),
+            "192.168.1.9".parse::<std::net::IpAddr>().unwrap()
+        );
+        // CF-Connecting-IP and X-Real-IP outrank X-Forwarded-For.
+        let h = headers(&[
+            ("x-forwarded-for", "198.51.100.1"),
+            ("x-real-ip", "198.51.100.2"),
+        ]);
+        assert_eq!(
+            client_ip(&addr("127.0.0.1"), &h),
+            "198.51.100.2".parse::<std::net::IpAddr>().unwrap()
+        );
+        // Nothing forwarded → the peer itself.
+        let h = HeaderMap::new();
+        assert_eq!(
+            client_ip(&addr("127.0.0.1"), &h),
+            "127.0.0.1".parse::<std::net::IpAddr>().unwrap()
+        );
+    }
+
+    #[test]
+    fn is_lan_request_cannot_be_spoofed() {
+        // Real LAN peer.
+        assert!(is_lan_request(&addr("192.168.1.20"), &HeaderMap::new()));
+        // Remote peer spoofing LAN headers — never trusted.
+        let h = headers(&[("x-forwarded-for", "10.0.0.5")]);
+        assert!(!is_lan_request(&addr("203.0.113.7"), &h));
+        let h = headers(&[("cf-connecting-ip", "10.0.0.5")]);
+        assert!(!is_lan_request(&addr("203.0.113.7"), &h));
+        // Remote peer claiming a LAN-only Host name.
+        let h = headers(&[("host", "luna.local")]);
+        assert!(!is_lan_request(&addr("203.0.113.7"), &h));
+        // Tunnel peer forwarding a remote client → remote.
+        let h = headers(&[("x-forwarded-for", "203.0.113.7")]);
+        assert!(!is_lan_request(&addr("127.0.0.1"), &h));
+        // Tunnel peer forwarding a client on Luna's own network → LAN.
+        let h = headers(&[("x-forwarded-for", "192.168.4.9")]);
+        assert!(is_lan_request(&addr("127.0.0.1"), &h));
+    }
+
+    async fn register_status(
+        state: &AppState,
+        peer: SocketAddr,
+        header_pairs: &[(&str, &str)],
+        body: &str,
+    ) -> StatusCode {
+        let router = axum::Router::new()
+            .merge(super::router())
+            .with_state(state.clone());
+        let mut req = axum::http::Request::builder()
+            .method(axum::http::Method::POST)
+            .uri("/api/v1/auth/register")
+            .header("content-type", "application/json");
+        for (k, v) in header_pairs {
+            req = req.header(*k, *v);
+        }
+        let mut http = req.body(axum::body::Body::from(body.to_string())).unwrap();
+        http.extensions_mut().insert(ConnectInfo(peer));
+        router.oneshot(http).await.unwrap().status()
+    }
+
+    const FIRST_USER: &str = r#"{"username":"max","password":"hunter22hunter1"}"#;
+
+    #[tokio::test]
+    async fn first_user_is_open_on_lan_and_closed_elsewhere() {
+        let (_dir, state) = state();
+        // LAN client creates the first login with no token.
+        assert_eq!(
+            register_status(&state, addr("192.168.1.30"), &[], FIRST_USER).await,
+            StatusCode::OK
+        );
+    }
+
+    #[tokio::test]
+    async fn first_user_from_internet_needs_the_device_token() {
+        let (_dir, state) = state();
+        // No Connect set up at all → nothing off-LAN can open setup.
+        assert_eq!(
+            register_status(&state, addr("203.0.113.7"), &[], FIRST_USER).await,
+            StatusCode::FORBIDDEN
+        );
+        // Spoofed LAN headers do not help a remote peer.
+        assert_eq!(
+            register_status(
+                &state,
+                addr("203.0.113.7"),
+                &[("x-forwarded-for", "192.168.1.5")],
+                FIRST_USER
+            )
+            .await,
+            StatusCode::FORBIDDEN
+        );
+        // Through the tunnel (loopback peer) the forwarded address is the
+        // real one — a remote client still needs the token.
+        assert_eq!(
+            register_status(
+                &state,
+                addr("127.0.0.1"),
+                &[("x-forwarded-for", "203.0.113.7")],
+                FIRST_USER
+            )
+            .await,
+            StatusCode::FORBIDDEN
+        );
+    }
+
+    #[tokio::test]
+    async fn first_user_off_lan_accepts_the_full_device_token() {
+        let (_dir, state) = state();
+        state
+            .connect
+            .set_oss_code("AAAA-BBBB-CCCC-DDDD-EEEE")
+            .unwrap();
+        let remote = addr("127.0.0.1");
+        let fwd = [("x-forwarded-for", "203.0.113.7")];
+        // Wrong token → refused.
+        let body = r#"{"username":"max","password":"hunter22hunter1","setup_secret":"ZZZZ-ZZZZ-ZZZZ-ZZZZ-ZZZZ"}"#;
+        assert_eq!(
+            register_status(&state, remote, &fwd, body).await,
+            StatusCode::FORBIDDEN
+        );
+        // The full device token → first login created.
+        let body = r#"{"username":"max","password":"hunter22hunter1","setup_secret":"AAAA-BBBB-CCCC-DDDD-EEEE"}"#;
+        assert_eq!(
+            register_status(&state, remote, &fwd, body).await,
+            StatusCode::OK
+        );
+    }
+
+    #[tokio::test]
+    async fn first_user_via_tunnel_from_a_lan_client_needs_no_token() {
+        let (_dir, state) = state();
+        // A household member browsing the public hostname from the sofa:
+        // tunnel peer is loopback, forwarded client is on the LAN.
+        assert_eq!(
+            register_status(
+                &state,
+                addr("127.0.0.1"),
+                &[("x-forwarded-for", "192.168.1.44")],
+                FIRST_USER
+            )
+            .await,
+            StatusCode::OK
+        );
+    }
 }

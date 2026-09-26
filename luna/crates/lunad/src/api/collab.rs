@@ -79,7 +79,7 @@ async fn session(
 
     let joined = state
         .collab
-        .join(room_key.clone(), user_id, username, can_write)
+        .join(room_key.clone(), user_id.clone(), username, can_write)
         .await;
     let (peer_id, mut rx, welcome) = match joined {
         Ok(v) => v,
@@ -108,6 +108,10 @@ async fn session(
 
     let mut heartbeat = tokio::time::interval(Duration::from_secs(25));
     heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    // `can_write` is a snapshot from the upgrade — a member whose grant is
+    // revoked or narrowed mid-session must stop injecting ops into the
+    // room. It is re-derived from the live DB on every heartbeat tick.
+    let mut can_write = can_write;
 
     loop {
         tokio::select! {
@@ -166,6 +170,39 @@ async fn session(
                 }
             }
             _ = heartbeat.tick() => {
+                // Live re-check — the same pattern the docstorage socket
+                // uses. `None` means even read access is gone (member row
+                // removed, user deleted): the session is over, not merely
+                // demoted.
+                match member_caps_now(&state, &user_id, &drive_id, &path) {
+                    None => {
+                        let _ = send_json(
+                            &mut sink,
+                            &ServerEvent::Error {
+                                message: "Your access to this file was removed. Close it and open it again if it is shared with you."
+                                    .into(),
+                            },
+                        )
+                        .await;
+                        break;
+                    }
+                    Some(now) => {
+                        if can_write && !now {
+                            // Downgrade in place: later ops fail the hub's
+                            // write gate. A *regained* grant still needs a
+                            // reconnect so the client mounts editing UI.
+                            can_write = false;
+                            let _ = send_json(
+                                &mut sink,
+                                &ServerEvent::Error {
+                                    message: "You no longer have permission to edit this file. You can keep viewing it."
+                                        .into(),
+                                },
+                            )
+                            .await;
+                        }
+                    }
+                }
                 if sink.send(Message::Ping(Vec::new().into())).await.is_err() {
                     break;
                 }
@@ -215,8 +252,12 @@ async fn guest_upgrade(
     headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> Response {
+    // The link's password lockout keys on this address — hand it the
+    // resolved client, not the tunnel peer, so Connect users don't share
+    // one lockout bucket.
+    let resolved = SocketAddr::new(crate::api::auth::client_ip(&addr, &headers), addr.port());
     let (link, proof) =
-        match crate::api::access::resolve_public_link(&state, &addr, &token, &headers) {
+        match crate::api::access::resolve_public_link(&state, &resolved, &token, &headers) {
             Ok(pair) => pair,
             Err(e) => return crate::api::access::finish_public(Err(e), "", None, &headers),
         };
@@ -311,6 +352,43 @@ fn ensure_file(
     Ok(())
 }
 
+/// Re-derive a joined session's grant from the live DB, like
+/// `office::current_office_access` does for office tokens. `None` means
+/// the user or their view access is gone — drop the socket. `Some(w)` is
+/// the current write bit: `true` only while the member still holds
+/// `CAP_EDIT` on the file.
+fn member_caps_now(state: &AppState, user_id: &str, drive_id: &str, path: &str) -> Option<bool> {
+    let conn = state.db.lock().ok()?;
+    // Guest sessions authenticate through the link, not a user row —
+    // re-check the link the same way member grants are re-checked. A
+    // deleted or expired link ends the session; a narrowed one drops the
+    // write bit. (The first heartbeat tick fires immediately, so this
+    // must be right for guests or they die on connect.)
+    if let Some(link_id) = user_id.strip_prefix("guest:") {
+        let link = crate::db::get_access_link(&conn, link_id).ok()??;
+        if link.expires_at.is_some_and(|t| t <= crate::db::now_unix()) {
+            return None;
+        }
+        return Some(link.caps & crate::access::CAP_EDIT != 0);
+    }
+    let row = crate::db::get_user(&conn, user_id).ok()??;
+    let user = CurrentUser {
+        id: row.id,
+        username: row.username,
+        role: row.role,
+    };
+    if !crate::auth::has_cap(&user, &conn, drive_id, path, crate::access::CAP_VIEW) {
+        return None;
+    }
+    Some(crate::auth::has_cap(
+        &user,
+        &conn,
+        drive_id,
+        path,
+        crate::access::CAP_EDIT,
+    ))
+}
+
 fn user_can(
     state: &AppState,
     user: &CurrentUser,
@@ -352,5 +430,149 @@ fn map_files_err(err: FilesError) -> (StatusCode, Json<Value>) {
             StatusCode::INTERNAL_SERVER_ERROR,
             "Luna couldn't open that file. Try again.",
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::drives::DriveManager;
+    use crate::drives::mount::shared_mock;
+
+    /// A real `AppState` on a scratch dir — `member_caps_now` reads the
+    /// live `users`/`access_members` tables, so the tests exercise the
+    /// whole path the socket's heartbeat takes.
+    fn test_state() -> (tempfile::TempDir, AppState) {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+        let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
+        let state = AppState::new(conn, drive_manager, dir.path());
+        (dir, state)
+    }
+
+    fn member_row(id: &str, user: &str, caps: i64) -> crate::db::AccessMemberRow {
+        crate::db::AccessMemberRow {
+            id: id.into(),
+            subject_kind: crate::access::KIND_PATH.into(),
+            drive_id: "d".into(),
+            path: String::new(), // whole-drive grant
+            album_id: String::new(),
+            user_id: user.into(),
+            caps,
+            created_by: "a".into(),
+        }
+    }
+
+    #[test]
+    fn member_caps_now_tracks_live_grants() {
+        let (_dir, state) = test_state();
+        {
+            let conn = state.db.lock().unwrap();
+            crate::db::insert_user(&conn, "u1", "ada", "Ada", "hash", "user").unwrap();
+            crate::db::insert_access_member(&conn, &member_row("m1", "u1", crate::access::CAP_ALL))
+                .unwrap();
+        }
+        // Full grant → writable.
+        assert_eq!(member_caps_now(&state, "u1", "d", "a.docx"), Some(true));
+
+        // Grant narrowed to view → session would downgrade in place.
+        {
+            let conn = state.db.lock().unwrap();
+            crate::db::update_access_member_caps(&conn, "m1", crate::access::CAP_VIEW).unwrap();
+        }
+        assert_eq!(member_caps_now(&state, "u1", "d", "a.docx"), Some(false));
+
+        // Grant removed → `None`, the socket drops entirely.
+        {
+            let conn = state.db.lock().unwrap();
+            crate::db::delete_access_member(&conn, "m1").unwrap();
+        }
+        assert_eq!(member_caps_now(&state, "u1", "d", "a.docx"), None);
+
+        // A deleted user is gone too — `get_user` misses.
+        assert_eq!(member_caps_now(&state, "ghost", "d", "a.docx"), None);
+    }
+
+    #[test]
+    fn member_caps_now_admin_always_writable() {
+        let (_dir, state) = test_state();
+        {
+            let conn = state.db.lock().unwrap();
+            crate::db::insert_user(&conn, "root", "root", "Root", "hash", "admin").unwrap();
+        }
+        // Admins hold every capability without member rows.
+        assert_eq!(member_caps_now(&state, "root", "d", "a.docx"), Some(true));
+    }
+
+    fn link_row(id: &str, caps: i64, expires_at: Option<i64>) -> crate::db::AccessLinkRow {
+        crate::db::AccessLinkRow {
+            id: id.into(),
+            token_hash: format!("hash-{id}"),
+            token: String::new(),
+            subject_kind: crate::access::KIND_PATH.into(),
+            drive_id: "d".into(),
+            path: "a.drawio".into(),
+            album_id: String::new(),
+            caps,
+            password_hash: String::new(),
+            expires_at,
+            created_by: "u1".into(),
+            created_at: crate::db::now_unix(),
+        }
+    }
+
+    /// Guests join as `guest:{link_id}` — the heartbeat must re-check the
+    /// link instead of looking for a user row, or the first tick kills the
+    /// socket outright (tokio's first interval tick fires immediately).
+    #[test]
+    fn member_caps_now_guest_follows_the_link() {
+        let (_dir, state) = test_state();
+        {
+            let conn = state.db.lock().unwrap();
+            crate::db::insert_access_link(
+                &conn,
+                &link_row(
+                    "l1",
+                    crate::access::CAP_VIEW | crate::access::CAP_EDIT,
+                    None,
+                ),
+            )
+            .unwrap();
+        }
+        // Live link → session survives with its write bit.
+        assert_eq!(
+            member_caps_now(&state, "guest:l1", "d", "a.drawio"),
+            Some(true)
+        );
+
+        // Link narrowed to view-only → write bit drops, session stays.
+        {
+            let conn = state.db.lock().unwrap();
+            let row = link_row("l1", crate::access::CAP_VIEW, None);
+            crate::db::update_access_link(&conn, &row).unwrap();
+        }
+        assert_eq!(
+            member_caps_now(&state, "guest:l1", "d", "a.drawio"),
+            Some(false)
+        );
+
+        // Link expired → `None`, the socket closes.
+        {
+            let conn = state.db.lock().unwrap();
+            let mut row = link_row("l1", crate::access::CAP_VIEW, None);
+            row.expires_at = Some(crate::db::now_unix() - 1);
+            crate::db::update_access_link(&conn, &row).unwrap();
+        }
+        assert_eq!(member_caps_now(&state, "guest:l1", "d", "a.drawio"), None);
+
+        // Link deleted (revoked) → `None`.
+        {
+            let conn = state.db.lock().unwrap();
+            let mut row = link_row("l1", crate::access::CAP_VIEW, None);
+            row.expires_at = None;
+            crate::db::update_access_link(&conn, &row).unwrap();
+            crate::db::delete_access_link(&conn, "l1").unwrap();
+        }
+        assert_eq!(member_caps_now(&state, "guest:l1", "d", "a.drawio"), None);
     }
 }

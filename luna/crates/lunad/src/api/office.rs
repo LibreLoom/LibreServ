@@ -12,10 +12,10 @@
 use std::net::SocketAddr;
 
 use axum::body::{Body, Bytes};
-use axum::extract::{ConnectInfo, Extension, Path, Query, State};
+use axum::extract::{ConnectInfo, DefaultBodyLimit, Extension, Path, Query, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -52,15 +52,21 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/v1/office/session", post(create_session))
         .route("/s/{token}/office/session", post(guest_session))
+        // Bundle PUT bodies run up to MAX_BUNDLE_FILE_BYTES — the layer
+        // must sit on the PUT method router, not the route (session POSTs
+        // keep the 2 MiB default) — or `Bytes` extracts hit axum's default
+        // and large Editor.bin saves 413 before the size check runs.
         .route(
             "/api/v1/office/bundle/{key}/{*name}",
-            get(bundle_get).head(bundle_head).put(bundle_put),
+            get(bundle_get)
+                .head(bundle_head)
+                .merge(put(bundle_put).layer(DefaultBodyLimit::max(MAX_BUNDLE_FILE_BYTES))),
         )
         .route(
             "/s/office-bundle/{key}/{bundle_id}/{*name}",
             get(scoped_bundle_get)
                 .head(scoped_bundle_head)
-                .put(scoped_bundle_put),
+                .merge(put(scoped_bundle_put).layer(DefaultBodyLimit::max(MAX_BUNDLE_FILE_BYTES))),
         )
 }
 
@@ -1223,6 +1229,71 @@ mod http_tests {
         let res = call(&app, req(Method::PUT, &uri, Body::empty(), &cookie, &csrf)).await;
         assert_eq!(res.status(), StatusCode::BAD_REQUEST);
         assert_eq!(std::fs::metadata(&bin).unwrap().len(), 4);
+    }
+
+    /// Regression: `Bytes` extracts hit axum's 2 MiB `DefaultBodyLimit`
+    /// long before `MAX_BUNDLE_FILE_BYTES` applied, so a large Editor.bin
+    /// save 413'd at the extractor instead of reaching the handler. A
+    /// body over the axum default but under the bundle cap must land.
+    #[tokio::test]
+    async fn bundle_put_accepts_bodies_over_the_axum_default() {
+        let (dir, app, _state) = test_app();
+        let (cookie, csrf) = admin_login(&app).await;
+
+        let mount = dir.path().join("drive-a");
+        std::fs::create_dir_all(&mount).unwrap();
+        std::fs::write(mount.join("Letter.rtf"), b"{\\rtf1 hello}").unwrap();
+        {
+            let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+            crate::db::upsert_drive(
+                &conn,
+                "drive-a",
+                "A",
+                "mounted",
+                "ext4",
+                "sda",
+                mount.to_str().unwrap(),
+            )
+            .unwrap();
+        }
+
+        let res = call(
+            &app,
+            req(
+                Method::POST,
+                "/api/v1/office/session",
+                Body::from(r#"{"drive_id":"drive-a","path":"Letter.rtf"}"#),
+                &cookie,
+                &csrf,
+            ),
+        )
+        .await;
+        let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let key = v["key"].as_str().unwrap().to_string();
+        let uri = format!("/api/v1/office/bundle/{key}/Editor.bin");
+
+        // 3 MiB — over the 2 MiB default, far under MAX_BUNDLE_FILE_BYTES.
+        let res = call(
+            &app,
+            req(
+                Method::PUT,
+                &uri,
+                Body::from(vec![7u8; 3 * 1024 * 1024]),
+                &cookie,
+                &csrf,
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+        let bin = dir
+            .path()
+            .join("office_bundles")
+            .join(&key)
+            .join("Editor.bin");
+        assert_eq!(std::fs::metadata(&bin).unwrap().len(), 3 * 1024 * 1024);
     }
 
     /// Regression: the doc key fingerprints the file's size+mtime, so a save

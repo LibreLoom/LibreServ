@@ -24,9 +24,10 @@ use uuid::Uuid;
 
 use crate::AppState;
 use crate::access::{
-    self, CAP_EDIT, CAP_RESPOND, CAP_UPLOAD, CAP_VIEW, Caps, KIND_ALBUM, KIND_PATH, caps_cover,
-    caps_from_str, caps_to_str, caps_valid_for, caps_valid_for_link, normalize_subject_kind,
-    normalize_subject_path, path_contains,
+    self, CAP_EDIT, CAP_RESPOND, CAP_SHARE, CAP_UPLOAD, CAP_VIEW, Caps, KIND_ALBUM, KIND_PATH,
+    caps_cover, caps_from_str, caps_strictly_cover, caps_to_str, caps_valid_for,
+    caps_valid_for_link, clean_subject_path, normalize_subject_kind, normalize_subject_path,
+    path_contains,
 };
 use crate::api::forms::is_form_path;
 use crate::api::response::json_error;
@@ -194,15 +195,29 @@ fn resolve_subject(
                     json_error(StatusCode::NOT_FOUND, "Luna doesn't know this drive.")
                 })?;
             let rel = normalize_subject_path(path);
+            // Luna-internal names (drive bookkeeping, trash dirs) are never
+            // shareable subjects — and neither is the bare `.luna-trash`
+            // root, which would read everyone's deletions. Individual trash
+            // entries stay shareable (their origin ACL still gates who can
+            // mint them). Member homes are shareable — the owner decides who
+            // sees inside their `.luna-<uuid>-members/<name>` tree.
+            if files::is_blocked_user_path(&rel) || rel == files::TRASH_API_ALIAS {
+                return Err(json_error(
+                    StatusCode::BAD_REQUEST,
+                    "Luna can't share that path.",
+                ));
+            }
             let base = rel.rsplit('/').next().unwrap_or("").to_string();
-            let name = if base.is_empty() {
+            let name = if crate::member_home::is_home_root(&rel) {
+                home_display_name(conn, &drive_id, &rel)
+            } else if base.is_empty() {
                 drive.label.clone()
             } else {
                 base
             };
             let mounted = !drive.mount_point.is_empty();
             let (exists, is_file) = if mounted {
-                match files::resolve_any(conn, &drive_id, &rel) {
+                match files::resolve_any_including_trash(conn, &drive_id, &rel) {
                     Ok((_, meta)) => (true, meta.is_file()),
                     Err(_) => (false, false),
                 }
@@ -225,15 +240,20 @@ fn resolve_subject(
 }
 
 /// Capabilities `user` holds on `subj`: everything for admins and album
-/// owners, member rows otherwise.
+/// owners, member rows otherwise. Member homes are the exception — the
+/// owner is the only authority there, so admins get no implicit caps and
+/// cannot mint links or member rows inside someone else's home.
 fn my_caps(conn: &rusqlite::Connection, user: &CurrentUser, subj: &Subject) -> Caps {
+    if subj.kind == KIND_PATH && crate::member_home::is_member_home_path(&subj.path) {
+        return auth::caps_on_path(user, conn, &subj.drive_id, &subj.path);
+    }
     if user.role == "admin" {
-        return access::CAP_ALL;
+        return access::CAP_MANAGE;
     }
     match subj.kind {
         KIND_ALBUM => {
             if subj.owner == user.id {
-                return access::CAP_ALL;
+                return access::CAP_MANAGE;
             }
             let Ok(rows) = db::list_access_members_for_user(conn, &user.id) else {
                 return 0;
@@ -247,8 +267,10 @@ fn my_caps(conn: &rusqlite::Connection, user: &CurrentUser, subj: &Subject) -> C
 /// Same, but lenient when the subject itself is gone (drive pulled, album
 /// deleted): only admins keep authority, members can't act on ghosts.
 fn my_caps_on_row(conn: &rusqlite::Connection, user: &CurrentUser, row: &AccessMemberRow) -> Caps {
-    if user.role == "admin" {
-        return access::CAP_ALL;
+    let is_home =
+        row.subject_kind == KIND_PATH && crate::member_home::is_member_home_path(&row.path);
+    if user.role == "admin" && !is_home {
+        return access::CAP_MANAGE;
     }
     match resolve_subject(
         conn,
@@ -263,8 +285,10 @@ fn my_caps_on_row(conn: &rusqlite::Connection, user: &CurrentUser, row: &AccessM
 }
 
 fn my_caps_on_link(conn: &rusqlite::Connection, user: &CurrentUser, link: &AccessLinkRow) -> Caps {
-    if user.role == "admin" {
-        return access::CAP_ALL;
+    let is_home =
+        link.subject_kind == KIND_PATH && crate::member_home::is_member_home_path(&link.path);
+    if user.role == "admin" && !is_home {
+        return access::CAP_MANAGE;
     }
     match resolve_subject(
         conn,
@@ -276,6 +300,36 @@ fn my_caps_on_link(conn: &rusqlite::Connection, user: &CurrentUser, link: &Acces
         Ok(subj) => my_caps(conn, user, &subj),
         Err(_) => 0,
     }
+}
+
+/// Intrinsic authority over a subject — held regardless of any access row.
+/// Admins hold it everywhere except inside a member home (the owner alone
+/// rules there); the home owner inside their home; the album owner on
+/// their album. A `full+share` *grant* is still delegated authority, not
+/// ownership — grantees rank below this class even at equal caps.
+fn is_subject_owner(conn: &rusqlite::Connection, user: &CurrentUser, subj: &Subject) -> bool {
+    if subj.kind == KIND_PATH && crate::member_home::is_member_home_path(&subj.path) {
+        return crate::member_home::owner_of(conn, &subj.drive_id, &subj.path).as_deref()
+            == Some(user.id.as_str());
+    }
+    user.role == "admin" || (subj.kind == KIND_ALBUM && subj.owner == user.id)
+}
+
+/// Owner-class check for a row whose subject may not resolve (drive pulled,
+/// album deleted): admins stay superior on non-home paths, home owners on
+/// their home paths. Everything else needs a live subject to decide.
+fn is_row_subject_owner(
+    conn: &rusqlite::Connection,
+    user: &CurrentUser,
+    kind: &str,
+    drive_id: &str,
+    path: &str,
+) -> bool {
+    if kind == KIND_PATH && crate::member_home::is_member_home_path(path) {
+        return crate::member_home::owner_of(conn, drive_id, path).as_deref()
+            == Some(user.id.as_str());
+    }
+    user.role == "admin"
 }
 
 fn user_names(conn: &rusqlite::Connection) -> std::collections::HashMap<String, String> {
@@ -303,7 +357,44 @@ fn subject_json(subj: &Subject) -> Value {
         "exists": subj.exists,
         "name": subj.name,
         "item_count": subj.item_count,
+        "is_home": subj.kind == KIND_PATH && crate::member_home::is_home_root(&subj.path),
     })
+}
+
+/// Display name for a member home root — the raw name is Luna bookkeeping,
+/// never something to show people.
+fn home_display_name(conn: &rusqlite::Connection, drive_id: &str, rel: &str) -> String {
+    let owner = crate::member_home::owner_of(conn, drive_id, rel)
+        .and_then(|uid| db::get_user(conn, &uid).ok().flatten())
+        .map(|u| {
+            if u.display_name.trim().is_empty() {
+                u.username
+            } else {
+                u.display_name
+            }
+        });
+    match owner {
+        Some(name) => format!("{name}'s home"),
+        None => "Member home".into(),
+    }
+}
+
+/// For the owner, their own home root reads "Home" — not "Sam's home".
+/// Other viewers keep the possessive label (or never see it at all).
+fn home_aware_name(
+    conn: &rusqlite::Connection,
+    user_id: &str,
+    drive_id: &str,
+    path: &str,
+    fallback: String,
+) -> String {
+    if crate::member_home::is_home_root(path)
+        && crate::member_home::owner_of(conn, drive_id, path).as_deref() == Some(user_id)
+    {
+        "Home".into()
+    } else {
+        fallback
+    }
 }
 
 fn member_json(row: &AccessMemberRow, names: &std::collections::HashMap<String, String>) -> Value {
@@ -370,53 +461,99 @@ async fn subject_state(
             "You don't have access to share this.",
         ));
     }
+    // Who-has-what is share-management detail: a member without the share
+    // capability sees that sharing exists (counts), never the roster or link
+    // URLs — a plain member must not enumerate identities or minted tokens.
+    let can_manage_roster = mine & CAP_SHARE != 0;
+    let subject_owner = is_subject_owner(&conn, &user, &subj);
     let names = user_names(&conn);
     let labels = drive_labels(&conn);
     let all_members = db::list_all_access_members(&conn).map_err(|_| busy())?;
-    let members = db::list_access_members_for_subject(
+    let member_rows = db::list_access_members_for_subject(
         &conn,
         subj.kind,
         &subj.drive_id,
         &subj.path,
         &subj.album_id,
     )
-    .map_err(|_| busy())?
-    .iter()
-    .map(|r| {
-        let mut v = member_json(r, &names);
-        v["can_manage"] = json!(caps_cover(mine, r.caps));
-        v["can_remove"] = json!(r.user_id == user.id || caps_cover(mine, r.caps));
-        let mut effective = r.caps;
-        if subj.kind == KIND_PATH {
-            for other in &all_members {
-                if other.user_id == r.user_id
-                    && other.subject_kind == KIND_PATH
-                    && other.drive_id == subj.drive_id
-                    && path_contains(&other.path, &subj.path)
-                {
-                    effective |= other.caps;
+    .map_err(|_| busy())?;
+    let members = if can_manage_roster {
+        member_rows
+            .iter()
+            .map(|r| {
+                let mut v = member_json(r, &names);
+                // Mirror update_member/remove_member: your own row is always
+                // yours to leave or narrow; touching someone else's needs
+                // strict superiority (or subject ownership) — equal-cap
+                // members can't retune or kick each other.
+                v["can_manage"] = json!(if r.user_id == user.id {
+                    caps_cover(mine, r.caps)
+                } else {
+                    subject_owner || (mine & CAP_SHARE != 0 && caps_strictly_cover(mine, r.caps))
+                });
+                v["can_remove"] = json!(
+                    r.user_id == user.id
+                        || subject_owner
+                        || (mine & CAP_SHARE != 0 && caps_strictly_cover(mine, r.caps))
+                );
+                let mut effective = r.caps;
+                if subj.kind == KIND_PATH {
+                    for other in &all_members {
+                        if other.user_id == r.user_id
+                            && other.subject_kind == KIND_PATH
+                            && other.drive_id == subj.drive_id
+                            && path_contains(&other.path, &subj.path)
+                            // Ancestor grants the caller can't inspect stay
+                            // hidden — don't OR them into what we show.
+                            && resolve_subject(&conn, KIND_PATH, &subj.drive_id, &other.path, "")
+                                .map(|p| {
+                                    p.exists && my_caps(&conn, &user, &p) & CAP_VIEW != 0
+                                })
+                                .unwrap_or(false)
+                        {
+                            effective |= other.caps;
+                        }
+                    }
                 }
-            }
-        }
-        v["effective_caps"] = json!(caps_to_str(effective));
-        v
-    })
-    .collect::<Vec<_>>();
-    let links = db::list_access_links_for_subject(
+                v["effective_caps"] = json!(caps_to_str(effective));
+                v
+            })
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    let link_rows = db::list_access_links_for_subject(
         &conn,
         subj.kind,
         &subj.drive_id,
         &subj.path,
         &subj.album_id,
     )
-    .map_err(|_| busy())?
-    .iter()
-    .map(|l| link_json(&conn, &user, l))
-    .collect::<Vec<_>>();
+    .map_err(|_| busy())?;
+    let links = if can_manage_roster {
+        link_rows
+            .iter()
+            .map(|l| link_json(&conn, &user, l))
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
     let inherited_from = |drive_id: &str, path: &str| {
+        // Identity detail only flows when the caller can actually see the
+        // parent — an upload-only member gets counts, never names.
         let can_inspect = resolve_subject(&conn, KIND_PATH, drive_id, path, "")
-            .map(|parent| parent.exists && my_caps(&conn, &user, &parent) != 0)
+            .map(|parent| parent.exists && my_caps(&conn, &user, &parent) & CAP_VIEW != 0)
             .unwrap_or(false);
+        if !can_inspect {
+            // A parent the caller can't see yields nothing — emitting the
+            // path or leaf name here would leak a member-home interior
+            // (the marker uuid, the username, proof the home exists).
+            return json!({
+                "kind": KIND_PATH,
+                "drive_id": drive_id,
+                "can_inspect": false,
+            });
+        }
         json!({
             "kind": KIND_PATH,
             "drive_id": drive_id,
@@ -426,7 +563,7 @@ async fn subject_state(
             } else {
                 path.rsplit('/').next().unwrap_or(path).to_string()
             },
-            "can_inspect": can_inspect,
+            "can_inspect": true,
         })
     };
     let inherited_members = all_members
@@ -439,9 +576,17 @@ async fn subject_state(
                 && path_contains(&r.path, &subj.path)
         })
         .map(|r| {
-            let mut v = member_json(r, &names);
-            v["inherited_from"] = inherited_from(&r.drive_id, &r.path);
-            v
+            let from = inherited_from(&r.drive_id, &r.path);
+            // A parent the caller can't inspect yields counts only — the row
+            // still exists (the sheet renders "N people shared through X"),
+            // but names, caps, and who granted them stay hidden.
+            if from["can_inspect"].as_bool().unwrap_or(false) {
+                let mut v = member_json(r, &names);
+                v["inherited_from"] = from;
+                v
+            } else {
+                json!({ "inherited_from": from })
+            }
         })
         .collect::<Vec<_>>();
     let inherited_links = db::list_access_links(&conn)
@@ -461,11 +606,21 @@ async fn subject_state(
             v
         })
         .collect::<Vec<_>>();
+    let mut subject_v = subject_json(&subj);
+    subject_v["name"] = json!(home_aware_name(
+        &conn,
+        &user.id,
+        &subj.drive_id,
+        &subj.path,
+        subj.name.clone()
+    ));
     Ok(Json(json!({
-        "subject": subject_json(&subj),
+        "subject": subject_v,
         "my_caps": caps_to_str(mine),
         "members": members,
+        "member_count": member_rows.len(),
         "links": links,
+        "link_count": link_rows.len(),
         "inherited_members": inherited_members,
         "inherited_links": inherited_links,
     })))
@@ -491,23 +646,53 @@ async fn add_member(
     Json(body): Json<MemberBody>,
 ) -> Result<Json<Value>, ApiError> {
     let conn = state.db.lock().map_err(|_| busy())?;
-    let subj = resolve_subject(
-        &conn,
-        &body.kind,
-        &body.drive_id,
-        &body.path,
-        &body.album_id,
-    )?;
+    // A self-grant would seed a revocation-proof row — the member could keep
+    // re-scoping their own access even after an admin removed it.
+    if body.user_id == user.id {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "You can't share something with yourself.",
+        ));
+    }
+    // Reject `..` in the stored path — normalize_subject_path keeps it, so a
+    // raw body could otherwise persist a row outside any real subject.
+    let path = clean_subject_path(&body.path)
+        .ok_or_else(|| json_error(StatusCode::BAD_REQUEST, "That path can't be shared."))?;
+    let subj = resolve_subject(&conn, &body.kind, &body.drive_id, &path, &body.album_id)?;
     let caps = caps_from_str(&body.caps)
         .ok_or_else(|| json_error(StatusCode::BAD_REQUEST, "That access level doesn't exist."))?;
+    let mine = my_caps(&conn, &user, &subj);
+    let subject_owner = is_subject_owner(&conn, &user, &subj);
+    // Authorization before existence: a 404-vs-403 split would let a member
+    // probe which `.luna-<uuid>-members/<name>` homes exist on the drive.
+    if mine & CAP_SHARE == 0 && !subject_owner {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "You don't have permission to share this.",
+        ));
+    }
+    if !subj.exists {
+        return Err(json_error(
+            StatusCode::NOT_FOUND,
+            "Luna can't find that to share it.",
+        ));
+    }
     if !caps_valid_for(caps, subj.kind, subj.is_file) {
         return Err(json_error(
             StatusCode::BAD_REQUEST,
             "That access level doesn't apply here.",
         ));
     }
-    let mine = my_caps(&conn, &user, &subj);
-    if !caps_cover(mine, caps) {
+    // Delegated authority can't clone itself: a member only mints access
+    // strictly narrower than what they hold. Owners and admins are the
+    // superior class — they can grant anything up to full+share.
+    if !subject_owner && !caps_strictly_cover(mine, caps) {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "You can only share access narrower than your own.",
+        ));
+    }
+    if subject_owner && !caps_cover(mine, caps) {
         return Err(json_error(
             StatusCode::FORBIDDEN,
             "You can only share access you already have.",
@@ -516,6 +701,14 @@ async fn add_member(
     let target = db::get_user(&conn, &body.user_id)
         .map_err(|_| busy())?
         .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that person."))?;
+    // Admins hold every capability already — a member row against them is
+    // dead weight that only confuses the roster.
+    if target.role == "admin" {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "Admins already have full access — there's nothing to share.",
+        ));
+    }
 
     // Same-user row on this subject → just retune it.
     let existing = db::list_access_members_for_subject(
@@ -530,10 +723,18 @@ async fn add_member(
     .find(|r| r.user_id == body.user_id);
     let names = user_names(&conn);
     if let Some(row) = existing {
-        if !caps_cover(mine, row.caps) {
+        // Retuning another person's row is a manage-level action —
+        // equal-cap members must not rewrite each other's access.
+        // (Self-grants are rejected above, so the row is always someone
+        // else's here.)
+        if !subject_owner
+            && (mine & CAP_SHARE == 0
+                || !caps_strictly_cover(mine, row.caps)
+                || !caps_strictly_cover(mine, caps))
+        {
             return Err(json_error(
                 StatusCode::FORBIDDEN,
-                "You can't change access wider than your own.",
+                "You can't change access at or above your own level.",
             ));
         }
         db::update_access_member_caps(&conn, &row.id, caps).map_err(|_| busy())?;
@@ -585,10 +786,22 @@ async fn update_member(
         ));
     }
     let mine = my_caps(&conn, &user, &subj);
-    if !caps_cover(mine, row.caps) || !caps_cover(mine, caps) {
+    let allowed = if row.user_id == user.id {
+        // Your own row narrows only — never past what you currently hold.
+        caps_cover(mine, row.caps) && caps_cover(mine, caps)
+    } else {
+        // Someone else's row needs the superior class or strict
+        // superiority over both the old and the new level — equal-cap
+        // members must not retune each other.
+        is_subject_owner(&conn, &user, &subj)
+            || (mine & CAP_SHARE != 0
+                && caps_strictly_cover(mine, row.caps)
+                && caps_strictly_cover(mine, caps))
+    };
+    if !allowed {
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "You can't change access wider than your own.",
+            "You can't change access at or above your own level.",
         ));
     }
     db::update_access_member_caps(&conn, &id, caps).map_err(|_| busy())?;
@@ -606,9 +819,12 @@ async fn remove_member(
         .map_err(|_| busy())?
         .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know this share."))?;
     let mine = my_caps_on_row(&conn, &user, &row);
-    // Members can always remove themselves ("leave" a share); managers can
-    // remove rows whose caps they fully cover.
-    let allowed = row.user_id == user.id || caps_cover(mine, row.caps);
+    // Members can always remove themselves ("leave" a share); removing
+    // someone else's row needs the superior class or strict superiority —
+    // equal-cap members must not kick each other.
+    let allowed = row.user_id == user.id
+        || is_row_subject_owner(&conn, &user, &row.subject_kind, &row.drive_id, &row.path)
+        || (mine & CAP_SHARE != 0 && caps_strictly_cover(mine, row.caps));
     if !allowed {
         return Err(json_error(
             StatusCode::FORBIDDEN,
@@ -642,11 +858,13 @@ fn generate_token() -> String {
 /// always come back and copy the address again; lookups still use the hash.
 async fn create_link(
     State(state): State<AppState>,
-    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Extension(user): Extension<CurrentUser>,
     Json(body): Json<CreateLinkBody>,
 ) -> Result<Json<Value>, ApiError> {
-    if !state.share_limiter.allow(&format!("link:{}", addr.ip())) {
+    // Keyed on the member, not the address — behind the Connect tunnel
+    // every member shares one peer IP, so address-keyed budgets would
+    // either lock everyone out or let one member burn everyone's quota.
+    if !state.share_limiter.allow(&format!("link:{}", user.id)) {
         return Err(json_error(
             StatusCode::TOO_MANY_REQUESTS,
             "Too many new links just now. Wait a minute and try again.",
@@ -660,14 +878,25 @@ async fn create_link(
         &body.path,
         &body.album_id,
     )?;
+    let caps = caps_from_str(&body.caps)
+        .ok_or_else(|| json_error(StatusCode::BAD_REQUEST, "That access level doesn't exist."))?;
+    let mine = my_caps(&conn, &user, &subj);
+    // Minting a public link is a manage-level action — a member with
+    // content access but no share capability must not publish the subject
+    // to anonymous guests. Authorization runs before the existence check
+    // so a 404-vs-403 split can't probe which member homes exist.
+    if mine & CAP_SHARE == 0 {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "You don't have permission to share this.",
+        ));
+    }
     if !subj.exists {
         return Err(json_error(
             StatusCode::NOT_FOUND,
             "Luna can't find that to share it.",
         ));
     }
-    let caps = caps_from_str(&body.caps)
-        .ok_or_else(|| json_error(StatusCode::BAD_REQUEST, "That access level doesn't exist."))?;
     let is_form = subj.is_file && is_form_path(&subj.path);
     if !caps_valid_for_link(caps, subj.kind, subj.is_file, is_form) {
         return Err(json_error(
@@ -675,7 +904,6 @@ async fn create_link(
             "That access level doesn't apply here.",
         ));
     }
-    let mine = my_caps(&conn, &user, &subj);
     if caps == CAP_RESPOND {
         // A respond link lets strangers append to the responses file — the
         // creator needs upload or edit access to allow that.
@@ -744,16 +972,28 @@ struct UpdateLinkBody {
 }
 
 fn may_manage_link(conn: &rusqlite::Connection, user: &CurrentUser, link: &AccessLinkRow) -> bool {
-    if user.role == "admin" || link.created_by == user.id {
+    // Member-home links answer to the home owner alone — the same carve
+    // my_caps_on_link applies. Without it an admin could copy a member's
+    // private home URL, clear its password, or delete the link: a plain
+    // URL into content they must not reach.
+    let in_home =
+        link.subject_kind == KIND_PATH && crate::member_home::is_member_home_path(&link.path);
+    if user.role == "admin" && !in_home {
         return true;
     }
     let mine = my_caps_on_link(conn, user, link);
     // "respond" isn't a capability anyone holds — managing a form's answer
     // link rides on write access to the form, same rule as creating one.
-    if link.caps == CAP_RESPOND {
-        return mine & (CAP_UPLOAD | CAP_EDIT) != 0;
-    }
-    caps_cover(mine, link.caps)
+    let covers = if link.caps == CAP_RESPOND {
+        mine & (CAP_UPLOAD | CAP_EDIT) != 0
+    } else {
+        caps_cover(mine, link.caps)
+    };
+    // Creating the row is not a lifetime grant — creator or not, the caller
+    // must still hold share-management rights and cover the link's caps, or
+    // a revoked member could keep recovering the raw URL and mutating
+    // password/expiry on shares they minted.
+    mine & CAP_SHARE != 0 && covers
 }
 
 async fn update_link(
@@ -858,6 +1098,9 @@ fn member_row_name(
         }
         return "Album".into();
     }
+    if crate::member_home::is_home_root(&row.path) {
+        return home_display_name(conn, &row.drive_id, &row.path);
+    }
     if row.path.is_empty() {
         return labels
             .get(&row.drive_id)
@@ -892,6 +1135,7 @@ fn member_row_json(
         "album_id": row.album_id,
         "name": member_row_name(conn, row, labels),
         "is_file": is_file,
+        "is_home": row.subject_kind == KIND_PATH && crate::member_home::is_home_root(&row.path),
         "exists": exists,
         "caps": caps_to_str(row.caps),
         "created_by": row.created_by,
@@ -909,12 +1153,40 @@ async fn me_access(
     let labels = drive_labels(&conn);
     let names = user_names(&conn);
     let roots = access::member_access_roots(rows);
-    Ok(Json(
-        roots
-            .iter()
-            .map(|r| member_row_json(&conn, r, &labels, &names))
-            .collect(),
-    ))
+    let mut out: Vec<Value> = roots
+        .iter()
+        .map(|r| member_row_json(&conn, r, &labels, &names))
+        .collect();
+    // A member's home is implicit access, not a grant row — surface it as a
+    // virtual root so every "your places" listing shows Home alongside real
+    // shares. It leads the list: it's theirs, not something shared.
+    if user.role != "admin" {
+        let home = db::get_user(&conn, &user.id)
+            .ok()
+            .flatten()
+            .and_then(|u| crate::member_home::resolve(&conn, &u).ok().flatten());
+        if let Some(home) = home {
+            out.insert(
+                0,
+                json!({
+                    "id": format!("home-{}", user.id),
+                    "kind": KIND_PATH,
+                    "drive_id": home.drive_id,
+                    "drive_label": labels.get(&home.drive_id).cloned().unwrap_or_default(),
+                    "path": home.rel,
+                    "album_id": "",
+                    "name": "Home",
+                    "is_file": false,
+                    "is_home": true,
+                    "exists": home.ready,
+                    "caps": "full+share",
+                    "created_by": "",
+                    "shared_by": "",
+                }),
+            );
+        }
+    }
+    Ok(Json(out))
 }
 
 /// Sharing inventory: subjects the caller created access rows on (admins see
@@ -969,23 +1241,37 @@ async fn mine(
     for k in order {
         let ms = group_members.get(&k).cloned().unwrap_or_default();
         let ls = group_links.get(&k).cloned().unwrap_or_default();
-        let controls = is_admin
-            || ms.iter().any(|m| m.created_by == user.id)
-            || ls.iter().any(|l| l.created_by == user.id)
-            || {
-                let mine = match resolve_subject(&conn, &k.0, &k.1, &k.2, &k.3) {
-                    Ok(subj) => my_caps(&conn, &user, &subj),
-                    Err(_) => 0,
-                };
-                ms.iter().any(|m| caps_cover(mine, m.caps))
-                    || ls.iter().any(|l| caps_cover(mine, l.caps))
+        // Admin sees everything EXCEPT member-home subjects — a member's
+        // home roster and minted link URLs stay theirs alone. With no
+        // carve here `mine` would hand the raw `/s/<token>` URL back to an
+        // admin as a working credential into the private home.
+        let subject_in_home = k.0 == KIND_PATH && crate::member_home::is_member_home_path(&k.2);
+        let controls = (is_admin && !subject_in_home) || {
+            let mine = match resolve_subject(&conn, &k.0, &k.1, &k.2, &k.3) {
+                Ok(subj) => my_caps(&conn, &user, &subj),
+                Err(_) => 0,
             };
+            // The roster only surfaces to share-managers — content access
+            // alone (or a stale created_by) never reveals who else is here.
+            mine & CAP_SHARE != 0
+                && (ms
+                    .iter()
+                    .any(|m| m.created_by == user.id || caps_cover(mine, m.caps))
+                    || ls
+                        .iter()
+                        .any(|l| l.created_by == user.id || caps_cover(mine, l.caps)))
+        };
         if !controls {
             continue;
         }
         let subj = resolve_subject(&conn, &k.0, &k.1, &k.2, &k.3).ok();
         let (name, exists, is_file, item_count) = match &subj {
-            Some(s) => (s.name.clone(), s.exists, s.is_file, s.item_count),
+            Some(s) => (
+                home_aware_name(&conn, &user.id, &k.1, &k.2, s.name.clone()),
+                s.exists,
+                s.is_file,
+                s.item_count,
+            ),
             None => (
                 if k.0 == KIND_ALBUM {
                     "Album".into()
@@ -1002,7 +1288,7 @@ async fn mine(
         let mine_caps = subj
             .as_ref()
             .map(|s| my_caps(&conn, &user, s))
-            .unwrap_or(if is_admin { access::CAP_ALL } else { 0 });
+            .unwrap_or(if is_admin { access::CAP_MANAGE } else { 0 });
         sharing.push(json!({
             "kind": k.0,
             "drive_id": k.1,
@@ -1094,7 +1380,7 @@ pub(crate) fn resolve_public_link(
     {
         return Ok((link, None));
     }
-    let ip = ip.ip().to_string();
+    let ip = crate::api::auth::client_ip(ip, headers).to_string();
     if state.share_auth.is_locked(&link.id, &ip) {
         return Err(json_error(
             StatusCode::TOO_MANY_REQUESTS,
@@ -1236,6 +1522,40 @@ fn child_under_link(link_path: &str, rel: &str) -> Option<String> {
     }
 }
 
+/// The rejection every confinement failure shares — a 404, same as a path
+/// that simply doesn't exist, so a guest cannot probe beyond the link scope.
+fn not_in_share() -> ApiError {
+    json_error(
+        StatusCode::NOT_FOUND,
+        "That path isn't part of this shared link.",
+    )
+}
+
+/// `child_under_link` plus the privacy boundaries: a link whose own subject
+/// is not inside `.luna-trash` must never reach into it — a whole-drive view
+/// link could otherwise list and zip every deleted file on the drive. The
+/// same goes for member homes: a whole-drive link must never walk into
+/// someone's `.luna-<prefix>-members/<name>` tree, while a link minted on the home itself
+/// (the owner sharing their own space) scopes normally. The lexical-join
+/// error keeps the caller's message (`lexical_err`); boundary hits answer
+/// 404.
+fn scoped_child(
+    link: &AccessLinkRow,
+    rel: &str,
+    lexical_err: ApiError,
+) -> Result<String, ApiError> {
+    let joined = child_under_link(&link.path, rel).ok_or(lexical_err)?;
+    if files::is_trash_api(&joined) && !files::is_trash_api(&link.path) {
+        return Err(not_in_share());
+    }
+    if crate::member_home::is_member_home_path(&joined)
+        && !crate::member_home::is_member_home_path(&link.path)
+    {
+        return Err(not_in_share());
+    }
+    Ok(joined)
+}
+
 #[derive(Deserialize)]
 struct PublicRootQuery {
     #[serde(default)]
@@ -1297,29 +1617,45 @@ async fn public_root_inner(
         }))
         .into_response());
     }
-    let (meta, rel) = {
+    let (meta, rel, name) = {
         let conn = state.db.lock().map_err(|_| busy())?;
-        let rel =
-            child_under_link(&link.path, query.path.as_deref().unwrap_or("")).ok_or_else(|| {
-                json_error(
-                    StatusCode::BAD_REQUEST,
-                    "That folder isn't part of this shared link.",
-                )
-            })?;
-        let (_resolved, meta) = files::resolve_any(&conn, &link.drive_id, &rel).map_err(|_| {
+        let rel = scoped_child(
+            &link,
+            query.path.as_deref().unwrap_or(""),
             json_error(
+                StatusCode::BAD_REQUEST,
+                "That folder isn't part of this shared link.",
+            ),
+        )?;
+        // Canonical confinement: a symlink inside the share cannot point a
+        // guest outside the link root.
+        let (_resolved, meta) = confined_read(
+            &conn,
+            &link,
+            &rel,
+            &json_error(
                 StatusCode::NOT_FOUND,
                 "The shared files aren't available right now.",
-            )
-        })?;
-        (meta, rel)
+            ),
+        )?;
+        // Trash entries carry generated `{nonce}-` names on disk — the link
+        // page shows the same clean name members see.
+        let name = if rel == files::TRASH_API_ALIAS {
+            "Trash".to_string()
+        } else {
+            files::trash_api_leaf(&conn, &link.drive_id, &rel)
+                .ok()
+                .flatten()
+                .or_else(|| {
+                    rel.rsplit('/')
+                        .next()
+                        .filter(|n| !n.is_empty())
+                        .map(str::to_string)
+                })
+                .unwrap_or_else(|| "download".to_string())
+        };
+        (meta, rel, name)
     };
-    let name = rel
-        .rsplit('/')
-        .next()
-        .filter(|n| !n.is_empty())
-        .unwrap_or("download")
-        .to_string();
     if meta.is_dir() {
         return Ok(Json(json!({
             "kind": "folder",
@@ -1367,40 +1703,75 @@ async fn public_list(
             return Err(gone());
         }
         let conn = state.db.lock().map_err(|_| busy())?;
-        let rel =
-            child_under_link(&link.path, query.path.as_deref().unwrap_or("")).ok_or_else(|| {
-                json_error(
-                    StatusCode::BAD_REQUEST,
-                    "That folder isn't part of this shared link.",
-                )
-            })?;
-        let (_resolved, meta) = files::resolve_any(&conn, &link.drive_id, &rel).map_err(|_| {
+        let rel = scoped_child(
+            &link,
+            query.path.as_deref().unwrap_or(""),
             json_error(
+                StatusCode::BAD_REQUEST,
+                "That folder isn't part of this shared link.",
+            ),
+        )?;
+        let (_resolved, meta) = confined_read(
+            &conn,
+            &link,
+            &rel,
+            &json_error(
                 StatusCode::NOT_FOUND,
                 "The shared folder isn't available right now.",
-            )
-        })?;
+            ),
+        )?;
         if !meta.is_dir() {
             // A file link's "folder" is the file itself — the guest file
             // browser lists a one-entry root so the shared file renders like
             // any other row and opens in the real viewer.
             if rel == link.path {
-                let entry = files::stat(&conn, &link.drive_id, &rel).map_err(|_| {
+                let mut entry = files::stat(&conn, &link.drive_id, &rel).map_err(|_| {
                     json_error(
                         StatusCode::NOT_FOUND,
                         "The shared file isn't available right now.",
                     )
                 })?;
+                // A symlinked shared file must not leak its absolute host
+                // path to the guest.
+                entry.link_target = None;
                 return Ok(Json(json!({ "entries": [entry] })).into_response());
             }
             return Err(json_error(StatusCode::BAD_REQUEST, "That isn't a folder."));
         }
-        let entries = files::list_dir(&conn, &link.drive_id, &rel).map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't open this folder.",
-            )
-        })?;
+        let mut entries = if files::is_trash_api(&rel) {
+            files::list_trash_dir(&conn, &link.drive_id, &rel).map_err(|_| {
+                json_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Luna couldn't open this folder.",
+                )
+            })?
+        } else {
+            files::list_dir(&conn, &link.drive_id, &rel).map_err(|_| {
+                json_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Luna couldn't open this folder.",
+                )
+            })?
+        };
+        // Guests never see where a symlink points — it can be an absolute
+        // host path.
+        for entry in &mut entries {
+            entry.link_target = None;
+        }
+        if rel == files::TRASH_API_ALIAS {
+            // Same clean names members get — the on-disk `{nonce}-` prefix
+            // is storage noise, never a label.
+            let root = files::drive_root(&conn, &link.drive_id)
+                .map(|d| std::path::PathBuf::from(d.mount_point))
+                .unwrap_or_default();
+            let meta_map = files::trash_meta_map(&root);
+            for entry in &mut entries {
+                entry.original_name = Some(match meta_map.get(&entry.name) {
+                    Some(orig) => orig.rsplit('/').next().unwrap_or(orig).to_string(),
+                    None => files::original_name_from_trash(&entry.name),
+                });
+            }
+        }
         Ok(Json(json!({
             "entries": entries
                 .into_iter()
@@ -1424,23 +1795,26 @@ async fn public_file(
         if link.subject_kind != KIND_PATH || link.caps & CAP_VIEW == 0 {
             return Err(gone());
         }
-        let rel =
-            child_under_link(&link.path, query.path.as_deref().unwrap_or("")).ok_or_else(|| {
-                json_error(
-                    StatusCode::BAD_REQUEST,
-                    "That file isn't part of this shared link.",
-                )
-            })?;
+        let rel = scoped_child(
+            &link,
+            query.path.as_deref().unwrap_or(""),
+            json_error(
+                StatusCode::BAD_REQUEST,
+                "That file isn't part of this shared link.",
+            ),
+        )?;
         let is_file = {
             let conn = state.db.lock().map_err(|_| busy())?;
-            files::resolve_any(&conn, &link.drive_id, &rel)
-                .map(|(_, m)| m.is_file())
-                .map_err(|_| {
-                    json_error(
-                        StatusCode::NOT_FOUND,
-                        "The shared file isn't available right now.",
-                    )
-                })?
+            confined_read(
+                &conn,
+                &link,
+                &rel,
+                &json_error(
+                    StatusCode::NOT_FOUND,
+                    "The shared file isn't available right now.",
+                ),
+            )
+            .map(|(_, m)| m.is_file())?
         };
         if !is_file {
             return Err(json_error(
@@ -1687,23 +2061,29 @@ async fn public_zip(
         if link.subject_kind == KIND_ALBUM {
             return album_zip_response(&state, &link).await;
         }
-        let rel =
-            child_under_link(&link.path, query.path.as_deref().unwrap_or("")).ok_or_else(|| {
-                json_error(
-                    StatusCode::BAD_REQUEST,
-                    "That folder isn't part of this shared link.",
-                )
-            })?;
+        let rel = scoped_child(
+            &link,
+            query.path.as_deref().unwrap_or(""),
+            json_error(
+                StatusCode::BAD_REQUEST,
+                "That folder isn't part of this shared link.",
+            ),
+        )?;
+        // Confined here, before the walk: the zip walker skips symlinked
+        // children itself, but the walked root must also be verified inside
+        // the canonical link root or a symlinked folder would zip the outside.
         let is_dir = {
             let conn = state.db.lock().map_err(|_| busy())?;
-            files::resolve_any(&conn, &link.drive_id, &rel)
-                .map(|(_, m)| m.is_dir())
-                .map_err(|_| {
-                    json_error(
-                        StatusCode::NOT_FOUND,
-                        "The shared files aren't available right now.",
-                    )
-                })?
+            confined_read(
+                &conn,
+                &link,
+                &rel,
+                &json_error(
+                    StatusCode::NOT_FOUND,
+                    "The shared files aren't available right now.",
+                ),
+            )
+            .map(|(_, m)| m.is_dir())?
         };
         if !is_dir {
             return serve_file(&state, &link.drive_id, &rel, true).await;
@@ -1718,7 +2098,18 @@ async fn folder_zip_response(
     link: &AccessLinkRow,
     rel: &str,
 ) -> Result<Response, ApiError> {
-    let zip_name = format!("{}.zip", files::zip_archive_basename(rel));
+    let zip_name = {
+        let conn = state.db.lock().map_err(|_| busy())?;
+        let base = if rel == files::TRASH_API_ALIAS {
+            "trash".to_string()
+        } else {
+            files::trash_api_leaf(&conn, &link.drive_id, rel)
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| files::zip_archive_basename(rel))
+        };
+        format!("{base}.zip")
+    };
     let drive_id = link.drive_id.clone();
     let scope = link.path.clone();
     let rel_owned = rel.to_string();
@@ -1735,7 +2126,7 @@ async fn folder_zip_response(
                 )
             })?;
         let conn = state.db.lock().map_err(|_| busy())?;
-        files::write_folder_zip(&conn, &drive_id, &rel_owned, &mut file, |child| {
+        files::write_folder_zip_including_trash(&conn, &drive_id, &rel_owned, &mut file, |child| {
             path_contains(&scope, child)
         })
         .map(|_| ())
@@ -1947,23 +2338,26 @@ fn upload_dest(
         })?;
         return Ok((link.drive_id.clone(), contrib, None));
     }
-    let (_resolved, meta) = files::resolve_any(conn, &link.drive_id, &link.path).map_err(|_| {
-        json_error(
-            StatusCode::NOT_FOUND,
-            "The shared folder isn't available right now.",
-        )
-    })?;
+    let (link_root_abs, meta) =
+        files::resolve_any(conn, &link.drive_id, &link.path).map_err(|_| {
+            json_error(
+                StatusCode::NOT_FOUND,
+                "The shared folder isn't available right now.",
+            )
+        })?;
     if meta.is_dir() {
         // Drop boxes always land at the share root — letting a blind uploader
         // name a subfolder would let them probe which folders exist.
         let rel = if link.caps & CAP_VIEW == 0 { None } else { rel };
-        let dest = child_under_link(&link.path, rel.unwrap_or("")).ok_or_else(|| {
+        let dest = scoped_child(
+            link,
+            rel.unwrap_or(""),
             json_error(
                 StatusCode::BAD_REQUEST,
                 "That folder isn't part of this shared link.",
-            )
-        })?;
-        let (_resolved, dest_meta) =
+            ),
+        )?;
+        let (dest_abs, dest_meta) =
             files::resolve_any(conn, &link.drive_id, &dest).map_err(|_| {
                 json_error(
                     StatusCode::NOT_FOUND,
@@ -1975,6 +2369,11 @@ fn upload_dest(
                 StatusCode::BAD_REQUEST,
                 "Uploads can only go into a folder.",
             ));
+        }
+        // Canonical confinement: a symlinked folder inside the share must
+        // never receive an upload that lands outside the link root.
+        if !inside_link_root(&link_root_abs, true, &dest_abs) {
+            return Err(not_in_share());
         }
         Ok((link.drive_id.clone(), dest, None))
     } else {
@@ -1996,6 +2395,13 @@ fn upload_dest(
                 )
             })?
             .to_string();
+        // The replacement must land exactly on the shared file — a symlinked
+        // parent directory would redirect the write outside the share.
+        let (parent_abs, parent_meta) =
+            files::resolve_any(conn, &link.drive_id, &parent).map_err(|_| not_in_share())?;
+        if !parent_meta.is_dir() || link_root_abs.parent() != Some(parent_abs.as_path()) {
+            return Err(not_in_share());
+        }
         Ok((link.drive_id.clone(), parent, Some(name)))
     }
 }
@@ -2018,20 +2424,49 @@ fn upload_in_link_scope(
             .map(|(_, album)| !album.contrib_path.is_empty() && dest_path == album.contrib_path)
             .unwrap_or(false);
     }
-    if link.path.is_empty() {
-        return true; // whole-drive link covers every folder
-    }
-    let base = link.path.trim_end_matches('/');
-    if dest_path == base || dest_path.starts_with(&format!("{base}/")) {
-        return true;
-    }
-    // File link: the upload lands in the parent dir under the shared name.
-    let joined = if dest_path.is_empty() {
-        name.to_string()
+    let lexical_ok = if link.path.is_empty() {
+        true // whole-drive link covers every folder
     } else {
-        format!("{}/{}", dest_path.trim_end_matches('/'), name)
+        let base = link.path.trim_end_matches('/');
+        if dest_path == base || dest_path.starts_with(&format!("{base}/")) {
+            true
+        } else {
+            // File link: the upload lands in the parent dir under the shared name.
+            let joined = if dest_path.is_empty() {
+                name.to_string()
+            } else {
+                format!("{}/{}", dest_path.trim_end_matches('/'), name)
+            };
+            joined == base
+        }
     };
-    joined == base
+    if !lexical_ok {
+        return false;
+    }
+    // Canonical confinement: a symlinked folder inside the share must never
+    // receive an upload that lands outside the link root.
+    let Ok(drive) = files::drive_root(conn, drive_id) else {
+        return false;
+    };
+    let drive_root = PathBuf::from(&drive.mount_point);
+    let Ok((root, root_meta)) =
+        files::resolve_any_including_trash(conn, &link.drive_id, &link.path)
+    else {
+        return false;
+    };
+    let Ok(real_dest) = files::real_rel_path(conn, drive_id, dest_path) else {
+        return false;
+    };
+    let Ok(dest_abs) = luna_core::path::resolve_child_nofollow(&drive_root, &real_dest) else {
+        return false;
+    };
+    if root_meta.is_dir() {
+        inside_link_root(&root, true, &dest_abs)
+    } else {
+        // File link: the destination dir must be the shared file's real
+        // parent — anything else lands the bytes on a different file.
+        root.parent().is_some_and(|p| dest_abs == p)
+    }
 }
 
 async fn public_upload_create(
@@ -2042,8 +2477,12 @@ async fn public_upload_create(
     Json(body): Json<PublicUploadCreate>,
 ) -> Response {
     // Guest uploads open writable sessions on real drives; cap how many one
-    // address can start so a drop box can't fill the disk with half-uploads.
-    if !state.share_limiter.allow(&format!("upload:{}", addr.ip())) {
+    // client can start so a drop box can't fill the disk with half-uploads.
+    // `client_ip` resolves the real guest behind trusted proxies only.
+    if !state.share_limiter.allow(&format!(
+        "upload:{}",
+        crate::api::auth::client_ip(&addr, &headers)
+    )) {
         return finish_public(
             Err(json_error(
                 StatusCode::TOO_MANY_REQUESTS,
@@ -2083,12 +2522,13 @@ async fn public_upload_create(
         };
         let upload = {
             let conn = state.db.lock().map_err(|_| busy())?;
-            uploads::create(
+            uploads::create_scoped(
                 &conn,
                 &drive_id,
                 &dest,
                 name_override.as_deref().unwrap_or(&name),
                 body.size,
+                &format!("link:{}", link.id),
             )
             .map_err(map_upload_err)?
         };
@@ -2110,6 +2550,14 @@ fn scoped_upload(
     upload_id: &str,
 ) -> Result<db::UploadRow, ApiError> {
     let row = uploads::get_row(conn, upload_id).map_err(map_upload_err)?;
+    // The session must belong to this link — path scope alone would let one
+    // link drive another's upload (or a member's) inside the same folder.
+    if row.principal != format!("link:{}", link.id) {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "That upload isn't part of this link.",
+        ));
+    }
     if !upload_in_link_scope(conn, link, &row.drive_id, &row.path, &row.name) {
         return Err(json_error(
             StatusCode::FORBIDDEN,
@@ -2259,15 +2707,97 @@ async fn public_upload_cancel(
 // folder it points at (renaming or deleting the root would orphan the token).
 // ---------------------------------------------------------------------------
 
+/// Resolve the link's subject once, canonically: the real filesystem path it
+/// points at plus whether that's a directory. Every guest-visible target
+/// must stay inside this root — a symlink planted inside a shared folder
+/// must never lead a guest outside it.
+fn link_root(
+    conn: &rusqlite::Connection,
+    link: &AccessLinkRow,
+) -> Result<(PathBuf, bool), ApiError> {
+    let (root, meta) = files::resolve_any_including_trash(conn, &link.drive_id, &link.path)
+        .map_err(map_guest_files_err)?;
+    Ok((root, meta.is_dir()))
+}
+
+/// True when `target` (canonical) is the link root or sits beneath it. A
+/// link on a single file admits only the file itself.
+fn inside_link_root(root: &FsPath, root_is_dir: bool, target: &FsPath) -> bool {
+    if root_is_dir {
+        target.starts_with(root)
+    } else {
+        target == root
+    }
+}
+
+/// Canonical confinement for a read path: `rel` must already have passed
+/// `scoped_child`. Resolves `rel` canonically and requires the target to sit
+/// inside the canonical link root — a symlink inside the share pointing
+/// outside it is refused. `missing` is the caller's not-available error for
+/// either resolve step. Returns the canonical target plus its metadata.
+fn confined_read(
+    conn: &rusqlite::Connection,
+    link: &AccessLinkRow,
+    rel: &str,
+    missing: &ApiError,
+) -> Result<(PathBuf, std::fs::Metadata), ApiError> {
+    let (root, root_is_dir) = link_root(conn, link).map_err(|_| missing.clone())?;
+    let (target, meta) = files::resolve_any_including_trash(conn, &link.drive_id, rel)
+        .map_err(|_| missing.clone())?;
+    if !inside_link_root(&root, root_is_dir, &target) {
+        return Err(not_in_share());
+    }
+    Ok((target, meta))
+}
+
+/// Canonical confinement for a mutation: intermediate components resolve
+/// without following symlinks — `for_create` allows a missing tail
+/// (`resolve_for_create_nofollow`), existing targets use
+/// `resolve_child_nofollow`, which also refuses a symlink leaf — so a link
+/// planted inside the share cannot steer a rename/delete/move/create
+/// outside the link root.
+fn confined_write(
+    conn: &rusqlite::Connection,
+    link: &AccessLinkRow,
+    rel: &str,
+    for_create: bool,
+) -> Result<(), ApiError> {
+    let drive = files::drive_root(conn, &link.drive_id).map_err(|_| {
+        json_error(
+            StatusCode::NOT_FOUND,
+            "The shared files aren't available right now.",
+        )
+    })?;
+    let drive_root = PathBuf::from(&drive.mount_point);
+    let (root, root_is_dir) = link_root(conn, link)?;
+    let real = files::real_rel_path(conn, &link.drive_id, rel).map_err(map_guest_files_err)?;
+    let resolved = if for_create {
+        luna_core::path::resolve_for_create_nofollow(&drive_root, &real)
+    } else {
+        luna_core::path::resolve_child_nofollow(&drive_root, &real)
+    };
+    let target = resolved.map_err(|e| match e {
+        luna_core::path::PathError::Absolute | luna_core::path::PathError::Escape => not_in_share(),
+        other => map_guest_files_err(other.into()),
+    })?;
+    if !inside_link_root(&root, root_is_dir, &target) {
+        return Err(not_in_share());
+    }
+    Ok(())
+}
+
 /// Resolve a guest-facing `rel` (relative to the link root) to a drive path
-/// inside the link. The root itself is a valid read target.
+/// inside the link. The root itself is a valid read target. A link that
+/// isn't itself trash-scoped can never reach `.luna-trash`.
 pub(crate) fn readable_child(link: &AccessLinkRow, rel: &str) -> Result<String, ApiError> {
-    child_under_link(&link.path, rel.trim()).ok_or_else(|| {
+    scoped_child(
+        link,
+        rel.trim(),
         json_error(
             StatusCode::BAD_REQUEST,
             "That path isn't inside this share.",
-        )
-    })
+        ),
+    )
 }
 
 /// Resolve a guest-facing `relative` path to the drive path of an existing
@@ -2288,25 +2818,19 @@ pub(crate) fn link_file(
     }
     let path = readable_child(link, relative)?;
     let conn = state.db.lock().map_err(|_| busy())?;
-    let (root, root_meta) =
-        files::resolve_any(&conn, &link.drive_id, &link.path).map_err(map_guest_files_err)?;
+    let (root, root_is_dir) = link_root(&conn, link)?;
     // A file link only ever opens itself — children of a file are refused
     // before the filesystem gets a chance to confuse "file/child" with a
     // sibling path.
-    if !root_meta.is_dir() && path != link.path {
+    if !root_is_dir && path != link.path {
         return Err(json_error(
             StatusCode::FORBIDDEN,
             "That file is not inside this share.",
         ));
     }
-    let (target, _) =
-        files::file_path(&conn, &link.drive_id, &path).map_err(map_guest_files_err)?;
-    let inside = if root_meta.is_dir() {
-        target.starts_with(&root)
-    } else {
-        target == root
-    };
-    if !inside {
+    let (target, _) = files::file_path_including_trash(&conn, &link.drive_id, &path)
+        .map_err(map_guest_files_err)?;
+    if !inside_link_root(&root, root_is_dir, &target) {
         return Err(json_error(
             StatusCode::FORBIDDEN,
             "That file is not inside this share.",
@@ -2390,9 +2914,21 @@ async fn public_stat(
 ) -> Response {
     run_public(&state, &addr, &token, &headers, async |state, link| {
         require_link_view(&link)?;
+        if link.subject_kind != KIND_PATH {
+            return Err(gone());
+        }
         let rel = readable_child(&link, query.path.as_deref().unwrap_or(""))?;
         let stat = {
             let conn = state.db.lock().map_err(|_| busy())?;
+            confined_read(
+                &conn,
+                &link,
+                &rel,
+                &json_error(
+                    StatusCode::NOT_FOUND,
+                    "Luna can't find that anymore. Refresh and try again.",
+                ),
+            )?;
             files::stat(&conn, &link.drive_id, &rel).map_err(map_guest_files_err)?
         };
         Ok(Json(json!({
@@ -2425,9 +2961,13 @@ async fn public_mkdir(
 ) -> Response {
     run_public(&state, &addr, &token, &headers, async |state, link| {
         require_link_upload(&link)?;
+        if link.subject_kind != KIND_PATH {
+            return Err(gone());
+        }
         let rel = guest_child_for_create(&link, &body.path)?;
         {
             let conn = state.db.lock().map_err(|_| busy())?;
+            confined_write(&conn, &link, &rel, true)?;
             files::mkdir(&conn, &link.drive_id, &rel).map_err(map_guest_files_err)?;
         }
         invalidate_guest_listing(&state, &link.drive_id, &rel);
@@ -2446,9 +2986,13 @@ async fn public_create(
 ) -> Response {
     run_public(&state, &addr, &token, &headers, async |state, link| {
         require_link_upload(&link)?;
+        if link.subject_kind != KIND_PATH {
+            return Err(gone());
+        }
         let rel = guest_child_for_create(&link, &body.path)?;
         {
             let conn = state.db.lock().map_err(|_| busy())?;
+            confined_write(&conn, &link, &rel, true)?;
             files::create(&conn, &link.drive_id, &rel).map_err(map_guest_files_err)?;
         }
         invalidate_guest_listing(&state, &link.drive_id, &rel);
@@ -2473,7 +3017,14 @@ async fn public_rename(
 ) -> Response {
     run_public(&state, &addr, &token, &headers, async |state, link| {
         require_link_edit(&link)?;
+        if link.subject_kind != KIND_PATH {
+            return Err(gone());
+        }
         let rel = mutable_child(&link, &body.path)?;
+        {
+            let conn = state.db.lock().map_err(|_| busy())?;
+            confined_write(&conn, &link, &rel, false)?;
+        }
         let parent = rel.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
         let new_rel = crate::gallery::gallery_indexer::join_rel(parent, &body.new_name);
         {
@@ -2511,7 +3062,14 @@ async fn public_delete(
 ) -> Response {
     run_public(&state, &addr, &token, &headers, async |state, link| {
         require_link_edit(&link)?;
+        if link.subject_kind != KIND_PATH {
+            return Err(gone());
+        }
         let rel = mutable_child(&link, query.path.as_deref().unwrap_or(""))?;
+        {
+            let conn = state.db.lock().map_err(|_| busy())?;
+            confined_write(&conn, &link, &rel, false)?;
+        }
         let trash_path = {
             let conn = state.db.lock().map_err(|_| busy())?;
             files::delete_to_trash(&conn, &link.drive_id, &rel).map_err(map_guest_files_err)?
@@ -2552,13 +3110,26 @@ async fn public_move(
 ) -> Response {
     run_public(&state, &addr, &token, &headers, async |state, link| {
         require_link_edit(&link)?;
+        if link.subject_kind != KIND_PATH {
+            return Err(gone());
+        }
         if body.paths.is_empty() {
             return Err(json_error(StatusCode::BAD_REQUEST, "Nothing to move."));
         }
         let dest_dir = readable_child(&link, body.dest.as_deref().unwrap_or(""))?;
+        {
+            // The destination must be a real folder inside the link root —
+            // a symlinked folder would land the move outside the share.
+            let conn = state.db.lock().map_err(|_| busy())?;
+            confined_write(&conn, &link, &dest_dir, false)?;
+        }
         let mut results = Vec::new();
         for rel_guest in &body.paths {
             let rel = mutable_child(&link, rel_guest)?;
+            {
+                let conn = state.db.lock().map_err(|_| busy())?;
+                confined_write(&conn, &link, &rel, false)?;
+            }
             let leaf = rel.rsplit('/').next().unwrap_or(&rel);
             let to_rel = crate::gallery::gallery_indexer::join_rel(&dest_dir, leaf);
             let outcome = {
@@ -2758,10 +3329,37 @@ mod tests {
         assert!(!prefers_html(&headers));
     }
 
+    /// A conn whose "d1" drive is really adopted at `dir/drive` — the
+    /// canonical scope check needs the mount and the folders to exist.
+    fn scope_conn() -> (tempfile::TempDir, rusqlite::Connection) {
+        let dir = tempfile::tempdir().unwrap();
+        let mount = dir.path().join("drive");
+        std::fs::create_dir_all(mount.join("photos/summer")).unwrap();
+        std::fs::write(mount.join("photos/beach.jpg"), b"x").unwrap();
+        let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+        let prefix = luna_core::marker::pick_prefix(&mount).unwrap();
+        crate::drives::drive_db::create(
+            &mount,
+            &luna_core::marker::Marker::new("d1", "Drive"),
+            &prefix,
+        )
+        .unwrap();
+        crate::db::upsert_drive(
+            &conn,
+            "d1",
+            "Drive",
+            "as_is",
+            "ext4",
+            "sda",
+            mount.to_str().unwrap(),
+        )
+        .unwrap();
+        (dir, conn)
+    }
+
     #[test]
     fn upload_scope_covers_whole_drive_links() {
-        let dir = tempfile::tempdir().unwrap();
-        let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+        let (_dir, conn) = scope_conn();
         let link = link("", CAP_ALL);
         assert!(upload_in_link_scope(
             &conn,
@@ -2782,8 +3380,7 @@ mod tests {
 
     #[test]
     fn upload_scope_is_shared_folder_for_folder_links() {
-        let dir = tempfile::tempdir().unwrap();
-        let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+        let (_dir, conn) = scope_conn();
         let link = link("photos", CAP_VIEW | CAP_UPLOAD);
         assert!(upload_in_link_scope(
             &conn,
@@ -2824,8 +3421,7 @@ mod tests {
 
     #[test]
     fn upload_scope_replaces_the_shared_file_for_file_links() {
-        let dir = tempfile::tempdir().unwrap();
-        let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+        let (_dir, conn) = scope_conn();
         let link = link("photos/beach.jpg", access::CAP_ALL);
         assert!(upload_in_link_scope(
             &conn,
@@ -2842,6 +3438,26 @@ mod tests {
             "other.jpg"
         ));
         assert!(!upload_in_link_scope(&conn, &link, "d1", "", "beach.jpg"));
+    }
+
+    #[test]
+    fn scoped_upload_belongs_only_to_the_creating_link() {
+        let (_dir, conn) = scope_conn();
+        let link = link("photos", CAP_ALL);
+        let up = uploads::create_scoped(&conn, "d1", "photos", "up.bin", 4, "link:l1").unwrap();
+        // Same link, same folder: in scope.
+        assert!(scoped_upload(&conn, &link, &up.id).is_ok());
+        // A second link over the same folder cannot drive the session —
+        // path scope alone would have allowed it.
+        let mut other = self::link("photos", CAP_ALL);
+        other.id = "l2".into();
+        let err = scoped_upload(&conn, &other, &up.id).unwrap_err();
+        assert_eq!(err.0, StatusCode::FORBIDDEN);
+        // And a member's session is never a link's, even in the same folder.
+        let member_up =
+            uploads::create_scoped(&conn, "d1", "photos", "m.bin", 4, "user:u9").unwrap();
+        let err = scoped_upload(&conn, &link, &member_up.id).unwrap_err();
+        assert_eq!(err.0, StatusCode::FORBIDDEN);
     }
 }
 
@@ -2923,6 +3539,21 @@ mod http_tests {
 
     async fn call(app: &axum::Router, r: HttpReq<Body>) -> axum::response::Response {
         app.clone().oneshot(r).await.unwrap()
+    }
+
+    /// Raw PUT of one upload chunk — public upload sessions carry no
+    /// cookie/CSRF, the link token in the URL is the credential.
+    fn put_chunk(uri: &str, data: &[u8]) -> HttpReq<Body> {
+        let end = data.len().saturating_sub(1);
+        let mut http = HttpReq::builder()
+            .method(Method::PUT)
+            .uri(uri)
+            .header("content-type", "application/octet-stream")
+            .header("content-range", format!("bytes 0-{end}/{}", data.len()))
+            .body(Body::from(data.to_vec()))
+            .unwrap();
+        http.extensions_mut().insert(ConnectInfo(CLIENT));
+        http
     }
 
     async fn body_json(res: axum::response::Response) -> serde_json::Value {
@@ -3038,6 +3669,99 @@ mod http_tests {
         assert_eq!(status, 200, "{body}");
         assert_eq!(body["kind"], "file");
         assert_eq!(body["name"], "readme.txt");
+    }
+
+    #[tokio::test]
+    async fn link_to_a_trashed_item_resolves_publicly() {
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(mount.path().join("docs")).unwrap();
+        std::fs::write(mount.path().join("docs/note.txt"), "hello").unwrap();
+        let (_dir, app) = test_app(mount.path());
+        let (cookie, csrf) = admin(&app).await;
+        let res = call(
+            &app,
+            json_req(
+                Method::DELETE,
+                "/api/v1/drives/photos/files?path=docs/note.txt",
+                "",
+                Some(&cookie),
+                Some(&csrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+        let v = body_json(res).await;
+        let trash_path = v["trash_path"].as_str().unwrap();
+
+        let link = make_link(
+            &app,
+            &cookie,
+            &csrf,
+            &serde_json::json!({
+                "kind": "file",
+                "drive_id": "photos",
+                "path": trash_path,
+                "caps": "view",
+            })
+            .to_string(),
+        )
+        .await;
+        let token = link["token"].as_str().unwrap();
+        let (status, body) = public_get(&app, &format!("/s/{token}?meta=1")).await;
+        assert_eq!(status, 200, "{body}");
+        assert_eq!(body["kind"], "file");
+        // The link page shows the original name — never the `{nonce}-`
+        // storage name.
+        assert_eq!(body["name"], "note.txt");
+    }
+
+    #[tokio::test]
+    async fn link_to_a_trashed_folder_lists_contents() {
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(mount.path().join("docs")).unwrap();
+        std::fs::write(mount.path().join("docs/note.txt"), "hello").unwrap();
+        std::fs::write(mount.path().join("docs/other.txt"), "hi").unwrap();
+        let (_dir, app) = test_app(mount.path());
+        let (cookie, csrf) = admin(&app).await;
+        let res = call(
+            &app,
+            json_req(
+                Method::DELETE,
+                "/api/v1/drives/photos/files?path=docs",
+                "",
+                Some(&cookie),
+                Some(&csrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+        let v = body_json(res).await;
+        let trash_path = v["trash_path"].as_str().unwrap();
+
+        let link = make_link(
+            &app,
+            &cookie,
+            &csrf,
+            &serde_json::json!({
+                "kind": "folder",
+                "drive_id": "photos",
+                "path": trash_path,
+                "caps": "view",
+            })
+            .to_string(),
+        )
+        .await;
+        let token = link["token"].as_str().unwrap();
+        let (status, body) = public_get(&app, &format!("/s/{token}/list")).await;
+        assert_eq!(status, 200, "{body}");
+        let mut names: Vec<&str> = body["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["name"].as_str().unwrap())
+            .collect();
+        names.sort();
+        assert_eq!(names, ["note.txt", "other.txt"]);
     }
 
     #[tokio::test]
@@ -3469,7 +4193,14 @@ mod http_tests {
         )
         .await;
         let roots = body_json(res).await;
-        assert_eq!(roots.as_array().unwrap().len(), 2, "{roots}");
+        // The injected virtual home row rides alongside the grant roots.
+        let grant_roots: Vec<&serde_json::Value> = roots
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|r| !r["is_home"].as_bool().unwrap_or(false))
+            .collect();
+        assert_eq!(grant_roots.len(), 2, "{roots}");
 
         // Removing the root leaves the explicit child standing.
         let res = call(
@@ -4282,5 +5013,483 @@ mod http_tests {
         assert_eq!(res.status(), 200);
         let (status, _) = public_get(&app, &format!("/s/{file_token}?meta=1")).await;
         assert_eq!(status, 404);
+    }
+
+    // -------------------------------------------------------------------
+    // Confinement + access-management regressions
+    // -------------------------------------------------------------------
+
+    /// Create an album on the photos drive and return its id.
+    async fn make_album(app: &axum::Router, cookie: &str, csrf: &str, name: &str) -> String {
+        let res = call(
+            app,
+            json_req(
+                Method::POST,
+                "/api/v1/gallery/albums",
+                &format!(r#"{{"name":"{name}"}}"#),
+                Some(cookie),
+                Some(csrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+        body_json(res).await["id"].as_str().unwrap().to_string()
+    }
+
+    #[tokio::test]
+    async fn album_link_gets_no_path_operations() {
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::write(mount.path().join("secret.txt"), "s").unwrap();
+        let (_dir, app) = test_app(mount.path());
+        let (cookie, csrf) = admin(&app).await;
+        let album_id = make_album(&app, &cookie, &csrf, "Trip").await;
+        // view+upload so cap checks pass and only the subject-kind gate can
+        // refuse — before the fix these calls walked the whole drive root.
+        let link = make_link(
+            &app,
+            &cookie,
+            &csrf,
+            &serde_json::json!({
+                "kind": "album",
+                "drive_id": "photos",
+                "album_id": album_id,
+                "caps": "view+upload",
+            })
+            .to_string(),
+        )
+        .await;
+        let token = link["token"].as_str().unwrap();
+
+        // The link page itself still answers as an album.
+        let (s, b) = public_get(&app, &format!("/s/{token}?meta=1")).await;
+        assert_eq!(s, 200, "{b}");
+        assert_eq!(b["kind"], "album");
+
+        // Path-shaped operations on a non-path subject are refused.
+        let (s, _) = public_get(&app, &format!("/s/{token}/stat")).await;
+        assert_eq!(s, StatusCode::GONE);
+        let (s, _) = public_json(
+            &app,
+            Method::POST,
+            &format!("/s/{token}/mkdir"),
+            r#"{"path":"x"}"#,
+        )
+        .await;
+        assert_eq!(s, StatusCode::GONE);
+        let (s, _) = public_json(
+            &app,
+            Method::POST,
+            &format!("/s/{token}/create"),
+            r#"{"path":"x.jpg"}"#,
+        )
+        .await;
+        assert_eq!(s, StatusCode::GONE);
+        // Nothing was created at the drive root.
+        assert!(!mount.path().join("x").exists());
+        assert!(!mount.path().join("x.jpg").exists());
+    }
+
+    #[tokio::test]
+    async fn whole_drive_link_cannot_reach_the_trash() {
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(mount.path().join("docs")).unwrap();
+        std::fs::write(mount.path().join("docs/note.txt"), "hi").unwrap();
+        let (_dir, app) = test_app(mount.path());
+        let (cookie, csrf) = admin(&app).await;
+        // Put something in the trash so .luna-trash really exists on disk.
+        let res = call(
+            &app,
+            json_req(
+                Method::DELETE,
+                "/api/v1/drives/photos/files?path=docs/note.txt",
+                "",
+                Some(&cookie),
+                Some(&csrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+
+        let link = make_link(
+            &app,
+            &cookie,
+            &csrf,
+            r#"{"kind":"folder","drive_id":"photos","path":"","caps":"view"}"#,
+        )
+        .await;
+        let token = link["token"].as_str().unwrap();
+
+        // The trash alias is out of scope for a link that isn't trash-scoped.
+        let (s, b) = public_get(&app, &format!("/s/{token}/list?path=.luna-trash")).await;
+        assert_eq!(s, 404, "{b}");
+        let (s, b) = public_get(&app, &format!("/s/{token}/zip?path=.luna-trash")).await;
+        assert_eq!(s, 404, "{b}");
+
+        // The root listing still works — and never shows the trash dir.
+        let (s, b) = public_get(&app, &format!("/s/{token}/list")).await;
+        assert_eq!(s, 200, "{b}");
+        let names: Vec<&str> = b["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["name"].as_str().unwrap())
+            .collect();
+        assert!(names.contains(&"docs"), "{b}");
+        assert!(!names.iter().any(|n| n.contains("trash")), "{b}");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn symlink_inside_a_share_cannot_escape_it() {
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(mount.path().join("family")).unwrap();
+        std::fs::write(mount.path().join("family/note.txt"), "n").unwrap();
+        std::fs::write(mount.path().join("secret.txt"), "s").unwrap();
+        std::os::unix::fs::symlink(mount.path(), mount.path().join("family/escape")).unwrap();
+        let (_dir, app) = test_app(mount.path());
+        let token = edit_link(&app, "full").await;
+
+        // Reads: the symlink resolves outside the link root.
+        let (s, _) = public_get(&app, &format!("/s/{token}/file?path=escape/secret.txt")).await;
+        assert_eq!(s, 404);
+        let (s, _) = public_get(&app, &format!("/s/{token}/list?path=escape")).await;
+        assert_eq!(s, 404);
+        let (s, _) = public_get(&app, &format!("/s/{token}/stat?path=escape/secret.txt")).await;
+        assert_eq!(s, 404);
+        let (s, _) = public_get(&app, &format!("/s/{token}/zip?path=escape")).await;
+        assert_eq!(s, 404);
+
+        // Writes: a symlinked component is refused without following it.
+        let (s, _) = public_json(
+            &app,
+            Method::DELETE,
+            &format!("/s/{token}/file?path=escape/secret.txt"),
+            "",
+        )
+        .await;
+        assert_eq!(s, 404);
+        let (s, _) = public_json(
+            &app,
+            Method::POST,
+            &format!("/s/{token}/move"),
+            r#"{"paths":["note.txt"],"dest":"escape"}"#,
+        )
+        .await;
+        assert_eq!(s, 404);
+        let (s, _) = public_json(
+            &app,
+            Method::POST,
+            &format!("/s/{token}/create"),
+            r#"{"path":"escape/planted.txt"}"#,
+        )
+        .await;
+        assert_eq!(s, 404);
+
+        // The outside file is untouched and nothing landed through the link.
+        assert_eq!(
+            std::fs::read(mount.path().join("secret.txt")).unwrap(),
+            b"s"
+        );
+        assert!(!mount.path().join("planted.txt").exists());
+    }
+
+    #[tokio::test]
+    async fn revoked_creator_cannot_read_or_patch_their_link() {
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(mount.path().join("family")).unwrap();
+        let (_dir, app) = test_app(mount.path());
+        let (cookie, csrf) = admin(&app).await;
+        let (mcookie, mcsrf, sam) = member(&app, &cookie, &csrf, "sam").await;
+        add_member(&app, &cookie, &csrf, "family", &sam, "full+share").await;
+
+        // Sam mints a link while the grant covers it.
+        let res = call(
+            &app,
+            json_req(
+                Method::POST,
+                "/api/v1/access/links",
+                r#"{"kind":"folder","drive_id":"photos","path":"family","caps":"view"}"#,
+                Some(&mcookie),
+                Some(&mcsrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+        let link = body_json(res).await;
+        let link_id = link["id"].as_str().unwrap().to_string();
+        assert!(link["url"].as_str().unwrap().starts_with("/s/"));
+
+        // The admin pulls Sam's access to the folder.
+        let (_, st) = subject(&app, &cookie, "family").await;
+        let row_id = st["members"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|m| m["user_id"] == sam)
+            .unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let res = call(
+            &app,
+            json_req(
+                Method::DELETE,
+                &format!("/api/v1/access/members/{row_id}"),
+                "",
+                Some(&cookie),
+                Some(&csrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+
+        // Having created the link no longer counts: the subject sheet is
+        // shut, the inventory drops the row (no URL to recover), and the
+        // password patch is refused.
+        let (s, _) = subject(&app, &mcookie, "family").await;
+        assert_eq!(s, 403);
+        let res = call(
+            &app,
+            json_req(Method::GET, "/api/v1/access/mine", "", Some(&mcookie), None),
+        )
+        .await;
+        let mine = body_json(res).await;
+        assert!(
+            !mine["sharing"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|g| g["path"] == "family"),
+            "{mine}"
+        );
+        let res = call(
+            &app,
+            json_req(
+                Method::PATCH,
+                &format!("/api/v1/access/links/{link_id}"),
+                r#"{"password":"n3w-passw0rd"}"#,
+                Some(&mcookie),
+                Some(&mcsrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 403);
+    }
+
+    #[tokio::test]
+    async fn member_grants_reject_self_and_missing_paths() {
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(mount.path().join("family")).unwrap();
+        let (_dir, app) = test_app(mount.path());
+        let (cookie, csrf) = admin(&app).await;
+        let (mcookie, mcsrf, sam) = member(&app, &cookie, &csrf, "sam").await;
+        add_member(&app, &cookie, &csrf, "family", &sam, "full").await;
+
+        // A self-grant is refused even with full caps on the subject.
+        let res = call(
+            &app,
+            json_req(
+                Method::POST,
+                "/api/v1/access/members",
+                &format!(
+                    r#"{{"kind":"path","drive_id":"photos","path":"family","user_id":"{sam}","caps":"view"}}"#
+                ),
+                Some(&mcookie),
+                Some(&mcsrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 400);
+
+        // A path that doesn't exist can't be shared.
+        let res = call(
+            &app,
+            json_req(
+                Method::POST,
+                "/api/v1/access/members",
+                &format!(
+                    r#"{{"kind":"path","drive_id":"photos","path":"ghost","user_id":"{sam}","caps":"view"}}"#
+                ),
+                Some(&cookie),
+                Some(&csrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 404);
+
+        // A `..` path never becomes a stored row.
+        let res = call(
+            &app,
+            json_req(
+                Method::POST,
+                "/api/v1/access/members",
+                &format!(
+                    r#"{{"kind":"path","drive_id":"photos","path":"../outside","user_id":"{sam}","caps":"view"}}"#
+                ),
+                Some(&cookie),
+                Some(&csrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 400);
+    }
+
+    #[tokio::test]
+    async fn upload_only_member_gets_counts_not_the_roster() {
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(mount.path().join("family")).unwrap();
+        let (_dir, app) = test_app(mount.path());
+        let (cookie, csrf) = admin(&app).await;
+        let (mcookie, _mcsrf, sam) = member(&app, &cookie, &csrf, "sam").await;
+        add_member(&app, &cookie, &csrf, "family", &sam, "upload").await;
+        make_link(
+            &app,
+            &cookie,
+            &csrf,
+            r#"{"kind":"folder","drive_id":"photos","path":"family","caps":"view"}"#,
+        )
+        .await;
+
+        // Counts still render ("N people · M links") but neither the member
+        // roster nor link details leave the manage-level gate.
+        let (s, st) = subject(&app, &mcookie, "family").await;
+        assert_eq!(s, 200, "{st}");
+        assert_eq!(st["my_caps"], "upload");
+        assert_eq!(st["member_count"], 1, "{st}");
+        assert_eq!(st["link_count"], 1, "{st}");
+        assert_eq!(st["members"].as_array().unwrap().len(), 0, "{st}");
+        assert_eq!(st["links"].as_array().unwrap().len(), 0, "{st}");
+    }
+
+    #[tokio::test]
+    async fn equal_cap_members_cannot_touch_each_others_rows() {
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(mount.path().join("family")).unwrap();
+        let (_dir, app) = test_app(mount.path());
+        let (cookie, csrf) = admin(&app).await;
+        let (mcookie, mcsrf, sam) = member(&app, &cookie, &csrf, "sam").await;
+        let (_jcookie, _jcsrf, jules) = member(&app, &cookie, &csrf, "jules").await;
+        add_member(&app, &cookie, &csrf, "family", &sam, "view").await;
+        add_member(&app, &cookie, &csrf, "family", &jules, "view").await;
+
+        // Admin reads the roster to learn the row ids.
+        let (_, st) = subject(&app, &cookie, "family").await;
+        let row_of = |uid: &str| {
+            st["members"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|m| m["user_id"] == uid)
+                .unwrap()["id"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        };
+        let jules_row = row_of(&jules);
+        let sam_row = row_of(&sam);
+
+        // Same caps, no manage bar: Sam cannot retune or remove Jules's row.
+        let res = call(
+            &app,
+            json_req(
+                Method::PATCH,
+                &format!("/api/v1/access/members/{jules_row}"),
+                r#"{"caps":"view"}"#,
+                Some(&mcookie),
+                Some(&mcsrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 403);
+        let res = call(
+            &app,
+            json_req(
+                Method::DELETE,
+                &format!("/api/v1/access/members/{jules_row}"),
+                "",
+                Some(&mcookie),
+                Some(&mcsrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 403);
+        // Re-granting Jules (the retune path through add_member) fails too.
+        let res = call(
+            &app,
+            json_req(
+                Method::POST,
+                "/api/v1/access/members",
+                &format!(
+                    r#"{{"kind":"path","drive_id":"photos","path":"family","user_id":"{jules}","caps":"view"}}"#
+                ),
+                Some(&mcookie),
+                Some(&mcsrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 403);
+
+        // Leaving your own share still works without the manage bar.
+        let res = call(
+            &app,
+            json_req(
+                Method::DELETE,
+                &format!("/api/v1/access/members/{sam_row}"),
+                "",
+                Some(&mcookie),
+                Some(&mcsrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+    }
+
+    #[tokio::test]
+    async fn one_link_cannot_drive_another_links_upload() {
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(mount.path().join("family")).unwrap();
+        let (_dir, app) = test_app(mount.path());
+        let (cookie, csrf) = admin(&app).await;
+        let body = r#"{"kind":"folder","drive_id":"photos","path":"family","caps":"full"}"#;
+        let t1 = make_link(&app, &cookie, &csrf, body).await["token"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let t2 = make_link(&app, &cookie, &csrf, body).await["token"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        // Link A opens an upload session inside the shared folder…
+        let res = call(
+            &app,
+            json_req(
+                Method::POST,
+                &format!("/s/{t1}/upload"),
+                r#"{"name":"a.bin","size":4}"#,
+                None,
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+        let up = body_json(res).await;
+        let upload_id = up["upload_id"].as_str().unwrap();
+
+        // …which link B — same folder, same caps — must not drive.
+        let res = call(
+            &app,
+            put_chunk(&format!("/s/{t2}/upload/{upload_id}"), b"data"),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+
+        // Link A still owns it.
+        let res = call(
+            &app,
+            put_chunk(&format!("/s/{t1}/upload/{upload_id}"), b"data"),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
     }
 }

@@ -2,11 +2,12 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FolderOpen, HardDrive, PlugZap } from "lucide-react";
+import { FolderOpen, HardDrive, House, PlugZap } from "lucide-react";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
+import LayeredPill from "@libreloom/ui/components/ui/LayeredPill.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import ModalErrorNotice from "@libreloom/ui/components/common/ModalErrorNotice.jsx";
@@ -26,7 +27,7 @@ import { apiErrorMessage, getDrives, getJson, postJson } from "../lib/api";
 import { withDevMockDetected, isMockUnknownDrive, mockInspectResult } from "../lib/devMockDrives.js";
 import { describeDriveHealth } from "../lib/driveHealth";
 import { ROOT_TERM_HINT } from "../lib/rootTerm.js";
-import { KIND_ALBUM, capsHint, capsLabel, sharedItemAction, sharedItemHref } from "../lib/access.js";
+import { CAP, KIND_ALBUM, capsHint, capsLabel, hasCap, sharedItemAction, sharedItemHref } from "../lib/access.js";
 import { memberAccessRoots } from "../lib/shareTree.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 
@@ -58,6 +59,41 @@ const STATE_PILLS = {
   ejected: "info",
   failed: "error",
 };
+
+/** Status-dot class matching each STATE_PILLS variant. */
+const STATE_DOTS = {
+  success: "bg-success",
+  warning: "bg-warning",
+  info: "bg-info",
+  error: "bg-error",
+};
+
+/**
+ * The card's layered status pill: front chip carries the state (with its
+ * color dot); the rear slot is reserved for the member-home marker so the
+ * two facts share one pill. Empty rear slot collapses cleanly.
+ */
+function DriveStatusPill({ drive }) {
+  const variant = STATE_PILLS[drive.state] || "info";
+  const dot = STATE_DOTS[variant] || "bg-info";
+  const memberHome = drive.member_home === true;
+  return (
+    <LayeredPill
+      icon={<span className={`h-2 w-2 rounded-full ${dot}`} aria-hidden="true" />}
+      actionIcon={<House size={11} />}
+      actionLabel={memberHome ? (drive.member_home_auto ? "Member home · auto" : "Member home") : null}
+      title={
+        memberHome
+          ? drive.member_home_auto
+            ? "Members' private Home folders live on this drive — Luna picked it automatically. Choose a different drive in Settings → Users."
+            : "Members' private Home folders live on this drive. Choose a different drive in Settings → Users."
+          : undefined
+      }
+    >
+      {plainDriveState(drive.state)}
+    </LayeredPill>
+  );
+}
 
 function PermissionPill({ caps, file = false }) {
   const variant = caps === "full" ? "success" : caps === "upload" ? "warning" : "info";
@@ -269,7 +305,6 @@ function DetectedCard({ drive, onOpen }) {
 }
 
 function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect }) {
-  const state = STATE_PILLS[drive.state] || "info";
   const ready = drive.state === "as_is" || drive.state === "readonly";
   const health = useQuery({
     queryKey: ["drive-health", drive.id],
@@ -288,7 +323,7 @@ function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect 
   const statusMessage = driveStatusMessage(drive);
 
   return (
-    <Card icon={HardDrive} title={drive.label} headerActions={<Pill variant={state}>{plainDriveState(drive.state)}</Pill>}>
+    <Card icon={HardDrive} title={drive.label} headerActions={<DriveStatusPill drive={drive} />}>
       {statusMessage ? (
         <p className="text-primary text-sm">{statusMessage}</p>
       ) : null}
@@ -459,9 +494,17 @@ export default function DrivesPage() {
       <Page title="Files" titleId="drives-title" rightContent={<FileSearch />}>
         <div className="grid gap-4 md:grid-cols-2">
           {grants.map((grant) => (
-            <Card key={grant.id} icon={FolderOpen} title={grant.name || grant.drive_label}>
+            <Card
+              key={grant.id}
+              icon={grant.is_home ? House : FolderOpen}
+              title={grant.name || grant.drive_label}
+            >
               <p className="text-primary font-mono text-sm">
-                {grant.path ? `${grant.drive_label} · ${grant.path}` : "Whole drive"}
+                {grant.is_home
+                  ? "Your private folder"
+                  : grant.path
+                    ? `${grant.drive_label} · ${grant.path}`
+                    : "Whole drive"}
               </p>
               <div className="mt-3 flex items-center justify-between gap-3">
                 <PermissionPill caps={grant.caps} file={grant.is_file === true} />
@@ -469,10 +512,12 @@ export default function DrivesPage() {
                   <Button size="sm" variant="primary" asChild>
                     <Link to={sharedItemHref(grant)}>{sharedItemAction(grant)}</Link>
                   </Button>
-                  <ShareButton
-                    label={grant.path || grant.drive_label}
-                    onClick={() => setSharingDrive({ id: grant.drive_id, path: grant.path || "" })}
-                  />
+                  {hasCap(grant.caps, CAP.SHARE) && (
+                    <ShareButton
+                      label={grant.path || grant.drive_label}
+                      onClick={() => setSharingDrive({ id: grant.drive_id, path: grant.path || "" })}
+                    />
+                  )}
                 </div>
               </div>
             </Card>

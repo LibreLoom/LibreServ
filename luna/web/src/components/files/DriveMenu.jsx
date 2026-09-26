@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
-import { ChevronDown, HardDrive } from "lucide-react";
+import { ChevronDown, Folder, HardDrive, Home } from "lucide-react";
 import PropTypes from "prop-types";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import { hasLunaPaths, LUNA_DRIVE_MIME, LUNA_PATHS_MIME, SPRING_LOAD_MS } from "../../lib/dnd.js";
 import { isPresentDrive, isWritableDrive } from "../../lib/drives.js";
+import { folderHref } from "../../lib/paths.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 
@@ -21,21 +22,26 @@ export const DRIVE_MENU_OPEN_MS = 500;
  */
 export const DRIVE_SPRING_LOAD_MS = SPRING_LOAD_MS;
 
+const DEST_ICONS = { home: Home, folder: Folder, drive: HardDrive };
+
 /**
- * Drive menu — Luna's drive picker in the Files page header, modeled on the
- * NewItemMenu dropdown. The trigger shows the drive being browsed; opening
- * it lists every OTHER ready drive as a menu item that navigates to that
- * drive's root. Renders nothing when fewer than two drives are ready.
+ * Drive menu — Luna's destination picker in the Files page header, modeled
+ * on the NewItemMenu dropdown. The trigger shows the place being browsed;
+ * opening it lists every OTHER destination as a menu item that navigates
+ * there. For admins the destinations are whole drives; for members they
+ * are writable roots — their Home folder and shared roots with write
+ * access — since members can't address a drive's unrestricted root.
+ * Renders nothing when no other destination exists.
  *
  * Drag and drop, while a file drag carrying `application/x-luna-paths` is
  * in flight:
  *  - Hovering the trigger for DRIVE_MENU_OPEN_MS opens the menu.
- *  - Dropping on a writable drive's item moves the files to that drive's
- *    root WITHOUT navigating — the browser stays on the current folder.
+ *  - Dropping on a writable destination's item moves the files to that
+ *    place WITHOUT navigating — the browser stays on the current folder.
  *  - Hover-holding an item for DRIVE_SPRING_LOAD_MS spring-loads that
- *    drive: the browser navigates to its root while the HTML5 drag session
- *    stays alive (it's document-level, not tied to the route), so the files
- *    can then be dropped into any folder on that drive. The drag's source
+ *    destination: the browser navigates to it while the HTML5 drag session
+ *    stays alive (it's document-level, not tied to the route), so the
+ *    files can then be dropped into a folder inside it. The drag's source
  *    drive travels in `application/x-luna-drive` so the move job posts the
  *    right `from_drive` after the page switches drives.
  *
@@ -44,21 +50,34 @@ export const DRIVE_SPRING_LOAD_MS = SPRING_LOAD_MS;
  *
  * @param {{
  *   drives?: any[],
+ *   destinations?: Array<{ driveId: string, path: string, label: string, sub?: string, icon?: "home"|"folder"|"drive", writable?: boolean }>,
  *   currentDriveId: string,
- *   onDropPaths: (driveId: string, paths: string[], sourceDriveId?: string) => void,
+ *   currentPath?: string,
+ *   currentLabel?: string,
+ *   onDropPaths: (driveId: string, path: string, paths: string[], sourceDriveId?: string) => void,
  * }} props
  */
-export default function DriveMenu({ drives, currentDriveId, onDropPaths }) {
+export default function DriveMenu({ drives, destinations, currentDriveId, currentPath = "", currentLabel, onDropPaths }) {
   const navigate = useNavigate();
-  const presentDrives = useMemo(
-    () => (drives || []).filter(isPresentDrive),
-    [drives],
+  const items = useMemo(() => {
+    if (destinations) return destinations;
+    return /** @type {{ driveId: string, path: string, label: string, sub?: string, icon?: "home"|"folder"|"drive", writable?: boolean }[]} */ (
+      (drives || [])
+        .filter(isPresentDrive)
+        .map((d) => ({
+          driveId: d.id,
+          path: "",
+          label: d.label,
+          icon: "drive",
+          writable: isWritableDrive(d),
+        }))
+    );
+  }, [drives, destinations]);
+  const otherItems = useMemo(
+    () => items.filter((d) => !(d.driveId === currentDriveId && (d.path || "") === (currentPath || ""))),
+    [items, currentDriveId, currentPath],
   );
-  const otherDrives = useMemo(
-    () => presentDrives.filter((d) => d.id !== currentDriveId),
-    [presentDrives, currentDriveId],
-  );
-  const current = presentDrives.find((d) => d.id === currentDriveId);
+  const current = items.find((d) => d.driveId === currentDriveId && (d.path || "") === (currentPath || ""));
 
   const [isOpen, setIsOpen] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
@@ -172,9 +191,9 @@ export default function DriveMenu({ drives, currentDriveId, onDropPaths }) {
     updatePosition();
   }, [isOpen, updatePosition]);
 
-  function pick(drive) {
+  function pick(dest) {
     haptic("selection");
-    navigate(`/drives/${drive.id}`);
+    navigate(folderHref(dest.driveId, dest.path || ""));
     if (isOpen) close();
   }
 
@@ -205,34 +224,40 @@ export default function DriveMenu({ drives, currentDriveId, onDropPaths }) {
     }
   }
 
-  function armSpringLoad(drive) {
-    if (springTargetRef.current === drive.id) return;
-    springTargetRef.current = drive.id;
-    setDragOverDriveId(drive.id);
+  function destKey(dest) {
+    return `${dest.driveId}:${dest.path || ""}`;
+  }
+
+  function armSpringLoad(dest) {
+    const key = destKey(dest);
+    if (springTargetRef.current === key) return;
+    springTargetRef.current = key;
+    setDragOverDriveId(key);
     if (springTimerRef.current) clearTimeout(springTimerRef.current);
     springTimerRef.current = setTimeout(() => {
       springTimerRef.current = null;
       springTargetRef.current = null;
       // Spring-load: navigate mid-drag so the user can drop into a folder
-      // on this drive. The drag session survives the route change.
+      // inside this destination. The drag session survives the route change.
       haptic("medium");
-      navigate(`/drives/${drive.id}`);
+      navigate(folderHref(dest.driveId, dest.path || ""));
       close();
     }, DRIVE_SPRING_LOAD_MS);
   }
 
-  function handleItemDragOver(drive, canDrop, event) {
+  function handleItemDragOver(dest, canDrop, event) {
     if (!canDrop || !hasLunaPaths(event)) return;
     event.preventDefault();
     event.stopPropagation();
     event.dataTransfer.dropEffect = "move";
-    armSpringLoad(drive);
+    armSpringLoad(dest);
   }
 
-  function handleItemDragLeave(drive, event) {
+  function handleItemDragLeave(dest, event) {
+    const key = destKey(dest);
     if (event.currentTarget.contains(/** @type {Node|null} */ (event.relatedTarget))) return;
-    if (dragOverDriveId === drive.id) setDragOverDriveId(null);
-    if (springTargetRef.current === drive.id) {
+    if (dragOverDriveId === key) setDragOverDriveId(null);
+    if (springTargetRef.current === key) {
       springTargetRef.current = null;
       if (springTimerRef.current) {
         clearTimeout(springTimerRef.current);
@@ -241,7 +266,7 @@ export default function DriveMenu({ drives, currentDriveId, onDropPaths }) {
     }
   }
 
-  function handleItemDrop(drive, canDrop, event) {
+  function handleItemDrop(dest, canDrop, event) {
     if (!canDrop) return;
     event.preventDefault();
     event.stopPropagation();
@@ -253,7 +278,7 @@ export default function DriveMenu({ drives, currentDriveId, onDropPaths }) {
         const paths = JSON.parse(raw);
         if (Array.isArray(paths) && paths.length > 0) {
           const sourceDriveId = event.dataTransfer?.getData(LUNA_DRIVE_MIME) || undefined;
-          onDropPaths(drive.id, paths, sourceDriveId);
+          onDropPaths(dest.driveId, dest.path || "", paths, sourceDriveId);
         }
       } catch {
         // Ignore malformed drag payload.
@@ -263,21 +288,21 @@ export default function DriveMenu({ drives, currentDriveId, onDropPaths }) {
   }
 
   function handleMenuKeyDown(event) {
-    if (!otherDrives.length) return;
+    if (!otherItems.length) return;
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      setActiveIndex((prev) => (prev + 1) % otherDrives.length);
+      setActiveIndex((prev) => (prev + 1) % otherItems.length);
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
-      setActiveIndex((prev) => (prev - 1 + otherDrives.length) % otherDrives.length);
+      setActiveIndex((prev) => (prev - 1 + otherItems.length) % otherItems.length);
     } else if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
-      const drive = otherDrives[activeIndex];
-      if (drive) pick(drive);
+      const dest = otherItems[activeIndex];
+      if (dest) pick(dest);
     }
   }
 
-  if (presentDrives.length < 2) return null;
+  if (otherItems.length < 1) return null;
 
   return (
     <div className="relative inline-flex" ref={containerRef}>
@@ -294,11 +319,11 @@ export default function DriveMenu({ drives, currentDriveId, onDropPaths }) {
           type="button"
           aria-haspopup="menu"
           aria-expanded={isOpen}
-          aria-label={current ? `Drives: ${current.label}` : "Drives"}
+          aria-label={currentLabel || current ? `Places: ${currentLabel || current?.label}` : "Places"}
           onClick={handleTrigger}
         >
           <HardDrive size={ICON_SIZE.sm} aria-hidden="true" />
-          {current?.label || "Drives"}
+          {currentLabel || current?.label || "Places"}
           <ChevronDown
             size={ICON_SIZE.sm}
             aria-hidden="true"
@@ -315,7 +340,7 @@ export default function DriveMenu({ drives, currentDriveId, onDropPaths }) {
           <div
             ref={portalRef}
             role="menu"
-            aria-label="Drives"
+            aria-label="Places"
             tabIndex={-1}
             onKeyDown={handleMenuKeyDown}
             style={{ position: "absolute", top: position.top, left: position.left }}
@@ -325,12 +350,13 @@ export default function DriveMenu({ drives, currentDriveId, onDropPaths }) {
               isClosing ? "animate-dropdown-close" : "animate-dropdown-open",
             )}
           >
-            {otherDrives.map((d, index) => {
-              const canDrop = isWritableDrive(d);
-              const isDragTarget = dragOverDriveId === d.id;
+            {otherItems.map((d, index) => {
+              const canDrop = d.writable !== false;
+              const isDragTarget = dragOverDriveId === destKey(d);
+              const Icon = DEST_ICONS[d.icon] || Folder;
               return (
                 <button
-                  key={d.id}
+                  key={destKey(d)}
                   type="button"
                   role="menuitem"
                   className={cn(
@@ -350,8 +376,11 @@ export default function DriveMenu({ drives, currentDriveId, onDropPaths }) {
                   onDragLeave={(e) => handleItemDragLeave(d, e)}
                   onDrop={(e) => handleItemDrop(d, canDrop, e)}
                 >
-                  <HardDrive size={ICON_SIZE.sm} aria-hidden="true" className="shrink-0 text-accent" />
-                  <span className="truncate">{d.label}</span>
+                  <Icon size={ICON_SIZE.sm} aria-hidden="true" className="shrink-0 text-accent" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate">{d.label}</span>
+                    {d.sub ? <span className="block truncate text-xs font-sans text-accent">{d.sub}</span> : null}
+                  </span>
                 </button>
               );
             })}
@@ -365,6 +394,9 @@ export default function DriveMenu({ drives, currentDriveId, onDropPaths }) {
 
 DriveMenu.propTypes = {
   drives: PropTypes.array,
+  destinations: PropTypes.array,
   currentDriveId: PropTypes.string.isRequired,
+  currentPath: PropTypes.string,
+  currentLabel: PropTypes.string,
   onDropPaths: PropTypes.func.isRequired,
 };

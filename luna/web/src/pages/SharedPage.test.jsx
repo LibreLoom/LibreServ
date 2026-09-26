@@ -89,7 +89,7 @@ describe("SharedPage", () => {
     expect(await screen.findByText("report.pdf")).toBeInTheDocument();
     const open = screen.getAllByRole("link", { name: "Open" })
       .find((a) => a.closest("tr")?.textContent?.includes("report.pdf"));
-    expect(open).toHaveAttribute("href", "/drives/d1?path=docs&file=report.pdf");
+    expect(open).toHaveAttribute("href", "/drives/d1?path=docs%2Freport.pdf");
     expect(screen.getAllByRole("cell", { name: "Max" }).length).toBeGreaterThan(0);
   });
 

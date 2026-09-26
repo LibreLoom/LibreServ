@@ -385,8 +385,9 @@ fn answers_io_err() -> (StatusCode, Json<Value>) {
     )
 }
 
-/// `GET /api/v1/forms/responses` — a member needs CAP_VIEW on the form file
-/// itself; a file-only grant is enough, no parent folder access required.
+/// `GET /api/v1/forms/responses` — reading collected answers is a manager
+/// act: a member needs CAP_EDIT (a "full" grant) on the form file itself;
+/// a file-only grant is enough, no parent folder access required.
 async fn member_form_responses(
     State(state): State<AppState>,
     Extension(user): Extension<CurrentUser>,
@@ -394,10 +395,10 @@ async fn member_form_responses(
 ) -> Result<Response, (StatusCode, Json<Value>)> {
     let form_path = {
         let conn = state.db.lock().map_err(|_| index_busy())?;
-        if !auth::has_cap(&user, &conn, &q.drive_id, &q.path, crate::access::CAP_VIEW) {
+        if !auth::has_cap(&user, &conn, &q.drive_id, &q.path, crate::access::CAP_EDIT) {
             return Err(json_error(
                 StatusCode::FORBIDDEN,
-                "You don't have permission to open this form.",
+                "You don't have permission to read this form's answers.",
             ));
         }
         resolve_form_file(&conn, &q.drive_id, &q.path)?
@@ -406,9 +407,9 @@ async fn member_form_responses(
 }
 
 /// `GET /s/{token}/responses` — same answers for a link guest whose link
-/// carries CAP_VIEW on the form (or a folder containing it). Respond-only
-/// links fail `link_file`'s view requirement, so answer links can never read
-/// other people's answers back.
+/// carries CAP_EDIT on the form (or a folder containing it). View and
+/// respond links can open the form but never read other people's answers
+/// back — collected data is for the people running the form.
 async fn guest_form_responses(
     State(state): State<AppState>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -419,6 +420,12 @@ async fn guest_form_responses(
     crate::api::access::run_public(&state, &addr, &token, &headers, move |state, link| {
         let rel = q.path.clone();
         async move {
+            if link.caps & crate::access::CAP_EDIT == 0 {
+                return Err(json_error(
+                    StatusCode::FORBIDDEN,
+                    "This link doesn't include permission to read the form's answers.",
+                ));
+            }
             let path = crate::api::access::link_file(&state, &link, &rel)?;
             let form_path = {
                 let conn = state.db.lock().map_err(|_| index_busy())?;
@@ -506,22 +513,42 @@ fn read_response_records_guarded(
 }
 
 /// Read the sibling responses JSONL (empty when nobody has answered yet).
+/// Respond-path readers stay lenient — every anomaly is "no answers" — but a
+/// symlink is never followed: a planted link could turn the append into a
+/// write to an attacker-chosen file.
 fn read_response_records(form_path: &FsPath) -> Result<Vec<Value>, (StatusCode, Json<Value>)> {
     let Some(path) = responses_path_for(form_path) else {
         return Ok(Vec::new());
     };
-    let Ok(meta) = std::fs::metadata(&path) else {
+    let Ok(meta) = std::fs::symlink_metadata(&path) else {
         return Ok(Vec::new());
     };
-    if !meta.is_file() || meta.len() > MAX_RESPONSES_READ_BYTES {
+    if meta.file_type().is_symlink() || !meta.is_file() || meta.len() > MAX_RESPONSES_READ_BYTES {
         return Ok(Vec::new());
     }
-    let text = std::fs::read_to_string(&path).map_err(|_| {
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't read this form's answers. Try again.",
-        )
-    })?;
+    // O_NOFOLLOW closes the symlink_metadata→open race.
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(&path)
+        .map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't read this form's answers. Try again.",
+            )
+        })?;
+    let mut text = String::new();
+    file.take(MAX_RESPONSES_READ_BYTES + 1)
+        .read_to_string(&mut text)
+        .map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't read this form's answers. Try again.",
+            )
+        })?;
+    if text.len() as u64 > MAX_RESPONSES_READ_BYTES {
+        return Ok(Vec::new());
+    }
     Ok(parse_response_records(&text))
 }
 
@@ -557,15 +584,13 @@ fn find_editable<'a>(
 ) -> Result<Option<String>, (StatusCode, Json<Value>)> {
     let matches = |rec: &Value| rec.get("edit").and_then(|e| e.as_str()) == Some(edit_hash);
     if let Some(id) = response_id {
+        // One refusal for wrong id and wrong secret — a different status or
+        // message per case would make this a response-id existence oracle.
         return match latest.get(id) {
             Some(rec) if matches(rec) => Ok(Some(id.to_string())),
-            Some(_) => Err(json_error(
+            _ => Err(json_error(
                 StatusCode::FORBIDDEN,
                 "This edit link doesn't match a saved answer on this form.",
-            )),
-            None => Err(json_error(
-                StatusCode::NOT_FOUND,
-                "We couldn't find answers for that edit link.",
             )),
         };
     }
@@ -769,8 +794,10 @@ fn new_edit_token() -> String {
 #[derive(Deserialize)]
 struct RespondSubmit {
     answers: Value,
-    /// Per-response secret the respondent holds (cookie + edit link). The
-    /// file only ever stores its blake3 hash.
+    /// Per-response secret the respondent holds (cookie + edit link). Only
+    /// used to identify an existing answer being amended — new submissions
+    /// always get a fresh server-minted secret. The file only ever stores
+    /// its blake3 hash.
     edit_token: Option<String>,
     /// Present when the respondent is re-editing a known response.
     response_id: Option<String>,
@@ -865,28 +892,56 @@ async fn respond_submit_inner(
         ));
     }
 
-    // With edits allowed the client's presented secret (or a fresh one) is
-    // stored hashed so the respondent can amend later. With edits refused a
-    // throwaway secret keeps the record shape — it is never handed back.
-    let edit_token = body
+    // A presented secret only ever identifies an existing answer to amend —
+    // a new submission always gets a fresh server-minted secret, so a client
+    // can't store a weak or reused token. With edits refused the minted
+    // secret is throwaway: it keeps the record shape and is never handed back.
+    let presented_token = body
         .edit_token
-        .filter(|t| !t.is_empty())
-        .unwrap_or_else(new_edit_token);
-    let edit_hash = hash_edit_token(&edit_token);
+        .as_deref()
+        .map(str::trim)
+        .filter(|t| !t.is_empty());
+    let presented_hash = presented_token.map(hash_edit_token);
 
     // Edits need the existing records: match the secret before validating —
     // a wrong secret is refused before it can probe answer shapes.
     let records = read_response_records(&form_path)?;
     let latest = latest_by_id(&records);
-    let existing = find_editable(&latest, body.response_id.as_deref(), &edit_hash)?;
-    let is_new = existing.is_none();
+    let editing_id = match presented_hash.as_deref() {
+        Some(hash) => find_editable(&latest, body.response_id.as_deref(), hash)?,
+        // A target id without its secret is an edit attempt too — refuse it
+        // with the same message as a mismatched secret.
+        None if body
+            .response_id
+            .as_deref()
+            .is_some_and(|id| !id.trim().is_empty()) =>
+        {
+            return Err(json_error(
+                StatusCode::FORBIDDEN,
+                "This edit link doesn't match a saved answer on this form.",
+            ));
+        }
+        None => None,
+    };
+    let is_new = editing_id.is_none();
     if is_new && form_max_responses(&doc).is_some_and(|max| latest.len() >= max as usize) {
         return Err(json_error(
             StatusCode::FORBIDDEN,
             "This form has all the answers it can take.",
         ));
     }
-    let response_id = existing.unwrap_or_else(new_response_id);
+    let (response_id, edit_hash, edit_token) = match editing_id {
+        // An amendment keeps the secret the respondent already holds.
+        Some(id) => (
+            id,
+            presented_hash.unwrap_or_default(),
+            presented_token.unwrap_or_default().to_string(),
+        ),
+        None => {
+            let token = new_edit_token();
+            (new_response_id(), hash_edit_token(&token), token)
+        }
+    };
     let uploads = uploads_dir_for(&form_path);
     validate_answers(&doc, &answers, uploads.as_deref())?;
 
@@ -903,9 +958,29 @@ async fn respond_submit_inner(
             "Luna couldn't find where this form keeps its answers.",
         ));
     };
+    // Same hardening as the guarded reader: refuse a planted symlink, then
+    // O_NOFOLLOW closes the check→open race so the append can't be steered
+    // onto an attacker-chosen file.
+    match std::fs::symlink_metadata(&responses_path) {
+        Ok(meta) if meta.file_type().is_symlink() || !meta.is_file() => {
+            return Err(json_error(
+                StatusCode::FORBIDDEN,
+                "This form's answers file isn't safe to write to.",
+            ));
+        }
+        Ok(_) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => {
+            return Err(json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't save your answers. Try again.",
+            ));
+        }
+    }
     let mut file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
+        .custom_flags(libc::O_NOFOLLOW)
         .open(&responses_path)
         .map_err(|e| {
             crate::files::note_write_failure(
@@ -1347,10 +1422,13 @@ not json
                 .as_deref(),
             Some("r_1")
         );
-        // Known id + wrong secret → forbidden.
-        assert!(find_editable(&latest, Some("r_1"), "h2").is_err());
-        // Unknown id → not found.
-        assert!(find_editable(&latest, Some("r_9"), "h1").is_err());
+        // Known id + wrong secret and unknown id must fail identically —
+        // otherwise the endpoint is a response-id existence oracle.
+        let wrong_secret = find_editable(&latest, Some("r_1"), "h2").unwrap_err();
+        let unknown_id = find_editable(&latest, Some("r_9"), "h1").unwrap_err();
+        assert_eq!(wrong_secret.0, StatusCode::FORBIDDEN);
+        assert_eq!(unknown_id.0, wrong_secret.0);
+        assert_eq!(unknown_id.1.0, wrong_secret.1.0);
         // No id: the secret alone picks the response (edit-link flow).
         assert_eq!(
             find_editable(&latest, None, "h2").unwrap().as_deref(),
@@ -1647,13 +1725,14 @@ mod http_tests {
         let (_dir, app, state) = test_app(mount.path());
         let token = insert_link(&state, "rsvp.lunaform", crate::access::CAP_RESPOND);
 
-        // New answer → appended to the sibling file.
+        // New answer → appended to the sibling file. A client-supplied
+        // edit_token is ignored on new submissions — Luna mints the secret.
         let res = call(
             &app,
             req(
                 Method::POST,
                 &format!("/s/{token}/respond"),
-                r#"{"answers":{"q_1":"Yes"},"edit_token":"secret-one"}"#,
+                r#"{"answers":{"q_1":"Yes"},"edit_token":"x"}"#,
             ),
         )
         .await;
@@ -1661,22 +1740,25 @@ mod http_tests {
         let v = body_json(res).await;
         let id = v["id"].as_str().unwrap().to_string();
         assert!(id.starts_with("r_"));
+        let edit_token = v["edit_token"].as_str().unwrap().to_string();
+        assert_ne!(edit_token, "x", "client-chosen secrets are not stored");
+        assert!(edit_token.len() >= 16, "minted secrets carry entropy");
 
         let jsonl = std::fs::read_to_string(mount.path().join("rsvp.responses.jsonl")).unwrap();
         let rec: Value = serde_json::from_str(jsonl.trim()).unwrap();
-        // The file stores the blake3 hash, never the raw secret.
+        // The file stores the blake3 hash of the minted secret, never raw.
         assert_eq!(
             rec["edit"].as_str().unwrap(),
-            blake3::hash(b"secret-one").to_hex().to_string()
+            blake3::hash(edit_token.as_bytes()).to_hex().to_string()
         );
-        assert_ne!(rec["edit"].as_str().unwrap(), "secret-one");
+        assert_ne!(rec["edit"].as_str().unwrap(), edit_token);
 
         // The respondent can re-fetch their own answers with the secret.
         let res = call(
             &app,
             req(
                 Method::GET,
-                &format!("/s/{token}/respond?edit_token=secret-one"),
+                &format!("/s/{token}/respond?edit_token={edit_token}"),
                 "",
             ),
         )
@@ -1693,7 +1775,7 @@ mod http_tests {
                 Method::POST,
                 &format!("/s/{token}/respond"),
                 &format!(
-                    r#"{{"answers":{{"q_1":"No"}},"edit_token":"secret-one","response_id":"{id}"}}"#
+                    r#"{{"answers":{{"q_1":"No"}},"edit_token":"{edit_token}","response_id":"{id}"}}"#
                 ),
             ),
         )
@@ -1903,7 +1985,11 @@ mod http_tests {
         )
         .await;
         assert_eq!(res.status(), StatusCode::OK);
-        let id = body_json(res).await["id"].as_str().unwrap().to_string();
+        // The presented secret is throwaway — Luna mints the real one and
+        // hands it back; the amendment must carry that token.
+        let submitted = body_json(res).await;
+        let id = submitted["id"].as_str().unwrap().to_string();
+        let secret = submitted["edit_token"].as_str().unwrap().to_string();
 
         let res = call(&app, req(Method::GET, &format!("/s/{token}"), "")).await;
         let loaded = body_json(res).await;
@@ -1922,7 +2008,7 @@ mod http_tests {
         assert_eq!(res.status(), StatusCode::FORBIDDEN);
 
         let edit = format!(
-            r#"{{"answers":{{"q_1":"No","q_file":"{name}"}},"edit_token":"secret-one","response_id":"{id}"}}"#
+            r#"{{"answers":{{"q_1":"No","q_file":"{name}"}},"edit_token":"{secret}","response_id":"{id}"}}"#
         );
         let res = call(
             &app,
@@ -2031,16 +2117,22 @@ mod http_tests {
         http
     }
 
-    /// A view link on the form opens its answers — minus the stored edit
-    /// hashes — with no-store/no-referrer headers.
+    /// Collected answers are manager data: only a full (edit-capable) link
+    /// on the form opens them — minus the stored edit hashes — with
+    /// no-store/no-referrer headers. View links are refused.
     #[tokio::test]
-    async fn guest_view_link_reads_responses_without_edit_hashes() {
+    async fn guest_full_link_reads_responses_view_link_denied() {
         let mount = tempfile::tempdir().unwrap();
         std::fs::write(mount.path().join("rsvp.lunaform"), FORM_DOC).unwrap();
         write_answers(mount.path());
         let (_dir, app, state) = test_app(mount.path());
-        let token = insert_link(&state, "rsvp.lunaform", crate::access::CAP_VIEW);
 
+        // A view link can open the form but never reads collected answers.
+        let view = insert_link(&state, "rsvp.lunaform", crate::access::CAP_VIEW);
+        let res = call(&app, req(Method::GET, &format!("/s/{view}/responses"), "")).await;
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+
+        let token = insert_link(&state, "rsvp.lunaform", crate::access::CAP_ALL);
         let res = call(&app, req(Method::GET, &format!("/s/{token}/responses"), "")).await;
         assert_eq!(res.status(), StatusCode::OK);
         assert_eq!(res.headers()["cache-control"], "no-store");
@@ -2052,7 +2144,7 @@ mod http_tests {
         assert_eq!(answers[1]["answers"]["q_1"], "No");
 
         // Folder links resolve the file beneath their root.
-        let folder = insert_link(&state, "", crate::access::CAP_VIEW);
+        let folder = insert_link(&state, "", crate::access::CAP_ALL);
         let res = call(
             &app,
             req(
@@ -2090,7 +2182,9 @@ mod http_tests {
             "respond can't read answers"
         );
 
-        let folder = insert_link(&state, "", crate::access::CAP_VIEW);
+        // Full links get past the answers cap gate — traversal and scope
+        // checks must still hold.
+        let folder = insert_link(&state, "", crate::access::CAP_ALL);
         let res = call(
             &app,
             req(
@@ -2117,7 +2211,7 @@ mod http_tests {
         let expired = insert_link_full(
             &state,
             "rsvp.lunaform",
-            crate::access::CAP_VIEW,
+            crate::access::CAP_ALL,
             "",
             Some(crate::db::now_unix() - 60),
         );
@@ -2131,7 +2225,7 @@ mod http_tests {
         let gated = insert_link_full(
             &state,
             "rsvp.lunaform",
-            crate::access::CAP_VIEW,
+            crate::access::CAP_ALL,
             &crate::auth::hash_password_unchecked("right-password").unwrap(),
             None,
         );
@@ -2153,7 +2247,7 @@ mod http_tests {
         let mount = tempfile::tempdir().unwrap();
         std::fs::write(mount.path().join("rsvp.lunaform"), FORM_DOC).unwrap();
         let (_dir, app, state) = test_app(mount.path());
-        let token = insert_link(&state, "rsvp.lunaform", crate::access::CAP_VIEW);
+        let token = insert_link(&state, "rsvp.lunaform", crate::access::CAP_ALL);
 
         let res = call(&app, req(Method::GET, &format!("/s/{token}/responses"), "")).await;
         assert_eq!(res.status(), StatusCode::OK);
@@ -2175,10 +2269,11 @@ mod http_tests {
         assert_eq!(res.status(), StatusCode::PAYLOAD_TOO_LARGE);
     }
 
-    /// A member with a file-only grant reads the form's answers — no parent
-    /// folder access required — while a stranger gets nothing.
+    /// A member with a full file grant reads the form's answers — no parent
+    /// folder access required — while a view-only member and a stranger get
+    /// nothing: collected answers are manager data.
     #[tokio::test]
-    async fn member_file_only_grant_reads_responses() {
+    async fn member_full_grant_reads_responses_view_denied() {
         let mount = tempfile::tempdir().unwrap();
         std::fs::write(mount.path().join("rsvp.lunaform"), FORM_DOC).unwrap();
         write_answers(mount.path());
@@ -2197,24 +2292,55 @@ mod http_tests {
                     path: "rsvp.lunaform".into(),
                     album_id: String::new(),
                     user_id: "u-ann".into(),
+                    caps: crate::access::CAP_ALL,
+                    created_by: "u".into(),
+                },
+            )
+            .unwrap();
+            // View-only member: can open the form, must not read answers.
+            crate::db::insert_user(&conn, "u-bob", "bob", "Bob", "unused", "member").unwrap();
+            crate::db::insert_access_member(
+                &conn,
+                &crate::db::AccessMemberRow {
+                    id: "m-bob".into(),
+                    subject_kind: crate::access::KIND_PATH.into(),
+                    drive_id: "photos".into(),
+                    path: "rsvp.lunaform".into(),
+                    album_id: String::new(),
+                    user_id: "u-bob".into(),
                     caps: crate::access::CAP_VIEW,
                     created_by: "u".into(),
                 },
             )
             .unwrap();
         }
-        // Give Ann a real session row by minting her a login — simplest is
-        // the HTTP flow, so set her password to something she can use.
+        // Give Ann and Bob real session rows by minting logins — simplest is
+        // the HTTP flow, so set their passwords to something they can use.
         {
             let conn = state.db.lock().unwrap();
-            let hash = crate::auth::hash_password_unchecked("ann-password").unwrap();
-            conn.execute(
-                "UPDATE users SET password_hash=?1 WHERE id='u-ann'",
-                rusqlite::params![hash],
-            )
-            .unwrap();
+            for (id, pw) in [("u-ann", "ann-password"), ("u-bob", "bob-password")] {
+                let hash = crate::auth::hash_password_unchecked(pw).unwrap();
+                conn.execute(
+                    "UPDATE users SET password_hash=?1 WHERE id=?2",
+                    rusqlite::params![hash, id],
+                )
+                .unwrap();
+            }
         }
         let (ann_cookie, _ann_csrf) = login(&app, "ann", "ann-password").await;
+        let (bob_cookie, _bob_csrf) = login(&app, "bob", "bob-password").await;
+
+        // View-only member: denied.
+        let res = call(
+            &app,
+            authed_req(
+                Method::GET,
+                "/api/v1/forms/responses?drive_id=photos&path=rsvp.lunaform",
+                &bob_cookie,
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
 
         let res = call(
             &app,

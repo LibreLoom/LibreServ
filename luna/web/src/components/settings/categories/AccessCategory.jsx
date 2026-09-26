@@ -1,19 +1,23 @@
 import { useState } from "react";
 import PropTypes from "prop-types";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Globe2, History, Smartphone, Trash2 } from "lucide-react";
+import { Globe2, History, Shield, Smartphone, Trash2, User, UserRound } from "lucide-react";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
-import { ActionTooltipGroup } from "@libreloom/ui/components/ui/Tooltip.jsx";
+import { ActionTooltipGroup, InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import CopyableValue from "@libreloom/ui/components/ui/CopyableValue.jsx";
+import PasswordStrengthChecklist from "@libreloom/ui/components/common/PasswordStrengthChecklist.jsx";
 import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
 import SettingsRow from "@libreloom/ui/components/settings/SettingsRow.jsx";
 import PairingQrModal from "../PairingQrModal.jsx";
-import { getJson, postJson, deleteJson, apiErrorMessage } from "../../../lib/api";
+import FormInput from "../../common/forms/FormInput";
+import { getJson, postJson, deleteJson, patchJson, apiErrorMessage } from "../../../lib/api";
+import { meetsPasswordPolicy, passwordPolicyError } from "@libreloom/ui/lib/passwordPolicy.js";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import { useAnimatedHeight } from "@libreloom/ui/hooks/useAnimatedHeight.jsx";
 import useStrandedErrorToast from "../../../hooks/useStrandedErrorToast";
+import { useOptionalAuth } from "../../../context/AuthContext";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 
 function formatWhen(unix) {
@@ -141,6 +145,175 @@ AccessTokenItem.propTypes = {
   onRevoke: PropTypes.func.isRequired,
 };
 
+/**
+ * The signed-in person's own profile: the name everyone sees, and the
+ * password that signs them in. A password change signs out every session —
+ * this browser included — so the save lands on the login screen.
+ */
+function ProfileCard() {
+  // Optional: unit surfaces render this card without an auth tree.
+  const { user, refresh } = useOptionalAuth() || {};
+  const { addToast } = useToast();
+  const [name, setName] = useState(user?.display_name || "");
+  const [nameError, setNameError] = useState(null);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [passwordError, setPasswordError] = useState(null);
+
+  const nameClean = name.trim();
+  const nameDirty = nameClean !== (user?.display_name || "");
+  const passwordProblem = newPassword && !meetsPasswordPolicy(newPassword)
+    ? passwordPolicyError(newPassword) || "Choose a stronger password."
+    : null;
+
+  const saveName = useMutation({
+    mutationFn: () => patchJson("/api/v1/auth/me", { display_name: nameClean }),
+    onSuccess: async () => {
+      addToast({ type: "success", message: "Name saved." });
+      setNameError(null);
+      await refresh?.();
+    },
+    onError: (err) => setNameError(apiErrorMessage(err, "Couldn't save your name. Try again.")),
+  });
+
+  const changePassword = useMutation({
+    mutationFn: () => patchJson("/api/v1/auth/me", {
+      current_password: currentPassword,
+      new_password: newPassword,
+    }),
+    onSuccess: () => {
+      addToast({ type: "success", message: "Password changed. Sign in again with your new password." });
+      window.location.href = "/login";
+    },
+    onError: (err) => setPasswordError(apiErrorMessage(err, "Couldn't change your password. Try again.")),
+  });
+
+  const isAdmin = user?.role === "admin";
+
+  return (
+    <SettingsCard icon={UserRound} title="You" index={-1}>
+      {user && (
+        <div className="flex items-center gap-3">
+          <div className="h-12 w-12 rounded-full bg-primary text-secondary flex items-center justify-center flex-shrink-0">
+            <User size={ICON_SIZE.xl} aria-hidden="true" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold text-primary truncate">
+              {user.display_name || user.username}
+            </p>
+            {user.display_name && user.username !== user.display_name && (
+              <p className="text-sm text-accent truncate">
+                Signed in as {user.username}
+              </p>
+            )}
+          </div>
+          <span className="inline-flex items-center gap-1 rounded-pill bg-primary/10 px-2.5 py-1 text-xs text-primary shrink-0">
+            <Shield size={ICON_SIZE.xs} aria-hidden="true" />
+            {isAdmin ? "Admin" : "Member"}
+            <InfoHint
+              label={isAdmin ? "What Admin means" : "What Member means"}
+              content={
+                isAdmin
+                  ? "An Admin can add users, change settings, and manage everything on this Luna."
+                  : "A Member can use what's shared with them but cannot manage users or change this Luna's settings."
+              }
+            />
+          </span>
+        </div>
+      )}
+
+      <div className="mt-4 rounded-large-element bg-primary text-secondary p-4">
+        <p className="font-mono text-sm">Your name</p>
+        <p className="text-sm mt-1">
+          The name other people see when you share or get shared with.
+        </p>
+        <div className="mt-2 sm:flex">
+          <div className="flex-1 min-w-0">
+            <FormInput
+              label="Name"
+              name="profile-name"
+              surface="primary"
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                setNameError(null);
+              }}
+              autoComplete="name"
+              error={nameError}
+              required
+            />
+          </div>
+          {/* Stretch across the input's height, centered on the pill:
+              mt-5.5 clears the 24px label row (20px line + FormInput's
+              mb-1) minus the input's 2px top border; mb-3.5 mirrors
+              FormInput's mb-4 minus the bottom border. The borderless
+              button ends up 4px taller so it reads the same size as the
+              outlined input pill. */}
+          <Button
+            variant="secondary"
+            surface="primary"
+            className="shrink-0 sm:ml-2 sm:mt-5.5 sm:mb-3.5"
+            loading={saveName.isPending}
+            disabled={!nameClean || !nameDirty}
+            onClick={() => saveName.mutate()}
+          >
+            Save name
+          </Button>
+        </div>
+      </div>
+
+      <div className="mt-3 rounded-large-element bg-primary text-secondary p-4">
+        <p className="font-mono text-sm">Password</p>
+        <p className="text-sm mt-1">
+          Changing your password signs out every browser and app — including
+          this one — so sign in again afterward.
+        </p>
+        <div className="mt-2 sm:grid sm:grid-cols-2 sm:gap-x-3">
+          <FormInput
+            label="Current password"
+            name="profile-current-password"
+            type="password"
+            icon="password"
+            surface="primary"
+            value={currentPassword}
+            onChange={(e) => {
+              setCurrentPassword(e.target.value);
+              setPasswordError(null);
+            }}
+            autoComplete="current-password"
+          />
+          <FormInput
+            label="New password"
+            name="profile-new-password"
+            type="password"
+            icon="password"
+            surface="primary"
+            value={newPassword}
+            onChange={(e) => {
+              setNewPassword(e.target.value);
+              setPasswordError(null);
+            }}
+            autoComplete="new-password"
+            error={passwordError}
+          />
+        </div>
+        {newPassword ? (
+          <PasswordStrengthChecklist password={newPassword} surface="primary" />
+        ) : null}
+        <Button
+          variant="secondary"
+          surface="primary"
+          loading={changePassword.isPending}
+          disabled={!currentPassword || !newPassword || Boolean(passwordProblem)}
+          onClick={() => changePassword.mutate()}
+        >
+          Change password
+        </Button>
+      </div>
+    </SettingsCard>
+  );
+}
+
 export default function AccessCategory() {
   const { addToast } = useToast();
   const queryClient = useQueryClient();
@@ -206,6 +379,8 @@ export default function AccessCategory() {
 
   return (
     <div className="space-y-4">
+
+      <ProfileCard />
 
       <SettingsCard icon={Globe2} title="Browsers" padding={false} index={0}>
         <SettingsRow

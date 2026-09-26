@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 import { HardDrive, Trash2 } from "lucide-react";
@@ -18,10 +18,10 @@ import {
   getDrives,
   getJson,
 } from "../lib/api";
-import { folderHref, isTrashPath } from "../lib/paths";
+import { folderHref, homeAwareLabel, isMemberHomePath, isTrashPath, memberHomeOwner, pathBasename, TRASH_PATH, trashDisplayName } from "../lib/paths";
 import useFileNavigation from "../hooks/useFileNavigation.js";
 import { useAuth } from "../context/AuthContext";
-import { CAP, hasCapOnDrive } from "../lib/shareTree.js";
+import { CAP, hasCapOnDrive, memberWritableRoots } from "../lib/shareTree.js";
 import { isPresentDrive } from "../lib/drives.js";
 
 function jobBusy(job) {
@@ -78,10 +78,51 @@ export default function FilesPage() {
   // Same conditions the explorer used for the in-list strip: only when the
   // file browser itself can render and more than one drive is ready.
   const presentDriveCount = (drives.data || []).filter(isPresentDrive).length;
-  const showDriveMenu = !inTrash
-    && drive != null
+
+  // Members don't get a raw drive picker — their destinations are writable
+  // roots: the Home folder on the member-home drive plus every shared root
+  // they can put files in. Equity with the admin selector, not equality:
+  // the menu looks the same but holds different things.
+  const userId = user?.id;
+  const userHome = user?.home;
+  const memberDests = useMemo(() => {
+    if (isAdmin || !userId) return null;
+    const present = new Set(
+      (drives.data || []).filter(isPresentDrive).map((d) => d.id),
+    );
+    const labelOf = (id) => (drives.data || []).find((d) => d.id === id)?.label;
+    // The server tells the member where their home actually lives (a
+    // pinned drive can differ from the member-home default), and `/me`
+    // carries the path — the members container has the drive's marker
+    // prefix, which the frontend can't derive.
+    return memberWritableRoots(access.data, userHome, (id) => present.has(id), labelOf)
+      .map((r) => ({
+        driveId: r.driveId,
+        path: r.path,
+        label: r.label,
+        sub: r.isHome
+          ? `Your private folder${labelOf(r.driveId) ? ` on ${labelOf(r.driveId)}` : ""}`
+          : labelOf(r.driveId),
+        icon: r.isHome ? "home" : r.path ? "folder" : "drive",
+        writable: true,
+      }));
+  }, [isAdmin, userId, userHome, drives.data, access.data]);
+
+  const showDriveMenu = drive != null
     && drive.state !== "missing"
-    && presentDriveCount > 1;
+    && (isAdmin ? presentDriveCount > 1 : (memberDests?.length || 0) > 0);
+
+  // Trigger shows the browsed place: admins get the drive label, members
+  // the folder they're inside (their roots are folder-shaped, not drives).
+  const currentLabel = isAdmin
+    ? undefined
+    : isMemberHomePath(path)
+      // Own home reads "Home"; a deep share inside a peer's home names
+      // the owner — the internal path never renders either way.
+      ? (userHome?.path && path.split("/").slice(0, 2).join("/") === userHome.path
+          ? "Home"
+          : `${memberHomeOwner(path)}'s home`)
+      : (path ? pathBasename(path) : drive?.label);
 
   useStrandedErrorToast(actionError, false, () => setActionError(null));
 
@@ -91,10 +132,13 @@ export default function FilesPage() {
       titleId="files-title"
       leftContent={showDriveMenu ? (
         <DriveMenu
-          drives={drives.data}
+          drives={isAdmin ? drives.data : undefined}
+          destinations={isAdmin ? undefined : memberDests}
           currentDriveId={id}
-          onDropPaths={(destDriveId, paths, sourceDriveId) =>
-            moveFilesMutation.mutate({ paths, destFolder: "", destDriveId, fromDriveId: sourceDriveId })}
+          currentPath={isAdmin ? "" : path}
+          currentLabel={currentLabel}
+          onDropPaths={(destDriveId, destPath, paths, sourceDriveId) =>
+            moveFilesMutation.mutate({ paths, destFolder: destPath, destDriveId, fromDriveId: sourceDriveId })}
         />
       ) : undefined}
       rightContent={<FileSearch />}
@@ -104,7 +148,16 @@ export default function FilesPage() {
           {activeJobs.map((job) => (
             <Card key={job.id} padding>
               <p className="text-primary text-sm font-mono">
-                {job.kind === "move" ? "Moving" : "Copying"} {job.from_path || "a file"}
+                {job.kind === "move" ? "Moving" : "Copying"}{" "}
+                {job.from_path
+                  ? job.from_path === TRASH_PATH
+                    ? "trash"
+                    : isTrashPath(job.from_path)
+                      ? trashDisplayName(job.from_path)
+                      : isMemberHomePath(job.from_path)
+                        ? homeAwareLabel(job.from_path, userHome?.path || "")
+                        : job.from_path
+                  : "a file"}
               </p>
               <p className="text-primary text-xs mt-1">
                 {job.total > 0

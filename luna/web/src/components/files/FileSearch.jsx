@@ -27,7 +27,10 @@ import ShareSheet, { ShareButton } from "../share/ShareSheet.jsx";
 import FolderPickerModal from "./FolderPickerModal";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { apiErrorMessage, getDrives, getJson, postJson } from "../../lib/api";
-import { downloadHref as fileDownloadHref, parentPath, searchResultHref } from "../../lib/paths";
+import { downloadHref as fileDownloadHref, homeAwareLabel, isHomeRootPath, isMemberHomePath, parentPath, searchResultHref } from "../../lib/paths";
+import { memberCapsAt, memberSearchHref } from "../../lib/shareTree.js";
+import { CAP } from "../../lib/access.js";
+import { useAuth } from "../../context/AuthContext.jsx";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 
@@ -56,10 +59,13 @@ function fmtSize(bytes) {
   return `${(n / 1000 / 1000 / 1000).toFixed(1)} GB`;
 }
 
-function locationLabel(item, driveLabel) {
+function locationLabel(item, driveLabel, ownHomePath = "") {
   const folder = item.parent != null ? item.parent : folderOf(item.path);
   if (!folder) return driveLabel;
-  return `${driveLabel} / ${folder}`;
+  // A deep share inside a peer's home is searchable — the label names
+  // the owner ("sam's home"), never "Home", and never the raw prefix.
+  const shown = isMemberHomePath(folder) ? homeAwareLabel(folder, ownHomePath) : folder;
+  return `${driveLabel} / ${shown}`;
 }
 
 async function parseError(res) {
@@ -122,6 +128,7 @@ function applyFlip(el, fromRect, direction) {
 export default function FileSearch() {
   const queryClient = useQueryClient();
   const { addToast } = useToast();
+  const { user } = useAuth();
   const [typed, setTyped] = useState("");
   const [q, setQ] = useState("");
   const [actionError, setActionError] = useState(null);
@@ -156,6 +163,14 @@ export default function FileSearch() {
     queryKey: ["search", q],
     queryFn: () => getJson(`/api/v1/search?q=${encodeURIComponent(q)}`),
     enabled: present && !isClosing && q.length >= 2,
+  });
+
+  // Member grants make ancestors unbrowsable — a search hit's parent
+  // folder can 403, so member links route through memberSearchHref.
+  const memberAccess = useQuery({
+    queryKey: ["my-access"],
+    queryFn: () => getJson("/api/v1/me/access"),
+    enabled: Boolean(user?.role) && user.role !== "admin",
   });
 
   const removeMutation = useMutation({
@@ -419,7 +434,20 @@ export default function FileSearch() {
                   {results.data.map((item) => {
                     const driveLabel = labels[item.drive_id] || "A drive";
                     const isDir = item.kind === "dir";
-                    const href = searchResultHref(item);
+                    const href = memberAccess.data
+                      ? memberSearchHref(memberAccess.data, item)
+                      : searchResultHref(item);
+                    // Hits only prove VIEW. Everything else is gated on the
+                    // member's real caps — share needs the share bit,
+                    // move/trash need edit — and a home root can't move at
+                    // all.
+                    const isMember = user?.role !== "admin";
+                    const itemCaps = isMember
+                      ? memberCapsAt(memberAccess.data, item.drive_id, item.path, user?.home)
+                      : CAP.VIEW | CAP.UPLOAD | CAP.EDIT | CAP.SHARE;
+                    const canShare = (itemCaps & CAP.SHARE) !== 0;
+                    const canEdit = !isHomeRootPath(item.path)
+                      && (itemCaps & CAP.EDIT) !== 0;
                     const openLabel = isDir
                       ? `Open ${item.name}`
                       : `Show ${item.name} in its folder`;
@@ -451,7 +479,7 @@ export default function FileSearch() {
                             <div className="min-w-0 flex-1">
                               <p className="font-mono text-sm truncate text-secondary">{item.name}</p>
                               <p className="text-xs truncate text-secondary">
-                                {locationLabel(item, driveLabel)}
+                                {locationLabel(item, driveLabel, user?.home?.path || "")}
                                 {!isDir && item.size != null ? ` · ${fmtSize(item.size)}` : ""}
                               </p>
                             </div>
@@ -492,6 +520,7 @@ export default function FileSearch() {
                                     </a>
                                   </Button>
                                 </Tooltip>
+                                {canShare && (
                                 <ShareButton
                                   label={item.name}
                                   surface="primary"
@@ -502,6 +531,7 @@ export default function FileSearch() {
                                     })
                                   }
                                 />
+                                )}
                                 <Tooltip content="Copy">
                                   <Button
                                     variant="ghost"
@@ -517,6 +547,8 @@ export default function FileSearch() {
                                     <Copy size={14} />
                                   </Button>
                                 </Tooltip>
+                                {canEdit && (
+                                <>
                                 <Tooltip content="Move">
                                   <Button
                                     variant="ghost"
@@ -546,6 +578,8 @@ export default function FileSearch() {
                                     <Trash2 size={14} />
                                   </Button>
                                 </Tooltip>
+                                </>
+                                )}
                               </div>
                             </ActionTooltipGroup>
                           </div>

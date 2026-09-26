@@ -555,6 +555,106 @@ describe("GalleryPage", () => {
     });
   });
 
+  it("returns to the albums grid on browser Back and reopens the album on Forward", async () => {
+    window.history.replaceState(null, "", "/gallery#albums");
+    stubGalleryFetch({
+      albums: [{ id: "al1", home_drive_id: "a", name: "Trip", item_count: 2 }],
+    });
+    renderGallery();
+
+    // Open the album — the hash deep-link pushes a history entry.
+    fireEvent.click(await screen.findByRole("button", { name: /^Trip/ }));
+    await waitFor(() => {
+      expect(window.location.hash).toBe("#albums/a/al1");
+    });
+    const chrome = document.querySelector("[data-slot=gallery-detail-chrome]");
+    expect(within(/** @type {HTMLElement} */ (chrome)).getByText("Trip")).toBeInTheDocument();
+
+    // Browser Back lands on the albums grid, not wherever we were before Albums.
+    act(() => {
+      window.history.back();
+    });
+    await waitFor(() => {
+      expect(window.location.hash).toBe("#albums");
+    });
+    expect(await screen.findByRole("button", { name: /^Trip/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Back$/i })).not.toBeInTheDocument();
+
+    // Forward reopens the same album.
+    act(() => {
+      window.history.forward();
+    });
+    await waitFor(() => {
+      expect(window.location.hash).toBe("#albums/a/al1");
+    });
+    const chrome2 = await screen.findByText("Trip");
+    expect(chrome2.closest("[data-slot=gallery-detail-chrome]")).toBeTruthy();
+
+    // The detail chrome's Back button pops the pushed entry too.
+    fireEvent.click(screen.getByRole("button", { name: /^Back$/i }));
+    await waitFor(() => {
+      expect(window.location.hash).toBe("#albums");
+    });
+    expect(await screen.findByRole("button", { name: /^Trip/ })).toBeInTheDocument();
+  });
+
+  it("steps back out of a day view to the full library", async () => {
+    window.history.replaceState(null, "", "/gallery#library");
+    stubGalleryFetch();
+    renderGallery();
+    expect(await screen.findByLabelText("one.jpg")).toBeInTheDocument();
+
+    // Clicking a day header scopes the timeline and pushes a history entry.
+    const dayBtn = document.querySelector("button[id^='day-']");
+    expect(dayBtn).toBeTruthy();
+    fireEvent.click(/** @type {HTMLElement} */ (dayBtn));
+    await waitFor(() => {
+      expect(window.location.hash).toMatch(/^#day\//);
+    });
+    expect(window.history.state?.lunaGalleryDetail).toBe(true);
+    expect(await screen.findByRole("button", { name: /^Back$/i })).toBeInTheDocument();
+
+    // Browser Back clears the day scope, returning to the whole library.
+    act(() => {
+      window.history.back();
+    });
+    await waitFor(() => {
+      expect(window.location.hash).toBe("#library");
+    });
+    expect(await screen.findByLabelText("one.jpg")).toBeInTheDocument();
+    expect(screen.getByLabelText("two.jpg")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Back$/i })).not.toBeInTheDocument();
+  });
+
+  it("closes the lightbox on browser Back and reopens it on Forward", async () => {
+    window.history.replaceState(null, "", "/gallery#library");
+    stubGalleryFetch();
+    renderGallery();
+    fireEvent.click(await screen.findByLabelText("one.jpg"));
+
+    // The open photo is a pushed `?p=` entry.
+    await waitFor(() => {
+      expect(window.location.hash).toContain("p=");
+    });
+    expect(await screen.findByRole("dialog", { name: "one.jpg" })).toBeInTheDocument();
+
+    // Back closes the lightbox but stays on the library.
+    act(() => {
+      window.history.back();
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+    expect(window.location.hash).toBe("#library");
+    expect(screen.getByLabelText("one.jpg")).toBeInTheDocument();
+
+    // Forward reopens the same photo.
+    act(() => {
+      window.history.forward();
+    });
+    expect(await screen.findByRole("dialog", { name: "one.jpg" })).toBeInTheDocument();
+  });
+
   it("loads Favorites with favorites=true and shows favorited photos", async () => {
     const fetchMock = vi.fn(async (url) => {
       const u = String(url);
@@ -1260,7 +1360,7 @@ describe("GalleryPage", () => {
               name: "Shared Moments",
               item_count: 5,
             },
-            my_caps: "full",
+            my_caps: "full+share",
             members: [],
             links: [
               {
