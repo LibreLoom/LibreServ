@@ -1,0 +1,12 @@
+# Debian live-build toolchain for hosts without live-build (e.g. Arch/Fedora).
+# make-iso.sh builds this image and runs iso/build-debian-live.sh inside it
+# with --privileged (debootstrap/chroot need mount + mknod).
+FROM docker.io/library/debian:bookworm
+
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      live-build debootstrap debian-archive-keyring xorriso \
+      syslinux-utils syslinux-common apt-utils isolinux \
+      grub-efi-amd64-bin dosfstools mtools cpio \
+      ca-certificates curl sudo \
+ && rm -rf /var/lib/apt/lists/*

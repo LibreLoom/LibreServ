@@ -24,11 +24,18 @@ die() {
 
 [ -f "$TARBALL" ] || die "missing $TARBALL — run os/build-rootfs.sh first"
 
+# Hosts without live-build (e.g. Arch/Fedora) run the Debian live step in a
+# privileged Podman container instead — see iso/Containerfile.live-build.
+IN_CONTAINER=0
 if ! command -v lb >/dev/null 2>&1; then
-	die "live-build required: sudo apt install live-build debootstrap debian-archive-keyring xorriso"
+	if command -v podman >/dev/null 2>&1; then
+		IN_CONTAINER=1
+	else
+		die "live-build required: sudo apt install live-build debootstrap debian-archive-keyring xorriso"
+	fi
 fi
 
-if ! sudo -n true 2>/dev/null; then
+if [ "$IN_CONTAINER" = 0 ] && ! sudo -n true 2>/dev/null; then
 	if [ ! -t 0 ]; then
 		die "sudo credentials required for live-build (non-interactive)"
 	fi
@@ -53,7 +60,24 @@ if [ -d "$ROOT/os/debian-live/config/includes.binary/luna" ]; then
 fi
 
 echo "==> Debian live ISO (bookworm)"
-if ! sudo env ARCH="$ARCH" OUT="$OUT" WORK="$WORK" bash "$BUILD"; then
+if [ "$IN_CONTAINER" = 1 ]; then
+	LB_IMAGE="${LUNA_LIVE_BUILD_IMAGE:-localhost/luna-live-build:bookworm}"
+	podman image exists "$LB_IMAGE" 2>/dev/null || \
+		podman build -t "$LB_IMAGE" -f "$ROOT/os/iso/Containerfile.live-build" "$ROOT/os/iso" || \
+		die "could not build $LB_IMAGE"
+	# The repo is mounted at the same absolute path so staged paths resolve
+	# unchanged; rootless container root maps to the calling user.
+	if ! podman run --rm --privileged \
+		-e ARCH="$ARCH" -e OUT="$OUT" -e WORK="$WORK" \
+		-v "$ROOT:$ROOT:z" \
+		"$LB_IMAGE" bash "$BUILD"; then
+		echo "==> ISO build failed; see $WORK/build.log" >&2
+		if [ -f "$WORK/build.log" ]; then
+			tail -30 "$WORK/build.log" >&2
+		fi
+		exit 1
+	fi
+elif ! sudo env ARCH="$ARCH" OUT="$OUT" WORK="$WORK" bash "$BUILD"; then
 	echo "==> ISO build failed; see $WORK/build.log" >&2
 	if [ -f "$WORK/build.log" ]; then
 		tail -30 "$WORK/build.log" >&2
