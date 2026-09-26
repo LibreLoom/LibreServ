@@ -9,6 +9,8 @@ cd "$ROOT"
 # point caches at /tmp when the defaults are unwritable.
 if [ ! -w "${CARGO_HOME:-$HOME/.cargo}" ]; then
   export CARGO_HOME="${CARGO_HOME:-/tmp/luna-cargo-home}"
+else
+  export CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}"
 fi
 mkdir -p "$CARGO_HOME"
 
