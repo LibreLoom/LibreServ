@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import PropTypes from "prop-types";
-import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
+import DocumentLoadingScreen from "../DocumentLoadingScreen.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import { useTheme } from "@libreloom/ui/hooks/useTheme.jsx";
 import { apiErrorMessage } from "../../../lib/api.js";
@@ -594,18 +594,7 @@ function EditorSession({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {phase === "loading" ? (
-        <div
-          className="flex h-full items-center justify-center"
-          role="status"
-          aria-label={`Opening ${name}`}
-        >
-          <div className="flex items-center gap-3 text-secondary">
-            <p className="font-mono text-sm uppercase tracking-widest">
-              Opening
-            </p>
-            <Spinner size="md" decorative />
-          </div>
-        </div>
+        <DocumentLoadingScreen label={`Opening ${name}`} />
       ) : (
         <iframe
           ref={iframeRef}

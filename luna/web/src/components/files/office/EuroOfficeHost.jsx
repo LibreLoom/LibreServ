@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import PropTypes from "prop-types";
-import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
+import DocumentLoadingScreen from "../DocumentLoadingScreen.jsx";
 import OfficeIssueCard from "./OfficeIssueCard.jsx";
 import { useOptionalAuth } from "../../../context/AuthContext.jsx";
 import { useTheme } from "@libreloom/ui/hooks/useTheme.jsx";
@@ -754,12 +754,10 @@ export default function EuroOfficeHost({
            imperatively in the effect instead. */
         <div className="relative min-h-0 flex-1">
           {status === "loading" ? (
-            <div className="absolute inset-0 z-[1] flex items-center justify-center bg-primary">
-              <div className="flex items-center gap-3 text-secondary">
-                <p className="font-mono text-sm">{phase}</p>
-                <Spinner size="md" decorative />
-              </div>
-            </div>
+            <DocumentLoadingScreen
+              label={phase}
+              className="absolute inset-0 z-[1]"
+            />
           ) : null}
           <div ref={mountRef} className="h-full w-full" />
         </div>

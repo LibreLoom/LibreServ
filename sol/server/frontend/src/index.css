@@ -462,6 +462,63 @@ select:focus:not(:focus-visible) {
     }
 }
 
+/* Document editor loading screen — dot matrix wave */
+@keyframes matrix-wave {
+    0%,
+    100% {
+        opacity: 0.12;
+    }
+    15% {
+        opacity: 0.16;
+    }
+    35% {
+        opacity: 0.35;
+    }
+    45% {
+        opacity: 0.65;
+    }
+    50% {
+        opacity: 1;
+    }
+    55% {
+        opacity: 0.65;
+    }
+    65% {
+        opacity: 0.35;
+    }
+    85% {
+        opacity: 0.16;
+    }
+}
+
+.matrix-loader {
+    display: grid;
+    place-content: center;
+    overflow: hidden;
+    user-select: none;
+    pointer-events: none;
+    color: inherit;
+}
+
+.matrix-loader__dot {
+    display: block;
+    width: 4px;
+    height: 4px;
+    border-radius: 9999px;
+    background-color: currentColor;
+    opacity: 0.12;
+    animation: matrix-wave 3600ms linear infinite;
+    animation-delay: calc(var(--wave-delay, 0ms));
+    will-change: opacity;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .matrix-loader__dot {
+        animation: none;
+        opacity: 0.25;
+    }
+}
+
 /* Animation utility classes */
 .animate-md-bar-1,
 .animate-md-bar-2 {
