@@ -308,10 +308,10 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
                   return (
                     <div
                       key={m.id}
-                      className="flex items-center justify-between gap-2 rounded-large-element bg-primary text-secondary p-3"
+                      className="rounded-large-element bg-primary text-secondary p-3"
                     >
-                      <div className="min-w-0 flex-1">
-                        <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
                           <span className="text-secondary text-xs truncate">{m.name}</span>
                           {canManage ? (
                             <Dropdown
@@ -331,35 +331,35 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
                             </span>
                           )}
                         </div>
-                        {canManage && (
-                          <Toggle
-                            surface="primary"
-                            checked={grant.share}
-                            disabled={updatingId === m.id}
-                            onChange={(next) =>
-                              updateMember.mutate({ id: m.id, caps: joinShareCaps(grant.content, next) })
-                            }
-                            label="Can share"
-                            description="They can pass this access on and create links."
-                            className="mt-2"
-                          />
-                        )}
-                        {m.effective_caps && m.effective_caps !== m.caps && (
-                          <p className="text-secondary text-xs mt-1">
-                            Also has {capsLabel(m.effective_caps, { album: isAlbum, file: isFile })} through a parent folder.
-                          </p>
+                        {canRemove && (
+                          <Button
+                            size="iconSm"
+                            variant="danger"
+                            aria-label={`Remove access for ${m.name}`}
+                            loading={removeMember.isPending && removeMember.variables === m.id}
+                            onClick={() => removeMember.mutate(m.id)}
+                          >
+                            <Trash2 size={ICON_SIZE.xs} />
+                          </Button>
                         )}
                       </div>
-                      {canRemove && (
-                        <Button
-                          size="iconSm"
-                          variant="danger"
-                          aria-label={`Remove access for ${m.name}`}
-                          loading={removeMember.isPending && removeMember.variables === m.id}
-                          onClick={() => removeMember.mutate(m.id)}
-                        >
-                          <Trash2 size={ICON_SIZE.xs} />
-                        </Button>
+                      {canManage && (
+                        <Toggle
+                          surface="primary"
+                          checked={grant.share}
+                          disabled={updatingId === m.id}
+                          onChange={(next) =>
+                            updateMember.mutate({ id: m.id, caps: joinShareCaps(grant.content, next) })
+                          }
+                          label="Can share"
+                          description="They can pass this access on and create links."
+                          className="mt-2"
+                        />
+                      )}
+                      {m.effective_caps && m.effective_caps !== m.caps && (
+                        <p className="text-secondary text-xs mt-1">
+                          Also has {capsLabel(m.effective_caps, { album: isAlbum, file: isFile })} through a parent folder.
+                        </p>
                       )}
                     </div>
                   );
@@ -447,50 +447,50 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
                   return (
                     <div
                       key={l.id}
-                      className="flex items-center justify-between gap-2 rounded-large-element bg-primary text-secondary p-3"
+                      className="rounded-large-element bg-primary text-secondary p-3"
                     >
-                      <div className="min-w-0">
-                        <p className="text-secondary text-xs">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-secondary text-xs min-w-0">
                           {capsLabel(l.caps, { album: isAlbum, file: isFile })}
                           {l.has_password ? " · Password" : " · Anyone with the link"}
                           {" · "}
                           {expiryLabel(l.expires_at)}
                         </p>
-                        {url && (
-                          <CopyableValue
-                            className="mt-2"
-                            value={url}
-                            copyLabel="Copy address"
-                            ariaLabel="Share link address"
-                            surface="primary"
-                          />
+                        {canManage && (
+                          <div className="flex shrink-0 items-center gap-0.5">
+                            <Button
+                              size="iconSm"
+                              variant="ghost"
+                              aria-label="Link settings"
+                              onClick={() => {
+                                setLinkError(null);
+                                setEditingLink(l);
+                              }}
+                            >
+                              <Settings2 size={ICON_SIZE.xs} />
+                            </Button>
+                            <Button
+                              size="iconSm"
+                              variant="danger"
+                              aria-label="Remove this link"
+                              onClick={() => {
+                                setLinkError(null);
+                                setRemovingLink(l);
+                              }}
+                            >
+                              <Trash2 size={ICON_SIZE.xs} />
+                            </Button>
+                          </div>
                         )}
                       </div>
-                      {canManage && (
-                        <div className="flex shrink-0 items-center gap-0.5">
-                          <Button
-                            size="iconSm"
-                            variant="ghost"
-                            aria-label="Link settings"
-                            onClick={() => {
-                              setLinkError(null);
-                              setEditingLink(l);
-                            }}
-                          >
-                            <Settings2 size={ICON_SIZE.xs} />
-                          </Button>
-                          <Button
-                            size="iconSm"
-                            variant="danger"
-                            aria-label="Remove this link"
-                            onClick={() => {
-                              setLinkError(null);
-                              setRemovingLink(l);
-                            }}
-                          >
-                            <Trash2 size={ICON_SIZE.xs} />
-                          </Button>
-                        </div>
+                      {url && (
+                        <CopyableValue
+                          className="mt-2"
+                          value={url}
+                          copyLabel="Copy address"
+                          ariaLabel="Share link address"
+                          surface="primary"
+                        />
                       )}
                     </div>
                   );
