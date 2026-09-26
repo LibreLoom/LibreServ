@@ -103,7 +103,7 @@ export default function FilesPage() {
         sub: r.isHome
           ? `Your private folder${labelOf(r.driveId) ? ` on ${labelOf(r.driveId)}` : ""}`
           : labelOf(r.driveId),
-        icon: r.isHome ? "home" : r.path ? "folder" : "drive",
+        icon: /** @type {"home"|"folder"|"drive"} */ (r.isHome ? "home" : r.path ? "folder" : "drive"),
         writable: true,
       }));
   }, [isAdmin, userId, userHome, drives.data, access.data]);

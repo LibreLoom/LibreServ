@@ -26,10 +26,11 @@ export default function FormResponseBadge({ driveId, formPath }) {
     enabled: canView,
     staleTime: 30_000,
   });
-  if (count.data == null) return null;
-  const n = Array.isArray(count.data)
-    ? latestResponses(count.data).length
-    : (typeof count.data === "number" ? count.data : 0);
+  const raw = count.data;
+  if (raw == null) return null;
+  const n = Array.isArray(raw)
+    ? latestResponses(raw).length
+    : (typeof raw === "number" ? raw : 0);
   const fresh = Math.max(0, n - readFormSeen(scope, formPath));
   const label = fresh > 0
     ? (fresh === 1 ? "1 new" : `${fresh} new`)

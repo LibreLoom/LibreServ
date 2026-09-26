@@ -90,7 +90,7 @@ describe("DiagramEditor collaboration", () => {
     const onPresenceChange = vi.fn();
     render(<DiagramEditor {...PROPS} onPresenceChange={onPresenceChange} />);
 
-    const iframe = await screen.findByTitle(/Diagram editor/);
+    const iframe = /** @type {HTMLIFrameElement} */ (await screen.findByTitle(/Diagram editor/));
     expect(iframe.getAttribute("src")).not.toContain("noSaveBtn");
     expect(iframe.getAttribute("src")).toContain("stealth=1");
     expect(sockets).toHaveLength(1);
@@ -120,7 +120,7 @@ describe("DiagramEditor collaboration", () => {
       <DiagramEditor {...PROPS} canWrite={false} onPresenceChange={onPresenceChange} />,
     );
 
-    const iframe = await screen.findByTitle(/Diagram editor/);
+    const iframe = /** @type {HTMLIFrameElement} */ (await screen.findByTitle(/Diagram editor/));
     expect(iframe.getAttribute("src")).toContain("noSaveBtn=1");
     expect(sockets).toHaveLength(1);
 
@@ -139,7 +139,7 @@ describe("DiagramEditor collaboration", () => {
   it("sends a draw.io diff patch to the room when the editor reports a change", async () => {
     stubLuna();
     render(<DiagramEditor {...PROPS} />);
-    const iframe = await screen.findByTitle(/Diagram editor/);
+    const iframe = /** @type {HTMLIFrameElement} */ (await screen.findByTitle(/Diagram editor/));
     await act(async () => {
       lastSocket().onMessage?.({
         type: "welcome",
@@ -170,7 +170,7 @@ describe("DiagramEditor collaboration", () => {
   it("retries a rejected remote patch, and replays it after giving up", async () => {
     stubLuna();
     render(<DiagramEditor {...PROPS} />);
-    const iframe = await screen.findByTitle(/Diagram editor/);
+    const iframe = /** @type {HTMLIFrameElement} */ (await screen.findByTitle(/Diagram editor/));
     /** @type {object[]} */
     const posted = [];
     iframe.contentWindow.postMessage = (data) => {
@@ -267,7 +267,7 @@ describe("DiagramEditor collaboration", () => {
       }),
     );
     render(<DiagramEditor {...PROPS} />);
-    const iframe = await screen.findByTitle(/Diagram editor/);
+    const iframe = /** @type {HTMLIFrameElement} */ (await screen.findByTitle(/Diagram editor/));
     /** @type {object[]} */
     const posted = [];
     iframe.contentWindow.postMessage = (data) => {

@@ -573,6 +573,7 @@ const RECENT_KIND_LABELS = {
  * @param {{
  *   items: Array<import("../lib/recentItems.js").RecentItem>,
  *   drives: Array<{ id: string, label?: string }>,
+ *   ownHomePath?: string,
  * }} props
  */
 function RecentItemsCard({ items, drives, ownHomePath = "" }) {

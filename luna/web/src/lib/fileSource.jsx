@@ -51,7 +51,7 @@ async function requireOk(res, fallback) {
  *   listDir: (driveId: string, path: string) => Promise<object[]>,
  *   stat: (driveId: string, path: string) => Promise<object>,
  *   fetchBytes: (driveId: string, path: string) => Promise<ArrayBuffer>,
- *   saveFile: (driveId: string, path: string, name: string, blob: Blob, opts?: { headers?: object }) => Promise<unknown>,
+ *   saveFile: (driveId: string, path: string, name: string, blob: Blob, opts?: { headers?: object, coverage?: number }) => Promise<unknown>,
  *   mkdir: (driveId: string, path: string) => Promise<unknown>,
  *   createFile: (driveId: string, path: string) => Promise<unknown>,
  *   rename: (driveId: string, path: string, newName: string) => Promise<unknown>,

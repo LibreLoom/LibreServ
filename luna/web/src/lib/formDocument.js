@@ -57,6 +57,10 @@ export function blankFormDocument(title = "Untitled form") {
   };
 }
 
+/**
+ * @param {unknown} value
+ * @returns {value is Record<string, unknown>}
+ */
 function isObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -134,7 +138,7 @@ export function parseFormDocument(text) {
   }
   // Normalize only the fields Luna knows; everything else passes through so
   // a newer file's extras survive a save here.
-  const doc = { ...raw, version };
+  const doc = /** @type {Record<string, unknown>} */ ({ ...raw, version });
   if (typeof doc.title !== "string") doc.title = "";
   if (typeof doc.description !== "string") doc.description = "";
   doc.settings = canonicalSettings(raw.settings);

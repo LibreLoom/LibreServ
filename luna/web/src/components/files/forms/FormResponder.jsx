@@ -867,7 +867,7 @@ function QuestionField({ question, value, error, token, sharePassword, onAnswer 
           />
           {(fileLabel || (typeof value === "string" && value)) && (
             <p className="text-sm text-primary">
-              Attached: {fileLabel || value}
+              Attached: {fileLabel || (typeof value === "string" ? value : "")}
             </p>
           )}
           {uploadError && <PageNotice variant="error">{uploadError}</PageNotice>}

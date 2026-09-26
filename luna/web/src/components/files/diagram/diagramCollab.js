@@ -37,7 +37,7 @@ export function patchFingerprint(patch) {
 export function patchesToApply(events, { selfPeerId = null, appliedSeqs, sentFingerprints } = {}) {
   const seen = appliedSeqs instanceof Set ? appliedSeqs : new Set(appliedSeqs || []);
   const sent = sentFingerprints instanceof Set ? sentFingerprints : new Set(sentFingerprints || []);
-  /** @type {{ seq: number | undefined, patch: unknown, checksum: unknown }}[] */
+  /** @type {{ seq: number | undefined, patch: unknown, checksum: unknown }[]} */
   const out = [];
   for (const ev of events || []) {
     if (!ev || ev.type !== "op" || ev.payload?.kind !== "patch" || ev.payload.patch == null) {
@@ -70,19 +70,19 @@ export function peerSaveCoversEditor({ pending = 0, includedSeq = 0, savedSeq = 
   return includedSeq <= savedSeq;
 }
 
-/**
- * @param {{
- *   driveId?: string,
- *   path?: string,
- *   url?: string,
- *   socket?: object,
- *   canWrite?: boolean,
- *   onUpdate?: (snap: { peers: object[], selfPeerId: number | null, canWrite: boolean }) => void,
- *   onRemotePatch?: (patch: { seq: number | undefined, patch: unknown, checksum: unknown }) => void,
- *   onPeerSaved?: (msg: object) => void,
- * }} opts
- */
 export class DiagramCollab {
+  /**
+   * @param {{
+   *   driveId?: string,
+   *   path?: string,
+   *   url?: string,
+   *   socket?: any,
+   *   canWrite?: boolean,
+   *   onUpdate?: (snap: { peers: object[], selfPeerId: number | null, canWrite: boolean }) => void,
+   *   onRemotePatch?: (patch: { seq: number | undefined, patch: unknown, checksum: unknown }) => void,
+   *   onPeerSaved?: (msg: object) => void,
+   * }} opts
+   */
   constructor({
     driveId,
     path,
