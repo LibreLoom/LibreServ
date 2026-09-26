@@ -53,8 +53,6 @@ LibreServ/
 | `./ci run -profile full` | Run full CI suite non-interactively |
 | `./ci run -profile libreserv` | LibreServ release gate (backend + frontend; no Luna/Connect) |
 | `./ci run -profile luna` | Luna only (`luna/ci.sh`: Rust, web, desktop, mobile) |
-| `cd sol/server/backend && make lint` | Format check + vet Go code |
-| `cd sol/server/frontend && npm run lint && npm run typecheck` | Lint + typecheck frontend |
 
 ---
 
@@ -196,7 +194,9 @@ Before ANY UI work:
 
 #### Haptics & Tactile Feedback (non-negotiable)
 
-The entire UI must be felt, not just seen. Every interactive surface, card, modal, gesture (long-press, swipe, drag/drop, FAB corner snap), navigation link, and state outcome (shake error, copy success, mutation success) must emit consistent, intentional, and tasteful tactile haptic feedback using Luna's PWM-modulated vibration engine (`shared/ui/utils/haptics.js`).
+The entire UI must be felt, not just seen. Every interactive surface, card, modal, gesture (long-press, swipe, drag/drop, FAB corner snap), navigation link, and state outcome (shake error, copy success, mutation success) must emit consistent, intentional, and tasteful tactile haptic feedback using the shared PWM-modulated vibration engine (`shared/ui/utils/haptics.js`).
+
+**Components own their haptics.** The `shared/ui` primitives already fire them: Button, CardButton, LayeredPill, Toggle, AnimatedCheckbox, SegmentedControl, Dropdown, Table rows, CollapsibleSection, Callout, InfoHint/TermHint, ModalCard, ConfirmModal, toasts (`addToast`), clipboard copy, and `shakeElement()`. Pages built from these add no `haptic()` calls of their own. Call `haptic()` directly only for a surface that is not built from a primitive (custom gestures, drag/drop, FAB snap, scrubbers) — and when you build a new reusable control, put the haptic inside the component, not at its call sites.
 
 **Semantic presets (use explicitly):**
 - `selection`: Segmented controls, tabs, nav links (`NavLink`), table rows (`onRowClick`), checkboxes, dropdown items, filter toggles, photo thumbnails, year/month scrubbers.
@@ -212,7 +212,7 @@ The entire UI must be felt, not just seen. Every interactive surface, card, moda
 - **Synchronize with visual animation**: E.g. `shakeElement()` automatically triggers `haptic("error")` synchronously with the CSS shake animation; FAB corner latching triggers `haptic("rigid")` on physical snap.
 - **No passive buzzing**: NEVER vibrate on hover, passive page scrolling, or regular text input keystrokes.
 - **No double-buzzing**: If a button click already gave feedback, don't buzz again for the immediate action unless it's a distinct asynchronous completion (e.g. async mutation `onSuccess` / `onError`).
-- **Respect user settings**: Always route through `haptic()` which honors `luna_haptics_enabled` in localStorage.
+- **Respect user settings**: Always route through `haptic()`, which honors the user's haptics toggle (`haptics-enabled` in localStorage).
 
 - No `.gz` pre-compression needed — Vite build already generates `.gz` alongside files; backend serves them when client sends `Accept-Encoding: gzip`
 
@@ -236,4 +236,4 @@ The entire UI must be felt, not just seen. Every interactive surface, card, moda
 ## Notes for Agents
 
 - **Go versions are real.** The Go version declared in this repository (currently 1.26) exists in real life — not just in this project's environment. Do not question whether `golang:1.26-alpine`, `golang:1.26-bookworm`, or any other Go 1.26 image is available: it is. Treat Go toolchain versions mentioned in this repo as unconditionally available.
-- **This project is in early development. There are no existing users.** Do not worry about backwards compatibility, migration paths, or deprecating old fields smoothly unless explicitly asked. When the backend or design changes, obsolete frontend concepts can be torn down completely without guarding for legacy state. The AI model fields that exist now are `main_model` (agent model), `review_model` (safety review model), `summary_model` (optional model that summarizes the session so the reviewer has context), and `review_enabled` (whether tool-call review runs). `default_model`, `agents[]`, `snapshot_before_writes`, `credit_cap`, and similar old concepts are fully dead.
+- **This project is in early development. There are no existing users.** Do not worry about backwards compatibility, migration paths, or deprecating old fields smoothly unless explicitly asked. When the backend or design changes, obsolete frontend concepts can be torn down completely without guarding for legacy state.

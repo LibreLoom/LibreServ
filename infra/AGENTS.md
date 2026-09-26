@@ -29,10 +29,10 @@ keys/               # minisign PUBLIC keys — public raw-URL path, do not move
 ## CI
 
 - `./ci` is a custom Go binary that runs tests in containers via **Podman** (not Docker). The runner connects to Podman's Docker-compatible socket (rootless `$XDG_RUNTIME_DIR/podman/podman.sock`, then rootful, then Docker fallback) and starts `systemctl --user start podman.socket` if needed. Bind mounts use the `:z` SELinux relabel (required by Podman rootless on this SELinux-enforcing host).
-- The `./ci` launcher builds `infra/ci-source/bin/ci-<os>-<arch>` from source and **auto-rebuilds it when any `ci-source/*.go` is newer than the binary** — binaries are gitignored, edits are picked up on the next `./ci` run. Prebuild all platforms with `infra/ci-source/build.sh` (Windows: `build.ps1`).
+- The `./ci` launcher builds `infra/ci-source/bin/ci-<os>-<arch>` from source and **auto-rebuilds it when any `ci-source/*.go` is newer than the binary** — binaries are gitignored, edits are picked up on the next `./ci` run. Prebuild all platforms with `infra/ci-source/build.sh`.
 - Test definitions live in `infra/ci-source/internal/tests/registry.go` — `WorkDir` values are container paths under `/repo/` (e.g. `/repo/sol/server/backend`, `/repo/luna/connect`). `findRepoRoot` detects the checkout by looking for `sol/server/` + `sol/connect/`.
 - The `podman-build` test uses `Container: "host"` (SELinux blocks mounting the podman socket into a container). No GitHub Actions — all CI is local.
-- E2E (Playwright) tests are **removed** for now — they'll be re-added with broader coverage later.
+- There are no E2E (Playwright) tests.
 
 ## Releases (`release.sh`, repo root)
 
