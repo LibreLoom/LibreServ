@@ -7,7 +7,7 @@ import Page from "@libreloom/ui/components/ui/Page.jsx";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
-import Pill from "@libreloom/ui/components/common/Pill.jsx";
+import DriveStatusPill from "../components/common/DriveStatusPill.jsx";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import { TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { ROOT_TERM_HINT } from "../lib/rootTerm.js";
@@ -31,22 +31,6 @@ import useConnectActive from "../hooks/useConnectActive.js";
 import InspectModal from "../components/files/InspectModal.jsx";
 import { isMockUnknownDrive, mockInspectResult, withDevMockDetected } from "../lib/devMockDrives.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
-
-const STATE_PILLS = {
-  as_is: "success",
-  readonly: "warning",
-  missing: "warning",
-  ejected: "info",
-  failed: "error",
-};
-
-const STATE_LABELS = {
-  as_is: "Ready",
-  readonly: "Read only",
-  missing: "Unplugged",
-  ejected: "Safely removed",
-  failed: "Needs help",
-};
 
 /** Decimal sizes, matching DrivesPage. */
 function formatBytes(bytes) {
@@ -88,17 +72,6 @@ function countLine(folders, files) {
   );
 }
 
-function DriveStateLabel({ state }) {
-  const label = STATE_LABELS[state] || state;
-  if (state === "readonly") {
-    return (
-      <TermHint content="Luna can open files on this drive but cannot save changes here.">
-        {label}
-      </TermHint>
-    );
-  }
-  return label;
-}
 
 /**
  * Home drive card — storage, root-level counts, and folder shortcuts from
@@ -132,7 +105,6 @@ function DriveHomeCard({ drive, isAdmin = false, grants = [] }) {
     : 0;
   const counts = countLine(data?.folders, data?.files);
   const shortcuts = Array.isArray(data?.shortcuts) ? data.shortcuts : [];
-  const variant = STATE_PILLS[drive.state] || "info";
 
   // A member without view on the drive root lands on a 403 if the card
   // links there — point their open button at the shallowest grant instead
@@ -256,11 +228,7 @@ function DriveHomeCard({ drive, isAdmin = false, grants = [] }) {
     <Card
       icon={HardDrive}
       title={drive.label || "Drive"}
-      headerActions={
-        <Pill variant={variant}>
-          <DriveStateLabel state={drive.state} />
-        </Pill>
-      }
+      headerActions={<DriveStatusPill drive={drive} />}
     >
       {body}
     </Card>

@@ -7,7 +7,7 @@ import Page from "@libreloom/ui/components/ui/Page.jsx";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
-import LayeredPill from "@libreloom/ui/components/ui/LayeredPill.jsx";
+import DriveStatusPill from "../components/common/DriveStatusPill.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import ModalErrorNotice from "@libreloom/ui/components/common/ModalErrorNotice.jsx";
@@ -50,57 +50,6 @@ export function inspectCountLine(folders, files, unreadable = 0) {
     line += ` (${pluralCount(unreadable, "item", "items")} could not be read)`;
   }
   return `${line}.`;
-}
-
-const STATE_PILLS = {
-  as_is: "success",
-  readonly: "warning",
-  missing: "warning",
-  ejected: "info",
-  failed: "error",
-};
-
-/** Status-dot class matching each STATE_PILLS variant. */
-const STATE_DOTS = {
-  success: "bg-success",
-  warning: "bg-warning",
-  info: "bg-info",
-  error: "bg-error",
-};
-
-/**
- * The card's layered status pill: front chip carries the state (with its
- * color dot); the rear slot is reserved for the member-home marker so the
- * two facts share one pill. Empty rear slot collapses cleanly.
- */
-function DriveStatusPill({ drive }) {
-  const variant = STATE_PILLS[drive.state] || "info";
-  const dot = STATE_DOTS[variant] || "bg-info";
-  const memberHome = drive.member_home === true;
-  return (
-    <LayeredPill
-      icon={<span className={`h-2 w-2 rounded-full ${dot}`} aria-hidden="true" />}
-      actionIcon={<House size={11} />}
-      actionLabel={
-        memberHome ? (
-          <>
-            <TermHint
-              content={
-                drive.member_home_auto
-                  ? "Members' private Home folders live on this drive — Luna picked it automatically. Choose a different drive on the Users page."
-                  : "Members' private Home folders live on this drive. Choose a different drive on the Users page."
-              }
-            >
-              Member home
-            </TermHint>
-            {drive.member_home_auto ? " · auto" : ""}
-          </>
-        ) : null
-      }
-    >
-      {plainDriveState(drive.state)}
-    </LayeredPill>
-  );
 }
 
 function PermissionPill({ caps, file = false }) {
@@ -385,21 +334,6 @@ function driveStatusMessage(drive) {
     return "Read only — Luna cannot save here. Usually a filesystem issue, or a write-lock switch on the stick.";
   }
   return null;
-}
-
-function plainDriveState(state) {
-  if (state === "as_is") return "Ready";
-  if (state === "readonly") {
-    return (
-      <TermHint content="Luna can open files here but cannot save changes. Check the filesystem, or a write-lock switch on the stick — not the cable or USB port.">
-        Read only
-      </TermHint>
-    );
-  }
-  if (state === "missing") return "Unplugged";
-  if (state === "ejected") return "Ejected";
-  if (state === "failed") return "Problem";
-  return state;
 }
 
 export default function DrivesPage() {
