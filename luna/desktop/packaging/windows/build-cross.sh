@@ -31,7 +31,9 @@ need python3
 need glib-compile-schemas
 need x86_64-w64-mingw32-windres
 
-rustup target add x86_64-pc-windows-gnu >/dev/null
+# The caller may run us from the repo root, outside any rustup override —
+# install the target for the toolchain luna/ actually builds with.
+(cd "$DESKTOP" && rustup target add x86_64-pc-windows-gnu >/dev/null)
 
 mkdir -p "$PKG_DIR" "$OUT_DIR" "$STAGE"
 
@@ -193,9 +195,11 @@ if gccdir.is_dir():
     search_dirs.append(gccdir.resolve())
 if extra_pthread and extra_pthread.is_file():
     search_dirs.append(extra_pthread.parent.resolve())
-# Common Ubuntu mingw locations
+# Common Ubuntu mingw locations; Arch keeps the runtime DLLs in bin/ and
+# `gcc -print-file-name` does not see them there.
 for p in [
     Path("/usr/x86_64-w64-mingw32/lib"),
+    Path("/usr/x86_64-w64-mingw32/bin"),
     Path("/usr/lib/gcc/x86_64-w64-mingw32/13-posix"),
     Path("/usr/lib/gcc/x86_64-w64-mingw32/13-win32"),
 ]:
@@ -246,7 +250,9 @@ while to_scan:
     out = subprocess.check_output(["x86_64-w64-mingw32-objdump", "-p", str(pe)], text=True, errors="replace")
     for name in pat.findall(out):
         low = name.lower()
-        if low in sys_dlls or low in copied:
+        # api-ms-win-crt-* are UCRT stubs Windows 10+ ships in System32 —
+        # not redistributable files, so they are never bundled.
+        if low in sys_dlls or low in copied or low.startswith("api-ms-win-crt-"):
             continue
         src = find_dll(name)
         if src is None:
@@ -417,7 +423,8 @@ for pe in stage.rglob("*"):
         continue
     for name in pat.findall(out):
         low = name.lower()
-        if low in sys_dlls or low in staged:
+        # api-ms-win-crt-* are UCRT stubs Windows 10+ ships in System32.
+        if low in sys_dlls or low in staged or low.startswith("api-ms-win-crt-"):
             continue
         missing.setdefault(low, []).append(str(pe.relative_to(stage)))
 
