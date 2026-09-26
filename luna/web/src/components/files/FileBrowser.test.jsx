@@ -1345,8 +1345,16 @@ describe("FileBrowser sorting and filtering", () => {
   }
 
   async function pickSort(label) {
-    fireEvent.click(screen.getByRole("button", { name: "Sort files" }));
+    const trigger = screen.getByRole("button", { name: "Sort files" });
+    // The dropdown unmounts its menu ~160ms after close; clicking an option in
+    // a still-closing menu races the unmount, so settle it fully first.
+    if (trigger.getAttribute("aria-expanded") === "true") {
+      fireEvent.keyDown(trigger, { key: "Escape" });
+      await waitFor(() => expect(screen.queryByRole("listbox")).not.toBeInTheDocument());
+    }
+    fireEvent.click(trigger);
     fireEvent.click(await screen.findByRole("option", { name: label }));
+    await waitFor(() => expect(screen.queryByRole("listbox")).not.toBeInTheDocument());
   }
 
   it("shows view controls instead of column labels", async () => {
