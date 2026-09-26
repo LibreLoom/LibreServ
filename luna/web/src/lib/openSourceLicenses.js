@@ -51,4 +51,13 @@ export const OPEN_SOURCE_LICENSES = [
     source: "https://github.com/jgraph/drawio",
     notices: "Attribution also ships inside the pack at /drawio.",
   },
+  {
+    id: "excalidraw",
+    name: "Excalidraw",
+    what: "The whiteboard editor that runs in your browser when you open .excalidraw files.",
+    license: "MIT",
+    licenseFile: "/licenses/mit.txt",
+    copyright: "Excalidraw contributors",
+    source: "https://github.com/excalidraw/excalidraw",
+  },
 ];

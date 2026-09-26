@@ -309,8 +309,11 @@ select:focus:not(:focus-visible) {
 
 .fullscreen-overlay-enter,
 .file-viewer-enter {
+    /* No will-change here: this class stays on for the editor's whole life,
+       and a held will-change keeps the full-viewport overlay (Excalidraw's
+       canvases, EuroOffice's iframe) on its own compositor layer long after
+       the entrance ends. The running animation promotes it by itself. */
     animation: fullscreen-overlay-in var(--motion-duration-medium3) var(--motion-easing-emphasized-decelerate) backwards;
-    will-change: transform, opacity;
 }
 
 .fullscreen-overlay-exit,

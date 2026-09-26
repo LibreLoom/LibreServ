@@ -10,6 +10,7 @@ describe("createKinds", () => {
       "spreadsheet",
       "presentation",
       "diagram",
+      "whiteboard",
       "form",
     ]);
   });
@@ -29,6 +30,7 @@ describe("createKinds", () => {
       "spreadsheet",
       "presentation",
       "diagram",
+      "whiteboard",
       "form",
     ]);
   });
@@ -47,6 +49,20 @@ describe("createKinds", () => {
     const xml = diagram?.initialContent?.() || "";
     expect(xml).toContain("<mxfile");
     expect(xml).toContain("<diagram");
+  });
+
+  it("creates whiteboards with a valid blank .excalidraw scene", () => {
+    const whiteboard = CREATE_KINDS.find((k) => k.id === "whiteboard");
+    expect(whiteboard?.group).toBe("Office");
+    expect(whiteboard?.label).toBe("Whiteboard");
+    expect(whiteboard?.openAfter).toBe("viewer");
+    expect(whiteboard?.defaultName).toBe("Whiteboard.excalidraw");
+    expect(whiteboard?.defaultExt).toBe(".excalidraw");
+    const scene = JSON.parse(whiteboard?.initialContent?.() || "{}");
+    expect(scene.type).toBe("excalidraw");
+    expect(scene.elements).toEqual([]);
+    expect(scene.appState).toBeTypeOf("object");
+    expect(scene.files).toEqual({});
   });
 
   it("creates forms with a valid .lunaform envelope, opened in the viewer", () => {

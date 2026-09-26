@@ -11,6 +11,7 @@ import {
   isOfficeFile,
   isPdfFile,
   isTextFile,
+  isWhiteboardFile,
   isVideoFile,
   OFFICE_FORMATS,
   OFFICE_SAVE_EXT,
@@ -84,6 +85,20 @@ describe("fileKinds", () => {
     expect(openableKind("photo.png")).toBe("image");
   });
 
+  it("classifies .excalidraw files as whiteboards, never text", () => {
+    expect(isWhiteboardFile("sketch.excalidraw")).toBe(true);
+    expect(isWhiteboardFile("boards/Plan.EXCALIDRAW")).toBe(true);
+    expect(isWhiteboardFile("notes.txt")).toBe(false);
+    expect(openableKind("sketch.excalidraw")).toBe("whiteboard");
+    // It is JSON under the hood — the whiteboard kind must win over text.
+    expect(isTextFile("sketch.excalidraw")).toBe(false);
+    // Embedded-scene variants keep their plain-file kinds — this npm build
+    // can't write them back. .svg is a text/source file here, .png an image.
+    expect(isWhiteboardFile("sketch.excalidraw.svg")).toBe(false);
+    expect(openableKind("sketch.excalidraw.svg")).toBe("text");
+    expect(openableKind("sketch.excalidraw.png")).toBe("image");
+  });
+
   it("routes exactly the verified EuroOffice formats to the office editor", () => {
     // The table is the spec — every ext in it must classify as office, and
     // the real conversion check lives in office/x2tFormats.test.js.
@@ -111,6 +126,8 @@ describe("fileKinds", () => {
       expect(isOfficeFile(name), name).toBe(false);
       expect(openableKind(name), name).toBe(null);
     }
+    // excalidraw is not office — it has its own editor.
+    expect(openableKind("board.excalidraw")).toBe("whiteboard");
     // pdf/epub are not office — they have their own viewers.
     expect(openableKind("report.pdf")).toBe("pdf");
     expect(openableKind("book.epub")).toBe("ebook");

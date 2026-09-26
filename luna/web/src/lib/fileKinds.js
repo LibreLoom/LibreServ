@@ -111,6 +111,11 @@ const FORM_EXT = new Set(["lunaform"]);
 // landing in the image kind.
 const DIAGRAM_EXT = new Set(["drawio"]);
 
+// Excalidraw whiteboards — scene JSON. `.excalidraw.svg`/`.png` keep their
+// plain-file kinds (.svg is text here, .png an image): this npm build can't
+// write the embedded-scene variants back, so they never open the editor.
+const WHITEBOARD_EXT = new Set(["excalidraw"]);
+
 // There is deliberately no "cad" kind: nothing in Luna can render 3D
 // formats, so stl/obj/gltf/etc. are simply unopenable.
 
@@ -235,6 +240,11 @@ export function isDiagramFile(name) {
   );
 }
 
+/** @param {string} name */
+export function isWhiteboardFile(name) {
+  return WHITEBOARD_EXT.has(fileExtension(name));
+}
+
 /**
  * Does opening this name need a server-side editor session (EuroOffice,
  * forms builder, diagrams)? Session endpoints only resolve writable file
@@ -244,11 +254,16 @@ export function isDiagramFile(name) {
  */
 export function viewerNeedsSession(name) {
   const kind = openableKind(name);
-  return kind === "office" || kind === "form" || kind === "diagram";
+  return (
+    kind === "office" ||
+    kind === "form" ||
+    kind === "diagram" ||
+    kind === "whiteboard"
+  );
 }
 
 /**
- * @typedef {"image"|"video"|"text"|"markdown"|"pdf"|"audio"|"archive"|"ebook"|"comic"|"font"|"notebook"|"geo"|"calendar"|"contact"|"office"|"csv"|"form"|"diagram"} OpenableKind
+ * @typedef {"image"|"video"|"text"|"markdown"|"pdf"|"audio"|"archive"|"ebook"|"comic"|"font"|"notebook"|"geo"|"calendar"|"contact"|"office"|"csv"|"form"|"diagram"|"whiteboard"} OpenableKind
  */
 
 /**
@@ -262,6 +277,8 @@ export function openableKind(name) {
   // Before image: `x.drawio.svg`/`.png` are diagrams that happen to render —
   // the editor is the point, the embedded image is just its preview.
   if (isDiagramFile(name)) return "diagram";
+  // Before text: `.excalidraw` is JSON — the editor, not the text surface.
+  if (isWhiteboardFile(name)) return "whiteboard";
   if (isImageFile(name)) return "image";
   if (isVideoFile(name)) return "video";
   if (isOfficeFile(name)) return "office";

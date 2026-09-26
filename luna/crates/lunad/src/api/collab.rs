@@ -242,8 +242,8 @@ struct GuestCollabQuery {
 /// Guest half of the same room members join. The link resolves the file —
 /// the query path is relative to the share, never a drive id. View-only
 /// links join with `can_write: false` so they follow live edits without
-/// sending any. Only diagram files are accepted: a guest must not be able
-/// to inject ops into a text or office room.
+/// sending any. Only diagram and whiteboard files are accepted: a guest
+/// must not be able to inject ops into a text or office room.
 async fn guest_upgrade(
     State(state): State<AppState>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -277,10 +277,10 @@ fn guest_collab_upgrade(
     ws: WebSocketUpgrade,
 ) -> Result<Response, (StatusCode, Json<Value>)> {
     let rel = crate::api::access::link_file(state, link, &query.path)?;
-    if !is_diagram_name(&rel) {
+    if !is_collab_doc_name(&rel) {
         return Err(json_error(
             StatusCode::BAD_REQUEST,
-            "Live editing on a shared link is for diagram files.",
+            "Live editing on a shared link is for diagram and whiteboard files.",
         ));
     }
     let can_write = link.caps & crate::access::CAP_EDIT != 0;
@@ -307,9 +307,24 @@ pub(crate) fn is_diagram_name(path: &str) -> bool {
     base.ends_with(".drawio") || base.ends_with(".drawio.svg") || base.ends_with(".drawio.png")
 }
 
-/// A diagram file just hit disk (or the dirty cache a reader will see).
-/// Named coverage trims the replay log; the writer's election is released
-/// either way, matching EuroOffice's bundle PUT.
+/// `.excalidraw` — the name the web UI opens in the whiteboard editor.
+fn is_whiteboard_name(path: &str) -> bool {
+    path.rsplit('/')
+        .next()
+        .unwrap_or(path)
+        .to_ascii_lowercase()
+        .ends_with(".excalidraw")
+}
+
+/// File kinds whose rooms a link guest may join — draw.io diagrams and
+/// Excalidraw whiteboards. Anything else stays member-only.
+fn is_collab_doc_name(path: &str) -> bool {
+    is_diagram_name(path) || is_whiteboard_name(path)
+}
+
+/// A diagram or whiteboard file just hit disk (or the dirty cache a reader
+/// will see). Named coverage trims the replay log; the writer's election is
+/// released either way, matching EuroOffice's bundle PUT.
 pub(crate) async fn note_diagram_saved(
     state: &AppState,
     drive_id: &str,
@@ -317,7 +332,7 @@ pub(crate) async fn note_diagram_saved(
     user_id: &str,
     coverage: Option<&str>,
 ) {
-    if !is_diagram_name(rel) {
+    if !is_collab_doc_name(rel) {
         return;
     }
     let seq = coverage.and_then(|value| value.parse::<u64>().ok());
@@ -574,5 +589,30 @@ mod tests {
             crate::db::delete_access_link(&conn, "l1").unwrap();
         }
         assert_eq!(member_caps_now(&state, "guest:l1", "d", "a.drawio"), None);
+    }
+
+    /// The guest-room allowlist: diagrams and whiteboards only. A guest
+    /// must never reach a text or office room.
+    #[test]
+    fn collab_doc_names_gate_the_guest_room() {
+        for ok in [
+            "a.drawio",
+            "boards/plan.drawio.svg",
+            "arch.drawio.png",
+            "sketch.excalidraw",
+            "dir/Plan.EXCALIDRAW",
+        ] {
+            assert!(is_collab_doc_name(ok), "{ok}");
+        }
+        for no in [
+            "notes.txt",
+            "a.docx",
+            "data.json",
+            "a.drawio.zip",
+            "excalidraw.png",
+            "a.svg",
+        ] {
+            assert!(!is_collab_doc_name(no), "{no}");
+        }
     }
 }

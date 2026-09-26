@@ -177,6 +177,15 @@ export default function FullscreenEditorFrame({
         ) {
           return;
         }
+        // Excalidraw owns Escape inside its surface: deselect, closing its
+        // menus and dialogs, canceling a draw. Same carve-out the drawio
+        // iframe gets by swallowing keys entirely.
+        if (
+          event.target instanceof Element &&
+          event.target.closest(".excalidraw")
+        ) {
+          return;
+        }
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();

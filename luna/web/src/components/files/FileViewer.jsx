@@ -16,6 +16,7 @@ import FormBuilder from "./forms/FormBuilder.jsx";
 import KindViewer from "./viewers/KindViewer.jsx";
 import OfficeEditor from "./office/OfficeEditor.jsx";
 import DiagramEditor from "./diagram/DiagramEditor.jsx";
+import WhiteboardEditor from "./whiteboard/WhiteboardEditor.jsx";
 import { ApiError, apiErrorMessage, postForm } from "../../lib/api.js";
 import { fileExtension, openableKind } from "../../lib/fileKinds.js";
 import { officeConversionFor } from "../../lib/officeConvert.js";
@@ -112,15 +113,16 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
   const isOffice = kind === "office";
   const isForm = kind === "form";
   const isDiagram = kind === "diagram";
+  const isWhiteboard = kind === "whiteboard";
   const isMarkdown = kind === "markdown";
   const isTextLike = kind === "text" || isMarkdown;
   // Writable text/markdown gets the fullscreen editor; without write
   // permission the same file is a preview-only kind and stays in the modal.
   // Office, forms, and diagrams always take the fullscreen frame — they keep
   // a useful read-only view when the opener can't write, and link guests
-  // reach all three through the scoped /s endpoints.
+  // reach all three through the scoped /s endpoints. Whiteboards too.
   const fullscreenEditor =
-    isOffice || isForm || isDiagram || (isTextLike && canWrite);
+    isOffice || isForm || isDiagram || isWhiteboard || (isTextLike && canWrite);
   // Set when EuroOfficeHost reports the DocsAPI script failed to load —
   // OfficeEditor swaps to its "can't open office files" card inside the
   // same fullscreen frame.
@@ -148,7 +150,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
   // open→false reset clears `path` to "", which would otherwise swap the
   // office editor for a TextFileEditor on an empty path — a bogus content
   // fetch and an error flash for the last 250ms.
-  const frameViewRef = useRef({ path, name, isOffice, isForm, isDiagram, isMarkdown });
+  const frameViewRef = useRef({ path, name, isOffice, isForm, isDiagram, isWhiteboard, isMarkdown });
 
   if (expandedScope !== previewKey) {
     setExpandedScope(previewKey);
@@ -289,7 +291,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
   // which would trade the mounted editor for a fresh one on an empty path.
   if (!editorOverlay.isClosing) {
     officeMissingViewRef.current = officeMissing;
-    frameViewRef.current = { path, name, isOffice, isForm, isDiagram, isMarkdown };
+    frameViewRef.current = { path, name, isOffice, isForm, isDiagram, isWhiteboard, isMarkdown };
   }
   const officeMissingView = editorOverlay.isClosing
     ? officeMissingViewRef.current
@@ -303,7 +305,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
         sessionKey={previewKey}
         isClosing={editorOverlay.isClosing}
         canWrite={canWrite}
-        editorKind={frameView.isOffice ? "office" : frameView.isForm ? "form" : frameView.isDiagram ? "diagram" : "text"}
+        editorKind={frameView.isOffice ? "office" : frameView.isForm ? "form" : frameView.isDiagram ? "diagram" : frameView.isWhiteboard ? "whiteboard" : "text"}
         onClose={onClose}
       >
         {({ onRegisterSave, onSaveStateChange, requestClose }) =>
@@ -322,6 +324,18 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
             />
           ) : frameView.isDiagram ? (
             <DiagramEditor
+              driveId={driveId}
+              path={frameView.path}
+              canWrite={canWrite}
+              onSaved={onSaved}
+              onClose={onClose}
+              onPresenceChange={setEditorPresence}
+              onSaveStateChange={onSaveStateChange}
+              onRegisterSave={onRegisterSave}
+              requestClose={requestClose}
+            />
+          ) : frameView.isWhiteboard ? (
+            <WhiteboardEditor
               driveId={driveId}
               path={frameView.path}
               canWrite={canWrite}
@@ -441,7 +455,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
               )
             )}
 
-            {open && kind && kind !== "image" && kind !== "video" && !isTextLike && kind !== "office" && kind !== "form" && kind !== "diagram" && (
+            {open && kind && kind !== "image" && kind !== "video" && !isTextLike && kind !== "office" && kind !== "form" && kind !== "diagram" && kind !== "whiteboard" && (
               <KindViewer
                 kind={kind}
                 driveId={driveId}

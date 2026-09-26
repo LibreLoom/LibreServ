@@ -301,8 +301,10 @@ export function formCollabAdapter() {
     isEmpty: (ydoc) => formIsEmpty(ydoc),
     seed: (ydoc, content) => { seedForm(ydoc, content); },
     serialize: (ydoc) => serializeForm(ydoc),
-    matchesSeed: (ydoc, seed) => serializeForm(ydoc) === seedFormSnapshot(seed),
-    clear: (ydoc) => clearForm(ydoc),
+    // Forms are keyed by question ID in a Y.Map; concurrent seeds merge
+    // cleanly without duplicating. Never wipe the form on join/reconnect.
+    matchesSeed: () => false,
+    clear: () => {},
   };
 }
 

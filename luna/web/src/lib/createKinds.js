@@ -1,6 +1,7 @@
-import { ClipboardList, FilePlus, FileSpreadsheet, FileText, FolderPlus, Presentation, Workflow } from "lucide-react";
+import { ClipboardList, FilePlus, FileSpreadsheet, FileText, FolderPlus, PenLine, Presentation, Workflow } from "lucide-react";
 import { blankFormDocument, serializeFormDocument } from "./formDocument.js";
 import { BLANK_DRAWIO_XML } from "./diagramFile.js";
+import { BLANK_EXCALIDRAW_JSON } from "./whiteboardFile.js";
 
 /**
  * Things people can make from the New menu.
@@ -105,6 +106,21 @@ export const CREATE_KINDS = [
     // A real mxfile from byte zero — draw.io would open an empty file as a
     // blank page anyway, but starting valid keeps other tools sane.
     initialContent: () => BLANK_DRAWIO_XML,
+  },
+  {
+    id: "whiteboard",
+    label: "Whiteboard",
+    group: "Office",
+    icon: PenLine,
+    action: "create-file",
+    openAfter: "viewer",
+    title: "New whiteboard",
+    nameLabel: "Name for this whiteboard",
+    confirmLabel: "Create whiteboard",
+    defaultName: "Whiteboard.excalidraw",
+    defaultExt: ".excalidraw",
+    // A real scene from byte zero — same rule as .drawio/.lunaform.
+    initialContent: () => BLANK_EXCALIDRAW_JSON,
   },
   {
     id: "form",

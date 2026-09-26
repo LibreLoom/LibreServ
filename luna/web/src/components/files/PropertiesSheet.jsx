@@ -65,6 +65,9 @@ const TYPE_LABELS = {
   csv: "Table data",
   markdown: "Markdown document",
   text: "Text file",
+  diagram: "Diagram",
+  form: "Form",
+  whiteboard: "Whiteboard",
 };
 
 const KIND_ICONS = {
@@ -84,6 +87,9 @@ const KIND_ICONS = {
   csv: Table,
   markdown: FileText,
   text: FileText,
+  diagram: Shapes,
+  form: FileText,
+  whiteboard: Pencil,
 };
 
 /** The hero icon matching this entry — folder, link, or a file-type glyph. */

@@ -24,8 +24,40 @@ const lunaProxy = (extra = {}) => ({
   ...extra,
 });
 
+// Excalidraw fetches its canvas fonts at runtime from
+// window.EXCALIDRAW_ASSET_PATH (default: a CDN). Luna serves them itself —
+// dev reads straight from node_modules, the build copies them into dist so
+// lunad's embedded web root carries them. Nothing leaves the device.
+const EXCALIDRAW_PACK = path.resolve(
+  __dirname,
+  "node_modules/@excalidraw/excalidraw/dist/prod",
+);
+
+const excalidrawAssets = () => ({
+  name: "luna-excalidraw-assets",
+  configureServer(server) {
+    server.middlewares.use("/excalidraw", (req, res, next) => {
+      const rel = decodeURIComponent((req.url || "").split("?")[0]);
+      const file = path.join(EXCALIDRAW_PACK, rel);
+      const stat =
+        file.startsWith(EXCALIDRAW_PACK + path.sep) &&
+        fs.statSync(file, { throwIfNoEntry: false });
+      if (!stat || !stat.isFile()) return next();
+      if (file.endsWith(".woff2")) res.setHeader("content-type", "font/woff2");
+      fs.createReadStream(file).pipe(res);
+    });
+  },
+  closeBundle() {
+    fs.cpSync(
+      path.join(EXCALIDRAW_PACK, "fonts"),
+      path.resolve(__dirname, "../crates/lunad/web/dist/excalidraw/fonts"),
+      { recursive: true },
+    );
+  },
+});
+
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), excalidrawAssets()],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
@@ -42,6 +74,8 @@ export default defineConfig({
           vendor: ["react", "react-dom", "react-router-dom"],
           ui: ["lucide-react"],
           query: ["@tanstack/react-query"],
+          // Heavy editor — its own chunk so it only downloads on open.
+          excalidraw: ["@excalidraw/excalidraw"],
         },
       },
     },

@@ -282,6 +282,12 @@ export class CollabDocSync {
         if (msg.peer) {
           this.peers.set(msg.peer.peer_id, msg.peer);
           this._emitPeers();
+          // Ask the new peer for their state in case they have offline edits.
+          // Only the lowest existing peer requests it to avoid N peers flooding the joiner.
+          const lowest = Math.min(...this.peers.keys());
+          if (this.peerId === lowest) {
+            this._sendSyncRequest();
+          }
         }
         break;
       case "peer_leave":
@@ -375,11 +381,11 @@ export class CollabDocSync {
     }
     try {
       if (cursor.k === "s1") {
-        // A peer wants our state: send the diff they are missing, then ask
-        // for theirs in return (standard two-step sync).
+        // A peer wants our state: send the diff they are missing (SyncStep 2).
+        // Do NOT send another s1 back here — SyncStep 1 is the query, SyncStep 2
+        // is the answer; ping-ponging s1 caused infinite feedback loops.
         const reply = Y.encodeStateAsUpdate(this.ydoc, fromB64(cursor.d));
         this._sendPresence({ k: "s2", d: toB64(reply) });
-        this._sendSyncRequest();
       } else if (cursor.k === "s2") {
         this._synced = true;
         Y.applyUpdate(this.ydoc, fromB64(cursor.d), "remote");

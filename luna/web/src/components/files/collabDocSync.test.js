@@ -6,6 +6,7 @@ import {
 } from "y-protocols/awareness";
 import { CollabDocSync } from "./collabDocSync.js";
 import { CollabSocket } from "./office/collabSocket.js";
+import { whiteboardCollabAdapter } from "../../lib/whiteboardDoc.js";
 
 function toB64(bytes) {
   return btoa(String.fromCharCode(...bytes));
@@ -299,5 +300,176 @@ describe("CollabDocSync", () => {
       others: [{ ...PEER_B, peer_id: 1 }],
     });
     expect(sync.serialize()).toBe("");
+  });
+
+  it("settles multi-peer sync without an infinite s1/s2 ping-pong loop", () => {
+    // Simulated hub connecting two peers in memory
+    const peers = new Map();
+    let presenceMessageCount = 0;
+
+    function joinPeer(peerId, username) {
+      const socket = new FakeSocket();
+      const info = {
+        peer_id: peerId,
+        user_id: `u${peerId}`,
+        username,
+        color: "#111111", // color-scan: ignore-line — test fixture
+        can_write: true,
+      };
+      peers.set(peerId, { socket, info });
+
+      socket.sendOp = (payload) => {
+        for (const [id, peer] of peers) {
+          if (id !== peerId) {
+            peer.socket.emit({
+              type: "op",
+              seq: 1,
+              peer_id: peerId,
+              payload,
+            });
+          }
+        }
+      };
+
+      socket.sendPresence = (cursor) => {
+        presenceMessageCount++;
+        for (const [id, peer] of peers) {
+          if (id !== peerId) {
+            peer.socket.emit({
+              type: "presence",
+              peer_id: peerId,
+              cursor,
+            });
+          }
+        }
+      };
+
+      return { socket, info };
+    }
+
+    // Peer 1 connects and seeds initial document
+    const peer1 = joinPeer(1, "Ada");
+    const sync1 = new CollabDocSync({ driveId: "d1", path: "a.md", socket: peer1.socket });
+    sync1.connect();
+    peer1.socket.welcome({ peerId: 1, others: [] });
+    sync1.adoptContent("hello world");
+    expect(sync1.serialize()).toBe("hello world");
+
+    // Peer 2 connects to the room
+    const countBeforeJoin = presenceMessageCount;
+    const peer2 = joinPeer(2, "Bob");
+    const sync2 = new CollabDocSync({ driveId: "d1", path: "a.md", socket: peer2.socket });
+    sync2.connect();
+
+    // Notify Peer 1 of peer_join
+    peer1.socket.emit({ type: "peer_join", peer: peer2.info });
+    // Peer 2 receives welcome with Peer 1
+    peer2.socket.welcome({ peerId: 2, others: [peer1.info] });
+
+    // Both peers should now be synchronized
+    expect(sync2.serialize()).toBe("hello world");
+
+    // Presence messages exchanged should be finite and small (no infinite s1/s2 ping-pong)
+    // Exactly 1 awareness ('a'), 2 sync requests ('s1'), and 2 sync replies ('s2') = 5 messages.
+    const messagesExchanged = presenceMessageCount - countBeforeJoin;
+    expect(messagesExchanged).toBeGreaterThanOrEqual(1);
+    expect(messagesExchanged).toBeLessThanOrEqual(6);
+
+    // Edits made by Peer 2 reach Peer 1
+    sync2.ytext.insert(11, "!");
+    expect(sync1.serialize()).toBe("hello world!");
+
+    // Edits made by Peer 1 reach Peer 2
+    sync1.ytext.insert(0, "> ");
+    expect(sync2.serialize()).toBe("> hello world!");
+
+    sync1.destroy();
+    sync2.destroy();
+  });
+
+  it("whiteboard adapter does not clear or wipe scene when another peer connects", () => {
+    const peers = new Map();
+
+    function joinPeer(peerId, username) {
+      const socket = new FakeSocket();
+      const info = {
+        peer_id: peerId,
+        user_id: `u${peerId}`,
+        username,
+        color: "#111111", // color-scan: ignore-line — test fixture
+        can_write: true,
+      };
+      peers.set(peerId, { socket, info });
+
+      socket.sendOp = (payload) => {
+        for (const [id, peer] of peers) {
+          if (id !== peerId) {
+            peer.socket.emit({
+              type: "op",
+              seq: 1,
+              peer_id: peerId,
+              payload,
+            });
+          }
+        }
+      };
+
+      socket.sendPresence = (cursor) => {
+        for (const [id, peer] of peers) {
+          if (id !== peerId) {
+            peer.socket.emit({
+              type: "presence",
+              peer_id: peerId,
+              cursor,
+            });
+          }
+        }
+      };
+
+      return { socket, info };
+    }
+
+    const initialJson = JSON.stringify({
+      type: "excalidraw",
+      version: 2,
+      source: "https://excalidraw.com",
+      elements: [{ id: "box1", type: "rectangle", x: 10, y: 20 }],
+      appState: {},
+      files: {},
+    });
+
+    const peer1 = joinPeer(1, "Ada");
+    const sync1 = new CollabDocSync({
+      driveId: "d1",
+      path: "draw.excalidraw",
+      socket: peer1.socket,
+      adapter: whiteboardCollabAdapter(),
+    });
+    sync1.connect();
+    peer1.socket.welcome({ peerId: 1, others: [] });
+    sync1.adoptContent(initialJson);
+
+    const peer2 = joinPeer(2, "Bob");
+    const sync2 = new CollabDocSync({
+      driveId: "d1",
+      path: "draw.excalidraw",
+      socket: peer2.socket,
+      adapter: whiteboardCollabAdapter(),
+    });
+    sync2.connect();
+
+    peer1.socket.emit({ type: "peer_join", peer: peer2.info });
+    peer2.socket.welcome({ peerId: 2, others: [peer1.info] });
+
+    // Neither peer's elements should be wiped or cleared
+    const content1 = JSON.parse(sync1.serialize());
+    const content2 = JSON.parse(sync2.serialize());
+    expect(content1.elements).toHaveLength(1);
+    expect(content1.elements[0].id).toBe("box1");
+    expect(content2.elements).toHaveLength(1);
+    expect(content2.elements[0].id).toBe("box1");
+
+    sync1.destroy();
+    sync2.destroy();
   });
 });
