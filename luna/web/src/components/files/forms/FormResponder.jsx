@@ -434,7 +434,7 @@ export default function FormResponder({
               <p className="text-sm text-secondary">
                 Want to change your answers later? Keep this link — it's only for you.
               </p>
-              <CopyableValue value={editLink} surface="secondary" />
+              <CopyableValue value={editLink} surface="primary" />
             </div>
           )}
           <div className="flex flex-wrap items-center justify-center gap-2">
