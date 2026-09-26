@@ -291,35 +291,31 @@ export default function SharedPage() {
                         key: "shared",
                         label: "Shared with",
                         render: (s) => (
-                          <span className="flex flex-wrap gap-1">
-                            {s.members?.length > 0 && (
-                              <Pill variant="info">
-                                {s.members.length} {s.members.length === 1 ? "person" : "people"}
-                              </Pill>
-                            )}
-                            {s.links?.length > 0 && (
-                              <Pill variant="success">
-                                {s.links.length} {s.links.length === 1 ? "link" : "links"}
-                              </Pill>
-                            )}
+                          // The Manage button nests at the row's right edge —
+                          // it's the row's own affordance, not a separate
+                          // trailing column.
+                          <span className="flex items-center justify-between gap-2">
+                            <span className="flex flex-wrap gap-1">
+                              {s.members?.length > 0 && (
+                                <Pill variant="info">
+                                  {s.members.length} {s.members.length === 1 ? "person" : "people"}
+                                </Pill>
+                              )}
+                              {s.links?.length > 0 && (
+                                <Pill variant="success">
+                                  {s.links.length} {s.links.length === 1 ? "link" : "links"}
+                                </Pill>
+                              )}
+                            </span>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              surface="secondary"
+                              onClick={() => setManaging(shareSubjectFromRow(s))}
+                            >
+                              Manage
+                            </Button>
                           </span>
-                        ),
-                      },
-                      {
-                        key: "actions",
-                        label: "Actions",
-                        srOnly: true,
-                        align: "right",
-                        noRowClick: true,
-                        render: (s) => (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            surface="secondary"
-                            onClick={() => setManaging(shareSubjectFromRow(s))}
-                          >
-                            Manage
-                          </Button>
                         ),
                       },
                     ]}
