@@ -1225,35 +1225,35 @@ mod tests {
         assert!(matches!(out, PacketOutcome::Close), "downgraded link");
 
         // Password rotation: the minted revision no longer matches.
-        {
+        let mut row = crate::db::AccessLinkRow {
+            id: "l3".into(),
+            token_hash: blake3::hash("l3".as_bytes()).to_hex().to_string(),
+            token: "l3".into(),
+            subject_kind: KIND_PATH.into(),
+            drive_id: "drive-a".into(),
+            path: "docs".into(),
+            album_id: String::new(),
+            caps: CAP_ALL,
+            password_hash: "oldhash".into(),
+            expires_at: None,
+            created_by: "u".into(),
+            created_at: 0,
+        };
+        let jwt = {
             let conn = state.db.lock().unwrap();
-            let mut row = crate::db::AccessLinkRow {
-                id: "l3".into(),
-                token_hash: blake3::hash("l3".as_bytes()).to_hex().to_string(),
-                token: "l3".into(),
-                subject_kind: KIND_PATH.into(),
-                drive_id: "drive-a".into(),
-                path: "docs".into(),
-                album_id: String::new(),
-                caps: CAP_ALL,
-                password_hash: "oldhash".into(),
-                expires_at: None,
-                created_by: "u".into(),
-                created_at: 0,
-            };
             crate::db::insert_access_link(&conn, &row).unwrap();
             let mut claims = link_claims("l3", "key-a", "docs/Report.docx", true);
             claims.link_revision = Some(blake3::hash("oldhash".as_bytes()).to_hex().to_string());
-            let jwt = state.auth.issue_scoped_office_token(claims, 3600).unwrap();
-            drop(conn);
-            let mut client = authed_client(&state, "key-a", &jwt, 13).await;
+            state.auth.issue_scoped_office_token(claims, 3600).unwrap()
+        };
+        let mut client = authed_client(&state, "key-a", &jwt, 13).await;
+        {
             let conn = state.db.lock().unwrap();
             row.password_hash = "newhash".into();
             crate::db::update_access_link(&conn, &row).unwrap();
-            drop(conn);
-            let out = handle_packet(&state, "key-a", 13, &cursor, &mut client).await;
-            assert!(matches!(out, PacketOutcome::Close), "rotated password");
         }
+        let out = handle_packet(&state, "key-a", 13, &cursor, &mut client).await;
+        assert!(matches!(out, PacketOutcome::Close), "rotated password");
 
         // Expiry: a link past its expires_at closes an open socket.
         {
@@ -1276,17 +1276,17 @@ mod tests {
                 },
             )
             .unwrap();
-            drop(conn);
-            let claims = link_claims("l4", "key-a", "docs/Report.docx", true);
-            let jwt = state.auth.issue_scoped_office_token(claims, 3600).unwrap();
-            let mut client = authed_client(&state, "key-a", &jwt, 14).await;
+        }
+        let claims = link_claims("l4", "key-a", "docs/Report.docx", true);
+        let jwt = state.auth.issue_scoped_office_token(claims, 3600).unwrap();
+        let mut client = authed_client(&state, "key-a", &jwt, 14).await;
+        {
             let conn = state.db.lock().unwrap();
             let mut link = crate::db::get_access_link(&conn, "l4").unwrap().unwrap();
             link.expires_at = Some(crate::db::now_unix() - 1);
             crate::db::update_access_link(&conn, &link).unwrap();
-            drop(conn);
-            let out = handle_packet(&state, "key-a", 14, &cursor, &mut client).await;
-            assert!(matches!(out, PacketOutcome::Close), "expired link");
         }
+        let out = handle_packet(&state, "key-a", 14, &cursor, &mut client).await;
+        assert!(matches!(out, PacketOutcome::Close), "expired link");
     }
 }

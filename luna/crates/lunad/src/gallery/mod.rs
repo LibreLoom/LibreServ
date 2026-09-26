@@ -3672,7 +3672,7 @@ mod tests {
     fn sniff_media_file_tells_real_media_from_markup() {
         let dir = tempfile::tempdir().unwrap();
         let jpg = dir.path().join("a.jpg");
-        std::fs::write(&jpg, &[0xFF, 0xD8, 0xFF, 0xE0, 0x00]).unwrap();
+        std::fs::write(&jpg, [0xFF, 0xD8, 0xFF, 0xE0, 0x00]).unwrap();
         assert!(sniff_media_file(&jpg));
 
         // HTML bytes named like a photo — the extension lies.

@@ -1300,8 +1300,8 @@ async fn mine(
             "is_file": is_file,
             "item_count": item_count,
             "my_caps": caps_to_str(mine_caps),
-            "members": ms.iter().map(|m| member_json(*m, &names)).collect::<Vec<_>>(),
-            "links": ls.iter().map(|l| link_json(&conn, &user, *l)).collect::<Vec<_>>(),
+            "members": ms.iter().map(|m| member_json(m, &names)).collect::<Vec<_>>(),
+            "links": ls.iter().map(|l| link_json(&conn, &user, l)).collect::<Vec<_>>(),
         }));
     }
 
@@ -1360,12 +1360,9 @@ pub(crate) fn resolve_public_link(
 ) -> Result<(AccessLinkRow, Option<String>), ApiError> {
     let link = {
         let conn = state.db.lock().map_err(|_| busy())?;
-        db::get_access_link_by_token_hash(
-            &conn,
-            &blake3::hash(token.as_bytes()).to_hex().to_string(),
-        )
-        .map_err(|_| busy())?
-        .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "This link doesn't exist."))?
+        db::get_access_link_by_token_hash(&conn, blake3::hash(token.as_bytes()).to_hex().as_ref())
+            .map_err(|_| busy())?
+            .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "This link doesn't exist."))?
     };
     if access::link_expired(&link) {
         return Err(gone());
@@ -1620,7 +1617,7 @@ async fn public_root_inner(
     let (meta, rel, name) = {
         let conn = state.db.lock().map_err(|_| busy())?;
         let rel = scoped_child(
-            &link,
+            link,
             query.path.as_deref().unwrap_or(""),
             json_error(
                 StatusCode::BAD_REQUEST,
@@ -1631,7 +1628,7 @@ async fn public_root_inner(
         // guest outside the link root.
         let (_resolved, meta) = confined_read(
             &conn,
-            &link,
+            link,
             &rel,
             &json_error(
                 StatusCode::NOT_FOUND,
@@ -2151,7 +2148,7 @@ async fn folder_zip_response(
 async fn album_zip_response(state: &AppState, link: &AccessLinkRow) -> Result<Response, ApiError> {
     let (home_root, album) = {
         let conn = state.db.lock().map_err(|_| busy())?;
-        album_for_link(&conn, &link)?
+        album_for_link(&conn, link)?
     };
     let refs = crate::gallery::list_album_item_refs(&home_root, &album.id).map_err(|_| {
         json_error(

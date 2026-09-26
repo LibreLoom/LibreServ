@@ -316,7 +316,7 @@ fn walk_total(path: &Path, is_dir: bool) -> Result<u64, JobError> {
             if entry
                 .file_name()
                 .to_str()
-                .is_none_or(|n| files::is_internal_temp(n))
+                .is_none_or(files::is_internal_temp)
             {
                 continue;
             }

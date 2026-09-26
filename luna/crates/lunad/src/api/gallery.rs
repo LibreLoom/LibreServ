@@ -2276,7 +2276,7 @@ mod tests {
         // the content must sniff as media (JPEG magic bytes here).
         let contrib = root.join("Shared Photos/Shared");
         std::fs::create_dir_all(&contrib).unwrap();
-        std::fs::write(contrib.join("guest.jpg"), &[0xFF, 0xD8, 0xFF, 0xE0]).unwrap();
+        std::fs::write(contrib.join("guest.jpg"), [0xFF, 0xD8, 0xFF, 0xE0]).unwrap();
         let album = crate::gallery::create_album(root, "home", "u1", "Shared").unwrap();
         crate::gallery::add_album_items(root, &album.id, &[("d1".into(), "a.jpg".into())]).unwrap();
         let mut album = crate::gallery::get_album(root, "home", &album.id)
@@ -2321,9 +2321,9 @@ mod tests {
         .unwrap();
         let contrib = root.join("Shared Photos/Shared");
         std::fs::create_dir_all(&contrib).unwrap();
-        std::fs::write(contrib.join("guest.jpg"), &[0xFF, 0xD8, 0xFF, 0xE0]).unwrap();
+        std::fs::write(contrib.join("guest.jpg"), [0xFF, 0xD8, 0xFF, 0xE0]).unwrap();
         // A real media file outside the contrib folder on the same drive.
-        std::fs::write(root.join("outside.jpg"), &[0xFF, 0xD8, 0xFF, 0xE0]).unwrap();
+        std::fs::write(root.join("outside.jpg"), [0xFF, 0xD8, 0xFF, 0xE0]).unwrap();
         let album = crate::gallery::create_album(root, "home", "u1", "Shared").unwrap();
         // A pre-existing bad row: a non-media file already in album_items.
         crate::gallery::add_album_items(root, &album.id, &[("home".into(), "evil.html".into())])

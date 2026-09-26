@@ -209,8 +209,7 @@ pub fn ensure_dir(conn: &Connection, drive_id: &str, rel: &str) -> anyhow::Resul
         return Ok(false);
     }
     let root = Path::new(&drive.mount_point);
-    let path =
-        luna_core::path::resolve_for_create_nofollow(root, rel).map_err(|e| FilesError::Path(e))?;
+    let path = luna_core::path::resolve_for_create_nofollow(root, rel).map_err(FilesError::Path)?;
     match std::fs::symlink_metadata(&path) {
         Ok(m) if m.is_dir() && !m.file_type().is_symlink() => Ok(true),
         Ok(_) => Ok(false), // a file squats on the home name — leave it, report not-ready

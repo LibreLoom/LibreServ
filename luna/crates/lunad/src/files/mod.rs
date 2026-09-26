@@ -1833,7 +1833,7 @@ pub fn rename(
     // Trash items are only reachable through the `.luna-trash` alias, where
     // caps resolve the entry to its origin. A raw `{prefix}-trash` name
     // would retitle ANY user's trash entry with no origin check at all.
-    if is_trash_rel(&rel) && !is_trash_api(&api_rel) {
+    if is_trash_rel(&rel) && !is_trash_api(api_rel) {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::NotFound,
             "not found",
@@ -1922,7 +1922,7 @@ pub fn move_rel(
     // sources only arrive through the `.luna-trash` alias, where caps map
     // the entry to its origin: a raw `{prefix}-trash` name would relocate
     // any user's entry with no origin check.
-    if is_trash_rel(&from_rel) && !is_trash_api(&api_from) {
+    if is_trash_rel(&from_rel) && !is_trash_api(api_from) {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::NotFound,
             "not found",

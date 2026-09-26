@@ -1359,13 +1359,13 @@ fn browse_rows_walk(drive_id: &str, norm: &str, rows: &[db::AccessMemberRow]) ->
         if r.subject_kind != crate::access::KIND_PATH || r.drive_id != drive_id {
             return false;
         }
-        if let Some(home_root) = home_root {
-            if !crate::access::path_contains(
+        if let Some(home_root) = home_root
+            && !crate::access::path_contains(
                 home_root,
                 &crate::access::normalize_subject_path(&r.path),
-            ) {
-                return false;
-            }
+            )
+        {
+            return false;
         }
         // Upload-only rows are browse-blind: PUT lands on a known path, but
         // nothing under or above the grant opens for walking.

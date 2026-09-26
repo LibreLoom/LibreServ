@@ -306,7 +306,7 @@ fn question_skipped(question: &Value, questions: &[&Value], answers: &Map<String
     match answers.get(trigger_id) {
         Some(Value::Array(items)) => items.iter().any(|i| i.as_str() == Some(expect)),
         Some(Value::String(s)) => s == expect,
-        Some(other) => other.to_string() == expect,
+        Some(other) => other == expect,
         None => expect.is_empty(),
     }
 }
@@ -577,8 +577,8 @@ fn latest_by_id(records: &[Value]) -> Map<String, Value> {
 /// Find the response a respondent may edit: an explicit `response_id` must
 /// exist AND carry this edit secret; without an id, any record stamped with
 /// the secret identifies its response (edit-link flow).
-fn find_editable<'a>(
-    latest: &'a Map<String, Value>,
+fn find_editable(
+    latest: &Map<String, Value>,
     response_id: Option<&str>,
     edit_hash: &str,
 ) -> Result<Option<String>, (StatusCode, Json<Value>)> {
