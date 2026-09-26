@@ -69,11 +69,12 @@ if [ "$IN_CONTAINER" = 1 ]; then
 	fi
 	LB_IMAGE="${LUNA_LIVE_BUILD_IMAGE:-localhost/luna-live-build:bookworm}"
 	$PODMAN image exists "$LB_IMAGE" 2>/dev/null || \
-		$PODMAN build -t "$LB_IMAGE" -f "$ROOT/os/iso/Containerfile.live-build" "$ROOT/os/iso" || \
+		$PODMAN build --network host -t "$LB_IMAGE" -f "$ROOT/os/iso/Containerfile.live-build" "$ROOT/os/iso" || \
 		die "could not build $LB_IMAGE"
 	# The repo is mounted at the same absolute path so staged paths resolve
 	# unchanged; container root writes as root, so hand outputs back after.
-	if ! $PODMAN run --rm --privileged \
+	# Host network: the rootful bridge has no DNS/NAT for apt on some hosts.
+	if ! $PODMAN run --rm --privileged --network host \
 		-e ARCH="$ARCH" -e OUT="$OUT" -e WORK="$WORK" \
 		-v "$ROOT:$ROOT:z" \
 		"$LB_IMAGE" bash "$BUILD"; then
