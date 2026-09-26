@@ -1,6 +1,6 @@
 module gt.plainskill.net/LibreLoom/LibreServ
 
-go 1.26
+go 1.26.0
 
 toolchain go1.26.6
 
@@ -35,7 +35,7 @@ require (
 	github.com/spf13/viper v1.21.0
 	github.com/yuin/goldmark v1.8.6
 	github.com/zitadel/oidc/v3 v3.49.6
-	golang.org/x/crypto v0.55.0
+	golang.org/x/crypto v0.56.0
 	golang.org/x/sys v0.47.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.25.0
