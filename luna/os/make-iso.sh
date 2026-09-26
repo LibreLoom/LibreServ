@@ -61,25 +61,29 @@ fi
 
 echo "==> Debian live ISO (bookworm)"
 if [ "$IN_CONTAINER" = 1 ]; then
+	# debootstrap needs mknod, which user namespaces can't grant — prefer
+	# rootful podman via sudo when available.
+	PODMAN=podman
+	if sudo -n podman version >/dev/null 2>&1; then
+		PODMAN="sudo -n podman"
+	fi
 	LB_IMAGE="${LUNA_LIVE_BUILD_IMAGE:-localhost/luna-live-build:bookworm}"
-	podman image exists "$LB_IMAGE" 2>/dev/null || \
-		podman build -t "$LB_IMAGE" -f "$ROOT/os/iso/Containerfile.live-build" "$ROOT/os/iso" || \
+	$PODMAN image exists "$LB_IMAGE" 2>/dev/null || \
+		$PODMAN build -t "$LB_IMAGE" -f "$ROOT/os/iso/Containerfile.live-build" "$ROOT/os/iso" || \
 		die "could not build $LB_IMAGE"
 	# The repo is mounted at the same absolute path so staged paths resolve
-	# unchanged; rootless container root maps to the calling user. The chroot
-	# workspace must live on container-local storage: debootstrap needs mknod
-	# and a rootless bind mount is nodev. Only the finished ISO travels back
-	# through $OUT on the repo mount.
-	if ! podman run --rm --privileged \
-		-e ARCH="$ARCH" -e OUT="$OUT" -e WORK=/work -e STAGED="$WORK" -e BUILD="$BUILD" \
+	# unchanged; container root writes as root, so hand outputs back after.
+	if ! $PODMAN run --rm --privileged \
+		-e ARCH="$ARCH" -e OUT="$OUT" -e WORK="$WORK" \
 		-v "$ROOT:$ROOT:z" \
-		"$LB_IMAGE" bash -c 'mkdir -p "$WORK" && cp -a "$STAGED/." "$WORK/" && bash "$BUILD"; rc=$?; cp -f "$WORK/build.log" "$STAGED/build.log" 2>/dev/null; exit $rc'; then
+		"$LB_IMAGE" bash "$BUILD"; then
 		echo "==> ISO build failed; see $WORK/build.log" >&2
 		if [ -f "$WORK/build.log" ]; then
 			tail -30 "$WORK/build.log" >&2
 		fi
 		exit 1
 	fi
+	sudo -n chown -R "$(id -u):$(id -g)" "$WORK" "$OUT" 2>/dev/null || true
 elif ! sudo env ARCH="$ARCH" OUT="$OUT" WORK="$WORK" bash "$BUILD"; then
 	echo "==> ISO build failed; see $WORK/build.log" >&2
 	if [ -f "$WORK/build.log" ]; then
