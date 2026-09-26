@@ -226,12 +226,9 @@ pub fn list_dir_with_cache(
     }
 
     let meta = std::fs::metadata(&dir).map_err(FilesError::Io)?;
-    let mtime = meta
-        .modified()
-        .ok()
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
+    // Nanosecond stamp, not seconds: a whole-second comparison would hide
+    // any write that lands in the same second as the last index fill.
+    let mtime = index::dir_stamp(&meta);
 
     if let Some(cache) = cache
         && let Some(mut entries) = cache.get_listing(drive_id, &rel, Some(mtime))
@@ -320,6 +317,26 @@ pub fn read_dir_entries(dir: &Path) -> Result<Vec<FileEntry>, FilesError> {
             .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
     });
     Ok(entries)
+}
+
+/// Forget the indexed listings a write may have invalidated: `api_rel`'s
+/// parent directory plus `api_rel` itself and its indexed subtree (renames
+/// and deletes of a folder). The dir-mtime freshness check alone cannot see
+/// writes inside the filesystem's timestamp granularity — one second is
+/// common, two on FAT32 — so every Luna write that lands must call this.
+/// Best-effort: an unreadable microdb leaves the mtime guard as backstop.
+pub fn note_write(conn: &rusqlite::Connection, drive_id: &str, api_rel: &str) {
+    let Ok(drive) = drive_root(conn, drive_id) else {
+        return;
+    };
+    let Ok(dconn) = open_drive_db(&drive) else {
+        return;
+    };
+    let root = PathBuf::from(&drive.mount_point);
+    let rel = real_rel(&root, api_rel);
+    let parent = rel.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
+    let _ = index::forget_dir(&dconn, drive_id, parent);
+    let _ = index::forget_dir_tree(&dconn, drive_id, &rel);
 }
 
 /// If a write failed because the drive is full or read-only, transition the
@@ -1027,7 +1044,7 @@ fn resolve_user_rel(root: &Path, rel: &str) -> Result<PathBuf, luna_core::path::
     }
 }
 
-fn real_rel<'a>(root: &Path, rel: &'a str) -> std::borrow::Cow<'a, str> {
+pub(crate) fn real_rel<'a>(root: &Path, rel: &'a str) -> std::borrow::Cow<'a, str> {
     match rel.strip_prefix(TRASH_API_ALIAS) {
         Some(rest) if rest.is_empty() || rest.starts_with('/') => {
             match crate::drives::layout::Layout::detect(root) {
@@ -1330,6 +1347,7 @@ pub fn delete_to_trash(
     // Trash is a revoke, not a move: grants on the trashed subject die here
     // and restoring the file never brings them back.
     crate::access::drop_subjects_under(conn, drive_id, &trash_rel).map_err(FilesError::Db)?;
+    note_write(conn, drive_id, &trash_rel);
     // Return the API-alias path (`trash_meta` keeps the real entry name, which
     // is shared by both forms since the alias only swaps the dir prefix).
     let real = dest
@@ -1681,6 +1699,8 @@ pub fn restore_from_trash(
     if let Some(entry_name) = trash_entry_name(&trash_rel) {
         remove_trash_meta(&root, entry_name);
     }
+    note_write(conn, drive_id, dest_rel);
+    note_write(conn, drive_id, &trash_rel);
     Ok(())
 }
 
@@ -1713,6 +1733,7 @@ pub fn purge_trash(
     if rest.is_none() {
         remove_trash_meta(&root, entry_name);
     }
+    note_write(conn, drive_id, &trash_rel);
     Ok(())
 }
 
@@ -1751,6 +1772,7 @@ pub fn mkdir(conn: &rusqlite::Connection, drive_id: &str, rel: &str) -> Result<(
             if let Ok(dir) = std::fs::File::open(parent) {
                 let _ = dir.sync_all();
             }
+            note_write(conn, drive_id, rel);
             Ok(())
         }
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Err(FilesError::Io(e)),
@@ -1800,6 +1822,7 @@ pub fn create(conn: &rusqlite::Connection, drive_id: &str, rel: &str) -> Result<
             if let Ok(dir) = std::fs::File::open(parent) {
                 let _ = dir.sync_all();
             }
+            note_write(conn, drive_id, rel);
             Ok(())
         }
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Err(FilesError::Io(e)),
@@ -1898,6 +1921,7 @@ pub fn rename(
         )?;
         remove_trash_meta(&root, &old_entry);
     }
+    note_write(conn, drive_id, api_rel);
     Ok(())
 }
 
@@ -1969,6 +1993,8 @@ pub fn move_rel(
             // link on a trash item points at wherever it lands.
             crate::access::repath_subjects(conn, drive_id, api_from, api_to)
                 .map_err(FilesError::Db)?;
+            note_write(conn, drive_id, api_from);
+            note_write(conn, drive_id, api_to);
             Ok(())
         }
         false => Err(FilesError::Io(std::io::Error::new(
@@ -2075,6 +2101,22 @@ mod tests {
         assert!(safe_name("../x").is_err());
         assert!(safe_name("a/b").is_err());
         assert_eq!(safe_name("photo.jpg").unwrap(), "photo.jpg");
+    }
+
+    #[test]
+    fn list_sees_write_that_landed_within_dir_mtime_granularity() {
+        // Regression: listings trusted a directory mtime compared in whole
+        // seconds, so a write that landed in the same second as the index
+        // fill stayed invisible until some later change crossed a second
+        // boundary. Create and list back-to-back to sit inside one second.
+        let (_dir, conn, id) = drive_dir();
+        let _ = list_dir(&conn, &id, "").unwrap(); // fills the index
+        create(&conn, &id, "Document.docx").unwrap();
+        let entries = list_dir(&conn, &id, "").unwrap();
+        assert!(
+            entries.iter().any(|e| e.name == "Document.docx"),
+            "a create that landed on disk must appear in the next listing"
+        );
     }
 
     #[test]

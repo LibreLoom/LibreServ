@@ -174,6 +174,7 @@ async fn complete(
             crate::access::caps_to_str(crate::auth::caps_on_path(&user, &conn, &drive_id, &rel));
     }
     state.gallery.upsert(&drive_id, &rel);
+    crate::api::files::invalidate_parent_listing(&state, &drive_id, &rel);
     state.touch_io_activity();
     Ok(Json(entry))
 }

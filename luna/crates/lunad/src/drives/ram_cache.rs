@@ -529,6 +529,16 @@ impl RamCache {
         }
         self.mark_dirty_durable(drive_id, rel);
         self.invalidate_listing(drive_id, &parent_rel(rel));
+        // The landing bumps the parent dir's mtime, but the index compares
+        // stamps — a landing inside the filesystem's timestamp granularity
+        // leaves the indexed snapshot "fresh" while it lacks this file.
+        // Forget the row outright so the next listing re-reads the dir.
+        if let Ok(dconn) = crate::drives::drive_db::open(mount) {
+            let real = crate::files::real_rel(mount, rel);
+            let parent = real.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
+            let _ = crate::files::index::forget_dir(&dconn, drive_id, parent);
+            let _ = crate::files::index::forget_dir_tree(&dconn, drive_id, &real);
+        }
         Ok(())
     }
 

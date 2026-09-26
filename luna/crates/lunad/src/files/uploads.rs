@@ -429,6 +429,11 @@ pub fn complete(
         files::note_write_failure(&conn, &upload.drive_id, &e.to_string());
         return Err(e.into());
     }
+    files::note_write(
+        &conn,
+        &upload.drive_id,
+        &crate::gallery::gallery_indexer::join_rel(&upload.path, &name),
+    );
 
     let final_meta = std::fs::metadata(&dest).map_err(UploadError::Io)?;
     let modified = final_meta

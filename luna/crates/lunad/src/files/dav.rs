@@ -192,12 +192,10 @@ fn dav_handler_for(
     // Per-request handler: grants are user-specific, so we must not share one
     // filesystem across sessions.
     Ok(crate::DavHandler::builder()
-        .filesystem(Box::new(GrantFs::new(
-            &mount_point,
-            user,
-            drive_id.clone(),
-            state.db.clone(),
-        )))
+        .filesystem(Box::new(
+            GrantFs::new(&mount_point, user, drive_id.clone(), state.db.clone())
+                .with_cache(state.ram_cache.clone()),
+        ))
         .locksystem(FakeLs::new())
         .strip_prefix(format!("/dav/{drive_id}"))
         .build_handler())
@@ -249,13 +247,10 @@ fn dav_home_handler(
     let rel = home.rel.clone();
     let root = std::path::PathBuf::from(&drive.mount_point).join(&rel);
     Ok(crate::DavHandler::builder()
-        .filesystem(Box::new(GrantFs::scoped(
-            &root,
-            rel,
-            user.clone(),
-            drive.id.clone(),
-            state.db.clone(),
-        )))
+        .filesystem(Box::new(
+            GrantFs::scoped(&root, rel, user.clone(), drive.id.clone(), state.db.clone())
+                .with_cache(state.ram_cache.clone()),
+        ))
         .locksystem(FakeLs::new())
         .strip_prefix("/dav/home".to_string())
         .build_handler())

@@ -65,6 +65,9 @@ pub struct GrantFs {
     /// drive-relative path.
     prefix: String,
     db: Arc<Mutex<Connection>>,
+    /// Shared listing cache — every landed write forgets the cached views it
+    /// invalidated. Optional: unit tests run a bare fs.
+    cache: Option<crate::drives::ram_cache::RamCache>,
     /// Deletes buffered for the end of the request (see [`Self::buffer_remove`]).
     pending_removes: Arc<Mutex<BTreeSet<String>>>,
     /// Per-request caps context — filled on first use. A PROPFIND over a
@@ -108,8 +111,34 @@ impl GrantFs {
             drive_id: drive_id.into(),
             prefix: prefix.into(),
             db,
+            cache: None,
             pending_removes: Arc::new(Mutex::new(BTreeSet::new())),
             caps_ctx: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    /// Attach the shared RAM listing cache so writes landing through DAV are
+    /// visible to file-API readers immediately.
+    pub fn with_cache(mut self, cache: crate::drives::ram_cache::RamCache) -> Self {
+        self.cache = Some(cache);
+        self
+    }
+
+    /// Forget every cached view a landed write may have invalidated: the
+    /// parent's RAM listing, any cached subtree at the path itself, and the
+    /// indexed snapshot. On coarse-mtime filesystems (FAT32/exFAT tick in
+    /// ~2s chunks) the index's dir-mtime guard cannot see a write that lands
+    /// inside the same tick — the row must be forgotten outright, not left
+    /// to look fresh.
+    fn note_landed(&self, rel: &str) {
+        let subject = self.subject_rel(rel);
+        if let Some(cache) = &self.cache {
+            let parent = subject.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
+            cache.invalidate_listing(&self.drive_id, parent);
+            cache.invalidate_listing_tree(&self.drive_id, &subject);
+        }
+        if let Ok(conn) = self.db.lock() {
+            crate::files::note_write(&conn, &self.drive_id, &subject);
         }
     }
 
@@ -355,9 +384,18 @@ impl GrantFs {
             return Err(FsError::Forbidden);
         }
         let conn = self.db.lock().map_err(|_| FsError::GeneralFailure)?;
-        crate::files::delete_to_trash(&conn, &self.drive_id, &subject)
-            .map(|_| ())
-            .map_err(files_to_fs)
+        crate::files::delete_to_trash(&conn, &self.drive_id, &subject).map_err(files_to_fs)?;
+        drop(conn);
+        if let Some(cache) = &self.cache {
+            let parent = subject.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
+            cache.invalidate_listing(&self.drive_id, parent);
+            cache.invalidate_listing_tree(&self.drive_id, &subject);
+            // The entry lands under the drive's real trash dir — its cached
+            // listing stales the same way the origin's did.
+            let trash = crate::files::real_rel(&self.inner.root, crate::files::TRASH_API_ALIAS);
+            cache.invalidate_listing_tree(&self.drive_id, &trash);
+        }
+        Ok(())
     }
 
     /// Shares follow the file: retarget member/link subject rows from
@@ -769,7 +807,14 @@ impl DavFileSystem for GrantFs {
                 self.flush_pending_under(&rel)?;
             }
             let options = self.require_open_caps(&rel, options)?;
-            self.inner.open(path, options).await
+            let writing = open_write_requested(&options);
+            let file = self.inner.open(path, options).await?;
+            if writing {
+                // Create/truncate/append all land through this open — the
+                // name is on disk now, so its listing snapshot is stale.
+                self.note_landed(&rel);
+            }
+            Ok(file)
         })
     }
 
@@ -830,7 +875,9 @@ impl DavFileSystem for GrantFs {
             let rel = Self::rel(path)?;
             self.flush_pending_under(&rel)?;
             self.require_cap(&rel, CAP_UPLOAD)?;
-            self.inner.create_dir(path).await
+            self.inner.create_dir(path).await?;
+            self.note_landed(&rel);
+            Ok(())
         })
     }
 
@@ -866,7 +913,10 @@ impl DavFileSystem for GrantFs {
             self.flush_pending_under(&to_rel)?;
             self.require_dest_free(to).await?;
             self.inner.rename(from, to).await?;
-            self.repath(&from_rel, &to_rel)
+            self.repath(&from_rel, &to_rel)?;
+            self.note_landed(&from_rel);
+            self.note_landed(&to_rel);
+            Ok(())
         })
     }
 
@@ -878,7 +928,9 @@ impl DavFileSystem for GrantFs {
             self.require_cap(&to_rel, CAP_UPLOAD)?;
             self.flush_pending_under(&to_rel)?;
             self.require_dest_free(to).await?;
-            self.inner.copy(from, to).await
+            self.inner.copy(from, to).await?;
+            self.note_landed(&to_rel);
+            Ok(())
         })
     }
 }

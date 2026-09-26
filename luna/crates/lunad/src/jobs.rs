@@ -450,6 +450,8 @@ fn run_job(
                             &prepared.row.from_path,
                         );
                         note_member_home_move(&conn, &prepared.row);
+                        files::note_write(&conn, &prepared.row.from_drive, &prepared.row.from_path);
+                        files::note_write(&conn, &prepared.row.to_drive, &prepared.row.to_path);
                         let _ = db::update_job_progress(
                             &conn,
                             &prepared.row.id,
@@ -582,6 +584,14 @@ fn run_job(
         let _ = std::fs::remove_dir_all(&prepared.dest);
     }
     if state == "done" {
+        // The copy landed whole directories the listings never saw land —
+        // forget the indexed snapshots so the next read re-reads the dirs
+        // (mtime alone misses writes inside the filesystem's timestamp
+        // granularity).
+        if let Ok(conn) = db.lock() {
+            files::note_write(&conn, &prepared.row.from_drive, &prepared.row.from_path);
+            files::note_write(&conn, &prepared.row.to_drive, &prepared.row.to_path);
+        }
         notify_job_gallery(&gallery, &prepared, prepared.row.kind == "move");
     }
 }

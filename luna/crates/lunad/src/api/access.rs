@@ -2640,6 +2640,7 @@ async fn public_upload_complete(
         )
         .map_err(map_upload_err)?;
         let rel = crate::gallery::gallery_indexer::join_rel(&row.path, &entry.name);
+        invalidate_guest_listing(&state, &row.drive_id, &rel);
         if link.subject_kind == KIND_ALBUM {
             // Album contributions: index the file and attach it to the album.
             let (root, album) = {
@@ -2897,9 +2898,7 @@ fn map_guest_files_err(err: files::FilesError) -> ApiError {
 }
 
 fn invalidate_guest_listing(state: &AppState, drive_id: &str, rel: &str) {
-    let parent = rel.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
-    state.ram_cache.invalidate_listing(drive_id, parent);
-    state.ram_cache.invalidate_listing_tree(drive_id, rel);
+    crate::api::files::invalidate_parent_listing(state, drive_id, rel);
 }
 
 async fn public_stat(

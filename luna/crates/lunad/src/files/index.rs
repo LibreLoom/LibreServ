@@ -1,8 +1,12 @@
 //! SQLite file index — listings come from the index, not the spinning disk.
 //!
-//! Correctness is guaranteed by comparing each directory's mtime with the
-//! indexed mtime: any change through Luna, WebDAV, or a computer plugged into
-//! the drive invalidates the entry and triggers a single fresh `read_dir`.
+//! Freshness has two guards: every Luna write that lands calls
+//! [`forget_dir`] on the directories it touched, and any outside change
+//! (WebDAV, a computer plugged into the drive) is caught by comparing each
+//! directory's mtime — at nanosecond precision — with the indexed stamp.
+//! Whole seconds would miss writes that land inside the filesystem's
+//! timestamp granularity (one second on most filesystems, two on FAT32),
+//! leaving files that exist on disk invisible to listings.
 //! Search therefore reads SQLite only, which is the <50ms listing target.
 
 use rusqlite::{Connection, params};
@@ -10,6 +14,64 @@ use rusqlite::{Connection, params};
 use crate::db;
 
 use crate::files::{FileEntry, FolderTotals};
+
+/// Directory mtime as nanoseconds since the epoch — the freshness stamp the
+/// index compares. Never truncate to seconds: a write that lands inside one
+/// second of the last fill would otherwise look fresh forever.
+pub fn dir_stamp(meta: &std::fs::Metadata) -> i64 {
+    meta.modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_nanos().min(i64::MAX as u128) as i64)
+        .unwrap_or(0)
+}
+
+/// Drop the indexed state of one directory so the next listing re-reads it
+/// from disk. Every Luna write calls this on the directories it touched —
+/// the mtime check alone misses writes inside the filesystem's timestamp
+/// granularity.
+pub fn forget_dir(conn: &Connection, drive_id: &str, rel: &str) -> anyhow::Result<()> {
+    conn.execute(
+        "DELETE FROM indexed_dirs WHERE drive_id = ?1 AND path = ?2",
+        params![drive_id, rel],
+    )?;
+    Ok(())
+}
+
+/// Drop every indexed row under `rel` — the directory itself and its whole
+/// subtree. Renames, deletes, and moves of a folder leave the old rows
+/// unreachable by path, but forgetting them keeps `search` honest.
+pub fn forget_dir_tree(conn: &Connection, drive_id: &str, rel: &str) -> anyhow::Result<()> {
+    if rel.is_empty() {
+        conn.execute(
+            "DELETE FROM indexed_dirs WHERE drive_id = ?1",
+            params![drive_id],
+        )?;
+        conn.execute(
+            "DELETE FROM index_entries WHERE drive_id = ?1",
+            params![drive_id],
+        )?;
+        return Ok(());
+    }
+    // Escape LIKE metachars in the rel — a folder named `50%` or `a_b` must
+    // forget only its own subtree.
+    let escaped = rel
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_");
+    let prefix = format!("{escaped}/%");
+    conn.execute(
+        "DELETE FROM indexed_dirs
+         WHERE drive_id = ?1 AND (path = ?2 OR path LIKE ?3 ESCAPE '\\')",
+        params![drive_id, rel, prefix],
+    )?;
+    conn.execute(
+        "DELETE FROM index_entries
+         WHERE drive_id = ?1 AND (parent = ?2 OR parent LIKE ?3 ESCAPE '\\')",
+        params![drive_id, rel, prefix],
+    )?;
+    Ok(())
+}
 
 pub fn replace_dir(
     conn: &Connection,
@@ -227,10 +289,7 @@ pub fn folder_totals_indexed(
             )
             .ok()?;
         let current = std::fs::metadata(root.join(&dir_rel))
-            .ok()
-            .and_then(|m| m.modified().ok())
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_secs() as i64)
+            .map(|m| dir_stamp(&m))
             .unwrap_or(0);
         if indexed != current {
             return None;
@@ -329,7 +388,7 @@ fn scan_drive_inner(
     }
     while let Some((rel, dir)) = stack.pop() {
         let meta = std::fs::metadata(&dir)?;
-        let mtime = mtime(&meta);
+        let mtime = dir_stamp(&meta);
         let entries = crate::files::read_dir_entries(&dir)?;
         for entry in &entries {
             // read_dir_entries already filtered out Luna's `.luna-<uuid>`
@@ -364,14 +423,6 @@ pub fn scan_drive_unlocked(
         .unwrap_or_default();
     let unused = Connection::open_in_memory()?;
     scan_drive_inner(&unused, drive_id, root, &home_rels)
-}
-
-fn mtime(meta: &std::fs::Metadata) -> i64 {
-    meta.modified()
-        .ok()
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
 }
 
 #[cfg(test)]

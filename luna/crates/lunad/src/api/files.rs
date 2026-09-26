@@ -942,10 +942,25 @@ async fn serve_file_content(
     Ok(builder.body(Body::from_stream(stream)).unwrap())
 }
 
-fn invalidate_parent_listing(state: &AppState, drive_id: &str, rel: &str) {
-    let parent = rel.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
+/// Drop every cached view of a write's directory: the RAM listing plus the
+/// indexed snapshot. The index's dir-mtime check cannot see writes that land
+/// inside the filesystem's timestamp granularity (one second is common, two
+/// on FAT32), so the row must be forgotten outright — not left to look fresh.
+pub(crate) fn invalidate_parent_listing(state: &AppState, drive_id: &str, rel: &str) {
+    // `.luna-trash` is an API alias — listings key on the real
+    // `{prefix}-trash` path, so resolve before evicting or nothing clears.
+    let real = state
+        .db
+        .lock()
+        .ok()
+        .and_then(|conn| files::real_rel_path(&conn, drive_id, rel).ok())
+        .unwrap_or_else(|| rel.to_string());
+    let parent = real.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
     state.ram_cache.invalidate_listing(drive_id, parent);
-    state.ram_cache.invalidate_listing_tree(drive_id, rel);
+    state.ram_cache.invalidate_listing_tree(drive_id, &real);
+    if let Ok(conn) = state.db.lock() {
+        files::note_write(&conn, drive_id, &real);
+    }
 }
 
 async fn delete_entry(
