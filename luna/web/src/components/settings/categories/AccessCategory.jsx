@@ -265,8 +265,8 @@ function ProfileCard() {
       <div className="mt-3 rounded-large-element bg-primary text-secondary p-4">
         <p className="font-mono text-sm">Password</p>
         <p className="text-sm mt-1">
-          Changing your password signs out every browser and app — including
-          this one — so sign in again afterward.
+          Changing your password signs your account out in every browser and
+          app — including this one — so sign in again afterward.
         </p>
         <div className="mt-2 sm:grid sm:grid-cols-2 sm:gap-x-3">
           <FormInput
@@ -384,8 +384,8 @@ export default function AccessCategory() {
 
       <SettingsCard icon={Globe2} title="Browsers" padding={false} index={0}>
         <SettingsRow
-          label="Sign out every browser"
-          description="Every browser must type the password again. Apps and access tokens below keep working."
+          label="Sign out of Luna in every browser"
+          description="Signs your account out in every browser — including this one. Apps and access tokens below keep working."
           hideDivider
           stack
         >
@@ -394,7 +394,7 @@ export default function AccessCategory() {
             loading={signOutBrowsers.isPending}
             onClick={() => signOutBrowsers.mutate()}
           >
-            Sign out every browser
+            Sign out of Luna in every browser
           </Button>
         </SettingsRow>
       </SettingsCard>

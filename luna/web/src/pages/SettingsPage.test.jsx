@@ -125,7 +125,7 @@ describe("SettingsPage", () => {
     await screen.findByText("max");
 
     await user.click(screen.getByRole("button", { name: /^Security$/i }));
-    expect(await screen.findByRole("button", { name: /Sign out every browser/i })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /Sign out of Luna in every browser/i })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Revoke app access/i })).toBeNull();
     expect(screen.getByRole("button", { name: /Create access token/i })).toBeTruthy();
     expect(screen.getByText(/phone app, Luna Desktop, or script/i)).toBeTruthy();

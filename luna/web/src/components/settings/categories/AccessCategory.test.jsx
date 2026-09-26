@@ -47,7 +47,7 @@ describe("AccessCategory", () => {
   it("shows browser sign-out without bulk app revoke", async () => {
     renderAccess();
     expect(await screen.findByRole("heading", { name: "Browsers" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Sign out every browser/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Sign out of Luna in every browser/i })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Revoke app access/i })).toBeNull();
     expect(screen.queryByText(/Luna cannot show a list of every browser/i)).toBeNull();
   });
