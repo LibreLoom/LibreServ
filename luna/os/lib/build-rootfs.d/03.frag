@@ -74,7 +74,7 @@ mkdir -p "$ROOTFS/var/lib/luna"
 cat > "$ROOTFS/var/lib/luna/issue" <<'ISSUE'
 
 ============================================================
-  Luna is starting. Open it from a phone or computer.
+  Luna is starting. Open it from a browser.
 ============================================================
 
 ISSUE

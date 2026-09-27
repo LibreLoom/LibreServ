@@ -7,7 +7,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-pub const BANNER_OK: &str = "Luna is running. Open it from a phone or computer.";
+pub const BANNER_OK: &str = "Luna is running. Open it from a browser.";
 
 pub const BANNER_PROBLEMS: &str = "Luna needs attention. Check the notes below.";
 
@@ -101,13 +101,13 @@ pub fn help_lines(snap: &ConsoleSnapshot) -> Vec<String> {
     let show_remote = !token_problem && snap.connect_hostname.is_some();
     let show_home = !snap.ipv4.is_empty() || show_remote;
     if show_remote && let Some(host) = &snap.connect_hostname {
-        lines.push("  Everywhere:".into());
+        lines.push("  Links that work from anywhere:".into());
         lines.push(format!("    {host}"));
         lines.push(String::new());
     }
     if show_home {
-        lines.push("  On your local network:".into());
-        lines.push("    luna.local".into());
+        lines.push("  Links on your local network:".into());
+        lines.push("    http://luna.local".into());
         for ip in &snap.ipv4 {
             lines.push(format!("    {ip}"));
         }
@@ -188,10 +188,9 @@ mod tests {
             problems: vec![],
         });
         assert!(text.contains("192.168.1.20"));
-        assert!(text.contains("luna.local"));
+        assert!(text.contains("http://luna.local"));
         assert!(text.contains("ABCD-EFGH"));
         assert!(text.contains(BANNER_OK));
-        assert!(!text.contains("http://luna"));
         assert!(!text.contains("169.254.42.42"));
         assert!(!text.contains("Luna Setup"));
     }
@@ -225,7 +224,7 @@ mod tests {
         assert!(text.contains("almost full"));
         assert!(text.contains("Drive Photos"));
         let problem_at = text.find("What's wrong:").unwrap();
-        let open_at = text.find("On your local network:").unwrap();
+        let open_at = text.find("Links on your local network:").unwrap();
         assert!(problem_at < open_at);
     }
 
@@ -238,17 +237,16 @@ mod tests {
             connect_hostname: Some("photos.luna.servers.libreloom.org".into()),
             ..Default::default()
         });
-        let everywhere_at = text.find("Everywhere:").unwrap();
-        let home_at = text.find("On your local network:").unwrap();
+        let everywhere_at = text.find("Links that work from anywhere:").unwrap();
+        let home_at = text.find("Links on your local network:").unwrap();
         let host_at = text.find("photos.luna.servers.libreloom.org").unwrap();
-        let local_at = text.find("luna.local").unwrap();
+        let local_at = text.find("http://luna.local").unwrap();
         assert!(everywhere_at < host_at);
         assert!(host_at < home_at);
         assert!(home_at < local_at);
         assert!(!text.contains("Away from home"));
         assert!(!text.contains("On your home internet only"));
         assert!(!text.contains("https://"));
-        assert!(!text.contains("http://"));
     }
 
     #[test]
