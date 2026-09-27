@@ -347,13 +347,13 @@ export default function ModalCard({
 
                 {loading ? (
                   <div className="p-5 space-y-4" aria-hidden="true">
-                    <div className="h-4 w-3/4 rounded-pill bg-accent/30 animate-pulse" />
-                    <div className="h-4 w-full rounded-pill bg-accent/30 animate-pulse" />
-                    <div className="h-4 w-2/3 rounded-pill bg-accent/30 animate-pulse" />
-                    <div className="h-10 w-full rounded-pill bg-accent/30 animate-pulse" />
+                    <div className="h-4 w-3/4 rounded-pill bg-primary/20 animate-pulse" />
+                    <div className="h-4 w-full rounded-pill bg-primary/20 animate-pulse" />
+                    <div className="h-4 w-2/3 rounded-pill bg-primary/20 animate-pulse" />
+                    <div className="h-10 w-full rounded-pill bg-primary/20 animate-pulse" />
                     <div className="flex gap-3 pt-2">
-                      <div className="h-10 flex-1 rounded-pill bg-accent/30 animate-pulse" />
-                      <div className="h-10 flex-1 rounded-pill bg-accent/30 animate-pulse" />
+                      <div className="h-10 flex-1 rounded-pill bg-primary/20 animate-pulse" />
+                      <div className="h-10 flex-1 rounded-pill bg-primary/20 animate-pulse" />
                     </div>
                   </div>
                 ) : (

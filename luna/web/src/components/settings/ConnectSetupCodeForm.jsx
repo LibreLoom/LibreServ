@@ -66,8 +66,8 @@ export default function ConnectSetupCodeForm({ surface = "secondary" }) {
   const hasToken = connectActive || Boolean(tokenError);
   const linkClass =
     surface === "primary"
-      ? "text-accent hover:text-secondary motion-safe:transition-colors underline underline-offset-4"
-      : "text-accent hover:text-primary motion-safe:transition-colors underline underline-offset-4";
+      ? "text-secondary underline decoration-accent underline-offset-4 hover:decoration-current motion-safe:transition-colors"
+      : "text-primary underline decoration-accent underline-offset-4 hover:decoration-current motion-safe:transition-colors";
   const inputClass =
     surface === "primary"
       ? "w-full min-w-0 rounded-pill bg-secondary text-primary px-4 py-2 font-mono tracking-widest"

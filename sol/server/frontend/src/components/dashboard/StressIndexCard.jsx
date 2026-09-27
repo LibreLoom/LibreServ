@@ -49,7 +49,7 @@ export default function StressIndexCard({ value, breakdownItems = [] }) {
     >
       <div className="p-6">
         <div className="flex items-baseline justify-between mb-3">
-          <div className="text-xs font-mono uppercase tracking-widest text-accent">
+          <div className="text-xs font-mono uppercase tracking-widest">
             Server Stress Index
           </div>
           <div className={cn("text-xs font-mono", `text-${level.variant}`)}>
@@ -83,10 +83,10 @@ export default function StressIndexCard({ value, breakdownItems = [] }) {
                     <div className="flex items-center gap-2">
                       <ItemIcon
                         size={ICON_SIZE.xs}
-                        className="text-accent shrink-0"
+                        className="shrink-0"
                         aria-hidden="true"
                       />
-                      <span className="text-xs font-mono text-accent">
+                      <span className="text-xs font-mono">
                         {item.label}
                       </span>
                       <span className="text-xs font-mono text-primary ml-auto">

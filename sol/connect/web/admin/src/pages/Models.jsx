@@ -67,10 +67,10 @@ export default function Models() {
             <Card className="mb-4 animate-fade-in">
               <CardContent className="pt-6">
                 <div className="grid gap-3 md:grid-cols-2">
-                  <div><Label>Name</Label><Input value={providerForm.name} onChange={(e) => setProviderForm({ ...providerForm, name: e.target.value })} /></div>
-                  <div><Label>Base URL</Label><Input value={providerForm.base_url} onChange={(e) => setProviderForm({ ...providerForm, base_url: e.target.value })} /></div>
-                  <div><Label>API Key</Label><Input type="password" value={providerForm.api_key} onChange={(e) => setProviderForm({ ...providerForm, api_key: e.target.value })} /></div>
-                  <div><Label>Tier</Label><Input value={providerForm.tier} onChange={(e) => setProviderForm({ ...providerForm, tier: e.target.value })} /></div>
+                  <div><Label>Name</Label><Input placeholder="e.g. OpenRouter" value={providerForm.name} onChange={(e) => setProviderForm({ ...providerForm, name: e.target.value })} /></div>
+                  <div><Label>Base URL</Label><Input placeholder="https://api.example.com/v1" value={providerForm.base_url} onChange={(e) => setProviderForm({ ...providerForm, base_url: e.target.value })} /></div>
+                  <div><Label>API Key</Label><Input type="password" placeholder="sk-..." value={providerForm.api_key} onChange={(e) => setProviderForm({ ...providerForm, api_key: e.target.value })} /></div>
+                  <div><Label>Tier</Label><Input placeholder="free or paid" value={providerForm.tier} onChange={(e) => setProviderForm({ ...providerForm, tier: e.target.value })} /></div>
                 </div>
                 <Button className="mt-3" size="sm" loading={createProviderMut.isPending} onClick={() => createProviderMut.mutate(providerForm)}>Create</Button>
               </CardContent>
@@ -121,12 +121,12 @@ export default function Models() {
                       ))}
                     </select>
                   </div>
-                  <div><Label>Model ID</Label><Input value={modelForm.model_id} onChange={(e) => setModelForm({ ...modelForm, model_id: e.target.value })} /></div>
-                  <div><Label>Display Name</Label><Input value={modelForm.display_name} onChange={(e) => setModelForm({ ...modelForm, display_name: e.target.value })} /></div>
-                  <div><Label>Role</Label><Input value={modelForm.role} onChange={(e) => setModelForm({ ...modelForm, role: e.target.value })} /></div>
-                  <div><Label>Input $/M tokens</Label><Input type="number" step="0.01" value={modelForm.input_price_per_million} onChange={(e) => setModelForm({ ...modelForm, input_price_per_million: parseFloat(e.target.value) })} /></div>
-                  <div><Label>Output $/M tokens</Label><Input type="number" step="0.01" value={modelForm.output_price_per_million} onChange={(e) => setModelForm({ ...modelForm, output_price_per_million: parseFloat(e.target.value) })} /></div>
-                  <div><Label>Context Window</Label><Input type="number" value={modelForm.context_window} onChange={(e) => setModelForm({ ...modelForm, context_window: parseInt(e.target.value) })} /></div>
+                  <div><Label>Model ID</Label><Input placeholder="e.g. anthropic/claude-sonnet-5" value={modelForm.model_id} onChange={(e) => setModelForm({ ...modelForm, model_id: e.target.value })} /></div>
+                  <div><Label>Display Name</Label><Input placeholder="e.g. Claude Sonnet 5" value={modelForm.display_name} onChange={(e) => setModelForm({ ...modelForm, display_name: e.target.value })} /></div>
+                  <div><Label>Role</Label><Input placeholder="agent or review" value={modelForm.role} onChange={(e) => setModelForm({ ...modelForm, role: e.target.value })} /></div>
+                  <div><Label>Input $/M tokens</Label><Input type="number" step="0.01" placeholder="0.00" value={modelForm.input_price_per_million} onChange={(e) => setModelForm({ ...modelForm, input_price_per_million: parseFloat(e.target.value) })} /></div>
+                  <div><Label>Output $/M tokens</Label><Input type="number" step="0.01" placeholder="0.00" value={modelForm.output_price_per_million} onChange={(e) => setModelForm({ ...modelForm, output_price_per_million: parseFloat(e.target.value) })} /></div>
+                  <div><Label>Context Window</Label><Input type="number" placeholder="e.g. 200000" value={modelForm.context_window} onChange={(e) => setModelForm({ ...modelForm, context_window: parseInt(e.target.value) })} /></div>
                 </div>
                 <Button className="mt-3" size="sm" loading={createModelMut.isPending} onClick={() => createModelMut.mutate(modelForm)}>Create</Button>
               </CardContent>

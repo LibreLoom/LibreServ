@@ -13,7 +13,7 @@ const ICONS = {
 };
 
 /**
- * @param {{ label?: any, name: any, type?: string, value: any, onChange: any, placeholder?: any, error?: any, shake?: unknown, loading?: boolean, icon?: any, required?: boolean, disabled?: boolean, autoComplete?: any, minLength?: number, surface?: "primary"|"secondary" }} _
+ * @param {{ label?: any, name: any, type?: string, value: any, onChange: any, placeholder?: any, error?: any, shake?: unknown, loading?: boolean, icon?: any, required?: boolean, disabled?: boolean, autoComplete?: any, minLength?: number, min?: string, step?: string, inputMode?: any, hint?: string, className?: string, surface?: "primary"|"secondary" }} _
  */
 export default function FormInput({
   label,
@@ -30,6 +30,11 @@ export default function FormInput({
   disabled = false,
   autoComplete,
   minLength,
+  min,
+  step,
+  inputMode,
+  hint,
+  className,
   surface = "secondary",
 }) {
   const [showPassword, setShowPassword] = useState(false);
@@ -56,7 +61,7 @@ export default function FormInput({
   useShakeOnError(shake, fieldRef, shakeOptions);
 
   return (
-    <div className="mb-4">
+    <div className={cn("mb-4", className)}>
       {label && (
         <FieldLabel
           htmlFor={name}
@@ -143,24 +148,31 @@ export default function FormInput({
             disabled={disabled}
             autoComplete={autoComplete}
             minLength={minLength}
+            min={min}
+            step={step}
+            inputMode={inputMode}
             aria-invalid={!!error || !!shake}
-            aria-describedby={error ? `${name}-error` : undefined}
+            aria-describedby={error ? `${name}-error` : hint ? `${name}-hint` : undefined}
             className={cn(
               "w-full py-2 border-2 rounded-pill outline-none",
               inputTone,
               "disabled:opacity-50 disabled:cursor-not-allowed",
               Icon ? "pl-11" : "pl-5",
-              "pr-11",
+              "pr-5",
               error ? "border-error focus:border-error" : idleBorder,
             )}
           />
         </div>
       )}
-      {error && (
+      {error ? (
         <p id={`${name}-error`} className="text-error text-xs mt-1 px-5 animate-fade-in-up">
           {error}
         </p>
-      )}
+      ) : hint ? (
+        <p id={`${name}-hint`} className="text-xs mt-1 px-5">
+          {hint}
+        </p>
+      ) : null}
     </div>
   );
 }

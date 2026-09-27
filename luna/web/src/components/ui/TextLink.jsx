@@ -5,12 +5,10 @@ import { haptic } from "@libreloom/ui/utils/haptics.js";
 /**
  * TextLink — an inline text link that contrasts on both surfaces.
  *
- * The recurring bug: links use `text-accent hover:text-primary` (invisible on
- * hover on a `bg-primary` page) or `hover:text-secondary` (invisible on hover
- * on a `bg-secondary` card). This component picks the correct hover token from
- * the `surface` it sits on:
- *   - surface="primary"  (page bg)  → hover:text-secondary
- *   - surface="secondary" (card bg) → hover:text-primary
+ * Text takes the surface's own text token; the underline carries the accent
+ * (accent is for outlines/dividers, never text). Picked from `surface`:
+ *   - surface="primary"  (page bg)  → text-secondary
+ *   - surface="secondary" (card bg) → text-primary
  *
  * Use `to` for router links and `href` for external/anchor links.
  *
@@ -34,8 +32,12 @@ export default function TextLink({
   onClick,
   ...rest
 }) {
-  const hoverText = surface === "secondary" ? "hover:text-primary" : "hover:text-secondary";
-  const classes = cn("text-accent", hoverText, "motion-safe:transition-colors", className);
+  const text = surface === "secondary" ? "text-primary" : "text-secondary";
+  const classes = cn(
+    text,
+    "underline decoration-accent underline-offset-2 hover:decoration-current motion-safe:transition-colors",
+    className,
+  );
 
   const handleClick = (e) => {
     haptic("light");

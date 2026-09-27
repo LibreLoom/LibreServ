@@ -88,7 +88,7 @@ export default function GeozoneMap({
           surface="primary"
           aria-label="Map interaction mode"
         />
-        <p className="text-xs text-accent">
+        <p className="text-xs">
           {mode === "draw"
             ? "Click & drag or drag with finger to select an area"
             : "Drag to move around the map"}

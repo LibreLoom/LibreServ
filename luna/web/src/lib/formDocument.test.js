@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  responseSentAt,
   countResponses,
   latestResponses,
   newEditToken,
@@ -14,9 +15,9 @@ import {
 
 describe("formDocument", () => {
   it("names the sibling responses file next to the form", () => {
-    expect(responsesSiblingPath("forms/rsvp.lunaform")).toBe("forms/rsvp.responses.jsonl");
-    expect(responsesSiblingPath("Party.LUNAFORM")).toBe("Party.responses.jsonl");
-    expect(responsesSiblingPath("odd")).toBe("odd.responses.jsonl");
+    expect(responsesSiblingPath("forms/rsvp.lunaform")).toBe("forms/rsvp.lunaform.responses");
+    expect(responsesSiblingPath("Party.LUNAFORM")).toBe("Party.lunaform.responses");
+    expect(responsesSiblingPath("odd")).toBe("odd.lunaform.responses");
     expect(uploadsDirPath("forms/Party.LUNAFORM")).toBe("forms/Party.uploads");
     expect(uploadsDirPath("rsvp.lunaform")).toBe("rsvp.uploads");
   });
@@ -120,5 +121,26 @@ describe("formDocument", () => {
     expect(lines[1]).toContain("a; b");
     // Deleted question keeps its (empty) column.
     expect(lines[1].endsWith(",")).toBe(true);
+  });
+
+  it("keeps typed formulas from running when the CSV opens in a spreadsheet", () => {
+    const csv = responsesToCsv(
+      [{ id: "q", label: "Note" }],
+      [{ id: "r", at: 1, answers: { q: "=HYPERLINK(\"x\")" } }, { id: "s", at: 2, answers: { q: "-1+1" } }],
+      (_col, value) => String(value ?? ""),
+    );
+    expect(csv).toContain(`"'=HYPERLINK(""x"")"`);
+    expect(csv).toContain("'-1+1");
+  });
+
+  it("drops deleted responses and keeps the first send time", () => {
+    const live = latestResponses([
+      { id: "a", at: 1, answers: {} },
+      { id: "b", at: 2, answers: {} },
+      { id: "a", deleted: true, at: 3 },
+    ]);
+    expect(live.map((r) => r.id)).toEqual(["b"]);
+    expect(responseSentAt({ id: "x", at: 9, sent_at: 4 })).toBe(4);
+    expect(responseSentAt({ id: "x", at: 9 })).toBe(9);
   });
 });

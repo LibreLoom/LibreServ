@@ -190,6 +190,7 @@ export default function AdminTokensPage() {
                 type="number"
                 min={1}
                 max={10000}
+                placeholder="e.g. 100"
                 value={bulkCount}
                 onChange={(e) => setBulkCount(e.target.value)}
               />

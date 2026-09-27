@@ -1,11 +1,26 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ChevronUp, GripVertical, ImagePlus, ListChecks, Pencil, Plus, Share2, Trash2 } from "lucide-react";
+import { AnimatePresence, MotionConfig, Reorder, motion as Motion, useDragControls } from "motion/react";
+import {
+  ChevronDown,
+  ChevronUp,
+  CornerLeftUp,
+  Folder,
+  GripVertical,
+  ImagePlus,
+  ListChecks,
+  Pencil,
+  Plus,
+  Share2,
+  Trash2,
+  Upload,
+} from "lucide-react";
 import { CollabDocSync } from "../collabDocSync.js";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
+import ModalErrorNotice from "@libreloom/ui/components/common/ModalErrorNotice.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
@@ -13,31 +28,42 @@ import Toggle from "@libreloom/ui/components/common/Toggle.jsx";
 import ModalCard, { NESTED_OVERLAY_CLASS } from "@libreloom/ui/components/cards/ModalCard.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import ShareSheet from "../../share/ShareSheet.jsx";
+import DocumentLoadingScreen from "../DocumentLoadingScreen.jsx";
 import FormResponses from "./FormResponses.jsx";
+import FormInput from "../../common/forms/FormInput.jsx";
 import {
   answerOptions,
+  canTriggerSkip,
   defaultConfig,
+  hasEditableOptions,
   isImageFileName,
   QUESTION_TYPES,
   QUESTION_TYPE_IDS,
   typeInfo,
+  DEFAULT_THANK_YOU,
 } from "./questionTypes.js";
 import { apiErrorMessage } from "../../../lib/api.js";
 import {
   latestResponses,
   newQuestionId,
   parseFormDocument,
+  uploadsDirPath,
   writeFormSeen,
 } from "../../../lib/formDocument.js";
 import {
+  addFormOption,
   addFormQuestion,
   formCollabAdapter,
   moveFormQuestion,
   patchFormQuestion,
   readForm,
+  removeFormOption,
   removeFormQuestion,
+  repairQuestionIds,
   seedFormSnapshot,
   setFormDescription,
+  setFormOptionLabel,
+  setFormOptions,
   setFormSetting,
   setFormTitle,
 } from "../../../lib/formYDoc.js";
@@ -58,7 +84,30 @@ const AUTOSAVE_TICK_MS = 250;
 const TYPE_OPTIONS = QUESTION_TYPE_IDS.map((id) => ({
   value: id,
   label: QUESTION_TYPES[id].label,
+  icon: QUESTION_TYPES[id].icon,
 }));
+
+/** Cards and options spring into place; shared so everything moves alike. */
+/** @type {import("motion/react").Transition} */
+const SPRING = { type: "spring", stiffness: 520, damping: 42, mass: 0.9 };
+const CARD_ENTER = { opacity: 0, scale: 0.97 };
+const CARD_SHOWN = { opacity: 1, scale: 1 };
+const CARD_EXIT = { opacity: 0, scale: 0.94, transition: { duration: 0.18 } };
+// Tabs move like a carousel, the way the tab bar reads: Responses sits right
+// of Questions, so going there pushes the page left and the new one follows it
+// in from the right — both at once, on the same kind of spring (350ms, a touch
+// of overshoot) as the tab bar's sliding pill. Variants, not inline objects, so
+// the leaving page reads the new direction from AnimatePresence's `custom`.
+const TAB_SLIDE = {
+  enter: (/** @type {number} */ dir) => ({ x: `${100 * dir}%`, opacity: 0.6 }),
+  shown: { x: 0, opacity: 1 },
+  leave: (/** @type {number} */ dir) => ({ x: `${-100 * dir}%`, opacity: 0.6 }),
+};
+/** @type {import("motion/react").Transition} */
+const TAB_SPRING = { type: "spring", duration: 0.35, bounce: 0.12 };
+const ROW_ENTER = { opacity: 0, height: 0, y: -6 };
+const ROW_SHOWN = { opacity: 1, height: "auto", y: 0 };
+const ROW_EXIT = { opacity: 0, height: 0, transition: { duration: 0.16 } };
 
 /**
  * Fullscreen WYSIWYG form builder — the `.lunaform` editor. Mounts inside
@@ -80,7 +129,11 @@ const TYPE_OPTIONS = QUESTION_TYPE_IDS.map((id) => ({
  * }} props
  */
 export default function FormBuilder(props) {
-  return <BuilderSession key={`${props.driveId}:${props.path}`} {...props} />;
+  return (
+    <MotionConfig reducedMotion="user">
+      <BuilderSession key={`${props.driveId}:${props.path}`} {...props} />
+    </MotionConfig>
+  );
 }
 
 FormBuilder.propTypes = {
@@ -115,14 +168,13 @@ function BuilderSession({
 }) {
   const queryClient = useQueryClient();
   const { addToast } = useToast();
-  const addToastRef = useRef(addToast);
-  addToastRef.current = addToast;
   const source = useFileSource();
   const scope = fileSourceScope(source, driveId);
+  const responsesKey = ["form-responses", scope, path];
   const solo = source.collab === false;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(/** @type {string | null} */ (null));
-  const [doc, setDoc] = useState(/** @type {object | null} */ (null));
+  const [doc, setDoc] = useState(/** @type {any} */ (null));
   /** Canonical JSON on the drive — the dirty baseline. */
   const [baseline, setBaseline] = useState(/** @type {string | null} */ (null));
   const [tab, setTab] = useState(/** @type {"questions" | "responses"} */ ("questions"));
@@ -133,8 +185,16 @@ function BuilderSession({
   /** Pending warn-and-allow confirmation for edits that touch answered data. */
   const [confirm, setConfirm] = useState(/** @type {null | { title: string, message: string, run: () => void }} */ (null));
   const [pickingImageFor, setPickingImageFor] = useState(/** @type {string | null} */ (null));
-  const dragIndexRef = useRef(/** @type {number | null} */ (null));
-  const [dropIndex, setDropIndex] = useState(/** @type {number | null} */ (null));
+  /** Question ids in their order while a card is being dragged. */
+  const [dragOrder, setDragOrderState] = useState(/** @type {string[] | null} */ (null));
+  // Drag handlers read the live order, not the one from their render.
+  const dragOrderRef = useRef(/** @type {string[] | null} */ (null));
+  const setDragOrder = (next) => {
+    dragOrderRef.current = next;
+    setDragOrderState(next);
+  };
+  /** The question that was just added — its label takes focus. */
+  const [focusNewId, setFocusNewId] = useState("");
   const syncRef = useRef(/** @type {CollabDocSync | null} */ (null));
 
   const [sync] = useState(
@@ -150,16 +210,17 @@ function BuilderSession({
           const session = syncRef.current;
           if (session) setBaseline(session.serialize());
         },
+        // Someone answered: refresh the Responses tab quietly.
         onFormResponse: () => {
           queryClient.invalidateQueries({ queryKey: ["form-responses", scope, path] });
-          addToastRef.current({ type: "success", message: "Someone just answered." });
+          queryClient.invalidateQueries({ queryKey: ["form-response-count", scope, path] });
         },
       }),
   );
   syncRef.current = sync;
 
   const responsesQuery = useQuery({
-    queryKey: ["form-responses", scope, path],
+    queryKey: responsesKey,
     queryFn: () => source.formResponses(driveId, path),
     staleTime: 15_000,
     refetchInterval: 15_000,
@@ -187,9 +248,12 @@ function BuilderSession({
 
   useEffect(() => {
     let cancelled = false;
-    const pull = () => {
-      setDoc(readForm(sync.ydoc));
-      lastEditRef.current = Date.now();
+    /** @param {Uint8Array} _update @param {unknown} _origin @param {unknown} _doc @param {{ local?: boolean }} tr */
+    const pull = (_update, _origin, _doc, tr) => {
+      setDoc(readForm(sync.ydoc, { withIds: true }));
+      // Only our own typing holds autosave back — a peer's edits must not
+      // keep pushing our save later.
+      if (tr?.local) lastEditRef.current = Date.now();
     };
     const onAware = () => {
       const localId = sync.ydoc.clientID;
@@ -199,8 +263,8 @@ function BuilderSession({
         if (clientId === localId) continue;
         const id = state?.questionId;
         if (typeof id !== "string" || !id) continue;
-        const name = state?.user?.name;
-        here.push({ id, name: typeof name === "string" && name ? name : "Someone" });
+        const peerName = state?.user?.name;
+        here.push({ id, name: typeof peerName === "string" && peerName ? peerName : "Someone" });
       }
       setFocusHere(here);
     };
@@ -223,7 +287,10 @@ function BuilderSession({
         // save even when key order in the file differs.
         setBaseline(seedFormSnapshot(text));
         sync.adoptContent(text);
-        setDoc(readForm(sync.ydoc));
+        // Questions sharing an id would share every answer; give each its
+        // own before anyone fills the form in again.
+        if (canWrite) repairQuestionIds(sync.ydoc, newQuestionId);
+        setDoc(readForm(sync.ydoc, { withIds: true }));
       } catch (err) {
         if (!cancelled) {
           setError(apiErrorMessage(err, "Luna couldn't open this form. Try downloading it."));
@@ -239,12 +306,13 @@ function BuilderSession({
       sync.awareness.off("update", onAware);
       sync.disconnect();
     };
-  }, [sync, driveId, path, source]);
+  }, [sync, driveId, path, source, canWrite]);
 
   const isDirty =
     canWrite && sync.hydrated && baseline != null && sync.serialize() !== baseline;
+  // Both ways: undoing back to what's saved clears the unsaved mark.
   useEffect(() => {
-    if (isDirty) onSaveStateChange(true);
+    onSaveStateChange(isDirty);
   }, [isDirty, onSaveStateChange]);
 
   const save = useCallback(async () => {
@@ -311,8 +379,8 @@ function BuilderSession({
 
   /** Local edit. Viewers never write — the hub would reject the op. */
   function edit(apply) {
-    if (!canWrite) return;
-    apply(sync.ydoc);
+    if (!canWrite) return undefined;
+    return apply(sync.ydoc);
   }
 
   function setSetting(key, value) {
@@ -330,7 +398,6 @@ function BuilderSession({
   /** Warn-and-allow: a change that touches answered questions confirms first. */
   function guardedChange(questionId, title, message, apply) {
     if (answeredIds.has(questionId)) {
-      haptic("warning");
       setConfirm({ title, message, run: apply });
     } else {
       apply();
@@ -338,35 +405,59 @@ function BuilderSession({
   }
 
   function addQuestion(type) {
-    haptic("light");
+    const id = newQuestionId();
     edit((ydoc) => addFormQuestion(ydoc, {
       v: 1,
-      id: newQuestionId(),
+      id,
       type,
       label: "",
       required: false,
       config: defaultConfig(type),
     }));
+    setFocusNewId(id);
   }
 
   function removeQuestion(question) {
+    const run = () => {
+      const removed = edit((ydoc) => removeFormQuestion(ydoc, question.id));
+      if (!removed) return;
+      addToast({
+        type: "success",
+        message: "Question removed",
+        action: {
+          label: "Undo",
+          onClick: () => edit((ydoc) => addFormQuestion(ydoc, removed.question, removed.index)),
+        },
+      });
+    };
     guardedChange(
       question.id,
       "Remove this question?",
-      answeredIds.has(question.id)
-        ? "People have already answered it. Their answers stay in the results — only the question goes away."
-        : "This removes the question from the form.",
-      () => edit((ydoc) => removeFormQuestion(ydoc, question.id)),
+      "People have already answered it. Their answers stay in the results — only the question goes away.",
+      run,
     );
   }
 
   function changeType(question, type) {
     if (type === question.type) return;
+    const keepsOptions = hasEditableOptions(question.type) && hasEditableOptions(type);
     guardedChange(
       question.id,
       "Change the question type?",
       "People have already answered this question. Their answers stay in the results, but may not match the new type.",
-      () => updateQuestion(question.id, { type, config: defaultConfig(type) }),
+      () => edit((ydoc) => ydoc.transact(() => {
+        // Choices ↔ checkboxes ↔ dropdown keep the options people wrote.
+        if (keepsOptions) {
+          patchFormQuestion(ydoc, question.id, { type });
+          return;
+        }
+        patchFormQuestion(ydoc, question.id, {
+          type,
+          config: { options: null, allowOther: false, min: null, max: null },
+        });
+        const fresh = defaultConfig(type);
+        if (Array.isArray(fresh.options)) setFormOptions(ydoc, question.id, fresh.options);
+      })),
     );
   }
 
@@ -388,6 +479,12 @@ function BuilderSession({
 
   const questions = Array.isArray(doc?.questions) ? doc.questions : [];
   const settings = doc?.settings || {};
+  const byId = new Map(questions.map((q) => [q.id, q]));
+  const orderedIds = dragOrder
+    ? dragOrder.filter((id) => byId.has(id))
+    : questions.map((q) => q.id);
+  const uploadsDir = uploadsDirPath(path);
+  const tabDirection = tab === "responses" ? 1 : -1;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -430,7 +527,6 @@ function BuilderSession({
               surface="primary"
               size="iconSm"
               smoothResize={false}
-              haptic="light"
               aria-label="Share this form"
               tooltip="Share this form"
               onClick={() => setSharing(true)}
@@ -441,244 +537,273 @@ function BuilderSession({
         </div>
       </div>
       {connNote ? (
-        <p className="truncate border-b border-secondary/15 px-3 py-1 text-xs text-accent" role="status">
+        <p className="truncate border-b border-secondary/15 px-3 py-1 text-xs" role="status">
           {connNote}
         </p>
       ) : null}
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
         {loading || (!error && !doc) ? (
-          <div
-            className="flex h-full items-center justify-center"
-            role="status"
-            aria-label={`Opening ${name}`}
-          >
-            <div className="flex items-center gap-3 text-secondary">
-              <p className="font-mono text-sm uppercase tracking-widest">Opening</p>
-              <Spinner size="md" decorative />
-            </div>
-          </div>
+          <DocumentLoadingScreen label={`Opening ${name}`} />
         ) : error ? (
           <div className="p-4"><PageNotice variant="error">{error}</PageNotice></div>
-        ) : tab === "responses" ? (
-          <FormResponses
-            driveId={driveId}
-            formPath={path}
-            questions={questions}
-            responses={responses}
-            loading={responsesQuery.isLoading}
-            error={responsesQuery.isError
-              ? apiErrorMessage(responsesQuery.error, "Couldn't load answers. Try again.")
-              : null}
-            onRefresh={() => queryClient.invalidateQueries({ queryKey: ["form-responses", fileSourceScope(source, driveId), path] })}
-          />
         ) : (
-          <div className="mx-auto w-full max-w-2xl space-y-4 p-4 sm:p-6">
-            {/* Title + description edit inline — the builder is WYSIWYG, so
-                this reads like the responder's first screen. */}
-            <div className="rounded-large-element bg-secondary text-primary p-5 space-y-3">
-              <input
-                className="w-full bg-transparent font-mono text-xl font-normal text-primary outline-none no-focus-outline placeholder:text-accent"
-                value={doc?.title || ""}
-                onChange={(e) => edit((ydoc) => setFormTitle(ydoc, e.target.value))}
-                placeholder="Form title"
-                aria-label="Form title"
-                disabled={!canWrite}
-              />
-              <textarea
-                className="w-full resize-none bg-transparent text-sm text-primary outline-none no-focus-outline placeholder:text-accent"
-                rows={2}
-                value={doc?.description || ""}
-                onChange={(e) => edit((ydoc) => setFormDescription(ydoc, e.target.value))}
-                placeholder="Say what this form is for (optional)"
-                aria-label="Form description"
-                disabled={!canWrite}
-              />
-            </div>
-
-            {questions.map((question, index) => {
-              // Option values people already picked — removing a picked
-              // option warns first; untouched ones just go away.
-              const pickedValues = new Set(
-                responses.flatMap((r) => {
-                  const value = r?.answers?.[question.id];
-                  return Array.isArray(value) ? value.map(String) : value != null ? [String(value)] : [];
-                }),
-              );
-              return (
-              <QuestionCard
-                key={question.id}
-                question={question}
-                index={index}
-                count={questions.length}
-                canWrite={canWrite}
-                hasAnswers={answeredIds.has(question.id)}
-                dragging={dropIndex === index}
-                onDragStart={(e) => {
-                  dragIndexRef.current = index;
-                  e.dataTransfer.effectAllowed = "move";
-                  haptic("rigid");
-                }}
-                onDragOver={(e) => {
-                  if (dragIndexRef.current == null) return;
-                  e.preventDefault();
-                  e.dataTransfer.dropEffect = "move";
-                  setDropIndex(index);
-                }}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  const from = dragIndexRef.current;
-                  dragIndexRef.current = null;
-                  setDropIndex(null);
-                  if (from != null) {
-                    haptic("medium");
-                    moveQuestion(from, index);
-                  }
-                }}
-                onDragEnd={() => {
-                  dragIndexRef.current = null;
-                  setDropIndex(null);
-                }}
-                earlier={questions.slice(0, index)}
-                watchers={focusHere.filter((p) => p.id === question.id)}
-                imageHref={question.image ? source.contentHref(driveId, question.image) : ""}
-                onFocus={() => focusQuestion(question.id)}
-                onBlur={() => focusQuestion("")}
-                onPickImage={() => setPickingImageFor(question.id)}
-                onPatch={(patch) => updateQuestion(question.id, patch)}
-                onChangeType={(type) => changeType(question, type)}
-                onRemove={() => removeQuestion(question)}
-                onMove={(to) => moveQuestion(index, to)}
-                onRemoveOption={(optionIndex) => {
-                  const apply = () =>
-                    updateQuestion(question.id, {
-                      config: {
-                        ...(question.config || {}),
-                        options: answerOptions(question).filter((_, i) => i !== optionIndex),
-                      },
-                    });
-                  if (pickedValues.has(answerOptions(question)[optionIndex])) {
-                    haptic("warning");
-                    setConfirm({
-                      title: "Remove this option?",
-                      message: "Some answers picked it. Those answers stay in the results — the option just stops being offered.",
-                      run: apply,
-                    });
-                  } else {
-                    apply();
-                  }
-                }}
-              />
-              );
-            })}
-
-            {canWrite && (
-              <div className="flex justify-center">
-                <AddQuestionButton onAdd={addQuestion} />
-              </div>
-            )}
-
-            <div className="rounded-large-element bg-secondary text-primary p-5 space-y-4">
-              <h3 className="font-mono text-xs font-normal uppercase tracking-widest text-primary">
-                Settings
-              </h3>
-              <Toggle
-                surface="secondary"
-                label="Collecting answers"
-                description="Turn this off and the link stops taking new answers."
-                checked={settings.collecting !== false}
-                disabled={!canWrite}
-                onChange={(next) => setSetting("collecting", next)}
-              />
-              <Toggle
-                surface="secondary"
-                label="Let people change their answers"
-                description="Each person gets a private edit link after sending."
-                checked={settings.allowEdits !== false}
-                disabled={!canWrite}
-                onChange={(next) => setSetting("allowEdits", next)}
-              />
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <p className="text-sm text-primary">Answers per person</p>
-                  <p className="text-xs text-accent">
-                    Limiting to one uses this device&apos;s browser memory — a reminder, not a lock.
-                  </p>
-                </div>
-                <SegmentedControl
-                  options={[
-                    { value: "one", label: "One", disabled: !canWrite },
-                    { value: "unlimited", label: "Unlimited", disabled: !canWrite },
-                  ]}
-                  value={settings.responseLimit === "one" ? "one" : "unlimited"}
-                  onChange={(v) => setSetting("responseLimit", v === "one" ? "one" : "unlimited")}
-                  surface="secondary"
-                  aria-label="Answers per person"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="block text-sm text-primary" htmlFor="form-thank-you">
-                  Thank-you message
-                </label>
-                <textarea
-                  id="form-thank-you"
-                  className="w-full resize-none rounded-large-element border-2 border-secondary/30 bg-primary px-4 py-2 text-sm text-secondary outline-none no-focus-outline focus:border-accent placeholder:text-accent"
-                  rows={2}
-                  value={settings.thankYou || ""}
-                  onChange={(e) => setSetting("thankYou", e.target.value)}
-                  placeholder="Sent — thank you"
-                  aria-label="Thank-you message"
-                  disabled={!canWrite}
-                />
-                <p className="text-xs text-accent">
-                  People see this after they send. Leave it blank and Luna says Sent — thank you.
-                </p>
-              </div>
-              <div className="space-y-1">
-                <label className="block text-sm text-primary" htmlFor="form-close-on">
-                  Stop taking answers after
-                </label>
-                <input
-                  id="form-close-on"
-                  type="date"
-                  className="rounded-pill border-2 border-secondary/30 bg-primary px-4 py-1.5 text-sm text-secondary outline-none no-focus-outline focus:border-accent"
-                  value={settings.closeOn || ""}
-                  onChange={(e) => setSetting("closeOn", e.target.value)}
-                  aria-label="Stop taking answers after"
-                  disabled={!canWrite}
-                />
-                <p className="text-xs text-accent">The form stays open through that day.</p>
-              </div>
-              <div className="space-y-1">
-                <label className="block text-sm text-primary" htmlFor="form-max-responses">
-                  Stop after this many answers
-                </label>
-                <input
-                  id="form-max-responses"
-                  type="number"
-                  min="1"
-                  className="w-32 rounded-pill border-2 border-secondary/30 bg-primary px-4 py-1.5 text-sm text-secondary outline-none no-focus-outline focus:border-accent"
-                  value={settings.maxResponses ?? ""}
-                  onChange={(e) => {
-                    const raw = e.target.value;
-                    setSetting("maxResponses", raw === "" ? null : Number(raw));
+          <AnimatePresence mode="popLayout" initial={false} custom={tabDirection}>
+            <Motion.div
+              key={tab}
+              custom={tabDirection}
+              variants={TAB_SLIDE}
+              initial="enter"
+              animate="shown"
+              exit="leave"
+              transition={TAB_SPRING}
+              className="min-h-full"
+            >
+              {tab === "responses" ? (
+                <FormResponses
+                  driveId={driveId}
+                  formPath={path}
+                  questions={questions}
+                  responses={responses}
+                  loading={responsesQuery.isLoading}
+                  error={responsesQuery.isError
+                    ? apiErrorMessage(responsesQuery.error, "Luna couldn't load the answers. Try again.")
+                    : null}
+                  canDelete={canWrite}
+                  onRefresh={() => queryClient.invalidateQueries({ queryKey: responsesKey })}
+                  onDeleteResponse={async (id) => {
+                    await source.deleteFormResponse(driveId, path, id);
+                    queryClient.invalidateQueries({ queryKey: ["form-response-count", scope, path] });
+                    await queryClient.invalidateQueries({ queryKey: responsesKey });
                   }}
-                  aria-label="Stop after this many answers"
-                  disabled={!canWrite}
                 />
-                <p className="text-xs text-accent">
-                  Leave this empty for no limit. Changing an answer does not count as a new one.
-                </p>
-              </div>
-              <Toggle
-                surface="secondary"
-                label="Tell me when someone answers"
-                description="Shows a short note. Luna does not email you."
-                checked={settings.notify !== false}
-                disabled={!canWrite}
-                onChange={(next) => setSetting("notify", next)}
-              />
-            </div>
-          </div>
+              ) : (
+                <div className="mx-auto w-full max-w-2xl space-y-4 p-4 sm:p-6">
+                  {/* Title + description edit inline — the builder is WYSIWYG, so
+                      this reads like the responder's first screen. */}
+                  <div className="rounded-large-element bg-secondary text-primary p-5 space-y-3">
+                    <input
+                      className="w-full bg-transparent font-mono text-xl font-normal text-primary outline-none no-focus-outline"
+                      value={doc?.title || ""}
+                      onChange={(e) => edit((ydoc) => setFormTitle(ydoc, e.target.value))}
+                      placeholder="Form title"
+                      aria-label="Form title"
+                      disabled={!canWrite}
+                    />
+                    <AutoGrowTextarea
+                      className="w-full resize-none bg-transparent text-sm text-primary outline-none no-focus-outline"
+                      value={doc?.description || ""}
+                      onChange={(value) => edit((ydoc) => setFormDescription(ydoc, value))}
+                      placeholder="Say what this form is for (optional)"
+                      aria-label="Form description"
+                      disabled={!canWrite}
+                    />
+                  </div>
+
+                  {questions.length === 0 ? (
+                    <Motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="rounded-large-element border-2 border-dashed border-secondary/30 p-6 text-center"
+                    >
+                      <p className="font-mono text-sm text-secondary">No questions yet</p>
+                      <p className="mt-1 text-sm text-secondary">
+                        {canWrite
+                          ? "Add your first question below. People see the form exactly as it looks here."
+                          : "Nobody has added a question to this form yet."}
+                      </p>
+                    </Motion.div>
+                  ) : null}
+
+                  <Reorder.Group
+                    as="div"
+                    axis="y"
+                    values={orderedIds}
+                    onReorder={(next) => {
+                      if (!dragOrderRef.current) return;
+                      // A card swapped places under the finger.
+                      haptic("selection");
+                      setDragOrder(next);
+                    }}
+                    className="space-y-4"
+                  >
+                    <AnimatePresence initial={false}>
+                      {orderedIds.map((id) => {
+                        const question = byId.get(id);
+                        if (!question) return null;
+                        const index = questions.findIndex((q) => q.id === id);
+                        return (
+                          <QuestionItem
+                            key={id}
+                            question={question}
+                            index={orderedIds.indexOf(id)}
+                            count={questions.length}
+                            canWrite={canWrite}
+                            autoFocus={focusNewId === id}
+                            onFocused={() => setFocusNewId("")}
+                            responses={responses}
+                            hasAnswers={answeredIds.has(id)}
+                            earlier={questions.slice(0, index)}
+                            watchers={focusHere.filter((p) => p.id === id)}
+                            imageHref={question.image
+                              ? source.contentHref(driveId, joinPath(uploadsDir, question.image))
+                              : ""}
+                            onDragStart={() => {
+                              haptic("rigid");
+                              setDragOrder(questions.map((q) => q.id));
+                            }}
+                            onDragEnd={() => {
+                              const finalOrder = dragOrderRef.current;
+                              setDragOrder(null);
+                              if (!finalOrder) return;
+                              const to = finalOrder.indexOf(id);
+                              if (to >= 0 && to !== index) {
+                                haptic("medium");
+                                moveQuestion(index, to);
+                              }
+                            }}
+                            onFocus={() => focusQuestion(id)}
+                            onBlur={() => focusQuestion("")}
+                            onPickImage={() => setPickingImageFor(id)}
+                            onPatch={(patch) => updateQuestion(id, patch)}
+                            onChangeType={(type) => changeType(question, type)}
+                            onRemove={() => removeQuestion(question)}
+                            onMove={(to) => moveQuestion(index, to)}
+                            onAddOption={() => edit((ydoc) => addFormOption(ydoc, id, ""))}
+                            onSetOptionLabel={(optionId, label) =>
+                              edit((ydoc) => setFormOptionLabel(ydoc, id, optionId, label))}
+                            onRemoveOption={(optionId, label, picked) => {
+                              const apply = () => edit((ydoc) => removeFormOption(ydoc, id, optionId));
+                              if (picked) {
+                                setConfirm({
+                                  title: "Remove this option?",
+                                  message: `Some answers picked “${label}”. Those answers stay in the results — the option just stops being offered.`,
+                                  run: apply,
+                                });
+                              } else {
+                                apply();
+                              }
+                            }}
+                          />
+                        );
+                      })}
+                    </AnimatePresence>
+                  </Reorder.Group>
+
+                  {canWrite && (
+                    <Motion.div layout transition={SPRING} className="flex justify-center">
+                      <AddQuestionButton onAdd={addQuestion} />
+                    </Motion.div>
+                  )}
+
+                  <Motion.section
+                    layout
+                    transition={SPRING}
+                    aria-labelledby="form-settings-title"
+                    className="rounded-large-element bg-secondary text-primary p-3 space-y-3"
+                  >
+                    <h3
+                      id="form-settings-title"
+                      className="px-2 pt-1 font-mono text-base font-normal text-primary"
+                    >
+                      Settings
+                    </h3>
+
+                    <SettingsGroup title="Taking answers">
+                      <Toggle
+                        surface="primary"
+                        label="Collecting answers"
+                        description="Turn this off and the link stops taking new answers."
+                        checked={settings.collecting !== false}
+                        disabled={!canWrite}
+                        onChange={(next) => setSetting("collecting", next)}
+                      />
+                      <SettingRow
+                        htmlFor="form-close-on"
+                        title="Stop taking answers after"
+                        description="The form stays open through that day. Leave it empty to keep it open."
+                      >
+                        <FormInput
+                          name="form-close-on"
+                          type="date"
+                          surface="primary"
+                          value={settings.closeOn || ""}
+                          onChange={(e) => setSetting("closeOn", e.target.value)}
+                          disabled={!canWrite}
+                          className="mb-0 w-48"
+                        />
+                      </SettingRow>
+                      <SettingRow
+                        htmlFor="form-max-responses"
+                        title="Stop after this many answers"
+                        description="Leave it empty for no limit. Changing an answer doesn't count as a new one."
+                      >
+                        <FormInput
+                          name="form-max-responses"
+                          type="number"
+                          min="1"
+                          step="1"
+                          inputMode="numeric"
+                          surface="primary"
+                          placeholder="No limit"
+                          value={settings.maxResponses ?? ""}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            setSetting("maxResponses", raw === "" ? null : Number(raw));
+                          }}
+                          disabled={!canWrite}
+                          className="mb-0 w-36"
+                        />
+                      </SettingRow>
+                    </SettingsGroup>
+
+                    <SettingsGroup title="People answering">
+                      <SettingRow
+                        title="Answers per person"
+                        description="Luna remembers each person in their browser, so this is a reminder rather than a lock."
+                      >
+                        <SegmentedControl
+                          options={[
+                            { value: "one", label: "One", disabled: !canWrite },
+                            { value: "unlimited", label: "Unlimited", disabled: !canWrite },
+                          ]}
+                          value={settings.responseLimit === "one" ? "one" : "unlimited"}
+                          onChange={(v) => setSetting("responseLimit", v === "one" ? "one" : "unlimited")}
+                          surface="primary"
+                          aria-label="Answers per person"
+                        />
+                      </SettingRow>
+                      <Toggle
+                        surface="primary"
+                        label="Let people change their answers"
+                        description="Each person gets a private edit link after sending."
+                        checked={settings.allowEdits !== false}
+                        disabled={!canWrite}
+                        onChange={(next) => setSetting("allowEdits", next)}
+                      />
+                    </SettingsGroup>
+
+                    <SettingsGroup title="After sending">
+                      <div className="space-y-2">
+                        <SettingRow
+                          htmlFor="form-thank-you"
+                          title="Thank-you message"
+                          description={`People see this once they send. Leave it empty and Luna says “${DEFAULT_THANK_YOU}”`}
+                        />
+                        <AutoGrowTextarea
+                          id="form-thank-you"
+                          className="w-full resize-none rounded-large-element border-2 border-primary/30 bg-secondary px-5 py-2 text-base text-primary outline-none no-focus-outline focus:border-accent focus-visible:border-accent placeholder:text-primary/50"
+                          value={settings.thankYou || ""}
+                          onChange={(value) => setSetting("thankYou", value)}
+                          placeholder={DEFAULT_THANK_YOU}
+                          disabled={!canWrite}
+                        />
+                      </div>
+                    </SettingsGroup>
+                  </Motion.section>
+                </div>
+              )}
+            </Motion.div>
+          </AnimatePresence>
         )}
       </div>
 
@@ -694,12 +819,14 @@ function BuilderSession({
       {pickingImageFor && (
         <PicturePicker
           driveId={driveId}
+          formPath={path}
           startFolder={parentPath(path) ?? ""}
           onClose={() => setPickingImageFor(null)}
-          onPick={(imagePath) => {
+          onPicked={(pictureName) => {
             const id = pickingImageFor;
             setPickingImageFor(null);
-            if (id) updateQuestion(id, { image: imagePath });
+            if (id) updateQuestion(id, { image: pictureName });
+            addToast({ type: "success", message: "Picture added" });
           }}
         />
       )}
@@ -731,86 +858,229 @@ BuilderSession.propTypes = {
   onSaveStateChange: PropTypes.func.isRequired,
 };
 
+/** A textarea that grows with what's typed, so nothing hides behind a scrollbar. */
+function AutoGrowTextarea({ value, onChange, className, ...rest }) {
+  const ref = useRef(/** @type {HTMLTextAreaElement | null} */ (null));
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [value]);
+  return (
+    <textarea
+      ref={ref}
+      rows={1}
+      className={className}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      {...rest}
+    />
+  );
+}
+
+AutoGrowTextarea.propTypes = {
+  value: PropTypes.string.isRequired,
+  onChange: PropTypes.func.isRequired,
+  className: PropTypes.string,
+};
+
+const fieldClass =
+  "rounded-pill border-2 border-secondary/30 bg-primary px-4 py-1.5 text-sm text-secondary outline-none no-focus-outline focus:border-accent focus-visible:border-accent";
+
+/** The control a person fills in — same shape as the answer page, not a grey stand-in. */
+const previewFieldClass =
+  "pointer-events-none w-full rounded-pill border-2 border-secondary/30 bg-primary px-4 py-2 text-base text-secondary outline-none";
+
+const answerPillClass =
+  "flex items-center gap-3 rounded-pill border-2 border-secondary/30 bg-primary px-4 py-3 text-left text-base text-secondary";
+
+/**
+ * A layer of related settings inside the settings card — the page-coloured
+ * panel sits on the card so each group reads as its own surface.
+ *
+ * @param {{ title: string, children: import("react").ReactNode }} props
+ */
+function SettingsGroup({ title, children }) {
+  return (
+    <div className="rounded-large-element bg-primary text-secondary p-4 space-y-4">
+      <h4 className="font-mono text-sm font-normal text-secondary">{title}</h4>
+      {children}
+    </div>
+  );
+}
+
+SettingsGroup.propTypes = {
+  title: PropTypes.string.isRequired,
+  children: PropTypes.node,
+};
+
+/**
+ * One setting: the name and what it does on the left, its control on the
+ * right — the same shape as a Toggle row, so every setting lines up. On a
+ * narrow screen the control drops under the text.
+ *
+ * @param {{ title: string, description?: string, htmlFor?: string, children?: import("react").ReactNode }} props
+ */
+function SettingRow({ title, description, htmlFor, children }) {
+  const Title = htmlFor ? "label" : "p";
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+      <div className="min-w-0 flex-1 basis-56">
+        <Title htmlFor={htmlFor} className="block text-sm font-medium text-secondary">
+          {title}
+        </Title>
+        {description ? <p className="mt-0.5 text-sm">{description}</p> : null}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+SettingRow.propTypes = {
+  title: PropTypes.string.isRequired,
+  description: PropTypes.string,
+  htmlFor: PropTypes.string,
+  children: PropTypes.node,
+};
+
+/**
+ * One draggable question. Dragging starts from the grip only, so text in
+ * the card stays selectable; the grip works with touch as well as a mouse.
+ */
+function QuestionItem(props) {
+  const controls = useDragControls();
+  // Reorder only lifts a card while its drag offset is non-zero, and the
+  // offset passes through zero at every swap — so for a frame or two the
+  // card would slip under its neighbour. Keep it on top until it lands.
+  const [lifted, setLifted] = useState(false);
+  return (
+    <Reorder.Item
+      as="div"
+      value={props.question.id}
+      dragListener={false}
+      dragControls={controls}
+      onDragStart={() => {
+        setLifted(true);
+        props.onDragStart();
+      }}
+      onDragEnd={props.onDragEnd}
+      onDragTransitionEnd={() => setLifted(false)}
+      // Only opacity and scale: the item's own y belongs to the drag. The list's
+      // AnimatePresence skips this on first show, so switching tabs doesn't
+      // replay it — only questions added afterwards grow in.
+      initial={CARD_ENTER}
+      animate={CARD_SHOWN}
+      exit={CARD_EXIT}
+      transition={SPRING}
+      whileDrag={{ scale: 1.02 }}
+      className={lifted ? "relative !z-20" : "relative"}
+    >
+      <QuestionCard {...props} dragControls={controls} />
+    </Reorder.Item>
+  );
+}
+
+QuestionItem.propTypes = {
+  question: PropTypes.object.isRequired,
+  onDragStart: PropTypes.func.isRequired,
+  onDragEnd: PropTypes.func.isRequired,
+};
+
 /**
  * One question in the builder — styled like the responder's card so what
  * you see is what people get.
  */
-const fieldClass =
-  "rounded-pill border-2 border-secondary/30 bg-primary px-4 py-1.5 text-sm text-secondary outline-none no-focus-outline focus:border-accent placeholder:text-accent";
-
-/** The control a person fills in — same shape as the answer page, not a grey stand-in. */
-const previewFieldClass =
-  "pointer-events-none w-full rounded-pill border-2 border-secondary/30 bg-primary px-4 py-2 text-base text-secondary outline-none placeholder:text-accent";
-
-const answerPillClass =
-  "rounded-pill border-2 border-secondary/30 bg-primary px-4 py-3 text-left text-base text-secondary";
-
 function QuestionCard({
   question,
   index,
   count,
   canWrite,
+  autoFocus,
+  onFocused,
+  responses,
   hasAnswers,
-  dragging,
+  dragControls,
   earlier = [],
   watchers = [],
   imageHref,
   onFocus,
   onBlur,
   onPickImage,
-  onDragStart,
-  onDragOver,
-  onDrop,
-  onDragEnd,
   onPatch,
   onChangeType,
   onRemove,
   onMove,
+  onAddOption,
+  onSetOptionLabel,
   onRemoveOption,
 }) {
   const info = typeInfo(question.type);
-  const options = answerOptions(question);
+  const labelRef = useRef(/** @type {HTMLInputElement | null} */ (null));
+  const cardRef = useRef(/** @type {HTMLDivElement | null} */ (null));
 
-  function setOptions(next) {
-    onPatch({ config: { ...(question.config || {}), options: next } });
+  // A question that was just added takes focus and scrolls into view once
+  // its enter animation has started.
+  useEffect(() => {
+    if (!autoFocus) return;
+    const t = setTimeout(() => {
+      labelRef.current?.focus({ preventScroll: true });
+      cardRef.current?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+      onFocused?.();
+    }, 60);
+    return () => clearTimeout(t);
+  }, [autoFocus, onFocused]);
+
+  // Option values people already picked — removing or renaming one of
+  // those warns first; untouched ones just change.
+  const pickedCounts = new Map();
+  for (const r of responses) {
+    const value = r?.answers?.[question.id];
+    const picks = Array.isArray(value) ? value : value != null ? [value] : [];
+    for (const pick of picks) {
+      const key = String(pick);
+      pickedCounts.set(key, (pickedCounts.get(key) || 0) + 1);
+    }
   }
 
   function setBound(key, raw) {
-    const config = { ...(question.config || {}) };
-    if (raw === "") delete config[key];
-    else {
-      const n = Number(raw);
-      if (!Number.isFinite(n)) return;
-      config[key] = n;
+    if (raw === "") {
+      onPatch({ config: { [key]: null } });
+      return;
     }
-    onPatch({ config });
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return;
+    onPatch({ config: { [key]: n } });
   }
 
   const showOther = question.config?.allowOther === true;
+  const watching = watcherLine(watchers);
+  const labels = Array.isArray(question.config?.options) ? question.config.options : [];
+  const ids = Array.isArray(question.config?.optionIds) ? question.config.optionIds : [];
+  const options = labels.map((label, i) => ({ id: ids[i] || `i${i}`, label }));
 
   return (
     <div
-      className={cn(
-        "rounded-large-element bg-secondary text-primary p-5 space-y-3 motion-safe:transition-colors",
-        dragging && "ring-2 ring-accent",
-      )}
-      onDragOver={onDragOver}
-      onDrop={onDrop}
+      ref={cardRef}
+      className="rounded-large-element bg-secondary text-primary p-5 space-y-3"
       onFocus={onFocus}
       onBlur={onBlur}
     >
       <div className="flex items-center gap-2">
         {canWrite && (
-          <span
-            draggable
-            onDragStart={onDragStart}
-            onDragEnd={onDragEnd}
-            className="cursor-grab active:cursor-grabbing text-accent"
-            aria-label={`Drag to reorder question ${index + 1}`}
+          <button
+            type="button"
+            onPointerDown={(e) => {
+              e.preventDefault();
+              dragControls.start(e);
+            }}
+            className="-ml-1 flex h-8 w-6 touch-none cursor-grab items-center justify-center rounded-pill active:cursor-grabbing motion-safe:transition-colors hover:text-primary focus-visible:ring-2 focus-visible:ring-accent no-focus-outline"
+            aria-label={`Drag to reorder question ${index + 1}. You can also use the arrow buttons.`}
             title="Drag to reorder"
+            tabIndex={-1}
           >
             <GripVertical size={ICON_SIZE.md} aria-hidden="true" />
-          </span>
+          </button>
         )}
         {canWrite && (
           <>
@@ -838,7 +1108,7 @@ function QuestionCard({
             </Button>
           </>
         )}
-        <span className="font-mono text-xs font-normal uppercase tracking-widest text-accent">
+        <span className="font-mono text-xs font-normal">
           {index + 1} of {count}
         </span>
         <div className="min-w-0 flex-1" />
@@ -870,7 +1140,8 @@ function QuestionCard({
       </div>
 
       <input
-        className="w-full bg-transparent text-base text-primary outline-none no-focus-outline placeholder:text-accent"
+        ref={labelRef}
+        className="w-full bg-transparent text-base text-primary outline-none no-focus-outline"
         value={question.label || ""}
         onChange={(e) => onPatch({ label: e.target.value })}
         placeholder="Type the question"
@@ -878,41 +1149,58 @@ function QuestionCard({
         disabled={!canWrite}
       />
 
-      {question.help ? (
-        <p className="text-sm text-primary">{question.help}</p>
-      ) : null}
-
-      {question.image ? (
-        <img
-          src={imageHref}
-          alt=""
-          className="max-h-48 w-full rounded-large-element bg-primary object-contain"
-        />
-      ) : null}
-
-      {watcherLine(watchers) ? (
-        <p className="text-xs text-accent">{watcherLine(watchers)}</p>
-      ) : null}
-
-      <QuestionFace
-        question={question}
-        options={options}
-        canWrite={canWrite}
-        showOther={showOther}
-        onSetOptions={setOptions}
-        onRemoveOption={onRemoveOption}
-      />
-
-      <div className="space-y-3 border-t border-primary/20 pt-3">
-        {info.hint ? <p className="text-xs text-accent">{info.hint}</p> : null}
+      {/* The hint edits in place, where people will read it. */}
+      {canWrite || question.help ? (
         <input
-          className={fieldClass + " w-full"}
+          className="-mt-1 w-full bg-transparent text-sm text-primary outline-none no-focus-outline"
           value={question.help || ""}
           onChange={(e) => onPatch({ help: e.target.value })}
           placeholder="Add a hint under the question (optional)"
           aria-label={`Hint for question ${index + 1}`}
           disabled={!canWrite}
         />
+      ) : null}
+
+      <AnimatePresence initial={false}>
+        {question.image ? (
+          <Motion.img
+            key={question.image}
+            initial={{ opacity: 0, scale: 0.98 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.98 }}
+            src={imageHref}
+            alt=""
+            className="max-h-48 w-full rounded-large-element bg-primary object-contain"
+          />
+        ) : null}
+      </AnimatePresence>
+
+      <AnimatePresence initial={false}>
+        {watching ? (
+          <Motion.p
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            className="text-xs"
+          >
+            {watching}
+          </Motion.p>
+        ) : null}
+      </AnimatePresence>
+
+      <QuestionFace
+        question={question}
+        options={options}
+        canWrite={canWrite}
+        showOther={showOther}
+        pickedCounts={pickedCounts}
+        onAddOption={onAddOption}
+        onSetOptionLabel={onSetOptionLabel}
+        onRemoveOption={onRemoveOption}
+      />
+
+      <div className="space-y-3 border-t border-primary/20 pt-3">
+        {info.hint ? <p className="text-xs">{info.hint}</p> : null}
         {canWrite && (
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" surface="secondary" size="sm" onClick={onPickImage}>
@@ -931,56 +1219,35 @@ function QuestionCard({
             ) : null}
           </div>
         )}
-        {info.options && question.type === "dropdown" && (
-          <OptionEditor
-            options={options}
-            canWrite={canWrite}
-            onSetOptions={setOptions}
-            onRemoveOption={onRemoveOption}
-          />
-        )}
-        {info.options && canWrite && question.type !== "dropdown" && (
-          <Button
-            variant="outline"
-            surface="secondary"
-            size="sm"
-            onClick={() => setOptions([...options, `Option ${options.length + 1}`])}
-          >
-            <Plus size={ICON_SIZE.sm} aria-hidden="true" />
-            Add an option
-          </Button>
-        )}
         {info.options && (
           <Toggle
             surface="secondary"
             label="Let people type their own answer"
+            description="Adds an Other choice with a box to type in."
             checked={showOther}
             disabled={!canWrite}
-            onChange={(next) => {
-              const config = { ...(question.config || {}) };
-              if (next) config.allowOther = true;
-              else delete config.allowOther;
-              onPatch({ config });
-            }}
+            onChange={(next) => onPatch({ config: { allowOther: next } })}
           />
         )}
         {question.type === "number" && (
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="text-sm text-primary" htmlFor={`min-${question.id}`}>Smallest</label>
             <input
+              id={`min-${question.id}`}
               type="number"
-              className={cn(fieldClass, "w-36")}
+              className={cn(fieldClass, "w-32")}
               value={question.config?.min ?? ""}
               onChange={(e) => setBound("min", e.target.value)}
-              aria-label="Smallest number"
               placeholder="No minimum"
               disabled={!canWrite}
             />
+            <label className="text-sm text-primary" htmlFor={`max-${question.id}`}>Largest</label>
             <input
+              id={`max-${question.id}`}
               type="number"
-              className={cn(fieldClass, "w-36")}
+              className={cn(fieldClass, "w-32")}
               value={question.config?.max ?? ""}
               onChange={(e) => setBound("max", e.target.value)}
-              aria-label="Largest number"
               placeholder="No maximum"
               disabled={!canWrite}
             />
@@ -991,7 +1258,7 @@ function QuestionCard({
         )}
         <div className="flex items-center justify-between gap-2">
           {hasAnswers && (
-            <span className="text-xs text-accent">People have answered this</span>
+            <span className="text-xs">People have answered this</span>
           )}
           <div className="min-w-0 flex-1" />
           <Toggle
@@ -1012,22 +1279,23 @@ QuestionCard.propTypes = {
   index: PropTypes.number.isRequired,
   count: PropTypes.number.isRequired,
   canWrite: PropTypes.bool,
+  autoFocus: PropTypes.bool,
+  onFocused: PropTypes.func,
+  responses: PropTypes.array.isRequired,
   hasAnswers: PropTypes.bool,
-  dragging: PropTypes.bool,
+  dragControls: PropTypes.object.isRequired,
   earlier: PropTypes.array,
   watchers: PropTypes.array,
   imageHref: PropTypes.string,
   onFocus: PropTypes.func,
   onBlur: PropTypes.func,
   onPickImage: PropTypes.func,
-  onDragStart: PropTypes.func.isRequired,
-  onDragOver: PropTypes.func.isRequired,
-  onDrop: PropTypes.func.isRequired,
-  onDragEnd: PropTypes.func.isRequired,
   onPatch: PropTypes.func.isRequired,
   onChangeType: PropTypes.func.isRequired,
   onRemove: PropTypes.func.isRequired,
   onMove: PropTypes.func.isRequired,
+  onAddOption: PropTypes.func.isRequired,
+  onSetOptionLabel: PropTypes.func.isRequired,
   onRemoveOption: PropTypes.func.isRequired,
 };
 
@@ -1041,56 +1309,86 @@ function watcherLine(watchers) {
 }
 
 /**
+ * The round mark in front of a choice — a dot for one pick, a tick box for many.
+ * @param {{ multi?: boolean }} props
+ */
+function ChoiceMark({ multi = false }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        "size-5 shrink-0 border-2 border-secondary/50",
+        multi ? "rounded-md" : "rounded-full",
+      )}
+    />
+  );
+}
+
+ChoiceMark.propTypes = { multi: PropTypes.bool };
+
+/**
  * The face of a question — the same control the answer page shows.
  * Choice pills stay editable because those words are what people pick.
- * Dropdown options live in the footer so the face is a dropdown.
+ * Dropdown options are edited as a list under the closed menu.
  */
-function QuestionFace({ question, options, canWrite, showOther, onSetOptions, onRemoveOption }) {
-  if (question.type === "dropdown") {
-    return (
-      <div
-        aria-hidden="true"
-        className="inline-flex w-full items-center rounded-pill bg-primary px-3 py-1.5 text-xs text-secondary"
-      >
-        <span className="inline-flex w-full items-center justify-between gap-1 font-mono font-normal">
-          Pick one…
-          <ChevronDown size={ICON_SIZE.sm} aria-hidden="true" />
-        </span>
-      </div>
-    );
-  }
-
-  if (question.type === "choice" || question.type === "multi_choice") {
+function QuestionFace({
+  question,
+  options,
+  canWrite,
+  showOther,
+  pickedCounts,
+  onAddOption,
+  onSetOptionLabel,
+  onRemoveOption,
+}) {
+  if (hasEditableOptions(question.type)) {
+    const dropdown = question.type === "dropdown";
+    const multi = question.type === "multi_choice";
     return (
       <div className="flex flex-col gap-2">
-        {options.map((option, optionIndex) => (
-          <div key={optionIndex} className="flex items-center gap-2">
-            <input
-              className={cn(answerPillClass, "min-w-0 flex-1 outline-none no-focus-outline focus:border-accent")}
-              value={option}
-              onChange={(e) => {
-                const next = [...options];
-                next[optionIndex] = e.target.value;
-                onSetOptions(next);
-              }}
-              aria-label={`Option ${optionIndex + 1}`}
-              disabled={!canWrite}
-            />
-            {canWrite && (
-              <Button
-                variant="ghost"
-                surface="secondary"
-                size="iconSm"
-                aria-label={`Remove option ${optionIndex + 1}`}
-                onClick={() => onRemoveOption(optionIndex)}
-              >
-                <Trash2 size={ICON_SIZE.xs} aria-hidden="true" />
-              </Button>
-            )}
+        {dropdown ? (
+          <div
+            aria-hidden="true"
+            className="inline-flex w-full items-center justify-between rounded-pill bg-primary px-4 py-2 font-mono text-sm font-normal text-secondary"
+          >
+            Pick one…
+            <ChevronDown size={ICON_SIZE.sm} aria-hidden="true" />
           </div>
-        ))}
-        {showOther && (
-          <div className={answerPillClass} aria-hidden="true">Other</div>
+        ) : null}
+        {dropdown ? <p className="text-xs">Options in the list</p> : null}
+        <OptionList
+          options={options}
+          canWrite={canWrite}
+          pickedCounts={pickedCounts}
+          mark={dropdown ? null : <ChoiceMark multi={multi} />}
+          compact={dropdown}
+          onSetOptionLabel={onSetOptionLabel}
+          onRemoveOption={onRemoveOption}
+        />
+        <AnimatePresence initial={false}>
+          {showOther && !dropdown ? (
+            <Motion.div
+              key="other"
+              initial={ROW_ENTER}
+              animate={ROW_SHOWN}
+              exit={ROW_EXIT}
+              transition={SPRING}
+              className="overflow-hidden"
+            >
+              <div className={answerPillClass} aria-hidden="true">
+                <ChoiceMark multi={multi} />
+                Other: people type their own
+              </div>
+            </Motion.div>
+          ) : null}
+        </AnimatePresence>
+        {canWrite && (
+          <div>
+            <Button variant="outline" surface="secondary" size="sm" onClick={onAddOption}>
+              <Plus size={ICON_SIZE.sm} aria-hidden="true" />
+              Add an option
+            </Button>
+          </div>
         )}
       </div>
     );
@@ -1100,7 +1398,10 @@ function QuestionFace({ question, options, canWrite, showOther, onSetOptions, on
     return (
       <div className="flex flex-col gap-2" aria-hidden="true">
         {["Yes", "No"].map((option) => (
-          <div key={option} className={answerPillClass}>{option}</div>
+          <div key={option} className={answerPillClass}>
+            <ChoiceMark />
+            {option}
+          </div>
         ))}
       </div>
     );
@@ -1113,7 +1414,7 @@ function QuestionFace({ question, options, canWrite, showOther, onSetOptions, on
         tabIndex={-1}
         aria-hidden="true"
         rows={4}
-        className={cn(previewFieldClass, "min-h-32 resize-y rounded-large-element")}
+        className={cn(previewFieldClass, "min-h-32 resize-none rounded-large-element")}
         placeholder="Type your answer"
       />
     );
@@ -1159,8 +1460,9 @@ function QuestionFace({ question, options, canWrite, showOther, onSetOptions, on
     return (
       <div
         aria-hidden="true"
-        className="inline-flex items-center gap-2 rounded-pill border-2 border-primary px-4 py-2 text-sm text-primary"
+        className="inline-flex items-center gap-2 self-start rounded-pill border-2 border-primary px-4 py-2 text-sm text-primary"
       >
+        <Upload size={ICON_SIZE.sm} aria-hidden="true" />
         Attach a photo or PDF
       </div>
     );
@@ -1182,72 +1484,159 @@ QuestionFace.propTypes = {
   options: PropTypes.array.isRequired,
   canWrite: PropTypes.bool,
   showOther: PropTypes.bool,
-  onSetOptions: PropTypes.func.isRequired,
-  onRemoveOption: PropTypes.func.isRequired,
-};
-
-/** Option list for a dropdown — the face is the closed menu, so the words live here. */
-function OptionEditor({ options, canWrite, onSetOptions, onRemoveOption }) {
-  return (
-    <div className="space-y-2">
-      <p className="text-xs text-accent">Options in the list</p>
-      {options.map((option, optionIndex) => (
-        <div key={optionIndex} className="flex items-center gap-2">
-          <input
-            className={cn(fieldClass, "min-w-0 flex-1")}
-            value={option}
-            onChange={(e) => {
-              const next = [...options];
-              next[optionIndex] = e.target.value;
-              onSetOptions(next);
-            }}
-            aria-label={`Option ${optionIndex + 1}`}
-            disabled={!canWrite}
-          />
-          {canWrite && (
-            <Button
-              variant="ghost"
-              surface="secondary"
-              size="iconSm"
-              aria-label={`Remove option ${optionIndex + 1}`}
-              onClick={() => onRemoveOption(optionIndex)}
-            >
-              <Trash2 size={ICON_SIZE.xs} aria-hidden="true" />
-            </Button>
-          )}
-        </div>
-      ))}
-      {canWrite && (
-        <Button
-          variant="outline"
-          surface="secondary"
-          size="sm"
-          onClick={() => onSetOptions([...options, `Option ${options.length + 1}`])}
-        >
-          <Plus size={ICON_SIZE.sm} aria-hidden="true" />
-          Add an option
-        </Button>
-      )}
-    </div>
-  );
-}
-
-OptionEditor.propTypes = {
-  options: PropTypes.array.isRequired,
-  canWrite: PropTypes.bool,
-  onSetOptions: PropTypes.func.isRequired,
+  pickedCounts: PropTypes.instanceOf(Map).isRequired,
+  onAddOption: PropTypes.func.isRequired,
+  onSetOptionLabel: PropTypes.func.isRequired,
   onRemoveOption: PropTypes.func.isRequired,
 };
 
 /**
- * Skip when an earlier answer matches. Yes/no stores yes/no, not the label.
+ * Editable options, keyed by their stable ids so a new row slides in, a
+ * removed one folds away, and focus stays on the row being typed in.
+ */
+function OptionList({ options, canWrite, pickedCounts, mark, compact, onSetOptionLabel, onRemoveOption }) {
+  // Focus a row that appears after the first render (Add an option).
+  const knownRef = useRef(new Set(options.map((o) => o.id)));
+  const [focusId, setFocusId] = useState("");
+  useEffect(() => {
+    const fresh = options.find((o) => !knownRef.current.has(o.id));
+    knownRef.current = new Set(options.map((o) => o.id));
+    if (fresh) setFocusId(fresh.id);
+  }, [options]);
+
+  const counts = new Map();
+  for (const o of options) {
+    const key = o.label.trim();
+    if (key) counts.set(key, (counts.get(key) || 0) + 1);
+  }
+
+  return (
+    <div className="flex flex-col">
+      <AnimatePresence initial={false}>
+        {options.map((option, optionIndex) => (
+          <Motion.div
+            key={option.id}
+            layout="position"
+            initial={ROW_ENTER}
+            animate={ROW_SHOWN}
+            exit={ROW_EXIT}
+            transition={SPRING}
+            className="overflow-hidden"
+          >
+            <OptionRow
+              option={option}
+              index={optionIndex}
+              canWrite={canWrite}
+              mark={mark}
+              compact={compact}
+              autoFocus={focusId === option.id}
+              duplicate={(counts.get(option.label.trim()) || 0) > 1}
+              pickedCounts={pickedCounts}
+              onChange={(label) => onSetOptionLabel(option.id, label)}
+              onRemove={(originalLabel) =>
+                onRemoveOption(option.id, option.label, pickedCounts.has(originalLabel))}
+            />
+          </Motion.div>
+        ))}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+OptionList.propTypes = {
+  options: PropTypes.array.isRequired,
+  canWrite: PropTypes.bool,
+  pickedCounts: PropTypes.instanceOf(Map).isRequired,
+  mark: PropTypes.node,
+  compact: PropTypes.bool,
+  onSetOptionLabel: PropTypes.func.isRequired,
+  onRemoveOption: PropTypes.func.isRequired,
+};
+
+function OptionRow({ option, index, canWrite, mark, compact, autoFocus, duplicate, pickedCounts, onChange, onRemove }) {
+  const inputRef = useRef(/** @type {HTMLInputElement | null} */ (null));
+  // The wording answers were stored under when the builder opened. Answers
+  // keep that wording, so renaming a picked option says what happens.
+  const [original] = useState(option.label);
+  const picked = pickedCounts.get(original) || 0;
+  const renamed = picked > 0 && option.label !== original;
+
+  useEffect(() => {
+    if (autoFocus) inputRef.current?.focus();
+  }, [autoFocus]);
+
+  return (
+    <div className="pb-2">
+      <div className="flex items-center gap-2">
+        <div className={cn(compact ? "" : answerPillClass, "min-w-0 flex-1", compact ? "" : "py-0 pr-2")}>
+          {mark}
+          <input
+            ref={inputRef}
+            className={cn(
+              compact
+                ? cn(fieldClass, "w-full")
+                : "min-w-0 flex-1 bg-transparent py-3 text-base text-secondary outline-none no-focus-outline",
+            )}
+            value={option.label}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder="Type an option"
+            aria-label={`Option ${index + 1}`}
+            aria-invalid={duplicate || undefined}
+            disabled={!canWrite}
+          />
+        </div>
+        {canWrite && (
+          <Button
+            variant="ghost"
+            surface="secondary"
+            size="iconSm"
+            aria-label={`Remove option ${index + 1}`}
+            tooltip="Remove this option"
+            onClick={() => onRemove(original)}
+          >
+            <Trash2 size={ICON_SIZE.xs} aria-hidden="true" />
+          </Button>
+        )}
+      </div>
+      {duplicate ? (
+        <p className="mt-1 px-4 text-xs text-warning">
+          Another option says the same thing. People could only pick one of them — change one.
+        </p>
+      ) : !option.label.trim() && canWrite ? (
+        <p className="mt-1 px-4 text-xs">Blank options are hidden from people answering.</p>
+      ) : renamed ? (
+        <p className="mt-1 px-4 text-xs">
+          {picked === 1 ? "1 answer" : `${picked} answers`} picked “{original}”. Those stay under the old wording in the results.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+OptionRow.propTypes = {
+  option: PropTypes.shape({ id: PropTypes.string, label: PropTypes.string }).isRequired,
+  index: PropTypes.number.isRequired,
+  canWrite: PropTypes.bool,
+  mark: PropTypes.node,
+  compact: PropTypes.bool,
+  autoFocus: PropTypes.bool,
+  duplicate: PropTypes.bool,
+  pickedCounts: PropTypes.instanceOf(Map).isRequired,
+  onChange: PropTypes.func.isRequired,
+  onRemove: PropTypes.func.isRequired,
+};
+
+/**
+ * Skip when an earlier answer matches. Only questions with a fixed set of
+ * answers can be the trigger; yes/no stores yes/no, not the label.
  */
 function SkipRow({ question, earlier, canWrite, onPatch }) {
   const logic = question.logic && typeof question.logic.questionId === "string"
     ? question.logic
     : null;
-  const trigger = earlier.find((q) => q.id === logic?.questionId) || null;
-  const triggerInfo = trigger ? typeInfo(trigger.type) : null;
+  const triggers = earlier.filter((q) => canTriggerSkip(q.type));
+  const linked = logic ? earlier.find((q) => q.id === logic.questionId) || null : null;
+  const trigger = linked && canTriggerSkip(linked.type) ? linked : null;
 
   function setLogic(questionId, equals) {
     if (!questionId) onPatch({ logic: null });
@@ -1257,57 +1646,68 @@ function SkipRow({ question, earlier, canWrite, onPatch }) {
   function defaultEquals(next) {
     if (!next) return "";
     if (next.type === "yes_no") return "yes";
-    const opts = answerOptions(next);
-    return opts[0] || "";
+    return answerOptions(next)[0] || "";
   }
+
+  if (triggers.length === 0 && !logic) return null;
 
   const questionOptions = [
     { value: "", label: "Don't skip" },
-    ...earlier.map((q, i) => ({ value: q.id, label: q.label || `Question ${i + 1}` })),
+    ...triggers.map((q) => ({
+      value: q.id,
+      label: q.label || `Question ${earlier.indexOf(q) + 1}`,
+    })),
   ];
   const equalsOptions = trigger?.type === "yes_no"
     ? [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }]
     : answerOptions(trigger).map((option) => ({ value: option, label: option }));
+  const equalsValue = trigger?.type === "yes_no"
+    ? (logic?.equals === "no" ? "no" : "yes")
+    : (logic?.equals || "");
+  // The picked answer was renamed or removed on the other question.
+  const staleAnswer = trigger && trigger.type !== "yes_no" && !equalsOptions.some((o) => o.value === equalsValue);
+  // The other question changed to a type that can't trigger a skip.
+  const staleTrigger = logic && linked && !trigger;
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <span className="text-sm text-primary">Skip this question when</span>
-      <Dropdown
-        options={questionOptions}
-        value={trigger ? trigger.id : ""}
-        disabled={!canWrite}
-        bg="primary"
-        aria-label="Skip when this earlier question"
-        onChange={(id) => {
-          const next = earlier.find((q) => q.id === id) || null;
-          setLogic(id, defaultEquals(next));
-        }}
-      />
-      {trigger && (
-        <>
-          <span className="text-sm text-primary">is</span>
-          {trigger.type === "yes_no" || triggerInfo?.options || triggerInfo?.fixedOptions ? (
+    <div className="space-y-1">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm text-primary">Skip this question when</span>
+        <Dropdown
+          options={questionOptions}
+          value={trigger ? trigger.id : ""}
+          disabled={!canWrite}
+          bg="primary"
+          aria-label="Skip when this earlier question"
+          onChange={(id) => {
+            const next = triggers.find((q) => q.id === id) || null;
+            setLogic(id, defaultEquals(next));
+          }}
+        />
+        {trigger && (
+          <>
+            <span className="text-sm text-primary">is</span>
             <Dropdown
               options={equalsOptions}
-              value={trigger.type === "yes_no"
-                ? (logic?.equals === "no" ? "no" : "yes")
-                : (logic?.equals || "")}
+              value={equalsValue}
+              placeholder="Pick an answer"
               disabled={!canWrite}
               bg="primary"
               aria-label="Skip when the answer is"
               onChange={(value) => setLogic(trigger.id, value)}
             />
-          ) : (
-            <input
-              className={cn(fieldClass, "min-w-32 flex-1")}
-              aria-label="Skip when the answer is"
-              value={logic?.equals || ""}
-              disabled={!canWrite}
-              onChange={(e) => setLogic(trigger.id, e.target.value)}
-            />
-          )}
-        </>
-      )}
+          </>
+        )}
+      </div>
+      {staleAnswer ? (
+        <p className="text-xs text-warning">
+          The answer this skip used is no longer on that question, so it never skips. Pick another answer.
+        </p>
+      ) : staleTrigger ? (
+        <p className="text-xs text-warning">
+          That question can&apos;t decide a skip anymore — its type changed. Pick another question or choose Don&apos;t skip.
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -1320,12 +1720,16 @@ SkipRow.propTypes = {
 };
 
 /**
- * Pick a picture that is already on the drive. The path is stored on the
- * question; respondents load it through the answer link.
+ * Pick a picture already on Luna, or upload one from this device. Either
+ * way Luna copies it next to the form, so the answer link can show it
+ * without opening anything else on the drive.
  */
-function PicturePicker({ driveId, startFolder, onPick, onClose }) {
+function PicturePicker({ driveId, formPath, startFolder, onPicked, onClose }) {
   const source = useFileSource();
   const [folder, setFolder] = useState(startFolder);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const uploadRef = useRef(/** @type {HTMLInputElement | null} */ (null));
   const listing = useQuery({
     queryKey: ["form-pictures", fileSourceScope(source, driveId), folder],
     queryFn: () => source.listDir(driveId, folder),
@@ -1333,6 +1737,22 @@ function PicturePicker({ driveId, startFolder, onPick, onClose }) {
   const entries = (Array.isArray(listing.data) ? listing.data : [])
     .filter((entry) => entry && !entry.hidden)
     .filter((entry) => entry.kind === "dir" || isImageFileName(entry.name));
+  const folders = entries.filter((e) => e.kind === "dir");
+  const pictures = entries.filter((e) => e.kind !== "dir");
+
+  async function run(task) {
+    setSaving(true);
+    setSaveError("");
+    try {
+      const pictureName = await task();
+      if (!pictureName) throw new Error("Luna didn't keep that picture. Try again.");
+      onPicked(pictureName);
+    } catch (err) {
+      setSaveError(apiErrorMessage(err, "Luna couldn't add that picture. Try another one."));
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <ModalCard
@@ -1342,8 +1762,12 @@ function PicturePicker({ driveId, startFolder, onPick, onClose }) {
       overlayClassName={NESTED_OVERLAY_CLASS}
     >
       <div className="space-y-3">
-        <div className="flex items-center gap-2 pr-10">
-          <p className="min-w-0 flex-1 truncate font-mono text-xs font-normal uppercase tracking-widest text-primary">
+        <p className="text-sm text-primary">
+          Choose a picture already on Luna, or upload one. JPG, PNG, GIF, or WebP, up to 20 MB.
+          Luna keeps a copy next to the form so people answering can see it.
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="min-w-0 flex-1 truncate font-mono text-xs font-normal text-primary">
             {folder || "Top folder"}
           </p>
           {folder ? (
@@ -1351,44 +1775,103 @@ function PicturePicker({ driveId, startFolder, onPick, onClose }) {
               variant="ghost"
               surface="secondary"
               size="sm"
+              disabled={saving}
               onClick={() => setFolder(parentPath(folder) ?? "")}
             >
+              <CornerLeftUp size={ICON_SIZE.sm} aria-hidden="true" />
               Up
             </Button>
           ) : null}
+          <Button
+            variant="outline"
+            surface="secondary"
+            size="sm"
+            disabled={saving}
+            onClick={() => uploadRef.current?.click()}
+          >
+            <Upload size={ICON_SIZE.sm} aria-hidden="true" />
+            Upload from this device
+          </Button>
+          <input
+            ref={uploadRef}
+            type="file"
+            accept="image/jpeg,image/png,image/gif,image/webp,.jpg,.jpeg,.png,.gif,.webp"
+            className="sr-only"
+            tabIndex={-1}
+            aria-hidden="true"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (file) run(() => source.uploadFormPicture(driveId, formPath, file));
+            }}
+          />
         </div>
-        <p className="text-sm text-primary">
-          Choose a picture already on Luna. JPG, PNG, GIF, or WebP.
-        </p>
-        {listing.isError ? (
-          <PageNotice variant="error">Couldn&apos;t open that folder. Try again.</PageNotice>
+        <ModalErrorNotice error={saveError} />
+        {saving ? (
+          <div className="flex items-center gap-2" role="status">
+            <Spinner size="sm" decorative />
+            <span className="text-sm text-primary">Adding the picture</span>
+          </div>
+        ) : listing.isError ? (
+          <PageNotice variant="error">Luna couldn&apos;t open that folder. Go up a folder or try again.</PageNotice>
         ) : listing.isLoading ? (
           <div className="flex items-center gap-2" role="status">
             <Spinner size="sm" decorative />
             <span className="text-sm text-primary">Opening</span>
           </div>
         ) : entries.length === 0 ? (
-          <p className="text-sm text-primary">No pictures in this folder.</p>
+          <p className="text-sm text-primary">No pictures in this folder. Open another one or upload a picture.</p>
         ) : (
-          <div className="max-h-64 space-y-1 overflow-y-auto">
-            {entries.map((entry) => {
-              const isDir = entry.kind === "dir";
-              return (
-                <button
-                  key={entry.name}
-                  type="button"
-                  className="flex w-full items-center rounded-large-element px-3 py-2 text-left text-sm text-primary hover:bg-primary/10"
-                  onClick={() => {
-                    haptic("selection");
-                    const next = joinPath(folder, entry.name);
-                    if (isDir) setFolder(next);
-                    else onPick(next);
-                  }}
-                >
-                  {isDir ? `Folder: ${entry.name}` : entry.name}
-                </button>
-              );
-            })}
+          <div className="max-h-80 space-y-3 overflow-y-auto no-scrollbar">
+            {folders.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {folders.map((entry) => (
+                  <Button
+                    key={entry.name}
+                    variant="outline"
+                    surface="secondary"
+                    size="sm"
+                    haptic="selection"
+                    onClick={() => setFolder(joinPath(folder, entry.name))}
+                  >
+                    <Folder size={ICON_SIZE.sm} aria-hidden="true" />
+                    {entry.name}
+                  </Button>
+                ))}
+              </div>
+            )}
+            {pictures.length > 0 && (
+              <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                {pictures.map((entry, i) => {
+                  const picturePath = joinPath(folder, entry.name);
+                  return (
+                    <Motion.button
+                      key={entry.name}
+                      type="button"
+                      initial={{ opacity: 0, scale: 0.94 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ delay: Math.min(i * 0.02, 0.3) }}
+                      whileHover={{ scale: 1.03 }}
+                      whileTap={{ scale: 0.97 }}
+                      className="group relative aspect-square overflow-hidden rounded-large-element bg-primary text-secondary focus-visible:ring-2 focus-visible:ring-accent no-focus-outline"
+                      aria-label={`Use ${entry.name}`}
+                      title={entry.name}
+                      onClick={() => {
+                        haptic("selection");
+                        run(() => source.copyFormPicture(driveId, formPath, picturePath));
+                      }}
+                    >
+                      <img
+                        src={source.contentHref(driveId, picturePath)}
+                        alt=""
+                        loading="lazy"
+                        className="h-full w-full object-cover"
+                      />
+                    </Motion.button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -1398,56 +1881,39 @@ function PicturePicker({ driveId, startFolder, onPick, onClose }) {
 
 PicturePicker.propTypes = {
   driveId: PropTypes.string.isRequired,
+  formPath: PropTypes.string.isRequired,
   startFolder: PropTypes.string.isRequired,
-  onPick: PropTypes.func.isRequired,
+  onPicked: PropTypes.func.isRequired,
   onClose: PropTypes.func.isRequired,
 };
 
-/** "+ Add a question" pill — picks a type from the registry. */
+/** "+ Add a question" — the shared dropdown menu with an accent trigger. */
 function AddQuestionButton({ onAdd }) {
-  const [open, setOpen] = useState(false);
   return (
-    <div className="relative">
-      <Button
-        variant="accent"
-        surface="secondary"
-        onClick={() => {
-          haptic("light");
-          setOpen((v) => !v);
-        }}
-        aria-expanded={open}
-        aria-haspopup="menu"
-      >
-        <Plus size={ICON_SIZE.sm} aria-hidden="true" />
-        Add a question
-      </Button>
-      {open && (
-        <div
-          role="menu"
-          aria-label="Question types"
-          className="absolute left-1/2 top-full z-10 mt-2 min-w-44 -translate-x-1/2 overflow-hidden rounded-large-element bg-secondary text-primary ring-inset ring-2 ring-accent animate-dropdown-open"
+    <Dropdown
+      options={TYPE_OPTIONS}
+      value=""
+      onChange={(type) => onAdd(type)}
+      aria-label="Add a question"
+      renderTrigger={({ open, toggle, onKeyDown }) => (
+        <Button
+          variant="secondary"
+          surface="primary"
+          haptic={false}
+          onClick={toggle}
+          onKeyDown={onKeyDown}
+          aria-expanded={open}
+          aria-haspopup="listbox"
         >
-          {QUESTION_TYPE_IDS.map((id) => {
-            const Icon = QUESTION_TYPES[id].icon;
-            return (
-              <button
-                key={id}
-                type="button"
-                role="menuitem"
-                className="flex w-full items-center gap-2 px-4 py-2 text-left font-mono text-sm text-primary hover:bg-primary/10 motion-safe:transition-colors"
-                onClick={() => {
-                  setOpen(false);
-                  onAdd(id);
-                }}
-              >
-                <Icon size={ICON_SIZE.sm} aria-hidden="true" />
-                {QUESTION_TYPES[id].label}
-              </button>
-            );
-          })}
-        </div>
+          <Plus
+            size={ICON_SIZE.sm}
+            aria-hidden="true"
+            className={cn("motion-safe:transition-transform motion-safe:duration-300", open && "rotate-45")}
+          />
+          Add a question
+        </Button>
       )}
-    </div>
+    />
   );
 }
 

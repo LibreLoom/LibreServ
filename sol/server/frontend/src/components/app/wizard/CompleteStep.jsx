@@ -17,11 +17,11 @@ function CompleteStep({ app, instance, onDone }) {
   return (
     <div className="space-y-6" data-slot="complete-step">
       <div className="text-center space-y-4">
-        <CheckCircle className="mx-auto text-accent" size={48} />
+        <CheckCircle className="mx-auto" size={48} />
         <h2 className="font-mono text-2xl font-normal text-secondary">
           Installation Complete!
         </h2>
-        <p className="text-accent">
+        <p>
           {app?.name || "Your app"} is ready to use.
         </p>
       </div>
@@ -29,18 +29,18 @@ function CompleteStep({ app, instance, onDone }) {
       {subdomain && domain && (
         <div className="max-w-md mx-auto p-5 rounded-large-element bg-secondary/10 border border-secondary/30">
           <div className="flex items-center gap-2 mb-3">
-            <svg className="w-5 h-5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
             </svg>
             <div>
               <h3 className="font-mono text-sm font-medium text-secondary">Domain Ready</h3>
-              <p className="text-xs text-accent">Your app is accessible on the web</p>
+              <p className="text-xs">Your app is accessible on the web</p>
             </div>
           </div>
 
           <div className="bg-primary/5 rounded-pill px-4 py-3">
-            <div className="text-xs font-mono text-accent uppercase tracking-wide mb-2">Access URL</div>
-            <div className="font-mono text-xl text-accent break-all">
+            <div className="text-xs font-mono uppercase tracking-wide mb-2">Access URL</div>
+            <div className="font-mono text-xl break-all">
               {subdomain}.{domain}
             </div>
           </div>

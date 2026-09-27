@@ -10,7 +10,7 @@ export function ActionConfirmModal({ action, onConfirm, onCancel, isConfirming }
       <div className="space-y-4">
         {action.confirm?.message && (
           <div className="flex items-start gap-3 p-3 bg-accent/10 rounded-large-element border border-accent/30">
-            <AlertTriangle className="text-accent shrink-0 mt-0.5" size={ICON_SIZE.xl} />
+            <AlertTriangle className="shrink-0 mt-0.5" size={ICON_SIZE.xl} />
             <p className="text-sm">{action.confirm.message}</p>
           </div>
         )}

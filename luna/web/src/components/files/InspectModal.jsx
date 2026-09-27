@@ -96,7 +96,7 @@ export default function InspectModal({ open = true, drive, result, error, onClos
               </p>
               {Array.isArray(result.entries) && result.entries.length > 0 && (
                 <div className="mt-3 rounded-large-element bg-primary text-secondary p-3">
-                  <p className="text-xs font-mono uppercase tracking-widest text-accent mb-2">
+                  <p className="text-xs font-mono uppercase tracking-widest mb-2">
                     On this drive
                   </p>
                   <ul
@@ -111,12 +111,12 @@ export default function InspectModal({ open = true, drive, result, error, onClos
                           className="flex items-center gap-2 text-sm font-mono min-w-0"
                         >
                           {isFolder ? (
-                            <Folder size={14} className="text-accent shrink-0" aria-hidden="true" />
+                            <Folder size={14} className="shrink-0" aria-hidden="true" />
                           ) : (
-                            <FileIcon size={14} className="text-accent shrink-0" aria-hidden="true" />
+                            <FileIcon size={14} className="shrink-0" aria-hidden="true" />
                           )}
                           <span className="truncate">{entry.name}</span>
-                          <span className="text-xs text-accent shrink-0">
+                          <span className="text-xs shrink-0">
                             {isFolder ? "folder" : "file"}
                           </span>
                         </li>
@@ -160,6 +160,7 @@ export default function InspectModal({ open = true, drive, result, error, onClos
                             className="mt-2 w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm no-focus-outline focus:outline-none focus:border-secondary"
                             value={label}
                             maxLength={80}
+                            placeholder="e.g. Photos drive"
                             onChange={(e) => setLabel(e.target.value)}
                           />
                         </label>
@@ -196,7 +197,7 @@ export default function InspectModal({ open = true, drive, result, error, onClos
                 </p>
               ) : (
                 <div className="mt-4 flex items-center gap-3">
-                  <Info size={18} className="text-accent shrink-0" aria-hidden="true" />
+                  <Info size={18} className="shrink-0" aria-hidden="true" />
                   <p className="text-primary text-xs">
                     Adding it writes a <span className="font-mono">.luna</span> database
                     file at the{" "}
@@ -213,6 +214,7 @@ export default function InspectModal({ open = true, drive, result, error, onClos
                       className="mt-2 w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm no-focus-outline focus:outline-none focus:border-secondary"
                       value={label}
                       maxLength={80}
+                      placeholder="e.g. Photos drive"
                       onChange={(e) => setLabel(e.target.value)}
                     />
                   </label>

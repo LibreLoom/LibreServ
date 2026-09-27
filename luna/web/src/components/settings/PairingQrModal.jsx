@@ -67,7 +67,7 @@ export default function PairingQrModal({ open, token, onClose }) {
             Luna.
           </p>
           <div className="flex justify-end">
-            <Button variant="accent" onClick={close}>Done</Button>
+            <Button onClick={close}>Done</Button>
           </div>
         </div>
       )}

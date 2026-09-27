@@ -164,9 +164,9 @@ export default function FilesPage() {
                   ? `${Math.min(100, Math.round((100 * job.progress) / job.total))}% done`
                   : "Starting…"}
               </p>
-              <div className="mt-2 h-2 rounded-pill bg-primary overflow-hidden" aria-hidden="true">
+              <div className="mt-2 h-2 rounded-pill bg-primary p-0.5 overflow-hidden" aria-hidden="true">
                 <div
-                  className="h-full bg-accent motion-safe:transition-all"
+                  className="h-full rounded-pill bg-secondary motion-safe:transition-all"
                   style={{ width: `${job.total > 0 ? Math.min(100, (100 * job.progress) / job.total) : 8}%` }}
                 />
               </div>

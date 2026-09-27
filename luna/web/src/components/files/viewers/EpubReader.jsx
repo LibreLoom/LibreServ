@@ -372,7 +372,7 @@ export default function EpubReader({ bytes, driveId, path, fill = false }) {
             {progress.label || "—"}
           </p>
           <div
-            className="mt-1 h-1 w-full overflow-hidden rounded-pill bg-accent/20"
+            className="mt-1 h-1 w-full overflow-hidden rounded-pill bg-current/20"
             role="progressbar"
             aria-valuemin={0}
             aria-valuemax={100}
@@ -380,7 +380,7 @@ export default function EpubReader({ bytes, driveId, path, fill = false }) {
             aria-label="Reading progress"
           >
             <div
-              className="h-full rounded-pill bg-accent transition-[width] duration-300"
+              className="h-full rounded-pill bg-current transition-[width] duration-300"
               style={{ width: `${progress.percent}%` }}
             />
           </div>

@@ -151,6 +151,8 @@ export function isHeicFile(name) {
 export function isTextFile(name) {
   const ext = fileExtension(name);
   if (TEXT_EXT.has(ext)) return true;
+  // A form's answers file: one JSON record per line, readable as text.
+  if (String(name || "").toLowerCase().endsWith(".lunaform.responses")) return true;
   // No extension → treat as plain text only for short common names.
   if (!ext) {
     const base = String(name || "").split("/").pop() || "";

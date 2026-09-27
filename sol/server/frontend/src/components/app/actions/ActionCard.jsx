@@ -28,13 +28,13 @@ export function ActionCard({ action, onExecute, disabled, loading }) {
           {isConfirm ? (
             <AlertTriangle className="text-warning" size={ICON_SIZE.xl} />
           ) : (
-            <Wrench className="text-accent" size={ICON_SIZE.xl} />
+            <Wrench size={ICON_SIZE.xl} />
           )}
         </div>
         <div>
           <p className="font-mono font-medium">{action.label}</p>
           {hasOptions && (
-            <span className="inline-block text-xs bg-accent/20 text-accent px-2 py-0.5 rounded-pill mt-1">
+            <span className="inline-block text-xs border border-accent px-2 py-0.5 rounded-pill mt-1">
               Has options
             </span>
           )}

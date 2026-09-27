@@ -430,7 +430,7 @@ describe("FilesPage", () => {
       expect(screen.getByLabelText("Select beach.jpg")).toBeChecked();
     });
     expect(document.querySelector('[data-file-path="album/beach.jpg"]')?.className).toMatch(
-      /bg-accent\/20/,
+      /bg-current\/10/,
     );
   });
 

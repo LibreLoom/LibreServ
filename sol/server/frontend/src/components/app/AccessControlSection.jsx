@@ -160,9 +160,9 @@ export default function AccessControlSection({ instanceId, accessModel, appName 
         {/* Section header — matches AppDetailPage pattern */}
         <div className="flex items-center gap-2 mb-6">
           {isInternal ? (
-            <ShieldCheck size={ICON_SIZE.xl} className="text-accent" />
+            <ShieldCheck size={ICON_SIZE.xl} />
           ) : (
-            <Lock size={ICON_SIZE.xl} className="text-accent" />
+            <Lock size={ICON_SIZE.xl} />
           )}
           <h2 className="text-2xl font-mono font-normal">Access Control</h2>
         </div>
@@ -177,7 +177,7 @@ export default function AccessControlSection({ instanceId, accessModel, appName 
               </p>
               {oidcLoading ? (
                 <div className="flex items-center justify-center py-4">
-                  <Loader2 size={ICON_SIZE.xxl} className="animate-spin text-accent" />
+                  <Loader2 size={ICON_SIZE.xxl} className="animate-spin" />
                 </div>
               ) : oidcConfigured ? (
                 <div className="flex items-start gap-3 p-4 rounded-large-element bg-success/20 border border-success/30">
@@ -227,7 +227,7 @@ export default function AccessControlSection({ instanceId, accessModel, appName 
           {/* --- User access list (shared) --- */}
           <div className="space-y-4">
             <div className="flex items-center gap-2">
-              <Users size={ICON_SIZE.xl} className="text-accent" />
+              <Users size={ICON_SIZE.xl} />
               <h3 className="text-xl font-mono font-normal">
                 {isInternal ? "Who can sign in" : "Who can access"}
               </h3>
@@ -260,11 +260,11 @@ export default function AccessControlSection({ instanceId, accessModel, appName 
             {/* Access list — rounded-large-element rows, no dividers */}
             {accessLoading ? (
               <div className="flex items-center justify-center py-8">
-                <Loader2 size={ICON_SIZE.xxl} className="animate-spin text-accent" />
+                <Loader2 size={ICON_SIZE.xxl} className="animate-spin" />
               </div>
             ) : accessList.length === 0 ? (
               <div className="rounded-large-element bg-secondary/10 px-6 py-8 text-center">
-                <Users size={28} className="text-accent mx-auto mb-2" />
+                <Users size={28} className="mx-auto mb-2" />
                 <p className="font-mono text-secondary mb-1">No users added yet</p>
                 <p className="text-sm text-secondary max-w-xs mx-auto">
                   {isInternal
@@ -281,7 +281,7 @@ export default function AccessControlSection({ instanceId, accessModel, appName 
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <div className="flex items-center justify-center h-8 w-8 rounded-full bg-secondary/20 shrink-0">
-                        <User size={ICON_SIZE.sm} className="text-accent" />
+                        <User size={ICON_SIZE.sm} />
                       </div>
                       <div className="min-w-0">
                         <p className="text-sm font-medium text-secondary truncate">

@@ -178,7 +178,7 @@ export default function MfaCard({ onMethodEnabled, onComplete, embedded = false 
   const body = (
     <div className="space-y-4">
         {!embedded && (
-          <p className="text-sm text-accent">
+          <p className="text-sm">
             Two-factor authentication keeps your account safe by asking for a second
             check at login — not just your password. You need at least one method
             enabled{isAdmin ? " (required for admins)" : ""}.
@@ -194,7 +194,7 @@ export default function MfaCard({ onMethodEnabled, onComplete, embedded = false 
 
         {/* Enabled methods */}
         {loadingMethods ? (
-          <p className="text-xs text-accent flex items-center gap-2">
+          <p className="text-xs flex items-center gap-2">
             <Loader2 size={ICON_SIZE.xs} className="animate-spin" /> Loading your methods…
           </p>
         ) : hasAny ? (
@@ -211,12 +211,12 @@ export default function MfaCard({ onMethodEnabled, onComplete, embedded = false 
                     className="flex items-center justify-between px-4 py-3 rounded-large-element bg-primary text-secondary border border-accent/40"
                   >
                     <span className="flex items-center gap-3 text-sm">
-                      <Icon size={ICON_SIZE.md} className="text-accent shrink-0" />
+                      <Icon size={ICON_SIZE.md} className="shrink-0" />
                       {meta.label}
                       {(() => {
                         const lastUsed = m.last_used_at ? new Date(m.last_used_at) : null;
                         return lastUsed && !isNaN(lastUsed.getTime()) ? (
-                          <span className="text-xs text-accent">
+                          <span className="text-xs">
                             · used {lastUsed.toLocaleDateString()}
                           </span>
                         ) : null;
@@ -229,7 +229,7 @@ export default function MfaCard({ onMethodEnabled, onComplete, embedded = false 
                       surface="primary"
                       onClick={() => handleRemove(m)}
                       loading={removingId === m.id}
-                      className="text-accent hover:text-error motion-safe:transition-colors"
+                      className="hover:text-error motion-safe:transition-colors"
                       aria-label={`Remove ${meta.label}`}
                       tooltip="Remove this method"
                     >
@@ -270,10 +270,10 @@ export default function MfaCard({ onMethodEnabled, onComplete, embedded = false 
                   className="w-full flex items-center gap-4 p-4 rounded-large-element border border-primary/15 bg-primary/5 hover:bg-primary/10 hover:border-primary/25 motion-safe:transition-all motion-safe:duration-200"
                   aria-label={`Add ${meta.label}`}
                 >
-                  <Icon size={ICON_SIZE.xxl} className="text-accent flex-shrink-0" />
+                  <Icon size={ICON_SIZE.xxl} className="flex-shrink-0" />
                   <div className="flex-1 text-left">
                     <div className="font-mono text-sm text-primary">{meta.label}</div>
-                    <div className="text-xs text-accent">{meta.desc}</div>
+                    <div className="text-xs">{meta.desc}</div>
                   </div>
                 </button>
               );
@@ -286,11 +286,11 @@ export default function MfaCard({ onMethodEnabled, onComplete, embedded = false 
         {!embedded && (
         <div className="pt-4 border-t border-accent/30">
           <div className="flex items-center justify-between">
-            <span className="flex items-center gap-2 text-sm text-accent">
-              <LifeBuoy size={ICON_SIZE.sm} className="text-accent" />
+            <span className="flex items-center gap-2 text-sm">
+              <LifeBuoy size={ICON_SIZE.sm} />
               Recovery codes
               {typeof remainingRecovery === "number" && (
-                <span className="text-xs text-accent">
+                <span className="text-xs">
                   · {remainingRecovery} left
                 </span>
               )}
@@ -305,7 +305,7 @@ export default function MfaCard({ onMethodEnabled, onComplete, embedded = false 
               {remainingRecovery ? "Regenerate" : "Generate"}
             </Button>
           </div>
-          <p className="text-xs text-accent mt-1">
+          <p className="text-xs mt-1">
             Use a recovery code to sign in if you lose access to your phone or key.
             Store them somewhere safe — they're shown only once.
           </p>
@@ -320,7 +320,7 @@ export default function MfaCard({ onMethodEnabled, onComplete, embedded = false 
                     size="sm"
                     surface="primary"
                     onClick={copyCodes}
-                    className="text-xs text-accent hover:text-secondary"
+                    className="text-xs hover:text-secondary"
                   >
                     {copied ? <Check size={ICON_SIZE.xs} /> : <Copy size={ICON_SIZE.xs} />}
                   </Button>
@@ -608,11 +608,11 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
   return (
     <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300" data-slot="mfa-card">
       {/* Status line */}
-      <div className="flex items-center gap-2 text-sm text-accent">
+      <div className="flex items-center gap-2 text-sm">
         {busy ? (
-          <Loader2 size={ICON_SIZE.sm} className="animate-spin text-accent" />
+          <Loader2 size={ICON_SIZE.sm} className="animate-spin" />
         ) : (
-          <ShieldCheck size={ICON_SIZE.sm} className="text-accent" />
+          <ShieldCheck size={ICON_SIZE.sm} />
         )}
         <span>
           {isWebAuthn
@@ -627,8 +627,8 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
       {isWebAuthn && (
         <>
           {busy ? (
-            <div className="flex items-center gap-2 text-sm text-accent">
-              <Loader2 size={ICON_SIZE.sm} className="animate-spin text-accent" /> Follow your browser's prompt…
+            <div className="flex items-center gap-2 text-sm">
+              <Loader2 size={ICON_SIZE.sm} className="animate-spin" /> Follow your browser's prompt…
             </div>
           ) : (
             <>
@@ -643,7 +643,7 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
                   <div>
                     <label
                       htmlFor="mfa_webauthn_name"
-                      className="text-accent font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
+                      className="font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
                     >
                       Name
                     </label>
@@ -656,7 +656,7 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
                       className={inputClass}
                       autoFocus
                     />
-                    <p className="text-xs text-accent mt-1 px-5">
+                    <p className="text-xs mt-1 px-5">
                       For example "My phone" or "Office key".
                     </p>
                   </div>
@@ -674,7 +674,7 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
       {/* TOTP QR + code entry */}
       {type === "totp" && step === "verify" && totp && (
         <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300 delay-75">
-          <p className="text-xs text-accent">
+          <p className="text-xs">
             Scan this with your authenticator app (e.g. Authy, Google Authenticator, 1Password).
           </p>
           {/* color-scan: ignore-next-line QR codes require a white/light background to be scannable by phone cameras */}
@@ -689,7 +689,7 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
             )}
           </div>
           {totp.secret && (
-            <CollapsibleSection title="Can't scan? Click to show the one-time password code" size="xs" className="text-accent">
+            <CollapsibleSection title="Can't scan? Click to show the one-time password code" size="xs">
               <div className="flex items-center gap-2">
                 {/* color-scan: ignore-next-line manual key needs a high-contrast surface for legibility + selection */}
                 <code
@@ -712,7 +712,7 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
                     size="sm"
                     surface="secondary"
                     onClick={copySecret}
-                    className="shrink-0 text-xs text-accent hover:text-primary"
+                    className="shrink-0 text-xs hover:text-primary"
                     aria-label="Copy manual key"
                   >
                     <Copy size={ICON_SIZE.xs} />{" "}
@@ -756,7 +756,7 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
               {changeEmailOpen && (
                 <ModalCard title="Change your email" onClose={() => setChangeEmailOpen(false)}>
                   <form onSubmit={handleChangeEmail} className="space-y-4">
-                    <p className="text-sm text-accent">
+                    <p className="text-sm">
                       Your sign-in codes are sent to this address. Update it and we'll
                       send a new code to the new address.
                     </p>
@@ -765,6 +765,7 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
                       name="mfa-new-email"
                       type="email"
                       icon="email"
+                      placeholder="you@example.com"
                       value={newEmail}
                       onChange={(e) => setNewEmail(e.target.value)}
                       surface="secondary"
@@ -785,7 +786,6 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
                       </Button>
                       <Button
                         type="submit"
-                        variant="accent"
                         surface="secondary"
                         fullWidth
                         loading={emailSaving}
@@ -1012,11 +1012,11 @@ export function MfaSetupWizard({ onComplete, smtpConfigured = true, onSessionExp
     return (
       <div key="phase-choose" className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
         <div>
-          <p className="font-mono text-xs uppercase tracking-[0.18em] text-accent mb-3">
+          <p className="font-mono text-xs uppercase tracking-[0.18em] mb-3">
             Step 1 — Choose a method
           </p>
           {loadingAvail && (
-            <div className="flex items-center gap-2 text-sm text-accent mb-3">
+            <div className="flex items-center gap-2 text-sm mb-3">
               <Loader2 size={ICON_SIZE.md} className="animate-spin" /> Checking what's available on this device…
             </div>
           )}
@@ -1040,7 +1040,7 @@ export function MfaSetupWizard({ onComplete, smtpConfigured = true, onSessionExp
             </div>
           )}
           {!loadingAvail && availability != null && availableTypes.length === 0 && (
-            <p className="text-sm text-accent">
+            <p className="text-sm">
               No two-factor methods are available on this device yet. Ask your administrator to enable one, then come back here.
             </p>
           )}
@@ -1057,12 +1057,12 @@ export function MfaSetupWizard({ onComplete, smtpConfigured = true, onSessionExp
                     className="w-full flex items-center gap-4 p-4 rounded-large-element border border-primary/15 bg-primary/5 hover:bg-primary/10 hover:border-primary/25 motion-safe:transition-all motion-safe:duration-200"
                     aria-label={`Add ${meta.label}`}
                   >
-                    <Icon size={ICON_SIZE.xxl} className="text-accent flex-shrink-0" />
+                    <Icon size={ICON_SIZE.xxl} className="flex-shrink-0" />
                     <div className="flex-1 text-left">
                       <div className="font-mono text-sm text-primary">{meta.label}</div>
-                      <div className="text-xs text-accent">{meta.desc}</div>
+                      <div className="text-xs">{meta.desc}</div>
                     </div>
-                    <ArrowRight size={ICON_SIZE.md} className="text-accent" />
+                    <ArrowRight size={ICON_SIZE.md} />
                   </button>
                 );
               })}
@@ -1078,17 +1078,17 @@ export function MfaSetupWizard({ onComplete, smtpConfigured = true, onSessionExp
     return (
       <div key="phase-backup" className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
         <div>
-          <p className="font-mono text-xs uppercase tracking-[0.18em] text-accent mb-3">
+          <p className="font-mono text-xs uppercase tracking-[0.18em] mb-3">
             Step 3 — Save your backup codes
           </p>
-          <p className="text-sm text-accent mb-4">
+          <p className="text-sm mb-4">
             These one-time codes let you sign in if you lose access to your phone or
             key. Store them somewhere safe — they're shown only once.
           </p>
         </div>
 
         {generating && (
-          <p className="text-xs text-accent flex items-center gap-2">
+          <p className="text-xs flex items-center gap-2">
             <Loader2 size={ICON_SIZE.xs} className="animate-spin" /> Generating your codes…
           </p>
         )}
@@ -1108,7 +1108,7 @@ export function MfaSetupWizard({ onComplete, smtpConfigured = true, onSessionExp
                     size="sm"
                     surface="primary"
                     onClick={copyCodes}
-                    className="text-xs text-accent hover:text-secondary"
+                    className="text-xs hover:text-secondary"
                   >
                     {copied ? <Check size={ICON_SIZE.xs} /> : <Copy size={ICON_SIZE.xs} />}
                   </Button>
@@ -1159,7 +1159,7 @@ export function MfaSetupWizard({ onComplete, smtpConfigured = true, onSessionExp
   return (
     <div key="phase-setup" className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
       <div>
-        <p className="font-mono text-xs uppercase tracking-[0.18em] text-accent mb-3">
+        <p className="font-mono text-xs uppercase tracking-[0.18em] mb-3">
           Step 2 — Set up {selectedType ? TYPE_META[selectedType].label.toLowerCase() : "your method"}
         </p>
       </div>

@@ -51,13 +51,13 @@ export default function EmailServiceModal({ open, onClose, onSaved, service, con
       <div className="p-5 space-y-5">
         <div className="flex items-start gap-3 pb-4 border-b border-primary/10">
           <div className="p-2 rounded-full bg-primary/10">
-            <Mail size={ICON_SIZE.lg} className="text-accent" />
+            <Mail size={ICON_SIZE.lg} />
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm text-primary">
               Status: <span className="font-medium">{stateLabel}</span>
             </p>
-            <p className="text-sm text-accent mt-1.5">
+            <p className="text-sm mt-1.5">
               Your server needs email to send notifications, password resets, and
               alerts. Email providers invest in trust so their mail doesn't get
               flagged as spam — your server sends through them.
@@ -82,7 +82,7 @@ export default function EmailServiceModal({ open, onClose, onSaved, service, con
               <AlertTriangle size={ICON_SIZE.md} className="text-warning shrink-0" />
               {connectWarning.label}
             </div>
-            <p className="text-xs text-accent">
+            <p className="text-xs">
               Connect needs to be connected and your plan must support this service
               before email delivery can be handled automatically.
             </p>
@@ -90,17 +90,17 @@ export default function EmailServiceModal({ open, onClose, onSaved, service, con
         ) : useConnect ? (
           <div className="bg-primary/5 rounded-large-element p-4 space-y-2">
             <div className="flex items-center gap-2 text-sm text-primary">
-              <Check size={ICON_SIZE.md} className="text-accent" />
+              <Check size={ICON_SIZE.md} />
               Email handled by LibreServ Connect
             </div>
-            <p className="text-xs text-accent">
+            <p className="text-xs">
               Emails are sent through Connect's trusted relay. See
               connect.serv.libreloom.org for your plan's limits.
             </p>
           </div>
         ) : (
           <div className="space-y-4">
-            <p className="text-sm text-accent">
+            <p className="text-sm">
               Enter your mail provider details. Choose Proton, Resend, Postmark, or
               any service that speaks{" "}
               <TermHint content="The usual way servers send email. Your provider lists this as SMTP server or outgoing mail.">
@@ -109,7 +109,7 @@ export default function EmailServiceModal({ open, onClose, onSaved, service, con
             </p>
             <div className="grid grid-cols-2 gap-3">
               <div className="col-span-2 sm:col-span-1">
-                <label className="block text-xs text-accent font-medium mb-1.5 px-4">
+                <label className="block text-xs font-medium mb-1.5 px-4">
                   <TermHint content="The hostname your email provider lists as SMTP server or outgoing mail.">
                     SMTP
                   </TermHint>{" "}
@@ -131,7 +131,7 @@ export default function EmailServiceModal({ open, onClose, onSaved, service, con
                 )}
               </div>
               <div className="col-span-2 sm:col-span-1">
-                <label className="block text-xs text-accent font-medium mb-1.5 px-4">Port</label>
+                <label className="block text-xs font-medium mb-1.5 px-4">Port</label>
                 <ShakeTarget shake={errors.port}>
                   <input
                     type="text"
@@ -148,7 +148,7 @@ export default function EmailServiceModal({ open, onClose, onSaved, service, con
                 )}
               </div>
               <div className="col-span-2 sm:col-span-1">
-                <label className="block text-xs text-accent font-medium mb-1.5 px-4">Username</label>
+                <label className="block text-xs font-medium mb-1.5 px-4">Username</label>
                 <input
                   type="text"
                   value={form.username}
@@ -158,7 +158,7 @@ export default function EmailServiceModal({ open, onClose, onSaved, service, con
                 />
               </div>
               <div className="col-span-2 sm:col-span-1">
-                <label className="block text-xs text-accent font-medium mb-1.5 px-4">Password</label>
+                <label className="block text-xs font-medium mb-1.5 px-4">Password</label>
                 <input
                   type="password"
                   value={form.password}
@@ -168,7 +168,7 @@ export default function EmailServiceModal({ open, onClose, onSaved, service, con
                 />
               </div>
               <div className="col-span-2">
-                <label className="block text-xs text-accent font-medium mb-1.5 px-4">From Address</label>
+                <label className="block text-xs font-medium mb-1.5 px-4">From Address</label>
                 <input
                   type="email"
                   value={form.from}

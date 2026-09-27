@@ -55,7 +55,7 @@ export default function RevocationBanner({ notice, appName, acknowledged, onSeeD
 
               <button
                 onClick={() => setExpanded(!expanded)}
-                className="flex items-center gap-1 mt-2 text-sm text-accent hover:text-primary transition-colors cursor-pointer"
+                className="flex items-center gap-1 mt-2 text-sm hover:text-primary transition-colors cursor-pointer"
               >
                 {expanded ? <ChevronUp size={ICON_SIZE.sm} /> : <ChevronDown size={ICON_SIZE.sm} />}
                 {expanded ? "Less" : "More"} details
@@ -78,7 +78,7 @@ export default function RevocationBanner({ notice, appName, acknowledged, onSeeD
                 >
                   Acknowledge & Continue
                 </Button>
-                <span className="flex items-center text-sm text-accent">
+                <span className="flex items-center text-sm">
                   Or wait for a fixed version
                 </span>
               </div>

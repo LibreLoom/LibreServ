@@ -76,7 +76,7 @@ export default function RoutesCard({
       >
         {loading ? (
           <div className="px-4 py-6 flex justify-center">
-            <Loader2 className="w-5 h-5 animate-spin text-accent" />
+            <Loader2 className="w-5 h-5 animate-spin" />
           </div>
         ) : error ? (
           <div className="px-4 py-6 text-center">
@@ -88,7 +88,7 @@ export default function RoutesCard({
         ) : routes.length === 0 ? (
           <div className="px-4 py-6 text-center">
             <span className="opacity-50 block mb-2"><Globe className="w-10 h-10 text-primary mx-auto" /></span>
-            <p className="text-sm text-accent">No routes configured</p>
+            <p className="text-sm">No routes configured</p>
             <Button onClick={onAdd} className="mt-3">
               <Plus size={ICON_SIZE.md} aria-hidden="true" />
               Add your first route
@@ -105,7 +105,7 @@ export default function RoutesCard({
                 >
                   <div className="flex items-center gap-3 flex-1 min-w-0">
                     {appName ? (
-                      <div className="flex items-center justify-center bg-primary/10 rounded-large-element font-mono text-xs text-accent min-w-[28px] h-7 px-1.5">
+                      <div className="flex items-center justify-center bg-primary/10 rounded-large-element font-mono text-xs min-w-[28px] h-7 px-1.5">
                         {appName.slice(0, 2).toUpperCase()}
                       </div>
                     ) : (
@@ -117,7 +117,7 @@ export default function RoutesCard({
                       <div className="font-mono text-sm text-primary truncate">
                         {formatFullDomain(route)}
                       </div>
-                      <div className="text-xs text-accent mt-0.5 flex items-center gap-2">
+                      <div className="text-xs mt-0.5 flex items-center gap-2">
                         <span>{appName || formatBackend(route.backend)}</span>
                         {route.ssl && (
                           <Pill variant="success" className="text-[10px] py-0">SSL</Pill>
@@ -138,7 +138,7 @@ export default function RoutesCard({
                       tooltip="Edit route"
                       aria-label="Edit route"
                     >
-                      <span className="opacity-50"><Pencil size={ICON_SIZE.sm} className="text-accent" aria-hidden="true" /></span>
+                      <span className="opacity-50"><Pencil size={ICON_SIZE.sm} aria-hidden="true" /></span>
                     </Button>
                     <Button
                       variant="ghost"

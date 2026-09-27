@@ -335,7 +335,7 @@ export default function BackupsCategory({ connectStatus = null }) {
       <SettingsCard icon={ShieldCheck} title="Your data's safety net" padding={false} index={0}>
         {loading ? (
           <div className="px-4 py-8 flex justify-center">
-            <Loader2 className="w-5 h-5 animate-spin text-accent" />
+            <Loader2 className="w-5 h-5 animate-spin" />
           </div>
         ) : loadError ? (
           <div className="p-4">
@@ -349,9 +349,9 @@ export default function BackupsCategory({ connectStatus = null }) {
           </div>
         ) : stats.totalApps === 0 ? (
           <div className="px-4 py-6 text-center">
-            <Cloud size={32} className="text-accent mx-auto mb-2" aria-hidden="true" />
+            <Cloud size={32} className="mx-auto mb-2" aria-hidden="true" />
             <p className="text-sm text-primary mb-1">No apps installed yet</p>
-            <p className="text-xs text-accent max-w-sm mx-auto">
+            <p className="text-xs max-w-sm mx-auto">
               Once you install apps, this page becomes your safety net — one tap saves a copy of everything an app knows, so mistakes are never permanent.
             </p>
           </div>
@@ -377,7 +377,7 @@ export default function BackupsCategory({ connectStatus = null }) {
                       ? `All ${stats.totalApps} app${stats.totalApps !== 1 ? "s" : ""} backed up`
                       : `${stats.protectedApps} of ${stats.totalApps} apps backed up`}
                   {stats.lastBackupAt && (
-                    <span className="text-accent"> · {formatRelativeTime(stats.lastBackupAt)}</span>
+                    <span> · {formatRelativeTime(stats.lastBackupAt)}</span>
                   )}
                 </p>
               </div>
@@ -416,7 +416,7 @@ export default function BackupsCategory({ connectStatus = null }) {
       {!loading && !loadError && stats.totalApps > 0 && (
         <SettingsCard icon={Cloud} title="Your apps" padding={false} index={1}>
           <div className="px-4 pt-3 pb-1">
-            <p className="text-xs text-accent">
+            <p className="text-xs">
               Tap an app to see its saved copies and restore one. Backups happen while the app keeps running.
             </p>
           </div>
@@ -454,14 +454,14 @@ export default function BackupsCategory({ connectStatus = null }) {
                             </Pill>
                           )}
                         </span>
-                        <span className="block text-xs text-accent mt-0.5">
+                        <span className="block text-xs mt-0.5">
                           {latest ? `Last saved ${formatRelativeTime(latest.created_at)}` : "Nothing saved yet"}
                           {schedule?.enabled ? " · Automatic" : ""}
                         </span>
                       </span>
                       <ChevronDown
                         size={ICON_SIZE.md}
-                        className={cn("text-accent shrink-0 motion-safe:transition-transform", expanded && "rotate-180")}
+                        className={cn("shrink-0 motion-safe:transition-transform", expanded && "rotate-180")}
                         aria-hidden="true"
                       />
                     </button>
@@ -483,7 +483,7 @@ export default function BackupsCategory({ connectStatus = null }) {
                         {schedule?.enabled ? (
                           <div className="flex items-center justify-between gap-3">
                             <div className="flex items-center gap-2 min-w-0">
-                              <CalendarClock size={ICON_SIZE.sm} className="text-accent shrink-0" aria-hidden="true" />
+                              <CalendarClock size={ICON_SIZE.sm} className="shrink-0" aria-hidden="true" />
                               <p className="text-xs text-primary truncate">
                                 Automatic backups on
                                 {schedule.next_run ? ` · next ${formatRelativeTime(schedule.next_run)}` : ""}
@@ -497,7 +497,7 @@ export default function BackupsCategory({ connectStatus = null }) {
                         ) : (
                           <div className="flex items-center justify-between gap-3">
                             <div className="flex items-center gap-2 min-w-0">
-                              <CalendarClock size={ICON_SIZE.sm} className="text-accent shrink-0" aria-hidden="true" />
+                              <CalendarClock size={ICON_SIZE.sm} className="shrink-0" aria-hidden="true" />
                               <p className="text-xs text-primary">Automatic backups are off for this app</p>
                             </div>
                             <Button
@@ -512,7 +512,7 @@ export default function BackupsCategory({ connectStatus = null }) {
                         )}
 
                         {appBackups.length === 0 ? (
-                          <p className="text-xs text-accent">
+                          <p className="text-xs">
                             No copies yet. Use the Back up button above to make the first one.
                           </p>
                         ) : (
@@ -520,11 +520,11 @@ export default function BackupsCategory({ connectStatus = null }) {
                             {appBackups.map((backup) => (
                               <li key={backup.id} className="flex items-center justify-between gap-2">
                                 <div className="flex items-center gap-2 min-w-0">
-                                  <Clock size={ICON_SIZE.sm} className="text-accent shrink-0" aria-hidden="true" />
+                                  <Clock size={ICON_SIZE.sm} className="shrink-0" aria-hidden="true" />
                                   <span className="text-xs text-primary truncate">
                                     {formatRelativeTime(backup.created_at)}
                                   </span>
-                                  <span className="text-xs text-accent shrink-0">{formatBytes(backup.size)}</span>
+                                  <span className="text-xs shrink-0">{formatBytes(backup.size)}</span>
                                 </div>
                                 <div className="flex items-center gap-1 shrink-0">
                                   <Button
@@ -534,7 +534,7 @@ export default function BackupsCategory({ connectStatus = null }) {
                                     tooltip="Put this copy back"
                                     aria-label="Restore this backup"
                                   >
-                                    <RotateCcw size={ICON_SIZE.sm} className="text-accent" aria-hidden="true" />
+                                    <RotateCcw size={ICON_SIZE.sm} aria-hidden="true" />
                                   </Button>
                                   <Button
                                     variant="ghost"
@@ -559,7 +559,7 @@ export default function BackupsCategory({ connectStatus = null }) {
 
             {backups.some((b) => !apps.find((a) => a.id === b.app_id)) && (
               <div className="px-4 py-3">
-                <p className="text-xs text-accent mb-2 flex items-center gap-1.5">
+                <p className="text-xs mb-2 flex items-center gap-1.5">
                   <HelpCircle size={ICON_SIZE.sm} aria-hidden="true" />
                   Copies from apps that are no longer installed
                 </p>
@@ -570,7 +570,7 @@ export default function BackupsCategory({ connectStatus = null }) {
                       <li key={backup.id} className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2 min-w-0">
                           <span className="text-xs font-mono text-primary truncate">{backup.app_id || "Unknown"}</span>
-                          <span className="text-xs text-accent shrink-0">
+                          <span className="text-xs shrink-0">
                             {formatRelativeTime(backup.created_at)} · {formatBytes(backup.size)}
                           </span>
                         </div>

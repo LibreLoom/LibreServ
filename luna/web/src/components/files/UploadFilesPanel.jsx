@@ -83,7 +83,7 @@ export default function UploadFilesPanel({
           }
         }}
       >
-        <UploadCloud size={22} className="text-accent" aria-hidden="true" />
+        <UploadCloud size={22} aria-hidden="true" />
         <span className="text-sm">Choose files or drop them here</span>
         <Button
           variant="outline"

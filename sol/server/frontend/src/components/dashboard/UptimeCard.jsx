@@ -18,7 +18,7 @@ export default function UptimeCard({ value }) {
           className="inline-block h-2 w-2 rounded-full bg-primary shrink-0"
           aria-hidden="true"
         />
-        <span className="text-xs font-mono uppercase tracking-widest text-accent">
+        <span className="text-xs font-mono uppercase tracking-widest">
           Uptime
         </span>
       </div>

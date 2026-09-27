@@ -65,7 +65,7 @@ class ErrorBoundary extends Component {
               <h1 className="text-2xl font-mono text-secondary mb-2">
                 Something went wrong
               </h1>
-              <p className="text-accent">
+              <p>
                 We apologize for the inconvenience. An unexpected error has
                 occurred.
               </p>
@@ -74,14 +74,14 @@ class ErrorBoundary extends Component {
              {/** @type {any} */ (import.meta).env?.DEV && this.state.error && (
                <div className="bg-secondary text-primary rounded-large-element p-5 mb-6 ring-2 ring-accent/30">
                  <div className="flex items-center gap-2 mb-4">
-                   <Bug className="w-5 h-5 text-accent" />
+                   <Bug className="w-5 h-5" />
                    <span className="font-mono font-medium text-primary">
                      Error Details (Development)
                    </span>
                  </div>
                  <div className="bg-primary text-secondary rounded-large-element p-4 font-mono text-sm overflow-x-auto border border-secondary/20">
                    <div className="mb-3">
-                     <span className="text-accent text-xs uppercase tracking-wider mb-1 block">
+                     <span className="text-xs uppercase tracking-wider mb-1 block">
                        Error
                      </span>
                      <p className="text-error font-medium break-all">
@@ -90,10 +90,10 @@ class ErrorBoundary extends Component {
                    </div>
                    {this.state.errorInfo && (
                      <div>
-                       <span className="text-accent text-xs uppercase tracking-wider mb-1 block">
+                       <span className="text-xs uppercase tracking-wider mb-1 block">
                          Stack Trace
                        </span>
-                       <pre className="text-xs text-accent whitespace-pre-wrap font-mono max-h-48 overflow-y-auto">
+                       <pre className="text-xs whitespace-pre-wrap font-mono max-h-48 overflow-y-auto">
                          {this.state.errorInfo.componentStack}
                        </pre>
                      </div>
@@ -136,7 +136,7 @@ class ErrorBoundary extends Component {
               </div>
             </div>
 
-            <div className="mt-8 text-center text-sm text-accent">
+            <div className="mt-8 text-center text-sm">
               <p>If this problem persists, please contact support.</p>
               <p className="mt-1">
                 Error ID:{" "}

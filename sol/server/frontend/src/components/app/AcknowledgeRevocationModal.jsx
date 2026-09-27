@@ -70,7 +70,7 @@ export default function AcknowledgeRevocationModal({ app, onClose, onAcknowledge
               </div>
             </div>
 
-            <p className="text-sm text-accent">
+            <p className="text-sm">
               Running this app could be unsafe.
             </p>
 
@@ -97,7 +97,7 @@ export default function AcknowledgeRevocationModal({ app, onClose, onAcknowledge
         {step === 2 && (
           <>
             <div className="p-3 rounded-large-element bg-primary/5 border border-primary/20">
-              <p className="text-sm text-accent">
+              <p className="text-sm">
                 {isMalicious
                   ? "This version may allow attackers to access your data. We strongly recommend waiting for a fixed version."
                   : "This version has known problems. It may not work correctly."}
@@ -106,7 +106,7 @@ export default function AcknowledgeRevocationModal({ app, onClose, onAcknowledge
 
             <ShakeTarget shake={error}>
               <div>
-                <label className="text-sm text-accent block mb-2">
+                <label className="text-sm block mb-2">
                   Type <strong className="text-primary">I understand</strong> to enable the Continue button:
                 </label>
                 <input

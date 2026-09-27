@@ -176,13 +176,13 @@ export default function LogsViewer({
           {isStreaming && (
             <>
               <span className="sm:hidden relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-accent"></span>
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-current opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-current"></span>
               </span>
-              <div className="hidden sm:inline-flex items-center gap-1 rounded-pill border border-accent/30 bg-accent/10 px-2 py-0.5 text-xs text-accent font-sans">
+              <div className="hidden sm:inline-flex items-center gap-1 rounded-pill border border-accent px-2 py-0.5 text-xs font-sans">
                 <span className="relative flex h-2 w-2 mr-1">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-accent"></span>
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-current opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-current"></span>
                 </span>
                 Live Stream
               </div>
@@ -202,14 +202,14 @@ export default function LogsViewer({
             size="icon"
             surface="secondary"
             onClick={handleToggleSearch}
-            className={showSearch || filter ? "text-accent" : ""}
+            className={showSearch || filter ? "ring-2 ring-accent" : ""}
             aria-label="Toggle search"
           >
             <Search size={ICON_SIZE.lg} aria-hidden="true" />
           </Button>
 
           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-pill border border-primary/20 bg-secondary text-primary">
-            <ArrowDownToLine size={ICON_SIZE.sm} className={cn("shrink-0 transition-colors", autoScroll ? "text-accent" : "text-accent")} aria-hidden="true" />
+            <ArrowDownToLine size={ICON_SIZE.sm} className={cn("shrink-0 transition-colors", !autoScroll && "opacity-50")} aria-hidden="true" />
             <Toggle
               checked={autoScroll}
               onChange={setAutoScroll}
@@ -233,7 +233,7 @@ export default function LogsViewer({
         {showSearch && (
           <div className="sm:hidden shrink-0 animate-fade-in-up">
             <div className="relative bg-secondary text-primary rounded-pill border border-primary/20 focus-within:border-accent transition-colors">
-              <Search size={ICON_SIZE.md} className="absolute left-3 top-1/2 -translate-y-1/2 text-accent" />
+              <Search size={ICON_SIZE.md} className="absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 ref={searchInputRef}
                 type="text"
@@ -245,7 +245,7 @@ export default function LogsViewer({
               <button
                 type="button"
                 onClick={handleToggleSearch}
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-accent hover:text-primary transition-colors"
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:text-primary transition-colors"
                 aria-label="Close search"
               >
                 <X size={ICON_SIZE.sm} />
@@ -257,7 +257,7 @@ export default function LogsViewer({
         {/* Desktop toolbar */}
         <div className="hidden sm:flex items-center justify-between shrink-0 gap-3">
           <div className="relative flex-1 min-w-0 w-full bg-secondary text-primary rounded-pill border-2 border-primary/20 focus-within:border-accent transition-colors">
-            <Search size={ICON_SIZE.md} className="absolute left-4 top-1/2 -translate-y-1/2 text-accent" />
+            <Search size={ICON_SIZE.md} className="absolute left-4 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={filter}
@@ -284,7 +284,7 @@ export default function LogsViewer({
               surface="secondary"
               onClick={handleDownload}
               tooltip="Download logs"
-              className="border-accent hover:bg-accent/20 hover:text-primary"
+              className="border-accent"
             >
               <Download size={ICON_SIZE.md} className="inline -mt-0.5" />
               Download
@@ -295,14 +295,14 @@ export default function LogsViewer({
         <Card noPopIn padding={false} className="flex flex-col min-h-0 overflow-hidden border border-primary/15">
           <div
             ref={outputRef}
-            className="overflow-auto px-2 sm:px-4 py-3 font-sans text-[11px] sm:text-xs leading-6 text-accent max-h-[50vh] sm:max-h-[60vh]"
+            className="overflow-auto px-2 sm:px-4 py-3 font-sans text-[11px] sm:text-xs leading-6 max-h-[50vh] sm:max-h-[60vh]"
           >
             {filteredLines.length === 0 && streamError ? (
-              <div className="py-10 text-center text-accent">
+              <div className="py-10 text-center">
                 Failed to load logs.
               </div>
             ) : filteredLines.length === 0 ? (
-              <div className="py-10 text-center text-accent">
+              <div className="py-10 text-center">
                 No logs found for this app yet.
               </div>
             ) : (
@@ -317,7 +317,7 @@ export default function LogsViewer({
           </div>
 
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between shrink-0 border-t border-primary/15 bg-secondary/50 text-primary px-3 sm:px-4 py-2">
-            <div className="flex items-center gap-2 text-xs font-sans text-accent">
+            <div className="flex items-center gap-2 text-xs font-sans">
               <Terminal size={ICON_SIZE.sm} />
               <span>Showing last {lines.length} lines</span>
             </div>
@@ -337,7 +337,7 @@ export default function LogsViewer({
               )}
 
               {isStreaming && filteredLines.length === 0 && (
-                <div className="flex items-center gap-2 text-xs font-sans text-accent">
+                <div className="flex items-center gap-2 text-xs font-sans">
                   <Loader2 size={ICON_SIZE.sm} className="animate-spin" />
                   <span>Streaming...</span>
                 </div>

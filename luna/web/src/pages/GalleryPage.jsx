@@ -2145,7 +2145,7 @@ export default function GalleryPage() {
               ) : null}
               <ModalErrorNotice error={error} />
               <div className="flex gap-2">
-                <Button type="submit" variant="accent" loading={createAlbum.isPending}>
+                <Button type="submit" loading={createAlbum.isPending}>
                   Create
                 </Button>
                 <Button type="button" variant="outline" onClick={close}>
@@ -2172,6 +2172,7 @@ export default function GalleryPage() {
                 <input
                   value={renameValue}
                   onChange={(e) => setRenameValue(e.target.value)}
+                  placeholder="e.g. Summer 2026"
                   className="mt-1 w-full rounded-large-element bg-primary text-secondary border-2 border-secondary/30 px-3 py-2 focus:border-accent focus:outline-none"
                   required
                   autoFocus
@@ -2179,7 +2180,7 @@ export default function GalleryPage() {
               </label>
               <ModalErrorNotice error={error} />
               <div className="flex gap-2">
-                <Button type="submit" variant="accent" loading={renameAlbumMut.isPending}>
+                <Button type="submit" loading={renameAlbumMut.isPending}>
                   Save
                 </Button>
                 <Button type="button" variant="outline" onClick={close}>

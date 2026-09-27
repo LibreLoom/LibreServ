@@ -167,6 +167,7 @@ export default function AdminSecurityPage() {
               <Input
                 id="current-password"
                 type="password"
+                placeholder="Enter current password"
                 value={pwd.current}
                 onChange={(e) => setPwd({ ...pwd, current: e.target.value })}
               />
@@ -178,6 +179,7 @@ export default function AdminSecurityPage() {
               <Input
                 id="new-password"
                 type="password"
+                placeholder="At least 12 characters"
                 value={pwd.next}
                 onChange={(e) => setPwd({ ...pwd, next: e.target.value })}
               />
@@ -189,6 +191,7 @@ export default function AdminSecurityPage() {
               <Input
                 id="confirm-password"
                 type="password"
+                placeholder="Re-enter the new password"
                 value={pwd.confirm}
                 onChange={(e) => setPwd({ ...pwd, confirm: e.target.value })}
               />
@@ -303,6 +306,7 @@ export default function AdminSecurityPage() {
                 <ShakeTarget shake={adminFormError}>
                   <Input
                     id="admin-name"
+                    placeholder="Their name"
                     value={newAdmin.name}
                     onChange={(e) => setNewAdmin({ ...newAdmin, name: e.target.value })}
                   />
@@ -314,6 +318,7 @@ export default function AdminSecurityPage() {
                   <Input
                     id="admin-email"
                     type="email"
+                    placeholder="admin@example.com"
                     value={newAdmin.email}
                     onChange={(e) => setNewAdmin({ ...newAdmin, email: e.target.value })}
                   />

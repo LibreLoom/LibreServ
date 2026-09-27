@@ -28,7 +28,7 @@ import { haptic } from "@libreloom/ui/utils/haptics.js";
 
 function SubjectIcon({ kind, isFile }) {
   const Icon = kind === KIND_ALBUM ? ImageIcon : isFile ? FileIcon : Folder;
-  return <Icon size={18} className="text-accent shrink-0" aria-hidden="true" />;
+  return <Icon size={18} className="shrink-0" aria-hidden="true" />;
 }
 
 function subjectSubtitle(row, ownHomePath = "") {
@@ -133,10 +133,10 @@ export default function SharedPage() {
               ]}
             />
             <label className="flex min-w-48 flex-1 items-center gap-2 rounded-pill border-2 border-transparent bg-secondary text-primary px-3 py-1 focus-within:border-accent motion-safe:transition-colors">
-              <Search size={14} className="shrink-0 text-accent" aria-hidden="true" />
+              <Search size={14} className="shrink-0" aria-hidden="true" />
               <input
                 type="text"
-                className="min-w-0 flex-1 appearance-none border-0 bg-transparent text-sm text-primary shadow-none outline-none focus-visible:outline-2 focus-visible:outline-accent placeholder:text-accent"
+                className="min-w-0 flex-1 appearance-none border-0 bg-transparent text-sm text-primary shadow-none outline-none focus-visible:outline-2 focus-visible:outline-accent"
                 placeholder="Find a shared item"
                 aria-label="Find a shared item"
                 value={search}

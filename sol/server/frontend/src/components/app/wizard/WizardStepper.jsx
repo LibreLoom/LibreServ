@@ -41,7 +41,7 @@ function WizardStepper({ currentStep, hasSubdomainStep }) {
                     "flex h-8 w-8 items-center justify-center rounded-full font-mono text-sm motion-safe:transition-all duration-300 ease-in-out",
                     isComplete && "bg-secondary text-primary scale-100",
                     !isComplete && isActive && "bg-secondary text-primary scale-110",
-                    !isComplete && !isActive && "bg-secondary/50 text-accent border-2 border-secondary/30 scale-100"
+                    !isComplete && !isActive && "bg-secondary/50 text-primary border-2 border-secondary/30 scale-100"
                   )}
                   aria-current={isActive ? "step" : undefined}
                   style={{
@@ -68,7 +68,7 @@ function WizardStepper({ currentStep, hasSubdomainStep }) {
                     "hidden sm:block font-mono text-sm motion-safe:transition-all motion-safe:duration-300 ease-in-out",
                     isActive 
                       ? "text-secondary opacity-100 translate-x-0" 
-                      : "text-accent opacity-70"
+                      : "opacity-70"
                   )}
                   style={{
                     transitionDelay: isActive ? '150ms' : '0ms'

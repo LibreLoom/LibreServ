@@ -157,7 +157,7 @@ export function PlacePopupContent({ place, onSelect }) {
   return (
     <div className="places-map-popup-card bg-secondary text-primary rounded-large-element border-2 border-primary p-2 shadow-[0_8px_24px_color-mix(in_srgb,var(--color-secondary)_25%,transparent)] motion-safe:animate-[pop-in_200ms_var(--motion-easing-emphasized-decelerate)_both]">
       <div className="flex items-center gap-2">
-        <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-[12px] bg-accent">
+        <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-[12px] bg-primary/20">
           {place.cover_thumb ? (
             <img
               src={place.cover_thumb}
@@ -443,9 +443,9 @@ export default function PlacesMap({
             key="draw"
             className="pop-in flex flex-nowrap items-center gap-2 overflow-x-auto whitespace-nowrap px-3.5 py-2 text-xs font-mono [scrollbar-width:none]"
           >
-            <Crop size={15} className="shrink-0 text-accent animate-pulse" aria-hidden="true" />
+            <Crop size={15} className="shrink-0 animate-pulse" aria-hidden="true" />
             <span>Draw custom area</span>
-            <span className="text-accent hidden @md:inline">· Drag across the map</span>
+            <span className="hidden @md:inline">· Drag across the map</span>
             <Button
               type="button"
               size="sm"
@@ -469,7 +469,7 @@ export default function PlacesMap({
             className="pop-in flex flex-nowrap items-center gap-2 overflow-x-auto whitespace-nowrap px-3.5 py-2 text-xs font-mono [scrollbar-width:none]"
           >
             <span
-              className="flex h-5 w-5 shrink-0 items-center justify-center rounded-pill bg-accent text-primary"
+              className="flex h-5 w-5 shrink-0 items-center justify-center rounded-pill bg-primary text-secondary"
               aria-hidden="true"
             >
               <Check size={12} strokeWidth={3} />
@@ -480,12 +480,11 @@ export default function PlacesMap({
                 : `${matchedCount} ${matchedCount === 1 ? "photo" : "photos"}`}
               <span className="hidden @sm:inline"> in area</span>
             </span>
-            <span className="text-accent hidden @xl:inline">· Drag again to adjust</span>
+            <span className="hidden @xl:inline">· Drag again to adjust</span>
             {matchedCount > 0 && (
               <Button
                 type="button"
                 size="sm"
-                variant="accent"
                 aria-label="Open photos"
                 className="h-6 shrink-0 px-3 text-xs rounded-pill"
                 onClick={() => {

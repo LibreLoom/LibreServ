@@ -66,14 +66,14 @@ function FeatureWarning({ info }) {
     >
       <Icon
         size={ICON_SIZE.xl}
-        className={info.variant === "warning" ? "text-secondary" : "text-accent"}
+        className="text-secondary"
         aria-hidden="true"
       />
       <div>
         <p className="font-mono text-sm font-medium text-secondary">
           {info.label}
         </p>
-        <p className="text-sm text-accent mt-1">{info.message}</p>
+        <p className="text-sm mt-1">{info.message}</p>
       </div>
     </div>
   );
@@ -95,7 +95,7 @@ function OverviewStep({ app, features, onContinue, onBack }) {
         <h2 className="font-mono text-2xl font-normal text-secondary">
           Install {app?.name || "App"}
         </h2>
-        <p className="text-accent max-w-md mx-auto">
+        <p className="max-w-md mx-auto">
           {app?.description || "Set up this application on your LibreServ device."}
         </p>
       </div>
@@ -108,7 +108,7 @@ function OverviewStep({ app, features, onContinue, onBack }) {
 
       {(requirements.min_ram || requirements.min_cpu || requirements.min_disk) && (
         <div className="space-y-2">
-          <p className="text-xs font-mono text-accent text-center uppercase tracking-wide">
+          <p className="text-xs font-mono text-center uppercase tracking-wide">
             Requirements
           </p>
           <div className="flex flex-wrap justify-center gap-2">

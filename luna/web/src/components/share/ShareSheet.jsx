@@ -229,7 +229,7 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
         <div className="space-y-5" data-slot="share-sheet">
           {(subj?.name || subject?.name) && (
             <div className="rounded-large-element bg-primary text-secondary p-3">
-              <p className="text-xs font-mono uppercase tracking-widest text-accent">
+              <p className="text-xs font-mono uppercase tracking-widest">
                 {isAlbum
                   ? "Album"
                   : isFile
@@ -244,37 +244,41 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
             </div>
           )}
           {parentSources.length > 0 && (
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-large-element bg-primary text-secondary p-3">
-              <p className="text-secondary text-xs min-w-0 flex-1">
+            <div className="space-y-2 rounded-large-element bg-primary text-secondary p-3">
+              <p className="text-secondary text-xs">
                 {inheritedMembers.length > 0 &&
                   `${inheritedMembers.length} ${inheritedMembers.length === 1 ? "person" : "people"}`}
-                {inheritedMembers.length > 0 && inheritedLinks.length > 0 && " · "}
+                {inheritedMembers.length > 0 && inheritedLinks.length > 0 && " and "}
                 {inheritedLinks.length > 0 &&
                   `${inheritedLinks.length} ${inheritedLinks.length === 1 ? "link" : "links"}`}
                 {" shared through "}
-                {parentSources.map((p) => p.name).join(" · ")}
+                {parentSources.map((p) => p.name).join(", ")}
               </p>
-              {inspectableParents.map((p) => (
-                <Button
-                  key={`${p.kind}:${p.drive_id}:${p.path}`}
-                  variant="outline"
-                  surface="primary"
-                  size="sm"
-                  onClick={() =>
-                    setParentSubject({
-                      kind: p.kind,
-                      driveId: p.drive_id,
-                      path: p.path || "",
-                      albumId: "",
-                      name: p.name,
-                    })
-                  }
-                >
-                  {inspectableParents.length === 1
-                    ? "View parent shares"
-                    : `View ${p.name} shares`}
-                </Button>
-              ))}
+              {inspectableParents.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {inspectableParents.map((p) => (
+                    <Button
+                      key={`${p.kind}:${p.drive_id}:${p.path}`}
+                      variant="outline"
+                      surface="primary"
+                      size="sm"
+                      onClick={() =>
+                        setParentSubject({
+                          kind: p.kind,
+                          driveId: p.drive_id,
+                          path: p.path || "",
+                          albumId: "",
+                          name: p.name,
+                        })
+                      }
+                    >
+                      {inspectableParents.length === 1
+                        ? "View parent shares"
+                        : `View ${p.name} shares`}
+                    </Button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
           {sheetError && <PageNotice variant="error">{sheetError}</PageNotice>}
@@ -381,40 +385,49 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
                   </div>
                 ) : (
                   memberOptions.length > 0 && iCanShare && (
-                    <>
-                      <ShakeTarget shake={error}>
-                        <Dropdown
-                          options={people.map((u) => ({
-                            value: u.id,
-                            label: u.display_name || u.username,
-                          }))}
-                          value={personId}
-                          onChange={setPersonId}
-                          placeholder="Add a person"
-                          fullWidth
-                          bg="primary"
-                        />
-                      </ShakeTarget>
-                      <Dropdown
-                        options={memberOptions}
-                        value={pickCaps}
-                        onChange={setCaps}
-                        fullWidth
-                        bg="primary"
-                        aria-label="Access level"
-                      />
-                      <p className="text-primary text-xs">
+                    <div className="space-y-3 rounded-large-element bg-primary text-secondary p-4">
+                      <p className="text-sm font-medium text-secondary">Add a person</p>
+                      <div className="flex flex-wrap gap-2">
+                        <ShakeTarget shake={error} className="min-w-0 flex-1 basis-48">
+                          <Dropdown
+                            options={people.map((u) => ({
+                              value: u.id,
+                              label: u.display_name || u.username,
+                            }))}
+                            value={personId}
+                            onChange={setPersonId}
+                            placeholder="Pick someone"
+                            fullWidth
+                            bg="secondary"
+                            aria-label="Add a person"
+                          />
+                        </ShakeTarget>
+                        <div className="min-w-0 flex-1 basis-36">
+                          <Dropdown
+                            options={memberOptions}
+                            value={pickCaps}
+                            onChange={setCaps}
+                            fullWidth
+                            bg="secondary"
+                            aria-label="Access level"
+                          />
+                        </div>
+                      </div>
+                      <p className="px-1 text-xs text-secondary">
                         {capsHint(pickCaps, { album: isAlbum, file: isFile, form: isForm })}
                       </p>
-                      <Toggle
-                        surface="primary"
-                        checked={shareBit}
-                        onChange={setShareBit}
-                        label="Can share"
-                        description="They can pass this access on and create links."
-                      />
+                      <div className="rounded-large-element bg-secondary text-primary p-3">
+                        <Toggle
+                          surface="secondary"
+                          checked={shareBit}
+                          onChange={setShareBit}
+                          label="Can share"
+                          description="They can pass this access on and create links."
+                        />
+                      </div>
                       <Button
-                        variant="primary"
+                        variant="secondary"
+                        surface="primary"
                         size="sm"
                         loading={addMember.isPending}
                         disabled={!personId}
@@ -431,7 +444,7 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
                       >
                         Add
                       </Button>
-                    </>
+                    </div>
                   )
                 )}
               </section>

@@ -20,7 +20,7 @@ const SERVICES = [
 
 /**
  * ExternalServicesStep — rendered inside SetupPage's card shell.
- * Card surface is bg-secondary text-primary. All muted text uses text-accent.
+ * Card surface is bg-secondary text-primary. Accent is only used for outlines.
  *
  * Two paths:
  * 1. "Use LibreServ Connect" — immediately opens Connect onboarding in a new
@@ -66,11 +66,11 @@ export default function ExternalServicesStep({ onActivate, onSkip }) {
     return (
       <>
       <div className="flex flex-col items-center text-center py-4" data-slot="external-services">
-        <Globe size={48} className="text-accent mx-auto mb-4" />
+        <Globe size={48} className="mx-auto mb-4" />
         <h1 className="font-mono text-3xl font-normal text-primary tracking-tight mb-3">
           Connect to the outside world
         </h1>
-        <p className="text-accent text-sm leading-relaxed max-w-md mb-2">
+        <p className="text-sm leading-relaxed max-w-md mb-2">
           LibreServ works on its own. But a few external services make it
           much more useful — and harder to accidentally lock yourself out.
         </p>
@@ -78,12 +78,12 @@ export default function ExternalServicesStep({ onActivate, onSkip }) {
         <div className="w-full max-w-sm space-y-2 mb-8">
           {SERVICES.map(({ icon: Icon, label, desc }) => (
             <div key={label} className="flex items-start gap-3 text-left">
-              <div className="flex-shrink-0 w-7 h-7 rounded-full bg-accent/10 flex items-center justify-center mt-0.5">
-                <Icon size={ICON_SIZE.sm} className="text-accent" />
+              <div className="flex-shrink-0 w-7 h-7 rounded-full bg-primary text-secondary flex items-center justify-center mt-0.5">
+                <Icon size={ICON_SIZE.sm} />
               </div>
               <div>
                 <span className="font-mono text-sm text-primary">{label}</span>
-                <p className="text-xs text-accent mt-0.5">{desc}</p>
+                <p className="text-xs mt-0.5">{desc}</p>
               </div>
             </div>
           ))}
@@ -95,20 +95,20 @@ export default function ExternalServicesStep({ onActivate, onSkip }) {
             onClick={handleChooseConnect}
             className={cn(
               "w-full flex items-center gap-4 p-4 rounded-large-element border",
-              "border-accent/30 bg-accent/10 hover:bg-accent/20 hover:border-accent/40",
+              "border-accent hover:bg-primary/10",
               "text-primary motion-safe:transition-all motion-safe:duration-200",
             )}
           >
-            <div className="flex-shrink-0 w-9 h-9 rounded-full bg-accent/20 flex items-center justify-center">
-              <ExternalLink size={ICON_SIZE.lg} className="text-accent" />
+            <div className="flex-shrink-0 w-9 h-9 rounded-full bg-primary text-secondary flex items-center justify-center">
+              <ExternalLink size={ICON_SIZE.lg} />
             </div>
             <div className="flex-1 text-left">
               <div className="font-mono text-sm text-primary">Use LibreServ Connect</div>
-              <div className="text-xs text-accent mt-0.5">
+              <div className="text-xs mt-0.5">
                 One signup handles all six services. Free plan available.
               </div>
             </div>
-            <ArrowRight size={ICON_SIZE.md} className="text-accent flex-shrink-0" />
+            <ArrowRight size={ICON_SIZE.md} className="flex-shrink-0" />
           </button>
 
           <button
@@ -120,12 +120,12 @@ export default function ExternalServicesStep({ onActivate, onSkip }) {
               "text-primary motion-safe:transition-all motion-safe:duration-200",
             )}
           >
-            <div className="flex-shrink-0 w-9 h-9 rounded-full bg-accent/10 flex items-center justify-center">
-              <ArrowRight size={ICON_SIZE.lg} className="text-accent" />
+            <div className="flex-shrink-0 w-9 h-9 rounded-full bg-primary text-secondary flex items-center justify-center">
+              <ArrowRight size={ICON_SIZE.lg} />
             </div>
             <div className="flex-1 text-left">
               <div className="font-mono text-sm text-primary">Set up on your own</div>
-              <div className="text-xs text-accent mt-0.5">
+              <div className="text-xs mt-0.5">
                 Configure each service individually later. You can always switch to Connect.
               </div>
             </div>
@@ -152,7 +152,7 @@ export default function ExternalServicesStep({ onActivate, onSkip }) {
             </div>
           )}
         >
-          <p className="text-sm text-accent">
+          <p className="text-sm">
             No problem. You&rsquo;ll set up each service yourself later in Settings. You can switch to Connect at any time.
           </p>
         </ModalCard>
@@ -163,21 +163,21 @@ export default function ExternalServicesStep({ onActivate, onSkip }) {
 
   return (
     <div className="flex flex-col items-center text-center py-4" data-slot="external-services-connect">
-      <Key size={48} className="text-accent mx-auto mb-4" />
+      <Key size={48} className="mx-auto mb-4" />
       <h1 className="font-mono text-3xl font-normal text-primary tracking-tight mb-3">
         Paste your Connect key
       </h1>
-      <p className="text-accent text-sm leading-relaxed max-w-md mb-6">
+      <p className="text-sm leading-relaxed max-w-md mb-6">
         We've opened the Connect setup in a new tab. Complete the signup there,
         then copy the Connect key from the final step and paste it below.
       </p>
 
       {popupBlocked && (
-        <div className="w-full max-w-sm mb-6 rounded-large-element border border-accent/30 bg-accent/10 p-4 text-left">
+        <div className="w-full max-w-sm mb-6 rounded-large-element border border-accent p-4 text-left">
           <p className="text-sm text-primary font-mono mb-2">
             Link didn't open?
           </p>
-          <p className="text-xs text-accent mb-3">
+          <p className="text-xs mb-3">
             If the new tab didn't open automatically, open it manually:
           </p>
           <Button asChild fullWidth size="sm" variant="outline">
@@ -216,7 +216,6 @@ export default function ExternalServicesStep({ onActivate, onSkip }) {
           <p className="text-xs text-error">{error}</p>
         )}
         <Button
-          variant="accent"
           fullWidth
           onClick={handleActivate}
           loading={activating}
@@ -230,7 +229,7 @@ export default function ExternalServicesStep({ onActivate, onSkip }) {
       <button
         type="button"
         onClick={() => { setMode(null); setError(""); setPopupBlocked(false); }}
-        className="flex items-center gap-1.5 text-sm text-accent hover:text-primary mt-6 motion-safe:transition-colors"
+        className="flex items-center gap-1.5 text-sm underline decoration-accent underline-offset-4 hover:decoration-current mt-6 motion-safe:transition-colors"
       >
         <ArrowLeft size={ICON_SIZE.sm} /> Back
       </button>

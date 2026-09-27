@@ -234,7 +234,7 @@ export default function SelectionActionBar({
                   {a.loading ? (
                     <Spinner decorative size="sm" className="shrink-0" />
                   ) : (
-                    <a.icon size={17} className="shrink-0 text-accent" aria-hidden="true" />
+                    <a.icon size={17} className="shrink-0" aria-hidden="true" />
                   )}
                   {a.label}
                 </button>
@@ -253,7 +253,7 @@ export default function SelectionActionBar({
                       onClear();
                     }}
                   >
-                    <X size={17} className="shrink-0 text-accent" aria-hidden="true" />
+                    <X size={17} className="shrink-0" aria-hidden="true" />
                     Clear selection
                   </button>
                 </>

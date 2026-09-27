@@ -22,7 +22,7 @@ const STATUS_TEXT = {
   running: "text-success",
   stopped: "text-warning",
   error: "text-error",
-  unknown: "text-accent",
+  unknown: "",
 };
 
 function AppCatalogCard({ app, isInstalled, instance, onInstall, onManage, index }) {
@@ -37,7 +37,7 @@ function AppCatalogCard({ app, isInstalled, instance, onInstall, onManage, index
         <LayeredPill
           mono
           className="absolute top-3 right-3"
-          icon={<StatusIcon size={ICON_SIZE.tight} className={STATUS_TEXT[instance.status] || "text-accent"} />}
+          icon={<StatusIcon size={ICON_SIZE.tight} className={STATUS_TEXT[instance.status] || ""} />}
           actionIcon={<Check size={ICON_SIZE.tight} />}
           actionLabel="Installed"
         >
@@ -189,7 +189,7 @@ export default function AppsPage() {
           <div className="relative flex-1 min-w-0 bg-primary text-secondary rounded-pill">
             <Search
               size={ICON_SIZE.lg}
-              className="absolute left-4 top-1/2 -translate-y-1/2 text-accent pointer-events-none"
+              className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none"
             />
             <input
               type="text"
@@ -197,7 +197,7 @@ export default function AppsPage() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               aria-label="Search apps"
-              className="w-full pl-11 pr-3 py-2.5 bg-transparent text-secondary placeholder:text-accent focus:outline-none no-focus-outline font-mono text-sm"
+              className="w-full pl-11 pr-3 py-2.5 bg-transparent text-secondary focus:outline-none no-focus-outline font-mono text-sm"
             />
           </div>
 

@@ -61,6 +61,10 @@ async function requireOk(res, fallback) {
  *   cancelUpload: (driveId: string, uploadId: string) => Promise<unknown>,
  *   officeSession: (driveId: string, path: string) => Promise<any>,
  *   formResponses: (driveId: string, path: string) => Promise<object[]>,
+ *   formResponseCount: (driveId: string, path: string) => Promise<number>,
+ *   deleteFormResponse: (driveId: string, path: string, id: string) => Promise<unknown>,
+ *   copyFormPicture: (driveId: string, formPath: string, source: string) => Promise<string>,
+ *   uploadFormPicture: (driveId: string, formPath: string, file: File) => Promise<string>,
  *   uploadBlob?: (path: string, name: string, blob: Blob, opts?: { overwrite?: boolean, signal?: AbortSignal, headers?: object, onSession?: (uploadId: string) => void, onProgress?: (loaded: number, total: number) => void }) => Promise<void>,
  * }} FileSource
  */
@@ -180,6 +184,35 @@ export const driveSource = {
       `/api/v1/forms/responses?drive_id=${encodeURIComponent(driveId)}&path=${encodeURIComponent(path)}`,
     );
     return Array.isArray(data?.responses) ? data.responses : [];
+  },
+  formResponseCount: async (driveId, path) => {
+    const data = await getJson(
+      `/api/v1/forms/responses?drive_id=${encodeURIComponent(driveId)}&path=${encodeURIComponent(path)}&count=1`,
+    );
+    return Number(data?.count) || 0;
+  },
+  deleteFormResponse: (driveId, path, id) =>
+    deleteJson(
+      `/api/v1/forms/responses?drive_id=${encodeURIComponent(driveId)}&path=${encodeURIComponent(path)}&id=${encodeURIComponent(id)}`,
+    ),
+  // Pictures are copied beside the form, so the answer link only ever
+  // shows files that belong to it. Both return the stored picture's name.
+  copyFormPicture: async (driveId, formPath, sourcePath) => {
+    const data = await postJson("/api/v1/forms/picture", {
+      drive_id: driveId,
+      path: formPath,
+      source: sourcePath,
+    });
+    return String(data?.name || "");
+  },
+  uploadFormPicture: async (driveId, formPath, file) => {
+    const form = new FormData();
+    form.append("file", file);
+    const data = await postForm(
+      `/api/v1/forms/picture-upload?drive_id=${encodeURIComponent(driveId)}&path=${encodeURIComponent(formPath)}`,
+      form,
+    );
+    return String(data?.name || "");
   },
 };
 
@@ -343,6 +376,41 @@ export function shareSource({ token, password = "", kind = "folder", fileName = 
       const q = params.toString();
       const data = await getJson(`/s/${token}/responses${q ? `?${q}` : ""}`, { headers: headers() });
       return Array.isArray(data?.responses) ? data.responses : [];
+    },
+    formResponseCount: async (_driveId, path) => {
+      const params = new URLSearchParams();
+      const p = rel(path);
+      if (p) params.set("path", p);
+      params.set("count", "1");
+      const data = await getJson(`/s/${token}/responses?${params}`, { headers: headers() });
+      return Number(data?.count) || 0;
+    },
+    deleteFormResponse: (_driveId, path, id) => {
+      const params = new URLSearchParams();
+      const p = rel(path);
+      if (p) params.set("path", p);
+      params.set("id", id);
+      return deleteJson(`/s/${token}/responses?${params}`, { headers: headers() });
+    },
+    copyFormPicture: async (_driveId, formPath, sourcePath) => {
+      const data = await postJson(
+        `/s/${token}/form-picture`,
+        { path: rel(formPath), source: sourcePath },
+        { headers: headers() },
+      );
+      return String(data?.name || "");
+    },
+    uploadFormPicture: async (_driveId, formPath, file) => {
+      const params = new URLSearchParams();
+      const p = rel(formPath);
+      if (p) params.set("path", p);
+      const form = new FormData();
+      form.append("file", file);
+      const q = params.toString();
+      const data = await postForm(`/s/${token}/form-picture-upload${q ? `?${q}` : ""}`, form, {
+        headers: headers(),
+      });
+      return String(data?.name || "");
     },
     uploadBlob,
   };

@@ -52,7 +52,7 @@ export default function SystemChecksCard({ index = 1 }) {
     <SettingsCard icon={Activity} title="System Checks" padding={false} index={index}>
       <div className="px-5 py-4">
         <div className="flex items-center justify-between gap-3 mb-4">
-          <p className="text-sm text-accent">
+          <p className="text-sm">
             {checks.length === 0
               ? "No checks recorded yet."
               : allOk
@@ -85,21 +85,21 @@ export default function SystemChecksCard({ index = 1 }) {
                   {ok ? (
                     <CheckCircle2 size={ICON_SIZE.md} className="text-success shrink-0" aria-hidden="true" />
                   ) : skippedCheck ? (
-                    <Activity size={ICON_SIZE.md} className="text-accent shrink-0" aria-hidden="true" />
+                    <Activity size={ICON_SIZE.md} className="shrink-0" aria-hidden="true" />
                   ) : (
                     <XCircle size={ICON_SIZE.md} className="text-error shrink-0" aria-hidden="true" />
                   )}
                   <div className="min-w-0">
                     <div className="text-sm text-primary">{displayLabel(name, check)}</div>
                     {check.message && (
-                      <div className="text-xs text-accent break-words">{check.message}</div>
+                      <div className="text-xs break-words">{check.message}</div>
                     )}
                   </div>
                 </div>
                 <span
                   className={cn(
                     "text-[10px] font-mono uppercase tracking-widest shrink-0",
-                    ok ? "text-accent" : skippedCheck ? "text-accent" : "text-error",
+                    !ok && !skippedCheck && "text-error",
                   )}
                 >
                   {ok ? "ok" : skippedCheck ? "n/a" : "fail"}

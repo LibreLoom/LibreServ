@@ -430,14 +430,14 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
     <div className="space-y-8" data-slot="progress-step">
       <div className="text-center space-y-4">
         {isComplete ? (
-          <CheckCircle className="mx-auto text-accent" size={48} />
+          <CheckCircle className="mx-auto" size={48} />
         ) : (
           <TypewriterLoader message="Installing..." size="lg" />
         )}
         <h2 className="font-mono text-2xl font-normal text-secondary">
           {isComplete ? "Almost Ready!" : ""}
         </h2>
-        <p className="text-accent">
+        <p>
           {isComplete
             ? "Your app is starting up. This won't take long."
             : "Please wait while we set things up. You can leave this page; installation will continue in the background."}
@@ -461,7 +461,7 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
               <div
                 className={cn(
                   "flex h-6 w-6 items-center justify-center rounded-full",
-                  isDone ? "bg-accent text-primary" : isCurrent ? "border-2 border-secondary" : "border-2 border-secondary/30"
+                  isDone ? "bg-secondary text-primary" : isCurrent ? "border-2 border-secondary" : "border-2 border-secondary/30"
                 )}
               >
                 {isDone ? (
@@ -475,7 +475,7 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
               <span
                 className={cn(
                   "font-mono text-sm",
-                  isDone ? "text-secondary" : isCurrent ? "text-secondary" : "text-accent"
+                  "text-secondary"
                 )}
               >
                 {phase.label}
@@ -510,7 +510,7 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
                 <span className={cn("block text-sm motion-safe:transition-colors", detailsOpen ? "text-primary" : "text-secondary")}>
                   {detailsOpen ? "Installation output is open" : "View installation output"}
                 </span>
-                <span className={cn("block text-xs motion-safe:transition-colors", detailsOpen ? "text-accent" : "text-accent")}>
+                <span className={"block text-xs"}>
                   Live logs from image pull, setup, and startup checks.
                 </span>
               </span>
@@ -538,7 +538,7 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
                 </div>
                 <button
                   onClick={handleCopyStream}
-                  className="inline-flex items-center gap-1 rounded-pill border border-secondary/12 bg-secondary/6 px-3 py-1.5 text-xs text-accent motion-safe:transition-colors hover:text-secondary"
+                  className="inline-flex items-center gap-1 rounded-pill border border-secondary/12 bg-secondary/6 px-3 py-1.5 text-xs motion-safe:transition-colors hover:text-secondary"
                 >
                   {streamCopied ? (
                     <>

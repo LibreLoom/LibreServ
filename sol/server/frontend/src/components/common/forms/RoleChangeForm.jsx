@@ -51,7 +51,7 @@ export default function RoleChangeForm({ user, onSuccess, onCancel }) {
         <div className="inline-flex items-center justify-center h-12 w-12 rounded-full bg-primary text-secondary mb-3">
           <Shield size={ICON_SIZE.xxl} aria-hidden="true" />
         </div>
-        <p className="text-sm text-accent">
+        <p className="text-sm">
           Change role for user <strong>{user.username}</strong>
         </p>
       </div>
@@ -79,7 +79,7 @@ export default function RoleChangeForm({ user, onSuccess, onCancel }) {
       </ShakeTarget>
 
       {error && (
-        <div className="bg-accent/10 border border-accent/50 rounded-pill px-4 py-2 text-accent text-sm text-center">
+        <div className="bg-accent/10 border border-accent/50 rounded-pill px-4 py-2 text-sm text-center">
           {error}
         </div>
       )}

@@ -600,7 +600,7 @@ export default function FullscreenEditorFrame({
                   <Icon size={ICON_SIZE.sm} aria-hidden="true" className="shrink-0" />
                   <span className="min-w-0 flex-1 truncate">{item.label}</span>
                   {item.note ? (
-                    <span className="max-w-[10rem] shrink-0 truncate font-mono text-xs text-accent">
+                    <span className="max-w-[10rem] shrink-0 truncate font-mono text-xs">
                       {item.note}
                     </span>
                   ) : null}

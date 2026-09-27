@@ -1,7 +1,7 @@
 //! Luna Forms: `.lunaform` files shared through respond links (the
 //! link-only `CAP_RESPOND` capability in `crate::access`). A respond link
 //! lets anyone with the URL open the form and append one JSONL record to a
-//! sibling `<name>.responses.jsonl` — never read other people's answers back
+//! sibling `<name>.lunaform.responses` — never read other people's answers back
 //! (a respondent can only re-fetch their own record by presenting the edit
 //! secret they were issued at submit time).
 //!
@@ -38,8 +38,9 @@ pub const PERMISSION_RESPOND: &str = "respond";
 /// Form documents are `<name>.lunaform` JSON envelopes.
 pub const FORM_FILE_SUFFIX: &str = ".lunaform";
 
-/// Answers live next to the form as `<name>.responses.jsonl`.
-pub const RESPONSES_SUFFIX: &str = ".responses.jsonl";
+/// Answers live next to the form as `<name>.lunaform.responses` — one JSON
+/// record per line.
+pub const RESPONSES_SUFFIX: &str = ".lunaform.responses";
 
 /// Highest `.lunaform` envelope version this build understands.
 const FORM_DOC_VERSION: i64 = 1;
@@ -64,10 +65,29 @@ pub fn is_form_path(path: &str) -> bool {
 }
 
 /// Namespaced bucket key so respond limits don't share a raw-IP bucket with
-/// login/DAV/share limiters — same convention as `public_limits.rs`.
-fn respond_key(ip: &str) -> String {
-    format!("form_respond:{ip}")
+/// login/DAV/share limiters — same convention as `public_limits.rs`. Each
+/// endpoint gets its own bucket: a form with a few file questions spends
+/// one upload per attachment and must still be able to send.
+fn respond_key(kind: &str, ip: &str) -> String {
+    format!("form_respond:{kind}:{ip}")
 }
+
+/// The respondent's address for rate limiting. Behind Luna Connect every
+/// request arrives from loopback, so the forwarded client IP is what tells
+/// respondents apart (`client_ip` only trusts those headers from loopback).
+fn respondent_ip(addr: &SocketAddr, headers: &HeaderMap) -> String {
+    crate::api::auth::client_ip(addr, headers).to_string()
+}
+
+fn too_many_tries() -> (StatusCode, Json<Value>) {
+    json_error(
+        StatusCode::TOO_MANY_REQUESTS,
+        "Too many tries from this network just now. Wait a minute and try again.",
+    )
+}
+
+/// Upload and picture routes carry the file body; everything else is small.
+const PICTURE_BODY_BYTES: usize = MAX_IMAGE_BYTES as usize + 64 * 1024;
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -82,11 +102,32 @@ pub fn router() -> Router<AppState> {
             post(respond_upload).layer(DefaultBodyLimit::max(MAX_UPLOAD_BYTES + 64 * 1024)),
         )
         .route("/s/{token}/form-image", get(respond_image))
-        .route("/api/v1/forms/responses", get(member_form_responses))
-        .route("/s/{token}/responses", get(guest_form_responses))
+        .route(
+            "/api/v1/forms/responses",
+            get(member_form_responses).delete(member_delete_response),
+        )
+        .route(
+            "/s/{token}/responses",
+            get(guest_form_responses).delete(guest_delete_response),
+        )
+        .route("/api/v1/forms/picture", post(member_copy_picture))
+        .route(
+            "/api/v1/forms/picture-upload",
+            post(member_upload_picture).layer(DefaultBodyLimit::max(PICTURE_BODY_BYTES)),
+        )
+        .route("/s/{token}/form-picture", post(guest_copy_picture))
+        .route(
+            "/s/{token}/form-picture-upload",
+            post(guest_upload_picture).layer(DefaultBodyLimit::max(PICTURE_BODY_BYTES)),
+        )
 }
 
-/// The `<name>.responses.jsonl` that sits next to a resolved form file.
+/// One lock for every responses-file append: the cap check, the edit-secret
+/// match, and the write happen as one step, so two people sending at once
+/// can neither slip past `maxResponses` nor interleave their lines.
+static RESPONSES_WRITE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// The `<name>.lunaform.responses` that sits next to a resolved form file.
 fn responses_path_for(form_path: &FsPath) -> Option<PathBuf> {
     let name = form_path.file_name()?.to_str()?;
     let dot = name.rfind('.')?;
@@ -232,13 +273,6 @@ fn form_max_responses(doc: &Map<String, Value>) -> Option<u64> {
     if n == 0 { None } else { Some(n) }
 }
 
-/// Tell open editors when a new answer arrives. Missing means yes.
-fn form_notify(doc: &Map<String, Value>) -> bool {
-    form_setting(doc, "notify")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(true)
-}
-
 fn local_ymd(unix: i64) -> String {
     let t = unix as libc::time_t;
     let mut tm: libc::tm = unsafe { std::mem::zeroed() };
@@ -363,12 +397,26 @@ struct MemberResponsesQuery {
     drive_id: String,
     #[serde(default)]
     path: String,
+    /// `count=1` returns `{count}` only (the file list's badge).
+    #[serde(default)]
+    count: Option<String>,
+    /// DELETE: the response to remove.
+    #[serde(default)]
+    id: Option<String>,
 }
 
 #[derive(Deserialize)]
 struct GuestResponsesQuery {
     #[serde(default)]
     path: String,
+    #[serde(default)]
+    count: Option<String>,
+    #[serde(default)]
+    id: Option<String>,
+}
+
+fn wants_count(raw: &Option<String>) -> bool {
+    matches!(raw.as_deref(), Some("1") | Some("true"))
 }
 
 fn index_busy() -> (StatusCode, Json<Value>) {
@@ -385,25 +433,64 @@ fn answers_io_err() -> (StatusCode, Json<Value>) {
     )
 }
 
-/// `GET /api/v1/forms/responses` — reading collected answers is a manager
-/// act: a member needs CAP_EDIT (a "full" grant) on the form file itself;
-/// a file-only grant is enough, no parent folder access required.
+/// Managing a form (reading or deleting its answers, adding pictures) is a
+/// CAP_EDIT act on the form file itself; a file-only grant is enough.
+fn member_managed_form(
+    state: &AppState,
+    user: &CurrentUser,
+    drive_id: &str,
+    path: &str,
+) -> Result<PathBuf, (StatusCode, Json<Value>)> {
+    let conn = state.db.lock().map_err(|_| index_busy())?;
+    if !auth::has_cap(user, &conn, drive_id, path, crate::access::CAP_EDIT) {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "You need edit access to this form to manage its answers.",
+        ));
+    }
+    resolve_form_file(&conn, drive_id, path)
+}
+
+/// The guest side of `member_managed_form`: the link must carry CAP_EDIT
+/// and the form must sit inside it.
+fn guest_managed_form(
+    state: &AppState,
+    link: &db::AccessLinkRow,
+    rel: &str,
+) -> Result<(String, PathBuf), (StatusCode, Json<Value>)> {
+    if link.caps & crate::access::CAP_EDIT == 0 {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "This link doesn't include permission to manage the form's answers.",
+        ));
+    }
+    let path = crate::api::access::link_file(state, link, rel)?;
+    let conn = state.db.lock().map_err(|_| index_busy())?;
+    let form_path = resolve_form_file(&conn, &link.drive_id, &path)?;
+    Ok((path, form_path))
+}
+
+/// `GET /api/v1/forms/responses` — collected answers for a member with
+/// edit access to the form.
 async fn member_form_responses(
     State(state): State<AppState>,
     Extension(user): Extension<CurrentUser>,
     Query(q): Query<MemberResponsesQuery>,
 ) -> Result<Response, (StatusCode, Json<Value>)> {
-    let form_path = {
-        let conn = state.db.lock().map_err(|_| index_busy())?;
-        if !auth::has_cap(&user, &conn, &q.drive_id, &q.path, crate::access::CAP_EDIT) {
-            return Err(json_error(
-                StatusCode::FORBIDDEN,
-                "You don't have permission to read this form's answers.",
-            ));
-        }
-        resolve_form_file(&conn, &q.drive_id, &q.path)?
-    };
-    responses_response(&form_path)
+    let form_path = member_managed_form(&state, &user, &q.drive_id, &q.path)?;
+    responses_response(&form_path, wants_count(&q.count))
+}
+
+/// `DELETE /api/v1/forms/responses?drive_id=&path=&id=` — remove one
+/// response (spam, a test run). Appends a tombstone; the JSONL stays
+/// append-only.
+async fn member_delete_response(
+    State(state): State<AppState>,
+    Extension(user): Extension<CurrentUser>,
+    Query(q): Query<MemberResponsesQuery>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let form_path = member_managed_form(&state, &user, &q.drive_id, &q.path)?;
+    delete_response(&state, &q.drive_id, &form_path, q.id.as_deref())
 }
 
 /// `GET /s/{token}/responses` — same answers for a link guest whose link
@@ -417,34 +504,136 @@ async fn guest_form_responses(
     headers: HeaderMap,
     Query(q): Query<GuestResponsesQuery>,
 ) -> Response {
-    crate::api::access::run_public(&state, &addr, &token, &headers, move |state, link| {
-        let rel = q.path.clone();
-        async move {
-            if link.caps & crate::access::CAP_EDIT == 0 {
-                return Err(json_error(
-                    StatusCode::FORBIDDEN,
-                    "This link doesn't include permission to read the form's answers.",
-                ));
-            }
-            let path = crate::api::access::link_file(&state, &link, &rel)?;
-            let form_path = {
-                let conn = state.db.lock().map_err(|_| index_busy())?;
-                resolve_form_file(&conn, &link.drive_id, &path)?
-            };
-            responses_response(&form_path)
-        }
-    })
+    crate::api::access::run_public(
+        &state,
+        &addr,
+        &token,
+        &headers,
+        move |state, link| async move {
+            let (_, form_path) = guest_managed_form(&state, &link, &q.path)?;
+            responses_response(&form_path, wants_count(&q.count))
+        },
+    )
     .await
 }
 
-fn responses_response(form_path: &FsPath) -> Result<Response, (StatusCode, Json<Value>)> {
-    let mut records = read_response_records_guarded(form_path)?;
-    for rec in &mut records {
-        if let Some(obj) = rec.as_object_mut() {
-            obj.remove("edit");
-        }
+/// `DELETE /s/{token}/responses?path=&id=` — the guest side of deleting.
+async fn guest_delete_response(
+    State(state): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    Path(token): Path<String>,
+    headers: HeaderMap,
+    Query(q): Query<GuestResponsesQuery>,
+) -> Response {
+    crate::api::access::run_public(
+        &state,
+        &addr,
+        &token,
+        &headers,
+        move |state, link| async move {
+            let (_, form_path) = guest_managed_form(&state, &link, &q.path)?;
+            delete_response(&state, &link.drive_id, &form_path, q.id.as_deref())
+                .map(IntoResponse::into_response)
+        },
+    )
+    .await
+}
+
+fn delete_response(
+    state: &AppState,
+    drive_id: &str,
+    form_path: &FsPath,
+    id: Option<&str>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let id = id
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .ok_or_else(|| {
+            json_error(
+                StatusCode::BAD_REQUEST,
+                "Luna didn't get which response to delete. Reload the page and try again.",
+            )
+        })?;
+    let _guard = RESPONSES_WRITE.lock().unwrap_or_else(|p| p.into_inner());
+    let records = read_response_records_guarded(form_path)?;
+    if !latest_by_id(&records).contains_key(id) {
+        return Err(json_error(
+            StatusCode::NOT_FOUND,
+            "That response is already gone. Reload the page to see the latest answers.",
+        ));
     }
-    let mut res = Json(json!({ "responses": records })).into_response();
+    let tombstone = json!({ "v": 1, "id": id, "deleted": true, "at": crate::db::now_unix() });
+    append_record(state, drive_id, form_path, &tombstone)?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+/// Append one JSONL line. The line and its newline go out in one
+/// `write_all` on an O_APPEND file, and callers hold `RESPONSES_WRITE`, so
+/// concurrent appends never interleave. A planted symlink is refused, and
+/// O_NOFOLLOW closes the check→open race.
+fn append_record(
+    state: &AppState,
+    drive_id: &str,
+    form_path: &FsPath,
+    record: &Value,
+) -> Result<(), (StatusCode, Json<Value>)> {
+    let save_err = || {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't save the answers file. Try again.",
+        )
+    };
+    let Some(responses_path) = responses_path_for(form_path) else {
+        return Err(json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't find where this form keeps its answers.",
+        ));
+    };
+    match std::fs::symlink_metadata(&responses_path) {
+        Ok(meta) if meta.file_type().is_symlink() || !meta.is_file() => {
+            return Err(json_error(
+                StatusCode::FORBIDDEN,
+                "This form's answers file isn't safe to write to.",
+            ));
+        }
+        Ok(_) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => return Err(save_err()),
+    }
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(&responses_path)
+        .map_err(|e| {
+            crate::files::note_write_failure(
+                &state.db.lock().unwrap_or_else(|p| p.into_inner()),
+                drive_id,
+                &e.to_string(),
+            );
+            save_err()
+        })?;
+    let mut line = serde_json::to_string(record).map_err(|_| save_err())?;
+    line.push('\n');
+    file.write_all(line.as_bytes()).map_err(|_| save_err())?;
+    state.touch_io_activity();
+    Ok(())
+}
+
+/// Collected answers, latest version of each live response, never the edit
+/// hashes. `count_only` answers the file list's badge without shipping every
+/// answer to the browser.
+fn responses_response(
+    form_path: &FsPath,
+    count_only: bool,
+) -> Result<Response, (StatusCode, Json<Value>)> {
+    let records = read_response_records_guarded(form_path)?;
+    let body = if count_only {
+        json!({ "count": latest_by_id(&records).len() })
+    } else {
+        json!({ "responses": latest_in_order(&records) })
+    };
+    let mut res = Json(body).into_response();
     let h = res.headers_mut();
     h.insert(header::CACHE_CONTROL, "no-store".parse().unwrap());
     h.insert(header::REFERRER_POLICY, "no-referrer".parse().unwrap());
@@ -562,16 +751,57 @@ fn parse_response_records(text: &str) -> Vec<Value> {
         .collect()
 }
 
-/// Latest record per response id — edits append a new line with the same id,
-/// so the last line for an id wins.
+/// A deleted response is a tombstone line: `{"id": …, "deleted": true}`.
+fn is_tombstone(rec: &Value) -> bool {
+    rec.get("deleted").and_then(|d| d.as_bool()) == Some(true)
+}
+
+/// Latest live record per response id — edits append a new line with the
+/// same id, so the last line for an id wins; a tombstone removes the id.
 fn latest_by_id(records: &[Value]) -> Map<String, Value> {
     let mut latest = Map::new();
     for rec in records {
         if let Some(id) = rec.get("id").and_then(|id| id.as_str()) {
-            latest.insert(id.to_string(), rec.clone());
+            if is_tombstone(rec) {
+                latest.remove(id);
+            } else {
+                latest.insert(id.to_string(), rec.clone());
+            }
         }
     }
     latest
+}
+
+/// Live responses in first-sent order, each carrying the time it was first
+/// sent (`sent_at`) next to the time of its latest change (`at`).
+fn latest_in_order(records: &[Value]) -> Vec<Value> {
+    let latest = latest_by_id(records);
+    let mut order: Vec<&str> = Vec::new();
+    let mut first_at: std::collections::HashMap<&str, i64> = std::collections::HashMap::new();
+    for rec in records {
+        let Some(id) = rec.get("id").and_then(|id| id.as_str()) else {
+            continue;
+        };
+        if !latest.contains_key(id) || first_at.contains_key(id) {
+            continue;
+        }
+        order.push(id);
+        first_at.insert(id, rec.get("at").and_then(|a| a.as_i64()).unwrap_or(0));
+    }
+    order
+        .into_iter()
+        .filter_map(|id| {
+            let mut rec = latest.get(id)?.clone();
+            if let Some(obj) = rec.as_object_mut() {
+                obj.remove("edit");
+                obj.insert(
+                    "sent_at".into(),
+                    json!(first_at.get(id).copied().unwrap_or(0)),
+                );
+            }
+            Some(rec)
+        })
+        .collect()
 }
 
 /// Find the response a respondent may edit: an explicit `response_id` must
@@ -633,7 +863,12 @@ fn question_options(question: &Value) -> Vec<&str> {
         .get("config")
         .and_then(|c| c.get("options"))
         .and_then(|o| o.as_array())
-        .map(|list| list.iter().filter_map(|o| o.as_str()).collect())
+        .map(|list| {
+            list.iter()
+                .filter_map(|o| o.as_str())
+                .filter(|o| !o.trim().is_empty())
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -685,6 +920,17 @@ fn number_in_range(question: &Value, n: f64) -> bool {
     min.is_none_or(|m| n >= m) && max.is_none_or(|m| n <= m)
 }
 
+/// Drop answers to questions the form no longer has (the owner removed one
+/// while someone was filling it in).
+fn keep_known_answers(doc: &Map<String, Value>, answers: &mut Map<String, Value>) {
+    let known: std::collections::HashSet<&str> = form_questions(doc)
+        .into_iter()
+        .filter_map(|q| q.get("id").and_then(|id| id.as_str()))
+        .filter(|id| !id.is_empty())
+        .collect();
+    answers.retain(|key, _| known.contains(key.as_str()));
+}
+
 fn validate_answers(
     doc: &Map<String, Value>,
     answers: &Map<String, Value>,
@@ -695,14 +941,10 @@ fn validate_answers(
         .iter()
         .filter_map(|q| q.get("id").and_then(|id| id.as_str()).map(|id| (id, *q)))
         .collect();
-    for key in answers.keys() {
-        if !known.contains_key(key.as_str()) {
-            return Err(json_error(
-                StatusCode::BAD_REQUEST,
-                "This form changed since you opened it. Reload the page and send again.",
-            ));
-        }
-    }
+    // Unknown ids are dropped by the caller (`keep_known_answers`) before we
+    // get here — a question removed while someone was answering must not
+    // cost them everything they typed.
+    debug_assert!(answers.keys().all(|k| known.contains_key(k.as_str())));
     for question in &owned {
         let Some(id) = question.get("id").and_then(|i| i.as_str()) else {
             continue;
@@ -809,7 +1051,7 @@ struct RespondLookup {
 }
 
 /// `POST /s/{token}/respond` — append one answer record to the sibling
-/// `<name>.responses.jsonl`. Re-submits with a matching edit secret keep the
+/// `<name>.lunaform.responses`. Re-submits with a matching edit secret keep the
 /// same response id; latest wins at read time.
 async fn respond_submit(
     State(state): State<AppState>,
@@ -822,7 +1064,8 @@ async fn respond_submit(
     let (link_id, proof, res) = match resolved {
         Err(e) => (String::new(), None, Err(e)),
         Ok((link, proof)) => {
-            let res = respond_submit_inner(&state, &addr, &link, body)
+            let ip = respondent_ip(&addr, &headers);
+            let res = respond_submit_inner(&state, &ip, &link, body)
                 .await
                 .map(IntoResponse::into_response);
             (link.id.clone(), proof, res)
@@ -833,24 +1076,15 @@ async fn respond_submit(
 
 async fn respond_submit_inner(
     state: &AppState,
-    addr: &SocketAddr,
+    ip: &str,
     link: &db::AccessLinkRow,
     body: RespondSubmit,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let ip = addr.ip().to_string();
-    if !state.form_respond_limiter.allow(&respond_key(&ip)) {
-        return Err(json_error(
-            StatusCode::TOO_MANY_REQUESTS,
-            "Too many tries from this network just now. Wait a minute and try again.",
-        ));
+    if !state.form_respond_limiter.allow(&respond_key("submit", ip)) {
+        return Err(too_many_tries());
     }
     let form_path = {
-        let conn = state.db.lock().map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna's index is busy. Try again.",
-            )
-        })?;
+        let conn = state.db.lock().map_err(|_| index_busy())?;
         resolve_form_file(&conn, &link.drive_id, &link.path)?
     };
     let doc = read_form_document(&form_path)?;
@@ -876,7 +1110,7 @@ async fn respond_submit_inner(
             "This form doesn't let you change answers after you send them.",
         ));
     }
-    let answers = match body.answers {
+    let mut answers = match body.answers {
         Value::Object(map) => map,
         _ => {
             return Err(json_error(
@@ -891,6 +1125,7 @@ async fn respond_submit_inner(
             "Some answers are in a shape Luna can't store. Try again.",
         ));
     }
+    keep_known_answers(&doc, &mut answers);
 
     // A presented secret only ever identifies an existing answer to amend —
     // a new submission always gets a fresh server-minted secret, so a client
@@ -903,118 +1138,67 @@ async fn respond_submit_inner(
         .filter(|t| !t.is_empty());
     let presented_hash = presented_token.map(hash_edit_token);
 
-    // Edits need the existing records: match the secret before validating —
-    // a wrong secret is refused before it can probe answer shapes.
-    let records = read_response_records(&form_path)?;
-    let latest = latest_by_id(&records);
-    let editing_id = match presented_hash.as_deref() {
-        Some(hash) => find_editable(&latest, body.response_id.as_deref(), hash)?,
-        // A target id without its secret is an edit attempt too — refuse it
-        // with the same message as a mismatched secret.
-        None if body
-            .response_id
-            .as_deref()
-            .is_some_and(|id| !id.trim().is_empty()) =>
-        {
-            return Err(json_error(
-                StatusCode::FORBIDDEN,
-                "This edit link doesn't match a saved answer on this form.",
-            ));
-        }
-        None => None,
-    };
-    let is_new = editing_id.is_none();
-    if is_new && form_max_responses(&doc).is_some_and(|max| latest.len() >= max as usize) {
-        return Err(json_error(
-            StatusCode::FORBIDDEN,
-            "This form has all the answers it can take.",
-        ));
-    }
-    let (response_id, edit_hash, edit_token) = match editing_id {
-        // An amendment keeps the secret the respondent already holds.
-        Some(id) => (
-            id,
-            presented_hash.unwrap_or_default(),
-            presented_token.unwrap_or_default().to_string(),
-        ),
-        None => {
-            let token = new_edit_token();
-            (new_response_id(), hash_edit_token(&token), token)
-        }
-    };
     let uploads = uploads_dir_for(&form_path);
-    validate_answers(&doc, &answers, uploads.as_deref())?;
-
-    let record = json!({
-        "v": 1,
-        "id": response_id,
-        "edit": edit_hash,
-        "at": crate::db::now_unix(),
-        "answers": Value::Object(answers),
-    });
-    let Some(responses_path) = responses_path_for(&form_path) else {
-        return Err(json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't find where this form keeps its answers.",
-        ));
-    };
-    // Same hardening as the guarded reader: refuse a planted symlink, then
-    // O_NOFOLLOW closes the check→open race so the append can't be steered
-    // onto an attacker-chosen file.
-    match std::fs::symlink_metadata(&responses_path) {
-        Ok(meta) if meta.file_type().is_symlink() || !meta.is_file() => {
+    // Cap check, secret match, and append are one step under the lock.
+    let (response_id, edit_token, is_new) = {
+        let _guard = RESPONSES_WRITE.lock().unwrap_or_else(|p| p.into_inner());
+        // Edits need the existing records: match the secret before
+        // validating — a wrong secret is refused before it can probe answer
+        // shapes.
+        let records = read_response_records(&form_path)?;
+        let latest = latest_by_id(&records);
+        let editing_id = match presented_hash.as_deref() {
+            Some(hash) => find_editable(&latest, body.response_id.as_deref(), hash)?,
+            // A target id without its secret is an edit attempt too — refuse
+            // it with the same message as a mismatched secret.
+            None if body
+                .response_id
+                .as_deref()
+                .is_some_and(|id| !id.trim().is_empty()) =>
+            {
+                return Err(json_error(
+                    StatusCode::FORBIDDEN,
+                    "This edit link doesn't match a saved answer on this form.",
+                ));
+            }
+            None => None,
+        };
+        let is_new = editing_id.is_none();
+        if is_new && form_max_responses(&doc).is_some_and(|max| latest.len() >= max as usize) {
             return Err(json_error(
                 StatusCode::FORBIDDEN,
-                "This form's answers file isn't safe to write to.",
+                "This form has all the answers it can take.",
             ));
         }
-        Ok(_) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-        Err(_) => {
-            return Err(json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't save your answers. Try again.",
-            ));
-        }
-    }
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(&responses_path)
-        .map_err(|e| {
-            crate::files::note_write_failure(
-                &state.db.lock().unwrap_or_else(|p| p.into_inner()),
-                &link.drive_id,
-                &e.to_string(),
-            );
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't save your answers. Try again.",
-            )
-        })?;
-    let line = serde_json::to_string(&record).map_err(|_| {
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't save your answers. Try again.",
-        )
-    })?;
-    writeln!(file, "{line}").map_err(|_| {
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't save your answers. Try again.",
-        )
-    })?;
-    state.touch_io_activity();
-    if is_new && form_notify(&doc) {
-        let count = (latest.len() + 1) as u64;
+        let (response_id, edit_hash, edit_token) = match editing_id {
+            // An amendment keeps the secret the respondent already holds.
+            Some(id) => (
+                id,
+                presented_hash.unwrap_or_default(),
+                presented_token.unwrap_or_default().to_string(),
+            ),
+            None => {
+                let token = new_edit_token();
+                (new_response_id(), hash_edit_token(&token), token)
+            }
+        };
+        validate_answers(&doc, &answers, uploads.as_deref())?;
+        let record = json!({
+            "v": 1,
+            "id": response_id,
+            "edit": edit_hash,
+            "at": crate::db::now_unix(),
+            "answers": Value::Object(answers),
+        });
+        append_record(state, &link.drive_id, &form_path, &record)?;
+        (response_id, edit_token, is_new)
+    };
+    if is_new {
+        // Open builders refresh their Responses tab; nothing is shown.
         let room_key = crate::office::collab::CollabHub::room_key(&link.drive_id, &link.path);
         state
             .collab
-            .broadcast(
-                &room_key,
-                crate::office::collab::ServerEvent::FormResponse { count },
-            )
+            .broadcast(&room_key, crate::office::collab::ServerEvent::FormResponse)
             .await;
     }
     Ok(Json(json!({
@@ -1040,8 +1224,9 @@ async fn respond_lookup(
     let (link_id, proof, res) = match resolved {
         Err(e) => (String::new(), None, Err(e)),
         Ok((link, proof)) => {
+            let ip = respondent_ip(&addr, &headers);
             let res =
-                respond_lookup_inner(&state, &addr, &link, query).map(IntoResponse::into_response);
+                respond_lookup_inner(&state, &ip, &link, query).map(IntoResponse::into_response);
             (link.id.clone(), proof, res)
         }
     };
@@ -1050,16 +1235,12 @@ async fn respond_lookup(
 
 fn respond_lookup_inner(
     state: &AppState,
-    addr: &SocketAddr,
+    ip: &str,
     link: &db::AccessLinkRow,
     query: RespondLookup,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let ip = addr.ip().to_string();
-    if !state.form_respond_limiter.allow(&respond_key(&ip)) {
-        return Err(json_error(
-            StatusCode::TOO_MANY_REQUESTS,
-            "Too many tries from this network just now. Wait a minute and try again.",
-        ));
+    if !state.form_respond_limiter.allow(&respond_key("lookup", ip)) {
+        return Err(too_many_tries());
     }
     let edit_token = query.edit_token.filter(|t| !t.is_empty()).ok_or_else(|| {
         json_error(
@@ -1146,7 +1327,8 @@ async fn respond_upload(
     let (link_id, proof, res) = match resolved {
         Err(e) => (String::new(), None, Err(e)),
         Ok((link, proof)) => {
-            let res = respond_upload_inner(&state, &addr, &link, &mut multipart)
+            let ip = respondent_ip(&addr, &headers);
+            let res = respond_upload_inner(&state, &ip, &link, &mut multipart)
                 .await
                 .map(IntoResponse::into_response);
             (link.id.clone(), proof, res)
@@ -1157,16 +1339,12 @@ async fn respond_upload(
 
 async fn respond_upload_inner(
     state: &AppState,
-    addr: &SocketAddr,
+    ip: &str,
     link: &db::AccessLinkRow,
     multipart: &mut Multipart,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let ip = addr.ip().to_string();
-    if !state.form_respond_limiter.allow(&respond_key(&ip)) {
-        return Err(json_error(
-            StatusCode::TOO_MANY_REQUESTS,
-            "Too many tries from this network just now. Wait a minute and try again.",
-        ));
+    if !state.form_respond_limiter.allow(&respond_key("upload", ip)) {
+        return Err(too_many_tries());
     }
     let form_path = {
         let conn = state.db.lock().map_err(|_| {
@@ -1184,35 +1362,89 @@ async fn respond_upload_inner(
             "This form isn't collecting answers anymore.",
         ));
     }
-    let mut saved: Option<(String, Vec<u8>)> = None;
-    while let Some(field) = multipart.next_field().await.map_err(|_| {
+    // Attachments only exist to answer a file question — a form without one
+    // takes no uploads, so the link can't be used as free storage.
+    let has_file_question = form_questions(&doc)
+        .iter()
+        .any(|q| q.get("type").and_then(|t| t.as_str()) == Some("file"));
+    if !has_file_question {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "This form doesn't ask for files.",
+        ));
+    }
+    let (ext, bytes) =
+        read_multipart_file(multipart, MAX_UPLOAD_BYTES, upload_ext, ATTACH_KIND_MESSAGE).await?;
+    let Some(dir) = uploads_dir_for(&form_path) else {
+        return Err(json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't find where this form keeps files.",
+        ));
+    };
+    let name = store_in_uploads(state, &dir, ext, &bytes)?;
+    Ok(Json(json!({ "ok": true, "name": name })))
+}
+
+/// Everything respondents may attach to one form, together. Past this the
+/// form stops taking files until the owner clears some out.
+const MAX_UPLOADS_DIR_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+
+/// A checked file: its minted extension and its bytes.
+type PickedFile = (&'static str, Vec<u8>);
+
+const ATTACH_KIND_MESSAGE: &str = "Attach a photo (JPG, PNG, GIF, or WebP) or a PDF.";
+const PICTURE_KIND_MESSAGE: &str = "Choose a photo: JPG, PNG, GIF, or WebP.";
+
+fn picture_ext(filename: &str) -> Option<&'static str> {
+    upload_ext(filename).filter(|ext| *ext != "pdf")
+}
+
+/// The bytes really are the kind of file the extension says. The name is
+/// minted from the extension, so this keeps a renamed page or script from
+/// sitting in the uploads folder as a "photo".
+fn content_matches(ext: &str, bytes: &[u8]) -> bool {
+    match ext {
+        "jpg" => bytes.starts_with(&[0xFF, 0xD8, 0xFF]),
+        "png" => bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]),
+        "gif" => bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a"),
+        "webp" => bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP",
+        "pdf" => bytes.starts_with(b"%PDF-"),
+        _ => false,
+    }
+}
+
+/// The first `file` part of a multipart body, capped at `max` bytes, with
+/// the extension `ext_of` allows for its file name.
+async fn read_multipart_file(
+    multipart: &mut Multipart,
+    max: usize,
+    ext_of: fn(&str) -> Option<&'static str>,
+    wrong_kind_message: &'static str,
+) -> Result<PickedFile, (StatusCode, Json<Value>)> {
+    let torn = || {
         json_error(
             StatusCode::BAD_REQUEST,
             "That file didn't come through whole. Try choosing it again.",
         )
-    })? {
+    };
+    let wrong_kind = || json_error(StatusCode::BAD_REQUEST, wrong_kind_message);
+    while let Some(mut field) = multipart.next_field().await.map_err(|_| torn())? {
         if field.name() != Some("file") {
             continue;
         }
         let filename = field.file_name().unwrap_or("").to_string();
-        let Some(ext) = upload_ext(&filename) else {
-            return Err(json_error(
-                StatusCode::BAD_REQUEST,
-                "Attach a photo (JPG, PNG, GIF, or WebP) or a PDF.",
-            ));
+        let Some(ext) = ext_of(&filename) else {
+            return Err(wrong_kind());
         };
         let mut bytes = Vec::new();
-        let mut field = field;
-        while let Some(chunk) = field.chunk().await.map_err(|_| {
-            json_error(
-                StatusCode::BAD_REQUEST,
-                "That file didn't come through whole. Try choosing it again.",
-            )
-        })? {
-            if bytes.len().saturating_add(chunk.len()) > MAX_UPLOAD_BYTES {
+        while let Some(chunk) = field.chunk().await.map_err(|_| torn())? {
+            if bytes.len().saturating_add(chunk.len()) > max {
                 return Err(json_error(
                     StatusCode::PAYLOAD_TOO_LARGE,
-                    "That file is over 10 MB. Choose a smaller photo or PDF.",
+                    format!(
+                        "That file is over {} MB. Choose a smaller one.",
+                        max / (1024 * 1024)
+                    ),
                 ));
             }
             bytes.extend_from_slice(&chunk);
@@ -1220,65 +1452,86 @@ async fn respond_upload_inner(
         if bytes.is_empty() {
             return Err(json_error(
                 StatusCode::BAD_REQUEST,
-                "That file was empty. Choose a photo or PDF and try again.",
+                "That file was empty. Choose another one and try again.",
             ));
         }
-        saved = Some((ext.to_string(), bytes));
-        break;
+        if !content_matches(ext, &bytes) {
+            return Err(wrong_kind());
+        }
+        return Ok((ext, bytes));
     }
-    let Some((ext, bytes)) = saved else {
-        return Err(json_error(
-            StatusCode::BAD_REQUEST,
-            "Choose a photo or PDF to attach.",
-        ));
-    };
-    let Some(dir) = uploads_dir_for(&form_path) else {
-        return Err(json_error(
+    Err(json_error(
+        StatusCode::BAD_REQUEST,
+        "Choose a file to attach.",
+    ))
+}
+
+/// Write `bytes` into the form's `<name>.uploads` folder under a fresh
+/// server-minted name, refusing a symlinked folder and a folder already at
+/// `MAX_UPLOADS_DIR_BYTES`.
+fn store_in_uploads(
+    state: &AppState,
+    dir: &FsPath,
+    ext: &str,
+    bytes: &[u8],
+) -> Result<String, (StatusCode, Json<Value>)> {
+    let save_err = || {
+        json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't find where this form keeps files.",
-        ));
+            "Luna couldn't save that file. Try again.",
+        )
     };
-    if let Ok(meta) = std::fs::symlink_metadata(&dir)
-        && meta.file_type().is_symlink()
+    if let Ok(meta) = std::fs::symlink_metadata(dir)
+        && (meta.file_type().is_symlink() || !meta.is_dir())
     {
         return Err(json_error(
             StatusCode::FORBIDDEN,
             "Luna couldn't save that file. Try again.",
         ));
     }
-    std::fs::create_dir_all(&dir).map_err(|_| {
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't save that file. Try again.",
-        )
-    })?;
-    let name = new_upload_name(&ext);
-    let dest = dir.join(&name);
+    let used: u64 = std::fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .filter_map(Result::ok)
+                .filter_map(|e| e.metadata().ok())
+                .filter(|m| m.is_file())
+                .map(|m| m.len())
+                .sum()
+        })
+        .unwrap_or(0);
+    if used.saturating_add(bytes.len() as u64) > MAX_UPLOADS_DIR_BYTES {
+        return Err(json_error(
+            StatusCode::INSUFFICIENT_STORAGE,
+            "This form has no room for more files. Ask the person who shared it to clear some out.",
+        ));
+    }
+    std::fs::create_dir_all(dir).map_err(|_| save_err())?;
+    let name = new_upload_name(ext);
     std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
-        .open(&dest)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(dir.join(&name))
         .and_then(|mut file| {
-            file.write_all(&bytes)?;
+            file.write_all(bytes)?;
             file.sync_all()
         })
-        .map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't save that file. Try again.",
-            )
-        })?;
+        .map_err(|_| save_err())?;
     state.touch_io_activity();
-    Ok(Json(json!({ "ok": true, "name": name })))
+    Ok(name)
 }
 
 #[derive(Deserialize)]
 struct FormImageQuery {
-    path: String,
+    /// The picture's name inside the form's uploads folder.
+    name: String,
 }
 
-/// `GET /s/{token}/form-image?path=` — a picture the form itself names.
-/// Anything else on the drive stays private.
+/// `GET /s/{token}/form-image?name=` — a picture on one of the form's
+/// questions. Pictures are copied into the form's uploads folder when the
+/// editor adds them (`/api/v1/forms/picture`), so a respond link can only
+/// ever show files that sit beside the form — never anything else on the
+/// drive, whatever path someone types into the form file.
 async fn respond_image(
     State(state): State<AppState>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -1291,7 +1544,7 @@ async fn respond_image(
         Err(e) => (String::new(), None, Err(e)),
         Ok((link, proof)) => {
             let res =
-                respond_image_inner(&state, &link, &query.path).map(IntoResponse::into_response);
+                respond_image_inner(&state, &link, &query.name).map(IntoResponse::into_response);
             (link.id.clone(), proof, res)
         }
     };
@@ -1301,69 +1554,217 @@ async fn respond_image(
 fn respond_image_inner(
     state: &AppState,
     link: &db::AccessLinkRow,
-    image_path: &str,
+    name: &str,
 ) -> Result<Response, (StatusCode, Json<Value>)> {
-    let wanted = image_path.trim().trim_start_matches('/');
-    if wanted.is_empty() || wanted.contains("..") || wanted.contains('\\') {
-        return Err(json_error(
-            StatusCode::NOT_FOUND,
-            "That picture isn't on this form.",
-        ));
+    let missing = || json_error(StatusCode::NOT_FOUND, "That picture isn't on this form.");
+    let name = name.trim();
+    if !upload_name_ok(name) || name.ends_with(".pdf") {
+        return Err(missing());
     }
-    let path = {
-        let conn = state.db.lock().map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna's index is busy. Try again.",
-            )
-        })?;
-        let form_path = resolve_form_file(&conn, &link.drive_id, &link.path)?;
-        let doc = read_form_document(&form_path)?;
-        let listed = form_questions(&doc).into_iter().any(|q| {
-            q.get("image")
-                .and_then(|v| v.as_str())
-                .is_some_and(|p| p.trim().trim_start_matches('/') == wanted)
-        });
-        if !listed {
-            return Err(json_error(
-                StatusCode::NOT_FOUND,
-                "That picture isn't on this form.",
-            ));
-        }
-        let (path, meta) = crate::files::resolve_any(&conn, &link.drive_id, wanted)
-            .map_err(|_| json_error(StatusCode::NOT_FOUND, "That picture isn't on this form."))?;
-        if !meta.is_file() || meta.len() > MAX_IMAGE_BYTES {
-            return Err(json_error(
-                StatusCode::NOT_FOUND,
-                "That picture isn't on this form.",
-            ));
-        }
-        path
+    let form_path = {
+        let conn = state.db.lock().map_err(|_| index_busy())?;
+        resolve_form_file(&conn, &link.drive_id, &link.path)?
     };
-    let ext = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    let content_type = match ext.as_str() {
+    let doc = read_form_document(&form_path)?;
+    let listed = form_questions(&doc)
+        .into_iter()
+        .any(|q| q.get("image").and_then(|v| v.as_str()) == Some(name));
+    if !listed {
+        return Err(missing());
+    }
+    let dir = uploads_dir_for(&form_path).ok_or_else(missing)?;
+    let path = dir.join(name);
+    let meta = std::fs::symlink_metadata(&path).map_err(|_| missing())?;
+    if meta.file_type().is_symlink() || !meta.is_file() || meta.len() > MAX_IMAGE_BYTES {
+        return Err(missing());
+    }
+    let content_type = match name.rsplit('.').next().unwrap_or("") {
         "jpg" | "jpeg" => "image/jpeg",
         "png" => "image/png",
         "gif" => "image/gif",
         "webp" => "image/webp",
-        _ => {
-            return Err(json_error(
-                StatusCode::NOT_FOUND,
-                "That picture isn't on this form.",
-            ));
-        }
+        _ => return Err(missing()),
     };
-    let bytes = std::fs::read(&path)
-        .map_err(|_| json_error(StatusCode::NOT_FOUND, "That picture isn't on this form."))?;
+    let bytes = std::fs::read(&path).map_err(|_| missing())?;
     Ok(Response::builder()
         .header(header::CONTENT_TYPE, content_type)
         .header(header::CACHE_CONTROL, "private, no-store")
+        .header("x-content-type-options", "nosniff")
         .body(axum::body::Body::from(bytes))
         .unwrap())
+}
+
+#[derive(Deserialize)]
+struct MemberPictureCopy {
+    drive_id: String,
+    /// The form the picture goes on.
+    path: String,
+    /// A picture already on the drive.
+    source: String,
+}
+
+#[derive(Deserialize)]
+struct MemberPictureQuery {
+    drive_id: String,
+    path: String,
+}
+
+#[derive(Deserialize)]
+struct GuestPictureCopy {
+    #[serde(default)]
+    path: String,
+    source: String,
+}
+
+#[derive(Deserialize)]
+struct GuestPictureQuery {
+    #[serde(default)]
+    path: String,
+}
+
+/// Read a picture that is already on the drive, for copying onto a form.
+fn read_source_picture(source: &FsPath) -> Result<PickedFile, (StatusCode, Json<Value>)> {
+    let not_picture = || json_error(StatusCode::BAD_REQUEST, PICTURE_KIND_MESSAGE);
+    let name = source.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    let ext = picture_ext(name).ok_or_else(not_picture)?;
+    let meta = std::fs::symlink_metadata(source).map_err(|_| not_picture())?;
+    if meta.file_type().is_symlink() || !meta.is_file() {
+        return Err(not_picture());
+    }
+    if meta.len() > MAX_IMAGE_BYTES {
+        return Err(json_error(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "That picture is over 20 MB. Choose a smaller one.",
+        ));
+    }
+    let bytes = std::fs::read(source).map_err(|_| not_picture())?;
+    if !content_matches(ext, &bytes) {
+        return Err(not_picture());
+    }
+    Ok((ext, bytes))
+}
+
+fn store_picture(
+    state: &AppState,
+    form_path: &FsPath,
+    ext: &str,
+    bytes: &[u8],
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let dir = uploads_dir_for(form_path).ok_or_else(|| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't find where this form keeps files.",
+        )
+    })?;
+    let name = store_in_uploads(state, &dir, ext, bytes)?;
+    Ok(Json(json!({ "ok": true, "name": name })))
+}
+
+/// `POST /api/v1/forms/picture` — copy a picture from the drive onto a
+/// form. The editor must be able to see the picture: copying is what keeps
+/// a respond link from showing files its form's editors can't open.
+async fn member_copy_picture(
+    State(state): State<AppState>,
+    Extension(user): Extension<CurrentUser>,
+    Json(body): Json<MemberPictureCopy>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let form_path = member_managed_form(&state, &user, &body.drive_id, &body.path)?;
+    let source = {
+        let conn = state.db.lock().map_err(|_| index_busy())?;
+        if !auth::has_cap(
+            &user,
+            &conn,
+            &body.drive_id,
+            &body.source,
+            crate::access::CAP_VIEW,
+        ) {
+            return Err(json_error(
+                StatusCode::FORBIDDEN,
+                "You can't open that picture, so it can't go on the form.",
+            ));
+        }
+        crate::files::resolve_any(&conn, &body.drive_id, &body.source)
+            .map_err(|_| json_error(StatusCode::NOT_FOUND, "Luna can't find that picture."))?
+            .0
+    };
+    let (ext, bytes) = read_source_picture(&source)?;
+    store_picture(&state, &form_path, ext, &bytes)
+}
+
+/// `POST /api/v1/forms/picture-upload?drive_id=&path=` — a picture from
+/// this device, straight onto the form.
+async fn member_upload_picture(
+    State(state): State<AppState>,
+    Extension(user): Extension<CurrentUser>,
+    Query(q): Query<MemberPictureQuery>,
+    mut multipart: Multipart,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let form_path = member_managed_form(&state, &user, &q.drive_id, &q.path)?;
+    let (ext, bytes) = read_multipart_file(
+        &mut multipart,
+        MAX_IMAGE_BYTES as usize,
+        picture_ext,
+        PICTURE_KIND_MESSAGE,
+    )
+    .await?;
+    store_picture(&state, &form_path, ext, &bytes)
+}
+
+/// `POST /s/{token}/form-picture` — the guest side of copying a picture.
+async fn guest_copy_picture(
+    State(state): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    Path(token): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<GuestPictureCopy>,
+) -> Response {
+    crate::api::access::run_public(&state, &addr, &token, &headers, move |state, link| {
+        async move {
+            let (_, form_path) = guest_managed_form(&state, &link, &body.path)?;
+            // link_file only resolves paths the link can view.
+            let source_rel = crate::api::access::link_file(&state, &link, &body.source)?;
+            let source = {
+                let conn = state.db.lock().map_err(|_| index_busy())?;
+                crate::files::resolve_any(&conn, &link.drive_id, &source_rel)
+                    .map_err(|_| {
+                        json_error(StatusCode::NOT_FOUND, "Luna can't find that picture.")
+                    })?
+                    .0
+            };
+            let (ext, bytes) = read_source_picture(&source)?;
+            store_picture(&state, &form_path, ext, &bytes).map(IntoResponse::into_response)
+        }
+    })
+    .await
+}
+
+/// `POST /s/{token}/form-picture-upload?path=` — the guest side of uploading.
+async fn guest_upload_picture(
+    State(state): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    Path(token): Path<String>,
+    headers: HeaderMap,
+    Query(q): Query<GuestPictureQuery>,
+    mut multipart: Multipart,
+) -> Response {
+    crate::api::access::run_public(
+        &state,
+        &addr,
+        &token,
+        &headers,
+        move |state, link| async move {
+            let (_, form_path) = guest_managed_form(&state, &link, &q.path)?;
+            let (ext, bytes) = read_multipart_file(
+                &mut multipart,
+                MAX_IMAGE_BYTES as usize,
+                picture_ext,
+                PICTURE_KIND_MESSAGE,
+            )
+            .await?;
+            store_picture(&state, &form_path, ext, &bytes).map(IntoResponse::into_response)
+        },
+    )
+    .await
 }
 
 #[cfg(test)]
@@ -1382,11 +1783,11 @@ mod tests {
     fn responses_path_swaps_the_extension() {
         assert_eq!(
             responses_path_for(FsPath::new("/d/forms/rsvp.lunaform")).unwrap(),
-            PathBuf::from("/d/forms/rsvp.responses.jsonl")
+            PathBuf::from("/d/forms/rsvp.lunaform.responses")
         );
         assert_eq!(
             responses_path_for(FsPath::new("/d/rsvp.LUNAFORM")).unwrap(),
-            PathBuf::from("/d/rsvp.responses.jsonl")
+            PathBuf::from("/d/rsvp.lunaform.responses")
         );
         assert!(responses_path_for(FsPath::new("/d/rsvp.json")).is_none());
     }
@@ -1486,10 +1887,12 @@ not json
         // Required answered + optional empty → fine.
         let answers: Map<String, Value> = serde_json::from_value(json!({ "q_1": "Yes" })).unwrap();
         assert!(validate_answers(&doc, &answers, None).is_ok());
-        // Unknown question id → refused.
-        let answers: Map<String, Value> =
+        // Unknown question id (removed mid-answer) → dropped, not refused.
+        let mut answers: Map<String, Value> =
             serde_json::from_value(json!({ "q_1": "Yes", "q_99": "x" })).unwrap();
-        assert!(validate_answers(&doc, &answers, None).is_err());
+        keep_known_answers(&doc, &mut answers);
+        assert!(!answers.contains_key("q_99"));
+        assert!(validate_answers(&doc, &answers, None).is_ok());
         // An option nobody offered → refused.
         let answers: Map<String, Value> =
             serde_json::from_value(json!({ "q_1": "Maybe" })).unwrap();
@@ -1586,10 +1989,39 @@ not json
         let capped: Map<String, Value> =
             serde_json::from_value(json!({ "settings": { "maxResponses": 2 } })).unwrap();
         assert_eq!(form_max_responses(&capped), Some(2));
-        assert!(form_notify(&Map::new()));
-        let quiet: Map<String, Value> =
-            serde_json::from_value(json!({ "settings": { "notify": false } })).unwrap();
-        assert!(!form_notify(&quiet));
+    }
+
+    #[test]
+    fn tombstones_remove_a_response_and_order_follows_first_send() {
+        let records = parse_response_records(
+            r#"{"v":1,"id":"r_b","edit":"h","at":1,"answers":{"q":"1"}}
+{"v":1,"id":"r_a","edit":"h","at":2,"answers":{"q":"2"}}
+{"v":1,"id":"r_b","edit":"h","at":5,"answers":{"q":"3"}}
+{"v":1,"id":"r_a","deleted":true,"at":6}"#,
+        );
+        let live = latest_in_order(&records);
+        assert_eq!(live.len(), 1);
+        assert_eq!(live[0]["id"], "r_b");
+        assert_eq!(live[0]["answers"]["q"], "3");
+        assert_eq!(live[0]["sent_at"], 1);
+        assert_eq!(live[0]["at"], 5);
+        assert!(live[0].get("edit").is_none());
+        assert_eq!(latest_by_id(&records).len(), 1);
+    }
+
+    #[test]
+    fn content_must_match_the_extension() {
+        assert!(content_matches("pdf", b"%PDF-1.7 ..."));
+        assert!(!content_matches("pdf", b"<html><script>"));
+        assert!(content_matches(
+            "png",
+            &[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0]
+        ));
+        assert!(content_matches("jpg", &[0xFF, 0xD8, 0xFF, 0xE0]));
+        assert!(content_matches("webp", b"RIFF\0\0\0\0WEBPVP8 "));
+        assert!(!content_matches("gif", b"GIF00"));
+        assert_eq!(picture_ext("a.PDF"), None);
+        assert_eq!(picture_ext("a.JPEG"), Some("jpg"));
     }
 }
 
@@ -1744,7 +2176,7 @@ mod http_tests {
         assert_ne!(edit_token, "x", "client-chosen secrets are not stored");
         assert!(edit_token.len() >= 16, "minted secrets carry entropy");
 
-        let jsonl = std::fs::read_to_string(mount.path().join("rsvp.responses.jsonl")).unwrap();
+        let jsonl = std::fs::read_to_string(mount.path().join("rsvp.lunaform.responses")).unwrap();
         let rec: Value = serde_json::from_str(jsonl.trim()).unwrap();
         // The file stores the blake3 hash of the minted secret, never raw.
         assert_eq!(
@@ -1782,7 +2214,7 @@ mod http_tests {
         .await;
         assert_eq!(res.status(), StatusCode::OK);
         assert_eq!(body_json(res).await["id"], id);
-        let jsonl = std::fs::read_to_string(mount.path().join("rsvp.responses.jsonl")).unwrap();
+        let jsonl = std::fs::read_to_string(mount.path().join("rsvp.lunaform.responses")).unwrap();
         assert_eq!(jsonl.lines().count(), 2);
 
         // The wrong secret can't touch someone else's response.
@@ -1831,7 +2263,7 @@ mod http_tests {
         )
         .await;
         assert_eq!(res.status(), StatusCode::BAD_REQUEST);
-        assert!(!mount.path().join("rsvp.responses.jsonl").exists());
+        assert!(!mount.path().join("rsvp.lunaform.responses").exists());
     }
 
     #[tokio::test]
@@ -1896,7 +2328,7 @@ mod http_tests {
         assert_eq!(res.status(), StatusCode::FORBIDDEN);
 
         // None of the refusals touched the file — still just the one record.
-        let jsonl = std::fs::read_to_string(mount.path().join("rsvp.responses.jsonl")).unwrap();
+        let jsonl = std::fs::read_to_string(mount.path().join("rsvp.lunaform.responses")).unwrap();
         assert_eq!(jsonl.lines().count(), 1);
     }
 
@@ -2050,7 +2482,7 @@ mod http_tests {
 
     fn write_answers(mount: &std::path::Path) {
         std::fs::write(
-            mount.join("rsvp.responses.jsonl"),
+            mount.join("rsvp.lunaform.responses"),
             concat!(
                 r#"{"id":"r_1","edit":"HASHSECRET","answers":{"q_1":"Yes"},"at":1}"#,
                 "\n",
@@ -2138,10 +2570,46 @@ mod http_tests {
         assert_eq!(res.headers()["cache-control"], "no-store");
         assert_eq!(res.headers()["referrer-policy"], "no-referrer");
         let v = body_json(res).await;
+        // Edits collapse to the latest version of each response.
         let answers = v["responses"].as_array().unwrap();
-        assert_eq!(answers.len(), 2);
+        assert_eq!(answers.len(), 1);
         assert!(answers.iter().all(|r| r.get("edit").is_none()));
-        assert_eq!(answers[1]["answers"]["q_1"], "No");
+        assert_eq!(answers[0]["answers"]["q_1"], "No");
+        assert_eq!(answers[0]["sent_at"], 1);
+
+        // The file list's badge asks for the count alone.
+        let res = call(
+            &app,
+            req(Method::GET, &format!("/s/{token}/responses?count=1"), ""),
+        )
+        .await;
+        assert_eq!(body_json(res).await, serde_json::json!({ "count": 1 }));
+
+        // A view link can't delete; a full link can, once.
+        let res = call(
+            &app,
+            req(Method::DELETE, &format!("/s/{view}/responses?id=r_1"), ""),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+        let res = call(
+            &app,
+            req(Method::DELETE, &format!("/s/{token}/responses?id=r_1"), ""),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::OK);
+        let res = call(
+            &app,
+            req(Method::DELETE, &format!("/s/{token}/responses?id=r_1"), ""),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::NOT_FOUND);
+        let res = call(&app, req(Method::GET, &format!("/s/{token}/responses"), "")).await;
+        assert_eq!(
+            body_json(res).await["responses"].as_array().unwrap().len(),
+            0
+        );
+        write_answers(mount.path());
 
         // Folder links resolve the file beneath their root.
         let folder = insert_link(&state, "", crate::access::CAP_ALL);
@@ -2157,7 +2625,7 @@ mod http_tests {
         assert_eq!(res.status(), StatusCode::OK);
         assert_eq!(
             body_json(res).await["responses"].as_array().unwrap().len(),
-            2
+            1
         );
     }
 
@@ -2201,7 +2669,7 @@ mod http_tests {
             &app,
             req(
                 Method::GET,
-                &format!("/s/{folder}/responses?path=rsvp.responses.jsonl"),
+                &format!("/s/{folder}/responses?path=rsvp.lunaform.responses"),
                 "",
             ),
         )
@@ -2256,7 +2724,7 @@ mod http_tests {
             0
         );
 
-        let sibling = mount.path().join("rsvp.responses.jsonl");
+        let sibling = mount.path().join("rsvp.lunaform.responses");
         std::os::unix::fs::symlink("/etc/hostname", &sibling).unwrap();
         let res = call(&app, req(Method::GET, &format!("/s/{token}/responses"), "")).await;
         assert!(res.status().is_client_error(), "symlink answers must fail");
@@ -2353,7 +2821,7 @@ mod http_tests {
         .await;
         assert_eq!(res.status(), StatusCode::OK);
         let v = body_json(res).await;
-        assert_eq!(v["responses"].as_array().unwrap().len(), 2);
+        assert_eq!(v["responses"].as_array().unwrap().len(), 1);
         assert!(
             v["responses"]
                 .as_array()

@@ -180,10 +180,10 @@ export default function MfaChallenge({ mfaToken, methods, email, onSuccess, onBa
       <StepTransition step="selection" order={MFA_STEPS}>
         <div data-slot="auth-mfa-selection" className="space-y-4">
         <div className="flex items-center gap-3">
-          <IconCircle icon={ShieldCheck} size="sm" variant="accent" />
+          <IconCircle icon={ShieldCheck} size="sm" />
           <div>
             <h2 className="font-mono text-lg text-primary">Two-step verification</h2>
-            <p className="text-xs text-accent">Pick how you'd like to confirm it's you.</p>
+            <p className="text-xs">Pick how you'd like to confirm it's you.</p>
           </div>
         </div>
 
@@ -209,16 +209,16 @@ export default function MfaChallenge({ mfaToken, methods, email, onSuccess, onBa
                   }}
                   className="w-full flex items-center gap-3 px-4 py-3 rounded-large-element bg-primary text-secondary border-2 border-secondary/10 hover:border-accent motion-safe:transition-all text-left group"
                 >
-                  <Icon size={ICON_SIZE.lg} className="text-accent shrink-0" />
+                  <Icon size={ICON_SIZE.lg} className="shrink-0" />
                   <span className="flex-1 min-w-0">
                     <span className="block text-sm">{meta.label}</span>
                     {meta.hint && (
-                      <span className="block text-xs text-accent mt-0.5">{meta.hint}</span>
+                      <span className="block text-xs mt-0.5">{meta.hint}</span>
                     )}
                   </span>
                   <ChevronRight
                     size={ICON_SIZE.md}
-                    className="text-accent shrink-0 group-hover:translate-x-0.5 motion-safe:transition-transform"
+                    className="shrink-0 group-hover:translate-x-0.5 motion-safe:transition-transform"
                   />
                 </button>
               </li>
@@ -233,7 +233,7 @@ export default function MfaChallenge({ mfaToken, methods, email, onSuccess, onBa
               setSelected("recovery");
               setCode("");
             }}
-            className="flex items-center gap-2 text-xs text-accent hover:text-primary motion-safe:transition-colors"
+            className="flex items-center gap-2 text-xs hover:text-primary motion-safe:transition-colors"
           >
             <LifeBuoy size={ICON_SIZE.sm} />
             Use a recovery code instead
@@ -242,7 +242,7 @@ export default function MfaChallenge({ mfaToken, methods, email, onSuccess, onBa
             <button
               type="button"
               onClick={onBack}
-              className="flex items-center gap-1 text-xs text-accent hover:text-primary motion-safe:transition-colors"
+              className="flex items-center gap-1 text-xs hover:text-primary motion-safe:transition-colors"
             >
               <ArrowLeft size={ICON_SIZE.xs} /> Back to password
             </button>
@@ -289,10 +289,10 @@ export default function MfaChallenge({ mfaToken, methods, email, onSuccess, onBa
       <StepTransition step="webauthn" order={MFA_STEPS}>
         <div data-slot="auth-mfa-webauthn" className="space-y-4 text-primary">
         <div className="flex items-center gap-3">
-          <IconCircle icon={Icon} size="sm" variant="accent" />
+          <IconCircle icon={Icon} size="sm" />
           <div>
             <h2 className="font-mono text-lg">{meta.label}</h2>
-            <p className="text-xs text-accent">Waiting for your {meta.label.toLowerCase()}…</p>
+            <p className="text-xs">Waiting for your {meta.label.toLowerCase()}…</p>
           </div>
         </div>
         <div className="flex items-center gap-4 pt-1">
@@ -300,14 +300,14 @@ export default function MfaChallenge({ mfaToken, methods, email, onSuccess, onBa
             type="button"
             onClick={() => verifyWebAuthn(selected)}
             disabled={loading}
-            className="text-xs text-accent hover:text-primary motion-safe:transition-colors"
+            className="text-xs hover:text-primary motion-safe:transition-colors"
           >
             {loading ? "Checking…" : "Try again"}
           </button>
           <button
             type="button"
             onClick={() => setSelected(null)}
-            className="flex items-center gap-1 text-xs text-accent hover:text-primary motion-safe:transition-colors"
+            className="flex items-center gap-1 text-xs hover:text-primary motion-safe:transition-colors"
           >
             <ArrowLeft size={ICON_SIZE.xs} /> Choose another method
           </button>
@@ -385,14 +385,14 @@ function EntryShell({ title, hint, onBack, onSubmit, loading, disabled, code, se
       <button
         type="button"
         onClick={onBack}
-        className="flex items-center gap-1 text-xs text-accent hover:text-primary motion-safe:transition-colors"
+        className="flex items-center gap-1 text-xs hover:text-primary motion-safe:transition-colors"
       >
         <ArrowLeft size={ICON_SIZE.xs} /> Choose another method
       </button>
 
       <div>
         <label htmlFor={inputId} className="block font-mono text-lg text-primary">{title}</label>
-        {hint && <p className="text-xs text-accent mt-0.5">{hint}</p>}
+        {hint && <p className="text-xs mt-0.5">{hint}</p>}
       </div>
 
       {email && (

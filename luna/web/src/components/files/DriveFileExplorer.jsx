@@ -135,7 +135,7 @@ export function UploadProgressList({ uploads, onCancel }) {
                   className="inline-block h-2 w-2 rounded-full bg-primary shrink-0"
                   aria-hidden="true"
                 />
-                <span className="text-xs font-mono uppercase tracking-widest text-accent shrink-0">
+                <span className="text-xs font-mono uppercase tracking-widest shrink-0">
                   Uploading
                 </span>
                 <Spinner size="sm" decorative className="text-primary shrink-0" />
@@ -157,7 +157,7 @@ export function UploadProgressList({ uploads, onCancel }) {
               </div>
               <p className="text-xs text-primary font-mono">{sizeLine}</p>
               <div
-                className="h-1.5 rounded-pill bg-primary overflow-hidden"
+                className="h-1.5 rounded-pill bg-primary p-px overflow-hidden"
                 role="progressbar"
                 aria-valuenow={pct ?? 0}
                 aria-valuemin={0}
@@ -169,7 +169,7 @@ export function UploadProgressList({ uploads, onCancel }) {
                 }
               >
                 <div
-                  className="h-full rounded-pill bg-accent motion-safe:transition-all motion-safe:duration-300"
+                  className="h-full rounded-pill bg-secondary motion-safe:transition-all motion-safe:duration-300"
                   style={{ width: `${pct ?? 0}%` }}
                 />
               </div>
@@ -809,7 +809,7 @@ export default function DriveFileExplorer({
         pathFloor={pathFloor}
         forbiddenState={!guest && !isAdmin ? (
           <EmptyState
-            className="mt-4"
+            bare
             icon={Lock}
             title="You don't have access to this folder"
             description="Open items shared with you from Shared instead."
@@ -1187,6 +1187,7 @@ export default function DriveFileExplorer({
                 className="mt-3 w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm outline-none focus:border-accent"
                 value={restoreName}
                 maxLength={255}
+                placeholder="File name"
                 onChange={(e) => setRestoreName(e.target.value)}
                 aria-label="Restored file name"
               />
@@ -1285,6 +1286,7 @@ export default function DriveFileExplorer({
         open={createKind != null}
         title={createKind?.title || "New"}
         label={createKind?.nameLabel || "Name"}
+        placeholder={createKind?.placeholder}
         hint="Luna will put it in the folder you are in now."
         value={createName}
         onChange={setCreateName}
@@ -1313,6 +1315,7 @@ export default function DriveFileExplorer({
                 className="mt-2 w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm outline-none focus:border-accent"
                 value={renameValue}
                 maxLength={255}
+                placeholder="New name"
                 onChange={(e) => setRenameValue(e.target.value)}
               />
             </ShakeTarget>

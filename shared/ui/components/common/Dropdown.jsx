@@ -8,7 +8,12 @@ import { ICON_SIZE } from "../../lib/ui-tokens.js";
 
 /**
  * @typedef {object} DropdownProps
- * @property {Array<{value: string, label: string}>} options
+ * @property {Array<{value: string, label: string, icon?: import("react").ElementType}>} options
+ *   `icon` draws before the label in the menu.
+ * @property {(trigger: { open: boolean, toggle: () => void, onKeyDown: (e: import("react").KeyboardEvent) => void }) => import("react").ReactNode} [renderTrigger]
+ *   Replace the pill with your own control (an action button that opens a
+ *   menu). The menu, positioning, cascade, and outside-click close are the
+ *   same. Wire `toggle` to its click and `onKeyDown` for arrow keys.
  * @property {string} value
  * @property {(value: string) => void} onChange
  * @property {string} [placeholder]
@@ -39,6 +44,7 @@ export default function Dropdown({
   disabled = false,
   ghost = false,
   icon: Icon,
+  renderTrigger,
   className = "",
   "aria-label": ariaLabel,
 }) {
@@ -49,7 +55,7 @@ export default function Dropdown({
   const containerRef = useRef(null);
   const portalRef = useRef(null);
   const buttonRef = useRef(null);
-  useSmoothResize(buttonRef, { x: !fullWidth });
+  useSmoothResize(buttonRef, { x: !fullWidth && !renderTrigger });
 
   const selectedOption = options.find((o) => o.value === value);
   const pill = bg || surface || "secondary";
@@ -70,9 +76,25 @@ export default function Dropdown({
     }
   }, []);
 
+  // A custom trigger sits inside a span — focus the control inside it.
+  const focusTrigger = useCallback(() => {
+    const el = buttonRef.current;
+    const target = el?.matches?.("button") ? el : el?.querySelector?.("button");
+    (target || el)?.focus?.();
+  }, []);
+
+  const closeTimerRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    };
+  }, []);
+
   const close = useCallback(() => {
     setIsClosing(true);
-    setTimeout(() => {
+    if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    closeTimerRef.current = setTimeout(() => {
       setIsOpen(false);
       setIsClosing(false);
       setActiveIndex(-1);
@@ -88,7 +110,7 @@ export default function Dropdown({
     function handleEscape(event) {
       if (event.key === "Escape") {
         close();
-        buttonRef.current?.focus();
+        focusTrigger();
       }
     }
     function handleScroll() {
@@ -104,7 +126,7 @@ export default function Dropdown({
       window.removeEventListener("scroll", handleScroll, true);
       window.removeEventListener("resize", handleScroll);
     };
-  }, [isOpen, updatePosition, close]);
+  }, [isOpen, updatePosition, close, focusTrigger]);
 
   useLayoutEffect(() => {
     if (!isOpen) return;
@@ -116,7 +138,7 @@ export default function Dropdown({
     haptic("selection");
     onChange(optionValue);
     close();
-    buttonRef.current?.focus();
+    focusTrigger();
   };
 
   const handleToggle = () => {
@@ -145,7 +167,12 @@ export default function Dropdown({
   };
 
   return (
-    <div className={cn("relative", fullWidth && "w-full", className)} ref={containerRef}>
+    <div className={cn(renderTrigger ? "relative inline-flex" : "relative", fullWidth && "w-full", className)} ref={containerRef}>
+      {renderTrigger ? (
+        <span ref={buttonRef} className="inline-flex">
+          {renderTrigger({ open: isOpen && !isClosing, toggle: handleToggle, onKeyDown: handleKeyDown })}
+        </span>
+      ) : (
       <button
         ref={buttonRef}
         type="button"
@@ -187,6 +214,7 @@ export default function Dropdown({
           </>
         )}
       </button>
+      )}
 
       {isOpen &&
         createPortal(
@@ -219,14 +247,16 @@ export default function Dropdown({
                   onClick={() => handleSelect(option.value)}
                   className={cn(
                     "w-full text-left px-4 py-2 text-xs motion-safe:transition-all motion-safe:duration-150 motion-safe:ease-out",
+                    option.icon && "flex items-center gap-2",
                     "cursor-pointer rounded-none",
                     value === option.value
-                      ? "bg-accent text-primary font-medium"
+                      ? "bg-primary text-secondary font-medium"
                       : i === activeIndex
                         ? "bg-primary/10 motion-safe:translate-x-0.5"
                         : "hover:bg-primary/10 hover:motion-safe:translate-x-0.5"
                   )}
                 >
+                  {option.icon ? <option.icon size={ICON_SIZE.sm} aria-hidden="true" /> : null}
                   {option.label}
                 </button>
               </li>

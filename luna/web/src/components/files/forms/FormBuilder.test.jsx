@@ -27,6 +27,7 @@ vi.mock("../office/collabSocket.js", () => ({
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
+import Toaster from "@libreloom/ui/components/common/Toaster.jsx";
 import FormBuilder from "./FormBuilder.jsx";
 import { driveSource, FileSourceProvider, shareSource } from "../../../lib/fileSource.jsx";
 
@@ -58,6 +59,7 @@ function mountBuilder({ source = driveSource, canWrite = true } = {}) {
   render(
     <QueryClientProvider client={qc}>
       <ToastProvider>
+        <Toaster />
         <FileSourceProvider source={source}>
           <FormBuilder
             driveId="d1"
@@ -194,3 +196,67 @@ describe("FormBuilder guest source", () => {
     expect((await screen.findAllByText("Bob")).length).toBeGreaterThan(0);
   });
 });
+
+describe("FormBuilder editing", () => {
+  const TWO = JSON.stringify({
+    version: 1,
+    title: "Potluck",
+    settings: {},
+    questions: [
+      { v: 1, id: "q_a", type: "choice", label: "Dish?", config: { options: ["Salad", "Soup"] } },
+      { v: 1, id: "q_b", type: "long_text", label: "Anything else?", config: {} },
+    ],
+  });
+
+  function stubForm() {
+    return stubFetch((u) => {
+      if (u.includes("/files/content")) return new Response(TWO, { status: 200 });
+      if (u.includes("/api/v1/forms/responses")) return json({ responses: [] });
+      return json({}, 404);
+    });
+  }
+
+  it("moves a question down and keeps everything on it", async () => {
+    stubForm();
+    mountBuilder();
+    await screen.findByDisplayValue("Dish?");
+    fireEvent.click(screen.getAllByRole("button", { name: "Move this question down" })[0]);
+    await waitFor(() => {
+      const labels = screen.getAllByLabelText(/^Question \d$/).map((el) => /** @type {HTMLInputElement} */ (el).value);
+      expect(labels).toEqual(["Anything else?", "Dish?"]);
+    });
+    expect(screen.getByDisplayValue("Salad")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Soup")).toBeInTheDocument();
+  });
+
+  it("adds a question from the shared menu, and has no notify setting", async () => {
+    stubForm();
+    mountBuilder();
+    await screen.findByDisplayValue("Dish?");
+    expect(screen.queryByText(/Tell me when someone answers/i)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Add a question/i }));
+    fireEvent.click(await screen.findByRole("option", { name: /Email/ }));
+    await waitFor(() => expect(screen.getAllByLabelText(/^Question \d$/)).toHaveLength(3));
+  });
+
+  it("removes a question and brings it back with Undo", async () => {
+    stubForm();
+    mountBuilder();
+    await screen.findByDisplayValue("Dish?");
+    fireEvent.click(screen.getAllByRole("button", { name: "Remove this question" })[1]);
+    await waitFor(() => expect(screen.queryByDisplayValue("Anything else?")).toBeNull());
+    fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
+    expect(await screen.findByDisplayValue("Anything else?")).toBeInTheDocument();
+  });
+
+  it("keeps options when a choice question becomes checkboxes", async () => {
+    stubForm();
+    mountBuilder();
+    await screen.findByDisplayValue("Dish?");
+    fireEvent.click(screen.getAllByRole("button", { name: "Question type" })[0]);
+    fireEvent.click(await screen.findByRole("option", { name: /Checkboxes/ }));
+    await waitFor(() => expect(screen.getByDisplayValue("Salad")).toBeInTheDocument());
+    expect(screen.getByDisplayValue("Soup")).toBeInTheDocument();
+  });
+});
+

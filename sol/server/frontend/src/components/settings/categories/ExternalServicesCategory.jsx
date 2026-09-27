@@ -164,9 +164,9 @@ const SERVICE_META = [
 ];
 
 const STATE_BADGES = {
-  connected: { label: "Connected", class: "bg-accent text-primary" },
+  connected: { label: "Connected", class: "bg-success/20 border border-success/30 text-success" },
   byo: { label: "Bring Your Own", class: "bg-primary text-secondary border-2 border-accent/30" },
-  disabled: { label: "Off", class: "bg-primary text-accent border-2 border-secondary/10" },
+  disabled: { label: "Off", class: "bg-primary text-secondary border-2 border-secondary/10" },
   unavailable: { label: "Not in Plan", class: "bg-primary text-secondary/30 border-2 border-secondary/10" },
 };
 
@@ -224,7 +224,7 @@ export default function ExternalServicesCategory({
 
   return (
     <div className="space-y-4" data-slot="external-services-category">
-      <p className="text-sm text-accent px-1">
+      <p className="text-sm px-1">
         A server needs a few things from the outside world — a way to send email,
         a domain name to reach it, and a place to store backups. Here are all the
         external services your server depends on, in one place.
@@ -274,7 +274,7 @@ export default function ExternalServicesCategory({
               <div className="px-5 py-4">
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm text-accent">{desc}</p>
+                    <p className="text-sm">{desc}</p>
                     {(limitLabel || detailText) && (
                       <div className="mt-2">
                         <LayeredPill
@@ -283,8 +283,8 @@ export default function ExternalServicesCategory({
                           title={`Included on your ${connectStatus?.plan?.name || "plan"}`}
                           actionLabel={detailText || null}
                         >
-                          <span className="font-normal text-accent">Included:</span>
-                          <span className={limitLabel === "Not in plan" ? "text-accent" : "text-secondary"}>
+                          <span className="font-normal">Included:</span>
+                          <span className="text-secondary">
                             {limitLabel}
                           </span>
                         </LayeredPill>
@@ -309,7 +309,7 @@ export default function ExternalServicesCategory({
                             )}
                           >
                             <span className="min-h-0 overflow-hidden">
-                              <span className="inline-flex items-center gap-2 text-xs px-2.5 py-1 rounded-pill font-mono bg-accent text-primary border border-accent/40">
+                              <span className="inline-flex items-center gap-2 text-xs px-2.5 py-1 rounded-pill font-mono bg-primary text-secondary border border-accent">
                                 {detailText}
                               </span>
                             </span>
@@ -318,7 +318,7 @@ export default function ExternalServicesCategory({
                       </div>
                     )}
                     {svc?.details && id !== "domain" && Object.keys(svc.details).length > 0 && (
-                      <p className="text-xs text-accent/60 mt-1 font-mono truncate">
+                      <p className="text-xs mt-1 font-mono truncate">
                         {Object.entries(svc.details).map(([k, v]) => `${k}: ${v}`).join(", ")}
                       </p>
                     )}
@@ -331,7 +331,7 @@ export default function ExternalServicesCategory({
                       <svg
                         width="16" height="16" viewBox="0 0 24 24"
                         fill="none" stroke="currentColor" strokeWidth="2"
-                        className="text-accent"
+                       
                         aria-hidden="true"
                       >
                         <path d="m9 18 6-6-6-6" />

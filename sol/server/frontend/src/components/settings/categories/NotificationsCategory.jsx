@@ -142,17 +142,17 @@ export default function NotificationsCategory({ settings, securitySettings, onSe
       {smtpConfigured && (
         <SettingsCard icon={Mail} title="Test Email" padding={false} index={1}>
           <div className="px-4 py-3">
-            <div className="rounded-large-element border border-accent/30 bg-accent/5 p-4">
+            <div className="rounded-large-element border border-accent p-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-accent/10 border border-accent/20">
-                    <Mail size={ICON_SIZE.md} className="text-accent" />
+                  <div className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-primary text-secondary">
+                    <Mail size={ICON_SIZE.md} />
                   </div>
                   <div>
                     <div className="font-medium text-primary text-sm">
                       Send Test Notification
                     </div>
-                    <div className="text-xs text-accent mt-0.5">
+                    <div className="text-xs mt-0.5">
                       Send a test message to check that email is set up
                     </div>
                   </div>

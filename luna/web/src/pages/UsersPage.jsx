@@ -154,7 +154,7 @@ export default function UsersPage() {
                       render: (row) => (
                         <span className="inline-flex items-center gap-2">
                           <span className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
-                            <User size={14} className="text-accent" aria-hidden="true" />
+                            <User size={14} aria-hidden="true" />
                           </span>
                           <span className="font-semibold text-sm text-primary">
                             {row.display_name || row.username}
@@ -369,6 +369,7 @@ function EditUserModal({ open, user: target, selfId, busy, submitError, onClose,
         name="edit-user-name"
         value={name}
         onChange={(e) => setName(e.target.value)}
+        placeholder="Their name"
         error={name ? nameError : null}
         required
         surface="primary"
@@ -558,9 +559,9 @@ function MemberHomeCard() {
                     ? `${Math.min(100, Math.round((100 * job.progress) / job.total))}% done`
                     : "Starting…"}
                 </p>
-                <div className="mt-1.5 h-2 rounded-pill bg-primary overflow-hidden" aria-hidden="true">
+                <div className="mt-1.5 h-2 rounded-pill bg-primary p-0.5 overflow-hidden" aria-hidden="true">
                   <div
-                    className="h-full bg-accent motion-safe:transition-all"
+                    className="h-full rounded-pill bg-secondary motion-safe:transition-all"
                     style={{
                       width: `${job.total > 0 ? Math.min(100, (100 * job.progress) / job.total) : 8}%`,
                     }}

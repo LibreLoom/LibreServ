@@ -1,5 +1,5 @@
 /**
- * `.lunaform` documents and their sibling `<name>.responses.jsonl` files.
+ * `.lunaform` documents and their sibling `<name>.lunaform.responses` files.
  *
  * The envelope is forward-compatible: `version` gates readers, unknown
  * fields are preserved on round-trip (the builder edits the parsed object
@@ -9,7 +9,7 @@
 
 export const FORM_DOC_VERSION = 1;
 export const FORM_FILE_SUFFIX = ".lunaform";
-export const RESPONSES_SUFFIX = ".responses.jsonl";
+export const RESPONSES_SUFFIX = ".lunaform.responses";
 
 /**
  * Folder next to the form that holds respondent photos and PDFs.
@@ -28,7 +28,7 @@ export function uploadsDirPath(formPath) {
   return parent ? `${parent}/${dir}` : dir;
 }
 
-/** `rsvp.lunaform` → `rsvp.responses.jsonl` (same folder). */
+/** `rsvp.lunaform` → `rsvp.lunaform.responses` (same folder). */
 export function responsesSiblingPath(formPath) {
   const path = String(formPath || "");
   const lower = path.toLowerCase();
@@ -51,7 +51,6 @@ export function blankFormDocument(title = "Untitled form") {
       thankYou: "",
       closeOn: "",
       maxResponses: null,
-      notify: true,
     },
     questions: [],
   };
@@ -72,7 +71,6 @@ const SETTING_DEFAULTS = {
   thankYou: "",
   closeOn: "",
   maxResponses: null,
-  notify: true,
 };
 
 /**
@@ -98,7 +96,6 @@ export function canonicalSettings(raw) {
     thankYou: typeof src.thankYou === "string" ? src.thankYou : "",
     closeOn: typeof src.closeOn === "string" ? src.closeOn : "",
     maxResponses: typeof max === "number" && Number.isFinite(max) && max > 0 ? Math.floor(max) : null,
-    notify: src.notify !== false,
   };
 }
 
@@ -222,8 +219,10 @@ export function parseResponsesJsonl(text) {
 }
 
 /**
- * Latest record per response id — edits append a new line with the same id,
- * so the last line wins. Order follows first submission, not last edit.
+ * Latest live record per response id — edits append a new line with the
+ * same id, so the last line wins, and a `deleted` tombstone removes the
+ * response. Order follows first submission, not last edit. The server
+ * already sends this shape; running it again is harmless.
  *
  * @param {object[]} records
  * @returns {object[]}
@@ -232,10 +231,21 @@ export function latestResponses(records) {
   const order = [];
   const byId = new Map();
   for (const rec of records) {
-    if (!byId.has(rec.id)) order.push(rec.id);
+    if (!rec || typeof rec.id !== "string") continue;
+    if (rec.deleted === true) {
+      byId.delete(rec.id);
+      continue;
+    }
+    if (!order.includes(rec.id)) order.push(rec.id);
     byId.set(rec.id, rec);
   }
-  return order.map((id) => byId.get(id));
+  return order.filter((id) => byId.has(id)).map((id) => byId.get(id));
+}
+
+/** When a response was first sent (unix seconds); edits keep this. */
+export function responseSentAt(rec) {
+  const sent = Number(rec?.sent_at);
+  return Number.isFinite(sent) && sent > 0 ? sent : Number(rec?.at) || 0;
 }
 
 /** Count of unique responses in a JSONL payload (edits don't inflate it). */
@@ -243,8 +253,14 @@ export function countResponses(text) {
   return latestResponses(parseResponsesJsonl(text)).length;
 }
 
+/**
+ * One CSV cell. Anyone with the answer link can type an answer, and a cell
+ * starting with = + - @ (or a tab/CR) runs as a formula in Excel, Numbers,
+ * and Sheets — prefix those with an apostrophe so they open as text.
+ */
 function csvCell(value) {
-  const text = String(value ?? "");
+  let text = String(value ?? "");
+  if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
   if (/[",\n\r]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
   return text;
 }
@@ -263,7 +279,8 @@ export function responsesToCsv(columns, responses, formatValue) {
   const header = ["Submitted", ...columns.map((c) => c.label)];
   const lines = [header.map(csvCell).join(",")];
   for (const rec of responses) {
-    const at = Number(rec.at) ? new Date(Number(rec.at) * 1000).toISOString() : "";
+    const sent = responseSentAt(rec);
+    const at = sent ? new Date(sent * 1000).toISOString() : "";
     const answers = isObject(rec.answers) ? rec.answers : {};
     const cells = columns.map((col) => csvCell(formatValue(col, answers[col.id])));
     lines.push([csvCell(at), ...cells].join(","));

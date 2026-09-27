@@ -34,7 +34,7 @@ const TIER_TEXT = {
   success: "text-success",
   warning: "text-warning",
   error: "text-error",
-  muted: "text-accent",
+  muted: "",
 };
 
 // At-a-glance login health, derived purely from last_login. Maps to the same
@@ -211,7 +211,7 @@ export default function UserDetailPage() {
           <section className="mt-4" aria-label="Profile details">
             <Card padding={false}>
               <div className="px-5 pt-4 pb-2 flex items-center gap-2">
-                <User size={ICON_SIZE.lg} className="text-accent" aria-hidden="true" />
+                <User size={ICON_SIZE.lg} aria-hidden="true" />
                 <h2 className="text-lg font-mono font-normal">Profile</h2>
               </div>
               <div className="px-5 pb-5 flex flex-col gap-2">
@@ -241,7 +241,7 @@ export default function UserDetailPage() {
           <section className="mt-4" aria-label="User actions">
             <Card surface="primary">
               <div className="flex items-center gap-2 mb-3">
-                <Shield size={ICON_SIZE.lg} className="text-accent" aria-hidden="true" />
+                <Shield size={ICON_SIZE.lg} aria-hidden="true" />
                 <h2 className="text-lg font-mono font-normal">Actions</h2>
               </div>
               <div className="flex flex-wrap gap-2">

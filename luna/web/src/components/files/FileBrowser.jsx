@@ -1163,7 +1163,7 @@ export default function FileBrowser({
                         surface={surface}
                         className={cn(
                           `break-all ${fg} rounded-pill px-1 -mx-1`,
-                          isRootDrop && "bg-accent/20 ring-2 ring-accent",
+                          isRootDrop && "ring-2 ring-accent",
                         )}
                         draggable={false}
                         {...rootDropProps}
@@ -1175,8 +1175,8 @@ export default function FileBrowser({
                         type="button"
                         {...rootDropProps}
                         className={cn(
-                          `${fg} hover:text-accent motion-safe:transition-colors break-all text-left rounded-pill px-1 -mx-1`,
-                          isRootDrop && "bg-accent/20 ring-2 ring-accent",
+                          `${fg} hover:underline decoration-accent underline-offset-4 break-all text-left rounded-pill px-1 -mx-1`,
+                          isRootDrop && "ring-2 ring-accent",
                         )}
                         onClick={() => openFolder(rootCrumbPath)}
                       >
@@ -1203,7 +1203,7 @@ export default function FileBrowser({
                             surface={surface}
                             className={cn(
                               `break-all ${fg} rounded-pill px-1 -mx-1`,
-                              isSegDrop && "bg-accent/20 ring-2 ring-accent",
+                              isSegDrop && "ring-2 ring-accent",
                             )}
                             draggable={false}
                             {...segDropProps}
@@ -1215,8 +1215,8 @@ export default function FileBrowser({
                             type="button"
                             {...segDropProps}
                             className={cn(
-                              `${fg} hover:text-accent motion-safe:transition-colors break-all text-left rounded-pill px-1 -mx-1`,
-                              isSegDrop && "bg-accent/20 ring-2 ring-accent",
+                              `${fg} hover:underline decoration-accent underline-offset-4 break-all text-left rounded-pill px-1 -mx-1`,
+                              isSegDrop && "ring-2 ring-accent",
                             )}
                             onClick={() => openFolder(segPath)}
                           >
@@ -1250,7 +1250,7 @@ export default function FileBrowser({
                       surface={surface}
                       size="sm"
                       asChild
-                      className={cn(isUpDrop && "border-transparent ring-2 ring-accent bg-accent/20")}
+                      className={cn(isUpDrop && "border-transparent ring-2 ring-accent")}
                       {...upDropProps}
                     >
                       <Link to={folderHref(driveId, upPath)} draggable={false}>↑ Up one folder</Link>
@@ -1260,7 +1260,7 @@ export default function FileBrowser({
                       variant="outline"
                       surface={surface}
                       size="sm"
-                      className={cn(isUpDrop && "border-transparent ring-2 ring-accent bg-accent/20")}
+                      className={cn(isUpDrop && "border-transparent ring-2 ring-accent")}
                       onClick={() => openFolder(upPath)}
                       {...upDropProps}
                     >
@@ -1287,7 +1287,7 @@ export default function FileBrowser({
                         hereDropClosing
                           ? "slide-out-to-left-pop animate-out"
                           : "slide-in-from-left-pop animate-in duration-300",
-                        isHereDrop && "border-transparent ring-2 ring-accent bg-accent/20",
+                        isHereDrop && "border-transparent ring-2 ring-accent",
                       )}
                       // backwards (not both) while open: drop the transform
                       // after the slide so no leftover compositing layer.
@@ -1342,39 +1342,6 @@ export default function FileBrowser({
         </div>
       )}
 
-      {isPicker && pickerMode === "folder" && (
-        <Card className="mb-3" padding surface={surface}>
-          <div className="flex flex-wrap items-center gap-2">
-            <p className={`${fg} text-sm flex-1 min-w-0`}>
-              Choose a folder, or use the one you are in now.
-            </p>
-            <Button
-              variant={selectedPath === path ? well : "accent"}
-              surface={surface}
-              size="sm"
-              disabled={isTrashPath(path)}
-              onClick={() => onSelect?.({
-                entry: { name: pathBasenameSafe(path) || driveLabel, kind: "dir" },
-                path: parentPath(path) || "",
-                fullPath: path,
-                displayName: pathBasenameSafe(path) || driveLabel,
-              })}
-            >
-              {selectedPath === path ? "Using this folder" : "Use this folder"}
-            </Button>
-          </div>
-        </Card>
-      )}
-
-      {listing.isError && !listingForbidden && (
-        <p className="text-error text-sm mb-3" role="alert">
-          {folderListingError(listing.error)}
-        </p>
-      )}
-      {/* A member's 403 is not an error state — the caller's friendly
-          "not shared with you" surface explains it and points at Shared. */}
-      {listingForbidden ? forbiddenState : null}
-
       <Card
         padding={false}
         className={listClassName}
@@ -1390,7 +1357,7 @@ export default function FileBrowser({
           <div
             data-slot="file-browser-column-header"
             className={`min-h-11 flex flex-wrap items-center gap-2 px-3 py-1 border-b ${hairline}/20 motion-safe:transition-colors ${
-              showSelectionToolbar ? "bg-accent/20" : ""
+              showSelectionToolbar ? "bg-current/10" : ""
             }`}
             // The column header is not a drop target: swallow dragovers before
             // the container's catch-all can claim them, and clear any lit
@@ -1530,10 +1497,10 @@ export default function FileBrowser({
               >
                 <div className={`flex min-w-36 flex-1 items-center gap-2 rounded-pill border-2 border-transparent ${wellBg} px-3 py-1 focus-within:border-accent motion-safe:transition-colors`}>
                   <label className="flex min-w-0 flex-1 items-center gap-2">
-                    <Search size={14} className="shrink-0 text-accent" aria-hidden="true" />
+                    <Search size={14} className="shrink-0" aria-hidden="true" />
                     <input
                       type="text"
-                      className={`min-w-0 flex-1 appearance-none border-0 bg-transparent text-sm ${wellFg} shadow-none outline-none no-focus-outline placeholder:text-accent`}
+                      className={`min-w-0 flex-1 appearance-none border-0 bg-transparent text-sm ${wellFg} shadow-none outline-none no-focus-outline`}
                       placeholder="Find in this folder"
                       aria-label="Find in this folder"
                       value={filterText}
@@ -1544,7 +1511,7 @@ export default function FileBrowser({
                       spellCheck={false}
                     />
                     {narrowed ? (
-                      <span className="shrink-0 font-mono text-xs text-accent">
+                      <span className="shrink-0 font-mono text-xs">
                         {visibleEntries.length} of {entries.length}
                       </span>
                     ) : null}
@@ -1606,8 +1573,27 @@ export default function FileBrowser({
           </div>
         )}
 
-        {listBusy && entries.length === 0 ? (
+        {listing.isError && !listingForbidden && (
+          <p className="text-error text-sm px-3 py-4" role="alert">
+            {folderListingError(listing.error)}
+          </p>
+        )}
+        {/* A member's 403 is not an error state — the caller's friendly
+            "not shared with you" surface explains it and points at Shared. */}
+        {listingForbidden ? (
+          <div className="px-3 py-5">{forbiddenState}</div>
+        ) : listBusy && entries.length === 0 ? (
           <div className="h-11" aria-hidden="true" />
+        ) : entries.length === 0 && !showTrashEntry && !listing.isError ? (
+          <EmptyState
+            bare
+            className="py-8"
+            icon={EmptyIcon}
+            title={emptyTitle}
+            description={emptyDescription}
+            action={emptyTrashAction}
+            surface={surface}
+          />
         ) : (
           <ul
             ref={listRef}
@@ -1636,7 +1622,7 @@ export default function FileBrowser({
                     // One outline: the drop ring replaces the row separator
                     // (border-b kept transparent so the row height doesn't shift).
                     isTrashDrop
-                      ? "bg-accent/20 ring-2 ring-accent ring-inset border-b border-transparent last:border-b-0 last:rounded-b-large-element"
+                      ? "ring-2 ring-accent ring-inset border-b border-transparent last:border-b-0 last:rounded-b-large-element"
                       : "border-b border-primary/15 last:border-b-0 last:rounded-b-large-element",
                     "motion-safe:transition-colors",
                   ].join(" ")}
@@ -1674,7 +1660,7 @@ export default function FileBrowser({
                         draggable={false}
                         className={`flex items-center gap-2 min-w-0 ${fg} hover:underline`}
                       >
-                        <Trash2 size={16} className="text-accent shrink-0" aria-hidden="true" />
+                        <Trash2 size={16} className="shrink-0" aria-hidden="true" />
                         <span className="font-mono text-sm truncate">Trash</span>
                       </Link>
                     ) : (
@@ -1683,7 +1669,7 @@ export default function FileBrowser({
                         draggable={false}
                         className={`flex items-center gap-2 min-w-0 ${fg} hover:underline`}
                       >
-                        <Trash2 size={16} className="text-accent shrink-0" aria-hidden="true" />
+                        <Trash2 size={16} className="shrink-0" aria-hidden="true" />
                         <span className="font-mono text-sm truncate">Trash</span>
                       </a>
                     )}
@@ -1731,7 +1717,7 @@ export default function FileBrowser({
                     // the fill out of the border box, so the translucent
                     // divider always blends over the card behind it instead of
                     // being tinted by the stripe/selection color.
-                    `bg-clip-padding ${isSelected || isDrop ? "bg-accent/20" : striped ? stripeBg : cardBg} ${fg}`,
+                    `bg-clip-padding ${isSelected || isDrop ? "bg-current/10" : striped ? stripeBg : cardBg} ${fg}`,
                     // One outline: the drop ring replaces the row separator
                     // (border-b kept transparent so the row height doesn't
                     // shift). The last row always rounds to hug the card's
@@ -1785,7 +1771,7 @@ export default function FileBrowser({
                           draggable={false}
                           className={`flex items-center gap-2 min-w-0 ${fg} hover:underline`}
                         >
-                          <Folder size={16} className="text-accent shrink-0" aria-hidden="true" />
+                          <Folder size={16} className="shrink-0" aria-hidden="true" />
                           <span className="font-mono text-sm truncate">{ctx.displayName}</span>
                         </Link>
                       ) : (
@@ -1795,7 +1781,7 @@ export default function FileBrowser({
                           className={`flex items-center gap-2 min-w-0 text-left ${fg} hover:underline`}
                           onClick={() => openEntry(ctx)}
                         >
-                          <Folder size={16} className="text-accent shrink-0" aria-hidden="true" />
+                          <Folder size={16} className="shrink-0" aria-hidden="true" />
                           <span className="font-mono text-sm truncate">{ctx.displayName}</span>
                         </button>
                       )
@@ -1810,7 +1796,7 @@ export default function FileBrowser({
                             onOpenFile?.(ctx);
                           }}
                         >
-                          <FileIcon size={16} className="text-accent shrink-0" aria-hidden="true" />
+                          <FileIcon size={16} className="shrink-0" aria-hidden="true" />
                           <span className="font-mono text-sm truncate">{ctx.displayName}</span>
                         </Link>
                       ) : (
@@ -1820,18 +1806,18 @@ export default function FileBrowser({
                           className={`flex items-center gap-2 min-w-0 text-left ${fg} hover:underline`}
                           onClick={() => openEntry(ctx)}
                         >
-                          <FileIcon size={16} className="text-accent shrink-0" aria-hidden="true" />
+                          <FileIcon size={16} className="shrink-0" aria-hidden="true" />
                           <span className="font-mono text-sm truncate">{ctx.displayName}</span>
                         </button>
                       )
                     ) : (
                       <div className={`flex items-center gap-2 min-w-0 ${fg}`} draggable={false}>
-                        <FileIcon size={16} className="text-accent shrink-0" aria-hidden="true" />
+                        <FileIcon size={16} className="shrink-0" aria-hidden="true" />
                         <span className="font-mono text-sm truncate">{ctx.displayName}</span>
                       </div>
                     )}
                     {entry.saving ? (
-                      <span className="text-xs text-accent shrink-0" aria-live="polite">
+                      <span className="text-xs shrink-0" aria-live="polite">
                         Saving…
                       </span>
                     ) : null}
@@ -1860,37 +1846,55 @@ export default function FileBrowser({
             })}
           </ul>
         )}
-      </Card>
-
-      {!listBusy && !listing.isError && entries.length === 0 && !showTrashEntry && (
-        <EmptyState className="mt-4" icon={EmptyIcon} title={emptyTitle} description={emptyDescription} action={emptyTrashAction} surface={surface} />
-      )}
-
-      {!listBusy && !listing.isError && entries.length > 0 && visibleEntries.length === 0 && (
-        <EmptyState
-          className="mt-4"
-          icon={SearchX}
-          title={
-            filterText.trim()
-              ? `Nothing matches "${filterText.trim()}" in this folder`
-              : kindFilter === "dir"
-                ? "No folders in this folder"
-                : "No files in this folder"
-          }
-          action={(
+        {!listBusy && !listing.isError && entries.length > 0 && visibleEntries.length === 0 && (
+          <EmptyState
+            bare
+            className="py-8"
+            icon={SearchX}
+            title={
+              filterText.trim()
+                ? `Nothing matches "${filterText.trim()}" in this folder`
+                : kindFilter === "dir"
+                  ? "No folders in this folder"
+                  : "No files in this folder"
+            }
+            action={(
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setFilterText("");
+                  setKindFilter("all");
+                }}
+              >
+                Show everything
+              </Button>
+            )}
+            surface={surface}
+          />
+        )}
+        {isPicker && pickerMode === "folder" && (
+          <div className={`flex flex-wrap items-center gap-2 px-3 py-3 border-t ${hairline}/20`}>
+            <p className={`${fg} text-sm flex-1 min-w-0`}>
+              Choose a folder, or use the one you are in now.
+            </p>
             <Button
-              variant="outline"
+              variant={selectedPath === path ? well : "outline"}
+              surface={surface}
               size="sm"
-              onClick={() => {
-                setFilterText("");
-                setKindFilter("all");
-              }}
+              disabled={isTrashPath(path)}
+              onClick={() => onSelect?.({
+                entry: { name: pathBasenameSafe(path) || driveLabel, kind: "dir" },
+                path: parentPath(path) || "",
+                fullPath: path,
+                displayName: pathBasenameSafe(path) || driveLabel,
+              })}
             >
-              Show everything
+              {selectedPath === path ? "Using this folder" : "Use this folder"}
             </Button>
-          )}
-        />
-      )}
+          </div>
+        )}
+      </Card>
 
       <PropertiesSheet
         open={propertiesCtx != null}

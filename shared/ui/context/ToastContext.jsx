@@ -78,7 +78,7 @@ export function ToastProvider({ children, maxToasts = 5 }) {
   }, [dismissToast]);
 
   const addToast = useCallback(
-    ({ type = "info", message, description, duration }) => {
+    ({ type = "info", message, description, duration, action }) => {
       const id = ++toastIdCounter;
       const toastDuration = duration ?? DEFAULT_DURATIONS[type] ?? 3000;
 
@@ -92,6 +92,9 @@ export function ToastProvider({ children, maxToasts = 5 }) {
         type,
         message,
         description,
+        // Optional `{ label, onClick }` — one follow-up for this outcome
+        // (Undo after a delete). Clicking it dismisses the toast.
+        action: action && typeof action.onClick === "function" ? action : undefined,
         createdAt: Date.now(),
         duration: toastDuration,
       };

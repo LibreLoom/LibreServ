@@ -54,7 +54,7 @@ const CHIP_TINT = {
   [PASS]: "bg-success/20 border-success/30",
   [FAIL]: "bg-error/20 border-error/30",
   [WARN]: "bg-warning/20 border-warning/30",
-  [INFO]: "bg-accent/20 border-accent/30",
+  [INFO]: "bg-info/20 border-info/30",
 };
 
 function StatusChip({ state, children }) {
@@ -241,7 +241,7 @@ export default function TroubleshootPage() {
             </Button>
           }
         >
-          <p className="px-4 pb-1 text-sm text-accent">
+          <p className="px-4 pb-1 text-sm">
             These are the things your server needs to work. A passing check means it's fine. If something isn't, the fix is usually in the steps below.
           </p>
           <div className="px-4 pb-4">
@@ -252,7 +252,7 @@ export default function TroubleshootPage() {
                   <SettingsRow
                     label={
                       <span className="inline-flex items-center gap-2">
-                        <row.icon size={ICON_SIZE.md} className="text-accent shrink-0" aria-hidden="true" />
+                        <row.icon size={ICON_SIZE.md} className="shrink-0" aria-hidden="true" />
                         {row.title}
                       </span>
                     }
@@ -269,7 +269,7 @@ export default function TroubleshootPage() {
 
         {/* ─── Section 2: step-by-step fixes ──────────────────────────── */}
         <SettingsCard icon={Wrench} title="Work through these steps" index={1}>
-          <p className="px-4 pb-1 text-sm text-accent">
+          <p className="px-4 pb-1 text-sm">
             If a check above failed — or you came here from an error message — try these in order.
           </p>
           <div className="px-4 pb-4">
@@ -281,7 +281,7 @@ export default function TroubleshootPage() {
                 className="mb-2 last:mb-0"
                 title={
                   <span className="inline-flex items-center gap-2">
-                    <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-accent text-primary font-mono text-xs shrink-0">
+                    <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary text-secondary font-mono text-xs shrink-0">
                       {i + 1}
                     </span>
                     <span className="text-primary">{step.title}</span>

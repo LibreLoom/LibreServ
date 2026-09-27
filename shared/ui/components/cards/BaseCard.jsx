@@ -21,7 +21,7 @@ export default function BaseCard({
             {Icon && <IconCircle icon={Icon} size="lg" />}
             <div className="text-left">
               {title && <div className="font-semibold">{title}</div>}
-              {subtitle && <div className="text-sm text-accent">{subtitle}</div>}
+              {subtitle && <div className="text-sm">{subtitle}</div>}
             </div>
           </div>
           <div className="h-1 bg-primary rounded-pill mx-5 mb-4" aria-hidden="true" />

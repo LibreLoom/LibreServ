@@ -11,6 +11,7 @@ import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
  *   open: boolean,
  *   title: string,
  *   label: string,
+ *   placeholder?: string,
  *   hint?: string,
  *   value: string,
  *   onChange: (next: string) => void,
@@ -25,6 +26,7 @@ export default function CreateNameModal({
   open,
   title,
   label,
+  placeholder,
   hint,
   value,
   onChange,
@@ -52,6 +54,7 @@ export default function CreateNameModal({
                 className="mt-2 w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm outline-none focus:border-accent"
                 value={value}
                 maxLength={255}
+                placeholder={placeholder}
                 autoFocus
                 onChange={(event) => onChange(event.target.value)}
               />
@@ -81,6 +84,7 @@ CreateNameModal.propTypes = {
   open: PropTypes.bool.isRequired,
   title: PropTypes.string.isRequired,
   label: PropTypes.string.isRequired,
+  placeholder: PropTypes.string,
   hint: PropTypes.string,
   value: PropTypes.string.isRequired,
   onChange: PropTypes.func.isRequired,

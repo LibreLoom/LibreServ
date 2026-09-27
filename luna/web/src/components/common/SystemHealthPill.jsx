@@ -174,7 +174,7 @@ export default function SystemHealthPill() {
                     <div className="min-w-0">
                       <div className="text-sm text-primary font-medium">{check.label}</div>
                       {check.message && (
-                        <div className="text-xs text-accent mt-0.5 break-words">{check.message}</div>
+                        <div className="text-xs mt-0.5 break-words">{check.message}</div>
                       )}
                     </div>
                   </div>
@@ -184,7 +184,7 @@ export default function SystemHealthPill() {
             <div className="px-4 py-3 border-t border-primary/10">
               <Link
                 to="/settings#about"
-                className="text-sm text-accent link-accent-card"
+                className="text-sm link-accent-card"
                 onClick={close}
               >
                 Open system checks in Settings

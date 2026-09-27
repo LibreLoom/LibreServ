@@ -162,6 +162,7 @@ Before ANY UI work:
 
 #### 1. Standardized colors only
 - Use theme tokens, NEVER hardcoded hex values. Tokens: `bg-primary` (page bg), `bg-secondary` (surface), `text-secondary` (text on primary bg), `text-primary` (text on secondary bg), `bg-accent` (#767676 both modes), plus `text-success`/`text-error`/`text-warning` for status.
+- **Accent is reserved.** Use it only for (a) caution/danger (`Button variant="accent"`, `CardButton variant="danger"`) and (b) genuine accent pieces: outlines, borders, rings, dividers, focus outlines, link underlines (`decoration-accent`), carets. Never `text-accent` for muted/secondary text, never `bg-accent` for selected/active/progress fills, never `bg-accent/N` tints. Muted text inherits the surface text token; selected states invert to the surface token (check the actual backdrop, not the page — a "selected" fill that matches its card is invisible).
 - Theme uses CSS custom properties that swap on `.dark` class:
   - `--primary` = page background (white/light, black/dark)
   - `--secondary` = text color (black/light, white/dark)

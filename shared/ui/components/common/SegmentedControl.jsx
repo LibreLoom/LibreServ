@@ -15,11 +15,10 @@ import { ICON_SIZE } from "../../lib/ui-tokens.js";
  * }} SegmentedControlProps
  *
  * @param {SegmentedControlProps} props
- * surface — backdrop the control sits on. `"secondary"` uses a primary
- *   selected pill (Apps / Gallery layered search-bar pattern) so a large
- *   accent indicator does not read as the toolbar background. `"primary"`
+ * surface — backdrop the control sits on. `"default"`/`"secondary"` are
+ *   cards: a primary selected pill on a primary-tinted track. `"primary"`
  *   is for sections on the page background: the track tints with the
- *   secondary color so the control stays visible on bg-primary.
+ *   secondary color and the selected pill is solid secondary.
  */
 export default function SegmentedControl({
   options,
@@ -33,13 +32,10 @@ export default function SegmentedControl({
   const selectedIndex = options.findIndex((o) => o.value === value);
   const onSecondary = surface === "secondary";
   const onPrimary = surface === "primary";
-  // On secondary shells (Gallery toolbar), selected pill matches the search
-  // field (`bg-primary`) so a gray accent indicator does not dominate.
-  const indicatorClass = onSecondary ? "bg-primary" : "bg-accent";
+  // Selected pill inverts against the track: surface text color as the fill.
+  const indicatorClass = onPrimary ? "bg-secondary" : "bg-primary";
   const trackClass = onPrimary ? "bg-secondary/10" : "bg-primary/10";
-  const idleTextClass = onPrimary
-    ? "text-accent hover:text-secondary"
-    : "text-accent hover:text-primary";
+  const idleTextClass = onPrimary ? "text-secondary" : "text-primary";
   const selectedTextClass = onPrimary ? "text-primary" : "text-secondary";
 
   return (
@@ -85,7 +81,7 @@ export default function SegmentedControl({
             "relative z-10 flex items-center justify-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-pill min-w-0",
             "text-xs font-medium transition-[color,background-color] ease-[var(--motion-easing-standard)]",
             disabled
-              ? "text-accent opacity-50 cursor-not-allowed"
+              ? cn(idleTextClass, "opacity-50 cursor-not-allowed")
               : value === optValue
                 ? selectedTextClass
                 : idleTextClass

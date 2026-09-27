@@ -90,13 +90,13 @@ export default function AIServiceModal({ open, onClose, onSaved, service, connec
         <div className="p-5 space-y-5">
           <div className="flex items-start gap-3 pb-4 border-b border-primary/10">
             <div className="p-2 rounded-full bg-primary/10">
-              <Sparkles size={ICON_SIZE.lg} className="text-accent" />
+              <Sparkles size={ICON_SIZE.lg} />
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm text-primary">
                 Status: <span className="font-medium">{stateLabel}</span>
               </p>
-              <p className="text-sm text-accent mt-1.5">
+              <p className="text-sm mt-1.5">
                 An AI assistant can help manage and diagnose your server — check logs,
                 restart services, run diagnostics, and guide you through fixes.
               </p>
@@ -120,7 +120,7 @@ export default function AIServiceModal({ open, onClose, onSaved, service, connec
                 <AlertTriangle size={ICON_SIZE.md} className="text-warning shrink-0" />
                 {connectWarning.label}
               </div>
-              <p className="text-xs text-accent">
+              <p className="text-xs">
                 Connect needs to be connected and your plan must support this service
                 before the AI assistant can be used through Connect.
               </p>
@@ -129,10 +129,10 @@ export default function AIServiceModal({ open, onClose, onSaved, service, connec
             <div className="space-y-3">
               <div className="bg-primary/5 rounded-large-element p-4 space-y-2">
                 <div className="flex items-center gap-2 text-sm text-primary">
-                  <Check size={ICON_SIZE.md} className="text-accent" />
+                  <Check size={ICON_SIZE.md} />
                   AI handled by LibreServ Connect
                 </div>
-                <p className="text-xs text-accent">
+                <p className="text-xs">
                   {planLimits?.ai_messages_per_day > 0
                     ? `${planLimits.ai_messages_per_day.toLocaleString()} messages/day included on your ${connectStatus?.plan?.name || "plan"}.`
                     : "No message limit — usage is covered by your included credit."}
@@ -141,12 +141,12 @@ export default function AIServiceModal({ open, onClose, onSaved, service, connec
             </div>
           ) : (
             <div className="space-y-4">
-              <p className="text-sm text-accent">
+              <p className="text-sm">
                 Use your own AI provider. Your API key stays between you and your
                 chosen provider.
               </p>
               <div>
-                <label className="block text-xs text-accent font-medium mb-1.5 px-4">API Key</label>
+                <label className="block text-xs font-medium mb-1.5 px-4">API Key</label>
                 <ShakeTarget shake={error}>
                   <input
                     type="password"
@@ -157,13 +157,13 @@ export default function AIServiceModal({ open, onClose, onSaved, service, connec
                   />
                 </ShakeTarget>
                 {rawSettings.user_key_configured && (
-                  <p className="text-xs text-accent mt-1 px-4">
+                  <p className="text-xs mt-1 px-4">
                     A key is already saved. Enter a new one to replace it, or leave blank to keep it.
                   </p>
                 )}
               </div>
               <div>
-                <label className="block text-xs text-accent font-medium mb-1.5 px-4">Base URL</label>
+                <label className="block text-xs font-medium mb-1.5 px-4">Base URL</label>
                 <ShakeTarget shake={error}>
                   <input
                     type="text"
@@ -175,7 +175,7 @@ export default function AIServiceModal({ open, onClose, onSaved, service, connec
                 </ShakeTarget>
               </div>
               <div>
-                <label className="block text-xs text-accent font-medium mb-1.5 px-4">Agent Model</label>
+                <label className="block text-xs font-medium mb-1.5 px-4">Agent Model</label>
                 <ShakeTarget shake={error}>
                 {modelOptions.length > 0 ? (
                   <Dropdown
@@ -196,12 +196,12 @@ export default function AIServiceModal({ open, onClose, onSaved, service, connec
                   />
                 )}
                 </ShakeTarget>
-                <p className="text-xs text-accent mt-1 px-4">
+                <p className="text-xs mt-1 px-4">
                   The model that handles your conversations.
                 </p>
               </div>
               <div>
-                <label className="block text-xs text-accent font-medium mb-1.5 px-4">Review Model</label>
+                <label className="block text-xs font-medium mb-1.5 px-4">Review Model</label>
                 <ShakeTarget shake={error}>
                 {modelOptions.length > 0 ? (
                   <Dropdown
@@ -222,12 +222,12 @@ export default function AIServiceModal({ open, onClose, onSaved, service, connec
                   />
                 )}
                 </ShakeTarget>
-                <p className="text-xs text-accent mt-1 px-4">
+                <p className="text-xs mt-1 px-4">
                   The model that reviews tool calls for safety before they run.
                 </p>
               </div>
               <div>
-                <label className="block text-xs text-accent font-medium mb-1.5 px-4">API Format</label>
+                <label className="block text-xs font-medium mb-1.5 px-4">API Format</label>
                 <Dropdown
                   value={apiFormat}
                   onChange={setApiFormat}
@@ -235,7 +235,7 @@ export default function AIServiceModal({ open, onClose, onSaved, service, connec
                   bg="primary"
                   options={FORMAT_OPTIONS}
                 />
-                <p className="text-xs text-accent mt-1 px-4">
+                <p className="text-xs mt-1 px-4">
                   Choose the format your provider uses. Most providers (OpenAI, Makora, Together, Groq) use OpenAI. Umans uses Anthropic.
                 </p>
               </div>

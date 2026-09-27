@@ -95,7 +95,7 @@ export default function ResetPasswordForm({ user, onSuccess, onCancel }) {
         <div className="inline-flex items-center justify-center h-12 w-12 rounded-full bg-primary text-secondary mb-3">
           <Lock size={ICON_SIZE.xxl} aria-hidden="true" />
         </div>
-        <p className="text-sm text-accent">
+        <p className="text-sm">
           Reset password for <strong>{user.username}</strong>
         </p>
       </div>
@@ -111,7 +111,7 @@ export default function ResetPasswordForm({ user, onSuccess, onCancel }) {
           <div className="relative">
             <Lock
               size={ICON_SIZE.md}
-              className="absolute left-4 top-1/2 -translate-y-1/2 text-accent"
+              className="absolute left-4 top-1/2 -translate-y-1/2"
               aria-hidden="true"
             />
             <input
@@ -151,7 +151,7 @@ export default function ResetPasswordForm({ user, onSuccess, onCancel }) {
           <div className="relative">
             <Lock
               size={ICON_SIZE.md}
-              className="absolute left-4 top-1/2 -translate-y-1/2 text-accent"
+              className="absolute left-4 top-1/2 -translate-y-1/2"
               aria-hidden="true"
             />
             <input

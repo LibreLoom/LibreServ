@@ -52,9 +52,9 @@ function lastPost(fetchMock) {
 }
 
 async function answerFlowAndSend() {
-  fireEvent.click(await screen.findByRole("button", { name: "Yes" }));
+  fireEvent.click(await screen.findByRole("radio", { name: "Yes" }));
   fireEvent.click(await screen.findByRole("button", { name: /Send answers/i }));
-  await screen.findByText(/Sent — thank you/i);
+  await screen.findByText(/Response submitted/i);
 }
 
 beforeEach(() => {
@@ -79,18 +79,18 @@ describe("FormResponder", () => {
 
     // All questions are on one scrollable page — no stepping.
     expect(
-      await screen.findByRole("heading", { name: "Change your answers" }),
+      await screen.findByText(/Changing your answers/i),
     ).toBeInTheDocument();
     expect(screen.getByText("Coming?")).toBeInTheDocument();
     expect(screen.getByText("Your name")).toBeInTheDocument();
     // Existing answers are prefilled.
-    expect(screen.getByRole("button", { name: "Yes" })).toHaveAttribute(
-      "aria-pressed",
+    expect(screen.getByRole("radio", { name: "Yes" })).toHaveAttribute(
+      "aria-checked",
       "true",
     );
     expect(screen.getByLabelText("Your name")).toHaveValue("Sam");
 
-    fireEvent.click(screen.getByRole("button", { name: "No" }));
+    fireEvent.click(screen.getByRole("radio", { name: "No" }));
     fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
 
     await waitFor(() => {
@@ -101,7 +101,7 @@ describe("FormResponder", () => {
       expect(body.answers.q_1).toBe("No");
       expect(body.answers.q_2).toBe("Sam");
     });
-    expect(await screen.findByText(/Sent — thank you/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Response submitted/i)).toBeInTheDocument();
 
     // The response joined this device's stored list with its edit secret.
     const stored = storedResponses();
@@ -133,7 +133,7 @@ describe("FormResponder", () => {
     expect(lastPost(fetchMock)).toBeNull();
   });
 
-  it("offers Edit Response on the thank-you card when the form allows changes", async () => {
+  it("offers Change my answers on the thank-you card when the form allows changes", async () => {
     const fetchMock = vi.fn(async (_url, options = {}) =>
       options.method === "POST"
         ? okJson({ ok: true, id: "r_2", edit_token: "fresh-tok" })
@@ -144,9 +144,9 @@ describe("FormResponder", () => {
     renderResponder(FORM);
     await answerFlowAndSend();
 
-    fireEvent.click(screen.getByRole("button", { name: /Edit Response/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Change my answers/i }));
     expect(
-      await screen.findByRole("heading", { name: "Change your answers" }),
+      await screen.findByText(/Changing your answers/i),
     ).toBeInTheDocument();
     expect(screen.getByText("Coming?")).toBeInTheDocument();
     expect(screen.getByText("Your name")).toBeInTheDocument();
@@ -171,12 +171,12 @@ describe("FormResponder", () => {
     // The fresh-start intro is not the landing.
     expect(screen.queryByRole("button", { name: /^Start/i })).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: /Edit Response/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Change my answers/i }));
     expect(
-      await screen.findByRole("heading", { name: "Change your answers" }),
+      await screen.findByText(/Changing your answers/i),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Yes" })).toHaveAttribute(
-      "aria-pressed",
+    expect(screen.getByRole("radio", { name: "Yes" })).toHaveAttribute(
+      "aria-checked",
       "true",
     );
     expect(screen.getByLabelText("Your name")).toHaveValue("Sam");
@@ -207,23 +207,23 @@ describe("FormResponder", () => {
     renderResponder(FORM);
 
     expect(
-      await screen.findByText(/You've sent 2 answers/i),
+      await screen.findByText(/You've sent 2 responses/i),
     ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Edit Responses/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Change a response/i }));
 
     // The picker tells the answers apart by time and a content preview.
     expect(
-      await screen.findByText(/Which answer do you want to change/i),
+      await screen.findByText(/Which response do you want to change/i),
     ).toBeInTheDocument();
     expect(screen.getByText(/Coming\?: Yes/)).toBeInTheDocument();
     expect(screen.getByText(/Coming\?: No/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByText(/Coming\?: No/));
     expect(
-      await screen.findByRole("heading", { name: "Change your answers" }),
+      await screen.findByText(/Changing your answers/i),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "No" })).toHaveAttribute(
-      "aria-pressed",
+    expect(screen.getByRole("radio", { name: "No" })).toHaveAttribute(
+      "aria-checked",
       "true",
     );
     expect(screen.getByLabelText("Your name")).toHaveValue("Jo");
@@ -258,10 +258,10 @@ describe("FormResponder", () => {
     renderResponder(FORM);
 
     fireEvent.click(
-      await screen.findByRole("button", { name: /Respond again/i }),
+      await screen.findByRole("button", { name: /Send another response/i }),
     );
     // The form itself, blank — the same page, not a stepped intro.
-    fireEvent.click(await screen.findByRole("button", { name: "No" }));
+    fireEvent.click(await screen.findByRole("radio", { name: "No" }));
     fireEvent.click(await screen.findByRole("button", { name: /Send answers/i }));
 
     await waitFor(() => {
@@ -276,7 +276,7 @@ describe("FormResponder", () => {
     expect(storedResponses()).toHaveLength(2);
   });
 
-  it("hides Respond again when the form takes one answer per person", async () => {
+  it("hides Send another response when the form takes one answer per person", async () => {
     const oneOnly = {
       ...FORM,
       settings: { ...FORM.settings, responseLimit: "one" },
@@ -294,12 +294,12 @@ describe("FormResponder", () => {
     renderResponder(oneOnly);
 
     expect(
-      await screen.findByText(/one answer per person/i),
+      await screen.findByText(/one response per person/i),
     ).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Respond again/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Send another response/i })).toBeNull();
     // Editing is still offered.
     expect(
-      screen.getByRole("button", { name: /Edit Response/i }),
+      screen.getByRole("button", { name: /Change my answers/i }),
     ).toBeInTheDocument();
   });
 
@@ -326,7 +326,7 @@ describe("FormResponder", () => {
     });
 
     // No edit link and no way back into an edit view.
-    expect(screen.queryByRole("button", { name: /Edit Response/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Change my answers/i })).toBeNull();
     expect(screen.queryByText(/Keep this link/i)).toBeNull();
     // The stored record carries no edit secret either.
     const stored = storedResponses();
@@ -351,5 +351,78 @@ describe("FormResponder", () => {
       await screen.findByText(/doesn't let you change answers/i),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Send answers/i })).toBeInTheDocument();
+  });
+
+  it("keeps what's typed in one question out of another of the same type", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => okJson({})));
+    renderResponder({
+      ...FORM,
+      questions: [
+        { id: "q_a", type: "long_text", label: "First story" },
+        { id: "q_b", type: "long_text", label: "Second story" },
+      ],
+    });
+    const first = await screen.findByLabelText("First story");
+    const second = screen.getByLabelText("Second story");
+    fireEvent.change(first, { target: { value: "hello" } });
+    expect(first).toHaveValue("hello");
+    expect(second).toHaveValue("");
+  });
+
+  it("picks Other on a one-pick question and keeps the typed words", async () => {
+    const fetchMock = vi.fn(async (_url, options = {}) =>
+      options.method === "POST" ? okJson({ ok: true, id: "r_1", edit_token: "t" }) : okJson({}),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    renderResponder({
+      ...FORM,
+      questions: [
+        { id: "q_1", type: "choice", label: "Dish", config: { options: ["Salad", "Soup"], allowOther: true } },
+      ],
+    });
+    const other = await screen.findByRole("radio", { name: "Other" });
+    fireEvent.click(other);
+    expect(other).toHaveAttribute("aria-checked", "true");
+    // Words that match an option stay in the box and keep Other picked.
+    fireEvent.change(await screen.findByLabelText("Other answer"), { target: { value: "Soup" } });
+    expect(screen.getByLabelText("Other answer")).toHaveValue("Soup");
+    expect(screen.getByRole("radio", { name: "Other" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("radio", { name: "Soup" })).toHaveAttribute("aria-checked", "false");
+    fireEvent.change(screen.getByLabelText("Other answer"), { target: { value: "Stew" } });
+    fireEvent.click(screen.getByRole("button", { name: /Send answers/i }));
+    await waitFor(() => expect(lastPost(fetchMock)?.answers.q_1).toBe("Stew"));
+  });
+
+  it("shows the edit link again on a return visit", async () => {
+    seedResponses([
+      { id: "r_9", edit_token: "stored-tok", at: 1727000000000, answers: { q_1: "Yes" } },
+    ]);
+    vi.stubGlobal("fetch", vi.fn(async () => okJson({})));
+    renderResponder(FORM);
+    expect(await screen.findByText(/Keep this link/i)).toBeInTheDocument();
+    const values = [...document.querySelectorAll("input")].map((i) => i.value).join(" ");
+    expect(`${document.body.textContent} ${values}`).toMatch(/\?edit=stored-tok/);
+  });
+
+  it("starts each opened response with fresh fields", async () => {
+    seedResponses([
+      { id: "r_1", edit_token: "tok-one", at: 1727000000000, answers: { q_f: "0123456789abcdef.pdf" } },
+      { id: "r_2", edit_token: "tok-two", at: 1727000060000, answers: {} },
+    ]);
+    vi.stubGlobal("fetch", vi.fn(async (_url, options = {}) =>
+      options.method === "POST" ? okJson({ ok: true, id: "r_1", edit_token: "tok-one" }) : okJson({})));
+    renderResponder({
+      ...FORM,
+      questions: [{ id: "q_f", type: "file", label: "Receipt" }],
+    });
+    fireEvent.click(await screen.findByRole("button", { name: /Change a response/i }));
+    fireEvent.click((await screen.findAllByRole("button", { name: /Sent/ }))[0]);
+    expect(await screen.findByText(/Attached:/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /Change a response/i }));
+    // Saving moved r_1 to the end of the list; open the other one.
+    fireEvent.click(await screen.findByText("No answers saved"));
+    await screen.findByText(/Changing your answers/i);
+    expect(screen.queryByText(/Attached:/)).toBeNull();
   });
 });

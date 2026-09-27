@@ -83,7 +83,7 @@ export default function FormInput({
           <button
             type="button"
             onClick={() => setShowPassword(!showPassword)}
-            className="absolute right-4 top-1/2 -translate-y-1/2 text-accent hover:text-primary focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-secondary no-focus-outline rounded-pill p-1"
+            className="absolute right-4 top-1/2 -translate-y-1/2 hover:text-primary focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-secondary no-focus-outline rounded-pill p-1"
             aria-label={showPassword ? "Hide password" : "Show password"}
           >
             {showPassword ? <EyeOff size={ICON_SIZE.md} /> : <Eye size={ICON_SIZE.md} />}
@@ -94,7 +94,7 @@ export default function FormInput({
           {Icon && (
             <Icon
               size={ICON_SIZE.md}
-              className="absolute left-4 top-1/2 -translate-y-1/2 text-accent pointer-events-none z-10"
+              className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none z-10"
             />
           )}
           <input

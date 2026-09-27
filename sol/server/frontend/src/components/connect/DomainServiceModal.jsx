@@ -56,13 +56,13 @@ export default function DomainServiceModal({ open, onClose, onSaved, service, co
       <div className="p-5 space-y-5">
         <div className="flex items-start gap-3 pb-4 border-b border-primary/10">
           <div className="p-2 rounded-full bg-primary/10">
-            <Globe size={ICON_SIZE.lg} className="text-accent" />
+            <Globe size={ICON_SIZE.lg} />
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm text-primary">
               Status: <span className="font-medium">{stateLabel}</span>
             </p>
-            <p className="text-sm text-accent mt-1.5">
+            <p className="text-sm mt-1.5">
               A domain name lets you reach your apps at addresses like
               nextcloud.yourdomain.com instead of a numbered IP address.
             </p>
@@ -86,7 +86,7 @@ export default function DomainServiceModal({ open, onClose, onSaved, service, co
               <AlertTriangle size={ICON_SIZE.md} className="text-warning shrink-0" />
               {connectWarning.label}
             </div>
-            <p className="text-xs text-accent">
+            <p className="text-xs">
               Connect needs to be connected and your plan must support this service
               before your domain can be managed automatically.
             </p>
@@ -94,21 +94,21 @@ export default function DomainServiceModal({ open, onClose, onSaved, service, co
         ) : useConnect ? (
           <div className="bg-primary/5 rounded-large-element p-4 space-y-2">
             <div className="flex items-center gap-2 text-sm text-primary">
-              <Check size={ICON_SIZE.md} className="text-accent" />
+              <Check size={ICON_SIZE.md} />
               Domain handled by LibreServ Connect
             </div>
-            <p className="text-xs text-accent">
+            <p className="text-xs">
               Your server will be reachable at your choice of subdomain. SSL
               certificates are managed automatically.
             </p>
           </div>
         ) : (
           <div className="space-y-4">
-            <p className="text-sm text-accent">
+            <p className="text-sm">
               Connect your own domain. We'll help set up DNS records.
             </p>
             <div>
-              <label className="block text-xs text-accent font-medium mb-1.5 px-4">Your Domain</label>
+              <label className="block text-xs font-medium mb-1.5 px-4">Your Domain</label>
               <ShakeTarget shake={error}>
                 <input
                   type="text"
@@ -120,7 +120,7 @@ export default function DomainServiceModal({ open, onClose, onSaved, service, co
               </ShakeTarget>
             </div>
             <div>
-              <label className="block text-xs text-accent font-medium mb-1.5 px-4">DNS Provider</label>
+              <label className="block text-xs font-medium mb-1.5 px-4">DNS Provider</label>
               <Dropdown
                 options={DNS_PROVIDERS}
                 value={form.provider}
@@ -131,7 +131,7 @@ export default function DomainServiceModal({ open, onClose, onSaved, service, co
               />
             </div>
             <div>
-              <label className="block text-xs text-accent font-medium mb-1.5 px-4">API Token</label>
+              <label className="block text-xs font-medium mb-1.5 px-4">API Token</label>
               <ShakeTarget shake={error}>
                 <input
                   type="password"
@@ -141,7 +141,7 @@ export default function DomainServiceModal({ open, onClose, onSaved, service, co
                   className="w-full px-4 py-2.5 rounded-pill bg-primary text-secondary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors text-sm"
                 />
               </ShakeTarget>
-              <p className="text-xs text-accent mt-1.5">
+              <p className="text-xs mt-1.5">
                 Your API token is on cloudflare.com → Profile → API Tokens → Create Token.
               </p>
             </div>

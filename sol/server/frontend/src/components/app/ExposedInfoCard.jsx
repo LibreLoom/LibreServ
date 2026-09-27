@@ -31,7 +31,7 @@ function AdvancedSection({ show, onToggle, advancedSortedGroups, advancedGrouped
     <div className="mt-8 pt-8 border-t border-dashed border-secondary/15">
       <button
         onClick={onToggle}
-        className="group flex w-full items-center justify-between gap-3 rounded-large-element px-4 py-3 text-left font-mono text-sm text-accent hover:bg-secondary/5 motion-safe:transition-all"
+        className="group flex w-full items-center justify-between gap-3 rounded-large-element px-4 py-3 text-left font-mono text-sm hover:bg-secondary/5 motion-safe:transition-all"
         aria-expanded={show}
         aria-controls={contentId}
       >
@@ -156,7 +156,7 @@ export function ExposedInfoCard({ info }) {
             className={cn("col-start-1 row-start-1 flex items-center justify-center md:justify-start overflow-hidden rounded-full", "border border-secondary/15 bg-secondary/5 px-4 py-2 w-full", "transition-[opacity,transform,filter] duration-300 ease-out", isVisible ? "opacity-0 scale-95 blur-md" : "opacity-100 scale-100 blur-0")}
           >
             <span
-              className={cn("font-mono text-sm text-accent select-none whitespace-pre-wrap break-all", "transition-[opacity,filter] duration-300 ease-out", isVisible ? "opacity-0 blur-md" : "opacity-100 blur-[8px]")}
+              className={cn("font-mono text-sm select-none whitespace-pre-wrap break-all", "transition-[opacity,filter] duration-300 ease-out", isVisible ? "opacity-0 blur-md" : "opacity-100 blur-[8px]")}
             >
               {placeholderValue}
             </span>
@@ -221,9 +221,9 @@ export function ExposedInfoCard({ info }) {
     return (
       <div key={groupKey} className="mb-8 last:mb-0">
         <div className="flex items-center gap-2 mb-4">
-          <GroupIcon size={ICON_SIZE.md} className={isAdvanced ? "text-accent" : "text-accent"} />
+          <GroupIcon size={ICON_SIZE.md}  />
           <h3
-            className={cn("text-sm font-mono uppercase tracking-wider", isAdvanced ? "text-accent" : "text-accent")}
+            className={cn("text-sm font-mono uppercase tracking-wider")}
           >
             {groupMeta.label}
           </h3>
@@ -237,7 +237,7 @@ export function ExposedInfoCard({ info }) {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <p
-                    className={cn("text-sm font-medium", isAdvanced ? "text-accent" : "text-secondary")}
+                    className={cn("text-sm font-medium text-secondary")}
                   >
                     {field.label}
                   </p>
@@ -249,7 +249,7 @@ export function ExposedInfoCard({ info }) {
                 </div>
                 {field.description && (
                   <p
-                    className={cn("text-xs mt-1", isAdvanced ? "text-secondary/30" : "text-accent")}
+                    className={cn("text-xs mt-1", isAdvanced && "text-secondary/30")}
                   >
                     {field.description}
                   </p>
@@ -306,7 +306,7 @@ export function ExposedInfoCard({ info }) {
     <section className={cn("mt-8")} data-slot="exposed-info-card">
       <Card surface="primary">
         <div className="flex items-center gap-2 mb-8">
-          <Key size={ICON_SIZE.xl} className="text-accent" />
+          <Key size={ICON_SIZE.xl} />
           <h2 className="text-2xl font-mono font-normal">Exposed Information</h2>
         </div>
 

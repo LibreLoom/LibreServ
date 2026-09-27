@@ -45,7 +45,7 @@ const TONE_TEXT = {
   warning: "text-warning",
   error: "text-error",
   info: "text-info",
-  neutral: "text-accent",
+  neutral: "",
 };
 
 /**

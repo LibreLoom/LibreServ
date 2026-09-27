@@ -77,15 +77,15 @@ function UninstallConfirmModal({ app, onConfirm, onCancel, isUninstalling }) {
           </p>
           <ul className="text-sm space-y-1 ml-4">
             <li className="flex items-center gap-2">
-              <Folder size={ICON_SIZE.sm} className="text-accent" />
+              <Folder size={ICON_SIZE.sm} />
               <span>The app's data and saved files</span>
             </li>
             <li className="flex items-center gap-2">
-              <Server size={ICON_SIZE.sm} className="text-accent" />
+              <Server size={ICON_SIZE.sm} />
               <span>Configuration files</span>
             </li>
             <li className="flex items-center gap-2">
-              <Activity size={ICON_SIZE.sm} className="text-accent" />
+              <Activity size={ICON_SIZE.sm} />
               <span>The app's program files</span>
             </li>
           </ul>
@@ -250,7 +250,7 @@ export default function AppDetailPage() {
       case "error":
         return "text-error";
       default:
-        return "text-accent";
+        return "";
     }
   };
 
@@ -261,7 +261,7 @@ export default function AppDetailPage() {
       case "unhealthy":
         return "text-error";
       default:
-        return "text-accent";
+        return "";
     }
   };
 
@@ -272,7 +272,7 @@ export default function AppDetailPage() {
       case "unhealthy":
         return <XCircle className="text-error" size={ICON_SIZE.xl} />;
       default:
-        return <Activity className="text-accent" size={ICON_SIZE.xl} />;
+        return <Activity size={ICON_SIZE.xl} />;
     }
   };
 

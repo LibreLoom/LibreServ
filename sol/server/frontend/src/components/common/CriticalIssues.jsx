@@ -195,7 +195,7 @@ export default function CriticalIssues() {
                         {check.label}
                       </div>
                       {check.message && (
-                        <div className="text-xs text-accent mt-0.5 break-words">
+                        <div className="text-xs mt-0.5 break-words">
                           {check.message}
                         </div>
                       )}

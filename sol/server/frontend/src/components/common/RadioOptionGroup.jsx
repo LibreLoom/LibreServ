@@ -17,7 +17,7 @@ export default function RadioOptionGroup({
             key={opt.value}
             className={cn(
               "flex peer items-center gap-3 p-2.5 rounded-large-element border cursor-pointer transition-all duration-200",
-              isSelected && "border-accent bg-accent/10",
+              isSelected && "border-accent",
               !isSelected && "border-primary/10 hover:bg-primary/5 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent",
             )}
           >
@@ -33,13 +33,13 @@ export default function RadioOptionGroup({
             <div
               className={cn(
                 "w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all duration-200",
-                isSelected && "border-accent bg-accent",
+                isSelected && "border-primary bg-primary",
                 !isSelected && "border-accent/40",
               )}
             >
               <div
                 className={cn(
-                  "w-2.5 h-2.5 rounded-full bg-primary transition-all duration-200",
+                  "w-2.5 h-2.5 rounded-full bg-secondary transition-all duration-200",
                   isSelected && "scale-100 opacity-100",
                   !isSelected && "scale-0 opacity-0",
                 )}
@@ -48,7 +48,7 @@ export default function RadioOptionGroup({
             <div className="flex-1">
               <div className="font-medium text-primary text-sm">{opt.label}</div>
               {opt.description && (
-                <div className="text-xs text-accent">{opt.description}</div>
+                <div className="text-xs">{opt.description}</div>
               )}
             </div>
           </label>

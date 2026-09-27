@@ -280,7 +280,7 @@ function EditorSession({
                 </span>
               ))}
               {peers.length > 5 && (
-                <span className="-ml-1.5 flex h-6 min-w-6 items-center justify-center rounded-full bg-accent px-1 text-[0.65rem] text-primary ring-2 ring-primary">
+                <span className="-ml-1.5 flex h-6 min-w-6 items-center justify-center rounded-full bg-secondary px-1 text-[0.65rem] text-primary ring-2 ring-primary">
                   +{peers.length - 5}
                 </span>
               )}
@@ -342,7 +342,7 @@ function EditorSession({
           </ShakeTarget>
         )}
       </div>
-      <div className="flex h-9 shrink-0 items-center justify-between gap-3 border-t border-secondary/15 px-4 text-xs text-accent">
+      <div className="flex h-9 shrink-0 items-center justify-between gap-3 border-t border-secondary/15 px-4 text-xs">
         <span className="font-mono">
           Ln {stats.line}, Col {stats.col} · {stats.words}{" "}
           {stats.words === 1 ? "word" : "words"}

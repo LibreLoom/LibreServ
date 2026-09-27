@@ -39,10 +39,10 @@ export default function Plans() {
             {editing === plan.id ? (
               <CardContent className="pt-6">
                 <div className="space-y-3">
-                  <div><Label>Name</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
-                  <div><Label>Description</Label><Input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></div>
-                  <div><Label>Price (cents)</Label><Input type="number" value={form.price_monthly} onChange={(e) => setForm({ ...form, price_monthly: parseInt(e.target.value) })} /></div>
-                  <div><Label>Limits JSON</Label><Textarea rows={6} value={form.limits_json} onChange={(e) => setForm({ ...form, limits_json: e.target.value })} /></div>
+                  <div><Label>Name</Label><Input placeholder="e.g. Pro" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
+                  <div><Label>Description</Label><Input placeholder="One line shown on the pricing page" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></div>
+                  <div><Label>Price (cents)</Label><Input type="number" placeholder="e.g. 500 for $5.00" value={form.price_monthly} onChange={(e) => setForm({ ...form, price_monthly: parseInt(e.target.value) })} /></div>
+                  <div><Label>Limits JSON</Label><Textarea rows={6} placeholder="{}" value={form.limits_json} onChange={(e) => setForm({ ...form, limits_json: e.target.value })} /></div>
                   <div className="flex gap-2">
                     <Button size="sm" loading={updateMut.isPending} onClick={() => updateMut.mutate({ id: plan.id, body: form })}>Save</Button>
                     <Button variant="ghost" size="sm" onClick={() => setEditing(null)}>Cancel</Button>

@@ -196,7 +196,7 @@ describe("DrivesPage", () => {
       return /writes a/.test(text) && /\.luna/.test(text) && /database/.test(text);
     });
     const row = note.closest("div");
-    expect(row?.querySelector(".text-accent")).toBeTruthy();
+    expect(row?.querySelector("svg")).toBeTruthy();
     expect(row?.querySelector(".text-warning")).toBeNull();
     const input = screen.getByDisplayValue("64GB PSSD");
     expect(input.className).toMatch(/no-focus-outline/);

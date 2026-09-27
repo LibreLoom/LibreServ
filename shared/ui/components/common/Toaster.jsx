@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useLayoutEffect } from "react";
 import { useToast } from "../../context/ToastContext";
 import { cn } from "../../lib/utils.js";
 import { ICON_SIZE } from "../../lib/ui-tokens.js";
+import { haptic } from "../../utils/haptics.js";
 
 const TYPE_CONFIG = {
   success: { icon: CheckCircle2, ring: "stroke-success", track: "stroke-success/25" },
@@ -108,7 +109,7 @@ function Toast({ toast, onDismiss, onPause, onResume }) {
             <ChevronDown
               size={ICON_SIZE.sm}
               className={cn(
-                "flex-shrink-0 mt-0.5 text-accent motion-safe:transition-transform motion-safe:duration-200",
+                "flex-shrink-0 mt-0.5 motion-safe:transition-transform motion-safe:duration-200",
                 expanded && "rotate-180",
               )}
               aria-hidden="true"
@@ -116,9 +117,28 @@ function Toast({ toast, onDismiss, onPause, onResume }) {
           )}
         </div>
         {toast.description && (
-          <p className="text-xs text-accent mt-0.5 leading-relaxed">{toast.description}</p>
+          <p className="text-xs mt-0.5 leading-relaxed">{toast.description}</p>
         )}
       </div>
+
+      {toast.action && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            haptic("light");
+            toast.action.onClick();
+            onDismiss(toast.id);
+          }}
+          className={cn(
+            "flex-shrink-0 self-center rounded-pill bg-primary text-secondary px-3 py-1 text-xs font-mono",
+            "motion-safe:transition-transform active:motion-safe:scale-95",
+            "focus-visible:ring-2 focus-visible:ring-accent no-focus-outline",
+          )}
+        >
+          {toast.action.label}
+        </button>
+      )}
 
       <button
         type="button"
@@ -127,7 +147,7 @@ function Toast({ toast, onDismiss, onPause, onResume }) {
           onDismiss(toast.id);
         }}
         className={cn(
-          "flex-shrink-0 p-1 rounded-pill text-accent",
+          "flex-shrink-0 p-1 rounded-pill",
           "hover:text-primary hover:bg-primary/10",
           "motion-safe:transition-colors",
           "focus-visible:ring-2 focus-visible:ring-accent no-focus-outline",
@@ -148,6 +168,10 @@ Toast.propTypes = {
     description: PropTypes.string,
     duration: PropTypes.number,
     exiting: PropTypes.bool,
+    action: PropTypes.shape({
+      label: PropTypes.string.isRequired,
+      onClick: PropTypes.func.isRequired,
+    }),
   }).isRequired,
   onDismiss: PropTypes.func.isRequired,
   onPause: PropTypes.func.isRequired,

@@ -79,27 +79,27 @@ export default function RecoveryKeyCard({ repo, repoId = "" }) {
       }
     >
       <div className="p-5 space-y-4">
-        <p className="text-sm text-accent">
+        <p className="text-sm">
           Your backups are encrypted with a key only this server knows. If you lose access
           to this server, you will need this key to restore your data. Save it somewhere safe —
           <strong className="text-primary"> we cannot recover it for you</strong>.
         </p>
 
         {loading && (
-          <div className="flex items-center gap-2 text-xs text-accent">
+          <div className="flex items-center gap-2 text-xs">
             <Loader2 size={ICON_SIZE.sm} className="animate-spin" />
             Loading recovery key...
           </div>
         )}
 
         {error && (
-          <div className="bg-primary text-secondary border-2 border-warning/20 rounded-large-element p-3 text-xs text-accent">
+          <div className="bg-primary text-secondary border-2 border-warning/20 rounded-large-element p-3 text-xs">
             {error}
           </div>
         )}
 
         <div className="bg-primary/5 rounded-large-element p-4 space-y-3">
-          <p className="text-xs text-accent font-mono">
+          <p className="text-xs font-mono">
             {repo?.repo_type || "s3"} → {repo?.repo_path || "Connect Storage"}
           </p>
           <div className="flex items-center gap-2">
@@ -152,7 +152,7 @@ export default function RecoveryKeyCard({ repo, repoId = "" }) {
 
         <div className="bg-primary text-secondary border-2 border-warning/20 rounded-large-element p-4 flex items-start gap-3">
           <AlertTriangle size={ICON_SIZE.lg} className="text-warning shrink-0 mt-0.5" />
-          <div className="text-xs text-accent space-y-1">
+          <div className="text-xs space-y-1">
             <p className="font-medium text-secondary">Without this key:</p>
             <ul className="list-disc list-inside space-y-0.5">
               <li>Your backup data is permanently unrecoverable</li>

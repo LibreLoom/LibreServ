@@ -146,7 +146,7 @@ export default function PhotoThumb({
       )}
       {selected && (
         <span
-          className="absolute top-2 left-2 flex h-6 w-6 items-center justify-center rounded-pill bg-accent text-primary"
+          className="absolute top-2 left-2 flex h-6 w-6 items-center justify-center rounded-pill bg-secondary text-primary ring-2 ring-primary"
           aria-hidden="true"
         >
           <Check size={14} strokeWidth={3} />

@@ -17,6 +17,7 @@ import UploadFilesPanel from "../components/files/UploadFilesPanel.jsx";
 import useFileNavigation from "../hooks/useFileNavigation.js";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import FormResponder from "../components/files/forms/FormResponder.jsx";
+import DocumentLoadingScreen from "../components/files/DocumentLoadingScreen.jsx";
 import PhotoThumb from "../components/gallery/PhotoThumb.jsx";
 import PhotoLightbox, {
   resolveDisplaySrc,
@@ -332,6 +333,15 @@ function PublicShareSession() {
     }
   }
 
+  // Until we know what the link holds, show the same full-screen loader the
+  // document editors use — it reads right whether a form or files follow.
+  const opening = (
+    <div className="h-dvh bg-primary text-secondary">
+      <DocumentLoadingScreen label="Opening the shared link…" />
+    </div>
+  );
+  if (loading && !needPassword && !error) return opening;
+
   // Respond links take over the whole page — the form, as the editor laid it out.
   if (formDoc && !needPassword) {
     return (
@@ -341,25 +351,20 @@ function PublicShareSession() {
             <PageNotice variant="error">{error}</PageNotice>
           </div>
         )}
-        {loading ? (
-          <div className="flex min-h-0 flex-1 items-center justify-center" role="status">
-            <p className="font-mono text-sm uppercase tracking-widest text-secondary">Opening</p>
-          </div>
-        ) : (
-          <FormResponder
-            token={token}
-            form={formDoc.form && typeof formDoc.form === "object" ? formDoc.form : {}}
-            sharePassword={submittedPassword}
-            accepting={formDoc.accepting !== false}
-            full={formDoc.full === true}
-            closedMessage={typeof formDoc.closed_message === "string" ? formDoc.closed_message : ""}
-          />
-        )}
+        <FormResponder
+          token={token}
+          form={formDoc.form && typeof formDoc.form === "object" ? formDoc.form : {}}
+          sharePassword={submittedPassword}
+          accepting={formDoc.accepting !== false}
+          full={formDoc.full === true}
+          closedMessage={typeof formDoc.closed_message === "string" ? formDoc.closed_message : ""}
+        />
       </div>
     );
   }
 
   if (isAlbum && !needPassword) {
+    if (album.isLoading && !error) return opening;
     const title = meta?.name || "Shared album";
     const lightboxIndex = lightbox
       ? Math.max(0, albumItems.findIndex((p) => photoSelectionKey(p) === lightbox.key))
@@ -369,9 +374,7 @@ function PublicShareSession() {
       <div className="min-h-screen bg-primary text-secondary">
         <Page title={title} titleId="public-album-title">
           {error && <PageNotice variant="error" className="mb-4">{error}</PageNotice>}
-          {loading || album.isLoading ? (
-            <p className="text-sm">Opening album…</p>
-          ) : (
+          {album.isLoading ? null : (
             <>
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <p className="text-sm">
@@ -382,7 +385,7 @@ function PublicShareSession() {
                 <div className="flex flex-wrap gap-2">
                   <Button
                     type="button"
-                    variant={selection.selectMode ? "accent" : "outline"}
+                    variant={selection.selectMode ? "secondary" : "outline"}
                     surface="primary"
                     size="sm"
                     onClick={() => (selection.selectMode ? selection.exit() : selection.enter())}
@@ -521,12 +524,6 @@ function PublicShareSession() {
               </ShakeTarget>
               <Button type="submit" variant="primary" fullWidth>Open</Button>
             </form>
-          </Card>
-        )}
-
-        {loading && !needPassword && (
-          <Card>
-            <p className="text-primary text-sm">Opening the shared files…</p>
           </Card>
         )}
 

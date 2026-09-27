@@ -98,7 +98,7 @@ export function ActionResultModal({ result, onClose }) {
                 Exit code: {exitCode ?? "N/A"}
               </p>
             </div>
-            <div className="flex items-center gap-1 text-sm text-accent">
+            <div className="flex items-center gap-1 text-sm">
               <Clock size={ICON_SIZE.sm} />
               <span>{formatDuration(result.duration)}</span>
             </div>
@@ -109,7 +109,7 @@ export function ActionResultModal({ result, onClose }) {
               <div className="flex items-center justify-between gap-3 mb-2">
                 <button
                   onClick={() => setShowVerbose(!showVerbose)}
-                  className="flex items-center gap-1 text-sm text-accent hover:text-accent/80 transition-colors"
+                  className="flex items-center gap-1 text-sm hover:underline decoration-accent underline-offset-4"
                   aria-expanded={showVerbose}
                   aria-controls="action-output"
                 >
@@ -137,7 +137,7 @@ export function ActionResultModal({ result, onClose }) {
                 )}
               >
                 <div className="bg-primary/50 border border-secondary/20 rounded-large-element p-3 mt-2">
-                  <div className="max-h-80 overflow-x-auto overflow-y-auto pr-2 text-sm font-mono whitespace-pre-wrap break-all text-accent select-text">
+                  <div className="max-h-80 overflow-x-auto overflow-y-auto pr-2 text-sm font-mono whitespace-pre-wrap break-all select-text">
                     {output}
                   </div>
                 </div>

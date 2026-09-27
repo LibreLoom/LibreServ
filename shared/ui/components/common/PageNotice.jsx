@@ -28,8 +28,8 @@ export default function PageNotice({
           ? "border-warning/30 bg-warning/20 text-primary"
           : "border-warning/30 bg-warning/20 text-secondary"
         : surface === "secondary"
-          ? "border-accent/30 bg-accent/10 text-primary"
-          : "border-accent/30 bg-accent/10 text-secondary";
+          ? "border-accent/30 bg-primary/10 text-primary"
+          : "border-accent/30 bg-secondary/10 text-secondary";
   return (
     <Card surface={surface} className={cn("border", tone, className)} data-slot="page-notice">
       <div className="text-sm" role="status">

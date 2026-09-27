@@ -86,7 +86,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
         <div className="px-5 py-5">
           <div className="flex items-start justify-between gap-4 mb-4">
             <div className="flex-1">
-              <div className="text-sm text-accent mb-1">Current version</div>
+              <div className="text-sm mb-1">Current version</div>
               <div className="text-lg font-mono text-primary">
                 {getVersionDisplay()}
               </div>
@@ -110,7 +110,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
           </div>
 
           <div className="flex items-center gap-3 mb-4">
-            <div className="text-sm text-accent">Status:</div>
+            <div className="text-sm">Status:</div>
             {notChecked && (
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-pill text-xs font-medium bg-primary text-secondary">
                 <Info size={ICON_SIZE.xs} aria-hidden="true" />
@@ -132,7 +132,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
           </div>
 
           {checkMessage && !error && (
-            <p className="mb-4 text-sm text-accent" role="status">
+            <p className="mb-4 text-sm" role="status">
               {checkMessage}
             </p>
           )}
@@ -175,11 +175,11 @@ export default function SystemUpdatesCard({ index = 0 }) {
               </Button>
 
               <div className="flex flex-wrap gap-2">
-                <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-pill text-xs bg-accent/20 text-primary">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-pill text-xs bg-primary text-secondary">
                   <Info size={ICON_SIZE.xs} aria-hidden="true" />
                   Luna restarts after an update
                 </div>
-                <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-pill text-xs bg-accent/20 text-primary">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-pill text-xs bg-primary text-secondary">
                   <CheckCircle size={ICON_SIZE.xs} aria-hidden="true" />
                   Sign in again afterward
                 </div>
@@ -187,7 +187,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
             </div>
           )}
 
-          <p className="mt-4 text-sm text-accent">
+          <p className="mt-4 text-sm">
             Luna only installs updates when you tell it to. No automatic or forced updates here.
           </p>
         </div>

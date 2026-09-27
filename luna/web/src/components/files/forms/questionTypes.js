@@ -148,12 +148,36 @@ export function defaultConfig(type) {
   return typeInfo(type).options ? { options: ["Option 1"] } : {};
 }
 
-/** Options a question offers, in display order. */
+/** Types whose answers are picked from options the editor writes. */
+export function hasEditableOptions(type) {
+  return Boolean(typeInfo(type).options);
+}
+
+/**
+ * Skip rules match an exact stored answer, so only questions with a fixed
+ * set of answers can trigger one.
+ */
+export function canTriggerSkip(type) {
+  const info = typeInfo(type);
+  return Boolean(info.options || info.fixedOptions);
+}
+
+/**
+ * Options a question offers, in display order. Blank and repeated options
+ * are dropped: nobody can pick a blank pill, and two identical ones would
+ * store the same answer.
+ */
 export function answerOptions(question) {
   const info = typeInfo(question?.type);
   if (info.fixedOptions) return info.fixedOptions;
   const options = question?.config?.options;
-  return Array.isArray(options) ? options.filter((o) => typeof o === "string") : [];
+  if (!Array.isArray(options)) return [];
+  const seen = new Set();
+  return options.filter((o) => {
+    if (typeof o !== "string" || !o.trim() || seen.has(o)) return false;
+    seen.add(o);
+    return true;
+  });
 }
 
 /**
@@ -192,10 +216,14 @@ export function isAnswered(_question, value) {
   return value != null && String(value).trim() !== "";
 }
 
-/** One-line display string for an answer (tables, review screen, CSV). */
-export function formatAnswer(question, value) {
+/**
+ * Display string for an answer (tables, review screen, CSV). Checkbox
+ * answers join with `separator`; CSV uses a line break so an option that
+ * contains a comma stays readable.
+ */
+export function formatAnswer(question, value, separator = ", ") {
   if (value == null) return "";
-  if (Array.isArray(value)) return value.map(String).join(", ");
+  if (Array.isArray(value)) return value.map(String).join(separator);
   if (question?.type === "yes_no") {
     if (value === "yes") return "Yes";
     if (value === "no") return "No";
@@ -251,3 +279,6 @@ export function summarizeAnswers(question, responses) {
     answered: answered.length,
   };
 }
+
+/** What people see after sending when the form has no thank-you message of its own. */
+export const DEFAULT_THANK_YOU = "Response submitted.";

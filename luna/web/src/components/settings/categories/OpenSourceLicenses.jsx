@@ -37,19 +37,19 @@ function LicenseModal({ entry, onClose }) {
           <p className="text-sm text-primary leading-relaxed">{entry.what}</p>
           <dl className="space-y-1.5 text-sm">
             <div className="flex gap-2">
-              <dt className="font-mono text-xs uppercase tracking-widest text-accent pt-0.5 shrink-0 w-20">
+              <dt className="font-mono text-xs uppercase tracking-widest pt-0.5 shrink-0 w-20">
                 License
               </dt>
               <dd className="text-primary">{entry.license}</dd>
             </div>
             <div className="flex gap-2">
-              <dt className="font-mono text-xs uppercase tracking-widest text-accent pt-0.5 shrink-0 w-20">
+              <dt className="font-mono text-xs uppercase tracking-widest pt-0.5 shrink-0 w-20">
                 Copyright
               </dt>
               <dd className="text-primary">{entry.copyright}</dd>
             </div>
             <div className="flex gap-2">
-              <dt className="font-mono text-xs uppercase tracking-widest text-accent pt-0.5 shrink-0 w-20">
+              <dt className="font-mono text-xs uppercase tracking-widest pt-0.5 shrink-0 w-20">
                 Source
               </dt>
               <dd>
@@ -66,14 +66,14 @@ function LicenseModal({ entry, onClose }) {
             </div>
           </dl>
           {entry.notices && (
-            <p className="text-xs text-accent leading-relaxed">{entry.notices}</p>
+            <p className="text-xs leading-relaxed">{entry.notices}</p>
           )}
           {entry.licenseFile ? (
             text.isLoading ? (
               <div className="space-y-2 py-2" aria-hidden="true">
-                <div className="h-3 w-full rounded-pill bg-accent/30 animate-pulse" />
-                <div className="h-3 w-5/6 rounded-pill bg-accent/30 animate-pulse" />
-                <div className="h-3 w-2/3 rounded-pill bg-accent/30 animate-pulse" />
+                <div className="h-3 w-full rounded-pill bg-primary/20 animate-pulse" />
+                <div className="h-3 w-5/6 rounded-pill bg-primary/20 animate-pulse" />
+                <div className="h-3 w-2/3 rounded-pill bg-primary/20 animate-pulse" />
               </div>
             ) : text.isError ? (
               <p className="text-sm text-error">
@@ -115,7 +115,7 @@ export default function OpenSourceLicenses() {
   return (
     <>
       <CollapsibleSection title="Open source licenses" mono pill>
-        <p className="text-sm text-accent leading-relaxed mb-3">
+        <p className="text-sm leading-relaxed mb-3">
           Luna builds on open source. These are the components that ship with
           the optional office editor — everything runs on this Luna, not in
           the cloud.
@@ -131,11 +131,11 @@ export default function OpenSourceLicenses() {
                   <span className="font-mono text-sm font-medium text-primary">
                     {entry.name}
                   </span>
-                  <span className="rounded-pill border border-accent/40 bg-accent/10 px-2 py-0.5 font-mono text-[11px] text-primary">
+                  <span className="rounded-pill border border-accent px-2 py-0.5 font-mono text-[11px] text-primary">
                     {entry.license}
                   </span>
                 </div>
-                <p className="mt-1 text-xs text-accent leading-relaxed">
+                <p className="mt-1 text-xs leading-relaxed">
                   {entry.what}
                 </p>
               </div>

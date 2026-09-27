@@ -936,6 +936,7 @@ export default function OnboardingPage() {
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
                   autoComplete="email"
+                  placeholder="you@example.com"
                 />
               </div>
             </ShakeTarget>

@@ -184,7 +184,7 @@ export default function AddToAlbumModal({
                 <div className="relative mt-1">
                   <Search
                     size={16}
-                    className="absolute left-4 top-1/2 -translate-y-1/2 text-accent pointer-events-none"
+                    className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none"
                     aria-hidden="true"
                   />
                   <input
@@ -235,7 +235,7 @@ export default function AddToAlbumModal({
                           className={cn(
                             "size-5 shrink-0 rounded-full border-2 flex items-center justify-center motion-safe:transition-all",
                             checked || state === "mixed"
-                              ? "border-accent bg-accent text-primary"
+                              ? "border-secondary bg-secondary text-primary"
                               : "border-secondary/50",
                           )}
                           aria-hidden="true"

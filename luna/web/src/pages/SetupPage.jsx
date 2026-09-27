@@ -774,6 +774,7 @@ function NameStep({ initialName, onFinish }) {
                   type="text"
                   maxLength={40}
                   autoComplete="off"
+                  placeholder="e.g. Family Luna"
                   value={name}
                   onChange={(e) => { setName(e.target.value); if (error) setError(null); }}
                   disabled={saving}

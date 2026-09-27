@@ -512,7 +512,6 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
               )}
               {conversion?.convert && canWrite && !guest && (
                 <Button
-                  variant="accent"
                   surface="secondary"
                   loading={converting}
                   onClick={() => void convertAndOpen()}

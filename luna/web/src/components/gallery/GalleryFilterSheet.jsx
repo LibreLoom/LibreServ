@@ -496,7 +496,6 @@ export default function GalleryFilterSheet({
           </Button>
           <Button
             type="button"
-            variant="accent"
             onClick={() => {
               onApply(draft);
               close();
@@ -536,7 +535,7 @@ export default function GalleryFilterSheet({
             <Button
               type="button"
               size="sm"
-              variant={draft.undated ? "accent" : "outline"}
+              variant={draft.undated ? "primary" : "outline"}
               surface="primary"
               onClick={() =>
                 patch({
@@ -551,7 +550,7 @@ export default function GalleryFilterSheet({
             <Button
               type="button"
               size="sm"
-              variant={draft.monthDay ? "accent" : "outline"}
+              variant={draft.monthDay ? "primary" : "outline"}
               surface="primary"
               onClick={() => patch({ monthDay: draft.monthDay ? "" : "today" })}
             >
@@ -701,6 +700,7 @@ export default function GalleryFilterSheet({
                   min="0"
                   value={draft.isoMin || ""}
                   onChange={(e) => patch({ isoMin: e.target.value })}
+                  placeholder="No minimum"
                   className={`mt-1 ${inputClass}`}
                 />
               </label>
@@ -711,6 +711,7 @@ export default function GalleryFilterSheet({
                   min="0"
                   value={draft.isoMax || ""}
                   onChange={(e) => patch({ isoMax: e.target.value })}
+                  placeholder="No maximum"
                   className={`mt-1 ${inputClass}`}
                 />
               </label>
@@ -721,6 +722,7 @@ export default function GalleryFilterSheet({
                   min="0"
                   value={draft.focalMin || ""}
                   onChange={(e) => patch({ focalMin: e.target.value })}
+                  placeholder="No minimum"
                   className={`mt-1 ${inputClass}`}
                 />
               </label>
@@ -731,6 +733,7 @@ export default function GalleryFilterSheet({
                   min="0"
                   value={draft.focalMax || ""}
                   onChange={(e) => patch({ focalMax: e.target.value })}
+                  placeholder="No maximum"
                   className={`mt-1 ${inputClass}`}
                 />
               </label>
@@ -766,7 +769,7 @@ export default function GalleryFilterSheet({
                   key={opt.value || "all"}
                   type="button"
                   size="sm"
-                  variant={(draft.kind || "") === opt.value ? "accent" : "outline"}
+                  variant={(draft.kind || "") === opt.value ? "primary" : "outline"}
                   surface="primary"
                   onClick={() => patch({ kind: opt.value })}
                 >
@@ -794,7 +797,7 @@ export default function GalleryFilterSheet({
                   key={opt.value || "album-any"}
                   type="button"
                   size="sm"
-                  variant={(draft.albumMembership || "") === opt.value ? "accent" : "outline"}
+                  variant={(draft.albumMembership || "") === opt.value ? "primary" : "outline"}
                   surface="primary"
                   onClick={() => patch({ albumMembership: opt.value })}
                 >
@@ -816,7 +819,7 @@ export default function GalleryFilterSheet({
                   key={opt.value || "any-orient"}
                   type="button"
                   size="sm"
-                  variant={(draft.orientation || "") === opt.value ? "accent" : "outline"}
+                  variant={(draft.orientation || "") === opt.value ? "primary" : "outline"}
                   surface="primary"
                   onClick={() => patch({ orientation: opt.value })}
                 >
@@ -835,7 +838,7 @@ export default function GalleryFilterSheet({
                     key={fmt}
                     type="button"
                     size="sm"
-                    variant={active ? "accent" : "outline"}
+                    variant={active ? "primary" : "outline"}
                     surface="primary"
                     onClick={() => toggleFormat(fmt)}
                   >
@@ -866,7 +869,7 @@ export default function GalleryFilterSheet({
                   key={opt.value || "gps-any"}
                   type="button"
                   size="sm"
-                  variant={(draft.hasGps || "") === opt.value ? "accent" : "outline"}
+                  variant={(draft.hasGps || "") === opt.value ? "primary" : "outline"}
                   surface="primary"
                   onClick={() => patch({ hasGps: opt.value })}
                 >
@@ -883,6 +886,7 @@ export default function GalleryFilterSheet({
               step="0.1"
               value={draft.minMegapixels || ""}
               onChange={(e) => patch({ minMegapixels: e.target.value })}
+              placeholder="No minimum"
               className={`mt-1 ${inputClass}`}
             />
           </label>
@@ -894,6 +898,7 @@ export default function GalleryFilterSheet({
                 min="0"
                 value={draft.minDuration || ""}
                 onChange={(e) => patch({ minDuration: e.target.value })}
+                placeholder="No minimum"
                 className={`mt-1 ${inputClass}`}
               />
             </label>
@@ -904,6 +909,7 @@ export default function GalleryFilterSheet({
                 min="0"
                 value={draft.maxDuration || ""}
                 onChange={(e) => patch({ maxDuration: e.target.value })}
+                placeholder="No maximum"
                 className={`mt-1 ${inputClass}`}
               />
             </label>
@@ -920,7 +926,7 @@ export default function GalleryFilterSheet({
                 key={key}
                 type="button"
                 size="sm"
-                variant={draft.timePreset === key ? "accent" : "outline"}
+                variant={draft.timePreset === key ? "primary" : "outline"}
                 surface="primary"
                 onClick={() => applyTimePreset(draft.timePreset === key ? "" : key)}
               >
@@ -937,6 +943,7 @@ export default function GalleryFilterSheet({
                 max="23"
                 value={draft.hourFrom || ""}
                 onChange={(e) => patch({ timePreset: "", hourFrom: e.target.value })}
+                placeholder="0–23"
                 className={`mt-1 ${inputClass}`}
               />
             </label>
@@ -948,6 +955,7 @@ export default function GalleryFilterSheet({
                 max="24"
                 value={draft.hourTo || ""}
                 onChange={(e) => patch({ timePreset: "", hourTo: e.target.value })}
+                placeholder="0–24"
                 className={`mt-1 ${inputClass}`}
               />
             </label>
@@ -984,7 +992,6 @@ export default function GalleryFilterSheet({
                     <Button
                       type="button"
                       size="sm"
-                      variant="accent"
                       onClick={() =>
                         setDraft({
                           ...EMPTY_FILTERS,

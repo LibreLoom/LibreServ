@@ -158,7 +158,7 @@ function PhotoInfoBody({ photo, photos, onSelectPhoto }) {
           {photo.thumb ? (
             <img src={photo.thumb} alt="" className="h-full w-full object-cover" />
           ) : (
-            <span className="flex h-full w-full items-center justify-center text-accent">
+            <span className="flex h-full w-full items-center justify-center">
               {photo.kind === "video" ? <Film size={20} /> : <FileImage size={20} />}
             </span>
           )}
@@ -258,7 +258,7 @@ function PhotoInfoBody({ photo, photos, onSelectPhoto }) {
               <dd className="min-w-0">
                 <Link
                   to={folderHref(photo.drive_id, folder)}
-                  className="block truncate font-mono underline decoration-dotted underline-offset-4 hover:text-accent"
+                  className="block truncate font-mono underline decoration-dotted underline-offset-4 hover:decoration-solid"
                   onClick={() => haptic("selection")}
                 >
                   {folder || "/"}

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { useSearchParams } from "react-router-dom";
-import { ArrowLeft, CheckCircle2, Send } from "lucide-react";
+import { AnimatePresence, MotionConfig, motion as Motion } from "motion/react";
+import { ArrowLeft, CheckCircle2, Send, Upload, X } from "lucide-react";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import CopyableValue from "@libreloom/ui/components/ui/CopyableValue.jsx";
@@ -18,10 +19,12 @@ import {
   isAnswered,
   isEmailAddress,
   visibleQuestions,
+  DEFAULT_THANK_YOU,
 } from "./questionTypes.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
+import { shakeElement } from "@libreloom/ui/utils/shake.js";
 
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 365; // a year
 
@@ -122,7 +125,24 @@ function responsePreview(entry, questions) {
  *   closedMessage?: string,
  * }} props
  */
-export default function FormResponder({
+export default function FormResponder(props) {
+  return (
+    <MotionConfig reducedMotion="user">
+      <Responder {...props} />
+    </MotionConfig>
+  );
+}
+
+FormResponder.propTypes = {
+  token: PropTypes.string.isRequired,
+  form: PropTypes.object.isRequired,
+  sharePassword: PropTypes.string,
+  accepting: PropTypes.bool,
+  full: PropTypes.bool,
+  closedMessage: PropTypes.string,
+};
+
+function Responder({
   token,
   form,
   sharePassword = "",
@@ -140,27 +160,30 @@ export default function FormResponder({
   const limitOne = settings.responseLimit === "one";
   const thankYou = typeof settings.thankYou === "string" && settings.thankYou.trim()
     ? settings.thankYou.trim()
-    : "Sent — thank you";
+    : DEFAULT_THANK_YOU;
 
+  const urlEdit = (searchParams.get("edit") || "").trim();
+  const [storedResponses, setStoredResponses] = useState(() => readStoredResponses(token));
+  const [remembered] = useState(
+    () => readCookie(cookieName("done", token)) === "1" || storedResponses.length > 0,
+  );
   const [answers, setAnswers] = useState(/** @type {Record<string, unknown>} */ ({}));
   const [editToken, setEditToken] = useState("");
   const [responseId, setResponseId] = useState("");
   const [isEdit, setIsEdit] = useState(false);
-  const urlEdit = (searchParams.get("edit") || "").trim();
-  const storedNow = readStoredResponses(token);
-  const remembered = readCookie(cookieName("done", token)) === "1" || storedNow.length > 0;
-  const [alreadyDone, setAlreadyDone] = useState(!urlEdit && limitOne && remembered);
+  /** Bumps whenever a different response is opened, so every field starts clean. */
+  const [session, setSession] = useState(0);
   const [checkingEdit, setCheckingEdit] = useState(Boolean(urlEdit));
   const [editNotice, setEditNotice] = useState("");
   const [errors, setErrors] = useState(/** @type {Record<string, string>} */ ({}));
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
-  const [filling, setFilling] = useState(!urlEdit && !(limitOne && remembered) && storedNow.length === 0);
-  const [done, setDone] = useState(!urlEdit && !(limitOne && remembered) && storedNow.length > 0);
+  /** "form" while filling in; "done" for the sent / answered-before screen. */
+  const [stage, setStage] = useState(
+    /** @type {"form" | "done" | "picking"} */ (!urlEdit && storedResponses.length > 0 ? "done" : !urlEdit && limitOne && remembered ? "done" : "form"),
+  );
   /** True only for the screen right after a send — a return visit uses the older headings. */
   const [justSent, setJustSent] = useState(false);
-  const [picking, setPicking] = useState(false);
-  const [storedResponses, setStoredResponses] = useState(storedNow);
 
   const shown = useMemo(
     () => visibleQuestions(questions, answers),
@@ -188,12 +211,13 @@ export default function FormResponder({
         setResponseId(typeof data?.id === "string" ? data.id : "");
         setAnswers(data && typeof data.answers === "object" && data.answers ? data.answers : {});
         setIsEdit(true);
-        setFilling(true);
+        setSession((n) => n + 1);
+        setStage("form");
       })
       .catch((err) => {
         if (cancelled) return;
         setEditNotice(apiErrorMessage(err, "We couldn't find answers for that edit link. You can fill the form in fresh."));
-        setFilling(true);
+        setStage("form");
       })
       .finally(() => {
         if (!cancelled) setCheckingEdit(false);
@@ -201,9 +225,15 @@ export default function FormResponder({
     return () => { cancelled = true; };
   }, [token, sharePassword, urlEdit]);
 
-  const editableResponses = storedResponses.filter(
-    (r) => typeof r.edit_token === "string" && r.edit_token !== "",
-  );
+  const editableResponses = allowEdits
+    ? storedResponses.filter((r) => typeof r.edit_token === "string" && r.edit_token !== "")
+    : [];
+  // A return visit still gets its edit link: the newest response this
+  // browser can change, unless one was just sent or opened.
+  const linkToken = editToken || editableResponses[editableResponses.length - 1]?.edit_token || "";
+  const editLink = allowEdits && linkToken
+    ? `${window.location.origin}/s/${token}?edit=${encodeURIComponent(linkToken)}`
+    : "";
 
   function setAnswer(questionId, value) {
     setAnswers((prev) => ({ ...prev, [questionId]: value }));
@@ -216,27 +246,31 @@ export default function FormResponder({
   }
 
   function openEdit(entry) {
-    haptic("selection");
     setEditToken(typeof entry.edit_token === "string" ? entry.edit_token : "");
     setResponseId(entry.id);
     setAnswers(entry.answers && typeof entry.answers === "object" ? entry.answers : {});
     setIsEdit(true);
     setErrors({});
-    setPicking(false);
-    setDone(false);
-    setFilling(true);
+    setSubmitError("");
+    setSession((n) => n + 1);
+    setStage("form");
   }
 
   function respondAgain() {
-    haptic("light");
     setAnswers({});
     setEditToken("");
     setResponseId("");
     setIsEdit(false);
     setErrors({});
     setSubmitError("");
-    setDone(false);
-    setFilling(true);
+    setJustSent(false);
+    setSession((n) => n + 1);
+    setStage("form");
+  }
+
+  function startEditing() {
+    if (editableResponses.length === 1) openEdit(editableResponses[0]);
+    else setStage("picking");
   }
 
   function answersToSend() {
@@ -258,7 +292,7 @@ export default function FormResponder({
         continue;
       }
       if (q.type === "email" && isAnswered(q, value) && !isEmailAddress(value)) {
-        next[q.id] = "That doesn't look like an email address.";
+        next[q.id] = "That doesn't look like an email address. Check for an @ and a dot, like name@example.com.";
       }
       if (q.type === "number" && isAnswered(q, value)) {
         const n = Number(value);
@@ -276,11 +310,13 @@ export default function FormResponder({
     if (submitting) return;
     const found = validate();
     if (Object.keys(found).length) {
-      haptic("error");
       setErrors(found);
       const first = shown.find((q) => found[q.id]);
       if (first) {
-        document.getElementById(`q-${first.id}`)?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+        const el = document.getElementById(`q-${first.id}`);
+        el?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+        // shakeElement fires the error haptic with the shake.
+        shakeElement(el);
       }
       return;
     }
@@ -306,42 +342,32 @@ export default function FormResponder({
       const data = await res.json().catch(() => null);
       if (!res.ok) {
         throw new Error(
-          (data && data.error) || "Couldn't send your answers. Try again in a moment.",
+          (data && data.error) || "Luna couldn't send your answers. Check your connection and send again.",
         );
       }
       const id = typeof data?.id === "string" ? data.id : responseId;
+      const issued = allowEdits && data && typeof data.edit_token === "string" ? data.edit_token : "";
       writeCookie(cookieName("done", token), "1");
       if (id) {
         const entry = allowEdits
-          ? {
-              id,
-              edit_token:
-                data && typeof data.edit_token === "string" ? data.edit_token : tokenToUse,
-              at: Date.now(),
-              answers: answersToSend(),
-            }
+          ? { id, edit_token: issued || tokenToUse, at: Date.now(), answers: answersToSend() }
           : { id, at: Date.now(), answers: answersToSend() };
         const next = saveStoredResponse(token, entry);
         if (next) setStoredResponses(next);
       }
-      setEditToken(
-        allowEdits && data && typeof data.edit_token === "string" ? data.edit_token : tokenToUse,
-      );
+      setEditToken(allowEdits ? issued || tokenToUse : "");
       if (id) setResponseId(id);
       setIsEdit(true);
-      setFilling(false);
-      setDone(true);
       setJustSent(true);
+      setStage("done");
       haptic("success");
     } catch (err) {
       haptic("error");
-      setSubmitError(apiErrorMessage(err, "Couldn't send your answers. Try again in a moment."));
+      setSubmitError(apiErrorMessage(err, "Luna couldn't send your answers. Check your connection and send again."));
     } finally {
       setSubmitting(false);
     }
   }
-
-  const editLink = editToken ? `${window.location.origin}/s/${token}?edit=${editToken}` : "";
 
   if (!accepting) {
     return (
@@ -356,215 +382,235 @@ export default function FormResponder({
     return (
       <div className="flex min-h-0 flex-1 items-center justify-center" role="status" aria-label="Opening your answers">
         <div className="flex items-center gap-3 text-secondary">
-          <p className="font-mono text-sm uppercase tracking-widest">Opening</p>
+          <p className="font-mono text-sm">Opening…</p>
           <Spinner size="md" decorative />
         </div>
       </div>
     );
   }
 
-  if (picking) {
-    return (
-      <ResponsePicker
-        responses={editableResponses}
-        questions={questions}
-        onPick={openEdit}
-        onBack={() => {
-          haptic("light");
-          setPicking(false);
-          setDone(true);
-        }}
-      />
-    );
-  }
-
-  if (alreadyDone && !filling) {
-    return (
-      <StageCard
-        title="You've already answered this form"
-        subtitle="This form asks for one answer per person. This browser remembers that — it's a reminder, not a lock. Another device can still answer."
-        action={
-          <div className="flex flex-wrap items-center justify-center gap-2">
-            {allowEdits && editableResponses.length > 0 && (
-              <Button
-                variant="accent"
-                surface="primary"
-                onClick={() => {
-                  if (editableResponses.length === 1) openEdit(editableResponses[0]);
-                  else {
-                    haptic("selection");
-                    setPicking(true);
-                  }
-                }}
-              >
-                {editableResponses.length === 1 ? "Edit response" : "Edit responses"}
-              </Button>
-            )}
-            <Button
-              variant="ghost"
-              surface="primary"
-              onClick={() => {
-                haptic("light");
-                setAlreadyDone(false);
-                respondAgain();
-              }}
-            >
-              Answer anyway
-            </Button>
-          </div>
-        }
-      />
-    );
-  }
-
-  if (done && !filling) {
-    return (
-      <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-4">
-        <div className="w-full max-w-xl space-y-4 text-center">
-          <CheckCircle2 size={ICON_SIZE.xl} className="mx-auto text-success" aria-hidden="true" />
-          <h1 className="font-mono text-2xl text-secondary">
-            {justSent
-              ? thankYou
-              : storedResponses.length === 1
-                ? "You've answered this form"
-                : `You've sent ${storedResponses.length} answers`}
-          </h1>
-          {allowEdits && editLink && (
-            <div className="space-y-2">
-              <p className="text-sm text-secondary">
-                Want to change your answers later? Keep this link — it's only for you.
-              </p>
-              <CopyableValue value={editLink} surface="primary" />
-            </div>
-          )}
-          <div className="flex flex-wrap items-center justify-center gap-2">
-            {allowEdits && editableResponses.length > 0 && (
-              <Button
-                variant="accent"
-                surface="primary"
-                size="lg"
-                onClick={() => {
-                  if (editableResponses.length === 1) openEdit(editableResponses[0]);
-                  else {
-                    haptic("selection");
-                    setPicking(true);
-                  }
-                }}
-              >
-                {editableResponses.length === 1 ? "Edit response" : "Edit responses"}
-              </Button>
-            )}
-            {!limitOne && !full && (
-              <Button variant="ghost" surface="primary" size="lg" onClick={respondAgain}>
-                Respond again
-              </Button>
-            )}
-          </div>
-          {limitOne && (
-            <p className="text-xs text-accent">
-              This form asks for one answer per person. This browser remembers that — it's a reminder, not a lock.
-            </p>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  if (full && !isEdit) {
-    return (
-      <StageCard
-        title={form?.title || "This form"}
-        subtitle={closedMessage || "This form has all the answers it can take."}
-      />
-    );
-  }
-
   return (
-    <form
-      className="flex min-h-0 flex-1 flex-col overflow-y-auto"
-      onSubmit={(e) => {
-        e.preventDefault();
-        submit();
-      }}
-    >
-      <div className="mx-auto w-full max-w-2xl space-y-4 p-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:p-6">
-        {editNotice && <PageNotice variant="warning">{editNotice}</PageNotice>}
-        <div className="rounded-large-element bg-secondary text-primary p-5 space-y-2">
-          <h1 className="font-mono text-xl font-normal text-primary">
-            {isEdit ? "Change your answers" : (form?.title || "Untitled form")}
-          </h1>
-          {!isEdit && form?.description ? (
-            <p className="whitespace-pre-wrap text-sm text-primary">{form.description}</p>
-          ) : null}
-          {isEdit && (
-            <p className="text-sm text-primary">
-              This is the same form. Change what you need, then send it again.
-            </p>
-          )}
-        </div>
+    <AnimatePresence mode="wait" initial={false}>
+      {stage === "picking" ? (
+        <StageMotion key="picking">
+          <ResponsePicker
+            responses={editableResponses}
+            questions={questions}
+            onPick={openEdit}
+            onBack={() => setStage("done")}
+          />
+        </StageMotion>
+      ) : stage === "done" ? (
+        <StageMotion key="done">
+          <DoneScreen
+            title={justSent
+              ? thankYou
+              : storedResponses.length > 1
+                ? `You've sent ${storedResponses.length} responses to this form`
+                : "You've answered this form"}
+            editLink={editLink}
+            canEdit={editableResponses.length > 0}
+            editCount={editableResponses.length}
+            canRespondAgain={!limitOne && !full}
+            limitOne={limitOne}
+            onEdit={startEditing}
+            onRespondAgain={respondAgain}
+          />
+        </StageMotion>
+      ) : full && !isEdit ? (
+        <StageMotion key="full">
+          <StageCard
+            title={form?.title || "This form"}
+            subtitle={closedMessage || "This form has all the answers it can take."}
+          />
+        </StageMotion>
+      ) : (
+        <StageMotion key={`form-${session}`} className="flex min-h-0 flex-1 flex-col">
+          <form
+            className="flex min-h-0 flex-1 flex-col overflow-y-auto"
+            noValidate
+            onSubmit={(e) => {
+              e.preventDefault();
+              submit();
+            }}
+          >
+            <div className="mx-auto w-full max-w-2xl space-y-4 p-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:p-6">
+              {editNotice && <PageNotice variant="warning">{editNotice}</PageNotice>}
+              <div className="rounded-large-element bg-secondary text-primary p-5 space-y-2">
+                {isEdit ? (
+                  <p className="font-mono text-xs font-normal">
+                    Changing your answers
+                  </p>
+                ) : null}
+                <h1 className="font-mono text-xl font-normal text-primary">
+                  {form?.title || "Untitled form"}
+                </h1>
+                {form?.description ? (
+                  <p className="whitespace-pre-wrap text-sm text-primary">{form.description}</p>
+                ) : null}
+                {isEdit && (
+                  <p className="text-sm text-primary">
+                    Change what you need, then save. Your earlier answers are filled in.
+                  </p>
+                )}
+              </div>
 
-        {shown.length === 0 ? (
-          <p className="text-sm text-secondary">
-            This form doesn't have any questions yet — check back later.
-          </p>
-        ) : (
-          shown.map((question, index) => (
-            <section
-              key={question.id}
-              id={`q-${question.id}`}
-              className="rounded-large-element bg-secondary text-primary p-5 space-y-3"
-            >
-              <p className="font-mono text-xs font-normal uppercase tracking-widest text-accent">
-                {index + 1} of {shown.length}
-                {question.required ? " · required" : ""}
-              </p>
-              <h2 className="text-base text-primary">
-                {question.label || "Untitled question"}
-              </h2>
-              {question.help ? (
-                <p className="text-sm text-primary">{question.help}</p>
-              ) : null}
-              {question.image ? (
-                <img
-                  src={`/s/${encodeURIComponent(token)}/form-image?path=${encodeURIComponent(question.image)}`}
-                  alt=""
-                  className="max-h-64 w-full rounded-large-element object-contain bg-primary"
-                />
-              ) : null}
-              <QuestionField
-                question={question}
-                value={answers[question.id]}
-                error={errors[question.id] || ""}
-                token={token}
-                sharePassword={sharePassword}
-                onAnswer={(value) => setAnswer(question.id, value)}
-              />
-            </section>
-          ))
-        )}
+              {shown.length === 0 ? (
+                <p className="text-sm text-secondary">
+                  This form doesn&apos;t have any questions yet — check back later.
+                </p>
+              ) : (
+                <AnimatePresence initial={false}>
+                  {shown.map((question, index) => (
+                    <Motion.section
+                      key={question.id}
+                      layout="position"
+                      id={`q-${question.id}`}
+                      initial={{ opacity: 0, height: 0, y: -8 }}
+                      animate={{ opacity: 1, height: "auto", y: 0 }}
+                      exit={{ opacity: 0, height: 0, transition: { duration: 0.18 } }}
+                      transition={SPRING}
+                      className="overflow-hidden"
+                    >
+                      <div className="rounded-large-element bg-secondary text-primary p-5 space-y-3">
+                        <p className="font-mono text-xs font-normal">
+                          {index + 1} of {shown.length}
+                          {question.required ? " · required" : ""}
+                        </p>
+                        <h2 className="text-base text-primary" id={`q-${question.id}-label`}>
+                          {question.label || "Untitled question"}
+                        </h2>
+                        {question.help ? (
+                          <p className="text-sm text-primary">{question.help}</p>
+                        ) : null}
+                        {question.image ? (
+                          <img
+                            src={`/s/${encodeURIComponent(token)}/form-image?name=${encodeURIComponent(question.image)}`}
+                            alt=""
+                            className="max-h-64 w-full rounded-large-element object-contain bg-primary"
+                          />
+                        ) : null}
+                        <QuestionField
+                          key={`${session}:${question.id}`}
+                          question={question}
+                          value={answers[question.id]}
+                          error={errors[question.id] || ""}
+                          token={token}
+                          sharePassword={sharePassword}
+                          onAnswer={(value) => setAnswer(question.id, value)}
+                        />
+                      </div>
+                    </Motion.section>
+                  ))}
+                </AnimatePresence>
+              )}
 
-        {submitError && <PageNotice variant="error">{submitError}</PageNotice>}
+              {submitError && <PageNotice variant="error">{submitError}</PageNotice>}
 
-        {shown.length > 0 && (
-          <div className="flex justify-end">
-            <Button variant="accent" surface="primary" type="submit" disabled={submitting}>
-              {submitting ? "Sending…" : isEdit ? "Save changes" : "Send answers"}
-              <Send size={ICON_SIZE.sm} aria-hidden="true" />
-            </Button>
-          </div>
-        )}
-      </div>
-    </form>
+              {shown.length > 0 && (
+                <Motion.div layout="position" transition={SPRING} className="flex justify-end">
+                  <Button variant="secondary" surface="primary" type="submit" disabled={submitting}>
+                    {submitting ? "Sending…" : isEdit ? "Save changes" : "Send answers"}
+                    <Send size={ICON_SIZE.sm} aria-hidden="true" />
+                  </Button>
+                </Motion.div>
+              )}
+            </div>
+          </form>
+        </StageMotion>
+      )}
+    </AnimatePresence>
   );
 }
 
-FormResponder.propTypes = {
-  token: PropTypes.string.isRequired,
-  form: PropTypes.object.isRequired,
-  sharePassword: PropTypes.string,
-  accepting: PropTypes.bool,
-  full: PropTypes.bool,
-  closedMessage: PropTypes.string,
+Responder.propTypes = FormResponder.propTypes;
+
+/** @type {import("motion/react").Transition} */
+const SPRING = { type: "spring", stiffness: 520, damping: 42, mass: 0.9 };
+
+/** Screens cross-fade and rise when the stage changes. */
+function StageMotion({ children, className = "flex min-h-0 flex-1 flex-col" }) {
+  return (
+    <Motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -8 }}
+      transition={{ duration: 0.22, ease: [0.2, 0, 0, 1] }}
+      className={className}
+    >
+      {children}
+    </Motion.div>
+  );
+}
+
+StageMotion.propTypes = {
+  children: PropTypes.node,
+  className: PropTypes.string,
+};
+
+/**
+ * @param {{
+ *   title: string,
+ *   editLink: string,
+ *   canEdit: boolean,
+ *   editCount: number,
+ *   canRespondAgain: boolean,
+ *   limitOne: boolean,
+ *   onEdit: () => void,
+ *   onRespondAgain: () => void,
+ * }} props
+ */
+function DoneScreen({ title, editLink, canEdit, editCount, canRespondAgain, limitOne, onEdit, onRespondAgain }) {
+  return (
+    <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-4">
+      <div className="w-full max-w-xl space-y-4 text-center">
+        <Motion.div
+          initial={{ scale: 0.4, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ type: "spring", stiffness: 420, damping: 18, delay: 0.05 }}
+        >
+          <CheckCircle2 size={ICON_SIZE.xl} className="mx-auto text-success" aria-hidden="true" />
+        </Motion.div>
+        <h1 className="font-mono text-2xl text-secondary">{title}</h1>
+        {editLink && (
+          <div className="space-y-2">
+            <p className="text-sm text-secondary">
+              Want to change your answers later, or from another device? Keep this link — it&apos;s only for you.
+            </p>
+            <CopyableValue value={editLink} surface="primary" />
+          </div>
+        )}
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          {canEdit && (
+            <Button variant="secondary" surface="primary" size="lg" onClick={onEdit}>
+              {editCount === 1 ? "Change my answers" : "Change a response"}
+            </Button>
+          )}
+          {canRespondAgain && (
+            <Button variant="ghost" surface="primary" size="lg" onClick={onRespondAgain}>
+              Send another response
+            </Button>
+          )}
+        </div>
+        {limitOne && (
+          <p className="text-xs text-secondary">
+            This form takes one response per person.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+DoneScreen.propTypes = {
+  title: PropTypes.string.isRequired,
+  editLink: PropTypes.string,
+  canEdit: PropTypes.bool,
+  editCount: PropTypes.number,
+  canRespondAgain: PropTypes.bool,
+  limitOne: PropTypes.bool,
+  onEdit: PropTypes.func.isRequired,
+  onRespondAgain: PropTypes.func.isRequired,
 };
 
 /**
@@ -599,31 +645,38 @@ StageCard.propTypes = {
 function ResponsePicker({ responses, questions, onPick, onBack }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-4">
+      <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
         <div className="w-full max-w-xl space-y-4">
-          <h1 className="font-mono text-xl text-secondary">Which answer do you want to change?</h1>
+          <h1 className="font-mono text-xl text-secondary">Which response do you want to change?</h1>
           <div className="space-y-2">
-            {responses.map((entry) => (
-              <button
+            {responses.map((entry, i) => (
+              <Motion.button
                 key={entry.id}
                 type="button"
-                className="flex w-full flex-col gap-1 rounded-large-element bg-secondary text-primary p-4 text-left hover:bg-primary/10 motion-safe:transition-colors"
-                onClick={() => onPick(entry)}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: Math.min(i * 0.04, 0.3) }}
+                whileTap={{ scale: 0.98 }}
+                className="flex w-full flex-col gap-1 rounded-large-element bg-secondary text-primary p-4 text-left motion-safe:transition-transform hover:motion-safe:translate-x-0.5 focus-visible:ring-2 focus-visible:ring-accent no-focus-outline"
+                onClick={() => {
+                  haptic("selection");
+                  onPick(entry);
+                }}
               >
-                <span className="font-mono text-xs font-normal text-accent">{formatSentAt(entry.at)}</span>
+                <span className="font-mono text-xs font-normal">Sent {formatSentAt(entry.at)}</span>
                 <span className="truncate text-sm text-primary">
                   {responsePreview(entry, questions)}
                 </span>
-              </button>
+              </Motion.button>
             ))}
           </div>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" surface="primary" onClick={onBack}>
+              <ArrowLeft size={ICON_SIZE.sm} aria-hidden="true" />
+              Back
+            </Button>
+          </div>
         </div>
-      </div>
-      <div className="flex items-center gap-2 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
-        <Button variant="ghost" surface="primary" onClick={onBack}>
-          <ArrowLeft size={ICON_SIZE.sm} aria-hidden="true" />
-          Back
-        </Button>
       </div>
     </div>
   );
@@ -636,8 +689,90 @@ ResponsePicker.propTypes = {
   onBack: PropTypes.func.isRequired,
 };
 
+const inputClass =
+  "w-full rounded-pill border-2 border-secondary/30 bg-primary px-4 py-2 text-base text-secondary outline-none no-focus-outline focus:border-accent focus-visible:border-accent";
+
+/**
+ * The mark in front of a choice: a dot that fills for one-pick questions, a
+ * tick box for checkboxes. The pill keeps its surface when picked; the solid
+ * mark and the accent outline carry the checked state.
+ */
+function ChoiceMark({ multi, checked }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        "flex size-5 shrink-0 items-center justify-center border-2 motion-safe:transition-colors motion-safe:duration-200",
+        multi ? "rounded-md" : "rounded-full",
+        checked ? "border-secondary bg-secondary text-primary" : "border-secondary/50",
+      )}
+    >
+      {multi ? (
+        <svg
+          viewBox="0 0 12 12"
+          fill="none"
+          className={cn(
+            "size-3 motion-safe:transition-transform motion-safe:duration-200",
+            checked ? "scale-100" : "scale-0",
+          )}
+        >
+          <path d="M2.5 6L5 8.5L9.5 3.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      ) : (
+        <span
+          className={cn(
+            "size-2 rounded-full bg-primary motion-safe:transition-transform motion-safe:duration-200",
+            checked ? "scale-100" : "scale-0",
+          )}
+        />
+      )}
+    </span>
+  );
+}
+
+ChoiceMark.propTypes = {
+  multi: PropTypes.bool,
+  checked: PropTypes.bool,
+};
+
+/**
+ * @param {{ multi?: boolean, checked: boolean, onClick: () => void, children: import("react").ReactNode }} props
+ */
+function ChoicePill({ multi = false, checked, onClick, children }) {
+  return (
+    <Motion.button
+      type="button"
+      role={multi ? "checkbox" : "radio"}
+      aria-checked={checked}
+      whileTap={{ scale: 0.98 }}
+      className={cn(
+        "flex w-full items-center gap-3 rounded-pill border-2 px-4 py-3 text-left text-base motion-safe:transition-colors",
+        "focus-visible:ring-2 focus-visible:ring-accent no-focus-outline",
+        "bg-primary text-secondary",
+        checked ? "border-accent" : "border-secondary/30 hover:border-secondary",
+      )}
+      onClick={() => {
+        haptic("selection");
+        onClick();
+      }}
+    >
+      <ChoiceMark multi={multi} checked={checked} />
+      <span className="min-w-0 flex-1">{children}</span>
+    </Motion.button>
+  );
+}
+
+ChoicePill.propTypes = {
+  multi: PropTypes.bool,
+  checked: PropTypes.bool.isRequired,
+  onClick: PropTypes.func.isRequired,
+  children: PropTypes.node,
+};
+
 /**
  * The answer control for one question, on the same card the editor shows.
+ * Mounted fresh for every response opened (keyed by session), so nothing
+ * typed for one response leaks into another.
  * @param {{
  *   question: object,
  *   value: unknown,
@@ -650,19 +785,21 @@ ResponsePicker.propTypes = {
 function QuestionField({ question, value, error, token, sharePassword, onAnswer }) {
   const options = answerOptions(question);
   const allowOther = question?.config?.allowOther === true;
-  const inputClass =
-    "w-full rounded-pill border-2 border-secondary/30 bg-primary px-4 py-2 text-base text-secondary outline-none no-focus-outline focus:border-accent placeholder:text-accent";
   const picked = Array.isArray(value) ? value.map(String) : value != null && value !== "" ? [String(value)] : [];
-  const otherText = allowOther
-    ? picked.find((p) => !options.includes(p)) || ""
-    : "";
+  const initialOther = allowOther ? picked.find((p) => !options.includes(p)) || "" : "";
+  // "Other" keeps its own text and on/off state, so typing words that
+  // happen to match an option doesn't flip the pick or clear the box.
+  const [otherText, setOtherText] = useState(initialOther);
+  const [otherOn, setOtherOn] = useState(initialOther !== "");
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
   const [fileLabel, setFileLabel] = useState("");
-  const fileRef = useRef(null);
+  const fileRef = useRef(/** @type {HTMLInputElement | null} */ (null));
+  const otherRef = useRef(/** @type {HTMLInputElement | null} */ (null));
+  const labelId = `q-${question.id}-label`;
 
   function focusField(e) {
-    e.currentTarget.scrollIntoView({ block: "center", behavior: "smooth" });
+    e.currentTarget.scrollIntoView?.({ block: "center", behavior: "smooth" });
   }
 
   async function onFile(file) {
@@ -691,93 +828,101 @@ function QuestionField({ question, value, error, token, sharePassword, onAnswer 
       });
       const data = await res.json().catch(() => null);
       if (!res.ok || !data?.name) {
-        throw new Error((data && data.error) || "Couldn't attach that file. Try again.");
+        throw new Error((data && data.error) || "Luna couldn't attach that file. Try again.");
       }
       setFileLabel(file.name);
       onAnswer(data.name);
       haptic("success");
     } catch (err) {
       haptic("error");
-      setUploadError(apiErrorMessage(err, "Couldn't attach that file. Try again."));
+      setUploadError(apiErrorMessage(err, "Luna couldn't attach that file. Try again."));
     } finally {
       setUploading(false);
     }
   }
 
+  function pickOther(multi) {
+    const next = !otherOn;
+    setOtherOn(next);
+    if (next) setTimeout(() => otherRef.current?.focus(), 0);
+    if (multi) {
+      const kept = picked.filter((p) => options.includes(p));
+      onAnswer(next && otherText ? [...kept, otherText] : kept);
+    } else {
+      onAnswer(next ? otherText : "");
+    }
+  }
+
+  function typeOther(text, multi) {
+    setOtherText(text);
+    setOtherOn(true);
+    if (multi) {
+      const kept = picked.filter((p) => options.includes(p));
+      onAnswer(text ? [...kept, text] : kept);
+    } else {
+      onAnswer(text);
+    }
+  }
+
+  const single = question.type === "choice" || question.type === "yes_no";
+  const multi = question.type === "multi_choice";
+
   return (
     <div className="space-y-3">
-      {question.type === "choice" || question.type === "yes_no" ? (
-        <div className="flex flex-col gap-2">
+      {single || multi ? (
+        <div
+          className="flex flex-col gap-2"
+          role={multi ? "group" : "radiogroup"}
+          aria-labelledby={labelId}
+        >
           {options.map((option) => {
             const stored = question.type === "yes_no" ? (option === "Yes" ? "yes" : "no") : option;
-            const selected = value === stored;
+            const checked = multi ? picked.includes(option) : !otherOn && value === stored;
             return (
-              <button
+              <ChoicePill
                 key={option}
-                type="button"
-                className={cn(
-                  "rounded-pill border-2 px-4 py-3 text-left text-base motion-safe:transition-colors",
-                  selected
-                    ? "border-accent bg-accent text-primary"
-                    : "border-secondary/30 bg-primary text-secondary hover:border-accent",
-                )}
-                aria-pressed={selected}
+                multi={multi}
+                checked={checked}
                 onClick={() => {
-                  haptic("selection");
-                  onAnswer(stored);
+                  if (multi) {
+                    onAnswer(checked ? picked.filter((p) => p !== option) : [...picked, option]);
+                  } else {
+                    setOtherOn(false);
+                    onAnswer(stored);
+                  }
                 }}
               >
                 {option}
-              </button>
+              </ChoicePill>
             );
           })}
-          {allowOther && question.type === "choice" && (
-            <OtherLine
-              selected={otherText !== "" || value === "__other__"}
-              text={otherText}
-              onPick={() => onAnswer(otherText)}
-              onText={(text) => onAnswer(text)}
-            />
-          )}
-        </div>
-      ) : question.type === "multi_choice" ? (
-        <div className="flex flex-col gap-2">
-          {options.map((option) => {
-            const selected = picked.includes(option);
-            return (
-              <button
-                key={option}
-                type="button"
-                className={cn(
-                  "rounded-pill border-2 px-4 py-3 text-left text-base motion-safe:transition-colors",
-                  selected
-                    ? "border-accent bg-accent text-primary"
-                    : "border-secondary/30 bg-primary text-secondary hover:border-accent",
-                )}
-                aria-pressed={selected}
-                onClick={() => {
-                  haptic("selection");
-                  const next = selected ? picked.filter((p) => p !== option) : [...picked, option];
-                  onAnswer(next);
-                }}
-              >
-                {option}
-              </button>
-            );
-          })}
-          {allowOther && (
-            <OtherLine
-              selected={otherText !== ""}
-              text={otherText}
-              onPick={() => {
-                if (!otherText) return;
-                onAnswer([...picked.filter((p) => options.includes(p)), otherText]);
-              }}
-              onText={(text) => {
-                const kept = picked.filter((p) => options.includes(p));
-                onAnswer(text ? [...kept, text] : kept);
-              }}
-            />
+          {allowOther && question.type !== "yes_no" && (
+            <div className="flex flex-col gap-2">
+              <ChoicePill multi={multi} checked={otherOn} onClick={() => pickOther(multi)}>
+                Other
+              </ChoicePill>
+              <AnimatePresence initial={false}>
+                {otherOn ? (
+                  <Motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={SPRING}
+                    className="overflow-hidden"
+                  >
+                    <input
+                      ref={otherRef}
+                      className={inputClass}
+                      value={otherText}
+                      onFocus={focusField}
+                      onChange={(e) => typeOther(e.target.value, multi)}
+                      placeholder="Type your answer"
+                      aria-label="Other answer"
+                    />
+                  </Motion.div>
+                ) : null}
+              </AnimatePresence>
+            </div>
           )}
         </div>
       ) : question.type === "dropdown" ? (
@@ -785,28 +930,45 @@ function QuestionField({ question, value, error, token, sharePassword, onAnswer 
           <Dropdown
             options={[
               ...options.map((option) => ({ value: option, label: option })),
-              ...(allowOther ? [{ value: "__other__", label: "Other" }] : []),
+              ...(allowOther ? [{ value: OTHER_VALUE, label: "Other" }] : []),
             ]}
-            value={options.includes(String(value ?? "")) ? String(value) : otherText ? "__other__" : ""}
+            value={otherOn ? OTHER_VALUE : options.includes(String(value ?? "")) ? String(value) : ""}
             onChange={(next) => {
-              if (next === "__other__") onAnswer(otherText);
-              else onAnswer(next);
+              if (next === OTHER_VALUE) {
+                setOtherOn(true);
+                onAnswer(otherText);
+                setTimeout(() => otherRef.current?.focus(), 0);
+              } else {
+                setOtherOn(false);
+                onAnswer(next);
+              }
             }}
             placeholder="Pick one…"
             bg="primary"
             fullWidth
             aria-label={question.label || "Pick one"}
           />
-          {allowOther && (otherText !== "" || value === "__other__" || (value && !options.includes(String(value)))) && (
-            <input
-              className={inputClass}
-              value={otherText}
-              onFocus={focusField}
-              onChange={(e) => onAnswer(e.target.value)}
-              placeholder="Type your answer"
-              aria-label="Other answer"
-            />
-          )}
+          <AnimatePresence initial={false}>
+            {allowOther && otherOn ? (
+              <Motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={SPRING}
+                className="overflow-hidden"
+              >
+                <input
+                  ref={otherRef}
+                  className={inputClass}
+                  value={otherText}
+                  onFocus={focusField}
+                  onChange={(e) => typeOther(e.target.value, false)}
+                  placeholder="Type your answer"
+                  aria-label="Other answer"
+                />
+              </Motion.div>
+            ) : null}
+          </AnimatePresence>
         </div>
       ) : question.type === "date" ? (
         <input
@@ -815,11 +977,12 @@ function QuestionField({ question, value, error, token, sharePassword, onAnswer 
           value={typeof value === "string" ? value : ""}
           onFocus={focusField}
           onChange={(e) => onAnswer(e.target.value)}
-          aria-label={question.label || "Pick a day"}
+          aria-labelledby={labelId}
         />
       ) : question.type === "number" ? (
         <input
           type="number"
+          inputMode="decimal"
           className={inputClass}
           value={value == null ? "" : String(value)}
           min={typeof question.config?.min === "number" ? question.config.min : undefined}
@@ -827,7 +990,7 @@ function QuestionField({ question, value, error, token, sharePassword, onAnswer 
           onFocus={focusField}
           onChange={(e) => onAnswer(e.target.value === "" ? "" : Number(e.target.value))}
           placeholder="0"
-          aria-label={question.label || "A number"}
+          aria-labelledby={labelId}
         />
       ) : question.type === "email" ? (
         <input
@@ -837,21 +1000,38 @@ function QuestionField({ question, value, error, token, sharePassword, onAnswer 
           onFocus={focusField}
           onChange={(e) => onAnswer(e.target.value)}
           placeholder="name@example.com"
-          aria-label={question.label || "Email"}
+          aria-labelledby={labelId}
           autoComplete="email"
         />
       ) : question.type === "file" ? (
         <div className="space-y-2">
-          <Button
-            type="button"
-            variant="outline"
-            surface="secondary"
-            disabled={uploading}
-            aria-label={question.label ? `${question.label}. Attach a photo or PDF` : "Attach a photo or PDF"}
-            onClick={() => fileRef.current?.click()}
-          >
-            {uploading ? "Attaching…" : "Attach a photo or PDF"}
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              surface="secondary"
+              disabled={uploading}
+              aria-describedby={labelId}
+              onClick={() => fileRef.current?.click()}
+            >
+              <Upload size={ICON_SIZE.sm} aria-hidden="true" />
+              {uploading ? "Attaching…" : typeof value === "string" && value ? "Attach a different file" : "Attach a photo or PDF"}
+            </Button>
+            {typeof value === "string" && value && !uploading ? (
+              <Button
+                type="button"
+                variant="ghost"
+                surface="secondary"
+                onClick={() => {
+                  setFileLabel("");
+                  onAnswer("");
+                }}
+              >
+                <X size={ICON_SIZE.sm} aria-hidden="true" />
+                Remove
+              </Button>
+            ) : null}
+          </div>
           <input
             ref={fileRef}
             type="file"
@@ -865,12 +1045,12 @@ function QuestionField({ question, value, error, token, sharePassword, onAnswer 
               onFile(file);
             }}
           />
-          {(fileLabel || (typeof value === "string" && value)) && (
+          {typeof value === "string" && value ? (
             <p className="text-sm text-primary">
-              Attached: {fileLabel || (typeof value === "string" ? value : "")}
+              Attached: {fileLabel || "your file"}
             </p>
-          )}
-          {uploadError && <PageNotice variant="error">{uploadError}</PageNotice>}
+          ) : null}
+          {uploadError && <p className="text-sm text-error">{uploadError}</p>}
         </div>
       ) : question.type === "long_text" ? (
         <textarea
@@ -879,7 +1059,7 @@ function QuestionField({ question, value, error, token, sharePassword, onAnswer 
           onFocus={focusField}
           onChange={(e) => onAnswer(e.target.value)}
           placeholder="Type your answer"
-          aria-label={question.label || "Your answer"}
+          aria-labelledby={labelId}
         />
       ) : (
         <input
@@ -889,13 +1069,29 @@ function QuestionField({ question, value, error, token, sharePassword, onAnswer 
           onFocus={focusField}
           onChange={(e) => onAnswer(e.target.value)}
           placeholder="Type your answer"
-          aria-label={question.label || "Your answer"}
+          aria-labelledby={labelId}
         />
       )}
-      {error && <PageNotice variant="error">{error}</PageNotice>}
+      <AnimatePresence initial={false}>
+        {error ? (
+          <Motion.p
+            key="error"
+            role="alert"
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            className="text-sm text-error"
+          >
+            {error}
+          </Motion.p>
+        ) : null}
+      </AnimatePresence>
     </div>
   );
 }
+
+/** Dropdown value for the Other entry — never stored as an answer. */
+const OTHER_VALUE = "\u0000other";
 
 QuestionField.propTypes = {
   question: PropTypes.object.isRequired,
@@ -904,44 +1100,4 @@ QuestionField.propTypes = {
   token: PropTypes.string.isRequired,
   sharePassword: PropTypes.string,
   onAnswer: PropTypes.func.isRequired,
-};
-
-/**
- * @param {{ selected: boolean, text: string, onPick: () => void, onText: (text: string) => void }} props
- */
-function OtherLine({ selected, text, onPick, onText }) {
-  return (
-    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-      <button
-        type="button"
-        className={cn(
-          "rounded-pill border-2 px-4 py-3 text-left text-base motion-safe:transition-colors",
-          selected
-            ? "border-accent bg-accent text-primary"
-            : "border-secondary/30 bg-primary text-secondary hover:border-accent",
-        )}
-        aria-pressed={selected}
-        onClick={() => {
-          haptic("selection");
-          onPick();
-        }}
-      >
-        Other
-      </button>
-      <input
-        className="min-w-0 flex-1 rounded-pill border-2 border-secondary/30 bg-primary px-4 py-2 text-base text-secondary outline-none no-focus-outline focus:border-accent placeholder:text-accent"
-        value={text}
-        onChange={(e) => onText(e.target.value)}
-        placeholder="Type your answer"
-        aria-label="Other answer"
-      />
-    </div>
-  );
-}
-
-OtherLine.propTypes = {
-  selected: PropTypes.bool,
-  text: PropTypes.string,
-  onPick: PropTypes.func.isRequired,
-  onText: PropTypes.func.isRequired,
 };

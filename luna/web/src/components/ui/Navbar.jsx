@@ -482,7 +482,7 @@ export default function Navbar() {
                       setIsUserMenuOpen(false);
                       await logout();
                     }}
-                    className={cn(menuItemClasses, "hover:bg-accent", "hover:text-primary", "text-left")}
+                    className={cn(menuItemClasses, "hover:bg-primary", "hover:text-secondary", "text-left")}
                   >
                     <X size={ICON_SIZE.md} aria-hidden="true" />
                     <span className="text-sm font-semibold">Sign Out</span>

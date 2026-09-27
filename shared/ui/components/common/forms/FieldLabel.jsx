@@ -62,7 +62,7 @@ export default function FieldLabel({
       )}
     >
       {children}
-      {required && <span className="text-accent ml-1">*</span>}
+      {required && <span className="ml-1">*</span>}
     </label>
   );
 }

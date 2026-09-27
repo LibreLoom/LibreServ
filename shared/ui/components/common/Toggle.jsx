@@ -9,7 +9,8 @@ const toggleTrackVariants = cva(
   {
     variants: {
       checked: {
-        true: "bg-accent",
+        // Checked track color is surface-aware — set in the component.
+        true: "",
         false: "bg-current/20",
       },
       disabled: {
@@ -54,7 +55,14 @@ export default function Toggle({
   const IconOn = iconOn;
   const IconOff = iconOff;
   const descriptionId = label ? `toggle-desc-${label.toLowerCase().replace(/\s+/g, "-")}` : undefined;
-  const labelText = surface === "primary" ? "text-secondary" : "text-primary";
+  const onPrimary = surface === "primary";
+  const labelText = onPrimary ? "text-secondary" : "text-primary";
+  // On: solid track in the surface's text color, thumb punched out in the
+  // backdrop color. Off: faint track, solid thumb. Icons contrast the thumb.
+  const checkedTrack = onPrimary ? "bg-secondary" : "bg-primary";
+  const thumbClass = checked
+    ? onPrimary ? "bg-primary text-secondary" : "bg-secondary text-primary"
+    : onPrimary ? "bg-secondary text-primary" : "bg-primary text-secondary";
 
   return (
     <div className={cn("flex items-center justify-between", className)}>
@@ -67,7 +75,7 @@ export default function Toggle({
             </div>
           )}
           {description && (
-            <div id={descriptionId} className="text-sm text-accent mt-0.5">
+            <div id={descriptionId} className={cn("text-sm mt-0.5", labelText)}>
               {description}
             </div>
           )}
@@ -81,7 +89,7 @@ export default function Toggle({
           onChange(!checked);
         }}
         disabled={disabled}
-        className={cn(toggleTrackVariants({ checked, disabled }))}
+        className={cn(toggleTrackVariants({ checked, disabled }), checked && checkedTrack)}
         style={{ transitionDuration: "var(--motion-duration-short4)" }}
         role="switch"
         aria-checked={checked}
@@ -91,7 +99,8 @@ export default function Toggle({
         <span
           data-slot="switch-thumb"
           className={cn(
-            "inline-flex h-5 w-5 transform items-center justify-center rounded-full bg-current",
+            "inline-flex h-5 w-5 transform items-center justify-center rounded-full",
+            thumbClass,
             "transition-transform ease-[var(--motion-easing-spring)] will-change-transform",
             checked ? "translate-x-6" : "translate-x-1"
           )}
@@ -101,8 +110,8 @@ export default function Toggle({
             key={checked ? "on" : "off"}
             className="flex h-full w-full items-center justify-center animate-toggle-settle"
           >
-            {IconOn && checked && <IconOn size={ICON_SIZE.xs} className="text-accent" />}
-            {IconOff && !checked && <IconOff size={ICON_SIZE.xs} className="text-accent" />}
+            {IconOn && checked && <IconOn size={ICON_SIZE.xs} />}
+            {IconOff && !checked && <IconOff size={ICON_SIZE.xs} />}
           </span>
         </span>
       </button>

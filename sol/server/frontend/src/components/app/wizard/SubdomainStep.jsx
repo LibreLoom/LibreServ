@@ -122,13 +122,13 @@ function SubdomainStep({ app, domain, onSubdomainChange, onContinue, onBack, loa
       <div className="text-center space-y-2">
         <h2 className="font-mono text-2xl font-normal text-secondary">Choose Subdomain</h2>
         {noDomainConfigured ? (
-          <p className="text-accent text-sm">
+          <p className="text-sm">
             No domain configured. App will be accessible locally only.
           </p>
         ) : (
-          <p className="text-accent text-sm">
+          <p className="text-sm">
             Select a subdomain for your app. It will be accessible at{" "}
-            <span className="font-mono text-accent">{subdomain}.{domain}</span>
+            <span className="font-mono">{subdomain}.{domain}</span>
           </p>
         )}
       </div>
@@ -168,8 +168,8 @@ function SubdomainStep({ app, domain, onSubdomainChange, onContinue, onBack, loa
         </div>
 
         {noDomainConfigured && subdomain.trim() && (
-          <p className="text-xs text-accent font-mono">
-            Accessible at: <span className="text-accent">http://localhost:PORT</span> (port assigned automatically)
+          <p className="text-xs font-mono">
+            Accessible at: <span>http://localhost:PORT</span> (port assigned automatically)
           </p>
         )}
 
@@ -187,7 +187,7 @@ function SubdomainStep({ app, domain, onSubdomainChange, onContinue, onBack, loa
         )}
 
         {checking && (
-          <div className="flex items-center gap-2 text-sm text-accent">
+          <div className="flex items-center gap-2 text-sm">
             <Loader2 className="w-4 h-4 animate-spin" />
             <span>Checking availability...</span>
           </div>

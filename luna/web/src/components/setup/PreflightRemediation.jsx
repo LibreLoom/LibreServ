@@ -16,7 +16,7 @@ export default function PreflightRemediation({ failedChecks }) {
           className={
             item.severity === "critical"
               ? "text-xs text-error"
-              : "text-xs text-accent"
+              : "text-xs"
           }
         >
           {item.tip}

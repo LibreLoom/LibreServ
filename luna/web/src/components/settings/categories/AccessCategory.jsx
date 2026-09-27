@@ -47,7 +47,7 @@ function AccessTokenItem({ token, nowUnix, usageFor, usageRows, usagePending, re
         <div className="flex items-center gap-2 px-4 py-2.5">
           <div className="min-w-0 flex-1">
             <p className="text-sm font-mono truncate">{token.name}</p>
-            <p className="text-xs text-accent">
+            <p className="text-xs">
               {token.last_used_at ? `Last used ${formatWhen(token.last_used_at)}` : "Never used"}
               {token.expires_at != null && (
                 expired ? (
@@ -104,16 +104,16 @@ function AccessTokenItem({ token, nowUnix, usageFor, usageRows, usagePending, re
                     <li key={`${row.used_at}-${i}`} className="flex flex-col gap-0.5">
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-mono truncate">{label}</span>
-                        <span className="text-accent text-[11px] shrink-0">{formatWhen(row.used_at)}</span>
+                        <span className="text-[11px] shrink-0">{formatWhen(row.used_at)}</span>
                       </div>
                       {row.client || row.origin ? (
-                        <div className="text-accent text-[11px] flex items-center gap-1.5 truncate">
+                        <div className="text-[11px] flex items-center gap-1.5 truncate">
                           {row.client && <span>{row.client}</span>}
                           {row.client && row.origin && <span>·</span>}
                           {row.origin && <span>{row.origin}</span>}
                         </div>
                       ) : (
-                        <div className="text-accent text-[11px] truncate">
+                        <div className="text-[11px] truncate">
                           Older activity before detailed logging
                         </div>
                       )}
@@ -202,7 +202,7 @@ function ProfileCard() {
               {user.display_name || user.username}
             </p>
             {user.display_name && user.username !== user.display_name && (
-              <p className="text-sm text-accent truncate">
+              <p className="text-sm truncate">
                 Signed in as {user.username}
               </p>
             )}
@@ -239,6 +239,7 @@ function ProfileCard() {
                 setNameError(null);
               }}
               autoComplete="name"
+              placeholder="Your name"
               error={nameError}
               required
             />
@@ -281,6 +282,7 @@ function ProfileCard() {
               setPasswordError(null);
             }}
             autoComplete="current-password"
+            placeholder="Enter current password"
           />
           <FormInput
             label="New password"
@@ -294,6 +296,7 @@ function ProfileCard() {
               setPasswordError(null);
             }}
             autoComplete="new-password"
+            placeholder="Pick a new password"
             error={passwordError}
           />
         </div>

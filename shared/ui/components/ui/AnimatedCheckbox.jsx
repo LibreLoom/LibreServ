@@ -25,10 +25,13 @@ export default function AnimatedCheckbox({
   surface = "secondary",
   disabled = false,
 }) {
-  const uncheckedBorder =
-    surface === "primary"
-      ? "border-secondary/50 group-hover:border-secondary"
-      : "border-primary/50 group-hover:border-primary";
+  const onPrimary = surface === "primary";
+  const uncheckedBorder = onPrimary
+    ? "border-secondary/50 group-hover:border-secondary"
+    : "border-primary/50 group-hover:border-primary";
+  // Checked fills with the backdrop's text color; the tick is punched out.
+  const checkedFill = onPrimary ? "border-secondary bg-secondary" : "border-primary bg-primary";
+  const tickColor = onPrimary ? "text-primary" : "text-secondary";
 
   return (
     <label
@@ -42,13 +45,14 @@ export default function AnimatedCheckbox({
       <span
         className={cn(
           "size-5 rounded-full border-2 flex items-center justify-center motion-safe:transition-all duration-200 shrink-0",
-          checked ? "border-accent bg-accent" : uncheckedBorder,
+          checked ? checkedFill : uncheckedBorder,
         )}
         aria-hidden="true"
       >
         <svg
           className={cn(
-            "size-3 text-primary motion-safe:transition-all duration-200",
+            "size-3 motion-safe:transition-all duration-200",
+            tickColor,
             checked ? "scale-100 opacity-100" : "scale-0 opacity-0",
           )}
           viewBox="0 0 12 12"

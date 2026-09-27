@@ -238,7 +238,7 @@ export default function ScheduleForm({ appId, appName, existingSchedule = null, 
             bg="primary"
             options={HOUR_OPTIONS}
           />
-          <p className="text-xs text-accent mt-1.5">
+          <p className="text-xs mt-1.5">
             Pick a time when the device is on and not in heavy use — overnight works best.
           </p>
         </div>
@@ -255,7 +255,7 @@ export default function ScheduleForm({ appId, appName, existingSchedule = null, 
             bg="primary"
             options={KEEP_OPTIONS}
           />
-          <p className="text-xs text-accent mt-1.5">
+          <p className="text-xs mt-1.5">
             When a new copy is made, the oldest one is removed. More copies mean more chances to undo, but use more storage.
           </p>
         </div>

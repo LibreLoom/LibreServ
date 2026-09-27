@@ -64,7 +64,7 @@ function ForgotPasswordModal({ isOpen, onClose }) {
     <ModalCard title="Reset Password" onClose={onClose}>
       {!sent ? (
         <>
-          <p className="text-accent text-sm mb-4">
+          <p className="text-sm mb-4">
             Enter your email address and we'll send you a link to reset your password.
           </p>
           <form onSubmit={handleSubmit}>
@@ -258,7 +258,7 @@ export default function Login({ embedded = false, returnTo = "/", onLoginSuccess
                       {notice}
                     </span>
                     {noticeDetail && (
-                      <p className="text-accent text-sm text-center mt-2">{noticeDetail}</p>
+                      <p className="text-sm text-center mt-2">{noticeDetail}</p>
                     )}
                   </>
                 ) : (
@@ -266,7 +266,7 @@ export default function Login({ embedded = false, returnTo = "/", onLoginSuccess
                     <span className="text-primary font-mono text-xl font-normal block text-center">
                       Hey there! Log in to continue.
                     </span>
-                    <p className="text-accent text-sm text-center mt-2">{loginQuip}</p>
+                    <p className="text-sm text-center mt-2">{loginQuip}</p>
                   </>
                 )
               )}

@@ -20,7 +20,7 @@ const VARIANT_FILL = {
   success: "bg-success",
   warning: "bg-warning",
   error: "bg-error",
-  accent: "bg-accent",
+  accent: "bg-current",
 };
 
 export default function PillGauge({
@@ -72,7 +72,7 @@ export default function PillGauge({
                   VARIANT_FILL[variant] || VARIANT_FILL.accent,
                   "animate-pill-gauge-fill",
                 )
-              : "bg-accent/15",
+              : "bg-current/15",
           )}
         />
       ))}

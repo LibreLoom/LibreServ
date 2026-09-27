@@ -25,7 +25,7 @@ export default function AboutCategory() {
 
       <SettingsCard icon={Coffee} title="Support Luna" padding={false} index={1}>
         <div className="px-5 py-4">
-          <p className="text-sm text-accent leading-relaxed">
+          <p className="text-sm leading-relaxed">
             Luna is free and open source. If it has made keeping your files at home a little easier,
             you can help keep it going with a small contribution — entirely optional, always
             appreciated.
@@ -49,7 +49,7 @@ export default function AboutCategory() {
 
       <SettingsCard icon={Heart} title="Luna" padding={false} index={5}>
         <div className="px-5 py-4">
-          <p className="text-sm text-accent leading-relaxed">
+          <p className="text-sm leading-relaxed">
             Luna is your home file box — a place to keep photos, documents, and backups on your
             own hardware, without renting cloud storage by the gigabyte.
           </p>
@@ -60,7 +60,7 @@ export default function AboutCategory() {
             <OpenSourceLicenses />
           </div>
           <div className="mt-4 pt-4 border-t border-primary/10">
-            <div className="flex items-center gap-2 text-sm text-accent">
+            <div className="flex items-center gap-2 text-sm">
               <Heart size={ICON_SIZE.sm} className="text-error" aria-hidden="true" />
               <span>Made with love: for everyone, by everyone.</span>
             </div>

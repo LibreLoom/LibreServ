@@ -57,7 +57,7 @@ function AppCardInner({ app }) {
               target="_blank"
               rel="noopener noreferrer"
               aria-label={`${app.name} (opens in new tab)`}
-              className="font-mono font-normal truncate hover:text-accent transition-colors"
+              className="font-mono font-normal truncate hover:underline decoration-accent underline-offset-4"
             >
               {app.name}
             </a>
@@ -71,27 +71,27 @@ function AppCardInner({ app }) {
 
       <div className="grid grid-cols-2 gap-3 text-sm">
         <div className="flex items-center gap-2">
-          <Cpu size={ICON_SIZE.sm} className="text-accent" aria-hidden="true" />
-          <span className="text-accent">CPU:</span>
+          <Cpu size={ICON_SIZE.sm} aria-hidden="true" />
+          <span>CPU:</span>
           <span className="font-mono">
             {app.cpu_percent != null ? `${app.cpu_percent.toFixed(1)}%` : "-"}
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <MemoryStick size={ICON_SIZE.sm} className="text-accent" aria-hidden="true" />
-          <span className="text-accent">RAM:</span>
+          <MemoryStick size={ICON_SIZE.sm} aria-hidden="true" />
+          <span>RAM:</span>
           <span className="font-mono">
             {app.memory_usage != null ? formatBytes(app.memory_usage) : "-"}
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <Clock size={ICON_SIZE.sm} className="text-accent" aria-hidden="true" />
-          <span className="text-accent">{uptimeLabel}:</span>
+          <Clock size={ICON_SIZE.sm} aria-hidden="true" />
+          <span>{uptimeLabel}:</span>
           <span className="font-mono">{formatDuration(uptime)}</span>
         </div>
         <div className="flex items-center gap-2">
-          <TrendingUp size={ICON_SIZE.sm} className="text-accent" aria-hidden="true" />
-          <span className="text-accent">Avail:</span>
+          <TrendingUp size={ICON_SIZE.sm} aria-hidden="true" />
+          <span>Avail:</span>
           <span className="font-mono">
             {app.availability_pct != null ? `${app.availability_pct.toFixed(0)}%` : "-"}
           </span>
@@ -126,14 +126,14 @@ function NoAppsCard() {
           className="w-14 h-14 rounded-pill bg-primary/10 flex items-center justify-center mb-5"
           aria-hidden="true"
         >
-          <Package size={ICON_SIZE.xxl} className="text-accent" />
+          <Package size={ICON_SIZE.xxl} />
         </div>
 
         <h3 className="font-mono text-xl font-normal tracking-tight text-primary mb-2">
           No apps yet
         </h3>
 
-        <p className="text-sm text-accent leading-relaxed max-w-md mb-6">
+        <p className="text-sm leading-relaxed max-w-md mb-6">
           Your server is ready for its first app. Pick one from the catalog —
           it'll be live in a couple of minutes.
         </p>
@@ -160,7 +160,7 @@ export default function AppCards({ refreshInterval = 30000 }) {
             <Package size={ICON_SIZE.xxl} className="text-primary/30" />
           </div>
           <div className="text-left">
-            <div className="font-mono font-normal text-accent">Loading apps...</div>
+            <div className="font-mono font-normal">Loading apps...</div>
           </div>
         </div>
       </Card>
@@ -180,7 +180,7 @@ export default function AppCards({ refreshInterval = 30000 }) {
           </div>
           <div className="text-left">
             <div className="font-mono font-normal text-error">Failed to load apps</div>
-            <div className="font-mono font-normal text-sm text-accent">{error.message}</div>
+            <div className="font-mono font-normal text-sm">{error.message}</div>
           </div>
         </div>
       </Card>

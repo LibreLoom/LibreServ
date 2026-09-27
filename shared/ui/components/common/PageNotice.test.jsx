@@ -28,7 +28,7 @@ describe("PageNotice", () => {
     expect(cardClip).toBeTruthy();
     expect(cardClip.className).toContain("text-secondary");
     expect(cardClip.className).not.toContain("text-primary");
-    expect(cardClip.className).toContain("bg-accent/10");
+    expect(cardClip.className).toContain("bg-secondary/10");
   });
 
   it("uses text-primary for warning and info variants when surface='secondary'", () => {

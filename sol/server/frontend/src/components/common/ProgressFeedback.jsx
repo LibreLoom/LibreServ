@@ -72,11 +72,11 @@ export function ProgressFeedback({
   if (status === "complete") {
     return (
       <div className="text-center space-y-4">
-        <CheckCircle className="mx-auto text-accent" size={48} />
+        <CheckCircle className="mx-auto" size={48} />
         <h2 className="font-mono text-2xl font-normal text-secondary">
           Done!
         </h2>
-        <p className="text-accent">
+        <p>
           {title || "Action"} completed successfully.
         </p>
         <DetailsToggle
@@ -99,10 +99,10 @@ export function ProgressFeedback({
           <h2 className="font-mono text-2xl font-normal text-secondary">
             Something went wrong
           </h2>
-          <p className="text-accent">
+          <p>
             {title || "Action"} couldn't be completed.
           </p>
-          <p className="text-sm text-accent">
+          <p className="text-sm">
             Tap "View details" to see what happened.
           </p>
         </div>
@@ -126,7 +126,7 @@ export function ProgressFeedback({
           {title || "Working..."}
         </h2>
         {currentMessage && (
-          <p className="text-accent">{currentMessage}</p>
+          <p>{currentMessage}</p>
         )}
       </div>
       <DetailsToggle
@@ -146,7 +146,7 @@ function DetailsToggle({ detailsOpen, setDetailsOpen, copied, onCopy, lines, out
     <div className="space-y-3">
       <button
         onClick={() => setDetailsOpen((open) => !open)}
-        className="inline-flex items-center gap-1 text-sm text-accent hover:text-secondary/80 transition-colors font-mono cursor-pointer"
+        className="inline-flex items-center gap-1 text-sm hover:text-secondary/80 transition-colors font-mono cursor-pointer"
         aria-expanded={detailsOpen}
       >
         <ChevronDown
@@ -164,7 +164,7 @@ function DetailsToggle({ detailsOpen, setDetailsOpen, copied, onCopy, lines, out
             <p className="font-mono text-sm text-secondary">Output</p>
             <button
               onClick={onCopy}
-              className="flex items-center gap-1 text-xs text-accent hover:text-secondary/80 transition-colors cursor-pointer"
+              className="flex items-center gap-1 text-xs hover:text-secondary/80 transition-colors cursor-pointer"
             >
               {copied ? (
                 <>
@@ -181,7 +181,7 @@ function DetailsToggle({ detailsOpen, setDetailsOpen, copied, onCopy, lines, out
           </div>
           <pre
             ref={outputRef}
-            className="max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-6 text-accent"
+            className="max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-6"
           >
             {getFullOutput(lines)}
           </pre>

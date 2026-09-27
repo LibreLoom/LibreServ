@@ -171,7 +171,7 @@ function DetailRow({ icon: Icon, label, value, mono = false }) {
   if (!value) return null;
   return (
     <div className="flex items-center gap-3 py-2 border-b border-secondary/15 last:border-b-0">
-      <Icon size={ICON_SIZE.sm} className="shrink-0 text-accent" aria-hidden="true" />
+      <Icon size={ICON_SIZE.sm} className="shrink-0" aria-hidden="true" />
       <span className="shrink-0 text-xs font-mono uppercase tracking-widest text-secondary">
         {label}
       </span>
@@ -195,7 +195,7 @@ DetailRow.propTypes = {
 function MiniStat({ icon: Icon, value, label }) {
   return (
     <div className="flex flex-1 flex-col items-center gap-1 rounded-large-element bg-secondary px-2 py-3 text-primary">
-      <Icon size={ICON_SIZE.sm} className="text-accent" aria-hidden="true" />
+      <Icon size={ICON_SIZE.sm} aria-hidden="true" />
       <span className="font-mono text-lg leading-none text-primary">{value}</span>
       <span className="text-[11px] font-mono uppercase tracking-widest text-primary">{label}</span>
     </div>
@@ -355,7 +355,7 @@ export default function PropertiesSheet({
           {kind === "file" && data ? (
             <Section>
               <div className="flex items-center gap-2 text-xs font-mono uppercase tracking-widest text-secondary">
-                <HardDrive size={ICON_SIZE.sm} className="text-accent" aria-hidden="true" />
+                <HardDrive size={ICON_SIZE.sm} aria-hidden="true" />
                 Size
               </div>
               <p className="mt-1 font-mono text-3xl leading-none text-secondary">
@@ -372,7 +372,7 @@ export default function PropertiesSheet({
               {totals ? (
                 <>
                   <div className="flex items-center gap-2 text-xs font-mono uppercase tracking-widest text-secondary">
-                    <HardDrive size={ICON_SIZE.sm} className="text-accent" aria-hidden="true" />
+                    <HardDrive size={ICON_SIZE.sm} aria-hidden="true" />
                     {emptyFolder || !totalsComplete ? "Inside" : "Total size"}
                   </div>
                   {emptyFolder ? (
@@ -414,7 +414,7 @@ export default function PropertiesSheet({
               ) : (
                 <>
                   <div className="flex items-center gap-2 text-xs font-mono uppercase tracking-widest text-secondary">
-                    <Shapes size={ICON_SIZE.sm} className="text-accent" aria-hidden="true" />
+                    <Shapes size={ICON_SIZE.sm} aria-hidden="true" />
                     Inside
                   </div>
                   {data.children && (data.children.dirs || data.children.files || data.children.other) ? (

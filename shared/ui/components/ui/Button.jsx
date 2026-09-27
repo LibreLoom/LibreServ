@@ -8,7 +8,7 @@
  * 1. SOLID (color invert on hover) — the default. Use for actions.
  *    primary   — page-bg fill. Hover → secondary. Use on CARDS only.
  *                The single most important action on a card surface.
- *    secondary — card-bg fill. Hover → accent. Use on the PAGE only.
+ *    secondary — card-bg fill. Hover → primary. Use on the PAGE only.
  *                The primary action when rendered directly on the page bg.
  *    accent    — CAUTION/DANGER fill. Hover → surface-aware invert. Use for
  *                actions that are destructive, hard to undo, or have
@@ -20,9 +20,10 @@
  *    The only scale animation is the press-down to 95% while clicked
  *    (transform-based, no layout shift). Hover changes colors/ring only.
  *    primary/secondary are surface-restricted: their bg is a surface
- *    color, so they only contrast on the OPPOSITE surface. Their hover goes
- *    to accent which contrasts with both surfaces, so the button never
- *    vanishes.
+ *    color, so they only contrast on the OPPOSITE surface. Their hover
+ *    inverts and adds a ring, so the button never vanishes.
+ *    Accent is reserved for caution/danger and outlines — never use the
+ *    accent variant as a generic "highlighted" or "selected" button.
  *
  * 2. OUTLINE (transparent, fills on hover) — medium emphasis.
  *    Use for secondary actions, especially Cancel/Back/Dismiss.

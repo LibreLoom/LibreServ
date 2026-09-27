@@ -64,7 +64,7 @@ function BoardRow({ icon, label, ok, okText, offText }) {
       <span className="flex items-center gap-2.5 min-w-0">
         <Icon
           size={ICON_SIZE.md}
-          className={cn("shrink-0 motion-safe:transition-colors motion-safe:duration-300", ok ? "text-success" : "text-accent")}
+          className={cn("shrink-0 motion-safe:transition-colors motion-safe:duration-300", ok && "text-success")}
         />
         <span className="font-mono text-sm text-primary">{label}</span>
       </span>
@@ -209,7 +209,7 @@ export default function NetworkStep({ name, onContinue }) {
 
   return (
     <div className="flex flex-col items-center text-center py-2" data-slot="setup-network-step">
-      <Router size={40} className="text-accent mx-auto mb-4" />
+      <Router size={40} className="mx-auto mb-4" />
 
       <h1 className="font-mono text-3xl font-normal text-primary tracking-tight mb-3">
         Get online
@@ -267,10 +267,10 @@ export default function NetworkStep({ name, onContinue }) {
 
       {!online && !wifiAvailable && (
         <div
-          className="w-full max-w-sm p-4 rounded-large-element border border-accent/25 bg-accent/10 flex items-start gap-3 text-left animate-in fade-in slide-in-from-bottom-2 duration-300"
+          className="w-full max-w-sm p-4 rounded-large-element border border-accent flex items-start gap-3 text-left animate-in fade-in slide-in-from-bottom-2 duration-300"
           data-slot="network-cable-only"
         >
-          <Cable size={ICON_SIZE.lg} className="text-accent shrink-0 mt-0.5" />
+          <Cable size={ICON_SIZE.lg} className="shrink-0 mt-0.5" />
           <p className="text-sm text-primary leading-relaxed">
             Plug the included RJ45 (ethernet) cable into the back of {name}. This screen updates the moment it&rsquo;s connected, and you can continue right there.
           </p>
@@ -294,7 +294,7 @@ export default function NetworkStep({ name, onContinue }) {
             <button
               type="button"
               onClick={() => setWifiModalOpen(true)}
-              className="flex items-center gap-1.5 text-sm text-accent hover:text-primary motion-safe:transition-colors"
+              className="flex items-center gap-1.5 text-sm hover:text-primary motion-safe:transition-colors"
             >
               <Wifi size={ICON_SIZE.sm} />
               Also connect Wi-Fi (optional)
@@ -302,7 +302,7 @@ export default function NetworkStep({ name, onContinue }) {
           )}
 
           {wifiConnected && !ethernet && (
-            <p className="text-xs text-accent">
+            <p className="text-xs">
               A cable is the most reliable connection. Plug one in any time — both can be used together.
             </p>
           )}
@@ -315,7 +315,6 @@ export default function NetworkStep({ name, onContinue }) {
           onClose={closeWifiModal}
           footer={(
             <Button
-              variant="accent"
               fullWidth
               onClick={handleConnect}
               loading={connecting}
@@ -367,10 +366,10 @@ export default function NetworkStep({ name, onContinue }) {
                             : "border-primary/15 hover:border-primary/35"
                         )}
                       >
-                        <Wifi size={ICON_SIZE.md} className={cn("shrink-0", isSelected ? "text-primary" : "text-accent")} />
+                        <Wifi size={ICON_SIZE.md} className={cn("shrink-0", isSelected && "text-primary")} />
                         <span className="flex-1 min-w-0 truncate text-sm text-primary font-mono">{net.ssid}</span>
                         <span className="flex items-center gap-1.5 text-[11px] text-primary/45 shrink-0">
-                          {net.encrypted && <Lock size={ICON_SIZE.tight} className="text-accent" />}
+                          {net.encrypted && <Lock size={ICON_SIZE.tight} />}
                           {signalLabel(net.signal)}
                         </span>
                       </button>
@@ -380,8 +379,8 @@ export default function NetworkStep({ name, onContinue }) {
             </ShakeTarget>
 
             {scanError && (
-              <div className="flex items-start gap-2.5 p-3.5 rounded-large-element border border-accent/25 bg-accent/10">
-                <AlertCircle size={ICON_SIZE.md} className="text-accent shrink-0 mt-0.5" />
+              <div className="flex items-start gap-2.5 p-3.5 rounded-large-element border border-accent">
+                <AlertCircle size={ICON_SIZE.md} className="shrink-0 mt-0.5" />
                 <p className="text-xs text-primary leading-relaxed">
                   We couldn&rsquo;t see any networks. Move {name} closer to your router or modem, or try again.
                 </p>
@@ -391,7 +390,7 @@ export default function NetworkStep({ name, onContinue }) {
             <button
               type="button"
               onClick={fetchScan}
-              className="flex items-center gap-1.5 text-xs text-accent hover:text-primary motion-safe:transition-colors"
+              className="flex items-center gap-1.5 text-xs hover:text-primary motion-safe:transition-colors"
             >
               <RefreshCw size={ICON_SIZE.xs} className={scanning ? "animate-spin" : ""} />
               Scan again
@@ -419,13 +418,13 @@ export default function NetworkStep({ name, onContinue }) {
                       type="button"
                       onClick={() => setShowPassword((v) => !v)}
                       aria-label={showPassword ? "Hide password" : "Show password"}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-accent hover:text-secondary motion-safe:transition-colors"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 hover:text-secondary motion-safe:transition-colors"
                     >
                       {showPassword ? <EyeOff size={ICON_SIZE.md} /> : <Eye size={ICON_SIZE.md} />}
                     </button>
                   </div>
                 </ShakeTarget>
-                <p className="text-xs text-accent">
+                <p className="text-xs">
                   That password is the one on the sticker of your router or modem. We never show or store it in plain sight.
                 </p>
               </div>

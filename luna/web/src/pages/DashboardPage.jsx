@@ -167,7 +167,7 @@ function DriveHomeCard({ drive, isAdmin = false, grants = [] }) {
                 className="inline-block h-2 w-2 rounded-full bg-primary shrink-0"
                 aria-hidden="true"
               />
-              <span className="text-xs font-mono uppercase tracking-widest text-accent">
+              <span className="text-xs font-mono uppercase tracking-widest">
                 Storage
               </span>
             </div>
@@ -179,7 +179,7 @@ function DriveHomeCard({ drive, isAdmin = false, grants = [] }) {
               {totalLabel} total
             </p>
             <div
-              className="mt-3 h-2 rounded-pill bg-primary overflow-hidden"
+              className="mt-3 h-2 rounded-pill bg-primary p-0.5 overflow-hidden"
               role="progressbar"
               aria-valuenow={usedPct}
               aria-valuemin={0}
@@ -187,7 +187,7 @@ function DriveHomeCard({ drive, isAdmin = false, grants = [] }) {
               aria-label={`${usedPct}% used`}
             >
               <div
-                className="h-full rounded-pill bg-accent motion-safe:transition-all motion-safe:duration-500"
+                className="h-full rounded-pill bg-secondary motion-safe:transition-all motion-safe:duration-500"
                 style={{ width: `${usedPct}%` }}
               />
             </div>
@@ -202,7 +202,7 @@ function DriveHomeCard({ drive, isAdmin = false, grants = [] }) {
 
         {shortcuts.length > 0 ? (
           <div>
-            <div className="text-xs font-mono uppercase tracking-widest text-accent mb-2">
+            <div className="text-xs font-mono uppercase tracking-widest mb-2">
               Folders
             </div>
             <div className="flex flex-wrap gap-2">
@@ -290,7 +290,7 @@ function UptimeCard({ value }) {
           className="inline-block h-2 w-2 rounded-full bg-primary shrink-0"
           aria-hidden="true"
         />
-        <span className="text-xs font-mono uppercase tracking-widest text-accent">
+        <span className="text-xs font-mono uppercase tracking-widest">
           Uptime
         </span>
       </div>
@@ -317,7 +317,7 @@ function connectionDetail(net) {
 }
 
 function connectionDotClass(net) {
-  if (!net) return "bg-accent";
+  if (!net) return "bg-primary/30";
   if (net.ethernet_connected) return "bg-primary";
   return "bg-warning";
 }
@@ -500,7 +500,7 @@ function ConnectionCard({
           className={cn("inline-block h-2 w-2 rounded-full shrink-0", connectionDotClass(net))}
           aria-hidden="true"
         />
-        <span className="text-xs font-mono uppercase tracking-widest text-accent">
+        <span className="text-xs font-mono uppercase tracking-widest">
           Connection
         </span>
       </div>
@@ -564,7 +564,7 @@ function RecentItemsCard({ items, drives, ownHomePath = "" }) {
                       className="inline-block h-2 w-2 rounded-full bg-secondary shrink-0"
                       aria-hidden="true"
                     />
-                    <span className="text-xs font-mono uppercase tracking-widest text-accent">
+                    <span className="text-xs font-mono uppercase tracking-widest">
                       {RECENT_KIND_LABELS[item.kind]}
                     </span>
                   </div>
@@ -578,7 +578,7 @@ function RecentItemsCard({ items, drives, ownHomePath = "" }) {
                   ) : null}
                 </div>
                 <time
-                  className="text-xs font-mono text-accent shrink-0"
+                  className="text-xs font-mono shrink-0"
                   dateTime={new Date(item.at).toISOString()}
                 >
                   {formatRecentAgo(item.at)}
@@ -939,7 +939,7 @@ export default function DashboardPage() {
                         <div className="flex items-center gap-3">
                           <HardDrive
                             size={18}
-                            className="shrink-0 text-accent group-hover:text-primary"
+                            className="shrink-0 group-hover:text-primary"
                             aria-hidden="true"
                           />
                           <div className="min-w-0 flex-1">
@@ -947,10 +947,10 @@ export default function DashboardPage() {
                               {drive.model || drive.name}
                             </div>
                             {meta ? (
-                              <div className="mt-0.5 text-xs text-accent group-hover:text-primary">{meta}</div>
+                              <div className="mt-0.5 text-xs group-hover:text-primary">{meta}</div>
                             ) : null}
                           </div>
-                          <span className="shrink-0 text-xs text-accent group-hover:text-primary">
+                          <span className="shrink-0 text-xs group-hover:text-primary">
                             Tap to review →
                           </span>
                         </div>

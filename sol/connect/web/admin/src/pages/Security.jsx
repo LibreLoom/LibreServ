@@ -110,16 +110,16 @@ export default function Security() {
           <div className="space-y-4 max-w-md">
             <div>
               <Label htmlFor="current-pwd">Current Password</Label>
-              <Input id="current-pwd" type="password" value={pwd.current} onChange={(e) => setPwd({ ...pwd, current: e.target.value })} />
+              <Input id="current-pwd" type="password" placeholder="Enter current password" value={pwd.current} onChange={(e) => setPwd({ ...pwd, current: e.target.value })} />
             </div>
             <div>
               <Label htmlFor="new-pwd">New Password</Label>
-              <Input id="new-pwd" type="password" value={pwd.next} onChange={(e) => setPwd({ ...pwd, next: e.target.value })} />
+              <Input id="new-pwd" type="password" placeholder="At least 12 characters" value={pwd.next} onChange={(e) => setPwd({ ...pwd, next: e.target.value })} />
               <p className="text-xs text-muted-foreground mt-1">At least 12 characters.</p>
             </div>
             <div>
               <Label htmlFor="confirm-pwd">Confirm New Password</Label>
-              <Input id="confirm-pwd" type="password" value={pwd.confirm} onChange={(e) => setPwd({ ...pwd, confirm: e.target.value })} />
+              <Input id="confirm-pwd" type="password" placeholder="Re-enter the new password" value={pwd.confirm} onChange={(e) => setPwd({ ...pwd, confirm: e.target.value })} />
             </div>
             {pwdError && <p className="text-sm text-destructive">{pwdError}</p>}
             {pwdSuccess && <p className="text-sm text-success">{pwdSuccess}</p>}
@@ -196,15 +196,15 @@ export default function Security() {
             <div className="mt-4 space-y-3 max-w-md">
               <div>
                 <Label htmlFor="admin-email">Email</Label>
-                <Input id="admin-email" type="email" value={newAdmin.email} onChange={(e) => setNewAdmin({ ...newAdmin, email: e.target.value })} />
+                <Input id="admin-email" type="email" placeholder="admin@example.com" value={newAdmin.email} onChange={(e) => setNewAdmin({ ...newAdmin, email: e.target.value })} />
               </div>
               <div>
                 <Label htmlFor="admin-name">Name</Label>
-                <Input id="admin-name" type="text" value={newAdmin.name} onChange={(e) => setNewAdmin({ ...newAdmin, name: e.target.value })} />
+                <Input id="admin-name" type="text" placeholder="Their name" value={newAdmin.name} onChange={(e) => setNewAdmin({ ...newAdmin, name: e.target.value })} />
               </div>
               <div>
                 <Label htmlFor="admin-pwd">Password</Label>
-                <Input id="admin-pwd" type="password" value={newAdmin.password} onChange={(e) => setNewAdmin({ ...newAdmin, password: e.target.value })} />
+                <Input id="admin-pwd" type="password" placeholder="At least 12 characters" value={newAdmin.password} onChange={(e) => setNewAdmin({ ...newAdmin, password: e.target.value })} />
                 <p className="text-xs text-muted-foreground mt-1">At least 12 characters.</p>
               </div>
               {createAdminMut.isError && <p className="text-sm text-destructive">{createAdminMut.error.message}</p>}

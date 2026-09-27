@@ -235,7 +235,7 @@ export default function FolderPickerModal({
               path={path}
               pathFloor={isMember ? (root?.path || "") : ""}
               forbiddenState={isMember ? (
-                <p className="text-primary text-sm mt-4">
+                <p className="text-secondary text-sm">
                   You can add files here, but this folder can't be opened.
                 </p>
               ) : null}
@@ -282,6 +282,7 @@ export default function FolderPickerModal({
             open={creating}
             title="New folder"
             label="Name for this folder"
+            placeholder="e.g. Holiday photos"
             hint="Luna will put it in the folder you are in now."
             value={createName}
             onChange={setCreateName}

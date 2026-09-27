@@ -106,7 +106,7 @@ export default function ApiTokensCard() {
   return (
     <Card title="API Tokens" icon={KeyRound} data-slot="api-tokens-card">
       <div className="space-y-4">
-        <p className="text-sm text-accent">
+        <p className="text-sm">
           API tokens let other apps and scripts talk to your LibreServ on your
           behalf, without using your password. Keep them as secret as a password.
         </p>
@@ -130,7 +130,7 @@ export default function ApiTokensCard() {
             <button
               type="button"
               onClick={() => setNewToken(null)}
-              className="text-xs text-accent hover:text-secondary"
+              className="text-xs hover:text-secondary"
             >
               I&apos;ve copied it — dismiss
             </button>
@@ -158,9 +158,9 @@ export default function ApiTokensCard() {
         </form>
 
         {loading ? (
-          <p className="text-sm text-accent">Loading…</p>
+          <p className="text-sm">Loading…</p>
         ) : tokens.length === 0 ? (
-          <p className="text-sm text-accent">
+          <p className="text-sm">
             You haven&apos;t created any API tokens yet.
           </p>
         ) : (
@@ -169,8 +169,8 @@ export default function ApiTokensCard() {
               <li key={t.id} className="py-3 flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <div className="text-sm text-primary truncate">{t.name}</div>
-                  <div className="text-xs text-accent font-mono">{t.token_prefix}</div>
-                  <div className="text-xs text-accent">
+                  <div className="text-xs font-mono">{t.token_prefix}</div>
+                  <div className="text-xs">
                     Created {formatDate(t.created_at)} · Last used {formatDate(t.last_used_at)}
                   </div>
                 </div>

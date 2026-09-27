@@ -207,6 +207,7 @@ function App() {
                 value={token}
                 onChange={(event) => updateToken(index, event.target.value)}
                 spellCheck="false"
+                placeholder="XXXX-XXXX-XXXX-XXXX-XXXX"
                 className="w-[15rem] border border-accent bg-paper px-[0.65rem] py-[0.55rem] font-mono text-ink outline-none focus:border-paper focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-paper"
               />
             </label>

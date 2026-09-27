@@ -76,7 +76,7 @@ export default function MarkdownPreview({ text, name, className, emptyHint }) {
           {text}
         </ReactMarkdown>
       ) : (
-        <p className="text-sm text-accent">{emptyHint || "Nothing here yet."}</p>
+        <p className="text-sm">{emptyHint || "Nothing here yet."}</p>
       )}
     </div>
   );

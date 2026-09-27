@@ -9,7 +9,7 @@ const STRENGTH_TEXT = ["", "text-error", "text-warning", "text-warning", "text-s
 
 /** @param {{ ok: boolean, label: string, surface?: "secondary"|"primary" }} props */
 function ReqChip({ ok, label, surface = "secondary" }) {
-  const unmet = surface === "primary" ? "text-secondary/50" : "text-accent";
+  const unmet = surface === "primary" ? "text-secondary" : "text-primary";
   return (
     <span
       className={cn(
@@ -69,7 +69,7 @@ export default function PasswordStrengthChecklist({
 
   const strength = passwordChecks(password);
   const meetsPolicy = strength.ok;
-  const pendingTone = surface === "primary" ? "text-secondary" : "text-accent";
+  const pendingTone = surface === "primary" ? "text-secondary" : "text-primary";
 
   return (
     <div

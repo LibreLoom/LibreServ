@@ -56,9 +56,9 @@ function PreflightRow({ name, check, delay, done, rerunning }) {
         )}
       >
         {showEmpty ? (
-          <Loader2 className="w-3.5 h-3.5 text-accent animate-spin" aria-hidden="true" />
+          <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
         ) : isOk ? (
-          <Check className="w-3.5 h-3.5 text-accent" aria-hidden="true" />
+          <Check className="w-3.5 h-3.5" aria-hidden="true" />
         ) : (
           <X className="w-3.5 h-3.5 text-error" aria-hidden="true" />
         )}
@@ -71,7 +71,7 @@ function PreflightRow({ name, check, delay, done, rerunning }) {
           )}
         </div>
         {name === "disk_space" && isOk && check.disk_space_bytes_free && (
-          <p className="text-xs text-accent mt-0.5">
+          <p className="text-xs mt-0.5">
             {Math.round((check.disk_space_bytes_free / (1000 * 1000 * 1000)) * 10) / 10} GB free
           </p>
         )}
@@ -174,7 +174,7 @@ export default function PreflightStep({ onPass }) {
     <>
       <div className="mb-7">
         <h2 className="font-mono text-3xl font-normal text-primary tracking-tight">System check</h2>
-        <p className="text-accent text-sm mt-2">
+        <p className="text-sm mt-2">
           Luna checks its storage and file index before you continue setup.
         </p>
       </div>
@@ -203,7 +203,7 @@ export default function PreflightStep({ onPass }) {
             if (!catChecks?.length) return null;
             return (
               <div key={category}>
-                <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-accent mt-5 mb-1 first:mt-0">
+                <p className="font-mono text-[11px] uppercase tracking-[0.18em] mt-5 mb-1 first:mt-0">
                   {CATEGORY_LABELS[category] || category}
                 </p>
                 {catChecks.map(([name, check], i) => (
@@ -230,10 +230,10 @@ export default function PreflightStep({ onPass }) {
 
       <div className="mb-5">
         {running && (
-          <p className="text-xs text-accent animate-in fade-in duration-300 h-6">Running checks…</p>
+          <p className="text-xs animate-in fade-in duration-300 h-6">Running checks…</p>
         )}
         {allPassed && (
-          <p className="text-xs text-accent animate-in fade-in duration-300 h-6">All checks passed.</p>
+          <p className="text-xs animate-in fade-in duration-300 h-6">All checks passed.</p>
         )}
         {hasFailed && (
           <div className="animate-in fade-in slide-in-from-bottom-1 duration-500 ease-out">

@@ -24,7 +24,7 @@ function GitLink() {
       href={GIT_EXPLAINER_URL}
       target="_blank"
       rel="noopener noreferrer"
-      className="text-accent underline"
+      className="underline"
     >
       Git
     </a>
@@ -108,6 +108,7 @@ function AddRepoModal({ onClose, onAdded }) {
               type="text"
               value={branch}
               onChange={(e) => setBranch(e.target.value)}
+              placeholder="main"
               className={inputClasses}
               disabled={adding}
             />
@@ -125,6 +126,7 @@ function AddRepoModal({ onClose, onAdded }) {
               value={priority}
               onChange={(e) => setPriority(Number(e.target.value))}
               min={1}
+              placeholder="1"
               className={inputClasses}
               disabled={adding}
             />
@@ -158,7 +160,6 @@ function AddRepoModal({ onClose, onAdded }) {
             Cancel
           </Button>
           <Button
-            variant="accent"
             onClick={handleAdd}
             disabled={!url.trim() || adding}
             loading={adding}
@@ -316,7 +317,7 @@ export default function RepoStatusCard({ index = 0 }) {
 
           {loading ? (
             <div className="flex items-center justify-center py-6">
-              <Loader2 size={ICON_SIZE.xl} className="animate-spin text-accent" />
+              <Loader2 size={ICON_SIZE.xl} className="animate-spin" />
             </div>
           ) : fetchError ? (
             <div className="flex items-center justify-center py-6">

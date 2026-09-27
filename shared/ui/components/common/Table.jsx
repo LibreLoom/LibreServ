@@ -51,7 +51,7 @@ export default function Table({
   scrollable,
   maxHeight,
   className = "",
-  headClassName = "text-accent",
+  headClassName = "",
   onRowClick,
   mobileCards = false,
   striped = false,

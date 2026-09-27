@@ -114,7 +114,7 @@ export default function LorePage() {
 
                     const blockCode = (
                       <code
-                        className="block bg-accent text-secondary p-4 rounded mb-4 overflow-x-auto"
+                        className="block bg-secondary text-primary p-4 rounded mb-4 overflow-x-auto"
                         {...props}
                       />
                     );

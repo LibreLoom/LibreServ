@@ -65,7 +65,7 @@ describe("fileKinds", () => {
     expect(openableKind("rsvp.lunaform")).toBe("form");
     expect(isTextFile("rsvp.lunaform")).toBe(false);
     // The sibling answers file stays a readable text file.
-    expect(openableKind("rsvp.responses.jsonl")).toBe("text");
+    expect(openableKind("rsvp.lunaform.responses")).toBe("text");
   });
 
   it("classifies drawio files — including the self-previewing variants — as diagrams", () => {

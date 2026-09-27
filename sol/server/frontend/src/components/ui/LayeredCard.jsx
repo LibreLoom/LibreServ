@@ -34,7 +34,7 @@ import { cn } from "@libreloom/ui/lib/utils.js";
  *   >
  *     <div className="flex-1 min-w-0">
  *       <h3 className="font-mono text-sm">Backups</h3>
- *       <p className="text-xs text-accent mt-0.5">Last backup 2h ago</p>
+ *       <p className="text-xs mt-0.5">Last backup 2h ago</p>
  *     </div>
  *   </LayeredCard>
  *
@@ -67,7 +67,7 @@ export default function LayeredCard({
 }) {
   const compact = size !== "md";
   const chipIcon = icon
-    ? cloneElement(icon, { className: cn("text-accent shrink-0", icon.props?.className) })
+    ? cloneElement(icon, { className: cn("shrink-0", icon.props?.className) })
     : null;
   const btnIcon = actionIcon
     ? cloneElement(actionIcon, { className: cn("shrink-0", actionIcon.props?.className) })
@@ -75,7 +75,7 @@ export default function LayeredCard({
   return (
     <div
       className={cn(
-        "inline-flex max-w-full flex-col items-stretch rounded-large-element bg-accent text-primary border border-accent/40",
+        "inline-flex max-w-full flex-col items-stretch rounded-large-element bg-secondary text-primary border border-accent",
         compact ? "text-xs" : "text-sm",
         className,
       )}

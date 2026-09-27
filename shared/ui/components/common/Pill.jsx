@@ -7,9 +7,10 @@ const pillVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-accent/15 border-accent/25 text-accent",
-        muted: "bg-primary/20 border-primary/30 text-accent",
-        accent: "bg-accent/20 border-accent/30 text-accent",
+        default: "bg-current/10 border-current/25",
+        muted: "bg-primary/20 border-primary/30",
+        // Accent is an outline only — the fill stays the surface's own.
+        accent: "bg-transparent border-accent",
         success: "bg-success/20 border-success/30 text-success",
         warning: "bg-warning/20 border-warning/30 text-warning",
         error: "bg-error/20 border-error/30 text-error",

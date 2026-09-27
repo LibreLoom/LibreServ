@@ -156,7 +156,7 @@ function ReachabilityCard({ report, loading, onRetry, connectivity }) {
                     href="https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-xs text-accent hover:underline mt-2"
+                    className="inline-flex items-center gap-1 text-xs hover:underline mt-2"
                   >
                     Learn more <ExternalLink size={ICON_SIZE.xs} />
                   </a>
@@ -171,7 +171,7 @@ function ReachabilityCard({ report, loading, onRetry, connectivity }) {
                     href="https://www.wireguard.com/"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-xs text-accent hover:underline mt-2"
+                    className="inline-flex items-center gap-1 text-xs hover:underline mt-2"
                   >
                     Learn more <ExternalLink size={ICON_SIZE.xs} />
                   </a>
@@ -247,7 +247,7 @@ function ReachabilityCard({ report, loading, onRetry, connectivity }) {
             </p>
             <ol className="list-decimal list-inside space-y-2 text-xs text-primary leading-relaxed">
               <li><strong>Port forwarding</strong> — tell your router to send web traffic (ports 80 and 443) to this device. In your router settings, look for <strong>Port Forwarding</strong> (sometimes called <strong>NAT</strong>).</li>
-              <li><strong>A protected connection</strong> — open the <a href="#external_services-tunnel" className="text-accent underline">Tunnel</a> card in External Services and turn it on. No router changes needed.</li>
+              <li><strong>A protected connection</strong> — open the <a href="#external_services-tunnel" className="underline">Tunnel</a> card in External Services and turn it on. No router changes needed.</li>
             </ol>
           </div>
         )}
@@ -360,7 +360,7 @@ function AdvancedSection({ children }) {
         className={cn(
           "w-full flex items-center justify-between px-4 py-3 rounded-pill",
           "bg-primary text-secondary border-2 border-secondary/10",
-          "hover:border-accent hover:text-accent motion-safe:transition-colors"
+          "hover:border-accent motion-safe:transition-colors"
         )}
       >
         <span className="font-mono text-sm flex items-center gap-2">

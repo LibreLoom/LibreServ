@@ -363,7 +363,7 @@ export default function DriveMenu({ drives, destinations, currentDriveId, curren
                     "w-full flex items-center gap-2 px-4 py-2 text-sm text-left cursor-pointer",
                     "text-primary font-mono motion-safe:transition-all motion-safe:duration-150",
                     isDragTarget
-                      ? "bg-accent/20 ring-2 ring-inset ring-accent"
+                      ? "ring-2 ring-inset ring-accent"
                       : index === activeIndex
                         ? "bg-primary/10 motion-safe:translate-x-0.5"
                         : "hover:bg-primary/10 hover:motion-safe:translate-x-0.5",
@@ -376,10 +376,10 @@ export default function DriveMenu({ drives, destinations, currentDriveId, curren
                   onDragLeave={(e) => handleItemDragLeave(d, e)}
                   onDrop={(e) => handleItemDrop(d, canDrop, e)}
                 >
-                  <Icon size={ICON_SIZE.sm} aria-hidden="true" className="shrink-0 text-accent" />
+                  <Icon size={ICON_SIZE.sm} aria-hidden="true" className="shrink-0" />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate">{d.label}</span>
-                    {d.sub ? <span className="block truncate text-xs font-sans text-accent">{d.sub}</span> : null}
+                    {d.sub ? <span className="block truncate text-xs font-sans">{d.sub}</span> : null}
                   </span>
                 </button>
               );

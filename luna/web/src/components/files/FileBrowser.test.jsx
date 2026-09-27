@@ -341,7 +341,7 @@ describe("FileBrowser", () => {
     expect(await screen.findByText("beach.jpg")).toBeInTheDocument();
     const row = document.querySelector('[data-file-path="album/beach.jpg"]');
     expect(row).toBeTruthy();
-    expect(row?.className).toMatch(/bg-accent\/20/);
+    expect(row?.className).toMatch(/bg-current\/10/);
     expect(screen.getByLabelText("Select beach.jpg")).toBeChecked();
     expect(onSelectPathApplied).toHaveBeenCalled();
     await waitFor(() => {
@@ -1331,6 +1331,19 @@ describe("FileBrowser folder chrome auto-split", () => {
     expect(
       container.querySelector("[data-slot=file-browser-folder-chrome-combined]")?.className,
     ).not.toMatch(/overflow-x-hidden|overflow-hidden/);
+  });
+});
+
+describe("FileBrowser inline states", () => {
+  it("renders the empty state inside the list card, not a card of its own", async () => {
+    stubListing({ "": [] });
+    renderBrowser({ multiSelect: false });
+    const title = await screen.findByText("Nothing here yet");
+    const empty = /** @type {HTMLElement} */ (title.closest("[data-slot=empty-state]"));
+    const card = /** @type {HTMLElement} */ (empty).closest("[data-slot=card]");
+    expect(card).toBeTruthy();
+    // The empty state is the list card's own body — not a sibling card.
+    expect(card).not.toBe(empty);
   });
 });
 

@@ -10,15 +10,15 @@ const STATUS_CONFIG = {
   },
   unsaved: {
     icon: Circle,
-    iconClass: "text-accent",
+    iconClass: "",
     text: "Unsaved changes",
-    textClass: "text-accent",
+    textClass: "",
   },
   saving: {
     icon: Loader2,
-    iconClass: "text-accent animate-spin",
+    iconClass: "animate-spin",
     text: "Saving...",
-    textClass: "text-accent",
+    textClass: "",
   },
   saved: {
     icon: CheckCircle2,

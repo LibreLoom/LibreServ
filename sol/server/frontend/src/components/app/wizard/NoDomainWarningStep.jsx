@@ -19,8 +19,8 @@ function NoDomainWarningStep({ app, onBack, onContinue }) {
           <AlertTriangle className="w-8 h-8 text-warning" />
         </div>
         <h2 className="font-mono text-2xl font-normal text-secondary">No Remote Access</h2>
-        <p className="text-accent text-sm max-w-md mx-auto">
-          To install <span className="font-mono text-accent">{app?.name}</span> with remote access, you need to set up a domain and network access first.
+        <p className="text-sm max-w-md mx-auto">
+          To install <span className="font-mono">{app?.name}</span> with remote access, you need to set up a domain and network access first.
         </p>
       </div>
 

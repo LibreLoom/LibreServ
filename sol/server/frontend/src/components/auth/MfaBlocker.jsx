@@ -44,15 +44,15 @@ export default function MfaBlocker() {
           {/* Hero — one icon, one heading, one sentence. The wizard below
               provides its own step-by-step structure. */}
           <div
-            className="mx-auto mb-5 grid h-14 w-14 place-items-center rounded-full bg-accent/10 ring-1 ring-accent/30"
+            className="mx-auto mb-5 grid h-14 w-14 place-items-center rounded-full ring-1 ring-accent"
             aria-hidden="true"
           >
-            <ShieldCheck size={28} className="text-accent" />
+            <ShieldCheck size={28} />
           </div>
           <h1 className="text-xl font-normal font-mono text-center text-balance">
             Turn on two-factor authentication
           </h1>
-          <p className="text-accent text-sm text-center text-balance max-w-sm mx-auto mt-3 mb-8">
+          <p className="text-sm text-center text-balance max-w-sm mx-auto mt-3 mb-8">
             As an admin, your account is a target. Add a second sign-in check to
             start using LibreServ — it takes about a minute, and you can change
             it later in My Account.
@@ -61,12 +61,12 @@ export default function MfaBlocker() {
           <MfaSetupWizard onComplete={refreshAuth} onSessionExpired={refreshAuth} />
 
           {/* Escape hatch — a fullscreen gate must never trap the user. */}
-          <div className="mt-8 pt-5 border-t border-primary/10 flex items-center justify-center gap-2 text-xs text-accent">
+          <div className="mt-8 pt-5 border-t border-primary/10 flex items-center justify-center gap-2 text-xs">
             {me?.username && <span>Signed in as {me.username} ·</span>}
             <button
               type="button"
               onClick={logout}
-              className="inline-flex items-center gap-1 text-accent hover:text-primary no-underline hover:underline underline-offset-2 motion-safe:transition-colors"
+              className="inline-flex items-center gap-1 hover:text-primary no-underline hover:underline underline-offset-2 motion-safe:transition-colors"
             >
               <LogOut size={ICON_SIZE.xs} aria-hidden="true" />
               Sign out

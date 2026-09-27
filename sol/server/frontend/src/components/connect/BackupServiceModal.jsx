@@ -53,13 +53,13 @@ export default function BackupServiceModal({ open, onClose, onSaved, service, re
       <div className="p-5 space-y-5">
         <div className="flex items-start gap-3 pb-4 border-b border-primary/10">
           <div className="p-2 rounded-full bg-primary/10">
-            <Database size={ICON_SIZE.lg} className="text-accent" />
+            <Database size={ICON_SIZE.lg} />
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm text-primary">
               Status: <span className="font-medium">{stateLabel}</span>
             </p>
-            <p className="text-sm text-accent mt-1.5">
+            <p className="text-sm mt-1.5">
               Your backups need a place to live. You can use multiple destinations —
               Connect storage alongside your own S3, B2, or SFTP endpoints.
             </p>
@@ -69,7 +69,7 @@ export default function BackupServiceModal({ open, onClose, onSaved, service, re
         {backupOnPlan && connectStatus?.connected && (
           <div className="bg-primary/5 rounded-pill p-4">
             <p className="text-sm text-primary flex items-center gap-2">
-              <Check size={ICON_SIZE.md} className="text-accent" />
+              <Check size={ICON_SIZE.md} />
               Connect backup storage available on your plan
             </p>
           </div>
@@ -92,7 +92,7 @@ export default function BackupServiceModal({ open, onClose, onSaved, service, re
               <AlertTriangle size={ICON_SIZE.md} className="text-warning shrink-0" />
               {connectWarning.label}
             </div>
-            <p className="text-xs text-accent">
+            <p className="text-xs">
               Connect needs to be connected and your plan must support this service
               before backup storage can be managed automatically.
             </p>
@@ -122,12 +122,12 @@ export default function BackupServiceModal({ open, onClose, onSaved, service, re
           {useConnect && (
             <>
               <div className="flex items-center gap-3 p-3 rounded-large-element bg-primary text-secondary border-2 border-accent/20">
-                <Check size={ICON_SIZE.md} className="text-accent shrink-0" />
+                <Check size={ICON_SIZE.md} className="shrink-0" />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-secondary font-medium">Connect Storage</p>
-                  <p className="text-xs text-accent">S3-compatible</p>
+                  <p className="text-xs">S3-compatible</p>
                 </div>
-                <span className="text-xs px-2.5 py-1 rounded-pill bg-accent text-primary font-medium">
+                <span className="text-xs px-2.5 py-1 rounded-pill bg-secondary text-primary font-medium">
                   Connect
                 </span>
               </div>
@@ -138,7 +138,7 @@ export default function BackupServiceModal({ open, onClose, onSaved, service, re
                   <p className="text-sm text-secondary font-medium">
                     Backup Recovery Key
                   </p>
-                  <p className="text-xs text-accent">
+                  <p className="text-xs">
                     Your recovery key will appear here once Connect storage is provisioned.
                     Without this key, you cannot restore your backups on a new server.
                   </p>
@@ -153,21 +153,21 @@ export default function BackupServiceModal({ open, onClose, onSaved, service, re
                 key={repo.id || i}
                 className="flex items-center gap-3 p-3 rounded-large-element bg-primary text-secondary border-2 border-secondary/10"
               >
-                <Database size={ICON_SIZE.md} className="text-accent shrink-0" />
+                <Database size={ICON_SIZE.md} className="shrink-0" />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-secondary">{repo.name || repo.repo_type}</p>
-                  <p className="text-xs text-accent font-mono truncate">{repo.repo_path}</p>
+                  <p className="text-xs font-mono truncate">{repo.repo_path}</p>
                 </div>
-                <span className="text-xs px-2.5 py-1 rounded-pill bg-primary/20 text-accent font-medium capitalize">
+                <span className="text-xs px-2.5 py-1 rounded-pill border border-accent font-medium capitalize">
                   {repo.repo_type}
                 </span>
-                <button className="text-accent hover:text-secondary motion-safe:transition-colors">
+                <button className="hover:text-secondary motion-safe:transition-colors">
                   <Trash2 size={ICON_SIZE.sm} />
                 </button>
               </div>
             ))
           ) : (
-            <p className="text-xs text-accent py-2">
+            <p className="text-xs py-2">
               No custom backup destinations configured yet.
             </p>
           )}

@@ -11,7 +11,7 @@ import { haptic } from "../../utils/haptics.js";
 // "warning" keeps its yellow fill via a className override since Button has
 // no warning variant of its own.
 const CONFIRM_VARIANT = {
-  default: "accent",
+  default: "primary",
   warning: "accent",
   danger: "danger",
   "danger-undoable": "danger",
@@ -97,7 +97,7 @@ export default function ConfirmModal({
       ? "text-error"
       : snap.variant === "warning"
         ? "text-warning"
-        : "text-accent";
+        : "";
   const confirmVariant = CONFIRM_VARIANT[snap.variant] || CONFIRM_VARIANT.default;
   const bannerTone = BANNER_TONE[snap.variant];
   const SnapIcon = snap.Icon;
@@ -128,7 +128,7 @@ export default function ConfirmModal({
             )}
             <div className="flex-1">
               {snap.message && (
-                <p className="font-mono text-sm text-accent mb-2">{snap.message}</p>
+                <p className="font-mono text-sm mb-2">{snap.message}</p>
               )}
               {snap.children}
             </div>

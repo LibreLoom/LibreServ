@@ -90,7 +90,7 @@ function FactoryResetCard({ index = 2, className = "" }) {
         </div>
 
         <div className="mt-4">
-          <label className="block font-mono text-xs text-accent mb-1">
+          <label className="block font-mono text-xs mb-1">
             Type RESET to confirm
           </label>
           <input
@@ -104,7 +104,7 @@ function FactoryResetCard({ index = 2, className = "" }) {
         </div>
 
         <div className="mt-3">
-          <label className="block font-mono text-xs text-accent mb-1">
+          <label className="block font-mono text-xs mb-1">
             Enter your password to confirm
           </label>
           <input

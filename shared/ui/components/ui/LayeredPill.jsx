@@ -7,7 +7,7 @@ import { haptic } from "../../utils/haptics.js";
 /**
  * LayeredPill — the dual-layer segmented pill (settled format, do not deviate).
  *
- * Outer accent track with an inset primary chip; the trailing segment is an
+ * Outer secondary track (accent outline) with an inset primary chip; the trailing segment is an
  * action button (when `onAction` is given) or static text (when not). Each
  * segment sizes to its own content; the wrap container keeps them on one line
  * unless there's no space, then the whole pill expands to two lines.
@@ -57,7 +57,7 @@ export default function LayeredPill({
   className,
 }) {
   const chipIcon = icon
-    ? cloneElement(icon, { className: cn("text-accent shrink-0", icon.props?.className) })
+    ? cloneElement(icon, { className: cn("shrink-0", icon.props?.className) })
     : null;
   const btnIcon = actionIcon
     ? cloneElement(actionIcon, { className: cn("shrink-0", actionIcon.props?.className) })
@@ -70,7 +70,7 @@ export default function LayeredPill({
   const pill = (
     <div
       className={cn(
-        "inline-flex max-w-full flex-wrap items-center rounded-pill bg-accent text-primary text-xs border border-accent/40",
+        "inline-flex max-w-full flex-wrap items-center rounded-pill bg-secondary text-primary text-xs border border-accent",
         className,
       )}
     >

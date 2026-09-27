@@ -50,7 +50,7 @@ export default function SettingsUserCard({ user, href, deviceName = "this device
       {to && (
         <ChevronRight
           size={ICON_SIZE.lg}
-          className="text-accent opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex-shrink-0"
+          className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex-shrink-0"
         />
       )}
     </>

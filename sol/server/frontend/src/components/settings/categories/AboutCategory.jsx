@@ -59,7 +59,7 @@ function SystemChecksCard({ index = 2 }) {
     <SettingsCard icon={Activity} title="System Checks" padding={false} index={index}>
       <div className="px-5 py-4">
         <div className="flex items-center justify-between gap-3 mb-4">
-          <p className="text-sm text-accent">
+          <p className="text-sm">
             {checks.length === 0
               ? "No checks recorded yet."
               : allOk
@@ -93,7 +93,7 @@ function SystemChecksCard({ index = 2 }) {
                   <div className="min-w-0">
                     <div className="text-sm text-primary">{labelFor(name)}</div>
                     {check.message && (
-                      <div className="text-xs text-accent truncate">{check.message}</div>
+                      <div className="text-xs truncate">{check.message}</div>
                     )}
                   </div>
                 </div>
@@ -158,7 +158,7 @@ export default function AboutCategory({ settings, onUpdateSourceSave }) {
     <div className="space-y-4" data-slot="about-category">
       <SettingsCard icon={Heart} title="LibreServ" padding={false} index={0}>
         <div className="px-5 py-4">
-          <p className="text-sm text-accent leading-relaxed">
+          <p className="text-sm leading-relaxed">
             LibreServ is a self-hosted application management platform that
             allows you to easily deploy and manage self-hosted applications.
           </p>
@@ -175,7 +175,7 @@ export default function AboutCategory({ settings, onUpdateSourceSave }) {
             </Button>
           </div>
           <div className="mt-4 pt-4 border-t border-primary/10">
-            <div className="flex items-center gap-2 text-sm text-accent">
+            <div className="flex items-center gap-2 text-sm">
               <Heart size={ICON_SIZE.sm} className="text-error" />
               <span>Made with love: for everyone, by everyone.</span>
             </div>
@@ -185,7 +185,7 @@ export default function AboutCategory({ settings, onUpdateSourceSave }) {
 
       <SettingsCard icon={Coffee} title="Support LibreServ" padding={false} index={1}>
         <div className="px-5 py-4">
-          <p className="text-sm text-accent leading-relaxed">
+          <p className="text-sm leading-relaxed">
             LibreServ is free and open source. If it has made running your own
             server a little easier, you can help keep it going with a small
             contribution — entirely optional, always appreciated.
@@ -260,7 +260,7 @@ export default function AboutCategory({ settings, onUpdateSourceSave }) {
       {modalOpen && (
         <ModalCard title="Update Source" onClose={() => setModalOpen(false)}>
           <div className="space-y-4">
-            <p className="text-sm text-accent">
+            <p className="text-sm">
               Where LibreServ gets its own updates from. This is not for app
               updates — those come from App Sources in Settings.
             </p>

@@ -52,7 +52,7 @@ function ColorInput({ label, value, onChange, description }) {
       <div className="min-w-0">
         <div className="font-medium text-primary text-sm">{label}</div>
         {description && (
-          <div className="text-xs text-accent mt-0.5">{description}</div>
+          <div className="text-xs mt-0.5">{description}</div>
         )}
       </div>
       <div className="flex items-center gap-2">
@@ -108,7 +108,7 @@ function ColorPreset({ colors, previewColors, label, currentColors, onSelect }) 
         "no-focus-outline focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2",
         "hover:-translate-y-0.5 active:motion-safe:scale-95",
         isMatch
-          ? "border-accent bg-accent/10"
+          ? "border-accent"
           : "border-primary/10 hover:border-primary/30 hover:bg-primary/5"
       )}
       style={{ transitionDuration: "var(--motion-duration-short2)" }}
@@ -150,7 +150,7 @@ function ColorPreset({ colors, previewColors, label, currentColors, onSelect }) 
       <span
         className={cn(
           "text-xs font-mono",
-          isMatch ? "text-primary" : "text-accent"
+          "text-primary"
         )}
       >
         {label}
@@ -158,10 +158,10 @@ function ColorPreset({ colors, previewColors, label, currentColors, onSelect }) 
 
       {isMatch && (
         <span
-          className="absolute -top-1.5 right-1.5 z-10 w-5 h-5 rounded-full bg-accent flex items-center justify-center animate-in fade-in zoom-in-75 duration-150"
+          className="absolute -top-1.5 right-1.5 z-10 w-5 h-5 rounded-full bg-primary flex items-center justify-center animate-in fade-in zoom-in-75 duration-150"
           aria-hidden="true"
         >
-          <Check size={ICON_SIZE.xs} className="text-primary" strokeWidth={3} />
+          <Check size={ICON_SIZE.xs} className="text-secondary" strokeWidth={3} />
         </span>
       )}
     </button>
@@ -300,7 +300,7 @@ export default function AppearanceCategory({
             style={{ transitionDuration: "var(--motion-duration-medium2)" }}
           >
             <div className="pt-4 border-t border-primary/10 pb-4">
-              <div className="font-mono text-[11px] uppercase tracking-[0.22em] text-accent mb-3">Color Presets</div>
+              <div className="font-mono text-[11px] uppercase tracking-[0.22em] mb-3">Color Presets</div>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
                 {COLOR_PRESETS.map((preset) => (
                   <ColorPreset
@@ -316,7 +316,7 @@ export default function AppearanceCategory({
             </div>
 
             <div className="pt-4 border-t border-primary/10 pb-4">
-              <div className="text-xs font-medium text-accent uppercase tracking-wider mb-3">
+              <div className="text-xs font-medium uppercase tracking-wider mb-3">
                 {darkMode ? "Dark Mode Colors" : "Light Mode Colors"}
               </div>
               <div className="grid gap-2.5 sm:grid-cols-3">
@@ -354,7 +354,7 @@ export default function AppearanceCategory({
                 style={{ transitionDuration: "var(--motion-duration-medium2)" }}
               >
                 <div className="pt-4 border-t border-primary/10">
-                  <div className="text-xs font-medium text-accent uppercase tracking-wider mb-3">
+                  <div className="text-xs font-medium uppercase tracking-wider mb-3">
                     {darkMode ? "Dark Mode Colors (Active)" : "Dark Mode Colors"}
                   </div>
                   <div className="grid gap-2.5 sm:grid-cols-3">

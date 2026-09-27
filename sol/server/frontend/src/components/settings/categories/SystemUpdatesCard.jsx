@@ -110,7 +110,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
         <div className="px-5 py-5">
           <div className="flex items-start justify-between gap-4 mb-4">
             <div className="flex-1">
-              <div className="text-sm text-accent mb-1">Current Version</div>
+              <div className="text-sm mb-1">Current Version</div>
               <div className="text-lg font-mono text-primary">
                 {getVersionDisplay()}
               </div>
@@ -134,7 +134,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
           </div>
 
           <div className="flex items-center gap-3 mb-4">
-            <div className="text-sm text-accent">Status:</div>
+            <div className="text-sm">Status:</div>
             {notChecked && (
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-primary text-secondary">
                 <Info size={ICON_SIZE.xs} />
@@ -293,7 +293,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
                         {...props}
                       />
                     ) : (
-                      <pre className="block bg-accent/30 text-secondary p-4 rounded mb-3 overflow-x-auto last:mb-0">
+                      <pre className="block bg-secondary/10 text-secondary p-4 rounded mb-3 overflow-x-auto last:mb-0">
                         <code className="text-xs font-mono block" {...props} />
                       </pre>
                     );

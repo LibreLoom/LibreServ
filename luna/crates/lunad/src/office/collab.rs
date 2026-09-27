@@ -140,9 +140,7 @@ pub enum ServerEvent {
     },
     /// A new answer landed on a form in this room. Ephemeral — not replayed
     /// from the backlog. Editors refresh their responses list.
-    FormResponse {
-        count: u64,
-    },
+    FormResponse,
 }
 
 #[derive(Debug)]

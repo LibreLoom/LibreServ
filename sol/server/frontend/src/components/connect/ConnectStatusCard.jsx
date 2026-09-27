@@ -10,9 +10,9 @@ import Callout from "@libreloom/ui/components/common/Callout.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 const PLAN_BADGES = {
-  free: { label: "Connect Free", class: "bg-accent/10 text-accent" },
-  one: { label: "Connect One", class: "bg-accent text-primary" },
-  lite: { label: "Connect Lite", class: "bg-accent text-primary" },
+  free: { label: "Connect Free", class: "border border-accent" },
+  one: { label: "Connect One", class: "bg-primary text-secondary" },
+  lite: { label: "Connect Lite", class: "bg-primary text-secondary" },
 };
 
 export default function ConnectStatusCard({
@@ -42,14 +42,14 @@ export default function ConnectStatusCard({
       <>
         <Card icon={Plug} title="LibreServ Connect" noHeightAnim noPopIn={noPopIn} data-slot="connect-status-card">
           <div className="p-5 space-y-4">
-          <p className="text-sm text-accent">
+          <p className="text-sm">
             LibreServ Connect handles the external services your server needs —
             email, a domain name, backups, and more. Everything in one place.
           </p>
           <Button onClick={() => setShowTokenInput(true)}>
             Add Connect
           </Button>
-          <p className="text-xs text-accent">
+          <p className="text-xs">
             Don't have an account?{" "}
             <button
               onClick={onOpenPlanPage}
@@ -65,7 +65,7 @@ export default function ConnectStatusCard({
         <ModalCard title="Enter Your Connect Key" onClose={() => setShowTokenInput(false)} size="md">
           {({close}) => (
           <div className="space-y-4">
-            <p className="text-sm text-accent">
+            <p className="text-sm">
               Go to{" "}
               <button
                 onClick={onOpenPlanPage}
@@ -131,7 +131,7 @@ export default function ConnectStatusCard({
       <div className="p-5 space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-accent" />
+            <div className="w-2 h-2 rounded-full bg-success" />
             <span className="text-sm text-primary font-medium">Connected</span>
           </div>
           {planBadge && (
@@ -144,10 +144,10 @@ export default function ConnectStatusCard({
         </div>
 
         {connectKeyHint && (
-          <p className="text-xs text-accent/60 font-mono">Key: {connectKeyHint}</p>
+          <p className="text-xs font-mono">Key: {connectKeyHint}</p>
         )}
 
-        <p className="text-sm text-accent">
+        <p className="text-sm">
           {connectedCount} of {totalCount} services active
         </p>
 

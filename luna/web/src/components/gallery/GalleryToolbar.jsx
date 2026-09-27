@@ -42,7 +42,7 @@ const searchFieldShell =
   "relative flex-1 min-w-0 bg-primary text-secondary rounded-pill motion-safe:transition-[flex-grow,width] motion-safe:duration-300 motion-safe:ease-[var(--motion-easing-emphasized)]";
 
 const searchInputClass =
-  "w-full pl-11 pr-9 py-2 bg-transparent text-secondary placeholder:text-accent focus:outline-none no-focus-outline font-mono text-sm";
+  "w-full pl-11 pr-9 py-2 bg-transparent text-secondary focus:outline-none no-focus-outline font-mono text-sm";
 
 /**
  * @param {{
@@ -66,7 +66,7 @@ function GallerySearchInput({
     <div className={cn(searchFieldShell, className)}>
       <Search
         size={18}
-        className="absolute left-4 top-1/2 -translate-y-1/2 text-accent pointer-events-none"
+        className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none"
         aria-hidden="true"
       />
       <input
@@ -90,7 +90,7 @@ function GallerySearchInput({
         <button
           type="button"
           aria-label="Clear search"
-          className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-accent hover:text-secondary rounded-pill transition-colors"
+          className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 hover:text-secondary rounded-pill transition-colors"
           onClick={() => {
             haptic("light");
             if (onClear) onClear();
@@ -287,7 +287,7 @@ export default function GalleryToolbar({
         <Button
           type="button"
           size="sm"
-          variant={selectMode ? "accent" : "ghost"}
+          variant={selectMode ? "primary" : "ghost"}
           className="shrink-0 whitespace-nowrap"
           tabIndex={hasSelect ? 0 : -1}
           onClick={() => {
@@ -340,7 +340,7 @@ export default function GalleryToolbar({
           ref={moreButtonRef}
           type="button"
           size="iconSm"
-          variant={moreOpen ? "accent" : "ghost"}
+          variant={moreOpen ? "primary" : "ghost"}
           className="shrink-0"
           aria-label="More options"
           aria-haspopup="menu"
@@ -374,7 +374,7 @@ export default function GalleryToolbar({
       ) : (
         <RefreshCw
           size={15}
-          className={cn("shrink-0 text-accent", phase === "pending" && "animate-spin")}
+          className={cn("shrink-0", phase === "pending" && "animate-spin")}
           aria-hidden="true"
         />
       )}
@@ -451,7 +451,7 @@ export default function GalleryToolbar({
                   onOpenDates();
                 }}
               >
-                <CalendarDays size={15} className="shrink-0 text-accent" aria-hidden="true" />
+                <CalendarDays size={15} className="shrink-0" aria-hidden="true" />
                 <span>Jump to date</span>
               </button>
             )}
@@ -515,7 +515,7 @@ export default function GalleryToolbar({
                   onOpenShortcuts();
                 }}
               >
-                <Keyboard size={15} className="shrink-0 text-accent" aria-hidden="true" />
+                <Keyboard size={15} className="shrink-0" aria-hidden="true" />
                 <span>Keyboard shortcuts</span>
               </button>
             )}

@@ -148,7 +148,7 @@ function DriveStorageBar({ summary }) {
             className="inline-block h-2 w-2 rounded-full bg-primary shrink-0"
             aria-hidden="true"
           />
-          <span className="text-xs font-mono uppercase tracking-widest text-accent">
+          <span className="text-xs font-mono uppercase tracking-widest">
             <TermHint content="How much room is left for new files on this drive.">
               Available storage
             </TermHint>
@@ -162,7 +162,7 @@ function DriveStorageBar({ summary }) {
           {totalLabel} total
         </p>
         <div
-          className="mt-3 h-2 rounded-pill bg-primary overflow-hidden"
+          className="mt-3 h-2 rounded-pill bg-primary p-0.5 overflow-hidden"
           role="progressbar"
           aria-valuenow={usedPct}
           aria-valuemin={0}
@@ -170,7 +170,7 @@ function DriveStorageBar({ summary }) {
           aria-label={`${usedPct}% used`}
         >
           <div
-            className="h-full rounded-pill bg-accent motion-safe:transition-all motion-safe:duration-500"
+            className="h-full rounded-pill bg-secondary motion-safe:transition-all motion-safe:duration-500"
             style={{ width: `${usedPct}%` }}
           />
         </div>

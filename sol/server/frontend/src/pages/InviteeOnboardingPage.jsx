@@ -67,7 +67,7 @@ export default function InviteeOnboardingPage() {
   if (loading) {
     return (
       <main className="fixed inset-0 grid place-items-center bg-primary px-4" data-slot="invitee-onboarding">
-        <Loader2 className="animate-spin text-accent" size={28} />
+        <Loader2 className="animate-spin" size={28} />
       </main>
     );
   }
@@ -78,9 +78,9 @@ export default function InviteeOnboardingPage() {
     return (
       <main className="fixed inset-0 grid place-items-center bg-primary px-4" id="main-content" tabIndex={-1} data-slot="invitee-onboarding">
         <div className="w-full max-w-lg bg-secondary text-primary rounded-large-element p-8 text-center">
-          <AlertCircle size={32} className="text-accent mx-auto mb-3" />
+          <AlertCircle size={32} className="mx-auto mb-3" />
           <h1 className="font-mono text-xl mb-2">This invitation isn't valid</h1>
-          <p className="text-accent text-sm">
+          <p className="text-sm">
             The link may have expired or already been used. Ask the person who
             invited you to send a new one.
           </p>
@@ -101,13 +101,13 @@ export default function InviteeOnboardingPage() {
         <h1 className="text-primary font-mono text-xl font-normal block text-center">
           You're invited to join
         </h1>
-        <p className="text-accent text-sm text-center mt-2">
+        <p className="text-sm text-center mt-2">
           Invited as <span className="font-medium">{invite.email}</span> ({invite.role}).
           Set your username and password to finish.
         </p>
 
         {isAdmin && (
-          <p className="text-accent text-xs flex items-center justify-center gap-2 mt-3">
+          <p className="text-xs flex items-center justify-center gap-2 mt-3">
             <ShieldCheck size={ICON_SIZE.sm} /> Admin accounts need two-factor authentication —
             you'll set it up after this step.
           </p>

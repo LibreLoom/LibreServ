@@ -159,7 +159,7 @@ export default function UsersPage() {
                           className="inline-flex items-center gap-2"
                         >
                           <span className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
-                            <User size={ICON_SIZE.sm} className="text-accent" />
+                            <User size={ICON_SIZE.sm} />
                           </span>
                           <span className="font-semibold text-sm">{row.username}</span>
                         </Link>

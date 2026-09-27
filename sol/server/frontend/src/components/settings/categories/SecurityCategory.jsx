@@ -97,7 +97,7 @@ function getSeverityIcon(severity) {
     case "warning":
       return <AlertTriangle size={ICON_SIZE.xs} className="text-warning" />;
     default:
-      return <Check size={ICON_SIZE.xs} className="text-accent" />;
+      return <Check size={ICON_SIZE.xs} />;
   }
 }
 
@@ -179,7 +179,7 @@ export default function SecurityCategory() {
             <div className="flex items-center gap-3">
               <ActivityFilterDropdownMemo value={filter} onChange={setFilter} />
             {lastUpdated && (
-              <span className="text-xs text-accent hidden sm:inline">
+              <span className="text-xs hidden sm:inline">
                 {formatTimestamp(lastUpdated.toISOString(), use12HourTime)}
               </span>
             )}
@@ -191,7 +191,7 @@ export default function SecurityCategory() {
               disabled={activityLoading}
               aria-label="Refresh activity log"
             >
-              <RefreshCw size={ICON_SIZE.sm} className={cn("text-accent", activityLoading && "animate-spin")} aria-hidden="true" />
+              <RefreshCw size={ICON_SIZE.sm} className={cn(activityLoading && "animate-spin")} aria-hidden="true" />
             </Button>
           </div>
         }
@@ -203,8 +203,8 @@ export default function SecurityCategory() {
             </div>
           ) : events.length === 0 ? (
             <div className="text-center py-12">
-              <Shield size={40} className="mx-auto text-accent/30 mb-3" />
-              <p className="text-sm text-accent">No security events found</p>
+              <Shield size={40} className="mx-auto mb-3" />
+              <p className="text-sm">No security events found</p>
             </div>
           ) : (
             // Reloads keep the current table mounted (stale-while-revalidate)

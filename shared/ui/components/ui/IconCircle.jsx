@@ -10,7 +10,6 @@ const sizes = {
 
 const variants = {
   default: "bg-primary text-secondary",
-  accent: "bg-accent text-primary",
   secondary: "bg-secondary text-primary",
 };
 
@@ -39,6 +38,6 @@ export default function IconCircle({
 IconCircle.propTypes = {
   icon: PropTypes.elementType.isRequired,
   size: PropTypes.oneOf(['sm', 'md', 'lg', 'xl']),
-  variant: PropTypes.oneOf(['default', 'accent', 'secondary']),
+  variant: PropTypes.oneOf(['default', 'secondary']),
   className: PropTypes.string,
 };
