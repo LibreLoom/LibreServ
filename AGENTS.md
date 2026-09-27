@@ -38,7 +38,8 @@ LibreServ/
 ├── release.sh            # release pipeline (both products)
 ├── keys/                 # release minisign PUBLIC keys — public raw-URL path,
 │                         # do not move (lunad fetches keys/ over HTTP at runtime)
-└── .cursor/              # Cloud Agent environment definition
+├── .cursor/              # Cursor Cloud Agent environment definition
+└── .claude/              # Claude Code cloud setup script copy + SessionStart hook
 ```
 
 **Public paths that must not move** (consumed by released artifacts/users):
@@ -233,6 +234,11 @@ The entire UI must be felt, not just seen. Every interactive surface, card, moda
 - `.cursor/environment.json` + `.cursor/install.sh` provision the dev stack automatically: Go 1.26 (the repo needs it; the base image ships older Go), Podman + `podman-compose` (CI and app runtime tests; `start.sh` starts the API socket because Cloud Agents often have no user systemd bus), backend config/modules/restic, frontend deps + build, Rust 1.96 + Luna lunad/web deps, and the `fj` CLI. `terminals` run LibreServ backend (`make run`, `:8080`) and Vite (`npm run dev`, `:3000`), plus Luna lunad (`LUNA_CONNECT_URL=http://127.0.0.1:18765 make dev-daemon`, `:8090`) and Luna Vite (`npm run dev`, `:3001`).
 - **Luna Connect mock (Cloud Agents):** `luna/scripts/mocks/seed-mock-connect.sh` starts the mock on `:18765`, sets subdomain `max` → `max.luna.servers.libreloom.org`, unlocks cloud backup, and mints `luna/dev/device-token` when missing. Override with `LUNA_MOCK_SUBDOMAIN` / `LUNA_MOCK_DOMAIN`. Control with `make -C luna mock-connect ARGS="status|domain set …|backup unlock|…"`. See `luna/README.md` → Luna Connect Mock.
 - `.cursor/start.sh` authenticates `fj` from the `FORGEJO_TOKEN` secret for Forgejo comments and issues. Without the secret, `fj` stays unauthenticated. Git remotes are left as Cursor provisioned them.
+
+### Claude Code cloud environment
+- The environment's **Setup script** box holds a copy of `.claude/cloud-setup.sh` (keep them in sync). It installs machine toolchains only — apt packages (Podman, GTK, release tooling), Go 1.26, Rust 1.96 + clippy/rustfmt/musl, Android SDK, `fj` — so it stays under the ~5 min limit for the environment cache. Needs network access **Full**.
+- `.claude/settings.json` runs `.claude/session-start.sh` on session start (cloud only): exports `DOCKER_HOST`/`ANDROID_HOME`, starts the Podman API socket, installs the `fj` wrapper, seeds Luna mock drives + mock Connect (`:18765`), then runs `npm ci`, the web builds, and `make build-daemon` in the background. Check `/tmp/libreserv-session-setup.state` reads `done` before building or testing (log: `/tmp/libreserv-session-setup.log`).
+- Forgejo auth comes from an environment **API credential** for `gt.plainskill.net`, which the agent proxy attaches to requests; the token is never in the session.
 
 ## Notes for Agents
 
