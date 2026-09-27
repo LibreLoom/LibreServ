@@ -295,14 +295,14 @@ describe("FileBrowser", () => {
         headers: { "Content-Type": "application/json" },
       }),
     );
-    expect(await screen.findByText(/Nothing here yet/i)).toBeInTheDocument();
+    expect(await screen.findByText(/There's nothing here/i)).toBeInTheDocument();
     expect(screen.queryByRole("status", { name: /Loading folder/i })).not.toBeInTheDocument();
   });
 
   it("shows an empty state when the folder has nothing", async () => {
     stubListing({ "": [] });
     renderBrowser({ multiSelect: false });
-    expect(await screen.findByText(/Nothing here yet/i)).toBeInTheDocument();
+    expect(await screen.findByText(/There's nothing here/i)).toBeInTheDocument();
   });
 
   it("shows trash as a folder row at drive root when trashHref is set", async () => {
@@ -1338,11 +1338,26 @@ describe("FileBrowser inline states", () => {
   it("renders the empty state inside the list card, not a card of its own", async () => {
     stubListing({ "": [] });
     renderBrowser({ multiSelect: false });
-    const title = await screen.findByText("Nothing here yet");
+    const title = await screen.findByText("There's nothing here.");
     const empty = /** @type {HTMLElement} */ (title.closest("[data-slot=empty-state]"));
     const card = /** @type {HTMLElement} */ (empty).closest("[data-slot=card]");
     expect(card).toBeTruthy();
     // The empty state is the list card's own body — not a sibling card.
+    expect(card).not.toBe(empty);
+  });
+
+  it("renders both the trash row and the empty state inside the list card on an empty drive", async () => {
+    stubListing({ "": [] });
+    renderBrowser({
+      multiSelect: false,
+      linkNavigation: true,
+      trashHref: "/drives/d1?view=trash",
+    });
+    expect(await screen.findByRole("link", { name: "Trash" })).toBeInTheDocument();
+    const title = await screen.findByText("There's nothing here.");
+    const empty = /** @type {HTMLElement} */ (title.closest("[data-slot=empty-state]"));
+    const card = /** @type {HTMLElement} */ (empty).closest("[data-slot=card]");
+    expect(card).toBeTruthy();
     expect(card).not.toBe(empty);
   });
 });

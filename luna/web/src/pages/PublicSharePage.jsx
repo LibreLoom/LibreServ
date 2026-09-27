@@ -555,8 +555,6 @@ function PublicShareSession() {
               linkNavigation
               folderHref={shareFolderHref}
               fileHref={shareFileHref}
-              emptyTitle="This folder is empty"
-              emptyDescription={canUpload ? "Add files to get started." : "There's nothing here to download."}
             />
           </FileSourceProvider>
         )}

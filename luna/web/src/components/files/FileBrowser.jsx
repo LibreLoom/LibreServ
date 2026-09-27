@@ -10,7 +10,6 @@ import {
   File as FileIcon,
   Folder,
   FolderInput,
-  FolderOpen,
   Pencil,
   Search,
   SearchX,
@@ -26,7 +25,6 @@ import TextLink from "../ui/TextLink.jsx";
 import AnimatedCheckbox from "@libreloom/ui/components/ui/AnimatedCheckbox.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import { ActionTooltipGroup, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
-import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
@@ -228,9 +226,6 @@ function compareEntries(a, b, sortKey) {
  *   toolbarExtra?: import("react").ReactNode,
  *   folderActions?: import("react").ReactNode,
  *   emptyTitle?: string,
- *   emptyIcon?: import("react").ElementType,
- *   emptyDescription?: string,
- *   emptyAction?: import("react").ReactNode,
  *   className?: string,
  *   listClassName?: string,
  *   dense?: boolean,
@@ -276,10 +271,7 @@ export default function FileBrowser({
   trashHref = null,
   toolbarExtra = null,
   folderActions = null,
-  emptyTitle = "Nothing here yet",
-  emptyIcon: EmptyIcon = FolderOpen,
-  emptyAction = null,
-  emptyDescription = "",
+  emptyTitle = "There's nothing here.",
   surface = "secondary",
   className = "",
   listClassName = "",
@@ -419,6 +411,7 @@ export default function FileBrowser({
     [visibleEntries, path, fileRoot],
   );
   const narrowed = visibleEntries.length !== entries.length;
+  const isFiltered = Boolean(filterText.trim() || kindFilter !== "all");
 
   useEffect(() => {
     if (controlledSelected !== undefined) return;
@@ -978,16 +971,7 @@ export default function FileBrowser({
   useEffect(() => () => {
     if (hereDropExitRef.current != null) clearTimeout(hereDropExitRef.current);
   }, []);
-  const showTrashEntry = Boolean(trashHref && !isPicker && path === "" && entries.length > 0);
-
-  const emptyTrashAction = trashHref && !isPicker && path === "" ? (
-    <div className="flex flex-wrap justify-center gap-2">
-      {emptyAction}
-      <Button variant="outline" surface={surface} size="sm" asChild>
-        <Link to={trashHref} draggable={false}>Open Trash</Link>
-      </Button>
-    </div>
-  ) : emptyAction;
+  const showTrashEntry = Boolean(trashHref && !isPicker && path === "");
 
   const folderActionButtons = hasFolderActions ? (
     <>
@@ -1162,7 +1146,7 @@ export default function FileBrowser({
                         to={folderHref(driveId, rootCrumbPath)}
                         surface={surface}
                         className={cn(
-                          `break-all ${fg} rounded-pill px-1 -mx-1`,
+                          `no-underline hover:underline decoration-accent underline-offset-4 break-all ${fg} rounded-pill px-1 -mx-1`,
                           isRootDrop && "ring-2 ring-accent",
                         )}
                         draggable={false}
@@ -1202,7 +1186,7 @@ export default function FileBrowser({
                             to={folderHref(driveId, segPath)}
                             surface={surface}
                             className={cn(
-                              `break-all ${fg} rounded-pill px-1 -mx-1`,
+                              `no-underline hover:underline decoration-accent underline-offset-4 break-all ${fg} rounded-pill px-1 -mx-1`,
                               isSegDrop && "ring-2 ring-accent",
                             )}
                             draggable={false}
@@ -1353,7 +1337,7 @@ export default function FileBrowser({
             Drop to put items in this folder
           </span>
         ) : null}
-        {entries.length > 0 && (
+        {!listingForbidden && (
           <div
             data-slot="file-browser-column-header"
             className={`min-h-11 flex flex-wrap items-center gap-2 px-3 py-1 border-b ${hairline}/20 motion-safe:transition-colors ${
@@ -1497,7 +1481,7 @@ export default function FileBrowser({
               >
                 <div className={`flex min-w-36 flex-1 items-center gap-2 rounded-pill border-2 border-transparent ${wellBg} px-3 py-1 focus-within:border-accent motion-safe:transition-colors`}>
                   <label className="flex min-w-0 flex-1 items-center gap-2">
-                    <Search size={14} className="shrink-0" aria-hidden="true" />
+                    <Search size={14} className="shrink-0 text-accent" aria-hidden="true" />
                     <input
                       type="text"
                       className={`min-w-0 flex-1 appearance-none border-0 bg-transparent text-sm ${wellFg} shadow-none outline-none no-focus-outline`}
@@ -1573,27 +1557,12 @@ export default function FileBrowser({
           </div>
         )}
 
-        {listing.isError && !listingForbidden && (
-          <p className="text-error text-sm px-3 py-4" role="alert">
-            {folderListingError(listing.error)}
-          </p>
-        )}
         {/* A member's 403 is not an error state — the caller's friendly
             "not shared with you" surface explains it and points at Shared. */}
         {listingForbidden ? (
           <div className="px-3 py-5">{forbiddenState}</div>
         ) : listBusy && entries.length === 0 ? (
           <div className="h-11" aria-hidden="true" />
-        ) : entries.length === 0 && !showTrashEntry && !listing.isError ? (
-          <EmptyState
-            bare
-            className="py-8"
-            icon={EmptyIcon}
-            title={emptyTitle}
-            description={emptyDescription}
-            action={emptyTrashAction}
-            surface={surface}
-          />
         ) : (
           <ul
             ref={listRef}
@@ -1603,29 +1572,30 @@ export default function FileBrowser({
             aria-label="Files and folders"
             {...(showingStaleListing ? { inert: true } : {})}
           >
-            {showTrashEntry ? (() => {
-              const isTrashDrop = dropTarget === "::trash";
-              // The Trash row is a folder row: it gets the same actions
-              // slot (callers decide which buttons apply) and Properties.
-              const trashCtx = {
-                entry: { name: "Trash", kind: "dir" },
-                path: "",
-                fullPath: TRASH_PATH,
-                displayName: "Trash",
-              };
-              return (
-                <li
-                  className={[
-                    "flex items-center gap-2 px-3",
-                    padY,
-                    `${cardBg} ${fg}`,
-                    // One outline: the drop ring replaces the row separator
-                    // (border-b kept transparent so the row height doesn't shift).
-                    isTrashDrop
-                      ? "ring-2 ring-accent ring-inset border-b border-transparent last:border-b-0 last:rounded-b-large-element"
-                      : "border-b border-primary/15 last:border-b-0 last:rounded-b-large-element",
-                    "motion-safe:transition-colors",
-                  ].join(" ")}
+                {showTrashEntry ? (() => {
+                  const isTrashDrop = dropTarget === "::trash";
+                  // The Trash row is a folder row: it gets the same actions
+                  // slot (callers decide which buttons apply) and Properties.
+                  const trashCtx = {
+                    entry: { name: "Trash", kind: "dir" },
+                    path: "",
+                    fullPath: TRASH_PATH,
+                    displayName: "Trash",
+                  };
+                  return (
+                    <li
+                      className={[
+                        "flex items-center gap-2 px-3",
+                        padY,
+                        `${cardBg} ${fg}`,
+                        // One outline: the drop ring replaces the row separator
+                        // (border-b kept transparent so the row height doesn't shift).
+                        isTrashDrop
+                          ? "ring-2 ring-accent ring-inset border-b border-transparent"
+                          : "border-b border-primary/15",
+                        entries.length > 0 ? "last:border-b-0 last:rounded-b-large-element" : "",
+                        "motion-safe:transition-colors",
+                      ].filter(Boolean).join(" ")}
                   onDragOver={(e) => {
                     if (!onDelete || !hasLunaPaths(e)) return;
                     e.preventDefault();
@@ -1692,175 +1662,186 @@ export default function FileBrowser({
                 </li>
               );
             })() : null}
-            {visibleEntries.map((entry, rowIndex) => {
-              const ctx = rowContext(entry);
-              const isSelected = selectedPaths.includes(ctx.fullPath);
-              const isDrop = dropTarget === ctx.fullPath;
-              const openable = canOpenEntry(ctx);
-              const canDragRow = !isPicker && Boolean(onInternalMove);
-              // Trash counts as the first row when shown, so the striping
-              // stays on the same visual parity either way.
-              const striped = (rowIndex + (showTrashEntry ? 1 : 0)) % 2 === 1;
+            {visibleEntries.length > 0 ? (
+              visibleEntries.map((entry, rowIndex) => {
+                const ctx = rowContext(entry);
+                const isSelected = selectedPaths.includes(ctx.fullPath);
+                const isDrop = dropTarget === ctx.fullPath;
+                const openable = canOpenEntry(ctx);
+                const canDragRow = !isPicker && Boolean(onInternalMove);
+                // Trash counts as the first row when shown, so the striping
+                // stays on the same visual parity either way.
+                const striped = (rowIndex + (showTrashEntry ? 1 : 0)) % 2 === 1;
 
-              return (
-                <li
-                  key={entry.name}
-                  data-file-path={ctx.fullPath}
-                  className={[
-                    "flex items-center gap-2 px-3",
-                    padY,
-                    // The stripe IS the row's background — the only place it
-                    // may ever paint. Selection and drop-target states own the
-                    // whole row color, so the stripe is omitted there rather
-                    // than stacked under them (two bg-* utilities resolve by
-                    // stylesheet order, not class order). bg-clip-padding keeps
-                    // the fill out of the border box, so the translucent
-                    // divider always blends over the card behind it instead of
-                    // being tinted by the stripe/selection color.
-                    `bg-clip-padding ${isSelected || isDrop ? "bg-current/10" : striped ? stripeBg : cardBg} ${fg}`,
-                    // One outline: the drop ring replaces the row separator
-                    // (border-b kept transparent so the row height doesn't
-                    // shift). The last row always rounds to hug the card's
-                    // bottom edge — same geometry whether or not it's the
-                    // drop target.
-                    isDrop
-                      ? "ring-2 ring-accent ring-inset border-b border-transparent last:border-b-0 last:rounded-b-large-element"
-                      : "border-b border-primary/15 last:border-b-0 last:rounded-b-large-element",
-                    "motion-safe:transition-colors",
-                    canDragRow ? "cursor-grab active:cursor-grabbing select-none" : "",
-                  ].filter(Boolean).join(" ")}
-                  draggable={canDragRow}
-                  onDragStart={(e) => onRowDragStart(ctx, e)}
-                  {...(entry.kind === "dir" ? folderDropProps(ctx.fullPath, ctx.fullPath) : {})}
-                >
-                  {!isPicker && multiSelect ? (
+                return (
+                  <li
+                    key={entry.name}
+                    data-file-path={ctx.fullPath}
+                    className={[
+                      "flex items-center gap-2 px-3",
+                      padY,
+                      // The stripe IS the row's background — the only place it
+                      // may ever paint. Selection and drop-target states own the
+                      // whole row color, so the stripe is omitted there rather
+                      // than stacked under them (two bg-* utilities resolve by
+                      // stylesheet order, not class order). bg-clip-padding keeps
+                      // the fill out of the border box, so the translucent
+                      // divider always blends over the card behind it instead of
+                      // being tinted by the stripe/selection color.
+                      `bg-clip-padding ${isSelected || isDrop ? "bg-current/10" : striped ? stripeBg : cardBg} ${fg}`,
+                      // One outline: the drop ring replaces the row separator
+                      // (border-b kept transparent so the row height doesn't
+                      // shift). The last row always rounds to hug the card's
+                      // bottom edge — same geometry whether or not it's the
+                      // drop target.
+                      isDrop
+                        ? "ring-2 ring-accent ring-inset border-b border-transparent last:border-b-0 last:rounded-b-large-element"
+                        : "border-b border-primary/15 last:border-b-0 last:rounded-b-large-element",
+                      "motion-safe:transition-colors",
+                      canDragRow ? "cursor-grab active:cursor-grabbing select-none" : "",
+                    ].filter(Boolean).join(" ")}
+                    draggable={canDragRow}
+                    onDragStart={(e) => onRowDragStart(ctx, e)}
+                    {...(entry.kind === "dir" ? folderDropProps(ctx.fullPath, ctx.fullPath) : {})}
+                  >
+                    {!isPicker && multiSelect ? (
+                      <div
+                        data-no-row-drag
+                        draggable={false}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        className="shrink-0"
+                      >
+                        <AnimatedCheckbox
+                          checked={isSelected}
+                          onChange={(next, e) => {
+                            const shift = Boolean(
+                              /** @type {MouseEvent|undefined} */ (e?.nativeEvent)?.shiftKey,
+                            );
+                            if (shift) {
+                              toggleOne(ctx.fullPath, { additive: true, range: true });
+                              return;
+                            }
+                            setSelectedPaths(
+                              next
+                                ? [...new Set([...selectedPaths, ctx.fullPath])]
+                                : selectedPaths.filter((p) => p !== ctx.fullPath),
+                            );
+                            setLastClicked(ctx.fullPath);
+                          }}
+                          aria-label={`Select ${ctx.displayName}`}
+                          surface={surface}
+                        />
+                      </div>
+                    ) : null}
+
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      {entry.kind === "dir" ? (
+                        linkNavigation ? (
+                          <Link
+                            to={folderHref(driveId, ctx.fullPath)}
+                            draggable={false}
+                            className={`flex items-center gap-2 min-w-0 ${fg} hover:underline`}
+                          >
+                            <Folder size={16} className="shrink-0" aria-hidden="true" />
+                            <span className="font-mono text-sm truncate">{ctx.displayName}</span>
+                          </Link>
+                        ) : (
+                          <button
+                            type="button"
+                            draggable={false}
+                            className={`flex items-center gap-2 min-w-0 text-left ${fg} hover:underline`}
+                            onClick={() => openEntry(ctx)}
+                          >
+                            <Folder size={16} className="shrink-0" aria-hidden="true" />
+                            <span className="font-mono text-sm truncate">{ctx.displayName}</span>
+                          </button>
+                        )
+                      ) : openable ? (
+                        linkNavigation ? (
+                          <Link
+                            to={fileHref(driveId, ctx.fullPath)}
+                            draggable={false}
+                            className={`flex items-center gap-2 min-w-0 ${fg} hover:underline`}
+                            onClick={() => {
+                              haptic("medium");
+                              onOpenFile?.(ctx);
+                            }}
+                          >
+                            <FileIcon size={16} className="shrink-0" aria-hidden="true" />
+                            <span className="font-mono text-sm truncate">{ctx.displayName}</span>
+                          </Link>
+                        ) : (
+                          <button
+                            type="button"
+                            draggable={false}
+                            className={`flex items-center gap-2 min-w-0 text-left ${fg} hover:underline`}
+                            onClick={() => openEntry(ctx)}
+                          >
+                            <FileIcon size={16} className="shrink-0" aria-hidden="true" />
+                            <span className="font-mono text-sm truncate">{ctx.displayName}</span>
+                          </button>
+                        )
+                      ) : (
+                        <div className={`flex items-center gap-2 min-w-0 ${fg}`} draggable={false}>
+                          <FileIcon size={16} className="shrink-0" aria-hidden="true" />
+                          <span className="font-mono text-sm truncate">{ctx.displayName}</span>
+                        </div>
+                      )}
+                      {entry.saving ? (
+                        <span className="text-xs shrink-0" aria-live="polite">
+                          Saving…
+                        </span>
+                      ) : null}
+                      {!isPicker && !trashView && (!source.guest || ((source.capsBits ?? 0) & CAP.VIEW) !== 0) && entry.kind === "file" && isFormFile(entry.name) ? (
+                        <FormResponseBadge driveId={driveId} formPath={ctx.fullPath} />
+                      ) : null}
+                    </div>
+
                     <div
                       data-no-row-drag
+                      className="shrink-0 max-w-[40%] sm:max-w-none flex flex-wrap items-center justify-end gap-0.5"
                       draggable={false}
                       onMouseDown={(e) => e.stopPropagation()}
-                      className="shrink-0"
                     >
-                      <AnimatedCheckbox
-                        checked={isSelected}
-                        onChange={(next, e) => {
-                          const shift = Boolean(
-                            /** @type {MouseEvent|undefined} */ (e?.nativeEvent)?.shiftKey,
-                          );
-                          if (shift) {
-                            toggleOne(ctx.fullPath, { additive: true, range: true });
-                            return;
-                          }
-                          setSelectedPaths(
-                            next
-                              ? [...new Set([...selectedPaths, ctx.fullPath])]
-                              : selectedPaths.filter((p) => p !== ctx.fullPath),
-                          );
-                          setLastClicked(ctx.fullPath);
-                        }}
-                        aria-label={`Select ${ctx.displayName}`}
-                        surface={surface}
-                      />
+                      {rowActions(ctx)}
+                      {!isPicker && (
+                        <PropertiesButton
+                          label={ctx.displayName}
+                          onClick={() => setPropertiesCtx(ctx)}
+                          surface={surface}
+                        />
+                      )}
                     </div>
-                  ) : null}
-
-                  <div className="flex items-center gap-2 flex-1 min-w-0">
-                    {entry.kind === "dir" ? (
-                      linkNavigation ? (
-                        <Link
-                          to={folderHref(driveId, ctx.fullPath)}
-                          draggable={false}
-                          className={`flex items-center gap-2 min-w-0 ${fg} hover:underline`}
-                        >
-                          <Folder size={16} className="shrink-0" aria-hidden="true" />
-                          <span className="font-mono text-sm truncate">{ctx.displayName}</span>
-                        </Link>
-                      ) : (
-                        <button
-                          type="button"
-                          draggable={false}
-                          className={`flex items-center gap-2 min-w-0 text-left ${fg} hover:underline`}
-                          onClick={() => openEntry(ctx)}
-                        >
-                          <Folder size={16} className="shrink-0" aria-hidden="true" />
-                          <span className="font-mono text-sm truncate">{ctx.displayName}</span>
-                        </button>
-                      )
-                    ) : openable ? (
-                      linkNavigation ? (
-                        <Link
-                          to={fileHref(driveId, ctx.fullPath)}
-                          draggable={false}
-                          className={`flex items-center gap-2 min-w-0 ${fg} hover:underline`}
-                          onClick={() => {
-                            haptic("medium");
-                            onOpenFile?.(ctx);
-                          }}
-                        >
-                          <FileIcon size={16} className="shrink-0" aria-hidden="true" />
-                          <span className="font-mono text-sm truncate">{ctx.displayName}</span>
-                        </Link>
-                      ) : (
-                        <button
-                          type="button"
-                          draggable={false}
-                          className={`flex items-center gap-2 min-w-0 text-left ${fg} hover:underline`}
-                          onClick={() => openEntry(ctx)}
-                        >
-                          <FileIcon size={16} className="shrink-0" aria-hidden="true" />
-                          <span className="font-mono text-sm truncate">{ctx.displayName}</span>
-                        </button>
-                      )
-                    ) : (
-                      <div className={`flex items-center gap-2 min-w-0 ${fg}`} draggable={false}>
-                        <FileIcon size={16} className="shrink-0" aria-hidden="true" />
-                        <span className="font-mono text-sm truncate">{ctx.displayName}</span>
-                      </div>
-                    )}
-                    {entry.saving ? (
-                      <span className="text-xs shrink-0" aria-live="polite">
-                        Saving…
-                      </span>
-                    ) : null}
-                    {!isPicker && !trashView && (!source.guest || ((source.capsBits ?? 0) & CAP.VIEW) !== 0) && entry.kind === "file" && isFormFile(entry.name) ? (
-                      <FormResponseBadge driveId={driveId} formPath={ctx.fullPath} />
-                    ) : null}
-                  </div>
-
-                  <div
-                    data-no-row-drag
-                    className="shrink-0 max-w-[40%] sm:max-w-none flex flex-wrap items-center justify-end gap-0.5"
-                    draggable={false}
-                    onMouseDown={(e) => e.stopPropagation()}
-                  >
-                    {rowActions(ctx)}
-                    {!isPicker && (
-                      <PropertiesButton
-                        label={ctx.displayName}
-                        onClick={() => setPropertiesCtx(ctx)}
-                        surface={surface}
-                      />
-                    )}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-        {!listBusy && !listing.isError && entries.length > 0 && visibleEntries.length === 0 && (
-          <EmptyState
-            bare
-            className="py-8"
-            icon={SearchX}
-            title={
-              filterText.trim()
-                ? `Nothing matches "${filterText.trim()}" in this folder`
-                : kindFilter === "dir"
-                  ? "No folders in this folder"
-                  : "No files in this folder"
-            }
-            action={(
+                  </li>
+                );
+              })
+            ) : listing.isError ? (
+              <li
+                data-slot="listing-error"
+                className="flex flex-col items-center justify-center py-20 px-3 text-center select-none"
+              >
+                <p className="text-error font-mono text-base" role="alert">
+                  {folderListingError(listing.error)}
+                </p>
+              </li>
+            ) : isFiltered ? (
+            <li
+              data-slot="empty-state"
+              className={`flex flex-col items-center justify-center py-16 px-3 text-center select-none ${fg}`}
+            >
+              <div className="mb-3">
+                <SearchX size={32} aria-hidden="true" />
+              </div>
+              <p className="font-mono text-base mb-4">
+                {filterText.trim()
+                  ? `Nothing matches "${filterText.trim()}" in this folder`
+                  : kindFilter === "dir"
+                    ? "No folders in this folder"
+                    : "No files in this folder"}
+              </p>
               <Button
                 variant="outline"
+                surface={surface}
                 size="sm"
                 onClick={() => {
                   setFilterText("");
@@ -1869,10 +1850,17 @@ export default function FileBrowser({
               >
                 Show everything
               </Button>
-            )}
-            surface={surface}
-          />
-        )}
+            </li>
+          ) : (
+            <li
+              data-slot="empty-state"
+              className={`flex items-center justify-center py-20 px-3 text-center select-none font-mono text-base sm:text-lg ${fg}`}
+            >
+              {emptyTitle || "There's nothing here."}
+            </li>
+          )}
+        </ul>
+      )}
         {isPicker && pickerMode === "folder" && (
           <div className={`flex flex-wrap items-center gap-2 px-3 py-3 border-t ${hairline}/20`}>
             <p className={`${fg} text-sm flex-1 min-w-0`}>
@@ -1956,9 +1944,6 @@ FileBrowser.propTypes = {
   toolbarExtra: PropTypes.node,
   folderActions: PropTypes.node,
   emptyTitle: PropTypes.string,
-  emptyIcon: PropTypes.elementType,
-  emptyDescription: PropTypes.string,
-  emptyAction: PropTypes.node,
   className: PropTypes.string,
   listClassName: PropTypes.string,
   dense: PropTypes.bool,

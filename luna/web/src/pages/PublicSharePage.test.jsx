@@ -279,7 +279,7 @@ describe("PublicSharePage", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     const { container } = renderPage();
-    expect(await screen.findByText(/This folder is empty/i)).toBeInTheDocument();
+    expect(await screen.findByText(/There's nothing here/i)).toBeInTheDocument();
 
     const picker = container.querySelector('input[type="file"]');
     expect(picker).not.toBeNull();

@@ -241,8 +241,6 @@ async function mapPool(items, limit, worker) {
  *   viewerPath?: string | null,
  *   onViewerPathChange?: (next: string | null) => void,
  *   emptyTitle?: string,
- *   emptyDescription?: string,
- *   emptyIcon?: import("react").ComponentType<{ size?: number, className?: string }>,
  * }} props
  */
 export default function DriveFileExplorer({
@@ -262,9 +260,6 @@ export default function DriveFileExplorer({
   headerExtra = null,
   viewerPath: controlledViewerPath,
   onViewerPathChange,
-  emptyTitle = "This drive is empty",
-  emptyDescription = "Upload files or create folders to get started.",
-  emptyIcon = HardDrive,
 }) {
   const source = useFileSource();
   // Link guests run this same explorer over /s/{token} — the source carries
@@ -809,7 +804,6 @@ export default function DriveFileExplorer({
         pathFloor={pathFloor}
         forbiddenState={!guest && !isAdmin ? (
           <EmptyState
-            bare
             icon={Lock}
             title="You don't have access to this folder"
             description="Open items shared with you from Shared instead."
@@ -856,16 +850,7 @@ export default function DriveFileExplorer({
         trashHref={showTrashLink && trashVisible && !inTrash ? folderHref(driveId, TRASH_PATH) : null}
         segmentLabel={segmentLabel}
         folderActions={folderCanUpload && !source.isFile ? <NewItemMenu onPick={openCreate} /> : null}
-        emptyTitle={inTrash ? "Trash is empty" : emptyTitle}
-        emptyDescription={inTrash
-          ? "Things you delete on this drive land here. Restore them or delete them permanently."
-          : emptyDescription}
-        emptyIcon={inTrash ? Trash2 : emptyIcon}
-        emptyAction={folderCanUpload && !source.isFile ? (
-          <div className="flex justify-center">
-            <NewItemMenu onPick={openCreate} />
-          </div>
-        ) : null}
+        emptyTitle={inTrash ? "Trash is empty" : undefined}
         breadcrumbExtra={(() => {
           // Same buttons a folder's breadcrumb row gets — the label just
           // reads "Trash" / the item's original name instead of the
@@ -1382,7 +1367,4 @@ DriveFileExplorer.propTypes = {
   headerExtra: PropTypes.node,
   viewerPath: PropTypes.string,
   onViewerPathChange: PropTypes.func,
-  emptyTitle: PropTypes.string,
-  emptyDescription: PropTypes.string,
-  emptyIcon: PropTypes.elementType,
 };

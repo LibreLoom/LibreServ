@@ -252,11 +252,6 @@ export default function FolderPickerModal({
               surface="primary"
               folderActions={isTrashPath(path) || (isMember && !canWriteAt(path)) ? null
                 : <NewItemMenu ids={["folder"]} onPick={openCreateFolder} surface="primary" />}
-              emptyAction={isTrashPath(path) || (isMember && !canWriteAt(path)) ? null : (
-                <div className="flex justify-center">
-                  <NewItemMenu ids={["folder"]} onPick={openCreateFolder} surface="primary" />
-                </div>
-              )}
             />
           ) : isMember && roots && roots.length === 0 ? null : (
             <p className="text-primary text-sm">No drives available. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.</p>
