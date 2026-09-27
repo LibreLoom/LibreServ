@@ -114,7 +114,7 @@ export const dashboard = [
 // 404 quips used by the NotFoundPage; keep tone playful but clear.
 export const notfound = [
   "The pigeon checked the map. Then checked it again. This page is not on it.",
-  "The mouse ran out of snacks halfway though building this page. The mouse intern is still waiting for their snacks.",
+  "The mouse ran out of snacks halfway through building this page. The mouse intern is still waiting for their snacks.",
   "The page is missing. The pigeon filed the paperwork immediately.",
   "We asked the pigeon. The pigeon asked the mouse intern. The intern shrugged.",
   "The pigeon opened this door carefully. There was nothing behind it.",

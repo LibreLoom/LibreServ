@@ -1,312 +1,439 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { ArrowLeft, Home, MoonStar } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import {
+  ArrowLeft,
+  File as FileIcon,
+  Folder,
+  HardDrive,
+  Home,
+  Image as ImageIcon,
+  LogIn,
+  MoonStar,
+  Search,
+  Share2,
+  SlidersHorizontal,
+  Users,
+} from "lucide-react";
 
 import { notfound as quips } from "../assets/greetings";
-
-import Card from "@libreloom/ui/components/cards/Card.jsx";
-import Page from "@libreloom/ui/components/ui/Page.jsx";
-import Button from "@libreloom/ui/components/ui/Button.jsx";
-import IconCircle from "@libreloom/ui/components/ui/IconCircle.jsx";
+import { useAuth } from "../context/AuthContext";
+import Navbar from "../components/ui/Navbar";
+import { getDrives, getJson } from "../lib/api";
+import { parentPath, searchResultHref } from "../lib/paths";
+import { memberSearchHref } from "../lib/shareTree.js";
 import {
+  bestDistinctMatches,
+  guessSearchTerm,
+  moonIllumination,
+  moonLitPath,
+  moonPhase,
+  moonPhaseName,
   normalizePathname,
   pickStableQuip,
   scoreKnownPages,
 } from "../lib/notFoundHelpers";
 
+import Card from "@libreloom/ui/components/cards/Card.jsx";
+import Page from "@libreloom/ui/components/ui/Page.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import IconCircle from "@libreloom/ui/components/ui/IconCircle.jsx";
+import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
+import { cn } from "@libreloom/ui/lib/utils.js";
+import { haptic } from "@libreloom/ui/utils/haptics.js";
+
 /* ======================================================================
-   Known pages + safe quips
+   Where people meant to go
    ====================================================================== */
 
-// Route targets mirror the bottom Navbar labels.
-const knownPages = [
-  { to: "/drives", label: "Files" },
-  { to: "/gallery", label: "Photos" },
-  { to: "/settings", label: "Settings" },
-  { to: "/settings/users", label: "Users" },
-  { to: "/login", label: "Login" },
+// Mirrors the Navbar. `aliases` are words people type for the same page.
+const DESTINATIONS = [
+  { to: "/", label: "Home", icon: Home, aliases: ["home", "dashboard", "start", "index"] },
+  {
+    to: "/gallery",
+    label: "Photos",
+    icon: ImageIcon,
+    aliases: ["photos", "photo", "pictures", "pics", "images", "albums", "videos"],
+  },
+  {
+    to: "/drives",
+    label: "Files",
+    icon: HardDrive,
+    aliases: ["files", "file", "folders", "documents", "docs", "drive", "storage", "browse"],
+  },
+  { to: "/shared", label: "Shared", icon: Share2, aliases: ["share", "shares", "links", "sharing"] },
+  {
+    to: "/settings/users",
+    label: "Users",
+    icon: Users,
+    adminOnly: true,
+    aliases: ["users", "user", "members", "people", "accounts"],
+  },
+  {
+    to: "/settings",
+    label: "Settings",
+    icon: SlidersHorizontal,
+    aliases: ["admin", "preferences", "prefs", "config", "account", "options"],
+  },
+  { to: "/login", label: "Sign in", icon: LogIn, signedOutOnly: true, aliases: ["signin", "sign-in", "logon"] },
 ];
+
+function candidatesFor(user) {
+  const isAdmin = user?.role === "admin";
+  return DESTINATIONS.filter((dest) => {
+    if (dest.adminOnly && !isAdmin) return false;
+    if (dest.signedOutOnly && user) return false;
+    return true;
+  }).flatMap((dest) => [
+    dest,
+    ...dest.aliases.map((alias) => ({ ...dest, match: `/${alias}` })),
+  ]);
+}
 
 const fallbackQuips = [
   "The pigeon checked the map. Then checked it again. This page is not on it.",
-  "The page is missing. The pigeon filed the paperwork immediately.",
-  "The pigeon opened this door carefully. There was nothing behind it.",
 ];
-
-// Resolve once; avoids modulo-by-zero and avoids hook dependency noise.
 const SAFE_QUIPS =
   Array.isArray(quips) && quips.length > 0 ? quips : fallbackQuips;
 
+function prefersReducedMotion() {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
+
 /* ======================================================================
-   Flyby scene — a CLOSE flyby. The moon looms off the top-right corner
-   and deliberately bleeds out of frame, so no viewport crop can make it
-   look accidentally cut. The request's trajectory dives in from the left,
-   vanishes behind the lit limb (moon is painted over the path), and
-   slingshots out the bottom-right carrying the attempted URL.
-   viewBox 800x420, slice-anchored so the sky bleeds to the page edges.
+   Tonight's moon — the "0" in 404
    ====================================================================== */
 
-const MOON = { cx: 640, cy: 60, r: 210 };
-// Shadow bite offset up-right (away from the scene): the terminator
-// sweeps the visible limb and the lit crescent faces the incoming path.
-const MOON_SHADOW = { cx: 710, cy: -10, r: 215 };
+const SWEEP_MS = 2400;
 
-const FLYBY_PATH =
-  "M -20 170 C 160 165, 300 160, 400 158 " +
-  "C 470 156, 540 170, 590 205 " +
-  "C 640 240, 690 290, 740 330 " +
-  "C 780 360, 820 380, 860 400";
+/**
+ * Tonight's phase. On first paint the moon starts dark (new moon — like the
+ * missing page) and waxes through the cycle until it settles on the real
+ * phase in the sky right now.
+ */
+function useSettlingMoon() {
+  const target = useMemo(() => moonPhase(new Date()), []);
+  const reduced = useMemo(() => prefersReducedMotion(), []);
+  const [phase, setPhase] = useState(reduced ? target : 0);
+  const [settled, setSettled] = useState(reduced);
 
-const STARS = [
-  { x: 60, y: 40, r: 1.6, opacity: 0.7, delay: "0s" },
-  { x: 140, y: 120, r: 1.2, opacity: 0.5, delay: "0.6s" },
-  { x: 230, y: 56, r: 1.4, opacity: 0.85, delay: "1.4s" },
-  { x: 310, y: 240, r: 1.1, opacity: 0.6, delay: "0.9s" },
-  { x: 90, y: 300, r: 1.5, opacity: 0.75, delay: "1.1s" },
-  { x: 210, y: 350, r: 1.2, opacity: 0.5, delay: "2.2s" },
-  { x: 385, y: 60, r: 1.6, opacity: 0.8, delay: "0.8s" },
-  { x: 425, y: 330, r: 1.3, opacity: 0.6, delay: "1.7s" },
-  { x: 505, y: 270, r: 1.1, opacity: 0.5, delay: "0.4s" },
-  { x: 762, y: 380, r: 1.5, opacity: 0.7, delay: "2.0s" },
-  { x: 640, y: 370, r: 1.3, opacity: 0.55, delay: "1.3s" },
-  { x: 66, y: 190, r: 1.4, opacity: 0.7, delay: "0.2s" },
-  { x: 340, y: 140, r: 1.2, opacity: 0.55, delay: "1.9s" },
-  { x: 190, y: 240, r: 1.1, opacity: 0.6, delay: "1.0s" },
-  { x: 455, y: 390, r: 1.1, opacity: 0.5, delay: "2.5s" },
-];
+  useEffect(() => {
+    if (reduced) return undefined;
+    // Always sweep a visible distance, even when tonight is a thin crescent.
+    const end = target < 0.3 ? target + 1 : target;
+    let frame = 0;
+    const start = performance.now();
+    const tick = (now) => {
+      const t = Math.min(1, (now - start) / SWEEP_MS);
+      const eased = 1 - (1 - t) ** 4;
+      setPhase((end * eased) % 1);
+      if (t < 1) {
+        frame = requestAnimationFrame(tick);
+      } else {
+        setPhase(target);
+        setSettled(true);
+      }
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [reduced, target]);
 
-const SECONDARY = "var(--color-secondary)";
-const PRIMARY = "var(--color-primary)";
-const MONO = "FreeMono, Courier New, monospace";
+  return { phase, target, settled };
+}
 
-function FlybyScene({ attemptedPath }) {
+function Moon({ phase, className }) {
   return (
-    <section
-      aria-hidden="true"
-      className="relative h-[68vh] min-h-96 select-none overflow-hidden"
-    >
-      <svg
-        viewBox="0 0 800 420"
-        preserveAspectRatio="xMidYMid slice"
-        className="h-full w-full"
+    <svg viewBox="0 0 100 100" className={className} aria-hidden="true">
+      {/* The sunlit side is always the light theme color, like a real
+          moon: the unlit side is ink on paper in light mode and the night
+          sky in dark mode. The accent limb keeps the disc readable at full
+          and new moon. */}
+      <circle
+        cx="50"
+        cy="50"
+        r="46"
+        className="fill-secondary stroke-accent dark:fill-primary"
+        strokeWidth="2"
+      />
+      <path
+        d={moonLitPath(phase, 50, 50, 45)}
+        className="fill-primary dark:fill-secondary"
+      />
+    </svg>
+  );
+}
+
+function MoonHero() {
+  const { phase, target, settled } = useSettlingMoon();
+  const lit = Math.round(moonIllumination(target) * 100);
+
+  return (
+    <section className="flex flex-col items-center py-6 text-secondary sm:py-10">
+      <p className="sr-only">Error 404</p>
+      <p
+        aria-hidden="true"
+        className="flex items-center gap-[0.06em] font-mono font-normal leading-none text-[7.5rem] sm:text-[11rem]"
       >
-        {STARS.map((star, index) => (
-          <circle
-            key={index}
-            cx={star.x}
-            cy={star.y}
-            r={star.r}
-            fill={SECONDARY}
-            opacity={star.opacity}
-            className="animate-luna-twinkle"
-            style={{ animationDelay: star.delay }}
-          />
-        ))}
-
-        {/* Range rings around the moon — star-chart furniture */}
-        <circle cx={MOON.cx} cy={MOON.cy} r="280" fill="none" stroke={SECONDARY} strokeWidth="1" opacity="0.06" />
-        <circle cx={MOON.cx} cy={MOON.cy} r="350" fill="none" stroke={SECONDARY} strokeWidth="1" opacity="0.04" />
-
-        {/* The request's plotted course — drawn in once on load */}
-        <path
-          id="luna-flyby-path"
-          d={FLYBY_PATH}
-          pathLength="1000"
-          fill="none"
-          stroke={SECONDARY}
-          strokeWidth="1.5"
-          opacity="0.9"
-          className="animate-luna-trajectory"
-        />
-
-        {/* The request itself, looping the flyby forever, with a faint tail */}
-        <g className="luna-flyby-dot">
-          <circle r="9" fill={SECONDARY} opacity="0.15">
-            <animateMotion dur="9s" repeatCount="indefinite" path={FLYBY_PATH} />
-          </circle>
-          <circle r="5" fill={SECONDARY}>
-            <animateMotion dur="9s" repeatCount="indefinite" path={FLYBY_PATH} />
-          </circle>
-          <circle r="3" fill={SECONDARY} opacity="0.5">
-            <animateMotion
-              dur="9s"
-              begin="-0.14s"
-              repeatCount="indefinite"
-              path={FLYBY_PATH}
-            />
-          </circle>
-          <circle r="2" fill={SECONDARY} opacity="0.3">
-            <animateMotion
-              dur="9s"
-              begin="-0.28s"
-              repeatCount="indefinite"
-              path={FLYBY_PATH}
-            />
-          </circle>
-        </g>
-        {/* Reduced-motion stand-in: a static marker at the exit point */}
-        <circle
-          className="luna-flyby-static"
-          cx="836"
-          cy="391"
-          r="5"
-          fill={SECONDARY}
-        />
-
-        {/* The attempted URL rides the escape leg out of the system */}
-        <text
-          fontSize="13"
-          fontFamily={MONO}
-          letterSpacing="1"
-          fill={SECONDARY}
-          opacity="0.85"
-        >
-          <textPath href="#luna-flyby-path" startOffset="66%" dy="-10">
-            {attemptedPath}
-          </textPath>
-        </text>
-
-        {/* The moon — a huge limb bleeding off the top-right corner, drawn
-            over the path so the trajectory vanishes behind it mid-flight */}
-        <defs>
-          <clipPath id="luna-moon-clip">
-            <circle cx={MOON.cx} cy={MOON.cy} r={MOON.r} />
-          </clipPath>
-        </defs>
-        <circle cx={MOON.cx} cy={MOON.cy} r="228" fill={SECONDARY} opacity="0.06" />
-        <circle cx={MOON.cx} cy={MOON.cy} r={MOON.r} fill={SECONDARY} />
-        <g clipPath="url(#luna-moon-clip)">
-          <circle cx={MOON_SHADOW.cx} cy={MOON_SHADOW.cy} r={MOON_SHADOW.r} fill={PRIMARY} />
-          <circle cx="470" cy="160" r="13" fill={PRIMARY} opacity="0.12" />
-          <circle cx="505" cy="125" r="8" fill={PRIMARY} opacity="0.12" />
-          <circle cx="490" cy="185" r="6" fill={PRIMARY} opacity="0.12" />
-          <circle cx="520" cy="140" r="10" fill={PRIMARY} opacity="0.12" />
-        </g>
-      </svg>
-
-      {/* Mission readout — HTML overlay so the slice crop can never cut it */}
-      <div className="absolute left-8 top-6 font-mono">
-        <p className="text-xs tracking-[0.3em] text-secondary">FLYBY · MISS</p>
-        <p className="mt-2 text-xs text-secondary">
-          no page at these coordinates
-        </p>
-      </div>
-
-      {/* Ghosted error code, huge and quiet behind everything */}
-      <p className="absolute bottom-2 left-6 font-mono text-[11rem] leading-none text-secondary opacity-[0.07] sm:text-[14rem]">
-        404
+        <span>4</span>
+        <Moon phase={phase} className="h-[0.7em] w-[0.7em]" />
+        <span>4</span>
+      </p>
+      <p
+        className={cn(
+          "mt-5 text-center font-mono text-xs uppercase tracking-[0.2em] text-secondary",
+          "motion-safe:transition-[opacity,transform] motion-safe:duration-700",
+          settled ? "translate-y-0 opacity-100" : "translate-y-1 opacity-0",
+        )}
+      >
+        <span className="block sm:inline">Tonight's moon</span>
+        <span className="hidden sm:inline"> · </span>
+        <span className="block sm:inline">
+          {moonPhaseName(target)} · {lit}% lit
+        </span>
       </p>
     </section>
   );
 }
 
 /* ======================================================================
-   Component
+   Find the file an old link pointed at
+   ====================================================================== */
+
+function locationOf(item, driveLabel) {
+  const folder = item.parent != null ? item.parent : parentPath(item.path) ?? "";
+  return folder ? `${driveLabel} / ${folder}` : driveLabel;
+}
+
+function FindFile({ initialTerm, user }) {
+  const [typed, setTyped] = useState(initialTerm);
+  const [q, setQ] = useState(initialTerm);
+
+  useEffect(() => {
+    const t = setTimeout(() => setQ(typed.trim()), 250);
+    return () => clearTimeout(t);
+  }, [typed]);
+
+  const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives });
+  const labels = Object.fromEntries(
+    (drives.data || []).map((d) => [d.id, d.label]),
+  );
+
+  // Members can't always browse a hit's parent folder; route through the
+  // same helper the main search uses.
+  const isMember = Boolean(user?.role) && user.role !== "admin";
+  const memberAccess = useQuery({
+    queryKey: ["my-access"],
+    queryFn: () => getJson("/api/v1/me/access"),
+    enabled: isMember,
+  });
+
+  const results = useQuery({
+    queryKey: ["search", q],
+    queryFn: () => getJson(`/api/v1/search?q=${encodeURIComponent(q)}`),
+    enabled: q.length >= 2,
+  });
+
+  const hits = (results.data || []).slice(0, 5);
+  const searched = q.length >= 2 && results.isSuccess;
+
+  return (
+    <div className="w-full text-left">
+      <h2 className="font-mono font-normal text-primary">Looking for a file?</h2>
+      <p className="mt-1 text-sm text-primary">
+        Links stop working when a file is moved or renamed. Luna can look for
+        it by name.
+      </p>
+
+      <label className="mt-3 flex items-center gap-2 rounded-pill border-2 border-transparent bg-primary px-4 py-2 text-secondary motion-safe:transition-colors focus-within:border-accent">
+        <Search size={16} aria-hidden="true" className="shrink-0" />
+        <input
+          type="search"
+          value={typed}
+          onChange={(e) => setTyped(e.target.value)}
+          placeholder="File or folder name"
+          aria-label="Search your files by name"
+          autoComplete="off"
+          className="min-w-0 flex-1 appearance-none border-0 bg-transparent text-sm text-secondary outline-none no-focus-outline"
+        />
+        {results.isFetching && <Spinner size="sm" />}
+      </label>
+
+      <div aria-live="polite">
+        {results.isError && (
+          <p className="mt-3 text-sm text-primary">
+            Luna couldn't search right now. Open Files and browse instead.
+          </p>
+        )}
+
+        {searched && hits.length === 0 && (
+          <p className="mt-3 text-sm text-primary">
+            Nothing named “{q}”. Try a shorter part of the name.
+          </p>
+        )}
+
+        {hits.length > 0 && (
+          <ul className="mt-3 grid gap-2">
+            {hits.map((item, index) => {
+              const isDir = item.kind === "dir";
+              const Icon = isDir ? Folder : FileIcon;
+              const href =
+                isMember && memberAccess.data
+                  ? memberSearchHref(memberAccess.data, item)
+                  : searchResultHref(item);
+              return (
+                <li
+                  key={`${item.drive_id}:${item.path}`}
+                  className="motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-1 motion-safe:fill-mode-both"
+                  style={{ animationDelay: `${index * 50}ms` }}
+                >
+                  <Link
+                    to={href}
+                    onClick={() => haptic("medium")}
+                    className="flex items-center gap-3 rounded-large-element bg-primary px-4 py-2.5 text-secondary motion-safe:transition-shadow hover:ring-2 hover:ring-accent focus-visible:ring-2 focus-visible:ring-accent"
+                  >
+                    <Icon size={18} aria-hidden="true" className="shrink-0" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm">{item.name}</span>
+                      <span className="block truncate text-xs text-secondary">
+                        {isDir ? "Folder" : "File"} in{" "}
+                        {locationOf(item, labels[item.drive_id] || "a drive")}
+                      </span>
+                    </span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ======================================================================
+   Page
    ====================================================================== */
 
 export default function NotFoundPage() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { user, loading } = useAuth();
 
   const pathname = normalizePathname(location.pathname);
-  const search = String(location.search ?? "");
-  const hash = String(location.hash ?? "");
-  const attemptedPath = `${pathname}${search}${hash}`;
+  const attemptedPath = `${pathname}${location.search ?? ""}${location.hash ?? ""}`;
+  const shownPath = useMemo(() => {
+    try {
+      return decodeURI(attemptedPath);
+    } catch {
+      return attemptedPath;
+    }
+  }, [attemptedPath]);
 
   const quip = useMemo(
     () => pickStableQuip(attemptedPath, SAFE_QUIPS),
     [attemptedPath],
   );
 
-  // Score known routes for "close enough" suggestions (best match first).
-  const suggestedPages = useMemo(() => {
-    const closeMatches = scoreKnownPages(pathname, knownPages).filter(
-      (match) => match.isClose,
-    );
-    if (closeMatches.length === 0) return [];
+  const suggestions = useMemo(
+    () => bestDistinctMatches(scoreKnownPages(pathname, candidatesFor(user))),
+    [pathname, user],
+  );
 
-    const bestScore = closeMatches[0].score;
-    return closeMatches
-      .filter((match) => match.score === bestScore)
-      .slice(0, 2);
-  }, [pathname]);
+  // Offer a file search unless the whole link was one mistyped page name.
+  // "/documents/Tax 2024.pdf" suggests Files *and* searches for the file.
+  const searchTerm = useMemo(() => {
+    const segments = pathname.split("/").filter(Boolean).length;
+    if (suggestions.length > 0 && segments < 2) return "";
+    return guessSearchTerm(pathname);
+  }, [pathname, suggestions.length]);
 
-  // Move focus to the page region so keyboard/screen-reader users land here.
-  useEffect(() => {
-    const main = document.getElementById("main-content");
-    if (main && typeof main.focus === "function") main.focus();
-  }, [attemptedPath]);
+  // React Router numbers history entries; 0 means we are the first page
+  // in this tab, so "Go back" would leave Luna entirely.
+  const canGoBack =
+    typeof window !== "undefined" && (window.history.state?.idx ?? 0) > 0;
 
-  function handleGoBack() {
-    // If there's history, go back. Otherwise, go home.
-    if (window.history.length > 1) {
-      navigate(-1);
-    } else {
-      navigate("/", { replace: true });
-    }
-  }
+  const signedIn = Boolean(user);
+  const signedOut = !loading && !user;
 
   return (
-    <Page
-      title="Page not found"
-      leftContent={<IconCircle icon={MoonStar} />}
-      padded={false}
-    >
-      <FlybyScene attemptedPath={attemptedPath} />
+    <>
+      <Page
+        title="Page not found"
+        leftContent={<IconCircle icon={MoonStar} />}
+        headerClassName="mb-2"
+      >
+        <MoonHero />
 
-      <div className="px-8">
-        <Card className="relative z-10 mx-auto -mt-24 max-w-xl">
+        <Card className="mx-auto max-w-xl">
           <div className="flex flex-col items-center gap-5 text-center">
-            <div>
-              <p className="font-mono text-xs font-normal uppercase tracking-widest text-primary">
-                Error 404
-              </p>
-              <p className="mt-2 max-w-prose text-primary">{quip}</p>
-            </div>
+            <p className="max-w-prose text-primary">{quip}</p>
 
-            <div className="w-full">
-              <p className="text-sm text-primary">You tried to visit</p>
-              <code className="mt-2 block w-full overflow-x-auto rounded-large-element bg-primary/10 p-4 font-mono text-sm text-primary">
-                {attemptedPath || "/"}
+            <div className="flex max-w-full flex-col items-center gap-2">
+              <p className="text-sm text-primary">There's no page at</p>
+              <code className="max-w-full overflow-x-auto whitespace-nowrap rounded-pill bg-primary px-4 py-1.5 font-mono text-sm text-secondary">
+                {shownPath}
               </code>
+              <p className="text-sm text-primary">
+                If a link brought you here, it may be old or mistyped.
+              </p>
             </div>
 
-            {suggestedPages.length > 0 && (
-              <div className="w-full rounded-large-element bg-primary/10 p-5">
-                <p className="font-mono font-normal text-primary">
-                  Did you mean…
-                </p>
-                <ul className="mt-3 flex flex-wrap justify-center gap-3">
-                  {suggestedPages.map((page) => (
-                    <li key={page.to}>
-                      <Button asChild variant="primary">
-                        <Link to={page.to}>{page.label}</Link>
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
+            {suggestions.length > 0 && (
+              <nav
+                aria-label="Did you mean"
+                className="flex flex-wrap items-center justify-center gap-2"
+              >
+                <span className="font-mono text-primary">Did you mean</span>
+                {suggestions.map(({ to, label, icon: Icon }) => (
+                  <Button key={to} asChild variant="primary">
+                    <Link to={to}>
+                      <Icon size={16} aria-hidden="true" />
+                      {label}
+                    </Link>
+                  </Button>
+                ))}
+              </nav>
+            )}
+
+            {signedIn && searchTerm && (
+              <FindFile key={searchTerm} initialTerm={searchTerm} user={user} />
             )}
 
             <div className="flex flex-wrap justify-center gap-3">
-              <Button variant="outline" surface="secondary" onClick={handleGoBack}>
-                <ArrowLeft size={16} aria-hidden="true" />
-                Go back
-              </Button>
-              <Button asChild variant="primary">
-                <Link to="/">
-                  <Home size={16} aria-hidden="true" />
-                  Home
-                </Link>
-              </Button>
+              {canGoBack && (
+                <Button
+                  variant="outline"
+                  surface="secondary"
+                  onClick={() => navigate(-1)}
+                >
+                  <ArrowLeft size={16} aria-hidden="true" />
+                  Go back
+                </Button>
+              )}
+              {signedOut ? (
+                <Button asChild variant="primary">
+                  <Link to="/login">
+                    <LogIn size={16} aria-hidden="true" />
+                    Sign in
+                  </Link>
+                </Button>
+              ) : (
+                <Button asChild variant="primary">
+                  <Link to="/">
+                    <Home size={16} aria-hidden="true" />
+                    Home
+                  </Link>
+                </Button>
+              )}
             </div>
-
-            <p className="text-sm text-primary">
-              If a link brought you here, it may be old or mistyped.
-            </p>
           </div>
         </Card>
-      </div>
-    </Page>
+      </Page>
+      {signedIn && <Navbar />}
+    </>
   );
 }
