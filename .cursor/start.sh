@@ -117,9 +117,8 @@ fi
 # Luna Connect mock: cloud backup unlocked + domain hostname + device-token so
 # External Services UI shows (connect_active). lunad terminals must set
 # LUNA_CONNECT_URL=http://127.0.0.1:18765 (see environment.json).
-if [ -f "${REPO_ROOT}/luna/scripts/seed-mock-connect.sh" ]; then
-  chmod +x "${REPO_ROOT}/luna/scripts/seed-mock-connect.sh"
-  bash "${REPO_ROOT}/luna/scripts/seed-mock-connect.sh" || echo ">> seed-mock-connect.sh failed (non-fatal)"
+if [ -f "${REPO_ROOT}/luna/scripts/mocks/seed-mock-connect.sh" ]; then
+  bash "${REPO_ROOT}/luna/scripts/mocks/seed-mock-connect.sh" || echo ">> seed-mock-connect.sh failed (non-fatal)"
 fi
 
 FORGE_HOST="gt.plainskill.net"

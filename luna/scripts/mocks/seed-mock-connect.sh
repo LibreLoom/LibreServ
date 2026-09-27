@@ -13,7 +13,7 @@
 #   LUNA_MOCK_DOMAIN        (optional suffix override)
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DATA_DIR="${LUNA_DATA_DIR:-${ROOT}/dev}"
 export LUNA_DATA_DIR="${DATA_DIR}"
 export MOCK_CONNECT_HOST="${MOCK_CONNECT_HOST:-127.0.0.1}"
