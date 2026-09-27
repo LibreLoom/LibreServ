@@ -70,9 +70,9 @@ it's plain XML, loaded into the editor and written back on save.
    after a short pause. A peer who has typed past it keeps the diagram
    dirty and writes the tail.
 7. **Shared links:** guests join the same room at
-   `GET /s/{token}/collab/ws` (path relative to the share). Only diagram
-   files are accepted, so a guest cannot inject ops into a text or office
-   room. View links join with `can_write: false`. Password links are checked
+   `GET /s/{token}/collab/ws` (path relative to the share). Only diagram and
+   whiteboard files are accepted, so a guest cannot inject ops into a text or
+   office room. View links join with `can_write: false`. Password links are checked
    the same way as the rest of the share API; the file fetch runs before the
    socket so the browser can store the proof cookie (a WebSocket request
    cannot set that header itself).
@@ -125,7 +125,7 @@ without the pack shows the normal "not installed" card on diagram files.
 |---|---|
 | `GET /drawio/**` | Static webapp pack via one wildcard route — mounted at boot only when `{data_dir}/drawio` exists |
 | `GET /api/v1/collab/ws` | Member collab room (presence, opaque diff patches, save election) — the same endpoint EuroOffice uses |
-| `GET /s/{token}/collab/ws` | Guest collab room for a shared diagram. Refuses anything that is not a `.drawio` / `.drawio.svg` / `.drawio.png` file |
+| `GET /s/{token}/collab/ws` | Guest collab room for a shared diagram or whiteboard. Refuses anything that is not a `.drawio` / `.drawio.svg` / `.drawio.png` / `.excalidraw` file |
 
 There is no diagram-only socket and no bundle dir. The file on the drive is
 the document; the collab room only carries live patches and who is here.
