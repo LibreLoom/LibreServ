@@ -320,6 +320,9 @@ pub fn repath_subjects_move(
     if old_path.is_empty() {
         return Ok(0);
     }
+    // Every Luna move and rename passes through here, so this is also where
+    // in-app links get their forwarding address.
+    crate::files::forwarding::record(conn, old_drive, &old_path, new_drive, &new_path)?;
     let mut moved = 0usize;
     for table in SUBJECT_TABLES {
         let mut stmt = conn.prepare(&format!(

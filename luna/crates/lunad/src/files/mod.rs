@@ -2859,5 +2859,6 @@ mod tests {
 
 pub mod dav;
 mod dav_fs;
+pub mod forwarding;
 pub mod index;
 pub mod uploads;

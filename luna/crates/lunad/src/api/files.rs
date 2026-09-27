@@ -102,6 +102,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/v1/drives/{id}/files", get(list).delete(delete_entry))
         .route("/api/v1/drives/{id}/files/stat", get(stat_entry))
+        .route("/api/v1/drives/{id}/files/resolve", get(resolve_entry))
         .route("/api/v1/drives/{id}/files/mkdir", post(mkdir_entry))
         .route("/api/v1/drives/{id}/files/create", post(create_entry))
         .route("/api/v1/drives/{id}/files/rename", post(rename_entry))
@@ -392,6 +393,64 @@ fn can_write(
         path,
         crate::access::CAP_EDIT,
     ))
+}
+
+#[derive(serde::Serialize)]
+struct Resolved {
+    drive_id: String,
+    path: String,
+    kind: String,
+}
+
+/// Where a moved or renamed file went. Only asked for paths that no longer
+/// exist; follows the forwarding trail (see `files::forwarding`) and
+/// answers with the first place something really is. Every miss — no
+/// trail, trail ends in trash, or the new home isn't one this user may
+/// see — is the same 404, so this never reveals paths the caller can't
+/// already open.
+async fn resolve_entry(
+    State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
+    Path(id): Path<String>,
+    Query(query): Query<ListQuery>,
+) -> Result<Json<Resolved>, (StatusCode, Json<Value>)> {
+    let not_found = || {
+        json_error(
+            StatusCode::NOT_FOUND,
+            "Luna can't find where this file went. It may have been deleted.",
+        )
+    };
+    let rel = query.path.unwrap_or_default();
+    let conn = state.db.lock().map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna's index is busy. Try again.",
+        )
+    })?;
+    // The old path is still here: nothing to forward.
+    if files::stat(&conn, &id, &rel).is_ok() {
+        return Err(not_found());
+    }
+    let hit = files::forwarding::resolve(&conn, &id, &rel, |drive, path| {
+        files::stat(&conn, drive, path).is_ok()
+    })
+    .map_err(|_| not_found())?;
+    let Some((drive_id, path)) = hit else {
+        return Err(not_found());
+    };
+    if files::is_blocked_user_path(&path)
+        || !crate::auth::can_inspect_path(&user, &conn, &drive_id, &path)
+    {
+        return Err(not_found());
+    }
+    let kind = files::stat(&conn, &drive_id, &path)
+        .map(|s| s.kind)
+        .map_err(|_| not_found())?;
+    Ok(Json(Resolved {
+        drive_id,
+        path,
+        kind,
+    }))
 }
 
 async fn stat_entry(
@@ -1645,8 +1704,9 @@ fn with_db<T>(
 
 fn map_files_err(err: FilesError) -> (StatusCode, Json<Value>) {
     match err {
-        FilesError::UnknownDrive => json_error(
+        FilesError::UnknownDrive => json_error_code(
             StatusCode::NOT_FOUND,
+            "unknown_drive",
             "Luna doesn't know this drive. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.",
         ),
         // The drive is adopted and mounted. Only its on-drive database is gone.
@@ -1658,12 +1718,14 @@ fn map_files_err(err: FilesError) -> (StatusCode, Json<Value>) {
         FilesError::Path(
             luna_core::path::PathError::Absolute | luna_core::path::PathError::Escape,
         ) => json_error(StatusCode::BAD_REQUEST, "Luna can't open that path."),
-        FilesError::Path(luna_core::path::PathError::NotFound(_)) => json_error(
+        FilesError::Path(luna_core::path::PathError::NotFound(_)) => json_error_code(
             StatusCode::NOT_FOUND,
+            "not_found",
             "Luna can't find that file or folder.",
         ),
-        FilesError::Io(e) if e.kind() == std::io::ErrorKind::NotFound => json_error(
+        FilesError::Io(e) if e.kind() == std::io::ErrorKind::NotFound => json_error_code(
             StatusCode::NOT_FOUND,
+            "not_found",
             "Luna can't find that file or folder.",
         ),
         FilesError::Io(e) if e.kind() == std::io::ErrorKind::NotADirectory => {
@@ -2964,6 +3026,90 @@ mod http_tests {
         assert_eq!(entries[0]["original_name"], "new.txt");
         assert_eq!(entries[0]["original_path"], "docs/new.txt");
         assert!(entries[0]["name"].as_str().unwrap().ends_with("-new.txt"));
+    }
+
+    async fn resolve_path(
+        app: &axum::Router,
+        cookie: &str,
+        csrf: &str,
+        path: &str,
+    ) -> axum::response::Response {
+        let mut http = HttpReq::builder()
+            .method(Method::GET)
+            .uri(format!(
+                "/api/v1/drives/photos/files/resolve?path={}",
+                urlencoding(path)
+            ))
+            .header("cookie", cookie)
+            .header("x-csrf-token", csrf)
+            .body(Body::empty())
+            .unwrap();
+        http.extensions_mut().insert(ConnectInfo(CLIENT));
+        call(app, http).await
+    }
+
+    #[tokio::test]
+    async fn old_links_follow_a_renamed_folder_until_it_is_trashed() {
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(mount.path().join("Taxes/2024")).unwrap();
+        std::fs::write(mount.path().join("Taxes/2024/w2.pdf"), b"x").unwrap();
+        let (_dir, app) = test_app(mount.path());
+        let (cookie, csrf) = admin_cookie(&app).await;
+
+        let res = call(
+            &app,
+            json_req(
+                Method::POST,
+                "/api/v1/drives/photos/files/rename",
+                r#"{"path":"Taxes","new_name":"Old taxes"}"#,
+                Some(&cookie),
+                Some(&csrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+
+        let res = resolve_path(&app, &cookie, &csrf, "Taxes/2024/w2.pdf").await;
+        assert_eq!(res.status(), 200);
+        let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let hit: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(hit["drive_id"], "photos");
+        assert_eq!(hit["path"], "Old taxes/2024/w2.pdf");
+        assert_eq!(hit["kind"], "file");
+
+        // A path that still exists is never forwarded.
+        let res = resolve_path(&app, &cookie, &csrf, "Old taxes").await;
+        assert_eq!(res.status(), StatusCode::NOT_FOUND);
+
+        // Trash ends the trail.
+        delete_path(&app, &cookie, &csrf, &urlencoding("Old taxes")).await;
+        let res = resolve_path(&app, &cookie, &csrf, "Taxes/2024/w2.pdf").await;
+        assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn forwarding_never_reveals_a_folder_the_member_cannot_see() {
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(mount.path().join("family")).unwrap();
+        std::fs::write(mount.path().join("family/plan.txt"), b"x").unwrap();
+        std::fs::create_dir_all(mount.path().join("secret")).unwrap();
+        let (dir, app) = test_app(mount.path());
+        let (sam_cookie, sam_csrf, sam_id) = admin_and_sam(&app).await;
+        grant_path(&dir, &sam_id, "family", crate::access::CAP_VIEW);
+
+        // The file moves somewhere Sam has no grant.
+        let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+        crate::files::move_rel(&conn, "photos", "family/plan.txt", "secret/plan.txt").unwrap();
+
+        let res = resolve_path(&app, &sam_cookie, &sam_csrf, "family/plan.txt").await;
+        assert_eq!(res.status(), StatusCode::NOT_FOUND);
+
+        // Once Sam can see the new home, her old link follows it.
+        grant_path(&dir, &sam_id, "secret", crate::access::CAP_VIEW);
+        let res = resolve_path(&app, &sam_cookie, &sam_csrf, "family/plan.txt").await;
+        assert_eq!(res.status(), 200);
     }
 
     #[tokio::test]

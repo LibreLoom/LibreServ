@@ -20,6 +20,7 @@ import {
 } from "../lib/api";
 import { folderHref, homeAwareLabel, isMemberHomePath, isTrashPath, memberHomeOwner, pathBasename, TRASH_PATH, trashDisplayName } from "../lib/paths";
 import useFileNavigation from "../hooks/useFileNavigation.js";
+import useMovedLinkForwarding from "../hooks/useMovedLinkForwarding.js";
 import { useAuth } from "../context/AuthContext";
 import { CAP, hasCapOnDrive, memberWritableRoots } from "../lib/shareTree.js";
 import { isPresentDrive } from "../lib/drives.js";
@@ -74,6 +75,15 @@ export default function FilesPage() {
   const moveFilesMutation = useDriveMove({ driveId: id, onError: setActionError });
 
   const activeJobs = (jobs.data || []).filter(jobBusy);
+
+  // A bookmark or recent from before a move or rename follows the item.
+  useMovedLinkForwarding({
+    driveId: id,
+    path,
+    viewerPath,
+    selectPath,
+    enabled: Boolean(drive) && drive.state !== "missing",
+  });
 
   // Same conditions the explorer used for the in-list strip: only when the
   // file browser itself can render and more than one drive is ready.
