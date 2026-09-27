@@ -493,6 +493,10 @@ export default function GalleryPage() {
         if (parsed.segment !== "places") next.place = null;
         return next;
       });
+      if (!parsed.photo) {
+        setLightbox(null);
+        setSlideshow(false);
+      }
       if (parsed.photo || parsed.y) {
         // Back/forward onto a `?y=`/`?p=` entry restores scroll and reopens
         // the photo through the same page-until-found restore a load runs.
@@ -503,9 +507,6 @@ export default function GalleryPage() {
           done: false,
         };
         setRestoreTick((t) => t + 1);
-      } else {
-        setLightbox(null);
-        setSlideshow(false);
       }
       if (parsed.albumId) {
         // Back/forward (or a pasted link) names the album — reopen it. If the
@@ -1329,6 +1330,7 @@ export default function GalleryPage() {
       window.scrollTo(0, scrollPosRef.current);
     }
     if (r.photo && photoHit >= 0) setLightbox({ key: r.photo });
+    else if (!r.photo) setLightbox(null);
     writeHash();
   }, [photos, gallery, writeHash, restoreTick]);
 

@@ -637,6 +637,7 @@ describe("GalleryPage", () => {
       expect(window.location.hash).toContain("p=");
     });
     expect(await screen.findByRole("dialog", { name: "one.jpg" })).toBeInTheDocument();
+    expect(document.documentElement.hasAttribute("data-scroll-lock")).toBe(true);
 
     // Back closes the lightbox but stays on the library.
     act(() => {
@@ -647,12 +648,62 @@ describe("GalleryPage", () => {
     });
     expect(window.location.hash).toBe("#library");
     expect(screen.getByLabelText("one.jpg")).toBeInTheDocument();
+    expect(document.documentElement.hasAttribute("data-scroll-lock")).toBe(false);
 
     // Forward reopens the same photo.
     act(() => {
       window.history.forward();
     });
     expect(await screen.findByRole("dialog", { name: "one.jpg" })).toBeInTheDocument();
+    expect(document.documentElement.hasAttribute("data-scroll-lock")).toBe(true);
+  });
+
+  it("releases scroll lock when exiting lightbox on scrolled timeline via browser Back", async () => {
+    Object.defineProperty(document.documentElement, "scrollHeight", { value: 2000, configurable: true });
+    Object.defineProperty(window, "innerHeight", { value: 800, configurable: true });
+    window.history.replaceState(null, "", "/gallery#library?y=350");
+    stubGalleryFetch();
+    renderGallery();
+    fireEvent.click(await screen.findByLabelText("one.jpg"));
+
+    await waitFor(() => {
+      expect(window.location.hash).toContain("p=");
+    });
+    expect(await screen.findByRole("dialog", { name: "one.jpg" })).toBeInTheDocument();
+    expect(document.documentElement.hasAttribute("data-scroll-lock")).toBe(true);
+
+    act(() => {
+      window.history.back();
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+    expect(window.location.hash).toBe("#library?y=350");
+    expect(screen.getByLabelText("one.jpg")).toBeInTheDocument();
+    expect(document.documentElement.hasAttribute("data-scroll-lock")).toBe(false);
+  });
+
+  it("releases scroll lock when exiting lightbox on scrolled timeline via Close button", async () => {
+    Object.defineProperty(document.documentElement, "scrollHeight", { value: 2000, configurable: true });
+    Object.defineProperty(window, "innerHeight", { value: 800, configurable: true });
+    window.history.replaceState(null, "", "/gallery#library?y=350");
+    stubGalleryFetch();
+    renderGallery();
+    fireEvent.click(await screen.findByLabelText("one.jpg"));
+
+    await waitFor(() => {
+      expect(window.location.hash).toContain("p=");
+    });
+    expect(await screen.findByRole("dialog", { name: "one.jpg" })).toBeInTheDocument();
+    expect(document.documentElement.hasAttribute("data-scroll-lock")).toBe(true);
+
+    fireEvent.click(screen.getByLabelText("Close"));
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+    expect(window.location.hash).toBe("#library?y=350");
+    expect(screen.getByLabelText("one.jpg")).toBeInTheDocument();
+    expect(document.documentElement.hasAttribute("data-scroll-lock")).toBe(false);
   });
 
   it("loads Favorites with favorites=true and shows favorited photos", async () => {
