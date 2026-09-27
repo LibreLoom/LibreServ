@@ -1,11 +1,26 @@
 //! DHCP on Ethernet link-up (cable insert), not boot-only.
 
 use std::path::Path;
-use std::process::{Command, ExitStatus};
+use std::process::{Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 const RETRY_WHILE_UP: Duration = Duration::from_secs(10);
+
+/// Network interface mutations (`ip link set ... up`) and DHCP client daemons
+/// require root privileges (`CAP_NET_ADMIN`). In local development or
+/// unprivileged containers, skip mutating host network interfaces.
+pub(crate) fn can_manage_interfaces() -> bool {
+    #[cfg(unix)]
+    {
+        // SAFETY: geteuid is always safe to call on Unix.
+        unsafe { libc::geteuid() == 0 }
+    }
+    #[cfg(not(unix))]
+    {
+        false
+    }
+}
 
 /// Run DHCP on every non-wireless interface that has carrier.
 pub fn request_on_wired(sys_net: &Path) {
@@ -47,8 +62,13 @@ fn read_carrier(dir: &Path) -> bool {
 
 /// Bring the interface admin-up so sysfs carrier becomes readable after plug-in.
 pub(crate) fn bring_iface_up(iface: &str) {
+    if !can_manage_interfaces() {
+        return;
+    }
     let _ = Command::new("ip")
         .args(["link", "set", "dev", iface, "up"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .status();
 }
 
@@ -82,7 +102,11 @@ fn first_successful_dhcp_client(
     mut has_usable_ipv4: impl FnMut() -> bool,
 ) -> Option<usize> {
     for (i, (bin, args)) in clients.iter().enumerate() {
-        let status = Command::new(bin).args(args).status();
+        let status = Command::new(bin)
+            .args(args)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
         if dhcp_client_ok(status, has_usable_ipv4()) {
             return Some(i);
         }
@@ -93,6 +117,8 @@ fn first_successful_dhcp_client(
 fn iface_has_usable_ipv4(iface: &str) -> bool {
     match Command::new("ip")
         .args(["-4", "-o", "addr", "show", "dev", iface])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
         .output()
     {
         Ok(out) if out.status.success() => {
@@ -107,6 +133,9 @@ fn iface_has_usable_ipv4(iface: &str) -> bool {
 }
 
 fn dhcp_iface(iface: &str) {
+    if !can_manage_interfaces() {
+        return;
+    }
     let cmds = dhcp_client_cmds(iface);
     let clients: Vec<(&str, Vec<String>)> = cmds.into_iter().collect();
     let _ = first_successful_dhcp_client(&clients, || iface_has_usable_ipv4(iface));
@@ -258,5 +287,10 @@ mod tests {
             !should_wake_connect_poll(false, false),
             "steady carrier with no new address must not spuriously wake"
         );
+    }
+
+    #[test]
+    fn bring_iface_up_does_not_panic_on_bogus_iface() {
+        bring_iface_up("nonexistent_test_iface");
     }
 }
