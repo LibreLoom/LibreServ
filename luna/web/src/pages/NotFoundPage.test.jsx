@@ -32,12 +32,11 @@ beforeEach(() => {
 
 describe("NotFoundPage", () => {
   it("shows the error code, tonight's moon, and the attempted path decoded", () => {
-    const { container } = renderAt("/definitely/not%20a/page?x=1");
+    renderAt("/definitely/not%20a/page?x=1");
     expect(screen.getByText("Error 404")).toBeTruthy();
     expect(screen.getByText("Tonight's moon")).toBeTruthy();
-    expect(container.querySelector("code")?.textContent).toBe(
-      "/definitely/not a/page?x=1",
-    );
+    expect(screen.getAllByText("/definitely/not a/page?x=1").length).toBeGreaterThan(0);
+    expect(screen.getByText("Not found")).toBeTruthy();
   });
 
   it("suggests a close match for a mistyped route", () => {
@@ -74,7 +73,7 @@ describe("NotFoundPage", () => {
       "href",
       "/login",
     );
-    expect(screen.queryByText("Looking for a file?")).toBeNull();
+    expect(screen.queryByText("Find a file")).toBeNull();
     expect(screen.queryByRole("navigation", { name: "Main navigation" })).toBeNull();
     expect(api.getJson).not.toHaveBeenCalled();
   });
@@ -107,5 +106,15 @@ describe("NotFoundPage", () => {
   it("hides Go back when this is the first page in the tab", () => {
     renderAt("/xyz");
     expect(screen.queryByRole("button", { name: "Go back" })).toBeNull();
+  });
+});
+
+describe("NotFoundPage long paths", () => {
+  it("shortens the pill but keeps the full path for screen readers", () => {
+    renderAt("/some/really/long/old-link-name-here");
+    expect(screen.getByText("…/old-link-name-here")).toBeTruthy();
+    expect(screen.getByText("/some/really/long/old-link-name-here")).toHaveClass("sr-only");
+    // "some" is one letter off "home", but Home already lives in Where to next.
+    expect(screen.queryByRole("navigation", { name: "Did you mean" })).toBeNull();
   });
 });

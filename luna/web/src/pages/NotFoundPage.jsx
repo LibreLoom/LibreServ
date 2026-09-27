@@ -3,16 +3,19 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft,
+  Compass,
   File as FileIcon,
   Folder,
   HardDrive,
   Home,
   Image as ImageIcon,
+  Link2Off,
   LogIn,
   MoonStar,
   Search,
   Share2,
   SlidersHorizontal,
+  Sparkles,
   Users,
 } from "lucide-react";
 
@@ -36,7 +39,7 @@ import {
 
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
-import Button from "@libreloom/ui/components/ui/Button.jsx";
+import CardButton from "@libreloom/ui/components/ui/CardButton.jsx";
 import IconCircle from "@libreloom/ui/components/ui/IconCircle.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import { cn } from "@libreloom/ui/lib/utils.js";
@@ -47,8 +50,8 @@ import { haptic } from "@libreloom/ui/utils/haptics.js";
    ====================================================================== */
 
 // Mirrors the Navbar. `aliases` are words people type for the same page.
+// Home and Sign in are left out: "Where to next" always offers one of them.
 const DESTINATIONS = [
-  { to: "/", label: "Home", icon: Home, aliases: ["home", "dashboard", "start", "index"] },
   {
     to: "/gallery",
     label: "Photos",
@@ -75,15 +78,12 @@ const DESTINATIONS = [
     icon: SlidersHorizontal,
     aliases: ["admin", "preferences", "prefs", "config", "account", "options"],
   },
-  { to: "/login", label: "Sign in", icon: LogIn, signedOutOnly: true, aliases: ["signin", "sign-in", "logon"] },
 ];
 
 function candidatesFor(user) {
   const isAdmin = user?.role === "admin";
   return DESTINATIONS.filter((dest) => {
-    if (dest.adminOnly && !isAdmin) return false;
-    if (dest.signedOutOnly && user) return false;
-    return true;
+    return !dest.adminOnly || isAdmin;
   }).flatMap((dest) => [
     dest,
     ...dest.aliases.map((alias) => ({ ...dest, match: `/${alias}` })),
@@ -167,8 +167,17 @@ function Moon({ phase, className }) {
   );
 }
 
-function MoonHero() {
+/** Keep the pill on one line: long paths show only their last part. */
+function shortenPath(path, max = 26) {
+  if (path.length <= max) return path;
+  const last = path.slice(path.lastIndexOf("/") + 1) || path;
+  const tail = last.length > max - 2 ? `${last.slice(0, max - 3)}…` : last;
+  return `…/${tail}`;
+}
+
+function MoonHero({ shownPath }) {
   const { phase, target, settled } = useSettlingMoon();
+  const shortPath = shortenPath(shownPath);
   const lit = Math.round(moonIllumination(target) * 100);
 
   return (
@@ -195,6 +204,24 @@ function MoonHero() {
           {moonPhaseName(target)} · {lit}% lit
         </span>
       </p>
+      {/* Inset chip on a padded track: the chip holds the path, the track
+          names the problem. */}
+      <p
+        title={shownPath === shortPath ? undefined : shownPath}
+        className="mt-6 inline-flex max-w-full items-center gap-3 rounded-pill bg-secondary p-1 pr-4 text-primary"
+      >
+        <span
+          aria-hidden="true"
+          className="min-w-0 truncate rounded-pill bg-primary px-3 py-1 font-mono text-sm text-secondary"
+        >
+          {shortPath}
+        </span>
+        <span className="sr-only">{shownPath}</span>
+        <span className="inline-flex shrink-0 items-center gap-1.5 text-xs">
+          <Link2Off size={14} aria-hidden="true" />
+          Not found
+        </span>
+      </p>
     </section>
   );
 }
@@ -208,7 +235,7 @@ function locationOf(item, driveLabel) {
   return folder ? `${driveLabel} / ${folder}` : driveLabel;
 }
 
-function FindFile({ initialTerm, user }) {
+function FindFile({ initialTerm, user, className }) {
   const [typed, setTyped] = useState(initialTerm);
   const [q, setQ] = useState(initialTerm);
 
@@ -241,14 +268,8 @@ function FindFile({ initialTerm, user }) {
   const searched = q.length >= 2 && results.isSuccess;
 
   return (
-    <div className="w-full text-left">
-      <h2 className="font-mono font-normal text-primary">Looking for a file?</h2>
-      <p className="mt-1 text-sm text-primary">
-        Links stop working when a file is moved or renamed. Luna can look for
-        it by name.
-      </p>
-
-      <label className="mt-3 flex items-center gap-2 rounded-pill border-2 border-transparent bg-primary px-4 py-2 text-secondary motion-safe:transition-colors focus-within:border-accent">
+    <Card icon={Search} title="Find a file" className={className}>
+      <label className="flex items-center gap-2 rounded-pill border-2 border-transparent bg-primary px-4 py-2 text-secondary motion-safe:transition-colors focus-within:border-accent">
         <Search size={16} aria-hidden="true" className="shrink-0" />
         <input
           type="search"
@@ -271,7 +292,7 @@ function FindFile({ initialTerm, user }) {
 
         {searched && hits.length === 0 && (
           <p className="mt-3 text-sm text-primary">
-            Nothing named “{q}”. Try a shorter part of the name.
+            Nothing named “{q}”. Try part of the name.
           </p>
         )}
 
@@ -310,7 +331,7 @@ function FindFile({ initialTerm, user }) {
           </ul>
         )}
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -359,6 +380,10 @@ export default function NotFoundPage() {
   const signedIn = Boolean(user);
   const signedOut = !loading && !user;
 
+  const showFind = signedIn && Boolean(searchTerm);
+  const cardCount = 1 + (showFind ? 1 : 0) + (suggestions.length > 0 ? 1 : 0);
+  const grid = cardCount === 1 ? "max-w-md" : "max-w-3xl md:grid-cols-2";
+
   return (
     <>
       <Page
@@ -366,72 +391,75 @@ export default function NotFoundPage() {
         leftContent={<IconCircle icon={MoonStar} />}
         headerClassName="mb-2"
       >
-        <MoonHero />
+        <MoonHero shownPath={shownPath} />
 
-        <Card className="mx-auto max-w-xl">
-          <div className="flex flex-col items-center gap-5 text-center">
-            <p className="max-w-prose text-primary">{quip}</p>
+        <div className={cn("mx-auto grid gap-4", grid)}>
+          {showFind && (
+            <FindFile
+              key={searchTerm}
+              initialTerm={searchTerm}
+              user={user}
+              className={cardCount === 3 ? "md:col-span-2" : ""}
+            />
+          )}
 
-            <div className="flex max-w-full flex-col items-center gap-2">
-              <p className="text-sm text-primary">There's no page at</p>
-              <code className="max-w-full overflow-x-auto whitespace-nowrap rounded-pill bg-primary px-4 py-1.5 font-mono text-sm text-secondary">
-                {shownPath}
-              </code>
-              <p className="text-sm text-primary">
-                If a link brought you here, it may be old or mistyped.
-              </p>
-            </div>
-
-            {suggestions.length > 0 && (
-              <nav
-                aria-label="Did you mean"
-                className="flex flex-wrap items-center justify-center gap-2"
-              >
-                <span className="font-mono text-primary">Did you mean</span>
-                {suggestions.map(({ to, label, icon: Icon }) => (
-                  <Button key={to} asChild variant="primary">
-                    <Link to={to}>
-                      <Icon size={16} aria-hidden="true" />
-                      {label}
-                    </Link>
-                  </Button>
+          {suggestions.length > 0 && (
+            <Card icon={Sparkles} title="Did you mean">
+              <nav aria-label="Did you mean" className="flex flex-col gap-2">
+                {suggestions.map(({ to, label, icon }) => (
+                  <CardButton
+                    key={to}
+                    action={to}
+                    actionLabel={label}
+                    icon={icon}
+                    align="start"
+                    className="mt-0 px-4 py-2.5"
+                  >
+                    {label}
+                  </CardButton>
                 ))}
               </nav>
-            )}
+            </Card>
+          )}
 
-            {signedIn && searchTerm && (
-              <FindFile key={searchTerm} initialTerm={searchTerm} user={user} />
-            )}
-
-            <div className="flex flex-wrap justify-center gap-3">
-              {canGoBack && (
-                <Button
-                  variant="outline"
-                  surface="secondary"
-                  onClick={() => navigate(-1)}
-                >
-                  <ArrowLeft size={16} aria-hidden="true" />
-                  Go back
-                </Button>
-              )}
+          <Card icon={Compass} title="Where to next">
+            <p className="mb-4 text-sm text-primary">{quip}</p>
+            <div className="flex flex-col gap-2">
               {signedOut ? (
-                <Button asChild variant="primary">
-                  <Link to="/login">
-                    <LogIn size={16} aria-hidden="true" />
-                    Sign in
-                  </Link>
-                </Button>
+                <CardButton
+                  action="/login"
+                  actionLabel="Sign in"
+                  icon={LogIn}
+                  align="start"
+                  className="mt-0 px-4 py-2.5"
+                >
+                  Sign in
+                </CardButton>
               ) : (
-                <Button asChild variant="primary">
-                  <Link to="/">
-                    <Home size={16} aria-hidden="true" />
-                    Home
-                  </Link>
-                </Button>
+                <CardButton
+                  action="/"
+                  actionLabel="Home"
+                  icon={Home}
+                  align="start"
+                  className="mt-0 px-4 py-2.5"
+                >
+                  Home
+                </CardButton>
+              )}
+              {canGoBack && (
+                <CardButton
+                  onClick={() => navigate(-1)}
+                  actionLabel="Go back"
+                  icon={ArrowLeft}
+                  align="start"
+                  className="mt-0 px-4 py-2.5"
+                >
+                  Go back
+                </CardButton>
               )}
             </div>
-          </div>
-        </Card>
+          </Card>
+        </div>
       </Page>
       {signedIn && <Navbar />}
     </>
