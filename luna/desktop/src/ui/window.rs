@@ -77,7 +77,7 @@ impl ShellView {
         list.set_vexpand(true);
 
         let row_backup = nav_row("Backup", "folder-download-symbolic");
-        let row_sync = nav_row("Sync", "emblem-synchronizing-symbolic");
+        let row_sync = nav_row("Sync", "view-refresh-symbolic");
         let row_status = nav_row("Status", "view-list-symbolic");
         let row_settings = nav_row("Settings", "preferences-system-symbolic");
         list.append(&row_backup);

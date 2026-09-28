@@ -297,13 +297,13 @@ fn sync_status_icon(
     }
     if progress.running && progress.phase == "Syncing" && !progress.current.is_empty() {
         return (
-            "emblem-synchronizing-symbolic",
+            "view-refresh-symbolic",
             "Updating files…".to_string(),
         );
     }
     if active || progress.running {
         return (
-            "emblem-ok-symbolic",
+            "object-select-symbolic",
             "This folder is staying in sync.".to_string(),
         );
     }

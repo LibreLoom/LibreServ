@@ -234,24 +234,37 @@ fn build_ui(app: &adw::Application, state: Arc<AppState>) -> adw::ApplicationWin
     stack_rc.set_visible_child_name("boot");
 
     let state_boot = state.clone();
+    let state_done = state.clone();
     let stack_boot = stack_rc.clone();
     let show_shell_boot = show_shell.clone();
     let toast_boot = toast_rc.clone();
     let reconfigure_url_boot = reconfigure_url.clone();
     spawn_blocking(
         move || luna_desktop::restore_session(&state_boot),
-        move |outcome| match outcome {
-            luna_desktop::RestoreOutcome::Restored(info) => show_shell_boot(info),
-            luna_desktop::RestoreOutcome::NoSession => {
-                stack_boot.set_visible_child_name("login");
+        move |outcome| {
+            // An injected dev token (auto sign-in) may already have shown the
+            // shell before this restore lands — never yank it back to login.
+            if state_done
+                .session
+                .lock()
+                .map(|s| s.is_some())
+                .unwrap_or(false)
+            {
+                return;
             }
-            luna_desktop::RestoreOutcome::AuthFailed { base_url } => {
-                *reconfigure_url_boot.borrow_mut() = Some(base_url);
-                stack_boot.set_visible_child_name("auth_failed");
-            }
-            luna_desktop::RestoreOutcome::Failed(e) => {
-                toast_boot.add_toast(adw::Toast::new(&e));
-                stack_boot.set_visible_child_name("login");
+            match outcome {
+                luna_desktop::RestoreOutcome::Restored(info) => show_shell_boot(info),
+                luna_desktop::RestoreOutcome::NoSession => {
+                    stack_boot.set_visible_child_name("login");
+                }
+                luna_desktop::RestoreOutcome::AuthFailed { base_url } => {
+                    *reconfigure_url_boot.borrow_mut() = Some(base_url);
+                    stack_boot.set_visible_child_name("auth_failed");
+                }
+                luna_desktop::RestoreOutcome::Failed(e) => {
+                    toast_boot.add_toast(adw::Toast::new(&e));
+                    stack_boot.set_visible_child_name("login");
+                }
             }
         },
     );

@@ -57,15 +57,27 @@ fn window_width(widget: &gtk::Widget) -> i32 {
         .unwrap_or_else(|| widget.width())
 }
 
+/// Height of the top-level window containing `widget`.
+fn window_height(widget: &gtk::Widget) -> i32 {
+    widget
+        .root()
+        .map(|root| root.height())
+        .unwrap_or_else(|| widget.height())
+}
+
 /// Size a form dialog for the current parent width.
 pub fn configure_form_dialog(dialog: &adw::Dialog, parent: &impl IsA<gtk::Widget>, tall: bool) {
     let w = widget_width(parent);
+    // A dialog may never outgrow its window — the extra height is clipped
+    // off-screen instead of scrolled, so buttons at the bottom vanish.
+    let h = window_height(&parent.clone().upcast::<gtk::Widget>());
+    let cap = if h > 0 { (h - 64).max(280) } else { i32::MAX };
     if w > 0 && w < NARROW_BREAKPOINT {
         dialog.set_content_width((w - 16).max(280));
-        dialog.set_content_height(-1);
+        dialog.set_content_height(if cap == i32::MAX { -1 } else { cap });
     } else {
         dialog.set_content_width(520);
-        dialog.set_content_height(if tall { 580 } else { 560 });
+        dialog.set_content_height((if tall { 580 } else { 560 }).min(cap));
     }
 }
 

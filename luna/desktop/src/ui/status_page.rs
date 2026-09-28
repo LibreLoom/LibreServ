@@ -19,7 +19,7 @@ impl StatusPage {
         let outer = gtk::Box::new(gtk::Orientation::Vertical, 0);
 
         let blurb = gtk::Label::new(Some(
-            "Files still being copied between this computer and Luna.",
+            "Backups and syncs in progress between this computer and Luna.",
         ));
         blurb.set_wrap(true);
         blurb.set_halign(gtk::Align::Start);
@@ -38,7 +38,7 @@ impl StatusPage {
         list.set_visible(false);
 
         let empty = adw::StatusPage::builder()
-            .icon_name("emblem-ok-symbolic")
+            .icon_name("object-select-symbolic")
             .title("Everything is up to date.")
             .description("Nothing is waiting to copy right now.")
             .build();
@@ -140,7 +140,7 @@ impl StatusPage {
                             spinner.set_spinning(true);
                             spinner.set_tooltip_text(Some("Copying files to Luna…"));
                             row.add_suffix(&spinner);
-                            let icon = gtk::Image::from_icon_name("emblem-synchronizing-symbolic");
+                            let icon = gtk::Image::from_icon_name("view-refresh-symbolic");
                             icon.set_icon_size(gtk::IconSize::Normal);
                             row.add_prefix(&icon);
                             list.append(&row);
@@ -206,7 +206,7 @@ impl StatusPage {
                             spinner.set_spinning(true);
                             spinner.set_tooltip_text(Some("Updating files…"));
                             row.add_suffix(&spinner);
-                            let icon = gtk::Image::from_icon_name("emblem-synchronizing-symbolic");
+                            let icon = gtk::Image::from_icon_name("view-refresh-symbolic");
                             icon.set_icon_size(gtk::IconSize::Normal);
                             row.add_prefix(&icon);
                             list.append(&row);
@@ -223,7 +223,7 @@ impl StatusPage {
                                 empty.set_title("Everything is up to date.");
                                 empty
                                     .set_description(Some("Nothing is waiting to copy right now."));
-                                empty.set_icon_name(Some("emblem-ok-symbolic"));
+                                empty.set_icon_name(Some("object-select-symbolic"));
                             }
                         }
 
