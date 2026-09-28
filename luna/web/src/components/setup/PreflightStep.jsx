@@ -1,49 +1,32 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import PropTypes from "prop-types";
-import { AlertCircle, ArrowRight, Check, Loader2, X } from "lucide-react";
+import { AlertCircle, AlertTriangle, ArrowRight, Check, Loader2, X } from "lucide-react";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
+import CheckMore from "../common/CheckMore.jsx";
+import CheckStatusTag from "../common/CheckStatusTag.jsx";
 import { getJsonAllowErrorStatus } from "../../lib/api.js";
-import { summarizeError } from "../../lib/preflight-errors.js";
-import PreflightRemediation from "./PreflightRemediation.jsx";
-
-const KNOWN_CHECKS = new Set([
-  "database",
-  "database_writable",
-  "data_path_writable",
-  "logs_path_writable",
-  "disk_space",
-  "api_server",
-]);
-
-const CHECK_LABELS = {
-  database: "File index",
-  database_writable: "File index storage",
-  data_path_writable: "Luna data storage",
-  logs_path_writable: "Log storage",
-  disk_space: "Storage space",
-  api_server: "Luna software",
-};
-
-const CATEGORY_LABELS = {
-  system: "System",
-  storage: "Storage",
-};
-
-const CATEGORY_ORDER = ["system", "storage"];
+import {
+  CATEGORY_LABELS,
+  CATEGORY_ORDER,
+  displayLabel,
+  statusRank,
+} from "../../lib/healthChecks.js";
 
 function PreflightRow({ name, check, delay, done, rerunning }) {
-  const label = CHECK_LABELS[name] ?? name.replace(/_/g, " ");
-  const isOk = check?.status === "ok";
-  const isFail = check && check.status !== "ok";
+  const label = displayLabel(name, check);
+  const status = check?.status;
+  const isOk = status === "passed";
+  const isWarn = status === "warning";
+  const isFail = check && !isOk && !isWarn;
   const showPrev = rerunning && check;
   const showEmpty = !done && !check;
-  const shortError = isFail && check.error ? summarizeError(check.error) : null;
+  const freeSpace = name === "disk_space" && isOk ? check.details?.free_human : null;
 
   return (
     <div
       className={cn(
-        "flex items-center gap-4 py-3.5 border-b border-primary/10 last:border-0 motion-safe:transition-opacity motion-safe:duration-300",
+        "flex items-start gap-4 py-3.5 border-b border-primary/10 last:border-0 motion-safe:transition-opacity motion-safe:duration-300",
         rerunning ? "opacity-45" : "opacity-100",
         "animate-in fade-in slide-in-from-bottom-2 duration-400",
       )}
@@ -52,39 +35,31 @@ function PreflightRow({ name, check, delay, done, rerunning }) {
       <div
         className={cn(
           "flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center motion-safe:transition-all motion-safe:duration-300",
-          showEmpty ? "bg-primary/10" : isOk && !showEmpty ? "bg-primary/15" : isFail && !showEmpty ? "bg-error/20" : "bg-primary/10",
+          showEmpty || isOk ? "bg-primary/15" : isWarn ? "bg-warning/20" : "bg-error/20",
         )}
       >
         {showEmpty ? (
           <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
         ) : isOk ? (
           <Check className="w-3.5 h-3.5" aria-hidden="true" />
+        ) : isWarn ? (
+          <AlertTriangle className="w-3.5 h-3.5 text-warning" aria-hidden="true" />
         ) : (
           <X className="w-3.5 h-3.5 text-error" aria-hidden="true" />
         )}
       </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-baseline gap-2 flex-wrap">
-          <span className="text-sm text-primary">{label}</span>
-          {isFail && shortError && (
-            <span className="text-xs text-error truncate">({shortError})</span>
-          )}
-        </div>
-        {name === "disk_space" && isOk && check.disk_space_bytes_free && (
-          <p className="text-xs mt-0.5">
-            {Math.round((check.disk_space_bytes_free / (1000 * 1000 * 1000)) * 10) / 10} GB free
+      <div className="flex-1 min-w-0 pt-1">
+        <span className="text-sm text-primary">{label}</span>
+        {(isWarn || isFail) && check.message && (
+          <p className="text-xs text-primary mt-1 break-words animate-in fade-in duration-300">
+            {check.message}
           </p>
         )}
+        {(isWarn || isFail) && check.more && <CheckMore text={check.more} />}
+        {freeSpace && <p className="text-xs text-primary mt-0.5">{freeSpace} free</p>}
       </div>
       {(done || showPrev) && check && (
-        <span
-          className={cn(
-            "flex-shrink-0 font-mono text-[10px] tracking-widest uppercase motion-safe:transition-opacity motion-safe:duration-300",
-            isOk ? "text-primary/30" : "text-error",
-          )}
-        >
-          {isOk ? "Passed" : "Failed"}
-        </span>
+        <CheckStatusTag status={status} className="mt-0.5 motion-safe:transition-opacity" />
       )}
     </div>
   );
@@ -147,17 +122,15 @@ export default function PreflightStep({ onPass }) {
     };
   }, []);
 
-  const checkEntries = useMemo(
-    () => (checks ? Object.entries(checks).filter(([name]) => KNOWN_CHECKS.has(name)) : []),
-    [checks],
-  );
+  const checkEntries = useMemo(() => (checks ? Object.entries(checks) : []), [checks]);
   const hasCheckResults = checkEntries.length > 0;
   const showSkeleton = !hasCheckResults && running && !error;
   const rerunning = running && hasCheckResults;
   const done = checks !== null && !running;
   const hasFailed = done && healthy === false;
-  const allPassed = done && healthy === true;
-  const showRerunButton = hasFailed || error || rerunning;
+  const canContinue = done && healthy === true;
+  const warningCount = checkEntries.filter(([, c]) => c?.status === "warning").length;
+  const showRerunButton = hasFailed || warningCount > 0 || error || rerunning;
 
   const checksByCategory = useMemo(() => {
     if (!hasCheckResults) return {};
@@ -167,6 +140,13 @@ export default function PreflightStep({ onPass }) {
       if (!grouped[cat]) grouped[cat] = [];
       grouped[cat].push([name, check]);
     }
+    for (const list of Object.values(grouped)) {
+      list.sort(
+        ([an, a], [bn, b]) =>
+          statusRank(a?.status) - statusRank(b?.status) ||
+          displayLabel(an, a).localeCompare(displayLabel(bn, b)),
+      );
+    }
     return grouped;
   }, [checkEntries, hasCheckResults]);
 
@@ -175,7 +155,7 @@ export default function PreflightStep({ onPass }) {
       <div className="mb-7">
         <h2 className="font-mono text-3xl font-normal text-primary tracking-tight">System check</h2>
         <p className="text-sm mt-2">
-          Luna checks its storage and file index before you continue setup.
+          Luna checks its storage, network, and features before you continue setup.
         </p>
       </div>
 
@@ -232,22 +212,27 @@ export default function PreflightStep({ onPass }) {
         {running && (
           <p className="text-xs animate-in fade-in duration-300 h-6">Running checks…</p>
         )}
-        {allPassed && (
+        {canContinue && warningCount === 0 && (
           <p className="text-xs animate-in fade-in duration-300 h-6">All checks passed.</p>
         )}
+        {canContinue && warningCount > 0 && (
+          <p className="text-xs text-primary flex items-start gap-1.5 animate-in fade-in duration-300">
+            <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-px text-warning" aria-hidden="true" />
+            {warningCount === 1
+              ? "One thing above won't work yet, but you can still continue setup."
+              : `${warningCount} things above won't work yet, but you can still continue setup.`}
+          </p>
+        )}
         {hasFailed && (
-          <div className="animate-in fade-in slide-in-from-bottom-1 duration-500 ease-out">
-            <p className="text-xs text-error flex items-center gap-1.5 mb-2">
-              <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" aria-hidden="true" />
-              Some checks failed. Fix the issues above and try again.
-            </p>
-            <PreflightRemediation failedChecks={checkEntries} />
-          </div>
+          <p className="text-xs text-error flex items-center gap-1.5 animate-in fade-in slide-in-from-bottom-1 duration-500 ease-out">
+            <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" aria-hidden="true" />
+            Some checks failed. Follow the steps above, then re-run the checks.
+          </p>
         )}
       </div>
 
       <div className="flex flex-col gap-3">
-        {allPassed && (
+        {canContinue && (
           <Button
             variant="primary"
             fullWidth

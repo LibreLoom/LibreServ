@@ -220,12 +220,20 @@ async fn main() -> anyhow::Result<()> {
                     }
 
                     if let Ok(conn) = db.lock() {
-                        let preflight = lunad::system::system_health::run_preflight(&data_dir, &conn);
-                        let mut preflight_errors: Vec<_> = preflight
+                        // Core checks only: network and Connect problems are
+                        // listed above, and feature warnings don't belong on
+                        // a small HDMI screen.
+                        let core = lunad::system::system_health::run_core(
+                            &data_dir,
+                            &conn,
+                            lunad::system::system_health::ClockReading::live(),
+                            false,
+                        );
+                        let mut preflight_errors: Vec<_> = core
                             .checks
-                            .into_iter()
-                            .filter(|(_, c)| c.status != "ok")
-                            .filter_map(|(_, c)| c.error)
+                            .into_values()
+                            .filter(|c| c.status == lunad::system::system_health::FAILED)
+                            .map(|c| c.message)
                             .collect();
                         preflight_errors.sort();
                         problems.extend(preflight_errors);

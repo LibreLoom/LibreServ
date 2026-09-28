@@ -10,8 +10,9 @@ import { displayLabel } from "../../lib/healthChecks.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 /**
- * SystemHealthPill — failed health checks as a compact dashboard header pill,
- * mirroring LibreServ's CriticalIssues pattern.
+ * SystemHealthPill — failed and warning health checks as a compact dashboard
+ * header pill, mirroring LibreServ's CriticalIssues pattern. Failures use the
+ * error pill; warnings alone (a feature that won't work) use the warning pill.
  */
 export default function SystemHealthPill() {
   const { data, isLoading, error } = useSystemHealthCheck();
@@ -22,18 +23,22 @@ export default function SystemHealthPill() {
   const buttonRef = useRef(null);
   const portalRef = useRef(null);
 
-  const failedChecks = useMemo(() => {
+  const issues = useMemo(() => {
     if (!data?.checks) return [];
     return Object.entries(data.checks)
-      .filter(([, result]) => result?.status === "failed" || result?.status === "error")
+      .filter(([, result]) => result?.status && result.status !== "passed")
       .map(([name, result]) => ({
         name,
         label: displayLabel(name, result),
         message: result?.message,
-      }));
+        warning: result.status === "warning",
+      }))
+      // Failures before warnings.
+      .sort((a, b) => Number(a.warning) - Number(b.warning));
   }, [data]);
 
-  const hasIssues = failedChecks.length > 0;
+  const hasIssues = issues.length > 0;
+  const onlyWarnings = hasIssues && issues.every((i) => i.warning);
 
   const updatePosition = useCallback(() => {
     if (buttonRef.current) {
@@ -107,7 +112,9 @@ export default function SystemHealthPill() {
     );
   }
 
-  const count = failedChecks.length;
+  const count = issues.length;
+  const noun = onlyWarnings ? "warning" : "issue";
+  const countText = `${count} ${noun}${count !== 1 ? "s" : ""}`;
 
   return (
     <div className="relative" ref={containerRef} data-slot="system-health-pill">
@@ -122,13 +129,11 @@ export default function SystemHealthPill() {
         )}
         aria-expanded={isOpen}
         aria-haspopup="dialog"
-        aria-label={`${count} system issue${count !== 1 ? "s" : ""}. Click to view details.`}
+        aria-label={`${countText}. Click to view details.`}
       >
-        <Pill variant="error" className="hover:brightness-110">
+        <Pill variant={onlyWarnings ? "warning" : "error"} className="hover:brightness-110">
           <AlertTriangle size={ICON_SIZE.xs} strokeWidth={2.5} aria-hidden="true" />
-          <span className="font-medium">
-            {count} issue{count !== 1 ? "s" : ""}
-          </span>
+          <span className="font-medium">{countText}</span>
           <ChevronDown
             size={ICON_SIZE.xs}
             className={cn(
@@ -156,21 +161,29 @@ export default function SystemHealthPill() {
           >
             <div className="px-4 py-3 border-b border-primary/10">
               <div className="flex items-center gap-2">
-                <AlertTriangle size={ICON_SIZE.md} className="text-error" aria-hidden="true" />
-                <span className="font-mono text-sm font-medium text-error">
-                  {count} issue{count !== 1 ? "s" : ""} found
+                <AlertTriangle
+                  size={ICON_SIZE.md}
+                  className={onlyWarnings ? "text-warning" : "text-error"}
+                  aria-hidden="true"
+                />
+                <span className={cn("font-mono text-sm", onlyWarnings ? "text-warning" : "text-error")}>
+                  {countText} found
                 </span>
               </div>
             </div>
             <ul className="py-2">
-              {failedChecks.map((check, i) => (
+              {issues.map((check, i) => (
                 <li
                   key={check.name}
                   className={isClosing ? "" : "animate-dropdown-option"}
                   style={isClosing ? undefined : { animationDelay: `${i * 45}ms` }}
                 >
                   <div className="px-4 py-2 flex items-start gap-2">
-                    <XCircle size={ICON_SIZE.sm} className="text-error mt-0.5 shrink-0" aria-hidden="true" />
+                    {check.warning ? (
+                      <AlertTriangle size={ICON_SIZE.sm} className="text-warning mt-0.5 shrink-0" aria-hidden="true" />
+                    ) : (
+                      <XCircle size={ICON_SIZE.sm} className="text-error mt-0.5 shrink-0" aria-hidden="true" />
+                    )}
                     <div className="min-w-0">
                       <div className="text-sm text-primary font-medium">{check.label}</div>
                       {check.message && (

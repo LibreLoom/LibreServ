@@ -42,41 +42,22 @@ async fn comprehensive_check(
     let cache = state.health_cache.clone();
     let result = if force || cache.should_refresh() {
         cache.mark_refreshing();
-        let data_dir = state.data_dir.clone();
-        let db = state.db.clone();
-        let computed = tokio::task::spawn_blocking(move || {
-            let (preflight, drives) = {
-                let conn = db.lock().unwrap();
-                let preflight = crate::system::system_health::run_preflight(&data_dir, &conn);
-                let drives = crate::db::list_drives(&conn).unwrap_or_default();
-                (preflight, drives)
-            };
-            crate::system::system_health::finish_comprehensive(&data_dir, preflight, drives)
-        })
-        .await
-        .unwrap_or_else(
-            |_| crate::system::system_health::ComprehensiveHealthResponse {
-                status: "error".into(),
-                timestamp: crate::db::now_unix(),
-                overall_pass: false,
-                checks: Default::default(),
-                summary: Default::default(),
-            },
-        );
+        let state = state.clone();
+        let computed = tokio::task::spawn_blocking(move || compute(&state))
+            .await
+            .unwrap_or_else(|_| failed_response());
         cache.set(computed.clone());
         computed
     } else {
-        cache.get().unwrap_or_else(|| {
-            let data_dir = state.data_dir.clone();
-            let db = state.db.clone();
-            let (preflight, drives) = {
-                let conn = db.lock().unwrap();
-                let preflight = crate::system::system_health::run_preflight(&data_dir, &conn);
-                let drives = crate::db::list_drives(&conn).unwrap_or_default();
-                (preflight, drives)
-            };
-            crate::system::system_health::finish_comprehensive(&data_dir, preflight, drives)
-        })
+        match cache.get() {
+            Some(cached) => cached,
+            None => {
+                let state = state.clone();
+                tokio::task::spawn_blocking(move || compute(&state))
+                    .await
+                    .unwrap_or_else(|_| failed_response())
+            }
+        }
     };
 
     let status = if result.overall_pass {
@@ -88,6 +69,30 @@ async fn comprehensive_check(
         status,
         Json(serde_json::to_value(result).unwrap_or(json!({}))),
     ))
+}
+
+/// Gather probes first — the DB lock is held only for the database checks,
+/// and drive probes run after it's released.
+fn compute(state: &AppState) -> crate::system::system_health::ComprehensiveHealthResponse {
+    use crate::system::system_health::{Probes, finish_comprehensive, run_preflight};
+    let probes = Probes::from_state(state);
+    let (preflight, drives) = {
+        let conn = state.db.lock().unwrap();
+        let preflight = run_preflight(&state.data_dir, &conn, &probes);
+        let drives = crate::db::list_drives(&conn).unwrap_or_default();
+        (preflight, drives)
+    };
+    finish_comprehensive(preflight, drives)
+}
+
+fn failed_response() -> crate::system::system_health::ComprehensiveHealthResponse {
+    crate::system::system_health::ComprehensiveHealthResponse {
+        status: "error".into(),
+        timestamp: crate::db::now_unix(),
+        overall_pass: false,
+        checks: Default::default(),
+        summary: Default::default(),
+    }
 }
 
 fn uptime() -> u64 {

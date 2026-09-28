@@ -4,6 +4,27 @@ use include_dir::{Dir, include_dir};
 
 static DIST: Dir = include_dir!("$CARGO_MANIFEST_DIR/web/dist");
 
+/// True when the embedded web build holds at least one file under `dir`.
+pub fn has_files_under(dir: &str) -> bool {
+    fn any_file(d: &Dir<'_>) -> bool {
+        d.files().next().is_some() || d.dirs().any(any_file)
+    }
+    DIST.get_dir(dir).is_some_and(any_file)
+}
+
+/// True when the embedded build has a hashed `assets/` file like
+/// `{prefix}<hash>{suffix}` — how Vite names a `manualChunks` entry.
+pub fn has_asset_named(prefix: &str, suffix: &str) -> bool {
+    DIST.get_dir("assets").is_some_and(|d| {
+        d.files().any(|f| {
+            f.path()
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with(prefix) && n.ends_with(suffix))
+        })
+    })
+}
+
 /// Serve the embedded Vite build with SPA fallback.
 ///
 /// `/assets/*` files are immutable (hashed filenames) and cached for a year.

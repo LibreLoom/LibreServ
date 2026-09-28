@@ -71,8 +71,8 @@ function stubFetch(sourceBody) {
       return new Response(
         JSON.stringify({
           status: "ok",
-          summary: { passed: 1, failed: 0, skipped: 0 },
-          checks: { filesystem: { status: "passed", message: "ok" } },
+          summary: { total_checks: 1, passed: 1, warnings: 0, failed: 0 },
+          checks: { database: { status: "passed", message: "ok", category: "system" } },
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       );
@@ -274,8 +274,10 @@ describe("AboutCategory", () => {
     await user.click(screen.getByRole("button", { name: /^Update source$/i }));
     await user.click(screen.getByRole("button", { name: /Edit update source/i }));
 
-    expect(await screen.findByText(/Don't touch these during normal use/i)).toBeTruthy();
-    expect(screen.getByText(/not your files or backups/i)).toBeTruthy();
+    expect(
+      await screen.findByText(/Only change these if your updates come from somewhere else/i),
+    ).toBeTruthy();
+    expect(screen.getByLabelText(/What these settings control/i)).toBeTruthy();
     const apiInput = /** @type {HTMLInputElement} */ (
       screen.getByPlaceholderText("https://gt.plainskill.net/api/v1")
     );
@@ -316,7 +318,7 @@ describe("AboutCategory", () => {
     await screen.findByText("Default source");
     await user.click(screen.getByRole("button", { name: /^Update source$/i }));
     await user.click(screen.getByRole("button", { name: /Edit update source/i }));
-    await screen.findByText(/Don't touch these during normal use/i);
+    await screen.findByText(/Only change these if your updates come from somewhere else/i);
 
     await user.clear(screen.getByPlaceholderText("LibreLoom"));
     await user.type(screen.getByPlaceholderText("LibreLoom"), "MyOrg");

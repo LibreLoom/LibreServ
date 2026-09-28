@@ -13,12 +13,15 @@ function healthyPreflight() {
   return {
     healthy: true,
     checks: {
-      database: { status: "ok", category: "system" },
-      database_writable: { status: "ok", category: "storage" },
-      data_path_writable: { status: "ok", category: "storage" },
-      logs_path_writable: { status: "ok", category: "storage" },
-      disk_space: { status: "ok", category: "system", disk_space_bytes_free: 8_000_000_000 },
-      api_server: { status: "ok", category: "system" },
+      database: { status: "passed", category: "system" },
+      data_path_writable: { status: "passed", category: "storage" },
+      logs_path_writable: { status: "passed", category: "storage" },
+      disk_space: {
+        status: "passed",
+        category: "system",
+        details: { free_bytes: 8_000_000_000, free_human: "8.0 GB" },
+      },
+      clock: { status: "passed", category: "system" },
     },
   };
 }
