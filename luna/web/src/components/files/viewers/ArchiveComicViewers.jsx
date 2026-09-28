@@ -64,7 +64,8 @@ function ArchiveList({ bytes, path }) {
   if (entries.length === 0) {
     return (
       <p className="text-primary text-sm">
-        This archive looks empty, or Luna needs you to download it to open the compressed layers.
+        This archive looks empty. Luna can&rsquo;t unpack compressed tar files (.tar.gz, .tar.bz2,
+        .tar.xz) here — download it to check.
       </p>
     );
   }

@@ -121,8 +121,7 @@ describe("DrivesPage", () => {
     expect(await screen.findByText("64GB PSSD")).toBeInTheDocument();
     expect(screen.getByText(/64 GB · USB · exFAT/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Add drive$/i })).toBeInTheDocument();
-    expect(screen.getByText(/Click "Add drive" to begin adding the drive/i)).toBeInTheDocument();
-    expect(screen.getByText(/You'll see the contents of the drive before adding it/i)).toBeInTheDocument();
+    expect(screen.getByText(/You'll see what's on the drive before adding it/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Ignore for now/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/found on/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Nothing new plugged in/i)).not.toBeInTheDocument();
@@ -514,12 +513,12 @@ describe("DrivesPage", () => {
     expect(screen.queryByText(/1 folders/i)).not.toBeInTheDocument();
     expect(screen.getByText("Photos")).toBeInTheDocument();
     expect(screen.getByText("notes.txt")).toBeInTheDocument();
-    expect(screen.getByText(/will not accept new files/i)).toBeInTheDocument();
-    expect(screen.getByText(/format button below/i)).toBeInTheDocument();
-    expect(screen.getByText(/delete all data on the drive/i)).toBeInTheDocument();
+    expect(screen.getByText(/won't accept new files/i)).toBeInTheDocument();
+    expect(screen.getByText(/need formatting/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Add this drive/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Format$/i })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /^Format$/i }));
+    expect(screen.getByText(/deletes everything on this drive/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Yes, format it/i })).toBeInTheDocument();
     expect(screen.getByDisplayValue("Locked Stick")).toBeInTheDocument();
   });
@@ -557,7 +556,7 @@ describe("DrivesPage", () => {
     renderPage();
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /^Add drive$/i }));
-    await screen.findByText(/will not accept new files/i);
+    await screen.findByText(/won't accept new files/i);
     await user.click(screen.getByRole("button", { name: /^Format$/i }));
     await user.click(screen.getByRole("button", { name: /Yes, format it/i }));
     expect(adoptBodies).toEqual([{ label: "Locked Stick", erase: true }]);

@@ -202,7 +202,7 @@ export default function FilesPage() {
           title="Drive not found"
           description={
             isAdmin
-              ? "Luna couldn't find this drive. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in."
+              ? "Luna can't find this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in."
               : "Luna couldn't open this drive. Ask an Admin if you still need access."
           }
           action={
@@ -220,7 +220,7 @@ export default function FilesPage() {
           title="Drive unplugged"
           description={
             isAdmin
-              ? "This drive is unplugged. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in."
+              ? "This drive is unplugged. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in."
               : "This drive is unplugged. Ask an Admin, or wait until it's plugged back in."
           }
           action={

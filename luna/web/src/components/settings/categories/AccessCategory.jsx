@@ -450,8 +450,8 @@ export default function AccessCategory() {
         {newToken?.token && (
           <div className="mt-4 rounded-large-element bg-primary text-secondary p-4 space-y-3">
             <p className="text-sm">
-              Copy this now. Luna will not show it again. Paste it into Luna
-              Desktop or the phone app, or show it as a QR code for the phone.
+              Copy this now — Luna won&apos;t show it again. Paste it into
+              Luna Desktop or the phone app, or show it as a QR code.
             </p>
             <CopyableValue
               value={newToken.token}

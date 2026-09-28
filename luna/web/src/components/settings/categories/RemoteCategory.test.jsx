@@ -34,7 +34,7 @@ describe("RemoteCategory", () => {
     expect(screen.getByText(/yourname/i)).toBeTruthy();
     expect(screen.getByText(/\.luna\.servers\.libreloom\.org/)).toBeTruthy();
     expect(
-      screen.getByText(/Pick a name on Luna Connect\. Luna shows the address here once it is ready/i),
+      screen.getByText(/Pick a name on Luna Connect.*the address shows up here once it.s ready/i),
     ).toBeTruthy();
 
     const cta = screen.getByRole("link", { name: /Open Luna Connect/i });

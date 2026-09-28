@@ -387,7 +387,7 @@ describe("WhiteboardEditor", () => {
     render(<WhiteboardEditor {...PROPS} />);
     await welcome(lastSocket());
     await screen.findByText(/couldn't display this whiteboard/i);
-    expect(screen.getByText(/unexpected error occurred/i)).toBeInTheDocument();
+    expect(screen.getByText(/whiteboard view crashed/i)).toBeInTheDocument();
     spy.mockRestore();
   });
 

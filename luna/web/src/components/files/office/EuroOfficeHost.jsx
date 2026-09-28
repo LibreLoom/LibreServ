@@ -677,7 +677,7 @@ export default function EuroOfficeHost({
         setError(
           err instanceof Error
             ? err.message
-            : "EuroOffice could not start. Check that the EuroOffice pack on this Luna is complete.",
+            : "EuroOffice couldn't start. Reopen the file to try again.",
         );
       }
     })();

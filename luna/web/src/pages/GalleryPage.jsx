@@ -1398,7 +1398,7 @@ export default function GalleryPage() {
           title={isAdmin ? "No drives yet" : "No photos you can open yet"}
           description={
             isAdmin
-              ? "Plug in a drive & add it. Luna will automatically check for photos on added drives."
+              ? "Plug in a drive and add it — Luna checks it for photos automatically."
               : "Ask an Admin to share a drive, folder, or album with photos. Luna will show them here once you have access."
           }
           action={
@@ -1684,7 +1684,7 @@ export default function GalleryPage() {
         <EmptyState
           icon={ImageIcon}
           title="No photos yet"
-          description="Add pictures to a drive and Luna will show them here. You can also drop photos onto this page. If you already added some, rescan your drives."
+          description="Add pictures to a drive, or drop them onto this page, and Luna will show them here."
           action={
             <Button
               variant="primary"
