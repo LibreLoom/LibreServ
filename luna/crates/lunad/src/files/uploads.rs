@@ -258,7 +258,7 @@ fn temp_for(
 /// — not during the disk write — so browsing stays responsive while large
 /// uploads land. Progress is flushed every ~2 MiB / ~2s (and on complete).
 pub fn write_chunk(
-    db: &Arc<Mutex<Connection>>,
+    db: &Arc<crate::Db>,
     id: &str,
     start: u64,
     data: &[u8],
@@ -334,7 +334,7 @@ pub fn write_chunk(
 /// which names are taken (upload-only drop boxes): instead of failing, the
 /// file lands as `name (1).ext` like Nextcloud file requests.
 pub fn complete(
-    db: &Arc<Mutex<Connection>>,
+    db: &Arc<crate::Db>,
     id: &str,
     overwrite: bool,
     rename_on_conflict: bool,
@@ -452,6 +452,7 @@ pub fn complete(
         modified,
         hidden: false,
         saving: false,
+        save_failed: false,
         original_name: None,
         original_path: None,
         link_target: None,
@@ -541,7 +542,7 @@ fn blake3_hash_file(path: &Path) -> Result<String, std::io::Error> {
 }
 
 /// Cancel and remove temp data.
-pub fn cancel(db: &Arc<Mutex<Connection>>, id: &str) -> Result<(), UploadError> {
+pub fn cancel(db: &Arc<crate::Db>, id: &str) -> Result<(), UploadError> {
     clear_pending(id);
     let conn = db.lock().map_err(|_| UploadError::NotFound)?;
     let (row, dconn) = find_upload(&conn, id)?;
@@ -559,7 +560,7 @@ const ORPHAN_IDLE_SECS: i64 = 24 * 60 * 60;
 /// [`ORPHAN_IDLE_SECS`] lose their `.part` temp file and their microdb row.
 /// Runs once at daemon start so a crash or an abandoned upload never leaves
 /// a resumable session — or its partial file — behind.
-pub fn sweep_orphans(db: &Arc<Mutex<Connection>>) {
+pub fn sweep_orphans(db: &Arc<crate::Db>) {
     let conn = match db.lock() {
         Ok(conn) => conn,
         Err(_) => return,
@@ -600,7 +601,7 @@ impl Upload {
 mod tests {
     use super::*;
 
-    fn setup() -> (tempfile::TempDir, Arc<Mutex<Connection>>, String) {
+    fn setup() -> (tempfile::TempDir, Arc<crate::Db>, String) {
         let dir = tempfile::tempdir().unwrap();
         let conn = db::open(&dir.path().join("luna.db")).unwrap();
         let root = dir.path().join("drive");
@@ -618,7 +619,7 @@ mod tests {
             root.to_str().unwrap(),
         )
         .unwrap();
-        (dir, Arc::new(Mutex::new(conn)), "d1".into())
+        (dir, Arc::new(crate::Db::new(conn)), "d1".into())
     }
 
     #[test]

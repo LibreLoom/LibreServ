@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import {
@@ -20,6 +20,7 @@ import {
 import PropTypes from "prop-types";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
+import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import TextLink from "../ui/TextLink.jsx";
 import AnimatedCheckbox from "@libreloom/ui/components/ui/AnimatedCheckbox.jsx";
@@ -28,11 +29,12 @@ import { ActionTooltipGroup, Tooltip } from "@libreloom/ui/components/ui/Tooltip
 import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
+import ToastContext from "@libreloom/ui/context/ToastContext.jsx";
 import { fileListKey, fileSourceScope, useFileSource } from "../../lib/fileSource.jsx";
 import { CAP, capsBits } from "../../lib/access.js";
 
 const UNPLUGGED_DRIVE_MESSAGE =
-  "Luna can't find this drive. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.";
+  "Luna can't find this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in.";
 
 /** Listing failed because the on-drive database is gone, not because the drive left. */
 function isMissingDriveDb(error) {
@@ -48,14 +50,14 @@ function folderListingError(error) {
   if (isMissingDriveDb(error)) {
     return (
       message ||
-      "Luna's database for this drive is missing. The drive is still plugged in. On the Drives page, remove this drive, then add it again."
+      "Luna's database for this drive is missing, but the drive is still plugged in. Remove it on the Drives page, then add it again."
     );
   }
   const code = error && "code" in error ? error.code : null;
   // A missing folder was moved, renamed, or deleted — the drive is fine.
   // (Moved folders are followed before this shows; see useMovedLinkForwarding.)
   if (code === "not_found") {
-    return "This folder isn't here anymore. It may have been deleted. Open Files to look for it.";
+    return "This folder isn't here anymore — it may have been deleted. Open Files to look for it.";
   }
   const unplugged =
     code === "unknown_drive" ||
@@ -344,6 +346,26 @@ export default function FileBrowser({
   });
 
   const rawEntries = listing.data || [];
+
+  // A file answered "saving" can still fail to reach the drive (unplugged
+  // mid-save). Announce the moment it flips; the row keeps saying so after.
+  // Optional: the browser also renders outside the app shell (tests, embeds).
+  const addToast = useContext(ToastContext)?.addToast;
+  const savingNamesRef = useRef(new Set());
+  useEffect(() => {
+    const entries = listing.data || [];
+    const wasSaving = savingNamesRef.current;
+    for (const e of entries) {
+      if (e?.save_failed && wasSaving.has(e.name) && addToast) {
+        addToast({
+          type: "error",
+          message: `"${e.name}" didn't save.`,
+          description: "Luna couldn't write it to the drive. Upload it again.",
+        });
+      }
+    }
+    savingNamesRef.current = new Set(entries.filter((e) => e?.saving).map((e) => e.name));
+  }, [listing.data, addToast]);
 
   // A file path answers `list` with a one-entry "folder" containing the
   // file itself — member file grants are virtual roots whose ancestors are
@@ -731,6 +753,8 @@ export default function FileBrowser({
   /** Can this row open in the viewer? Trash keeps session kinds closed. */
   function canOpenEntry(ctx) {
     if (ctx.entry.kind !== "file" || !canViewerOpen(ctx.displayName)) return false;
+    // A failed new file is only a placeholder row — nothing is on the drive.
+    if (ctx.entry.save_failed && ctx.entry.size === 0) return false;
     if (trashView && viewerNeedsSession(ctx.displayName)) return false;
     return true;
   }
@@ -1798,6 +1822,10 @@ export default function FileBrowser({
                         <span className="text-xs shrink-0" aria-live="polite">
                           Saving…
                         </span>
+                      ) : entry.save_failed ? (
+                        <Pill variant="custom" className="bg-error/20 border-error/30 text-primary shrink-0">
+                          Didn&apos;t save
+                        </Pill>
                       ) : null}
                       {!isPicker && !trashView && (!source.guest || ((source.capsBits ?? 0) & CAP.VIEW) !== 0) && entry.kind === "file" && isFormFile(entry.name) ? (
                         <FormResponseBadge driveId={driveId} formPath={ctx.fullPath} />

@@ -97,6 +97,16 @@ describe("FileBrowser", () => {
     );
   });
 
+  it("shows a save that never reached the drive", async () => {
+    stubListing({
+      "": [{ name: "notes.txt", kind: "file", size: 0, hidden: false, save_failed: true }],
+    });
+    renderBrowser({ multiSelect: false });
+    expect(await screen.findByText("notes.txt")).toBeInTheDocument();
+    expect(screen.getByText("Didn't save")).toBeInTheDocument();
+    expect(screen.queryByText("Saving…")).not.toBeInTheDocument();
+  });
+
   it("rounds the last file row so the accent inset hugs the card edge", async () => {
     stubListing({
       "": [

@@ -160,6 +160,7 @@ fn file_list_entry(
             size: dirty.bytes.len() as u64,
             modified: dirty.modified,
             saving: true,
+            save_failed: false,
             original_name: None,
             original_path: None,
             link_target: None,
@@ -179,6 +180,7 @@ fn file_list_entry(
         size: stat.size,
         modified: stat.modified,
         saving: false,
+        save_failed: false,
         original_name: None,
         original_path: None,
         link_target: stat.link_target,
@@ -347,6 +349,7 @@ fn visible_entries(
                             .map(|d| d.as_secs() as i64)
                             .unwrap_or(0),
                         saving: false,
+                        save_failed: false,
                         original_name: None,
                         original_path: None,
                         link_target: None,
@@ -1366,7 +1369,7 @@ async fn upload(
                     Ok(Some(bytes)) => {
                         if state
                             .ram_cache
-                            .accept_dirty(&id, &rel, &name, bytes.clone())
+                            .accept_dirty(&id, &rel, &name, bytes.clone(), may_overwrite)
                             .is_ok()
                         {
                             let size = bytes.len() as u64;
@@ -1378,14 +1381,13 @@ async fn upload(
                             let flush_state = state.clone();
                             let flush_id = id.clone();
                             let flush_rel = rel.clone();
-                            let flush_overwrite = may_overwrite;
                             let flush_user = user.id.clone();
                             let flush_coverage = query.coverage.clone();
                             let rt = tokio::runtime::Handle::current();
                             tokio::task::spawn_blocking(move || {
                                 let mount = {
                                     let Ok(conn) = flush_state.db.lock() else {
-                                        flush_state.ram_cache.remove_dirty(&flush_id, &flush_rel);
+                                        flush_state.ram_cache.mark_failed(&flush_id, &flush_rel);
                                         return;
                                     };
                                     match crate::files::drive_root(&conn, &flush_id) {
@@ -1393,22 +1395,39 @@ async fn upload(
                                         Err(_) => {
                                             flush_state
                                                 .ram_cache
-                                                .remove_dirty(&flush_id, &flush_rel);
+                                                .mark_failed(&flush_id, &flush_rel);
                                             return;
                                         }
                                     }
                                 };
-                                if let Err(e) = flush_state.ram_cache.flush_dirty_to_disk(
-                                    &flush_id,
-                                    &flush_rel,
-                                    &mount,
-                                    flush_overwrite,
-                                ) {
-                                    if let Ok(conn) = flush_state.db.lock() {
-                                        files::note_write_failure(&conn, &flush_id, &e.to_string());
+                                match flush_state
+                                    .ram_cache
+                                    .flush_dirty_to_disk(&flush_id, &flush_rel, &mount)
+                                {
+                                    Ok(true) => {}
+                                    // Eject or memory pressure landed it
+                                    // first; a delete or failure left
+                                    // nothing on the drive to announce.
+                                    Ok(false) => {
+                                        if flush_state.ram_cache.save_failed(&flush_id, &flush_rel)
+                                            || !mount
+                                                .join(&*files::real_rel(&mount, &flush_rel))
+                                                .is_file()
+                                        {
+                                            return;
+                                        }
                                     }
-                                    flush_state.ram_cache.remove_dirty(&flush_id, &flush_rel);
-                                    return;
+                                    Err(e) => {
+                                        if let Ok(conn) = flush_state.db.lock() {
+                                            files::note_write_failure(
+                                                &conn,
+                                                &flush_id,
+                                                &e.to_string(),
+                                            );
+                                        }
+                                        flush_state.ram_cache.mark_failed(&flush_id, &flush_rel);
+                                        return;
+                                    }
                                 }
                                 flush_state.gallery.upsert(&flush_id, &flush_rel);
                                 flush_state.touch_io_activity();
@@ -1436,6 +1455,7 @@ async fn upload(
                                 modified,
                                 hidden: false,
                                 saving: true,
+                                save_failed: false,
                                 original_name: None,
                                 original_path: None,
                                 link_target: None,
@@ -1519,6 +1539,7 @@ async fn upload(
                     modified,
                     hidden: false,
                     saving: false,
+                    save_failed: false,
                     original_name: None,
                     original_path: None,
                     link_target: None,
@@ -1707,7 +1728,7 @@ fn map_files_err(err: FilesError) -> (StatusCode, Json<Value>) {
         FilesError::UnknownDrive => json_error_code(
             StatusCode::NOT_FOUND,
             "unknown_drive",
-            "Luna doesn't know this drive. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.",
+            "Luna doesn't know this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in.",
         ),
         // The drive is adopted and mounted. Only its on-drive database is gone.
         FilesError::MissingDriveDb => json_error_code(
@@ -1736,7 +1757,7 @@ fn map_files_err(err: FilesError) -> (StatusCode, Json<Value>) {
         }
         _ => json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't read this drive. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.",
+            "Luna couldn't read this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in.",
         ),
     }
 }

@@ -143,6 +143,7 @@ pub fn fresh_entries(
                 modified: row.get(3)?,
                 hidden: row.get::<_, i64>(4)? != 0,
                 saving: false,
+                save_failed: false,
                 original_name: None,
                 original_path: None,
                 link_target: None,
@@ -411,7 +412,7 @@ fn scan_drive_inner(
 /// Like [`scan_drive`], but releases the DB mutex between directories so
 /// listings and search stay responsive during a full reindex.
 pub fn scan_drive_unlocked(
-    db: &std::sync::Mutex<Connection>,
+    db: &crate::Db,
     drive_id: &str,
     root: &std::path::Path,
 ) -> anyhow::Result<u64> {
@@ -447,6 +448,7 @@ mod tests {
                 modified: 1,
                 hidden: false,
                 saving: false,
+                save_failed: false,
                 original_name: None,
                 original_path: None,
                 link_target: None,
@@ -460,6 +462,7 @@ mod tests {
                 modified: 1,
                 hidden: false,
                 saving: false,
+                save_failed: false,
                 original_name: None,
                 original_path: None,
                 link_target: None,
@@ -567,6 +570,7 @@ mod tests {
                 modified: 9,
                 hidden: false,
                 saving: false,
+                save_failed: false,
                 original_name: None,
                 original_path: None,
                 link_target: None,

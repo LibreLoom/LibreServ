@@ -3,11 +3,18 @@
 //!
 //! Clean caches (thumbs, listings, hot-read bodies) drop under memory pressure.
 //! Dirty write buffers never vanish silently: pressure flushes them to USB or
-//! refuses new dirty accepts with a plain-language error.
+//! refuses new dirty accepts with a plain-language error. A buffer that can't
+//! reach the drive becomes a failed-save row the listing shows, never a quiet
+//! drop.
+//!
+//! One writer per buffer: [`RamCache::flush_dirty_to_disk`] claims the entry,
+//! and any other caller waits for that write to settle. Eject relies on this —
+//! it closes the drive to new buffers, then flushes and waits for every
+//! in-flight write before unmounting.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::budget::{self, CacheBudget};
@@ -18,6 +25,10 @@ const MIB: u64 = 1024 * 1024;
 pub const THUMB_MAX_AGE_SECS: u64 = 3600;
 /// Listing hits skip the USB `metadata()` check for this long after a warm fill.
 const LISTING_TRUST_TTL: Duration = Duration::from_secs(2);
+/// How long a failed save stays visible in its folder listing.
+const FAILED_SAVE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
+/// Cap on remembered failed saves (names only — a few bytes each).
+const MAX_FAILED_SAVES: usize = 1024;
 
 #[derive(Clone, Debug)]
 pub struct ThumbBytes {
@@ -53,6 +64,19 @@ pub struct DirtyFile {
     pub modified: i64,
     pub state: DirtyState,
     pub name: String,
+    /// Whether the upload may replace an existing file — every flusher
+    /// (background, eject, memory pressure) honors the uploader's choice.
+    pub overwrite: bool,
+    /// Deleted while a flush was in flight: the flusher discards its temp
+    /// instead of installing it.
+    cancelled: bool,
+}
+
+#[derive(Clone, Debug)]
+struct FailedSave {
+    name: String,
+    at: Instant,
+    modified: i64,
 }
 
 struct Inner {
@@ -63,6 +87,9 @@ struct Inner {
     listing_order: VecDeque<String>,
     dirty: HashMap<String, DirtyFile>,
     dirty_bytes: u64,
+    /// Drives being ejected or removed: new dirty accepts are refused.
+    closing: HashSet<String>,
+    failed: HashMap<String, FailedSave>,
 }
 
 impl Inner {
@@ -75,6 +102,8 @@ impl Inner {
             listing_order: VecDeque::new(),
             dirty: HashMap::new(),
             dirty_bytes: 0,
+            closing: HashSet::new(),
+            failed: HashMap::new(),
         }
     }
 }
@@ -83,6 +112,8 @@ impl Inner {
 #[derive(Clone, Default)]
 pub struct RamCache {
     inner: Arc<Mutex<Inner>>,
+    /// Signalled whenever a dirty flush settles (landed, failed, cancelled).
+    settled: Arc<Condvar>,
 }
 
 impl Default for Inner {
@@ -125,6 +156,7 @@ impl RamCache {
     pub fn new() -> Self {
         Self {
             inner: Arc::new(Mutex::new(Inner::new())),
+            settled: Arc::new(Condvar::new()),
         }
     }
 
@@ -263,6 +295,7 @@ impl RamCache {
         rel: &str,
         name: &str,
         bytes: Vec<u8>,
+        overwrite: bool,
     ) -> Result<(), String> {
         let budget = Self::budget();
         let len = bytes.len() as u64;
@@ -273,6 +306,17 @@ impl RamCache {
             );
         }
         let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        if g.closing.contains(drive_id) {
+            return Err("This drive is being ejected.".into());
+        }
+        if g.dirty
+            .get(&dirty_key(drive_id, rel))
+            .is_some_and(|d| d.state == DirtyState::Flushing)
+        {
+            // Replacing a buffer mid-write would let the older bytes land
+            // last; the caller writes straight to the drive instead.
+            return Err("An earlier save of this file is still finishing.".into());
+        }
         let additional = if let Some(old) = g.dirty.get(&dirty_key(drive_id, rel)) {
             len.saturating_sub(old.bytes.len() as u64)
         } else {
@@ -289,6 +333,7 @@ impl RamCache {
             g.dirty_bytes = g.dirty_bytes.saturating_sub(old.bytes.len() as u64);
         }
         g.dirty_bytes += len;
+        g.failed.remove(&key);
         g.dirty.insert(
             key,
             DirtyFile {
@@ -296,6 +341,8 @@ impl RamCache {
                 modified: now_unix(),
                 state: DirtyState::Writing,
                 name: name.to_string(),
+                overwrite,
+                cancelled: false,
             },
         );
         // Parent listing must show the new file immediately.
@@ -308,6 +355,7 @@ impl RamCache {
                 modified: now_unix(),
                 hidden: name.starts_with('.'),
                 saving: true,
+                save_failed: false,
                 original_name: None,
                 original_path: None,
                 link_target: None,
@@ -336,7 +384,10 @@ impl RamCache {
 
     pub fn get_dirty(&self, drive_id: &str, rel: &str) -> Option<DirtyFile> {
         let g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        g.dirty.get(&dirty_key(drive_id, rel)).cloned()
+        g.dirty
+            .get(&dirty_key(drive_id, rel))
+            .filter(|d| !d.cancelled)
+            .cloned()
     }
 
     pub fn dirty_saving(&self, drive_id: &str, rel: &str) -> bool {
@@ -346,28 +397,11 @@ impl RamCache {
             .is_some_and(|d| d.state != DirtyState::Durable)
     }
 
-    pub fn mark_dirty_flushing(&self, drive_id: &str, rel: &str) {
-        let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(d) = g.dirty.get_mut(&dirty_key(drive_id, rel)) {
-            d.state = DirtyState::Flushing;
+    /// Remove the landed buffer and clear the listing's saving flag.
+    fn finish_durable(g: &mut Inner, drive_id: &str, rel: &str) {
+        if let Some(old) = g.dirty.remove(&dirty_key(drive_id, rel)) {
+            g.dirty_bytes = g.dirty_bytes.saturating_sub(old.bytes.len() as u64);
         }
-    }
-
-    pub fn mark_dirty_durable(&self, drive_id: &str, rel: &str) {
-        let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        let key = dirty_key(drive_id, rel);
-        if let Some(d) = g.dirty.get_mut(&key) {
-            d.state = DirtyState::Durable;
-            // Keep briefly as hot-read, then drop to free dirty budget.
-            let bytes = d.bytes.clone();
-            let mtime = d.modified as u64;
-            // Promote into thumb? No — file body hot-read not implemented as
-            // separate map; drop dirty after durable so budget frees.
-            g.dirty_bytes = g.dirty_bytes.saturating_sub(bytes.len() as u64);
-            g.dirty.remove(&key);
-            let _ = (bytes, mtime);
-        }
-        // Clear saving flag on listing overlay.
         let parent = parent_rel(rel);
         let name = rel.rsplit('/').next().unwrap_or(rel);
         if let Some(listing) = g.listings.get_mut(&listing_key(drive_id, &parent))
@@ -377,11 +411,78 @@ impl RamCache {
         }
     }
 
+    /// Drop a buffer the user deleted. A flush already in flight is told to
+    /// discard its write rather than land the file after the delete.
     pub fn remove_dirty(&self, drive_id: &str, rel: &str) {
+        let key = dirty_key(drive_id, rel);
         let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(old) = g.dirty.remove(&dirty_key(drive_id, rel)) {
-            g.dirty_bytes = g.dirty_bytes.saturating_sub(old.bytes.len() as u64);
+        g.failed.remove(&key);
+        match g.dirty.get_mut(&key) {
+            Some(d) if d.state == DirtyState::Flushing => d.cancelled = true,
+            Some(_) => {
+                if let Some(old) = g.dirty.remove(&key) {
+                    g.dirty_bytes = g.dirty_bytes.saturating_sub(old.bytes.len() as u64);
+                }
+            }
+            None => {}
         }
+    }
+
+    /// A buffer that couldn't reach the drive: free its bytes and remember it
+    /// as a failed save so the folder listing says so.
+    pub fn mark_failed(&self, drive_id: &str, rel: &str) {
+        let key = dirty_key(drive_id, rel);
+        let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        Self::fail_locked(&mut g, &key);
+        g.listings.remove(&listing_key(drive_id, &parent_rel(rel)));
+        drop(g);
+        self.settled.notify_all();
+    }
+
+    fn fail_locked(g: &mut Inner, key: &str) {
+        let Some(old) = g.dirty.remove(key) else {
+            return;
+        };
+        g.dirty_bytes = g.dirty_bytes.saturating_sub(old.bytes.len() as u64);
+        if old.cancelled {
+            return;
+        }
+        if g.failed.len() >= MAX_FAILED_SAVES
+            && let Some(oldest) = g
+                .failed
+                .iter()
+                .min_by_key(|(_, f)| f.at)
+                .map(|(k, _)| k.clone())
+        {
+            g.failed.remove(&oldest);
+        }
+        g.failed.insert(
+            key.to_string(),
+            FailedSave {
+                name: old.name,
+                at: Instant::now(),
+                modified: old.modified,
+            },
+        );
+    }
+
+    /// True when this path's last RAM-buffered save never reached the drive.
+    pub fn save_failed(&self, drive_id: &str, rel: &str) -> bool {
+        let g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        g.failed
+            .get(&dirty_key(drive_id, rel))
+            .is_some_and(|f| f.at.elapsed() < FAILED_SAVE_TTL)
+    }
+
+    /// Refuse new dirty accepts for a drive that is being ejected or removed.
+    pub fn begin_close(&self, drive_id: &str) {
+        let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        g.closing.insert(drive_id.to_string());
+    }
+
+    pub fn end_close(&self, drive_id: &str) {
+        let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        g.closing.remove(drive_id);
     }
 
     /// Overlay dirty in-flight files onto a directory listing.
@@ -408,6 +509,7 @@ impl RamCache {
                 modified: dirty.modified,
                 hidden: dirty.name.starts_with('.'),
                 saving: dirty.state != DirtyState::Durable,
+                save_failed: false,
                 original_name: None,
                 original_path: None,
                 link_target: None,
@@ -418,6 +520,34 @@ impl RamCache {
                 *existing = entry;
             } else {
                 entries.push(entry);
+            }
+        }
+        for (key, failed) in &g.failed {
+            let Some(rest) = key.strip_prefix(&format!("{drive_id}\0")) else {
+                continue;
+            };
+            if parent_rel(rest) != rel || failed.at.elapsed() >= FAILED_SAVE_TTL {
+                continue;
+            }
+            // A failed overwrite leaves the older file on the drive: flag
+            // that row. A failed new file gets a placeholder row.
+            if let Some(existing) = entries.iter_mut().find(|e| e.name == failed.name) {
+                existing.save_failed = true;
+            } else {
+                entries.push(FileEntry {
+                    name: failed.name.clone(),
+                    kind: "file".into(),
+                    size: 0,
+                    modified: failed.modified,
+                    hidden: failed.name.starts_with('.'),
+                    saving: false,
+                    save_failed: true,
+                    original_name: None,
+                    original_path: None,
+                    link_target: None,
+                    caps: String::new(),
+                    home: false,
+                });
             }
         }
         entries.sort_by(|a, b| {
@@ -447,16 +577,19 @@ impl RamCache {
         g.listings.retain(|k, _| !k.starts_with(&prefix));
         let keep_listings: std::collections::HashSet<String> = g.listings.keys().cloned().collect();
         g.listing_order.retain(|k| keep_listings.contains(k));
-        let mut freed_dirty = 0u64;
-        g.dirty.retain(|k, v| {
-            if k.starts_with(&prefix) {
-                freed_dirty = freed_dirty.saturating_add(v.bytes.len() as u64);
-                false
-            } else {
-                true
-            }
-        });
-        g.dirty_bytes = g.dirty_bytes.saturating_sub(freed_dirty);
+        // Anything still buffered never reached the drive (it was unplugged,
+        // or a flush failed): remember it as a failed save, don't drop it.
+        let unsaved: Vec<String> = g
+            .dirty
+            .keys()
+            .filter(|k| k.starts_with(&prefix))
+            .cloned()
+            .collect();
+        for key in unsaved {
+            Self::fail_locked(&mut g, &key);
+        }
+        drop(g);
+        self.settled.notify_all();
     }
 
     /// Relative paths of in-flight dirty files for one drive (any state).
@@ -469,16 +602,18 @@ impl RamCache {
             .collect()
     }
 
-    /// Flush every dirty file for `drive_id` to `mount` before eject/unmount.
+    /// Flush every dirty file for `drive_id` to `mount` before eject/unmount,
+    /// waiting for writes other callers already started.
     ///
-    /// Call this while the mount is still available. Returns the first error
+    /// Call this while the mount is still available (and after
+    /// [`Self::begin_close`], so nothing new arrives). Returns the first error
     /// after attempting every entry so callers can refuse eject if anything
     /// failed to land on disk.
     pub fn flush_drive_dirty(&self, drive_id: &str, mount: &Path) -> Result<(), FilesError> {
         let rels = self.dirty_rels_for_drive(drive_id);
         let mut first_err: Option<FilesError> = None;
         for rel in rels {
-            if let Err(e) = self.flush_dirty_to_disk(drive_id, &rel, mount, true)
+            if let Err(e) = self.flush_dirty_to_disk(drive_id, &rel, mount)
                 && first_err.is_none()
             {
                 first_err = Some(e);
@@ -491,43 +626,60 @@ impl RamCache {
     }
 
     /// Flush one dirty file to USB (temp + fsync + rename).
+    ///
+    /// `Ok(true)`: this call landed it. `Ok(false)`: nothing left to write —
+    /// another caller landed it, it was deleted, or it had already failed.
+    /// On `Err` the buffer stays, ready for another attempt.
     pub fn flush_dirty_to_disk(
         &self,
         drive_id: &str,
         rel: &str,
         mount: &Path,
-        overwrite: bool,
-    ) -> Result<(), FilesError> {
-        let dirty = self.get_dirty(drive_id, rel).ok_or_else(|| {
-            FilesError::Io(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                "nothing to save",
-            ))
-        })?;
-        self.mark_dirty_flushing(drive_id, rel);
-        let dest =
-            luna_core::path::resolve_for_create_nofollow(mount, rel).map_err(FilesError::Path)?;
-        if let Some(parent) = dest.parent() {
-            std::fs::create_dir_all(parent).map_err(FilesError::Io)?;
+    ) -> Result<bool, FilesError> {
+        let key = dirty_key(drive_id, rel);
+        let (bytes, overwrite) = {
+            let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+            loop {
+                match g.dirty.get_mut(&key) {
+                    None => return Ok(false),
+                    Some(d) if d.state == DirtyState::Flushing => {
+                        g = self.settled.wait(g).unwrap_or_else(|e| e.into_inner());
+                    }
+                    Some(d) if d.state == DirtyState::Durable => return Ok(false),
+                    Some(d) => {
+                        d.state = DirtyState::Flushing;
+                        break (d.bytes.clone(), d.overwrite);
+                    }
+                }
+            }
+        };
+        let result = self.write_claimed(&key, rel, mount, &bytes, overwrite);
+        let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let landed = match &result {
+            Ok(true) => {
+                Self::finish_durable(&mut g, drive_id, rel);
+                true
+            }
+            Ok(false) => {
+                // Cancelled by a delete while we wrote the temp.
+                if let Some(old) = g.dirty.remove(&key) {
+                    g.dirty_bytes = g.dirty_bytes.saturating_sub(old.bytes.len() as u64);
+                }
+                false
+            }
+            Err(_) => {
+                if let Some(d) = g.dirty.get_mut(&key) {
+                    d.state = DirtyState::Writing;
+                }
+                false
+            }
+        };
+        drop(g);
+        self.settled.notify_all();
+        result?;
+        if !landed {
+            return Ok(false);
         }
-        let dir = dest.parent().unwrap_or(mount);
-        let temp = files::temp_path_at(mount, dir)?;
-        {
-            use std::io::Write;
-            let mut f = std::fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&temp)
-                .map_err(FilesError::Io)?;
-            f.write_all(&dirty.bytes).map_err(FilesError::Io)?;
-            f.flush().map_err(FilesError::Io)?;
-            f.sync_all().map_err(FilesError::Io)?;
-        }
-        if let Err(e) = files::install_temp(&temp, &dest, overwrite) {
-            let _ = std::fs::remove_file(&temp);
-            return Err(e);
-        }
-        self.mark_dirty_durable(drive_id, rel);
         self.invalidate_listing(drive_id, &parent_rel(rel));
         // The landing bumps the parent dir's mtime, but the index compares
         // stamps — a landing inside the filesystem's timestamp granularity
@@ -539,7 +691,56 @@ impl RamCache {
             let _ = crate::files::index::forget_dir(&dconn, drive_id, parent);
             let _ = crate::files::index::forget_dir_tree(&dconn, drive_id, &real);
         }
-        Ok(())
+        Ok(true)
+    }
+
+    /// Write a claimed buffer. `Ok(false)` when a delete cancelled it first.
+    fn write_claimed(
+        &self,
+        key: &str,
+        rel: &str,
+        mount: &Path,
+        bytes: &[u8],
+        overwrite: bool,
+    ) -> Result<bool, FilesError> {
+        let dest =
+            luna_core::path::resolve_for_create_nofollow(mount, rel).map_err(FilesError::Path)?;
+        let dir = dest.parent().unwrap_or(mount);
+        // Checks the drive's marker first: after an unmount the mount point
+        // is an empty folder on Luna's own disk, and nothing may be created
+        // there — not even the parent folders.
+        let temp = files::temp_path_at(mount, dir)?;
+        std::fs::create_dir_all(dir).map_err(FilesError::Io)?;
+        {
+            use std::io::Write;
+            let mut f = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&temp)
+                .map_err(FilesError::Io)?;
+            let written = f
+                .write_all(bytes)
+                .and_then(|()| f.flush())
+                .and_then(|()| f.sync_all());
+            if let Err(e) = written {
+                drop(f);
+                let _ = std::fs::remove_file(&temp);
+                return Err(FilesError::Io(e));
+            }
+        }
+        let cancelled = {
+            let g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+            g.dirty.get(key).is_none_or(|d| d.cancelled)
+        };
+        if cancelled {
+            let _ = std::fs::remove_file(&temp);
+            return Ok(false);
+        }
+        if let Err(e) = files::install_temp(&temp, &dest, overwrite) {
+            let _ = std::fs::remove_file(&temp);
+            return Err(e);
+        }
+        Ok(true)
     }
 
     /// Under pressure: drop thumbs, then listings. Dirty: flush using the
@@ -593,7 +794,7 @@ impl RamCache {
             let Some(mount) = resolve_mount(&drive_id) else {
                 continue;
             };
-            let _ = self.flush_dirty_to_disk(&drive_id, &rel, &mount, true);
+            let _ = self.flush_dirty_to_disk(&drive_id, &rel, &mount);
         }
     }
 
@@ -646,6 +847,7 @@ mod tests {
             modified: 1,
             hidden: false,
             saving: false,
+            save_failed: false,
             original_name: None,
             original_path: None,
             link_target: None,
@@ -670,13 +872,13 @@ mod tests {
         .unwrap();
         let cache = RamCache::new();
         cache
-            .accept_dirty("d1", "note.txt", "note.txt", b"hello".to_vec())
+            .accept_dirty("d1", "note.txt", "note.txt", b"hello".to_vec(), false)
             .unwrap();
         let d = cache.get_dirty("d1", "note.txt").unwrap();
         assert_eq!(&d.bytes[..], b"hello");
         assert!(cache.dirty_saving("d1", "note.txt"));
         cache
-            .flush_dirty_to_disk("d1", "note.txt", dir.path(), false)
+            .flush_dirty_to_disk("d1", "note.txt", dir.path())
             .unwrap();
         assert!(!cache.dirty_saving("d1", "note.txt"));
         assert_eq!(
@@ -689,7 +891,11 @@ mod tests {
     fn dirty_rejects_oversize() {
         let cache = RamCache::new();
         let big = vec![0u8; (64 * MIB + 1) as usize];
-        assert!(cache.accept_dirty("d1", "big.bin", "big.bin", big).is_err());
+        assert!(
+            cache
+                .accept_dirty("d1", "big.bin", "big.bin", big, false)
+                .is_err()
+        );
     }
 
     #[test]
@@ -707,6 +913,7 @@ mod tests {
                 modified: 1,
                 hidden: false,
                 saving: false,
+                save_failed: false,
                 original_name: None,
                 original_path: None,
                 link_target: None,
@@ -714,11 +921,17 @@ mod tests {
                 home: false,
             }],
         );
-        cache.accept_dirty("d1", "a", "a", b"z".to_vec()).unwrap();
+        cache
+            .accept_dirty("d1", "a", "a", b"z".to_vec(), false)
+            .unwrap();
         cache.drop_drive("d1");
         assert!(cache.get_thumb("d1", "a.jpg").is_none());
         assert!(cache.get_listing("d1", "", Some(1)).is_none());
         assert!(cache.get_dirty("d1", "a").is_none());
+        assert!(
+            cache.save_failed("d1", "a"),
+            "a buffer that never reached the drive is remembered, not dropped"
+        );
         let _ = AtomicU64::new(0).load(Ordering::Relaxed);
     }
 
@@ -733,7 +946,7 @@ mod tests {
         .unwrap();
         let cache = RamCache::new();
         cache
-            .accept_dirty("d1", "keep.txt", "keep.txt", b"persist".to_vec())
+            .accept_dirty("d1", "keep.txt", "keep.txt", b"persist".to_vec(), false)
             .unwrap();
         cache.flush_drive_dirty("d1", dir.path()).unwrap();
         assert!(cache.get_dirty("d1", "keep.txt").is_none());
@@ -748,11 +961,167 @@ mod tests {
         );
     }
 
+    fn adopted_dir() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        crate::drives::drive_db::create(
+            dir.path(),
+            &luna_core::marker::Marker::new("d1", "Test"),
+            &luna_core::marker::pick_prefix(dir.path()).unwrap(),
+        )
+        .unwrap();
+        dir
+    }
+
+    #[test]
+    fn closing_drive_refuses_new_buffers_until_reopened() {
+        let cache = RamCache::new();
+        cache.begin_close("d1");
+        assert!(
+            cache
+                .accept_dirty("d1", "a.txt", "a.txt", b"x".to_vec(), false)
+                .is_err()
+        );
+        assert!(
+            cache
+                .accept_dirty("d2", "a.txt", "a.txt", b"x".to_vec(), false)
+                .is_ok(),
+            "other drives keep buffering"
+        );
+        cache.end_close("d1");
+        assert!(
+            cache
+                .accept_dirty("d1", "a.txt", "a.txt", b"x".to_vec(), false)
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn eject_flush_waits_for_a_write_already_in_flight() {
+        let dir = adopted_dir();
+        let cache = RamCache::new();
+        cache
+            .accept_dirty("d1", "late.txt", "late.txt", b"late".to_vec(), false)
+            .unwrap();
+        // Another writer (the upload's background task) holds the claim.
+        {
+            let mut g = cache.inner.lock().unwrap();
+            g.dirty.get_mut(&dirty_key("d1", "late.txt")).unwrap().state = DirtyState::Flushing;
+        }
+        let (c2, mount) = (cache.clone(), dir.path().to_path_buf());
+        let eject = std::thread::spawn(move || c2.flush_drive_dirty("d1", &mount));
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(!eject.is_finished(), "eject must wait, not skip the file");
+        // The other writer gives up (a failed attempt); eject lands it.
+        {
+            let mut g = cache.inner.lock().unwrap();
+            g.dirty.get_mut(&dirty_key("d1", "late.txt")).unwrap().state = DirtyState::Writing;
+        }
+        cache.settled.notify_all();
+        eject.join().unwrap().unwrap();
+        assert_eq!(std::fs::read(dir.path().join("late.txt")).unwrap(), b"late");
+        assert!(cache.get_dirty("d1", "late.txt").is_none());
+    }
+
+    #[test]
+    fn second_flusher_reports_nothing_left() {
+        let dir = adopted_dir();
+        let cache = RamCache::new();
+        cache
+            .accept_dirty("d1", "n.txt", "n.txt", b"1".to_vec(), false)
+            .unwrap();
+        assert!(
+            cache
+                .flush_dirty_to_disk("d1", "n.txt", dir.path())
+                .unwrap()
+        );
+        assert!(
+            !cache
+                .flush_dirty_to_disk("d1", "n.txt", dir.path())
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn every_flusher_honors_no_overwrite() {
+        let dir = adopted_dir();
+        std::fs::write(dir.path().join("keep.txt"), b"original").unwrap();
+        let cache = RamCache::new();
+        cache
+            .accept_dirty("d1", "keep.txt", "keep.txt", b"new".to_vec(), false)
+            .unwrap();
+        assert!(cache.flush_drive_dirty("d1", dir.path()).is_err());
+        assert_eq!(
+            std::fs::read(dir.path().join("keep.txt")).unwrap(),
+            b"original"
+        );
+    }
+
+    #[test]
+    fn delete_during_flush_discards_the_write() {
+        let dir = adopted_dir();
+        let cache = RamCache::new();
+        cache
+            .accept_dirty("d1", "gone.txt", "gone.txt", b"x".to_vec(), false)
+            .unwrap();
+        let key = dirty_key("d1", "gone.txt");
+        {
+            let mut g = cache.inner.lock().unwrap();
+            g.dirty.get_mut(&key).unwrap().state = DirtyState::Flushing;
+        }
+        cache.remove_dirty("d1", "gone.txt");
+        assert!(cache.get_dirty("d1", "gone.txt").is_none());
+        let landed = cache
+            .write_claimed(&key, "gone.txt", dir.path(), b"x", false)
+            .unwrap();
+        assert!(!landed);
+        assert!(!dir.path().join("gone.txt").exists());
+    }
+
+    #[test]
+    fn unmounted_drive_gets_no_stray_folders() {
+        // After unmount the mount point is an empty folder on Luna's own disk.
+        let empty = tempfile::tempdir().unwrap();
+        let cache = RamCache::new();
+        cache
+            .accept_dirty("d1", "a/b/c.txt", "c.txt", b"x".to_vec(), false)
+            .unwrap();
+        assert!(
+            cache
+                .flush_dirty_to_disk("d1", "a/b/c.txt", empty.path())
+                .is_err()
+        );
+        assert!(!empty.path().join("a").exists());
+        assert!(
+            cache.get_dirty("d1", "a/b/c.txt").is_some(),
+            "kept for a retry"
+        );
+    }
+
+    #[test]
+    fn failed_save_shows_in_its_folder() {
+        let cache = RamCache::new();
+        cache
+            .accept_dirty("d1", "docs/new.txt", "new.txt", b"1".to_vec(), false)
+            .unwrap();
+        cache.mark_failed("d1", "docs/new.txt");
+        assert!(cache.get_dirty("d1", "docs/new.txt").is_none());
+        let mut entries = vec![];
+        cache.overlay_dirty_listing("d1", "docs", &mut entries);
+        assert_eq!(entries.len(), 1);
+        assert!(entries[0].save_failed && !entries[0].saving);
+
+        // Uploading it again clears the failure.
+        cache
+            .accept_dirty("d1", "docs/new.txt", "new.txt", b"1".to_vec(), false)
+            .unwrap();
+        assert!(!cache.save_failed("d1", "docs/new.txt"));
+    }
+
     #[test]
     fn overlay_marks_saving() {
         let cache = RamCache::new();
         cache
-            .accept_dirty("d1", "n.txt", "n.txt", b"1".to_vec())
+            .accept_dirty("d1", "n.txt", "n.txt", b"1".to_vec(), false)
             .unwrap();
         let mut entries = vec![];
         cache.overlay_dirty_listing("d1", "", &mut entries);

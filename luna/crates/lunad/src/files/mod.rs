@@ -23,6 +23,10 @@ pub struct FileEntry {
     /// writing it to the drive. UI may show "Saving…".
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub saving: bool,
+    /// Luna held this file in RAM but couldn't write it to the drive (it
+    /// was unplugged, or the write failed). UI shows "Didn't save".
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub save_failed: bool,
     /// The name the item had before it was trashed — only set on rows
     /// listed inside `.luna-trash`, whose on-disk names carry a
     /// `{nonce}-` prefix.
@@ -137,7 +141,7 @@ pub const MISSING_DRIVE_DB_MSG: &str = "Luna's database for this drive is missin
 #[derive(Debug, thiserror::Error)]
 pub enum FilesError {
     #[error(
-        "Luna doesn't know this drive. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in."
+        "Luna doesn't know this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in."
     )]
     UnknownDrive,
     #[error("{}", MISSING_DRIVE_DB_MSG)]
@@ -301,6 +305,7 @@ pub fn read_dir_entries(dir: &Path) -> Result<Vec<FileEntry>, FilesError> {
             size: meta.len(),
             modified,
             saving: false,
+            save_failed: false,
             original_name: None,
             original_path: None,
             link_target,
