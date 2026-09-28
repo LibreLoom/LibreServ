@@ -1,240 +1,103 @@
 # AGENTS.md - LibreServ monorepo guide
 
-This repo holds multiple products. Product-specific rules live in each area's
-own AGENTS.md — read it before working there.
+This repo holds multiple products. Each area has its own AGENTS.md — read it before working there.
 
 ## Layout
 
 ```
-LibreServ/
-├── sol/                  # LibreServ Sol — the home server product
-│   ├── server/backend/   # Go 1.26 backend (chi/v5)
-│   ├── server/frontend/  # React 19 + Vite 7 + Tailwind 4
-│   ├── connect/          # LibreServ Connect cloud SaaS (independent Go module)
-│   ├── iso/              # kiosk image bits
-│   ├── install.sh        # public installer — fetched via raw URL, path is load-bearing
-│   ├── install-lib/      # installer helpers
-│   ├── Dockerfile        # all-in-one image (build context = repo root)
-│   └── AGENTS.md         # sol-specific rules
-│
-├── luna/                 # LibreServ Luna — the file box product
-│   ├── crates/lunad      # Rust daemon
-│   ├── crates/luna-core  # shared Rust lib
-│   ├── web/              # Luna web UI (React/Vite)
-│   ├── desktop/          # GTK 4 + libadwaita companion app
-│   ├── mobile/           # Android companion app (F-Droid + signed APK)
-│   ├── connect/          # Luna Connect cloud companion (independent Go module)
-│   ├── os/               # Debian live OS, A/B updates, factory ISO
-│   └── AGENTS.md         # luna-specific rules
-│
-├── infra/                # shared tooling
-│   ├── ci-source/        # custom CI runner source (./ci launcher auto-rebuilds)
-│   ├── agents/           # repo automation bots (atlas/docs/lock); common/ holds
-│   │                     # the shared dsh-home, loops, and plugins
-│   ├── docs/             # release process docs
-│   └── AGENTS.md
-│
-├── ci                    # CI launcher (stays at root — muscle memory)
-├── release.sh            # release pipeline (both products)
-├── keys/                 # release minisign PUBLIC keys — public raw-URL path,
-│                         # do not move (lunad fetches keys/ over HTTP at runtime)
-└── .cursor/              # Cloud Agent environment definition
+sol/      LibreServ Sol, the home server: server/backend (Go 1.26, chi), server/frontend
+          (React 19, Vite, Tailwind 4), connect/ (cloud SaaS), iso/, install.sh, Dockerfile
+luna/     LibreServ Luna, the file box: crates/lunad (Rust daemon), crates/luna-core, web/,
+          desktop/ (GTK 4), mobile/ (Android), connect/ (cloud companion), os/
+shared/ui @libreloom/ui — shared React components for both product webs
+infra/    ci-source/ (CI runner), agents/ (repo bots), docs/ (release process)
+ci        CI launcher: ./ci (interactive), ./ci run -profile full | libreserv | luna
+release.sh  release pipeline (both products)
+keys/     release minisign PUBLIC keys
 ```
 
-**Public paths that must not move** (consumed by released artifacts/users):
-`install.sh` → now `sol/install.sh` (README updated), `keys/*.minisign.pub`
-(lunad's updater fetches `raw/branch/main/keys/<name>`).
+**Public paths that must not move:** `sol/install.sh` (fetched by raw URL) and `keys/*.minisign.pub` (lunad's updater fetches `raw/branch/main/keys/<name>`).
 
-## Quick Reference
+## Plain language (non-negotiable)
 
-| Command | Description |
-|---------|-------------|
-| `./ci` | Interactive CI runner (auto-builds if needed) |
-| `./ci run -profile full` | Run full CI suite non-interactively |
-| `./ci run -profile libreserv` | LibreServ release gate (backend + frontend; no Luna/Connect) |
-| `./ci run -profile luna` | Luna only (`luna/ci.sh`: Rust, web, desktop, mobile) |
+Our users are **not technical**, and **nobody should ever need a terminal**: everything happens in the UI. Write for a smart person who doesn't work in our field. This covers everything a user reads — labels, buttons, hints, onboarding, settings, empty states, notices, errors. When these pull against each other, the earlier one wins:
 
----
+1. **Be true.** Copy must match what the product actually does. Don't overstate, soften, or guess. If you're not sure, find out, or say less.
+2. **Be specific.** The ordinary word (`router`, `backup`, `Admin`, `Read`), the real place (`Settings → Email`), the actual file, drive, or value.
+3. **Give what the person needs at that spot:** what this is, why it matters, where a value comes from, what happens next, or what they can do — whichever the moment calls for, not all of it everywhere.
+   - Not `"SMTP connection refused"` but `"Could not connect to your email provider. Check the server address and port in Settings → Email."`
+   - Not a bare "API Token" field but `"Your API token is on cloudflare.com → Profile → API Tokens → Create Token."`
+4. **Keep it short.** One sentence is easy; three is too much. Default to one short sentence per element.
+5. **Structure and leveled disclosure, not paragraphs.** Use the shapes the UI has — label and value, list, heading, status pill, table — and lead with the words that matter.
+   - **Surface:** the name, its state, at most one sentence.
+   - **One step in:** the rest — InfoHint/TermHint, a row or section that expands, a details view.
+   - Each level must make sense alone. Never hide what someone needs to decide or act safely (like what a delete removes).
+6. **Be easy to read.** Everyday words. No commands or developer steps. Not baby talk: never swap a real word for a euphemism or metaphor.
 
-## Conventions (all products)
+**Define terms; don't avoid them** — in the sentence (`RJ45 (ethernet) cable`), or with `InfoHint` (ⓘ aside) / `TermHint` (dotted underline) from `shared/ui/components/ui/Tooltip.jsx`. Usually needs a gloss: SMTP, SSH, DNS, TLS/HTTPS, port, subdomain, API, webhook, OIDC, DDNS, RJ45, ethernet.
 
-### PLAIN LANGUAGE (non-negotiable)
+Not covered: code comments, logs, internal docs. Dashboard greetings (pigeons, snacks) are personality — leave them; roles, permissions, and setup steps are not the place for it.
 
-Our users are **not technical**. The product goal is "99% of users shouldn't need a terminal." Write **simple** copy — short sentences, what to do next, why a field exists. Simple is **not** baby talk. Do not invent household metaphors that dodge ordinary words.
+**Wall of shame** — shipped once, never again:
 
-**The point of this rule:** never dump a ritual like `curl -xOStR https://connect.com` and "now find the CORS header" into the UI. The point is **not** to replace `router`, `ethernet`, `admin`, or `read` with a euphemism.
+| Shame | Use instead |
+|---|---|
+| Takes care of Luna / person who takes care of this Luna | `Admin` + InfoHint |
+| Household (role badge) | `Member` |
+| Can look / Can add and change | `Read` / `Write` + TermHint |
+| internet box | `router or modem` |
+| LAN socket — the same kind of socket your home internet uses | `RJ45 (ethernet) cable` |
+| Spare copy in the cloud | `Cloud backup` |
+| Apps and helper tools | `Apps and access tokens` |
+| Luna is asking this drive how it feels | `Checking this drive's health` |
+| this box (for Luna) | `Luna` / `this Luna` |
+| Couldn't do that | Name the action that failed |
 
-**If a term needs a definition, define it:**
+## Frontend (all web UIs)
 
-- In the sentence: `Plug Luna into your router or modem with the included RJ45 (ethernet) cable.`
-- With **InfoHint** (`ⓘ`, longer aside next to a label) or **TermHint** (dotted underline on one word) from `Tooltip` in `@libreloom/ui` (`shared/ui/components/ui/Tooltip.jsx`).
+- `.jsx`, not `.tsx` (`npm run typecheck` still checks JSDoc). Vitest + Testing Library. Imports: React → third-party → local, with `.jsx` extensions.
+- Shared components live in `shared/ui` (`@libreloom/ui`) — edit them there, never fork into an app. App-local copies (settings categories, pages) stay in sync until they migrate.
+- No manual cachebusters (`favicon.svg?v=6`): Vite hashes built assets. No `.gz` pre-compression either — Vite emits it.
+- **Form fields** (`input`, `textarea`, `select`): never `focus:ring-*` — mouse focus must not draw a ring. Use `focus:border-accent`; keyboard focus uses the global `:focus-visible` outline (or `focus-visible:border-*` with `no-focus-outline`). Buttons, links, and toggles may keep `focus-visible:ring-*`.
+- **Toasts** (`shared/ui` `ToastContext`) announce something that **just finished**:
+  - Do: every user-fired mutation's result (`success`); failures with no inline home (menu, drag-drop, shortcut, closed dialog) — `message` = what failed, `description` = what to try; background/poll/job failures.
+  - Don't: errors an open modal or form owns, sync validation (shake + inline), rapid toggles, persistent state (use `PageNotice` or card state), progress.
+  - One toast per outcome; never re-fire inside a retry or poll. `addToast` fires its own haptic.
 
-Rules that still hold:
+### Design / Theme — "Simplex Mono" (https://gt.plainskill.net/LibreLoom/design)
 
-- **Never** expose raw technical terms **without a gloss** (parenthetical, InfoHint, or TermHint)
-- **Never** assume the user knows where to find a credential, what a protocol does, or what an error code means
-- **Always** explain what to **do**, not just what went wrong. A bad error: `"SMTP connection refused"`. A good error: `"Could not connect to your email provider. Check that the server address and port are correct in Settings → Email."`
-- **Always** explain where a value comes from before asking for it. A bare input field labeled "API Token" is a failure. Say: `"Your API token is on cloudflare.com → Profile → API Tokens → Create Token."`
-- **Always** explain why something is needed, not just what it is. A user doesn't care what DNS is — they care that `"We need this so your apps can be reached at addresses like nextcloud.yourdomain.com instead of a numbered IP address."`
-- Terms that usually need a gloss at point of use: SMTP, SSH, DNS, ACME, TLS/HTTPS, CSRF, JWT, port, subdomain, Caddy, Podman, API, webhook, OIDC, DNS-01, DDNS, RJ45, ethernet (when first used)
+Agents repeatedly break contrast and flatten the design. Default hard to these rules and question any deviation out loud. Run `npm run scan:colors` after UI edits.
 
-This applies to frontend UI, API error messages shown to users, and any documentation a user might see. It does **not** apply to code comments, log entries, or internal developer docs. Dashboard greetings (pigeons, snacks) are personality — leave them. Role names, permissions, and setup instructions are not a place for personality.
+- **Tokens only, never hex.** `bg-primary` (page), `bg-secondary` (surface), `text-secondary` (text on primary), `text-primary` (text on secondary), `bg-accent` (#767676), `text-success/error/warning`. Vars swap on `.dark`.
+- **Accent is reserved** for caution/danger (`Button variant="accent"`, `CardButton variant="danger"`) and true accent pieces: borders, rings, dividers, focus outlines, link underlines, carets. Never `text-accent` for muted text, never `bg-accent` fills or tints. Selected states invert to the surface token — check the real backdrop.
+- **Contrast on the same element, always.** `bg-secondary` → `text-primary`; `bg-primary` → `text-secondary`. Never rely on inheritance across a background change — the #1 invisible-text bug.
+- **Full opacity by default.** No `text-primary/70` for "muted" text; pick a different token. Opacity is for status tints only: `/20` fill + `/30` border (`bg-error/20 border-error/30`).
+- **Layered, pill-based, animated.** Surfaces inside surfaces, each setting its own contrast. `rounded-pill` for buttons, chips, and badges; `rounded-large-element` (24px) for cards and rows. Intentional motion on state changes. One outline per element: never a `border` plus a `ring` at once (`border` = persistent state, `ring` = transient; keep `border-transparent` for size stability).
+- **Mono identity, never bold.** Monospace (FreeMono) for headings and code, Noto Sans for body. Never `font-mono` with `font-medium/semibold/bold` or `<strong>`/`<b>`; emphasize with size, case, tracking, or color. Tabular data renders in sans (only its header row mono).
 
-#### WALL OF SHAME — oversimplified language
+### Haptics (non-negotiable)
 
-These showed up in product UI. Do not write them again. Use the replacement (and a tooltip when the real word needs a gloss).
+Every interaction is felt, through `haptic()` in `shared/ui/utils/haptics.js` (it honors the user's toggle). **Components own their haptics:** the `shared/ui` primitives (Button, CardButton, Toggle, Dropdown, CollapsibleSection, InfoHint/TermHint, ModalCard, ConfirmModal, `addToast`, `shakeElement()`, …) already fire them, so pages add none. Call `haptic()` directly only for custom surfaces (gestures, drag/drop, FAB snap, scrubbers), and put it inside any new reusable control.
 
-| Shame (never ship) | Why it failed | Use instead |
-|---|---|---|
-| Takes care of Luna / Takes care of this Luna | Role is Admin, not a babysitter | `Admin` + InfoHint: who can add users, change settings, and manage this Luna |
-| person who takes care of this Luna | Same dodge | `admin` / `an admin` |
-| Household (as a role badge) | Vague; sounds like a species | `Member` |
-| Can look / Can add and change | Read and Write already exist | `Read` / `Write` + TermHint |
-| internet box | People own a router or modem | `router or modem` + TermHint on `router` |
-| LAN socket — the same kind of socket your home internet uses | Talks around the cable in the box | `RJ45 (ethernet) cable` + TermHint on `RJ45` |
-| Spare copy in the cloud | Avoids the word backup | `Cloud backup` + InfoHint if you need to explain off-site copies |
-| Apps and helper tools | Nobody knows what a helper tool is | `Apps and access tokens` |
-| Luna is asking this drive how it feels | Drive health is not a mood | `Checking this drive's health` |
-| this box (for the Luna device, in settings) | We already named it Luna | `Luna` / `this Luna` |
-| Couldn't do that | Says nothing | Name the action that failed and what to try |
+| Preset | For |
+|---|---|
+| `selection` | tabs, segmented controls, nav links, table rows, checkboxes, dropdown items, thumbnails |
+| `light` | small toggles, tooltip pins, search open/clear, accordions, pill actions |
+| `medium` | card buttons, opening files/folders, lightbox, rescans |
+| `heavy` | file drops |
+| `rigid` | drag start, snap, edge resistance, long-press threshold |
+| `success` / `warning` / `error` | outcomes / destructive prompts opening / validation and failures |
 
-Good: `Plug Luna into your router or modem with the included RJ45 (ethernet) cable.`
-Bad: `Connect Luna to the internet box with the included cable. Use a LAN socket — the same kind of socket your home internet uses.`
-Also bad: `ssh into the box and journalctl -u caddy until the ACME DNS-01 challenge succeeds.`
+Sync with the animation. Never buzz on hover, scroll, or typing. Never double-buzz for one action.
 
-#### WALL OF SHAME — cachebusters in production
+## Git
 
-Do not append manual version query strings to static asset URLs in production builds.
+- **`origin` (GitHub) and `forgejo` (gt.plainskill.net) are ONE repository, kept identical by a mirror.** Fetch, merge, and diff against the branch's upstream (usually `origin`) only; never treat them as divergent or remark that they match.
+- **Push once** to the upstream remote; the mirror copies it. Never dual-push commits or branches — it races the mirror. If a forge looks behind, wait.
+- **Tags don't sync.** Push release tags to the forge the consumer fetches (Luna Connect at `/opt/LibreServ` pulls Forgejo), or deploy with `deploy.sh --head` / an explicit SHA.
+- Conventional commits (`feat(scope): …`, `fix(scope): …`); branches `feat/`, `fix/`, `docs/`, `chore/`.
 
-| Shame (never ship) | Why it failed | Use instead |
-|---|---|---|
-| `favicon.svg?v=6` on production | Vite content-hashes built assets; query cachebusters pollute URLs, break CDN caching semantics, and look amateur | Clean paths (`/favicon.svg`); rely on build hashes or proper `Cache-Control` headers |
+## Notes for agents
 
-### Frontend (all web UIs)
-
-- File extensions: `.jsx` (not `.tsx`) — but `npm run typecheck` still validates via JSDoc/TS-check
-- Test runner: **Vitest** (not Jest), uses `@testing-library/react` + jsdom
-- Import order: React → Third-party → Local (include `.jsx` extension in imports)
-- Run `npm run scan:colors` when modifying UI to detect hardcoded colors
-- Shared leaf components live in **`shared/ui`** (`@libreloom/ui`, a `file:` dep of both product webs). Edit shared files there — never fork them back into an app. Components that remain app-local (settings categories, page-level components) still exist per-app; keep cross-app copies in sync until they migrate.
-
-#### Form field focus (non-negotiable)
-
-Users find Tailwind **focus rings on text boxes intrusive** when clicking with a mouse. Form fields must not show a ring/outline on mouse focus.
-
-**Rules for `input`, `textarea`, and `select`:**
-
-- **Never** use `focus:ring-*` on form fields — mouse clicks must not draw a ring.
-- **Do not add** `focus:ring-*` to form fields unless the user explicitly asks for it.
-- Prefer a **border change** on focus (`focus:border-accent`) for subtle mouse feedback.
-- **Keyboard accessibility is mandatory:** rely on the global `:focus-visible` outline in `index.css`, or add `focus-visible:border-*` when a field uses `no-focus-outline` (e.g. inputs embedded in pills/search bars).
-- Buttons, links, toggles, and dropdown triggers **may** keep `focus-visible:ring-*` — the ban applies to **text boxes and other form fields only**.
-- Shared `Input`/`Textarea` components and global base styles in `index.css` enforce this; do not override with per-field rings.
-
-#### Toasts — transient outcomes only
-
-`ToastContext` + `Toaster` live in `shared/ui` (`context/ToastContext.jsx`, `components/common/Toaster.jsx`) — edit them there like every other shared component. A toast announces that something **just finished**. It auto-dismisses in seconds, so it is never the only record of a persistent state.
-
-**Do toast:**
-
-- **One-shot async action results** — every `useMutation`/request fired by a user action (save, delete, send, eject, move, upload-finished, link created) gets a `success` toast, even when the UI also repaints: a modal animating closed or a row appearing is not the same as "it worked".
-- **Failures with no inline home** — `error` toast when the action came from a menu, FAB, drag-drop, or keyboard shortcut, or the dialog that launched it already closed. `message` = what failed in plain language; `description` = what to try next.
-- **Background/partial failures** — a card-level query, a poll, or a queued job that fails without the user pressing a button just now.
-- `addToast` fires the matching `success`/`error` haptic itself — drop the manual `haptic("success")`/`haptic("error")` at call sites that toast, or they double-buzz.
-
-**Don't toast:**
-
-- **Errors an open surface owns** — a still-open modal, sheet, or form keeps its error inside (`ModalErrorNotice`, `submitError`, field `error` + `shakeElement`). A toast floating over the dialog the user is fixing double-reports and steals focus. (When that surface closes on success, the success toast *is* the confirmation.)
-- **Synchronous validation** — shake + inline message; nothing was awaited.
-- **Rapid-toggle state** — favoriting, checkbox-style flips, autosave ticks: the heart filling or the "Saved" stamp already announces it, and toasts would spam on repeats. The haptic there is enough.
-- **Persistent state** — a page that can't load, offline/degraded banners, health warnings → `PageNotice` or card state until it clears.
-- **Progress** — LoadingBar/spinners, not toasts.
-
-One toast per outcome — never re-fire the same toast inside a retry or poll loop.
-
-### Design / Theme
-
-**This is a recurring failure mode. Agents repeatedly break contrast and abandon the design system, producing invisible text and flat boxes. Default HARD to these rules; question any deviation out loud before shipping.**
-
-Before ANY UI work:
-1. Read the branding repo: https://gt.plainskill.net/LibreLoom/design ("Simplex Mono" design language across all LibreLoom products)
-2. Run `npm run scan:colors` after editing to catch hardcoded colors
-
-#### 1. Standardized colors only
-- Use theme tokens, NEVER hardcoded hex values. Tokens: `bg-primary` (page bg), `bg-secondary` (surface), `text-secondary` (text on primary bg), `text-primary` (text on secondary bg), `bg-accent` (#767676 both modes), plus `text-success`/`text-error`/`text-warning` for status.
-- **Accent is reserved.** Use it only for (a) caution/danger (`Button variant="accent"`, `CardButton variant="danger"`) and (b) genuine accent pieces: outlines, borders, rings, dividers, focus outlines, link underlines (`decoration-accent`), carets. Never `text-accent` for muted/secondary text, never `bg-accent` for selected/active/progress fills, never `bg-accent/N` tints. Muted text inherits the surface text token; selected states invert to the surface token (check the actual backdrop, not the page — a "selected" fill that matches its card is invisible).
-- Theme uses CSS custom properties that swap on `.dark` class:
-  - `--primary` = page background (white/light, black/dark)
-  - `--secondary` = text color (black/light, white/dark)
-  - `--accent` = subtle highlights (#767676 both modes)
-- Tailwind maps: `bg-primary`, `text-secondary`, `bg-accent`, etc.
-
-#### 2. Contrast from base colors FIRST
-- **CRITICAL**: every colored surface must set its own contrasting text token on the SAME element — never rely on inheritance across a bg change.
-  - `bg-secondary` surface → `text-primary`
-  - `bg-primary` surface → `text-secondary`
-- **Contrast is not automatic**: components are NOT automatically assigned a contrasting color; it must be set manually per component. This is the #1 invisible-element bug class — a `bg-secondary` panel without `text-primary` renders dark-on-dark in dark mode.
-- Cards on `bg-primary` use `bg-secondary text-primary`. On `bg-secondary` surfaces, use `text-primary`. On `bg-primary` surfaces, use `text-secondary`.
-
-#### 3. Prefer full-opacity colors
-- **Default to full-opacity tokens.** Use `text-primary`, `text-secondary`, `bg-primary`, `bg-secondary`, `bg-accent` at full opacity — NOT `text-primary/70`, `text-secondary/50`, etc. Opacity modifiers (`/70`, `/50`, `/10`) are a common cause of low-contrast text. Reach for them only when you have a concrete reason (a status tint surface), never as a default for body text, labels, or hints.
-- Opacity is for status/tint surfaces only, not a crutch for indecision or "muted" text. If text looks too loud, pick a different token — don't dial down the opacity.
-- Status tint pattern: `/20` fill + `/30` border (e.g. `bg-success/20 border-success/30`, `bg-error/20 border-error/30`).
-- Do not sprinkle opacity everywhere as a substitute for choosing the right base token.
-
-#### 4. Layered, pill-based, innovative & animated
-- Lean into the design language — this is a deliberate aesthetic, not generic Bootstrap. Push toward the distinctive layered + pill + animated look; do NOT flatten to plain boxes.
-- **Layering**: surfaces inside surfaces, each panel setting explicit contrast on itself. Layered depth, not a single flat card.
-- **Pills**: `rounded-pill` (9999px) for buttons/chips/badges/pills; `rounded-large-element` (24px) for cards/containers/rows. Border radius: pill `9999px`, card/large `24px`.
-- **Animation**: intentional motion/transitions on state changes (hover, open/close, loading, status swap). Motion should feel crafted, not absent.
-- **One outline per element**: never stack a `border` and a `ring` (or two rings) as simultaneous visible outlines — that's the banned double-outline look. `border` is for persistent state, `ring` for transient affordances (hover, drag target). Keep the border width (`border-transparent`) for size stability when the resting border is hidden. `focus-visible` rings for keyboard a11y are allowed.
-
-#### 5. Preserve monospace style
-- Simplex Mono is the brand identity. Typography: monospace for headings/code (FreeMono / monospace family like Courier New), Noto Sans for body. Keep the mono typography identity — do NOT replace with a generic sans-serif.
-- **No bold monospace — ever.** Monospace text is always regular weight. Never combine `font-mono` with `font-medium`/`font-semibold`/`font-bold`, and never wrap `font-mono` text in `<strong>`/`<b>` without `font-normal`. Emphasize mono text with size, case, tracking, or color instead. Tabular data (e.g. CSV previews) renders in sans; only the header row stays mono.
-
-#### Haptics & Tactile Feedback (non-negotiable)
-
-The entire UI must be felt, not just seen. Every interactive surface, card, modal, gesture (long-press, swipe, drag/drop, FAB corner snap), navigation link, and state outcome (shake error, copy success, mutation success) must emit consistent, intentional, and tasteful tactile haptic feedback using the shared PWM-modulated vibration engine (`shared/ui/utils/haptics.js`).
-
-**Components own their haptics.** The `shared/ui` primitives already fire them: Button, CardButton, LayeredPill, Toggle, AnimatedCheckbox, SegmentedControl, Dropdown, Table rows, CollapsibleSection, Callout, InfoHint/TermHint, ModalCard, ConfirmModal, toasts (`addToast`), clipboard copy, and `shakeElement()`. Pages built from these add no `haptic()` calls of their own. Call `haptic()` directly only for a surface that is not built from a primitive (custom gestures, drag/drop, FAB snap, scrubbers) — and when you build a new reusable control, put the haptic inside the component, not at its call sites.
-
-**Semantic presets (use explicitly):**
-- `selection`: Segmented controls, tabs, nav links (`NavLink`), table rows (`onRowClick`), checkboxes, dropdown items, filter toggles, photo thumbnails, year/month scrubbers.
-- `light`: Micro-interactions, gentle UI toggles, tooltip pins (`InfoHint`/`TermHint`), password reveal eye toggle, search open/close/clear, filter chip dismissal, accordion expand/collapse, pill action button clicks.
-- `medium`: Substantial actions, card buttons, opening files/folders, lightbox opens, custom bounding box draws, library rescans, device token removal.
-- `heavy`: High-gravity events, file drops in folders or upload dropzones.
-- `rigid`: Physical resistance, boundary snap, drag starts, swipe resistance past library edges, FAB corner latching, long-press threshold activation.
-- `success`: Positive outcomes, save completed, album created, file/folder mutation done, login success, setup completion (`STEP.DONE`), copy to clipboard.
-- `warning`: Destructive or high-impact prompts opening (`ConfirmModal` danger/warning variants, trash prompts).
-- `error`: Synchronous validation errors and alerts (wired directly to `shakeElement()`), API mutation failures, clipboard copy rejections.
-
-**Rules for haptics:**
-- **Synchronize with visual animation**: E.g. `shakeElement()` automatically triggers `haptic("error")` synchronously with the CSS shake animation; FAB corner latching triggers `haptic("rigid")` on physical snap.
-- **No passive buzzing**: NEVER vibrate on hover, passive page scrolling, or regular text input keystrokes.
-- **No double-buzzing**: If a button click already gave feedback, don't buzz again for the immediate action unless it's a distinct asynchronous completion (e.g. async mutation `onSuccess` / `onError`).
-- **Respect user settings**: Always route through `haptic()`, which honors the user's haptics toggle (`haptics-enabled` in localStorage).
-
-- No `.gz` pre-compression needed — Vite build already generates `.gz` alongside files; backend serves them when client sends `Accept-Encoding: gzip`
-
-### Git
-- **THE REMOTES ARE ONE REPOSITORY.** This repo is mirrored across forges: `origin` (GitHub) and `forgejo` (`gt.plainskill.net`) point at the SAME project, and a mirror keeps them identical. `origin/main` and `forgejo/main` are the same history — the git objects are one. Do NOT treat them as separate remotes:
-  - Fetch once, from the branch's upstream remote (usually `origin`). Do not `git fetch` every configured remote.
-  - Merge/rebase/diff against that ONE remote-tracking branch. Never merge both `origin/main` and `forgejo/main`, and never reason about them as possibly-divergent.
-  - Never remark that the remotes are on the same commit — that is the expected state, not a coincidence worth reporting.
-- **Push to one forge only.** Commits and branches pushed to one forge are copied to the others by the mirror. Push once to the branch's upstream remote (usually `origin`), then stop.
-- **Git tags do not sync across platforms.** A tag pushed to GitHub (e.g. `luna-connect-v0.2.28`, `luna-v0.0.26`) will **not** appear on Forgejo or GitLab via the mirror. Hosts that pull Forgejo (e.g. Luna Connect at `/opt/LibreServ`) will not see GitHub-only tags. Push release tags to the forge the consumer actually fetches, or deploy with `deploy.sh --head` / an explicit SHA until that forge has the tag.
-- **Do not** dual-push the same commit or branch to a second forge "so it shows up faster." That races the mirror and can break sync. Tags are the exception only when a consumer forge is missing a release tag it needs (see above).
-- If Forgejo (or another forge) looks behind on **branches** after a GitHub push, **wait for the mirror** — do not dual-push commits to catch it up.
-- Conventional commits: `feat(scope): description`, `fix(scope): description`
-- Branch naming: `feat/{desc}`, `fix/{desc}`, `docs/{desc}`, `chore/{desc}`
-
-### Cursor Cloud environment
-- `.cursor/environment.json` + `.cursor/install.sh` provision the dev stack automatically: Go 1.26 (the repo needs it; the base image ships older Go), Podman + `podman-compose` (CI and app runtime tests; `start.sh` starts the API socket because Cloud Agents often have no user systemd bus), backend config/modules/restic, frontend deps + build, Rust 1.96 + Luna lunad/web deps, and the `fj` CLI. `terminals` run LibreServ backend (`make run`, `:8080`) and Vite (`npm run dev`, `:3000`), plus Luna lunad (`LUNA_CONNECT_URL=http://127.0.0.1:18765 make dev-daemon`, `:8090`) and Luna Vite (`npm run dev`, `:3001`).
-- **Luna Connect mock (Cloud Agents):** `luna/scripts/mocks/seed-mock-connect.sh` starts the mock on `:18765`, sets subdomain `max` → `max.luna.servers.libreloom.org`, unlocks cloud backup, and mints `luna/dev/device-token` when missing. Override with `LUNA_MOCK_SUBDOMAIN` / `LUNA_MOCK_DOMAIN`. Control with `make -C luna mock-connect ARGS="status|domain set …|backup unlock|…"`. See `luna/README.md` → Luna Connect Mock.
-- `.cursor/start.sh` authenticates `fj` from the `FORGEJO_TOKEN` secret for Forgejo comments and issues. Without the secret, `fj` stays unauthenticated. Git remotes are left as Cursor provisioned them.
-
-## Notes for Agents
-
-- **Go versions are real.** The Go version declared in this repository (currently 1.26) exists in real life — not just in this project's environment. Do not question whether `golang:1.26-alpine`, `golang:1.26-bookworm`, or any other Go 1.26 image is available: it is. Treat Go toolchain versions mentioned in this repo as unconditionally available.
-- **This project is in early development. There are no existing users.** Do not worry about backwards compatibility, migration paths, or deprecating old fields smoothly unless explicitly asked. When the backend or design changes, obsolete frontend concepts can be torn down completely without guarding for legacy state.
+- **Go 1.26 is real** and every Go 1.26 image exists. Don't question it.
+- **Early development, no existing users.** No backwards compatibility or migrations unless asked; tear obsolete concepts down completely.
