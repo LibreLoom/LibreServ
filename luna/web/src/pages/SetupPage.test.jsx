@@ -13,12 +13,15 @@ function healthyPreflight() {
   return {
     healthy: true,
     checks: {
-      database: { status: "ok", category: "system" },
-      database_writable: { status: "ok", category: "storage" },
-      data_path_writable: { status: "ok", category: "storage" },
-      logs_path_writable: { status: "ok", category: "storage" },
-      disk_space: { status: "ok", category: "system", disk_space_bytes_free: 8_000_000_000 },
-      api_server: { status: "ok", category: "system" },
+      database: { status: "passed", category: "system" },
+      data_path_writable: { status: "passed", category: "storage" },
+      logs_path_writable: { status: "passed", category: "storage" },
+      disk_space: {
+        status: "passed",
+        category: "system",
+        details: { free_bytes: 8_000_000_000, free_human: "8.0 GB" },
+      },
+      clock: { status: "passed", category: "system" },
     },
   };
 }
@@ -153,8 +156,9 @@ describe("SetupPage", () => {
     );
     renderSetup();
     expect(await screen.findByRole("heading", { name: /Create your account/i })).toBeTruthy();
-    expect(screen.getByText(/3\s*\/\s*5/)).toBeTruthy();
-    expect(screen.getByLabelText(/What's your name/i)).toBeTruthy();
+    const nameInput = screen.getByLabelText(/What's your name/i);
+    expect(nameInput).toBeTruthy();
+    expect(document.activeElement).toBe(nameInput);
   });
 
   it("does not attach a substep slide/pop class to the name field on first account paint", async () => {
@@ -179,7 +183,7 @@ describe("SetupPage", () => {
     expect(form.querySelectorAll("[class*='slide-in-from']").length).toBe(0);
   });
 
-  it("slides the username field in after continuing from the name substep", async () => {
+  it("slides the username field in after continuing from the name substep and immediately focuses it", async () => {
     vi.stubGlobal(
       "fetch",
       stubFetch({
@@ -194,8 +198,26 @@ describe("SetupPage", () => {
     renderSetup();
     fireEvent.click(await screen.findByRole("button", { name: /^Continue$/i }));
     const username = await screen.findByLabelText(/Pick a username/i);
+    expect(document.activeElement).toBe(username);
     const form = username.closest("form");
     expect(form.querySelector("[class*='slide-in-from']")).toBeTruthy();
+  });
+
+  it("immediately sends focus to the Luna name input on the Name step", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubFetch({
+        setup: {
+          name: "Luna",
+          setup_completed: false,
+          current_step: "name",
+          step_data: { network_connected: true, preflight_passed: true, account_completed: true },
+        },
+      }),
+    );
+    renderSetup();
+    const nameInput = await screen.findByPlaceholderText("e.g. Family Luna");
+    expect(document.activeElement).toBe(nameInput);
   });
 
   it("drops SetupCard slide classes after the step entrance animation ends", async () => {

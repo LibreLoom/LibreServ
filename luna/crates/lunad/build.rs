@@ -16,4 +16,19 @@ fn main() {
         .unwrap();
     }
     println!("cargo:rerun-if-changed=web/dist");
+
+    // Floor for the system clock check: a clock earlier than this build is
+    // certainly wrong. Only reruns with the rest of build.rs, so the value can
+    // lag behind the real build — that only makes the floor more lenient.
+    let build_unix = std::env::var("SOURCE_DATE_EPOCH")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .unwrap_or_else(|| {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0)
+        });
+    println!("cargo:rustc-env=LUNA_BUILD_UNIX={build_unix}");
+    println!("cargo:rerun-if-env-changed=SOURCE_DATE_EPOCH");
 }

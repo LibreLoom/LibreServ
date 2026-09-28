@@ -249,10 +249,7 @@ function DetectedCard({ drive, onOpen }) {
         {detectedDriveMeta(drive)}
       </p>
       <p className="text-primary text-sm mt-2">
-        Click &quot;Add drive&quot; to begin adding the drive.
-      </p>
-      <p className="text-primary text-sm mt-2">
-        You&apos;ll see the contents of the drive before adding it. Luna does not touch the contents until you confirm you want to add the drive.
+        You&apos;ll see what&apos;s on the drive before adding it — Luna won&apos;t touch it until you confirm.
       </p>
       <div className="mt-3">
         <Button size="sm" variant="outline" onClick={() => onOpen(drive)}>Add drive</Button>
@@ -327,9 +324,9 @@ function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect 
 
 /** Status line for non-ready drives, or the read-only note. Ready drives use Drive details instead. */
 function driveStatusMessage(drive) {
-  if (drive.state === "missing") return "Unplugged. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.";
+  if (drive.state === "missing") return "Unplugged. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in.";
   if (drive.state === "ejected") return "Ejected. Plug it back in to use files again.";
-  if (drive.state === "failed") return "This drive ran into a problem. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.";
+  if (drive.state === "failed") return "This drive ran into a problem. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in.";
   if (drive.state === "readonly") {
     return "Read only — Luna cannot save here. Usually a filesystem issue, or a write-lock switch on the stick.";
   }
@@ -607,8 +604,8 @@ export default function DrivesPage() {
               ) : (
                 <>
                   Luna will stop managing{" "}
-                  <span className="font-mono">{removeTarget?.label}</span>. Your files
-                  stay on the drive. Luna only removes its tiny{" "}
+                  <span className="font-mono">{removeTarget?.label}</span>, but your
+                  files stay on the drive — it only removes its tiny{" "}
                   <span className="font-mono">.luna</span> drive database.
                 </>
               )}

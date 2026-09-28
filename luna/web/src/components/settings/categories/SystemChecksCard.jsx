@@ -1,8 +1,11 @@
-import { Activity, CheckCircle2, XCircle } from "lucide-react";
+import { Activity } from "lucide-react";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
 import { useSystemHealthCheck } from "../../../hooks/useSystemHealthCheck.jsx";
-import { displayLabel } from "../../../lib/healthChecks.js";
+import CheckMore from "../../common/CheckMore.jsx";
+import CheckStatusIcon from "../../common/CheckStatusIcon.jsx";
+import CheckStatusTag from "../../common/CheckStatusTag.jsx";
+import { displayLabel, statusRank } from "../../../lib/healthChecks.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 export default function SystemChecksCard({ index = 1 }) {
@@ -34,76 +37,68 @@ export default function SystemChecksCard({ index = 1 }) {
   }
 
   const checks = data?.checks ? Object.entries(data.checks) : [];
-  const summary = data?.summary;
-  const passed = summary?.passed ?? checks.filter(([, c]) => c.status === "passed").length;
-  const failed = summary?.failed ?? checks.filter(([, c]) => c.status === "failed").length;
-  const skipped = summary?.skipped ?? checks.filter(([, c]) => c.status === "skipped").length;
-  const actionable = checks.filter(([, c]) => c.status !== "skipped");
-  const allOk = failed === 0 && actionable.length > 0;
+  const count = (status) => checks.filter(([, c]) => c.status === status).length;
+  const warnings = data?.summary?.warnings ?? count("warning");
+  const failed = data?.summary?.failed ?? count("failed");
+  const total = checks.length;
 
-  const ordered = [...checks].sort((a, b) => {
-    const rank = (s) => (s === "failed" ? 0 : s === "passed" ? 1 : 2);
-    const fa = rank(a[1].status);
-    const fb = rank(b[1].status);
-    return fa - fb || displayLabel(a[0], a[1]).localeCompare(displayLabel(b[0], b[1]));
-  });
+  const ordered = [...checks].sort(
+    (a, b) =>
+      statusRank(a[1].status) - statusRank(b[1].status) ||
+      displayLabel(a[0], a[1]).localeCompare(displayLabel(b[0], b[1])),
+  );
+
+  const warningText = `${warnings} ${warnings === 1 ? "warning" : "warnings"}`;
+  let summaryText = "No checks recorded yet.";
+  if (total > 0 && failed > 0) {
+    summaryText = `${failed} of ${total} checks failed${warnings > 0 ? `, plus ${warningText}` : ""}.`;
+  } else if (total > 0 && warnings > 0) {
+    summaryText = `${warnings} of ${total} checks ${warnings === 1 ? "has a warning" : "have warnings"}.`;
+  } else if (total > 0) {
+    summaryText = `All ${total} checks passed.`;
+  }
+  const badge =
+    failed > 0
+      ? { text: "Issues found", tone: "bg-error/20 border-error/30" }
+      : warnings > 0
+        ? { text: "Warnings", tone: "bg-warning/20 border-warning/30" }
+        : { text: "Healthy", tone: "bg-success/20 border-success/30" };
 
   return (
     <SettingsCard icon={Activity} title="System Checks" padding={false} index={index}>
       <div className="px-5 py-4">
         <div className="flex items-center justify-between gap-3 mb-4">
-          <p className="text-sm">
-            {checks.length === 0
-              ? "No checks recorded yet."
-              : allOk
-                ? `${passed} of ${actionable.length} checks passed — everything looks good.`
-                : `${failed} of ${actionable.length} checks need attention.`}
-            {skipped > 0 ? ` ${skipped} optional report${skipped === 1 ? "" : "s"} skipped.` : ""}
-          </p>
-          <span
-            className={cn(
-              "text-xs px-3 py-1 rounded-pill font-medium shrink-0 border-2",
-              allOk
-                ? "bg-success/20 border-success/30 text-primary"
-                : "bg-error/20 border-error/30 text-primary",
-            )}
-          >
-            {allOk ? "Healthy" : "Issues found"}
-          </span>
+          <p className="text-sm">{summaryText}</p>
+          {total > 0 && (
+            <span
+              className={cn(
+                "text-xs px-3 py-1 rounded-pill font-medium shrink-0 border-2 text-primary motion-safe:transition-colors motion-safe:duration-300",
+                badge.tone,
+              )}
+            >
+              {badge.text}
+            </span>
+          )}
         </div>
 
         <ul className="space-y-1">
           {ordered.map(([name, check]) => {
-            const ok = check.status === "passed";
-            const skippedCheck = check.status === "skipped";
             return (
               <li
                 key={name}
-                className="flex items-center justify-between gap-3 py-2 border-b border-primary/10 last:border-0"
+                className="flex items-start justify-between gap-3 py-2 border-b border-primary/10 last:border-0"
               >
-                <div className="flex items-center gap-2.5 min-w-0">
-                  {ok ? (
-                    <CheckCircle2 size={ICON_SIZE.md} className="text-success shrink-0" aria-hidden="true" />
-                  ) : skippedCheck ? (
-                    <Activity size={ICON_SIZE.md} className="shrink-0" aria-hidden="true" />
-                  ) : (
-                    <XCircle size={ICON_SIZE.md} className="text-error shrink-0" aria-hidden="true" />
-                  )}
+                <div className="flex items-start gap-2.5 min-w-0">
+                  <CheckStatusIcon status={check.status} size="sm" className="mt-0.5" />
                   <div className="min-w-0">
                     <div className="text-sm text-primary">{displayLabel(name, check)}</div>
                     {check.message && (
-                      <div className="text-xs break-words">{check.message}</div>
+                      <div className="text-xs text-primary break-words">{check.message}</div>
                     )}
+                    {check.more && <CheckMore text={check.more} />}
                   </div>
                 </div>
-                <span
-                  className={cn(
-                    "text-[10px] font-mono uppercase tracking-widest shrink-0",
-                    !ok && !skippedCheck && "text-error",
-                  )}
-                >
-                  {ok ? "ok" : skippedCheck ? "n/a" : "fail"}
-                </span>
+                <CheckStatusTag status={check.status} />
               </li>
             );
           })}

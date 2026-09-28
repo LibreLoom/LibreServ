@@ -111,13 +111,13 @@ pub enum AuthError {
 
 #[derive(Clone)]
 pub struct AuthService {
-    db: Arc<Mutex<Connection>>,
+    db: Arc<crate::Db>,
     secret: Arc<Mutex<Vec<u8>>>,
     data_dir: std::path::PathBuf,
 }
 
 impl AuthService {
-    pub fn new(db: Arc<Mutex<Connection>>, secret: Vec<u8>, data_dir: std::path::PathBuf) -> Self {
+    pub fn new(db: Arc<crate::Db>, secret: Vec<u8>, data_dir: std::path::PathBuf) -> Self {
         Self {
             db,
             secret: Arc::new(Mutex::new(secret)),
@@ -833,8 +833,11 @@ pub async fn guard(State(state): State<AppState>, req: Request, next: Next) -> R
                 .and_then(|v| v.to_str().ok()),
         );
         if !host_matches {
-            return json_error(StatusCode::FORBIDDEN, "Cross-site request blocked.")
-                .into_response();
+            return json_error(
+                StatusCode::FORBIDDEN,
+                "Luna blocked this request because it came from another website.",
+            )
+            .into_response();
         }
     }
     let mut is_public = path == "/health"
@@ -1559,7 +1562,11 @@ pub(crate) fn hash_password_unchecked(password: &str) -> Result<String, AuthErro
     argon2::Argon2::default()
         .hash_password(password.as_bytes(), &salt)
         .map(|h| h.to_string())
-        .map_err(|e| AuthError::PasswordPolicy(e.to_string()))
+        .map_err(|_| {
+            AuthError::PasswordPolicy(
+                "Luna couldn't use that password. Try a different one.".into(),
+            )
+        })
 }
 
 #[cfg(test)]
@@ -1571,7 +1578,7 @@ mod tests {
         let data_dir = dir.path().to_path_buf();
         let conn = db::open(&data_dir.join("luna.db")).unwrap();
         let secret = crate::secrets::ensure_jwt_secret(&data_dir, &conn).unwrap();
-        let db = Arc::new(Mutex::new(conn));
+        let db = Arc::new(crate::Db::new(conn));
         (dir, AuthService::new(db, secret, data_dir))
     }
 

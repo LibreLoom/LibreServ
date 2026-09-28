@@ -62,7 +62,7 @@ fn lock_db(
     state.db.lock().map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna's index is busy. Try again.",
+            "Luna couldn't do that. Try again.",
         )
     })
 }
@@ -526,7 +526,7 @@ async fn set_member_home(
             format!(
                 "{} member{} will move when their drive is connected.",
                 unplugged.len(),
-                if unplugged.len() == 1 { " " } else { "s" },
+                if unplugged.len() == 1 { "" } else { "s" },
             )
         } else if job_ids.is_empty() {
             "Member files now live on the new drive.".to_string()
@@ -539,7 +539,7 @@ async fn set_member_home(
 fn busy() -> (StatusCode, Json<Value>) {
     json_error(
         StatusCode::INTERNAL_SERVER_ERROR,
-        "Luna's index is busy. Try again.",
+        "Luna couldn't do that. Try again.",
     )
 }
 

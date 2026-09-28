@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use axum::extract::{Extension, Path, State};
 use axum::http::StatusCode;
@@ -117,7 +117,7 @@ async fn list(
     let conn = state.db.lock().map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna is updating its file list. Wait a moment and try again.",
+            "Luna couldn't reach your drives right now. Try again.",
         )
     })?;
     // Which drive hosts the member homes is admin knowledge — a member who
@@ -343,14 +343,12 @@ async fn eject(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     require_admin(user)?;
-    // Finish in-flight RAM saves while the mount is still up — never drop dirty
-    // bytes that already returned success with saving:true.
-    flush_dirty_before_unmount(&state, &id)?;
-    with_db(&state.db, |conn| state.drive_manager.eject(conn, &id))
-        .map_err(|e| json_error(StatusCode::BAD_REQUEST, plain_eject_error(&e)))?;
-    crate::files::dav::drop_cached_handler(&state, &id);
-    state.gallery.unwatch_mount(&id);
-    state.ram_cache.drop_drive(&id);
+    let (st, drive) = (state.clone(), id.clone());
+    closed_drive(&state, &id, move || {
+        with_db(&st.db, |conn| st.drive_manager.eject(conn, &drive))
+            .map_err(|e| json_error(StatusCode::BAD_REQUEST, plain_eject_error(&e)))
+    })
+    .await?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
@@ -360,13 +358,43 @@ async fn remove(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     require_admin(user)?;
-    flush_dirty_before_unmount(&state, &id)?;
-    with_db(&state.db, |conn| state.drive_manager.remove(conn, &id))
-        .map_err(|e| json_error(StatusCode::BAD_REQUEST, plain_remove_error(&e)))?;
-    crate::files::dav::drop_cached_handler(&state, &id);
-    state.gallery.unwatch_mount(&id);
-    state.ram_cache.drop_drive(&id);
+    let (st, drive) = (state.clone(), id.clone());
+    closed_drive(&state, &id, move || {
+        with_db(&st.db, |conn| st.drive_manager.remove(conn, &drive))
+            .map_err(|e| json_error(StatusCode::BAD_REQUEST, plain_remove_error(&e)))
+    })
+    .await?;
     Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+/// Run `unmount` (eject or remove) with the drive closed to RAM-buffered
+/// saves: no new ones are accepted, and every one already accepted — including
+/// one a background task is writing right now — lands before the unmount.
+/// Uploads that were answered "saving" can never be dropped by the unmount.
+async fn closed_drive(
+    state: &AppState,
+    id: &str,
+    unmount: impl FnOnce() -> Result<(), (StatusCode, Json<serde_json::Value>)> + Send + 'static,
+) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    state.ram_cache.begin_close(id);
+    let (st, drive) = (state.clone(), id.to_string());
+    let result = tokio::task::spawn_blocking(move || {
+        flush_dirty_before_unmount(&st, &drive)?;
+        unmount()?;
+        crate::files::dav::drop_cached_handler(&st, &drive);
+        st.gallery.unwatch_mount(&drive);
+        st.ram_cache.drop_drive(&drive);
+        Ok(())
+    })
+    .await
+    .unwrap_or_else(|_| {
+        Err(json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't finish with this drive. Try again.",
+        ))
+    });
+    state.ram_cache.end_close(id);
+    result
 }
 
 /// Persist any dirty RAM writes for this drive before eject/remove.
@@ -408,7 +436,7 @@ async fn drive_health(
         let conn = state.db.lock().map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna is updating its file list. Wait a moment and try again.",
+                "Luna couldn't reach your drives right now. Try again.",
             )
         })?;
         let drive = crate::db::get_drive(&conn, &id)
@@ -441,7 +469,7 @@ async fn drive_summary(
         let conn = state.db.lock().map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna is updating its file list. Wait a moment and try again.",
+                "Luna couldn't reach your drives right now. Try again.",
             )
         })?;
         let drive = crate::db::get_drive(&conn, &id)
@@ -613,10 +641,19 @@ fn plain_adopt_error(err: &anyhow::Error) -> String {
         crate::drives::WRITE_REJECTED_MESSAGE.into()
     } else if lower.contains("could not mark") {
         "Luna couldn't put its sticker file on this drive. Unplug it, plug it back in, and try again.".into()
+    } else if lower.contains("system disk") {
+        "That's the drive Luna runs from. Luna won't use its own system drive for your files."
+            .into()
+    } else if lower.contains("will only erase a usb stick") {
+        "Luna can only erase a USB stick, not the computer's own disk.".into()
+    } else if lower.contains("give the drive a name") {
+        "Give the drive a name first.".into()
+    } else if lower.contains("added but could not be read back") {
+        "Luna added this drive but couldn't read it back right away. Refresh and try again.".into()
     } else if lower.contains("mount") {
         "Make sure the drive is plugged in and your computer isn't using it.".into()
     } else {
-        text
+        "Try again.".into()
     }
 }
 
@@ -631,10 +668,13 @@ fn plain_eject_error(err: &anyhow::Error) -> String {
         || lower.contains("device is busy")
         || lower.contains("busy")
     {
-        "Luna couldn't eject this drive safely. Close any files open from it, then try again."
+        "Something is still using this drive, like a copy or a file that's open. Wait for it to finish, then try again."
+            .into()
+    } else if lower.contains("finish writing") {
+        "Luna couldn't finish writing to this drive, so it isn't safe to unplug yet. Try again."
             .into()
     } else {
-        "Luna couldn't eject this drive safely. Unplug it, wait a moment, and plug it back in."
+        "Luna couldn't eject this drive safely, so don't unplug it yet. Try again in a moment."
             .into()
     }
 }
@@ -646,17 +686,17 @@ fn plain_remove_error(err: &anyhow::Error) -> String {
     let lower = text.to_ascii_lowercase();
     if lower.contains("doesn't know") {
         "Luna doesn't know this drive.".into()
-    } else if lower.contains("sticker") {
-        "Luna couldn't remove its sticker file from this drive. Try again.".into()
     } else if lower.contains("plug the drive") {
         "Plug the drive back in so Luna can remove its sticker file, then try again.".into()
+    } else if lower.contains("sticker") {
+        "Luna couldn't remove its sticker file from this drive. Try again.".into()
     } else {
         "Luna couldn't remove this drive. Try again.".into()
     }
 }
 
 fn with_db<T>(
-    db: &Arc<Mutex<Connection>>,
+    db: &Arc<crate::Db>,
     f: impl FnOnce(&Connection) -> anyhow::Result<T>,
 ) -> anyhow::Result<T> {
     let conn = db.lock().map_err(|_| anyhow::anyhow!("db lock poisoned"))?;
@@ -835,6 +875,11 @@ mod tests {
         let other = anyhow::anyhow!(
             "Luna could not mark this drive as its own. could not write the marker: Permission denied (os error 13)"
         );
+        let unnamed = anyhow::anyhow!("Give the drive a name first.");
+        assert_eq!(
+            super::plain_adopt_error(&unnamed),
+            "Give the drive a name first."
+        );
         let other_plain = super::plain_adopt_error(&other);
         assert!(other_plain.contains("Unplug"));
         assert!(!other_plain.to_ascii_lowercase().contains("installer"));
@@ -845,7 +890,7 @@ mod tests {
     fn eject_errors_never_leak_paths_or_uuids() {
         let busy = anyhow::anyhow!("Close any files open from this drive, then try again.");
         let plain = super::plain_eject_error(&busy);
-        assert!(plain.contains("Close any files"));
+        assert!(plain.starts_with("Something is still using this drive"));
         assert!(!plain.contains("/var/lib"));
 
         let raw = anyhow::anyhow!(

@@ -44,14 +44,19 @@ podman run --rm --privileged -v "$ROOTFS:/rootfs:z" "$ALPINE_IMAGE" sh -euc '
     # linux-firmware pulls ~800 MiB of GPU/Wi-Fi blobs we never use
     # (Luna is Ethernet-only). linux-firmware-none satisfies the dep;
     # keep only common wired NIC firmware for mini PCs / thin clients.
+    # NTFS drives use the ntfs3 kernel driver from linux-lts, not ntfs-3g.
+    # grub is here for grub-editenv only: lunad sets the A/B tryboot slot in
+    # the ESP grubenv, and luna-boot-ok clears it. The bootloader itself is
+    # installed by the rapidinstall ISO.
     apk add --root /rootfs --initdb --keys-dir /etc/apk/keys --arch '"$ARCH"' \
         --repository "https://dl-cdn.alpinelinux.org/alpine/'"$ALPINE_VERSION"'/main" \
         --repository "https://dl-cdn.alpinelinux.org/alpine/'"$ALPINE_VERSION"'/community" \
         alpine-base openrc linux-lts kmod \
         linux-firmware-none linux-firmware-rtl_nic linux-firmware-e100 \
         avahi \
-        e2fsprogs exfatprogs ntfs-3g-progs \
+        e2fsprogs exfatprogs \
         smartmontools syslinux util-linux \
+        grub \
         dhcpcd ca-certificates ssl_client pciutils curl \
         libheif libheif-tools ffmpeg \
         hdparm \

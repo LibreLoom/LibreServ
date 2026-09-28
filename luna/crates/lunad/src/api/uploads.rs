@@ -277,7 +277,7 @@ fn map_upload_err(err: UploadError) -> (StatusCode, Json<Value>) {
         ),
         UploadError::Files(crate::files::FilesError::UnknownDrive) => json_error(
             StatusCode::NOT_FOUND,
-            "Luna doesn't know this drive. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.",
+            "Luna doesn't know this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in.",
         ),
         UploadError::Files(crate::files::FilesError::MissingDriveDb) => json_error(
             StatusCode::INTERNAL_SERVER_ERROR,

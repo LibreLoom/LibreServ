@@ -78,17 +78,15 @@ export default function UpdateSourceCard({ index = 3 }) {
 
         <CollapsibleSection title="Update source" mono pill>
           <div className="p-4 mb-3 rounded-large-element bg-warning/20 border-2 border-warning/30">
-            <div className="flex items-start gap-3">
-              <AlertTriangle size={ICON_SIZE.lg} className="text-warning flex-shrink-0 mt-0.5" aria-hidden="true" />
-              <div className="text-sm text-primary space-y-1.5">
-                <p className="font-semibold">Don&apos;t touch these during normal use.</p>
-                <p>
-                  These settings control where <strong>Luna itself</strong> gets its software
-                  updates from. They have nothing to do with your files, photos, or backups.
-                  Changing them without knowing what you&apos;re doing can stop Luna from updating.
-                  Leave them alone unless you need to point Luna at a different update source.
-                </p>
-              </div>
+            <div className="flex items-center gap-3">
+              <AlertTriangle size={ICON_SIZE.lg} className="text-warning flex-shrink-0" aria-hidden="true" />
+              <p className="text-sm text-primary font-semibold">
+                Only change these if your updates come from somewhere else.{" "}
+                <InfoHint
+                  label="What these settings control"
+                  content="They control where Luna itself gets its software updates — not your files, photos, or backups. A wrong value can stop Luna from updating, so leave these as-is unless you're pointing Luna at a different update source."
+                />
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-2 mb-3">

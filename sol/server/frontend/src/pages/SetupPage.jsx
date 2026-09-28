@@ -702,6 +702,7 @@ function AccountStep({ onSuccess, onError }) {
                   onChange={handleChange}
                   disabled={submitting}
                   required
+                  autoFocus
                   className={WIZARD_INPUT_CLASS}
                 />
               </FormField>

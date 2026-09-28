@@ -83,10 +83,10 @@ pub fn help_lines(snap: &ConsoleSnapshot) -> Vec<String> {
     // Network / how to open Luna — always useful, even alongside problems.
     if snap.cable_in && snap.ipv4.is_empty() {
         lines.push("  Cable is in. Waiting for an address from your router or modem.".into());
-        lines.push("  Keep the included RJ45 (ethernet) cable plugged into a LAN port.".into());
+        lines.push("  Keep the included RJ45 (ethernet) cable plugged into it.".into());
     } else if !snap.cable_in {
         lines.push("  Plug the included RJ45 (ethernet) cable from Luna".into());
-        lines.push("  into a LAN port on your router or modem.".into());
+        lines.push("  into your router or modem.".into());
     }
     let token_problem = snap.problems.iter().any(|p| {
         p.contains("device token") || p.contains("Device token") || p.contains("Settings → About")

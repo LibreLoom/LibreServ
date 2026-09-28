@@ -351,7 +351,7 @@ mod tests {
     use super::*;
     use crate::auth::AuthService;
     use crate::db;
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
 
     fn seq() -> Vec<u16> {
         SEQUENCE.to_vec()
@@ -436,7 +436,7 @@ mod tests {
         let conn = db::open(&data_dir.join("luna.db")).unwrap();
         let secret = crate::secrets::ensure_jwt_secret(&data_dir, &conn).unwrap();
         let auth = Arc::new(AuthService::new(
-            Arc::new(Mutex::new(conn)),
+            Arc::new(crate::Db::new(conn)),
             secret,
             data_dir,
         ));

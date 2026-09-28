@@ -70,11 +70,11 @@ async fn preflight(
             "Setup is already finished.",
         ));
     }
-    let data_dir = state.data_dir.clone();
-    let db = state.db.clone();
+    let state = state.clone();
     let resp = tokio::task::spawn_blocking(move || {
-        let conn = db.lock().unwrap();
-        crate::system::system_health::run_preflight(&data_dir, &conn)
+        let probes = crate::system::system_health::Probes::from_state(&state);
+        let conn = state.db.lock().unwrap();
+        crate::system::system_health::run_preflight(&state.data_dir, &conn, &probes)
     })
     .await
     .map_err(|_| {

@@ -4,7 +4,7 @@
 // Cookie-authenticated mutations MUST go through these helpers so
 // X-CSRF-Token is attached. Raw `fetch` skips CSRF and lunad answers 403
 // ("This page expired.") — or, with the Vite proxy rewriting Host, the
-// Origin guard returns "Cross-site request blocked."
+// Origin guard returns "Luna blocked this request because it came from another website."
 
 
 

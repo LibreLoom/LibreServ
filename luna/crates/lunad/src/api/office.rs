@@ -195,7 +195,7 @@ async fn prepare_session(
         let conn = state.db.lock().map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna's index is busy. Try again.",
+                "Luna couldn't open this document right now. Try again.",
             )
         })?;
         files::file_path(&conn, &drive_id, &path).map_err(map_files_err)?
@@ -924,7 +924,7 @@ fn ensure_file(
     let conn = state.db.lock().map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna's index is busy. Try again.",
+            "Luna couldn't open this document right now. Try again.",
         )
     })?;
     let (_abs, meta) = files::file_path(&conn, drive_id, path).map_err(map_files_err)?;
@@ -947,7 +947,7 @@ fn user_can(
     let conn = state.db.lock().map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna's index is busy. Try again.",
+            "Luna couldn't open this document right now. Try again.",
         )
     })?;
     Ok(crate::auth::has_cap(

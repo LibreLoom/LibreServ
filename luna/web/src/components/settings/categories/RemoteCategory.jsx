@@ -96,8 +96,8 @@ export default function RemoteCategory() {
 
           {!isOn && !hardError ? (
             <p className="text-primary text-sm leading-relaxed motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200">
-              Pick a name on Luna Connect. Luna shows the address here once it is ready. You can
-              also add cloud backup there.
+              Pick a name on Luna Connect — the address shows up here once it&apos;s
+              ready, and you can add cloud backup there too.
             </p>
           ) : null}
 

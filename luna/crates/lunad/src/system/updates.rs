@@ -48,11 +48,15 @@ pub enum UpdateError {
     Unreachable,
     #[error("No Luna software update is waiting.")]
     NoneAvailable,
-    #[error("That update file didn't match its checksum. Nothing was installed.")]
+    #[error("That update file looks damaged. Nothing was installed.")]
     Checksum,
-    #[error("That update is missing a checksum file. Nothing was installed.")]
+    #[error(
+        "That update is missing the file Luna uses to check it isn't damaged. Nothing was installed."
+    )]
     MissingChecksum,
-    #[error("That update is missing its signature. Nothing was installed.")]
+    #[error(
+        "That update is missing the signature Luna uses to confirm it's genuine. Nothing was installed."
+    )]
     MissingSignature,
     #[error("That update could not be verified. Nothing was installed.")]
     BadSignature,
@@ -812,6 +816,16 @@ impl UpdateService {
         }
     }
 
+    /// How many trusted signing keys actually decode as minisign keys. Zero
+    /// means no release can pass `verify_sums_signature`.
+    pub fn usable_key_count(&self) -> usize {
+        self.source()
+            .keys
+            .iter()
+            .filter(|k| PublicKey::from_base64(k).is_ok())
+            .count()
+    }
+
     /// True when the trusted keys are still the compiled-in release key.
     pub fn using_default_keys(&self) -> bool {
         self.source().keys == parse_minisign_pub(PINNED_PUB)
@@ -1195,6 +1209,11 @@ mod tests {
         assert!(
             !parse_minisign_pub(PINNED_PUB).is_empty(),
             "keys/lsluna.minisign.pub must contain an RW public key line"
+        );
+        let dir = tempfile::tempdir().unwrap();
+        assert!(
+            UpdateService::from_env(dir.path()).usable_key_count() > 0,
+            "the pinned key must decode, or the system check flags every Luna"
         );
     }
 

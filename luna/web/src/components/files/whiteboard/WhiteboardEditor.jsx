@@ -183,7 +183,7 @@ class WhiteboardErrorBoundary extends Component {
           }}
         >
           <PageNotice variant="error">
-            An unexpected error occurred in the whiteboard editor.
+            The whiteboard view crashed. Your file on the drive hasn&rsquo;t changed.
           </PageNotice>
         </OfficeIssueCard>
       );

@@ -74,7 +74,8 @@ export default defineConfig({
           vendor: ["react", "react-dom", "react-router-dom"],
           ui: ["lucide-react"],
           query: ["@tanstack/react-query"],
-          // Heavy editor — its own chunk so it only downloads on open.
+          // Heavy editor — its own chunk so it only downloads on open. lunad's
+          // system check looks for assets/excalidraw-*.js; keep the name.
           excalidraw: ["@excalidraw/excalidraw"],
         },
       },

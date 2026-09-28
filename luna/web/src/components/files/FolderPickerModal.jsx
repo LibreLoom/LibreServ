@@ -254,7 +254,7 @@ export default function FolderPickerModal({
                 : <NewItemMenu ids={["folder"]} onPick={openCreateFolder} surface="primary" />}
             />
           ) : isMember && roots && roots.length === 0 ? null : (
-            <p className="text-primary text-sm">No drives available. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.</p>
+            <p className="text-primary text-sm">No drives available. Make sure your drive is plugged in — if it already is, try unplugging it and plugging it back in.</p>
           )}
 
           <div className="mt-4 flex flex-wrap gap-3">

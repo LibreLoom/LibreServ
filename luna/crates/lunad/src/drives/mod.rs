@@ -32,7 +32,7 @@ use crate::drives::fsprobe::{
 use crate::drives::mount::Mounter;
 
 pub const INSTALLER_USB_MESSAGE: &str = "If you have moved any files you want to keep off this drive, choose Erase and add this drive. That deletes everything on it so Luna can use it for your photos and files.";
-pub const WRITE_REJECTED_MESSAGE: &str = "This drive will not accept new files right now. If it has a lock switch, slide it to unlock. Then try again.";
+pub const WRITE_REJECTED_MESSAGE: &str = "This drive will not accept new files right now. If it has a lock switch, slide it to unlock, then try again.";
 /// Adopt failed because the stick stayed read-only after a remount attempt.
 pub const NEEDS_FORMAT_MESSAGE: &str =
     "This drive is read-only. Format it before using it with Luna.";
@@ -444,6 +444,12 @@ impl DriveManager {
                 anyhow::anyhow!("Close any files open from this drive, then try again.")
             })?;
             let _ = std::fs::remove_dir(target);
+        } else if !drive.mount_point.is_empty() && Path::new(&drive.mount_point).is_dir() {
+            // The OS mounted this drive, so Luna leaves the mount alone — but
+            // "safe to unplug" must not be said while the kernel still holds
+            // writes for it. (Luna OS never automounts; this is desktop hosts.)
+            sync_filesystem(Path::new(&drive.mount_point))
+                .map_err(|_| anyhow::anyhow!("Luna couldn't finish writing to this drive."))?;
         }
         db::set_drive_state(conn, id, "ejected")?;
         Ok(())
@@ -833,6 +839,18 @@ impl DriveManager {
 
     fn is_ours(&self, path: &Path) -> bool {
         path.starts_with(&self.foreign_base) || path.starts_with(&self.adopted_base)
+    }
+}
+
+/// Write out everything the kernel still holds for the filesystem at `path`.
+fn sync_filesystem(path: &Path) -> std::io::Result<()> {
+    use std::os::fd::AsRawFd;
+    let dir = std::fs::File::open(path)?;
+    // SAFETY: syncfs only reads the descriptor, which `dir` keeps open.
+    if unsafe { libc::syncfs(dir.as_raw_fd()) } == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
     }
 }
 

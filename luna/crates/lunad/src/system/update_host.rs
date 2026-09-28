@@ -85,6 +85,11 @@ pub(crate) fn validate_api_base_host(api_base: &str) -> Result<(), &'static str>
     }
     // Resolve when possible. NXDOMAIN / temporary DNS failure is not a hard
     // reject here — the later fetch will surface a reachability error.
+    // Tests skip the lookup: real DNS makes them depend on the network (a
+    // split-horizon resolver maps the default host to a LAN IP).
+    if cfg!(test) {
+        return Ok(());
+    }
     let lookup = format!("{host}:443");
     if let Ok(addrs) = std::net::ToSocketAddrs::to_socket_addrs(&lookup) {
         let mut saw_any = false;

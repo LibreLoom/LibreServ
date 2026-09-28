@@ -122,16 +122,12 @@ impl Mounter for CommandMounter {
         let mode = if read_only { "ro" } else { "rw" };
         let fs = fs_type.unwrap_or("").trim().to_ascii_lowercase();
 
-        if matches!(fs.as_str(), "ntfs" | "ntfs3" | "fuseblk")
-            && try_ntfs3g(device, target, read_only)?
-        {
-            return Ok(());
-        }
-
         let mut cmd = Command::new("mount");
         if !fs.is_empty() && fs != "fuseblk" {
             let mount_fs = match fs.as_str() {
                 "fat" | "fat32" | "msdos" => "vfat",
+                // The kernel's ntfs3 driver reads and writes; there's no ntfs-3g.
+                "ntfs" => "ntfs3",
                 other => other,
             };
             cmd.arg("-t").arg(mount_fs);
@@ -149,21 +145,6 @@ impl Mounter for CommandMounter {
             ));
         }
         Ok(())
-    }
-}
-
-fn try_ntfs3g(device: &str, target: &Path, read_only: bool) -> anyhow::Result<bool> {
-    let mode = if read_only { "ro" } else { "rw" };
-    let out = Command::new("ntfs-3g")
-        .arg("-o")
-        .arg(mode)
-        .arg(device)
-        .arg(target)
-        .output();
-    match out {
-        Ok(o) if o.status.success() => Ok(true),
-        Ok(_) => Ok(false),
-        Err(_) => Ok(false),
     }
 }
 

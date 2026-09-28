@@ -1763,7 +1763,7 @@ function PicturePicker({ driveId, formPath, startFolder, onPicked, onClose }) {
     >
       <div className="space-y-3">
         <p className="text-sm text-primary">
-          Choose a picture already on Luna, or upload one. JPG, PNG, GIF, or WebP, up to 20 MB.
+          Choose a picture already on Luna, or upload a JPG, PNG, GIF, or WebP (up to 20 MB).
           Luna keeps a copy next to the form so people answering can see it.
         </p>
         <div className="flex flex-wrap items-center gap-2">

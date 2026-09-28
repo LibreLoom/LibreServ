@@ -59,7 +59,7 @@ async fn update_me(
     let conn = state.db.lock().map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna's index is busy. Try again.",
+            "Luna couldn't do that. Try again.",
         )
     })?;
     let mut changed_password = false;

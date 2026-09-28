@@ -13,9 +13,7 @@
 //! Central `luna.db` still owns users, access members/links, protection
 //! *rules*, jobs, and the thin drives registry.
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use luna_core::marker::{self, Marker};
@@ -566,101 +564,6 @@ pub fn read_identity(conn: &Connection) -> anyhow::Result<Option<Marker>> {
 pub fn set_label(conn: &Connection, label: &str) -> anyhow::Result<()> {
     conn.execute("UPDATE identity SET label = ?1", params![label])?;
     Ok(())
-}
-
-/// In-memory pool of open per-drive connections, keyed by drive id.
-#[derive(Default)]
-pub struct DriveDbPool {
-    inner: Mutex<HashMap<String, Arc<Mutex<Connection>>>>,
-}
-
-impl DriveDbPool {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn open(&self, drive_id: &str, root: &Path) -> anyhow::Result<Arc<Mutex<Connection>>> {
-        let mut map = self
-            .inner
-            .lock()
-            .map_err(|_| anyhow::anyhow!("drive db pool poisoned"))?;
-        if let Some(existing) = map.get(drive_id) {
-            return Ok(existing.clone());
-        }
-        let conn = open(root)?;
-        let arc = Arc::new(Mutex::new(conn));
-        map.insert(drive_id.to_string(), arc.clone());
-        Ok(arc)
-    }
-
-    pub fn get(&self, drive_id: &str) -> Option<Arc<Mutex<Connection>>> {
-        self.inner.lock().ok()?.get(drive_id).cloned()
-    }
-
-    pub fn close(&self, drive_id: &str) {
-        if let Ok(mut map) = self.inner.lock()
-            && let Some(arc) = map.remove(drive_id)
-        {
-            // Checkpoint/close by dropping the last Arc when callers release.
-            drop(arc);
-        }
-    }
-
-    pub fn with_drive<F, T>(&self, drive_id: &str, f: F) -> anyhow::Result<T>
-    where
-        F: FnOnce(&Connection) -> anyhow::Result<T>,
-    {
-        let arc = self
-            .get(drive_id)
-            .ok_or_else(|| anyhow::anyhow!("drive database is not open"))?;
-        let conn = arc
-            .lock()
-            .map_err(|_| anyhow::anyhow!("drive database lock poisoned"))?;
-        f(&conn)
-    }
-
-    /// Fan-out helper: run `f` on every currently open drive DB.
-    pub fn for_each_open<F>(&self, mut f: F) -> anyhow::Result<()>
-    where
-        F: FnMut(&str, &Connection) -> anyhow::Result<()>,
-    {
-        let snapshot: Vec<(String, Arc<Mutex<Connection>>)> = {
-            let map = self
-                .inner
-                .lock()
-                .map_err(|_| anyhow::anyhow!("drive db pool poisoned"))?;
-            map.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
-        };
-        for (id, arc) in snapshot {
-            let conn = arc
-                .lock()
-                .map_err(|_| anyhow::anyhow!("drive database lock poisoned"))?;
-            f(&id, &conn)?;
-        }
-        Ok(())
-    }
-
-    pub fn find_upload(
-        &self,
-        upload_id: &str,
-    ) -> anyhow::Result<Option<(String, crate::db::UploadRow)>> {
-        let snapshot: Vec<(String, Arc<Mutex<Connection>>)> = {
-            let map = self
-                .inner
-                .lock()
-                .map_err(|_| anyhow::anyhow!("drive db pool poisoned"))?;
-            map.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
-        };
-        for (drive_id, arc) in snapshot {
-            let conn = arc
-                .lock()
-                .map_err(|_| anyhow::anyhow!("drive database lock poisoned"))?;
-            if let Some(row) = crate::db::get_upload(&conn, upload_id)? {
-                return Ok(Some((drive_id, row)));
-            }
-        }
-        Ok(None)
-    }
 }
 
 #[cfg(test)]

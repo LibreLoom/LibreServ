@@ -349,7 +349,7 @@ function nativeGetFileBytes(iframe) {
     const r = api.asc_nativeGetFile3();
     bin = r.header + r.data;
   } else {
-    throw new Error("This EuroOffice build cannot save in the browser.");
+    throw new Error("This version of EuroOffice can't save documents in the browser.");
   }
   const bytes =
     typeof bin === "string" ? new TextEncoder().encode(bin) : new Uint8Array(bin);
