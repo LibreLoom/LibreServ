@@ -113,8 +113,17 @@ install_podman
 # Cloud Agent image ships an older toolchain, so install 1.96 via rustup and
 # expose cargo/rustc on PATH for every future shell.
 install_rust() {
-  export RUSTUP_HOME="${RUSTUP_HOME:-/usr/local/rustup}"
-  export CARGO_HOME="${CARGO_HOME:-/usr/local/cargo}"
+  # Reuse an existing rustup install (and its homes) when the image ships one;
+  # forcing /usr/local homes onto it would set the default toolchain in a home
+  # that later shells never read and leave dangling /usr/local/bin symlinks.
+  if command -v rustup >/dev/null 2>&1; then
+    local bin; bin="$(dirname "$(command -v rustup)")"
+    export CARGO_HOME="${CARGO_HOME:-$(dirname "${bin}")}"
+    export RUSTUP_HOME="${RUSTUP_HOME:-$(rustup show home 2>/dev/null || echo "${HOME}/.rustup")}"
+  else
+    export RUSTUP_HOME="${RUSTUP_HOME:-/usr/local/rustup}"
+    export CARGO_HOME="${CARGO_HOME:-/usr/local/cargo}"
+  fi
 
   if ! command -v rustup >/dev/null 2>&1; then
     echo ">> Installing rustup (default toolchain ${RUST_VERSION})"
@@ -267,16 +276,16 @@ for preset in photos documents media projects deep mixed empty; do
   fi
 done
 
-# ── 8. Luna Desktop (GTK 4 + libadwaita) ──────────────────────────────────────
+# ── 10. Luna Desktop (GTK 4 + libadwaita) ──────────────────────────────────────
 echo ">> Preparing Luna Desktop GTK deps"
 as_root apt-get update -qq
-as_root DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
   libgtk-4-dev libadwaita-1-dev pkg-config
 cd "${REPO_ROOT}/luna/desktop"
 cargo test
 cargo build --release
 
-# ── 10. Luna release build deps (ISO / Flatpak / Windows / signing) ───────────
+# ── 11. Luna release build deps (ISO / Flatpak / Windows / signing) ───────────
 # ./release.sh --luna needs musl for lunad, xorriso/live-build for ISO,
 # xz to compress the rapidinstall ISO for release (GitHub 2 GiB asset cap),
 # flatpak-builder for Desktop Linux, mingw+NSIS for Windows, minisign for checksums.

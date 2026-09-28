@@ -45,7 +45,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = Path(os.environ.get("LUNA_DATA_DIR", ROOT / "dev"))
 DEFAULT_HOST = os.environ.get("MOCK_CONNECT_HOST", "127.0.0.1")
 DEFAULT_PORT = int(os.environ.get("MOCK_CONNECT_PORT", "18765"))

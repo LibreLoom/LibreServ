@@ -14,6 +14,7 @@ infra/    ci-source/ (CI runner), agents/ (repo bots), docs/ (release process)
 ci        CI launcher: ./ci (interactive), ./ci run -profile full | libreserv | luna
 release.sh  release pipeline (both products)
 keys/     release minisign PUBLIC keys
+.claude/  Claude Code cloud setup script copy + SessionStart hook
 ```
 
 **Public paths that must not move:** `sol/install.sh` (fetched by raw URL) and `keys/*.minisign.pub` (lunad's updater fetches `raw/branch/main/keys/<name>`).
@@ -96,6 +97,12 @@ Sync with the animation. Never buzz on hover, scroll, or typing. Never double-bu
 - **Push once** to the upstream remote; the mirror copies it. Never dual-push commits or branches — it races the mirror. If a forge looks behind, wait.
 - **Tags don't sync.** Push release tags to the forge the consumer fetches (Luna Connect at `/opt/LibreServ` pulls Forgejo), or deploy with `deploy.sh --head` / an explicit SHA.
 - Conventional commits (`feat(scope): …`, `fix(scope): …`); branches `feat/`, `fix/`, `docs/`, `chore/`.
+
+## Claude Code cloud environment
+
+- The environment's **Setup script** box holds a copy of `.claude/cloud-setup.sh` — keep them in sync. It installs toolchains only (apt packages, Go 1.26, Rust 1.96, Android SDK, `fj`) to stay under the ~5 min cache limit; needs network access **Full**.
+- `.claude/session-start.sh` (cloud only) starts Podman, seeds mock drives and mock Connect (`:18765`), then builds in the background. Wait until `/tmp/libreserv-session-setup.state` reads `done` before building or testing (log: `/tmp/libreserv-session-setup.log`).
+- Forgejo auth is an environment **API credential** for `gt.plainskill.net` that the agent proxy attaches; the token is never in the session.
 
 ## Notes for agents
 

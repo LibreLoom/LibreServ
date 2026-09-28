@@ -15,8 +15,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "scripts" / "mock-connect.py"
+ROOT = Path(__file__).resolve().parents[2]
+SCRIPT = ROOT / "scripts" / "mocks" / "mock-connect.py"
 TEST_PORT = 19876
 TEST_HOST = "127.0.0.1"
 

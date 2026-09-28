@@ -73,6 +73,12 @@ sol/connect/configs/connect.yaml
 !.cursor/environment.json
 !.cursor/install.sh
 !.cursor/start.sh
+# Claude Code cloud environment: setup script copy + SessionStart hook.
+!.claude/
+.claude/*
+!.claude/settings.json
+!.claude/cloud-setup.sh
+!.claude/session-start.sh
 .catalyst-code/
 .crush/
 .fleet/

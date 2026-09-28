@@ -23,7 +23,7 @@ import zipfile
 from datetime import datetime, timedelta
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = Path(os.environ.get("LUNA_DATA_DIR", ROOT / "dev"))
 MOCK_DRIVES_DIR = Path(os.environ.get("LUNA_MOCK_DRIVES_PATH", DATA_DIR / "mock-drives"))
 DB_PATH = DATA_DIR / "luna.db"

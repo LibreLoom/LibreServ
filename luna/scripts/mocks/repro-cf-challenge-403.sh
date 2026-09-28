@@ -3,7 +3,7 @@
 # Prerequisites: lunad built; mock on :18765.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 DATA_DIR="${LUNA_DATA_DIR:-$ROOT/dev}"
 MOCK_URL="${LUNA_CONNECT_URL:-http://127.0.0.1:18765}"
 TOKEN="${REPRO_DEVICE_TOKEN:-ABCD-EFGH-JKMN-PQRS-TVWX}"
