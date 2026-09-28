@@ -2,11 +2,12 @@ import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import { cn } from "@libreloom/ui/lib/utils.js";
-import { AlertTriangle, CheckCircle, XCircle, ChevronDown } from "lucide-react";
+import { AlertTriangle, CheckCircle, ChevronDown } from "lucide-react";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import { useSystemHealthCheck } from "../../hooks/useSystemHealthCheck.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { displayLabel } from "../../lib/healthChecks.js";
+import CheckStatusIcon from "./CheckStatusIcon.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 /**
@@ -161,12 +162,8 @@ export default function SystemHealthPill() {
           >
             <div className="px-4 py-3 border-b border-primary/10">
               <div className="flex items-center gap-2">
-                <AlertTriangle
-                  size={ICON_SIZE.md}
-                  className={onlyWarnings ? "text-warning" : "text-error"}
-                  aria-hidden="true"
-                />
-                <span className={cn("font-mono text-sm", onlyWarnings ? "text-warning" : "text-error")}>
+                <CheckStatusIcon status={onlyWarnings ? "warning" : "failed"} size="sm" />
+                <span className="font-mono text-sm text-primary">
                   {countText} found
                 </span>
               </div>
@@ -179,11 +176,7 @@ export default function SystemHealthPill() {
                   style={isClosing ? undefined : { animationDelay: `${i * 45}ms` }}
                 >
                   <div className="px-4 py-2 flex items-start gap-2">
-                    {check.warning ? (
-                      <AlertTriangle size={ICON_SIZE.sm} className="text-warning mt-0.5 shrink-0" aria-hidden="true" />
-                    ) : (
-                      <XCircle size={ICON_SIZE.sm} className="text-error mt-0.5 shrink-0" aria-hidden="true" />
-                    )}
+                    <CheckStatusIcon status={check.warning ? "warning" : "failed"} size="sm" className="mt-0.5" />
                     <div className="min-w-0">
                       <div className="text-sm text-primary font-medium">{check.label}</div>
                       {check.message && (

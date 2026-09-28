@@ -1,8 +1,9 @@
-import { Activity, AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
+import { Activity } from "lucide-react";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
 import { useSystemHealthCheck } from "../../../hooks/useSystemHealthCheck.jsx";
 import CheckMore from "../../common/CheckMore.jsx";
+import CheckStatusIcon from "../../common/CheckStatusIcon.jsx";
 import CheckStatusTag from "../../common/CheckStatusTag.jsx";
 import { displayLabel, statusRank } from "../../../lib/healthChecks.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
@@ -82,21 +83,13 @@ export default function SystemChecksCard({ index = 1 }) {
 
         <ul className="space-y-1">
           {ordered.map(([name, check]) => {
-            const ok = check.status === "passed";
-            const warn = check.status === "warning";
             return (
               <li
                 key={name}
                 className="flex items-start justify-between gap-3 py-2 border-b border-primary/10 last:border-0"
               >
                 <div className="flex items-start gap-2.5 min-w-0">
-                  {ok ? (
-                    <CheckCircle2 size={ICON_SIZE.md} className="text-success shrink-0 mt-0.5" aria-hidden="true" />
-                  ) : warn ? (
-                    <AlertTriangle size={ICON_SIZE.md} className="text-warning shrink-0 mt-0.5" aria-hidden="true" />
-                  ) : (
-                    <XCircle size={ICON_SIZE.md} className="text-error shrink-0 mt-0.5" aria-hidden="true" />
-                  )}
+                  <CheckStatusIcon status={check.status} size="sm" className="mt-0.5" />
                   <div className="min-w-0">
                     <div className="text-sm text-primary">{displayLabel(name, check)}</div>
                     {check.message && (

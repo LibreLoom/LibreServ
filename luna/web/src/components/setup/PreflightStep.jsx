@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import PropTypes from "prop-types";
-import { AlertCircle, AlertTriangle, ArrowRight, Check, Loader2, X } from "lucide-react";
+import { AlertCircle, ArrowRight, Loader2 } from "lucide-react";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import CheckMore from "../common/CheckMore.jsx";
+import CheckStatusIcon from "../common/CheckStatusIcon.jsx";
 import CheckStatusTag from "../common/CheckStatusTag.jsx";
 import { getJsonAllowErrorStatus } from "../../lib/api.js";
 import {
@@ -32,22 +33,7 @@ function PreflightRow({ name, check, delay, done, rerunning }) {
       )}
       style={{ animationDelay: `${delay}ms` }}
     >
-      <div
-        className={cn(
-          "flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center motion-safe:transition-all motion-safe:duration-300",
-          showEmpty || isOk ? "bg-primary/15" : isWarn ? "bg-warning/20" : "bg-error/20",
-        )}
-      >
-        {showEmpty ? (
-          <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
-        ) : isOk ? (
-          <Check className="w-3.5 h-3.5" aria-hidden="true" />
-        ) : isWarn ? (
-          <AlertTriangle className="w-3.5 h-3.5 text-warning" aria-hidden="true" />
-        ) : (
-          <X className="w-3.5 h-3.5 text-error" aria-hidden="true" />
-        )}
-      </div>
+      <CheckStatusIcon status={showEmpty ? "pending" : isOk ? "passed" : isWarn ? "warning" : "failed"} />
       <div className="flex-1 min-w-0 pt-1">
         <span className="text-sm text-primary">{label}</span>
         {(isWarn || isFail) && check.message && (
@@ -217,7 +203,7 @@ export default function PreflightStep({ onPass }) {
         )}
         {canContinue && warningCount > 0 && (
           <p className="text-xs text-primary flex items-start gap-1.5 animate-in fade-in duration-300">
-            <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-px text-warning" aria-hidden="true" />
+            <CheckStatusIcon status="warning" size="sm" className="mt-px" />
             {warningCount === 1
               ? "One thing above won't work yet, but you can still continue setup."
               : `${warningCount} things above won't work yet, but you can still continue setup.`}
