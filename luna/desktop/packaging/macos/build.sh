@@ -2,7 +2,7 @@
 # Build Luna Desktop for macOS as a .app bundle + .dmg installer.
 #
 # Runs ON a Mac (no cross-compile from Linux — GTK needs the macOS SDK).
-#   brew install gtk4 libadwaita dylibbundler
+#   brew install gtk4 libadwaita dylibbundler adwaita-icon-theme
 #   bash packaging/macos/build.sh
 #
 # Output: desktop/release/Luna-Desktop-<version>-macos-<arch>.dmg
@@ -131,6 +131,10 @@ for theme in Adwaita hicolor; do
 		cp -R "$BREW_PREFIX/share/icons/$theme" "$APP/Contents/Resources/share/icons/"
 	fi
 done
+if [ ! -d "$APP/Contents/Resources/share/icons/Adwaita" ]; then
+	echo "WARNING: Adwaita icon theme not bundled — named icons will render as" >&2
+	echo "         broken-image glyphs (brew install adwaita-icon-theme)" >&2
+fi
 
 # GSettings schemas — adwaita/glib warn-and-continue without them, but bundling
 # keeps preference backends quiet.

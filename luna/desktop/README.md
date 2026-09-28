@@ -25,7 +25,7 @@ Luna) and **Sync** (two-way keep a Luna folder and a local folder up to date).
 
 ### macOS notes
 
-- Build host needs `brew install gtk4 libadwaita dylibbundler` then
+- Build host needs `brew install gtk4 libadwaita dylibbundler adwaita-icon-theme` then
   `bash packaging/macos/build.sh` — produces `release/Luna-Desktop-*-macos-*.dmg`.
 - `UNIVERSAL=1` builds an arm64+x86_64 universal binary (needs both rustup targets).
 - The build ad-hoc signs by default (required on Apple Silicon). Set
@@ -50,8 +50,10 @@ sudo apt install libgtk-4-dev libadwaita-1-dev pkg-config
 sudo dnf install gtk4-devel libadwaita-devel pkgconf-pkg-config
 ```
 
-On macOS: `brew install gtk4 libadwaita pkgconf` (Rust via rustup), then
-`cargo run` / `cargo test` work as usual.
+On macOS: `brew install gtk4 libadwaita pkgconf adwaita-icon-theme` (Rust via
+rustup), then `cargo run` / `cargo test` work as usual. The icon theme is a
+separate formula — without it named icons (`emblem-ok-symbolic` & friends)
+render as the broken-image glyph.
 
 ## Building on hosts with old GTK
 

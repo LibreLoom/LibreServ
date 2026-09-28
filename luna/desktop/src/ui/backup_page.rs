@@ -284,13 +284,13 @@ fn backup_status_icon(
     }
     if progress.running && !progress.current.is_empty() {
         return (
-            "emblem-synchronizing-symbolic",
+            "view-refresh-symbolic",
             "Copying files to Luna…".to_string(),
         );
     }
     if active || progress.running {
         return (
-            "emblem-ok-symbolic",
+            "object-select-symbolic",
             "This folder is being correctly backed up.".to_string(),
         );
     }
