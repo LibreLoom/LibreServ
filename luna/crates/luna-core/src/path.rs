@@ -187,6 +187,33 @@ pub fn open_verified(root: &Path, rel: &str) -> Result<(std::fs::File, PathBuf),
     Ok((file, path))
 }
 
+/// macOS variant: no `/proc/self/fd`, but `fcntl(F_GETPATH)` reports the
+/// filesystem path of an open descriptor — the same post-open verification.
+#[cfg(target_os = "macos")]
+pub fn open_verified(root: &Path, rel: &str) -> Result<(std::fs::File, PathBuf), PathError> {
+    use std::os::unix::io::AsRawFd;
+    let path = resolve_child(root, rel)?;
+    let file = std::fs::File::open(&path).map_err(PathError::Io)?;
+    let mut buf = [0u8; libc::PATH_MAX as usize];
+    // SAFETY: buf is PATH_MAX bytes, the buffer size F_GETPATH requires, and
+    // stays alive for the duration of the call.
+    let rc = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETPATH, buf.as_mut_ptr()) };
+    if rc == -1 {
+        return Err(PathError::Io(std::io::Error::last_os_error()));
+    }
+    // SAFETY: F_GETPATH wrote a NUL-terminated path into buf on success.
+    let opened_raw = unsafe { std::ffi::CStr::from_ptr(buf.as_ptr().cast()) };
+    let opened_raw = std::str::from_utf8(opened_raw.to_bytes()).map_err(|_| PathError::Escape)?;
+    // F_GETPATH already resolves symlinks; canonicalize too so a moved or
+    // deleted file falls back to the raw path rather than a false escape.
+    let opened = std::fs::canonicalize(opened_raw).unwrap_or_else(|_| PathBuf::from(opened_raw));
+    let canonical_root = root.canonicalize().map_err(PathError::Io)?;
+    if !opened.starts_with(&canonical_root) {
+        return Err(PathError::Escape);
+    }
+    Ok((file, path))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

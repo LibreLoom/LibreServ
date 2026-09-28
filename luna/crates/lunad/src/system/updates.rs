@@ -335,18 +335,28 @@ fn swap_exec(exec: &Path, tmp: &Path) -> Result<(), UpdateError> {
             };
             let exec_c = to_c(exec)?;
             let tmp_c = to_c(tmp)?;
-            // musl 1.2.x has SYS_renameat2 but no renameat2() wrapper; use syscall.
-            const RENAME_EXCHANGE: libc::c_uint = 2;
-            let rc = unsafe {
-                libc::syscall(
-                    libc::SYS_renameat2,
-                    libc::AT_FDCWD,
-                    exec_c.as_ptr(),
-                    libc::AT_FDCWD,
-                    tmp_c.as_ptr(),
-                    RENAME_EXCHANGE,
-                )
+            #[cfg(target_os = "linux")]
+            let rc = {
+                // musl 1.2.x has SYS_renameat2 but no renameat2() wrapper; use syscall.
+                const RENAME_EXCHANGE: libc::c_uint = 2;
+                unsafe {
+                    libc::syscall(
+                        libc::SYS_renameat2,
+                        libc::AT_FDCWD,
+                        exec_c.as_ptr(),
+                        libc::AT_FDCWD,
+                        tmp_c.as_ptr(),
+                        RENAME_EXCHANGE,
+                    )
+                }
             };
+            #[cfg(target_os = "macos")]
+            let rc = {
+                // macOS: same atomic swap via renamex_np(RENAME_SWAP).
+                unsafe { libc::renamex_np(exec_c.as_ptr(), tmp_c.as_ptr(), libc::RENAME_SWAP) }
+            };
+            #[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
+            let rc = -1;
             if rc == 0 {
                 let _ = std::fs::remove_file(&backup);
                 let _ = std::fs::rename(tmp, &backup);

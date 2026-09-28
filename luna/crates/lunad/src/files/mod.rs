@@ -1238,7 +1238,24 @@ fn rename_noreplace(from: &Path, to: &Path) -> std::io::Result<()> {
             Err(std::io::Error::last_os_error())
         }
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        let from_c = std::ffi::CString::new(from.as_os_str().as_bytes())
+            .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "path"))?;
+        let to_c = std::ffi::CString::new(to.as_os_str().as_bytes())
+            .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "path"))?;
+        // renamex_np(RENAME_EXCL) is macOS's atomic no-replace rename —
+        // EEXIST when `to` is taken, same contract as RENAME_NOREPLACE.
+        // SAFETY: both paths are NUL-terminated CStrings.
+        let rc = unsafe { libc::renamex_np(from_c.as_ptr(), to_c.as_ptr(), libc::RENAME_EXCL) };
+        if rc == 0 {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error())
+        }
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
         let _ = (from, to);
         Err(std::io::Error::from_raw_os_error(38))
