@@ -52,8 +52,8 @@ sudo dnf install gtk4-devel libadwaita-devel pkgconf-pkg-config
 
 On macOS: `brew install gtk4 libadwaita pkgconf adwaita-icon-theme` (Rust via
 rustup), then `cargo run` / `cargo test` work as usual. The icon theme is a
-separate formula — without it named icons (`emblem-ok-symbolic` & friends)
-render as the broken-image glyph.
+separate formula — without it the app's named icons (`object-select-symbolic`,
+`view-refresh-symbolic`) render as the broken-image glyph.
 
 ## Building on hosts with old GTK
 
