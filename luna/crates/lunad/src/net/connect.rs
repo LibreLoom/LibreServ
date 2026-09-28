@@ -66,6 +66,12 @@ pub enum ConnectError {
     Conflict,
     #[error("{msg}", msg = DEVICE_TOKEN_REJECTED_MSG)]
     InvalidToken,
+    /// Authentic Connect 403: the device token is fine, but no account has
+    /// this Luna linked right now.
+    #[error(
+        "This Luna isn't linked to a Luna Connect account right now. Link it again on Luna Connect, then try again."
+    )]
+    Unbound,
     #[error("{0}")]
     Other(String),
 }
@@ -554,7 +560,7 @@ impl ConnectService {
                 let _ = self.ensure_tunnel();
                 true
             }
-            Err(ConnectError::Other(msg)) if msg.contains("403") || msg.contains("unbound") => {
+            Err(ConnectError::Unbound) => {
                 self.set_rejected_token(false);
                 self.clear_connect_unreachable();
                 self.clear_claim_keep_code();
@@ -1116,8 +1122,9 @@ impl ConnectService {
         self.call_json_status(method, path, key, body)
     }
 
-    /// Like call_json, but maps authentic Connect JSON 403 to `ConnectError::Other("403 unbound")`
-    /// and Cloudflare/HTML challenges to `GatewayChallenge` (keep local claim).
+    /// Like call_json, but maps an authentic Connect JSON 403 to
+    /// `ConnectError::Unbound` and Cloudflare/HTML
+    /// challenges to `GatewayChallenge` (keep local claim).
     fn call_json_status(
         &self,
         method: &str,
@@ -1224,9 +1231,9 @@ impl ConnectService {
             let _ = std::fs::create_dir_all(parent);
         }
         let enc = crate::at_rest::encrypt_json(&self.device_key, state)
-            .map_err(|e| ConnectError::Other(e.to_string()))?;
+            .map_err(|_| ConnectError::Other("Luna couldn't save that. Try again.".into()))?;
         std::fs::write(&self.state_path, enc.as_bytes())
-            .map_err(|e| ConnectError::Other(e.to_string()))?;
+            .map_err(|_| ConnectError::Other("Luna couldn't save that. Try again.".into()))?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -1342,7 +1349,7 @@ fn classify_403(
         return ConnectError::GatewayChallenge;
     }
     if is_json_connect_body(content_type, body) {
-        return ConnectError::Other("403 unbound".into());
+        return ConnectError::Unbound;
     }
     // Non-JSON gateway block (WAF plain text, empty body, etc.) — keep local claim.
     ConnectError::Unreachable
@@ -2206,8 +2213,8 @@ mod tests {
             other => panic!("expected GatewayChallenge, got {other:?}"),
         }
         match classify_403(403, "application/json", "{\"error\":\"unbound\"}", None) {
-            ConnectError::Other(msg) => assert!(msg.contains("unbound")),
-            other => panic!("expected unbound Other, got {other:?}"),
+            ConnectError::Unbound => {}
+            other => panic!("expected Unbound, got {other:?}"),
         }
         match classify_403(403, "text/plain", "nope", None) {
             ConnectError::Unreachable => {}

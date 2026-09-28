@@ -1,20 +1,18 @@
 //! SQLite-backed rate limiters for auth and share password brute-force defense.
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
-
-use rusqlite::Connection;
 
 use crate::db;
 
 pub struct RateLimiter {
-    db: Arc<Mutex<Connection>>,
+    db: Arc<crate::Db>,
     window: Duration,
     max: usize,
 }
 
 impl RateLimiter {
-    pub fn new(db: Arc<Mutex<Connection>>, window: Duration, max: usize) -> Self {
+    pub fn new(db: Arc<crate::Db>, window: Duration, max: usize) -> Self {
         Self { db, window, max }
     }
 
@@ -33,7 +31,7 @@ impl RateLimiter {
 /// one shared tunnel IP must not be the only thing standing between a public
 /// link and unlimited tries.
 pub struct ShareAuthGuard {
-    db: Arc<Mutex<Connection>>,
+    db: Arc<crate::Db>,
     /// Lock after this many consecutive failures.
     max_failures: u32,
     /// Lock the link itself after this many failures across all addresses.
@@ -41,7 +39,7 @@ pub struct ShareAuthGuard {
 }
 
 impl ShareAuthGuard {
-    pub fn new(db: Arc<Mutex<Connection>>) -> Self {
+    pub fn new(db: Arc<crate::Db>) -> Self {
         Self {
             db,
             max_failures: 8,
@@ -97,9 +95,11 @@ mod tests {
     use super::*;
     use crate::db;
 
-    fn test_db() -> Arc<Mutex<Connection>> {
+    fn test_db() -> Arc<crate::Db> {
         let dir = tempfile::tempdir().unwrap();
-        Arc::new(Mutex::new(db::open(&dir.path().join("luna.db")).unwrap()))
+        Arc::new(crate::Db::new(
+            db::open(&dir.path().join("luna.db")).unwrap(),
+        ))
     }
 
     #[test]

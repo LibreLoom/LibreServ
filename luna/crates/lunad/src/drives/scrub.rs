@@ -304,7 +304,7 @@ pub fn scrub_all_drives(conn: &Connection) -> anyhow::Result<ScrubReport> {
 /// walking/hashing — hashes live in the drive `.luna-<uuid>.sqlite3` microdb. Any one-shot
 /// central→drive migration runs under a brief lock, then the walk is unlocked.
 pub fn hash_drive_unlocked(
-    db: &std::sync::Mutex<Connection>,
+    db: &crate::Db,
     drive_id: &str,
     root: &Path,
 ) -> anyhow::Result<ScrubReport> {
@@ -318,7 +318,7 @@ pub fn hash_drive_unlocked(
 
 /// Like [`scrub_drive`], without holding the central mutex for the walk.
 pub fn scrub_drive_unlocked(
-    db: &std::sync::Mutex<Connection>,
+    db: &crate::Db,
     drive_id: &str,
     root: &Path,
 ) -> anyhow::Result<ScrubReport> {
@@ -330,7 +330,7 @@ pub fn scrub_drive_unlocked(
     scrub_drive_walk(drive_id, root)
 }
 
-pub fn scrub_all_drives_unlocked(db: &std::sync::Mutex<Connection>) -> anyhow::Result<ScrubReport> {
+pub fn scrub_all_drives_unlocked(db: &crate::Db) -> anyhow::Result<ScrubReport> {
     let drives = {
         let conn = db.lock().map_err(|_| anyhow::anyhow!("db lock poisoned"))?;
         db::list_drives(&conn).unwrap_or_default()

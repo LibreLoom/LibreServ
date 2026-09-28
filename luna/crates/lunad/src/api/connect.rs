@@ -271,6 +271,7 @@ fn map_connect_err(err: ConnectError) -> (StatusCode, Json<Value>) {
             StatusCode::UNAUTHORIZED,
             crate::net::connect::DEVICE_TOKEN_REJECTED_MSG,
         ),
+        ConnectError::Unbound => json_error(StatusCode::BAD_REQUEST, err.to_string()),
         ConnectError::Other(msg) => json_error(StatusCode::BAD_REQUEST, msg),
     }
 }

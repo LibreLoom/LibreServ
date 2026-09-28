@@ -115,7 +115,7 @@ fn require_dav_user(
     }
     Err(json_error(
         StatusCode::UNAUTHORIZED,
-        "Use your Luna username and an access token as the password. Your Luna password will not work here.",
+        "Use your Luna username and an access token as the password — create one in Settings → Security. Your Luna password will not work here.",
     ))
 }
 

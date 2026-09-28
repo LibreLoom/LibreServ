@@ -358,7 +358,7 @@ pub fn public_form_document(
         let conn = state.db.lock().map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna's index is busy. Try again.",
+                "Luna couldn't open this form right now. Try again.",
             )
         })?;
         resolve_form_file(&conn, drive_id, path)?
@@ -422,7 +422,7 @@ fn wants_count(raw: &Option<String>) -> bool {
 fn index_busy() -> (StatusCode, Json<Value>) {
     json_error(
         StatusCode::INTERNAL_SERVER_ERROR,
-        "Luna's index is busy. Try again.",
+        "Luna couldn't open this form right now. Try again.",
     )
 }
 
@@ -1252,7 +1252,7 @@ fn respond_lookup_inner(
         let conn = state.db.lock().map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna's index is busy. Try again.",
+                "Luna couldn't open this form right now. Try again.",
             )
         })?;
         resolve_form_file(&conn, &link.drive_id, &link.path)?
@@ -1350,7 +1350,7 @@ async fn respond_upload_inner(
         let conn = state.db.lock().map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna's index is busy. Try again.",
+                "Luna couldn't open this form right now. Try again.",
             )
         })?;
         resolve_form_file(&conn, &link.drive_id, &link.path)?

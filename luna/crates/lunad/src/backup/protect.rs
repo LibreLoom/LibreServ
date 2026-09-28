@@ -37,6 +37,19 @@ pub fn target_rel_path(target: &Layout, source_drive: &str, source_path: &str) -
     }
 }
 
+/// Turn a filesystem-lookup failure into user-facing text: keep the two
+/// [`files::FilesError`] variants that already read like sentences a person
+/// can act on, and fall back to `generic` for everything else (a raw
+/// `io::Error`/`PathError`/db message is never fit to show as-is).
+fn keep_known_or(e: files::FilesError, generic: &str) -> anyhow::Error {
+    match e {
+        files::FilesError::UnknownDrive | files::FilesError::MissingDriveDb => {
+            anyhow::Error::new(e)
+        }
+        _ => anyhow::anyhow!("{generic}"),
+    }
+}
+
 pub fn create(
     conn: &Connection,
     source_drive: &str,
@@ -47,23 +60,33 @@ pub fn create(
         anyhow::bail!("Choose a different drive for the protected copy.");
     }
     let source_path = source_path.trim_matches('/');
-    let already = db::list_protections(conn)?.into_iter().any(|p| {
-        p.source_drive == source_drive
-            && p.source_path.trim_matches('/') == source_path
-            && p.target_drive == target_drive
-    });
+    let already = db::list_protections(conn)
+        .map_err(|_| {
+            anyhow::anyhow!("Luna couldn't check your existing protected folders. Try again.")
+        })?
+        .into_iter()
+        .any(|p| {
+            p.source_drive == source_drive
+                && p.source_path.trim_matches('/') == source_path
+                && p.target_drive == target_drive
+        });
     if already {
         anyhow::bail!("This folder is already copying onto that drive.");
     }
-    let (_src, src_meta) = files::resolve_any(conn, source_drive, source_path)?;
+    let (_src, src_meta) = files::resolve_any(conn, source_drive, source_path)
+        .map_err(|e| keep_known_or(e, "Luna couldn't find that folder to protect."))?;
     if !src_meta.is_dir() {
         anyhow::bail!("Protect a folder, not a single file.");
     }
-    let _ = files::dest_dir(conn, target_drive, "")?;
+    let _ = files::dest_dir(conn, target_drive, "")
+        .map_err(|e| keep_known_or(e, "Luna couldn't set up the protected copy on that drive."))?;
     let target = {
-        let drive = files::drive_root(conn, target_drive)?;
-        Layout::detect(Path::new(&drive.mount_point))
-            .ok_or_else(|| anyhow::anyhow!("target drive is not adopted"))?
+        let drive = files::drive_root(conn, target_drive).map_err(|e| {
+            keep_known_or(e, "Luna couldn't set up the protected copy on that drive.")
+        })?;
+        Layout::detect(Path::new(&drive.mount_point)).ok_or_else(|| {
+            anyhow::anyhow!("Luna couldn't set up the protected copy on that drive.")
+        })?
     };
     let target_path = target_rel_path(&target, source_drive, source_path);
     let id = Uuid::new_v4().to_string();
@@ -74,11 +97,14 @@ pub fn create(
         source_path,
         target_drive,
         &target_path,
-    )?;
-    db::get_protection(conn, &id)?.ok_or_else(|| anyhow::anyhow!("protection not found"))
+    )
+    .map_err(|_| anyhow::anyhow!("Luna couldn't save that protected folder. Try again."))?;
+    db::get_protection(conn, &id)
+        .map_err(|_| anyhow::anyhow!("Luna couldn't confirm that protected folder. Try again."))?
+        .ok_or_else(|| anyhow::anyhow!("Luna couldn't confirm that protected folder. Try again."))
 }
 
-pub fn sync_all(db: &std::sync::Mutex<Connection>) -> anyhow::Result<u64> {
+pub fn sync_all(db: &crate::Db) -> anyhow::Result<u64> {
     let rows = {
         let conn = db.lock().map_err(|_| anyhow::anyhow!("db lock poisoned"))?;
         db::list_protections(&conn)?

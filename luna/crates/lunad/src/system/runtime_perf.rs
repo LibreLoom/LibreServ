@@ -8,11 +8,9 @@
 //! index/scrub contention against the OS DB.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-
-use rusqlite::Connection;
 
 use crate::db;
 use crate::drives::scrub;
@@ -74,7 +72,7 @@ fn sample_list_waits(mounts: &[(String, PathBuf)], done: &AtomicBool) -> (usize,
 
 /// Holding `luna.db` must not stall on-drive gallery list.
 fn list_latency_while_luna_locked(
-    db: &Arc<Mutex<Connection>>,
+    db: &Arc<crate::Db>,
     mounts: &[(String, PathBuf)],
     hold_ms: u64,
 ) -> u128 {
@@ -105,7 +103,9 @@ fn runtime_perf_numbers() {
     write_binaries(&files, 80, 512 * 1024);
     nest_dirs(&tree, 4, 3); // (3^5-1)/2 = 121 dirs
 
-    let db = Arc::new(Mutex::new(db::open(&dir.path().join("luna.db")).unwrap()));
+    let db = Arc::new(crate::Db::new(
+        db::open(&dir.path().join("luna.db")).unwrap(),
+    ));
     {
         let conn = db.lock().unwrap();
         for (id, label, mount) in [

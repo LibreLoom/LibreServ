@@ -9,12 +9,7 @@ use crate::net::connect::{self, ConnectError, ConnectService};
 
 const MAX_FILES_PER_TICK: u64 = 50_000;
 
-pub fn tick(
-    connect: &ConnectService,
-    last_io_unix: i64,
-    now_unix: i64,
-    db: &std::sync::Mutex<rusqlite::Connection>,
-) {
+pub fn tick(connect: &ConnectService, last_io_unix: i64, now_unix: i64, db: &crate::Db) {
     if !connect.is_connect_active() {
         return;
     }

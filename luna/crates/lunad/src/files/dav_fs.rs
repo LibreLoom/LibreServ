@@ -21,7 +21,6 @@ use dav_server::fs::{
     OpenOptions, ReadDirMeta,
 };
 use luna_core::path::{PathError, resolve_child_nofollow, resolve_for_create_nofollow};
-use rusqlite::Connection;
 
 use crate::access::{CAP_EDIT, CAP_UPLOAD, CAP_VIEW};
 use crate::auth::CurrentUser;
@@ -64,7 +63,7 @@ pub struct GrantFs {
     /// were the whole drive, while grants still resolve against the real
     /// drive-relative path.
     prefix: String,
-    db: Arc<Mutex<Connection>>,
+    db: Arc<crate::Db>,
     /// Shared listing cache — every landed write forgets the cached views it
     /// invalidated. Optional: unit tests run a bare fs.
     cache: Option<crate::drives::ram_cache::RamCache>,
@@ -91,7 +90,7 @@ impl GrantFs {
         root: impl AsRef<Path>,
         user: CurrentUser,
         drive_id: impl Into<String>,
-        db: Arc<Mutex<Connection>>,
+        db: Arc<crate::Db>,
     ) -> Self {
         Self::scoped(root, "", user, drive_id, db)
     }
@@ -103,7 +102,7 @@ impl GrantFs {
         prefix: impl Into<String>,
         user: CurrentUser,
         drive_id: impl Into<String>,
-        db: Arc<Mutex<Connection>>,
+        db: Arc<crate::Db>,
     ) -> Self {
         Self {
             inner: JailedFs::new(root),
@@ -957,7 +956,7 @@ mod tests {
     struct Fixture {
         _dir: tempfile::TempDir,
         root: PathBuf,
-        db: Arc<Mutex<Connection>>,
+        db: Arc<crate::Db>,
         drive_id: String,
     }
 
@@ -983,7 +982,7 @@ mod tests {
         Fixture {
             _dir: dir,
             root,
-            db: Arc::new(Mutex::new(conn)),
+            db: Arc::new(crate::Db::new(conn)),
             drive_id,
         }
     }

@@ -41,7 +41,7 @@ pub enum JobError {
     Conflict,
     #[error("Luna can't copy links yet.")]
     Symlink,
-    #[error("The permission this job was created with is gone.")]
+    #[error("You no longer have permission to do this.")]
     Denied,
 }
 
@@ -53,7 +53,7 @@ impl From<FilesError> for JobError {
 
 #[derive(Clone)]
 pub struct JobManager {
-    db: Arc<Mutex<Connection>>,
+    db: Arc<crate::Db>,
     cancels: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
     gallery: Arc<GalleryIndexer>,
 }
@@ -67,7 +67,7 @@ struct PreparedJob {
 }
 
 impl JobManager {
-    pub fn new(db: Arc<Mutex<Connection>>, gallery: Arc<GalleryIndexer>) -> Self {
+    pub fn new(db: Arc<crate::Db>, gallery: Arc<GalleryIndexer>) -> Self {
         Self {
             db,
             cancels: Arc::new(Mutex::new(HashMap::new())),
@@ -350,7 +350,7 @@ struct CopyState<'a> {
 /// Repeat the enqueue-time authorization at execution: a grant revoked
 /// while a job sat in the queue — or mid-copy — must still stop the job.
 /// The job's owner is re-read from the database; a deleted user fails too.
-fn recheck_job_caps(db: &Arc<Mutex<Connection>>, row: &JobRow) -> Result<(), JobError> {
+fn recheck_job_caps(db: &Arc<crate::Db>, row: &JobRow) -> Result<(), JobError> {
     let conn = db
         .lock()
         .map_err(|_| JobError::Db(anyhow::anyhow!("db busy")))?;
@@ -398,7 +398,7 @@ fn recheck_job_caps_for(conn: &Connection, row: &JobRow, from_path: &str) -> Res
 }
 
 fn run_job(
-    db: Arc<Mutex<Connection>>,
+    db: Arc<crate::Db>,
     gallery: Arc<GalleryIndexer>,
     prepared: PreparedJob,
     cancel: Arc<AtomicBool>,
@@ -621,7 +621,7 @@ fn notify_job_gallery(gallery: &GalleryIndexer, prepared: &PreparedJob, moved: b
 /// Per-job copy context: each node the traversal walks is re-authorized
 /// against `row` and re-resolved inside `src_root` before it is read.
 struct CopyCtx<'a> {
-    db: &'a Arc<Mutex<Connection>>,
+    db: &'a Arc<crate::Db>,
     row: &'a JobRow,
     /// `row.from_drive`'s mount point — the jail every node re-resolves in.
     src_root: PathBuf,
@@ -783,9 +783,9 @@ fn plain_job_error(err: &JobError) -> String {
     match err {
         JobError::Conflict => "A file or folder with this name is already there.".into(),
         JobError::Symlink => "Luna can't copy links yet.".into(),
-        JobError::Denied => "The permission this job was created with is gone.".into(),
+        JobError::Denied => "You no longer have permission to do this.".into(),
         JobError::Files(FilesError::UnknownDrive) => {
-            "Luna doesn't know one of these drives. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.".into()
+            "Luna doesn't know one of these drives. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in.".into()
         }
         JobError::Files(FilesError::MissingDriveDb) => files::MISSING_DRIVE_DB_MSG.into(),
         JobError::Files(FilesError::Path(_)) => "Luna can't use that path.".into(),
@@ -820,7 +820,7 @@ mod tests {
         )
     }
 
-    fn setup() -> (tempfile::TempDir, Arc<Mutex<Connection>>, String) {
+    fn setup() -> (tempfile::TempDir, Arc<crate::Db>, String) {
         let dir = tempfile::tempdir().unwrap();
         let conn = db::open(&dir.path().join("luna.db")).unwrap();
         let root = dir.path().join("a");
@@ -850,7 +850,7 @@ mod tests {
         )
         .unwrap();
         users(&conn);
-        (dir, Arc::new(Mutex::new(conn)), "a".into())
+        (dir, Arc::new(crate::Db::new(conn)), "a".into())
     }
 
     /// The run-time capability recheck needs a real user row — give tests an
@@ -862,7 +862,7 @@ mod tests {
     }
 
     /// Drive B on `/dev/shm` (tmpfs) so rename hits EXDEV against drive A on disk.
-    fn setup_cross_fs() -> Option<(tempfile::TempDir, tempfile::TempDir, Arc<Mutex<Connection>>)> {
+    fn setup_cross_fs() -> Option<(tempfile::TempDir, tempfile::TempDir, Arc<crate::Db>)> {
         use std::os::unix::fs::MetadataExt;
         let shm = PathBuf::from("/dev/shm");
         if std::fs::metadata(&shm).ok()?.dev()
@@ -882,7 +882,7 @@ mod tests {
         adopt(&root_b, "b");
         db::upsert_drive(&conn, "b", "B", "as_is", "ext4", "sdb", root_b.to_str()?).ok()?;
         users(&conn);
-        Some((dir_a, dir_b, Arc::new(Mutex::new(conn))))
+        Some((dir_a, dir_b, Arc::new(crate::Db::new(conn))))
     }
 
     #[tokio::test]
@@ -1322,10 +1322,7 @@ mod tests {
         wait_done(&manager, &job.id);
         let done = manager.get(&job.id).unwrap().unwrap();
         assert_eq!(done.state, "error");
-        assert_eq!(
-            done.error,
-            "The permission this job was created with is gone."
-        );
+        assert_eq!(done.error, "You no longer have permission to do this.");
         assert!(!dir.path().join("b/note.txt").exists());
 
         // The same job with live grants runs to completion — the member

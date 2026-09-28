@@ -87,14 +87,14 @@ mod tests {
         allow_public_upload, public_upload_key, public_upload_link_key, upload_link_token,
     };
     use crate::rate_limit::RateLimiter;
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
     use std::time::Duration;
 
     /// The tempdir must outlive the limiter — it holds the backing SQLite
     /// file — so the helper returns it alongside.
     fn limiter(max: usize) -> (tempfile::TempDir, RateLimiter) {
         let dir = tempfile::tempdir().unwrap();
-        let db = Arc::new(Mutex::new(
+        let db = Arc::new(crate::Db::new(
             crate::db::open(&dir.path().join("luna.db")).unwrap(),
         ));
         (dir, RateLimiter::new(db, Duration::from_secs(60), max))

@@ -112,7 +112,7 @@ struct Subject {
 fn busy() -> ApiError {
     json_error(
         StatusCode::INTERNAL_SERVER_ERROR,
-        "Luna's index is busy. Try again.",
+        "Luna couldn't do that. Try again.",
     )
 }
 
@@ -150,7 +150,7 @@ fn resolve_subject(
     let kind = normalize_subject_kind(kind).ok_or_else(|| {
         json_error(
             StatusCode::BAD_REQUEST,
-            "Luna doesn't know that kind of thing.",
+            "Luna doesn't recognize that kind of item.",
         )
     })?;
     let drive_id = drive_id.trim().to_string();
@@ -204,7 +204,7 @@ fn resolve_subject(
             if files::is_blocked_user_path(&rel) || rel == files::TRASH_API_ALIAS {
                 return Err(json_error(
                     StatusCode::BAD_REQUEST,
-                    "Luna can't share that path.",
+                    "Luna can't share that item.",
                 ));
             }
             let base = rel.rsplit('/').next().unwrap_or("").to_string();
@@ -657,7 +657,7 @@ async fn add_member(
     // Reject `..` in the stored path — normalize_subject_path keeps it, so a
     // raw body could otherwise persist a row outside any real subject.
     let path = clean_subject_path(&body.path)
-        .ok_or_else(|| json_error(StatusCode::BAD_REQUEST, "That path can't be shared."))?;
+        .ok_or_else(|| json_error(StatusCode::BAD_REQUEST, "That item can't be shared."))?;
     let subj = resolve_subject(&conn, &body.kind, &body.drive_id, &path, &body.album_id)?;
     let caps = caps_from_str(&body.caps)
         .ok_or_else(|| json_error(StatusCode::BAD_REQUEST, "That access level doesn't exist."))?;
@@ -1524,7 +1524,7 @@ fn child_under_link(link_path: &str, rel: &str) -> Option<String> {
 fn not_in_share() -> ApiError {
     json_error(
         StatusCode::NOT_FOUND,
-        "That path isn't part of this shared link.",
+        "That item isn't part of this shared link.",
     )
 }
 
@@ -3156,7 +3156,7 @@ async fn public_move(
                         "path": rel_guest,
                         "ok": false,
                         "status": status.as_u16(),
-                        "error": err.get("error").cloned().unwrap_or(json!("Move failed.")),
+                        "error": err.get("error").cloned().unwrap_or(json!("Luna couldn't move that.")),
                     }));
                 }
             }
