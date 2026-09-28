@@ -1269,6 +1269,7 @@ fn stale_cloudflared_cmdline(cmdline: &str, bin_path: &Path) -> bool {
 }
 
 /// PIDs of cloudflared tunnel processes started from one of `bin_paths`.
+#[cfg(target_os = "linux")]
 fn cloudflared_tunnel_pids(bin_paths: &[PathBuf]) -> Vec<i32> {
     let Ok(entries) = std::fs::read_dir("/proc") else {
         return Vec::new();
@@ -1290,6 +1291,37 @@ fn cloudflared_tunnel_pids(bin_paths: &[PathBuf]) -> Vec<i32> {
         if bin_paths
             .iter()
             .any(|bin| stale_cloudflared_cmdline(&cmdline, bin))
+        {
+            pids.push(pid);
+        }
+    }
+    pids
+}
+
+/// macOS/BSD variant: no `/proc`, so read the process table with `ps`.
+/// A shebang script's cmdline still contains `<bin> tunnel --no-autoupdate run`
+/// because the interpreter keeps the script path in argv.
+#[cfg(not(target_os = "linux"))]
+fn cloudflared_tunnel_pids(bin_paths: &[PathBuf]) -> Vec<i32> {
+    let Ok(out) = std::process::Command::new("ps")
+        .args(["-axo", "pid=,args="])
+        .output()
+    else {
+        return Vec::new();
+    };
+    let text = String::from_utf8_lossy(&out.stdout);
+    let mut pids = Vec::new();
+    for line in text.lines() {
+        let line = line.trim_start();
+        let Some((pid_str, cmdline)) = line.split_once(char::is_whitespace) else {
+            continue;
+        };
+        let Ok(pid) = pid_str.parse::<i32>() else {
+            continue;
+        };
+        if bin_paths
+            .iter()
+            .any(|bin| stale_cloudflared_cmdline(cmdline, bin))
         {
             pids.push(pid);
         }

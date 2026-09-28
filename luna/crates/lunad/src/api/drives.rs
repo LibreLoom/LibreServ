@@ -600,7 +600,8 @@ fn visible_top_level_counts(root: &std::path::Path) -> (u64, u64) {
 }
 
 fn find_device(name: &str) -> Option<crate::drives::detect::DetectedDrive> {
-    let mounts = std::fs::read_to_string("/proc/mounts").ok()?;
+    // No /proc/mounts off Linux (e.g. macOS dev hosts) — mock drives still scan.
+    let mounts = std::fs::read_to_string("/proc/mounts").unwrap_or_default();
     crate::dev_mock::scan_all(std::path::Path::new("/sys/block"), &mounts)
         .into_iter()
         .find(|d| d.name == name && d.is_storage_candidate())

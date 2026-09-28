@@ -846,11 +846,23 @@ impl DriveManager {
 fn sync_filesystem(path: &Path) -> std::io::Result<()> {
     use std::os::fd::AsRawFd;
     let dir = std::fs::File::open(path)?;
-    // SAFETY: syncfs only reads the descriptor, which `dir` keeps open.
-    if unsafe { libc::syncfs(dir.as_raw_fd()) } == 0 {
+    #[cfg(target_os = "linux")]
+    {
+        // SAFETY: syncfs only reads the descriptor, which `dir` keeps open.
+        if unsafe { libc::syncfs(dir.as_raw_fd()) } == 0 {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error())
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        // macOS has no syncfs; F_FULLFSYNC also flushes the drive's hardware
+        // cache, but not every fd accepts it, so fall back to global sync().
+        if unsafe { libc::fcntl(dir.as_raw_fd(), libc::F_FULLFSYNC) } != 0 {
+            unsafe { libc::sync() };
+        }
         Ok(())
-    } else {
-        Err(std::io::Error::last_os_error())
     }
 }
 
