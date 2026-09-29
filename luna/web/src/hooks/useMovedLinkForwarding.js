@@ -2,9 +2,11 @@ import { useEffect, useMemo, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
+import { useOptionalAuth } from "../context/AuthContext.jsx";
 import { getJson } from "../lib/api";
 import { driveSource, fileListKey } from "../lib/fileSource.jsx";
 import { fileHref, folderHref, isTrashPath, parentPath, pathBasename } from "../lib/paths";
+import { removeRecentItem } from "../lib/recentItems";
 
 /**
  * Deepest-first places this URL names that turned out to be missing, or
@@ -51,6 +53,8 @@ export function forwardedHref({ drive_id: driveId, path, kind }, from, { viewerP
 export default function useMovedLinkForwarding({ driveId, path, viewerPath, selectPath, enabled }) {
   const navigate = useNavigate();
   const { addToast } = useToast();
+  const auth = useOptionalAuth();
+  const username = auth?.user?.username;
   // Trash has its own lifecycle; nothing is forwarded into or out of it.
   const active = enabled && Boolean(driveId) && !isTrashPath(path);
 
@@ -100,6 +104,9 @@ export default function useMovedLinkForwarding({ driveId, path, viewerPath, sele
     const href = forwardedHref(result.hit, result.from, { viewerPath });
     if (followed.current === href) return;
     followed.current = href;
+    if (username && result.from) {
+      removeRecentItem(username, { driveId, path: result.from });
+    }
     navigate(href, { replace: true });
     addToast({
       type: "info",

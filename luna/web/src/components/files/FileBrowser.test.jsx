@@ -1484,7 +1484,13 @@ describe("FileBrowser sorting and filtering", () => {
     });
     renderBrowser({ multiSelect: true });
     const input = await screen.findByLabelText("Find in this folder");
+    // The clear button holds its slot (so the bar never changes height) but
+    // stays hidden and out of reach until there's text.
+    const clear = screen.getByLabelText("Clear the folder filter");
+    expect(clear).toHaveClass("invisible");
+    expect(screen.queryByRole("button", { name: "Clear the folder filter" })).toBeNull();
     fireEvent.change(input, { target: { value: "bea" } });
+    expect(clear).not.toHaveClass("invisible");
 
     expect(screen.getByText("beach.jpg")).toBeInTheDocument();
     expect(screen.queryByText("notes.txt")).not.toBeInTheDocument();
@@ -1494,6 +1500,7 @@ describe("FileBrowser sorting and filtering", () => {
     fireEvent.click(screen.getByRole("button", { name: "Clear the folder filter" }));
     expect(screen.getByText("notes.txt")).toBeInTheDocument();
     expect(screen.queryByText("1 of 3")).not.toBeInTheDocument();
+    expect(clear).toHaveClass("invisible");
   });
 
   it("filters by kind with the All / Folders / Files control", async () => {

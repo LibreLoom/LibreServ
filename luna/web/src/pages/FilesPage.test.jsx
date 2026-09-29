@@ -73,6 +73,9 @@ function stubFilesApi(byPath) {
       ];
       return new Response(JSON.stringify({ ok: true, path: full }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
+    if (u.includes("/files/rename") && method === "POST") {
+      return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
     if (u.includes("/files/content")) {
       return new Response("", { status: 200, headers: { "Content-Type": "text/plain" } });
     }
@@ -652,6 +655,81 @@ describe("FilesPage", () => {
     });
   });
 
+  describe("rename confirmation", () => {
+    const listing = {
+      "": [
+        { name: "notes.txt", kind: "file", size: 1, modified: 0, hidden: false },
+        { name: "Survey.lunaform", kind: "file", size: 1, modified: 0, hidden: false },
+        { name: "Trips.2024", kind: "dir", size: 0, modified: 0, hidden: false },
+      ],
+    };
+    const renameCall = (fetchMock) => fetchMock.mock.calls.find(([url, init]) =>
+      String(url).includes("/files/rename") && (init?.method || "GET").toUpperCase() === "POST"
+    );
+
+    async function startRename(oldName, newName) {
+      fireEvent.click(await screen.findByRole("button", { name: `Rename ${oldName}` }));
+      fireEvent.change(await screen.findByLabelText("New name"), { target: { value: newName } });
+      fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+    }
+
+    it("asks before changing a file's ending, and renames on confirm", async () => {
+      const fetchMock = stubFilesApi({ ...listing });
+      renderFiles();
+      await startRename("notes.txt", "notes.md");
+      expect(await screen.findByText("Change .txt to .md?")).toBeInTheDocument();
+      expect(screen.getByText("The file may not open with the same app afterward.")).toBeInTheDocument();
+      expect(renameCall(fetchMock)).toBeUndefined();
+      const dialog = /** @type {HTMLElement} */ (screen.getByText("Change .txt to .md?").closest("[role='dialog']"));
+      fireEvent.click(within(dialog).getByRole("button", { name: "Rename" }));
+      await waitFor(() => {
+        expect(JSON.parse(renameCall(fetchMock)[1].body)).toEqual({ path: "notes.txt", new_name: "notes.md" });
+      });
+    });
+
+    it("keeps the name dialog when the confirm is cancelled", async () => {
+      const fetchMock = stubFilesApi({ ...listing });
+      renderFiles();
+      await startRename("notes.txt", "notes");
+      const title = await screen.findByText("Remove the .txt ending?");
+      fireEvent.click(within(/** @type {HTMLElement} */ (title.closest("[role='dialog']"))).getByRole("button", { name: "Cancel" }));
+      await waitFor(() => {
+        expect(screen.queryByText("Remove the .txt ending?")).not.toBeInTheDocument();
+      });
+      expect(screen.getByLabelText("New name")).toHaveValue("notes");
+      expect(renameCall(fetchMock)).toBeUndefined();
+    });
+
+    it("renames straight away when only the base name changes", async () => {
+      const fetchMock = stubFilesApi({ ...listing });
+      renderFiles();
+      await startRename("notes.txt", "ideas.txt");
+      await waitFor(() => {
+        expect(JSON.parse(renameCall(fetchMock)[1].body)).toEqual({ path: "notes.txt", new_name: "ideas.txt" });
+      });
+      expect(screen.queryByText(/ending\?|Change \./)).not.toBeInTheDocument();
+    });
+
+    it("never asks when renaming a folder", async () => {
+      const fetchMock = stubFilesApi({ ...listing });
+      renderFiles();
+      await startRename("Trips.2024", "Trips");
+      await waitFor(() => {
+        expect(JSON.parse(renameCall(fetchMock)[1].body)).toEqual({ path: "Trips.2024", new_name: "Trips" });
+      });
+    });
+
+    it("says where a form's answers stay when it stops being a form", async () => {
+      const fetchMock = stubFilesApi({ ...listing });
+      renderFiles();
+      await startRename("Survey.lunaform", "Survey.txt");
+      expect(await screen.findByText("Stop treating this as a form?")).toBeInTheDocument();
+      expect(screen.getByText("Its answers will stay in Survey.lunaform.responses.")).toBeInTheDocument();
+      expect(screen.queryByText(/Change \.lunaform/)).not.toBeInTheDocument();
+      expect(renameCall(fetchMock)).toBeUndefined();
+    });
+  });
+
   it("creates a folder in the current folder", async () => {
     const fetchMock = stubFilesApi({
       "": [{ name: "photo.jpg", kind: "file", size: 1000, modified: 0, hidden: false }],
@@ -682,19 +760,19 @@ describe("FilesPage", () => {
     fireEvent.click(await screen.findByRole("button", { name: "New" }));
     fireEvent.click(await screen.findByRole("menuitem", { name: "Text file" }));
     expect(await screen.findByRole("heading", { name: "New text file" })).toBeInTheDocument();
-    expect(screen.getByDisplayValue("note.txt")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("note.md")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Create file" }));
     await waitFor(() => {
       const create = fetchMock.mock.calls.find(([url, init]) =>
         String(url).includes("/files/create") && (init?.method || "GET").toUpperCase() === "POST"
       );
       expect(create).toBeTruthy();
-      expect(JSON.parse(create[1].body)).toEqual({ path: "note.txt" });
+      expect(JSON.parse(create[1].body)).toEqual({ path: "note.md" });
     });
     // The editor mounts an async text fetch — under full-suite load this
     // clears the default 1s findByRole timeout, so give it headroom.
-    expect(await screen.findByRole("dialog", { name: "note.txt" }, { timeout: 5000 })).toBeInTheDocument();
-    expect(await screen.findByLabelText("Contents of note.txt")).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "note.md" }, { timeout: 5000 })).toBeInTheDocument();
+    expect(await screen.findByLabelText("Contents of note.md")).toBeInTheDocument();
   });
 
   it("lists people who already have access in the Sharing sheet", async () => {
@@ -713,7 +791,7 @@ describe("FilesPage", () => {
     const dialog = await screen.findByRole("dialog", { name: "Sharing" });
     expect(await within(dialog).findByText(/Sam/)).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: /Access for Sam/ })).toBeInTheDocument();
-    expect(within(dialog).getByRole("button", { name: "Add" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Add a person" })).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "New link" })).toBeInTheDocument();
   });
 

@@ -6,7 +6,7 @@ import Card from "../cards/Card";
  * Page — the standard authenticated page shell.
  *
  * Renders the `<main>` with the correct base surface tokens
- * (`bg-primary text-secondary`), consistent padding, the skip-link target
+ * (`surface-primary`), consistent padding, the skip-link target
  * (`id="main-content"` + `tabIndex={-1}` for focus restoration), and an
  * optional HeaderCard. Use this on every routed page so the base text color
  * is always correct and the boilerplate isn't hand-copied.
@@ -47,7 +47,7 @@ export default function Page({
   return (
     <main
       data-slot="page"
-      className={cn("bg-primary text-secondary pt-5 pb-32", padded && "px-8", className)}
+      className={cn("surface-primary pt-5 pb-32", padded && "px-8", className)}
       aria-labelledby={title ? id : undefined}
       id="main-content"
       tabIndex={-1}

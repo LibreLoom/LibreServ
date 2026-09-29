@@ -52,7 +52,7 @@ function fmtDuration(secs) {
 /** @param {{ icon: import("react").ComponentType<any>, title: string, children: import("react").ReactNode }} props */
 function Section({ icon: Icon, title, children }) {
   return (
-    <section className="rounded-large-element bg-primary text-secondary p-3.5 space-y-2.5">
+    <section className="rounded-large-element surface-primary p-3.5 space-y-2.5">
       <h3 className="flex items-center gap-2 font-mono text-xs text-secondary">
         <Icon size={14} className="shrink-0" aria-hidden="true" />
         {title}
@@ -71,7 +71,7 @@ Section.propTypes = {
 /** @param {{ children: import("react").ReactNode }} props */
 function SpecChip({ children }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-pill bg-secondary text-primary px-2.5 py-1 text-xs font-mono">
+    <span className="inline-flex items-center gap-1.5 rounded-pill surface-secondary px-2.5 py-1 text-xs font-mono">
       {children}
     </span>
   );
@@ -154,7 +154,7 @@ function PhotoInfoBody({ photo, photos, onSelectPhoto }) {
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-3">
-        <div className="h-14 w-14 shrink-0 overflow-hidden rounded-large-element bg-primary border-2 border-secondary/30">
+        <div className="h-14 w-14 shrink-0 overflow-hidden rounded-large-element surface-primary border-2 border-secondary/30">
           {photo.thumb ? (
             <img src={photo.thumb} alt="" className="h-full w-full object-cover" />
           ) : (
@@ -329,7 +329,7 @@ export default function PhotoInfoPanel({ photo, open, onClose, photos, onSelectP
           open ? "translate-x-0 scale-100 opacity-100" : "translate-x-3 scale-[0.98] opacity-0",
         )}
       >
-        <div className="h-full overflow-y-auto rounded-large-element bg-secondary text-primary p-3.5 ring-2 ring-accent shadow-xl">
+        <div className="h-full overflow-y-auto rounded-large-element surface-secondary p-3.5 ring-2 ring-accent shadow-xl">
         <div className="mb-3 flex items-center justify-between gap-2">
           <h2 className="font-mono text-sm">About this photo</h2>
           <Button

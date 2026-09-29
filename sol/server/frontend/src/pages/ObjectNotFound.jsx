@@ -107,7 +107,7 @@ export default function ObjectNotFound({
               dynamicRounding={false}
               className="p-8 ring-2 ring-accent text-center motion-reduce:animate-none"
               leftContent={
-                <div className="h-16 w-16 rounded-pill bg-primary text-secondary flex items-center justify-center shrink-0">
+                <div className="h-16 w-16 rounded-pill surface-primary flex items-center justify-center shrink-0">
                   <SearchX size={30} aria-hidden="true" />
                 </div>
               }
@@ -186,7 +186,7 @@ export default function ObjectNotFound({
   if (!includeMain) {
     return (
       <section
-        className="bg-primary text-secondary px-8 pt-10 pb-32 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 no-focus-outline"
+        className="surface-primary px-8 pt-10 pb-32 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 no-focus-outline"
         data-slot="object-not-found"
         aria-labelledby={regionTitleId}
         aria-describedby={detailsId}

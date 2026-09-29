@@ -72,7 +72,7 @@ export default function RecoveryKeyCard({ repo, repoId = "" }) {
     <Card icon={Key} title="Backup Recovery Key" noHeightAnim
       data-slot="recovery-key-card"
       headerActions={
-        <span className="text-xs px-2.5 py-1 rounded-pill bg-primary border-2 border-warning/30 text-warning font-medium flex items-center gap-1">
+        <span className="text-xs px-2.5 py-1 rounded-pill surface-primary border-2 border-warning/30 text-warning font-medium flex items-center gap-1">
           <AlertTriangle size={ICON_SIZE.xs} />
           Critical
         </span>
@@ -93,7 +93,7 @@ export default function RecoveryKeyCard({ repo, repoId = "" }) {
         )}
 
         {error && (
-          <div className="bg-primary text-secondary border-2 border-warning/20 rounded-large-element p-3 text-xs">
+          <div className="surface-primary border-2 border-warning/20 rounded-large-element p-3 text-xs">
             {error}
           </div>
         )}
@@ -104,13 +104,13 @@ export default function RecoveryKeyCard({ repo, repoId = "" }) {
           </p>
           <div className="flex items-center gap-2">
             {clipboardOk || !revealed ? (
-              <code className="flex-1 text-xs font-mono bg-primary rounded-pill px-4 py-2.5 text-secondary overflow-hidden text-ellipsis whitespace-nowrap border-2 border-secondary/10">
+              <code className="flex-1 text-xs font-mono surface-primary rounded-pill px-4 py-2.5 overflow-hidden text-ellipsis whitespace-nowrap border-2 border-secondary/10">
                 {revealed ? displayKey || "••••••••••••••••••••••••••" : "••••••••••••••••••••••••••"}
               </code>
             ) : (
               <input
                 readOnly
-                className="flex-1 text-xs font-mono bg-primary rounded-pill px-4 py-2.5 text-secondary border-2 border-secondary/10"
+                className="flex-1 text-xs font-mono surface-primary rounded-pill px-4 py-2.5 border-2 border-secondary/10"
                 value={displayKey || ""}
                 onFocus={(e) => e.target.select()}
                 aria-label="Recovery key"
@@ -150,7 +150,7 @@ export default function RecoveryKeyCard({ repo, repoId = "" }) {
           ) : null}
         </div>
 
-        <div className="bg-primary text-secondary border-2 border-warning/20 rounded-large-element p-4 flex items-start gap-3">
+        <div className="surface-primary border-2 border-warning/20 rounded-large-element p-4 flex items-start gap-3">
           <AlertTriangle size={ICON_SIZE.lg} className="text-warning shrink-0 mt-0.5" />
           <div className="text-xs space-y-1">
             <p className="font-medium text-secondary">Without this key:</p>

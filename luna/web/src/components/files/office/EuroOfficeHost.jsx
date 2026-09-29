@@ -724,7 +724,7 @@ export default function EuroOfficeHost({
   ]);
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-primary text-secondary">
+    <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col surface-primary">
       {status === "error" ? (
         /* A failed open gets a real card, not a raw converter message over
            a void — name the file, say what happened in plain language, and
@@ -734,10 +734,10 @@ export default function EuroOfficeHost({
           title={
             sawReadyRef.current ? `${name} stopped working` : `Couldn't open ${name}`
           }
-          downloadUrl={source.downloadHref(driveId, path)}
+          downloadUrl={error === "This file doesn't exist anymore." ? undefined : source.downloadHref(driveId, path)}
           downloadName={name}
           onClose={onClose}
-          onRetry={() => {
+          onRetry={error === "This file doesn't exist anymore." ? undefined : () => {
             setError("");
             setStatus("loading");
             setReloadTick((n) => n + 1);

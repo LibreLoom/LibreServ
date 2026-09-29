@@ -47,10 +47,10 @@ export const CREATE_KINDS = [
     openAfter: "text",
     title: "New text file",
     nameLabel: "Name for this text file",
-    placeholder: "e.g. Shopping list.txt",
+    placeholder: "e.g. Shopping list.md",
     confirmLabel: "Create file",
-    defaultName: "note.txt",
-    defaultExt: ".txt",
+    defaultName: "note.md",
+    defaultExt: ".md",
   },
   {
     id: "document",

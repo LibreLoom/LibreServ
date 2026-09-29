@@ -5,7 +5,7 @@ import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import { useTheme } from "@libreloom/ui/hooks/useTheme.jsx";
 import { apiErrorMessage } from "../../../lib/api.js";
 import { pathBasename } from "../../../lib/paths.js";
-import { useFileSource } from "../../../lib/fileSource.jsx";
+import { requireOk, useFileSource } from "../../../lib/fileSource.jsx";
 import { useOptionalAuth } from "../../../context/AuthContext.jsx";
 import { CollabDocSync } from "../collabDocSync.js";
 import { CollabSocket } from "../office/collabSocket.js";
@@ -487,9 +487,13 @@ function EditorSession({
     (async () => {
       let text;
       try {
-        const res = await source.fetch(source.contentHref(driveId, path));
-        if (!res.ok) throw new Error("Luna couldn't open this file.");
-        text = await res.text();
+        if (typeof source.fetchText === "function") {
+          text = await source.fetchText(driveId, path);
+        } else {
+          const res = await source.fetch(source.contentHref(driveId, path));
+          await requireOk(res, "Luna couldn't open this file.");
+          text = await res.text();
+        }
       } catch (err) {
         if (!cancelled) {
           setPhase("error");
@@ -735,13 +739,14 @@ function EditorSession({
   const theme = resolvedTheme === "dark" ? "dark" : "light";
 
   if (phase === "error") {
+    const isNotFound = error === "This file doesn't exist anymore.";
     return (
       <OfficeIssueCard
         title="Luna couldn't open this whiteboard"
-        downloadUrl={source.downloadHref(driveId, path)}
+        downloadUrl={isNotFound ? undefined : source.downloadHref(driveId, path)}
         downloadName={name}
         onClose={onClose}
-        onRetry={onRetry}
+        onRetry={isNotFound ? undefined : onRetry}
       >
         <PageNotice variant="error">{error}</PageNotice>
       </OfficeIssueCard>
@@ -751,7 +756,7 @@ function EditorSession({
   const showLoading = phase === "loading" || !initialData || !editorReady;
 
   return (
-    <div ref={hostRef} className="relative flex min-h-0 flex-1 flex-col bg-primary">
+    <div ref={hostRef} className="relative flex min-h-0 flex-1 flex-col surface-primary">
       {showLoading ? (
         <DocumentLoadingScreen
           label={`Opening ${name}`}

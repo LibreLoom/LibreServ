@@ -283,9 +283,8 @@ async function putBundle(session, name, bytes, coverage) {
 export async function ensureOfficeBundle(driveId, path, session, source = driveSource) {
   if (await bundleHas(session, "Editor.bin")) return { converted: false };
 
-  const res = await source.fetch(source.contentHref(driveId, path));
-  if (!res.ok) throw new Error("Luna couldn't read this file for conversion.");
-  const src = new Uint8Array(await res.arrayBuffer());
+  const bytes = await source.fetchBytes(driveId, path);
+  const src = new Uint8Array(bytes);
   let conv;
   try {
     conv = await x2tConvert(`in.${session.file_type}`, "Editor.bin", src);

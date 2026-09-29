@@ -208,11 +208,11 @@ function MoonHero({ shownPath }) {
           names the problem. */}
       <p
         title={shownPath === shortPath ? undefined : shownPath}
-        className="mt-6 inline-flex max-w-full items-center gap-3 rounded-pill bg-secondary p-1 pr-4 text-primary"
+        className="mt-6 inline-flex max-w-full items-center gap-3 rounded-pill surface-secondary p-1 pr-4"
       >
         <span
           aria-hidden="true"
-          className="min-w-0 truncate rounded-pill bg-primary px-3 py-1 font-mono text-sm text-secondary"
+          className="min-w-0 truncate rounded-pill surface-primary px-3 py-1 font-mono text-sm"
         >
           {shortPath}
         </span>
@@ -269,7 +269,7 @@ function FindFile({ initialTerm, user, className }) {
 
   return (
     <Card icon={Search} title="Find a file" className={className}>
-      <label className="flex items-center gap-2 rounded-pill border-2 border-transparent bg-primary px-4 py-2 text-secondary motion-safe:transition-colors focus-within:border-accent">
+      <label className="flex items-center gap-2 rounded-pill border-2 border-transparent surface-primary px-4 py-2 motion-safe:transition-colors focus-within:border-accent">
         <Search size={16} aria-hidden="true" className="shrink-0" />
         <input
           type="search"
@@ -314,7 +314,7 @@ function FindFile({ initialTerm, user, className }) {
                   <Link
                     to={href}
                     onClick={() => haptic("medium")}
-                    className="flex items-center gap-3 rounded-large-element bg-primary px-4 py-2.5 text-secondary motion-safe:transition-shadow hover:ring-2 hover:ring-accent focus-visible:ring-2 focus-visible:ring-accent"
+                    className="flex items-center gap-3 rounded-large-element surface-primary px-4 py-2.5 motion-safe:transition-shadow hover:ring-2 hover:ring-accent focus-visible:ring-2 focus-visible:ring-accent"
                   >
                     <Icon size={18} aria-hidden="true" className="shrink-0" />
                     <span className="min-w-0 flex-1">

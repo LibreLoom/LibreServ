@@ -75,14 +75,14 @@ export default function LayeredCard({
   return (
     <div
       className={cn(
-        "inline-flex max-w-full flex-col items-stretch rounded-large-element bg-secondary text-primary border border-accent",
+        "inline-flex max-w-full flex-col items-stretch rounded-large-element surface-secondary border border-accent",
         compact ? "text-xs" : "text-sm",
         className,
       )}
     >
       <div
         className={cn(
-          "bg-primary text-secondary",
+          "surface-primary",
           compact
             ? "flex items-center gap-1.5 rounded-pill px-3 py-2 m-1.5 mb-0.5"
             : "flex items-start gap-2.5 rounded-large-element p-4",

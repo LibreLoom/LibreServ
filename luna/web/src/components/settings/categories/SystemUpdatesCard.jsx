@@ -112,7 +112,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
           <div className="flex items-center gap-3 mb-4">
             <div className="text-sm">Status:</div>
             {notChecked && (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-pill text-xs font-medium bg-primary text-secondary">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-pill text-xs font-medium surface-primary">
                 <Info size={ICON_SIZE.xs} aria-hidden="true" />
                 Not checked yet
               </span>
@@ -175,11 +175,11 @@ export default function SystemUpdatesCard({ index = 0 }) {
               </Button>
 
               <div className="flex flex-wrap gap-2">
-                <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-pill text-xs bg-primary text-secondary">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-pill text-xs surface-primary">
                   <Info size={ICON_SIZE.xs} aria-hidden="true" />
                   Luna restarts after an update
                 </div>
-                <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-pill text-xs bg-primary text-secondary">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-pill text-xs surface-primary">
                   <CheckCircle size={ICON_SIZE.xs} aria-hidden="true" />
                   Sign in again afterward
                 </div>
@@ -218,7 +218,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
         >
           <div className="flex-1 min-h-0 flex flex-col">
             <div className="overflow-y-auto flex-1 px-1">
-              <div className="bg-primary text-secondary rounded-large-element px-5 py-3">
+              <div className="surface-primary rounded-large-element px-5 py-3">
                 <ReactMarkdown
                   rehypePlugins={[rehypeSanitize]}
                   components={{

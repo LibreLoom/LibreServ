@@ -132,11 +132,11 @@ export default function SharedPage() {
                 { value: "manage", label: "Manage sharing" },
               ]}
             />
-            <label className="flex min-w-48 flex-1 items-center gap-2 rounded-pill border-2 border-transparent bg-secondary text-primary px-3 py-1 focus-within:border-accent motion-safe:transition-colors">
+            <label className="flex min-w-48 flex-1 items-center gap-2 rounded-pill border-2 border-transparent surface-secondary px-3 py-1 focus-within:border-accent motion-safe:transition-colors">
               <Search size={14} className="shrink-0" aria-hidden="true" />
               <input
                 type="text"
-                className="min-w-0 flex-1 appearance-none border-0 bg-transparent text-sm text-primary shadow-none outline-none focus-visible:outline-2 focus-visible:outline-accent"
+                className="min-w-0 flex-1 appearance-none border-0 bg-transparent text-sm text-primary shadow-none outline-none no-focus-outline"
                 placeholder="Find a shared item"
                 aria-label="Find a shared item"
                 value={search}
@@ -274,7 +274,7 @@ export default function SharedPage() {
                                 {s.name || s.path || s.drive_label}
                               </span>
                               {!s.exists && (
-                                <span className="block text-xs text-warning">
+                                <span className="block text-xs">
                                   Not available right now
                                 </span>
                               )}

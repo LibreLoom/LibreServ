@@ -13,7 +13,7 @@ function LoadingFast({
 }) {
   return (
     <div
-      className={cn("fixed inset-0 z-50 flex flex-col items-center justify-center bg-primary text-secondary transition-colors duration-200", className)}
+      className={cn("fixed inset-0 z-50 flex flex-col items-center justify-center surface-primary transition-colors duration-200", className)}
       data-slot="loading-fast"
       aria-live="polite"
       aria-busy="true"

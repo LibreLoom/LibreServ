@@ -169,7 +169,7 @@ export default function UserDetailPage() {
       title={user?.username || user?.email || "User"}
       titleId="user-detail-title"
       leftContent={
-        <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-primary text-secondary">
+        <span className="inline-flex h-10 w-10 items-center justify-center rounded-full surface-primary">
           <User size={ICON_SIZE.xxl} className="text-secondary" aria-hidden />
         </span>
       }

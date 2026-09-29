@@ -95,7 +95,7 @@ export const QUESTION_TYPES = {
   file: {
     label: "File",
     icon: Paperclip,
-    hint: "A photo or PDF, kept on this Luna next to the form.",
+    hint: "A photo or PDF. Only people who can edit this form can open it.",
     summary: "list",
   },
 };

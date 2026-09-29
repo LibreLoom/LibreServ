@@ -208,7 +208,7 @@ export default function MfaCard({ onMethodEnabled, onComplete, embedded = false 
                 return (
                   <li
                     key={m.id}
-                    className="flex items-center justify-between px-4 py-3 rounded-large-element bg-primary text-secondary border border-accent/40"
+                    className="flex items-center justify-between px-4 py-3 rounded-large-element surface-primary border border-accent/40"
                   >
                     <span className="flex items-center gap-3 text-sm">
                       <Icon size={ICON_SIZE.md} className="shrink-0" />
@@ -310,7 +310,7 @@ export default function MfaCard({ onMethodEnabled, onComplete, embedded = false 
             Store them somewhere safe — they're shown only once.
           </p>
           {showRecoveryCodes && (
-            <div className="mt-3 p-4 rounded-large-element bg-primary text-secondary border-2 border-accent/40">
+            <div className="mt-3 p-4 rounded-large-element surface-primary border-2 border-accent/40">
               <div className="flex items-center justify-between mb-2 gap-2">
                 <span className="text-xs font-medium">Save these now — they won't be shown again</span>
                 {clipboardOk ? (
@@ -693,7 +693,7 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
               <div className="flex items-center gap-2">
                 {/* color-scan: ignore-next-line manual key needs a high-contrast surface for legibility + selection */}
                 <code
-                  className="flex-1 block p-2 bg-primary rounded-pill break-all text-secondary text-xs"
+                  className="flex-1 block p-2 surface-primary rounded-pill break-all text-xs"
                   tabIndex={0}
                   onFocus={(e) => {
                     const range = document.createRange();
@@ -1098,7 +1098,7 @@ export function MfaSetupWizard({ onComplete, smtpConfigured = true, onSessionExp
         {codes && codes.length > 0 && (
           <>
             {/* color-scan: ignore-next-line recovery codes need a high-contrast surface for legibility */}
-            <div className="p-4 rounded-large-element bg-primary text-secondary border-2 border-accent/40">
+            <div className="p-4 rounded-large-element surface-primary border-2 border-accent/40">
               <div className="flex items-center justify-between mb-2 gap-2">
                 <span className="text-xs font-medium">Save these now — they won't be shown again</span>
                 {clipboardOk ? (

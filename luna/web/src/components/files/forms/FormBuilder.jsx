@@ -47,7 +47,6 @@ import {
   latestResponses,
   newQuestionId,
   parseFormDocument,
-  uploadsDirPath,
   writeFormSeen,
 } from "../../../lib/formDocument.js";
 import {
@@ -67,7 +66,7 @@ import {
   setFormSetting,
   setFormTitle,
 } from "../../../lib/formYDoc.js";
-import { fileSourceScope, useFileSource } from "../../../lib/fileSource.jsx";
+import { fileSourceScope, requireOk, useFileSource } from "../../../lib/fileSource.jsx";
 import { joinPath, parentPath } from "../../../lib/paths.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { cn } from "@libreloom/ui/lib/utils.js";
@@ -274,9 +273,13 @@ function BuilderSession({
 
     (async () => {
       try {
-        const res = await source.fetch(source.contentHref(driveId, path));
-        if (!res.ok) throw new Error("Luna couldn't open this form.");
-        const text = await res.text();
+        const text = typeof source.fetchText === "function"
+          ? await source.fetchText(driveId, path)
+          : await (async () => {
+              const res = await source.fetch(source.contentHref(driveId, path));
+              await requireOk(res, "Luna couldn't open this form.");
+              return res.text();
+            })();
         if (cancelled) return;
         const parsed = parseFormDocument(text);
         if (!parsed.ok) {
@@ -483,7 +486,6 @@ function BuilderSession({
   const orderedIds = dragOrder
     ? dragOrder.filter((id) => byId.has(id))
     : questions.map((q) => q.id);
-  const uploadsDir = uploadsDirPath(path);
   const tabDirection = tab === "responses" ? 1 : -1;
 
   return (
@@ -512,7 +514,7 @@ function BuilderSession({
               {peers.slice(0, 5).map((peer) => (
                 <span
                   key={peer.peer_id}
-                  className="-ml-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-primary text-[0.65rem] text-secondary ring-2 ring-primary first:ml-0"
+                  className="-ml-1.5 flex h-6 w-6 items-center justify-center rounded-full surface-primary text-[0.65rem] ring-2 ring-primary first:ml-0"
                   style={{ boxShadow: `inset 0 0 0 2px ${peer.color}` }}
                   aria-hidden="true"
                 >
@@ -580,7 +582,7 @@ function BuilderSession({
                 <div className="mx-auto w-full max-w-2xl space-y-4 p-4 sm:p-6">
                   {/* Title + description edit inline — the builder is WYSIWYG, so
                       this reads like the responder's first screen. */}
-                  <div className="rounded-large-element bg-secondary text-primary p-5 space-y-3">
+                  <div className="rounded-large-element surface-secondary p-5 space-y-3">
                     <input
                       className="w-full bg-transparent font-mono text-xl font-normal text-primary outline-none no-focus-outline"
                       value={doc?.title || ""}
@@ -645,7 +647,7 @@ function BuilderSession({
                             earlier={questions.slice(0, index)}
                             watchers={focusHere.filter((p) => p.id === id)}
                             imageHref={question.image
-                              ? source.contentHref(driveId, joinPath(uploadsDir, question.image))
+                              ? source.formFileHref(driveId, path, question.image)
                               : ""}
                             onDragStart={() => {
                               haptic("rigid");
@@ -699,7 +701,7 @@ function BuilderSession({
                     layout
                     transition={SPRING}
                     aria-labelledby="form-settings-title"
-                    className="rounded-large-element bg-secondary text-primary p-3 space-y-3"
+                    className="rounded-large-element surface-secondary p-3 space-y-3"
                   >
                     <h3
                       id="form-settings-title"
@@ -791,7 +793,7 @@ function BuilderSession({
                         />
                         <AutoGrowTextarea
                           id="form-thank-you"
-                          className="w-full resize-none rounded-large-element border-2 border-primary/30 bg-secondary px-5 py-2 text-base text-primary outline-none no-focus-outline focus:border-accent focus-visible:border-accent placeholder:text-primary/50"
+                          className="w-full resize-none rounded-large-element border-2 border-primary/30 surface-secondary px-5 py-2 text-base outline-none no-focus-outline focus:border-accent focus-visible:border-accent placeholder:text-primary/50"
                           value={settings.thankYou || ""}
                           onChange={(value) => setSetting("thankYou", value)}
                           placeholder={DEFAULT_THANK_YOU}
@@ -886,14 +888,14 @@ AutoGrowTextarea.propTypes = {
 };
 
 const fieldClass =
-  "rounded-pill border-2 border-secondary/30 bg-primary px-4 py-1.5 text-sm text-secondary outline-none no-focus-outline focus:border-accent focus-visible:border-accent";
+  "rounded-pill border-2 border-secondary/30 surface-primary px-4 py-1.5 text-sm outline-none no-focus-outline focus:border-accent focus-visible:border-accent";
 
 /** The control a person fills in — same shape as the answer page, not a grey stand-in. */
 const previewFieldClass =
-  "pointer-events-none w-full rounded-pill border-2 border-secondary/30 bg-primary px-4 py-2 text-base text-secondary outline-none";
+  "pointer-events-none w-full rounded-pill border-2 border-secondary/30 surface-primary px-4 py-2 text-base outline-none";
 
 const answerPillClass =
-  "flex items-center gap-3 rounded-pill border-2 border-secondary/30 bg-primary px-4 py-3 text-left text-base text-secondary";
+  "flex items-center gap-3 rounded-pill border-2 border-secondary/30 surface-primary px-4 py-3 text-left text-base";
 
 /**
  * A layer of related settings inside the settings card — the page-coloured
@@ -903,7 +905,7 @@ const answerPillClass =
  */
 function SettingsGroup({ title, children }) {
   return (
-    <div className="rounded-large-element bg-primary text-secondary p-4 space-y-4">
+    <div className="rounded-large-element surface-primary p-4 space-y-4">
       <h4 className="font-mono text-sm font-normal text-secondary">{title}</h4>
       {children}
     </div>
@@ -1062,7 +1064,7 @@ function QuestionCard({
   return (
     <div
       ref={cardRef}
-      className="rounded-large-element bg-secondary text-primary p-5 space-y-3"
+      className="rounded-large-element surface-secondary p-5 space-y-3"
       onFocus={onFocus}
       onBlur={onBlur}
     >
@@ -1121,7 +1123,7 @@ function QuestionCard({
             aria-label="Question type"
           />
         ) : (
-          <span className="rounded-pill bg-primary px-3 py-1 font-mono text-xs font-normal text-secondary">
+          <span className="rounded-pill surface-primary px-3 py-1 font-mono text-xs font-normal">
             {info.label}
           </span>
         )}
@@ -1170,7 +1172,7 @@ function QuestionCard({
             exit={{ opacity: 0, scale: 0.98 }}
             src={imageHref}
             alt=""
-            className="max-h-48 w-full rounded-large-element bg-primary object-contain"
+            className="max-h-48 w-full rounded-large-element surface-primary object-contain"
           />
         ) : null}
       </AnimatePresence>
@@ -1198,9 +1200,12 @@ function QuestionCard({
         onSetOptionLabel={onSetOptionLabel}
         onRemoveOption={onRemoveOption}
       />
+      {/* What this kind of question collects — a caption on the answer
+          preview, above the divider, so it isn't read as describing the
+          editing buttons below. */}
+      {info.hint ? <p className="-mt-1 text-xs">{info.hint}</p> : null}
 
       <div className="space-y-3 border-t border-primary/20 pt-3">
-        {info.hint ? <p className="text-xs">{info.hint}</p> : null}
         {canWrite && (
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" surface="secondary" size="sm" onClick={onPickImage}>
@@ -1349,7 +1354,7 @@ function QuestionFace({
         {dropdown ? (
           <div
             aria-hidden="true"
-            className="inline-flex w-full items-center justify-between rounded-pill bg-primary px-4 py-2 font-mono text-sm font-normal text-secondary"
+            className="inline-flex w-full items-center justify-between rounded-pill surface-primary px-4 py-2 font-mono text-sm font-normal"
           >
             Pick one…
             <ChevronDown size={ICON_SIZE.sm} aria-hidden="true" />
@@ -1599,7 +1604,7 @@ function OptionRow({ option, index, canWrite, mark, compact, autoFocus, duplicat
         )}
       </div>
       {duplicate ? (
-        <p className="mt-1 px-4 text-xs text-warning">
+        <p className="mt-1 px-4 text-xs">
           Another option says the same thing. People could only pick one of them — change one.
         </p>
       ) : !option.label.trim() && canWrite ? (
@@ -1700,11 +1705,11 @@ function SkipRow({ question, earlier, canWrite, onPatch }) {
         )}
       </div>
       {staleAnswer ? (
-        <p className="text-xs text-warning">
+        <p className="text-xs">
           The answer this skip used is no longer on that question, so it never skips. Pick another answer.
         </p>
       ) : staleTrigger ? (
-        <p className="text-xs text-warning">
+        <p className="text-xs">
           That question can&apos;t decide a skip anymore — its type changed. Pick another question or choose Don&apos;t skip.
         </p>
       ) : null}
@@ -1853,7 +1858,7 @@ function PicturePicker({ driveId, formPath, startFolder, onPicked, onClose }) {
                       transition={{ delay: Math.min(i * 0.02, 0.3) }}
                       whileHover={{ scale: 1.03 }}
                       whileTap={{ scale: 0.97 }}
-                      className="group relative aspect-square overflow-hidden rounded-large-element bg-primary text-secondary focus-visible:ring-2 focus-visible:ring-accent no-focus-outline"
+                      className="group relative aspect-square overflow-hidden rounded-large-element surface-primary focus-visible:ring-2 focus-visible:ring-accent no-focus-outline"
                       aria-label={`Use ${entry.name}`}
                       title={entry.name}
                       onClick={() => {

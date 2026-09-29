@@ -277,7 +277,7 @@ export default function EpubReader({ bytes, driveId, path, fill = false }) {
       </div>
 
       <div
-        className="relative min-h-0 flex-1 overflow-hidden rounded-large-element border-2 border-secondary/20 bg-primary"
+        className="relative min-h-0 flex-1 overflow-hidden rounded-large-element border-2 border-secondary/20 surface-primary"
         onTouchStart={onTouchStart}
         onTouchEnd={onTouchEnd}
       >
@@ -319,7 +319,7 @@ export default function EpubReader({ bytes, driveId, path, fill = false }) {
             onClick={() => setDrawer(false)}
           >
             <div
-              className="flex h-full w-72 max-w-[85%] flex-col rounded-large-element border-2 border-secondary/20 bg-secondary text-primary"
+              className="flex h-full w-72 max-w-[85%] flex-col rounded-large-element border-2 border-secondary/20 surface-secondary"
               role="dialog"
               aria-label="Table of contents"
               onClick={(e) => e.stopPropagation()}

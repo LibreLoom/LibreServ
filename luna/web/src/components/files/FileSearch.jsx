@@ -348,7 +348,7 @@ export default function FileSearch() {
             aria-label="Search for a file"
             className={cn(
               "w-full max-w-2xl max-h-[min(80dvh,40rem)] flex flex-col",
-              "rounded-large-element bg-secondary text-primary",
+              "rounded-large-element surface-secondary",
               "border border-primary/30 shadow-lg",
               "overflow-hidden",
             )}
@@ -361,7 +361,7 @@ export default function FileSearch() {
               >
                 <label className="block min-w-0">
                   <span className="sr-only">Search for a file</span>
-                  <span className="flex items-center gap-3 rounded-pill bg-primary text-secondary border-2 border-transparent px-4 py-2.5 focus-within:border-accent motion-safe:transition-colors">
+                  <span className="flex items-center gap-3 rounded-pill surface-primary border-2 border-transparent px-4 py-2.5 focus-within:border-accent motion-safe:transition-colors">
                     <Search size={18} className="shrink-0" aria-hidden="true" />
                     <input
                       ref={inputRef}
@@ -458,7 +458,7 @@ export default function FileSearch() {
                       <li key={`${item.drive_id}:${item.path}`}>
                         <div
                           className={cn(
-                            "relative rounded-large-element bg-primary text-secondary px-3 py-2",
+                            "relative rounded-large-element surface-primary px-3 py-2",
                             "motion-safe:transition-shadow hover:ring-2 hover:ring-accent",
                             "has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent",
                           )}
@@ -592,7 +592,7 @@ export default function FileSearch() {
 
               {typed.trim().length === 0 && (
                 <p className="text-primary text-sm py-6 text-center font-mono">
-                  Search across every drive you can open.
+                  Search every file and folder you can open.
                 </p>
               )}
             </div>

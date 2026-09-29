@@ -461,13 +461,13 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
               <div
                 className={cn(
                   "flex h-6 w-6 items-center justify-center rounded-full",
-                  isDone ? "bg-secondary text-primary" : isCurrent ? "border-2 border-secondary" : "border-2 border-secondary/30"
+                  isDone ? "surface-secondary" : isCurrent ? "border-2 border-secondary" : "border-2 border-secondary/30"
                 )}
               >
                 {isDone ? (
                   <CheckCircle size={ICON_SIZE.sm} />
                 ) : isCurrent ? (
-                  <div className="h-2 w-2 rounded-full bg-secondary animate-pulse" />
+                  <div className="h-2 w-2 rounded-full surface-secondary animate-pulse" />
                 ) : (
                   <div className="h-2 w-2 rounded-full bg-secondary/30" />
                 )}
@@ -493,7 +493,7 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
             className={cn(
               "group relative w-full overflow-hidden rounded-pill border px-5 py-3 text-left font-mono motion-safe:transition-all motion-safe:duration-300 motion-safe:ease-out",
               detailsOpen
-                ? "border-secondary/20 bg-secondary text-primary shadow-[0_16px_50px_rgba(0,0,0,0.12)]"
+                ? "border-secondary/20 surface-secondary shadow-[0_16px_50px_rgba(0,0,0,0.12)]"
                 : "border-secondary/15 bg-secondary/8 text-secondary hover:border-secondary/30 hover:bg-secondary/12 hover:shadow-[0_12px_34px_rgba(0,0,0,0.08)]"
             )}
             aria-expanded={detailsOpen}

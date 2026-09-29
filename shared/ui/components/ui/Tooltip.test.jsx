@@ -17,8 +17,7 @@ describe("InfoHint", () => {
     await user.click(screen.getByRole("button", { name: /What Admin means/i }));
     const tip = await screen.findByRole("tooltip");
     expect(tip).toHaveTextContent(/An admin can add users/i);
-    expect(tip.className).toMatch(/bg-secondary/);
-    expect(tip.className).toMatch(/text-primary/);
+    expect(tip.className).toMatch(/surface-secondary/);
     expect(tip.className).toMatch(/rounded-large-element/);
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("tooltip")).toBeNull();
@@ -41,8 +40,7 @@ describe("TermHint", () => {
     const tip = await screen.findByRole("tooltip");
     expect(tip).toHaveTextContent(/brings internet into the house/i);
     expect(tip.className).toMatch(/rounded-large-element/);
-    expect(tip.className).toMatch(/bg-secondary/);
-    expect(tip.className).toMatch(/text-primary/);
+    expect(tip.className).toMatch(/surface-secondary/);
   });
 });
 

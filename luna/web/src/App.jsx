@@ -50,7 +50,7 @@ function AppShell() {
   const location = useLocation();
   return (
     <RequireAuth>
-      <div data-slot="app-shell" className="relative flex min-h-screen flex-col bg-primary text-secondary">
+      <div data-slot="app-shell" className="relative flex min-h-screen flex-col surface-primary">
         <RecentItemsTracker />
         <LoadingBar />
         <a href="#main-content" className="skip-link">Skip to main content</a>

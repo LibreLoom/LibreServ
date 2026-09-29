@@ -58,7 +58,7 @@ function Toast({ toast, onDismiss, onPause, onResume }) {
       className={cn(
         "pointer-events-auto relative flex items-start gap-3 overflow-hidden",
         "min-w-[220px] max-w-[380px]",
-        "bg-secondary text-primary",
+        "surface-secondary",
         "rounded-large-element border border-primary/10 shadow-lg",
         "pl-3 pr-2 py-2.5 origin-top-right",
         toast.exiting ? "animate-toast-exit" : "animate-toast-enter",
@@ -131,7 +131,7 @@ function Toast({ toast, onDismiss, onPause, onResume }) {
             onDismiss(toast.id);
           }}
           className={cn(
-            "flex-shrink-0 self-center rounded-pill bg-primary text-secondary px-3 py-1 text-xs font-mono",
+            "flex-shrink-0 self-center rounded-pill surface-primary px-3 py-1 text-xs font-mono",
             "motion-safe:transition-transform active:motion-safe:scale-95",
             "focus-visible:ring-2 focus-visible:ring-accent no-focus-outline",
           )}

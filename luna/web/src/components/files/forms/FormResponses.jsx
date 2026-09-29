@@ -12,9 +12,9 @@ import Table from "@libreloom/ui/components/common/Table.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { formatAnswer, isAllowedUploadName, summarizeAnswers, typeInfo } from "./questionTypes.js";
 import { apiErrorMessage } from "../../../lib/api.js";
-import { responseSentAt, responsesToCsv, uploadsDirPath } from "../../../lib/formDocument.js";
+import { responseSentAt, responsesToCsv } from "../../../lib/formDocument.js";
 import { useFileSource } from "../../../lib/fileSource.jsx";
-import { joinPath, pathBasename } from "../../../lib/paths.js";
+import { pathBasename } from "../../../lib/paths.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { cn } from "@libreloom/ui/lib/utils.js";
 
@@ -61,7 +61,7 @@ export default function FormResponses({
 
   function fileHref(name) {
     if (!driveId || typeof name !== "string" || !isAllowedUploadName(name)) return "";
-    return source.contentHref(driveId, joinPath(uploadsDirPath(formPath), name));
+    return source.formFileHref(driveId, formPath, name);
   }
   // Columns: current questions in order, then any answered ids that no
   // longer have a question (deleted ones keep their data visible).
@@ -189,7 +189,7 @@ export default function FormResponses({
               return (
                 <div
                   key={question.id}
-                  className="rounded-large-element bg-secondary text-primary p-4 space-y-2"
+                  className="rounded-large-element surface-secondary p-4 space-y-2"
                 >
                   <div className="flex items-center gap-2">
                     <InfoIcon size={ICON_SIZE.sm} aria-hidden="true" />
@@ -214,9 +214,9 @@ export default function FormResponses({
                         return (
                           <div key={row.label} className="flex items-center gap-2 text-sm">
                             <span className="w-32 shrink-0 truncate text-primary" title={row.label}>{row.label}</span>
-                            <div className="h-2 min-w-0 flex-1 overflow-hidden rounded-pill bg-primary p-px">
+                            <div className="h-2 min-w-0 flex-1 overflow-hidden rounded-pill surface-primary p-px">
                               <Motion.div
-                                className="h-full rounded-pill bg-secondary"
+                                className="h-full rounded-pill surface-secondary"
                                 initial={{ width: 0 }}
                                 animate={{ width: `${Math.round(share * 100)}%` }}
                                 transition={{ type: "spring", stiffness: 180, damping: 26 }}
@@ -303,7 +303,7 @@ export default function FormResponses({
                 const text = formatAnswer(col.question, value);
                 const href = col.question?.type === "file" ? fileHref(value) : "";
                 return (
-                  <div key={col.id} className="rounded-large-element bg-primary text-secondary p-3">
+                  <div key={col.id} className="rounded-large-element surface-primary p-3">
                     <dt className="font-mono text-xs font-normal text-secondary">
                       {col.label}
                     </dt>

@@ -68,4 +68,21 @@ describe("Button loading", () => {
     expect(spinnerWrap.className).toMatch(/translate-y-0/);
     expect(spinnerWrap).toHaveAttribute("aria-hidden", "false");
   });
+
+  it("forwards ref and autoFocus to the underlying button element", () => {
+    let buttonNode = null;
+    render(
+      <Button
+        autoFocus
+        ref={(node) => {
+          buttonNode = node;
+        }}
+      >
+        Action
+      </Button>,
+    );
+    const button = screen.getByRole("button", { name: "Action" });
+    expect(buttonNode).toBe(button);
+    expect(document.activeElement).toBe(button);
+  });
 });

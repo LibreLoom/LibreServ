@@ -20,7 +20,7 @@ import WhiteboardEditor from "./whiteboard/WhiteboardEditor.jsx";
 import { ApiError, apiErrorMessage, postForm } from "../../lib/api.js";
 import { fileExtension, openableKind } from "../../lib/fileKinds.js";
 import { officeConversionFor } from "../../lib/officeConvert.js";
-import { useFileSource } from "../../lib/fileSource.jsx";
+import { requireOk, useFileSource } from "../../lib/fileSource.jsx";
 import { joinPath, parentPath, pathBasename } from "../../lib/paths.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { cn } from "@libreloom/ui/lib/utils.js";
@@ -209,9 +209,13 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
       setLoading(true);
       setError(null);
       try {
-        const res = await source.fetch(source.contentHref(driveId, path));
-        if (!res.ok) throw new Error("Luna couldn't open this file.");
-        const body = await res.text();
+        const body = typeof source.fetchText === "function"
+          ? await source.fetchText(driveId, path)
+          : await (async () => {
+              const res = await source.fetch(source.contentHref(driveId, path));
+              await requireOk(res, "Luna couldn't open this file.");
+              return res.text();
+            })();
         if (!cancelled) setText(body);
       } catch (err) {
         if (!cancelled) {
@@ -230,9 +234,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
     setConverting(true);
     setError(null);
     try {
-      const res = await source.fetch(source.contentHref(driveId, path));
-      if (!res.ok) throw new Error("Luna couldn't open this file.");
-      const bytes = await res.arrayBuffer();
+      const bytes = await source.fetchBytes(driveId, path);
       const blob = await conversion.convert(bytes, fileExtension(name));
       const folder = parentPath(path) ?? "";
       const ext = fileExtension(name);
@@ -399,7 +401,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
                   This video can't play in the browser. Download it to watch on your device.
                 </PageNotice>
               ) : (
-                <div className="rounded-large-element bg-primary text-secondary p-2">
+                <div className="rounded-large-element surface-primary p-2">
                   <video
                     controls
                     className="w-full max-h-[65vh] rounded-large-element"
@@ -436,7 +438,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
                   <ShakeTarget shake={error}>
                     <pre
                       aria-label={`Contents of ${name}`}
-                      className="max-h-[65vh] min-h-[50vh] overflow-y-auto whitespace-pre-wrap break-words rounded-large-element bg-primary p-4 font-mono text-sm text-secondary"
+                      className="max-h-[65vh] min-h-[50vh] overflow-y-auto whitespace-pre-wrap break-words rounded-large-element surface-primary p-4 font-mono text-sm"
                     >
                       {text}
                     </pre>
@@ -445,7 +447,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
               ) : (
                 <ShakeTarget shake={error}>
                   <textarea
-                    className="w-full min-h-[50vh] rounded-large-element bg-primary p-4 font-mono text-sm text-secondary outline-none resize-none"
+                    className="w-full min-h-[50vh] rounded-large-element surface-primary p-4 font-mono text-sm outline-none resize-none"
                     value={text}
                     readOnly
                     spellCheck={false}
@@ -566,7 +568,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
             {mediaFailed ? (
               <div
                 role="alert"
-                className="flex max-w-sm flex-col items-center gap-3 rounded-large-element bg-secondary px-8 py-6 text-center text-primary"
+                className="flex max-w-sm flex-col items-center gap-3 rounded-large-element surface-secondary px-8 py-6 text-center"
               >
                 {kind === "video" ? (
                   <VideoOff size={28} aria-hidden="true" />

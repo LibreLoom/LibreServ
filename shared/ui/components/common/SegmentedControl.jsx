@@ -33,7 +33,7 @@ export default function SegmentedControl({
   const onSecondary = surface === "secondary";
   const onPrimary = surface === "primary";
   // Selected pill inverts against the track: surface text color as the fill.
-  const indicatorClass = onPrimary ? "bg-secondary" : "bg-primary";
+  const indicatorClass = onPrimary ? "surface-secondary" : "surface-primary";
   const trackClass = onPrimary ? "bg-secondary/10" : "bg-primary/10";
   const idleTextClass = onPrimary ? "text-secondary" : "text-primary";
   const selectedTextClass = onPrimary ? "text-primary" : "text-secondary";
@@ -88,6 +88,9 @@ export default function SegmentedControl({
           )}
           style={{ transitionDuration: "var(--motion-duration-short2)" }}
           role="radio"
+          // The selected button sits on the sliding indicator, a sibling —
+          // say so for the contrast check (shared/ui/test/contrast.js).
+          data-contrast-surface={value === optValue && !disabled ? (onPrimary ? "secondary" : "primary") : undefined}
           aria-checked={value === optValue}
           aria-disabled={disabled || undefined}
           aria-label={label}

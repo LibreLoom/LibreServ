@@ -1042,8 +1042,8 @@ export default function FileBrowser({
   // inset wells flip the pair.
   const well = surface === "primary" ? "secondary" : "primary";
   const fg = surface === "primary" ? "text-secondary" : "text-primary";
-  const cardBg = surface === "primary" ? "bg-primary" : "bg-secondary";
-  const wellBg = well === "primary" ? "bg-primary" : "bg-secondary";
+  const cardSurface = surface === "primary" ? "surface-primary" : "surface-secondary";
+  const wellSurface = well === "primary" ? "surface-primary" : "surface-secondary";
   const wellFg = well === "primary" ? "text-secondary" : "text-primary";
   const hairline = surface === "primary" ? "border-secondary" : "border-primary";
   // Soft alternating rows, the same mix Table's `striped` uses — tinted
@@ -1510,9 +1510,9 @@ export default function FileBrowser({
                 className="flex min-w-0 flex-1 flex-wrap items-center gap-2 animate-in slide-in-from-top-2"
                 style={{ animationFillMode: "backwards" }}
               >
-                <div className={`flex min-w-36 flex-1 items-center gap-2 rounded-pill border-2 border-transparent ${wellBg} px-3 py-1 focus-within:border-accent motion-safe:transition-colors`}>
+                <div className={`flex min-w-36 flex-1 items-center gap-2 rounded-pill border-2 border-transparent ${wellSurface} px-3 py-1 focus-within:border-accent motion-safe:transition-colors`}>
                   <label className="flex min-w-0 flex-1 items-center gap-2">
-                    <Search size={14} className="shrink-0 text-accent" aria-hidden="true" />
+                    <Search size={14} className="shrink-0" aria-hidden="true" />
                     <input
                       type="text"
                       className={`min-w-0 flex-1 appearance-none border-0 bg-transparent text-sm ${wellFg} shadow-none outline-none no-focus-outline`}
@@ -1531,17 +1531,20 @@ export default function FileBrowser({
                       </span>
                     ) : null}
                   </label>
-                  {filterText ? (
-                    <Button
-                      variant="ghost"
-                      surface={well}
-                      size="iconSm"
-                      aria-label="Clear the folder filter"
-                      onClick={() => setFilterText("")}
-                    >
-                      <X size={14} />
-                    </Button>
-                  ) : null}
+                  {/* Always rendered so the bar keeps its height: the button is
+                      taller than the text row. Hidden until there's text. */}
+                  <Button
+                    variant="ghost"
+                    surface={well}
+                    size="iconSm"
+                    aria-label="Clear the folder filter"
+                    aria-hidden={filterText ? undefined : true}
+                    tabIndex={filterText ? undefined : -1}
+                    className={filterText ? "" : "invisible"}
+                    onClick={() => setFilterText("")}
+                  >
+                    <X size={14} />
+                  </Button>
                 </div>
                 <SegmentedControl
                   surface={surface}
@@ -1618,7 +1621,7 @@ export default function FileBrowser({
                       className={[
                         "flex items-center gap-2 px-3",
                         padY,
-                        `${cardBg} ${fg}`,
+                        `${cardSurface} ${fg}`,
                         // One outline: the drop ring replaces the row separator
                         // (border-b kept transparent so the row height doesn't shift).
                         isTrashDrop
@@ -1719,7 +1722,7 @@ export default function FileBrowser({
                       // the fill out of the border box, so the translucent
                       // divider always blends over the card behind it instead of
                       // being tinted by the stripe/selection color.
-                      `bg-clip-padding ${isSelected || isDrop ? "bg-current/10" : striped ? stripeBg : cardBg} ${fg}`,
+                      `bg-clip-padding ${isSelected || isDrop ? "bg-current/10" : striped ? stripeBg : cardSurface} ${fg}`,
                       // One outline: the drop ring replaces the row separator
                       // (border-b kept transparent so the row height doesn't
                       // shift). The last row always rounds to hug the card's

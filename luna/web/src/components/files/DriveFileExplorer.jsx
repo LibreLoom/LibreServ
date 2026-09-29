@@ -14,7 +14,8 @@ import useCanProtect from "../../hooks/useCanProtect.js";
 import useDriveMove from "../../hooks/useDriveMove.js";
 import useStrandedErrorToast from "../../hooks/useStrandedErrorToast.js";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
-import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
+import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
+import ModalCard, { NESTED_OVERLAY_CLASS } from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
@@ -44,6 +45,7 @@ import { CAP_MANAGE, capsBits } from "../../lib/access.js";
 import { isPresentDrive, isWritableDrive } from "../../lib/drives.js";
 import { filesFromFileList, uploadDestForFile } from "../../lib/collectUploadFiles.js";
 import { parseCreateName } from "../../lib/createName.js";
+import { renameExtensionWarning } from "../../lib/renameExtension.js";
 import { blankOfficeStub } from "../../lib/officeStubs.js";
 import {
   fileHref as defaultFileHref,
@@ -132,7 +134,7 @@ export function UploadProgressList({ uploads, onCancel }) {
             <li key={item.id} className="px-3 py-2.5 space-y-2" role="status" aria-live="polite">
               <div className="flex items-center gap-2 min-w-0">
                 <span
-                  className="inline-block h-2 w-2 rounded-full bg-primary shrink-0"
+                  className="inline-block h-2 w-2 rounded-full surface-primary shrink-0"
                   aria-hidden="true"
                 />
                 <span className="text-xs font-mono uppercase tracking-widest shrink-0">
@@ -157,7 +159,7 @@ export function UploadProgressList({ uploads, onCancel }) {
               </div>
               <p className="text-xs text-primary font-mono">{sizeLine}</p>
               <div
-                className="h-1.5 rounded-pill bg-primary p-px overflow-hidden"
+                className="h-1.5 rounded-pill surface-primary p-px overflow-hidden"
                 role="progressbar"
                 aria-valuenow={pct ?? 0}
                 aria-valuemin={0}
@@ -169,7 +171,7 @@ export function UploadProgressList({ uploads, onCancel }) {
                 }
               >
                 <div
-                  className="h-full rounded-pill bg-secondary motion-safe:transition-all motion-safe:duration-300"
+                  className="h-full rounded-pill surface-secondary motion-safe:transition-all motion-safe:duration-300"
                   style={{ width: `${pct ?? 0}%` }}
                 />
               </div>
@@ -281,8 +283,9 @@ export default function DriveFileExplorer({
   const [uploads, setUploads] = useState(/** @type {UploadRow[]} */ ([]));
   const uploadsRef = useRef(/** @type {UploadRow[]} */ ([]));
   const [deletePaths, setDeletePaths] = useState(/** @type {string[]|null} */ (null));
-  const [renameTarget, setRenameTarget] = useState(/** @type {{ fullPath: string, name: string }|null} */ (null));
+  const [renameTarget, setRenameTarget] = useState(/** @type {{ fullPath: string, name: string, isDir: boolean }|null} */ (null));
   const [renameValue, setRenameValue] = useState("");
+  const [renameWarning, setRenameWarning] = useState(/** @type {ReturnType<typeof renameExtensionWarning>} */ (null));
   const [transfer, setTransfer] = useState(/** @type {null|{ kind: "copy"|"move", paths: string[], label?: string }} */ (null));
   const [innerViewerPath, setInnerViewerPath] = useState(/** @type {string|null} */ (null));
   const viewerPath = controlledViewerPath !== undefined ? controlledViewerPath : innerViewerPath;
@@ -454,6 +457,7 @@ export default function DriveFileExplorer({
     if (!guest) {
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
       queryClient.invalidateQueries({ queryKey: ["trash", driveId] });
+      queryClient.invalidateQueries({ queryKey: ["recents"] });
     }
   }
 
@@ -744,7 +748,7 @@ export default function DriveFileExplorer({
     ? pathBasename(shownDeletePaths[0])
     : `${shownDeletePaths?.length || 0} items`;
 
-  const renameSnapRef = useRef(/** @type {{ fullPath: string, name: string }|null} */ (null));
+  const renameSnapRef = useRef(/** @type {{ fullPath: string, name: string, isDir: boolean }|null} */ (null));
   if (renameTarget) renameSnapRef.current = renameTarget;
   const shownRename = renameTarget ?? renameSnapRef.current;
   const nameModalOpen = createKind != null || renameTarget != null;
@@ -838,7 +842,7 @@ export default function DriveFileExplorer({
         onMove={folderCanEdit && !source.isFile ? (paths) => setTransfer({ kind: "move", paths }) : undefined}
         onRename={folderCanEdit && !source.isFile ? (ctx) => {
           setActionError(null);
-          setRenameTarget({ fullPath: ctx.fullPath, name: ctx.displayName });
+          setRenameTarget({ fullPath: ctx.fullPath, name: ctx.displayName, isDir: ctx.entry.kind === "dir" });
           setRenameValue(ctx.displayName);
         } : undefined}
         onDelete={folderCanEdit && !source.isFile ? (inTrash
@@ -1040,7 +1044,7 @@ export default function DriveFileExplorer({
                         aria-label={`Rename ${ctx.displayName}`}
                         onClick={() => {
                           setActionError(null);
-                          setRenameTarget({ fullPath: ctx.fullPath, name: ctx.displayName });
+                          setRenameTarget({ fullPath: ctx.fullPath, name: ctx.displayName, isDir: ctx.entry.kind === "dir" });
                           setRenameValue(ctx.displayName);
                         }}
                       >
@@ -1169,7 +1173,7 @@ export default function DriveFileExplorer({
             </p>
             <ShakeTarget shake={actionError}>
               <input
-                className="mt-3 w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm outline-none focus:border-accent"
+                className="mt-3 w-full rounded-pill surface-primary border-2 border-secondary/30 px-4 py-2 text-sm outline-none focus:border-accent"
                 value={restoreName}
                 maxLength={255}
                 placeholder="File name"
@@ -1285,47 +1289,56 @@ export default function DriveFileExplorer({
         }}
       />
 
-      <ModalCard
+      <CreateNameModal
         open={renameTarget != null}
         title={`Rename ${shownRename?.name || ""}`}
+        label="New name"
+        value={renameValue}
+        onChange={setRenameValue}
+        keepExtension={!shownRename?.isDir}
+        confirmLabel="Rename"
+        busy={renameMutation.isPending}
+        error={actionError}
+        onSubmit={() => {
+          if (!renameTarget) return Promise.reject(new Error("Nothing to rename."));
+          const warning = renameExtensionWarning(renameTarget.name, renameValue, renameTarget.isDir);
+          if (warning) {
+            // Keep the name dialog open behind the confirm; Cancel returns to it.
+            setRenameWarning(warning);
+            return Promise.reject(new Error("Confirm the new ending first."));
+          }
+          return renameMutation.mutateAsync({
+            fullPath: renameTarget.fullPath,
+            newName: renameValue,
+          }).then(() => undefined);
+        }}
         onClose={() => {
           setActionError(null);
           setRenameTarget(null);
+          setRenameWarning(null);
         }}
-      >
-        {({ close }) => (
-          <>
-            <ShakeTarget shake={actionError}>
-              <input
-                className="mt-2 w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm outline-none focus:border-accent"
-                value={renameValue}
-                maxLength={255}
-                placeholder="New name"
-                onChange={(e) => setRenameValue(e.target.value)}
-              />
-            </ShakeTarget>
-            <ModalErrorNotice error={actionError} />
-            <div className="mt-4 flex gap-3">
-              <Button
-                variant="primary"
-                loading={renameMutation.isPending}
-                onClick={() => {
-                  if (!renameTarget) return;
-                  renameMutation.mutateAsync({
-                    fullPath: renameTarget.fullPath,
-                    newName: renameValue,
-                  })
-                    .then(() => close())
-                    .catch(() => {});
-                }}
-              >
-                Rename
-              </Button>
-              <Button variant="outline" onClick={close}>Cancel</Button>
-            </div>
-          </>
-        )}
-      </ModalCard>
+      />
+
+      <ConfirmModal
+        open={renameWarning != null}
+        variant="warning"
+        title={renameWarning?.title ?? ""}
+        message={renameWarning?.message}
+        confirmLabel={renameWarning?.confirmLabel ?? "Rename"}
+        loading={renameMutation.isPending}
+        overlayClassName={NESTED_OVERLAY_CLASS}
+        onClose={() => !renameMutation.isPending && setRenameWarning(null)}
+        onConfirm={() => {
+          if (!renameTarget) return;
+          renameMutation
+            .mutateAsync({ fullPath: renameTarget.fullPath, newName: renameValue })
+            .then(() => {
+              setRenameWarning(null);
+              setRenameTarget(null);
+            })
+            .catch(() => setRenameWarning(null));
+        }}
+      />
 
       {!guest && (
         <>

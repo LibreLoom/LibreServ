@@ -66,7 +66,7 @@ export default function InviteeOnboardingPage() {
 
   if (loading) {
     return (
-      <main className="fixed inset-0 grid place-items-center bg-primary px-4" data-slot="invitee-onboarding">
+      <main className="fixed inset-0 grid place-items-center surface-primary px-4" data-slot="invitee-onboarding">
         <Loader2 className="animate-spin" size={28} />
       </main>
     );
@@ -76,8 +76,8 @@ export default function InviteeOnboardingPage() {
   // shape with valid=false — no leak of which.
   if (!invite || invite.valid === false) {
     return (
-      <main className="fixed inset-0 grid place-items-center bg-primary px-4" id="main-content" tabIndex={-1} data-slot="invitee-onboarding">
-        <div className="w-full max-w-lg bg-secondary text-primary rounded-large-element p-8 text-center">
+      <main className="fixed inset-0 grid place-items-center surface-primary px-4" id="main-content" tabIndex={-1} data-slot="invitee-onboarding">
+        <div className="w-full max-w-lg surface-secondary rounded-large-element p-8 text-center">
           <AlertCircle size={32} className="mx-auto mb-3" />
           <h1 className="font-mono text-xl mb-2">This invitation isn't valid</h1>
           <p className="text-sm">
@@ -94,8 +94,8 @@ export default function InviteeOnboardingPage() {
   const passwordShake = error && !usernameShake ? error : null;
 
   return (
-    <main className="fixed inset-0 grid place-items-center bg-primary px-4 overflow-auto" id="main-content" tabIndex={-1} data-slot="invitee-onboarding">
-      <div className="relative w-full max-w-lg overflow-auto bg-secondary text-primary rounded-large-element pop-in p-8 my-8">
+    <main className="fixed inset-0 grid place-items-center surface-primary px-4 overflow-auto" id="main-content" tabIndex={-1} data-slot="invitee-onboarding">
+      <div className="relative w-full max-w-lg overflow-auto surface-secondary rounded-large-element pop-in p-8 my-8">
         <span className="text-primary font-mono text-2xl block text-center">LibreServ</span>
         <div className="bg-accent p-px rounded-pill mt-6 mb-4"></div>
         <h1 className="text-primary font-mono text-xl font-normal block text-center">
@@ -113,7 +113,7 @@ export default function InviteeOnboardingPage() {
           </p>
         )}
 
-        <form onSubmit={handleSubmit} className="flex flex-col mt-6 rounded-large-element p-4 bg-primary text-secondary">
+        <form onSubmit={handleSubmit} className="flex flex-col mt-6 rounded-large-element p-4 surface-primary">
           <FieldLabel
             htmlFor="username"
             surface="primary"

@@ -108,6 +108,10 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/drives/{id}/files/rename", post(rename_entry))
         .route("/api/v1/drives/{id}/files/restore", post(restore_entry))
         .route("/api/v1/drives/{id}/files/purge", post(purge_entry))
+        .route(
+            "/api/v1/me/recents",
+            get(get_recents).post(record_recent).delete(delete_recent),
+        )
         .route("/api/v1/drives/{id}/trash", get(list_trash))
         .route("/api/v1/drives/{id}/files/content", get(content))
         .route(
@@ -456,6 +460,252 @@ async fn resolve_entry(
     }))
 }
 
+#[derive(Deserialize)]
+struct RecordRecentBody {
+    kind: Option<String>,
+    #[serde(rename = "driveId", alias = "drive_id")]
+    drive_id: String,
+    path: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct DeleteRecentQuery {
+    #[serde(rename = "driveId", alias = "drive_id")]
+    drive_id: Option<String>,
+    path: Option<String>,
+}
+
+async fn get_recents(
+    State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
+) -> Result<Json<Vec<files::recents::RecentItem>>, (StatusCode, Json<Value>)> {
+    let conn = state.db.lock().map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna's index is busy. Try again.",
+        )
+    })?;
+
+    let drives = crate::db::list_drives(&conn).map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't read drive status.",
+        )
+    })?;
+    let known_drives: std::collections::HashSet<String> =
+        drives.iter().map(|d| d.id.clone()).collect();
+    let ready_drives: std::collections::HashSet<String> = drives
+        .into_iter()
+        .filter(|d| (d.state == "as_is" || d.state == "readonly") && !d.mount_point.is_empty())
+        .map(|d| d.id)
+        .collect();
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT drive_id, path, kind, accessed_at
+             FROM user_recents
+             WHERE user_id = ?1
+             ORDER BY accessed_at DESC",
+        )
+        .map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't read your recents.",
+            )
+        })?;
+
+    let rows: Vec<(String, String, String, i64)> = stmt
+        .query_map(rusqlite::params![user.id], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+        })
+        .map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't read your recents.",
+            )
+        })?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't read your recents.",
+            )
+        })?;
+
+    let mut items = Vec::new();
+    let mut to_delete = Vec::new();
+    let mut to_update = Vec::new();
+
+    // Every row (already capped at RECENTS_LIMIT_PER_USER) is checked so stale
+    // ones get pruned, but at most 10 items are returned.
+    for (drive_id, path, kind, at) in rows {
+        if !known_drives.contains(&drive_id) {
+            to_delete.push((drive_id, path));
+            continue;
+        }
+        // A drive that is only temporarily not ready keeps its rows.
+        if !ready_drives.contains(&drive_id) {
+            continue;
+        }
+
+        if path.is_empty() {
+            if crate::auth::has_drive_access(&user, &conn, &drive_id) && items.len() < 10 {
+                items.push(files::recents::RecentItem {
+                    kind: "drive".into(),
+                    drive_id,
+                    path,
+                    at,
+                });
+            }
+            continue;
+        }
+
+        if files::stat(&conn, &drive_id, &path).is_ok() {
+            if items.len() < 10 && crate::auth::can_inspect_path(&user, &conn, &drive_id, &path) {
+                items.push(files::recents::RecentItem {
+                    kind,
+                    drive_id,
+                    path,
+                    at,
+                });
+            }
+            continue;
+        }
+
+        let hit = files::forwarding::resolve(&conn, &drive_id, &path, |d, p| {
+            files::stat(&conn, d, p).is_ok()
+        });
+
+        match hit {
+            Ok(Some((new_drive, new_path))) => {
+                if ready_drives.contains(&new_drive)
+                    && crate::auth::can_inspect_path(&user, &conn, &new_drive, &new_path)
+                {
+                    to_update.push((
+                        drive_id,
+                        path,
+                        new_drive.clone(),
+                        new_path.clone(),
+                        kind.clone(),
+                        at,
+                    ));
+                    if items.len() < 10 {
+                        items.push(files::recents::RecentItem {
+                            kind,
+                            drive_id: new_drive,
+                            path: new_path,
+                            at,
+                        });
+                    }
+                } else {
+                    to_delete.push((drive_id, path));
+                }
+            }
+            _ => {
+                to_delete.push((drive_id, path));
+            }
+        }
+    }
+
+    for (old_d, old_p, new_d, new_p, new_kind, at) in to_update {
+        let _ = conn.execute(
+            "DELETE FROM user_recents WHERE user_id = ?1 AND drive_id = ?2 AND path = ?3",
+            rusqlite::params![user.id, old_d, old_p],
+        );
+        let _ = conn.execute(
+            "INSERT INTO user_recents (user_id, drive_id, path, kind, accessed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(user_id, drive_id, path) DO UPDATE SET
+                accessed_at = max(user_recents.accessed_at, excluded.accessed_at)",
+            rusqlite::params![user.id, new_d, new_p, new_kind, at],
+        );
+    }
+    for (d, p) in to_delete {
+        let _ = conn.execute(
+            "DELETE FROM user_recents WHERE user_id = ?1 AND drive_id = ?2 AND path = ?3",
+            rusqlite::params![user.id, d, p],
+        );
+    }
+
+    let mut seen = std::collections::HashSet::new();
+    items.retain(|item| seen.insert((item.kind.clone(), item.drive_id.clone(), item.path.clone())));
+    items.truncate(10);
+
+    Ok(Json(items))
+}
+
+async fn record_recent(
+    State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
+    Json(body): Json<RecordRecentBody>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let conn = state.db.lock().map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna's index is busy. Try again.",
+        )
+    })?;
+    let path = body.path.unwrap_or_default();
+    let path = path.trim().trim_matches('/').to_string();
+    if path.is_empty() {
+        if !matches!(crate::db::get_drive(&conn, &body.drive_id), Ok(Some(_))) {
+            return Err(json_error(
+                StatusCode::NOT_FOUND,
+                "Luna can't find that drive.",
+            ));
+        }
+        if !crate::auth::has_drive_access(&user, &conn, &body.drive_id) {
+            return Err(json_error(StatusCode::FORBIDDEN, "Luna can't open that."));
+        }
+    } else if !crate::auth::can_inspect_path(&user, &conn, &body.drive_id, &path) {
+        return Err(json_error(StatusCode::FORBIDDEN, "Luna can't open that."));
+    }
+    let kind = body
+        .kind
+        .as_deref()
+        .unwrap_or(if path.is_empty() { "drive" } else { "file" });
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+    files::recents::record(&conn, &user.id, &body.drive_id, &path, kind, now_ms).map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't save that recent item.",
+        )
+    })?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+async fn delete_recent(
+    State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
+    Query(query): Query<DeleteRecentQuery>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let conn = state.db.lock().map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna's index is busy. Try again.",
+        )
+    })?;
+    if let (Some(drive_id), Some(path)) = (query.drive_id, query.path) {
+        files::recents::remove(&conn, &user.id, &drive_id, &path).map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't remove that recent item.",
+            )
+        })?;
+    } else {
+        files::recents::clear_user(&conn, &user.id).map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't clear recents.",
+            )
+        })?;
+    }
+    Ok(Json(json!({ "ok": true })))
+}
+
 async fn stat_entry(
     State(state): State<AppState>,
     Extension(user): Extension<crate::auth::CurrentUser>,
@@ -654,7 +904,19 @@ async fn content(
             files::resolve_any(conn, &id, &rel)
         }
     })
-    .map_err(map_files_err)?;
+    .map_err(|err| match err {
+        FilesError::Path(luna_core::path::PathError::NotFound(_)) => json_error_code(
+            StatusCode::NOT_FOUND,
+            "not_found",
+            "This file doesn't exist anymore.",
+        ),
+        FilesError::Io(ref e) if e.kind() == std::io::ErrorKind::NotFound => json_error_code(
+            StatusCode::NOT_FOUND,
+            "not_found",
+            "This file doesn't exist anymore.",
+        ),
+        other => map_files_err(other),
+    })?;
     if meta.is_dir() {
         if query.download.as_deref() != Some("1") {
             return Err(json_error(
@@ -2963,6 +3225,31 @@ mod http_tests {
     }
 
     #[tokio::test]
+    async fn trash_root_stats_empty_when_never_used() {
+        let mount = tempfile::tempdir().unwrap();
+        let (_dir, app) = test_app(mount.path());
+        let (cookie, csrf) = admin_cookie(&app).await;
+        let res = call(
+            &app,
+            json_req(
+                Method::GET,
+                "/api/v1/drives/photos/files/stat?path=.luna-trash",
+                "",
+                Some(&cookie),
+                Some(&csrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+        let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let stat: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(stat["name"], "Trash");
+        assert_eq!(stat["kind"], "dir");
+    }
+
+    #[tokio::test]
     async fn purging_the_trash_root_empties_it() {
         let mount = tempfile::tempdir().unwrap();
         std::fs::write(mount.path().join("a.txt"), b"a").unwrap();
@@ -4549,5 +4836,160 @@ mod http_tests {
         assert_eq!(status, 200);
         assert!(summary["total_bytes"].is_number());
         assert!(summary["free_bytes"].is_number());
+    }
+
+    #[tokio::test]
+    async fn recents_reflect_renames_without_duplicates_and_prune_deletes() {
+        let mount = tempfile::tempdir().unwrap();
+        let (_dir, app) = test_app(mount.path());
+        let (cookie, csrf) = admin_cookie(&app).await;
+
+        // 1. Create a file whiteboard.excalidraw on the photos drive
+        let file_path = mount.path().join("whiteboard.excalidraw");
+        std::fs::write(&file_path, b"drawing").unwrap();
+
+        // 2. Record it in recents
+        let res = call(
+            &app,
+            json_req(
+                Method::POST,
+                "/api/v1/me/recents",
+                &serde_json::to_string(&serde_json::json!({
+                    "driveId": "photos",
+                    "path": "whiteboard.excalidraw",
+                    "kind": "file"
+                }))
+                .unwrap(),
+                Some(&cookie),
+                Some(&csrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+
+        // 3. GET /api/v1/me/recents returns whiteboard.excalidraw
+        let (status, recents) = get_json(&app, &cookie, &csrf, "/api/v1/me/recents").await;
+        assert_eq!(status, 200);
+        let list = recents.as_array().unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0]["path"], "whiteboard.excalidraw");
+
+        // 4. Rename whiteboard.excalidraw to 67.excalidraw via Luna API
+        let res = call(
+            &app,
+            json_req(
+                Method::POST,
+                "/api/v1/drives/photos/files/rename",
+                &serde_json::to_string(&serde_json::json!({
+                    "path": "whiteboard.excalidraw",
+                    "new_name": "67.excalidraw"
+                }))
+                .unwrap(),
+                Some(&cookie),
+                Some(&csrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+
+        // 5. User accesses 67.excalidraw (simulating navigation)
+        let res = call(
+            &app,
+            json_req(
+                Method::POST,
+                "/api/v1/me/recents",
+                &serde_json::to_string(&serde_json::json!({
+                    "driveId": "photos",
+                    "path": "67.excalidraw",
+                    "kind": "file"
+                }))
+                .unwrap(),
+                Some(&cookie),
+                Some(&csrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+
+        // 6. GET /api/v1/me/recents: expects 67.excalidraw and NO duplicates
+        let (status, recents) = get_json(&app, &cookie, &csrf, "/api/v1/me/recents").await;
+        assert_eq!(status, 200);
+        let list = recents.as_array().unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0]["path"], "67.excalidraw");
+
+        // 7. Delete 67.excalidraw to trash
+        let res = call(
+            &app,
+            json_req(
+                Method::DELETE,
+                "/api/v1/drives/photos/files?path=67.excalidraw",
+                "",
+                Some(&cookie),
+                Some(&csrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+
+        // 8. GET /api/v1/me/recents: 67.excalidraw should NOT be shown
+        let (status, recents) = get_json(&app, &cookie, &csrf, "/api/v1/me/recents").await;
+        assert_eq!(status, 200);
+        let list = recents.as_array().unwrap();
+        assert_eq!(list.len(), 0);
+
+        // 9. Create another file and delete it on disk directly (out-of-band)
+        let ghost_path = mount.path().join("ghost.txt");
+        std::fs::write(&ghost_path, b"ghost").unwrap();
+        let res = call(
+            &app,
+            json_req(
+                Method::POST,
+                "/api/v1/me/recents",
+                &serde_json::to_string(&serde_json::json!({
+                    "driveId": "photos",
+                    "path": "ghost.txt",
+                    "kind": "file"
+                }))
+                .unwrap(),
+                Some(&cookie),
+                Some(&csrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+        // Delete directly on disk
+        std::fs::remove_file(&ghost_path).unwrap();
+        // GET /api/v1/me/recents detects it is missing and prunes it
+        let (status, recents) = get_json(&app, &cookie, &csrf, "/api/v1/me/recents").await;
+        assert_eq!(status, 200);
+        assert_eq!(recents.as_array().unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn recents_check_drive_entries() {
+        let mount = tempfile::tempdir().unwrap();
+        let (_dir, app) = test_app(mount.path());
+        let (cookie, csrf) = admin_cookie(&app).await;
+        let post = |drive: &str| {
+            json_req(
+                Method::POST,
+                "/api/v1/me/recents",
+                &serde_json::to_string(&serde_json::json!({ "driveId": drive, "path": "" }))
+                    .unwrap(),
+                Some(&cookie),
+                Some(&csrf),
+            )
+        };
+        // A drive that doesn't exist is refused, not stored.
+        let res = call(&app, post("no-such-drive")).await;
+        assert_eq!(res.status(), 404);
+        // A real drive is stored and listed as a drive.
+        let res = call(&app, post("photos")).await;
+        assert_eq!(res.status(), 200);
+        let (_, recents) = get_json(&app, &cookie, &csrf, "/api/v1/me/recents").await;
+        let list = recents.as_array().unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0]["kind"], "drive");
     }
 }

@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Globe2, History, Shield, Smartphone, Trash2, User, UserRound } from "lucide-react";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
+import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
+import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import { ActionTooltipGroup, InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import CopyableValue from "@libreloom/ui/components/ui/CopyableValue.jsx";
 import PasswordStrengthChecklist from "@libreloom/ui/components/common/PasswordStrengthChecklist.jsx";
@@ -19,6 +21,13 @@ import { useAnimatedHeight } from "@libreloom/ui/hooks/useAnimatedHeight.jsx";
 import useStrandedErrorToast from "../../../hooks/useStrandedErrorToast";
 import { useOptionalAuth } from "../../../context/AuthContext";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
+
+const TOKEN_EXPIRY_OPTIONS = [
+  { value: "", label: "Never expires" },
+  { value: "30", label: "Expires in 30 days" },
+  { value: "90", label: "Expires in 90 days" },
+  { value: "365", label: "Expires in a year" },
+];
 
 function formatWhen(unix) {
   if (!unix) return "Never";
@@ -53,7 +62,7 @@ function AccessTokenItem({ token, nowUnix, usageFor, usageRows, usagePending, re
                 expired ? (
                   <>
                     {" · "}
-                    <span className="text-warning">Expired {formatWhen(token.expires_at)}</span>
+                    <span>Expired {formatWhen(token.expires_at)}</span>
                   </>
                 ) : (
                   ` · Expires ${formatWhen(token.expires_at)}`
@@ -89,7 +98,7 @@ function AccessTokenItem({ token, nowUnix, usageFor, usageRows, usagePending, re
         </div>
         {expanded && (
           <div className="px-3 pb-3 pt-1">
-            <ul className="rounded-large-element bg-secondary/5 px-3 py-2.5 text-xs space-y-2">
+            <ul className="rounded-large-element surface-secondary px-3 py-2.5 text-xs space-y-2">
               {usagePending ? (
                 <li>Checking recent activity…</li>
               ) : usageRows.length === 0 ? (
@@ -146,6 +155,70 @@ AccessTokenItem.propTypes = {
 };
 
 /**
+ * Name and expiry for a new access token. The token itself shows on the
+ * card after this closes, so it stays on screen until the person is done.
+ * The caller re-keys it per opening, so every opening starts blank.
+ *
+ * @param {{ open: boolean, busy: boolean, error: string|null, onClose: () => void, onSubmit: (body: { name: string, days: string }) => void }} props
+ */
+function CreateTokenModal({ open, busy, error, onClose, onSubmit }) {
+  const [name, setName] = useState("");
+  const [days, setDays] = useState("");
+  const nameRef = useRef(/** @type {HTMLInputElement|null} */ (null));
+  return (
+    <ModalCard open={open} title="New access token" onClose={onClose} initialFocusRef={nameRef}>
+      <form
+        className="space-y-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (name.trim()) onSubmit({ name: name.trim(), days });
+        }}
+      >
+        <ShakeTarget shake={error}>
+          <label className="block text-primary text-sm" htmlFor="token-name">
+            <span className="block translate-x-5">Name this app so you can recognize it later</span>
+          </label>
+          <input
+            id="token-name"
+            className="mt-2 w-full rounded-pill surface-primary border-2 border-secondary/30 px-4 py-2 text-sm outline-none focus:border-accent"
+            placeholder="Kitchen Mac, photo backup, script"
+            value={name}
+            maxLength={100}
+            ref={nameRef}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </ShakeTarget>
+        <Dropdown
+          options={TOKEN_EXPIRY_OPTIONS}
+          value={days}
+          onChange={setDays}
+          fullWidth
+          bg="primary"
+          aria-label="When this token stops working"
+        />
+        {error && <PageNotice variant="error">{error}</PageNotice>}
+        <div className="flex gap-3">
+          <Button variant="primary" type="submit" fullWidth loading={busy} disabled={!name.trim()}>
+            Create access token
+          </Button>
+          <Button variant="outline" type="button" onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+        </div>
+      </form>
+    </ModalCard>
+  );
+}
+
+CreateTokenModal.propTypes = {
+  open: PropTypes.bool.isRequired,
+  busy: PropTypes.bool.isRequired,
+  error: PropTypes.string,
+  onClose: PropTypes.func.isRequired,
+  onSubmit: PropTypes.func.isRequired,
+};
+
+/**
  * The signed-in person's own profile: the name everyone sees, and the
  * password that signs them in. A password change signs out every session —
  * this browser included — so the save lands on the login screen.
@@ -194,7 +267,7 @@ function ProfileCard() {
     <SettingsCard icon={UserRound} title="You" index={-1}>
       {user && (
         <div className="flex items-center gap-3">
-          <div className="h-12 w-12 rounded-full bg-primary text-secondary flex items-center justify-center flex-shrink-0">
+          <div className="h-12 w-12 rounded-full surface-primary flex items-center justify-center flex-shrink-0">
             <User size={ICON_SIZE.xl} aria-hidden="true" />
           </div>
           <div className="min-w-0 flex-1">
@@ -222,7 +295,7 @@ function ProfileCard() {
         </div>
       )}
 
-      <div className="mt-4 rounded-large-element bg-primary text-secondary p-4">
+      <div className="mt-4 rounded-large-element surface-primary p-4">
         <p className="font-mono text-sm">Your name</p>
         <p className="text-sm mt-1">
           The name other people see when you share or get shared with.
@@ -263,7 +336,7 @@ function ProfileCard() {
         </div>
       </div>
 
-      <div className="mt-3 rounded-large-element bg-primary text-secondary p-4">
+      <div className="mt-3 rounded-large-element surface-primary p-4">
         <p className="font-mono text-sm">Password</p>
         <p className="text-sm mt-1">
           Changing your password signs your account out in every browser and
@@ -322,8 +395,8 @@ export default function AccessCategory() {
   const queryClient = useQueryClient();
   const [error, setError] = useState(null);
   const [tokenError, setTokenError] = useState(null);
-  const [tokenName, setTokenName] = useState("");
-  const [expiresInDays, setExpiresInDays] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [createKey, setCreateKey] = useState(0);
   const [newToken, setNewToken] = useState(null);
   const [showQr, setShowQr] = useState(false);
   const [usageFor, setUsageFor] = useState(null);
@@ -346,22 +419,21 @@ export default function AccessCategory() {
   });
 
   const createToken = useMutation({
-    mutationFn: () => postJson("/api/v1/device-tokens", {
-      name: tokenName.trim(),
-      expires_in_days: expiresInDays ? Number(expiresInDays) : undefined,
+    mutationFn: (/** @type {{ name: string, days: string }} */ { name, days }) => postJson("/api/v1/device-tokens", {
+      name,
+      expires_in_days: days ? Number(days) : undefined,
     }),
     onSuccess: (data) => {
       addToast({ type: "success", message: "Token created." });
       queryClient.invalidateQueries({ queryKey: ["device-tokens"] });
       setNewToken(data);
       setShowQr(false);
-      setTokenName("");
-      setExpiresInDays("");
+      setCreating(false);
       setError(null);
       setTokenError(null);
     },
     onError: (err) => {
-      // The create form is open — it owns this error; don't strand it.
+      // The create modal is open — it owns this error; don't strand it.
       setTokenError(apiErrorMessage(err));
     },
   });
@@ -408,47 +480,9 @@ export default function AccessCategory() {
           your password each time.
         </p>
 
-        <div className="mt-4 flex flex-col gap-2">
-          <p className="text-primary text-sm font-mono">Add a new access token</p>
-          <label className="text-primary text-sm translate-x-5" htmlFor="token-name">
-            Name this app so you can recognize it later
-          </label>
-          <ShakeTarget shake={tokenError}>
-            <input
-              id="token-name"
-              className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm"
-              placeholder="Kitchen Mac, photo backup, script"
-              value={tokenName}
-              onChange={(e) => setTokenName(e.target.value)}
-            />
-          </ShakeTarget>
-          <label className="text-primary text-sm translate-x-5" htmlFor="token-expiry">
-            Optional: stop working after this many days (leave blank for no expiry)
-          </label>
-          <ShakeTarget shake={tokenError}>
-            <input
-              id="token-expiry"
-              type="number"
-              min="1"
-              className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm"
-              placeholder="e.g. 90"
-              value={expiresInDays}
-              onChange={(e) => setExpiresInDays(e.target.value)}
-            />
-          </ShakeTarget>
-          {tokenError && <PageNotice variant="error">{tokenError}</PageNotice>}
-          <Button
-            variant="primary"
-            loading={createToken.isPending}
-            disabled={!tokenName.trim()}
-            onClick={() => createToken.mutate()}
-          >
-            Create access token
-          </Button>
-        </div>
-
         {newToken?.token && (
-          <div className="mt-4 rounded-large-element bg-primary text-secondary p-4 space-y-3">
+          <div className="mt-4 rounded-large-element surface-primary p-4 space-y-3">
+            <p className="font-mono text-sm">Token ready</p>
             <p className="text-sm">
               Copy this now — Luna won&apos;t show it again. Paste it into
               Luna Desktop or the phone app, or show it as a QR code.
@@ -460,13 +494,25 @@ export default function AccessCategory() {
               surface="primary"
               multiline
             />
-            <Button
-              variant="outline"
-              surface="primary"
-              onClick={() => setShowQr(true)}
-            >
-              Show as QR code
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                surface="primary"
+                onClick={() => setShowQr(true)}
+              >
+                Show as QR code
+              </Button>
+              <Button
+                variant="secondary"
+                surface="primary"
+                onClick={() => {
+                  setShowQr(false);
+                  setNewToken(null);
+                }}
+              >
+                Done
+              </Button>
+            </div>
             <PairingQrModal
               open={showQr}
               token={newToken.token}
@@ -475,30 +521,54 @@ export default function AccessCategory() {
           </div>
         )}
 
-        <div className="mt-6 space-y-2">
-          <p className="text-primary text-sm font-mono">Your access tokens</p>
+        <div className="mt-4 overflow-hidden rounded-large-element surface-primary">
+          <div className="flex flex-wrap items-center justify-between gap-2 px-4 pt-4 pb-3">
+            <p className="font-mono text-sm">Your access tokens</p>
+            <Button
+              variant="secondary"
+              surface="primary"
+              size="sm"
+              onClick={() => {
+                setTokenError(null);
+                setCreateKey((k) => k + 1);
+                setCreating(true);
+              }}
+            >
+              New access token
+            </Button>
+          </div>
           {tokenList.length === 0 ? (
-            <p className="text-primary text-sm">No apps or access tokens are set up yet.</p>
+            <p className="px-4 pb-4 text-sm">No apps or access tokens are set up yet.</p>
           ) : (
-            <div className="overflow-hidden rounded-large-element bg-primary text-secondary">
-              <ul className="divide-y divide-secondary/10">
-                {tokenList.map((t) => (
-                  <AccessTokenItem
-                    key={t.id}
-                    token={t}
-                    nowUnix={nowUnix}
-                    usageFor={usageFor}
-                    usageRows={usageFor === t.id ? (usage.data || []) : []}
-                    usagePending={usageFor === t.id && usage.isPending}
-                    revokePending={revokeOne.isPending && revokeOne.variables === t.id}
-                    onToggleUsage={() => setUsageFor(usageFor === t.id ? null : t.id)}
-                    onRevoke={() => revokeOne.mutate(t.id)}
-                  />
-                ))}
-              </ul>
-            </div>
+            <ul className="divide-y divide-secondary/10 border-t border-secondary/10">
+              {tokenList.map((t) => (
+                <AccessTokenItem
+                  key={t.id}
+                  token={t}
+                  nowUnix={nowUnix}
+                  usageFor={usageFor}
+                  usageRows={usageFor === t.id ? (usage.data || []) : []}
+                  usagePending={usageFor === t.id && usage.isPending}
+                  revokePending={revokeOne.isPending && revokeOne.variables === t.id}
+                  onToggleUsage={() => setUsageFor(usageFor === t.id ? null : t.id)}
+                  onRevoke={() => revokeOne.mutate(t.id)}
+                />
+              ))}
+            </ul>
           )}
         </div>
+
+        <CreateTokenModal
+          key={createKey}
+          open={creating}
+          busy={createToken.isPending}
+          error={tokenError}
+          onClose={() => {
+            setCreating(false);
+            setTokenError(null);
+          }}
+          onSubmit={(body) => createToken.mutate(body)}
+        />
       </SettingsCard>
     </div>
   );

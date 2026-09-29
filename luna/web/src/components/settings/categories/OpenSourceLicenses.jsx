@@ -128,7 +128,7 @@ export default function OpenSourceLicenses() {
             >
               <div className="min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-mono text-sm font-medium text-primary">
+                  <span className="font-mono text-sm text-primary">
                     {entry.name}
                   </span>
                   <span className="rounded-pill border border-accent px-2 py-0.5 font-mono text-[11px] text-primary">

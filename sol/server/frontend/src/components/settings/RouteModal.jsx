@@ -357,7 +357,7 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
                     onChange={handleChange("subdomain")}
                     placeholder="e.g. nextcloud"
                     disabled={loading}
-                    className={cn("w-full px-4 py-2 border-2 rounded-pill bg-secondary text-primary disabled:opacity-50 disabled:cursor-not-allowed outline-none", PLACEHOLDER_TEXT, errors.subdomain && "border-error focus:border-error", !errors.subdomain && "border-primary/20 focus:border-accent")}
+                    className={cn("w-full px-4 py-2 border-2 rounded-pill surface-secondary disabled:opacity-50 disabled:cursor-not-allowed outline-none", PLACEHOLDER_TEXT, errors.subdomain && "border-error focus:border-error", !errors.subdomain && "border-primary/20 focus:border-accent")}
                   />
                   {errors.subdomain && (
                     <p className="text-error text-xs mt-1">{errors.subdomain}</p>
@@ -380,7 +380,7 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
                     onChange={handleChange("domain")}
                     placeholder={defaultDomain || "e.g. example.com"}
                     disabled={loading}
-                    className={cn("w-full px-4 py-2 border-2 rounded-pill bg-secondary text-primary disabled:opacity-50 disabled:cursor-not-allowed outline-none", PLACEHOLDER_TEXT, errors.domain && "border-error focus:border-error", !errors.domain && "border-primary/20 focus:border-accent")}
+                    className={cn("w-full px-4 py-2 border-2 rounded-pill surface-secondary disabled:opacity-50 disabled:cursor-not-allowed outline-none", PLACEHOLDER_TEXT, errors.domain && "border-error focus:border-error", !errors.domain && "border-primary/20 focus:border-accent")}
                   />
                   {errors.domain && (
                     <p className="text-error text-xs mt-1">{errors.domain}</p>
@@ -420,7 +420,7 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
                   spellCheck={false}
                   autoComplete="off"
                   disabled={loading}
-                  className={cn("flex-1 min-w-0 px-4 py-2 border-2 rounded-pill bg-secondary text-primary disabled:opacity-50 disabled:cursor-not-allowed outline-none", PLACEHOLDER_TEXT, errors.destination && "border-error focus:border-error", !errors.destination && "border-primary/20 focus:border-accent")}
+                  className={cn("flex-1 min-w-0 px-4 py-2 border-2 rounded-pill surface-secondary disabled:opacity-50 disabled:cursor-not-allowed outline-none", PLACEHOLDER_TEXT, errors.destination && "border-error focus:border-error", !errors.destination && "border-primary/20 focus:border-accent")}
                 />
                 <Button
                   type="button"

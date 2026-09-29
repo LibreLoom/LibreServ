@@ -436,7 +436,7 @@ function Responder({
           >
             <div className="mx-auto w-full max-w-2xl space-y-4 p-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:p-6">
               {editNotice && <PageNotice variant="warning">{editNotice}</PageNotice>}
-              <div className="rounded-large-element bg-secondary text-primary p-5 space-y-2">
+              <div className="rounded-large-element surface-secondary p-5 space-y-2">
                 {isEdit ? (
                   <p className="font-mono text-xs font-normal">
                     Changing your answers
@@ -472,7 +472,7 @@ function Responder({
                       transition={SPRING}
                       className="overflow-hidden"
                     >
-                      <div className="rounded-large-element bg-secondary text-primary p-5 space-y-3">
+                      <div className="rounded-large-element surface-secondary p-5 space-y-3">
                         <p className="font-mono text-xs font-normal">
                           {index + 1} of {shown.length}
                           {question.required ? " · required" : ""}
@@ -487,7 +487,7 @@ function Responder({
                           <img
                             src={`/s/${encodeURIComponent(token)}/form-image?name=${encodeURIComponent(question.image)}`}
                             alt=""
-                            className="max-h-64 w-full rounded-large-element object-contain bg-primary"
+                            className="max-h-64 w-full rounded-large-element object-contain surface-primary"
                           />
                         ) : null}
                         <QuestionField
@@ -657,7 +657,7 @@ function ResponsePicker({ responses, questions, onPick, onBack }) {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: Math.min(i * 0.04, 0.3) }}
                 whileTap={{ scale: 0.98 }}
-                className="flex w-full flex-col gap-1 rounded-large-element bg-secondary text-primary p-4 text-left motion-safe:transition-transform hover:motion-safe:translate-x-0.5 focus-visible:ring-2 focus-visible:ring-accent no-focus-outline"
+                className="flex w-full flex-col gap-1 rounded-large-element surface-secondary p-4 text-left motion-safe:transition-transform hover:motion-safe:translate-x-0.5 focus-visible:ring-2 focus-visible:ring-accent no-focus-outline"
                 onClick={() => {
                   haptic("selection");
                   onPick(entry);
@@ -690,7 +690,7 @@ ResponsePicker.propTypes = {
 };
 
 const inputClass =
-  "w-full rounded-pill border-2 border-secondary/30 bg-primary px-4 py-2 text-base text-secondary outline-none no-focus-outline focus:border-accent focus-visible:border-accent";
+  "w-full rounded-pill border-2 border-secondary/30 surface-primary px-4 py-2 text-base outline-none no-focus-outline focus:border-accent focus-visible:border-accent";
 
 /**
  * The mark in front of a choice: a dot that fills for one-pick questions, a
@@ -704,7 +704,7 @@ function ChoiceMark({ multi, checked }) {
       className={cn(
         "flex size-5 shrink-0 items-center justify-center border-2 motion-safe:transition-colors motion-safe:duration-200",
         multi ? "rounded-md" : "rounded-full",
-        checked ? "border-secondary bg-secondary text-primary" : "border-secondary/50",
+        checked ? "border-secondary surface-secondary" : "border-secondary/50",
       )}
     >
       {multi ? (
@@ -721,7 +721,7 @@ function ChoiceMark({ multi, checked }) {
       ) : (
         <span
           className={cn(
-            "size-2 rounded-full bg-primary motion-safe:transition-transform motion-safe:duration-200",
+            "size-2 rounded-full surface-primary motion-safe:transition-transform motion-safe:duration-200",
             checked ? "scale-100" : "scale-0",
           )}
         />
@@ -748,7 +748,7 @@ function ChoicePill({ multi = false, checked, onClick, children }) {
       className={cn(
         "flex w-full items-center gap-3 rounded-pill border-2 px-4 py-3 text-left text-base motion-safe:transition-colors",
         "focus-visible:ring-2 focus-visible:ring-accent no-focus-outline",
-        "bg-primary text-secondary",
+        "surface-primary",
         checked ? "border-accent" : "border-secondary/30 hover:border-secondary",
       )}
       onClick={() => {

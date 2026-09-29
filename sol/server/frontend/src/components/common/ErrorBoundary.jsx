@@ -53,7 +53,7 @@ class ErrorBoundary extends Component {
   render() {
     if (this.state.hasError) {
       return (
-        <div className={cn("min-h-screen bg-primary flex items-center justify-center p-4")} data-slot="error-boundary">
+        <div className={cn("min-h-screen surface-primary flex items-center justify-center p-4")} data-slot="error-boundary">
           <div className="max-w-lg w-full">
             <div className="flex justify-center mb-6">
               <div className="w-20 h-20 rounded-pill bg-error/10 flex items-center justify-center">
@@ -72,14 +72,14 @@ class ErrorBoundary extends Component {
             </div>
 
              {/** @type {any} */ (import.meta).env?.DEV && this.state.error && (
-               <div className="bg-secondary text-primary rounded-large-element p-5 mb-6 ring-2 ring-accent/30">
+               <div className="surface-secondary rounded-large-element p-5 mb-6 ring-2 ring-accent/30">
                  <div className="flex items-center gap-2 mb-4">
                    <Bug className="w-5 h-5" />
                    <span className="font-mono font-medium text-primary">
                      Error Details (Development)
                    </span>
                  </div>
-                 <div className="bg-primary text-secondary rounded-large-element p-4 font-mono text-sm overflow-x-auto border border-secondary/20">
+                 <div className="surface-primary rounded-large-element p-4 font-mono text-sm overflow-x-auto border border-secondary/20">
                    <div className="mb-3">
                      <span className="text-xs uppercase tracking-wider mb-1 block">
                        Error

@@ -9,18 +9,17 @@ import Button from "@libreloom/ui/components/ui/Button.jsx";
 import CopyableValue from "@libreloom/ui/components/ui/CopyableValue.jsx";
 import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
-import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import Toggle from "@libreloom/ui/components/common/Toggle.jsx";
 import { Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
+import AddPersonModal from "./AddPersonModal.jsx";
 import CreateLinkModal from "./CreateLinkModal.jsx";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
-import { deleteJson, getJson, patchJson, postJson, apiErrorMessage } from "../../lib/api";
+import { deleteJson, getJson, patchJson, apiErrorMessage } from "../../lib/api";
 import {
   CAP,
   KIND_ALBUM,
-  capsHint,
   capsLabel,
   capsOptions,
   hasCap,
@@ -98,10 +97,7 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
   const [editingLink, setEditingLink] = useState(null);
   const [removingLink, setRemovingLink] = useState(null);
   const [linkError, setLinkError] = useState(null);
-  const [personId, setPersonId] = useState("");
-  const [caps, setCaps] = useState("");
-  // Whether the next member grant also carries the share bit.
-  const [shareBit, setShareBit] = useState(false);
+  const [addingPerson, setAddingPerson] = useState(false);
   const [updatingId, setUpdatingId] = useState(null);
   const [parentSubject, setParentSubject] = useState(null);
 
@@ -154,20 +150,6 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
     queryClient.invalidateQueries({ queryKey: ["gallery-albums"] });
   };
 
-  const addMember = useMutation({
-    mutationFn: (/** @type {Record<string, unknown>} */ body) => postJson("/api/v1/access/members", body),
-    onMutate: () => setError(null),
-    onSuccess: () => {
-      addToast({ type: "success", message: "Access granted." });
-      invalidate();
-      setPersonId("");
-      setShareBit(false);
-    },
-    onError: (err) => {
-      haptic("error");
-      setError(apiErrorMessage(err, "Couldn't grant access. Try again."));
-    },
-  });
   const updateMember = useMutation({
     mutationFn: (/** @type {{ id: string, caps: string }} */ vars) =>
       patchJson(`/api/v1/access/members/${vars.id}`, { caps: vars.caps }),
@@ -215,8 +197,6 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
     (u) => u.shareable !== false && u.id !== user?.id && !memberUserIds.has(u.id),
   );
   const noPeopleToAdd = directory.isSuccess && people.length === 0;
-  const defaultCaps = memberOptions[0]?.value || "";
-  const pickCaps = caps && memberOptions.some((o) => o.value === caps) ? caps : defaultCaps;
   const sheetError =
     error ||
     (stateQuery.isError
@@ -228,7 +208,7 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
       <ModalCard open={open} title="Sharing" onClose={onClose} overlayClassName={overlayClassName}>
         <div className="space-y-5" data-slot="share-sheet">
           {(subj?.name || subject?.name) && (
-            <div className="rounded-large-element bg-primary text-secondary p-3">
+            <div className="rounded-large-element surface-primary p-3">
               <p className="text-xs font-mono uppercase tracking-widest">
                 {isAlbum
                   ? "Album"
@@ -244,7 +224,7 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
             </div>
           )}
           {parentSources.length > 0 && (
-            <div className="space-y-2 rounded-large-element bg-primary text-secondary p-3">
+            <div className="space-y-2 rounded-large-element surface-primary p-3">
               <p className="text-secondary text-xs">
                 {inheritedMembers.length > 0 &&
                   `${inheritedMembers.length} ${inheritedMembers.length === 1 ? "person" : "people"}`}
@@ -292,7 +272,7 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
           {subj && (
             <>
               <section className="space-y-2">
-                <h3 className="text-primary text-sm font-semibold">People</h3>
+                <h3 className="font-mono text-primary text-sm">People</h3>
                 {members.map((m) => {
                   // The server decides manageability per row — never
                   // infer it from capability math here (equal-cap peers
@@ -312,7 +292,7 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
                   return (
                     <div
                       key={m.id}
-                      className="rounded-large-element bg-primary text-secondary p-3"
+                      className="rounded-large-element surface-primary p-3"
                     >
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
@@ -369,7 +349,7 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
                   );
                 })}
                 {noPeopleToAdd ? (
-                  <div className="space-y-3 rounded-large-element bg-primary text-secondary p-3">
+                  <div className="space-y-3 rounded-large-element surface-primary p-3">
                     <p className="text-secondary text-sm">
                       {asList(directory.data).filter((u) => u.shareable !== false && u.id !== user?.id).length === 0
                         ? "No people to share with yet."
@@ -384,73 +364,23 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
                     )}
                   </div>
                 ) : (
-                  memberOptions.length > 0 && iCanShare && (
-                    <div className="space-y-3 rounded-large-element bg-primary text-secondary p-4">
-                      <p className="text-sm font-medium text-secondary">Add a person</p>
-                      <div className="flex flex-wrap gap-2">
-                        <ShakeTarget shake={error} className="min-w-0 flex-1 basis-48">
-                          <Dropdown
-                            options={people.map((u) => ({
-                              value: u.id,
-                              label: u.display_name || u.username,
-                            }))}
-                            value={personId}
-                            onChange={setPersonId}
-                            placeholder="Pick someone"
-                            fullWidth
-                            bg="secondary"
-                            aria-label="Add a person"
-                          />
-                        </ShakeTarget>
-                        <div className="min-w-0 flex-1 basis-36">
-                          <Dropdown
-                            options={memberOptions}
-                            value={pickCaps}
-                            onChange={setCaps}
-                            fullWidth
-                            bg="secondary"
-                            aria-label="Access level"
-                          />
-                        </div>
-                      </div>
-                      <p className="px-1 text-xs text-secondary">
-                        {capsHint(pickCaps, { album: isAlbum, file: isFile, form: isForm })}
-                      </p>
-                      <div className="rounded-large-element bg-secondary text-primary p-3">
-                        <Toggle
-                          surface="secondary"
-                          checked={shareBit}
-                          onChange={setShareBit}
-                          label="Can share"
-                          description="They can pass this access on and create links."
-                        />
-                      </div>
-                      <Button
-                        variant="secondary"
-                        surface="primary"
-                        size="sm"
-                        loading={addMember.isPending}
-                        disabled={!personId}
-                        onClick={() =>
-                          addMember.mutate({
-                            kind: subj.kind,
-                            drive_id: subj.drive_id,
-                            path: subj.path || "",
-                            album_id: subj.album_id || "",
-                            user_id: personId,
-                            caps: joinShareCaps(pickCaps, shareBit),
-                          })
-                        }
-                      >
-                        Add
-                      </Button>
-                    </div>
+                  memberOptions.length > 0 && iCanShare && directory.isSuccess && (
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      onClick={() => {
+                        setError(null);
+                        setAddingPerson(true);
+                      }}
+                    >
+                      Add a person
+                    </Button>
                   )
                 )}
               </section>
 
               <section className="space-y-2">
-                <h3 className="text-primary text-sm font-semibold">Links</h3>
+                <h3 className="font-mono text-primary text-sm">Links</h3>
                 {links.map((l) => {
                   // Server-issued `can_manage` only — a URL's presence is
                   // already gated the same way, but the flag is the
@@ -460,7 +390,7 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
                   return (
                     <div
                       key={l.id}
-                      className="rounded-large-element bg-primary text-secondary p-3"
+                      className="rounded-large-element surface-primary p-3"
                     >
                       <div className="flex items-center justify-between gap-2">
                         <p className="text-secondary text-xs min-w-0">
@@ -474,6 +404,7 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
                             <Button
                               size="iconSm"
                               variant="ghost"
+                              surface="primary"
                               aria-label="Link settings"
                               onClick={() => {
                                 setLinkError(null);
@@ -525,6 +456,21 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
           )}
         </div>
       </ModalCard>
+      {addingPerson && subj && (
+        <AddPersonModal
+          open
+          subject={subj}
+          people={people}
+          options={memberOptions}
+          hintFor={{ album: isAlbum, file: isFile, form: isForm }}
+          overlayClassName={overlayClassName || NESTED_OVERLAY_CLASS}
+          onClose={() => setAddingPerson(false)}
+          onDone={() => {
+            setAddingPerson(false);
+            invalidate();
+          }}
+        />
+      )}
       {creatingLink && subj && (
         <CreateLinkModal
           open

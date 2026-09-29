@@ -40,11 +40,11 @@ function ConfigFieldRenderer({ field, value, onChange, disabled, surface = "seco
   };
 
 const inputBaseClasses = `
-      w-full px-5 py-2 border-2 rounded-large-element
-      bg-secondary text-primary outline-none
-      motion-safe:transition-all
-      disabled:opacity-50 disabled:cursor-not-allowed
-  `;
+ w-full px-5 py-2 border-2 rounded-large-element
+ surface-secondary outline-none
+ motion-safe:transition-all
+ disabled:opacity-50 disabled:cursor-not-allowed
+ `;
 
   const errorClasses = localError ? "border-secondary" : "border-secondary/30 focus:border-secondary";
 

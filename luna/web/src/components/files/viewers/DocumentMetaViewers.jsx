@@ -44,7 +44,7 @@ function NotebookBody({ bytes }) {
         return (
           <div
             key={i}
-            className="rounded-large-element bg-primary text-secondary border-2 border-secondary/20 p-4"
+            className="rounded-large-element surface-primary border-2 border-secondary/20 p-4"
           >
             <p className="text-xs uppercase tracking-wide mb-2 opacity-80">{kind}</p>
             <pre className="whitespace-pre-wrap font-mono text-sm break-words">{source}</pre>
@@ -72,7 +72,7 @@ export function GeoViewer({ driveId, path }) {
           // keep raw XML/text
         }
         return (
-          <pre className="rounded-large-element bg-primary text-secondary border-2 border-secondary/20 p-4 max-h-[65vh] overflow-auto font-mono text-sm whitespace-pre-wrap break-words">
+          <pre className="rounded-large-element surface-primary border-2 border-secondary/20 p-4 max-h-[65vh] overflow-auto font-mono text-sm whitespace-pre-wrap break-words">
             {pretty.slice(0, 200_000)}
             {pretty.length > 200_000 ? "\n… (truncated)" : ""}
           </pre>
@@ -111,7 +111,7 @@ function CalendarList({ text }) {
       {events.map((ev, i) => (
         <li
           key={`${ev.uid || i}`}
-          className="rounded-large-element bg-primary text-secondary border-2 border-secondary/20 p-4"
+          className="rounded-large-element surface-primary border-2 border-secondary/20 p-4"
         >
           <p className="font-mono text-base">{ev.summary || "Untitled event"}</p>
           {ev.dtstart && <p className="text-sm mt-1">Starts: {ev.dtstart}</p>}
@@ -144,7 +144,7 @@ ContactViewer.propTypes = {
 function ContactCard({ text }) {
   const contact = useMemo(() => parseVcf(text), [text]);
   return (
-    <div className="rounded-large-element bg-primary text-secondary border-2 border-secondary/20 p-6 space-y-2">
+    <div className="rounded-large-element surface-primary border-2 border-secondary/20 p-6 space-y-2">
       <p className="text-xl font-mono">{contact.fn || contact.n || "Contact"}</p>
       {contact.email && <p className="text-sm">{contact.email}</p>}
       {contact.tel && <p className="text-sm">{contact.tel}</p>}
@@ -190,14 +190,14 @@ function CsvTable({ bytes, path }) {
 
   return (
     <div className="space-y-2">
-      <div className="rounded-large-element bg-primary text-secondary border-2 border-secondary/20 max-h-[65vh] overflow-auto">
+      <div className="rounded-large-element surface-primary border-2 border-secondary/20 max-h-[65vh] overflow-auto">
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr>
               {Array.from({ length: colCount }, (_, i) => (
                 <th
                   key={i}
-                  className="sticky top-0 bg-primary px-3 py-2 text-left font-mono font-normal border-b-2 border-secondary/20 whitespace-nowrap"
+                  className="sticky top-0 surface-primary px-3 py-2 text-left font-mono font-normal border-b-2 border-secondary/20 whitespace-nowrap"
                 >
                   {head[i] ?? ""}
                 </th>

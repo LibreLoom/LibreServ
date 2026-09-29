@@ -19,3 +19,18 @@ describe("cn / twMerge custom radii", () => {
     expect(stacked).not.toMatch(/\brounded-pill\b/);
   });
 });
+
+describe("cn / twMerge surfaces", () => {
+  it("lets a later surface replace an earlier one", () => {
+    expect(cn("surface-secondary p-4", "surface-primary")).toBe("p-4 surface-primary");
+  });
+
+  it("lets a surface replace earlier bg and text colors", () => {
+    expect(cn("bg-secondary text-primary", "surface-primary")).toBe("surface-primary");
+  });
+
+  it("keeps the surface when a later utility overrides one property", () => {
+    expect(cn("surface-primary", "bg-error/20")).toBe("surface-primary bg-error/20");
+    expect(cn("surface-primary", "text-error")).toBe("surface-primary text-error");
+  });
+});

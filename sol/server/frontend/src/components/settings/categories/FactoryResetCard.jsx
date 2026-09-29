@@ -99,7 +99,7 @@ function FactoryResetCard({ index = 2, className = "" }) {
             value={confirmText}
             onChange={(e) => setConfirmText(e.target.value)}
             placeholder="Type RESET"
-            className="w-full px-3 py-2 rounded-large-element bg-secondary border-2 border-accent/30 text-primary font-mono text-sm focus:border-accent focus:outline-none"
+            className="w-full px-3 py-2 rounded-large-element surface-secondary border-2 border-accent/30 font-mono text-sm focus:border-accent focus:outline-none"
           />
         </div>
 
@@ -112,7 +112,7 @@ function FactoryResetCard({ index = 2, className = "" }) {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="Your password"
-            className="w-full px-3 py-2 rounded-large-element bg-secondary border-2 border-accent/30 text-primary font-mono text-sm focus:border-accent focus:outline-none"
+            className="w-full px-3 py-2 rounded-large-element surface-secondary border-2 border-accent/30 font-mono text-sm focus:border-accent focus:outline-none"
             autoComplete="off"
           />
         </div>

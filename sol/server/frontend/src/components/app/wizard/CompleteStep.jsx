@@ -48,7 +48,7 @@ function CompleteStep({ app, instance, onDone }) {
       )}
 
       {generatedPassword && (
-        <div className="max-w-md mx-auto p-4 rounded-large-element bg-secondary text-primary border border-primary/20 space-y-3">
+        <div className="max-w-md mx-auto p-4 rounded-large-element surface-secondary border border-primary/20 space-y-3">
           <p className="font-mono text-sm">
             Your temporary password:
           </p>

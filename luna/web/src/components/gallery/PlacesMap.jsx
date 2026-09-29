@@ -155,7 +155,7 @@ export function PlacePopupContent({ place, onSelect }) {
       : null;
 
   return (
-    <div className="places-map-popup-card bg-secondary text-primary rounded-large-element border-2 border-primary p-2 shadow-[0_8px_24px_color-mix(in_srgb,var(--color-secondary)_25%,transparent)] motion-safe:animate-[pop-in_200ms_var(--motion-easing-emphasized-decelerate)_both]">
+    <div className="places-map-popup-card surface-secondary rounded-large-element border-2 border-primary p-2 shadow-[0_8px_24px_color-mix(in_srgb,var(--color-secondary)_25%,transparent)] motion-safe:animate-[pop-in_200ms_var(--motion-easing-emphasized-decelerate)_both]">
       <div className="flex items-center gap-2">
         <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-[12px] bg-primary/20">
           {place.cover_thumb ? (
@@ -425,7 +425,7 @@ export default function PlacesMap({
       {/* Draw control — one corner pill that resizes to fit its content. */}
       <div
         ref={drawCtlRef}
-        className="absolute top-3 right-3 z-[1000] flex max-w-[calc(100%-1.5rem)] items-center overflow-hidden rounded-pill bg-secondary text-primary shadow-xl ring-2 ring-accent"
+        className="absolute top-3 right-3 z-[1000] flex max-w-[calc(100%-1.5rem)] items-center overflow-hidden rounded-pill surface-secondary shadow-xl ring-2 ring-accent"
       >
         {!isDrawMode ? (
           <button
@@ -469,7 +469,7 @@ export default function PlacesMap({
             className="pop-in flex flex-nowrap items-center gap-2 overflow-x-auto whitespace-nowrap px-3.5 py-2 text-xs font-mono [scrollbar-width:none]"
           >
             <span
-              className="flex h-5 w-5 shrink-0 items-center justify-center rounded-pill bg-primary text-secondary"
+              className="flex h-5 w-5 shrink-0 items-center justify-center rounded-pill surface-primary"
               aria-hidden="true"
             >
               <Check size={12} strokeWidth={3} />

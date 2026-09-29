@@ -69,7 +69,7 @@ function FontSample({ bytes, path }) {
   if (!family) return <p className="text-primary text-sm">Loading font…</p>;
 
   return (
-    <div className="rounded-large-element bg-primary text-secondary p-6 space-y-4">
+    <div className="rounded-large-element surface-primary p-6 space-y-4">
       <p className="text-sm break-all">{name}</p>
       <p className="text-4xl leading-relaxed" style={{ fontFamily: family }}>
         ABCDEFGHIJKLMNOPQRSTUVWXYZ

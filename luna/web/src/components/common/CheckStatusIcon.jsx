@@ -23,7 +23,7 @@ export default function CheckStatusIcon({ status, size = "md", className = "" })
   return (
     <span
       className={cn(
-        "inline-flex items-center justify-center shrink-0 rounded-full border-2 text-primary motion-safe:transition-colors motion-safe:duration-300",
+        "inline-flex items-center justify-center shrink-0 rounded-full border text-primary motion-safe:transition-colors motion-safe:duration-300",
         s.disc,
         tone,
         className,

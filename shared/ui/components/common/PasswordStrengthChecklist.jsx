@@ -5,19 +5,20 @@ import { passwordChecks } from "../../lib/passwordPolicy";
 
 const STRENGTH_LABEL = ["", "Weak", "Fair", "Good", "Strong"];
 const STRENGTH_COLOR = ["", "bg-error", "bg-warning", "bg-warning", "bg-success"];
-const STRENGTH_TEXT = ["", "text-error", "text-warning", "text-warning", "text-success"];
 
 /** @param {{ ok: boolean, label: string, surface?: "secondary"|"primary" }} props */
 function ReqChip({ ok, label, surface = "secondary" }) {
-  const unmet = surface === "primary" ? "text-secondary" : "text-primary";
+  const textTone = surface === "primary" ? "text-secondary" : "text-primary";
+  const borderTone = surface === "primary" ? "border-secondary/20" : "border-primary/20";
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 font-mono text-xs motion-safe:transition-colors motion-safe:duration-200",
-        ok ? "text-success" : unmet,
+        "inline-flex items-center gap-1 font-mono text-xs px-2 py-0.5 rounded-pill border motion-safe:transition-all motion-safe:duration-200",
+        textTone,
+        ok ? "bg-success/20 border-success/30" : cn("bg-transparent", borderTone),
       )}
     >
-      {ok ? <Check className="w-3 h-3" aria-hidden="true" /> : <X className="w-3 h-3" aria-hidden="true" />}
+      {ok ? <Check className="w-3 h-3 shrink-0" aria-hidden="true" /> : <X className="w-3 h-3 shrink-0" aria-hidden="true" />}
       {label}
     </span>
   );
@@ -69,7 +70,7 @@ export default function PasswordStrengthChecklist({
 
   const strength = passwordChecks(password);
   const meetsPolicy = strength.ok;
-  const pendingTone = surface === "primary" ? "text-secondary" : "text-primary";
+  const textTone = surface === "primary" ? "text-secondary" : "text-primary";
 
   return (
     <div
@@ -79,19 +80,14 @@ export default function PasswordStrengthChecklist({
     >
       <PasswordStrengthBar score={strength.score} surface={surface} />
       <div className="mt-1.5 flex items-center justify-between">
-        <p className={cn("font-mono text-xs", STRENGTH_TEXT[strength.score])}>
+        <p className={cn("font-mono text-xs", textTone)}>
           {STRENGTH_LABEL[strength.score]}
         </p>
-        <p
-          className={cn(
-            "font-mono text-xs",
-            meetsPolicy ? "text-success" : pendingTone,
-          )}
-        >
+        <p className={cn("font-mono text-xs", textTone)}>
           {meetsPolicy ? "✓ Acceptable" : "Not strong enough yet"}
         </p>
       </div>
-      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+      <div className="mt-2 flex flex-wrap gap-x-2 gap-y-1.5">
         <ReqChip ok={strength.hasLength} label="12+ chars" surface={surface} />
         <ReqChip ok={strength.hasLetter} label="letters" surface={surface} />
         <ReqChip ok={strength.hasDigit} label="numbers" surface={surface} />

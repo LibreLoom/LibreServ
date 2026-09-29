@@ -43,7 +43,7 @@ export default function ImagePreviewPanel({ src, alt, expanded = false }) {
   return (
     <div
       className={cn(
-        "rounded-large-element bg-primary text-secondary p-2 flex items-center justify-center overflow-auto",
+        "rounded-large-element surface-primary p-2 flex items-center justify-center overflow-auto",
         containerMaxHeight,
       )}
       style={{ minHeight: status === "loading" ? LOADING_MIN_HEIGHT : undefined }}

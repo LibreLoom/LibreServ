@@ -70,8 +70,8 @@ export default function ConnectSetupCodeForm({ surface = "secondary" }) {
       : "text-primary underline decoration-accent underline-offset-4 hover:decoration-current motion-safe:transition-colors";
   const inputClass =
     surface === "primary"
-      ? "w-full min-w-0 rounded-pill bg-secondary text-primary px-4 py-2 font-mono tracking-widest"
-      : "w-full min-w-0 rounded-pill bg-primary text-secondary px-4 py-2 font-mono tracking-widest";
+      ? "w-full min-w-0 rounded-pill surface-secondary px-4 py-2 font-mono tracking-widest"
+      : "w-full min-w-0 rounded-pill surface-primary px-4 py-2 font-mono tracking-widest";
   const btnSurface = surface === "primary" ? "primary" : "secondary";
 
   return (
@@ -117,7 +117,7 @@ export default function ConnectSetupCodeForm({ surface = "secondary" }) {
       </div>
       {error && <p className="text-sm text-error leading-relaxed">{error}</p>}
       {saved && !error && !tokenError && (
-        <p className="text-sm text-success leading-relaxed">Device token saved.</p>
+        <p className="text-sm leading-relaxed">Device token saved.</p>
       )}
       <div className="flex flex-col gap-2">
         <Button

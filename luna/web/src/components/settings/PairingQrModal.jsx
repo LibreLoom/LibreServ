@@ -46,7 +46,7 @@ export default function PairingQrModal({ open, token, onClose }) {
             On the phone, open Luna, tap Scan QR code, then Sign in — it
             fills in the address and access token for you.
           </p>
-          <div className="flex justify-center rounded-large-element bg-primary p-4">
+          <div className="flex justify-center rounded-large-element surface-primary p-4">
             {failed ? (
               <p className="text-secondary text-sm">
                 Could not draw the QR code. Copy the access token instead.
@@ -56,7 +56,7 @@ export default function PairingQrModal({ open, token, onClose }) {
                 ref={canvasRef}
                 width={240}
                 height={240}
-                className="bg-primary"
+                className="surface-primary"
                 aria-label="QR code for Luna address and access token"
               />
             )}

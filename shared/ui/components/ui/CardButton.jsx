@@ -5,16 +5,16 @@ import { haptic } from "../../utils/haptics.js";
 
 const variants = {
   default:
-    "bg-primary text-secondary hover:bg-secondary hover:text-primary hover:ring-primary mt-5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2",
+    "surface-primary hover:bg-secondary hover:text-primary hover:ring-primary mt-5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2",
   inverted:
-    "bg-secondary text-primary hover:bg-primary hover:text-secondary hover:ring-secondary mt-0 py-4 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2",
+    "surface-secondary hover:bg-primary hover:text-secondary hover:ring-secondary mt-0 py-4 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2",
   danger:
     "bg-accent text-primary hover:bg-primary hover:text-accent hover:ring-accent mt-0 py-4 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2",
   nav: "text-primary hover:bg-primary/10 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2",
 };
 
 const activeVariants = {
-  nav: "bg-primary text-secondary focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2",
+  nav: "surface-primary focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2",
 };
 
 const alignments = {

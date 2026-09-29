@@ -159,7 +159,7 @@ function SubdomainStep({ app, domain, onSubdomainChange, onContinue, onBack, loa
             onBlur={handleBlur}
             disabled={loading}
             placeholder={suggested || "e.g., myapp"}
-            className="w-full px-4 py-3 rounded-large-element border-2 border-secondary/30 bg-primary text-secondary placeholder:text-secondary/50 font-mono text-sm outline-none focus:border-accent"
+            className="w-full px-4 py-3 rounded-large-element border-2 border-secondary/30 surface-primary placeholder:text-secondary/50 font-mono text-sm outline-none focus:border-accent"
             autoComplete="off"
           />
           {subdomainError && (

@@ -336,7 +336,7 @@ function PublicShareSession() {
   // Until we know what the link holds, show the same full-screen loader the
   // document editors use — it reads right whether a form or files follow.
   const opening = (
-    <div className="h-dvh bg-primary text-secondary">
+    <div className="h-dvh surface-primary">
       <DocumentLoadingScreen label="Opening the shared link…" />
     </div>
   );
@@ -345,7 +345,7 @@ function PublicShareSession() {
   // Respond links take over the whole page — the form, as the editor laid it out.
   if (formDoc && !needPassword) {
     return (
-      <div className="flex min-h-screen flex-col bg-primary text-secondary">
+      <div className="flex min-h-screen flex-col surface-primary">
         {error && (
           <div className="p-4">
             <PageNotice variant="error">{error}</PageNotice>
@@ -371,7 +371,7 @@ function PublicShareSession() {
       : 0;
     const lightboxPhoto = albumItems[lightboxIndex];
     return (
-      <div className="min-h-screen bg-primary text-secondary">
+      <div className="min-h-screen surface-primary">
         <Page title={title} titleId="public-album-title">
           {error && <PageNotice variant="error" className="mb-4">{error}</PageNotice>}
           {album.isLoading ? null : (
@@ -490,7 +490,7 @@ function PublicShareSession() {
   const driveLike = isFolder || isFile;
 
   return (
-    <div className="min-h-screen bg-primary text-secondary">
+    <div className="min-h-screen surface-primary">
       <Page
         title={meta?.name || "Shared with you"}
         titleId="public-share-title"
@@ -514,7 +514,7 @@ function PublicShareSession() {
               <ShakeTarget shake={error}>
                 <input
                   type="password"
-                  className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm"
+                  className="w-full rounded-pill surface-primary border-2 border-secondary/30 px-4 py-2 text-sm"
                   placeholder="Password for this link"
                   aria-label="Password for this link"
                   value={password}

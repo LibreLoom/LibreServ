@@ -235,7 +235,10 @@ describe("PublicSharePage", () => {
     }));
     renderPage();
     fireEvent.click(await screen.findByRole("button", { name: /Rename beach\.jpg/i }));
-    const input = await screen.findByDisplayValue("beach.jpg");
+    const input = /** @type {HTMLInputElement} */ (await screen.findByDisplayValue("beach.jpg"));
+    // Focused with the name selected up to the extension, ready to type over.
+    await waitFor(() => expect(input).toHaveFocus());
+    expect([input.selectionStart, input.selectionEnd]).toEqual([0, 5]);
     fireEvent.change(input, { target: { value: "coast.jpg" } });
     fireEvent.click(screen.getByRole("button", { name: /^Rename$/i }));
     await waitFor(() => {

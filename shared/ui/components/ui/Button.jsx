@@ -71,8 +71,8 @@ const buttonVariants = cva(
     variants: {
       variant: {
         // SOLID — surface-aware inversion on hover
-        primary: "bg-primary text-secondary hover:bg-secondary hover:text-primary hover:ring-2 hover:ring-primary",
-        secondary: "bg-secondary text-primary hover:bg-primary hover:text-secondary hover:ring-2 hover:ring-secondary",
+        primary: "surface-primary hover:bg-secondary hover:text-primary hover:ring-2 hover:ring-primary",
+        secondary: "surface-secondary hover:bg-primary hover:text-secondary hover:ring-2 hover:ring-secondary",
         accent: "bg-accent text-primary hover:bg-secondary hover:text-primary hover:ring-2 hover:ring-accent",
         danger: "bg-error text-secondary hover:text-primary",
         nav: "bg-transparent text-secondary hover:bg-secondary/10",
@@ -156,16 +156,26 @@ export default function Button({
   title,
   onClick,
   haptic: hapticProp,
+  autoFocus = false,
+  ref: externalRef,
   ...props
 }) {
-  const ref = useRef(null);
+  const internalRef = useRef(null);
+  const handleRef = (node) => {
+    internalRef.current = node;
+    if (typeof externalRef === "function") {
+      externalRef(node);
+    } else if (externalRef && typeof externalRef === "object") {
+      externalRef.current = node;
+    }
+  };
 
   // Width is layout-determined (flex/grid stretch or explicit w-*) — a pinned
   // px width from useSmoothResize would override the layout, so skip it.
   const stretchy = /(^|\s)(w-full|flex-1|basis-|grow|w-\[[^\]]+\])(\s|$)/.test(className);
   const resizeX = smoothResize && !fullWidth && !stretchy;
 
-  useSmoothResize(ref, { x: resizeX });
+  useSmoothResize(internalRef, { x: resizeX });
 
   const cvaProps = { variant, size, surface, fullWidth, smoothResize: resizeX };
   const buttonClass = cn(buttonVariants(cvaProps), className);
@@ -191,7 +201,8 @@ export default function Button({
   const nativeTitle = tooltip ? undefined : title;
   const isIconOnly = size === "icon" || size === "iconSm";
   const sharedProps = {
-    ref,
+    ref: handleRef,
+    autoFocus: autoFocus || undefined,
     "data-slot": "button",
     "data-surface": surface,
     "aria-pressed": active || undefined,
@@ -294,4 +305,9 @@ Button.propTypes = {
   className: PropTypes.string,
   tooltip: PropTypes.node,
   title: PropTypes.string,
+  autoFocus: PropTypes.bool,
+  ref: PropTypes.oneOfType([
+    PropTypes.func,
+    PropTypes.shape({ current: PropTypes.any }),
+  ]),
 };

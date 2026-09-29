@@ -96,7 +96,7 @@ export default function GeozoneMap({
       </div>
 
       <div
-        className="overflow-hidden rounded-large-element border-2 border-secondary/30 bg-primary text-secondary"
+        className="overflow-hidden rounded-large-element border-2 border-secondary/30 surface-primary"
         style={{ height }}
       >
         <MapContainer

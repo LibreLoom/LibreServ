@@ -353,6 +353,19 @@ describe("WhiteboardEditor", () => {
     expect(screen.queryByTestId("excalidraw-canvas")).toBeNull();
   });
 
+  it("shows 'This file doesn't exist anymore.' when the file is not found", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("nope", { status: 404 })),
+    );
+    render(<WhiteboardEditor {...PROPS} />);
+    await screen.findByText("This file doesn't exist anymore.");
+    expect(screen.getByText(/couldn't open this whiteboard/i)).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /download/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /reopen/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /close/i })).toBeInTheDocument();
+  });
+
   it("survives StrictMode double-mount and continues syncing edits", async () => {
     stubLuna();
     const onSaveStateChange = vi.fn();

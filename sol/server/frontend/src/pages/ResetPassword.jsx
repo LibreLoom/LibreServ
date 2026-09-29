@@ -104,8 +104,8 @@ export default function ResetPassword() {
 
   if (validating) {
     return (
-      <main data-slot="reset-password-page" className="fixed inset-0 grid place-items-center bg-primary px-4">
-        <div className="relative w-full max-w-lg overflow-auto bg-secondary text-primary rounded-large-element pop-in p-8">
+      <main data-slot="reset-password-page" className="fixed inset-0 grid place-items-center surface-primary px-4">
+        <div className="relative w-full max-w-lg overflow-auto surface-secondary rounded-large-element pop-in p-8">
           <span className="text-primary font-mono text-2xl block text-center">
             LibreServ
           </span>
@@ -124,8 +124,8 @@ export default function ResetPassword() {
 
   if (!tokenValid && !success) {
     return (
-      <main data-slot="reset-password-page" className="fixed inset-0 grid place-items-center bg-primary px-4">
-        <div className="relative w-full max-w-lg overflow-auto bg-secondary text-primary rounded-large-element pop-in p-8">
+      <main data-slot="reset-password-page" className="fixed inset-0 grid place-items-center surface-primary px-4">
+        <div className="relative w-full max-w-lg overflow-auto surface-secondary rounded-large-element pop-in p-8">
           <span className="text-primary font-mono text-2xl block text-center">
             LibreServ
           </span>
@@ -151,8 +151,8 @@ export default function ResetPassword() {
   }
 
   return (
-    <main data-slot="reset-password-page" className="fixed inset-0 grid place-items-center bg-primary px-4">
-      <div className="relative w-full max-w-lg overflow-auto bg-secondary text-primary rounded-large-element pop-in p-8">
+    <main data-slot="reset-password-page" className="fixed inset-0 grid place-items-center surface-primary px-4">
+      <div className="relative w-full max-w-lg overflow-auto surface-secondary rounded-large-element pop-in p-8">
         <span className="text-primary font-mono text-2xl block text-center">
           LibreServ
         </span>
@@ -175,7 +175,7 @@ export default function ResetPassword() {
           <form
             onSubmit={handleSubmit}
             aria-busy={loading}
-            className="flex flex-col mt-6 rounded-large-element p-4 bg-primary text-secondary"
+            className="flex flex-col mt-6 rounded-large-element p-4 surface-primary"
           >
             <FormInput
               label="New Password"

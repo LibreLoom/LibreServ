@@ -11,10 +11,13 @@ const pillVariants = cva(
         muted: "bg-primary/20 border-primary/30",
         // Accent is an outline only — the fill stays the surface's own.
         accent: "bg-transparent border-accent",
-        success: "bg-success/20 border-success/30 text-success",
-        warning: "bg-warning/20 border-warning/30 text-warning",
-        error: "bg-error/20 border-error/30 text-error",
-        info: "bg-info/20 border-info/30 text-info",
+        // Status reads from the tint and border; the text keeps the
+        // surface's own color. Status-colored text (yellow, green) on a
+        // light surface is unreadable.
+        success: "bg-success/20 border-success/30",
+        warning: "bg-warning/20 border-warning/30",
+        error: "bg-error/20 border-error/30",
+        info: "bg-info/20 border-info/30",
         custom: "",
       },
     },

@@ -70,13 +70,13 @@ export default function LayeredPill({
   const pill = (
     <div
       className={cn(
-        "inline-flex max-w-full flex-wrap items-center rounded-pill bg-secondary text-primary text-xs border border-accent",
+        "inline-flex max-w-full flex-wrap items-center rounded-pill surface-secondary text-xs border border-accent",
         className,
       )}
     >
       <span
         className={cn(
-          "flex items-center gap-1.5 whitespace-nowrap bg-primary text-secondary rounded-pill py-1.5 pl-3 pr-2.5",
+          "flex items-center gap-1.5 whitespace-nowrap surface-primary rounded-pill py-1.5 pl-3 pr-2.5",
           mono && "font-mono",
         )}
       >

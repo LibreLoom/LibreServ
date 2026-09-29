@@ -90,6 +90,25 @@ export function recordRecentItem(username, item, now = Date.now()) {
 }
 
 /**
+ * Remove an item from the user's localStorage recent list.
+ *
+ * @param {string | undefined} username
+ * @param {{ driveId: string, path: string }} target
+ * @returns {RecentItem[]}
+ */
+export function removeRecentItem(username, { driveId, path }) {
+  const next = readRecentItems(username).filter(
+    (existing) => !(existing.driveId === driveId && existing.path === path),
+  );
+  try {
+    window.localStorage.setItem(storageKey(username), JSON.stringify(next));
+  } catch {
+    // Storage blocked or full
+  }
+  return next;
+}
+
+/**
  * Turn a router location into a recent item, or null when the route is not
  * a browsable drive object (drive list, trash, settings, …). Mirrors
  * FilesPage's viewerPath rules: `?file=`/`?open=` or a bare `#name` hash

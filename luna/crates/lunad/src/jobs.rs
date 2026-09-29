@@ -277,7 +277,8 @@ fn prepare(
     if dest.exists() {
         return Err(JobError::Conflict);
     }
-    let total = walk_total(&src, meta.is_dir())?;
+    let src_root = PathBuf::from(files::drive_root(conn, from_drive)?.mount_point);
+    let total = walk_total(&src_root, &src, meta.is_dir())?;
     if total == 0 && !meta.is_dir() {
         // Zero-byte files are still valid copies.
     }
@@ -298,13 +299,43 @@ fn prepare(
     })
 }
 
-fn walk_total(path: &Path, is_dir: bool) -> Result<u64, JobError> {
+/// Bytes in a form's own files folder (question pictures, attachments) —
+/// copied along with the form, unlike other Luna-owned names.
+fn form_files_total(root: &Path, form: &Path) -> u64 {
+    crate::api::forms::files_dir_for(root, form)
+        .filter(|dir| std::fs::symlink_metadata(dir).is_ok_and(|m| m.is_dir()))
+        .map(|dir| walk_total_lossy(&dir))
+        .unwrap_or(0)
+}
+
+fn walk_total_lossy(dir: &Path) -> u64 {
+    let mut total = 0;
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(read) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in read.flatten() {
+            let Ok(meta) = std::fs::symlink_metadata(entry.path()) else {
+                continue;
+            };
+            if meta.is_dir() {
+                stack.push(entry.path());
+            } else if meta.is_file() {
+                total += meta.len();
+            }
+        }
+    }
+    total
+}
+
+fn walk_total(root: &Path, path: &Path, is_dir: bool) -> Result<u64, JobError> {
     if !is_dir {
         let meta = std::fs::symlink_metadata(path).map_err(JobError::Io)?;
         if meta.file_type().is_symlink() {
             return Err(JobError::Symlink);
         }
-        return Ok(meta.len());
+        return Ok(meta.len() + form_files_total(root, path));
     }
     let mut total = 0;
     let mut stack = vec![path.to_path_buf()];
@@ -327,7 +358,7 @@ fn walk_total(path: &Path, is_dir: bool) -> Result<u64, JobError> {
             if meta.is_dir() {
                 stack.push(entry.path());
             } else {
-                total += meta.len();
+                total += meta.len() + form_files_total(root, &entry.path());
             }
         }
     }
@@ -415,6 +446,18 @@ fn run_job(
         match files::try_rename_move(&prepared.src, &prepared.dest) {
             Ok(true) => {
                 if let Ok(conn) = db.lock() {
+                    // A form's files folder and answers file follow it.
+                    if let (Ok(from), Ok(to)) = (
+                        files::drive_root(&conn, &prepared.row.from_drive),
+                        files::drive_root(&conn, &prepared.row.to_drive),
+                    ) {
+                        crate::api::forms::repath_form_files(
+                            Path::new(&from.mount_point),
+                            &prepared.src,
+                            Path::new(&to.mount_point),
+                            &prepared.dest,
+                        );
+                    }
                     // Shares follow the file: subject rows point at the new
                     // drive/path before the job reports done.
                     let leaf = prepared
@@ -776,7 +819,66 @@ fn copy_node(
     files::install_temp(&tmp, dest, false)?;
     // We own this leaf now; only our cleanup may ever remove it.
     st.owned_dest = true;
+    copy_form_files(ctx, src, dest, st)?;
     Ok(st.done)
+}
+
+/// A copied form takes its own hidden files folder along (question pictures,
+/// attachments). Other Luna-owned names stay behind. The folder is named
+/// after each drive's prefix and the form's file name, so the destination
+/// name is worked out fresh. Only the form's own sibling folder is read, and
+/// links inside it are skipped.
+fn copy_form_files(
+    ctx: &CopyCtx<'_>,
+    src: &Path,
+    dest: &Path,
+    st: &mut CopyState<'_>,
+) -> Result<(), JobError> {
+    if !crate::api::forms::is_form_path(&dest.to_string_lossy()) {
+        return Ok(());
+    }
+    let Some(from_dir) = crate::api::forms::files_dir_for(&ctx.src_root, src) else {
+        return Ok(());
+    };
+    if !std::fs::symlink_metadata(&from_dir).is_ok_and(|m| m.is_dir()) {
+        return Ok(());
+    }
+    let to_root = {
+        let conn = ctx
+            .db
+            .lock()
+            .map_err(|_| JobError::Db(anyhow::anyhow!("db busy")))?;
+        PathBuf::from(files::drive_root(&conn, &ctx.row.to_drive)?.mount_point)
+    };
+    let Some(to_dir) = crate::api::forms::files_dir_for(&to_root, dest) else {
+        return Ok(());
+    };
+    let result = copy_plain_tree(&from_dir, &to_dir, st);
+    if result.is_err() {
+        let _ = std::fs::remove_dir_all(&to_dir);
+    }
+    result
+}
+
+fn copy_plain_tree(src: &Path, dest: &Path, st: &mut CopyState<'_>) -> Result<(), JobError> {
+    if st.cancel.load(Ordering::Relaxed) {
+        return Err(JobError::Io(std::io::Error::new(
+            std::io::ErrorKind::Interrupted,
+            "cancelled",
+        )));
+    }
+    std::fs::create_dir(dest).map_err(JobError::Io)?;
+    for entry in std::fs::read_dir(src).map_err(JobError::Io)? {
+        let entry = entry.map_err(JobError::Io)?;
+        let meta = std::fs::symlink_metadata(entry.path()).map_err(JobError::Io)?;
+        let target = dest.join(entry.file_name());
+        if meta.is_dir() {
+            copy_plain_tree(&entry.path(), &target, st)?;
+        } else if meta.is_file() {
+            st.done += std::fs::copy(entry.path(), &target).map_err(JobError::Io)?;
+        }
+    }
+    Ok(())
 }
 
 fn plain_job_error(err: &JobError) -> String {
@@ -1411,6 +1513,59 @@ mod tests {
             b"real"
         );
         assert!(!dir.path().join("b/docs").join(&internal).exists());
+    }
+
+    #[tokio::test]
+    async fn copy_takes_the_forms_own_files_folder_along() {
+        // Luna-owned names stay behind, except the files folder that belongs
+        // to a form being copied — for a folder of forms and a lone form.
+        let (dir, db, _a) = setup();
+        let (root_a, root_b) = (dir.path().join("a"), dir.path().join("b"));
+        let prefix = crate::drives::drive_db::prefix_for(&root_a).unwrap();
+        std::fs::create_dir_all(root_a.join("forms")).unwrap();
+        for name in ["one.lunaform", "two.lunaform"] {
+            let form = root_a.join("forms").join(name);
+            std::fs::write(&form, b"{}").unwrap();
+            let own = crate::api::forms::files_dir_for(&root_a, &form).unwrap();
+            std::fs::create_dir_all(&own).unwrap();
+            std::fs::write(own.join("pic.png"), b"png").unwrap();
+        }
+        std::fs::create_dir(root_a.join("forms").join(format!("{prefix}-other"))).unwrap();
+        let manager = JobManager::new(
+            db.clone(),
+            crate::gallery::gallery_indexer::GalleryIndexer::start(),
+        );
+        let job = manager
+            .enqueue("copy", "a", "forms", "b", "", "user-1")
+            .await
+            .unwrap();
+        assert_eq!(job.total, 4 + 2 * 3, "form files count toward the total");
+        wait_done(&manager, &job.id);
+        let done = manager.get(&job.id).unwrap().unwrap();
+        assert_eq!(done.state, "done", "{}", done.error);
+        for name in ["one.lunaform", "two.lunaform"] {
+            let copy = root_b.join("forms").join(name);
+            let own = crate::api::forms::files_dir_for(&root_b, &copy).unwrap();
+            assert_eq!(std::fs::read(own.join("pic.png")).unwrap(), b"png");
+        }
+        let names: Vec<_> = std::fs::read_dir(root_b.join("forms"))
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names.len(), 4, "{names:?}");
+        assert!(!names.iter().any(|n| n.ends_with("-other")));
+
+        // A single form copied on its own brings its folder too.
+        let job = manager
+            .enqueue("copy", "a", "forms/one.lunaform", "b", "", "user-1")
+            .await
+            .unwrap();
+        wait_done(&manager, &job.id);
+        let done = manager.get(&job.id).unwrap().unwrap();
+        assert_eq!(done.state, "done", "{}", done.error);
+        let copy = root_b.join("one.lunaform");
+        let own = crate::api::forms::files_dir_for(&root_b, &copy).unwrap();
+        assert_eq!(std::fs::read(own.join("pic.png")).unwrap(), b"png");
     }
 
     #[test]

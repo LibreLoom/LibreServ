@@ -435,7 +435,7 @@ export default function FullscreenEditorFrame({
           aria-label={name}
           data-slot="file-viewer-overlay"
           className={cn(
-            "fixed inset-0 z-[80] flex flex-col bg-primary text-secondary",
+            "fixed inset-0 z-[80] flex flex-col surface-primary",
             isClosing
               ? "fullscreen-overlay-exit file-viewer-exit"
               : "fullscreen-overlay-enter file-viewer-enter",
@@ -444,7 +444,7 @@ export default function FullscreenEditorFrame({
           <div className="flex min-h-0 flex-1">
             <div
               data-slot="editor-frame"
-              className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-secondary text-primary md:flex-row"
+              className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden surface-secondary md:flex-row"
             >
               {isMdUp ? (
                 /* Desktop rail: the filename runs down the left edge like a
@@ -461,7 +461,7 @@ export default function FullscreenEditorFrame({
                   // killed typing. The frame's focus watchdog (half 2,
                   // watchEuroOfficeFocus) heals whatever still slips through.
                   onMouseDown={(e) => e.preventDefault()}
-                  className="flex w-14 shrink-0 flex-col items-center border-r border-primary/20 bg-secondary py-3 text-primary"
+                  className="flex w-14 shrink-0 flex-col items-center border-r border-primary/20 surface-secondary py-3"
                 >
                   <div className="flex min-h-0 flex-1 items-start justify-center overflow-hidden">
                     <span
@@ -518,7 +518,7 @@ export default function FullscreenEditorFrame({
                   // Same rule as the rail — a chrome click must not pull
                   // DOM focus out of the editor frame.
                   onMouseDown={(e) => e.preventDefault()}
-                  className="flex h-10 shrink-0 items-center gap-2 border-b border-primary/20 bg-secondary pl-4 pr-1.5 text-primary"
+                  className="flex h-10 shrink-0 items-center gap-2 border-b border-primary/20 surface-secondary pl-4 pr-1.5"
                 >
                   <span
                     className="min-w-0 flex-1 truncate font-mono text-xs text-primary"
@@ -544,7 +544,7 @@ export default function FullscreenEditorFrame({
                   </span>
                 </div>
               )}
-              <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-primary text-secondary">
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col surface-primary">
                 {children({
                   onRegisterSave: handleRegisterSave,
                   onSaveStateChange: handleSaveState,
@@ -567,7 +567,7 @@ export default function FullscreenEditorFrame({
             onKeyDown={handleMenuKeyDown}
             style={{ position: "absolute", top: menuPos.top, left: menuPos.left }}
             className={cn(
-              "bg-secondary text-primary ring-inset ring-2 ring-accent",
+              "surface-secondary ring-inset ring-2 ring-accent",
               "rounded-large-element z-[90] overflow-hidden min-w-[12rem]",
               menuClosing ? "animate-dropdown-close" : "animate-dropdown-open",
             )}

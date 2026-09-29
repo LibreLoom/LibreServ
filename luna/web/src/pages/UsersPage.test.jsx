@@ -241,4 +241,39 @@ describe("UsersPage", () => {
     // Portaled to body so page-enter transforms cannot trap position:fixed.
     expect(add.parentElement).toBe(document.body);
   });
+
+  it("opens edit user modal with accessible contrast", async () => {
+    stubFetch();
+    const user = userEvent.setup();
+    renderPage();
+
+    const editBtn = await screen.findByRole("button", { name: /Edit Alex/i });
+    await user.click(editBtn);
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("heading", { name: /Edit Alex/i })).toBeTruthy();
+    expect(within(dialog).getByLabelText(/^Name/i)).toHaveValue("Alex");
+    expect(within(dialog).getByLabelText(/^Role/i)).toBeTruthy();
+    expect(within(dialog).getByLabelText(/New password/i)).toBeTruthy();
+
+    await user.type(within(dialog).getByLabelText(/New password/i), "hunter22hunter1");
+    expect(within(dialog).getByText(/Setting a new password signs them out on every device/i)).toBeTruthy();
+    expect(within(dialog).getByText("✓ Acceptable")).toBeTruthy();
+  });
+
+  it("links to settings security when editing yourself instead of opening modal", async () => {
+    stubFetch();
+    const user = userEvent.setup();
+    renderPage();
+
+    const selfEditLink = await screen.findByRole("link", { name: /Edit Demo/i });
+    expect(selfEditLink).toHaveAttribute("href", "/settings#security");
+
+    const selfNameLink = within(await screen.findByRole("region", { name: /User list/i })).getByRole("link", { name: /^Demo$/i });
+    expect(selfNameLink).toHaveAttribute("href", "/settings#security");
+
+    await user.click(selfEditLink);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
 });
+

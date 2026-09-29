@@ -71,7 +71,7 @@ function ArchiveList({ bytes, path }) {
   }
 
   return (
-    <div className="rounded-large-element bg-primary text-secondary border-2 border-secondary/20 max-h-[65vh] overflow-auto">
+    <div className="rounded-large-element surface-primary border-2 border-secondary/20 max-h-[65vh] overflow-auto">
       <ul className="divide-y divide-secondary/15">
         {entries.slice(0, 500).map((entry) => (
           <li key={entry.name} className="px-4 py-2 font-mono text-sm flex justify-between gap-3">

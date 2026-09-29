@@ -50,7 +50,7 @@ export function nearestDayKey(photos, ymd) {
 }
 
 const dayInputClass =
-  "w-full rounded-large-element bg-primary text-secondary border-2 border-secondary/30 px-3 py-2 text-sm font-mono focus:border-accent focus:outline-none no-focus-outline";
+  "w-full rounded-large-element surface-primary border-2 border-secondary/30 px-3 py-2 text-sm font-mono focus:border-accent focus:outline-none no-focus-outline";
 
 /**
  * One-field jump dialog: pick a day, the timeline scrolls to the nearest

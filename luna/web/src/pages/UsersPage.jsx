@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { createPortal } from "react-dom";
+import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { House, Pencil, Plus, Shield, Trash2, User, UserPlus } from "lucide-react";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
@@ -20,6 +21,7 @@ import { useAuth } from "../context/AuthContext";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import CreateUserForm from "../components/common/forms/CreateUserForm";
 import FormInput from "../components/common/forms/FormInput";
+import FieldLabel from "@libreloom/ui/components/common/forms/FieldLabel.jsx";
 import useStrandedErrorToast from "../hooks/useStrandedErrorToast";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 
@@ -80,7 +82,7 @@ export default function UsersPage() {
     },
   });
 
-  const actionModalOpen = creating || userToDelete != null || userToEdit != null;
+  const actionModalOpen = creating || userToDelete != null || Boolean(userToEdit && userToEdit.id !== user?.id);
   useStrandedErrorToast(error, actionModalOpen, () => setError(null));
 
   if (user?.role !== "admin") {
@@ -151,16 +153,34 @@ export default function UsersPage() {
                     {
                       key: "display_name",
                       label: "Name",
-                      render: (row) => (
-                        <span className="inline-flex items-center gap-2">
-                          <span className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
-                            <User size={14} aria-hidden="true" />
+                      render: (row) => {
+                        const isSelf = row.id === user?.id;
+                        const content = (
+                          <>
+                            <span className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
+                              <User size={14} aria-hidden="true" />
+                            </span>
+                            <span className="font-semibold text-sm text-primary">
+                              {row.display_name || row.username}
+                            </span>
+                          </>
+                        );
+                        if (isSelf) {
+                          return (
+                            <Link
+                              to="/settings#security"
+                              className="inline-flex items-center gap-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-pill"
+                            >
+                              {content}
+                            </Link>
+                          );
+                        }
+                        return (
+                          <span className="inline-flex items-center gap-2">
+                            {content}
                           </span>
-                          <span className="font-semibold text-sm text-primary">
-                            {row.display_name || row.username}
-                          </span>
-                        </span>
-                      ),
+                        );
+                      },
                     },
                     {
                       key: "username",
@@ -206,37 +226,54 @@ export default function UsersPage() {
                       srOnly: true,
                       width: "w-16",
                       noRowClick: true,
-                      render: (row) => (
-                        <span className="flex items-center justify-center gap-1">
-                          <Button
-                            variant="ghost"
-                            size="iconSm"
-                            surface="secondary"
-                            onClick={() => {
-                              setError(null);
-                              setUserToEdit(row);
-                            }}
-                            aria-label={`Edit ${row.display_name || row.username}`}
-                          >
-                            <Pencil size={16} aria-hidden="true" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="iconSm"
-                            surface="secondary"
-                            disabled={row.id === user.id || deleteMutation.isPending}
-                            onClick={() =>
-                              setUserToDelete({
-                                id: row.id,
-                                name: row.display_name || row.username,
-                              })
-                            }
-                            aria-label={`Remove ${row.display_name || row.username}`}
-                          >
-                            <Trash2 size={16} aria-hidden="true" />
-                          </Button>
-                        </span>
-                      ),
+                      render: (row) => {
+                        const isSelf = row.id === user?.id;
+                        return (
+                          <span className="flex items-center justify-center gap-1">
+                            {isSelf ? (
+                              <Button
+                                asChild
+                                variant="ghost"
+                                size="iconSm"
+                                surface="secondary"
+                                aria-label={`Edit ${row.display_name || row.username}`}
+                              >
+                                <Link to="/settings#security">
+                                  <Pencil size={16} aria-hidden="true" />
+                                </Link>
+                              </Button>
+                            ) : (
+                              <Button
+                                variant="ghost"
+                                size="iconSm"
+                                surface="secondary"
+                                onClick={() => {
+                                  setError(null);
+                                  setUserToEdit(row);
+                                }}
+                                aria-label={`Edit ${row.display_name || row.username}`}
+                              >
+                                <Pencil size={16} aria-hidden="true" />
+                              </Button>
+                            )}
+                            <Button
+                              variant="ghost"
+                              size="iconSm"
+                              surface="secondary"
+                              disabled={isSelf || deleteMutation.isPending}
+                              onClick={() =>
+                                setUserToDelete({
+                                  id: row.id,
+                                  name: row.display_name || row.username,
+                                })
+                              }
+                              aria-label={`Remove ${row.display_name || row.username}`}
+                            >
+                              <Trash2 size={16} aria-hidden="true" />
+                            </Button>
+                          </span>
+                        );
+                      },
                     },
                   ]}
                   data={list}
@@ -280,9 +317,8 @@ export default function UsersPage() {
 
       <EditUserModal
         key={userToEdit?.id || "closed"}
-        open={!!userToEdit}
+        open={Boolean(userToEdit && userToEdit.id !== user?.id)}
         user={userToEdit}
-        selfId={user?.id}
         busy={updateMutation.isPending}
         submitError={userToEdit ? error : null}
         onClose={() => {
@@ -337,11 +373,10 @@ const ROLE_OPTIONS = [
  * password. Password resets sign that person out everywhere — old sessions
  * and device tokens die with the old password.
  */
-function EditUserModal({ open, user: target, selfId, busy, submitError, onClose, onSubmit }) {
+function EditUserModal({ open, user: target, busy, submitError, onClose, onSubmit }) {
   const [name, setName] = useState(target?.display_name || target?.username || "");
   const [role, setRole] = useState(target?.role || "user");
   const [password, setPassword] = useState("");
-  const isSelf = target?.id === selfId;
   const nameClean = name.trim();
   const nameError = !nameClean ? "They need a name." : nameClean.length > 80 ? "Names are 1-80 characters." : null;
   const passwordProblem = password && !meetsPasswordPolicy(password)
@@ -372,25 +407,25 @@ function EditUserModal({ open, user: target, selfId, busy, submitError, onClose,
         placeholder="Their name"
         error={name ? nameError : null}
         required
-        surface="primary"
       />
       <div className="mb-4">
-        <p className="text-secondary text-sm mb-1">Role</p>
+        <FieldLabel htmlFor="edit-user-role" surface="secondary">
+          Role
+        </FieldLabel>
         <Dropdown
+          id="edit-user-role"
           options={ROLE_OPTIONS}
           value={role}
           onChange={setRole}
           fullWidth
           bg="primary"
-          disabled={isSelf}
+          size="form"
           aria-label="Role"
         />
-        <p className="text-secondary text-xs mt-1">
-          {isSelf
-            ? "You can't change your own role."
-            : role === "admin"
-              ? "An Admin can add users, manage drives and settings, and see everything except members' private folders."
-              : "A Member gets a private folder and can use whatever is shared with them."}
+        <p className="text-primary text-xs mt-1 px-5">
+          {role === "admin"
+            ? "An Admin can add users, manage drives and settings, and see everything except members' private folders."
+            : "A Member gets a private folder and can use whatever is shared with them."}
         </p>
       </div>
       <FormInput
@@ -402,16 +437,15 @@ function EditUserModal({ open, user: target, selfId, busy, submitError, onClose,
         onChange={(e) => setPassword(e.target.value)}
         placeholder="Leave blank to keep their password"
         autoComplete="new-password"
-        surface="primary"
       />
       {password ? <PasswordStrengthChecklist password={password} /> : null}
       {password ? (
-        <p className="text-secondary text-xs mb-4">
+        <p className="text-primary text-xs mb-4">
           Setting a new password signs them out on every device.
         </p>
       ) : null}
       <div className="flex justify-end gap-2">
-        <Button variant="outline" surface="primary" size="sm" onClick={onClose}>
+        <Button variant="outline" size="sm" onClick={onClose}>
           Cancel
         </Button>
         <Button
@@ -559,9 +593,9 @@ function MemberHomeCard() {
                     ? `${Math.min(100, Math.round((100 * job.progress) / job.total))}% done`
                     : "Starting…"}
                 </p>
-                <div className="mt-1.5 h-2 rounded-pill bg-primary p-0.5 overflow-hidden" aria-hidden="true">
+                <div className="mt-1.5 h-2 rounded-pill surface-primary p-0.5 overflow-hidden" aria-hidden="true">
                   <div
-                    className="h-full rounded-pill bg-secondary motion-safe:transition-all"
+                    className="h-full rounded-pill surface-secondary motion-safe:transition-all"
                     style={{
                       width: `${job.total > 0 ? Math.min(100, (100 * job.progress) / job.total) : 8}%`,
                     }}

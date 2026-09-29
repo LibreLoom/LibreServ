@@ -30,7 +30,7 @@ export default function AnimatedCheckbox({
     ? "border-secondary/50 group-hover:border-secondary"
     : "border-primary/50 group-hover:border-primary";
   // Checked fills with the backdrop's text color; the tick is punched out.
-  const checkedFill = onPrimary ? "border-secondary bg-secondary" : "border-primary bg-primary";
+  const checkedFill = onPrimary ? "border-secondary surface-secondary" : "border-primary surface-primary";
   const tickColor = onPrimary ? "text-primary" : "text-secondary";
 
   return (

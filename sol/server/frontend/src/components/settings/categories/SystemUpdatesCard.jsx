@@ -136,7 +136,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
           <div className="flex items-center gap-3 mb-4">
             <div className="text-sm">Status:</div>
             {notChecked && (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-primary text-secondary">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium surface-primary">
                 <Info size={ICON_SIZE.xs} />
                 Not checked
               </span>
@@ -231,7 +231,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
         >
           <div className="flex-1 min-h-0 flex flex-col">
             <div className="markdown-content overflow-y-auto flex-1 px-1">
-              <div className="bg-primary text-secondary rounded-large-element px-5 py-3">
+              <div className="surface-primary rounded-large-element px-5 py-3">
                 <ReactMarkdown
                 rehypePlugins={[rehypeSanitize]}
                 components={{

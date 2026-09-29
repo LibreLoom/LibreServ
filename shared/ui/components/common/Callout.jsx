@@ -52,7 +52,7 @@ const TONE_TEXT = {
  * @typedef {object} CalloutProps
  * @property {"success"|"warning"|"error"|"info"|"neutral"} [tone]
  * @property {import("react").ElementType|null} [icon] Auto from tone; pass null to suppress.
- * @property {import("react").ReactNode} [title] Colored mono heading.
+ * @property {import("react").ReactNode} [title] Mono heading (text-primary; the icon carries the tone).
  * @property {import("react").ReactNode} [children] Body (text-primary, readable on tint).
  * @property {import("react").ReactNode} [action] Right-aligned action node.
  * @property {() => void} [onDismiss] Renders a dismiss button.
@@ -89,7 +89,7 @@ export default function Callout({
       <div className="flex items-start gap-3">
         {Icon && <Icon size={ICON_SIZE.xl} className={cn(textClass, "shrink-0 mt-0.5")} aria-hidden="true" />}
         <div className="flex-1 min-w-0">
-          {title && <p className={cn("font-mono font-medium text-sm mb-1", textClass)}>{title}</p>}
+          {title && <p className="font-mono text-sm mb-1 text-primary">{title}</p>}
           {children && <div className="text-sm text-primary">{children}</div>}
         </div>
         {action && <div className="shrink-0">{action}</div>}

@@ -95,7 +95,7 @@ export default function LoginPage() {
   return (
     <main
       data-slot="login-page"
-      className="fixed inset-0 grid place-items-center bg-primary px-4"
+      className="fixed inset-0 grid place-items-center surface-primary px-4"
       id="main-content"
       tabIndex={-1}
     >
@@ -111,13 +111,13 @@ export default function LoginPage() {
               <span className="text-primary font-mono text-xl font-normal block text-center">
                 Sign in to continue.
               </span>
-              <p className="text-primary/80 text-sm text-center mt-2">{loginQuip}</p>
+              <p className="text-primary text-sm text-center mt-2">{loginQuip}</p>
               <form
                 onSubmit={handleSubmit}
                 aria-busy={loading}
                 className="flex flex-col mt-6"
               >
-                <div className="rounded-large-element p-4 bg-primary text-secondary flex flex-col">
+                <div className="rounded-large-element p-4 surface-primary flex flex-col">
                 <FormInput
                   label="Username"
                   name="username"
@@ -155,7 +155,7 @@ export default function LoginPage() {
                 </Button>
                 <div
                   className={
-                    "text-secondary/80 overflow-hidden transition-all duration-300 ease-in-out " +
+                    "text-secondary overflow-hidden transition-all duration-300 ease-in-out " +
                     (errorStatus ? "mt-4 max-h-96 opacity-100" : "max-h-0 opacity-0")
                   }
                   role="alert"

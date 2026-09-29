@@ -410,6 +410,33 @@ pub fn stat(
     let drive = drive_root(conn, drive_id)?;
     let root = PathBuf::from(&drive.mount_point);
     let rel = real_rel(&root, rel).into_owned();
+    // The trash root is created on the first delete. Until then it is an
+    // empty folder, the same answer `list_trash_dir` gives.
+    if is_trash_root(&rel)
+        && std::fs::symlink_metadata(root.join(rel.trim_matches('/')))
+            .is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
+    {
+        return Ok(FileStat {
+            name: rel.trim_matches('/').to_string(),
+            kind: "dir".into(),
+            size: 0,
+            modified: 0,
+            created: None,
+            hidden: true,
+            link_target: None,
+            children: Some(ChildCounts {
+                dirs: 0,
+                files: 0,
+                other: 0,
+            }),
+            saving: false,
+            writable: false,
+            trashed_from: None,
+            original_name: None,
+            totals: None,
+            caps: String::new(),
+        });
+    }
     let (path, leaf) = resolve_leaf(&root, rel.as_ref())?;
     let meta = std::fs::symlink_metadata(&path).map_err(FilesError::Io)?;
     let file_type = meta.file_type();
@@ -1210,7 +1237,7 @@ fn is_cross_device(err: &std::io::Error) -> bool {
         || matches!(err.raw_os_error(), Some(libc::EXDEV))
 }
 
-fn rename_noreplace(from: &Path, to: &Path) -> std::io::Result<()> {
+pub(crate) fn rename_noreplace(from: &Path, to: &Path) -> std::io::Result<()> {
     #[cfg(target_os = "linux")]
     {
         use std::os::unix::ffi::OsStrExt;
@@ -1353,6 +1380,7 @@ pub fn delete_to_trash(
             Err(e) => return Err(FilesError::Io(e)),
         }
     }
+    crate::api::forms::repath_form_files(&root, &path, &root, &dest);
     if let Ok(dir) = std::fs::File::open(&trash) {
         let _ = dir.sync_all();
     }
@@ -1713,6 +1741,7 @@ pub fn restore_from_trash(
     // No-replace move: a concurrent restore to the same name gets
     // AlreadyExists instead of silently clobbering the earlier winner.
     rename_noreplace(&src, &dest).map_err(FilesError::Io)?;
+    crate::api::forms::repath_form_files(&root, &src, &root, &dest);
     if let Some(parent) = dest.parent()
         && let Ok(dir) = std::fs::File::open(parent)
     {
@@ -1748,6 +1777,8 @@ pub fn purge_trash(
         std::fs::remove_dir_all(&path).map_err(FilesError::Io)?;
     } else {
         std::fs::remove_file(&path).map_err(FilesError::Io)?;
+        // A form's files folder and answers file go with it.
+        crate::api::forms::remove_form_files(&root, &path);
     }
     // Only a whole top-level entry owns a trash_meta row — purging a child
     // inside a trashed folder must leave the entry's origin intact so the
@@ -1921,6 +1952,7 @@ pub fn rename(
     // No-replace move keeps the never-overwrites contract honest under
     // concurrency; plain rename(2) would silently overwrite.
     rename_noreplace(&path, &dest).map_err(FilesError::Io)?;
+    crate::api::forms::repath_form_files(&root, &path, &root, &dest);
     if let Ok(dir) = std::fs::File::open(parent) {
         let _ = dir.sync_all();
     }
@@ -2007,6 +2039,7 @@ pub fn move_rel(
     }
     match try_rename_move(&from, &to)? {
         true => {
+            crate::api::forms::repath_form_files(&root, &from, &root, &to);
             // An item leaving trash loses its origin metadata.
             if let Some((entry, None)) = trash_entry_parts(&from_rel) {
                 remove_trash_meta(&root, entry);
@@ -2385,6 +2418,94 @@ mod tests {
         assert!(restore_from_trash(&conn, &id, &trash_rel, "taken.txt").is_err());
         assert!(root.join(real_rel(&root, &trash_rel).as_ref()).exists());
         assert_eq!(std::fs::read(root.join("taken.txt")).unwrap(), b"taken");
+    }
+
+    /// A form with a files folder and an answers file, ready to be moved.
+    fn make_form(root: &std::path::Path, dir: &str, name: &str) {
+        let form = root.join(dir).join(name);
+        std::fs::create_dir_all(form.parent().unwrap()).unwrap();
+        std::fs::write(&form, b"{}").unwrap();
+        let files = crate::api::forms::files_dir_for(root, &form).unwrap();
+        std::fs::create_dir_all(&files).unwrap();
+        std::fs::write(files.join("pic.png"), b"png").unwrap();
+        let responses = crate::api::forms::responses_file_for(root, &form).unwrap();
+        std::fs::write(responses, b"{}\n").unwrap();
+    }
+
+    fn form_parts_exist(root: &std::path::Path, form: &std::path::Path) -> (bool, bool) {
+        (
+            crate::api::forms::files_dir_for(root, form)
+                .unwrap()
+                .join("pic.png")
+                .is_file(),
+            crate::api::forms::responses_file_for(root, form)
+                .unwrap()
+                .is_file(),
+        )
+    }
+
+    #[test]
+    fn form_files_follow_rename_and_move() {
+        let (_dir, conn, id) = drive_dir();
+        let root = std::path::Path::new(&db::get_drive(&conn, &id).unwrap().unwrap().mount_point)
+            .to_path_buf();
+        make_form(&root, "", "rsvp.lunaform");
+        std::fs::create_dir(root.join("archive")).unwrap();
+
+        rename(&conn, &id, "rsvp.lunaform", "party.lunaform").unwrap();
+        assert_eq!(
+            form_parts_exist(&root, &root.join("party.lunaform")),
+            (true, true)
+        );
+        assert_eq!(
+            form_parts_exist(&root, &root.join("rsvp.lunaform")),
+            (false, false)
+        );
+
+        move_rel(&conn, &id, "party.lunaform", "archive/party.lunaform").unwrap();
+        assert_eq!(
+            form_parts_exist(&root, &root.join("archive/party.lunaform")),
+            (true, true)
+        );
+        assert_eq!(
+            form_parts_exist(&root, &root.join("party.lunaform")),
+            (false, false)
+        );
+    }
+
+    #[test]
+    fn form_files_trash_restore_and_purge() {
+        let (_dir, conn, id) = drive_dir();
+        let root = std::path::Path::new(&db::get_drive(&conn, &id).unwrap().unwrap().mount_point)
+            .to_path_buf();
+        make_form(&root, "forms", "rsvp.lunaform");
+        let trash_dir = crate::drives::layout::Layout::detect(&root)
+            .unwrap()
+            .trash_dir(&root);
+
+        let trash_rel = delete_to_trash(&conn, &id, "forms/rsvp.lunaform").unwrap();
+        assert_eq!(
+            form_parts_exist(&root, &root.join("forms/rsvp.lunaform")),
+            (false, false)
+        );
+        // Kept in trash under the entry's name, and never listed as entries.
+        let entry = trash_dir.join(trash_rel.trim_start_matches(".luna-trash/"));
+        assert_eq!(form_parts_exist(&root, &entry), (true, true));
+        assert_eq!(list_trash(&conn, &id).unwrap().len(), 1);
+
+        restore_from_trash(&conn, &id, &trash_rel, "forms/back.lunaform").unwrap();
+        assert_eq!(
+            form_parts_exist(&root, &root.join("forms/back.lunaform")),
+            (true, true)
+        );
+        assert_eq!(std::fs::read_dir(&trash_dir).unwrap().count(), 0);
+
+        // Emptying the trash leaves nothing behind on the drive.
+        let trash_rel = delete_to_trash(&conn, &id, "forms/back.lunaform").unwrap();
+        purge_trash(&conn, &id, &trash_rel).unwrap();
+        assert_eq!(std::fs::read_dir(&trash_dir).unwrap().count(), 0);
+        let left: Vec<_> = std::fs::read_dir(root.join("forms")).unwrap().collect();
+        assert!(left.is_empty(), "{left:?}");
     }
 
     #[test]
@@ -2883,4 +3004,5 @@ pub mod dav;
 mod dav_fs;
 pub mod forwarding;
 pub mod index;
+pub mod recents;
 pub mod uploads;

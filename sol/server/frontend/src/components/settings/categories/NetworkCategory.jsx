@@ -359,7 +359,7 @@ function AdvancedSection({ children }) {
         aria-controls={contentId}
         className={cn(
           "w-full flex items-center justify-between px-4 py-3 rounded-pill",
-          "bg-primary text-secondary border-2 border-secondary/10",
+          "surface-primary border-2 border-secondary/10",
           "hover:border-accent motion-safe:transition-colors"
         )}
       >

@@ -20,19 +20,19 @@ export const statusConfig = {
   online: {
     icon: CheckCircle,
     color: "text-success",
-    bg: "bg-secondary",
+    bg: "surface-secondary",
     label: "Online",
   },
   offline: {
     icon: XCircle,
     color: "text-error",
-    bg: "bg-secondary",
+    bg: "surface-secondary",
     label: "Offline",
   },
   warning: {
     icon: AlertCircle,
     color: "text-warning",
-    bg: "bg-secondary",
+    bg: "surface-secondary",
     label: "Warning",
   },
 };

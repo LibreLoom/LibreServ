@@ -77,7 +77,7 @@ export default function EmailServiceModal({ open, onClose, onSaved, service, con
         />
 
         {useConnect && connectWarning.show ? (
-          <div className="bg-primary text-secondary border-2 border-warning/20 rounded-large-element p-4 space-y-2">
+          <div className="surface-primary border-2 border-warning/20 rounded-large-element p-4 space-y-2">
             <div className="flex items-center gap-2 text-sm text-secondary">
               <AlertTriangle size={ICON_SIZE.md} className="text-warning shrink-0" />
               {connectWarning.label}
@@ -121,7 +121,7 @@ export default function EmailServiceModal({ open, onClose, onSaved, service, con
                     value={form.host}
                     onChange={(e) => setForm({ ...form, host: e.target.value })}
                     placeholder="smtp.example.com"
-                    className="w-full px-4 py-2.5 rounded-pill bg-primary text-secondary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors text-sm"
+                    className="w-full px-4 py-2.5 rounded-pill surface-primary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors text-sm"
                   />
                 </ShakeTarget>
                 {errors.host && (
@@ -138,7 +138,7 @@ export default function EmailServiceModal({ open, onClose, onSaved, service, con
                     value={form.port}
                     onChange={(e) => setForm({ ...form, port: e.target.value })}
                     placeholder="587"
-                    className="w-full px-4 py-2.5 rounded-pill bg-primary text-secondary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors text-sm"
+                    className="w-full px-4 py-2.5 rounded-pill surface-primary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors text-sm"
                   />
                 </ShakeTarget>
                 {errors.port && (
@@ -154,7 +154,7 @@ export default function EmailServiceModal({ open, onClose, onSaved, service, con
                   value={form.username}
                   onChange={(e) => setForm({ ...form, username: e.target.value })}
                   placeholder="postmaster@example.com"
-                  className="w-full px-4 py-2.5 rounded-pill bg-primary text-secondary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors text-sm"
+                  className="w-full px-4 py-2.5 rounded-pill surface-primary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors text-sm"
                 />
               </div>
               <div className="col-span-2 sm:col-span-1">
@@ -164,7 +164,7 @@ export default function EmailServiceModal({ open, onClose, onSaved, service, con
                   value={form.password}
                   onChange={(e) => setForm({ ...form, password: e.target.value })}
                   placeholder="Password or API key from your email provider"
-                  className="w-full px-4 py-2.5 rounded-pill bg-primary text-secondary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors text-sm"
+                  className="w-full px-4 py-2.5 rounded-pill surface-primary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors text-sm"
                 />
               </div>
               <div className="col-span-2">
@@ -174,7 +174,7 @@ export default function EmailServiceModal({ open, onClose, onSaved, service, con
                   value={form.from}
                   onChange={(e) => setForm({ ...form, from: e.target.value })}
                   placeholder="noreply@yourdomain.com"
-                  className="w-full px-4 py-2.5 rounded-pill bg-primary text-secondary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors text-sm"
+                  className="w-full px-4 py-2.5 rounded-pill surface-primary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors text-sm"
                 />
               </div>
             </div>

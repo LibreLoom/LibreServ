@@ -67,7 +67,7 @@ function AppCardInner({ app }) {
         </div>
       </div>
 
-      <div className="h-1 bg-primary rounded-pill mx-1 my-4" aria-hidden="true" />
+      <div className="h-1 surface-primary rounded-pill mx-1 my-4" aria-hidden="true" />
 
       <div className="grid grid-cols-2 gap-3 text-sm">
         <div className="flex items-center gap-2">

@@ -156,6 +156,7 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
     ensure_column(&conn, "jobs", "user_id", "TEXT NOT NULL DEFAULT ''")?;
     ensure_column(&conn, "device_tokens", "expires_at", "INTEGER")?;
     crate::files::forwarding::migrate(&conn)?;
+    crate::files::recents::migrate(&conn)?;
     // Legacy sharing tables — replaced by access_members/access_links.
     let _ = conn.execute_batch("DROP TABLE IF EXISTS grants; DROP TABLE IF EXISTS shares;");
     // Links minted before raw-token storage can't be re-shown — '' stays empty.

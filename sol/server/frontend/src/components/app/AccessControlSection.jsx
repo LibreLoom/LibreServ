@@ -156,7 +156,7 @@ export default function AccessControlSection({ instanceId, accessModel, appName 
 
   return (
     <section className={cn("mt-8")} data-slot="access-control-section">
-      <Card className="bg-primary! text-secondary! border-2! border-secondary!">
+      <Card className="surface-primary! ! border-2! border-secondary!">
         {/* Section header — matches AppDetailPage pattern */}
         <div className="flex items-center gap-2 mb-6">
           {isInternal ? (

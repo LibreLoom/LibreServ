@@ -459,4 +459,32 @@ describe("SetupPage", () => {
       expect(body.setup_secret).toBe("ABCD-EFGH-IJKM-NPQR-STUV");
     });
   });
+
+  it("automatically focuses the Go to drives button on the Done step", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubFetch({
+        setup: {
+          name: "Luna Box",
+          setup_completed: false,
+          current_step: "name",
+          step_data: { account_completed: true },
+        },
+        hasAdmin: true,
+        me: { id: "1", username: "admin", display_name: "Admin", role: "admin" },
+      }),
+    );
+
+    renderSetup();
+
+    const finishButton = await screen.findByRole("button", { name: /Finish setup/i });
+    fireEvent.click(finishButton);
+
+    const goDrivesButton = await screen.findByRole("button", { name: /Go to drives/i });
+    expect(goDrivesButton).toBeTruthy();
+
+    await waitFor(() => {
+      expect(document.activeElement).toBe(goDrivesButton);
+    });
+  });
 });

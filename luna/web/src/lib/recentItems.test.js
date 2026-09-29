@@ -8,6 +8,7 @@ import {
   recentItemLocationLine,
   recentItemName,
   recordRecentItem,
+  removeRecentItem,
 } from "./recentItems.js";
 
 const USER = "max";
@@ -201,6 +202,17 @@ describe("recordRecentItem / readRecentItems", () => {
     expect(readRecentItems(USER)).toEqual([
       { kind: "file", driveId: "d1", path: "ok.md", at: 5 },
     ]);
+  });
+
+  it("removes a specific item from recents by drive and path", () => {
+    seed([
+      { kind: "file", driveId: "d1", path: "whiteboard.excalidraw", at: 1000 },
+      { kind: "file", driveId: "d1", path: "67.excalidraw", at: 2000 },
+    ]);
+    removeRecentItem(USER, { driveId: "d1", path: "whiteboard.excalidraw" });
+    const items = readRecentItems(USER);
+    expect(items).toHaveLength(1);
+    expect(items[0].path).toBe("67.excalidraw");
   });
 });
 

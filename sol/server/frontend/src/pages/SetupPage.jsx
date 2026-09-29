@@ -49,7 +49,7 @@ const WIZARD_INPUT_CLASS = cn(
 // ─── Full-screen shell (bg-primary = page background) ────────────────────────
 function SetupShell({ children }) {
   return (
-    <div data-slot="setup-page" className="min-h-screen flex flex-col items-center justify-center bg-primary px-4 py-12">
+    <div data-slot="setup-page" className="min-h-screen flex flex-col items-center justify-center surface-primary px-4 py-12">
       {children}
     </div>
   );
@@ -80,7 +80,7 @@ function SetupCard({ children, className = "", header = null }) {
   return (
     <div
       ref={outerRef}
-      className="w-full max-w-md bg-secondary text-primary rounded-large-element shadow-[0_32px_80px_rgba(0,0,0,0.12)] overflow-hidden transition-[height] ease-[var(--motion-easing-emphasized-decelerate)]"
+      className="w-full max-w-md surface-secondary rounded-large-element shadow-[0_32px_80px_rgba(0,0,0,0.12)] overflow-hidden transition-[height] ease-[var(--motion-easing-emphasized-decelerate)]"
       style={{ transitionDuration: "var(--motion-duration-medium2)" }}
     >
       <div ref={innerRef} className="px-10 py-10">
@@ -135,7 +135,7 @@ function StepDots({ current }) {
           className={cn(
             "rounded-full motion-safe:transition-all motion-safe:duration-300",
             i === idx
-              ? "w-5 h-2 bg-primary"
+              ? "w-5 h-2 surface-primary"
               : i < idx
                 ? "w-2 h-2 bg-primary/40"
                 : "w-2 h-2 bg-primary/15"

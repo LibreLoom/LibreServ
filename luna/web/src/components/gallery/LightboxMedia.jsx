@@ -137,7 +137,7 @@ export default function LightboxMedia({ photo, src, downloadSrc = "", autoPlay =
         <div
           role="alert"
           data-slot="lightbox-media-error"
-          className="absolute inset-0 m-auto flex h-fit w-fit max-w-[min(22rem,85%)] flex-col items-center gap-3 rounded-large-element bg-secondary px-8 py-6 text-center text-primary motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-95"
+          className="absolute inset-0 m-auto flex h-fit w-fit max-w-[min(22rem,85%)] flex-col items-center gap-3 rounded-large-element surface-secondary px-8 py-6 text-center motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-95"
         >
           {isVideo ? (
             <VideoOff size={28} aria-hidden="true" />
@@ -197,7 +197,7 @@ export default function LightboxMedia({ photo, src, downloadSrc = "", autoPlay =
         />
       )}
       {thumbFallback && !failed ? (
-        <p className="absolute inset-x-0 bottom-4 mx-auto w-fit max-w-[85%] rounded-pill bg-secondary px-4 py-2 text-center text-xs text-primary motion-safe:animate-in motion-safe:fade-in">
+        <p className="absolute inset-x-0 bottom-4 mx-auto w-fit max-w-[85%] rounded-pill surface-secondary px-4 py-2 text-center text-xs motion-safe:animate-in motion-safe:fade-in">
           The full-size photo couldn't load — this is a small preview.
         </p>
       ) : null}

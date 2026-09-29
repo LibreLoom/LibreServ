@@ -837,11 +837,11 @@ describe("FileViewer fullscreen office overlay", () => {
     expect(saveBtn).toBeDisabled(); // still nothing to save
 
     // Unsaved edits (onDocumentStateChange data === true) enable Save; the
-    // button inverts to bg-primary while dirty — the state reads on the
+    // button inverts to surface-primary while dirty — the state reads on the
     // button itself, with the wording kept in its tooltip.
     act(() => officeMocks.editorProps.onSaveStateChange(true));
     expect(saveBtn).toBeEnabled();
-    expect(saveBtn.className).toContain("bg-primary");
+    expect(saveBtn.className).toContain("surface-primary");
     saveBtn.focus();
     expect(await screen.findByRole("tooltip")).toHaveTextContent("Unsaved changes");
 
@@ -878,7 +878,7 @@ describe("FileViewer fullscreen office overlay", () => {
       "EuroOffice couldn't save this file.",
     );
     expect(saveBtn).toBeEnabled();
-    expect(saveBtn.className).toContain("bg-primary");
+    expect(saveBtn.className).toContain("surface-primary");
   });
 
   it("hides the save control in view-only mode", async () => {

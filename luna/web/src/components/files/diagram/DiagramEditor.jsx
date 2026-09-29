@@ -5,7 +5,7 @@ import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import { useTheme } from "@libreloom/ui/hooks/useTheme.jsx";
 import { apiErrorMessage } from "../../../lib/api.js";
 import { pathBasename } from "../../../lib/paths.js";
-import { useFileSource } from "../../../lib/fileSource.jsx";
+import { requireOk, useFileSource } from "../../../lib/fileSource.jsx";
 import { useOptionalAuth } from "../../../context/AuthContext.jsx";
 import {
   DIAGRAM_EXPORT_FORMAT,
@@ -258,14 +258,19 @@ function EditorSession({
         return;
       }
       try {
-        const res = await source.fetch(source.contentHref(driveId, path));
-        if (!res.ok) throw new Error("Luna couldn't open this file.");
         if (container === "xml") {
-          payloadRef.current = diagramLoadXml(await res.text(), null, "xml");
+          const text = typeof source.fetchText === "function"
+            ? await source.fetchText(driveId, path)
+            : await (async () => {
+                const res = await source.fetch(source.contentHref(driveId, path));
+                await requireOk(res, "Luna couldn't open this file.");
+                return res.text();
+              })();
+          payloadRef.current = diagramLoadXml(text, null, "xml");
         } else {
           payloadRef.current = diagramLoadXml(
             "",
-            await res.arrayBuffer(),
+            await source.fetchBytes(driveId, path),
             container,
           );
         }
@@ -578,13 +583,14 @@ function EditorSession({
   }
 
   if (phase === "error") {
+    const isNotFound = error === "This file doesn't exist anymore.";
     return (
       <OfficeIssueCard
         title="Luna couldn't open this diagram"
-        downloadUrl={source.downloadHref(driveId, path)}
+        downloadUrl={isNotFound ? undefined : source.downloadHref(driveId, path)}
         downloadName={name}
         onClose={onClose}
-        onRetry={() => setRetryTick((n) => n + 1)}
+        onRetry={isNotFound ? undefined : () => setRetryTick((n) => n + 1)}
       >
         <PageNotice variant="error">{error}</PageNotice>
       </OfficeIssueCard>
@@ -600,7 +606,7 @@ function EditorSession({
           ref={iframeRef}
           src={drawioEmbedUrl({ dark: resolvedTheme === "dark", canWrite })}
           title={`Diagram editor — ${name}`}
-          className="h-full min-h-0 w-full flex-1 border-0 bg-primary text-secondary"
+          className="h-full min-h-0 w-full flex-1 border-0 surface-primary"
           sandbox="allow-scripts allow-same-origin allow-modals allow-popups allow-downloads allow-forms"
           allow="clipboard-read; clipboard-write"
         />

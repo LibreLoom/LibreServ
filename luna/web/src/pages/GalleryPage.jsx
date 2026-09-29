@@ -1461,7 +1461,7 @@ export default function GalleryPage() {
             <button
               key={chip.id}
               type="button"
-              className="inline-flex items-center gap-2 rounded-pill bg-secondary text-primary border-2 border-primary/20 px-3 py-1.5 text-sm font-mono hover:border-accent transition-colors"
+              className="inline-flex items-center gap-2 rounded-pill surface-secondary border-2 border-primary/20 px-3 py-1.5 text-sm font-mono hover:border-accent transition-colors"
               onClick={() => {
                 haptic("light");
                 setFilters((prev) => clearFilterChip(prev, chip.id));
@@ -1633,7 +1633,7 @@ export default function GalleryPage() {
 
       {showOnThisDayPeek && memoriesCount > 0 && (
         <div className="mb-4 animate-nav-slide-in" data-slot="memories-pill">
-          <div className="inline-flex items-center rounded-pill border-2 border-primary/20 bg-secondary text-primary transition-colors hover:border-accent">
+          <div className="inline-flex items-center rounded-pill border-2 border-primary/20 surface-secondary transition-colors hover:border-accent">
             <button
               type="button"
               className="inline-flex items-center gap-2 py-1.5 pl-1.5 pr-3 font-mono text-sm"
@@ -2134,7 +2134,7 @@ export default function GalleryPage() {
                     value={newAlbumName}
                     onChange={(e) => setNewAlbumName(e.target.value)}
                     placeholder="e.g. Family Trip to Beijing"
-                    className="mt-1 w-full rounded-large-element bg-primary text-secondary border-2 border-secondary/30 px-3 py-2 focus:border-accent focus:outline-none"
+                    className="mt-1 w-full rounded-large-element surface-primary border-2 border-secondary/30 px-3 py-2 focus:border-accent focus:outline-none"
                     autoFocus
                     required
                   />
@@ -2175,7 +2175,7 @@ export default function GalleryPage() {
                   value={renameValue}
                   onChange={(e) => setRenameValue(e.target.value)}
                   placeholder="e.g. Summer 2026"
-                  className="mt-1 w-full rounded-large-element bg-primary text-secondary border-2 border-secondary/30 px-3 py-2 focus:border-accent focus:outline-none"
+                  className="mt-1 w-full rounded-large-element surface-primary border-2 border-secondary/30 px-3 py-2 focus:border-accent focus:outline-none"
                   required
                   autoFocus
                 />
@@ -2245,7 +2245,7 @@ export default function GalleryPage() {
       {jumpTarget && gallery.isFetchingNextPage && (
         <div
           role="status"
-          className="fixed bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 rounded-pill bg-secondary px-4 py-2 font-mono text-xs text-primary shadow-xl ring-2 ring-accent"
+          className="fixed bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 rounded-pill surface-secondary px-4 py-2 font-mono text-xs shadow-xl ring-2 ring-accent"
         >
           <Spinner size="sm" decorative className="text-primary" />
           <span>Jumping to {jumpTarget.label}…</span>
@@ -2283,11 +2283,11 @@ export default function GalleryPage() {
         <ul className="space-y-3 text-sm" data-slot="gallery-shortcuts">
           <li className="flex justify-between gap-4">
             <span>Search</span>
-            <kbd className="font-mono rounded-pill bg-primary text-secondary px-2 py-0.5">/</kbd>
+            <kbd className="font-mono rounded-pill surface-primary px-2 py-0.5">/</kbd>
           </li>
           <li className="flex justify-between gap-4">
             <span>Clear / close</span>
-            <kbd className="font-mono rounded-pill bg-primary text-secondary px-2 py-0.5">Esc</kbd>
+            <kbd className="font-mono rounded-pill surface-primary px-2 py-0.5">Esc</kbd>
           </li>
           <li className="flex justify-between gap-4">
             <span>Select mode</span>
@@ -2295,7 +2295,7 @@ export default function GalleryPage() {
           </li>
           <li className="flex justify-between gap-4">
             <span>Favorite in lightbox</span>
-            <kbd className="font-mono rounded-pill bg-primary text-secondary px-2 py-0.5">f</kbd>
+            <kbd className="font-mono rounded-pill surface-primary px-2 py-0.5">f</kbd>
           </li>
           <li className="flex justify-between gap-4">
             <span>Previous / next</span>
@@ -2303,7 +2303,7 @@ export default function GalleryPage() {
           </li>
           <li className="flex justify-between gap-4">
             <span>Move to trash</span>
-            <kbd className="font-mono rounded-pill bg-primary text-secondary px-2 py-0.5">Delete</kbd>
+            <kbd className="font-mono rounded-pill surface-primary px-2 py-0.5">Delete</kbd>
           </li>
         </ul>
       </ModalCard>
@@ -2432,7 +2432,7 @@ function AlbumsPanel({
             return (
             <div
               key={`${album.home_drive_id}-${album.id}`}
-              className="rounded-large-element bg-secondary text-primary overflow-hidden animate-cascade-in motion-reduce:animate-none"
+              className="rounded-large-element surface-secondary overflow-hidden animate-cascade-in motion-reduce:animate-none"
               style={{
                 animationDelay: `${Math.min(index, 30) * 35}ms`,
                 animationFillMode: "backwards",
@@ -2447,7 +2447,7 @@ function AlbumsPanel({
                   onOpen(album);
                 }}
               >
-                <div className="aspect-square bg-primary text-secondary relative">
+                <div className="aspect-square surface-primary relative">
                   {album.cover_thumb ? (
                     <img src={album.cover_thumb} alt="" className="h-full w-full object-cover" />
                   ) : (
@@ -2456,7 +2456,7 @@ function AlbumsPanel({
                     </span>
                   )}
                   {album.locked && (
-                    <span className="absolute top-2 right-2 rounded-pill bg-primary text-secondary p-1.5">
+                    <span className="absolute top-2 right-2 rounded-pill surface-primary p-1.5">
                       <Lock size={14} aria-label="Private album" />
                     </span>
                   )}

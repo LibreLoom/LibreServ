@@ -28,13 +28,13 @@ export default function CheckboxOptionGroup({
           <div
             className={cn(
               "w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all duration-200",
-              values[opt.key] && "border-primary bg-primary",
+              values[opt.key] && "border-primary surface-primary",
               !values[opt.key] && "border-accent/40",
             )}
           >
             <div
               className={cn(
-                "w-2.5 h-2.5 rounded-full bg-secondary transition-all duration-200",
+                "w-2.5 h-2.5 rounded-full surface-secondary transition-all duration-200",
                 values[opt.key] && "scale-100 opacity-100",
                 !values[opt.key] && "scale-0 opacity-0",
               )}

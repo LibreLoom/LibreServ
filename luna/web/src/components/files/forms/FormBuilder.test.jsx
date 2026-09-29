@@ -144,6 +144,40 @@ describe("FormBuilder drive source", () => {
   });
 });
 
+describe("FormBuilder attachments", () => {
+  const FILE_DOC = JSON.stringify({
+    version: 1,
+    title: "Receipts",
+    settings: { collecting: true },
+    questions: [{ v: 1, id: "q_f", type: "file", label: "Receipt", config: {} }],
+  });
+
+  it("links attachments through the form's own file route, never the drive files API", async () => {
+    stubFetch((u) => {
+      if (u.includes("/files/content")) return new Response(FILE_DOC, { status: 200 });
+      if (u.includes("/api/v1/forms/responses")) {
+        return json({ responses: [{ id: "r1", answers: { q_f: "0123456789abcdef.pdf" } }] });
+      }
+      return json({}, 404);
+    });
+    mountBuilder();
+    fireEvent.click(await screen.findByRole("radio", { name: /Responses/ }));
+    const links = await screen.findAllByRole("link", { name: /0123456789abcdef\.pdf/ });
+    for (const link of links) {
+      expect(link.getAttribute("href")).toBe(
+        "/api/v1/forms/file?drive_id=d1&path=rsvp.lunaform&name=0123456789abcdef.pdf",
+      );
+    }
+  });
+
+  it("builds the guest route from the link, with no path for a file link", () => {
+    const source = shareSource({ token: "tok", kind: "file", fileName: "rsvp.lunaform", caps: "full" });
+    expect(source.formFileHref("d1", "", "0123456789abcdef.pdf")).toBe(
+      "/s/tok/form-file?name=0123456789abcdef.pdf",
+    );
+  });
+});
+
 describe("FormBuilder guest source", () => {
   const guest = (caps) =>
     /** @type {import("../../../lib/fileSource.jsx").FileSource} */ (

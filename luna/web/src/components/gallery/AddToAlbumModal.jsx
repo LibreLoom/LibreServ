@@ -195,7 +195,7 @@ export default function AddToAlbumModal({
                     placeholder="Search albums…"
                     aria-label="Search albums"
                     disabled={applying}
-                    className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 pl-11 pr-4 py-2 text-sm outline-none focus:border-accent disabled:opacity-50"
+                    className="w-full rounded-pill surface-primary border-2 border-secondary/30 pl-11 pr-4 py-2 text-sm outline-none focus:border-accent disabled:opacity-50"
                   />
                 </div>
               </label>
@@ -203,7 +203,7 @@ export default function AddToAlbumModal({
               <div
                 role="group"
                 aria-label="Albums"
-                className="max-h-64 overflow-y-auto overscroll-contain space-y-1 rounded-large-element bg-primary text-secondary p-2 border-2 border-secondary/20"
+                className="max-h-64 overflow-y-auto overscroll-contain space-y-1 rounded-large-element surface-primary p-2 border-2 border-secondary/20"
               >
                 {filtered.length === 0 ? (
                   <p className="px-3 py-4 text-sm text-secondary">
@@ -235,7 +235,7 @@ export default function AddToAlbumModal({
                           className={cn(
                             "size-5 shrink-0 rounded-full border-2 flex items-center justify-center motion-safe:transition-all",
                             checked || state === "mixed"
-                              ? "border-secondary bg-secondary text-primary"
+                              ? "border-secondary surface-secondary"
                               : "border-secondary/50",
                           )}
                           aria-hidden="true"

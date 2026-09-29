@@ -112,7 +112,7 @@ export default function ApiTokensCard() {
         </p>
 
         {newToken && (
-          <div className="rounded-large-element border-2 border-accent/40 bg-primary text-secondary p-4 space-y-3">
+          <div className="rounded-large-element border-2 border-accent/40 surface-primary p-4 space-y-3">
             <p className="text-sm font-mono">
               Copy this token now — you won&apos;t be able to see it again.
             </p>
@@ -147,7 +147,7 @@ export default function ApiTokensCard() {
                 setCreateError(null);
               }}
               placeholder="Token name (e.g. Backup script)"
-              className="flex-1 px-4 py-2 border-2 border-secondary/30 rounded-large-element bg-secondary text-primary outline-none focus:border-accent"
+              className="flex-1 px-4 py-2 border-2 border-secondary/30 rounded-large-element surface-secondary outline-none focus:border-accent"
               disabled={creating}
             />
           </ShakeTarget>

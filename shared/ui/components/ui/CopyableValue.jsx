@@ -34,8 +34,8 @@ export default function CopyableValue({
 
   const fieldClass =
     surface === "primary"
-      ? "bg-secondary text-primary border-2 border-primary/20"
-      : "bg-primary text-secondary border-2 border-secondary/30";
+      ? "surface-secondary border-2 border-primary/20"
+      : "surface-primary border-2 border-secondary/30";
   const hintClass = surface === "primary" ? "text-secondary" : "text-primary";
 
   function selectAll(e) {

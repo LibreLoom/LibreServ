@@ -96,6 +96,14 @@ export default function ModalCard({
     needsVerticalScroll,
   } = useAnimatedHeight(present);
 
+  // Remember what had focus before the dialog's children mount: a child
+  // with autoFocus takes focus during that same commit, before any effect.
+  if (!present) {
+    previousFocusRef.current = null;
+  } else if (previousFocusRef.current === null && typeof document !== "undefined") {
+    previousFocusRef.current = document.activeElement;
+  }
+
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   const isClosingRef = useRef(false);
@@ -191,11 +199,11 @@ export default function ModalCard({
     const overlayId = titleId;
     overlayStack.push(overlayId);
 
-    previousFocusRef.current = document.activeElement;
     document.body.style.overflow = "hidden";
     if (initialFocusRef?.current) {
       initialFocusRef.current.focus();
-    } else {
+    } else if (!dialogRef.current?.contains(document.activeElement)) {
+      // Keep focus a child's autoFocus already placed; else the close button.
       closeButtonRef.current?.focus();
     }
 
@@ -213,7 +221,7 @@ export default function ModalCard({
 
       if (event.key === "Tab") {
         const focusableElements = dialogRef.current?.querySelectorAll(
-          'button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
         );
         if (!focusableElements || focusableElements.length === 0) return;
         const firstElement = focusableElements[0];
@@ -287,7 +295,7 @@ export default function ModalCard({
         aria-busy={loading || undefined}
         aria-labelledby={titleId}
         className={cn(
-          "w-full overflow-hidden rounded-large-element bg-secondary text-primary",
+          "w-full overflow-hidden rounded-large-element surface-secondary",
           "transition-[height,max-width,max-height,width] ease-[var(--motion-easing-emphasized-decelerate)] motion-reduce:transition-none",
           widthClasses,
           maxHeightClasses

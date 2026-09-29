@@ -73,7 +73,7 @@ export default function FormInput({
             aria-describedby={error ? `${name}-error` : undefined}
             className={cn(
               "w-full py-2 border-2 rounded-pill outline-none",
-              "bg-secondary text-primary disabled:opacity-50 disabled:cursor-not-allowed",
+              "surface-secondary disabled:opacity-50 disabled:cursor-not-allowed",
               PLACEHOLDER_TEXT,
               Icon ? "pl-11" : "pl-5",
               "pr-11",
@@ -113,7 +113,7 @@ export default function FormInput({
             aria-describedby={error ? `${name}-error` : undefined}
             className={cn(
               "w-full py-2 border-2 rounded-pill outline-none",
-              "bg-secondary text-primary disabled:opacity-50 disabled:cursor-not-allowed",
+              "surface-secondary disabled:opacity-50 disabled:cursor-not-allowed",
               PLACEHOLDER_TEXT,
               Icon ? "pl-11" : "pl-5",
               "pr-11",

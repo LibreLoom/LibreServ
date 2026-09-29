@@ -15,7 +15,7 @@ import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 const INPUT_CLASS =
-  "w-full min-w-0 rounded-pill bg-primary text-secondary px-4 py-2 font-mono";
+  "w-full min-w-0 rounded-pill surface-primary px-4 py-2 font-mono";
 
 /** Keys shown in the form: stored override, else the key Luna is actually using. */
 function signingKeysForDisplay(source) {
@@ -365,7 +365,7 @@ function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
                 onChange={(e) => setKeysText(e.target.value)}
                 rows={3}
                 placeholder={(defaults.keys || []).join("\n") || "Luna's built-in release key"}
-                className="w-full min-w-0 rounded-large-element bg-primary text-secondary px-4 py-2 font-mono text-sm"
+                className="w-full min-w-0 rounded-large-element surface-primary px-4 py-2 font-mono text-sm"
               />
             </ShakeTarget>
             <p className="text-primary text-sm">

@@ -18,7 +18,7 @@ use serde_json::Value;
 use tokio::sync::broadcast;
 
 use crate::AppState;
-use crate::api::response::json_error;
+use crate::api::response::{json_error, json_error_code};
 use crate::auth::CurrentUser;
 use crate::files::{self, FilesError};
 use crate::office::collab::{ClientMsg, CollabHub, JoinError, ServerEvent};
@@ -440,7 +440,11 @@ fn map_files_err(err: FilesError) -> (StatusCode, Json<Value>) {
             StatusCode::INTERNAL_SERVER_ERROR,
             files::MISSING_DRIVE_DB_MSG,
         ),
-        FilesError::Path(_) => json_error(StatusCode::NOT_FOUND, "Luna can't find that file."),
+        FilesError::Path(_) => json_error_code(
+            StatusCode::NOT_FOUND,
+            "not_found",
+            "This file doesn't exist anymore.",
+        ),
         FilesError::Io(_) | FilesError::Db(_) => json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Luna couldn't open that file. Try again.",

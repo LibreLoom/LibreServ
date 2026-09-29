@@ -41,8 +41,8 @@ function Card({
 
   const surfaceClasses =
     surface === "primary"
-      ? "bg-primary text-secondary border-2 border-secondary/30"
-      : "bg-secondary text-primary";
+      ? "surface-primary border-2 border-secondary/30"
+      : "surface-secondary";
 
   const hasHeader = title || Icon;
   const headerBorder = surface === "primary" ? "border-secondary/10" : "border-primary/10";

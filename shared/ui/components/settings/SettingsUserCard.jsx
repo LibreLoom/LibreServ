@@ -21,7 +21,7 @@ export default function SettingsUserCard({ user, href, deviceName = "this device
 
   const body = (
     <>
-      <div className="h-12 w-12 rounded-full bg-primary text-secondary flex items-center justify-center flex-shrink-0">
+      <div className="h-12 w-12 rounded-full surface-primary flex items-center justify-center flex-shrink-0">
         <User size={ICON_SIZE.xl} />
       </div>
       <div className="flex-1 min-w-0">

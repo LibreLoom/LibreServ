@@ -30,9 +30,14 @@ use crate::db;
 
 /// Share permission for answer links: the public page renders the form and
 /// `POST /s/{token}/respond` appends to the responses file. Respondents may
-/// also upload a photo or PDF (`POST /s/{token}/respond-file`) into a sibling
-/// folder, and load a picture the form already references
-/// (`GET /s/{token}/form-image`). No file listing, no other downloads.
+/// also upload a photo or PDF (`POST /s/{token}/respond-file`) and load a
+/// picture the form already references (`GET /s/{token}/form-image`). No file
+/// listing, no other downloads.
+///
+/// Attachments and question pictures live in the form's files folder (see
+/// [`form_files_dir`]): a Luna-owned name, so listings, search, Gallery, zips,
+/// WebDAV, and the files API never show it. Only the form routes here read
+/// it, with the same access as the answers themselves.
 pub const PERMISSION_RESPOND: &str = "respond";
 
 /// Form documents are `<name>.lunaform` JSON envelopes.
@@ -102,6 +107,8 @@ pub fn router() -> Router<AppState> {
             post(respond_upload).layer(DefaultBodyLimit::max(MAX_UPLOAD_BYTES + 64 * 1024)),
         )
         .route("/s/{token}/form-image", get(respond_image))
+        .route("/api/v1/forms/file", get(member_form_file))
+        .route("/s/{token}/form-file", get(guest_form_file))
         .route(
             "/api/v1/forms/responses",
             get(member_form_responses).delete(member_delete_response),
@@ -185,6 +192,117 @@ fn resolve_form_file(
         ));
     }
     Ok(path)
+}
+
+/// A resolved form file and the hidden folder that holds its files.
+struct FormLoc {
+    path: PathBuf,
+    files: PathBuf,
+}
+
+/// The form's files folder: `{drive prefix}-form-{hash}` beside the form.
+/// The `.luna-<uuid>` prefix makes it Luna bookkeeping everywhere files are
+/// listed or served (`files::is_internal_temp`), and it sits next to the
+/// form so backups and protected copies, which walk the whole tree, cover it.
+/// The hash of the form's file name keeps two forms in one folder apart and
+/// the name short. The name is derived from the form's *file name*, so
+/// anything that renames, moves, trashes, or restores a form must call
+/// [`repath_form_files`] in the same step or the folder is orphaned; folder
+/// moves need nothing because the folder travels inside its parent.
+pub fn files_dir_for(root: &FsPath, form_path: &FsPath) -> Option<PathBuf> {
+    let layout = crate::drives::layout::Layout::detect(root)?;
+    let name = form_path.file_name()?.to_str()?;
+    let hash = blake3::hash(name.as_bytes()).to_hex();
+    Some(
+        form_path
+            .parent()?
+            .join(format!("{}-form-{}", layout.prefix(), &hash[..16])),
+    )
+}
+
+/// Where the form's answers file sits. Normally the visible
+/// `<name>.lunaform.responses` sibling; for a top-level trash entry it is a
+/// Luna-owned name beside the files folder so the trash list never shows it.
+pub fn responses_file_for(root: &FsPath, form_path: &FsPath) -> Option<PathBuf> {
+    let visible = responses_path_for(form_path)?;
+    let layout = crate::drives::layout::Layout::detect(root)?;
+    let in_trash_root = form_path
+        .parent()
+        .and_then(|p| p.file_name())
+        .is_some_and(|n| n.to_str() == Some(layout.trash_name().as_str()));
+    if in_trash_root {
+        let dir = files_dir_for(root, form_path)?;
+        let mut name = dir.file_name()?.to_os_string();
+        name.push(".responses");
+        return Some(dir.with_file_name(name));
+    }
+    Some(visible)
+}
+
+fn move_if_present(from: &FsPath, to: &FsPath) {
+    if from != to
+        && std::fs::symlink_metadata(from).is_ok()
+        && let Err(e) = crate::files::rename_noreplace(from, to)
+    {
+        tracing::warn!(from = %from.display(), to = %to.display(), error = %e, "form files did not follow the form");
+    }
+}
+
+/// A form file was renamed, moved, trashed, or restored from `from` to `to`:
+/// carry its files folder and answers file along. No-op when `from` is not
+/// a form.
+pub fn repath_form_files(from_root: &FsPath, from: &FsPath, to_root: &FsPath, to: &FsPath) {
+    if !is_form_path(&from.to_string_lossy()) {
+        return;
+    }
+    if let (Some(a), Some(b)) = (files_dir_for(from_root, from), files_dir_for(to_root, to)) {
+        move_if_present(&a, &b);
+    }
+    if let (Some(a), Some(b)) = (
+        responses_file_for(from_root, from),
+        responses_file_for(to_root, to),
+    ) {
+        move_if_present(&a, &b);
+    }
+}
+
+/// A form file is being deleted for good: remove its files folder and
+/// answers file so they don't keep using drive space. No-op for non-forms.
+pub fn remove_form_files(root: &FsPath, form_path: &FsPath) {
+    if !is_form_path(&form_path.to_string_lossy()) {
+        return;
+    }
+    if let Some(dir) = files_dir_for(root, form_path) {
+        let _ = std::fs::remove_dir_all(dir);
+    }
+    if let Some(file) = responses_file_for(root, form_path) {
+        let _ = std::fs::remove_file(file);
+    }
+}
+
+fn form_files_dir(
+    conn: &rusqlite::Connection,
+    drive_id: &str,
+    form_path: &FsPath,
+) -> Option<PathBuf> {
+    let drive = crate::files::drive_root(conn, drive_id).ok()?;
+    files_dir_for(FsPath::new(&drive.mount_point), form_path)
+}
+
+/// [`resolve_form_file`] plus the form's files folder.
+fn resolve_form(
+    conn: &rusqlite::Connection,
+    drive_id: &str,
+    path: &str,
+) -> Result<FormLoc, (StatusCode, Json<Value>)> {
+    let path = resolve_form_file(conn, drive_id, path)?;
+    let files = form_files_dir(conn, drive_id, &path).ok_or_else(|| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't find where this form keeps files.",
+        )
+    })?;
+    Ok(FormLoc { path, files })
 }
 
 /// Read and parse the form document. Returns the raw JSON object so
@@ -440,7 +558,7 @@ fn member_managed_form(
     user: &CurrentUser,
     drive_id: &str,
     path: &str,
-) -> Result<PathBuf, (StatusCode, Json<Value>)> {
+) -> Result<FormLoc, (StatusCode, Json<Value>)> {
     let conn = state.db.lock().map_err(|_| index_busy())?;
     if !auth::has_cap(user, &conn, drive_id, path, crate::access::CAP_EDIT) {
         return Err(json_error(
@@ -448,7 +566,7 @@ fn member_managed_form(
             "You need edit access to this form to manage its answers.",
         ));
     }
-    resolve_form_file(&conn, drive_id, path)
+    resolve_form(&conn, drive_id, path)
 }
 
 /// The guest side of `member_managed_form`: the link must carry CAP_EDIT
@@ -457,7 +575,7 @@ fn guest_managed_form(
     state: &AppState,
     link: &db::AccessLinkRow,
     rel: &str,
-) -> Result<(String, PathBuf), (StatusCode, Json<Value>)> {
+) -> Result<(String, FormLoc), (StatusCode, Json<Value>)> {
     if link.caps & crate::access::CAP_EDIT == 0 {
         return Err(json_error(
             StatusCode::FORBIDDEN,
@@ -466,8 +584,8 @@ fn guest_managed_form(
     }
     let path = crate::api::access::link_file(state, link, rel)?;
     let conn = state.db.lock().map_err(|_| index_busy())?;
-    let form_path = resolve_form_file(&conn, &link.drive_id, &path)?;
-    Ok((path, form_path))
+    let form = resolve_form(&conn, &link.drive_id, &path)?;
+    Ok((path, form))
 }
 
 /// `GET /api/v1/forms/responses` — collected answers for a member with
@@ -477,8 +595,8 @@ async fn member_form_responses(
     Extension(user): Extension<CurrentUser>,
     Query(q): Query<MemberResponsesQuery>,
 ) -> Result<Response, (StatusCode, Json<Value>)> {
-    let form_path = member_managed_form(&state, &user, &q.drive_id, &q.path)?;
-    responses_response(&form_path, wants_count(&q.count))
+    let form = member_managed_form(&state, &user, &q.drive_id, &q.path)?;
+    responses_response(&form.path, wants_count(&q.count))
 }
 
 /// `DELETE /api/v1/forms/responses?drive_id=&path=&id=` — remove one
@@ -489,8 +607,8 @@ async fn member_delete_response(
     Extension(user): Extension<CurrentUser>,
     Query(q): Query<MemberResponsesQuery>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let form_path = member_managed_form(&state, &user, &q.drive_id, &q.path)?;
-    delete_response(&state, &q.drive_id, &form_path, q.id.as_deref())
+    let form = member_managed_form(&state, &user, &q.drive_id, &q.path)?;
+    delete_response(&state, &q.drive_id, &form, q.id.as_deref())
 }
 
 /// `GET /s/{token}/responses` — same answers for a link guest whose link
@@ -510,8 +628,8 @@ async fn guest_form_responses(
         &token,
         &headers,
         move |state, link| async move {
-            let (_, form_path) = guest_managed_form(&state, &link, &q.path)?;
-            responses_response(&form_path, wants_count(&q.count))
+            let (_, form) = guest_managed_form(&state, &link, &q.path)?;
+            responses_response(&form.path, wants_count(&q.count))
         },
     )
     .await
@@ -531,8 +649,8 @@ async fn guest_delete_response(
         &token,
         &headers,
         move |state, link| async move {
-            let (_, form_path) = guest_managed_form(&state, &link, &q.path)?;
-            delete_response(&state, &link.drive_id, &form_path, q.id.as_deref())
+            let (_, form) = guest_managed_form(&state, &link, &q.path)?;
+            delete_response(&state, &link.drive_id, &form, q.id.as_deref())
                 .map(IntoResponse::into_response)
         },
     )
@@ -542,9 +660,10 @@ async fn guest_delete_response(
 fn delete_response(
     state: &AppState,
     drive_id: &str,
-    form_path: &FsPath,
+    form: &FormLoc,
     id: Option<&str>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let form_path = &form.path;
     let id = id
         .map(str::trim)
         .filter(|id| !id.is_empty())
@@ -564,6 +683,16 @@ fn delete_response(
     }
     let tombstone = json!({ "v": 1, "id": id, "deleted": true, "at": crate::db::now_unix() });
     append_record(state, drive_id, form_path, &tombstone)?;
+    // The response's attachments go with it — every version's, since an
+    // earlier edit may have named a different file.
+    if let Ok(doc) = read_form_document(form_path) {
+        let names: std::collections::HashSet<String> = records
+            .iter()
+            .filter(|rec| rec.get("id").and_then(|v| v.as_str()) == Some(id))
+            .flat_map(|rec| record_attachments(&doc, rec))
+            .collect();
+        remove_attachments(&doc, &form.files, names.iter());
+    }
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -931,10 +1060,13 @@ fn keep_known_answers(doc: &Map<String, Value>, answers: &mut Map<String, Value>
     answers.retain(|key, _| known.contains(key.as_str()));
 }
 
+/// `can_attach` decides whether this respondent may name a file in a file
+/// answer (their own pending upload, or one already on the answer they're
+/// editing). `None` skips that check — shape only.
 fn validate_answers(
     doc: &Map<String, Value>,
     answers: &Map<String, Value>,
-    uploads_dir: Option<&FsPath>,
+    can_attach: Option<&dyn Fn(&str) -> bool>,
 ) -> Result<(), (StatusCode, Json<Value>)> {
     let owned = form_questions(doc);
     let known: std::collections::HashMap<&str, &Value> = owned
@@ -994,13 +1126,9 @@ fn validate_answers(
             "date" | "short_text" | "long_text" => value.is_string(),
             "email" => value.as_str().is_some_and(email_ok),
             "number" => value.as_f64().is_some_and(|n| number_in_range(question, n)),
-            "file" => value.as_str().is_some_and(|name| {
-                upload_name_ok(name)
-                    && uploads_dir.is_none_or(|dir| {
-                        let path = dir.join(name);
-                        std::fs::metadata(&path).is_ok_and(|m| m.is_file())
-                    })
-            }),
+            "file" => value
+                .as_str()
+                .is_some_and(|name| upload_name_ok(name) && can_attach.is_none_or(|ok| ok(name))),
             // A type from a newer Luna — store whatever flat value came in.
             _ => answer_value_ok(value),
         };
@@ -1083,10 +1211,11 @@ async fn respond_submit_inner(
     if !state.form_respond_limiter.allow(&respond_key("submit", ip)) {
         return Err(too_many_tries());
     }
-    let form_path = {
+    let form = {
         let conn = state.db.lock().map_err(|_| index_busy())?;
-        resolve_form_file(&conn, &link.drive_id, &link.path)?
+        resolve_form(&conn, &link.drive_id, &link.path)?
     };
+    let form_path = form.path.clone();
     let doc = read_form_document(&form_path)?;
     if let Some(message) = hard_closed_message(&doc) {
         return Err(json_error(StatusCode::FORBIDDEN, message));
@@ -1138,7 +1267,8 @@ async fn respond_submit_inner(
         .filter(|t| !t.is_empty());
     let presented_hash = presented_token.map(hash_edit_token);
 
-    let uploads = uploads_dir_for(&form_path);
+    let pending = form.files.join(PENDING_DIR);
+    sweep_pending(&pending);
     // Cap check, secret match, and append are one step under the lock.
     let (response_id, edit_token, is_new) = {
         let _guard = RESPONSES_WRITE.lock().unwrap_or_else(|p| p.into_inner());
@@ -1170,7 +1300,7 @@ async fn respond_submit_inner(
                 "This form has all the answers it can take.",
             ));
         }
-        let (response_id, edit_hash, edit_token) = match editing_id {
+        let (response_id, edit_hash, edit_token) = match editing_id.clone() {
             // An amendment keeps the secret the respondent already holds.
             Some(id) => (
                 id,
@@ -1182,7 +1312,38 @@ async fn respond_submit_inner(
                 (new_response_id(), hash_edit_token(&token), token)
             }
         };
-        validate_answers(&doc, &answers, uploads.as_deref())?;
+        // Files the answer may name: this respondent's own pending uploads
+        // (their names are secrets only the uploader got back), or — when
+        // editing — files already on this answer. Never another answer's
+        // file or a question picture.
+        let previous_files = editing_id
+            .as_deref()
+            .and_then(|id| latest.get(id))
+            .map(|rec| record_attachments(&doc, rec))
+            .unwrap_or_default();
+        let can_attach =
+            |name: &str| previous_files.contains(name) || regular_file(&pending.join(name));
+        validate_answers(&doc, &answers, Some(&can_attach))?;
+        let new_files = attachments_in(&doc, &answers);
+        // Claim the pending uploads before the answer is written, so a
+        // stored answer never names a file the sweep could still remove.
+        let mut claimed: Vec<&String> = Vec::new();
+        // Best effort: put claimed files back so the respondent can retry.
+        let release = |claimed: &[&String]| {
+            for name in claimed {
+                let _ = std::fs::rename(form.files.join(name), pending.join(name));
+            }
+        };
+        for name in new_files.difference(&previous_files) {
+            if std::fs::rename(pending.join(name), form.files.join(name)).is_err() {
+                release(&claimed);
+                return Err(json_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Luna couldn't keep that attachment. Attach it again and send.",
+                ));
+            }
+            claimed.push(name);
+        }
         let record = json!({
             "v": 1,
             "id": response_id,
@@ -1190,7 +1351,13 @@ async fn respond_submit_inner(
             "at": crate::db::now_unix(),
             "answers": Value::Object(answers),
         });
-        append_record(state, &link.drive_id, &form_path, &record)?;
+        if let Err(e) = append_record(state, &link.drive_id, &form_path, &record) {
+            release(&claimed);
+            return Err(e);
+        }
+        // An edit that swapped or removed a file drops the old one.
+        let dropped: Vec<String> = previous_files.difference(&new_files).cloned().collect();
+        remove_attachments(&doc, &form.files, dropped.iter());
         (response_id, edit_token, is_new)
     };
     if is_new {
@@ -1285,14 +1452,112 @@ fn respond_lookup_inner(
     })))
 }
 
-/// `<name>.uploads` next to the form. Created on the first attachment.
-fn uploads_dir_for(form_path: &FsPath) -> Option<PathBuf> {
-    let name = form_path.file_name()?.to_str()?;
-    let lower = name.to_ascii_lowercase();
-    let stem = lower.strip_suffix(FORM_FILE_SUFFIX)?;
-    // Keep the original stem's casing from the file name.
-    let stem = &name[..stem.len()];
-    Some(form_path.parent()?.join(format!("{stem}.uploads")))
+/// Uploads wait here until the answer that names them is sent.
+const PENDING_DIR: &str = "pending";
+/// An upload nobody sent an answer for is removed after this long.
+const PENDING_TTL: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+/// Unsent uploads on one form, together. Enough for many people answering
+/// at once; past it new uploads wait until older ones are sent or expire.
+const MAX_PENDING_BYTES: u64 = 256 * 1024 * 1024;
+
+/// A plain file (not a symlink, not a folder) at `path`.
+fn regular_file(path: &FsPath) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_file())
+}
+
+/// Remove unsent uploads older than [`PENDING_TTL`], and anything in the
+/// pending folder that isn't a plain file.
+fn sweep_pending(pending: &FsPath) {
+    let Ok(entries) = std::fs::read_dir(pending) else {
+        return;
+    };
+    let now = std::time::SystemTime::now();
+    for entry in entries.filter_map(Result::ok) {
+        let path = entry.path();
+        let Ok(meta) = std::fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if !meta.file_type().is_file() {
+            let _ = std::fs::remove_file(&path);
+            continue;
+        }
+        let expired = meta
+            .modified()
+            .ok()
+            .and_then(|at| now.duration_since(at).ok())
+            .is_some_and(|age| age > PENDING_TTL);
+        if expired {
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+}
+
+/// Bytes in the plain files directly inside `dir`.
+fn dir_file_bytes(dir: &FsPath) -> u64 {
+    std::fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .filter_map(Result::ok)
+                .filter_map(|e| std::fs::symlink_metadata(e.path()).ok())
+                .filter(|m| m.file_type().is_file())
+                .map(|m| m.len())
+                .sum()
+        })
+        .unwrap_or(0)
+}
+
+/// Pictures named on the form's questions — never removed with an answer
+/// and never claimable by one.
+fn question_images(doc: &Map<String, Value>) -> std::collections::HashSet<String> {
+    form_questions(doc)
+        .into_iter()
+        .filter_map(|q| q.get("image").and_then(|v| v.as_str()))
+        .map(str::to_string)
+        .collect()
+}
+
+/// File names an answer set points at, from the form's file questions.
+fn attachments_in(
+    doc: &Map<String, Value>,
+    answers: &Map<String, Value>,
+) -> std::collections::HashSet<String> {
+    form_questions(doc)
+        .into_iter()
+        .filter(|q| q.get("type").and_then(|t| t.as_str()) == Some("file"))
+        .filter_map(|q| q.get("id").and_then(|id| id.as_str()))
+        .filter_map(|id| answers.get(id).and_then(|v| v.as_str()))
+        .filter(|name| upload_name_ok(name))
+        .map(str::to_string)
+        .collect()
+}
+
+/// [`attachments_in`] for a stored record.
+fn record_attachments(
+    doc: &Map<String, Value>,
+    record: &Value,
+) -> std::collections::HashSet<String> {
+    match record.get("answers") {
+        Some(Value::Object(answers)) => attachments_in(doc, answers),
+        _ => std::collections::HashSet::new(),
+    }
+}
+
+/// Delete attachments from the form's files folder. Question pictures stay.
+fn remove_attachments<'a>(
+    doc: &Map<String, Value>,
+    files: &FsPath,
+    names: impl Iterator<Item = &'a String>,
+) {
+    let keep = question_images(doc);
+    for name in names {
+        if keep.contains(name) || !upload_name_ok(name) {
+            continue;
+        }
+        let path = files.join(name);
+        if regular_file(&path) {
+            let _ = std::fs::remove_file(path);
+        }
+    }
 }
 
 fn upload_ext(filename: &str) -> Option<&'static str> {
@@ -1346,16 +1611,16 @@ async fn respond_upload_inner(
     if !state.form_respond_limiter.allow(&respond_key("upload", ip)) {
         return Err(too_many_tries());
     }
-    let form_path = {
+    let form = {
         let conn = state.db.lock().map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Luna couldn't open this form right now. Try again.",
             )
         })?;
-        resolve_form_file(&conn, &link.drive_id, &link.path)?
+        resolve_form(&conn, &link.drive_id, &link.path)?
     };
-    let doc = read_form_document(&form_path)?;
+    let doc = read_form_document(&form.path)?;
     if hard_closed_message(&doc).is_some() {
         return Err(json_error(
             StatusCode::FORBIDDEN,
@@ -1375,13 +1640,20 @@ async fn respond_upload_inner(
     }
     let (ext, bytes) =
         read_multipart_file(multipart, MAX_UPLOAD_BYTES, upload_ext, ATTACH_KIND_MESSAGE).await?;
-    let Some(dir) = uploads_dir_for(&form_path) else {
+    // Unsent: it waits in `pending` until an answer names it, and expires
+    // if none does — an upload without an answer can't keep space.
+    let pending = form.files.join(PENDING_DIR);
+    sweep_pending(&pending);
+    let incoming = bytes.len() as u64;
+    if dir_file_bytes(&pending).saturating_add(incoming) > MAX_PENDING_BYTES {
         return Err(json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't find where this form keeps files.",
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Lots of files are arriving on this form right now. Wait a few minutes and attach it again.",
         ));
-    };
-    let name = store_in_uploads(state, &dir, ext, &bytes)?;
+    }
+    check_form_room(&form, incoming)?;
+    ensure_real_dir(&form.files)?;
+    let name = write_new_file(state, &pending, ext, &bytes)?;
     Ok(Json(json!({ "ok": true, "name": name })))
 }
 
@@ -1466,10 +1738,35 @@ async fn read_multipart_file(
     ))
 }
 
-/// Write `bytes` into the form's `<name>.uploads` folder under a fresh
-/// server-minted name, refusing a symlinked folder and a folder already at
-/// `MAX_UPLOADS_DIR_BYTES`.
-fn store_in_uploads(
+/// Everything on one form — sent attachments, pictures, and unsent uploads —
+/// stays under [`MAX_UPLOADS_DIR_BYTES`].
+fn check_form_room(form: &FormLoc, incoming: u64) -> Result<(), (StatusCode, Json<Value>)> {
+    let used = dir_file_bytes(&form.files) + dir_file_bytes(&form.files.join(PENDING_DIR));
+    if used.saturating_add(incoming) > MAX_UPLOADS_DIR_BYTES {
+        return Err(json_error(
+            StatusCode::INSUFFICIENT_STORAGE,
+            "This form has no room for more files. Ask the person who shared it to clear some out.",
+        ));
+    }
+    Ok(())
+}
+
+/// Refuse a folder that's been replaced by a symlink or a file.
+fn ensure_real_dir(dir: &FsPath) -> Result<(), (StatusCode, Json<Value>)> {
+    if let Ok(meta) = std::fs::symlink_metadata(dir)
+        && !meta.file_type().is_dir()
+    {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "Luna couldn't save that file. Try again.",
+        ));
+    }
+    Ok(())
+}
+
+/// Write `bytes` into `dir` under a fresh server-minted name, refusing a
+/// symlinked folder and never following or overwriting an existing entry.
+fn write_new_file(
     state: &AppState,
     dir: &FsPath,
     ext: &str,
@@ -1481,31 +1778,9 @@ fn store_in_uploads(
             "Luna couldn't save that file. Try again.",
         )
     };
-    if let Ok(meta) = std::fs::symlink_metadata(dir)
-        && (meta.file_type().is_symlink() || !meta.is_dir())
-    {
-        return Err(json_error(
-            StatusCode::FORBIDDEN,
-            "Luna couldn't save that file. Try again.",
-        ));
-    }
-    let used: u64 = std::fs::read_dir(dir)
-        .map(|entries| {
-            entries
-                .filter_map(Result::ok)
-                .filter_map(|e| e.metadata().ok())
-                .filter(|m| m.is_file())
-                .map(|m| m.len())
-                .sum()
-        })
-        .unwrap_or(0);
-    if used.saturating_add(bytes.len() as u64) > MAX_UPLOADS_DIR_BYTES {
-        return Err(json_error(
-            StatusCode::INSUFFICIENT_STORAGE,
-            "This form has no room for more files. Ask the person who shared it to clear some out.",
-        ));
-    }
+    ensure_real_dir(dir)?;
     std::fs::create_dir_all(dir).map_err(|_| save_err())?;
+    ensure_real_dir(dir)?;
     let name = new_upload_name(ext);
     std::fs::OpenOptions::new()
         .write(true)
@@ -1561,37 +1836,127 @@ fn respond_image_inner(
     if !upload_name_ok(name) || name.ends_with(".pdf") {
         return Err(missing());
     }
-    let form_path = {
+    let form = {
         let conn = state.db.lock().map_err(|_| index_busy())?;
-        resolve_form_file(&conn, &link.drive_id, &link.path)?
+        resolve_form(&conn, &link.drive_id, &link.path)?
     };
-    let doc = read_form_document(&form_path)?;
-    let listed = form_questions(&doc)
-        .into_iter()
-        .any(|q| q.get("image").and_then(|v| v.as_str()) == Some(name));
-    if !listed {
+    let doc = read_form_document(&form.path)?;
+    if !question_images(&doc).contains(name) {
         return Err(missing());
     }
-    let dir = uploads_dir_for(&form_path).ok_or_else(missing)?;
-    let path = dir.join(name);
+    serve_form_file(&form, name).map_err(|_| missing())
+}
+
+/// One file from the form's files folder: photos inline, PDFs as a
+/// download. Callers decide who may see `name`.
+fn serve_form_file(form: &FormLoc, name: &str) -> Result<Response, (StatusCode, Json<Value>)> {
+    let missing = || {
+        json_error(
+            StatusCode::NOT_FOUND,
+            "That file isn't on this form anymore.",
+        )
+    };
+    if !upload_name_ok(name) {
+        return Err(missing());
+    }
+    let path = form.files.join(name);
     let meta = std::fs::symlink_metadata(&path).map_err(|_| missing())?;
-    if meta.file_type().is_symlink() || !meta.is_file() || meta.len() > MAX_IMAGE_BYTES {
+    if !meta.file_type().is_file() || meta.len() > MAX_IMAGE_BYTES {
         return Err(missing());
     }
-    let content_type = match name.rsplit('.').next().unwrap_or("") {
-        "jpg" | "jpeg" => "image/jpeg",
-        "png" => "image/png",
-        "gif" => "image/gif",
-        "webp" => "image/webp",
+    let (content_type, disposition) = match name.rsplit('.').next().unwrap_or("") {
+        "jpg" | "jpeg" => ("image/jpeg", "inline"),
+        "png" => ("image/png", "inline"),
+        "gif" => ("image/gif", "inline"),
+        "webp" => ("image/webp", "inline"),
+        "pdf" => ("application/pdf", "attachment"),
         _ => return Err(missing()),
     };
     let bytes = std::fs::read(&path).map_err(|_| missing())?;
     Ok(Response::builder()
         .header(header::CONTENT_TYPE, content_type)
+        .header(
+            header::CONTENT_DISPOSITION,
+            format!("{disposition}; filename=\"{name}\""),
+        )
         .header(header::CACHE_CONTROL, "private, no-store")
+        .header(header::REFERRER_POLICY, "no-referrer")
         .header("x-content-type-options", "nosniff")
         .body(axum::body::Body::from(bytes))
         .unwrap())
+}
+
+#[derive(Deserialize)]
+struct MemberFormFileQuery {
+    drive_id: String,
+    path: String,
+    name: String,
+}
+
+#[derive(Deserialize)]
+struct GuestFormFileQuery {
+    #[serde(default)]
+    path: String,
+    name: String,
+}
+
+/// `GET /api/v1/forms/file?drive_id=&path=&name=` — a question picture for
+/// anyone who can open the form; an attachment only for people who can
+/// manage its answers (the same access as the responses themselves).
+async fn member_form_file(
+    State(state): State<AppState>,
+    Extension(user): Extension<CurrentUser>,
+    Query(q): Query<MemberFormFileQuery>,
+) -> Result<Response, (StatusCode, Json<Value>)> {
+    let name = q.name.trim();
+    let form = {
+        let conn = state.db.lock().map_err(|_| index_busy())?;
+        if !auth::has_cap(&user, &conn, &q.drive_id, &q.path, crate::access::CAP_VIEW) {
+            return Err(json_error(
+                StatusCode::FORBIDDEN,
+                "You don't have access to this form.",
+            ));
+        }
+        resolve_form(&conn, &q.drive_id, &q.path)?
+    };
+    let doc = read_form_document(&form.path)?;
+    if question_images(&doc).contains(name) {
+        return serve_form_file(&form, name);
+    }
+    let form = member_managed_form(&state, &user, &q.drive_id, &q.path)?;
+    serve_form_file(&form, name)
+}
+
+/// `GET /s/{token}/form-file?path=&name=` — the guest side: pictures for a
+/// link that can view the form, attachments only when it can edit it.
+async fn guest_form_file(
+    State(state): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    Path(token): Path<String>,
+    headers: HeaderMap,
+    Query(q): Query<GuestFormFileQuery>,
+) -> Response {
+    crate::api::access::run_public(
+        &state,
+        &addr,
+        &token,
+        &headers,
+        move |state, link| async move {
+            let name = q.name.trim().to_string();
+            let rel = crate::api::access::link_file(&state, &link, &q.path)?;
+            let form = {
+                let conn = state.db.lock().map_err(|_| index_busy())?;
+                resolve_form(&conn, &link.drive_id, &rel)?
+            };
+            let doc = read_form_document(&form.path)?;
+            if question_images(&doc).contains(&name) {
+                return serve_form_file(&form, &name);
+            }
+            let (_, form) = guest_managed_form(&state, &link, &q.path)?;
+            serve_form_file(&form, &name)
+        },
+    )
+    .await
 }
 
 #[derive(Deserialize)]
@@ -1646,17 +2011,12 @@ fn read_source_picture(source: &FsPath) -> Result<PickedFile, (StatusCode, Json<
 
 fn store_picture(
     state: &AppState,
-    form_path: &FsPath,
+    form: &FormLoc,
     ext: &str,
     bytes: &[u8],
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let dir = uploads_dir_for(form_path).ok_or_else(|| {
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't find where this form keeps files.",
-        )
-    })?;
-    let name = store_in_uploads(state, &dir, ext, bytes)?;
+    check_form_room(form, bytes.len() as u64)?;
+    let name = write_new_file(state, &form.files, ext, bytes)?;
     Ok(Json(json!({ "ok": true, "name": name })))
 }
 
@@ -1668,7 +2028,7 @@ async fn member_copy_picture(
     Extension(user): Extension<CurrentUser>,
     Json(body): Json<MemberPictureCopy>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let form_path = member_managed_form(&state, &user, &body.drive_id, &body.path)?;
+    let form = member_managed_form(&state, &user, &body.drive_id, &body.path)?;
     let source = {
         let conn = state.db.lock().map_err(|_| index_busy())?;
         if !auth::has_cap(
@@ -1688,7 +2048,7 @@ async fn member_copy_picture(
             .0
     };
     let (ext, bytes) = read_source_picture(&source)?;
-    store_picture(&state, &form_path, ext, &bytes)
+    store_picture(&state, &form, ext, &bytes)
 }
 
 /// `POST /api/v1/forms/picture-upload?drive_id=&path=` — a picture from
@@ -1699,7 +2059,7 @@ async fn member_upload_picture(
     Query(q): Query<MemberPictureQuery>,
     mut multipart: Multipart,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let form_path = member_managed_form(&state, &user, &q.drive_id, &q.path)?;
+    let form = member_managed_form(&state, &user, &q.drive_id, &q.path)?;
     let (ext, bytes) = read_multipart_file(
         &mut multipart,
         MAX_IMAGE_BYTES as usize,
@@ -1707,7 +2067,7 @@ async fn member_upload_picture(
         PICTURE_KIND_MESSAGE,
     )
     .await?;
-    store_picture(&state, &form_path, ext, &bytes)
+    store_picture(&state, &form, ext, &bytes)
 }
 
 /// `POST /s/{token}/form-picture` — the guest side of copying a picture.
@@ -1720,7 +2080,7 @@ async fn guest_copy_picture(
 ) -> Response {
     crate::api::access::run_public(&state, &addr, &token, &headers, move |state, link| {
         async move {
-            let (_, form_path) = guest_managed_form(&state, &link, &body.path)?;
+            let (_, form) = guest_managed_form(&state, &link, &body.path)?;
             // link_file only resolves paths the link can view.
             let source_rel = crate::api::access::link_file(&state, &link, &body.source)?;
             let source = {
@@ -1732,7 +2092,7 @@ async fn guest_copy_picture(
                     .0
             };
             let (ext, bytes) = read_source_picture(&source)?;
-            store_picture(&state, &form_path, ext, &bytes).map(IntoResponse::into_response)
+            store_picture(&state, &form, ext, &bytes).map(IntoResponse::into_response)
         }
     })
     .await
@@ -1753,7 +2113,7 @@ async fn guest_upload_picture(
         &token,
         &headers,
         move |state, link| async move {
-            let (_, form_path) = guest_managed_form(&state, &link, &q.path)?;
+            let (_, form) = guest_managed_form(&state, &link, &q.path)?;
             let (ext, bytes) = read_multipart_file(
                 &mut multipart,
                 MAX_IMAGE_BYTES as usize,
@@ -1761,7 +2121,7 @@ async fn guest_upload_picture(
                 PICTURE_KIND_MESSAGE,
             )
             .await?;
-            store_picture(&state, &form_path, ext, &bytes).map(IntoResponse::into_response)
+            store_picture(&state, &form, ext, &bytes).map(IntoResponse::into_response)
         },
     )
     .await
@@ -2365,7 +2725,7 @@ mod http_tests {
     }
 
     #[tokio::test]
-    async fn cap_blocks_new_answers_and_uploads_land_beside_the_form() {
+    async fn cap_blocks_new_answers_and_uploads_wait_until_sent() {
         let mount = tempfile::tempdir().unwrap();
         let doc = r#"{
             "version": 1,
@@ -2407,7 +2767,9 @@ mod http_tests {
         let uploaded = body_json(res).await;
         let name = uploaded["name"].as_str().unwrap().to_string();
         assert!(super::upload_name_ok(&name), "{name}");
-        assert!(mount.path().join("rsvp.uploads").join(&name).is_file());
+        let files = files_dir(&state, "rsvp.lunaform");
+        // Unsent: waiting in the hidden folder's pending area.
+        assert!(files.join(super::PENDING_DIR).join(&name).is_file());
 
         let body =
             format!(r#"{{"answers":{{"q_1":"Yes","q_file":"{name}"}},"edit_token":"secret-one"}}"#);
@@ -2422,6 +2784,9 @@ mod http_tests {
         let submitted = body_json(res).await;
         let id = submitted["id"].as_str().unwrap().to_string();
         let secret = submitted["edit_token"].as_str().unwrap().to_string();
+        // Sending claimed it: out of pending, kept with the answers.
+        assert!(files.join(&name).is_file());
+        assert!(!files.join(super::PENDING_DIR).join(&name).exists());
 
         let res = call(&app, req(Method::GET, &format!("/s/{token}"), "")).await;
         let loaded = body_json(res).await;
@@ -2448,6 +2813,203 @@ mod http_tests {
         )
         .await;
         assert_eq!(res.status(), StatusCode::OK);
+    }
+
+    /// The form's files folder, as the routes resolve it.
+    fn files_dir(state: &crate::AppState, rel: &str) -> std::path::PathBuf {
+        let conn = state.db.lock().unwrap();
+        super::resolve_form(&conn, "photos", rel).unwrap().files
+    }
+
+    const FILE_FORM: &str = r#"{
+        "version": 1,
+        "title": "Receipts",
+        "settings": { "collecting": true, "allowEdits": true },
+        "questions": [
+            { "id": "q_file", "type": "file", "label": "Receipt", "image": "00000000000000aa.png" }
+        ]
+    }"#;
+
+    /// Upload one small PDF through a respond link; returns the minted name.
+    async fn upload_pdf(app: &axum::Router, token: &str) -> String {
+        let boundary = "----lunaformboundary";
+        let mut raw = Vec::new();
+        raw.extend(
+            format!(
+                "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"r.pdf\"\r\nContent-Type: application/pdf\r\n\r\n"
+            )
+            .as_bytes(),
+        );
+        raw.extend(b"%PDF-1.1\n");
+        raw.extend(format!("\r\n--{boundary}--\r\n").as_bytes());
+        let mut http = HttpReq::builder()
+            .method(Method::POST)
+            .uri(format!("/s/{token}/respond-file"))
+            .header(
+                "content-type",
+                format!("multipart/form-data; boundary={boundary}"),
+            )
+            .header("accept", "application/json")
+            .body(Body::from(raw))
+            .unwrap();
+        http.extensions_mut().insert(ConnectInfo(CLIENT));
+        let res = call(app, http).await;
+        assert_eq!(res.status(), StatusCode::OK);
+        body_json(res).await["name"].as_str().unwrap().to_string()
+    }
+
+    #[tokio::test]
+    async fn files_folder_is_luna_owned_and_unsent_uploads_expire() {
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::write(mount.path().join("receipts.lunaform"), FILE_FORM).unwrap();
+        let (_dir, app, state) = test_app(mount.path());
+        let token = insert_link(&state, "receipts.lunaform", crate::access::CAP_RESPOND);
+        let files = files_dir(&state, "receipts.lunaform");
+        // Listings, search, Gallery, zips, and the files API skip it.
+        let folder = files.file_name().unwrap().to_str().unwrap();
+        assert!(crate::files::is_internal_temp(folder), "{folder}");
+        assert!(crate::files::is_blocked_user_path(&format!(
+            "{folder}/x.pdf"
+        )));
+
+        let old = upload_pdf(&app, &token).await;
+        let stale = std::time::SystemTime::now() - std::time::Duration::from_secs(2 * 60 * 60);
+        std::fs::File::options()
+            .write(true)
+            .open(files.join(super::PENDING_DIR).join(&old))
+            .unwrap()
+            .set_modified(stale)
+            .unwrap();
+        // The next upload sweeps anything nobody sent within the hour.
+        let fresh = upload_pdf(&app, &token).await;
+        assert!(!files.join(super::PENDING_DIR).join(&old).exists());
+        assert!(files.join(super::PENDING_DIR).join(&fresh).is_file());
+    }
+
+    #[tokio::test]
+    async fn answers_can_only_name_their_own_unsent_uploads() {
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::write(mount.path().join("receipts.lunaform"), FILE_FORM).unwrap();
+        let (_dir, app, state) = test_app(mount.path());
+        let token = insert_link(&state, "receipts.lunaform", crate::access::CAP_RESPOND);
+        let files = files_dir(&state, "receipts.lunaform");
+        std::fs::create_dir_all(&files).unwrap();
+        // The question's own picture sits in the same folder.
+        std::fs::write(files.join("00000000000000aa.png"), b"\x89PNG\r\n\x1a\n").unwrap();
+        let send = |name: &str| {
+            req(
+                Method::POST,
+                &format!("/s/{token}/respond"),
+                &format!(r#"{{"answers":{{"q_file":"{name}"}}}}"#),
+            )
+        };
+        let res = call(&app, send("00000000000000aa.png")).await;
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+
+        // A sent attachment can't be claimed again by a second answer.
+        let name = upload_pdf(&app, &token).await;
+        let res = call(&app, send(&name)).await;
+        assert_eq!(res.status(), StatusCode::OK);
+        let res = call(&app, send(&name)).await;
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn edits_and_deletes_remove_attachments_but_keep_pictures() {
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::write(mount.path().join("receipts.lunaform"), FILE_FORM).unwrap();
+        let (_dir, app, state) = test_app(mount.path());
+        let token = insert_link(&state, "receipts.lunaform", crate::access::CAP_RESPOND);
+        let files = files_dir(&state, "receipts.lunaform");
+
+        let first = upload_pdf(&app, &token).await;
+        let res = call(
+            &app,
+            req(
+                Method::POST,
+                &format!("/s/{token}/respond"),
+                &format!(r#"{{"answers":{{"q_file":"{first}"}}}}"#),
+            ),
+        )
+        .await;
+        let sent = body_json(res).await;
+        let id = sent["id"].as_str().unwrap().to_string();
+        let secret = sent["edit_token"].as_str().unwrap().to_string();
+
+        // Editing to a new file drops the old one.
+        let second = upload_pdf(&app, &token).await;
+        let res = call(
+            &app,
+            req(
+                Method::POST,
+                &format!("/s/{token}/respond"),
+                &format!(
+                    r#"{{"answers":{{"q_file":"{second}"}},"edit_token":"{secret}","response_id":"{id}"}}"#
+                ),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::OK);
+        assert!(!files.join(&first).exists());
+        assert!(files.join(&second).is_file());
+
+        // Deleting the response removes its file; the question picture stays.
+        std::fs::write(files.join("00000000000000aa.png"), b"\x89PNG\r\n\x1a\n").unwrap();
+        let form = {
+            let conn = state.db.lock().unwrap();
+            super::resolve_form(&conn, "photos", "receipts.lunaform").unwrap()
+        };
+        let _ = super::delete_response(&state, "photos", &form, Some(&id)).unwrap();
+        assert!(!files.join(&second).exists());
+        assert!(files.join("00000000000000aa.png").is_file());
+    }
+
+    #[tokio::test]
+    async fn form_file_route_shows_pictures_to_viewers_and_attachments_to_managers() {
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::write(mount.path().join("receipts.lunaform"), FILE_FORM).unwrap();
+        let (_dir, app, state) = test_app(mount.path());
+        let respond = insert_link(&state, "receipts.lunaform", crate::access::CAP_RESPOND);
+        let files = files_dir(&state, "receipts.lunaform");
+        std::fs::create_dir_all(&files).unwrap();
+        std::fs::write(files.join("00000000000000aa.png"), b"\x89PNG\r\n\x1a\n").unwrap();
+        let name = upload_pdf(&app, &respond).await;
+        let res = call(
+            &app,
+            req(
+                Method::POST,
+                &format!("/s/{respond}/respond"),
+                &format!(r#"{{"answers":{{"q_file":"{name}"}}}}"#),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::OK);
+
+        let get = |token: &str, file: &str| {
+            req(
+                Method::GET,
+                &format!("/s/{token}/form-file?name={file}"),
+                "",
+            )
+        };
+        let view = insert_link(&state, "receipts.lunaform", crate::access::CAP_VIEW);
+        let res = call(&app, get(&view, "00000000000000aa.png")).await;
+        assert_eq!(res.status(), StatusCode::OK);
+        assert_eq!(res.headers()["content-type"], "image/png");
+        let res = call(&app, get(&view, &name)).await;
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+
+        let full = insert_link(&state, "receipts.lunaform", crate::access::CAP_ALL);
+        let res = call(&app, get(&full, &name)).await;
+        assert_eq!(res.status(), StatusCode::OK);
+        assert_eq!(res.headers()["content-type"], "application/pdf");
+        assert!(
+            res.headers()["content-disposition"]
+                .to_str()
+                .unwrap()
+                .starts_with("attachment")
+        );
+        assert_eq!(res.headers()["x-content-type-options"], "nosniff");
     }
 
     fn insert_link_full(

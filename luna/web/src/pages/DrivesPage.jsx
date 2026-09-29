@@ -145,7 +145,7 @@ function DriveStorageBar({ summary }) {
       <div data-slot="drive-storage-bar">
         <div className="flex items-center gap-2 mb-1">
           <span
-            className="inline-block h-2 w-2 rounded-full bg-primary shrink-0"
+            className="inline-block h-2 w-2 rounded-full surface-primary shrink-0"
             aria-hidden="true"
           />
           <span className="text-xs font-mono uppercase tracking-widest">
@@ -162,7 +162,7 @@ function DriveStorageBar({ summary }) {
           {totalLabel} total
         </p>
         <div
-          className="mt-3 h-2 rounded-pill bg-primary p-0.5 overflow-hidden"
+          className="mt-3 h-2 rounded-pill surface-primary p-0.5 overflow-hidden"
           role="progressbar"
           aria-valuenow={usedPct}
           aria-valuemin={0}
@@ -170,7 +170,7 @@ function DriveStorageBar({ summary }) {
           aria-label={`${usedPct}% used`}
         >
           <div
-            className="h-full rounded-pill bg-secondary motion-safe:transition-all motion-safe:duration-500"
+            className="h-full rounded-pill surface-secondary motion-safe:transition-all motion-safe:duration-500"
             style={{ width: `${usedPct}%` }}
           />
         </div>

@@ -185,8 +185,8 @@ export default function AppsPage() {
       {/* Nothing to search when the catalog is empty — but keep the bar
           up when a query simply has no matches, so it can be cleared. */}
       {catalog.length > 0 && (
-        <div className="mt-5 flex items-center gap-1 bg-secondary text-primary rounded-pill p-1 whitespace-nowrap border-2 border-primary/20 focus-within:border-accent transition-colors">
-          <div className="relative flex-1 min-w-0 bg-primary text-secondary rounded-pill">
+        <div className="mt-5 flex items-center gap-1 surface-secondary rounded-pill p-1 whitespace-nowrap border-2 border-primary/20 focus-within:border-accent transition-colors">
+          <div className="relative flex-1 min-w-0 surface-primary rounded-pill">
             <Search
               size={ICON_SIZE.lg}
               className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none"

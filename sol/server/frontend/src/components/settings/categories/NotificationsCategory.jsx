@@ -145,7 +145,7 @@ export default function NotificationsCategory({ settings, securitySettings, onSe
             <div className="rounded-large-element border border-accent p-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-primary text-secondary">
+                  <div className="inline-flex items-center justify-center w-8 h-8 rounded-full surface-primary">
                     <Mail size={ICON_SIZE.md} />
                   </div>
                   <div>

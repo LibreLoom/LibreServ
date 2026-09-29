@@ -165,9 +165,9 @@ const SERVICE_META = [
 
 const STATE_BADGES = {
   connected: { label: "Connected", class: "bg-success/20 border border-success/30 text-success" },
-  byo: { label: "Bring Your Own", class: "bg-primary text-secondary border-2 border-accent/30" },
-  disabled: { label: "Off", class: "bg-primary text-secondary border-2 border-secondary/10" },
-  unavailable: { label: "Not in Plan", class: "bg-primary text-secondary/30 border-2 border-secondary/10" },
+  byo: { label: "Bring Your Own", class: "surface-primary border-2 border-accent/30" },
+  disabled: { label: "Off", class: "surface-primary border-2 border-secondary/10" },
+  unavailable: { label: "Not in Plan", class: "surface-primary text-secondary/30 border-2 border-secondary/10" },
 };
 
 export default function ExternalServicesCategory({
@@ -294,7 +294,7 @@ export default function ExternalServicesCategory({
                             surface="secondary"
                           >
                             <span
-                              className="inline-flex items-center gap-2 text-xs px-2.5 py-1 rounded-pill font-mono bg-primary text-secondary border-2 border-secondary/10"
+                              className="inline-flex items-center gap-2 text-xs px-2.5 py-1 rounded-pill font-mono surface-primary border-2 border-secondary/10"
                             >
                               Included: {limitLabel}
                             </span>
@@ -309,7 +309,7 @@ export default function ExternalServicesCategory({
                             )}
                           >
                             <span className="min-h-0 overflow-hidden">
-                              <span className="inline-flex items-center gap-2 text-xs px-2.5 py-1 rounded-pill font-mono bg-primary text-secondary border border-accent">
+                              <span className="inline-flex items-center gap-2 text-xs px-2.5 py-1 rounded-pill font-mono surface-primary border border-accent">
                                 {detailText}
                               </span>
                             </span>

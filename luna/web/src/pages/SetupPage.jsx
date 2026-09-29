@@ -58,7 +58,7 @@ const WIZARD_INPUT_CLASS = cn(
 // ─── Full-screen shell (bg-primary = page background) ────────────────────────
 function SetupShell({ children }) {
   return (
-    <div data-slot="setup-page" className="min-h-screen flex flex-col items-center justify-center bg-primary px-4 py-12">
+    <div data-slot="setup-page" className="min-h-screen flex flex-col items-center justify-center surface-primary px-4 py-12">
       {children}
     </div>
   );
@@ -128,7 +128,7 @@ function SetupCard({ children, className = "", header = null }) {
   return (
     <div
       ref={outerRef}
-      className="w-full max-w-md bg-secondary text-primary rounded-large-element shadow-[0_32px_80px_rgba(0,0,0,0.12)] overflow-hidden transition-[height] ease-[var(--motion-easing-emphasized-decelerate)]"
+      className="w-full max-w-md surface-secondary rounded-large-element shadow-[0_32px_80px_rgba(0,0,0,0.12)] overflow-hidden transition-[height] ease-[var(--motion-easing-emphasized-decelerate)]"
       style={{ transitionDuration: "var(--motion-duration-medium2)" }}
     >
       <div ref={innerRef} className="px-10 py-10">
@@ -170,7 +170,7 @@ function StepDots({ current }) {
           className={cn(
             "rounded-full motion-safe:transition-all motion-safe:duration-300",
             i === idx
-              ? "w-5 h-2 bg-primary"
+              ? "w-5 h-2 surface-primary"
               : i < idx
                 ? "w-2 h-2 bg-primary/40"
                 : "w-2 h-2 bg-primary/15"
@@ -585,7 +585,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
           {authFields.map((f, i) => (
             <div key={f.id} className="flex-1 h-1 rounded-full bg-primary/15 overflow-hidden">
               <div
-                className="h-full bg-primary motion-safe:transition-[width] motion-safe:duration-500 motion-safe:ease-[cubic-bezier(0.05,0.7,0.1,1)]"
+                className="h-full surface-primary motion-safe:transition-[width] motion-safe:duration-500 motion-safe:ease-[cubic-bezier(0.05,0.7,0.1,1)]"
                 style={{ width: i <= authSubStep ? "100%" : "0%" }}
               />
             </div>
@@ -825,8 +825,15 @@ NameStep.propTypes = {
 
 // ─── STEP: Done ───────────────────────────────────────────────────────────────
 function DoneStep({ name, onGoDrives }) {
+  const buttonRef = useRef(null);
+
   useEffect(() => {
     haptic("success");
+    buttonRef.current?.focus?.();
+    const frame = requestAnimationFrame(() => {
+      buttonRef.current?.focus?.();
+    });
+    return () => cancelAnimationFrame(frame);
   }, []);
 
   const label = name || "Luna";
@@ -837,29 +844,31 @@ function DoneStep({ name, onGoDrives }) {
         <Check className="w-7 h-7 text-primary" strokeWidth={1.5} />
       </div>
 
-        <h2 className="font-mono text-3xl font-normal text-primary tracking-tight mb-3 animate-in fade-in slide-in-from-bottom-2 duration-300 delay-100">
-          {label} is ready.
-        </h2>
-        <p className="text-primary text-sm leading-relaxed animate-in fade-in slide-in-from-bottom-2 duration-300 delay-200">
-          Now plug in a USB drive. Luna will notice and won&rsquo;t touch a thing until you say so.
-        </p>
+      <h2 className="font-mono text-3xl font-normal text-primary tracking-tight mb-3 animate-in fade-in slide-in-from-bottom-2 duration-300 delay-100">
+        {label} is ready.
+      </h2>
+      <p className="text-primary text-sm leading-relaxed animate-in fade-in slide-in-from-bottom-2 duration-300 delay-200">
+        Now plug in a USB drive. Luna will notice and won&rsquo;t touch a thing until you say so.
+      </p>
 
-        {/* Discovery paths — where to find Luna after setup */}
-        <DiscoveryPaths name={label} />
+      {/* Discovery paths — where to find Luna after setup */}
+      <DiscoveryPaths name={label} />
 
-        <div className="mt-8 animate-in fade-in duration-300 delay-400">
-          <Button
-            variant="primary"
-            onClick={() => {
-              haptic("medium");
-              onGoDrives();
-            }}
-            className="group px-9 py-4 font-mono tracking-wide hover:scale-[1.03]"
-          >
-            Go to drives
-            <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
-          </Button>
-        </div>
+      <div className="mt-8 animate-in fade-in duration-300 delay-400">
+        <Button
+          ref={buttonRef}
+          autoFocus
+          variant="primary"
+          onClick={() => {
+            haptic("medium");
+            onGoDrives();
+          }}
+          className="group px-9 py-4 font-mono tracking-wide hover:scale-[1.03]"
+        >
+          Go to drives
+          <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
+        </Button>
+      </div>
     </div>
   );
 }
@@ -1055,7 +1064,7 @@ export default function SetupPage() {
   if (!hydrated || step == null) {
     return (
       <SetupShell>
-        <div className="w-full max-w-md bg-secondary text-primary rounded-large-element px-10 py-10 shadow-[0_32px_80px_rgba(0,0,0,0.12)]">
+        <div className="w-full max-w-md surface-secondary rounded-large-element px-10 py-10 shadow-[0_32px_80px_rgba(0,0,0,0.12)]">
           <p className="font-mono text-sm text-primary text-center">Loading setup…</p>
         </div>
       </SetupShell>

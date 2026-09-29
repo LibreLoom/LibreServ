@@ -27,7 +27,7 @@ function plainDriveState(state) {
   if (state === "as_is") return "Ready";
   if (state === "readonly") {
     return (
-      <TermHint content="Luna can open files here but cannot save changes. Check the filesystem, or a write-lock switch on the stick — not the cable or USB port.">
+      <TermHint surface="primary" content="Luna can open files here but cannot save changes. Check the filesystem, or a write-lock switch on the stick — not the cable or USB port.">
         Read only
       </TermHint>
     );

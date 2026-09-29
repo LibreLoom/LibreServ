@@ -44,6 +44,7 @@ import {
   isMemberHomePath,
   parentPath,
   pathBasename,
+  TRASH_PATH,
 } from "../../lib/paths.js";
 import { useOptionalAuth } from "../../context/AuthContext.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
@@ -150,7 +151,7 @@ function locationLabel(driveLabel, rel, ownHomePath = "") {
 /** A layered panel inside the sheet — primary surface on the secondary card. */
 function Section({ title = "", children }) {
   return (
-    <section className="rounded-large-element bg-primary p-4 text-secondary">
+    <section className="rounded-large-element surface-primary p-4">
       {title ? (
         <h3 className="mb-1 flex items-center gap-2 text-xs font-mono uppercase tracking-widest text-secondary">
           {title}
@@ -194,7 +195,7 @@ DetailRow.propTypes = {
 /** One mini-stat inside the totals grid — inverted layer for depth. */
 function MiniStat({ icon: Icon, value, label }) {
   return (
-    <div className="flex flex-1 flex-col items-center gap-1 rounded-large-element bg-secondary px-2 py-3 text-primary">
+    <div className="flex flex-1 flex-col items-center gap-1 rounded-large-element surface-secondary px-2 py-3">
       <Icon size={ICON_SIZE.sm} aria-hidden="true" />
       <span className="font-mono text-lg leading-none text-primary">{value}</span>
       <span className="text-[11px] font-mono uppercase tracking-widest text-primary">{label}</span>
@@ -209,8 +210,61 @@ MiniStat.propTypes = {
 };
 
 /**
- * @param {{ label: string, onClick: () => void }} props
+ * The trash root isn't a folder anyone made — explain what it holds instead
+ * of listing folder facts. Totals come back for admins only and span every
+ * user's deleted items, so the sheet shows the size, not item counts that
+ * wouldn't match the list.
+ *
+ * @param {{ driveLabel: string, totals: { bytes: number, dirs: number, files: number, other?: number, complete?: boolean } | null }} props
  */
+function TrashDetails({ driveLabel, totals }) {
+  const complete = totals?.complete !== false;
+  const empty = complete && totals && !totals.dirs && !totals.files && !totals.other;
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-3">
+        <IconCircle icon={Trash2} size="lg" variant="default" className="shrink-0" />
+        <p className="min-w-0 text-sm text-primary">
+          Files and folders deleted from {driveLabel}. They stay here until
+          they&apos;re restored or deleted for good.
+        </p>
+      </div>
+
+      {totals ? (
+        <Section>
+          <div className="flex items-center gap-2 text-xs font-mono uppercase tracking-widest text-secondary">
+            <HardDrive size={ICON_SIZE.sm} aria-hidden="true" />
+            {empty ? "Inside" : "Taking up"}
+          </div>
+          {empty ? (
+            <p className="mt-1 text-sm text-secondary">Nothing here — the trash is empty.</p>
+          ) : (
+            <>
+              <p className="mt-1 font-mono text-3xl leading-none text-secondary">
+                {complete ? fmtSize(totals.bytes) : `≥ ${fmtSize(totals.bytes)}`}
+              </p>
+              <p className="mt-2 text-xs text-secondary">
+                Counts everyone&apos;s deleted items on {driveLabel}.
+              </p>
+            </>
+          )}
+        </Section>
+      ) : null}
+
+      <Section title="Details">
+        <DetailRow icon={HardDrive} label="Drive" value={driveLabel} mono />
+        <DetailRow icon={Eye} label="You see" value="Items deleted from places you can change" />
+        <DetailRow icon={Undo2} label="Restore" value="Puts an item back where it was" />
+      </Section>
+    </div>
+  );
+}
+
+TrashDetails.propTypes = {
+  driveLabel: PropTypes.string.isRequired,
+  totals: PropTypes.object,
+};
+
 /** @param {{ label: string, onClick: () => void, surface?: "primary" | "secondary" }} props */
 export function PropertiesButton({ label, onClick, surface = "secondary" }) {
   return (
@@ -283,13 +337,14 @@ export default function PropertiesSheet({
   // Trash is read-only, not unreadable — downloads stay on; "other" (fifo,
   // socket…) has nothing to fetch.
   const canDownload = kind !== "other";
+  const trashRoot = path === TRASH_PATH;
 
   return (
     <ModalCard
       open={open}
       onClose={onClose}
       loading={stat.isLoading}
-      title={<span className="break-all">{name}</span>}
+      title={<span className="break-all">{trashRoot ? "Trash" : name}</span>}
     >
       {stat.isError ? (
         <>
@@ -300,6 +355,8 @@ export default function PropertiesSheet({
             Try again
           </Button>
         </>
+      ) : trashRoot ? (
+        <TrashDetails driveLabel={driveLabel} totals={totals} />
       ) : (
         <div className="space-y-3">
           {/* Identity: type glyph + the pills that describe it at a glance. */}

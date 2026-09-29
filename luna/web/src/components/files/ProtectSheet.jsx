@@ -210,7 +210,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
       </p>
 
       <div className="space-y-3">
-        <section className="rounded-large-element bg-primary text-secondary p-4 space-y-3 motion-safe:transition-[box-shadow,transform] motion-safe:duration-200">
+        <section className="rounded-large-element surface-primary p-4 space-y-3 motion-safe:transition-[box-shadow,transform] motion-safe:duration-200">
           <div className="flex items-start gap-3">
             <HardDrive size={ICON_SIZE.md} className="mt-0.5 shrink-0 text-secondary" aria-hidden="true" />
             <div className="min-w-0 flex-1 space-y-1">
@@ -235,7 +235,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
               {matchingProtections.map((p) => (
                 <div
                   key={p.id}
-                  className="rounded-large-element bg-secondary text-primary p-3 space-y-3"
+                  className="rounded-large-element surface-secondary p-3 space-y-3"
                 >
                   <p className="text-primary text-xs">
                     Copy on {driveName(p.target_drive)}
@@ -294,7 +294,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
 
         <section
           ref={cloudOuterRef}
-          className="overflow-hidden rounded-large-element bg-primary text-secondary transition-[height] ease-[var(--motion-easing-emphasized-decelerate)]"
+          className="overflow-hidden rounded-large-element surface-primary transition-[height] ease-[var(--motion-easing-emphasized-decelerate)]"
           style={{ transitionDuration: "var(--motion-duration-medium2)" }}
         >
           <div ref={cloudInnerRef} className="p-4 space-y-3">
@@ -305,6 +305,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                   <h3 className="text-secondary text-sm font-semibold inline-flex items-center gap-1.5">
                     In the cloud
                     <InfoHint
+                      surface="primary"
                       label="What cloud backup means"
                       content="An off-site copy of the latest files, stored with Luna Connect. It is not a history of old versions. Cloud backup costs $8 per terabyte each month."
                     />

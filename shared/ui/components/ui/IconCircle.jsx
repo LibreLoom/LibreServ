@@ -9,8 +9,8 @@ const sizes = {
 };
 
 const variants = {
-  default: "bg-primary text-secondary",
-  secondary: "bg-secondary text-primary",
+  default: "surface-primary",
+  secondary: "surface-secondary",
 };
 
 export default function IconCircle({

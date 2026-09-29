@@ -158,7 +158,7 @@ function ColorPreset({ colors, previewColors, label, currentColors, onSelect }) 
 
       {isMatch && (
         <span
-          className="absolute -top-1.5 right-1.5 z-10 w-5 h-5 rounded-full bg-primary flex items-center justify-center animate-in fade-in zoom-in-75 duration-150"
+          className="absolute -top-1.5 right-1.5 z-10 w-5 h-5 rounded-full surface-primary flex items-center justify-center animate-in fade-in zoom-in-75 duration-150"
           aria-hidden="true"
         >
           <Check size={ICON_SIZE.xs} className="text-secondary" strokeWidth={3} />

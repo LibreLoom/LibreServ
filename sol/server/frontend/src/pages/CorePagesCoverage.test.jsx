@@ -60,8 +60,9 @@ vi.mock("@libreloom/ui/components/ui/Page.jsx", () => ({
   ),
 }));
 vi.mock("@libreloom/ui/components/cards/Card.jsx", () => ({
+  // Real cards are secondary surfaces; keep that so the contrast check sees it.
   default: ({ children, title }) => (
-    <section>
+    <section className="surface-secondary">
       {title && <h2>{title}</h2>}
       {children}
     </section>
@@ -69,7 +70,7 @@ vi.mock("@libreloom/ui/components/cards/Card.jsx", () => ({
 }));
 vi.mock("@libreloom/ui/components/cards/HeaderCard.jsx", () => ({
   default: ({ leftContent, rightContent, title }) => (
-    <header>
+    <header className="surface-secondary">
       {leftContent}
       <h1>{title}</h1>
       {rightContent}
@@ -151,7 +152,7 @@ vi.mock("@libreloom/ui/components/common/Table.jsx", () => ({
 vi.mock("@libreloom/ui/components/cards/ConfirmModal.jsx", () => ({
   default: ({ confirmLabel = "Confirm", message, onClose, onConfirm, open, title }) =>
     open ? (
-      <div role="dialog" aria-label={title}>
+      <div role="dialog" aria-label={title} className="surface-secondary">
         <p>{message}</p>
         <button type="button" onClick={onClose}>
           Cancel
@@ -164,7 +165,7 @@ vi.mock("@libreloom/ui/components/cards/ConfirmModal.jsx", () => ({
 }));
 vi.mock("@libreloom/ui/components/cards/ModalCard.jsx", () => ({
   default: ({ children, onClose, title }) => (
-    <div role="dialog" aria-label={title}>
+    <div role="dialog" aria-label={title} className="surface-secondary">
       <button type="button" onClick={onClose}>
         Close
       </button>

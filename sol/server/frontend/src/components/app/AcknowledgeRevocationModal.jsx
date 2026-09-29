@@ -114,7 +114,7 @@ export default function AcknowledgeRevocationModal({ app, onClose, onAcknowledge
                   value={typedText}
                   onChange={(e) => setTypedText(e.target.value)}
                   placeholder='Type "I understand"'
-                  className="w-full px-4 py-2 border-2 rounded-pill bg-primary text-secondary placeholder:text-secondary/60 outline-none border-primary/30 focus:border-accent"
+                  className="w-full px-4 py-2 border-2 rounded-pill surface-primary placeholder:text-secondary/60 outline-none border-primary/30 focus:border-accent"
                   disabled={acknowledging}
                   autoFocus
                 />

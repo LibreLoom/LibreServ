@@ -4,7 +4,7 @@ import { cn } from "../../lib/utils";
 import { haptic } from "../../utils/haptics.js";
 
 const CELL_BASE = "py-2.5 text-primary";
-const CELL_BG = "bg-secondary";
+const CELL_BG = "surface-secondary";
 // color-scan: ignore-next-line mixes theme CSS vars only (no hardcoded hex)
 const CELL_BG_STRIPE = "bg-[color-mix(in_oklab,var(--secondary)_92%,var(--primary))]";
 const CELL_FIRST = "pl-3 rounded-l-large-element";

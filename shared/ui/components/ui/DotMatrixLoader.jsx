@@ -221,7 +221,7 @@ export default function DotMatrixLoader({
         aria-hidden="true"
         data-slot="matrix-loader"
         className={cn(
-          "relative flex h-full w-full min-h-0 flex-1 flex-col items-center justify-center overflow-hidden bg-primary text-secondary",
+          "relative flex h-full w-full min-h-0 flex-1 flex-col items-center justify-center overflow-hidden surface-primary",
           className,
         )}
         {...props}
@@ -237,7 +237,7 @@ export default function DotMatrixLoader({
       aria-label={label}
       data-slot="matrix-loader"
       className={cn(
-        "relative flex h-full w-full min-h-0 flex-1 flex-col items-center justify-center overflow-hidden bg-primary text-secondary",
+        "relative flex h-full w-full min-h-0 flex-1 flex-col items-center justify-center overflow-hidden surface-primary",
         className,
       )}
       {...props}

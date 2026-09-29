@@ -162,7 +162,7 @@ export default function NewItemMenu({ onPick, ids, surface = "secondary" }) {
             onKeyDown={handleMenuKeyDown}
             style={{ position: "absolute", top: position.top, left: position.left }}
             className={cn(
-              "bg-secondary text-primary ring-inset ring-2 ring-accent",
+              "surface-secondary ring-inset ring-2 ring-accent",
               "rounded-large-element z-50 overflow-hidden min-w-[12rem] max-h-72 overflow-y-auto no-scrollbar",
               isClosing ? "animate-dropdown-close" : "animate-dropdown-open",
             )}

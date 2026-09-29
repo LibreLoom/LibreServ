@@ -690,7 +690,7 @@ export default function PhotoLightbox({
       data-slot="photo-lightbox"
       data-mode={mode}
       className={cn(
-        `fixed inset-0 ${LIGHTBOX_Z_CLASS} flex flex-col overscroll-none bg-primary text-secondary`,
+        `fixed inset-0 ${LIGHTBOX_Z_CLASS} flex flex-col overscroll-none surface-primary`,
         isClosing
           ? "fullscreen-overlay-exit file-viewer-exit"
           : "fullscreen-overlay-enter file-viewer-enter",
@@ -866,7 +866,7 @@ export default function PhotoLightbox({
       </div>
 
       <div className="flex flex-wrap items-center justify-center gap-2 px-4 py-4">
-        <ActionTooltipGroup className="flex flex-wrap items-center gap-2 rounded-pill bg-secondary text-primary px-2 py-2">
+        <ActionTooltipGroup className="flex flex-wrap items-center gap-2 rounded-pill surface-secondary px-2 py-2">
           {!guest && (
             <Tooltip
               content={photo.favorited ? "Remove from favorites" : "Favorite"}

@@ -51,7 +51,7 @@ export default function UploadFilesPanel({
       {shownError && <PageNotice variant="error" className="mb-3">{shownError}</PageNotice>}
       <div
         className={cn(
-          "flex flex-col items-center justify-center gap-3 rounded-large-element border-2 border-dashed border-secondary/30 bg-primary p-8 text-secondary motion-safe:transition-colors motion-safe:duration-150",
+          "flex flex-col items-center justify-center gap-3 rounded-large-element border-2 border-dashed border-secondary/30 surface-primary p-8 motion-safe:transition-colors motion-safe:duration-150",
           dragOver && "border-accent bg-[color-mix(in_srgb,var(--accent)_20%,var(--primary))]",
           busy && "opacity-70",
         )}

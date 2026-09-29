@@ -74,4 +74,12 @@ describe("createKinds", () => {
     expect(doc.questions).toEqual([]);
     expect(doc.settings.collecting).toBe(true);
   });
+
+  it("defaults text files to markdown (.md)", () => {
+    const text = CREATE_KINDS.find((k) => k.id === "text");
+    expect(text?.openAfter).toBe("text");
+    expect(text?.defaultName).toBe("note.md");
+    expect(text?.defaultExt).toBe(".md");
+    expect(text?.placeholder).toBe("e.g. Shopping list.md");
+  });
 });

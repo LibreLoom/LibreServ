@@ -48,7 +48,7 @@ export default function RoleChangeForm({ user, onSuccess, onCancel }) {
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="text-center mb-4">
-        <div className="inline-flex items-center justify-center h-12 w-12 rounded-full bg-primary text-secondary mb-3">
+        <div className="inline-flex items-center justify-center h-12 w-12 rounded-full surface-primary mb-3">
           <Shield size={ICON_SIZE.xxl} aria-hidden="true" />
         </div>
         <p className="text-sm">

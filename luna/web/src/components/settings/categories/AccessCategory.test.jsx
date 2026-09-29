@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import AccessCategory from "./AccessCategory.jsx";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
@@ -55,7 +55,7 @@ describe("AccessCategory", () => {
   it("shows apps and access tokens section", async () => {
     renderAccess();
     expect(await screen.findByRole("heading", { name: "Apps and access tokens" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Create access token/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /New access token/i })).toBeTruthy();
     expect(screen.getByText(/phone app, Luna Desktop, or script/i)).toBeTruthy();
   });
 
@@ -66,29 +66,19 @@ describe("AccessCategory", () => {
     expect(screen.getByRole("button", { name: /Revoke token/i })).toBeTruthy();
   });
 
-  it("shows create wizard above existing token list", async () => {
+  it("opens token creation in a modal from the token list", async () => {
     stubFetch([{ id: "t1", name: "Kitchen Mac", last_used_at: null }]);
+    const { userEvent } = await import("@testing-library/user-event");
+    const user = userEvent.setup();
     renderAccess();
     expect(await screen.findByText("Kitchen Mac")).toBeTruthy();
+    expect(screen.queryByLabelText(/Name this app/i)).toBeNull();
 
-    const wizardHeading = screen.getByText("Add a new access token");
-    const listHeading = screen.getByText("Your access tokens");
-    const tokenName = screen.getByText("Kitchen Mac");
-
-    expect(wizardHeading.compareDocumentPosition(listHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(listHeading.compareDocumentPosition(tokenName) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  });
-
-  it("token list uses contrasting text on primary surface", async () => {
-    stubFetch([{ id: "t1", name: "Kitchen Mac", last_used_at: null }]);
-    renderAccess();
-    expect(await screen.findByText("Kitchen Mac")).toBeTruthy();
-
-    const surface = screen.getByText("Kitchen Mac").closest("div.bg-primary.text-secondary");
-    expect(surface).toBeTruthy();
-    // Children must inherit text-secondary — text-primary on bg-primary is invisible in dark mode.
-    expect(surface.querySelector(".text-primary")).toBeNull();
-    expect(screen.getByText("Kitchen Mac").className).not.toMatch(/text-primary/);
+    await user.click(screen.getByRole("button", { name: /New access token/i }));
+    const dialog = await screen.findByRole("dialog", { name: /New access token/i });
+    const input = within(dialog).getByLabelText(/Name this app/i);
+    await waitFor(() => expect(input).toHaveFocus());
+    expect(within(dialog).getByRole("button", { name: /Create access token/i })).toBeDisabled();
   });
 
   it("token list items animate height on expand/collapse", async () => {
@@ -200,9 +190,8 @@ describe("AccessCategory", () => {
     const { userEvent } = await import("@testing-library/user-event");
     const user = userEvent.setup();
     renderAccess();
-    expect(await screen.findByRole("button", { name: /Create access token/i })).toBeTruthy();
-
-    await user.type(screen.getByLabelText(/Name this app/i), "Sam's phone");
+    await user.click(await screen.findByRole("button", { name: /New access token/i }));
+    await user.type(await screen.findByLabelText(/Name this app/i), "Sam's phone");
     await user.click(screen.getByRole("button", { name: /Create access token/i }));
 
     expect(await screen.findByRole("button", { name: /Show as QR code/i })).toBeTruthy();

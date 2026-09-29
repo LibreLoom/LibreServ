@@ -207,7 +207,7 @@ export default function MfaChallenge({ mfaToken, methods, email, onSuccess, onBa
                       startEmail();
                     } else if (isWebAuthn) verifyWebAuthn(m.type);
                   }}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-large-element bg-primary text-secondary border-2 border-secondary/10 hover:border-accent motion-safe:transition-all text-left group"
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-large-element surface-primary border-2 border-secondary/10 hover:border-accent motion-safe:transition-all text-left group"
                 >
                   <Icon size={ICON_SIZE.lg} className="shrink-0" />
                   <span className="flex-1 min-w-0">
@@ -428,7 +428,7 @@ function EntryShell({ title, hint, onBack, onSubmit, loading, disabled, code, se
             value={code}
             onChange={(e) => setCode(e.target.value)}
             placeholder={placeholder}
-            className="w-full px-4 py-2 border-2 border-primary/30 rounded-pill bg-primary text-secondary placeholder:text-secondary/50 outline-none focus:border-accent"
+            className="w-full px-4 py-2 border-2 border-primary/30 rounded-pill surface-primary placeholder:text-secondary/50 outline-none focus:border-accent"
             autoFocus={autoFocus}
           />
         </ShakeTarget>

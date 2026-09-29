@@ -174,7 +174,7 @@ export default function CreateLinkModal({
           <ShakeTarget shake={error}>
             <input
               type="password"
-              className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm"
+              className="w-full rounded-pill surface-primary border-2 border-secondary/30 px-4 py-2 text-sm"
               placeholder={editing ? "New password (leave blank to keep)" : "Optional password"}
               aria-label="Link password"
               autoComplete="new-password"

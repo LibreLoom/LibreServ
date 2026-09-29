@@ -15,7 +15,7 @@ export default function UptimeCard({ value }) {
     <Card data-slot="uptime-card">
       <div className="flex items-center gap-2 mb-1">
         <span
-          className="inline-block h-2 w-2 rounded-full bg-primary shrink-0"
+          className="inline-block h-2 w-2 rounded-full surface-primary shrink-0"
           aria-hidden="true"
         />
         <span className="text-xs font-mono uppercase tracking-widest">

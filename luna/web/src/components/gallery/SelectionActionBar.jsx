@@ -148,11 +148,11 @@ export default function SelectionActionBar({
         ref={barRef}
         role="toolbar"
         aria-label="Actions for selected photos"
-        className="pointer-events-auto flex w-full flex-col gap-1 rounded-t-large-element border-t-2 border-primary/20 bg-secondary px-3 pt-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] text-primary shadow-lg sm:w-auto sm:max-w-full sm:flex-row sm:flex-wrap sm:items-center sm:justify-center sm:gap-2 sm:rounded-pill sm:border-2 sm:px-3 sm:py-2"
+        className="pointer-events-auto flex w-full flex-col gap-1 rounded-t-large-element border-t-2 border-primary/20 surface-secondary px-3 pt-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] shadow-lg sm:w-auto sm:max-w-full sm:flex-row sm:flex-wrap sm:items-center sm:justify-center sm:gap-2 sm:rounded-pill sm:border-2 sm:px-3 sm:py-2"
       >
         {/* Header row (mobile) / leading items (desktop pill via sm:contents) */}
         <div className="flex items-center justify-between gap-2 sm:contents">
-          <span className="font-mono text-xs shrink-0 rounded-pill bg-primary text-secondary px-2.5 py-1">
+          <span className="font-mono text-xs shrink-0 rounded-pill surface-primary px-2.5 py-1">
             {count} selected
           </span>
           <div className="flex items-center gap-1 sm:contents">

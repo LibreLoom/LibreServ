@@ -87,7 +87,7 @@ export default function BackupServiceModal({ open, onClose, onSaved, service, re
         />
 
         {useConnect && connectWarning.show ? (
-          <div className="bg-primary text-secondary border-2 border-warning/20 rounded-large-element p-4 space-y-2">
+          <div className="surface-primary border-2 border-warning/20 rounded-large-element p-4 space-y-2">
             <div className="flex items-center gap-2 text-sm text-secondary">
               <AlertTriangle size={ICON_SIZE.md} className="text-warning shrink-0" />
               {connectWarning.label}
@@ -121,20 +121,20 @@ export default function BackupServiceModal({ open, onClose, onSaved, service, re
 
           {useConnect && (
             <>
-              <div className="flex items-center gap-3 p-3 rounded-large-element bg-primary text-secondary border-2 border-accent/20">
+              <div className="flex items-center gap-3 p-3 rounded-large-element surface-primary border-2 border-accent/20">
                 <Check size={ICON_SIZE.md} className="shrink-0" />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-secondary font-medium">Connect Storage</p>
                   <p className="text-xs">S3-compatible</p>
                 </div>
-                <span className="text-xs px-2.5 py-1 rounded-pill bg-secondary text-primary font-medium">
+                <span className="text-xs px-2.5 py-1 rounded-pill surface-secondary font-medium">
                   Connect
                 </span>
               </div>
               {connectRepo ? (
                 <RecoveryKeyCard repo={connectRepo} repoId={connectRepo.id} />
               ) : (
-                <div className="bg-primary text-secondary border-2 border-warning/20 rounded-large-element p-4 space-y-2">
+                <div className="surface-primary border-2 border-warning/20 rounded-large-element p-4 space-y-2">
                   <p className="text-sm text-secondary font-medium">
                     Backup Recovery Key
                   </p>
@@ -151,7 +151,7 @@ export default function BackupServiceModal({ open, onClose, onSaved, service, re
             customRepos.map((repo, i) => (
               <div
                 key={repo.id || i}
-                className="flex items-center gap-3 p-3 rounded-large-element bg-primary text-secondary border-2 border-secondary/10"
+                className="flex items-center gap-3 p-3 rounded-large-element surface-primary border-2 border-secondary/10"
               >
                 <Database size={ICON_SIZE.md} className="shrink-0" />
                 <div className="flex-1 min-w-0">

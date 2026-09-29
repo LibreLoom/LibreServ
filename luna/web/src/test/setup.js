@@ -1,9 +1,13 @@
 import "@testing-library/jest-dom/vitest";
 import { configure } from "@testing-library/react";
+import { installContrastCheck } from "@libreloom/ui/test/contrast.js";
 
 // The 1s default async timeout is too tight under loaded parallel CI runs —
 // multi-step flows (navigate → fetch → dialog) can lag past it.
 configure({ asyncUtilTimeout: 4000 });
+
+// Fail any test that leaves text in the same color as the surface behind it.
+installContrastCheck();
 
 // Node 22+ exposes an experimental global localStorage that is undefined
 // unless --localstorage-file is set. Theme code uses the unqualified name.

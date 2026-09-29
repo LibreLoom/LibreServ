@@ -16,7 +16,7 @@ import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { dashboard as greetingMessages } from "../assets/greetings.jsx";
 import SystemHealthPill from "../components/common/SystemHealthPill.jsx";
 import SoftwareUpdatePill from "../components/common/SoftwareUpdatePill.jsx";
-import { ApiError, apiErrorMessage, getDrives, getHealth, getJson, postJson } from "../lib/api.js";
+import { ApiError, apiErrorMessage, getDrives, getHealth, getJson, getRecents, postJson } from "../lib/api.js";
 import { folderHref as driveFolderHref, homeAwareLabel } from "../lib/paths.js";
 import { CAP, KIND_ALBUM, sharedItemAction, sharedItemHref } from "../lib/access.js";
 import { capsOnPath, memberAccessRoots } from "../lib/shareTree.js";
@@ -164,7 +164,7 @@ function DriveHomeCard({ drive, isAdmin = false, grants = [] }) {
           <div>
             <div className="flex items-center gap-2 mb-1">
               <span
-                className="inline-block h-2 w-2 rounded-full bg-primary shrink-0"
+                className="inline-block h-2 w-2 rounded-full surface-primary shrink-0"
                 aria-hidden="true"
               />
               <span className="text-xs font-mono uppercase tracking-widest">
@@ -179,7 +179,7 @@ function DriveHomeCard({ drive, isAdmin = false, grants = [] }) {
               {totalLabel} total
             </p>
             <div
-              className="mt-3 h-2 rounded-pill bg-primary p-0.5 overflow-hidden"
+              className="mt-3 h-2 rounded-pill surface-primary p-0.5 overflow-hidden"
               role="progressbar"
               aria-valuenow={usedPct}
               aria-valuemin={0}
@@ -187,7 +187,7 @@ function DriveHomeCard({ drive, isAdmin = false, grants = [] }) {
               aria-label={`${usedPct}% used`}
             >
               <div
-                className="h-full rounded-pill bg-secondary motion-safe:transition-all motion-safe:duration-500"
+                className="h-full rounded-pill surface-secondary motion-safe:transition-all motion-safe:duration-500"
                 style={{ width: `${usedPct}%` }}
               />
             </div>
@@ -287,7 +287,7 @@ function UptimeCard({ value }) {
     <Card data-slot="uptime-card">
       <div className="flex items-center gap-2 mb-1">
         <span
-          className="inline-block h-2 w-2 rounded-full bg-primary shrink-0"
+          className="inline-block h-2 w-2 rounded-full surface-primary shrink-0"
           aria-hidden="true"
         />
         <span className="text-xs font-mono uppercase tracking-widest">
@@ -318,7 +318,7 @@ function connectionDetail(net) {
 
 function connectionDotClass(net) {
   if (!net) return "bg-primary/30";
-  if (net.ethernet_connected) return "bg-primary";
+  if (net.ethernet_connected) return "surface-primary";
   return "bg-warning";
 }
 
@@ -555,13 +555,13 @@ function RecentItemsCard({ items, drives, ownHomePath = "" }) {
           return (
             <li
               key={`${item.kind}:${item.driveId}:${item.path}`}
-              className="rounded-large-element bg-primary text-secondary p-4 space-y-3"
+              className="rounded-large-element surface-primary p-4 space-y-3"
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 mb-1">
                     <span
-                      className="inline-block h-2 w-2 rounded-full bg-secondary shrink-0"
+                      className="inline-block h-2 w-2 rounded-full surface-secondary shrink-0"
                       aria-hidden="true"
                     />
                     <span className="text-xs font-mono uppercase tracking-widest">
@@ -710,11 +710,13 @@ export default function DashboardPage() {
   const pluggedIn = withDevMockDetected(detected.data);
   // Unplugged is normal — only real failures need the "Needs a look" card.
   const attentionDrives = adopted.filter((drive) => drive.state === "failed");
-  // MRU list the shell tracker feeds — read once per dashboard mount.
-  const recentItems = useMemo(
-    () => readRecentItems(user?.username),
-    [user?.username],
-  );
+  // Server-backed recents list: validates existence, follows renames, and omits dead links.
+  const recentsQuery = useQuery({
+    queryKey: ["recents", user?.username],
+    queryFn: getRecents,
+    enabled: Boolean(user?.username),
+  });
+  const recentItems = recentsQuery.data ?? (recentsQuery.isError ? readRecentItems(user?.username) : []);
   const myShares = memberAccessRoots(Array.isArray(access.data) ? access.data : []);
   const grants = myShares.filter((row) => row.kind !== KIND_ALBUM);
   const albumsShared = myShares.filter((row) => row.kind === KIND_ALBUM);
@@ -921,7 +923,7 @@ export default function DashboardPage() {
                       <button
                         type="button"
                         className={[
-                          "group w-full text-left rounded-large-element bg-primary text-secondary p-4",
+                          "group w-full text-left rounded-large-element surface-primary p-4",
                           "border-2 border-transparent",
                           "motion-safe:transition-[color,background-color,border-color]",
                           "hover:bg-secondary hover:text-primary hover:border-primary",

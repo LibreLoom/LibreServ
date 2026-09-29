@@ -24,7 +24,7 @@ export default function BaseCard({
               {subtitle && <div className="text-sm">{subtitle}</div>}
             </div>
           </div>
-          <div className="h-1 bg-primary rounded-pill mx-5 mb-4" aria-hidden="true" />
+          <div className="h-1 surface-primary rounded-pill mx-5 mb-4" aria-hidden="true" />
         </>
       )}
       <div className="p-5">

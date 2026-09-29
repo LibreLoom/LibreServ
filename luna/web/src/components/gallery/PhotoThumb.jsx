@@ -116,9 +116,9 @@ export default function PhotoThumb({
       }}
       style={animationStyle}
       aria-pressed={selectMode ? selected : undefined}
-      className={`group relative block w-full aspect-square overflow-hidden bg-secondary text-primary animate-cascade-in motion-reduce:animate-none motion-reduce:transition-none motion-safe:transition-opacity hover:opacity-95 outline-none no-focus-outline focus-visible:ring-2 focus-visible:ring-accent ${
-        selected ? "ring-2 ring-accent" : ""
-      }`}
+      className={`group relative block w-full aspect-square overflow-hidden surface-secondary animate-cascade-in motion-reduce:animate-none motion-reduce:transition-none motion-safe:transition-opacity hover:opacity-95 outline-none no-focus-outline focus-visible:ring-2 focus-visible:ring-accent ${
+ selected ? "ring-2 ring-accent" : ""
+ }`}
       aria-label={photo.name}
     >
       {photo.thumb ? (
@@ -140,13 +140,13 @@ export default function PhotoThumb({
         </span>
       )}
       {photo.kind === "video" && (
-        <span className="absolute bottom-2 left-2 flex h-7 w-7 items-center justify-center rounded-pill bg-primary text-secondary">
+        <span className="absolute bottom-2 left-2 flex h-7 w-7 items-center justify-center rounded-pill surface-primary">
           <Play size={14} fill="currentColor" aria-hidden="true" />
         </span>
       )}
       {selected && (
         <span
-          className="absolute top-2 left-2 flex h-6 w-6 items-center justify-center rounded-pill bg-secondary text-primary ring-2 ring-primary"
+          className="absolute top-2 left-2 flex h-6 w-6 items-center justify-center rounded-pill surface-secondary ring-2 ring-primary"
           aria-hidden="true"
         >
           <Check size={14} strokeWidth={3} />

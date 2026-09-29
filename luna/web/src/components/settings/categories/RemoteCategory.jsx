@@ -38,7 +38,7 @@ export default function RemoteCategory() {
       >
         <div className="space-y-4 px-4 pb-4">
           <div
-            className="bg-primary text-secondary rounded-large-element px-4 py-4 space-y-2 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-1 motion-safe:duration-200"
+            className="surface-primary rounded-large-element px-4 py-4 space-y-2 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-1 motion-safe:duration-200"
             aria-labelledby="luna-connect-public-address-label"
           >
             <p
@@ -89,7 +89,7 @@ export default function RemoteCategory() {
                 className="rounded-large-element border-2 border-warning/30 bg-warning/20 px-3 py-3"
                 role="status"
               >
-                <p className="text-sm text-warning leading-relaxed">{tunnelWarn}</p>
+                <p className="text-sm leading-relaxed">{tunnelWarn}</p>
               </div>
             ) : null}
           </div>

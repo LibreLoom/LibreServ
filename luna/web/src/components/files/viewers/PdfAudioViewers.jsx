@@ -6,7 +6,7 @@ import { useFileSource } from "../../../lib/fileSource.jsx";
 /**
  * Sandboxed PDF preview via blob URL (never served inline at the Luna
  * origin). `fill` swaps the modal-sized frame for a flex-fill one and the
- * text tokens for a `bg-primary` surface — used by FileViewer's fullscreen
+ * text tokens for a `surface-primary` surface — used by FileViewer's fullscreen
  * fallback when EuroOffice is missing.
  */
 export default function PdfViewer({ driveId, path, fill = false }) {
@@ -39,7 +39,7 @@ export default function PdfViewer({ driveId, path, fill = false }) {
     <iframe
       title="PDF preview"
       src={url}
-      className={`w-full rounded-large-element bg-primary border-2 border-secondary/20 ${
+      className={`w-full rounded-large-element surface-primary border-2 border-secondary/20 ${
         fill ? "min-h-0 flex-1" : "h-[65vh]"
       }`}
       sandbox="allow-scripts allow-same-origin"
@@ -72,7 +72,7 @@ function AudioPlayer({ bytes, path }) {
   useEffect(() => () => URL.revokeObjectURL(url), [url]);
   if (!url) return null;
   return (
-    <div className="rounded-large-element bg-primary text-secondary p-4">
+    <div className="rounded-large-element surface-primary p-4">
       <p className="text-sm mb-3 break-all">{path.split("/").pop()}</p>
       <audio controls className="w-full" src={url}>
         Your browser cannot play this audio. Download it instead.

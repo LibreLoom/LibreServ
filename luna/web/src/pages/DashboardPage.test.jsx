@@ -7,6 +7,7 @@ import { AuthProvider } from "../context/AuthContext";
 import { dashboard as greetingMessages } from "../assets/greetings.jsx";
 import DashboardPage from "./DashboardPage";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
+import { readRecentItems } from "../lib/recentItems.js";
 
 function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -28,6 +29,7 @@ function jsonResponse(body, status = 200) {
  * @param {any} [opts.jobs]
  * @param {any} [opts.access]
  * @param {any} [opts.albums]
+ * @param {any} [opts.recents]
  * @param {Record<string, any>} [opts.summaries]
  */
 function stubFetch({
@@ -43,6 +45,7 @@ function stubFetch({
   jobs = [],
   access = [],
   albums = [],
+  recents = undefined,
   summaries = {
     d1: {
       id: "d1",
@@ -60,6 +63,10 @@ function stubFetch({
     "fetch",
     vi.fn(async (url) => {
       const u = String(url);
+      if (u.endsWith("/api/v1/me/recents")) {
+        if (recents !== undefined) return jsonResponse(recents);
+        return jsonResponse(readRecentItems(username));
+      }
       if (u.endsWith("/api/v1/auth/me")) {
         return jsonResponse({ id: "1", username, role });
       }
@@ -579,5 +586,33 @@ describe("DashboardPage", () => {
     await screen.findByText(/On this network/i);
     expect(screen.queryByText("Recents")).not.toBeInTheDocument();
     expect(screen.queryByText("secret.md")).not.toBeInTheDocument();
+  });
+
+  it("shows renamed files instead of old name and with no duplicates", async () => {
+    stubFetch({
+      recents: [
+        {
+          kind: "file",
+          driveId: "d1",
+          path: "67.excalidraw",
+          at: Date.now() - 60_000,
+        },
+      ],
+    });
+    renderPage();
+    expect(await screen.findByText("Recents")).toBeInTheDocument();
+    expect(screen.getByText("67.excalidraw")).toBeInTheDocument();
+    expect(screen.queryByText("whiteboard.excalidraw")).not.toBeInTheDocument();
+    const opens = screen.getAllByRole("link", { name: /^Open$/i });
+    expect(opens).toHaveLength(1);
+    expect(opens[0]).toHaveAttribute("href", "/drives/d1?file=67.excalidraw");
+  });
+
+  it("omits deleted or unavailable files from recents", async () => {
+    stubFetch({ recents: [] });
+    renderPage();
+    await screen.findByText(/On this network/i);
+    expect(screen.queryByText("Recents")).not.toBeInTheDocument();
+    expect(screen.queryByText("whiteboard.excalidraw")).not.toBeInTheDocument();
   });
 });

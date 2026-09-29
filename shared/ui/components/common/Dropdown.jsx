@@ -19,7 +19,7 @@ import { ICON_SIZE } from "../../lib/ui-tokens.js";
  * @property {string} [placeholder]
  * @property {string} [label]
  * @property {"primary"|"secondary"} [surface] Pill color. Prefer `bg` at call sites.
- * @property {"primary"|"secondary"} [bg] Alias for `surface`. On a card/modal (`bg-secondary`)
+ * @property {"primary"|"secondary"} [bg] Alias for `surface`. On a card/modal (`surface-secondary`)
  *   use `bg="primary"` (page-bg pill). On page background use `bg="secondary"`.
  * @property {boolean} [fullWidth]
  * @property {boolean} [disabled]
@@ -28,6 +28,8 @@ import { ICON_SIZE } from "../../lib/ui-tokens.js";
  *   icon-only button (toolbar menus) instead of a labeled pill. Pair with
  *   `aria-label`.
  * @property {string} [className]
+ * @property {string} [triggerClassName]
+ * @property {"default"|"form"} [size]
  * @property {string} [id]
  */
 
@@ -46,23 +48,35 @@ export default function Dropdown({
   icon: Icon,
   renderTrigger,
   className = "",
+  triggerClassName = "",
+  size = "default",
+  variant = "default",
+  id,
   "aria-label": ariaLabel,
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
-  const [position, setPosition] = useState({ top: 0, left: 0 });
+  const [position, setPosition] = useState({ top: 0, left: 0, width: 0 });
   const [activeIndex, setActiveIndex] = useState(-1);
   const containerRef = useRef(null);
   const portalRef = useRef(null);
   const buttonRef = useRef(null);
   useSmoothResize(buttonRef, { x: !fullWidth && !renderTrigger });
 
+  const isForm = size === "form" || variant === "form";
   const selectedOption = options.find((o) => o.value === value);
   const pill = bg || surface || "secondary";
-  const textClass = pill === "primary" ? "text-secondary" : "text-primary";
-  const bgClass = ghost ? "bg-transparent" : `bg-${pill}`;
+  // Ghost keeps the backdrop, so it sets only the text color that reads on it.
+  const surfaceClass = ghost
+    ? `bg-transparent ${pill === "primary" ? "text-secondary" : "text-primary"}`
+    : `surface-${pill}`;
   const hoverClass = ghost
     ? `hover:bg-${pill === "primary" ? "secondary" : "primary"}/10`
+    : "";
+  const formBorderClass = isForm
+    ? pill === "primary"
+      ? "border-2 border-secondary/30 hover:border-secondary/50 focus:border-accent"
+      : "border-2 border-primary/30 hover:border-primary/50 focus:border-accent"
     : "";
 
   const updatePosition = useCallback(() => {
@@ -72,7 +86,7 @@ export default function Dropdown({
       let left = rect.left + window.scrollX;
       if (left + menuWidth > window.innerWidth - 8) left = window.innerWidth - menuWidth - 8;
       if (left < 8) left = 8;
-      setPosition({ top: rect.bottom + window.scrollY + 4, left });
+      setPosition({ top: rect.bottom + window.scrollY + 4, left, width: rect.width });
     }
   }, []);
 
@@ -175,6 +189,7 @@ export default function Dropdown({
       ) : (
       <button
         ref={buttonRef}
+        id={id}
         type="button"
         data-slot="dropdown-trigger"
         onClick={handleToggle}
@@ -182,16 +197,21 @@ export default function Dropdown({
         onKeyDown={handleKeyDown}
         className={cn(
           "items-center cursor-pointer rounded-pill",
-          Icon ? "justify-center p-1.5" : "gap-1.5 px-3 py-1.5 text-xs",
+          isForm
+            ? "py-2 px-5 min-h-[42px] text-sm text-left outline-none"
+            : Icon
+              ? "justify-center p-1.5"
+              : "gap-1.5 min-h-[34px] px-3.5 py-1.5 text-xs",
           "motion-safe:transition-all no-focus-outline",
           "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1",
           `focus-visible:ring-offset-${pill}`,
           "active:motion-safe:scale-95 disabled:opacity-50 disabled:cursor-not-allowed",
           fullWidth ? "w-full inline-flex" : "inline-flex",
-          bgClass,
-          textClass,
-          Icon ? "" : ghost ? "font-mono" : "font-medium",
-          hoverClass
+          surfaceClass,
+          isForm ? "" : Icon ? "" : ghost ? "font-mono" : "font-medium",
+          formBorderClass,
+          hoverClass,
+          triggerClassName,
         )}
         aria-expanded={isOpen}
         aria-haspopup="listbox"
@@ -202,11 +222,20 @@ export default function Dropdown({
         ) : (
           <>
             {label && !ghost && <span className="opacity-70">{label}</span>}
-            <span className={cn("inline-flex items-center gap-1 whitespace-nowrap font-normal", ghost ? "" : "font-mono", fullWidth && "justify-between w-full")}>
+            <span
+              className={cn(
+                "inline-flex items-center gap-1 whitespace-nowrap",
+                isForm ? "font-normal text-sm" : ghost ? "" : "font-mono",
+                fullWidth && "justify-between w-full",
+              )}
+            >
               {selectedOption?.label || placeholder}
               <ChevronDown
-                size={ICON_SIZE.sm}
-                className={cn("motion-safe:transition-transform motion-safe:duration-300", isOpen && !isClosing ? "rotate-180" : "rotate-0")}
+                size={isForm ? ICON_SIZE.md : ICON_SIZE.sm}
+                className={cn(
+                  "motion-safe:transition-transform motion-safe:duration-300 shrink-0",
+                  isOpen && !isClosing ? "rotate-180" : "rotate-0",
+                )}
                 style={{ transitionTimingFunction: "var(--motion-easing-emphasized)" }}
                 aria-hidden="true"
               />
@@ -218,50 +247,65 @@ export default function Dropdown({
 
       {isOpen &&
         createPortal(
-          <ul
+          <div
             ref={portalRef}
             data-slot="dropdown-menu"
-            role="listbox"
-            style={{ position: "absolute", top: position.top, left: position.left }}
+            style={{
+              position: "absolute",
+              top: position.top,
+              left: position.left,
+              ...(fullWidth && position.width ? { minWidth: `${position.width}px` } : {}),
+            }}
             className={cn(
-              "bg-secondary text-primary font-mono ring-inset ring-2 ring-accent",
-              // overflow-y-auto alone would compute overflow-x as auto too,
-              // so the 2px hover slide on options showed a horizontal
-              // scrollbar. Clip x; the slide stays, clipped at the menu edge.
-              "rounded-large-element py-0 z-[100] max-h-64 overflow-y-auto overflow-x-hidden overscroll-contain min-w-[8rem] no-scrollbar",
+              "z-[100]",
               isClosing ? "animate-dropdown-close" : "animate-dropdown-open"
             )}
-            tabIndex={-1}
           >
-            {options.map((option, i) => (
-              <li
-                key={option.value}
-                data-slot="dropdown-option"
-                className={isClosing ? "" : "animate-dropdown-option"}
-                style={isClosing ? undefined : { animationDelay: `${Math.min(i * 30, 240)}ms` }}
-              >
-                <button
-                  type="button"
-                  role="option"
-                  aria-selected={value === option.value}
-                  onClick={() => handleSelect(option.value)}
-                  className={cn(
-                    "w-full text-left px-4 py-2 text-xs motion-safe:transition-all motion-safe:duration-150 motion-safe:ease-out",
-                    option.icon && "flex items-center gap-2",
-                    "cursor-pointer rounded-none",
-                    value === option.value
-                      ? "bg-primary text-secondary font-medium"
-                      : i === activeIndex
-                        ? "bg-primary/10 motion-safe:translate-x-0.5"
-                        : "hover:bg-primary/10 hover:motion-safe:translate-x-0.5"
-                  )}
+            <ul
+              role="listbox"
+              className={cn(
+                "surface-secondary font-mono",
+                // overflow-y-auto alone would compute overflow-x as auto too,
+                // so the 2px hover slide on options showed a horizontal
+                // scrollbar. Clip x; the slide stays, clipped at the menu edge.
+                "rounded-large-element py-0 max-h-64 overflow-y-auto overflow-x-hidden overscroll-contain min-w-[8rem] no-scrollbar",
+              )}
+              tabIndex={-1}
+            >
+              {options.map((option, i) => (
+                <li
+                  key={option.value}
+                  data-slot="dropdown-option"
+                  className={isClosing ? "" : "animate-dropdown-option"}
+                  style={isClosing ? undefined : { animationDelay: `${Math.min(i * 30, 240)}ms` }}
                 >
-                  {option.icon ? <option.icon size={ICON_SIZE.sm} aria-hidden="true" /> : null}
-                  {option.label}
-                </button>
-              </li>
-            ))}
-          </ul>,
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={value === option.value}
+                    onClick={() => handleSelect(option.value)}
+                    className={cn(
+                      "w-full text-left px-4 py-2 text-xs motion-safe:transition-all motion-safe:duration-150 motion-safe:ease-out",
+                      option.icon && "flex items-center gap-2",
+                      "cursor-pointer rounded-none",
+                      value === option.value
+                        ? "surface-primary font-medium"
+                        : i === activeIndex
+                          ? "bg-primary/10 motion-safe:translate-x-0.5"
+                          : "hover:bg-primary/10 hover:motion-safe:translate-x-0.5"
+                    )}
+                  >
+                    {option.icon ? <option.icon size={ICON_SIZE.sm} aria-hidden="true" /> : null}
+                    {option.label}
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0 rounded-large-element ring-2 ring-inset ring-accent"
+            />
+          </div>,
           document.body,
         )}
     </div>

@@ -20,8 +20,8 @@ import Button from "@libreloom/ui/components/ui/Button.jsx";
  */
 export default function OfficeIssueCard({ title, children, downloadUrl, downloadName, onClose, onRetry }) {
   return (
-    <div className="flex min-h-0 flex-1 items-center justify-center bg-primary p-6 text-secondary">
-      <div className="w-full max-w-md rounded-large-element bg-secondary p-6 text-primary">
+    <div className="flex min-h-0 flex-1 items-center justify-center surface-primary p-6">
+      <div className="w-full max-w-md rounded-large-element surface-secondary p-6">
         <p className="font-mono text-base">{title}</p>
         <div className="mt-2 text-sm">{children}</div>
         <div className="mt-5 flex flex-wrap gap-2">
@@ -31,12 +31,14 @@ export default function OfficeIssueCard({ title, children, downloadUrl, download
               Reopen
             </Button>
           ) : null}
-          <Button asChild variant="primary" surface="secondary" haptic="light">
-            <a href={downloadUrl} download={downloadName}>
-              <Download size={16} aria-hidden="true" />
-              Download
-            </a>
-          </Button>
+          {downloadUrl ? (
+            <Button asChild variant="primary" surface="secondary" haptic="light">
+              <a href={downloadUrl} download={downloadName || ""}>
+                <Download size={16} aria-hidden="true" />
+                Download
+              </a>
+            </Button>
+          ) : null}
           {onClose ? (
             <Button variant="outline" surface="secondary" haptic="light" onClick={onClose}>
               <X size={16} aria-hidden="true" />
@@ -52,8 +54,8 @@ export default function OfficeIssueCard({ title, children, downloadUrl, download
 OfficeIssueCard.propTypes = {
   title: PropTypes.string.isRequired,
   children: PropTypes.node.isRequired,
-  downloadUrl: PropTypes.string.isRequired,
-  downloadName: PropTypes.string.isRequired,
+  downloadUrl: PropTypes.string,
+  downloadName: PropTypes.string,
   onClose: PropTypes.func,
   onRetry: PropTypes.func,
 };

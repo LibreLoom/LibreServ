@@ -208,7 +208,7 @@ export default function LogsViewer({
             <Search size={ICON_SIZE.lg} aria-hidden="true" />
           </Button>
 
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-pill border border-primary/20 bg-secondary text-primary">
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-pill border border-primary/20 surface-secondary">
             <ArrowDownToLine size={ICON_SIZE.sm} className={cn("shrink-0 transition-colors", !autoScroll && "opacity-50")} aria-hidden="true" />
             <Toggle
               checked={autoScroll}
@@ -232,7 +232,7 @@ export default function LogsViewer({
         {/* Mobile collapsible search */}
         {showSearch && (
           <div className="sm:hidden shrink-0 animate-fade-in-up">
-            <div className="relative bg-secondary text-primary rounded-pill border border-primary/20 focus-within:border-accent transition-colors">
+            <div className="relative surface-secondary rounded-pill border border-primary/20 focus-within:border-accent transition-colors">
               <Search size={ICON_SIZE.md} className="absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 ref={searchInputRef}
@@ -256,7 +256,7 @@ export default function LogsViewer({
 
         {/* Desktop toolbar */}
         <div className="hidden sm:flex items-center justify-between shrink-0 gap-3">
-          <div className="relative flex-1 min-w-0 w-full bg-secondary text-primary rounded-pill border-2 border-primary/20 focus-within:border-accent transition-colors">
+          <div className="relative flex-1 min-w-0 w-full surface-secondary rounded-pill border-2 border-primary/20 focus-within:border-accent transition-colors">
             <Search size={ICON_SIZE.md} className="absolute left-4 top-1/2 -translate-y-1/2" />
             <input
               type="text"
@@ -268,7 +268,7 @@ export default function LogsViewer({
           </div>
 
           <div className="flex items-center gap-3 shrink-0">
-            <div className="flex items-center gap-3 px-4 py-1.5 rounded-pill border-2 border-primary/20 bg-secondary text-primary transition-colors focus-within:border-accent">
+            <div className="flex items-center gap-3 px-4 py-1.5 rounded-pill border-2 border-primary/20 surface-secondary transition-colors focus-within:border-accent">
               <Toggle
                 label="Auto Scroll"
                 checked={autoScroll}

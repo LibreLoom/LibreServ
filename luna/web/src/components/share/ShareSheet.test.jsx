@@ -253,12 +253,12 @@ describe("ShareSheet", () => {
       </ToastProvider>
     );
     const { rerender } = render(tree(subjectA));
-    await screen.findByLabelText("Access level");
-    fireEvent.click(screen.getByRole("button", { name: "Add a person" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Add a person" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Person" }));
     fireEvent.click(await screen.findByRole("option", { name: "Sam" }));
     expect(screen.getByRole("button", { name: /^Add$/ })).toBeEnabled();
     rerender(tree(subjectB));
-    await screen.findByLabelText("Access level");
+    fireEvent.click(await screen.findByRole("button", { name: "Add a person" }));
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /^Add$/ })).toBeDisabled();
     });

@@ -11,7 +11,7 @@ import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 const inputClasses =
-  "w-full px-4 py-2 border-2 rounded-pill bg-primary text-secondary placeholder:text-secondary/50 outline-none focus:border-accent border-primary/30";
+  "w-full px-4 py-2 border-2 rounded-pill surface-primary placeholder:text-secondary/50 outline-none focus:border-accent border-primary/30";
 
 // "Git" links to a plain-language explainer so the term is glossed at point of
 // use (per the plain-language convention). Opens in a new tab — the form stays

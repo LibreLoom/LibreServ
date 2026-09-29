@@ -281,7 +281,7 @@ export default function TroubleshootPage() {
                 className="mb-2 last:mb-0"
                 title={
                   <span className="inline-flex items-center gap-2">
-                    <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary text-secondary font-mono text-xs shrink-0">
+                    <span className="inline-flex h-6 w-6 items-center justify-center rounded-full surface-primary font-mono text-xs shrink-0">
                       {i + 1}
                     </span>
                     <span className="text-primary">{step.title}</span>

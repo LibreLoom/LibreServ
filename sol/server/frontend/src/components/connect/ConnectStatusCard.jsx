@@ -11,8 +11,8 @@ import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 const PLAN_BADGES = {
   free: { label: "Connect Free", class: "border border-accent" },
-  one: { label: "Connect One", class: "bg-primary text-secondary" },
-  lite: { label: "Connect Lite", class: "bg-primary text-secondary" },
+  one: { label: "Connect One", class: "surface-primary" },
+  lite: { label: "Connect Lite", class: "surface-primary" },
 };
 
 export default function ConnectStatusCard({
@@ -81,7 +81,7 @@ export default function ConnectStatusCard({
                 value={connectKey}
                 onChange={(e) => setConnectKey(e.target.value)}
                 placeholder="Paste your Connect key here"
-                className="w-full px-4 py-3 rounded-pill bg-primary text-secondary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors"
+                className="w-full px-4 py-3 rounded-pill surface-primary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors"
               />
             </ShakeTarget>
             {error && (

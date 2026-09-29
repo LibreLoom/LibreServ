@@ -321,8 +321,9 @@ pub fn repath_subjects_move(
         return Ok(0);
     }
     // Every Luna move and rename passes through here, so this is also where
-    // in-app links get their forwarding address.
+    // in-app links get their forwarding address and recents update.
     crate::files::forwarding::record(conn, old_drive, &old_path, new_drive, &new_path)?;
+    crate::files::recents::repath(conn, old_drive, &old_path, new_drive, &new_path)?;
     let mut moved = 0usize;
     for table in SUBJECT_TABLES {
         let mut stmt = conn.prepare(&format!(
@@ -357,6 +358,7 @@ pub fn drop_subjects_under(conn: &Connection, drive_id: &str, path: &str) -> any
     if path.is_empty() {
         return Ok(0);
     }
+    let _ = crate::files::recents::drop_under(conn, drive_id, &path);
     let mut dropped = 0usize;
     for table in SUBJECT_TABLES {
         let mut stmt = conn.prepare(&format!(

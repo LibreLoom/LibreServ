@@ -52,7 +52,7 @@ export default function DiscoveryPaths({ name = "" }) {
   })();
 
   return (
-    <div className="mt-8 w-full bg-primary text-secondary rounded-large-element p-5 text-left space-y-4">
+    <div className="mt-8 w-full surface-primary rounded-large-element p-5 text-left space-y-4">
       <h3 className="font-mono text-sm text-secondary tracking-tight">
         Access {label} here:
       </h3>

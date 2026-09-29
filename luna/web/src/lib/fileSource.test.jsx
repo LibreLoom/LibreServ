@@ -102,4 +102,22 @@ describe("driveSource", () => {
     );
     vi.unstubAllGlobals();
   });
+
+  it("fetches text content for a file", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("hello world")));
+    expect(await driveSource.fetchText("d1", "notes/doc.txt")).toBe("hello world");
+    vi.unstubAllGlobals();
+  });
+
+  it("throws 'This file doesn't exist anymore.' when fetching text for a 404 file", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json({ error: "Luna can't find that file or folder.", code: "not_found" }, 404)));
+    await expect(driveSource.fetchText("d1", "notes/missing.txt")).rejects.toThrow("This file doesn't exist anymore.");
+    vi.unstubAllGlobals();
+  });
+
+  it("throws 'This file doesn't exist anymore.' when fetching bytes for a 404 file", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("Not Found", { status: 404 })));
+    await expect(driveSource.fetchBytes("d1", "notes/missing.txt")).rejects.toThrow("This file doesn't exist anymore.");
+    vi.unstubAllGlobals();
+  });
 });

@@ -100,7 +100,7 @@ export default function TypewriterLoader({
     >
       <span ref={textSpanRef} className="text-secondary" />
       <span
-        className="ml-0.5 inline-block h-[1.1em] w-[0.6em] animate-cursor-blink bg-secondary align-middle"
+        className="ml-0.5 inline-block h-[1.1em] w-[0.6em] animate-cursor-blink surface-secondary align-middle"
         aria-hidden="true"
       />
       <span className="sr-only">{message}</span>

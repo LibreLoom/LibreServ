@@ -132,7 +132,7 @@ export default function NotFoundPage({ includeMain = true }) {
               dynamicRounding={false}
               className="p-8 ring-2 ring-accent text-center motion-reduce:animate-none"
               leftContent={
-                <div className="h-16 w-16 rounded-pill bg-primary text-secondary flex items-center justify-center shrink-0">
+                <div className="h-16 w-16 rounded-pill surface-primary flex items-center justify-center shrink-0">
                   <Ghost size={30} aria-hidden="true" />
                 </div>
               }
@@ -322,7 +322,7 @@ export default function NotFoundPage({ includeMain = true }) {
   if (!includeMain) {
     return (
       <section
-        className="bg-primary text-secondary px-8 pt-10 pb-32"
+        className="surface-primary px-8 pt-10 pb-32"
         data-slot="not-found"
         aria-labelledby={regionTitleId}
         aria-describedby={detailsId}

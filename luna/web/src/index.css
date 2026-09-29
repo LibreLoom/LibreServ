@@ -1333,6 +1333,22 @@ select:focus:not(:focus-visible) {
     }
 }
 
+/* Surfaces: a background and the text color that reads on it, always
+   together. Use these instead of bare bg-primary / bg-secondary so no element
+   can change its background without its text color (scan:colors enforces it).
+   They live in the components layer so any single utility on the same
+   element (bg-error/20, text-error, bg-transparent) still overrides them. */
+@layer components {
+  .surface-primary {
+    background-color: var(--color-primary);
+    color: var(--color-secondary);
+  }
+  .surface-secondary {
+    background-color: var(--color-secondary);
+    color: var(--color-primary);
+  }
+}
+
 /* Link utilities — surface-aware inline link styling */
 @utility link-accent {
   @apply underline underline-offset-2 decoration-accent motion-safe:transition-colors;

@@ -362,7 +362,7 @@ export default function Navbar() {
           className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 min-w-screen pl-6 pr-6"
           aria-label="Primary"
         >
-           <div className="bg-secondary text-primary rounded-pill px-3 py-3 ring-2 ring-accent flex items-center gap-6">
+           <div className="surface-secondary rounded-pill px-3 py-3 ring-2 ring-accent flex items-center gap-6">
             <span className="font-mono px-3 py-1.5 flex items-center">
               LibreServ
             </span>
@@ -380,7 +380,7 @@ export default function Navbar() {
               >
                 {user?.username || ""}
               </button>
-              <div className="h-8 w-8 rounded-full bg-primary text-secondary flex items-center justify-center" aria-hidden="true">
+              <div className="h-8 w-8 rounded-full surface-primary flex items-center justify-center" aria-hidden="true">
                 <User size={ICON_SIZE.md} />
               </div>
 
@@ -389,7 +389,7 @@ export default function Navbar() {
                 className={cn("absolute", "bottom-0", "right-0", "pb-16", "opacity-0", "pointer-events-none", isUserMenuOpen && "opacity-100 pointer-events-auto", TRANSITION.full)}
               >
                 <div
-                  className={cn("bg-secondary", "text-primary", "rounded-large-element", "ring-2", "ring-accent", "px-4", "py-3", "flex", "flex-col", "gap-2", "min-w-48", "translate-y-2", isUserMenuOpen && "translate-y-0", TRANSITION.full)}
+                  className={cn("surface-secondary", "rounded-large-element", "ring-2", "ring-accent", "px-4", "py-3", "flex", "flex-col", "gap-2", "min-w-48", "translate-y-2", isUserMenuOpen && "translate-y-0", TRANSITION.full)}
                 >
                   {isAdmin && (
                     <NavLink
@@ -431,7 +431,7 @@ export default function Navbar() {
       <button
         ref={menuButtonRef}
         type="button"
-        className={cn("xl:hidden", "fixed", "bottom-5", "right-5", "flex", "flex-col", "justify-center", "items-center", "w-[60px]", "h-[60px]", "bg-secondary", "border-2", "border-accent", "rounded-full", "cursor-grab", "p-0", "z-[1001]", "touch-none", "select-none", isDragging ? "cursor-grabbing scale-105 transition-none" : "transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)]", isMobileMenuOpen ? "active" : "")}
+        className={cn("xl:hidden", "fixed", "bottom-5", "right-5", "flex", "flex-col", "justify-center", "items-center", "w-[60px]", "h-[60px]", "surface-secondary", "border-2", "border-accent", "rounded-full", "cursor-grab", "p-0", "z-[1001]", "touch-none", "select-none", isDragging ? "cursor-grabbing scale-105 transition-none" : "transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)]", isMobileMenuOpen ? "active" : "")}
         style={getHamburgerStyle()}
         onClick={() => !hasMovedRef.current && setIsMobileMenuOpen(!isMobileMenuOpen)}
         onMouseDown={handleDragStart}
@@ -440,9 +440,9 @@ export default function Navbar() {
         aria-expanded={isMobileMenuOpen}
         aria-controls={mobileMenuId}
       >
-        <span className={cn("absolute", "w-6", "h-[3px]", "bg-primary", "rounded-full", "transition-all", "duration-400", "ease-[cubic-bezier(0.34,1.56,0.64,1)]", isMobileMenuOpen ? "translate-y-0 rotate-45" : "-translate-y-2")} />
-        <span className={cn("absolute", "w-6", "h-[3px]", "bg-primary", "rounded-full", "transition-all", "duration-400", "ease-[cubic-bezier(0.34,1.56,0.64,1)]", isMobileMenuOpen ? "opacity-0 scale-0" : "opacity-100 scale-100")} />
-        <span className={cn("absolute", "w-6", "h-[3px]", "bg-primary", "rounded-full", "transition-all", "duration-400", "ease-[cubic-bezier(0.34,1.56,0.64,1)]", isMobileMenuOpen ? "translate-y-0 -rotate-45" : "translate-y-2")} />
+        <span className={cn("absolute", "w-6", "h-[3px]", "surface-primary", "rounded-full", "transition-all", "duration-400", "ease-[cubic-bezier(0.34,1.56,0.64,1)]", isMobileMenuOpen ? "translate-y-0 rotate-45" : "-translate-y-2")} />
+        <span className={cn("absolute", "w-6", "h-[3px]", "surface-primary", "rounded-full", "transition-all", "duration-400", "ease-[cubic-bezier(0.34,1.56,0.64,1)]", isMobileMenuOpen ? "opacity-0 scale-0" : "opacity-100 scale-100")} />
+        <span className={cn("absolute", "w-6", "h-[3px]", "surface-primary", "rounded-full", "transition-all", "duration-400", "ease-[cubic-bezier(0.34,1.56,0.64,1)]", isMobileMenuOpen ? "translate-y-0 -rotate-45" : "translate-y-2")} />
       </button>
 
       <button
@@ -467,7 +467,7 @@ export default function Navbar() {
         aria-label="Primary navigation"
       >
          <nav
-           className="flex flex-col w-[50vw] relative bg-secondary text-primary rounded-large-element justify-start ring-2 ring-accent"
+           className="flex flex-col w-[50vw] relative surface-secondary rounded-large-element justify-start ring-2 ring-accent"
            aria-label="Primary"
          >
           <div className="p-2.5 gap-1 flex flex-col">

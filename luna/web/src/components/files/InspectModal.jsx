@@ -98,7 +98,7 @@ export default function InspectModal({ open = true, drive, result, error, onClos
                 {describeInspectSummary(result)}
               </p>
               {Array.isArray(result.entries) && result.entries.length > 0 && (
-                <div className="mt-3 rounded-large-element bg-primary text-secondary p-3">
+                <div className="mt-3 rounded-large-element surface-primary p-3">
                   <p className="text-xs font-mono uppercase tracking-widest mb-2">
                     On this drive
                   </p>
@@ -161,13 +161,13 @@ export default function InspectModal({ open = true, drive, result, error, onClos
                     <>
                       {confirmFormat && (
                         <>
-                          <p className="text-warning text-xs">
+                          <p className="text-primary text-xs">
                             Formatting deletes everything on this drive.
                           </p>
                           <label className="block">
                             <span className="block translate-x-5 text-primary text-xs">What should Luna call this drive?</span>
                             <input
-                              className="mt-2 w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm no-focus-outline focus:outline-none focus:border-secondary"
+                              className="mt-2 w-full rounded-pill surface-primary border-2 border-secondary/30 px-4 py-2 text-sm no-focus-outline focus:outline-none focus:border-secondary"
                               value={label}
                               maxLength={80}
                               placeholder="e.g. Photos drive"
@@ -222,7 +222,7 @@ export default function InspectModal({ open = true, drive, result, error, onClos
                   <label className="block mt-4">
                     <span className="block translate-x-5 text-primary text-xs">What should Luna call this drive?</span>
                     <input
-                      className="mt-2 w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm no-focus-outline focus:outline-none focus:border-secondary"
+                      className="mt-2 w-full rounded-pill surface-primary border-2 border-secondary/30 px-4 py-2 text-sm no-focus-outline focus:outline-none focus:border-secondary"
                       value={label}
                       maxLength={80}
                       placeholder="e.g. Photos drive"

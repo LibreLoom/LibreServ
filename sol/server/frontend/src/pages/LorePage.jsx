@@ -106,7 +106,7 @@ export default function LorePage() {
                     if (inline) {
                       return (
                         <code
-                          className="bg-secondary text-primary px-1 py-0.5 rounded text-sm"
+                          className="surface-secondary px-1 py-0.5 rounded text-sm"
                           {...props}
                         />
                       );
@@ -114,7 +114,7 @@ export default function LorePage() {
 
                     const blockCode = (
                       <code
-                        className="block bg-secondary text-primary p-4 rounded mb-4 overflow-x-auto"
+                        className="block surface-secondary p-4 rounded mb-4 overflow-x-auto"
                         {...props}
                       />
                     );

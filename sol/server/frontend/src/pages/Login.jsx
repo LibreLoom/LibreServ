@@ -239,7 +239,7 @@ export default function Login({ embedded = false, returnTo = "/", onLoginSuccess
   return (
     <main
         data-slot="login-page"
-        className={cn(embedded ? "w-full" : "fixed inset-0 grid place-items-center bg-primary px-4")}
+        className={cn(embedded ? "w-full" : "fixed inset-0 grid place-items-center surface-primary px-4")}
         id="main-content"
         tabIndex={-1}
       >
@@ -287,7 +287,7 @@ export default function Login({ embedded = false, returnTo = "/", onLoginSuccess
           aria-busy={loading}
           className="flex flex-col mt-6"
         >
-          <div className="rounded-large-element p-4 bg-primary text-secondary flex flex-col">
+          <div className="rounded-large-element p-4 surface-primary flex flex-col">
           <FormInput
             label="Username"
             name="username"

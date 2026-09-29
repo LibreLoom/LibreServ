@@ -29,7 +29,8 @@ vi.mock("@libreloom/ui/components/cards/HeaderCard.jsx", () => ({
 }));
 
 vi.mock("@libreloom/ui/components/cards/Card.jsx", () => ({
-  default: ({ children, className }) => <div className={className} data-testid="card">{children}</div>,
+  // The real Card is a secondary surface; keep that so the contrast check sees it.
+  default: ({ children, className }) => <div className={`surface-secondary ${className || ""}`} data-testid="card">{children}</div>,
 }));
 
 vi.mock("@libreloom/ui/components/common/Dropdown.jsx", () => ({

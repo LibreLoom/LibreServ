@@ -11,7 +11,7 @@ import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import { TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { CollabDocSync } from "./collabDocSync.js";
 import { apiErrorMessage } from "../../lib/api.js";
-import { useFileSource } from "../../lib/fileSource.jsx";
+import { requireOk, useFileSource } from "../../lib/fileSource.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 // Autosave mirrors EuroOfficeHost: fire once typing pauses for
@@ -132,9 +132,13 @@ function EditorSession({
 
     (async () => {
       try {
-        const res = await source.fetch(source.contentHref(driveId, path));
-        if (!res.ok) throw new Error("Luna couldn't open this file.");
-        const body = await res.text();
+        const body = typeof source.fetchText === "function"
+          ? await source.fetchText(driveId, path)
+          : await (async () => {
+              const res = await source.fetch(source.contentHref(driveId, path));
+              await requireOk(res, "Luna couldn't open this file.");
+              return res.text();
+            })();
         if (cancelled) return;
         setBaseline(body);
         sync.adoptContent(body);
@@ -280,26 +284,28 @@ function EditorSession({
                 </span>
               ))}
               {peers.length > 5 && (
-                <span className="-ml-1.5 flex h-6 min-w-6 items-center justify-center rounded-full bg-secondary px-1 text-[0.65rem] text-primary ring-2 ring-primary">
+                <span className="-ml-1.5 flex h-6 min-w-6 items-center justify-center rounded-full surface-secondary px-1 text-[0.65rem] ring-2 ring-primary">
                   +{peers.length - 5}
                 </span>
               )}
             </span>
           )}
-          <Button
-            variant="ghost"
-            surface="primary"
-            size="iconSm"
-            smoothResize={false}
-            haptic="light"
-            aria-label="Download"
-            tooltip="Download"
-            asChild
-          >
-            <a href={source.downloadHref(driveId, path)}>
-              <Download size={ICON_SIZE.md} aria-hidden="true" />
-            </a>
-          </Button>
+          {!error && (
+            <Button
+              variant="ghost"
+              surface="primary"
+              size="iconSm"
+              smoothResize={false}
+              haptic="light"
+              aria-label="Download"
+              tooltip="Download"
+              asChild
+            >
+              <a href={source.downloadHref(driveId, path)}>
+                <Download size={ICON_SIZE.md} aria-hidden="true" />
+              </a>
+            </Button>
+          )}
         </div>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-4">

@@ -11,6 +11,7 @@
 import { createContext, useContext } from "react";
 import PropTypes from "prop-types";
 import {
+  ApiError,
   apiFetch,
   deleteJson,
   getJson,
@@ -25,15 +26,27 @@ import { contentHref, downloadHref, joinPath, parentPath, pathBasename } from ".
 const CHUNK_SIZE = 8 * 1024 * 1024;
 const MULTIPART_LIMIT = 32 * 1024 * 1024;
 
-async function requireOk(res, fallback) {
+export async function requireOk(res, fallback) {
   if (res.ok) return res;
   let message = "";
+  let code = null;
+  let data;
   try {
-    message = (await res.json()).error || "";
+    data = await res.json();
+    message = data.error || "";
+    if (typeof data.code === "string") code = data.code;
   } catch {
     // fall through
   }
-  throw new Error(message || fallback);
+  if (res.status === 404 || code === "not_found") {
+    message = "This file doesn't exist anymore.";
+  }
+  throw new ApiError(
+    res.status,
+    message || fallback,
+    code,
+    data,
+  );
 }
 
 /**
@@ -46,11 +59,13 @@ async function requireOk(res, fallback) {
  *   isFile?: boolean,
  *   fetch: (url: string, options?: object) => Promise<Response>,
  *   contentHref: (driveId: string, path: string) => string,
+ *   formFileHref: (driveId: string, formPath: string, name: string) => string,
  *   downloadHref: (driveId: string, path: string, kind?: string) => string,
  *   collabWsUrl: (driveId: string, path: string) => string,
  *   listDir: (driveId: string, path: string) => Promise<object[]>,
  *   stat: (driveId: string, path: string) => Promise<object>,
  *   fetchBytes: (driveId: string, path: string) => Promise<ArrayBuffer>,
+ *   fetchText: (driveId: string, path: string) => Promise<string>,
  *   saveFile: (driveId: string, path: string, name: string, blob: Blob, opts?: { headers?: object, coverage?: number }) => Promise<unknown>,
  *   mkdir: (driveId: string, path: string) => Promise<unknown>,
  *   createFile: (driveId: string, path: string) => Promise<unknown>,
@@ -82,6 +97,10 @@ export const driveSource = {
   collab: true,
   fetch: (url, options) => apiFetch(url, options),
   contentHref: (driveId, path) => contentHref(driveId, path),
+  // A form's pictures and attachments live in a hidden folder the files
+  // API won't serve; this route checks the same access as the answers.
+  formFileHref: (driveId, formPath, name) =>
+    `/api/v1/forms/file?drive_id=${encodeURIComponent(driveId)}&path=${encodeURIComponent(formPath)}&name=${encodeURIComponent(name)}`,
   downloadHref: (driveId, path) => downloadHref(driveId, path), // dirs zip server-side
   collabWsUrl: (driveId, path) =>
     `${wsBase()}/api/v1/collab/ws` +
@@ -95,6 +114,11 @@ export const driveSource = {
     const res = await apiFetch(contentHref(driveId, path));
     await requireOk(res, "Luna couldn't open this file.");
     return res.arrayBuffer();
+  },
+  async fetchText(driveId, path) {
+    const res = await apiFetch(contentHref(driveId, path));
+    await requireOk(res, "Luna couldn't open this file.");
+    return res.text();
   },
   async saveFile(driveId, path, name, blob, opts = {}) {
     const folder = parentPath(path) ?? "";
@@ -318,6 +342,13 @@ export function shareSource({ token, password = "", kind = "folder", fileName = 
       const q = params.toString();
       return `/s/${token}/file${q ? `?${q}` : ""}`;
     },
+    formFileHref: (_driveId, formPath, name) => {
+      const params = new URLSearchParams();
+      const p = rel(formPath);
+      if (p) params.set("path", p);
+      params.set("name", name);
+      return `/s/${token}/form-file?${params}`;
+    },
     downloadHref: (_driveId, path, kind) => {
       const params = new URLSearchParams();
       const p = rel(path);
@@ -351,6 +382,14 @@ export function shareSource({ token, password = "", kind = "folder", fileName = 
       );
       await requireOk(res, "Luna couldn't open this file.");
       return res.arrayBuffer();
+    },
+    async fetchText(_driveId, path) {
+      const p = rel(path);
+      const res = await fetchWithAuth(
+        `/s/${token}/file${p ? `?path=${encodeURIComponent(p)}` : ""}`,
+      );
+      await requireOk(res, "Luna couldn't open this file.");
+      return res.text();
     },
     saveFile: (_driveId, path, name, blob, opts = {}) =>
       uploadBlob(path, name || pathBasename(path), blob, { overwrite: true, ...opts }),

@@ -11,23 +11,6 @@ export const FORM_DOC_VERSION = 1;
 export const FORM_FILE_SUFFIX = ".lunaform";
 export const RESPONSES_SUFFIX = ".lunaform.responses";
 
-/**
- * Folder next to the form that holds respondent photos and PDFs.
- * `forms/Party.LUNAFORM` → `forms/Party.uploads` (stem casing kept).
- */
-export function uploadsDirPath(formPath) {
-  const path = String(formPath || "");
-  const slash = path.lastIndexOf("/");
-  const parent = slash >= 0 ? path.slice(0, slash) : "";
-  const base = slash >= 0 ? path.slice(slash + 1) : path;
-  const lower = base.toLowerCase();
-  const stem = lower.endsWith(FORM_FILE_SUFFIX)
-    ? base.slice(0, base.length - FORM_FILE_SUFFIX.length)
-    : base;
-  const dir = `${stem}.uploads`;
-  return parent ? `${parent}/${dir}` : dir;
-}
-
 /** `rsvp.lunaform` → `rsvp.lunaform.responses` (same folder). */
 export function responsesSiblingPath(formPath) {
   const path = String(formPath || "");

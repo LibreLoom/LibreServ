@@ -59,10 +59,10 @@ export default function Toggle({
   const labelText = onPrimary ? "text-secondary" : "text-primary";
   // On: solid track in the surface's text color, thumb punched out in the
   // backdrop color. Off: faint track, solid thumb. Icons contrast the thumb.
-  const checkedTrack = onPrimary ? "bg-secondary" : "bg-primary";
+  const checkedTrack = onPrimary ? "surface-secondary" : "surface-primary";
   const thumbClass = checked
-    ? onPrimary ? "bg-primary text-secondary" : "bg-secondary text-primary"
-    : onPrimary ? "bg-secondary text-primary" : "bg-primary text-secondary";
+    ? onPrimary ? "surface-primary" : "surface-secondary"
+    : onPrimary ? "surface-secondary" : "surface-primary";
 
   return (
     <div className={cn("flex items-center justify-between", className)}>

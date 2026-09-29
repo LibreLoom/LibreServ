@@ -33,7 +33,7 @@ const markdownComponents = {
   // inline-code pill on the nested <code>.
   pre: (props) => (
     <pre
-      className="mb-3 overflow-x-auto rounded-large-element bg-secondary p-4 text-primary last:mb-0 [&_code]:bg-transparent [&_code]:p-0 [&_code]:text-inherit"
+      className="mb-3 overflow-x-auto rounded-large-element surface-secondary p-4 last:mb-0 [&_code]:bg-transparent [&_code]:p-0 [&_code]:text-inherit"
       {...props}
     />
   ),
@@ -64,7 +64,7 @@ const markdownComponents = {
 export default function MarkdownPreview({ text, name, className, emptyHint }) {
   return (
     <div
-      className={cn("overflow-y-auto bg-primary p-4 text-secondary", className)}
+      className={cn("overflow-y-auto surface-primary p-4", className)}
       aria-label={`Preview of ${name}`}
     >
       {text.trim() ? (

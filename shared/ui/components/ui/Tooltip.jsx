@@ -257,7 +257,7 @@ function HintShell({
             onPointerLeave={pinned ? undefined : scheduleHide}
             style={{ position: "fixed", top: position.top, left: position.left }}
             className={cn(
-              "z-50 bg-secondary text-primary ring-2 ring-inset ring-accent",
+              "z-50 surface-secondary ring-2 ring-inset ring-accent",
               "motion-safe:transition-opacity motion-safe:duration-150",
               popupClassName,
             )}
@@ -706,7 +706,7 @@ export function Tooltip({ content, children, surface: _surface = "secondary", de
             }}
             style={{ position: "fixed", top: position.top, left: position.left }}
             className={cn(
-              "z-50 bg-secondary text-primary ring-2 ring-inset ring-accent",
+              "z-50 surface-secondary ring-2 ring-inset ring-accent",
               "max-w-xs rounded-large-element px-3 py-1.5 text-xs leading-snug pointer-events-auto",
               "motion-safe:transition-opacity motion-safe:duration-150",
               popupClassName,

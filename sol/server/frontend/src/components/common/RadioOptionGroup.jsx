@@ -33,13 +33,13 @@ export default function RadioOptionGroup({
             <div
               className={cn(
                 "w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all duration-200",
-                isSelected && "border-primary bg-primary",
+                isSelected && "border-primary surface-primary",
                 !isSelected && "border-accent/40",
               )}
             >
               <div
                 className={cn(
-                  "w-2.5 h-2.5 rounded-full bg-secondary transition-all duration-200",
+                  "w-2.5 h-2.5 rounded-full surface-secondary transition-all duration-200",
                   isSelected && "scale-100 opacity-100",
                   !isSelected && "scale-0 opacity-0",
                 )}

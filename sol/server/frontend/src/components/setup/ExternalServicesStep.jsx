@@ -78,7 +78,7 @@ export default function ExternalServicesStep({ onActivate, onSkip }) {
         <div className="w-full max-w-sm space-y-2 mb-8">
           {SERVICES.map(({ icon: Icon, label, desc }) => (
             <div key={label} className="flex items-start gap-3 text-left">
-              <div className="flex-shrink-0 w-7 h-7 rounded-full bg-primary text-secondary flex items-center justify-center mt-0.5">
+              <div className="flex-shrink-0 w-7 h-7 rounded-full surface-primary flex items-center justify-center mt-0.5">
                 <Icon size={ICON_SIZE.sm} />
               </div>
               <div>
@@ -99,7 +99,7 @@ export default function ExternalServicesStep({ onActivate, onSkip }) {
               "text-primary motion-safe:transition-all motion-safe:duration-200",
             )}
           >
-            <div className="flex-shrink-0 w-9 h-9 rounded-full bg-primary text-secondary flex items-center justify-center">
+            <div className="flex-shrink-0 w-9 h-9 rounded-full surface-primary flex items-center justify-center">
               <ExternalLink size={ICON_SIZE.lg} />
             </div>
             <div className="flex-1 text-left">
@@ -120,7 +120,7 @@ export default function ExternalServicesStep({ onActivate, onSkip }) {
               "text-primary motion-safe:transition-all motion-safe:duration-200",
             )}
           >
-            <div className="flex-shrink-0 w-9 h-9 rounded-full bg-primary text-secondary flex items-center justify-center">
+            <div className="flex-shrink-0 w-9 h-9 rounded-full surface-primary flex items-center justify-center">
               <ArrowRight size={ICON_SIZE.lg} />
             </div>
             <div className="flex-1 text-left">
@@ -206,7 +206,7 @@ export default function ExternalServicesStep({ onActivate, onSkip }) {
             disabled={activating}
             className={cn(
               "w-full px-4 py-3 rounded-pill font-mono text-sm",
-              "bg-primary text-secondary border-2 border-accent/30",
+              "surface-primary border-2 border-accent/30",
               "focus:border-accent focus:outline-none",
               "motion-safe:transition-colors placeholder:text-secondary/40",
             )}

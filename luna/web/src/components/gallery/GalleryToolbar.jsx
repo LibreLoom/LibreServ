@@ -36,10 +36,10 @@ function useIsDesktop() {
 }
 
 const pillShell =
-  "flex items-center gap-1 bg-secondary text-primary rounded-pill p-1 border-2 border-primary/20 focus-within:border-accent transition-colors";
+  "flex items-center gap-1 surface-secondary rounded-pill p-1 border-2 border-primary/20 focus-within:border-accent transition-colors";
 
 const searchFieldShell =
-  "relative flex-1 min-w-0 bg-primary text-secondary rounded-pill motion-safe:transition-[flex-grow,width] motion-safe:duration-300 motion-safe:ease-[var(--motion-easing-emphasized)]";
+  "relative flex-1 min-w-0 surface-primary rounded-pill motion-safe:transition-[flex-grow,width] motion-safe:duration-300 motion-safe:ease-[var(--motion-easing-emphasized)]";
 
 const searchInputClass =
   "w-full pl-11 pr-9 py-2 bg-transparent text-secondary focus:outline-none no-focus-outline font-mono text-sm";
@@ -326,7 +326,7 @@ export default function GalleryToolbar({
           <Filter size={16} />
           {filterActiveCount > 0 && (
             <span
-              className="inline-flex min-w-[1.125rem] h-[1.125rem] px-1 items-center justify-center rounded-pill bg-secondary text-primary group-hover:bg-primary group-hover:text-secondary text-[10px] font-mono leading-none transition-colors"
+              className="inline-flex min-w-[1.125rem] h-[1.125rem] px-1 items-center justify-center rounded-pill surface-secondary group-hover:bg-primary group-hover:text-secondary text-[10px] font-mono leading-none transition-colors"
               aria-hidden="true"
             >
               {filterActiveCount > 9 ? "9+" : filterActiveCount}
@@ -378,12 +378,7 @@ export default function GalleryToolbar({
           aria-hidden="true"
         />
       )}
-      <span
-        className={cn(
-          phase === "success" && "text-success",
-          phase === "error" && "text-error"
-        )}
-      >
+      <span>
         {phase === "success"
           ? "Started scan."
           : phase === "error"
@@ -408,7 +403,7 @@ export default function GalleryToolbar({
             left: menuPosition.left,
           }}
           className={cn(
-            "bg-secondary text-primary font-mono ring-2 ring-accent",
+            "surface-secondary font-mono ring-2 ring-accent",
             "rounded-large-element py-1.5 z-50 min-w-[14rem] shadow-xl",
             isClosing ? "animate-dropdown-close" : "animate-dropdown-open"
           )}

@@ -127,7 +127,7 @@ describe("SettingsPage", () => {
     await user.click(screen.getByRole("button", { name: /^Security$/i }));
     expect(await screen.findByRole("button", { name: /Sign out of Luna in every browser/i })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Revoke app access/i })).toBeNull();
-    expect(screen.getByRole("button", { name: /Create access token/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /New access token/i })).toBeTruthy();
     expect(screen.getByText(/phone app, Luna Desktop, or script/i)).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: /^About$/i }));
@@ -169,7 +169,7 @@ describe("SettingsPage", () => {
     renderPage("/settings#security");
 
     expect(await screen.findByRole("heading", { level: 1, name: "Security" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Create access token/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /New access token/i })).toBeTruthy();
     expect(screen.getByText(/phone app, Luna Desktop, or script/i)).toBeTruthy();
     expect(screen.queryByRole("heading", { level: 1, name: "Devices" })).toBeNull();
   });
@@ -196,7 +196,7 @@ describe("SettingsPage", () => {
     await user.click(tokenLinks[0]);
 
     expect(await screen.findByRole("heading", { level: 1, name: "Security" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Create access token/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /New access token/i })).toBeTruthy();
     expect(screen.queryByRole("heading", { level: 1, name: "Devices" })).toBeNull();
   });
 

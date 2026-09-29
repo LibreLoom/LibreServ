@@ -22,4 +22,29 @@ describe("PasswordStrengthChecklist", () => {
     render(<PasswordStrengthChecklist password="hunter22hunter1" />);
     expect(screen.getByText("✓ Acceptable")).toBeTruthy();
   });
+
+  it("applies surface-aware high contrast text tokens", () => {
+    const { rerender } = render(<PasswordStrengthChecklist password="hunter22hunter1" surface="secondary" />);
+    const acceptableSecondary = screen.getByText("✓ Acceptable");
+    expect(acceptableSecondary.className).toContain("text-primary");
+
+    rerender(<PasswordStrengthChecklist password="hunter22hunter1" surface="primary" />);
+    const acceptablePrimary = screen.getByText("✓ Acceptable");
+    expect(acceptablePrimary.className).toContain("text-secondary");
+    expect(acceptablePrimary.className).not.toContain("text-success");
+  });
+
+  it("styles met requirements with status tint and unmet with neutral border", () => {
+    render(<PasswordStrengthChecklist password="abc" surface="primary" />);
+    const lettersChip = screen.getByText("letters").closest("span");
+    const lengthChip = screen.getByText("12+ chars").closest("span");
+
+    expect(lettersChip.className).toContain("bg-success/20");
+    expect(lettersChip.className).toContain("border-success/30");
+    expect(lettersChip.className).toContain("text-secondary");
+
+    expect(lengthChip.className).toContain("border-secondary/20");
+    expect(lengthChip.className).toContain("text-secondary");
+    expect(lengthChip.className).not.toContain("bg-success/20");
+  });
 });

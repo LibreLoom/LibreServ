@@ -323,9 +323,9 @@ export function datePresetRange(preset) {
 }
 
 const inputClass =
-  "w-full rounded-large-element bg-primary text-secondary border-2 border-secondary/30 px-3 py-2 text-sm font-mono focus:border-accent focus:outline-none no-focus-outline";
+  "w-full rounded-large-element surface-primary border-2 border-secondary/30 px-3 py-2 text-sm font-mono focus:border-accent focus:outline-none no-focus-outline";
 
-const sectionClass = "space-y-3 rounded-large-element bg-primary text-secondary p-4";
+const sectionClass = "space-y-3 rounded-large-element surface-primary p-4";
 
 /**
  * @param {{
@@ -985,7 +985,7 @@ export default function GalleryFilterSheet({
               {saved.map((item) => (
                 <li
                   key={item.id}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-pill bg-secondary text-primary px-3 py-2"
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-pill surface-secondary px-3 py-2"
                 >
                   <span className="font-mono text-sm truncate">{item.name}</span>
                   <span className="flex gap-1">

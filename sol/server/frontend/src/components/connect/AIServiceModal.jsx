@@ -115,7 +115,7 @@ export default function AIServiceModal({ open, onClose, onSaved, service, connec
           />
 
           {useConnect && connectWarning.show ? (
-            <div className="bg-primary text-secondary border-2 border-warning/20 rounded-large-element p-4 space-y-2">
+            <div className="surface-primary border-2 border-warning/20 rounded-large-element p-4 space-y-2">
               <div className="flex items-center gap-2 text-sm text-secondary">
                 <AlertTriangle size={ICON_SIZE.md} className="text-warning shrink-0" />
                 {connectWarning.label}
@@ -153,7 +153,7 @@ export default function AIServiceModal({ open, onClose, onSaved, service, connec
                     placeholder="sk-..."
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
-                    className="w-full px-4 py-2.5 rounded-pill bg-primary text-secondary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors text-sm"
+                    className="w-full px-4 py-2.5 rounded-pill surface-primary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors text-sm"
                   />
                 </ShakeTarget>
                 {rawSettings.user_key_configured && (
@@ -170,7 +170,7 @@ export default function AIServiceModal({ open, onClose, onSaved, service, connec
                     placeholder="https://api.openai.com/v1"
                     value={baseURL}
                     onChange={(e) => setBaseURL(e.target.value)}
-                    className="w-full px-4 py-2.5 rounded-pill bg-primary text-secondary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors text-sm"
+                    className="w-full px-4 py-2.5 rounded-pill surface-primary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors text-sm"
                   />
                 </ShakeTarget>
               </div>
@@ -192,7 +192,7 @@ export default function AIServiceModal({ open, onClose, onSaved, service, connec
                     placeholder="deepseek/deepseek-v4-pro"
                     value={mainModel}
                     onChange={(e) => setMainModel(e.target.value)}
-                    className="w-full px-4 py-2.5 rounded-pill bg-primary text-secondary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors text-sm"
+                    className="w-full px-4 py-2.5 rounded-pill surface-primary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors text-sm"
                   />
                 )}
                 </ShakeTarget>
@@ -218,7 +218,7 @@ export default function AIServiceModal({ open, onClose, onSaved, service, connec
                     placeholder="deepseek/deepseek-v4-flash"
                     value={reviewModel}
                     onChange={(e) => setReviewModel(e.target.value)}
-                    className="w-full px-4 py-2.5 rounded-pill bg-primary text-secondary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors text-sm"
+                    className="w-full px-4 py-2.5 rounded-pill surface-primary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors text-sm"
                   />
                 )}
                 </ShakeTarget>
