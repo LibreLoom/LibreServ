@@ -28,6 +28,7 @@ const SharedPage = lazy(loadSharedPage);
 const DashboardPage = lazy(loadDashboardPage);
 const LoginPage = lazy(() => import("./pages/LoginPage"));
 const UsersPage = lazy(() => import("./pages/UsersPage"));
+const EditUserPage = lazy(() => import("./pages/EditUserPage"));
 const SetupPage = lazy(() => import("./pages/SetupPage"));
 const NotFoundPage = lazy(() => import("./pages/NotFoundPage"));
 const SettingsPage = lazy(loadSettingsPage);
@@ -142,6 +143,7 @@ export default function App() {
                 <Route path="/shared" element={<SharedPage />} />
                 <Route path="/photos" element={<PhotosToGalleryRedirect />} />
                 <Route path="/settings/users" element={<RequireAdmin><UsersPage /></RequireAdmin>} />
+                <Route path="/settings/users/:id" element={<RequireAdmin><EditUserPage /></RequireAdmin>} />
                 <Route path="/settings" element={<SettingsPage />} />
               </Route>
               <Route path="*" element={<NotFoundPage />} />
