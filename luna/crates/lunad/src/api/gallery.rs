@@ -67,34 +67,50 @@ fn can_contribute_album(
     album_caps(state, user, home, album) & crate::access::CAP_UPLOAD != 0
 }
 
-/// Viewable path prefixes per drive for Members. `None` means Admin
-/// (unrestricted); a missing drive key denies every path on that drive.
+/// What this caller may count in facets: folder grants plus their own home,
+/// and for Admins everything outside other members' homes.
 fn path_grants_for_user(
     state: &AppState,
     user: &crate::auth::CurrentUser,
-) -> Result<Option<std::collections::HashMap<String, Vec<String>>>, ApiError> {
-    if is_admin(user) {
-        return Ok(None);
-    }
+) -> Result<gallery::PathGrants, ApiError> {
     let conn = state.db.lock().map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Luna's index is busy. Try again.",
         )
     })?;
-    let rows = crate::db::list_access_members_for_user(&conn, &user.id).map_err(|_| {
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't check your folder access.",
-        )
-    })?;
-    let mut map: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
-    for r in rows {
-        if r.subject_kind == crate::access::KIND_PATH && r.caps & crate::access::CAP_VIEW != 0 {
-            map.entry(r.drive_id).or_default().push(r.path);
+    let mut grants = gallery::PathGrants {
+        everything_else: is_admin(user),
+        ..Default::default()
+    };
+    if !grants.everything_else {
+        let rows = crate::db::list_access_members_for_user(&conn, &user.id).map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't check your folder access.",
+            )
+        })?;
+        for r in rows {
+            if r.subject_kind == crate::access::KIND_PATH && r.caps & crate::access::CAP_VIEW != 0 {
+                grants.prefixes.entry(r.drive_id).or_default().push(r.path);
+            }
         }
     }
-    Ok(Some(map))
+    let drives = crate::db::list_drives(&conn).map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't list your drives.",
+        )
+    })?;
+    for drive in drives {
+        if let Some(home) = crate::member_home::home_rel(&conn, &drive.id, &user.username)
+            && crate::member_home::owner_of(&conn, &drive.id, &home).as_deref()
+                == Some(user.id.as_str())
+        {
+            grants.prefixes.entry(drive.id).or_default().push(home);
+        }
+    }
+    Ok(grants)
 }
 
 /// Path access, Admin, or album membership (for viewing shared album photos).
@@ -643,7 +659,7 @@ async fn cameras(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let mounts = accessible_mounts(&state, &user, None)?;
     let grants = path_grants_for_user(&state, &user)?;
-    let cameras = gallery::list_cameras(&mounts, grants.as_ref()).map_err(|_| {
+    let cameras = gallery::list_cameras(&mounts, &grants).map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Luna couldn't list cameras.",
@@ -658,7 +674,7 @@ async fn filter_facets(
 ) -> Result<Json<gallery::FilterFacets>, (StatusCode, Json<Value>)> {
     let mounts = accessible_mounts(&state, &user, None)?;
     let grants = path_grants_for_user(&state, &user)?;
-    let facets = gallery::list_filter_facets(&mounts, grants.as_ref()).map_err(|_| {
+    let facets = gallery::list_filter_facets(&mounts, &grants).map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Luna couldn't load photo filters.",

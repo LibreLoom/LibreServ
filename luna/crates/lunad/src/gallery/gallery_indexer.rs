@@ -528,11 +528,14 @@ pub fn join_rel(dir: &str, name: &str) -> String {
 
 pub fn should_index_rel(rel: &str) -> bool {
     let rel = normalize_rel(rel);
-    if rel.is_empty() || crate::files::is_internal_temp(&rel) {
+    // Luna folders are rejected segment by segment below — except the members
+    // container, whose homes are indexed — so only upload temps go here.
+    let leaf = rel.rsplit('/').next().unwrap_or(&rel);
+    if rel.is_empty() || (leaf.starts_with('.') && leaf.ends_with(".part")) {
         return false;
     }
-    for part in rel.split('/') {
-        if gallery::skip_gallery_dir(part) {
+    for (depth, part) in rel.split('/').enumerate() {
+        if gallery::skip_gallery_dir_at(depth, part) {
             return false;
         }
     }
@@ -584,6 +587,10 @@ mod tests {
         assert!(!should_index_rel(&format!("{p}-trash/foo.jpg")));
         assert!(!should_index_rel(&format!("{p}-thumbs/abc.jpg")));
         assert!(!should_index_rel("docs/readme.txt"));
+        // Member homes are indexed; other Luna folders inside them are not.
+        assert!(should_index_rel(&format!("{p}-members/sam/trip.jpg")));
+        assert!(!should_index_rel(&format!("{p}-members/sam/{p}-trash/x.jpg")));
+        assert!(!should_index_rel(&format!("sub/{p}-members/sam/trip.jpg")));
         assert!(!should_index_rel(&format!("{p}-upload.xyz.part")));
     }
 
