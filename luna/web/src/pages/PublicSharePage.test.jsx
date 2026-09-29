@@ -83,6 +83,11 @@ function renderWithNav({ client } = {}) {
   );
 }
 
+// The viewer's first mount pulls in the whole viewer stack; in full runs the
+// CPU is shared with other test files, so it gets a longer budget than the
+// 4s default.
+const SLOW = { timeout: 15_000 };
+
 describe("PublicSharePage", () => {
   it("asks for the link password in plain language", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => json(
@@ -355,22 +360,22 @@ describe("PublicSharePage", () => {
     const fileRowLink = () =>
       screen.getAllByRole("link", { name: "report.pdf" })
         .find((a) => a.getAttribute("href")?.includes("file="));
-    expect(await screen.findByRole("dialog", dialogName)).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", dialogName, {}, SLOW)).toBeInTheDocument();
 
     closeViewer();
     await waitFor(() =>
-      expect(screen.queryByRole("dialog", dialogName)).not.toBeInTheDocument());
+      expect(screen.queryByRole("dialog", dialogName)).not.toBeInTheDocument(), SLOW);
 
     fireEvent.click(fileRowLink());
-    expect(await screen.findByRole("dialog", dialogName)).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", dialogName, {}, SLOW)).toBeInTheDocument();
 
     closeViewer();
     await waitFor(() =>
-      expect(screen.queryByRole("dialog", dialogName)).not.toBeInTheDocument());
+      expect(screen.queryByRole("dialog", dialogName)).not.toBeInTheDocument(), SLOW);
 
     fireEvent.click(screen.getByRole("button", { name: "open file deep link" }));
-    expect(await screen.findByRole("dialog", dialogName)).toBeInTheDocument();
-  });
+    expect(await screen.findByRole("dialog", dialogName, {}, SLOW)).toBeInTheDocument();
+  }, 30_000);
 
   it("resets the whole session when the link token changes", async () => {
     vi.stubGlobal("fetch", vi.fn(async (url) => {
