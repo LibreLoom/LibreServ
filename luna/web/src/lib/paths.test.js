@@ -92,9 +92,9 @@ describe("member-home paths", () => {
     expect(isHomeRootPath("docs")).toBe(false);
   });
 
-  it("shows the owner segment as Home", () => {
+  it("shows the owner segment as My files", () => {
     const rel = `${MEMBERS}/sam/docs`;
-    expect(segmentDisplayName("sam", 1, rel)).toBe("Home");
+    expect(segmentDisplayName("sam", 1, rel)).toBe("My files");
     expect(segmentDisplayName("docs", 2, rel)).toBe("docs");
     expect(segmentDisplayName(MEMBERS, 0, rel)).toBe(MEMBERS);
     expect(segmentDisplayName("anything", 1, "docs/anything")).toBe("anything");

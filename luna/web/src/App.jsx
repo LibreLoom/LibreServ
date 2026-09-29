@@ -8,6 +8,7 @@ import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import Toaster from "@libreloom/ui/components/common/Toaster.jsx";
 import Navbar from "./components/ui/Navbar";
 import LoadingBar from "@libreloom/ui/components/common/LoadingBar.jsx";
+import SharedFoldersPage from "./pages/SharedFoldersPage.jsx";
 import DrivesPage from "./pages/DrivesPage";
 import FilesPage from "./pages/FilesPage";
 import GalleryPage from "./pages/GalleryPage";
@@ -84,7 +85,9 @@ export default function App() {
               <Route path="/s/:token" element={<PublicSharePage />} />
               <Route element={<AppShell />}>
                 <Route path="/" element={<DashboardPage />} />
-                <Route path="/drives" element={<DrivesPage />} />
+                <Route path="/files" element={<FilesPage home />} />
+                <Route path="/folders" element={<SharedFoldersPage />} />
+                <Route path="/drives" element={<RequireAdmin title="Drives are for Admins"><DrivesPage /></RequireAdmin>} />
                 <Route path="/drives/:id" element={<FilesPage />} />
                 <Route path="/gallery" element={<GalleryPage />} />
                 <Route path="/shared" element={<SharedPage />} />

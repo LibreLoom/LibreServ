@@ -5,7 +5,7 @@
 //! and opens files with `O_NOFOLLOW`.
 //!
 //! [`GrantFs`] wraps [`JailedFs`] and enforces the same folder grants as the
-//! file API (admins see everything; members only what they were granted).
+//! file API (admins see everything outside homes, plus their own home; members only what they were granted, plus their own home).
 
 use std::collections::BTreeSet;
 use std::io::{Read, Seek, SeekFrom, Write};

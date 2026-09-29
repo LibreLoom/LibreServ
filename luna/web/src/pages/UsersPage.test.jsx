@@ -17,6 +17,7 @@ function jsonResponse(body, status = 200) {
 
 function stubFetch({
   role = "admin",
+  deleteError = "",
   users = [
     { id: "1", username: "demouser", display_name: "Demo", role: "admin" },
     { id: "2", username: "alex", display_name: "Alex", role: "user" },
@@ -33,6 +34,7 @@ function stubFetch({
         return jsonResponse(users);
       }
       if (u.includes("/api/v1/users/") && init?.method === "DELETE") {
+        if (deleteError) return jsonResponse({ error: deleteError }, 409);
         return jsonResponse({ ok: true });
       }
       if (u.endsWith("/api/v1/users") && init?.method === "POST") {
@@ -147,9 +149,34 @@ describe("UsersPage", () => {
 
     await user.click(screen.getByRole("button", { name: /^Remove$/i }));
     expect(fetch).toHaveBeenCalledWith(
-      expect.stringContaining("/api/v1/users/2"),
+      expect.stringContaining("/api/v1/users/2?keep_files=1"),
       expect.objectContaining({ method: "DELETE" }),
     );
+  });
+
+  it("offers to delete their files instead, which skips keep_files", async () => {
+    stubFetch();
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: /Remove Alex/i }));
+    expect(await screen.findByText(/named "alex's files" \(Luna adds a number if that name is taken\) that Admins can open/i)).toBeTruthy();
+    await user.click(screen.getByRole("radio", { name: "Delete files" }));
+    expect(screen.getByText(/move to the drive's trash/i)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: /^Remove$/i }));
+    const call = /** @type {any} */ (fetch).mock.calls.find(([, init]) => init?.method === "DELETE");
+    expect(String(call[0])).toMatch(/\/api\/v1\/users\/2$/);
+  });
+
+  it("shows the unplugged-drive error inside the dialog when keeping files fails", async () => {
+    stubFetch({ deleteError: "Plug the drive back in first, then remove this person." });
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: /Remove Alex/i }));
+    await user.click(await screen.findByRole("button", { name: /^Remove$/i }));
+    expect(await screen.findByText(/Plug the drive back in first/i)).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /Remove user/i })).toBeTruthy();
   });
 
   it("blocks non-admins from managing users", async () => {

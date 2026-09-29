@@ -115,17 +115,19 @@ export function removeRecentItem(username, { driveId, path }) {
  * counts as a file only when Luna can actually open it; otherwise the
  * surrounding folder is what the user is really looking at.
  *
- * @param {{ pathname: string, search?: string, hash?: string }} location
+ * @param {{ pathname: string, search?: string, hash?: string, home?: { drive_id?: string, path?: string } | null }} location
  * @returns {Omit<RecentItem, "at"> | null}
  */
-export function recentItemFromLocation({ pathname, search = "", hash = "" }) {
+export function recentItemFromLocation({ pathname, search = "", hash = "", home = null }) {
+  const isHomeRoute = /^\/files\/?$/.test(String(pathname || ""));
   const match = String(pathname || "").match(/^\/drives\/([^/]+)\/?$/);
-  if (!match) return null;
-  const driveId = decodeURIComponent(match[1]);
+  if (!match && !(isHomeRoute && home?.drive_id)) return null;
+  // My files carries no drive in its URL — the person's home says which.
+  const driveId = match ? decodeURIComponent(match[1]) : home.drive_id;
   const params = new URLSearchParams(search);
   if (params.get("view") === "trash") return null;
 
-  const path = params.get("path") || "";
+  const path = params.get("path") || (isHomeRoute ? home?.path || "" : "");
   // Trash rows carry generated on-disk names (`{nonce}-file`) — a recent
   // link to one would read as noise and rots on put-back or purge anyway.
   if (isTrashPath(path)) return null;

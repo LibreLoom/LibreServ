@@ -350,12 +350,13 @@ export default function DriveFileExplorer({
   // Guests (share links) have no AuthProvider — optional auth.
   const user = useOptionalAuth()?.user;
   const inTrash = !guest && isTrashPath(path);
-  // The member's own home isn't a grant row — their whole
-  // `.luna-<uuid>-members/<username>` tree is theirs (the backend never
-  // lets them into anyone else's home, so full manage rights here can't
-  // leak sideways). The path comes from `/me` — the frontend can't derive
-  // it (the members container carries the drive's marker prefix).
-  const ownHomeRoot = !guest && !isAdmin && user?.home?.path
+  // A person's own home isn't a grant row — their whole
+  // `.luna-<uuid>-members/<username>` tree is theirs, Admins included (the
+  // backend never lets anyone into another person's home, so full manage
+  // rights here can't leak sideways). The path comes from `/me` — the
+  // frontend can't derive it (the members container carries the drive's
+  // marker prefix).
+  const ownHomeRoot = !guest && user?.home?.path
     ? user.home.path
     : null;
   const inOwnHome = Boolean(ownHomeRoot
@@ -395,7 +396,7 @@ export default function DriveFileExplorer({
         : "";
   // A file whose parent folder isn't browsable for this member is itself
   // the root: `?path=<file>` gets the one-entry listing, `?file=` opens it.
-  const rowFileHref = memberRows
+  const rowFileHref = memberRows && !inOwnHome
     ? (/** @type {string} */ d, /** @type {string} */ p) => memberFileHref(memberRows, d, p)
     : fileHref;
 
@@ -414,9 +415,9 @@ export default function DriveFileExplorer({
     segmentLabel = (/** @type {string} */ segment, /** @type {number} */ i) => labels[i] ?? segment;
   } else if (isMemberHomePath(path)) {
     // Crumbs floor at the home root, so the username segment (index 1) is
-    // the root crumb — it reads "Home", not the raw username.
+    // the root crumb — it reads "My files", not the raw username.
     segmentLabel = (/** @type {string} */ segment, /** @type {number} */ i) =>
-      i === 1 ? "Home" : segment;
+      i === 1 ? "My files" : segment;
   }
 
   // The trash listing — same query key as FileBrowser's, so this shares the
@@ -806,14 +807,14 @@ export default function DriveFileExplorer({
         driveLabel={driveLabel}
         path={path}
         pathFloor={pathFloor}
-        forbiddenState={!guest && !isAdmin ? (
+        forbiddenState={!guest ? (
           <EmptyState
             icon={Lock}
             title="You don't have access to this folder"
-            description="Open items shared with you from Shared instead."
+            description="Open items shared with you from Shared with me instead."
             action={(
               <Button size="sm" variant="primary" asChild>
-                <Link to="/shared">Open Shared</Link>
+                <Link to="/shared">Open Shared with me</Link>
               </Button>
             )}
           />
@@ -863,7 +864,7 @@ export default function DriveFileExplorer({
           const label = inTrash
             ? (path === TRASH_PATH ? "Trash" : trashDisplayName(path))
             : inOwnHome && path === ownHomeRoot
-              ? "Home"
+              ? "My files"
               : (path || driveLabel || "this folder");
           const trashChildFolder = inTrash && path !== TRASH_PATH;
           return (

@@ -10,6 +10,7 @@ import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import Table from "@libreloom/ui/components/common/Table.jsx";
+import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
 import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
@@ -32,6 +33,8 @@ export default function UsersPage() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState(null);
   const [userToDelete, setUserToDelete] = useState(null);
+  // Safe default: keep the person's files unless the Admin picks otherwise.
+  const [keepFiles, setKeepFiles] = useState(true);
   const [userToEdit, setUserToEdit] = useState(null);
 
   const users = useQuery({
@@ -54,7 +57,8 @@ export default function UsersPage() {
     },
   });
   const deleteMutation = useMutation({
-    mutationFn: (id) => deleteJson(`/api/v1/users/${id}`),
+    mutationFn: (/** @type {{ id: string, keepFiles: boolean }} */ { id, keepFiles }) =>
+      deleteJson(`/api/v1/users/${id}${keepFiles ? "?keep_files=1" : ""}`),
     onSuccess: () => {
       addToast({ type: "success", message: "User removed." });
       setUserToDelete(null);
@@ -203,7 +207,7 @@ export default function UsersPage() {
                             </Pill>
                             <InfoHint
                               label="What Admin means"
-                              content="An Admin can add users, change settings, manage drives, and see everything on this Luna."
+                              content="An Admin manages people, drives and settings. Admins have their own private My files too, and can't open yours."
                             />
                           </span>
                         ) : (
@@ -214,7 +218,7 @@ export default function UsersPage() {
                             </Pill>
                             <InfoHint
                               label="What Member means"
-                              content="A Member can use folders and albums shared with them. They cannot manage users, drives, or Luna settings."
+                              content="A Member has their own private My files and can use what's shared with them. They can't manage people, drives or settings."
                             />
                           </span>
                         ),
@@ -262,10 +266,14 @@ export default function UsersPage() {
                               surface="secondary"
                               disabled={isSelf || deleteMutation.isPending}
                               onClick={() =>
-                                setUserToDelete({
-                                  id: row.id,
-                                  name: row.display_name || row.username,
-                                })
+                                {
+                                  setKeepFiles(true);
+                                  setUserToDelete({
+                                    id: row.id,
+                                    name: row.display_name || row.username,
+                                    username: row.username,
+                                  });
+                                }
                               }
                               aria-label={`Remove ${row.display_name || row.username}`}
                             >
@@ -337,12 +345,29 @@ export default function UsersPage() {
         icon={User}
         loading={deleteMutation.isPending}
         error={userToDelete ? error : null}
-        onConfirm={() => userToDelete && deleteMutation.mutate(userToDelete.id)}
+        onConfirm={() => userToDelete && deleteMutation.mutate({ id: userToDelete.id, keepFiles })}
         onClose={() => {
           setUserToDelete(null);
           setError(null);
         }}
-      />
+      >
+        <p className="text-sm mb-2">What should happen to their files?</p>
+        <SegmentedControl
+          surface="secondary"
+          aria-label="What happens to their files"
+          value={keepFiles ? "keep" : "delete"}
+          onChange={(v) => setKeepFiles(v === "keep")}
+          options={[
+            { value: "keep", label: "Keep files" },
+            { value: "delete", label: "Delete files" },
+          ]}
+        />
+        <p className="text-sm mt-2">
+          {keepFiles
+            ? `Their files move into a shared folder named "${userToDelete?.username}'s files" (Luna adds a number if that name is taken) that Admins can open.`
+            : "Their files move to the drive's trash."}
+        </p>
+      </ConfirmModal>
     </>
   );
 }
@@ -463,7 +488,7 @@ function EditUserModal({ open, user: target, busy, submitError, onClose, onSubmi
 }
 
 /**
- * Where members' private Home folders live. The setting warns before it
+ * Where everyone's private My files folders live. The setting warns before it
  * moves anything — existing files travel one member at a time as real move
  * jobs, so nothing is half-copied.
  */
@@ -503,7 +528,7 @@ function MemberHomeCard() {
     onSuccess: (res) => {
       addToast({
         type: "success",
-        message: res?.message || "Member files now live on the new drive.",
+        message: res?.message || "Everyone's private folders now live on the new drive.",
       });
       setPendingDrive(null);
       setError(null);
@@ -513,7 +538,7 @@ function MemberHomeCard() {
     },
     onError: (err) => {
       haptic("error");
-      setError(apiErrorMessage(err, "Couldn't move member folders. Try again."));
+      setError(apiErrorMessage(err, "Couldn't move private folders. Try again."));
     },
   });
   useStrandedErrorToast(error, pendingDrive != null, () => setError(null));
@@ -529,7 +554,7 @@ function MemberHomeCard() {
     <>
       <Card
         icon={House}
-        title="Member folders"
+        title="Private folders"
         className="mt-5"
         headerActions={
           current?.drive_id ? (
@@ -542,11 +567,11 @@ function MemberHomeCard() {
         }
       >
         <p className="text-primary text-sm">
-          Every member gets a private{" "}
-          <TermHint content="A member's own folder on this drive. Only they can open it — not even admins — unless they share something from inside it.">
-            Home folder
+          Everyone, Admins included, gets a private{" "}
+          <TermHint content="Each person's own folder, shown as My files. Other people on this Luna can't open it through Luna unless its owner shares something from inside it.">
+            My files
           </TermHint>{" "}
-          on this drive. Pick where those folders live.
+          folder on this drive. Pick where those folders live.
         </p>
         {!current?.configured && current?.drive_id ? (
           <p className="text-primary text-sm mt-2">
@@ -555,7 +580,7 @@ function MemberHomeCard() {
         ) : null}
         {memberHome.isError ? (
           <p className="text-primary text-sm mt-2">
-            Couldn't load where member folders live. Try again.
+            Couldn't load where private folders live. Try again.
           </p>
         ) : null}
         <div className="mt-3">
@@ -572,11 +597,11 @@ function MemberHomeCard() {
             fullWidth
             bg="primary"
             disabled={!ready.length || memberHome.isLoading}
-            aria-label="Drive for member folders"
+            aria-label="Drive for private folders"
           />
           {ready.length === 0 && !drives.isLoading ? (
             <p className="text-primary text-xs mt-2">
-              Add a drive first — member folders need somewhere to live.
+              Add a drive first — private folders need somewhere to live.
             </p>
           ) : null}
         </div>
@@ -609,8 +634,8 @@ function MemberHomeCard() {
 
       <ConfirmModal
         open={!!pendingDrive}
-        title="Move member folders?"
-        message={`Members' private folders — and every file inside them — will move to "${pendingDrive?.label}". Luna does this in the background, one folder at a time; nothing disappears while a move is running.`}
+        title="Move private folders?"
+        message={`Everyone's private folders — and every file inside them — will move to "${pendingDrive?.label}". Luna does this in the background, one folder at a time; nothing disappears while a move is running.`}
         confirmLabel="Move folders"
         icon={House}
         loading={move.isPending}

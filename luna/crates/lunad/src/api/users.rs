@@ -1,4 +1,4 @@
-use axum::extract::{Extension, Path, State};
+use axum::extract::{Extension, Path, Query, State};
 use axum::http::StatusCode;
 use axum::routing::{delete, get};
 use axum::{Json, Router};
@@ -67,11 +67,11 @@ fn lock_db(
     })
 }
 
-/// Household people picker for Members (album invites, etc.).
+/// Household people picker (album invites, shares, etc.).
 /// Returns only non-sensitive identity fields — not an Admin user-management API.
 async fn directory(
     State(state): State<AppState>,
-    Extension(_user): Extension<crate::auth::CurrentUser>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
 ) -> Result<Json<Vec<Value>>, (StatusCode, Json<Value>)> {
     let users = state.auth.list_users().map_err(map_err)?;
     Ok(Json(
@@ -82,9 +82,12 @@ async fn directory(
                     "id": u.id,
                     "username": u.username,
                     "display_name": u.display_name,
-                    // Admins already hold everything — a share row against
-                    // them is meaningless, so pickers hide or disable them.
-                    "shareable": u.role != "admin",
+                    // Anyone but yourself can receive a share. Admins only
+                    // take shares from inside a person's home (they already
+                    // hold everything outside homes) — the sheet uses `admin`
+                    // to offer them only there.
+                    "shareable": u.id != user.id,
+                    "admin": u.role == "admin",
                 })
             })
             .collect(),
@@ -116,7 +119,7 @@ async fn create(
             role,
         )
         .map_err(map_err)?;
-    // Members get a private home folder right away — best-effort: if every
+    // Everyone gets a private home folder right away — best-effort: if every
     // drive is unplugged it materializes on their first visit instead.
     if let Ok(conn) = state.db.lock()
         && let Ok(Some(row)) = crate::db::get_user(&conn, &user.id)
@@ -292,10 +295,19 @@ async fn update(
     Ok(Json(user_json(&updated)))
 }
 
+#[derive(Debug, Default, Deserialize)]
+struct RemoveQuery {
+    /// `1` keeps the person's files as a shared folder instead of moving
+    /// them to the trash.
+    #[serde(default)]
+    keep_files: Option<String>,
+}
+
 async fn remove(
     State(state): State<AppState>,
     Extension(admin): Extension<crate::auth::CurrentUser>,
     Path(id): Path<String>,
+    Query(query): Query<RemoveQuery>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     require_admin(&admin)?;
     if admin.id == id {
@@ -304,15 +316,29 @@ async fn remove(
             "You can't remove your own account.",
         ));
     }
+    let keep_files = matches!(query.keep_files.as_deref(), Some("1" | "true"));
     // Capture the home location before the user row is gone — a deleted
-    // member's home moves to that drive's trash (recoverable, still hidden
-    // from admins and every other member).
+    // person's home moves to that drive's trash (recoverable, still hidden
+    // from every other person, admins included), or with `keep_files` stays
+    // on the drive as a shared folder.
     let (home_drive, home_rel) = {
         let conn = lock_db(&state)?;
         match crate::db::get_user(&conn, &id).ok().flatten() {
             Some(row) => match crate::member_home::resolve(&conn, &row).ok().flatten() {
                 Some(home) => {
-                    if home.rel.is_empty() {
+                    if home.rel.is_empty() && keep_files {
+                        // Keeping the files means moving the folder now;
+                        // queueing a trash here would do the opposite.
+                        let who = if row.display_name.trim().is_empty() {
+                            row.username.as_str()
+                        } else {
+                            row.display_name.as_str()
+                        };
+                        return Err(json_error(
+                            StatusCode::CONFLICT,
+                            format!("Connect the drive that holds {who}'s files, then try again."),
+                        ));
+                    } else if home.rel.is_empty() {
                         // The home drive is unplugged: deleting the account
                         // is safe once the folder's trash-out is queued. It
                         // runs inside the mount reconcile — before anything
@@ -356,7 +382,29 @@ async fn remove(
     // stays private in trash either way: its origin is a member-home
     // path only the owner could ever read, and once the account is gone
     // nobody can — nothing to purge, nothing an admin can see.
-    if let (Some(drive_id), Some(rel)) = (home_drive, home_rel) {
+    let mut kept: Option<(String, String, String)> = None;
+    if keep_files {
+        let (Some(drive_id), Some(rel)) = (home_drive, home_rel) else {
+            // No home to keep — the account just goes.
+            return finish_remove(&state, &id, None);
+        };
+        let conn = lock_db(&state)?;
+        let username = crate::member_home::owner_username(&rel)
+            .unwrap_or_default()
+            .to_string();
+        match crate::member_home::release_home(&conn, &drive_id, &rel, &username) {
+            Ok(Some(new_rel)) => kept = Some((drive_id, rel, new_rel)),
+            // The home never materialized on disk — nothing to keep.
+            Ok(None) => {}
+            Err(_) => {
+                return Err(json_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Luna couldn't keep this person's files. Try again.",
+                ));
+            }
+        }
+        drop(conn);
+    } else if let (Some(drive_id), Some(rel)) = (home_drive, home_rel) {
         let conn = lock_db(&state)?;
         if let Err(e) = crate::files::delete_to_trash(&conn, &drive_id, &rel) {
             // "not found" just means the home never materialized on disk —
@@ -373,7 +421,25 @@ async fn remove(
             }
         }
     }
-    state.auth.delete_user(&id).map_err(map_err)?;
+    finish_remove(&state, &id, kept)
+}
+
+/// Delete the account row. When the home was just released as a shared
+/// folder and the delete fails, put the folder back so a half-finished
+/// delete leaves everything as it was.
+fn finish_remove(
+    state: &AppState,
+    id: &str,
+    kept: Option<(String, String, String)>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    if let Err(e) = state.auth.delete_user(id) {
+        if let Some((drive_id, home, new_rel)) = kept
+            && let Ok(conn) = state.db.lock()
+        {
+            let _ = crate::member_home::restore_home(&conn, &drive_id, &home, &new_rel);
+        }
+        return Err(map_err(e));
+    }
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -439,7 +505,6 @@ async fn set_member_home(
         let members = crate::db::list_users(&conn)
             .map_err(|_| busy())?
             .into_iter()
-            .filter(|u| u.role != "admin")
             .collect::<Vec<_>>();
         for member in &members {
             let Some(home) = crate::member_home::resolve(&conn, member).ok().flatten() else {
@@ -641,5 +706,240 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), axum::http::StatusCode::FORBIDDEN);
+    }
+
+    /// State with an admin, a member and one adopted drive on a tempdir.
+    fn app_with_drive() -> (
+        tempfile::TempDir,
+        tempfile::TempDir,
+        AppState,
+        String,
+        String,
+    ) {
+        let (dir, state, admin_token, _member_token) = app_with_admin_and_member();
+        let mount = tempfile::tempdir().unwrap();
+        let prefix = luna_core::marker::pick_prefix(mount.path()).unwrap();
+        crate::drives::drive_db::create(
+            mount.path(),
+            &luna_core::marker::Marker::new("d1", "Drive"),
+            &prefix,
+        )
+        .unwrap();
+        {
+            let conn = state.db.lock().unwrap();
+            db::upsert_drive(
+                &conn,
+                "d1",
+                "Drive",
+                "as_is",
+                "ext4",
+                "sda",
+                mount.path().to_str().unwrap(),
+            )
+            .unwrap();
+        }
+        (dir, mount, state, admin_token, prefix)
+    }
+
+    fn full_router(state: &AppState) -> axum::Router {
+        axum::Router::new()
+            .merge(super::router())
+            .merge(crate::api::access::router())
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                crate::auth::guard,
+            ))
+            .with_state(state.clone())
+    }
+
+    async fn send(
+        router: &axum::Router,
+        method: &str,
+        uri: &str,
+        token: &str,
+        body: Option<&str>,
+    ) -> (axum::http::StatusCode, serde_json::Value) {
+        let mut req = axum::http::Request::builder()
+            .method(method)
+            .uri(uri)
+            .header("Authorization", format!("Bearer {token}"));
+        let body = match body {
+            Some(b) => {
+                req = req.header("Content-Type", "application/json");
+                axum::body::Body::from(b.to_string())
+            }
+            None => axum::body::Body::empty(),
+        };
+        let res = router
+            .clone()
+            .oneshot(req.body(body).unwrap())
+            .await
+            .unwrap();
+        let status = res.status();
+        let bytes = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        (status, serde_json::from_slice(&bytes).unwrap_or_default())
+    }
+
+    #[tokio::test]
+    async fn keep_files_renames_home_and_drops_account() {
+        let (_dir, mount, state, admin_token, prefix) = app_with_drive();
+        let jamie = {
+            let conn = state.db.lock().unwrap();
+            let u = db::get_user_by_username(&conn, "jamie").unwrap().unwrap();
+            crate::member_home::ensure(&conn, &u).unwrap();
+            u
+        };
+        let home = mount.path().join(format!("{prefix}-members/jamie"));
+        std::fs::write(home.join("a.txt"), b"hi").unwrap();
+        let router = full_router(&state);
+        let (status, _) = send(
+            &router,
+            "DELETE",
+            &format!("/api/v1/users/{}?keep_files=1", jamie.id),
+            &admin_token,
+            None,
+        )
+        .await;
+        assert_eq!(status, 200);
+        assert!(!home.exists());
+        assert!(mount.path().join("jamie's files/a.txt").exists());
+        let conn = state.db.lock().unwrap();
+        assert!(db::get_user(&conn, &jamie.id).unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn keep_files_needs_the_drive_connected() {
+        let (_dir, mount, state, admin_token, prefix) = app_with_drive();
+        let jamie = {
+            let conn = state.db.lock().unwrap();
+            let u = db::get_user_by_username(&conn, "jamie").unwrap().unwrap();
+            crate::member_home::ensure(&conn, &u).unwrap();
+            conn.execute("UPDATE drives SET mount_point = '' WHERE id = 'd1'", [])
+                .unwrap();
+            u
+        };
+        let router = full_router(&state);
+        let (status, body) = send(
+            &router,
+            "DELETE",
+            &format!("/api/v1/users/{}?keep_files=1", jamie.id),
+            &admin_token,
+            None,
+        )
+        .await;
+        assert_eq!(status, 409);
+        assert!(
+            body["error"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("Connect the drive")
+        );
+        let conn = state.db.lock().unwrap();
+        assert!(db::get_user(&conn, &jamie.id).unwrap().is_some());
+        assert!(
+            mount
+                .path()
+                .join(format!("{prefix}-members/jamie"))
+                .exists()
+        );
+    }
+
+    #[tokio::test]
+    async fn grants_to_admins_only_inside_homes() {
+        let (_dir, _mount, state, admin_token, prefix) = app_with_drive();
+        let ann = state
+            .auth
+            .register("Ann", "Ann", "hunter22hunter1", "admin")
+            .unwrap();
+        let (jamie_token, jamie_id, max_id) = {
+            let conn = state.db.lock().unwrap();
+            let u = db::get_user_by_username(&conn, "jamie").unwrap().unwrap();
+            crate::member_home::ensure(&conn, &u).unwrap();
+            (state.auth.issue(&u).unwrap(), u.id, ann.id.clone())
+        };
+        let _ = jamie_id;
+        let router = full_router(&state);
+        // Outside homes: refused.
+        let (status, body) = send(
+            &router,
+            "POST",
+            "/api/v1/access/members",
+            &admin_token,
+            Some(&format!(
+                r#"{{"kind":"path","drive_id":"d1","path":"","user_id":"{max_id}","caps":"view"}}"#
+            )),
+        )
+        .await;
+        assert_eq!(status, 400, "{body}");
+        assert!(
+            body["error"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("Admins can already open"),
+            "{body}"
+        );
+        // Inside jamie's home, jamie can share with the admin.
+        let (status, body) = send(
+            &router,
+            "POST",
+            "/api/v1/access/members",
+            &jamie_token,
+            Some(&format!(
+                r#"{{"kind":"path","drive_id":"d1","path":"{prefix}-members/jamie","user_id":"{max_id}","caps":"view"}}"#
+            )),
+        )
+        .await;
+        assert_eq!(status, 200, "{body}");
+    }
+
+    #[tokio::test]
+    async fn first_admin_gets_a_home_at_register() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
+        let state = AppState::new(conn, drive_manager, dir.path());
+        let mount = tempfile::tempdir().unwrap();
+        let prefix = luna_core::marker::pick_prefix(mount.path()).unwrap();
+        crate::drives::drive_db::create(
+            mount.path(),
+            &luna_core::marker::Marker::new("d1", "Drive"),
+            &prefix,
+        )
+        .unwrap();
+        {
+            let conn = state.db.lock().unwrap();
+            db::upsert_drive(
+                &conn,
+                "d1",
+                "Drive",
+                "as_is",
+                "ext4",
+                "sda",
+                mount.path().to_str().unwrap(),
+            )
+            .unwrap();
+        }
+        let router = crate::api::auth::router()
+            .layer(axum::extract::connect_info::MockConnectInfo(
+                std::net::SocketAddr::from(([127, 0, 0, 1], 1234)),
+            ))
+            .with_state(state.clone());
+        let res = router
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/register")
+                    .header("Content-Type", "application/json")
+                    .body(axum::body::Body::from(
+                        r#"{"username":"max","password":"hunter22hunter1"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), 200);
+        assert!(mount.path().join(format!("{prefix}-members/max")).is_dir());
     }
 }

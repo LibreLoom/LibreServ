@@ -48,7 +48,7 @@ pub struct FileEntry {
     pub caps: String,
     /// This row is the caller's private member home (`.luna-<prefix>-members/<username>`), injected
     /// into the drive-root listing so they can reach it. The UI renders it
-    /// as "Home" — the raw name is Luna bookkeeping.
+    /// as "My files" — the raw name is Luna bookkeeping.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub home: bool,
 }

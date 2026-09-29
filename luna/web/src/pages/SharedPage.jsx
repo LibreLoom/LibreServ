@@ -33,8 +33,8 @@ function SubjectIcon({ kind, isFile }) {
 
 function subjectSubtitle(row, ownHomePath = "") {
   if (row.kind === KIND_ALBUM) return `Album · ${row.drive_label}`;
-  if (row.is_home) return "Your private folder";
-  // Inside the viewer's own home: "Home · docs" — the internal
+  if (row.is_home) return "My files";
+  // Inside the viewer's own home: "My files · docs" — the internal
   // `.luna-<uuid>-members/<name>` prefix never renders. Inside someone
   // else's home (a deep share) it reads "<name>'s home".
   if (isMemberHomePath(row.path)) {
@@ -42,7 +42,7 @@ function subjectSubtitle(row, ownHomePath = "") {
     const rest = segs.slice(2).join("/");
     const owner = segs[1];
     if (ownHomePath && segs.slice(0, 2).join("/") === ownHomePath) {
-      return rest ? `Home · ${rest}` : "Home";
+      return rest ? `My files · ${rest}` : "My files";
     }
     return rest
       ? `${row.drive_label} · ${owner}'s home · ${rest}`

@@ -327,7 +327,9 @@ fn visible_entries(
                 // chain down to a deep grant never appears in listings.
                 crate::auth::can_inspect_path(user, &conn, id, &child)
             });
-            // The member's own home dir is Luna-hidden (`.luna-<uuid>-members`
+        }
+        {
+            // The user's own home dir is Luna-hidden (`.luna-<uuid>-members`
             // never appears in directory reads), so inject it at the drive
             // root — otherwise their only writable folder would be
             // unreachable. `name` carries the full rel path so the row
@@ -577,28 +579,25 @@ async fn get_recents(
         });
 
         match hit {
-            Ok(Some((new_drive, new_path))) => {
+            Ok(Some((new_drive, new_path)))
                 if ready_drives.contains(&new_drive)
-                    && crate::auth::can_inspect_path(&user, &conn, &new_drive, &new_path)
-                {
-                    to_update.push((
-                        drive_id,
-                        path,
-                        new_drive.clone(),
-                        new_path.clone(),
-                        kind.clone(),
+                    && crate::auth::can_inspect_path(&user, &conn, &new_drive, &new_path) =>
+            {
+                to_update.push((
+                    drive_id,
+                    path,
+                    new_drive.clone(),
+                    new_path.clone(),
+                    kind.clone(),
+                    at,
+                ));
+                if items.len() < 10 {
+                    items.push(files::recents::RecentItem {
+                        kind,
+                        drive_id: new_drive,
+                        path: new_path,
                         at,
-                    ));
-                    if items.len() < 10 {
-                        items.push(files::recents::RecentItem {
-                            kind,
-                            drive_id: new_drive,
-                            path: new_path,
-                            at,
-                        });
-                    }
-                } else {
-                    to_delete.push((drive_id, path));
+                    });
                 }
             }
             _ => {
@@ -846,7 +845,7 @@ async fn stat_entry(
             in_trash || crate::auth::has_cap(&user, &conn, &id, p, crate::access::CAP_VIEW)
         };
         stat.totals = if in_trash {
-            if user.role == "admin" || rel != files::TRASH_API_ALIAS {
+            if rel != files::TRASH_API_ALIAS {
                 files::folder_totals(&conn, &id, &rel, &mut include)
                     .ok()
                     .flatten()
@@ -991,17 +990,13 @@ async fn serve_folder_zip(
             if in_trash {
                 // Mirror list_trash_view + check_trash_item: a zip of the
                 // trash root — or of one entry — only ships children whose
-                // ORIGIN the caller could still edit, and an entry with a
-                // member-home origin never ships to an admin either. Entries
-                // with no recorded origin stay admin-only, like the listing.
+                // ORIGIN the caller could still edit — an entry from someone
+                // else's home never ships to an admin. Entries with no
+                // recorded origin stay admin-only, like the listing.
                 files::write_folder_zip_including_trash(&conn, &id, &rel, &mut file, |child| {
                     let origin = files::trash_original_path(&conn, &id, child).ok().flatten();
-                    if is_admin {
-                        !origin
-                            .as_deref()
-                            .is_some_and(crate::member_home::is_member_home_path)
-                    } else {
-                        origin.is_some_and(|o| {
+                    match origin {
+                        Some(o) => {
                             !o.is_empty()
                                 && crate::auth::has_cap(
                                     &user,
@@ -1010,12 +1005,13 @@ async fn serve_folder_zip(
                                     &o,
                                     crate::access::CAP_EDIT,
                                 )
-                        })
+                        }
+                        None => is_admin,
                     }
                 })
             } else {
                 files::write_folder_zip(&conn, &id, &rel, &mut file, |child| {
-                    is_admin || crate::auth::can_inspect_path(&user, &conn, &id, child)
+                    crate::auth::can_inspect_path(&user, &conn, &id, child)
                 })
             }
         }
@@ -3631,7 +3627,15 @@ mod http_tests {
             .await
             .unwrap();
         let entries: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(entries.as_array().unwrap().len(), 0);
+        // Her own home is the only entry (it exists from sign-up).
+        assert!(
+            entries
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|e| e["home"] == true),
+            "{entries}"
+        );
 
         // The granted folder itself inspects and lists normally.
         let res = stat_path(&app, &sam_cookie, &sam_csrf, "docs/inner").await;
@@ -3689,7 +3693,15 @@ mod http_tests {
             .await
             .unwrap();
         let entries: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(entries.as_array().unwrap().len(), 0);
+        // Her own home is the only entry (it exists from sign-up).
+        assert!(
+            entries
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|e| e["home"] == true),
+            "{entries}"
+        );
     }
 
     #[tokio::test]
@@ -3989,20 +4001,25 @@ mod http_tests {
         assert_eq!(entry["caps"], "full+share");
         assert_eq!(entry["kind"], "dir");
 
-        // The admin's root listing shows no member-home names at all.
+        // The admin's root listing carries only the admin's own home, never
+        // sam's.
         let res = get_files(&app, &admin_cookie, &admin_csrf, "").await;
         assert_eq!(res.status(), 200);
         let body = axum::body::to_bytes(res.into_body(), 1 << 20)
             .await
             .unwrap();
         let entries: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert!(
-            !entries
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|e| e["name"].as_str().is_some_and(|n| n.starts_with(".luna-"))),
-            "admin never sees .luna-* entries"
+        let luna_names: Vec<&str> = entries
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|e| e["name"].as_str())
+            .filter(|n| n.starts_with(".luna-"))
+            .collect();
+        assert_eq!(
+            luna_names,
+            [expected_home_rel(mount.path(), "max").as_str()],
+            "admin sees only their own home"
         );
 
         // Owner browses in; admin gets the same 403 as any ungranted path.
@@ -4428,28 +4445,31 @@ mod http_tests {
                 .iter()
                 .map(|j| j.as_str().unwrap().to_string())
                 .collect();
-        assert_eq!(job_ids.len(), 1);
+        // One job per home: the admin's own and sam's.
+        assert_eq!(job_ids.len(), 2);
 
-        // Wait for the internal move job (tiny tempdir → fast).
+        // Wait for the internal move jobs (tiny tempdir → fast).
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
-        loop {
-            let (status, job) = get_json(
-                &app,
-                &admin_cookie,
-                &admin_csrf,
-                &format!("/api/v1/jobs/{}", job_ids[0]),
-            )
-            .await;
-            assert_eq!(status, 200);
-            match job["state"].as_str().unwrap() {
-                "done" => break,
-                "error" | "cancelled" => panic!("home migration job failed: {job}"),
-                _ => {
-                    assert!(
-                        std::time::Instant::now() < deadline,
-                        "home migration job timed out"
-                    );
-                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        for job_id in &job_ids {
+            loop {
+                let (status, job) = get_json(
+                    &app,
+                    &admin_cookie,
+                    &admin_csrf,
+                    &format!("/api/v1/jobs/{job_id}"),
+                )
+                .await;
+                assert_eq!(status, 200);
+                match job["state"].as_str().unwrap() {
+                    "done" => break,
+                    "error" | "cancelled" => panic!("home migration job failed: {job}"),
+                    _ => {
+                        assert!(
+                            std::time::Instant::now() < deadline,
+                            "home migration job timed out"
+                        );
+                        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                    }
                 }
             }
         }
@@ -4744,6 +4764,8 @@ mod http_tests {
         let (_dir, app) = test_app(mount.path());
         let (sam_cookie, sam_csrf, _sam_id) = admin_and_sam(&app).await;
         let home = expected_home_rel(mount.path(), "sam");
+        // Registering already made sam's real folder — swap in the symlink.
+        let _ = std::fs::remove_dir_all(mount.path().join(&home));
 
         // A symlink squatting on sam's home — planted outside Luna (the
         // API can't mint it). It must never become a window onto `family`.

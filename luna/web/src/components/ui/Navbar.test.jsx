@@ -10,11 +10,11 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function stubAuthApi() {
+function stubAuthApi(role = "admin") {
   vi.stubGlobal("fetch", vi.fn(async (url) => {
     const u = String(url);
     if (u.endsWith("/auth/me") || u.endsWith("/api/v1/auth/me")) {
-      return new Response(JSON.stringify({ id: "1", role: "admin", username: "admin" }), {
+      return new Response(JSON.stringify({ id: "1", role, username: "admin" }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
@@ -29,9 +29,9 @@ function stubAuthApi() {
   }));
 }
 
-function renderNavbar() {
+function renderNavbar(path = "/") {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[path]}>
       <AuthProvider>
         <Navbar />
       </AuthProvider>
@@ -98,5 +98,35 @@ describe("Navbar mobile FAB vs fullscreen editor", () => {
     });
 
     expect(fab.style.top).toBe("48px");
+  });
+});
+
+describe("Navbar destinations", () => {
+  it("gives an admin My files, Shared folders and Drives", async () => {
+    stubAuthApi("admin");
+    renderNavbar();
+    const mine = await screen.findAllByRole("link", { name: "My files" });
+    expect(mine[0]).toHaveAttribute("href", "/files");
+    expect(screen.getAllByRole("link", { name: "Shared folders" })[0]).toHaveAttribute("href", "/folders");
+    expect((await screen.findAllByRole("link", { name: "Drives" }))[0]).toHaveAttribute("href", "/drives");
+  });
+
+  it("gives a member My files but hides Drives and Users", async () => {
+    stubAuthApi("user");
+    renderNavbar();
+    await screen.findAllByText("admin");
+    expect((await screen.findAllByRole("link", { name: "My files" }))[0]).toHaveAttribute("href", "/files");
+    expect(screen.getAllByRole("link", { name: "Shared with me" }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("link", { name: "Drives" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Users" })).toBeNull();
+  });
+
+  it("highlights Shared folders while browsing a drive's shared space", async () => {
+    stubAuthApi("admin");
+    renderNavbar("/drives/d1");
+    const shared = await screen.findAllByRole("link", { name: "Shared folders" });
+    expect(shared[0]).toHaveAttribute("aria-current", "page");
+    const drives = await screen.findAllByRole("link", { name: "Drives" });
+    expect(drives[0]).not.toHaveAttribute("aria-current");
   });
 });

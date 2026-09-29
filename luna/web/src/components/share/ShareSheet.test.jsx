@@ -37,7 +37,7 @@ function subjectBody(path, overrides = {}) {
   };
 }
 
-function stubApi(subjectFor) {
+function stubApi(subjectFor, directory = [{ id: "u2", username: "sam", display_name: "Sam" }]) {
   const calls = [];
   vi.stubGlobal("fetch", vi.fn(async (url, init = {}) => {
     const u = String(url);
@@ -49,7 +49,7 @@ function stubApi(subjectFor) {
       return json({ has_admin: true });
     }
     if (u.endsWith("/api/v1/users/directory")) {
-      return json([{ id: "u2", username: "sam", display_name: "Sam" }]);
+      return json(directory);
     }
     if (u.includes("/api/v1/access/subject")) {
       const path = new URL(u, "http://luna.test").searchParams.get("path") || "";
@@ -89,6 +89,27 @@ afterEach(() => {
 });
 
 describe("ShareSheet", () => {
+  it("offers Admins for things inside a person's own folder", async () => {
+    const home = ".luna-123e4567-e89b-12d3-a456-426614174000-members/max/trip";
+    stubApi((path) => subjectBody(path), [
+      { id: "u3", username: "root", display_name: "Root Admin", admin: true, shareable: true },
+    ]);
+    renderSheet({ kind: "path", driveId: "d1", path: home, albumId: "", name: "trip" });
+    fireEvent.click(await screen.findByRole("button", { name: "Add a person" }));
+    expect(await screen.findByRole("dialog", { name: /Add a person/i })).toBeInTheDocument();
+  });
+
+  it("leaves Admins out of shares outside people's own folders", async () => {
+    stubApi((path) => subjectBody(path), [
+      { id: "u3", username: "root", display_name: "Root Admin", admin: true, shareable: true },
+    ]);
+    renderSheet();
+    expect(
+      await screen.findByText("Admins can already open everything outside people's own folders."),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add a person" })).not.toBeInTheDocument();
+  });
+
   it("shows direct members with effective caps and a parent-shares banner", async () => {
     stubApi((path) => path === "family/kids"
       ? subjectBody(path, {

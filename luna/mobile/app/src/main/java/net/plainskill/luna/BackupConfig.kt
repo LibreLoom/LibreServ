@@ -102,7 +102,7 @@ object BackupConfig {
 
     internal fun testBlocking(baseUrl: String, token: String, driveId: String, folder: String): Result {
         return try {
-            LunaApi.authMe(baseUrl, token)
+            val user = LunaApi.authMe(baseUrl, token)
             val drives = LunaApi.listDrives(baseUrl, token)
             if (drives.isEmpty()) {
                 return Result(
@@ -117,7 +117,7 @@ object BackupConfig {
                 )
             LunaApi.listFiles(baseUrl, token, driveId, folder)
             LunaApi.probeWrite(baseUrl, token, driveId, folder)
-            val where = if (folder.isEmpty()) "${drive.label} (drive root)" else "${drive.label} / $folder"
+            val where = LunaApi.destinationText(user.home, driveId, drive.label, folder)
             Result(true, "Luna can save photos to $where.")
         } catch (e: Exception) {
             Result(false, LunaApi.describeError(e))

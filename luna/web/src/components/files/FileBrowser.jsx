@@ -149,9 +149,9 @@ function extensionOf(name) {
 }
 
 /** What the user sees for this row — trash entries carry `original_name`;
- *  a member's private home root always reads "Home". */
+ *  a member's private home root always reads "My files". */
 function displayNameOf(entry) {
-  if (entry?.home) return "Home";
+  if (entry?.home) return "My files";
   return entry?.original_name || entry?.name || "";
 }
 
@@ -401,8 +401,11 @@ export default function FileBrowser({
     // not mint a fresh [] and re-run the selection effect forever. A
     // member's injected home dir is dotfile-hidden but must render for its
     // owner — the `home` flag exempts it.
-    () => (listing.data || []).filter((e) => fileRoot || showHidden || !(e.hidden && !e.home)),
-    [listing.data, showHidden, fileRoot],
+    // The server injects the caller's own home at the drive root; My files
+    // owns it, so shared-space browsing leaves it out (pickers keep it).
+    () => (listing.data || []).filter((e) => fileRoot
+      || (e.home && !path && !pickerMode ? false : (showHidden || !(e.hidden && !e.home)))),
+    [listing.data, showHidden, fileRoot, path, pickerMode],
   );
 
   const entryPaths = useMemo(

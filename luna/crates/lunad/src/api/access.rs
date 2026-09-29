@@ -240,9 +240,9 @@ fn resolve_subject(
 }
 
 /// Capabilities `user` holds on `subj`: everything for admins and album
-/// owners, member rows otherwise. Member homes are the exception — the
-/// owner is the only authority there, so admins get no implicit caps and
-/// cannot mint links or member rows inside someone else's home.
+/// owners, member rows otherwise. Homes are the exception — the owner is
+/// the only authority there, so admins get no implicit caps and cannot mint
+/// links or member rows inside someone else's home.
 fn my_caps(conn: &rusqlite::Connection, user: &CurrentUser, subj: &Subject) -> Caps {
     if subj.kind == KIND_PATH && crate::member_home::is_member_home_path(&subj.path) {
         return auth::caps_on_path(user, conn, &subj.drive_id, &subj.path);
@@ -379,7 +379,7 @@ fn home_display_name(conn: &rusqlite::Connection, drive_id: &str, rel: &str) -> 
     }
 }
 
-/// For the owner, their own home root reads "Home" — not "Sam's home".
+/// For the owner, their own home root reads "My files" — not "Sam's home".
 /// Other viewers keep the possessive label (or never see it at all).
 fn home_aware_name(
     conn: &rusqlite::Connection,
@@ -391,7 +391,7 @@ fn home_aware_name(
     if crate::member_home::is_home_root(path)
         && crate::member_home::owner_of(conn, drive_id, path).as_deref() == Some(user_id)
     {
-        "Home".into()
+        "My files".into()
     } else {
         fallback
     }
@@ -701,12 +701,15 @@ async fn add_member(
     let target = db::get_user(&conn, &body.user_id)
         .map_err(|_| busy())?
         .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that person."))?;
-    // Admins hold every capability already — a member row against them is
-    // dead weight that only confuses the roster.
-    if target.role == "admin" {
+    // Admins already hold everything outside people's own folders — a member
+    // row there is dead weight that only confuses the roster. Inside a home
+    // it is the only way an admin sees anything, so it is allowed.
+    if target.role == "admin"
+        && !(subj.kind == KIND_PATH && crate::member_home::is_member_home_path(&subj.path))
+    {
         return Err(json_error(
             StatusCode::BAD_REQUEST,
-            "Admins already have full access — there's nothing to share.",
+            "Admins can already open everything outside people's own folders.",
         ));
     }
 
@@ -1157,10 +1160,11 @@ async fn me_access(
         .iter()
         .map(|r| member_row_json(&conn, r, &labels, &names))
         .collect();
-    // A member's home is implicit access, not a grant row — surface it as a
+    // A person's home is implicit access, not a grant row — surface it as a
     // virtual root so every "your places" listing shows Home alongside real
-    // shares. It leads the list: it's theirs, not something shared.
-    if user.role != "admin" {
+    // shares. It leads the list: it's theirs, not something shared. Admins
+    // have one too.
+    {
         let home = db::get_user(&conn, &user.id)
             .ok()
             .flatten()
@@ -1175,7 +1179,7 @@ async fn me_access(
                     "drive_label": labels.get(&home.drive_id).cloned().unwrap_or_default(),
                     "path": home.rel,
                     "album_id": "",
-                    "name": "Home",
+                    "name": "My files",
                     "is_file": false,
                     "is_home": true,
                     "exists": home.ready,
@@ -1241,8 +1245,8 @@ async fn mine(
     for k in order {
         let ms = group_members.get(&k).cloned().unwrap_or_default();
         let ls = group_links.get(&k).cloned().unwrap_or_default();
-        // Admin sees everything EXCEPT member-home subjects — a member's
-        // home roster and minted link URLs stay theirs alone. With no
+        // Admin sees everything EXCEPT home subjects — a person's home
+        // roster and minted link URLs stay theirs alone. With no
         // carve here `mine` would hand the raw `/s/<token>` URL back to an
         // admin as a working credential into the private home.
         let subject_in_home = k.0 == KIND_PATH && crate::member_home::is_member_home_path(&k.2);
@@ -1285,10 +1289,13 @@ async fn mine(
                 0,
             ),
         };
-        let mine_caps = subj
-            .as_ref()
-            .map(|s| my_caps(&conn, &user, s))
-            .unwrap_or(if is_admin { access::CAP_MANAGE } else { 0 });
+        let mine_caps = subj.as_ref().map(|s| my_caps(&conn, &user, s)).unwrap_or(
+            if is_admin && !subject_in_home {
+                access::CAP_MANAGE
+            } else {
+                0
+            },
+        );
         sharing.push(json!({
             "kind": k.0,
             "drive_id": k.1,

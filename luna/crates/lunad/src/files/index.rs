@@ -356,13 +356,12 @@ pub fn scan_drive(
     )
 }
 
-/// Drive-relative paths of member homes that live (or would live) on this
+/// Drive-relative paths of homes (every user's, admins included) that live (or would live) on this
 /// drive.
 fn member_home_rels(conn: &Connection, drive_id: &str) -> Vec<String> {
     db::list_users(conn)
         .unwrap_or_default()
         .into_iter()
-        .filter(|u| u.role != "admin")
         .filter(|u| crate::member_home::home_on_drive(conn, &u.id, drive_id))
         .filter_map(|u| crate::member_home::home_rel(conn, drive_id, &u.username))
         .collect()

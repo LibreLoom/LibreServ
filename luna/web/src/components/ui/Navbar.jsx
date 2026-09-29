@@ -1,5 +1,7 @@
 import { cn } from "@libreloom/ui/lib/utils.js";
 import {
+  FolderHeart,
+  FolderOpen,
   HardDrive,
   Home,
   Image as ImageIcon,
@@ -10,7 +12,7 @@ import {
   X,
 } from "lucide-react";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
-import { NavLink } from "react-router-dom";
+import { Link, NavLink, useLocation } from "react-router-dom";
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useAuth } from "../../context/AuthContext";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
@@ -61,8 +63,11 @@ const mobileMenuItemClasses = cn(
 const navButtons = [
   { to: "/", icon: Home, label: "Home", end: true },
   { to: "/gallery", icon: ImageIcon, label: "Photos" },
-  { to: "/drives", icon: HardDrive, label: "Files" },
-  { to: "/shared", icon: Share2, label: "Shared" },
+  { to: "/files", icon: FolderHeart, label: "My files", end: true },
+  { to: "/shared", icon: Share2, label: "Shared with me" },
+  // Browsing a drive's shared space (/drives/:id) belongs to Shared folders.
+  { to: "/folders", icon: FolderOpen, label: "Shared folders", alsoActive: "/drives/" },
+  { to: "/drives", icon: HardDrive, label: "Drives", end: true, adminOnly: true },
   { to: "/settings/users", icon: Users, label: "Users", adminOnly: true },
   { to: "/settings", icon: SlidersHorizontal, label: "Settings", end: true },
 ];
@@ -95,6 +100,27 @@ function getSnapPosition(x, y, windowWidth, windowHeight) {
   }
 
   return { x: targetX, y: targetY };
+}
+
+/**
+ * NavLink that also reads as current under `item.alsoActive` — a path prefix
+ * owned by this section but routed elsewhere.
+ * @param {{ item: { to: string, end?: boolean, alsoActive?: string }, className: string, onClick: () => void, children: React.ReactNode, ref?: React.Ref<HTMLAnchorElement> }} props
+ */
+function NavItem({ item, className, onClick, children, ref }) {
+  const { pathname } = useLocation();
+  if (item.alsoActive && pathname.startsWith(item.alsoActive)) {
+    return (
+      <Link to={item.to} aria-current="page" className={className} onClick={onClick} ref={ref}>
+        {children}
+      </Link>
+    );
+  }
+  return (
+    <NavLink to={item.to} end={item.end} className={className} onClick={onClick} ref={ref}>
+      {children}
+    </NavLink>
+  );
 }
 
 export default function Navbar() {
@@ -411,15 +437,14 @@ export default function Navbar() {
     () =>
       visibleNav.map((item) => (
         <React.Fragment key={`desktopNav-${item.to}`}>
-          <NavLink
-            to={item.to}
-            end={item.end}
+          <NavItem
+            item={item}
             className={navButtonClasses}
             onClick={() => haptic("selection")}
           >
             <item.icon size={ICON_SIZE.lg} aria-hidden="true" />
             <span>{item.label}</span>
-          </NavLink>
+          </NavItem>
         </React.Fragment>
       )),
     [visibleNav],
@@ -545,9 +570,8 @@ export default function Navbar() {
           <div className="p-2.5 gap-1 flex flex-col">
             {visibleNav.map((item, index) => (
               <React.Fragment key={`mobileNav-${item.to}`}>
-                <NavLink
-                  to={item.to}
-                  end={item.end}
+                <NavItem
+                  item={item}
                   className={mobileMenuItemClasses}
                   onClick={() => {
                     haptic("selection");
@@ -557,7 +581,7 @@ export default function Navbar() {
                 >
                   <item.icon size={ICON_SIZE.lg} aria-hidden="true" />
                   <span>{item.label}</span>
-                </NavLink>
+                </NavItem>
               </React.Fragment>
             ))}
             <div className="mx-4 my-1 h-px bg-accent" aria-hidden="true" />

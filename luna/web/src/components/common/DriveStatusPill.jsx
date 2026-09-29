@@ -60,11 +60,11 @@ export default function DriveStatusPill({ drive }) {
             <TermHint
               content={
                 drive.member_home_auto
-                  ? "Members' private Home folders live on this drive — Luna picked it automatically. Choose a different drive on the Users page."
-                  : "Members' private Home folders live on this drive. Choose a different drive on the Users page."
+                  ? "Everyone's private My files folders live on this drive — Luna picked it automatically. Choose a different drive on the Users page."
+                  : "Everyone's private My files folders live on this drive. Choose a different drive on the Users page."
               }
             >
-              Member home
+              Private folders
             </TermHint>
             {drive.member_home_auto ? " · auto" : ""}
           </>

@@ -12,7 +12,7 @@ import { apiErrorMessage, getDrives, getJson } from "../../lib/api.js";
 import { fileListKey, useFileSource } from "../../lib/fileSource.jsx";
 import { parseCreateName } from "../../lib/createName.js";
 import { isMemberHomePath, isTrashPath, joinPath } from "../../lib/paths.js";
-import { isPresentDrive } from "../../lib/drives.js";
+import { isPresentDrive, isWritableDrive } from "../../lib/drives.js";
 import { CAP } from "../../lib/access.js";
 import { memberCapsAt, memberWritableRoots, pathContains } from "../../lib/shareTree.js";
 import { useOptionalAuth } from "../../context/AuthContext.jsx";
@@ -59,37 +59,45 @@ export default function FolderPickerModal({
     ));
   }, [drives]);
 
-  // Members don't get a raw drive picker — their destinations are writable
-  // roots: Home plus every shared root they can put files in. Guests and
-  // admins keep whole drives (the caller already scoped `drives`).
+  // Signed-in people pick from writable roots — My files plus every shared
+  // folder they can put files in (for Admins, each drive's top level).
+  // Guests keep whole drives (the caller already scoped `drives`).
   const user = useOptionalAuth()?.user;
-  const isMember = Boolean(user && user.role !== "admin");
+  const rooted = Boolean(user);
+  const isAdmin = user?.role === "admin";
   const access = useQuery({
     queryKey: ["my-access"],
     queryFn: () => getJson("/api/v1/me/access"),
-    enabled: open && isMember,
+    enabled: open && rooted && !isAdmin,
   });
-  // Member destinations live on every present drive — not just the subset
-  // the caller passed (an admin-shaped `drives` prop can omit the member's
+  // Destinations live on every present drive — not just the subset
+  // the caller passed (an admin-shaped `drives` prop can omit the person's
   // home drive entirely).
   const drivesQuery = useQuery({
     queryKey: ["drives"],
     queryFn: getDrives,
-    enabled: open && isMember,
+    enabled: open && rooted,
   });
   const memberDrives = useMemo(() => (
-    isMember
+    rooted
       ? (drivesQuery.data || []).filter(isPresentDrive)
       : []
-  ), [isMember, drivesQuery.data]);
+  ), [rooted, drivesQuery.data]);
   const roots = useMemo(() => {
-    if (!isMember || !access.data) return null;
+    if (!rooted || !(isAdmin ? drivesQuery.data : access.data)) return null;
     const present = new Set(memberDrives.map((d) => d.id));
     const labelOf = (id) => memberDrives.find((d) => d.id === id)?.label || id;
-    return memberWritableRoots(access.data, user?.home, (id) => present.has(id), labelOf);
-  }, [isMember, access.data, user?.home, memberDrives]);
+    const own = memberWritableRoots([], user?.home, (id) => present.has(id), labelOf);
+    if (!isAdmin) return memberWritableRoots(access.data, user?.home, (id) => present.has(id), labelOf);
+    return [
+      ...own,
+      ...memberDrives
+        .filter((d) => isWritableDrive(d))
+        .map((d) => ({ driveId: d.id, path: "", label: d.label, isHome: false })),
+    ];
+  }, [rooted, isAdmin, access.data, drivesQuery.data, user?.home, memberDrives]);
   const [rootIdx, setRootIdx] = useState(0);
-  const root = isMember ? (roots?.[rootIdx] || roots?.[0] || null) : null;
+  const root = rooted ? (roots?.[rootIdx] || roots?.[0] || null) : null;
 
   const [driveId, setDriveId] = useState(initialDriveId);
   const [path, setPath] = useState(initialPath);
@@ -98,18 +106,20 @@ export default function FolderPickerModal({
   const [createName, setCreateName] = useState("");
   const [createError, setCreateError] = useState(/** @type {string|null} */ (null));
   const [createBusy, setCreateBusy] = useState(false);
-  const browseDriveId = isMember ? (root?.driveId || "") : driveId;
-  const drive = isMember
+  const browseDriveId = rooted ? (root?.driveId || "") : driveId;
+  const drive = rooted
     ? (memberDrives.find((d) => d.id === browseDriveId) || null)
     : (activeDrives.find((d) => d.id === browseDriveId) || activeDrives[0] || drives[0]);
 
   /** Capability bits for `p` on the browsed drive (member mode only). */
-  const capsAt = (p) => memberCapsAt(access.data, browseDriveId, p, user?.home);
+  const capsAt = (p) => (isAdmin
+    ? CAP.VIEW | CAP.UPLOAD | CAP.EDIT | CAP.SHARE
+    : memberCapsAt(access.data, browseDriveId, p, user?.home));
   const canWriteAt = (p) => (capsAt(p) & (CAP.UPLOAD | CAP.EDIT)) !== 0;
 
   useEffect(() => {
     if (!open) return;
-    if (isMember) {
+    if (rooted) {
       // Seed on the writable root containing the initial path — usually
       // Home — or the first root. An unwritable origin folder is never a
       // destination, so nothing below it is pre-picked.
@@ -137,7 +147,7 @@ export default function FolderPickerModal({
     setPicked(keepPath ? initialPath : "");
     setCreating(false);
     setCreateError(null);
-  }, [open, initialDriveId, initialPath, activeDrives, isMember, roots]);
+  }, [open, initialDriveId, initialPath, activeDrives, rooted, roots]);
 
   async function submitCreateFolder() {
     const parsed = parseCreateName(createName);
@@ -176,7 +186,7 @@ export default function FolderPickerModal({
       {({ close }) => (
         <>
           <ModalErrorNotice error={error} className="mb-3" />
-          {isMember ? (
+          {rooted ? (
             roots === null ? (
               <p className="text-primary text-sm mb-3">Loading your folders…</p>
             ) : roots.length === 0 ? (
@@ -228,19 +238,19 @@ export default function FolderPickerModal({
             </div>
           )}
 
-          {drive && (!isMember || root) ? (
+          {drive && (!rooted || root) ? (
             <FileBrowser
               driveId={drive.id}
               driveLabel={drive.label}
               path={path}
-              pathFloor={isMember ? (root?.path || "") : ""}
-              forbiddenState={isMember ? (
+              pathFloor={rooted ? (root?.path || "") : ""}
+              forbiddenState={rooted ? (
                 <p className="text-secondary text-sm">
                   You can add files here, but this folder can't be opened.
                 </p>
               ) : null}
-              segmentLabel={isMember ? (segment, i) =>
-                (i === 1 && isMemberHomePath(path) ? "Home" : segment) : undefined}
+              segmentLabel={rooted ? (segment, i) =>
+                (i === 1 && isMemberHomePath(path) ? "My files" : segment) : undefined}
               onPathChange={setPath}
               pickerMode="folder"
               selectedPath={picked}
@@ -250,10 +260,10 @@ export default function FolderPickerModal({
               enableUploadDrop={false}
               dense
               surface="primary"
-              folderActions={isTrashPath(path) || (isMember && !canWriteAt(path)) ? null
+              folderActions={isTrashPath(path) || (rooted && !canWriteAt(path)) ? null
                 : <NewItemMenu ids={["folder"]} onPick={openCreateFolder} surface="primary" />}
             />
-          ) : isMember && roots && roots.length === 0 ? null : (
+          ) : rooted && roots && roots.length === 0 ? null : (
             <p className="text-primary text-sm">No drives available. Make sure your drive is plugged in — if it already is, try unplugging it and plugging it back in.</p>
           )}
 
@@ -263,7 +273,7 @@ export default function FolderPickerModal({
               surface="secondary"
               loading={busy}
               disabled={!drive || isTrashPath(picked)
-                || (isMember && (!root || !canWriteAt(picked)))}
+                || (rooted && (!root || !canWriteAt(picked)))}
               onClick={() => onConfirm({ driveId: drive.id, path: picked }, close)}
             >
               {confirmLabel}

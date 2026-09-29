@@ -177,6 +177,14 @@ async fn register(
     if !has_users {
         let _ = state.connect.clear_first_user_secret();
     }
+    // Everyone gets a private home folder right away, the first Admin
+    // included — best-effort: if every drive is unplugged it materializes on
+    // their first visit instead.
+    if let Ok(conn) = state.db.lock()
+        && let Ok(Some(row)) = crate::db::get_user(&conn, &user.id)
+    {
+        let _ = crate::member_home::ensure(&conn, &row);
+    }
     Ok(Json(json!({
         "id": user.id,
         "username": user.username,
@@ -313,7 +321,7 @@ async fn me(State(state): State<AppState>, req: Request) -> Json<Value> {
             let row = crate::db::get_user(&conn, &user.id).ok().flatten();
             let (display_name, home) = match &row {
                 Some(row) => {
-                    // Materialize the member's home on first visit — a fresh
+                    // Materialize the user's home on first visit — a fresh
                     // account lands on a real folder, not an empty state.
                     let home = crate::member_home::ensure(&conn, row)
                         .ok()
