@@ -16,6 +16,7 @@ import SharedPage from "./pages/SharedPage";
 import DashboardPage from "./pages/DashboardPage";
 import LoginPage from "./pages/LoginPage";
 import UsersPage from "./pages/UsersPage";
+import EditUserPage from "./pages/EditUserPage";
 import SetupPage from "./pages/SetupPage";
 import NotFoundPage from "./pages/NotFoundPage";
 import SettingsPage from "./pages/SettingsPage";
@@ -93,6 +94,7 @@ export default function App() {
                 <Route path="/shared" element={<SharedPage />} />
                 <Route path="/photos" element={<PhotosToGalleryRedirect />} />
                 <Route path="/settings/users" element={<RequireAdmin><UsersPage /></RequireAdmin>} />
+                <Route path="/settings/users/:id" element={<RequireAdmin><EditUserPage /></RequireAdmin>} />
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="/settings/remote" element={<Navigate to={{ pathname: "/settings", hash: "external_services" }} replace />} />
               </Route>

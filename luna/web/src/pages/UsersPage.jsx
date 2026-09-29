@@ -1,8 +1,7 @@
 import { useState } from "react";
-import { createPortal } from "react-dom";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { House, Pencil, Plus, Shield, Trash2, User, UserPlus } from "lucide-react";
+import { House, Pencil, Shield, Trash2, User, UserPlus } from "lucide-react";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
@@ -14,28 +13,26 @@ import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.j
 import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
-import PasswordStrengthChecklist from "@libreloom/ui/components/common/PasswordStrengthChecklist.jsx";
 import { InfoHint, TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
-import { apiErrorMessage, deleteJson, getDrives, getJson, patchJson, postJson, putJson } from "../lib/api";
-import { meetsPasswordPolicy, passwordPolicyError } from "@libreloom/ui/lib/passwordPolicy.js";
+import { apiErrorMessage, deleteJson, getDrives, getJson, postJson, putJson } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import CreateUserForm from "../components/common/forms/CreateUserForm";
-import FormInput from "../components/common/forms/FormInput";
-import FieldLabel from "@libreloom/ui/components/common/forms/FieldLabel.jsx";
 import useStrandedErrorToast from "../hooks/useStrandedErrorToast";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 
 export default function UsersPage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const { user } = useAuth();
+  // You edit yourself in Settings → Security; everyone else gets a full page.
+  const editPath = (row) => (row.id === user?.id ? "/settings#security" : `/settings/users/${row.id}`);
   const { addToast } = useToast();
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState(null);
   const [userToDelete, setUserToDelete] = useState(null);
   // Safe default: keep the person's files unless the Admin picks otherwise.
   const [keepFiles, setKeepFiles] = useState(true);
-  const [userToEdit, setUserToEdit] = useState(null);
 
   const users = useQuery({
     queryKey: ["users"],
@@ -71,22 +68,7 @@ export default function UsersPage() {
     },
   });
 
-  const updateMutation = useMutation({
-    mutationFn: (/** @type {{ id: string, display_name?: string, role?: string, password?: string }} */ { id, ...body }) =>
-      patchJson(`/api/v1/users/${id}`, body),
-    onSuccess: () => {
-      addToast({ type: "success", message: "Person updated." });
-      setUserToEdit(null);
-      setError(null);
-      queryClient.invalidateQueries({ queryKey: ["users"] });
-    },
-    onError: (err) => {
-      haptic("error");
-      setError(apiErrorMessage(err, "Couldn't update that person. Try again."));
-    },
-  });
-
-  const actionModalOpen = creating || userToDelete != null || Boolean(userToEdit && userToEdit.id !== user?.id);
+  const actionModalOpen = creating || userToDelete != null;
   useStrandedErrorToast(error, actionModalOpen, () => setError(null));
 
   if (user?.role !== "admin") {
@@ -234,32 +216,17 @@ export default function UsersPage() {
                         const isSelf = row.id === user?.id;
                         return (
                           <span className="flex items-center justify-center gap-1">
-                            {isSelf ? (
-                              <Button
-                                asChild
-                                variant="ghost"
-                                size="iconSm"
-                                surface="secondary"
-                                aria-label={`Edit ${row.display_name || row.username}`}
-                              >
-                                <Link to="/settings#security">
-                                  <Pencil size={16} aria-hidden="true" />
-                                </Link>
-                              </Button>
-                            ) : (
-                              <Button
-                                variant="ghost"
-                                size="iconSm"
-                                surface="secondary"
-                                onClick={() => {
-                                  setError(null);
-                                  setUserToEdit(row);
-                                }}
-                                aria-label={`Edit ${row.display_name || row.username}`}
-                              >
+                            <Button
+                              asChild
+                              variant="ghost"
+                              size="iconSm"
+                              surface="secondary"
+                              aria-label={`Edit ${row.display_name || row.username}`}
+                            >
+                              <Link to={editPath(row)}>
                                 <Pencil size={16} aria-hidden="true" />
-                              </Button>
-                            )}
+                              </Link>
+                            </Button>
                             <Button
                               variant="ghost"
                               size="iconSm"
@@ -286,6 +253,14 @@ export default function UsersPage() {
                   ]}
                   data={list}
                   rowKey="id"
+                  onRowClick={(row) => navigate(editPath(row))}
+                  addRow={{
+                    label: "Add user",
+                    onClick: () => {
+                      setError(null);
+                      setCreating(true);
+                    },
+                  }}
                   mobileCards
                 />
               </div>
@@ -295,45 +270,12 @@ export default function UsersPage() {
 
       </Page>
 
-      {/* Portal + raise above the bottom nav: page-enter / pop-in transforms
-          otherwise trap position:fixed to the scrolling shell, and the
-          desktop nav's full-width hit layer (z-50) eats clicks at z-40. */}
-      {showList &&
-        createPortal(
-          <Button
-            variant="secondary"
-            surface="primary"
-            className="fixed bottom-28 right-8 z-[60] rounded-full p-4 hover:scale-110"
-            aria-label="Add user"
-            onClick={() => {
-              setError(null);
-              setCreating(true);
-            }}
-          >
-            <Plus size={32} aria-hidden="true" />
-          </Button>,
-          document.body,
-        )}
-
       <CreateUserModal
         open={creating}
         onClose={() => setCreating(false)}
         onSubmit={(body) => createMutation.mutate(body)}
         busy={createMutation.isPending}
         submitError={creating ? error : null}
-      />
-
-      <EditUserModal
-        key={userToEdit?.id || "closed"}
-        open={Boolean(userToEdit && userToEdit.id !== user?.id)}
-        user={userToEdit}
-        busy={updateMutation.isPending}
-        submitError={userToEdit ? error : null}
-        onClose={() => {
-          setUserToEdit(null);
-          setError(null);
-        }}
-        onSubmit={(body) => updateMutation.mutate(body)}
       />
 
       <ConfirmModal
@@ -384,105 +326,6 @@ function CreateUserModal({ open = true, onClose, onSubmit, busy, submitError = n
           resetKey={open}
         />
       )}
-    </ModalCard>
-  );
-}
-
-const ROLE_OPTIONS = [
-  { value: "user", label: "Member" },
-  { value: "admin", label: "Admin" },
-];
-
-/**
- * Edit one person: their name, their role, and (optionally) a fresh
- * password. Password resets sign that person out everywhere — old sessions
- * and device tokens die with the old password.
- */
-function EditUserModal({ open, user: target, busy, submitError, onClose, onSubmit }) {
-  const [name, setName] = useState(target?.display_name || target?.username || "");
-  const [role, setRole] = useState(target?.role || "user");
-  const [password, setPassword] = useState("");
-  const nameClean = name.trim();
-  const nameError = !nameClean ? "They need a name." : nameClean.length > 80 ? "Names are 1-80 characters." : null;
-  const passwordProblem = password && !meetsPasswordPolicy(password)
-    ? passwordPolicyError(password) || "Choose a stronger password."
-    : null;
-
-  function save() {
-    if (!target || nameError || passwordProblem) return;
-    const body = { id: target.id };
-    if (nameClean !== (target.display_name || "")) body.display_name = nameClean;
-    if (role !== target.role) body.role = role;
-    if (password) body.password = password;
-    if (Object.keys(body).length === 1) {
-      onClose();
-      return;
-    }
-    onSubmit(body);
-  }
-
-  return (
-    <ModalCard open={open} title={`Edit ${target?.display_name || target?.username || "person"}`} onClose={onClose}>
-      {submitError && <PageNotice variant="error" className="mb-4">{submitError}</PageNotice>}
-      <FormInput
-        label="Name"
-        name="edit-user-name"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="Their name"
-        error={name ? nameError : null}
-        required
-      />
-      <div className="mb-4">
-        <FieldLabel htmlFor="edit-user-role" surface="secondary">
-          Role
-        </FieldLabel>
-        <Dropdown
-          id="edit-user-role"
-          options={ROLE_OPTIONS}
-          value={role}
-          onChange={setRole}
-          fullWidth
-          bg="primary"
-          size="form"
-          aria-label="Role"
-        />
-        <p className="text-primary text-xs mt-1">
-          {role === "admin"
-            ? "An Admin can add users, manage drives and settings, and see everything except members' private folders."
-            : "A Member gets a private folder and can use whatever is shared with them."}
-        </p>
-      </div>
-      <FormInput
-        label="New password"
-        name="edit-user-password"
-        type="password"
-        icon="password"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-        placeholder="Leave blank to keep their password"
-        autoComplete="new-password"
-      />
-      {password ? <PasswordStrengthChecklist password={password} /> : null}
-      {password ? (
-        <p className="text-primary text-xs mb-4">
-          Setting a new password signs them out on every device.
-        </p>
-      ) : null}
-      <div className="flex justify-end gap-2">
-        <Button variant="outline" size="sm" onClick={onClose}>
-          Cancel
-        </Button>
-        <Button
-          variant="primary"
-          size="sm"
-          loading={busy}
-          disabled={Boolean(nameError || passwordProblem)}
-          onClick={save}
-        >
-          Save
-        </Button>
-      </div>
     </ModalCard>
   );
 }

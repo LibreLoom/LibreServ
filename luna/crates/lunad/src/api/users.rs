@@ -489,13 +489,13 @@ async fn set_member_home(
         if drive.state != "as_is" {
             return Err(json_error(
                 StatusCode::BAD_REQUEST,
-                "That drive isn't ready — only a ready drive can hold member files.",
+                "That drive isn't ready — only a ready drive can hold private folders.",
             ));
         }
         if drive.mount_point.is_empty() {
             return Err(json_error(
                 StatusCode::BAD_REQUEST,
-                "Plug that drive in first — member files have to move onto it.",
+                "Plug that drive in first — private folders have to move onto it.",
             ));
         }
         // No early-out when the drive already matches: an interrupted
@@ -594,9 +594,9 @@ async fn set_member_home(
                 if unplugged.len() == 1 { "" } else { "s" },
             )
         } else if job_ids.is_empty() {
-            "Member files now live on the new drive.".to_string()
+            "Everyone's private folders now live on the new drive.".to_string()
         } else {
-            format!("Luna is moving {} member folder{} in the background.", job_ids.len(), if job_ids.len() == 1 { "" } else { "s" })
+            format!("Luna is moving {} private folder{} in the background.", job_ids.len(), if job_ids.len() == 1 { "" } else { "s" })
         },
     })))
 }

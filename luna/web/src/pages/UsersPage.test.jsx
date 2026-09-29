@@ -253,39 +253,50 @@ describe("UsersPage", () => {
     });
   });
 
-  it("shows a floating big plus add-user control below the list, not in the header", async () => {
-    stubFetch();
-    renderPage();
-
-    await screen.findByRole("region", { name: /User list/i });
-
-    const add = await screen.findByRole("button", { name: /^Add user$/i });
-    expect(add.textContent?.trim()).toBe("");
-    expect(within(add).queryByText(/Add user/i)).toBeNull();
-    expect(add.className).toMatch(/fixed/);
-    expect(add.className).toMatch(/bottom-28/);
-    expect(add.className).toMatch(/right-8/);
-    // Portaled to body so page-enter transforms cannot trap position:fixed.
-    expect(add.parentElement).toBe(document.body);
-  });
-
-  it("opens edit user modal with accessible contrast", async () => {
+  it("adds users from a plus row at the end of the list, styled like a user row", async () => {
     stubFetch();
     const user = userEvent.setup();
     renderPage();
 
-    const editBtn = await screen.findByRole("button", { name: /Edit Alex/i });
-    await user.click(editBtn);
+    const list = await screen.findByRole("region", { name: /User list/i });
+    const add = within(list).getByRole("button", { name: /^Add user$/i });
+    expect(add.textContent?.trim()).toBe("");
+    expect(add.className).toMatch(/surface-secondary/);
+    expect(add.className).toMatch(/rounded-large-element/);
+    expect(add.className).not.toMatch(/fixed/);
+    // Last row of the table, after every user.
+    const rows = within(list).getAllByRole("row");
+    expect(rows[rows.length - 1]).toContainElement(add);
 
-    const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByRole("heading", { name: /Edit Alex/i })).toBeTruthy();
-    expect(within(dialog).getByLabelText(/^Name/i)).toHaveValue("Alex");
-    expect(within(dialog).getByLabelText(/^Role/i)).toBeTruthy();
-    expect(within(dialog).getByLabelText(/New password/i)).toBeTruthy();
+    await user.click(add);
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+  });
 
-    await user.type(within(dialog).getByLabelText(/New password/i), "hunter22hunter1");
-    expect(within(dialog).getByText(/Setting a new password signs them out on every device/i)).toBeTruthy();
-    expect(within(dialog).getByText("✓ Acceptable")).toBeTruthy();
+  it("shows the add row as the last card on mobile", async () => {
+    window.matchMedia = (query) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    });
+    stubFetch();
+    renderPage();
+
+    const list = await screen.findByRole("region", { name: /User list/i });
+    const items = within(list).getAllByRole("listitem");
+    expect(within(items[items.length - 1]).getByRole("button", { name: /^Add user$/i })).toBeInTheDocument();
+  });
+
+  it("links Edit to a full page for others and to Settings for yourself", async () => {
+    stubFetch();
+    renderPage();
+
+    expect(await screen.findByRole("link", { name: /Edit Alex/i })).toHaveAttribute("href", "/settings/users/2");
+    expect(screen.getByRole("link", { name: /Edit Demo/i })).toHaveAttribute("href", "/settings#security");
   });
 
   it("links to settings security when editing yourself instead of opening modal", async () => {
