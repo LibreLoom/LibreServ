@@ -19,7 +19,7 @@ Mirrors the app `src/` tree:
 
 - **Edit here, not in the apps.** If a component needs product-specific
   behavior, add a prop — do not fork the file.
-- Components use theme tokens (`bg-primary`, `text-secondary`, …) — apps
+- Components use theme tokens (`surface-primary`, `surface-secondary`, …) — apps
   provide them via their own `index.css`. Never hardcode colors.
 - Everything ships as raw `.jsx` source; each app's Vite/Tailwind/tsc
   compiles and checks it. Vite realpaths the `file:` link into `shared/ui`, so

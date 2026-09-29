@@ -29,7 +29,7 @@ support call later.
 
 ## 3. Setup wizard
 - [ ] Ethernet cable detected; no Luna Setup network; no Wi-Fi scan required
-- [ ] Admin account created; name saved; wizard completes to drives
+- [ ] Admin account created; name saved; wizard completes to My files
 
 ## 4. Storage safety
 - [ ] Unrecognized FAT32 drive → "Add drive" preview is read-only, contents listed
