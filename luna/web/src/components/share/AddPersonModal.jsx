@@ -83,7 +83,7 @@ export default function AddPersonModal({
             bg="primary"
             aria-label="Access level"
           />
-          <p className="px-1 text-primary text-xs">{capsHint(picked, hintFor)}</p>
+          <p className="text-primary text-xs">{capsHint(picked, hintFor)}</p>
           <div className="rounded-large-element surface-primary p-3">
             <Toggle
               surface="primary"

@@ -447,7 +447,7 @@ function EditUserModal({ open, user: target, busy, submitError, onClose, onSubmi
           size="form"
           aria-label="Role"
         />
-        <p className="text-primary text-xs mt-1 px-5">
+        <p className="text-primary text-xs mt-1">
           {role === "admin"
             ? "An Admin can add users, manage drives and settings, and see everything except members' private folders."
             : "A Member gets a private folder and can use whatever is shared with them."}

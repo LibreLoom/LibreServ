@@ -1604,13 +1604,13 @@ function OptionRow({ option, index, canWrite, mark, compact, autoFocus, duplicat
         )}
       </div>
       {duplicate ? (
-        <p className="mt-1 px-4 text-xs">
+        <p className="mt-1 text-xs">
           Another option says the same thing. People could only pick one of them — change one.
         </p>
       ) : !option.label.trim() && canWrite ? (
-        <p className="mt-1 px-4 text-xs">Blank options are hidden from people answering.</p>
+        <p className="mt-1 text-xs">Blank options are hidden from people answering.</p>
       ) : renamed ? (
-        <p className="mt-1 px-4 text-xs">
+        <p className="mt-1 text-xs">
           {picked === 1 ? "1 answer" : `${picked} answers`} picked “{original}”. Those stay under the old wording in the results.
         </p>
       ) : null}

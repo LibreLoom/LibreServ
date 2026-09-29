@@ -165,11 +165,11 @@ export default function FormInput({
         </div>
       )}
       {error ? (
-        <p id={`${name}-error`} className="text-error text-xs mt-1 px-5 animate-fade-in-up">
+        <p id={`${name}-error`} className="text-error text-xs mt-1 animate-fade-in-up">
           {error}
         </p>
       ) : hint ? (
-        <p id={`${name}-hint`} className="text-xs mt-1 px-5">
+        <p id={`${name}-hint`} className="text-xs mt-1">
           {hint}
         </p>
       ) : null}
