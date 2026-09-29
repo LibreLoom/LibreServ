@@ -24,7 +24,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [errorStatus, setErrorStatus] = useState(null);
 
-  const { login, hasAdmin, loading: authLoading } = useAuth();
+  const { login, hasAdmin, loading: authLoading, sessionEnded } = useAuth();
   const loginQuip = useMemo(() => getLoginQuip(), []);
 
   useEffect(() => {
@@ -32,6 +32,14 @@ export default function LoginPage() {
       navigate("/setup", { replace: true });
     }
   }, [authLoading, hasAdmin, navigate]);
+
+  // Landed here because the session ended mid-use (password changed,
+  // signed out elsewhere) — say so instead of a silent bounce.
+  useEffect(() => {
+    if (sessionEnded) {
+      addToast({ type: "info", message: "You were signed out. Sign in again to keep going." });
+    }
+  }, [sessionEnded, addToast]);
 
   // Where to send the user after a successful login — the page they were
   // trying to reach, or home.
