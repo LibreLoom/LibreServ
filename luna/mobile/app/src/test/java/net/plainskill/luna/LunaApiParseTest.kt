@@ -75,6 +75,11 @@ class LunaApiParseTest {
             assertEquals(LunaApi.Home("d1", "h/max"), user.home)
         }
         assertEquals(null, LunaApi.parseUser("""{"id":"u1","username":"max","home":null}""").home)
+        // Unplugged home drive: Luna knows the drive but not the folder.
+        assertEquals(
+            null,
+            LunaApi.parseUser("""{"id":"u1","username":"max","home":{"drive_id":"d1","path":"","ready":false}}""").home,
+        )
     }
 
     @Test

@@ -76,13 +76,16 @@ object BackupPrefs {
             .putBoolean("backup_enabled", true)
             .putBoolean("setup_complete", false)
             .apply {
-                // Photos start in My files / Photos, for admins and members alike.
                 if (home != null) {
                     putString("home_drive_id", home.driveId)
                     putString("home_path", home.path)
-                    putString("drive_id", home.driveId)
-                    putString("drive_label", MY_FILES)
-                    putString("folder_prefix", LunaApi.joinPath(home.path, DEFAULT_PHOTOS_FOLDER))
+                    // Photos start in My files / Photos, for admins and members
+                    // alike — unless the person already picked a folder.
+                    if (p.getString("drive_id", "").isNullOrEmpty()) {
+                        putString("drive_id", home.driveId)
+                        putString("drive_label", MY_FILES)
+                        putString("folder_prefix", LunaApi.joinPath(home.path, DEFAULT_PHOTOS_FOLDER))
+                    }
                 }
             }
             .apply()

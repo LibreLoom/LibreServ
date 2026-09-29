@@ -251,11 +251,18 @@ pub fn my_home(base_url: &str, token: &str) -> Result<Option<Home>, String> {
     Ok(parse_home(&value))
 }
 
+/// An empty `path` means the home's drive is unplugged: Luna can't say where
+/// My files is, so there is no home to offer (the drive root is shared space).
 fn parse_home(me: &serde_json::Value) -> Option<Home> {
     let home = me.get("home")?;
+    let drive_id = home.get("drive_id")?.as_str()?;
+    let path = home.get("path")?.as_str()?;
+    if drive_id.is_empty() || path.trim_matches('/').is_empty() {
+        return None;
+    }
     Some(Home {
-        drive_id: home.get("drive_id")?.as_str()?.to_string(),
-        path: home.get("path")?.as_str()?.to_string(),
+        drive_id: drive_id.to_string(),
+        path: path.to_string(),
     })
 }
 
@@ -618,6 +625,9 @@ mod tests {
             assert_eq!(home.path, "h/max");
         }
         assert!(parse_home(&serde_json::json!({"id": "u1", "home": null})).is_none());
+        // Unplugged home drive: Luna knows the drive but not the folder.
+        let unplugged = serde_json::json!({"home": {"drive_id": "d1", "path": "", "ready": false}});
+        assert!(parse_home(&unplugged).is_none());
     }
 
     #[test]

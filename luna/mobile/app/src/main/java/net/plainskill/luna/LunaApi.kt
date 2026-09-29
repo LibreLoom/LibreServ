@@ -101,8 +101,11 @@ object LunaApi {
         if (username.isEmpty()) throw ApiException(401, badTokenMessage())
         val homeJson = JsonFields.obj(trimmed, "home")
         val homeDrive = homeJson?.let { JsonFields.string(it, "drive_id") }.orEmpty()
-        val home = if (homeJson != null && homeDrive.isNotEmpty()) {
-            Home(homeDrive, JsonFields.string(homeJson, "path").orEmpty())
+        val homePath = homeJson?.let { JsonFields.string(it, "path") }.orEmpty()
+        // An empty path means the home's drive is unplugged: there is no My files
+        // to point at, and the drive root is shared space.
+        val home = if (homeDrive.isNotEmpty() && homePath.trim('/').isNotEmpty()) {
+            Home(homeDrive, homePath)
         } else {
             null
         }

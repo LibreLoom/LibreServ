@@ -160,7 +160,7 @@ describe("UsersPage", () => {
     renderPage();
 
     await user.click(await screen.findByRole("button", { name: /Remove Alex/i }));
-    expect(await screen.findByText(/named "alex's files" that Admins can open/i)).toBeTruthy();
+    expect(await screen.findByText(/named "alex's files" \(Luna adds a number if that name is taken\) that Admins can open/i)).toBeTruthy();
     await user.click(screen.getByRole("radio", { name: "Delete files" }));
     expect(screen.getByText(/move to the drive's trash/i)).toBeTruthy();
     await user.click(screen.getByRole("button", { name: /^Remove$/i }));

@@ -82,10 +82,12 @@ async fn directory(
                     "id": u.id,
                     "username": u.username,
                     "display_name": u.display_name,
-                    // Anyone but yourself can receive a share — admins too:
-                    // it is how they see something inside another person's
-                    // home.
+                    // Anyone but yourself can receive a share. Admins only
+                    // take shares from inside a person's home (they already
+                    // hold everything outside homes) — the sheet uses `admin`
+                    // to offer them only there.
                     "shareable": u.id != user.id,
+                    "admin": u.role == "admin",
                 })
             })
             .collect(),

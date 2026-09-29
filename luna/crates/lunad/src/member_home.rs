@@ -248,9 +248,13 @@ pub fn release_home(
         };
         match crate::files::rename_noreplace(&from, &root.join(&name)) {
             Ok(()) => {
+                // Shares must follow the folder. If they can't, put the folder
+                // back so the account and its home stay as they were.
+                if let Err(e) = crate::access::repath_subjects(conn, drive_id, home_rel, &name) {
+                    let _ = crate::files::rename_noreplace(&root.join(&name), &from);
+                    return Err(FilesError::Db(e));
+                }
                 crate::api::forms::repath_form_files(root, &from, root, &root.join(&name));
-                crate::access::repath_subjects(conn, drive_id, home_rel, &name)
-                    .map_err(FilesError::Db)?;
                 crate::files::note_write(conn, drive_id, home_rel);
                 crate::files::note_write(conn, drive_id, &name);
                 return Ok(Some(name));

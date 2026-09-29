@@ -364,7 +364,7 @@ export default function UsersPage() {
         />
         <p className="text-sm mt-2">
           {keepFiles
-            ? `Their files move into a shared folder named "${userToDelete?.username}'s files" that Admins can open.`
+            ? `Their files move into a shared folder named "${userToDelete?.username}'s files" (Luna adds a number if that name is taken) that Admins can open.`
             : "Their files move to the drive's trash."}
         </p>
       </ConfirmModal>
