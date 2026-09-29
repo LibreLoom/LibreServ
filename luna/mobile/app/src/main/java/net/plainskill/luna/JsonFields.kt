@@ -11,6 +11,21 @@ internal object JsonFields {
         return raw.replace("\\\"", "\"").replace("\\\\", "\\")
     }
 
+    /** The nested object under [key], or null when it is missing or `null`. */
+    fun obj(json: String, key: String): String? {
+        val start = Regex("\"${Regex.escape(key)}\"\\s*:\\s*\\{").find(json) ?: return null
+        val from = start.range.last
+        var depth = 0
+        for (i in from until json.length) {
+            if (json[i] == '{') depth++
+            if (json[i] == '}') {
+                depth--
+                if (depth == 0) return json.substring(from, i + 1)
+            }
+        }
+        return null
+    }
+
     fun objects(arrayJson: String): List<String> {
         val out = ArrayList<String>()
         val s = arrayJson

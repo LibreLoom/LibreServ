@@ -205,7 +205,7 @@ fn dav_handler_for(
 /// Handlers are built per request now, so this is a no-op.
 pub fn drop_cached_handler(_state: &AppState, _drive_id: &str) {}
 
-/// `/dav/home`: the member's `.luna-<prefix>-members/<username>` folder as a DAV root. The jail
+/// `/dav/home`: the user's (admins too) `.luna-<prefix>-members/<username>` folder as a DAV root. The jail
 /// sits *inside* the home dir while `GrantFs::scoped` still evaluates
 /// capabilities against the real `.luna-<prefix>-members/<username>` subject path — the owner
 /// gets full access, everyone else (admins included) is turned away.
@@ -214,12 +214,6 @@ fn dav_home_handler(
     conn: &rusqlite::Connection,
     user: &CurrentUser,
 ) -> Result<crate::DavHandler, (StatusCode, axum::Json<serde_json::Value>)> {
-    if user.role == "admin" {
-        return Err(json_error(
-            StatusCode::NOT_FOUND,
-            "Admins don't have a home folder — mount a drive instead.",
-        ));
-    }
     let row = crate::db::get_user(conn, &user.id)
         .ok()
         .flatten()

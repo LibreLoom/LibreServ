@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Link, useParams } from "react-router-dom";
+import { Link, Navigate, useLocation, useParams } from "react-router-dom";
 import { HardDrive, Trash2 } from "lucide-react";
+import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
@@ -18,7 +19,7 @@ import {
   getDrives,
   getJson,
 } from "../lib/api";
-import { folderHref, homeAwareLabel, isMemberHomePath, isTrashPath, memberHomeOwner, pathBasename, TRASH_PATH, trashDisplayName } from "../lib/paths";
+import { folderHref, homeAwareLabel, isMemberHomePath, isTrashPath, memberHomeOwner, parentPath, pathBasename, TRASH_PATH, trashDisplayName } from "../lib/paths";
 import useFileNavigation from "../hooks/useFileNavigation.js";
 import useMovedLinkForwarding from "../hooks/useMovedLinkForwarding.js";
 import { useAuth } from "../context/AuthContext";
@@ -29,11 +30,41 @@ function jobBusy(job) {
   return job.state === "running" || job.state === "queued";
 }
 
-export default function FilesPage() {
+/** Router href for a folder inside My files. */
+function homeFolderHref(_driveId, folderPath) {
+  return folderPath ? `/files?path=${encodeURIComponent(folderPath)}` : "/files";
+}
+
+/** Router href for a file inside My files. */
+function homeFileHref(_driveId, filePath) {
+  const folder = parentPath(filePath) ?? "";
+  const base = homeFolderHref("", folder);
+  const name = pathBasename(filePath);
+  if (!name) return base;
+  return `${base}${base.includes("?") ? "&" : "?"}file=${encodeURIComponent(name)}`;
+}
+
+function insidePath(root, path) {
+  return Boolean(root) && (path === root || path.startsWith(`${root}/`));
+}
+
+/**
+ * `/files` (My files, `home`) shows the signed-in person's own private
+ * folder wherever it lives — the drive is never asked for or shown.
+ * `/drives/:id` browses a drive's shared space: everything outside homes.
+ *
+ * @param {{ home?: boolean }} [props]
+ */
+export default function FilesPage({ home = false } = {}) {
   const { addToast } = useToast();
-  const { id } = useParams();
+  const params = useParams();
+  const location = useLocation();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+  const userHome = user?.home;
+  const id = home ? userHome?.drive_id : params.id;
   const {
-    path,
+    path: navPath,
     selectPath,
     viewerPath,
     onPathChange,
@@ -42,8 +73,9 @@ export default function FilesPage() {
   } = useFileNavigation();
 
   const [actionError, setActionError] = useState(null);
-  const { user } = useAuth();
-  const isAdmin = user?.role === "admin";
+  const homeRoot = userHome?.path || "";
+  // My files opens at the top of the person's own folder.
+  const path = home ? (navPath || homeRoot) : navPath;
 
   const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives });
   const drive = (drives.data || []).find((d) => d.id === id);
@@ -90,11 +122,10 @@ export default function FilesPage() {
   const presentDriveCount = (drives.data || []).filter(isPresentDrive).length;
 
   // Members don't get a raw drive picker — their destinations are writable
-  // roots: the Home folder on the member-home drive plus every shared root
-  // they can put files in. Equity with the admin selector, not equality:
-  // the menu looks the same but holds different things.
+  // roots: My files plus every shared folder they can put files in.
+  // Equity with the admin selector, not equality: the menu looks the same
+  // but holds different things.
   const userId = user?.id;
-  const userHome = user?.home;
   const memberDests = useMemo(() => {
     if (isAdmin || !userId) return null;
     const present = new Set(
@@ -111,14 +142,15 @@ export default function FilesPage() {
         path: r.path,
         label: r.label,
         sub: r.isHome
-          ? `Your private folder${labelOf(r.driveId) ? ` on ${labelOf(r.driveId)}` : ""}`
+          ? "Only you can see this"
           : labelOf(r.driveId),
         icon: /** @type {"home"|"folder"|"drive"} */ (r.isHome ? "home" : r.path ? "folder" : "drive"),
         writable: true,
       }));
   }, [isAdmin, userId, userHome, drives.data, access.data]);
 
-  const showDriveMenu = drive != null
+  const showDriveMenu = !home
+    && drive != null
     && drive.state !== "missing"
     && (isAdmin ? presentDriveCount > 1 : (memberDests?.length || 0) > 0);
 
@@ -136,10 +168,35 @@ export default function FilesPage() {
 
   useStrandedErrorToast(actionError, false, () => setActionError(null));
 
+  // Links written before this split (search hits, recents, shares) can name
+  // a home through /drives/:id — send them to My files, and anything in My
+  // files that is not the person's own folder back to the shared space.
+  const rehome = (pathname) => (
+    <Navigate to={{ pathname, search: location.search, hash: location.hash }} replace />
+  );
+  if (!home && navPath && insidePath(homeRoot, navPath)) return rehome("/files");
+  if (home && id && navPath && !insidePath(homeRoot, navPath) && !isTrashPath(navPath)) {
+    return rehome(`/drives/${id}`);
+  }
+
+  const hrefForFolder = home ? homeFolderHref : folderHref;
+  const backHref = home ? "/" : isAdmin ? "/drives" : "/folders";
+  const backLabel = home ? "Back to Home" : isAdmin ? "Go to Drives" : "Back to Shared folders";
+  const noHome = home && !userHome?.drive_id;
+
   return (
     <Page
-      title={inTrash ? "Trash" : (drive ? drive.label : "Files")}
+      title={home ? (inTrash ? "Trash" : "My files") : inTrash ? "Trash" : (drive ? drive.label : "Files")}
       titleId="files-title"
+      bottomContent={home && !noHome ? (
+        <p className="text-sm inline-flex items-center gap-1.5">
+          Only you can see these unless you share them.
+          <InfoHint
+            label="Who can open My files"
+            content="Other people on this Luna, Admins included, can't open your files through Luna. Your files aren't encrypted, though, so anyone who unplugs the drive and reads it on another computer can open them."
+          />
+        </p>
+      ) : undefined}
       leftContent={showDriveMenu ? (
         <DriveMenu
           drives={isAdmin ? drives.data : undefined}
@@ -195,19 +252,39 @@ export default function FilesPage() {
         </div>
       )}
 
-      {!drives.isLoading && !drive && (
+      {noHome && (
         <EmptyState
           className="mt-4"
           icon={HardDrive}
-          title="Drive not found"
+          title="My files isn't ready yet"
           description={
             isAdmin
-              ? "Luna can't find this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in."
-              : "Luna couldn't open this drive. Ask an Admin if you still need access."
+              ? "Luna needs a drive to keep your files on. Add one in Drives."
+              : "Luna needs a drive to keep your files on. Ask an Admin to add one."
+          }
+          action={isAdmin ? (
+            <Button size="sm" variant="primary" asChild>
+              <Link to="/drives">Go to Drives</Link>
+            </Button>
+          ) : undefined}
+        />
+      )}
+
+      {!noHome && !drives.isLoading && !drive && (
+        <EmptyState
+          className="mt-4"
+          icon={HardDrive}
+          title={home ? "Can't open My files" : "Drive not found"}
+          description={
+            home
+              ? "The drive holding your files isn't connected. Plug it back in, or ask an Admin."
+              : isAdmin
+                ? "Luna can't find this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in."
+                : "Luna couldn't open this drive. Ask an Admin if you still need access."
           }
           action={
             <Button size="sm" variant="primary" asChild>
-              <Link to="/drives">{isAdmin ? "Go to Drives" : "Back to Files"}</Link>
+              <Link to={backHref}>{backLabel}</Link>
             </Button>
           }
         />
@@ -217,15 +294,17 @@ export default function FilesPage() {
         <EmptyState
           className="mt-4"
           icon={HardDrive}
-          title="Drive unplugged"
+          title={home ? "Can't open My files" : "Drive unplugged"}
           description={
-            isAdmin
-              ? "This drive is unplugged. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in."
-              : "This drive is unplugged. Ask an Admin, or wait until it's plugged back in."
+            home
+              ? "The drive holding your files is unplugged. Plug it back in, or ask an Admin."
+              : isAdmin
+                ? "This drive is unplugged. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in."
+                : "This drive is unplugged. Ask an Admin, or wait until it's plugged back in."
           }
           action={
             <Button size="sm" variant="primary" asChild>
-              <Link to="/drives">{isAdmin ? "Go to Drives" : "Back to Files"}</Link>
+              <Link to={backHref}>{backLabel}</Link>
             </Button>
           }
         />
@@ -239,7 +318,7 @@ export default function FilesPage() {
           description="You need Write access somewhere on this drive to open trash."
           action={
             <Button size="sm" variant="primary" asChild>
-              <Link to={folderHref(id, "")}>Back to files</Link>
+              <Link to={hrefForFolder(id, "")}>Back to files</Link>
             </Button>
           }
         />
@@ -257,7 +336,8 @@ export default function FilesPage() {
           selectPath={selectPath || null}
           onSelectPathApplied={clearSelectParam}
           linkNavigation
-          folderHref={folderHref}
+          folderHref={hrefForFolder}
+          fileHref={home ? homeFileHref : undefined}
           isAdmin={isAdmin}
           showTrashLink={canOpenTrash}
         />

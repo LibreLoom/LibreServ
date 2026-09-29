@@ -149,7 +149,7 @@ export function memberWritableRoots(rows, home, isPresent, driveLabel) {
   const homeDriveId = home?.drive_id || "";
   const homePath = pathKey(home?.path || "");
   if (homeDriveId && homePath && isPresent(homeDriveId)) {
-    push(homeDriveId, homePath, "Home", true);
+    push(homeDriveId, homePath, "My files", true);
   }
   const inHome = (driveId, path) => driveId === homeDriveId && homePath
     && (path === homePath || path.startsWith(`${homePath}/`));

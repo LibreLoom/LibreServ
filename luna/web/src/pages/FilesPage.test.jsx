@@ -37,6 +37,7 @@ function stubFilesApi(byPath) {
         id: byPath.__userId || "1",
         role: byPath.__role || "admin",
         username: byPath.__role === "user" ? "sam" : "admin",
+        home: byPath.__home,
       }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
     if (u.includes("/setup")) {
@@ -160,13 +161,52 @@ function renderFiles(path = "/drives/d1") {
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[path]}>
         <AuthProvider>
-          <Routes><Route path="/drives/:id" element={<FilesPage />} /></Routes>
+          <Routes>
+            <Route path="/drives/:id" element={<FilesPage />} />
+            <Route path="/files" element={<FilesPage home />} />
+          </Routes>
         </AuthProvider>
       </MemoryRouter>
     </QueryClientProvider>
     </ToastProvider>
   );
 }
+
+const HOME = ".luna-0a1b2c3d-0a1b-0a1b-0a1b-0a1b2c3d4e5f-members/admin";
+
+describe("FilesPage as My files", () => {
+  const home = { drive_id: "d1", path: HOME, ready: true };
+
+  it("opens an admin's own home without naming the drive", async () => {
+    stubFilesApi({
+      __home: home,
+      [HOME]: [{ name: "taxes.pdf", kind: "file", size: 10, modified: 0, hidden: false }],
+    });
+    renderFiles("/files");
+    expect(await screen.findByRole("heading", { name: "My files" })).toBeInTheDocument();
+    expect(await screen.findByText("taxes.pdf")).toBeInTheDocument();
+    expect(screen.getByText("Only you can see these unless you share them.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Who can open My files" })).toBeInTheDocument();
+    expect(screen.queryByText("Photos Drive")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Places/ })).not.toBeInTheDocument();
+  });
+
+  it("sends a /drives link that points into your own home to My files", async () => {
+    stubFilesApi({
+      __home: home,
+      [HOME]: [{ name: "taxes.pdf", kind: "file", size: 10, modified: 0, hidden: false }],
+    });
+    renderFiles(`/drives/d1?path=${encodeURIComponent(HOME)}`);
+    expect(await screen.findByRole("heading", { name: "My files" })).toBeInTheDocument();
+  });
+
+  it("tells a person without a home what is missing", async () => {
+    stubFilesApi({});
+    renderFiles("/files");
+    expect(await screen.findByText("My files isn't ready yet")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Go to Drives" })).toHaveAttribute("href", "/drives");
+  });
+});
 
 describe("FilesPage", () => {
   it("shows upload control and folder contents", async () => {
@@ -279,7 +319,7 @@ describe("FilesPage", () => {
     });
     renderFiles();
     expect(await screen.findByText("You don't have access to this folder")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Open Shared" }))
+    expect(screen.getByRole("link", { name: "Open Shared with me" }))
       .toHaveAttribute("href", "/shared");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });

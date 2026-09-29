@@ -42,7 +42,7 @@ export function homeAwareLabel(path, ownHomePath = "") {
   const root = segs.slice(0, 2).join("/");
   const owner = segs[1];
   const label = ownHomePath && root === ownHomePath
-    ? "Home"
+    ? "My files"
     : `${owner}'s home`;
   const rest = segs.slice(2).join("/");
   return rest ? `${label} / ${rest}` : label;
@@ -52,7 +52,7 @@ export function homeAwareLabel(path, ownHomePath = "") {
 export function segmentDisplayName(segment, index = 0, fullPath = "") {
   // Index 1 is the username inside `.luna-<uuid>-members/<username>` — the
   // segment the UI relabels as the member's private home.
-  if (index === 1 && isMemberHomePath(fullPath || segment)) return "Home";
+  if (index === 1 && isMemberHomePath(fullPath || segment)) return "My files";
   return segment;
 }
 

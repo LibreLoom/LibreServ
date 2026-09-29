@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
@@ -284,10 +284,12 @@ describe("DashboardPage", () => {
     renderPage();
     // The drive root would 403 for this member — the card's open button
     // lands on their drop folder instead.
-    const open = await screen.findAllByRole("link", { name: /Browse files|Open/i });
-    expect(open.some((a) =>
-      a.getAttribute("href") === "/drives/d1?path=docs%2Fdrop")).toBe(true);
-    expect(open.every((a) => a.getAttribute("href") !== "/drives/d1")).toBe(true);
+    await waitFor(() => {
+      const open = screen.getAllByRole("link", { name: /Browse files|Open/i });
+      expect(open.some((a) =>
+        a.getAttribute("href") === "/drives/d1?path=docs%2Fdrop")).toBe(true);
+      expect(open.every((a) => a.getAttribute("href") !== "/drives/d1")).toBe(true);
+    });
   });
 
   it("flags a newly plugged-in USB for admins", async () => {

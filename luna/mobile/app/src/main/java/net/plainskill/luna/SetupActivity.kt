@@ -86,6 +86,11 @@ class SetupActivity : AppCompatActivity() {
         findViewById<TextView>(R.id.setupSignOut).setOnClickListener { signOut() }
         findViewById<TextView>(R.id.permSignOut).setOnClickListener { signOut() }
 
+        if (BackupPrefs.home(this) != null) {
+            // My files / Photos was chosen at sign-in; only permissions are left.
+            showPermissions()
+            return
+        }
         showDrives()
         loadDrives()
     }

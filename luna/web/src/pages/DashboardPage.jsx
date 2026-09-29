@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronRight, HardDrive, History, PlugZap, TriangleAlert } from "lucide-react";
+import { ChevronRight, FolderHeart, HardDrive, History, PlugZap, TriangleAlert } from "lucide-react";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
@@ -718,7 +718,10 @@ export default function DashboardPage() {
   });
   const recentItems = recentsQuery.data ?? (recentsQuery.isError ? readRecentItems(user?.username) : []);
   const myShares = memberAccessRoots(Array.isArray(access.data) ? access.data : []);
-  const grants = myShares.filter((row) => row.kind !== KIND_ALBUM);
+  // Your own home is My files, not a shared folder — it never lists here.
+  const grants = myShares.filter(
+    (row) => row.kind !== KIND_ALBUM && !row.is_home && !(user?.home?.path && row.path === user.home.path),
+  );
   const albumsShared = myShares.filter((row) => row.kind === KIND_ALBUM);
   const memberSharesLoading = !isAdmin && access.isLoading;
   const memberHasNothingShared =
@@ -770,7 +773,16 @@ export default function DashboardPage() {
         </div>
 
         <div className="flex-1 grid grid-cols-1 gap-6 content-start order-2 md:order-1">
-          {adopted.map((drive) => (
+          <Card icon={FolderHeart} title="My files">
+            <p className="text-primary text-sm">Only you can see these unless you share them.</p>
+            <div className="mt-3">
+              <Button size="sm" variant="primary" asChild>
+                <Link to="/files">Open My files</Link>
+              </Button>
+            </div>
+          </Card>
+
+          {adopted.filter((drive) => isAdmin || grants.some((g) => g.drive_id === drive.id)).map((drive) => (
             <DriveHomeCard
               key={drive.id}
               drive={drive}

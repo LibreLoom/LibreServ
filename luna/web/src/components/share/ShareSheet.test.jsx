@@ -37,7 +37,7 @@ function subjectBody(path, overrides = {}) {
   };
 }
 
-function stubApi(subjectFor) {
+function stubApi(subjectFor, directory = [{ id: "u2", username: "sam", display_name: "Sam" }]) {
   const calls = [];
   vi.stubGlobal("fetch", vi.fn(async (url, init = {}) => {
     const u = String(url);
@@ -49,7 +49,7 @@ function stubApi(subjectFor) {
       return json({ has_admin: true });
     }
     if (u.endsWith("/api/v1/users/directory")) {
-      return json([{ id: "u2", username: "sam", display_name: "Sam" }]);
+      return json(directory);
     }
     if (u.includes("/api/v1/access/subject")) {
       const path = new URL(u, "http://luna.test").searchParams.get("path") || "";
@@ -89,6 +89,17 @@ afterEach(() => {
 });
 
 describe("ShareSheet", () => {
+  it("offers Admins as people to share with", async () => {
+    stubApi((path) => subjectBody(path), [
+      { id: "u3", username: "root", display_name: "Root Admin", role: "admin", shareable: true },
+    ]);
+    renderSheet();
+    // An admin is the only other person — they must still be offered.
+    fireEvent.click(await screen.findByRole("button", { name: "Add a person" }));
+    expect(await screen.findByRole("dialog", { name: /Add a person/i })).toBeInTheDocument();
+    expect(screen.queryByText("No people to share with yet.")).not.toBeInTheDocument();
+  });
+
   it("shows direct members with effective caps and a parent-shares banner", async () => {
     stubApi((path) => path === "family/kids"
       ? subjectBody(path, {

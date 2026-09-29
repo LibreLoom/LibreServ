@@ -296,10 +296,7 @@ fn sync_status_icon(
         );
     }
     if progress.running && progress.phase == "Syncing" && !progress.current.is_empty() {
-        return (
-            "view-refresh-symbolic",
-            "Updating files…".to_string(),
-        );
+        return ("view-refresh-symbolic", "Updating files…".to_string());
     }
     if active || progress.running {
         return (

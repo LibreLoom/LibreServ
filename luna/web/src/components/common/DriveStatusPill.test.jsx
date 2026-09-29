@@ -36,13 +36,13 @@ describe("DriveStatusPill", () => {
   it("renders Member home marker when member_home is true", () => {
     render(<DriveStatusPill drive={{ state: "as_is", member_home: true }} />);
     expect(screen.getByText("Ready")).toBeInTheDocument();
-    expect(screen.getByText("Member home")).toBeInTheDocument();
+    expect(screen.getByText("Private folders")).toBeInTheDocument();
   });
 
   it("renders Member home auto marker when member_home_auto is true", () => {
     render(<DriveStatusPill drive={{ state: "as_is", member_home: true, member_home_auto: true }} />);
     expect(screen.getByText("Ready")).toBeInTheDocument();
-    expect(screen.getByText("Member home")).toBeInTheDocument();
+    expect(screen.getByText("Private folders")).toBeInTheDocument();
     expect(screen.getByText(/· auto/)).toBeInTheDocument();
   });
 });

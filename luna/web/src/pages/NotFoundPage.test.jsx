@@ -57,7 +57,7 @@ describe("NotFoundPage", () => {
 
   it("never suggests the same page twice", () => {
     renderAt("/files");
-    expect(screen.getAllByRole("link", { name: "Files" })).toHaveLength(1);
+    expect(screen.getAllByRole("link", { name: "My files" })).toHaveLength(1);
   });
 
   it("hides admin pages from members", () => {
@@ -91,7 +91,7 @@ describe("NotFoundPage", () => {
     expect(await screen.findByText(/in Big Drive \/ Taxes/)).toBeTruthy();
     expect(api.getJson).toHaveBeenCalledWith("/api/v1/search?q=Tax%202024.pdf");
     // The folder hint still shows alongside the search.
-    expect(screen.getByRole("link", { name: "Files" })).toHaveAttribute("href", "/drives");
+    expect(screen.getByRole("link", { name: "My files" })).toHaveAttribute("href", "/files");
     expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute("href", "/");
     expect(screen.getByRole("navigation", { name: "Main navigation" })).toBeTruthy();
   });

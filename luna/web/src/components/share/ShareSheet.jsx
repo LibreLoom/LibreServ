@@ -192,8 +192,8 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
 
   const memberUserIds = new Set(members.map((m) => m.user_id));
   const people = asList(directory.data).filter(
-    // `shareable` is the server flag — admins already hold everything, so a
-    // member row against them is meaningless.
+    // `shareable` is the server flag; admins are valid recipients too (they
+    // can't open your home unless you share something from it).
     (u) => u.shareable !== false && u.id !== user?.id && !memberUserIds.has(u.id),
   );
   const noPeopleToAdd = directory.isSuccess && people.length === 0;

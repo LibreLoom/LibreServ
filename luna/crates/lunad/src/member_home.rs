@@ -1,7 +1,9 @@
 //! Member home folders: `.luna-<prefix>-members/<username>` on the
 //! member-home drive.
 //!
-//! Every non-admin user gets a private folder no admin can see through Luna.
+//! Every user, admins included, gets a private folder no one else can see
+//! through Luna. Role never decides where files live: admins manage people,
+//! drives and settings, and hold everything *outside* homes ("shared space").
 //! Homes live under one `.luna-<uuid>-members` container per drive — the
 //! drive's existing `.luna-<uuid>` namespace, so all hide/reject rules apply
 //! for free: members dirs never appear in listings, WebDAV, the index,
@@ -150,12 +152,9 @@ fn effective_home_drive(conn: &Connection, user: &UserRow) -> anyhow::Result<Opt
     db::member_home_drive(conn)
 }
 
-/// Resolve the member's home, assigning the member-home drive on first use.
-/// Admins have no home (`None`). `None` too when no drive can hold homes.
+/// Resolve the user's home (admins too), assigning the member-home drive on
+/// first use. `None` when no drive can hold homes.
 pub fn resolve(conn: &Connection, user: &UserRow) -> anyhow::Result<Option<Home>> {
-    if user.role == "admin" {
-        return Ok(None);
-    }
     let Some(drive_id) = effective_home_drive(conn, user)? else {
         return Ok(None);
     };
@@ -219,6 +218,65 @@ pub fn ensure_dir(conn: &Connection, drive_id: &str, rel: &str) -> anyhow::Resul
         }
         Err(e) => Err(e.into()),
     }
+}
+
+/// Turn a departing person's home into ordinary shared space: rename it to
+/// `<username>'s files` at the drive root (`(2)`, `(3)`… when taken), then
+/// retarget every share row inside it. Returns the new drive-relative path,
+/// or `None` when the home never materialized on disk. Same drive, plain
+/// rename — nothing is copied.
+pub fn release_home(
+    conn: &Connection,
+    drive_id: &str,
+    home_rel: &str,
+    username: &str,
+) -> Result<Option<String>, FilesError> {
+    let drive = crate::files::drive_root(conn, drive_id)?;
+    let root = Path::new(&drive.mount_point);
+    let from = match luna_core::path::resolve_child_nofollow(root, home_rel) {
+        Ok(p) => p,
+        Err(luna_core::path::PathError::NotFound(_)) => return Ok(None),
+        Err(e) => return Err(e.into()),
+    };
+    let base = format!("{username}'s files");
+    let mut n = 1u32;
+    loop {
+        let name = if n == 1 {
+            base.clone()
+        } else {
+            format!("{base} ({n})")
+        };
+        match crate::files::rename_noreplace(&from, &root.join(&name)) {
+            Ok(()) => {
+                crate::api::forms::repath_form_files(root, &from, root, &root.join(&name));
+                crate::access::repath_subjects(conn, drive_id, home_rel, &name)
+                    .map_err(FilesError::Db)?;
+                crate::files::note_write(conn, drive_id, home_rel);
+                crate::files::note_write(conn, drive_id, &name);
+                return Ok(Some(name));
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => n += 1,
+            Err(e) => return Err(FilesError::Io(e)),
+        }
+    }
+}
+
+/// Undo [`release_home`] when the account delete that followed it failed.
+pub fn restore_home(
+    conn: &Connection,
+    drive_id: &str,
+    home_rel: &str,
+    released_rel: &str,
+) -> Result<(), FilesError> {
+    let drive = crate::files::drive_root(conn, drive_id)?;
+    let root = Path::new(&drive.mount_point);
+    let from = luna_core::path::resolve_child_nofollow(root, released_rel)?;
+    crate::files::rename_noreplace(&from, &root.join(home_rel)).map_err(FilesError::Io)?;
+    crate::access::repath_subjects(conn, drive_id, released_rel, home_rel)
+        .map_err(FilesError::Db)?;
+    crate::files::note_write(conn, drive_id, home_rel);
+    crate::files::note_write(conn, drive_id, released_rel);
+    Ok(())
 }
 
 /// Is `drive_id` the drive this user's home effectively lives on? Mirrors
@@ -713,5 +771,150 @@ mod tests {
         );
         assert!(!f.home_abs("sam").exists());
         assert!(db::list_pending_home_ops(&f.conn).unwrap().is_empty());
+    }
+
+    fn admin_user(conn: &Connection, id: &str, username: &str) -> crate::auth::CurrentUser {
+        db::insert_user(conn, id, username, username, "hash", "admin").unwrap();
+        crate::auth::CurrentUser {
+            id: id.into(),
+            username: username.into(),
+            role: "admin".into(),
+        }
+    }
+
+    fn row(conn: &Connection, id: &str) -> UserRow {
+        db::get_user(conn, id).unwrap().unwrap()
+    }
+
+    fn grant(conn: &Connection, id: &str, user: &str, path: &str) {
+        db::insert_access_member(
+            conn,
+            &db::AccessMemberRow {
+                id: id.into(),
+                subject_kind: crate::access::KIND_PATH.into(),
+                drive_id: "d1".into(),
+                path: path.into(),
+                album_id: String::new(),
+                user_id: user.into(),
+                caps: crate::access::CAP_VIEW,
+                created_by: "test".into(),
+            },
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn admin_gets_a_home() {
+        let f = fixture();
+        admin_user(&f.conn, "u-a", "ann");
+        let home = ensure(&f.conn, &row(&f.conn, "u-a")).unwrap().unwrap();
+        assert!(home.ready);
+        assert!(f.home_abs("ann").is_dir());
+    }
+
+    #[test]
+    fn admin_cannot_reach_another_admins_home() {
+        let f = fixture();
+        let a = admin_user(&f.conn, "u-a", "ann");
+        let b = admin_user(&f.conn, "u-b", "bo");
+        ensure(&f.conn, &row(&f.conn, "u-a")).unwrap();
+        ensure(&f.conn, &row(&f.conn, "u-b")).unwrap();
+        let bhome = format!("{}/bo", members_dir_name(&f.prefix));
+        let bfile = format!("{bhome}/note.txt");
+        // Owner holds everything; the other admin holds nothing.
+        assert_eq!(
+            crate::auth::caps_on_path(&b, &f.conn, "d1", &bfile),
+            crate::access::CAP_MANAGE
+        );
+        for path in [&bhome, &bfile] {
+            assert_eq!(crate::auth::caps_on_path(&a, &f.conn, "d1", path), 0);
+            assert!(!crate::auth::can_browse_path(&a, &f.conn, "d1", path));
+            assert!(!crate::auth::can_inspect_path(&a, &f.conn, "d1", path));
+        }
+        // Shared space stays open to admins.
+        assert_eq!(
+            crate::auth::caps_on_path(&a, &f.conn, "d1", "docs/x.txt"),
+            crate::access::CAP_MANAGE
+        );
+    }
+
+    #[test]
+    fn admin_granted_a_share_inside_another_home_sees_only_that() {
+        let f = fixture();
+        let a = admin_user(&f.conn, "u-a", "ann");
+        member(&f.conn, "u-s", "sam");
+        ensure(&f.conn, &row(&f.conn, "u-s")).unwrap();
+        let shared = format!("{}/sam/photos", members_dir_name(&f.prefix));
+        let other = format!("{}/sam/diary", members_dir_name(&f.prefix));
+        grant(&f.conn, "g1", "u-a", &shared);
+        std::fs::create_dir_all(f.home_abs("sam").join("photos")).unwrap();
+        std::fs::create_dir_all(f.home_abs("sam").join("diary")).unwrap();
+        std::fs::write(f.home_abs("sam").join("photos/x.jpg"), b"x").unwrap();
+        assert_eq!(
+            crate::auth::caps_on_path(&a, &f.conn, "d1", &format!("{shared}/x.jpg")),
+            crate::access::CAP_VIEW
+        );
+        assert_eq!(crate::auth::caps_on_path(&a, &f.conn, "d1", &other), 0);
+        assert_eq!(
+            crate::auth::caps_on_path(
+                &a,
+                &f.conn,
+                "d1",
+                &format!("{}/sam", members_dir_name(&f.prefix))
+            ),
+            0
+        );
+    }
+
+    #[test]
+    fn role_changes_keep_the_home() {
+        let f = fixture();
+        member(&f.conn, "u-s", "sam");
+        let before = ensure(&f.conn, &row(&f.conn, "u-s")).unwrap().unwrap();
+        std::fs::write(f.home_abs("sam").join("keep.txt"), b"hi").unwrap();
+        for role in ["admin", "user"] {
+            db::set_user_role(&f.conn, "u-s", role).unwrap();
+            let after = ensure(&f.conn, &row(&f.conn, "u-s")).unwrap().unwrap();
+            assert_eq!(after.rel, before.rel);
+            assert_eq!(after.drive_id, before.drive_id);
+            assert!(f.home_abs("sam").join("keep.txt").exists());
+        }
+    }
+
+    #[test]
+    fn release_home_renames_repaths_and_restores() {
+        let f = fixture();
+        member(&f.conn, "u-s", "sam");
+        member(&f.conn, "u-j", "jo");
+        ensure(&f.conn, &row(&f.conn, "u-s")).unwrap();
+        std::fs::create_dir_all(f.home_abs("sam").join("docs")).unwrap();
+        let home = format!("{}/sam", members_dir_name(&f.prefix));
+        grant(&f.conn, "g1", "u-j", &format!("{home}/docs"));
+        // A folder already sits at the first choice of name.
+        std::fs::create_dir(f.mount.path().join("sam's files")).unwrap();
+
+        let new_rel = release_home(&f.conn, "d1", &home, "sam").unwrap().unwrap();
+        assert_eq!(new_rel, "sam's files (2)");
+        assert!(!f.home_abs("sam").exists());
+        assert!(f.mount.path().join(&new_rel).join("docs").is_dir());
+        let rows = db::list_access_members_for_user(&f.conn, "u-j").unwrap();
+        assert_eq!(rows[0].path, "sam's files (2)/docs");
+
+        restore_home(&f.conn, "d1", &home, &new_rel).unwrap();
+        assert!(f.home_abs("sam").join("docs").is_dir());
+        let rows = db::list_access_members_for_user(&f.conn, "u-j").unwrap();
+        assert_eq!(rows[0].path, format!("{home}/docs"));
+
+        // A home that never materialized has nothing to keep.
+        assert!(
+            release_home(
+                &f.conn,
+                "d1",
+                &format!("{}/ghost", members_dir_name(&f.prefix)),
+                "ghost"
+            )
+            .unwrap()
+            .is_none()
+        );
     }
 }
