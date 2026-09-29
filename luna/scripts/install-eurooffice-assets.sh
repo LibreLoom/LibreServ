@@ -58,7 +58,18 @@ echo "Generating font metrics + thumbnails (one-shot in the image, no daemon)…
 # exactly like the stock script and the results are copied out.
 # allthemesgen failures (mobile thumbnail sizes) are tolerated — the desktop
 # editor doesn't need them.
+#
+# The container runs as root so allfontsgen can read the image's paths. With
+# rootless podman that root is already the invoking user on the host; with
+# docker or rootful podman it is real root, so the script hands /out back to
+# the invoking user at the end (CHOWN_TO) instead of leaving root-owned files.
+CHOWN_TO=""
+if [[ "$(id -u)" != 0 ]] && \
+   [[ "$($RUNTIME info --format '{{.Host.Security.Rootless}}' 2>/dev/null || echo false)" != true ]]; then
+  CHOWN_TO="$(id -u):$(id -g)"
+fi
 $RUNTIME run --rm --user 0 --entrypoint /bin/sh \
+  -e CHOWN_TO="$CHOWN_TO" \
   -v "$DEST:/out" \
   "$IMAGE" -c '
 set -e
@@ -93,6 +104,7 @@ cp -r "$DIR"/sdkjs/common/Images/. /out/sdkjs/common/Images/
   --converter-dir="$DIR/server/FileConverter/bin" \
   --src="/out/sdkjs/slide/themes" \
   --output="/out/sdkjs/common/Images" || true
+[ -z "$CHOWN_TO" ] || chown -R "$CHOWN_TO" /out
 '
 rm -f "$DEST"/fonts/*.gz "$DEST"/sdkjs/common/AllFonts.js.gz 2>/dev/null || true
 
