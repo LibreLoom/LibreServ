@@ -24,8 +24,8 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
     conn.pragma_update(None, "wal_autocheckpoint", 4000i64)?;
     // Small appliance OS disks: keep the page cache warm without ballooning RAM.
     conn.pragma_update(None, "temp_store", "MEMORY")?;
-    conn.pragma_update(None, "cache_size", -16384i64)?; // 16 MiB
-    conn.pragma_update(None, "mmap_size", 64i64 * 1024 * 1024)?;
+    conn.pragma_update(None, "cache_size", -8192i64)?; // 8 MiB
+    conn.pragma_update(None, "mmap_size", 32i64 * 1024 * 1024)?;
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS meta (
             key TEXT PRIMARY KEY,

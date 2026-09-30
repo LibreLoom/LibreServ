@@ -166,6 +166,37 @@ impl RamCache {
     }
 
     /// Insert or refresh a served thumbnail. Evicts LRU thumbs if over budget.
+    pub fn put_thumb_arc(&self, drive_id: &str, rel: &str, bytes: Arc<[u8]>, mtime_secs: u64) {
+        if bytes.is_empty() {
+            return;
+        }
+        let budget = Self::budget();
+        if bytes.len() as u64 > budget.thumb_bytes.max(1) {
+            return;
+        }
+        let key = thumb_key(drive_id, rel);
+        let etag = thumb_etag(bytes.len() as u64, mtime_secs);
+        let entry = ThumbEntry {
+            bytes,
+            mtime_secs,
+            etag,
+        };
+        let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(old) = g.thumbs.remove(&key) {
+            g.thumb_bytes = g.thumb_bytes.saturating_sub(old.bytes.len() as u64);
+            g.thumb_order.retain(|k| k != &key);
+        }
+        g.thumb_bytes += entry.bytes.len() as u64;
+        g.thumbs.insert(key.clone(), entry);
+        g.thumb_order.push_back(key);
+        while g.thumb_bytes > budget.thumb_bytes {
+            if !Self::evict_one_thumb(&mut g) {
+                break;
+            }
+        }
+    }
+
+    /// Insert or refresh a served thumbnail. Evicts LRU thumbs if over budget.
     pub fn put_thumb(&self, drive_id: &str, rel: &str, bytes: Vec<u8>, mtime_secs: u64) {
         if bytes.is_empty() {
             return;
@@ -222,8 +253,8 @@ impl RamCache {
     pub fn put_listing(&self, drive_id: &str, rel: &str, dir_mtime: i64, entries: Vec<FileEntry>) {
         let key = listing_key(drive_id, rel);
         let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        // Cap listing map size (~4k dirs); each entry is small.
-        const MAX_LISTINGS: usize = 4096;
+        // Cap listing map size (~1k dirs); each entry holds a cloned file list.
+        const MAX_LISTINGS: usize = 1024;
         if !g.listings.contains_key(&key) && g.listings.len() >= MAX_LISTINGS {
             Self::evict_one_listing(&mut g);
         }
@@ -763,7 +794,7 @@ impl RamCache {
             }
         }
 
-        let listing_cap = if pressure { 64 } else { 4096 };
+        let listing_cap = if pressure { 64 } else { 1024 };
         while g.listings.len() > listing_cap {
             if !Self::evict_one_listing(&mut g) {
                 break;

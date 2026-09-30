@@ -60,6 +60,9 @@ pub fn handle(path: &str) -> Response<Body> {
     } else {
         "no-cache"
     };
+    // Zero-copy: `contents()` is already a `&'static [u8]` inside the binary,
+    // so serve it without a memcpy per request.
+    let body = axum::body::Body::from(axum::body::Bytes::from_static(file.contents()));
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, mime)
@@ -67,7 +70,7 @@ pub fn handle(path: &str) -> Response<Body> {
         .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff")
         .header(header::X_FRAME_OPTIONS, "DENY")
         .header(header::REFERRER_POLICY, "strict-origin-when-cross-origin")
-        .body(Body::from(file.contents()))
+        .body(body)
         .unwrap()
 }
 
@@ -79,7 +82,9 @@ fn html(file: &'static include_dir::File<'static>) -> Response<Body> {
         .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff")
         .header(header::X_FRAME_OPTIONS, "DENY")
         .header(header::REFERRER_POLICY, "strict-origin-when-cross-origin")
-        .body(Body::from(file.contents()))
+        .body(axum::body::Body::from(axum::body::Bytes::from_static(
+            file.contents(),
+        )))
         .unwrap()
 }
 

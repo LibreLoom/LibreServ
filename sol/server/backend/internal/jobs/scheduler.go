@@ -15,6 +15,10 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/system"
 )
 
+// Shared cron parser: rebuilding it on every backup-schedule tick (every
+// minute) is wasted allocation — the parser holds no per-parse state.
+var backupCronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+
 // Scheduler manages periodic background jobs
 type Scheduler struct {
 	appManager     *apps.Manager
@@ -226,8 +230,7 @@ func (s *Scheduler) runBackupSchedules() {
 			continue
 		}
 
-		parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
-		parsed, pErr := parser.Parse(schedule.CronExpr)
+		parsed, pErr := backupCronParser.Parse(schedule.CronExpr)
 		if pErr != nil {
 			s.logger.Error("Invalid cron expression for backup schedule", "schedule_id", schedule.ID, "cron", schedule.CronExpr, "error", pErr)
 			continue

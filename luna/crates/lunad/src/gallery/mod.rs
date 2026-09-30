@@ -1123,7 +1123,9 @@ fn read_capped(path: &Path, max: u64) -> anyhow::Result<Vec<u8>> {
         anyhow::bail!("file exceeds memory budget ({max} bytes)");
     }
     let mut file = std::fs::File::open(path)?;
-    let mut buf = Vec::with_capacity(meta.len() as usize);
+    // Don't pre-reserve the whole file: let the buffer grow as it reads so a
+    // file that shrinks mid-read never holds an oversized allocation.
+    let mut buf = Vec::with_capacity(meta.len().min(1024 * 1024) as usize);
     std::io::Read::read_to_end(&mut file, &mut buf)?;
     if buf.len() as u64 > max {
         anyhow::bail!("file exceeds memory budget ({max} bytes)");

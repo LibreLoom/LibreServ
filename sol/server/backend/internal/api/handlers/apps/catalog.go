@@ -15,6 +15,10 @@ import (
 
 const iconCacheTTL = 1 * time.Hour
 
+// Upper bound on cached icons: the map used to grow without limit and pin
+// every catalog icon in memory for up to an hour.
+const iconCacheMaxEntries = 256
+
 type iconCacheEntry struct {
 	data        []byte
 	contentType string
@@ -34,6 +38,28 @@ func ClearIconCache() {
 	iconCache.Lock()
 	iconCache.entries = make(map[string]*iconCacheEntry)
 	iconCache.Unlock()
+}
+
+// evictIconCacheLocked keeps the icon cache bounded. Call with iconCache held.
+func evictIconCacheLocked() {
+	if len(iconCache.entries) <= iconCacheMaxEntries {
+		return
+	}
+	now := time.Now()
+	for id, e := range iconCache.entries {
+		if now.After(e.expiresAt) {
+			delete(iconCache.entries, id)
+		}
+	}
+	// Still over budget (nothing expired): drop arbitrary entries until back
+	// under the cap. Icons are re-read from disk on demand, so this only
+	// costs a re-read, never correctness.
+	for id := range iconCache.entries {
+		if len(iconCache.entries) <= iconCacheMaxEntries {
+			break
+		}
+		delete(iconCache.entries, id)
+	}
 }
 
 type CatalogHandler struct {
@@ -182,6 +208,7 @@ func (h *CatalogHandler) GetAppIcon(w http.ResponseWriter, r *http.Request) {
 		contentType: "image/svg+xml",
 		expiresAt:   time.Now().Add(iconCacheTTL),
 	}
+	evictIconCacheLocked()
 	iconCache.Unlock()
 
 	w.Header().Set("Content-Type", "image/svg+xml")

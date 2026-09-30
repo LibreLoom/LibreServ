@@ -80,6 +80,27 @@ func (m *Monitor) Start() {
 	}
 	m.wg.Add(1)
 	go m.collectMetricsLoop()
+	// Prune health_checks/metrics daily so the tables (and the single-writer
+	// SQLite connection serving them) stop growing without bound.
+	m.wg.Add(1)
+	go m.cleanupLoop(24*time.Hour, 7*24*time.Hour)
+}
+
+// cleanupLoop periodically deletes health/metrics rows older than retention.
+func (m *Monitor) cleanupLoop(interval, retention time.Duration) {
+	defer m.wg.Done()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			if err := m.CleanupOldData(retention); err != nil {
+				slog.Warn("failed to cleanup old monitoring data", "error", err)
+			}
+		case <-m.stopCh:
+			return
+		}
+	}
 }
 
 // Stop halts all monitoring activities

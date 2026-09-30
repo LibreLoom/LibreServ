@@ -327,7 +327,7 @@ fn configure(conn: &Connection) -> anyhow::Result<()> {
     conn.pragma_update(None, "synchronous", "NORMAL")?;
     conn.pragma_update(None, "foreign_keys", "ON")?;
     conn.pragma_update(None, "temp_store", "MEMORY")?;
-    conn.pragma_update(None, "cache_size", -8192i64)?;
+    conn.pragma_update(None, "cache_size", -4096i64)?; // 4 MiB per drive
     Ok(())
 }
 

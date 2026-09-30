@@ -879,18 +879,15 @@ async fn serve_thumb_file(
             .unwrap()
             .into_response());
     }
-    let mut bytes = Vec::with_capacity(meta.len() as usize);
+    let mut bytes = Vec::with_capacity(meta.len().min(1024 * 1024) as usize);
     std::io::Read::read_to_end(&mut file, &mut bytes)
         .map_err(|_| json_error(StatusCode::NOT_FOUND, "This thumbnail isn't ready yet."))?;
+    // One allocation, shared with the cache — no second copy of the bytes.
+    let arc: std::sync::Arc<[u8]> = std::sync::Arc::from(bytes.into_boxed_slice());
     state
         .ram_cache
-        .put_thumb(drive_id, rel, bytes.clone(), mtime_secs);
-    serve_thumb_bytes(
-        std::sync::Arc::from(bytes.into_boxed_slice()),
-        mtime_secs,
-        etag,
-        headers,
-    )
+        .put_thumb_arc(drive_id, rel, arc.clone(), mtime_secs);
+    serve_thumb_bytes(arc, mtime_secs, etag, headers)
 }
 
 fn serve_thumb_bytes(

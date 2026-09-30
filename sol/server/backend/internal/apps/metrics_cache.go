@@ -67,7 +67,11 @@ func (c *AppMetricsCache) Stop() {
 func (c *AppMetricsCache) run(ctx context.Context) {
 	defer c.wg.Done()
 
-	ticker := time.NewTicker(1 * time.Second)
+	// Every 10s, not every second: each tick fans out to one Podman stats
+	// round-trip plus two SQLite queries per tracked app, all serialized
+	// through the single SQLite connection. 10s keeps the dashboard fresh
+	// while cutting that background load by 10x.
+	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 
 	for {

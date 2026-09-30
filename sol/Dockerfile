@@ -32,6 +32,10 @@ RUN VERSION=${VERSION} make build
 FROM alpine:3.22
 RUN apk add --no-cache ca-certificates docker-cli docker-compose restic
 
+# Least-resources tuning: collect garbage earlier so the Go heap stays small
+# (slightly more GC CPU, much lower idle/peak RSS on small boxes).
+ENV GOGC=50
+
 # Create non-root user
 RUN adduser -D -u 1000 libreserv
 

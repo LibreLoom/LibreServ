@@ -4,8 +4,20 @@ use lunad::{
     AppState, api, config::Config, db, drives::DriveManager, drives::mount::CommandMounter,
 };
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
+    // Capped runtime for 2 GiB targets: 2 async workers handle the HTTP
+    // workload (disk work goes to spawn_blocking), and 16 blocking threads
+    // cap the default pool of 512 thread stacks.
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .max_blocking_threads(16)
+        .enable_all()
+        .build()
+        .map_err(|e| anyhow::anyhow!("could not start async runtime: {e}"))?
+        .block_on(async_main())
+}
+
+async fn async_main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -236,9 +248,9 @@ async fn main() -> anyhow::Result<()> {
                     };
                     // Always rewrite so luna-console's mtime liveness check stays
                     // honest when status text is unchanged (e.g. Connect hostname
-                    // already shown).
+                    // already shown). Every 10s is plenty for a small HDMI screen.
                     let _ = lunad::system::console::write_issue(&data_dir, &snap);
-                    std::thread::sleep(std::time::Duration::from_secs(2));
+                    std::thread::sleep(std::time::Duration::from_secs(10));
                 }
             })
             .ok();
