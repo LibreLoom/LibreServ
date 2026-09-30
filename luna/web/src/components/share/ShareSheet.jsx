@@ -191,11 +191,10 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
   });
 
   const memberUserIds = new Set(members.map((m) => m.user_id));
-  const people = asList(directory.data).filter(
-    // `shareable` is the server flag — admins already hold everything, so a
-    // member row against them is meaningless.
-    (u) => u.shareable !== false && u.id !== user?.id && !memberUserIds.has(u.id),
-  );
+  const others = asList(directory.data).filter((u) => u.shareable !== false && u.id !== user?.id);
+  // Admins already hold everything, so the server refuses a member row for one.
+  const candidates = others.filter((u) => u.admin !== true);
+  const people = candidates.filter((u) => !memberUserIds.has(u.id));
   const noPeopleToAdd = directory.isSuccess && people.length === 0;
   const sheetError =
     error ||
@@ -351,9 +350,11 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
                 {noPeopleToAdd ? (
                   <div className="space-y-3 rounded-large-element surface-primary p-3">
                     <p className="text-secondary text-sm">
-                      {asList(directory.data).filter((u) => u.shareable !== false && u.id !== user?.id).length === 0
-                        ? "No people to share with yet."
-                        : "Everyone already has access."}
+                      {candidates.length > 0
+                        ? "Everyone already has access."
+                        : others.length > 0
+                          ? "Admins can already open everything."
+                          : "No people to share with yet."}
                     </p>
                     {user?.role === "admin" && (
                       <Button variant="secondary" surface="primary" size="sm" asChild>
