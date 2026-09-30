@@ -66,6 +66,19 @@ func evictIconCacheLocked() {
 			delete(iconCache.entries, id)
 		}
 	}
+	// Drop purged IDs from the LRU list too, or eviction below burns
+	// through dead IDs and can exit still over budget.
+	kept := iconCache.order[:0]
+	for _, id := range iconCache.order {
+		if _, ok := iconCache.entries[id]; ok {
+			kept = append(kept, id)
+		}
+	}
+	// Clear the tail so dropped IDs don't pin icon bytes.
+	for i := len(kept); i < len(iconCache.order); i++ {
+		iconCache.order[i] = ""
+	}
+	iconCache.order = kept
 	// Still over budget: evict least-recently-used first. Icons are
 	// re-read from disk on demand, so this only costs a re-read, never
 	// correctness.

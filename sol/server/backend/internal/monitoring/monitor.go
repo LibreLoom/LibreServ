@@ -89,6 +89,11 @@ func (m *Monitor) Start() {
 // cleanupLoop periodically deletes health/metrics rows older than retention.
 func (m *Monitor) cleanupLoop(interval, retention time.Duration) {
 	defer m.wg.Done()
+	// Run once at startup so boxes upgrading with already-bloated tables
+	// shrink immediately instead of waiting a full interval.
+	if err := m.CleanupOldData(retention); err != nil {
+		slog.Warn("failed to cleanup old monitoring data", "error", err)
+	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
