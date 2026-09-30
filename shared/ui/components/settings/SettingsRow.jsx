@@ -16,6 +16,7 @@ export default function SettingsRow({
   return (
     <div
       data-slot="settings-row"
+      data-settings-item="row"
       className={cn(
         stack
           ? "flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"
@@ -27,9 +28,9 @@ export default function SettingsRow({
       )}
     >
       <div className={stack ? "w-full lg:flex-1 lg:min-w-0 lg:pr-4" : "flex-1 min-w-0 pr-4"}>
-        <div className={cn("text-primary", mono && "font-mono")}>{label}</div>
+        <div data-settings-label className={cn("text-primary", mono && "font-mono")}>{label}</div>
         {description && (
-          <div className="text-sm mt-0.5">{description}</div>
+          <div data-settings-description className="text-sm mt-0.5">{description}</div>
         )}
       </div>
       <div className={stack ? "w-full min-w-0 lg:w-auto lg:flex-none" : "flex-shrink-0"}>{children}</div>

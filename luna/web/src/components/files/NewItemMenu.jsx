@@ -7,6 +7,7 @@ import { cn } from "@libreloom/ui/lib/utils.js";
 import { createKindsFor, groupedCreateKinds } from "../../lib/createKinds.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
+import { useShortcut } from "@libreloom/ui/context/ShortcutsContext.jsx";
 
 /**
  * One New button that opens a growing list of create kinds.
@@ -105,6 +106,8 @@ export default function NewItemMenu({ onPick, ids, surface = "secondary" }) {
     updatePosition();
     setIsOpen(true);
   }
+
+  useShortcut("n", handleTrigger, { label: "New file or folder", group: "Files" });
 
   function handleMenuKeyDown(event) {
     if (event.key === "ArrowDown") {

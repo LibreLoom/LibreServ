@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
 import DrivesPage, { inspectCountLine } from "./DrivesPage";
+import FileSearch from "../components/files/FileSearch";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 
 afterEach(() => {
@@ -86,6 +87,8 @@ function renderPage() {
       <QueryClientProvider client={client}>
         <AuthProvider>
           <DrivesPage />
+          {/* The overlay lives in AppShell; the page only holds its button. */}
+          <FileSearch />
         </AuthProvider>
       </QueryClientProvider>
     </MemoryRouter>

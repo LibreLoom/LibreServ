@@ -56,6 +56,7 @@ import useMultiSelect, { photoSelectionKey } from "../hooks/useMultiSelect.js";
 import { downloadHref } from "../lib/paths.js";
 import { useAuth } from "../context/AuthContext";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
+import { useShortcut, useShortcutsSheet } from "@libreloom/ui/context/ShortcutsContext.jsx";
 import {
   apiErrorMessage,
   deleteJson,
@@ -317,7 +318,7 @@ export default function GalleryPage() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filterFocus, setFilterFocus] = useState("");
-  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const shortcutsSheet = useShortcutsSheet();
   const [duplicatesView, setDuplicatesView] = useState(false);
   const [filters, setFilters] = useState(() => {
     const init =
@@ -736,20 +737,17 @@ export default function GalleryPage() {
       if (e.key === "Escape" && selection.selectMode) {
         selection.exit();
       }
-      const tag = (e.target instanceof HTMLElement ? e.target.tagName : "") || "";
-      const typing =
-        tag === "INPUT" ||
-        tag === "TEXTAREA" ||
-        tag === "SELECT" ||
-        (e.target instanceof HTMLElement && e.target.isContentEditable);
-      if (!typing && e.key === "/" && !e.metaKey && !e.ctrlKey && !e.altKey) {
-        e.preventDefault();
-        setSearchOpen(true);
-      }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [selection]);
+
+  // Beats the all-files search on `/`: here it means "search these photos".
+  useShortcut("/", () => setSearchOpen(true), {
+    label: "Search your photos",
+    group: "Search",
+    priority: 1,
+  });
 
   const indexing = !!galleryStatus.data?.busy;
   const foundCount = Number(galleryStatus.data?.found_count) || 0;
@@ -1345,8 +1343,7 @@ export default function GalleryPage() {
     || jumpOpen
     || lockedGate != null
     || lightbox != null
-    || filtersOpen
-    || shortcutsOpen;
+    || filtersOpen;
   useStrandedErrorToast(error, actionModalOpen, () => setError(null));
 
   // One rail for every scoped view: albums, smart albums, and any active
@@ -1449,7 +1446,7 @@ export default function GalleryPage() {
         showSelect={showTimeline || duplicatesView}
         onRescan={() => rescan.mutateAsync()}
         rescanPending={rescan.isPending}
-        onOpenShortcuts={() => setShortcutsOpen(true)}
+        onOpenShortcuts={shortcutsSheet ? shortcutsSheet.open : undefined}
       />
       {filterChips.length > 0 && (
         <div
@@ -2273,40 +2270,6 @@ export default function GalleryPage() {
           setFilterFocus("");
         }}
       />
-
-      <ModalCard
-        open={shortcutsOpen}
-        title="Keyboard shortcuts"
-        size="sm"
-        onClose={() => setShortcutsOpen(false)}
-      >
-        <ul className="space-y-3 text-sm" data-slot="gallery-shortcuts">
-          <li className="flex justify-between gap-4">
-            <span>Search</span>
-            <kbd className="font-mono rounded-pill surface-primary px-2 py-0.5">/</kbd>
-          </li>
-          <li className="flex justify-between gap-4">
-            <span>Clear / close</span>
-            <kbd className="font-mono rounded-pill surface-primary px-2 py-0.5">Esc</kbd>
-          </li>
-          <li className="flex justify-between gap-4">
-            <span>Select mode</span>
-            <span className="font-mono text-xs">Long-press a photo</span>
-          </li>
-          <li className="flex justify-between gap-4">
-            <span>Favorite in lightbox</span>
-            <kbd className="font-mono rounded-pill surface-primary px-2 py-0.5">f</kbd>
-          </li>
-          <li className="flex justify-between gap-4">
-            <span>Previous / next</span>
-            <span className="font-mono text-xs">← →</span>
-          </li>
-          <li className="flex justify-between gap-4">
-            <span>Move to trash</span>
-            <kbd className="font-mono rounded-pill surface-primary px-2 py-0.5">Delete</kbd>
-          </li>
-        </ul>
-      </ModalCard>
 
       </div>
     </Page>

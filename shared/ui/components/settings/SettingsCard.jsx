@@ -34,7 +34,8 @@ function SettingsCard({ index = 0, ...props }) {
     // overflow while the slide-in transform animation is applied. Without it
     // the settings content panel scrolls past the card into blank space.
     <div
-      className="animate-in fade-in slide-in-from-bottom-1 duration-150 overflow-hidden"
+      data-settings-item="card"
+      className="animate-in fade-in slide-in-from-bottom-1 duration-150 overflow-hidden rounded-large-element motion-safe:transition-shadow"
       style={{ animationDelay: `${delay}ms` }}
     >
       <Card noPopIn {...props} />

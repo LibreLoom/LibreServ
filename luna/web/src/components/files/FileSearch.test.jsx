@@ -1,14 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../../context/AuthContext";
-import FileSearch from "./FileSearch";
+import FileSearch, { FileSearchButton } from "./FileSearch";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
+import { ShortcutsProvider, useShortcut } from "@libreloom/ui/context/ShortcutsContext.jsx";
 
-/** @param {unknown[]} hits @param {{ searchHold?: Promise<void> }} [options] */
-function renderSearch(hits, { searchHold } = {}) {
+/** @param {unknown[]} hits @param {{ searchHold?: Promise<void>, extra?: import("react").ReactNode, before?: import("react").ReactNode }} [options] */
+function renderSearch(hits, { searchHold, extra = null, before = null } = {}) {
   vi.stubGlobal("fetch", vi.fn(async (url) => {
     const u = String(url);
     if (u.includes("/auth/me") || u.endsWith("/api/v1/auth/me")) {
@@ -47,13 +48,18 @@ function renderSearch(hits, { searchHold } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <ToastProvider>
+    <ShortcutsProvider>
     <QueryClientProvider client={client}>
       <MemoryRouter>
         <AuthProvider>
+          {before}
+          <FileSearchButton />
           <FileSearch />
+          {extra}
         </AuthProvider>
       </MemoryRouter>
     </QueryClientProvider>
+    </ShortcutsProvider>
     </ToastProvider>
   );
 }
@@ -90,7 +96,7 @@ describe("FileSearch", () => {
     expect(trigger).toHaveFocus();
   });
 
-  it("shows Searching and a spinner inside the results card", async () => {
+  it("shows Searching over the dot matrix while results load", async () => {
     /** @type {((value?: unknown) => void) | undefined} */
     let releaseSearch;
     const searchHold = new Promise((resolve) => {
@@ -101,11 +107,8 @@ describe("FileSearch", () => {
     fireEvent.change(screen.getByPlaceholderText("Search for a file"), {
       target: { value: "zz" },
     });
-    const searching = await screen.findByText(/Searching/i);
-    expect(searching).toBeInTheDocument();
-    const card = searching.closest("[data-slot=card]");
-    expect(card).toBeTruthy();
-    expect(card.querySelector("[data-slot=spinner]")).toBeTruthy();
+    const loader = await screen.findByRole("status", { name: /Searching/i });
+    expect(loader.querySelector("[data-slot=matrix-canvas]")).toBeTruthy();
     releaseSearch?.();
     expect(await screen.findByText(/Nothing matched/i)).toBeInTheDocument();
     expect(screen.queryByText(/Searching/i)).not.toBeInTheDocument();
@@ -140,8 +143,8 @@ describe("FileSearch", () => {
     expect(await screen.findByText("beach.jpg")).toBeInTheDocument();
     expect(screen.getByText(/Photos Drive \/ album/i)).toBeInTheDocument();
 
-    const row = await screen.findByRole("link", { name: /Show beach.jpg in its folder/i });
-    expect(row).toHaveAttribute("href", "/drives/d1?path=album&select=album%2Fbeach.jpg");
+    const row = await screen.findByRole("link", { name: /^Open beach.jpg$/i });
+    expect(row).toHaveAttribute("href", "/drives/d1?path=album&file=beach.jpg");
 
     const open = screen.getByRole("link", { name: /Go to folder for beach.jpg/i });
     expect(open).toHaveAttribute("href", "/drives/d1?path=album&select=album%2Fbeach.jpg");
@@ -156,6 +159,26 @@ describe("FileSearch", () => {
     expect(screen.getByRole("button", { name: /Copy beach.jpg/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Move beach.jpg$/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Move beach.jpg to trash/i })).toBeInTheDocument();
+  });
+
+  it("keeps select= for a file the viewer can't open", async () => {
+    renderSearch([
+      {
+        drive_id: "d1",
+        path: "album/data.bin",
+        parent: "album",
+        name: "data.bin",
+        kind: "file",
+        size: 10,
+        modified: 1,
+      },
+    ]);
+    await openSearchOverlay();
+    fireEvent.change(screen.getByPlaceholderText("Search for a file"), {
+      target: { value: "data" },
+    });
+    const row = await screen.findByRole("link", { name: /Show data.bin in its folder/i });
+    expect(row).toHaveAttribute("href", "/drives/d1?path=album&select=album%2Fdata.bin");
   });
 
   it("opens a folder hit into that folder", async () => {
@@ -202,7 +225,7 @@ describe("FileSearch", () => {
     fireEvent.change(screen.getByPlaceholderText("Search for a file"), {
       target: { value: "beach" },
     });
-    const row = await screen.findByRole("link", { name: /Show beach.jpg in its folder/i });
+    const row = await screen.findByRole("link", { name: /^Open beach.jpg$/i });
     fireEvent.click(row);
     await act(async () => {
       await new Promise((r) => setTimeout(r, 350));
@@ -284,4 +307,132 @@ describe("FileSearch", () => {
     expect(within(dialog).getByText(/Move to trash\?/i)).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: /Move to trash/i })).toBeInTheDocument();
   });
+
+  it("opens from / and Alt+/ anywhere", async () => {
+    renderSearch([]);
+    fireEvent.keyDown(document.body, { key: "/" });
+    expect(await screen.findByRole("dialog", { name: "Search for a file" })).toBeInTheDocument();
+  });
+
+  it("opens from Alt+/ while typing in another field", async () => {
+    renderSearch([], { extra: <input aria-label="Some field" /> });
+    fireEvent.keyDown(screen.getByLabelText("Some field"), { key: "/", code: "Slash", altKey: true });
+    expect(await screen.findByRole("dialog", { name: "Search for a file" })).toBeInTheDocument();
+  });
+
+  it("leaves / to a page's own search but keeps Alt+/", async () => {
+    const own = vi.fn();
+    function PageSearch() {
+      useShortcut("/", own, { label: "Search here", priority: 1 });
+      return null;
+    }
+    renderSearch([], { extra: <PageSearch /> });
+    fireEvent.keyDown(document.body, { key: "/" });
+    expect(own).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("dialog", { name: "Search for a file" })).not.toBeInTheDocument();
+    fireEvent.keyDown(document.body, { key: "/", code: "Slash", altKey: true });
+    expect(await screen.findByRole("dialog", { name: "Search for a file" })).toBeInTheDocument();
+  });
+
+  it("uses the visible header button, not HeaderCard's hidden copy that comes first", async () => {
+    renderSearch([], { before: <div aria-hidden="true"><FileSearchButton /></div> });
+    const [hidden, real] = screen.getAllByRole("button", { name: "Search", hidden: true });
+    fireEvent.keyDown(document.body, { key: "/" });
+    await screen.findByRole("dialog", { name: "Search for a file" });
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Search for a file" })).not.toBeInTheDocument());
+    expect(real).toHaveFocus();
+    expect(hidden).not.toHaveFocus();
+  });
+
+  it("navigates down from the searchbar to results and back up with arrow keys", async () => {
+    renderSearch([
+      {
+        drive_id: "d1",
+        path: "album/beach.jpg",
+        parent: "album",
+        name: "beach.jpg",
+        kind: "file",
+        size: 2048,
+        modified: 1,
+      },
+      {
+        drive_id: "d1",
+        path: "album/sunset.jpg",
+        parent: "album",
+        name: "sunset.jpg",
+        kind: "file",
+        size: 4096,
+        modified: 2,
+      },
+    ]);
+    await openSearchOverlay();
+    const input = screen.getByPlaceholderText("Search for a file");
+    fireEvent.change(input, { target: { value: "jpg" } });
+
+    const firstRow = await screen.findByRole("link", { name: /^Open beach.jpg$/i });
+    const secondRow = await screen.findByRole("link", { name: /^Open sunset.jpg$/i });
+
+    // Focus starts in the searchbar
+    input.focus();
+    expect(input).toHaveFocus();
+
+    // Down arrow from the searchbar moves focus to the first result
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(firstRow).toHaveFocus();
+
+    // Down arrow from the first result moves to the second result
+    fireEvent.keyDown(firstRow, { key: "ArrowDown" });
+    expect(secondRow).toHaveFocus();
+
+    // Up arrow from the second result moves back to the first result
+    fireEvent.keyDown(secondRow, { key: "ArrowUp" });
+    expect(firstRow).toHaveFocus();
+
+    // Up arrow from the first result moves back up to the searchbar
+    fireEvent.keyDown(firstRow, { key: "ArrowUp" });
+    expect(input).toHaveFocus();
+  });
+
+  it("navigates up to the searchbar from an action button on the first result", async () => {
+    renderSearch([
+      {
+        drive_id: "d1",
+        path: "album/beach.jpg",
+        parent: "album",
+        name: "beach.jpg",
+        kind: "file",
+        size: 2048,
+        modified: 1,
+      },
+    ]);
+    await openSearchOverlay();
+    const input = screen.getByPlaceholderText("Search for a file");
+    fireEvent.change(input, { target: { value: "beach" } });
+
+    const copyBtn = await screen.findByRole("button", { name: /Copy beach.jpg/i });
+    act(() => {
+      copyBtn.focus();
+    });
+    expect(copyBtn).toHaveFocus();
+
+    // Up arrow from an action button on the first row goes up to the searchbar
+    act(() => {
+      fireEvent.keyDown(copyBtn, { key: "ArrowUp" });
+    });
+    expect(input).toHaveFocus();
+  });
+
+  it("does not error when pressing ArrowDown with no results", async () => {
+    renderSearch([]);
+    await openSearchOverlay();
+    const input = screen.getByPlaceholderText("Search for a file");
+    input.focus();
+    expect(input).toHaveFocus();
+
+    // Down arrow when empty does not crash and leaves focus on input
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(input).toHaveFocus();
+  });
 });
+

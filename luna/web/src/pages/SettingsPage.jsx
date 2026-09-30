@@ -1,10 +1,14 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import SettingsSidebar from "@libreloom/ui/components/settings/SettingsSidebar.jsx";
+import { SettingsSearchField, SettingsSearchResults } from "@libreloom/ui/components/settings/SettingsSearch.jsx";
+import { useShortcut } from "@libreloom/ui/context/ShortcutsContext.jsx";
+import { findSettingsTarget } from "@libreloom/ui/lib/settingsSearch.js";
 import SettingsContent from "../components/settings/SettingsContent";
+import useSettingsSearch from "../components/settings/useSettingsSearch.jsx";
 import { visibleCategories } from "../components/settings/settingsCategories";
 import { useAuth } from "../context/AuthContext";
 import useConnectActive from "../hooks/useConnectActive";
@@ -48,10 +52,11 @@ export default function SettingsPage() {
   const isDesktop = useIsDesktop();
   const isAdmin = user?.role === "admin";
   const connectActive = useConnectActive();
-  const allowedCategoryIds = useMemo(
-    () => visibleCategories(isAdmin, connectActive).map((c) => c.id),
+  const categories = useMemo(
+    () => visibleCategories(isAdmin, connectActive),
     [isAdmin, connectActive],
   );
+  const allowedCategoryIds = useMemo(() => categories.map((c) => c.id), [categories]);
   const defaultCategory = "appearance";
   const hashCategory = categoryFromHash(location.hash, allowedCategoryIds);
 
@@ -82,6 +87,79 @@ export default function SettingsPage() {
     );
   };
 
+  // Search: typing replaces the page with matches; picking one opens its
+  // category and flashes the setting.
+  const [query, setQuery] = useState("");
+  const searching = query.trim().length > 0;
+  const { results, prepare } = useSettingsSearch(categories, query);
+  const searchInputRef = useRef(/** @type {HTMLInputElement | null} */ (null));
+  const focusSearchNextRef = useRef(false);
+  const [pendingHit, setPendingHit] = useState(
+    /** @type {import("@libreloom/ui/lib/settingsSearch.js").SettingsHit | null} */ (null),
+  );
+
+  // On a phone the box only exists on the category list, so `/` goes back to it first.
+  useEffect(() => {
+    if (!focusSearchNextRef.current || !searchInputRef.current) return;
+    focusSearchNextRef.current = false;
+    searchInputRef.current.focus();
+    searchInputRef.current.select();
+  });
+  useShortcut("/", () => {
+    if (searchInputRef.current) {
+      searchInputRef.current.focus();
+      searchInputRef.current.select();
+    } else {
+      focusSearchNextRef.current = true;
+      setShowMobileContent(false);
+    }
+  }, { label: "Search settings", group: "Search", priority: 1 });
+
+  const pickHit = (hit) => {
+    setQuery("");
+    selectCategory(hit.categoryId);
+    setPendingHit(hit.kind === "category" ? null : hit);
+  };
+
+  // The category draws in (and its cards fade in) after the pick, so look for
+  // the setting for a moment, then scroll to it and ring it briefly.
+  useEffect(() => {
+    if (!pendingHit || searching) return undefined;
+    let tries = 0;
+    const timers = /** @type {number[]} */ ([]);
+    const look = () => {
+      const target = findSettingsTarget(document, pendingHit);
+      if (target) {
+        const reduce = typeof window.matchMedia === "function"
+          && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        target.scrollIntoView?.({ block: "center", behavior: reduce ? "auto" : "smooth" });
+        target.classList.add("ring-2", "ring-accent");
+        timers.push(window.setTimeout(() => target.classList.remove("ring-2", "ring-accent"), 1800));
+        setPendingHit(null);
+      } else if (++tries < 30) {
+        timers.push(window.setTimeout(look, 100));
+      } else {
+        setPendingHit(null);
+      }
+    };
+    timers.push(window.setTimeout(look, 0));
+    return () => timers.forEach((t) => window.clearTimeout(t));
+  }, [pendingHit, searching, activeCategory]);
+
+  const searchField = (
+    <SettingsSearchField
+      value={query}
+      onChange={setQuery}
+      onSubmit={() => results?.[0] && pickHit(results[0])}
+      inputRef={searchInputRef}
+    />
+  );
+  // The first focus starts building the index so results are ready by the first key.
+  const searchBox = <div onFocusCapture={prepare}>{searchField}</div>;
+  const body = searching
+    ? <SettingsSearchResults query={query} results={results} onPick={pickHit} />
+    : <SettingsContent category={activeCategory} />;
+
   return (
     <Page
       padded={false}
@@ -90,9 +168,10 @@ export default function SettingsPage() {
       {isDesktop ? (
         <div className="flex flex-1 gap-6 px-8 pt-5 overflow-hidden min-h-0">
           <div className="w-[28%] min-w-[260px] max-w-[360px] flex-shrink-0 overflow-y-auto pb-24">
+            <div className="mb-3">{searchBox}</div>
             <SettingsSidebar
               user={user}
-              categories={visibleCategories(isAdmin, connectActive)}
+              categories={categories}
               memberHint="You're signed in as a Member. Ask an Admin to change External Services or About."
               userHref={(u) => (u.role === "admin" ? "/settings/users" : null)}
               deviceName="this Luna"
@@ -101,25 +180,30 @@ export default function SettingsPage() {
             />
           </div>
           <div className="flex-1 overflow-y-auto min-h-0 pl-10 pr-4 pb-24 animate-in fade-in slide-in-from-right-1 duration-150">
-            <SettingsContent category={activeCategory} />
+            {body}
           </div>
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto min-h-0">
-          {!showMobileContent ? (
+          {!showMobileContent || searching ? (
             <div className="p-4 pt-6 pb-24">
               <h1 className="text-xl font-mono font-normal text-secondary mb-4 animate-in fade-in duration-150">
                 Settings
               </h1>
+              <div className="mb-3">{searchBox}</div>
+              {searching ? (
+                <SettingsSearchResults query={query} results={results} onPick={pickHit} />
+              ) : (
               <SettingsSidebar
                 user={user}
-                categories={visibleCategories(isAdmin, connectActive)}
+                categories={categories}
                 memberHint="You're signed in as a Member. Ask an Admin to change External Services or About."
                 userHref={(u) => (u.role === "admin" ? "/settings/users" : null)}
                 deviceName="this Luna"
                 activeCategory={activeCategory}
                 onCategoryChange={selectCategory}
               />
+              )}
             </div>
           ) : (
             <div className="p-4 pt-6 pb-24 animate-in fade-in slide-in-from-right-2 duration-150">

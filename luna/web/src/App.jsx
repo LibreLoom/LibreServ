@@ -5,8 +5,10 @@ import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { ThemeProvider } from"@libreloom/ui/context/ThemeContext.jsx";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
+import { ShortcutsProvider } from "@libreloom/ui/context/ShortcutsContext.jsx";
 import Toaster from "@libreloom/ui/components/common/Toaster.jsx";
 import Navbar from "./components/ui/Navbar";
+import FileSearch from "./components/files/FileSearch";
 import LoadingBar from "@libreloom/ui/components/common/LoadingBar.jsx";
 import DrivesPage from "./pages/DrivesPage";
 import FilesPage from "./pages/FilesPage";
@@ -59,6 +61,7 @@ function AppShell() {
           <Outlet />
         </div>
         <Navbar />
+        <FileSearch />
       </div>
     </RequireAuth>
   );
@@ -77,6 +80,7 @@ export default function App() {
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
           <ToastProvider>
+            <ShortcutsProvider>
             <AuthProvider>
             <Routes>
               <Route path="/login" element={<LoginPage />} />
@@ -97,6 +101,7 @@ export default function App() {
             </Routes>
             <Toaster />
             </AuthProvider>
+            </ShortcutsProvider>
           </ToastProvider>
         </BrowserRouter>
       </QueryClientProvider>

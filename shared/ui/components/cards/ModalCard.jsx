@@ -6,6 +6,7 @@ import { cn } from "../../lib/utils.js";
 import Card from "../../components/cards/Card.jsx";
 import { useAnimatedHeight } from "../../hooks/useAnimatedHeight.jsx";
 import { haptic } from "../../utils/haptics.js";
+import { useShortcut } from "../../context/shortcutsRegistry.js";
 import { ICON_SIZE } from "../../lib/ui-tokens.js";
 
 /** @type {import('react').Context<(() => void) | null>} */
@@ -192,6 +193,21 @@ export default function ModalCard({
     : typeof children === "function"
       ? children({ close: handleClose })
       : children;
+
+  // Ctrl+Enter (⌘+Enter on Mac) sends the dialog's form from anywhere in it —
+  // the way to submit from a multi-line box, where Enter starts a new line.
+  useShortcut("Mod+Enter", () => {
+    if (overlayStack[overlayStack.length - 1] !== titleId) return false;
+    const form = dialogRef.current?.querySelector("form");
+    if (!form) return false;
+    form.requestSubmit();
+  }, {
+    label: "Send the open form",
+    group: "General",
+    enabled: present && !isClosing,
+    allowInModal: true,
+    allowInInput: true,
+  });
 
   useEffect(() => {
     if (!present) return undefined;

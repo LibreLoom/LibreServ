@@ -3,6 +3,7 @@ import {
   HardDrive,
   Home,
   Image as ImageIcon,
+  Keyboard,
   Share2,
   SlidersHorizontal,
   Users,
@@ -10,10 +11,11 @@ import {
   X,
 } from "lucide-react";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
-import { NavLink } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useAuth } from "../../context/AuthContext";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
+import { useShortcut, useShortcutsSheet } from "@libreloom/ui/context/ShortcutsContext.jsx";
 
 const TRANSITION = {
   duration: "duration-200",
@@ -97,9 +99,21 @@ function getSnapPosition(x, y, windowWidth, windowHeight) {
   return { x: targetX, y: targetY };
 }
 
+/** Alt+Shift+<position> jumps to that navbar item, so the keys follow what this user can see. */
+function NavShortcut({ item, position, enabled }) {
+  const navigate = useNavigate();
+  useShortcut(`Alt+Shift+${position}`, () => navigate(item.to), {
+    label: `Go to ${item.label}`,
+    group: "Go to",
+    enabled,
+  });
+  return null;
+}
+
 export default function Navbar() {
   const { user, logout } = useAuth();
   const isAdmin = user?.role === "admin";
+  const shortcutsSheet = useShortcutsSheet();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const menuButtonRef = useRef(null);
@@ -409,11 +423,12 @@ export default function Navbar() {
 
   const navButtonsElements = useMemo(
     () =>
-      visibleNav.map((item) => (
+      visibleNav.map((item, index) => (
         <React.Fragment key={`desktopNav-${item.to}`}>
           <NavLink
             to={item.to}
             end={item.end}
+            aria-keyshortcuts={`Alt+Shift+${index + 1}`}
             className={navButtonClasses}
             onClick={() => haptic("selection")}
           >
@@ -427,6 +442,9 @@ export default function Navbar() {
 
   return (
     <div data-slot="navbar">
+      {visibleNav.slice(0, 9).map((item, index) => (
+        <NavShortcut key={item.to} item={item} position={index + 1} enabled={!editorOpen} />
+      ))}
       <div className="hidden xl:flex">
         <nav
           className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 min-w-screen pl-6 pr-6"
@@ -474,6 +492,21 @@ export default function Navbar() {
                 <div
                   className={cn("surface-secondary", "rounded-large-element", "ring-2", "ring-accent", "px-4", "py-3", "flex", "flex-col", "gap-2", "min-w-48", "translate-y-2", isUserMenuOpen && "translate-y-0", TRANSITION.full)}
                 >
+                  {shortcutsSheet && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        haptic("light");
+                        setIsUserMenuOpen(false);
+                        shortcutsSheet.open();
+                      }}
+                      className={cn(menuItemClasses, "hover:bg-primary", "hover:text-secondary", "text-left")}
+                    >
+                      <Keyboard size={ICON_SIZE.md} aria-hidden="true" />
+                      <span className="text-sm font-semibold">Keyboard shortcuts</span>
+                    </button>
+                  )}
                   <button
                     type="button"
                     role="menuitem"
@@ -548,6 +581,7 @@ export default function Navbar() {
                 <NavLink
                   to={item.to}
                   end={item.end}
+                  aria-keyshortcuts={`Alt+Shift+${index + 1}`}
                   className={mobileMenuItemClasses}
                   onClick={() => {
                     haptic("selection");

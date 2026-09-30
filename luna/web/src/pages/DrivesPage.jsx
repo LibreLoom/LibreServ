@@ -17,7 +17,7 @@ import ShareSheet, { ShareButton } from "../components/share/ShareSheet.jsx";
 import ProtectSheet, { ProtectButton } from "../components/files/ProtectSheet";
 import InspectModal from "../components/files/InspectModal.jsx";
 import useCanProtect from "../hooks/useCanProtect";
-import FileSearch from "../components/files/FileSearch";
+import { FileSearchButton } from "../components/files/FileSearch";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import { TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { useAuth } from "../context/AuthContext";
@@ -430,7 +430,7 @@ export default function DrivesPage() {
   if (user?.role === "user") {
     const grants = memberAccessRoots(access.data || []).filter((g) => g.kind !== KIND_ALBUM);
     return (
-      <Page title="Files" titleId="drives-title" rightContent={<FileSearch />}>
+      <Page title="Files" titleId="drives-title" rightContent={<FileSearchButton />}>
         <div className="grid gap-4 md:grid-cols-2">
           {grants.map((grant) => (
             <Card key={grant.id} icon={FolderOpen} title={grant.name || grant.drive_label}>
@@ -475,7 +475,7 @@ export default function DrivesPage() {
   }
 
   return (
-    <Page title="Files" titleId="drives-title" rightContent={<FileSearch />}>
+    <Page title="Files" titleId="drives-title" rightContent={<FileSearchButton />}>
       {(drives.data || []).length === 0 && (
         <Card icon={PlugZap} title="No drives yet" className="mb-6">
           <p className="text-primary text-sm">

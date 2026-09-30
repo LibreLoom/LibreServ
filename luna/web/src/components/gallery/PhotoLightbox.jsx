@@ -25,6 +25,7 @@ import { Link } from "react-router-dom";
 import { lockBodyScroll } from "../../utils/bodyScrollLock.js";
 import { photoSelectionKey } from "../../hooks/useMultiSelect.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
+import { useShortcut } from "@libreloom/ui/context/ShortcutsContext.jsx";
 import { cn } from "@libreloom/ui/lib/utils.js";
 
 /** Match `fullscreen-overlay-out` / `file-viewer-out` duration in index.css. */
@@ -403,50 +404,69 @@ export default function PhotoLightbox({
   useEffect(() => {
     if (!photo) return undefined;
     function onKey(e) {
-      if (isClosingRef.current) return;
-      if (e.key === "Escape") {
-        if (infoOpen) {
-          haptic("light");
-          setInfoOpen(false);
-        } else {
-          requestClose();
-        }
-      }
-      if (e.key === "ArrowLeft") {
-        // Navigate from the committed destination, not the rendered prop —
-        // held/rapid keys keep accumulating instead of waiting on animations.
-        if (pendingRef.current > 0) {
-          haptic("selection");
-          commitTo(pendingRef.current - 1, 0, true);
-        } else {
-          haptic("rigid");
-        }
-      }
-      if (e.key === "ArrowRight") {
-        if (pendingRef.current < photos.length - 1) {
-          haptic("selection");
-          commitTo(pendingRef.current + 1, 0, true);
-        } else {
-          haptic("rigid");
-        }
-      }
-      if (!guest && (e.key === "f" || e.key === "F") && !e.metaKey && !e.ctrlKey) {
-        e.preventDefault();
-        haptic("selection");
-        onFavorite?.(photo);
-      }
-      if (!guest && e.key === "Delete") {
-        e.preventDefault();
-        onTrash?.(photo);
-      }
-      if ((e.key === "i" || e.key === "I") && !e.metaKey && !e.ctrlKey) {
+      if (isClosingRef.current || e.key !== "Escape") return;
+      if (infoOpen) {
         haptic("light");
-        setInfoOpen((v) => !v);
+        setInfoOpen(false);
+      } else {
+        requestClose();
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [photo, index, photos.length, requestClose, onIndexChange, onFavorite, onTrash, guest, infoOpen, commitTo]);
+  }, [photo, requestClose, infoOpen]);
+
+  // The rest of the lightbox keys go through the shared shortcut layer so the
+  // `?` sheet lists them. Dialog-safe: this lightbox is itself the open dialog.
+  const viewing = Boolean(photo);
+  useShortcut("ArrowLeft", () => {
+    if (isClosingRef.current) return;
+    // Navigate from the committed destination, not the rendered prop —
+    // held/rapid keys keep accumulating instead of waiting on animations.
+    if (pendingRef.current > 0) {
+      haptic("selection");
+      commitTo(pendingRef.current - 1, 0, true);
+    } else {
+      haptic("rigid");
+    }
+  }, { label: "Previous photo", group: "Photos", enabled: viewing, allowInModal: true, repeat: true });
+  useShortcut("ArrowRight", () => {
+    if (isClosingRef.current) return;
+    if (pendingRef.current < photos.length - 1) {
+      haptic("selection");
+      commitTo(pendingRef.current + 1, 0, true);
+    } else {
+      haptic("rigid");
+    }
+  }, { label: "Next photo", group: "Photos", enabled: viewing, allowInModal: true, repeat: true });
+  useShortcut("f", () => {
+    if (isClosingRef.current) return;
+    haptic("selection");
+    onFavorite?.(photo);
+  }, { label: "Favorite or unfavorite", group: "Photos", enabled: viewing && !guest, allowInModal: true });
+  useShortcut("i", () => {
+    if (isClosingRef.current) return;
+    haptic("light");
+    setInfoOpen((v) => !v);
+  }, { label: "Show or hide photo details", group: "Photos", enabled: viewing, allowInModal: true });
+  useShortcut("Delete", () => {
+    if (isClosingRef.current) return;
+    onTrash?.(photo);
+  }, { label: "Move to trash", group: "Photos", enabled: viewing && !guest, allowInModal: true });
+  const viewingVideo = viewing && photo?.kind === "video";
+  useShortcut("Space", () => {
+    // Every neighbouring pane holds a (paused) video too; the centered one is current.
+    const videos = /** @type {HTMLVideoElement[]} */ ([...document.querySelectorAll('[data-slot="photo-lightbox-stage"] video')]);
+    const mid = window.innerWidth / 2;
+    const distance = (/** @type {HTMLVideoElement} */ el) => {
+      const r = el.getBoundingClientRect();
+      return Math.abs(r.left + r.width / 2 - mid);
+    };
+    const current = videos.sort((a, b) => distance(a) - distance(b))[0];
+    if (!current) return false;
+    if (current.paused) current.play()?.catch(() => {});
+    else current.pause();
+  }, { label: "Play or pause the video", group: "Photos", enabled: viewingVideo, allowInModal: true });
 
   const syncTrack = useCallback(
     (fromLayout) => {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
@@ -7,6 +7,11 @@ import { AuthProvider } from "../context/AuthContext";
 import { ThemeProvider } from"@libreloom/ui/context/ThemeContext.jsx";
 import SettingsPage from "./SettingsPage";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
+import { ShortcutsProvider } from "@libreloom/ui/context/ShortcutsContext.jsx";
+import { visibleCategories } from "../components/settings/settingsCategories";
+import { CATEGORY_COMPONENTS } from "../components/settings/categoryComponents.js";
+import { settingsIndexWrapper } from "../components/settings/useSettingsSearch.jsx";
+import { buildSettingsIndex } from "@libreloom/ui/lib/settingsSearch.js";
 
 function stubFetch(role = "admin", connectActive = false) {
   vi.stubGlobal("fetch", vi.fn(async (url) => {
@@ -60,6 +65,7 @@ function renderPage(initialPath = "/settings") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <ToastProvider>
+    <ShortcutsProvider>
     <MemoryRouter initialEntries={[initialPath]}>
       <ThemeProvider>
         <QueryClientProvider client={client}>
@@ -69,6 +75,7 @@ function renderPage(initialPath = "/settings") {
         </QueryClientProvider>
       </ThemeProvider>
     </MemoryRouter>
+    </ShortcutsProvider>
     </ToastProvider>,
   );
 }
@@ -223,5 +230,90 @@ describe("SettingsPage", () => {
     await screen.findByText("max");
     expect(screen.queryByRole("button", { name: /External Services/i })).toBeNull();
     expect(screen.getByRole("button", { name: /^About$/i })).toBeTruthy();
+  });
+
+  describe("search", () => {
+    it("finds settings in categories that are not open, and jumps to them", async () => {
+      stubFetch("admin");
+      const user = userEvent.setup();
+      renderPage();
+      await screen.findByText("max");
+
+      await user.click(screen.getByRole("searchbox", { name: "Search settings" }));
+      await user.type(screen.getByRole("searchbox", { name: "Search settings" }), "haptics");
+      const results = await screen.findByRole("heading", { level: 1, name: "Search results" });
+      expect(results).toBeTruthy();
+      const hit = await screen.findByRole("button", { name: /Haptics/ });
+      expect(hit).toHaveTextContent("Appearance");
+
+      // From another category, picking a hit opens its category.
+      await user.clear(screen.getByRole("searchbox", { name: "Search settings" }));
+      await user.click(screen.getByRole("button", { name: /^Devices$/i }));
+      await user.type(screen.getByRole("searchbox", { name: "Search settings" }), "haptics");
+      await user.click(await screen.findByRole("button", { name: /Haptics/ }));
+      expect(await screen.findByRole("heading", { level: 1, name: "Appearance" })).toBeTruthy();
+      expect(screen.queryByRole("heading", { name: "Search results" })).toBeNull();
+      const card = await screen.findByRole("heading", { level: 2, name: "Haptics" });
+      await waitFor(() => expect(card.closest("[data-settings-item]")).toHaveClass("ring-2"));
+    });
+
+    it("says so when nothing matches", async () => {
+      stubFetch("admin");
+      const user = userEvent.setup();
+      renderPage();
+      await screen.findByText("max");
+      await user.type(screen.getByRole("searchbox", { name: "Search settings" }), "zzzzqq");
+      expect(await screen.findByText(/Nothing in Settings matches "zzzzqq"/)).toBeTruthy();
+    });
+
+    it("focuses the box on / and hides admin-only settings from members", async () => {
+      stubFetch("member");
+      const user = userEvent.setup();
+      renderPage();
+      await screen.findByText("max");
+      fireEvent.keyDown(document.body, { key: "/" });
+      const box = screen.getByRole("searchbox", { name: "Search settings" });
+      expect(box).toHaveFocus();
+      await user.type(box, "updates");
+      // "About" (updates) is admin-only, so a member has nothing to find.
+      expect(await screen.findByText(/Nothing in Settings matches "updates"/)).toBeTruthy();
+    });
+
+    it("clears with Escape, then leaves the box", async () => {
+      stubFetch("admin");
+      const user = userEvent.setup();
+      renderPage();
+      await screen.findByText("max");
+      const box = screen.getByRole("searchbox", { name: "Search settings" });
+      await user.type(box, "theme");
+      await user.keyboard("{Escape}");
+      expect(box).toHaveValue("");
+      expect(screen.getByRole("heading", { level: 1, name: "Appearance" })).toBeTruthy();
+      await user.keyboard("{Escape}");
+      expect(box).not.toHaveFocus();
+    });
+  });
+
+  // The guard that keeps the search maintenance-free: every category a person can
+  // see must render for the indexer and yield real cards, so a new category (or one
+  // that starts needing something the indexer doesn't provide) fails here instead of
+  // going quietly missing from search.
+  it("indexes every category", async () => {
+    stubFetch("admin", true);
+    const categories = visibleCategories(true, true);
+    expect(categories.length).toBeGreaterThan(0);
+    const errors = [];
+    const index = await buildSettingsIndex(
+      categories.map((c) => ({ id: c.id, label: c.label, Component: CATEGORY_COMPONENTS[c.id] })),
+      settingsIndexWrapper(new QueryClient()),
+      { onError: (id, error) => errors.push(`${id}: ${error}`) },
+    );
+    expect(errors).toEqual([]);
+    for (const c of categories) {
+      expect(
+        index.filter((h) => h.categoryId === c.id && h.kind === "card").length,
+        `${c.label} has no cards in the settings search`,
+      ).toBeGreaterThan(0);
+    }
   });
 });

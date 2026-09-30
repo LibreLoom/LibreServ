@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, act, fireEvent } from "@testing-library/react";
 import ModalCard, { useModalClose, EXIT_ANIMATION_MS, POP_IN_ANIMATION_MS } from "./ModalCard";
 import { HEIGHT_SETTLE_MS } from "../../hooks/useAnimatedHeight.jsx";
+import { ShortcutsProvider } from "../../context/ShortcutsContext.jsx";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -464,5 +465,24 @@ describe("ModalCard", () => {
     expect(onBottom).not.toHaveBeenCalled();
     expect(screen.getByRole("heading", { name: "Bottom" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Top" })).not.toBeInTheDocument();
+  });
+});
+
+describe("ModalCard Ctrl+Enter", () => {
+  it("sends the form inside the top dialog", () => {
+    const onSubmit = vi.fn((e) => e.preventDefault());
+    render(
+      <ShortcutsProvider>
+        <ModalCard title="Rename">
+          <form onSubmit={onSubmit}>
+            <textarea aria-label="Note" />
+          </form>
+        </ModalCard>
+      </ShortcutsProvider>,
+    );
+    fireEvent.keyDown(screen.getByLabelText("Note"), { key: "Enter", ctrlKey: true });
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    fireEvent.keyDown(screen.getByLabelText("Note"), { key: "Enter" });
+    expect(onSubmit).toHaveBeenCalledTimes(1);
   });
 });

@@ -29,6 +29,7 @@ import { ActionTooltipGroup, Tooltip } from "@libreloom/ui/components/ui/Tooltip
 import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
+import { useShortcut } from "@libreloom/ui/context/ShortcutsContext.jsx";
 import ToastContext from "@libreloom/ui/context/ToastContext.jsx";
 import { fileListKey, fileSourceScope, useFileSource } from "../../lib/fileSource.jsx";
 import { CAP, capsBits } from "../../lib/access.js";
@@ -526,6 +527,128 @@ export default function FileBrowser({
       : floorSegs[floorSegs.length - 1])
     : driveLabel;
   const upPath = up !== null && (!floored || pathContains(floor, up)) ? up : null;
+
+  // Keyboard: keys act on the selected rows. Pickers only pick, and dialogs
+  // (which own their keys) are skipped by the shortcut layer itself.
+  const filterInputRef = useRef(/** @type {HTMLInputElement|null} */ (null));
+  const focusFilterNextRef = useRef(false);
+  const cursorRef = useRef(/** @type {string|null} */ (null));
+  const keysOn = !isPicker;
+
+  // The folder search bar only exists while no rows are selected, so a `/`
+  // pressed with a selection clears it first and focuses the bar once it renders.
+  useEffect(() => {
+    if (!focusFilterNextRef.current || !filterInputRef.current) return;
+    focusFilterNextRef.current = false;
+    filterInputRef.current.focus();
+    filterInputRef.current.select();
+  });
+
+  function selectedEntry() {
+    if (selectedPaths.length !== 1) return null;
+    const i = visiblePaths.indexOf(selectedPaths[0]);
+    return i === -1 ? null : rowContext(visibleEntries[i]);
+  }
+
+  function moveSelection(delta, extend) {
+    if (visiblePaths.length === 0) return false;
+    const current = cursorRef.current && selectedPaths.includes(cursorRef.current)
+      ? cursorRef.current
+      : selectedPaths[selectedPaths.length - 1];
+    const from = current ? visiblePaths.indexOf(current) : -1;
+    const index = from === -1
+      ? (delta > 0 ? 0 : visiblePaths.length - 1)
+      : Math.min(Math.max(from + delta, 0), visiblePaths.length - 1);
+    const next = visiblePaths[index];
+    cursorRef.current = next;
+    haptic("selection");
+    const anchor = lastClicked && visiblePaths.includes(lastClicked) ? lastClicked : next;
+    if (extend && multiSelect) {
+      const [lo, hi] = [visiblePaths.indexOf(anchor), index].sort((a, b) => a - b);
+      setSelectedPaths(visiblePaths.slice(lo, hi + 1));
+      if (anchor === next) setLastClicked(next);
+    } else {
+      setSelectedPaths([next]);
+      setLastClicked(next);
+    }
+    window.requestAnimationFrame(() => {
+      const row = listRef.current?.querySelector(`[data-file-path="${cssEscape(next)}"]`);
+      row?.scrollIntoView?.({ block: "nearest" });
+    });
+    return true;
+  }
+
+  useShortcut("/", () => {
+    if (selectedPaths.length > 0) {
+      focusFilterNextRef.current = true;
+      clearSelection();
+      return true;
+    }
+    const input = filterInputRef.current;
+    if (!input) return false;
+    input.focus();
+    input.select();
+    return true;
+  }, { label: "Search this folder", group: "Search", priority: 1, enabled: keysOn });
+
+  useShortcut(["ArrowDown", "ArrowUp"], (event) => moveSelection(event.key === "ArrowDown" ? 1 : -1, false), {
+    label: "Move through the list", group: "Files", enabled: keysOn, repeat: true,
+  });
+  useShortcut(["Shift+ArrowDown", "Shift+ArrowUp"], (event) => moveSelection(event.key === "ArrowDown" ? 1 : -1, true), {
+    label: "Select several in a row", group: "Files", enabled: keysOn && multiSelect, repeat: true,
+  });
+  useShortcut("Mod+A", () => {
+    if (visiblePaths.length === 0) return false;
+    selectAllVisible();
+    return true;
+  }, { label: "Select everything in this folder", group: "Files", enabled: keysOn && multiSelect });
+  useShortcut("Enter", () => {
+    const ctx = selectedEntry();
+    if (!ctx || (ctx.entry.kind !== "dir" && !canOpenEntry(ctx))) return false;
+    openEntry(ctx);
+    return true;
+  }, { label: "Open the selected item", group: "Files", enabled: keysOn });
+  useShortcut("Space", () => {
+    const ctx = selectedEntry();
+    if (!ctx || !canOpenEntry(ctx)) return false;
+    openEntry(ctx);
+    return true;
+  }, { label: "Preview the selected file", group: "Files", enabled: keysOn });
+  useShortcut("Backspace", () => {
+    if (upPath === null) return false;
+    openFolder(upPath);
+    return true;
+  }, { label: "Go up one folder", group: "Files", enabled: keysOn && showUpButton });
+  useShortcut("F2", () => {
+    const ctx = selectedEntry();
+    if (!ctx || !onRename) return false;
+    onRename(ctx);
+    return true;
+  }, { label: "Rename", group: "Files", enabled: keysOn && Boolean(onRename) });
+  useShortcut("Delete", () => {
+    if (selectedPaths.length === 0 || !onDelete) return false;
+    onDelete(selectedPaths);
+    return true;
+  }, { label: "Move to trash", group: "Files", enabled: keysOn && Boolean(onDelete) });
+  useShortcut("s", () => {
+    const ctx = selectedEntry();
+    if (!ctx || !onShare || (capsBits(ctx.entry?.caps || "") & CAP.SHARE) === 0) return false;
+    onShare(ctx);
+    return true;
+  }, { label: "Share", group: "Files", enabled: keysOn && Boolean(onShare) });
+  useShortcut("d", () => {
+    const ctx = selectedEntry();
+    if (!ctx) return false;
+    const link = document.createElement("a");
+    link.href = source.downloadHref(driveId, ctx.fullPath, ctx.entry.kind);
+    link.click();
+    return true;
+  }, { label: "Download", group: "Files", enabled: keysOn && enableDownload });
+  useShortcut("u", () => {
+    if (!filePicker.current) return false;
+    filePicker.current.click();
+    return true;
+  }, { label: "Upload files", group: "Files", enabled: keysOn && enableUploadDrop });
   const listingForbidden = Boolean(
     listing.isError
       && forbiddenState
@@ -1173,7 +1296,7 @@ export default function FileBrowser({
                         to={folderHref(driveId, rootCrumbPath)}
                         surface={surface}
                         className={cn(
-                          `no-underline hover:underline decoration-accent underline-offset-4 break-all ${fg} rounded-pill px-1 -mx-1`,
+                          `no-underline hover:underline decoration-accent hover:decoration-accent underline-offset-4 break-all ${fg} rounded-pill px-1 -mx-1`,
                           isRootDrop && "ring-2 ring-accent",
                         )}
                         draggable={false}
@@ -1213,7 +1336,7 @@ export default function FileBrowser({
                             to={folderHref(driveId, segPath)}
                             surface={surface}
                             className={cn(
-                              `no-underline hover:underline decoration-accent underline-offset-4 break-all ${fg} rounded-pill px-1 -mx-1`,
+                              `no-underline hover:underline decoration-accent hover:decoration-accent underline-offset-4 break-all ${fg} rounded-pill px-1 -mx-1`,
                               isSegDrop && "ring-2 ring-accent",
                             )}
                             draggable={false}
@@ -1510,6 +1633,7 @@ export default function FileBrowser({
                   <label className="flex min-w-0 flex-1 items-center gap-2">
                     <Search size={14} className="shrink-0" aria-hidden="true" />
                     <input
+                      ref={filterInputRef}
                       type="text"
                       className={`min-w-0 flex-1 appearance-none border-0 bg-transparent text-sm ${wellFg} shadow-none outline-none no-focus-outline`}
                       placeholder="Find in this folder"
@@ -1528,19 +1652,21 @@ export default function FileBrowser({
                     ) : null}
                   </label>
                   {/* Always rendered so the bar keeps its height: the button is
-                      taller than the text row. Hidden until there's text. */}
-                  <Button
-                    variant="ghost"
-                    surface={well}
-                    size="iconSm"
-                    aria-label="Clear the folder filter"
-                    aria-hidden={filterText ? undefined : true}
-                    tabIndex={filterText ? undefined : -1}
-                    className={filterText ? "" : "invisible"}
-                    onClick={() => setFilterText("")}
-                  >
-                    <X size={14} />
-                  </Button>
+                      taller than the text row. Hidden until there's text, and
+                      zero-width then so the counter sits at the pill's edge. */}
+                  <div className={`overflow-hidden motion-safe:transition-all ${filterText ? "max-w-10 ml-0 opacity-100" : "pointer-events-none max-w-0 -ml-2 opacity-0"}`}>
+                    <Button
+                      variant="ghost"
+                      surface={well}
+                      size="iconSm"
+                      aria-label="Clear the folder filter"
+                      aria-hidden={filterText ? undefined : true}
+                      tabIndex={filterText ? undefined : -1}
+                      onClick={() => setFilterText("")}
+                    >
+                      <X size={14} />
+                    </Button>
+                  </div>
                 </div>
                 <SegmentedControl
                   surface={surface}

@@ -14,6 +14,7 @@ const DISCS = {
 const SIZES = {
   sm: { disc: "w-5 h-5", icon: "w-3 h-3" },
   md: { disc: "w-7 h-7", icon: "w-3.5 h-3.5" },
+  lg: { disc: "w-12 h-12 border-2", icon: "w-5 h-5" },
 };
 
 /** Status disc for a health-check row. */
@@ -37,6 +38,6 @@ export default function CheckStatusIcon({ status, size = "md", className = "" })
 
 CheckStatusIcon.propTypes = {
   status: PropTypes.string,
-  size: PropTypes.oneOf(["sm", "md"]),
+  size: PropTypes.oneOf(["sm", "md", "lg"]),
   className: PropTypes.string,
 };

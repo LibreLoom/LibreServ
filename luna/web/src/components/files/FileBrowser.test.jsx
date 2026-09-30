@@ -4,6 +4,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useSearchParams } from "react-router-dom";
+import { ShortcutsProvider } from "@libreloom/ui/context/ShortcutsContext.jsx";
 import FileBrowser from "./FileBrowser.jsx";
 
 function stubListing(byPath) {
@@ -1487,10 +1488,10 @@ describe("FileBrowser sorting and filtering", () => {
     // The clear button holds its slot (so the bar never changes height) but
     // stays hidden and out of reach until there's text.
     const clear = screen.getByLabelText("Clear the folder filter");
-    expect(clear).toHaveClass("invisible");
+    expect(clear.parentElement).toHaveClass("opacity-0");
     expect(screen.queryByRole("button", { name: "Clear the folder filter" })).toBeNull();
     fireEvent.change(input, { target: { value: "bea" } });
-    expect(clear).not.toHaveClass("invisible");
+    expect(clear.parentElement).not.toHaveClass("opacity-0");
 
     expect(screen.getByText("beach.jpg")).toBeInTheDocument();
     expect(screen.queryByText("notes.txt")).not.toBeInTheDocument();
@@ -1500,7 +1501,7 @@ describe("FileBrowser sorting and filtering", () => {
     fireEvent.click(screen.getByRole("button", { name: "Clear the folder filter" }));
     expect(screen.getByText("notes.txt")).toBeInTheDocument();
     expect(screen.queryByText("1 of 3")).not.toBeInTheDocument();
-    expect(clear).toHaveClass("invisible");
+    expect(clear.parentElement).toHaveClass("opacity-0");
   });
 
   it("filters by kind with the All / Folders / Files control", async () => {
@@ -1745,5 +1746,125 @@ describe("FileBrowser sorting and filtering", () => {
     expect(screen.getByLabelText("Find in this folder")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sort files" })).toBeInTheDocument();
     expect(screen.queryByLabelText("Select all in this folder")).not.toBeInTheDocument();
+  });
+});
+
+describe("FileBrowser keyboard", () => {
+  const listing = {
+    "": [
+      { name: "album", kind: "dir", size: 0, hidden: false },
+      { name: "a.txt", kind: "file", size: 1, hidden: false },
+      { name: "b.txt", kind: "file", size: 2, hidden: false },
+    ],
+    album: [{ name: "c.txt", kind: "file", size: 3, hidden: false }],
+  };
+  const press = (init) => fireEvent.keyDown(document.body, init);
+
+  function renderKeys(props = {}) {
+    stubListing(listing);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const onSelectedPathsChange = vi.fn();
+    function Harness() {
+      const [selected, setSelected] = useState([]);
+      return (
+        <FileBrowser
+          driveId="d1"
+          driveLabel="Photos"
+          selectedPaths={selected}
+          onSelectedPathsChange={(next) => {
+            onSelectedPathsChange(next);
+            setSelected(next);
+          }}
+          {...props}
+        />
+      );
+    }
+    render(
+      <ShortcutsProvider>
+        <QueryClientProvider client={client}>
+          <MemoryRouter>
+            <Harness />
+          </MemoryRouter>
+        </QueryClientProvider>
+      </ShortcutsProvider>,
+    );
+    return { onSelectedPathsChange };
+  }
+
+  it("moves the selection with the arrow keys and extends it with Shift", async () => {
+    const { onSelectedPathsChange } = renderKeys();
+    await screen.findByText("a.txt");
+    press({ key: "ArrowDown" });
+    expect(onSelectedPathsChange).toHaveBeenLastCalledWith(["album"]);
+    press({ key: "ArrowDown" });
+    expect(onSelectedPathsChange).toHaveBeenLastCalledWith(["a.txt"]);
+    press({ key: "ArrowDown", shiftKey: true });
+    expect(onSelectedPathsChange).toHaveBeenLastCalledWith(["a.txt", "b.txt"]);
+    press({ key: "ArrowUp" });
+    expect(onSelectedPathsChange).toHaveBeenLastCalledWith(["a.txt"]);
+  });
+
+  it("selects everything with Ctrl+A", async () => {
+    const { onSelectedPathsChange } = renderKeys();
+    await screen.findByText("a.txt");
+    press({ key: "a", ctrlKey: true });
+    expect(onSelectedPathsChange).toHaveBeenLastCalledWith(["album", "a.txt", "b.txt"]);
+  });
+
+  it("opens a folder with Enter and goes back up with Backspace", async () => {
+    renderKeys();
+    await screen.findByText("a.txt");
+    press({ key: "ArrowDown" });
+    press({ key: "Enter" });
+    expect(await screen.findByText("c.txt")).toBeInTheDocument();
+    press({ key: "Backspace" });
+    expect(await screen.findByText("b.txt")).toBeInTheDocument();
+  });
+
+  it("renames, deletes, shares and opens the selected row", async () => {
+    const onRename = vi.fn();
+    const onDelete = vi.fn();
+    const onShare = vi.fn();
+    const onOpenFile = vi.fn();
+    renderKeys({ onRename, onDelete, onShare, onOpenFile });
+    await screen.findByText("a.txt");
+    press({ key: "ArrowDown" });
+    press({ key: "ArrowDown" });
+    press({ key: "F2" });
+    expect(onRename).toHaveBeenCalledWith(expect.objectContaining({ fullPath: "a.txt" }));
+    press({ key: "Delete" });
+    expect(onDelete).toHaveBeenCalledWith(["a.txt"]);
+    press({ key: " " });
+    expect(onOpenFile).toHaveBeenCalledWith(expect.objectContaining({ fullPath: "a.txt" }));
+    // Sharing needs the share permission on the row; this row has none.
+    press({ key: "s" });
+    expect(onShare).not.toHaveBeenCalled();
+  });
+
+  it("jumps to the folder search with /, even from a selection", async () => {
+    renderKeys();
+    await screen.findByText("a.txt");
+    press({ key: "/" });
+    expect(screen.getByLabelText("Find in this folder")).toHaveFocus();
+    fireEvent.blur(screen.getByLabelText("Find in this folder"));
+    press({ key: "ArrowDown" });
+    press({ key: "/" });
+    await waitFor(() => expect(screen.getByLabelText("Find in this folder")).toHaveFocus());
+  });
+
+  it("does not steal keys while typing in the folder search", async () => {
+    const { onSelectedPathsChange } = renderKeys();
+    await screen.findByText("a.txt");
+    const input = screen.getByLabelText("Find in this folder");
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: "a", ctrlKey: true });
+    expect(onSelectedPathsChange).not.toHaveBeenCalled();
+  });
+
+  it("ignores the keys in a picker", async () => {
+    const { onSelectedPathsChange } = renderKeys({ pickerMode: "folder" });
+    await screen.findByText("a.txt");
+    press({ key: "ArrowDown" });
+    expect(onSelectedPathsChange).not.toHaveBeenCalled();
   });
 });

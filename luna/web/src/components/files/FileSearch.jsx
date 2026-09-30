@@ -13,7 +13,6 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import Card from "@libreloom/ui/components/cards/Card.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
@@ -21,14 +20,17 @@ import ModalErrorNotice from "@libreloom/ui/components/common/ModalErrorNotice.j
 import { showPageLevelError } from "../../lib/modalScopedError";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
-import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
+import DotMatrixLoader from "@libreloom/ui/components/ui/DotMatrixLoader.jsx";
 import { ActionTooltipGroup, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import ShareSheet, { ShareButton } from "../share/ShareSheet.jsx";
 import FolderPickerModal from "./FolderPickerModal";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
+import { useShortcut } from "@libreloom/ui/context/ShortcutsContext.jsx";
+import { OPEN_FILE_SEARCH_EVENT, openFileSearch } from "../../lib/fileSearch.js";
 import { apiErrorMessage, getDrives, getJson, postJson } from "../../lib/api";
-import { downloadHref as fileDownloadHref, parentPath, searchResultHref } from "../../lib/paths";
-import { capsOnPath, memberSearchHref } from "../../lib/shareTree.js";
+import { downloadHref as fileDownloadHref, fileHref, parentPath, searchResultHref } from "../../lib/paths";
+import { canViewerOpen } from "../../lib/officeConvert.js";
+import { capsOnPath, memberFileHref, memberSearchHref } from "../../lib/shareTree.js";
 import { CAP } from "../../lib/access.js";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { cn } from "@libreloom/ui/lib/utils.js";
@@ -117,8 +119,38 @@ function applyFlip(el, fromRect, direction) {
   return true;
 }
 
+/** The header search icon. Opens the all-files search and is where it morphs from. */
+export function FileSearchButton() {
+  return (
+    <span className="inline-flex" data-slot="file-search-trigger">
+      <Button
+        variant="ghost"
+        surface="secondary"
+        size="icon"
+        aria-label="Search"
+        aria-haspopup="dialog"
+        aria-keyshortcuts="/"
+        onClick={openFileSearch}
+      >
+        <Search size={20} aria-hidden="true" />
+      </Button>
+    </span>
+  );
+}
+
 /**
- * Universal search across drives — header icon that morphs into an overlay.
+ * The header search icon on this page. Skips aria-hidden copies — HeaderCard keeps
+ * an invisible measuring copy of its buttons pinned to the top left.
+ */
+function searchTrigger() {
+  const all = /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll('[data-slot="file-search-trigger"]'));
+  return [...all].find((el) => !el.closest('[aria-hidden="true"]')) ?? null;
+}
+
+/**
+ * Universal search across drives — an overlay that morphs out of the header
+ * search icon (`FileSearchButton`) when the page has one. Mounted once in
+ * AppShell; the button, `/`, and `Alt+/` all open it.
  * Each hit includes the same actions you get on a file row (open, download,
  * share, copy, move, trash) so a match is never just a name you can't use.
  */
@@ -136,16 +168,19 @@ export default function FileSearch() {
 
   const [present, setPresent] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
-  const triggerWrapRef = useRef(/** @type {HTMLSpanElement | null} */ (null));
+  const returnFocusRef = useRef(/** @type {HTMLElement | null} */ (null));
   const inputRef = useRef(/** @type {HTMLInputElement | null} */ (null));
   const panelRef = useRef(/** @type {HTMLDivElement | null} */ (null));
   const fromRectRef = useRef(/** @type {DOMRect | null} */ (null));
   const exitTimerRef = useRef(/** @type {ReturnType<typeof setTimeout> | null} */ (null));
   const isClosingRef = useRef(false);
+  const bodyInnerRef = useRef(/** @type {HTMLDivElement | null} */ (null));
+  const [bodyHeight, setBodyHeight] = useState(/** @type {number | null} */ (null));
 
   const focusTrigger = useCallback(() => {
-    const button = triggerWrapRef.current?.querySelector("button");
-    button?.focus();
+    const button = searchTrigger()?.querySelector("button");
+    const target = button || returnFocusRef.current;
+    if (target?.isConnected) target.focus();
   }, []);
 
   useEffect(() => {
@@ -153,7 +188,11 @@ export default function FileSearch() {
     return () => clearTimeout(t);
   }, [typed]);
 
-  const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives });
+  // `q` is debounced, so also require the live text to be long enough —
+  // otherwise old results linger for a moment after the text gets too short.
+  const searchActive = q.length >= 2 && typed.trim().length >= 2;
+
+  const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives, enabled: present });
   const labels = Object.fromEntries((drives.data || []).map((d) => [d.id, d.label]));
 
   const results = useQuery({
@@ -167,7 +206,7 @@ export default function FileSearch() {
   const memberAccess = useQuery({
     queryKey: ["my-access"],
     queryFn: () => getJson("/api/v1/me/access"),
-    enabled: Boolean(user?.role) && user.role !== "admin",
+    enabled: present && Boolean(user?.role) && user.role !== "admin",
   });
 
   const removeMutation = useMutation({
@@ -250,10 +289,12 @@ export default function FileSearch() {
     isClosingRef.current = true;
     setIsClosing(true);
 
-    const trigger = triggerWrapRef.current?.getBoundingClientRect() ?? fromRectRef.current;
+    const trigger = searchTrigger()?.getBoundingClientRect() ?? fromRectRef.current;
     const panel = panelRef.current;
-    if (panel && trigger) {
-      applyFlip(panel, trigger, "close");
+    if (panel && !(trigger && applyFlip(panel, trigger, "close"))) {
+      // No header icon to shrink into (e.g. opened from Home): just fade out.
+      panel.style.transition = "opacity var(--motion-duration-short4) var(--motion-easing-emphasized-accelerate)";
+      panel.style.opacity = "0";
     }
 
     exitTimerRef.current = setTimeout(() => {
@@ -268,12 +309,19 @@ export default function FileSearch() {
       exitTimerRef.current = null;
     }
     isClosingRef.current = false;
-    fromRectRef.current = triggerWrapRef.current?.getBoundingClientRect() ?? null;
+    fromRectRef.current = searchTrigger()?.getBoundingClientRect() ?? null;
+    returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setIsClosing(false);
     setPresent(true);
     haptic("medium");
   }, [isClosing, present]);
 
+  useEffect(() => {
+    window.addEventListener(OPEN_FILE_SEARCH_EVENT, openOverlay);
+    return () => window.removeEventListener(OPEN_FILE_SEARCH_EVENT, openOverlay);
+  }, [openOverlay]);
+
+  useShortcut(["/", "Alt+/"], openOverlay, { label: "Search all your files", group: "Search" });
   // FLIP open: invert from the header button into the elevated search surface.
   useLayoutEffect(() => {
     if (!present || isClosing) return;
@@ -294,6 +342,17 @@ export default function FileSearch() {
     }, prefersReducedMotion() ? 0 : 40);
     return () => window.clearTimeout(id);
   }, [present, isClosing]);
+
+  // Track the results' natural height so the panel glides between states
+  // (hint → loading → results) instead of jumping.
+  useLayoutEffect(() => {
+    const el = bodyInnerRef.current;
+    if (!present || !el || typeof ResizeObserver === "undefined") return undefined;
+    setBodyHeight(el.offsetHeight);
+    const ro = new ResizeObserver(() => setBodyHeight(el.offsetHeight));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [present]);
 
   // Escape / body scroll lock while the overlay is present.
   useEffect(() => {
@@ -319,6 +378,56 @@ export default function FileSearch() {
 
   useEffect(() => () => {
     if (exitTimerRef.current != null) clearTimeout(exitTimerRef.current);
+  }, []);
+
+  const handleInputKeyDown = useCallback((/** @type {import("react").KeyboardEvent<HTMLInputElement>} */ event) => {
+    if (event.key === "ArrowDown" && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
+      const firstLink = panelRef.current?.querySelector?.('[data-slot="file-search-link"]');
+      if (firstLink instanceof HTMLElement) {
+        event.preventDefault();
+        firstLink.focus();
+        firstLink.scrollIntoView?.({ block: "nearest" });
+      }
+    }
+  }, []);
+
+  const handleListKeyDown = useCallback((/** @type {import("react").KeyboardEvent<HTMLUListElement>} */ event) => {
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+
+    const allLinks = /** @type {HTMLElement[]} */ ([
+      ...(panelRef.current?.querySelectorAll?.('[data-slot="file-search-link"]') ?? []),
+    ]);
+    if (!allLinks.length) return;
+
+    const currentItem = /** @type {HTMLElement|null} */ (event.target instanceof HTMLElement ? event.target.closest('[data-slot="file-search-item"]') : null);
+    const allItems = /** @type {HTMLElement[]} */ ([
+      ...(panelRef.current?.querySelectorAll?.('[data-slot="file-search-item"]') ?? []),
+    ]);
+    const currentIndex = currentItem ? allItems.indexOf(currentItem) : -1;
+
+    if (event.key === "ArrowDown") {
+      if (currentIndex >= 0 && currentIndex < allLinks.length - 1) {
+        event.preventDefault();
+        const nextLink = allLinks[currentIndex + 1];
+        nextLink?.focus();
+        nextLink?.scrollIntoView?.({ block: "nearest" });
+      } else if (currentIndex === allLinks.length - 1) {
+        event.preventDefault();
+      }
+    } else if (event.key === "ArrowUp") {
+      if (currentIndex > 0) {
+        event.preventDefault();
+        const prevLink = allLinks[currentIndex - 1];
+        prevLink?.focus();
+        prevLink?.scrollIntoView?.({ block: "nearest" });
+      } else if (currentIndex === 0 || currentIndex === -1) {
+        event.preventDefault();
+        inputRef.current?.focus();
+        const len = inputRef.current?.value?.length ?? 0;
+        inputRef.current?.setSelectionRange?.(len, len);
+      }
+    }
   }, []);
 
   const overlay = present
@@ -366,6 +475,7 @@ export default function FileSearch() {
                       placeholder="Search for a file"
                       value={typed}
                       onChange={(e) => setTyped(e.target.value)}
+                      onKeyDown={handleInputKeyDown}
                       aria-label="Search for a file"
                       autoComplete="off"
                       autoCorrect="off"
@@ -385,7 +495,11 @@ export default function FileSearch() {
               </Button>
             </div>
 
-            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-3">
+            <div
+              className="flex-[0_1_auto] min-h-0 overflow-y-auto overscroll-contain motion-safe:transition-[height] motion-safe:duration-300 motion-safe:ease-[var(--motion-easing-emphasized)]"
+              style={bodyHeight != null ? { height: bodyHeight } : undefined}
+            >
+             <div ref={bodyInnerRef} className="px-4 py-3">
               {showPageLevelError(actionError, actionModalOpen) && (
                 <PageNotice variant="error" className="mb-3">
                   {actionError}
@@ -398,26 +512,25 @@ export default function FileSearch() {
                 </p>
               )}
 
-              {q.length >= 2 && results.isError && (
+              {searchActive && results.isError && (
                 <p className="text-error text-xs mb-2">
                   {apiErrorMessage(results.error, "Luna couldn't search right now. Try again.")}
                 </p>
               )}
 
-              {q.length >= 2 && results.isLoading && (
-                <Card surface="primary" className="mt-1">
-                  <div
-                    className="flex items-center justify-center gap-3 py-4 text-secondary"
-                    role="status"
-                    aria-live="polite"
+              {searchActive && results.isLoading && (
+                <div className="relative mt-1 h-48 overflow-hidden rounded-large-element surface-primary">
+                  <DotMatrixLoader label="Searching…" />
+                  <span
+                    aria-hidden="true"
+                    className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-pill surface-secondary px-4 py-1.5 text-sm font-mono"
                   >
-                    <p className="text-sm font-mono text-secondary">Searching…</p>
-                    <Spinner size="lg" decorative className="text-secondary" />
-                  </div>
-                </Card>
+                    Searching…
+                  </span>
+                </div>
               )}
 
-              {q.length >= 2 && !results.isLoading && (results.data || []).length === 0 && (
+              {searchActive && !results.isLoading && (results.data || []).length === 0 && (
                 <EmptyState
                   className="mt-1"
                   surface="primary"
@@ -426,8 +539,12 @@ export default function FileSearch() {
                 />
               )}
 
-              {(results.data || []).length > 0 && (
-                <ul className="grid gap-2">
+              {searchActive && (results.data || []).length > 0 && (
+                <ul
+                  data-slot="file-search-list"
+                  className="grid gap-2"
+                  onKeyDown={handleListKeyDown}
+                >
                   {results.data.map((item) => {
                     const driveLabel = labels[item.drive_id] || "A drive";
                     const isDir = item.kind === "dir";
@@ -443,14 +560,22 @@ export default function FileSearch() {
                       : CAP.VIEW | CAP.UPLOAD | CAP.EDIT | CAP.SHARE;
                     const canShare = (itemCaps & CAP.SHARE) !== 0;
                     const canEdit = (itemCaps & CAP.EDIT) !== 0;
-                    const openLabel = isDir
+                    // Openable files open in the viewer on a plain click; the
+                    // folder icon still jumps to the file's folder.
+                    const opensInViewer = !isDir && canViewerOpen(item.name);
+                    const rowHref = opensInViewer
+                      ? (memberAccess.data
+                        ? memberFileHref(memberAccess.data, item.drive_id, item.path)
+                        : fileHref(item.drive_id, item.path))
+                      : href;
+                    const openLabel = isDir || opensInViewer
                       ? `Open ${item.name}`
                       : `Show ${item.name} in its folder`;
                     const iconOpenLabel = isDir
                       ? `Open ${item.name}`
                       : `Go to folder for ${item.name}`;
                     return (
-                      <li key={`${item.drive_id}:${item.path}`}>
+                      <li key={`${item.drive_id}:${item.path}`} data-slot="file-search-item">
                         <div
                           className={cn(
                             "relative rounded-large-element surface-primary px-3 py-2",
@@ -460,9 +585,10 @@ export default function FileSearch() {
                         >
                           {/* Stretched link: row body navigates; action icons sit above it. */}
                           <Link
-                            to={href}
+                            to={rowHref}
                             aria-label={openLabel}
-                            className="absolute inset-0 z-0 rounded-large-element"
+                            data-slot="file-search-link"
+                            className="absolute inset-0 z-0 rounded-large-element no-focus-outline"
                             onClick={() => beginClose("medium")}
                           />
                           <div className="relative z-10 flex items-center gap-2 min-w-0 pointer-events-none">
@@ -590,6 +716,7 @@ export default function FileSearch() {
                   Search every file and folder you can open.
                 </p>
               )}
+             </div>
             </div>
           </div>
         </div>,
@@ -598,21 +725,7 @@ export default function FileSearch() {
     : null;
 
   return (
-    <div data-slot="file-search" className="inline-flex">
-      <span ref={triggerWrapRef} className="inline-flex" data-slot="file-search-trigger">
-        <Button
-          variant="ghost"
-          surface="secondary"
-          size="icon"
-          aria-label="Search"
-          aria-haspopup="dialog"
-          aria-expanded={present && !isClosing}
-          onClick={openOverlay}
-        >
-          <Search size={20} aria-hidden="true" />
-        </Button>
-      </span>
-
+    <>
       {overlay}
 
       <ModalCard
@@ -682,6 +795,6 @@ export default function FileSearch() {
         }
         onClose={() => setAccessTarget(null)}
       />
-    </div>
+    </>
   );
 }

@@ -6,7 +6,7 @@ import Page from "@libreloom/ui/components/ui/Page.jsx";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
-import FileSearch from "../components/files/FileSearch";
+import { FileSearchButton } from "../components/files/FileSearch";
 import DriveFileExplorer from "../components/files/DriveFileExplorer";
 import DriveMenu from "../components/files/DriveMenu";
 import useDriveMove from "../hooks/useDriveMove";
@@ -137,7 +137,7 @@ export default function FilesPage() {
             moveFilesMutation.mutate({ paths, destFolder: destPath, destDriveId, fromDriveId: sourceDriveId })}
         />
       ) : undefined}
-      rightContent={<FileSearch />}
+      rightContent={<FileSearchButton />}
     >
       {activeJobs.length > 0 && (
         <div className="grid gap-3 mb-4">

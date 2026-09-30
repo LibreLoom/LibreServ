@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { MemoryRouter } from "react-router-dom";
+import { ShortcutsProvider } from "@libreloom/ui/context/ShortcutsContext.jsx";
 import PhotoLightbox from "./PhotoLightbox.jsx";
 import { __resetBodyScrollLockForTests } from "../../utils/bodyScrollLock.js";
 
@@ -27,13 +28,15 @@ afterEach(() => {
 function renderLightbox(props = {}) {
   return render(
     <MemoryRouter>
-      <PhotoLightbox
-        photos={photos}
-        index={0}
-        onClose={vi.fn()}
-        onIndexChange={vi.fn()}
-        {...props}
-      />
+      <ShortcutsProvider>
+        <PhotoLightbox
+          photos={photos}
+          index={0}
+          onClose={vi.fn()}
+          onIndexChange={vi.fn()}
+          {...props}
+        />
+      </ShortcutsProvider>
     </MemoryRouter>,
   );
 }
@@ -540,5 +543,37 @@ describe("PhotoLightbox swipe navigation", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("PhotoLightbox keys", () => {
+  afterEach(() => __resetBodyScrollLockForTests());
+
+  it("favorites with F and trashes with Delete", () => {
+    const onFavorite = vi.fn();
+    const onTrash = vi.fn();
+    renderLightbox({ onFavorite, onTrash });
+    fireEvent.keyDown(window, { key: "f" });
+    expect(onFavorite).toHaveBeenCalledWith(photos[0]);
+    fireEvent.keyDown(window, { key: "Delete" });
+    expect(onTrash).toHaveBeenCalledWith(photos[0]);
+  });
+
+  it("leaves favorite and trash alone for a guest", () => {
+    const onFavorite = vi.fn();
+    const onTrash = vi.fn();
+    renderLightbox({ onFavorite, onTrash, mode: "guest" });
+    fireEvent.keyDown(window, { key: "f" });
+    fireEvent.keyDown(window, { key: "Delete" });
+    expect(onFavorite).not.toHaveBeenCalled();
+    expect(onTrash).not.toHaveBeenCalled();
+  });
+
+  it("lists its keys in the shortcuts sheet", async () => {
+    renderLightbox();
+    fireEvent.keyDown(window, { key: "?", shiftKey: true });
+    const sheet = await screen.findByRole("dialog", { name: "Keyboard shortcuts" });
+    expect(sheet).toHaveTextContent("Next photo");
+    expect(sheet).toHaveTextContent("Favorite or unfavorite");
   });
 });
