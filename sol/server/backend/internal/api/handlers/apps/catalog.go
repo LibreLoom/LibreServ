@@ -28,6 +28,8 @@ type iconCacheEntry struct {
 var iconCache = struct {
 	sync.RWMutex
 	entries map[string]*iconCacheEntry
+	// Least-recently-used first: mirrors entries keys for bounded eviction.
+	order []string
 }{
 	entries: make(map[string]*iconCacheEntry),
 }
@@ -37,10 +39,23 @@ var iconCache = struct {
 func ClearIconCache() {
 	iconCache.Lock()
 	iconCache.entries = make(map[string]*iconCacheEntry)
+	iconCache.order = nil
 	iconCache.Unlock()
 }
 
-// evictIconCacheLocked keeps the icon cache bounded. Call with iconCache held.
+// touchIconCacheLocked marks id as most-recently-used. Call with iconCache held.
+func touchIconCacheLocked(id string) {
+	for i, old := range iconCache.order {
+		if old == id {
+			iconCache.order = append(iconCache.order[:i], iconCache.order[i+1:]...)
+			break
+		}
+	}
+	iconCache.order = append(iconCache.order, id)
+}
+
+// evictIconCacheLocked keeps the icon cache bounded with LRU eviction.
+// Call with iconCache held.
 func evictIconCacheLocked() {
 	if len(iconCache.entries) <= iconCacheMaxEntries {
 		return
@@ -51,14 +66,13 @@ func evictIconCacheLocked() {
 			delete(iconCache.entries, id)
 		}
 	}
-	// Still over budget (nothing expired): drop arbitrary entries until back
-	// under the cap. Icons are re-read from disk on demand, so this only
-	// costs a re-read, never correctness.
-	for id := range iconCache.entries {
-		if len(iconCache.entries) <= iconCacheMaxEntries {
-			break
-		}
-		delete(iconCache.entries, id)
+	// Still over budget: evict least-recently-used first. Icons are
+	// re-read from disk on demand, so this only costs a re-read, never
+	// correctness.
+	for len(iconCache.entries) > iconCacheMaxEntries && len(iconCache.order) > 0 {
+		oldest := iconCache.order[0]
+		iconCache.order = iconCache.order[1:]
+		delete(iconCache.entries, oldest)
 	}
 }
 
@@ -173,9 +187,12 @@ func (h *CatalogHandler) GetAppIcon(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	iconCache.RLock()
+	iconCache.Lock()
 	cached, exists := iconCache.entries[appID]
-	iconCache.RUnlock()
+	if exists && time.Now().Before(cached.expiresAt) {
+		touchIconCacheLocked(appID)
+	}
+	iconCache.Unlock()
 
 	if exists && time.Now().Before(cached.expiresAt) {
 		w.Header().Set("Content-Type", cached.contentType)
@@ -208,6 +225,7 @@ func (h *CatalogHandler) GetAppIcon(w http.ResponseWriter, r *http.Request) {
 		contentType: "image/svg+xml",
 		expiresAt:   time.Now().Add(iconCacheTTL),
 	}
+	touchIconCacheLocked(appID)
 	evictIconCacheLocked()
 	iconCache.Unlock()
 
