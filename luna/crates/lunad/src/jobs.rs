@@ -205,9 +205,8 @@ fn prepare(
         .into());
     }
     // The trash ROOT is never a job source: copying `.luna-trash` (or the
-    // raw `{prefix}-trash` dir) would hand every member's deletions —
-    // including member-home origins — to anyone holding a drive-root
-    // grant, and moving it would relocate the whole trash store. Specific
+    // raw `{prefix}-trash` dir) would hand every member's deletions to
+    // anyone holding a drive-root grant, and moving it would relocate the whole trash store. Specific
     // entries still copy and move out through restore-style jobs.
     let from_real = files::real_rel_path(conn, from_drive, from_path)?;
     if files::is_trash_root(&from_real) {
@@ -220,7 +219,7 @@ fn prepare(
     // Individual trash ENTRIES are still valid job sources — but only under
     // the `.luna-trash` alias, where the caps engine maps the entry to its
     // origin's grants. A raw `{prefix}-trash` name would execute on nothing
-    // but an admin's drive-wide grant, leaking member-home deletions.
+    // but an admin's drive-wide grant, leaking other people's deletions.
     if files::is_trash_rel(&from_real) && !files::is_trash_api(from_path) {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -264,15 +263,7 @@ fn prepare(
             .into());
         }
     }
-    // Luna-managed destinations (the members container during a home
-    // migration) are blocked user paths — resolve them through the internal
-    // variant that creates missing dirs. Only internally enqueued jobs can
-    // point there; member submissions reject blocked paths up front.
-    let dest_dir = if files::is_internal_temp(&crate::access::normalize_subject_path(to_path)) {
-        files::dest_dir_luna(conn, to_drive, to_path)?
-    } else {
-        files::dest_dir(conn, to_drive, to_path)?
-    };
+    let dest_dir = files::dest_dir(conn, to_drive, to_path)?;
     let dest = dest_dir.join(name);
     if dest.exists() {
         return Err(JobError::Conflict);
@@ -391,8 +382,8 @@ fn recheck_job_caps(db: &Arc<crate::Db>, row: &JobRow) -> Result<(), JobError> {
 /// [`recheck_job_caps`] evaluated on `from_path` instead of the job's own
 /// source, on a connection the caller already holds. The copy traversal
 /// calls this per node with the node's own rel path, so a child whose
-/// grants differ from the root's (a nested trash origin, a member-home
-/// boundary, a grant revoked mid-copy) stops the job at that node rather
+/// grants differ from the root's (a nested trash origin, a grant revoked
+/// mid-copy) stops the job at that node rather
 /// than after the bytes already left.
 fn recheck_job_caps_for(conn: &Connection, row: &JobRow, from_path: &str) -> Result<(), JobError> {
     let Some(user_row) = db::get_user(conn, &row.user_id).map_err(JobError::Db)? else {
@@ -413,16 +404,6 @@ fn recheck_job_caps_for(conn: &Connection, row: &JobRow, from_path: &str) -> Res
             crate::access::CAP_UPLOAD,
         );
     if authorized {
-        return Ok(());
-    }
-    // Member-home migration jobs are created internally by the admin-only
-    // home-drive switch — admins hold zero caps inside member homes by
-    // design, so a job that touches a home path is only legal when it still
-    // belongs to an admin.
-    if user.role == "admin"
-        && (crate::member_home::is_member_home_path(from_path)
-            || crate::member_home::is_member_home_path(&row.to_path))
-    {
         return Ok(());
     }
     Err(JobError::Denied)
@@ -492,7 +473,6 @@ fn run_job(
                             &prepared.row.from_drive,
                             &prepared.row.from_path,
                         );
-                        note_member_home_move(&conn, &prepared.row);
                         files::note_write(&conn, &prepared.row.from_drive, &prepared.row.from_path);
                         files::note_write(&conn, &prepared.row.to_drive, &prepared.row.to_path);
                         let _ = db::update_job_progress(
@@ -602,10 +582,8 @@ fn run_job(
                 // source stays wherever the failed cleanup left it, which
                 // the user can remove by hand.
                 st.owned_dest = false;
-                note_member_home_move(&conn, &prepared.row);
                 return Err(JobError::from(e));
             }
-            note_member_home_move(&conn, &prepared.row);
         }
         let conn = db.lock().unwrap();
         db::set_job_state(&conn, &prepared.row.id, "done", "").map_err(JobError::Db)
@@ -636,21 +614,6 @@ fn run_job(
             files::note_write(&conn, &prepared.row.to_drive, &prepared.row.to_path);
         }
         notify_job_gallery(&gallery, &prepared, prepared.row.kind == "move");
-    }
-}
-
-/// A completed move of a home root into the members dir is a member-home
-/// migration: point the member at the drive their home now lives on. Runs
-/// only after the move's subjects repathed and the source was trashed — a
-/// failed copy never flips the pointer.
-fn note_member_home_move(conn: &Connection, row: &JobRow) {
-    if row.kind != "move" || !crate::member_home::is_members_dir(&row.to_path) {
-        return;
-    }
-    if crate::member_home::is_home_root(&row.from_path)
-        && let Some(uid) = crate::member_home::owner_of(conn, &row.from_drive, &row.from_path)
-    {
-        let _ = db::set_user_home_drive(conn, &uid, &row.to_drive);
     }
 }
 
@@ -1210,8 +1173,7 @@ mod tests {
     #[tokio::test]
     async fn the_trash_root_is_never_a_job_source() {
         // Copying `.luna-trash` wholesale would hand every member's
-        // deletions — including member-home origins — to whoever holds a
-        // drive-root grant; moving it would relocate the whole trash
+        // deletions to whoever holds a drive-root grant; moving it would relocate the whole trash
         // store. Both alias and raw `{prefix}-trash` forms refuse at
         // enqueue, while a specific ENTRY still copies out.
         let (dir, db, _a) = setup();

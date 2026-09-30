@@ -169,7 +169,6 @@ fn file_list_entry(
             original_path: None,
             link_target: None,
             caps: stamped_caps(state, user, id, rel),
-            home: false,
         }));
     }
     let stat = with_db(state, |conn| files::stat(conn, id, rel)).map_err(map_files_err)?;
@@ -189,7 +188,6 @@ fn file_list_entry(
         original_path: None,
         link_target: stat.link_target,
         caps: stamped_caps(state, user, id, rel),
-        home: false,
     }))
 }
 
@@ -262,10 +260,9 @@ fn list_trash_view(
             Some(rest) => format!("{orig}/{rest}"),
             None => orig.clone(),
         });
-        // Everyone filters by origin caps — including admins. A member-home
-        // origin answers "0 caps" for admins, keeping deleted member files
-        // private in trash too. Only entries with no origin metadata at all
-        // stay admin-visible (their provenance is unknowable anyway).
+        // Everyone filters by origin caps. Only entries with no origin
+        // metadata at all stay admin-visible (their provenance is
+        // unknowable anyway).
         let visible = match original.as_deref() {
             Some(o) => crate::auth::has_cap(user, &conn, id, o, crate::access::CAP_EDIT),
             None => user.role == "admin",
@@ -328,43 +325,6 @@ fn visible_entries(
                 crate::auth::can_inspect_path(user, &conn, id, &child)
             });
         }
-        {
-            // The user's own home dir is Luna-hidden (`.luna-<uuid>-members`
-            // never appears in directory reads), so inject it at the drive
-            // root — otherwise their only writable folder would be
-            // unreachable. `name` carries the full rel path so the row
-            // navigates straight to the home without exposing the container.
-            if rel.is_empty()
-                && crate::member_home::home_on_drive(&conn, &user.id, id)
-                && let Ok(drive) = files::drive_root(&conn, id)
-                && let Some(home_rel) = crate::member_home::home_rel(&conn, id, &user.username)
-            {
-                let disk = std::path::PathBuf::from(&drive.mount_point).join(&home_rel);
-                if let Ok(meta) = std::fs::symlink_metadata(&disk)
-                    && meta.is_dir()
-                {
-                    entries.push(FileEntry {
-                        hidden: true,
-                        name: home_rel,
-                        kind: "dir".into(),
-                        size: 0,
-                        modified: meta
-                            .modified()
-                            .ok()
-                            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                            .map(|d| d.as_secs() as i64)
-                            .unwrap_or(0),
-                        saving: false,
-                        save_failed: false,
-                        original_name: None,
-                        original_path: None,
-                        link_target: None,
-                        caps: crate::access::caps_to_str(crate::access::CAP_MANAGE),
-                        home: true,
-                    });
-                }
-            }
-        }
         // Stamp every visible entry with the caller's own capabilities —
         // the UI renders affordances off this, never off its own math.
         let rows = crate::db::list_access_members_for_user(&conn, &user.id).unwrap_or_default();
@@ -414,7 +374,7 @@ struct Resolved {
 /// Where a moved or renamed file went. Only asked for paths that no longer
 /// exist; follows the forwarding trail (see `files::forwarding`) and
 /// answers with the first place something really is. Every miss — no
-/// trail, trail ends in trash, or the new home isn't one this user may
+/// trail, trail ends in trash, or the new location isn't one this user may
 /// see — is the same 404, so this never reveals paths the caller can't
 /// already open.
 async fn resolve_entry(
@@ -447,7 +407,7 @@ async fn resolve_entry(
     let Some((drive_id, path)) = hit else {
         return Err(not_found());
     };
-    if files::is_blocked_user_path(&path)
+    if files::is_internal_temp(&path)
         || !crate::auth::can_inspect_path(&user, &conn, &drive_id, &path)
     {
         return Err(not_found());
@@ -717,10 +677,9 @@ async fn stat_entry(
         rel == files::TRASH_API_ALIAS || rel.starts_with(&format!("{}/", files::TRASH_API_ALIAS));
 
     // Luna's own bookkeeping (index db, gallery, trash root, protected
-    // copies) is not a user file — never stat it. Member homes are the
-    // exception: hidden from parents but addressable by their owner.
+    // copies) is not a user file — never stat it.
     if !in_trash
-        && (files::is_blocked_user_path(&rel) || crate::backup::protect::is_protected_store(&rel))
+        && (files::is_internal_temp(&rel) || crate::backup::protect::is_protected_store(&rel))
     {
         return Err(json_error(
             StatusCode::NOT_FOUND,
@@ -829,8 +788,7 @@ async fn stat_entry(
     stat.caps = crate::access::caps_to_str(crate::auth::caps_on_path(&user, &conn, &id, &rel));
 
     // The trash root mixes every user's deleted items — raw child counts and
-    // totals would disclose them, even to admins (member-home trash stays
-    // invisible). A specific entry's aggregates are fine: everything under
+    // totals would disclose them, even to admins. A specific entry's aggregates are fine: everything under
     // it shares one origin.
     if in_trash && rel == files::TRASH_API_ALIAS {
         stat.children = None;
@@ -956,8 +914,6 @@ async fn serve_folder_zip(
                 .flatten()
                 .unwrap_or_else(|| files::zip_archive_basename(&rel))
         }
-    } else if crate::member_home::is_home_root(&rel) {
-        "home".to_string()
     } else {
         files::zip_archive_basename(&rel)
     };
@@ -990,8 +946,7 @@ async fn serve_folder_zip(
             if in_trash {
                 // Mirror list_trash_view + check_trash_item: a zip of the
                 // trash root — or of one entry — only ships children whose
-                // ORIGIN the caller could still edit — an entry from someone
-                // else's home never ships to an admin. Entries with no
+                // ORIGIN the caller could still edit. Entries with no
                 // recorded origin stay admin-only, like the listing.
                 files::write_folder_zip_including_trash(&conn, &id, &rel, &mut file, |child| {
                     let origin = files::trash_original_path(&conn, &id, child).ok().flatten();
@@ -1291,12 +1246,6 @@ async fn delete_entry(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let rel = query.path.unwrap_or_default();
     let rel = rel.trim().trim_matches('/').to_string();
-    if crate::member_home::is_home_root(&rel) {
-        return Err(json_error(
-            StatusCode::BAD_REQUEST,
-            "Your home folder holds everything you save here — it can't be deleted.",
-        ));
-    }
     check_access(&state, &user, &id, &rel, crate::access::CAP_EDIT)?;
     let trash_path =
         with_db(&state, |conn| files::delete_to_trash(conn, &id, &rel)).map_err(map_files_err)?;
@@ -1388,12 +1337,6 @@ async fn rename_entry(
     Path(id): Path<String>,
     Json(body): Json<RenameBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    if crate::member_home::is_home_root(body.path.trim().trim_matches('/')) {
-        return Err(json_error(
-            StatusCode::BAD_REQUEST,
-            "Your home folder keeps its name — it can't be renamed.",
-        ));
-    }
     check_access(&state, &user, &id, &body.path, crate::access::CAP_EDIT)?;
     let parent = body.path.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
     let new_rel = crate::gallery::gallery_indexer::join_rel(parent, &body.new_name);
@@ -1439,8 +1382,8 @@ async fn list_trash(
             "Luna's index is busy. Try again.",
         )
     })?;
-    // Same origin-caps rule for everyone: member-home origins stay private
-    // from admins; entries with no recorded origin stay admin-only.
+    // Same origin-caps rule for everyone; entries with no recorded origin
+    // stay admin-only.
     let visible: Vec<_> = entries
         .into_iter()
         .filter(|entry| {
@@ -1509,26 +1452,12 @@ async fn purge_entry(
     Json(body): Json<PurgeBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     if body.path == files::TRASH_API_ALIAS {
-        // Empty trash. Members purge only the entries they can see (their
-        // own origins); admins purge the whole bin — including member-home
-        // origins they cannot see — because "empty the trash" is an explicit
-        // destructive choice over everything the drive holds. Otherwise
-        // deleted-member homes would linger invisibly forever.
-        if user.role == "admin" {
-            let entries =
-                with_db(&state, |conn| files::list_trash(conn, &id)).map_err(map_files_err)?;
-            for entry in entries {
-                let rel = format!("{}/{}", files::TRASH_API_ALIAS, entry.name);
-                with_db(&state, |conn| files::purge_trash(conn, &id, &rel))
-                    .map_err(map_files_err)?;
-            }
-        } else {
-            let Json(entries) = list_trash_view(&state, &user, &id, &body.path)?;
-            for entry in entries {
-                let rel = format!("{}/{}", files::TRASH_API_ALIAS, entry.name);
-                with_db(&state, |conn| files::purge_trash(conn, &id, &rel))
-                    .map_err(map_files_err)?;
-            }
+        // Empty trash. Everyone purges only the entries they can see (their
+        // own origins); admins see every entry.
+        let Json(entries) = list_trash_view(&state, &user, &id, &body.path)?;
+        for entry in entries {
+            let rel = format!("{}/{}", files::TRASH_API_ALIAS, entry.name);
+            with_db(&state, |conn| files::purge_trash(conn, &id, &rel)).map_err(map_files_err)?;
         }
         return Ok(Json(json!({ "ok": true })));
     }
@@ -1582,7 +1511,7 @@ async fn upload(
                 })?;
                 // Same bar as `files::create`: `.part`-style and Luna-namespace
                 // leaves mint files no listing can ever show.
-                if files::is_blocked_create_path(&name) {
+                if files::is_internal_temp(&name) {
                     return Err(json_error(
                         StatusCode::BAD_REQUEST,
                         "That file name can't be used. Try renaming it.",
@@ -1718,7 +1647,6 @@ async fn upload(
                                 original_path: None,
                                 link_target: None,
                                 caps: String::new(),
-                                home: false,
                             }));
                         }
                         // Dirty accept refused — durable write of the buffered bytes.
@@ -1802,7 +1730,6 @@ async fn upload(
                     original_path: None,
                     link_target: None,
                     caps: stamped_caps(&state, &user, &id, &rel),
-                    home: false,
                 }));
             }
             _ => {}
@@ -1887,13 +1814,8 @@ fn check_trash_item(
         )
     })?;
     let original = files::trash_original_path(&conn, drive_id, trash_rel).map_err(map_files_err)?;
-    // Admins reach everything except member-home origins — the same privacy
-    // boundary the caps engine enforces everywhere else.
-    if user.role == "admin"
-        && !original
-            .as_deref()
-            .is_some_and(crate::member_home::is_member_home_path)
-    {
+    // Admins reach everything.
+    if user.role == "admin" {
         return Ok(());
     }
     let Some(original_path) = original.filter(|p| !p.is_empty()) else {
@@ -2688,15 +2610,6 @@ mod http_tests {
         let (_dir, app) = test_app(mount.path());
         let (sam_cookie, sam_csrf, sam_id) = admin_and_sam(&app).await;
         {
-            // Sam's home lives on another drive — on `photos` he holds only
-            // a view grant, so the trash listing must refuse him. (A member
-            // whose home *is* on this drive may list, filtered to what they
-            // could edit.)
-            let conn = crate::db::open(&_dir.path().join("luna.db")).unwrap();
-            crate::db::upsert_drive(&conn, "other", "Other", "as_is", "ext4", "sdb", "").unwrap();
-            crate::db::set_user_home_drive(&conn, &sam_id, "other").unwrap();
-        }
-        {
             let conn = crate::db::open(&_dir.path().join("luna.db")).unwrap();
             crate::db::insert_access_member(
                 &conn,
@@ -3410,7 +3323,7 @@ mod http_tests {
         let res = resolve_path(&app, &sam_cookie, &sam_csrf, "family/plan.txt").await;
         assert_eq!(res.status(), StatusCode::NOT_FOUND);
 
-        // Once Sam can see the new home, her old link follows it.
+        // Once Sam can see the new location, her old link follows it.
         grant_path(&dir, &sam_id, "secret", crate::access::CAP_VIEW);
         let res = resolve_path(&app, &sam_cookie, &sam_csrf, "family/plan.txt").await;
         assert_eq!(res.status(), 200);
@@ -3627,15 +3540,7 @@ mod http_tests {
             .await
             .unwrap();
         let entries: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        // Her own home is the only entry (it exists from sign-up).
-        assert!(
-            entries
-                .as_array()
-                .unwrap()
-                .iter()
-                .all(|e| e["home"] == true),
-            "{entries}"
-        );
+        assert!(entries.as_array().unwrap().is_empty(), "{entries}");
 
         // The granted folder itself inspects and lists normally.
         let res = stat_path(&app, &sam_cookie, &sam_csrf, "docs/inner").await;
@@ -3693,15 +3598,7 @@ mod http_tests {
             .await
             .unwrap();
         let entries: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        // Her own home is the only entry (it exists from sign-up).
-        assert!(
-            entries
-                .as_array()
-                .unwrap()
-                .iter()
-                .all(|e| e["home"] == true),
-            "{entries}"
-        );
+        assert!(entries.as_array().unwrap().is_empty(), "{entries}");
     }
 
     #[tokio::test]
@@ -3876,57 +3773,6 @@ mod http_tests {
         );
     }
 
-    #[tokio::test]
-    async fn admin_trash_zip_keeps_member_home_origins_out() {
-        // The admin zip used to include every trash entry wholesale. It must
-        // hold the same origin-ACL line as the listing: entries trashed out
-        // of a member home stay private even to admins, while the admin's
-        // own deletions still download.
-        let mount = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(mount.path().join("family")).unwrap();
-        std::fs::write(mount.path().join("family/a.txt"), b"a").unwrap();
-        let (_dir, app) = test_app(mount.path());
-        let (sam_cookie, sam_csrf, _sam_id) = admin_and_sam(&app).await;
-        let (admin_cookie, admin_csrf) = admin_login(&app).await;
-        let home = materialize_home(&app, &sam_cookie, &sam_csrf).await;
-        std::fs::write(mount.path().join(format!("{home}/diary.txt")), b"dear").unwrap();
-
-        delete_path(&app, &sam_cookie, &sam_csrf, &format!("{home}/diary.txt")).await;
-        delete_path(&app, &admin_cookie, &admin_csrf, "family/a.txt").await;
-
-        let res = call(
-            &app,
-            json_req(
-                Method::GET,
-                "/api/v1/drives/photos/files/content?path=.luna-trash&download=1",
-                "",
-                Some(&admin_cookie),
-                Some(&admin_csrf),
-            ),
-        )
-        .await;
-        assert_eq!(res.status(), 200);
-        let body = axum::body::to_bytes(res.into_body(), 1 << 20)
-            .await
-            .unwrap();
-        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(body)).unwrap();
-        let names: Vec<String> = (0..zip.len())
-            .map(|i| zip.by_index(i).unwrap().name().to_string())
-            .collect();
-        assert!(
-            names.iter().any(|n| n.contains("a.txt")),
-            "admin's own trashed file is in the zip: {names:?}"
-        );
-        assert!(
-            !names.iter().any(|n| n.contains("diary")),
-            "member-home trash never reaches an admin zip: {names:?}"
-        );
-    }
-
-    // ---------------------------------------------------------------------
-    // Member homes
-    // ---------------------------------------------------------------------
-
     /// GET helper for endpoints outside `/files` — same cookies, same guard.
     async fn get_json(
         app: &axum::Router,
@@ -3951,210 +3797,6 @@ mod http_tests {
             status,
             serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null),
         )
-    }
-
-    /// The expected home path for `username` on a mounted drive — derived
-    /// from the drive's marker prefix, same as the production helper.
-    fn expected_home_rel(mount: &std::path::Path, username: &str) -> String {
-        let prefix = crate::drives::drive_db::prefix_for(mount).unwrap();
-        format!(
-            "{}/{username}",
-            crate::member_home::members_dir_name(&prefix)
-        )
-    }
-
-    /// Create the member's home by hitting `/me` — the lazy materialization
-    /// a real member gets on their first visit.
-    async fn materialize_home(app: &axum::Router, cookie: &str, csrf: &str) -> String {
-        let (status, me) = get_json(app, cookie, csrf, "/api/v1/auth/me").await;
-        assert_eq!(status, 200);
-        let home = me["home"]["path"].as_str().unwrap().to_string();
-        assert_eq!(me["home"]["drive_id"], "photos");
-        assert_eq!(me["home"]["ready"], true);
-        home
-    }
-
-    #[tokio::test]
-    async fn member_home_injected_for_owner_hidden_from_admin() {
-        let mount = tempfile::tempdir().unwrap();
-        let (_dir, app) = test_app(mount.path());
-        let (sam_cookie, sam_csrf, _sam_id) = admin_and_sam(&app).await;
-        let (admin_cookie, admin_csrf) = admin_login(&app).await;
-        let home = materialize_home(&app, &sam_cookie, &sam_csrf).await;
-        assert_eq!(home, expected_home_rel(mount.path(), "sam"));
-        assert!(mount.path().join(&home).is_dir());
-
-        // The member's root listing carries their home — hidden flag, manage
-        // caps, reachable like any other folder.
-        let res = get_files(&app, &sam_cookie, &sam_csrf, "").await;
-        assert_eq!(res.status(), 200);
-        let body = axum::body::to_bytes(res.into_body(), 1 << 20)
-            .await
-            .unwrap();
-        let entries: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        let entry = entries
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|e| e["name"] == home)
-            .expect("member sees their home at the drive root");
-        assert_eq!(entry["caps"], "full+share");
-        assert_eq!(entry["kind"], "dir");
-
-        // The admin's root listing carries only the admin's own home, never
-        // sam's.
-        let res = get_files(&app, &admin_cookie, &admin_csrf, "").await;
-        assert_eq!(res.status(), 200);
-        let body = axum::body::to_bytes(res.into_body(), 1 << 20)
-            .await
-            .unwrap();
-        let entries: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        let luna_names: Vec<&str> = entries
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter_map(|e| e["name"].as_str())
-            .filter(|n| n.starts_with(".luna-"))
-            .collect();
-        assert_eq!(
-            luna_names,
-            [expected_home_rel(mount.path(), "max").as_str()],
-            "admin sees only their own home"
-        );
-
-        // Owner browses in; admin gets the same 403 as any ungranted path.
-        let res = get_files(&app, &sam_cookie, &sam_csrf, &home).await;
-        assert_eq!(res.status(), 200);
-        let res = get_files(&app, &admin_cookie, &admin_csrf, &home).await;
-        assert_eq!(res.status(), StatusCode::FORBIDDEN);
-        let (status, _) = get_json(
-            &app,
-            &admin_cookie,
-            &admin_csrf,
-            &format!(
-                "/api/v1/drives/photos/files/stat?path={}",
-                urlencoding(&home)
-            ),
-        )
-        .await;
-        assert_eq!(status, StatusCode::FORBIDDEN);
-        // Another member gets the same wall.
-        let res = get_files(
-            &app,
-            &sam_cookie,
-            &sam_csrf,
-            ".luna-3f6a8c1e-9b2d-4a7c-8e5f-1a2b3c4d5e6f",
-        )
-        .await;
-        assert_eq!(res.status(), StatusCode::FORBIDDEN);
-    }
-
-    #[tokio::test]
-    async fn member_home_root_cannot_be_mutated_but_children_can() {
-        let mount = tempfile::tempdir().unwrap();
-        let (_dir, app) = test_app(mount.path());
-        let (sam_cookie, sam_csrf, _sam_id) = admin_and_sam(&app).await;
-        let home = materialize_home(&app, &sam_cookie, &sam_csrf).await;
-        assert_eq!(home, expected_home_rel(mount.path(), "sam"));
-
-        // The root refuses rename, delete, and job moves — even for its owner.
-        let res = call(
-            &app,
-            json_req(
-                Method::POST,
-                "/api/v1/drives/photos/files/rename",
-                &format!(r#"{{"path":"{home}","new_name":"elsewhere"}}"#),
-                Some(&sam_cookie),
-                Some(&sam_csrf),
-            ),
-        )
-        .await;
-        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
-
-        let mut http = HttpReq::builder()
-            .method(Method::DELETE)
-            .uri(format!(
-                "/api/v1/drives/photos/files?path={}",
-                urlencoding(&home)
-            ))
-            .header("cookie", &sam_cookie)
-            .header("x-csrf-token", &sam_csrf)
-            .body(Body::empty())
-            .unwrap();
-        http.extensions_mut().insert(ConnectInfo(CLIENT));
-        let res = call(&app, http).await;
-        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
-
-        let res = call(
-            &app,
-            json_req(
-                Method::POST,
-                "/api/v1/jobs",
-                &format!(
-                    r#"{{"kind":"move","from_drive":"photos","from_path":"{home}","to_drive":"photos","to_path":""}}"#
-                ),
-                Some(&sam_cookie),
-                Some(&sam_csrf),
-            ),
-        )
-        .await;
-        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
-
-        // Inside the home, normal file work proceeds: mkdir, rename, delete.
-        let res = call(
-            &app,
-            json_req(
-                Method::POST,
-                "/api/v1/drives/photos/files/mkdir",
-                &format!(r#"{{"path":"{home}/docs"}}"#),
-                Some(&sam_cookie),
-                Some(&sam_csrf),
-            ),
-        )
-        .await;
-        assert_eq!(res.status(), 200);
-        let res = call(
-            &app,
-            json_req(
-                Method::POST,
-                "/api/v1/drives/photos/files/rename",
-                &format!(r#"{{"path":"{home}/docs","new_name":"papers"}}"#),
-                Some(&sam_cookie),
-                Some(&sam_csrf),
-            ),
-        )
-        .await;
-        assert_eq!(res.status(), 200);
-        assert!(mount.path().join(format!("{home}/papers")).is_dir());
-    }
-
-    #[tokio::test]
-    async fn member_home_trash_stays_private() {
-        let mount = tempfile::tempdir().unwrap();
-        let (_dir, app) = test_app(mount.path());
-        let (sam_cookie, sam_csrf, _sam_id) = admin_and_sam(&app).await;
-        let (admin_cookie, admin_csrf) = admin_login(&app).await;
-        let home = materialize_home(&app, &sam_cookie, &sam_csrf).await;
-        std::fs::write(mount.path().join(format!("{home}/diary.txt")), b"dear").unwrap();
-
-        delete_path(&app, &sam_cookie, &sam_csrf, &format!("{home}/diary.txt")).await;
-
-        // Sam's trash shows his file; the admin's trash does not.
-        let (status, trash) =
-            get_json(&app, &sam_cookie, &sam_csrf, "/api/v1/drives/photos/trash").await;
-        assert_eq!(status, 200);
-        assert_eq!(trash.as_array().unwrap().len(), 1);
-        assert_eq!(trash[0]["original_path"], format!("{home}/diary.txt"));
-
-        let (status, trash) = get_json(
-            &app,
-            &admin_cookie,
-            &admin_csrf,
-            "/api/v1/drives/photos/trash",
-        )
-        .await;
-        assert_eq!(status, 200);
-        assert_eq!(trash.as_array().unwrap().len(), 0);
     }
 
     #[tokio::test]
@@ -4291,522 +3933,12 @@ mod http_tests {
     }
 
     #[tokio::test]
-    async fn drive_wide_link_cannot_walk_into_member_home() {
-        let mount = tempfile::tempdir().unwrap();
-        let (_dir, app) = test_app(mount.path());
-        let (sam_cookie, sam_csrf, _sam_id) = admin_and_sam(&app).await;
-        let (admin_cookie, admin_csrf) = admin_login(&app).await;
-        let home = materialize_home(&app, &sam_cookie, &sam_csrf).await;
-        assert_eq!(home, expected_home_rel(mount.path(), "sam"));
-        std::fs::write(mount.path().join(format!("{home}/secret.txt")), b"shh").unwrap();
-
-        // A view link on the whole drive.
-        let res = call(
-            &app,
-            json_req(
-                Method::POST,
-                "/api/v1/access/links",
-                r#"{"kind":"path","drive_id":"photos","path":"","caps":"view"}"#,
-                Some(&admin_cookie),
-                Some(&admin_csrf),
-            ),
-        )
-        .await;
-        assert_eq!(res.status(), 200);
-        let body = axum::body::to_bytes(res.into_body(), 1 << 20)
-            .await
-            .unwrap();
-        let token = serde_json::from_slice::<serde_json::Value>(&body).unwrap()["token"]
-            .as_str()
-            .unwrap()
-            .to_string();
-
-        for probe in [home.clone(), format!("{home}/secret.txt")] {
-            let res = call(
-                &app,
-                json_req(
-                    Method::GET,
-                    &format!("/s/{token}/list?path={}", urlencoding(&probe)),
-                    "",
-                    None,
-                    None,
-                ),
-            )
-            .await;
-            assert_eq!(
-                res.status(),
-                StatusCode::NOT_FOUND,
-                "guest link must not reach {probe}"
-            );
-        }
-
-        // But a link minted on the home itself works — the owner chooses to
-        // publish their own space.
-        let res = call(
-            &app,
-            json_req(
-                Method::POST,
-                "/api/v1/access/links",
-                &format!(r#"{{"kind":"path","drive_id":"photos","path":"{home}","caps":"view"}}"#),
-                Some(&sam_cookie),
-                Some(&sam_csrf),
-            ),
-        )
-        .await;
-        assert_eq!(res.status(), 200);
-        let body = axum::body::to_bytes(res.into_body(), 1 << 20)
-            .await
-            .unwrap();
-        let token = serde_json::from_slice::<serde_json::Value>(&body).unwrap()["token"]
-            .as_str()
-            .unwrap()
-            .to_string();
-        let res = call(
-            &app,
-            json_req(Method::GET, &format!("/s/{token}/list"), "", None, None),
-        )
-        .await;
-        assert_eq!(res.status(), 200);
-        let body = axum::body::to_bytes(res.into_body(), 1 << 20)
-            .await
-            .unwrap();
-        let entries = serde_json::from_slice::<serde_json::Value>(&body).unwrap()["entries"]
-            .as_array()
-            .unwrap()
-            .clone();
-        assert!(entries.iter().any(|e| e["name"] == "secret.txt"));
-    }
-
-    #[tokio::test]
-    async fn member_home_drive_switch_moves_files_safely() {
-        let mount = tempfile::tempdir().unwrap();
-        let vault = tempfile::tempdir().unwrap();
-        let (_dir, app) = test_app(mount.path());
-        {
-            let conn = crate::db::open(&_dir.path().join("luna.db")).unwrap();
-            let prefix = luna_core::marker::pick_prefix(vault.path()).unwrap();
-            crate::drives::drive_db::create(
-                vault.path(),
-                &luna_core::marker::Marker::new("vault", "Vault"),
-                &prefix,
-            )
-            .unwrap();
-            crate::db::upsert_drive(
-                &conn,
-                "vault",
-                "Vault",
-                "as_is",
-                "ext4",
-                "sdb",
-                vault.path().to_str().unwrap(),
-            )
-            .unwrap();
-        }
-        let (sam_cookie, sam_csrf, sam_id) = admin_and_sam(&app).await;
-        let (admin_cookie, admin_csrf) = admin_login(&app).await;
-        let home = materialize_home(&app, &sam_cookie, &sam_csrf).await;
-        std::fs::write(mount.path().join(format!("{home}/keepsake.txt")), b"keep").unwrap();
-
-        // Members reject the admin-only endpoint.
-        let res = call(
-            &app,
-            json_req(
-                Method::GET,
-                "/api/v1/users/member-home",
-                "",
-                Some(&sam_cookie),
-                Some(&sam_csrf),
-            ),
-        )
-        .await;
-        assert_eq!(res.status(), StatusCode::FORBIDDEN);
-
-        // Switch: jobs enqueue and the recorded drive only flips when the
-        // move finishes.
-        let res = call(
-            &app,
-            json_req(
-                Method::PUT,
-                "/api/v1/users/member-home",
-                r#"{"drive_id":"vault"}"#,
-                Some(&admin_cookie),
-                Some(&admin_csrf),
-            ),
-        )
-        .await;
-        assert_eq!(res.status(), 200);
-        let body = axum::body::to_bytes(res.into_body(), 1 << 20)
-            .await
-            .unwrap();
-        let job_ids: Vec<String> =
-            serde_json::from_slice::<serde_json::Value>(&body).unwrap()["jobs"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|j| j.as_str().unwrap().to_string())
-                .collect();
-        // One job per home: the admin's own and sam's.
-        assert_eq!(job_ids.len(), 2);
-
-        // Wait for the internal move jobs (tiny tempdir → fast).
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
-        for job_id in &job_ids {
-            loop {
-                let (status, job) = get_json(
-                    &app,
-                    &admin_cookie,
-                    &admin_csrf,
-                    &format!("/api/v1/jobs/{job_id}"),
-                )
-                .await;
-                assert_eq!(status, 200);
-                match job["state"].as_str().unwrap() {
-                    "done" => break,
-                    "error" | "cancelled" => panic!("home migration job failed: {job}"),
-                    _ => {
-                        assert!(
-                            std::time::Instant::now() < deadline,
-                            "home migration job timed out"
-                        );
-                        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-                    }
-                }
-            }
-        }
-
-        // Files arrived on vault under the new drive's members container;
-        // the old home is gone from photos (parked in its trash); the
-        // member record points at vault.
-        let vault_home = expected_home_rel(vault.path(), "sam");
-        assert!(
-            vault
-                .path()
-                .join(format!("{vault_home}/keepsake.txt"))
-                .exists()
-        );
-        assert!(!mount.path().join(&home).exists());
-        {
-            let conn = crate::db::open(&_dir.path().join("luna.db")).unwrap();
-            let row = crate::db::get_user(&conn, &sam_id).unwrap().unwrap();
-            assert_eq!(row.home_drive_id, "vault");
-        }
-        let (status, mh) = get_json(
-            &app,
-            &admin_cookie,
-            &admin_csrf,
-            "/api/v1/users/member-home",
-        )
-        .await;
-        assert_eq!(status, 200);
-        assert_eq!(mh["drive_id"], "vault");
-        assert_eq!(mh["configured"], true);
-    }
-
-    #[tokio::test]
-    async fn deleted_member_home_parks_in_trash_privately() {
-        let mount = tempfile::tempdir().unwrap();
-        let (_dir, app) = test_app(mount.path());
-        let (sam_cookie, sam_csrf, sam_id) = admin_and_sam(&app).await;
-        let (admin_cookie, admin_csrf) = admin_login(&app).await;
-        let home = materialize_home(&app, &sam_cookie, &sam_csrf).await;
-        std::fs::write(mount.path().join(format!("{home}/letters.txt")), b"x").unwrap();
-
-        let mut http = HttpReq::builder()
-            .method(Method::DELETE)
-            .uri(format!("/api/v1/users/{sam_id}"))
-            .header("cookie", &admin_cookie)
-            .header("x-csrf-token", &admin_csrf)
-            .body(Body::empty())
-            .unwrap();
-        http.extensions_mut().insert(ConnectInfo(CLIENT));
-        let res = call(&app, http).await;
-        assert_eq!(res.status(), 200);
-
-        // The home left the drive root and sits in its trash — hidden from
-        // the admin's trash listing because its origin is member-private.
-        assert!(!mount.path().join(&home).exists());
-        let trashed: Vec<_> = std::fs::read_dir(
-            crate::drives::drive_db::prefix_for(mount.path())
-                .map(|p| mount.path().join(format!("{p}-trash")))
-                .unwrap(),
-        )
-        .unwrap()
-        .flatten()
-        .collect();
-        assert_eq!(trashed.len(), 1, "home dir lands in the drive's trash");
-
-        let (status, trash) = get_json(
-            &app,
-            &admin_cookie,
-            &admin_csrf,
-            "/api/v1/drives/photos/trash",
-        )
-        .await;
-        assert_eq!(status, 200);
-        assert_eq!(trash.as_array().unwrap().len(), 0);
-    }
-
-    #[tokio::test]
-    async fn member_home_link_is_invisible_to_admins() {
-        let mount = tempfile::tempdir().unwrap();
-        let (_dir, app) = test_app(mount.path());
-        let (sam_cookie, sam_csrf, _sam_id) = admin_and_sam(&app).await;
-        let (admin_cookie, admin_csrf) = admin_login(&app).await;
-        let home = materialize_home(&app, &sam_cookie, &sam_csrf).await;
-        std::fs::create_dir_all(mount.path().join(format!("{home}/docs"))).unwrap();
-
-        // Sam mints a link inside his own home — that's his right.
-        let res = call(
-            &app,
-            json_req(
-                Method::POST,
-                "/api/v1/access/links",
-                &format!(
-                    r#"{{"kind":"path","drive_id":"photos","path":"{home}/docs","caps":"view"}}"#
-                ),
-                Some(&sam_cookie),
-                Some(&sam_csrf),
-            ),
-        )
-        .await;
-        assert_eq!(res.status(), 200);
-        let body = axum::body::to_bytes(res.into_body(), 1 << 20)
-            .await
-            .unwrap();
-        let link: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        let link_id = link["id"].as_str().unwrap().to_string();
-        let token = link["token"].as_str().unwrap().to_string();
-
-        // The admin's sharing inventory carries no member-home subject at
-        // all — no roster, no interior path, and above all no raw
-        // `/s/<token>` URL, which would be a working credential into the
-        // private home.
-        let (status, mine) =
-            get_json(&app, &admin_cookie, &admin_csrf, "/api/v1/access/mine").await;
-        assert_eq!(status, 200);
-        let sharing = mine["sharing"].as_array().unwrap();
-        assert!(
-            !sharing.iter().any(|s| {
-                s["path"]
-                    .as_str()
-                    .is_some_and(crate::member_home::is_member_home_path)
-            }),
-            "admin's mine must not surface member-home subjects: {sharing:?}"
-        );
-
-        // Update and delete answer like any foreign link — the member's
-        // link is not the admin's to retune or kill.
-        let res = call(
-            &app,
-            json_req(
-                Method::PATCH,
-                &format!("/api/v1/access/links/{link_id}"),
-                r#"{"expires_in_days":1}"#,
-                Some(&admin_cookie),
-                Some(&admin_csrf),
-            ),
-        )
-        .await;
-        assert_eq!(res.status(), StatusCode::FORBIDDEN);
-        let mut http = HttpReq::builder()
-            .method(Method::DELETE)
-            .uri(format!("/api/v1/access/links/{link_id}"))
-            .header("cookie", &admin_cookie)
-            .header("x-csrf-token", &admin_csrf)
-            .body(Body::empty())
-            .unwrap();
-        http.extensions_mut().insert(ConnectInfo(CLIENT));
-        let res = call(&app, http).await;
-        assert_eq!(res.status(), StatusCode::FORBIDDEN);
-
-        // The link itself still works for guests — only the admin lost the
-        // ability to touch it.
-        let res = call(
-            &app,
-            json_req(Method::GET, &format!("/s/{token}/list"), "", None, None),
-        )
-        .await;
-        assert_eq!(res.status(), 200);
-    }
-
-    #[tokio::test]
-    async fn foreign_members_container_belongs_to_nobody() {
-        let mount = tempfile::tempdir().unwrap();
-        let (_dir, app) = test_app(mount.path());
-        let (sam_cookie, sam_csrf, sam_id) = admin_and_sam(&app).await;
-        materialize_home(&app, &sam_cookie, &sam_csrf).await;
-
-        // A members container stamped with a DIFFERENT uuid — a tree
-        // carried in from another Luna's drive, or planted in this drive's
-        // image. It bears sam's name but is not sam's home: ownership
-        // requires the container to match THIS drive's marker.
-        let foreign = ".luna-11111111-2222-3333-4444-555555555555-members/sam";
-        std::fs::create_dir_all(mount.path().join(format!("{foreign}/docs"))).unwrap();
-        std::fs::write(mount.path().join(format!("{foreign}/docs/loot.txt")), b"x").unwrap();
-        {
-            let conn = crate::db::open(&_dir.path().join("luna.db")).unwrap();
-            let user = crate::db::get_user(&conn, &sam_id).unwrap().unwrap();
-            let current = crate::auth::CurrentUser {
-                id: user.id,
-                username: user.username,
-                role: user.role,
-            };
-            assert_eq!(
-                crate::auth::caps_on_path(&current, &conn, "photos", foreign),
-                0
-            );
-            assert_eq!(crate::member_home::owner_of(&conn, "photos", foreign), None);
-        }
-
-        // Sealed through the HTTP surface too — the planted tree gives sam
-        // the same wall as any ungranted path.
-        let res = get_files(&app, &sam_cookie, &sam_csrf, foreign).await;
-        assert_eq!(res.status(), StatusCode::FORBIDDEN);
-        let res = get_files(&app, &sam_cookie, &sam_csrf, &format!("{foreign}/docs")).await;
-        assert_eq!(res.status(), StatusCode::FORBIDDEN);
-    }
-
-    /// Rename + delete proceed while the home drive is unplugged — the fs
-    /// work queues as pending ops that run in the mount reconcile, so the
-    /// old folder can never be inherited by a future same-name member.
-    #[tokio::test]
-    async fn unmounted_home_drive_defers_rename_and_delete() {
-        let mount = tempfile::tempdir().unwrap();
-        let (_dir, app) = test_app(mount.path());
-        let (sam_cookie, sam_csrf, sam_id) = admin_and_sam(&app).await;
-        let (admin_cookie, admin_csrf) = admin_login(&app).await;
-        let home = materialize_home(&app, &sam_cookie, &sam_csrf).await;
-
-        // Yank the mount: the drive row stays adopted but unreadable —
-        // the same state an unplugged drive leaves behind.
-        {
-            let conn = crate::db::open(&_dir.path().join("luna.db")).unwrap();
-            crate::db::upsert_drive(&conn, "photos", "Photos", "as_is", "ext4", "sda", "").unwrap();
-        }
-
-        // Rename proceeds — the folder rename queues behind the mount.
-        let res = call(
-            &app,
-            json_req(
-                Method::PATCH,
-                &format!("/api/v1/users/{sam_id}"),
-                r#"{"username":"sam2"}"#,
-                Some(&admin_cookie),
-                Some(&admin_csrf),
-            ),
-        )
-        .await;
-        assert_eq!(res.status(), 200);
-        {
-            let conn = crate::db::open(&_dir.path().join("luna.db")).unwrap();
-            let row = crate::db::get_user(&conn, &sam_id).unwrap().unwrap();
-            assert_eq!(row.username, "sam2");
-            let ops = crate::db::list_pending_home_ops(&conn).unwrap();
-            assert_eq!(ops.len(), 1);
-            assert_eq!(ops[0].kind, "rename");
-            assert_eq!(ops[0].username, "sam");
-            assert_eq!(ops[0].dst_username, "sam2");
-        }
-
-        // Deleting the member proceeds too — the trash-out queues.
-        let mut http = HttpReq::builder()
-            .method(Method::DELETE)
-            .uri(format!("/api/v1/users/{sam_id}"))
-            .header("cookie", &admin_cookie)
-            .header("x-csrf-token", &admin_csrf)
-            .body(Body::empty())
-            .unwrap();
-        http.extensions_mut().insert(ConnectInfo(CLIENT));
-        let res = call(&app, http).await;
-        assert_eq!(res.status(), 200);
-        {
-            let conn = crate::db::open(&_dir.path().join("luna.db")).unwrap();
-            assert!(crate::db::get_user(&conn, &sam_id).unwrap().is_none());
-            let ops = crate::db::list_pending_home_ops(&conn).unwrap();
-            assert_eq!(ops.len(), 2);
-            assert_eq!(ops[1].kind, "trash");
-            assert_eq!(ops[1].username, "sam2");
-        }
-
-        // Remount: reconcile applies the queued chain — rename first, then
-        // the delete's trash parks the renamed folder.
-        {
-            let conn = crate::db::open(&_dir.path().join("luna.db")).unwrap();
-            crate::db::upsert_drive(
-                &conn,
-                "photos",
-                "Photos",
-                "as_is",
-                "ext4",
-                "sda",
-                mount.path().to_str().unwrap(),
-            )
-            .unwrap();
-            crate::member_home::reconcile_pending(&conn).unwrap();
-            assert!(crate::db::list_pending_home_ops(&conn).unwrap().is_empty());
-        }
-        assert!(!mount.path().join(&home).exists());
-        let prefix = crate::drives::drive_db::prefix_for(mount.path()).unwrap();
-        let trash = mount.path().join(format!("{prefix}-trash"));
-        let parked: Vec<_> = std::fs::read_dir(&trash)
-            .unwrap()
-            .filter_map(|e| e.ok())
-            .collect();
-        assert_eq!(parked.len(), 1, "the home parked as one trash entry");
-        assert!(parked[0].file_name().to_string_lossy().contains("sam2"));
-    }
-
-    #[tokio::test]
-    async fn symlinked_member_home_does_not_redirect() {
-        let mount = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(mount.path().join("family")).unwrap();
-        std::fs::write(mount.path().join("family/a.txt"), b"a").unwrap();
-        let (_dir, app) = test_app(mount.path());
-        let (sam_cookie, sam_csrf, _sam_id) = admin_and_sam(&app).await;
-        let home = expected_home_rel(mount.path(), "sam");
-        // Registering already made sam's real folder — swap in the symlink.
-        let _ = std::fs::remove_dir_all(mount.path().join(&home));
-
-        // A symlink squatting on sam's home — planted outside Luna (the
-        // API can't mint it). It must never become a window onto `family`.
-        std::fs::create_dir_all(mount.path().join(crate::member_home::members_dir_name(
-            &crate::drives::drive_db::prefix_for(mount.path()).unwrap(),
-        )))
-        .unwrap();
-        std::os::unix::fs::symlink(mount.path().join("family"), mount.path().join(&home)).unwrap();
-
-        // /me resolves the home as unready — a symlink is not a home.
-        let (status, me) = get_json(&app, &sam_cookie, &sam_csrf, "/api/v1/auth/me").await;
-        assert_eq!(status, 200);
-        assert_eq!(me["home"]["ready"], false);
-
-        // Listing through it fails instead of following into `family`.
-        let res = get_files(&app, &sam_cookie, &sam_csrf, &home).await;
-        assert!(
-            res.status().is_client_error(),
-            "expected refusal, got {}",
-            res.status()
-        );
-        let res = get_files(&app, &sam_cookie, &sam_csrf, &format!("{home}/a.txt")).await;
-        assert!(
-            res.status().is_client_error(),
-            "expected refusal, got {}",
-            res.status()
-        );
-    }
-
-    #[tokio::test]
     async fn summary_space_follows_view_grants() {
         let mount = tempfile::tempdir().unwrap();
         let (_dir, app) = test_app(mount.path());
         let (sam_cookie, sam_csrf, sam_id) = admin_and_sam(&app).await;
         {
-            // Sam's home lives on another drive so `photos` stats come only
-            // from his grants — a home on this drive is itself a
-            // view-bearing root.
             let conn = crate::db::open(&_dir.path().join("luna.db")).unwrap();
-            crate::db::upsert_drive(&conn, "other", "Other", "as_is", "ext4", "sdb", "").unwrap();
-            crate::db::set_user_home_drive(&conn, &sam_id, "other").unwrap();
             crate::db::insert_access_member(
                 &conn,
                 &crate::db::AccessMemberRow {

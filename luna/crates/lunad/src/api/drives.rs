@@ -19,14 +19,8 @@ struct DriveJson {
     fs_type: String,
     device: String,
     mount_point: String,
-    /// Member home folders live on this drive — either the admin's choice
-    /// or the first-drive default (`member_home_auto`).
-    member_home: bool,
-    /// The home-drive assignment came from the first-adopted-drive default,
-    /// not an explicit admin pick — the UI shows the "automatic" pill slot.
-    member_home_auto: bool,
-    /// The requesting user can write somewhere on this drive (their home or
-    /// a grant) — drag-and-drop targets only offer writable roots.
+    /// The requesting user can write somewhere on this drive (a grant) —
+    /// drag-and-drop targets only offer writable roots.
     writable: bool,
     /// The requesting user's capabilities on the drive root, server-stamped.
     caps: String,
@@ -120,27 +114,12 @@ async fn list(
             "Luna couldn't reach your drives right now. Try again.",
         )
     })?;
-    // Which drive hosts the member homes is admin knowledge — a member who
-    // could spot it in this list learns where every other person's private
-    // files live. Members learn their own home drive from /me anyway.
-    let home_drive = if admin {
-        crate::db::member_home_drive(&conn).ok().flatten()
-    } else {
-        None
-    };
-    let home_configured = admin
-        && crate::db::member_home_drive_configured(&conn)
-            .ok()
-            .flatten()
-            .is_some();
     Ok(Json(
         rows.into_iter()
             .filter(|d| admin || crate::auth::has_drive_access(&user, &conn, &d.id))
             .map(|d| {
                 let id = d.id.clone();
                 let mut json: DriveJson = d.into();
-                json.member_home = admin && home_drive.as_deref() == Some(id.as_str());
-                json.member_home_auto = json.member_home && !home_configured;
                 json.writable = admin || crate::auth::has_write_on_drive(&user, &conn, &id);
                 json.caps =
                     crate::access::caps_to_str(crate::auth::caps_on_path(&user, &conn, &id, ""));
@@ -165,14 +144,8 @@ async fn detected(
     // Idempotent reconciliation on every poll: gone -> missing, returned -> as_is,
     // ejected stays ejected while still plugged in. Remounted Ready drives re-arm
     // the gallery watcher (eject→replug / kernel remount).
-    let (known_devices, remounted, ready_moves) = with_db(&state.db, |conn| {
+    let (known_devices, remounted) = with_db(&state.db, |conn| {
         let remounted = state.drive_manager.reconcile(conn, &drives)?;
-        // Queued member-home work (account rename/delete/repin while a
-        // drive was unplugged) applies here, inside the same lock that
-        // marked the drive mounted — nothing can resolve a home path in
-        // the gap. Cross-drive moves need the job manager, so they come
-        // out and enqueue below.
-        let ready_moves = crate::member_home::reconcile_pending(conn).unwrap_or_default();
         let rows = crate::db::list_drives(conn)?;
         // Drop gallery watches for drives that are no longer Ready.
         for row in &rows {
@@ -195,31 +168,11 @@ async fn detected(
                 .map(|d| d.device)
                 .collect::<std::collections::HashSet<_>>(),
             remounted,
-            ready_moves,
         ))
     })
     .unwrap_or_default();
     for (id, mount) in remounted {
         state.gallery.watch_mount(&id, mount);
-    }
-    for mv in ready_moves {
-        if state
-            .job_manager
-            .enqueue(
-                "move",
-                &mv.src_drive,
-                &mv.src_rel,
-                &mv.dst_drive,
-                &mv.dst_members,
-                &mv.user_id,
-            )
-            .await
-            .is_ok()
-        {
-            let _ = with_db(&state.db, |conn| {
-                crate::db::delete_pending_home_op(conn, &mv.op_id)
-            });
-        }
     }
     Ok(Json(
         drives
@@ -491,7 +444,7 @@ async fn drive_summary(
         let grant_shortcuts = if can_list_root {
             Vec::new()
         } else {
-            let mut shortcuts: Vec<String> = rows
+            let shortcuts: Vec<String> = rows
                 .iter()
                 .filter(|r| {
                     r.subject_kind == crate::access::KIND_PATH
@@ -502,23 +455,13 @@ async fn drive_summary(
                 .map(|r| r.path.clone())
                 .take(6)
                 .collect();
-            // The member's home is grant-free — it never appears as an
-            // access row, so offer it as the first quick link.
-            if crate::member_home::home_on_drive(&conn, &user.id, &id)
-                && let Some(home) = crate::member_home::home_rel(&conn, &id, &user.username)
-            {
-                shortcuts.insert(0, home);
-                shortcuts.truncate(6);
-            }
             shortcuts
         };
         // Space stats are a drive-level read: any view-bearing grant on this
-        // drive — whole drive, a folder, a file, or the member's home —
-        // earns the readout. Upload-only members get nothing (capacity is
+        // drive — whole drive, a folder, or a file — earns the readout. Upload-only members get nothing (capacity is
         // drive metadata, not something their write access needs).
         let can_see_space = user.role == "admin"
             || can_list_root
-            || crate::member_home::home_on_drive(&conn, &user.id, &id)
             || rows.iter().any(|r| {
                 r.subject_kind == crate::access::KIND_PATH
                     && r.drive_id == id
@@ -573,7 +516,7 @@ async fn drive_summary(
 
 /// Top-level folder/file counts for the dashboard, counting only names a
 /// file listing would show. `.luna-<uuid>*` bookkeeping (marker, trash,
-/// thumbs, member homes, upload temps) never appears in listings — counting
+/// thumbs, upload temps) never appears in listings — counting
 /// it here would hand members a hidden-item oracle they could diff against
 /// what they can see.
 fn visible_top_level_counts(root: &std::path::Path) -> (u64, u64) {
@@ -713,8 +656,6 @@ impl From<crate::db::DriveRow> for DriveJson {
             fs_type: d.fs_type,
             device: d.device,
             mount_point: d.mount_point,
-            member_home: false,
-            member_home_auto: false,
             writable: false,
             caps: String::new(),
         }
@@ -731,10 +672,8 @@ mod tests {
         let root = dir.path();
         std::fs::create_dir(root.join("Photos")).unwrap();
         std::fs::create_dir(root.join("plain")).unwrap();
-        // Luna bookkeeping must not move the needle: marker db, members
-        // container, trash dir, in-flight upload temp.
-        std::fs::create_dir(root.join(".luna-3f6a8c1e-9b2d-4a7c-8e5f-1a2b3c4d5e6f-members"))
-            .unwrap();
+        // Luna bookkeeping must not move the needle: marker db, trash dir,
+        // in-flight upload temp.
         std::fs::create_dir(root.join(".luna-3f6a8c1e-9b2d-4a7c-8e5f-1a2b3c4d5e6f-trash")).unwrap();
         std::fs::write(
             root.join(".luna-3f6a8c1e-9b2d-4a7c-8e5f-1a2b3c4d5e6f.sqlite3"),
@@ -758,7 +697,7 @@ mod tests {
     }
 
     /// Build a state + router pair with one adopted drive and a member who
-    /// can see it (a grant), so the drives list reaches the flag code.
+    /// can see it (a grant), so the drives list reaches the per-user fields.
     fn app_with_drive_and_member() -> (tempfile::TempDir, crate::AppState, String, String, String) {
         let dir = tempfile::tempdir().unwrap();
         let conn = db::open(&dir.path().join("luna.db")).unwrap();
@@ -770,7 +709,6 @@ mod tests {
         {
             let conn = state.db.lock().unwrap();
             db::upsert_drive(&conn, "d1", "Photos", "as_is", "ext4", "sdz", "/mnt/d1").unwrap();
-            db::set_member_home_drive(&conn, "d1").unwrap();
         }
         let admin = state
             .auth
@@ -828,16 +766,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn member_home_flags_are_admin_only() {
+    async fn members_see_their_access_but_not_server_paths() {
         let (_dir, state, admin_token, member_token, _member_id) = app_with_drive_and_member();
         let admin_view = get_drives(&state, &admin_token).await;
         let member_view = get_drives(&state, &member_token).await;
-        assert_eq!(admin_view[0]["member_home"], true);
-        assert_eq!(admin_view[0]["member_home_auto"], false);
-        // The member still sees the drive (their grant) but must not learn
-        // it hosts everyone's homes — the flag reads the same as any other.
-        assert_eq!(member_view[0]["member_home"], false);
-        assert_eq!(member_view[0]["member_home_auto"], false);
+        assert_eq!(admin_view[0]["mount_point"], "/mnt/d1");
+        assert_eq!(admin_view[0]["caps"], "full+share");
+        // The member sees the drive (their grant) with only their own
+        // access — the OS mount path and device node stay server plumbing.
+        assert_eq!(member_view[0]["mount_point"], "");
+        assert_eq!(member_view[0]["device"], "");
+        assert_eq!(member_view[0]["writable"], false);
     }
 
     #[test]

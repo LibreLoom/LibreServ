@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronRight, FolderHeart, HardDrive, History, PlugZap, TriangleAlert } from "lucide-react";
+import { ChevronRight, HardDrive, History, PlugZap, TriangleAlert } from "lucide-react";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
@@ -17,7 +17,7 @@ import { dashboard as greetingMessages } from "../assets/greetings.jsx";
 import SystemHealthPill from "../components/common/SystemHealthPill.jsx";
 import SoftwareUpdatePill from "../components/common/SoftwareUpdatePill.jsx";
 import { ApiError, apiErrorMessage, getDrives, getHealth, getJson, getRecents, postJson } from "../lib/api.js";
-import { folderHref as driveFolderHref, homeAwareLabel } from "../lib/paths.js";
+import { folderHref as driveFolderHref } from "../lib/paths.js";
 import { CAP, KIND_ALBUM, sharedItemAction, sharedItemHref } from "../lib/access.js";
 import { capsOnPath, memberAccessRoots } from "../lib/shareTree.js";
 import {
@@ -541,17 +541,16 @@ const RECENT_KIND_LABELS = {
  * @param {{
  *   items: Array<import("../lib/recentItems.js").RecentItem>,
  *   drives: Array<{ id: string, label?: string }>,
- *   ownHomePath?: string,
  * }} props
  */
-function RecentItemsCard({ items, drives, ownHomePath = "" }) {
+function RecentItemsCard({ items, drives }) {
   return (
     <Card icon={History} title="Recents">
       <ul className="space-y-3">
         {items.map((item) => {
           const liveLabel = drives.find((d) => d.id === item.driveId)?.label;
-          const name = recentItemName(item, liveLabel, ownHomePath);
-          const locationLine = recentItemLocationLine(item, liveLabel, ownHomePath);
+          const name = recentItemName(item, liveLabel);
+          const locationLine = recentItemLocationLine(item, liveLabel);
           return (
             <li
               key={`${item.kind}:${item.driveId}:${item.path}`}
@@ -718,10 +717,7 @@ export default function DashboardPage() {
   });
   const recentItems = recentsQuery.data ?? (recentsQuery.isError ? readRecentItems(user?.username) : []);
   const myShares = memberAccessRoots(Array.isArray(access.data) ? access.data : []);
-  // Your own home is My files, not a shared folder — it never lists here.
-  const grants = myShares.filter(
-    (row) => row.kind !== KIND_ALBUM && !row.is_home && !(user?.home?.path && row.path === user.home.path),
-  );
+  const grants = myShares.filter((row) => row.kind !== KIND_ALBUM);
   const albumsShared = myShares.filter((row) => row.kind === KIND_ALBUM);
   const memberSharesLoading = !isAdmin && access.isLoading;
   const memberHasNothingShared =
@@ -768,21 +764,12 @@ export default function DashboardPage() {
             deviceTokenError={deviceTokenError}
           />
           {recentItems.length > 0 && (
-            <RecentItemsCard items={recentItems} drives={adopted} ownHomePath={user?.home?.path || ""} />
+            <RecentItemsCard items={recentItems} drives={adopted} />
           )}
         </div>
 
         <div className="flex-1 grid grid-cols-1 gap-6 content-start order-2 md:order-1">
-          <Card icon={FolderHeart} title="My files">
-            <p className="text-primary text-sm">Only you can see these unless you share them.</p>
-            <div className="mt-3">
-              <Button size="sm" variant="primary" asChild>
-                <Link to="/files">Open My files</Link>
-              </Button>
-            </div>
-          </Card>
-
-          {adopted.filter((drive) => isAdmin || grants.some((g) => g.drive_id === drive.id)).map((drive) => (
+          {adopted.map((drive) => (
             <DriveHomeCard
               key={drive.id}
               drive={drive}
@@ -861,9 +848,7 @@ export default function DashboardPage() {
                         {grant.name || grant.drive_label}
                       </span>
                       <span className="block text-primary text-xs truncate">
-                        {grant.path
-                          ? `${grant.drive_label} · ${homeAwareLabel(grant.path, user?.home?.path || "")}`
-                          : "Whole drive"}
+                        {grant.path ? `${grant.drive_label} · ${grant.path}` : "Whole drive"}
                       </span>
                     </span>
                     <Button size="sm" variant="primary" asChild>

@@ -148,10 +148,8 @@ function extensionOf(name) {
   return dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
 }
 
-/** What the user sees for this row — trash entries carry `original_name`;
- *  a member's private home root always reads "My files". */
+/** What the user sees for this row — trash entries carry `original_name`. */
 function displayNameOf(entry) {
-  if (entry?.home) return "My files";
   return entry?.original_name || entry?.name || "";
 }
 
@@ -185,7 +183,7 @@ function compareEntries(a, b, sortKey) {
 }
 
 /**
- * @typedef {{ name: string, kind: "dir"|"file"|string, size?: number, modified?: number, hidden?: boolean, saving?: boolean, original_name?: string, original_path?: string, caps?: number|string, home?: boolean }} FileEntry
+ * @typedef {{ name: string, kind: "dir"|"file"|string, size?: number, modified?: number, hidden?: boolean, saving?: boolean, original_name?: string, original_path?: string, caps?: number|string }} FileEntry
  * @typedef {{ entry: FileEntry, path: string, fullPath: string, displayName: string }} FileBrowserRowContext
  */
 
@@ -398,14 +396,9 @@ export default function FileBrowser({
   const entries = useMemo(
     // At a file root the row IS the browsed path — never hide it. Dep on
     // `listing.data` (stable ref), not rawEntries — a missing listing must
-    // not mint a fresh [] and re-run the selection effect forever. A
-    // member's injected home dir is dotfile-hidden but must render for its
-    // owner — the `home` flag exempts it.
-    // The server injects the caller's own home at the drive root; My files
-    // owns it, so shared-space browsing leaves it out (pickers keep it).
-    () => (listing.data || []).filter((e) => fileRoot
-      || (e.home && !path && !pickerMode ? false : (showHidden || !(e.hidden && !e.home)))),
-    [listing.data, showHidden, fileRoot, path, pickerMode],
+    // not mint a fresh [] and re-run the selection effect forever.
+    () => (listing.data || []).filter((e) => fileRoot || showHidden || !e.hidden),
+    [listing.data, showHidden, fileRoot],
   );
 
   const entryPaths = useMemo(

@@ -10,7 +10,7 @@ use super::adaptive::{configure_prompt_dialog, horizontal_scroll, make_action_ro
 use super::spawn_blocking;
 use super::toast_error;
 
-/// Browse My files and Luna's drives/folders and keep `drive_id` / `remote_path` in sync.
+/// Browse Luna drives/folders and keep `drive_id` / `remote_path` in sync.
 pub struct FolderBrowser {
     root: gtk::Widget,
 }
@@ -50,26 +50,23 @@ impl FolderBrowser {
         root.append(&selected_lbl);
 
         let browse_path = Rc::new(RefCell::new(remote_path.borrow().clone()));
-        // The signed-in person's My files (admins included), once Luna has answered.
-        let home: Rc<RefCell<Option<luna_desktop::luna::Home>>> = Rc::new(RefCell::new(None));
 
         let refresh_use_btn = {
             let use_btn = use_btn.clone();
             let browse_path = browse_path.clone();
             let remote_path = remote_path.clone();
-            let drive_id = drive_id.clone();
-            let home = home.clone();
             Rc::new(move || {
-                let at_home =
-                    is_home_root(&home.borrow(), &drive_id.borrow(), &browse_path.borrow());
                 let at_drive_root = browse_path.borrow().is_empty();
                 let using = *browse_path.borrow() == *remote_path.borrow();
-                let (label_idle, label_active) = if at_home {
-                    ("Use My files", "Using My files")
-                } else if at_drive_root {
-                    ("Use this drive", "Using this drive")
+                let label_idle = if at_drive_root {
+                    "Use this drive"
                 } else {
-                    ("Use this folder", "Using this folder")
+                    "Use this folder"
+                };
+                let label_active = if at_drive_root {
+                    "Using this drive"
+                } else {
+                    "Using this folder"
                 };
                 if using {
                     use_btn.set_label(label_active);
@@ -88,14 +85,11 @@ impl FolderBrowser {
             let remote_path = remote_path.clone();
             let selected_lbl = selected_lbl.clone();
             let refresh_use_btn = refresh_use_btn.clone();
-            let home = home.clone();
             Rc::new(move || {
                 let d = drive_id.borrow().clone();
                 let p = remote_path.borrow().clone();
                 if d.is_empty() {
-                    selected_lbl.set_text("Select My files, a drive or a folder.");
-                } else if is_home_root(&home.borrow(), &d, &p) {
-                    selected_lbl.set_text("Selected: My files");
+                    selected_lbl.set_text("Select a drive and folder.");
                 } else if p.is_empty() {
                     selected_lbl.set_text("Selected: whole drive");
                 } else {
@@ -119,7 +113,6 @@ impl FolderBrowser {
             let update_selected = update_selected.clone();
             let reload_folders = reload_folders.clone();
             let refresh_use_btn = refresh_use_btn.clone();
-            let home = home.clone();
             Rc::new(move || {
                 refresh_use_btn();
                 let d = drive_id.borrow().clone();
@@ -136,25 +129,14 @@ impl FolderBrowser {
                 while let Some(c) = path_bar.first_child() {
                     path_bar.remove(&c);
                 }
-                // Inside My files the trail starts at "My files"; elsewhere at the drive root.
-                let home_now = home.borrow().clone();
-                let inside_home = home_now.as_ref().and_then(|h| {
-                    h.relative(&d, &path)
-                        .map(|rel| (h.path.trim_matches('/').to_string(), rel))
-                });
-                let (root_label, root_target, trail) = match inside_home {
-                    Some((home_path, rel)) => ("My files", home_path, rel),
-                    None => ("Drive root", String::new(), path.clone()),
-                };
-                let root_btn = gtk::Button::with_label(root_label);
+                let root_btn = gtk::Button::with_label("Drive root");
                 root_btn.add_css_class("flat");
                 root_btn.connect_clicked({
                     let browse_path = browse_path.clone();
                     let reload = reload_folders.clone();
                     let refresh_use_btn = refresh_use_btn.clone();
-                    let root_target = root_target.clone();
                     move |_| {
-                        *browse_path.borrow_mut() = root_target.clone();
+                        *browse_path.borrow_mut() = String::new();
                         refresh_use_btn();
                         if let Some(f) = reload.borrow().as_ref() {
                             f();
@@ -162,7 +144,7 @@ impl FolderBrowser {
                     }
                 });
                 path_bar.append(&root_btn);
-                let crumbs: Vec<String> = trail
+                let crumbs: Vec<String> = path
                     .split('/')
                     .filter(|s| !s.is_empty())
                     .map(String::from)
@@ -171,12 +153,7 @@ impl FolderBrowser {
                     path_bar.append(&gtk::Label::new(Some("/")));
                     let btn = gtk::Button::with_label(c);
                     btn.add_css_class("flat");
-                    let below = crumbs[..=i].join("/");
-                    let next = if root_target.is_empty() {
-                        below
-                    } else {
-                        format!("{root_target}/{below}")
-                    };
+                    let next = crumbs[..=i].join("/");
                     btn.connect_clicked({
                         let browse_path = browse_path.clone();
                         let reload = reload_folders.clone();
@@ -207,13 +184,8 @@ impl FolderBrowser {
                         }
                         match result {
                             Ok(entries) => {
-                                let dirs: Vec<_> = entries
-                                    .into_iter()
-                                    .filter(|e| {
-                                        e.kind == "dir"
-                                            && !luna_desktop::luna::is_home_container_entry(&e.name)
-                                    })
-                                    .collect();
+                                let dirs: Vec<_> =
+                                    entries.into_iter().filter(|e| e.kind == "dir").collect();
                                 if dirs.is_empty() {
                                     folder_list.set_visible(false);
                                 } else {
@@ -283,21 +255,13 @@ impl FolderBrowser {
             let toast = toast.clone();
             let drive_box = drive_box.clone();
             let drive_id = drive_id.clone();
-            let remote_path = remote_path.clone();
-            let browse_path = browse_path.clone();
-            let home = home.clone();
             let do_reload = do_reload.clone();
             let update_selected = update_selected.clone();
             spawn_blocking(
-                move || {
-                    let drives = luna_desktop::list_drives(&state)?;
-                    let home = luna_desktop::my_home(&state)?;
-                    Ok::<_, String>((drives, home))
-                },
+                move || luna_desktop::list_drives(&state),
                 move |result| match result {
-                    Ok((drives, my_home)) => {
-                        *home.borrow_mut() = my_home.clone();
-                        if drives.is_empty() && my_home.is_none() {
+                    Ok(drives) => {
+                        if drives.is_empty() {
                             let empty_label = gtk::Label::new(Some(
                                 "No drives found on Luna. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.",
                             ));
@@ -305,36 +269,15 @@ impl FolderBrowser {
                             empty_label.add_css_class("dim-label");
                             drive_box.append(&empty_label);
                         }
-                        // A new backup or sync starts in My files, for everyone.
-                        if drive_id.borrow().is_empty()
-                            && let Some(h) = &my_home
-                        {
-                            *drive_id.borrow_mut() = h.drive_id.clone();
-                            *remote_path.borrow_mut() = h.path.clone();
-                            *browse_path.borrow_mut() = h.path.clone();
-                            update_selected();
-                        }
-                        let current_in_home = my_home.as_ref().is_some_and(|h| {
-                            h.relative(&drive_id.borrow(), &browse_path.borrow())
-                                .is_some()
-                        });
-                        // One chip per place: My files first, then each drive's shared space.
-                        let mut places: Vec<(String, Option<String>, bool)> = Vec::new();
-                        if my_home.is_some() {
-                            places.push(("My files".into(), None, current_in_home));
-                        }
                         for d in drives {
-                            let active = *drive_id.borrow() == d.id && !current_in_home;
-                            places.push((d.label, Some(d.id), active));
-                        }
-                        for (label, drive, active) in places {
-                            let btn = gtk::ToggleButton::with_label(&label);
+                            let btn = gtk::ToggleButton::with_label(&d.label);
                             btn.add_css_class("pill");
-                            btn.set_active(active);
+                            if *drive_id.borrow() == d.id {
+                                btn.set_active(true);
+                            }
                             btn.connect_toggled({
                                 let drive_id = drive_id.clone();
-                                let browse_path = browse_path.clone();
-                                let home = home.clone();
+                                let id = d.id.clone();
                                 let do_reload = do_reload.clone();
                                 let update_selected = update_selected.clone();
                                 let drive_box = drive_box.clone();
@@ -351,18 +294,7 @@ impl FolderBrowser {
                                         }
                                         child = c.next_sibling();
                                     }
-                                    match &drive {
-                                        Some(id) => {
-                                            *drive_id.borrow_mut() = id.clone();
-                                            *browse_path.borrow_mut() = String::new();
-                                        }
-                                        None => {
-                                            if let Some(h) = home.borrow().as_ref() {
-                                                *drive_id.borrow_mut() = h.drive_id.clone();
-                                                *browse_path.borrow_mut() = h.path.clone();
-                                            }
-                                        }
-                                    }
+                                    *drive_id.borrow_mut() = id.clone();
                                     update_selected();
                                     do_reload();
                                 }
@@ -376,7 +308,6 @@ impl FolderBrowser {
                                 }
                             }
                         } else {
-                            update_selected();
                             do_reload();
                         }
                     }
@@ -523,11 +454,4 @@ impl FolderBrowser {
     pub fn root(&self) -> &gtk::Widget {
         &self.root
     }
-}
-
-/// Whether `path` on `drive_id` is the top of the signed-in person's My files.
-fn is_home_root(home: &Option<luna_desktop::luna::Home>, drive_id: &str, path: &str) -> bool {
-    home.as_ref()
-        .and_then(|h| h.relative(drive_id, path))
-        .is_some_and(|rel| rel.is_empty())
 }

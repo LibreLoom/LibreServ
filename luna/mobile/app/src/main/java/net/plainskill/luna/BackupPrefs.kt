@@ -8,8 +8,6 @@ import androidx.security.crypto.MasterKey
 object BackupPrefs {
     private const val NAME = "luna_backup"
     const val DEFAULT_FOLDER = ""
-    const val MY_FILES = "My files"
-    const val DEFAULT_PHOTOS_FOLDER = "Photos"
 
     /**
      * The bearer token grants access to the user's files, so it is stored
@@ -38,12 +36,6 @@ object BackupPrefs {
     fun baseUrl(context: Context): String? = prefs(context)?.getString("base_url", null)
     fun driveId(context: Context): String? = prefs(context)?.getString("drive_id", null)
     fun driveLabel(context: Context): String? = prefs(context)?.getString("drive_label", null)
-    fun home(context: Context): LunaApi.Home? {
-        val p = prefs(context) ?: return null
-        val id = p.getString("home_drive_id", null)
-        if (id.isNullOrBlank()) return null
-        return LunaApi.Home(id, p.getString("home_path", "").orEmpty())
-    }
     fun folderPrefix(context: Context): String =
         prefs(context)?.getString("folder_prefix", DEFAULT_FOLDER)?.trim()?.trim('/') ?: DEFAULT_FOLDER
     fun setupComplete(context: Context): Boolean =
@@ -65,7 +57,8 @@ object BackupPrefs {
         baseUrl: String,
         token: String,
         username: String,
-        home: LunaApi.Home? = null,
+        driveId: String? = null,
+        driveLabel: String? = null,
     ) {
         val p = prefs(context)
             ?: throw IllegalStateException("This phone couldn't store the sign-in safely. Photo backup can't start.")
@@ -76,17 +69,8 @@ object BackupPrefs {
             .putBoolean("backup_enabled", true)
             .putBoolean("setup_complete", false)
             .apply {
-                if (home != null) {
-                    putString("home_drive_id", home.driveId)
-                    putString("home_path", home.path)
-                    // Photos start in My files / Photos, for admins and members
-                    // alike — unless the person already picked a folder.
-                    if (p.getString("drive_id", "").isNullOrEmpty()) {
-                        putString("drive_id", home.driveId)
-                        putString("drive_label", MY_FILES)
-                        putString("folder_prefix", LunaApi.joinPath(home.path, DEFAULT_PHOTOS_FOLDER))
-                    }
-                }
+                if (driveId != null) putString("drive_id", driveId)
+                if (driveLabel != null) putString("drive_label", driveLabel)
             }
             .apply()
     }
@@ -117,7 +101,8 @@ object BackupPrefs {
 
     fun destinationLabel(context: Context): String {
         val drive = driveLabel(context)?.ifBlank { null } ?: "Drive"
-        return LunaApi.destinationText(home(context), driveId(context), drive, folderPrefix(context))
+        val folder = folderPrefix(context)
+        return if (folder.isEmpty()) "$drive · Drive root" else "$drive · $folder"
     }
 
     fun setAskedBattery(context: Context, asked: Boolean) {

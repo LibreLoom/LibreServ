@@ -8,6 +8,7 @@ import {
   memberFileHref,
   memberPathFloor,
   memberSearchHref,
+  memberWritableRoots,
   pathContains,
   pathKey,
 } from "./shareTree.js";
@@ -85,25 +86,20 @@ describe("shareTree", () => {
     expect(memberPathFloor(rows, "d1", "docs")).toBe("docs");
   });
 
-  it("floors a member's own home at the home root, with no grant rows", () => {
-    const home = ".luna-550e8400-e29b-41d4-a716-446655440000-members/sam";
-    // The owner has no grant rows at all — the implicit home still floors.
-    expect(memberPathFloor([], "d1", home)).toBe(home);
-    expect(memberPathFloor([], "d1", `${home}/photos/beach.jpg`)).toBe(home);
-    // Other grants on the same drive don't confuse the home floor.
-    const rows = [{ id: "g", kind: "path", drive_id: "d1", path: "docs", caps: "view" }];
-    expect(memberPathFloor(rows, "d1", `${home}/photos`)).toBe(home);
-  });
-
-  it("floors a peer's deep share inside a home at the grant, not the home", () => {
-    const maxHome = ".luna-11111111-2222-3333-4444-555555555555-members/max";
-    // Sam can browse `docs` inside Max's home but cannot open the home
-    // root itself — the floor is the grant path, so Up never offers a
-    // path the server will 403.
+  it("offers only present, writable folders as destinations", () => {
     const rows = [
-      { id: "g", kind: "path", drive_id: "d1", path: `${maxHome}/docs`, caps: "view" },
+      { id: "a", kind: "path", drive_id: "d1", path: "docs", name: "Docs", caps: "full" },
+      { id: "b", kind: "path", drive_id: "d1", path: "readonly", caps: "view" },
+      { id: "c", kind: "path", drive_id: "gone", path: "", caps: "full" },
+      { id: "d", kind: "path", drive_id: "d1", path: "one.txt", is_file: true, caps: "full" },
+      { id: "e", kind: KIND_ALBUM, drive_id: "d1", album_id: "al1", caps: "full" },
+      { id: "f", kind: "path", drive_id: "d1", path: "drop", caps: "upload" },
     ];
-    expect(memberPathFloor(rows, "d1", `${maxHome}/docs/2024`)).toBe(`${maxHome}/docs`);
+    const roots = memberWritableRoots(rows, (id) => id === "d1", () => "Photos");
+    expect(roots).toEqual([
+      { driveId: "d1", path: "docs", label: "Docs" },
+      { driveId: "d1", path: "drop", label: "drop" },
+    ]);
   });
 
   it("treats a whole-drive grant as the normal root", () => {

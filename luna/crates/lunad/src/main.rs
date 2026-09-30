@@ -77,34 +77,6 @@ async fn main() -> anyhow::Result<()> {
     // just moved into drive microdbs are swept too.
     lunad::files::uploads::sweep_orphans(&state.db);
 
-    // Home work queued while a drive was unplugged (account renames,
-    // member deletions, repins) applies now — before the HTTP listener
-    // binds, so no request can resolve a stale home path ahead of it.
-    // rename/trash run inline; cross-drive moves whose drives are both up
-    // become real move jobs.
-    let ready_moves = {
-        let db = state.db.lock().expect("db");
-        lunad::member_home::reconcile_pending(&db).unwrap_or_default()
-    };
-    for mv in ready_moves {
-        if state
-            .job_manager
-            .enqueue(
-                "move",
-                &mv.src_drive,
-                &mv.src_rel,
-                &mv.dst_drive,
-                &mv.dst_members,
-                &mv.user_id,
-            )
-            .await
-            .is_ok()
-        {
-            let db = state.db.lock().expect("db");
-            let _ = lunad::db::delete_pending_home_op(&db, &mv.op_id);
-        }
-    }
-
     // Catch-up gallery index for every adopted mount already on disk.
     {
         let mounts = {

@@ -1097,23 +1097,6 @@ pub fn caps_on_path(
     } else {
         path
     };
-    // Member homes (`.luna-<uuid>-members/<username>/…`): the owner holds
-    // everything. For everyone else — admins included — only explicit member
-    // rows inside that same home apply. This is the privacy boundary: admin
-    // access never opens another member's files through any Luna surface.
-    if crate::member_home::is_member_home_path(path) {
-        // Only a container minted by THIS drive's marker counts. A foreign
-        // `.luna-<uuid>-members` tree — adopted from another Luna or
-        // planted in a drive image — is nobody's home: seal it for
-        // everyone, member rows included.
-        if !crate::member_home::container_matches_drive(conn, drive_id, path) {
-            return 0;
-        }
-        if crate::member_home::owner_of(conn, drive_id, path).as_deref() == Some(user.id.as_str()) {
-            return crate::access::CAP_MANAGE;
-        }
-        return member_row_caps(user, conn, drive_id, path, mount.as_deref());
-    }
     if user.role == "admin" {
         return crate::access::CAP_MANAGE;
     }
@@ -1135,17 +1118,6 @@ pub fn caps_on_path_rows(
         .flatten()
         .filter(|d| !d.mount_point.is_empty())
         .map(|d| d.mount_point);
-    if crate::member_home::is_member_home_path(path) {
-        // Same seal as caps_on_path: a foreign members container opens for
-        // nobody, whatever rows exist inside it.
-        if !crate::member_home::container_matches_drive(conn, drive_id, path) {
-            return 0;
-        }
-        if crate::member_home::owner_of(conn, drive_id, path).as_deref() == Some(user.id.as_str()) {
-            return crate::access::CAP_MANAGE;
-        }
-        return member_row_caps_rows(rows, drive_id, path, mount.as_deref());
-    }
     if user.role == "admin" {
         return crate::access::CAP_MANAGE;
     }
@@ -1173,9 +1145,6 @@ fn member_row_caps_rows(
     path: &str,
     mount: Option<&str>,
 ) -> crate::access::Caps {
-    // Inside a member home only grants *rooted in that same home* count —
-    // a drive-wide `""` row must never reach across the home boundary.
-    let home_root = crate::member_home::home_root_of(path);
     let mut caps: crate::access::Caps = 0;
     for row in rows {
         if row.subject_kind != crate::access::KIND_PATH || row.drive_id != drive_id {
@@ -1183,12 +1152,6 @@ fn member_row_caps_rows(
         }
         if !crate::access::path_contains(&row.path, path) {
             continue;
-        }
-        if let Some(home_root) = home_root {
-            let row_path = crate::access::normalize_subject_path(&row.path);
-            if !crate::access::path_contains(home_root, &row_path) {
-                continue;
-            }
         }
         let covers = match mount {
             Some(root) => grant_covers_canonical(
@@ -1281,13 +1244,8 @@ fn grant_covers_canonical(root: &str, grant_rel: &str, request_rel: &str) -> boo
 }
 
 /// True if the user may see anything on this drive (whole drive or a folder).
-/// A member also sees the drive their home folder lives on — it is their
-/// only writable root when nothing is shared with them.
 pub fn has_drive_access(user: &CurrentUser, conn: &Connection, drive_id: &str) -> bool {
     if user.role == "admin" {
-        return true;
-    }
-    if crate::member_home::home_on_drive(conn, &user.id, drive_id) {
         return true;
     }
     let Ok(rows) = db::list_access_members_for_user(conn, &user.id) else {
@@ -1298,13 +1256,9 @@ pub fn has_drive_access(user: &CurrentUser, conn: &Connection, drive_id: &str) -
 }
 
 /// True if the user may change anything on this drive (upload or edit,
-/// whole drive or a folder). Owning a home on the drive counts — the member
-/// can always write inside their own home.
+/// whole drive or a folder).
 pub fn has_write_on_drive(user: &CurrentUser, conn: &Connection, drive_id: &str) -> bool {
     if user.role == "admin" {
-        return true;
-    }
-    if crate::member_home::home_on_drive(conn, &user.id, drive_id) {
         return true;
     }
     let Ok(rows) = db::list_access_members_for_user(conn, &user.id) else {
@@ -1325,26 +1279,10 @@ pub fn has_write_on_drive(user: &CurrentUser, conn: &Connection, drive_id: &str)
 /// still use capability checks.
 pub fn can_browse_path(user: &CurrentUser, conn: &Connection, drive_id: &str, path: &str) -> bool {
     let norm = crate::access::normalize_subject_path(path);
-    // The members container itself is bookkeeping — nobody walks it,
-    // whoever holds grants inside one of its homes.
-    if crate::member_home::is_members_dir(&norm) {
-        return false;
-    }
-    // Inside a member home the admin fast-path does not exist: admins only
-    // see what was shared with them, like any other member.
-    let in_member_home = crate::member_home::is_member_home_path(&norm);
-    // A foreign members container seals like it does in caps_on_path —
-    // rows inside it must not unlock a tree this drive never minted.
-    if in_member_home && !crate::member_home::container_matches_drive(conn, drive_id, &norm) {
-        return false;
-    }
     if can_access(user, conn, drive_id, &norm, false) {
         return true;
     }
-    if user.role == "admin" && !in_member_home {
-        return true;
-    }
-    if norm.is_empty() && crate::member_home::home_on_drive(conn, &user.id, drive_id) {
+    if user.role == "admin" {
         return true;
     }
     let Ok(rows) = db::list_access_members_for_user(conn, &user.id) else {
@@ -1354,20 +1292,10 @@ pub fn can_browse_path(user: &CurrentUser, conn: &Connection, drive_id: &str, pa
 }
 
 /// The row-walk half of [`can_browse_path`]: may any `CAP_VIEW` row on this
-/// drive see `norm`, directly or as an ancestor of the grant? Grants
-/// outside a member home never unlock paths inside it.
+/// drive see `norm`, directly or as an ancestor of the grant?
 fn browse_rows_walk(drive_id: &str, norm: &str, rows: &[db::AccessMemberRow]) -> bool {
-    let home_root = crate::member_home::home_root_of(norm);
     rows.iter().any(|r| {
         if r.subject_kind != crate::access::KIND_PATH || r.drive_id != drive_id {
-            return false;
-        }
-        if let Some(home_root) = home_root
-            && !crate::access::path_contains(
-                home_root,
-                &crate::access::normalize_subject_path(&r.path),
-            )
-        {
             return false;
         }
         // Upload-only rows are browse-blind: PUT lands on a known path, but
@@ -1391,11 +1319,9 @@ fn browse_rows_walk(drive_id: &str, norm: &str, rows: &[db::AccessMemberRow]) ->
 }
 
 /// [`caps_on_path`] for batch evaluators (DAV PROPFIND) that preload the
-/// per-request context once instead of re-reading the member rows, the
-/// drive row, and the drive's marker for every entry.
+/// per-request context once instead of re-reading the member rows and the
+/// drive row for every entry.
 ///
-/// `members_name` is the drive's own `.luna-<uuid>-members` container name
-/// (`None` when the marker can't be read — home paths then seal).
 /// `path` is a raw drive-relative path; unlike [`caps_on_path`] no
 /// `.luna-trash` origin remap runs — callers on raw rels don't need it.
 pub fn caps_on_path_preloaded(
@@ -1404,20 +1330,7 @@ pub fn caps_on_path_preloaded(
     path: &str,
     rows: &[db::AccessMemberRow],
     mount: Option<&str>,
-    members_name: Option<&str>,
 ) -> crate::access::Caps {
-    if crate::member_home::is_member_home_path(path) {
-        let first = path.split('/').next().unwrap_or("");
-        if Some(first) != members_name {
-            return 0;
-        }
-        // The requesting user's username matching the home segment IS the
-        // owner check — no users-table lookup needed for self-comparison.
-        if crate::member_home::owner_username(path) == Some(user.username.as_str()) {
-            return crate::access::CAP_MANAGE;
-        }
-        return member_row_caps_rows(rows, drive_id, path, mount);
-    }
     if user.role == "admin" {
         return crate::access::CAP_MANAGE;
     }
@@ -1433,24 +1346,12 @@ pub fn can_browse_path_preloaded(
     path: &str,
     caps: crate::access::Caps,
     rows: &[db::AccessMemberRow],
-    members_name: Option<&str>,
-    home_here: bool,
 ) -> bool {
     let norm = crate::access::normalize_subject_path(path);
-    if crate::member_home::is_members_dir(&norm) {
-        return false;
-    }
-    let in_member_home = crate::member_home::is_member_home_path(&norm);
-    if in_member_home && norm.split('/').next() != members_name {
-        return false;
-    }
     if caps & crate::access::CAP_VIEW == crate::access::CAP_VIEW {
         return true;
     }
-    if user.role == "admin" && !in_member_home {
-        return true;
-    }
-    if norm.is_empty() && home_here {
+    if user.role == "admin" {
         return true;
     }
     browse_rows_walk(drive_id, &norm, rows)
@@ -1469,30 +1370,10 @@ pub fn can_browse_path_preloaded(
 /// for the HTTP surface.
 pub fn can_inspect_path(user: &CurrentUser, conn: &Connection, drive_id: &str, path: &str) -> bool {
     let norm = crate::access::normalize_subject_path(path);
-    // The members container itself is bookkeeping — nobody inspects it,
-    // whoever holds grants inside one of its homes.
-    if crate::member_home::is_members_dir(&norm) {
-        return false;
-    }
-    // Same member-home carve as can_browse_path: admin rights stop at the
-    // edge of another member's home.
-    let in_member_home = crate::member_home::is_member_home_path(path);
     if can_access(user, conn, drive_id, path, false) {
         return true;
     }
-    if user.role == "admin" && !in_member_home {
-        return true;
-    }
-    let home_here = crate::member_home::home_on_drive(conn, &user.id, drive_id);
-    if norm.is_empty() && home_here {
-        return true;
-    }
-    // The member's own home dir is inspectable even before it exists (the
-    // "your files" card links here on a fresh account).
-    if home_here
-        && crate::member_home::home_rel(conn, drive_id, &user.username).as_deref()
-            == Some(norm.as_str())
-    {
+    if user.role == "admin" {
         return true;
     }
     let Ok(rows) = db::list_access_members_for_user(conn, &user.id) else {

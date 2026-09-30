@@ -21,38 +21,6 @@ pub struct FileEntry {
     pub modified: i64,
 }
 
-/// The signed-in person's own "My files" folder. Every user has one, admins included.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Home {
-    pub drive_id: String,
-    /// Path on that drive.
-    pub path: String,
-}
-
-impl Home {
-    /// Path below My files when `path` on `drive_id` is inside it ("" = My files itself).
-    pub fn relative(&self, drive_id: &str, path: &str) -> Option<String> {
-        if drive_id != self.drive_id {
-            return None;
-        }
-        let path = path.trim_matches('/');
-        let home = self.path.trim_matches('/');
-        if path == home {
-            return Some(String::new());
-        }
-        path.strip_prefix(home)
-            .and_then(|rest| rest.strip_prefix('/'))
-            .map(String::from)
-    }
-}
-
-/// The drive-root listing includes the caller's own home as a row named by its full
-/// path (`.luna-<uuid>-members/<username>`). My files already covers it, so browsers skip it.
-pub fn is_home_container_entry(name: &str) -> bool {
-    name.split_once('/')
-        .is_some_and(|(first, _)| first.starts_with(".luna-") && first.ends_with("-members"))
-}
-
 /// Whether an API error means stored credentials are no longer valid.
 pub fn is_auth_failure(err: &str) -> bool {
     let t = err.trim();
@@ -233,37 +201,6 @@ pub fn auth_me(base_url: &str, token: &str) -> Result<(String, String), String> 
         .unwrap_or("")
         .to_string();
     Ok((username, id))
-}
-
-/// The signed-in person's My files folder, or `None` while Luna has no drive to keep it on.
-pub fn my_home(base_url: &str, token: &str) -> Result<Option<Home>, String> {
-    let mut resp = auth_get(base_url, token, "/api/v1/auth/me")?;
-    if resp.status() == 401 {
-        return Err("unauthorized".into());
-    }
-    if !resp.status().is_success() {
-        return Err("Luna couldn't find your My files folder. Try again.".into());
-    }
-    let value: serde_json::Value = resp
-        .body_mut()
-        .read_json()
-        .map_err(|_| "Luna returned a bad sign-in reply.".to_string())?;
-    Ok(parse_home(&value))
-}
-
-/// An empty `path` means the home's drive is unplugged: Luna can't say where
-/// My files is, so there is no home to offer (the drive root is shared space).
-fn parse_home(me: &serde_json::Value) -> Option<Home> {
-    let home = me.get("home")?;
-    let drive_id = home.get("drive_id")?.as_str()?;
-    let path = home.get("path")?.as_str()?;
-    if drive_id.is_empty() || path.trim_matches('/').is_empty() {
-        return None;
-    }
-    Some(Home {
-        drive_id: drive_id.to_string(),
-        path: path.to_string(),
-    })
 }
 
 pub fn list_drives(base_url: &str, token: &str) -> Result<Vec<Drive>, String> {
@@ -612,45 +549,6 @@ mod tests {
     use super::*;
     use std::io::{Read, Write};
     use std::net::TcpListener;
-
-    #[test]
-    fn home_comes_from_me_for_every_role() {
-        for role in ["admin", "member"] {
-            let me = serde_json::json!({
-                "id": "u1", "username": "max", "role": role,
-                "home": {"drive_id": "d1", "path": "h/max", "ready": true}
-            });
-            let home = parse_home(&me).expect("home");
-            assert_eq!(home.drive_id, "d1");
-            assert_eq!(home.path, "h/max");
-        }
-        assert!(parse_home(&serde_json::json!({"id": "u1", "home": null})).is_none());
-        // Unplugged home drive: Luna knows the drive but not the folder.
-        let unplugged = serde_json::json!({"home": {"drive_id": "d1", "path": "", "ready": false}});
-        assert!(parse_home(&unplugged).is_none());
-    }
-
-    #[test]
-    fn home_container_rows_are_recognized() {
-        assert!(is_home_container_entry(".luna-3f6a-members/max"));
-        assert!(!is_home_container_entry(".luna-3f6a-members"));
-        assert!(!is_home_container_entry("Photos/max"));
-        assert!(!is_home_container_entry(".luna-cache/max"));
-        assert!(!is_home_container_entry("Photos"));
-    }
-
-    #[test]
-    fn home_relative_only_inside_my_files() {
-        let home = Home {
-            drive_id: "d1".into(),
-            path: "h/max".into(),
-        };
-        assert_eq!(home.relative("d1", "h/max").as_deref(), Some(""));
-        assert_eq!(home.relative("d1", "h/max/Docs").as_deref(), Some("Docs"));
-        assert_eq!(home.relative("d1", "h/maxine"), None);
-        assert_eq!(home.relative("d1", ""), None);
-        assert_eq!(home.relative("d2", "h/max"), None);
-    }
 
     fn spawn_server() -> (
         String,

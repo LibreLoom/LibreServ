@@ -3,8 +3,8 @@
 //! In-app links name a file by path (`/drives/<id>?path=…&file=…`), so a
 //! move or rename would strand every bookmark, recent and copied URL that
 //! pointed at it. Every move Luna performs already funnels through
-//! `access::repath_subjects_move` (API rename/move, move jobs, WebDAV,
-//! member-home renames); that function records `old → new` here, and the
+//! `access::repath_subjects_move` (API rename/move, move jobs, WebDAV);
+//! that function records `old → new` here, and the
 //! resolve endpoint follows the trail when a link lands on a missing path.
 //!
 //! Rules:

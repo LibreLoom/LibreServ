@@ -39,9 +39,7 @@ object LunaApi {
         val unauthorized get() = code == 401
     }
 
-    /** Where "My files" lives: every user, admins included, has one. */
-    data class Home(val driveId: String, val path: String)
-    data class UserInfo(val id: String, val username: String, val home: Home? = null)
+    data class UserInfo(val id: String, val username: String)
     data class Drive(val id: String, val label: String)
     data class FileEntry(val name: String, val kind: String) {
         val isDir: Boolean get() = kind == "dir"
@@ -99,17 +97,7 @@ object LunaApi {
         }
         val username = JsonFields.string(trimmed, "username").orEmpty()
         if (username.isEmpty()) throw ApiException(401, badTokenMessage())
-        val homeJson = JsonFields.obj(trimmed, "home")
-        val homeDrive = homeJson?.let { JsonFields.string(it, "drive_id") }.orEmpty()
-        val homePath = homeJson?.let { JsonFields.string(it, "path") }.orEmpty()
-        // An empty path means the home's drive is unplugged: there is no My files
-        // to point at, and the drive root is shared space.
-        val home = if (homeDrive.isNotEmpty() && homePath.trim('/').isNotEmpty()) {
-            Home(homeDrive, homePath)
-        } else {
-            null
-        }
-        return UserInfo(JsonFields.string(trimmed, "id").orEmpty(), username, home)
+        return UserInfo(JsonFields.string(trimmed, "id").orEmpty(), username)
     }
 
     fun parseDrives(body: String): List<Drive> {
@@ -169,33 +157,6 @@ object LunaApi {
                 )
             }
         }
-    }
-
-    /**
-     * The drive-root listing includes the caller's own home as a row named by its full path
-     * (`.luna-<uuid>-members/<username>`). My files already covers it, so pickers skip it.
-     */
-    fun isHomeContainerEntry(name: String): Boolean {
-        val slash = name.indexOf('/')
-        if (slash < 0) return false
-        val first = name.substring(0, slash)
-        return first.startsWith(".luna-") && first.endsWith("-members")
-    }
-
-    /** Path below My files, "" for My files itself, null when [path] is not inside it. */
-    fun homeRelative(home: Home?, driveId: String?, path: String): String? {
-        if (home == null || driveId != home.driveId) return null
-        val p = path.trim('/')
-        val h = home.path.trim('/')
-        if (p == h) return ""
-        return if (p.startsWith("$h/")) p.substring(h.length + 1) else null
-    }
-
-    /** Where photos go, in words: "My files · Photos", or "Drive · folder" on a drive. */
-    fun destinationText(home: Home?, driveId: String?, driveLabel: String, folder: String): String {
-        val rel = homeRelative(home, driveId, folder)
-        if (rel != null) return if (rel.isEmpty()) "My files" else "My files · $rel"
-        return if (folder.isEmpty()) "$driveLabel · Drive root" else "$driveLabel · $folder"
     }
 
     fun joinPath(vararg parts: String): String =

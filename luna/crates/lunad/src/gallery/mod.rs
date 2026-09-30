@@ -66,8 +66,8 @@ impl Photo {
 
 /// `Photo`'s serialized form is the guest-safe projection: an opaque `id`,
 /// the display name, and media metadata — never the real `drive_id` or
-/// `path`, which would reveal drive layout (member homes live under
-/// `.luna-<uuid>-members`). Member-facing handlers re-attach the real
+/// `path`, which would reveal drive layout (Luna's own folders live under
+/// `.luna-<uuid>`). Member-facing handlers re-attach the real
 /// coordinates explicitly through `api::gallery::member_photo_json`;
 /// anything that serializes a `Photo` directly — like the anonymous
 /// album-link surface — stays safe by default. `path` carries the same
@@ -300,16 +300,6 @@ pub fn skip_gallery_dir(name: &str) -> bool {
     crate::drives::layout::Layout::is_luna_name(name)
 }
 
-/// Whether the walk skips `name` at depth `depth` (0 = drive root). The
-/// members container at the root is the one Luna folder the gallery enters:
-/// member homes hold people's own photos, shown only to their owner.
-pub fn skip_gallery_dir_at(depth: usize, name: &str) -> bool {
-    if depth == 0 && crate::member_home::is_members_dir(name) {
-        return false;
-    }
-    skip_gallery_dir(name)
-}
-
 /// Open the on-drive `.luna-<uuid>.sqlite3` microdb (gallery tables included).
 /// Never under OS data_dir.
 pub fn open_drive_db(drive_root: &Path) -> anyhow::Result<Connection> {
@@ -400,9 +390,9 @@ pub fn scan_drive(drive_id: &str, root: &Path) -> anyhow::Result<ScanReport> {
     let mut report = ScanReport::default();
     let mut seen = HashSet::new();
     let mut pending: Vec<PendingUpsert> = Vec::with_capacity(BATCH_UPSERT);
-    let mut stack = vec![(root.to_path_buf(), 0usize)];
+    let mut stack = vec![root.to_path_buf()];
 
-    while let Some((dir, depth)) = stack.pop() {
+    while let Some(dir) = stack.pop() {
         let entries = match std::fs::read_dir(&dir) {
             Ok(e) => e,
             Err(_) => continue,
@@ -422,10 +412,10 @@ pub fn scan_drive(drive_id: &str, root: &Path) -> anyhow::Result<ScanReport> {
             if meta.is_dir() {
                 let name = entry.file_name();
                 let name = name.to_string_lossy();
-                if skip_gallery_dir_at(depth, &name) {
+                if skip_gallery_dir(&name) {
                     continue;
                 }
-                stack.push((entry.path(), depth + 1));
+                stack.push(entry.path());
                 continue;
             }
             if !meta.is_file() || !is_media(&entry.path()) {
@@ -978,8 +968,8 @@ pub fn ensure_thumb(src: &Path, dest: &Path, kind: &str) -> anyhow::Result<(u32,
     if dest.exists() {
         return Ok((0, 0, false));
     }
-    // A source that resolves into Luna's own namespace (member homes,
-    // thumbs, trash, the microdb itself) must never be thumbnailed: album
+    // A source that resolves into Luna's own namespace (thumbs,
+    // trash, the microdb itself) must never be thumbnailed: album
     // and link surfaces reach here through paths a member only *named*, and
     // a symlink they planted must not read out `.luna-*` contents for them.
     if let Ok(canonical) = src.canonicalize()
@@ -1987,12 +1977,13 @@ pub fn list_place_markers(mounts: &[(String, PathBuf)]) -> anyhow::Result<Vec<Pl
 
 /// Distinct non-empty camera make/model pairs across mounts, ordered by count desc.
 ///
-/// Only photos the caller may open are counted (see [`PathGrants`]) — nobody
-/// learns cameras from folders they cannot open, and no one sees another
-/// member's home, Admins included.
+/// When `path_grants` is `Some`, only photos under those grant prefixes (per drive)
+/// are counted — Members must not learn cameras from folders they cannot open.
+/// A drive missing from the map is denied (empty grant), not treated as Admin.
+/// `None` means unrestricted (Admin).
 pub fn list_cameras(
     mounts: &[(String, PathBuf)],
-    path_grants: &PathGrants,
+    path_grants: Option<&std::collections::HashMap<String, Vec<String>>>,
 ) -> anyhow::Result<Vec<CameraCount>> {
     use std::collections::HashMap;
     let mut map: HashMap<(String, String), u64> = HashMap::new();
@@ -2037,30 +2028,21 @@ pub fn list_cameras(
     Ok(out)
 }
 
-/// Which photo paths a caller may count in facets.
-///
-/// `prefixes` are the viewable path prefixes per drive (folder grants plus
-/// the caller's own home). `everything_else` is true for Admins: every path
-/// outside a member home. Homes are private, so only a prefix ever opens one.
-/// A drive missing from `prefixes` denies every path unless `everything_else`.
-#[derive(Debug, Default, Clone)]
-pub struct PathGrants {
-    pub everything_else: bool,
-    pub prefixes: std::collections::HashMap<String, Vec<String>>,
-}
-
-impl PathGrants {
-    fn allows(&self, drive_id: &str, path: &str) -> bool {
-        let by_prefix = self
-            .prefixes
-            .get(drive_id)
-            .is_some_and(|prefs| prefs.iter().any(|p| crate::access::path_contains(p, path)));
-        by_prefix || (self.everything_else && !crate::member_home::is_member_home_path(path))
+/// `path_grants = None` → Admin (allow all).
+/// `path_grants = Some(map)` → Member: only paths under that drive's prefixes;
+/// a missing drive key denies every path on that drive (never “allow all”).
+fn path_allowed_by_grants(
+    path_grants: Option<&std::collections::HashMap<String, Vec<String>>>,
+    drive_id: &str,
+    path: &str,
+) -> bool {
+    match path_grants {
+        None => true,
+        Some(grants) => match grants.get(drive_id) {
+            None => false,
+            Some(prefs) => prefs.iter().any(|p| crate::access::path_contains(p, path)),
+        },
     }
-}
-
-fn path_allowed_by_grants(path_grants: &PathGrants, drive_id: &str, path: &str) -> bool {
-    path_grants.allows(drive_id, path)
 }
 
 /// Aggregate filter facet values (cameras, lenses, formats, ISO/focal ranges).
@@ -2068,7 +2050,7 @@ fn path_allowed_by_grants(path_grants: &PathGrants, drive_id: &str, path: &str) 
 /// See [`list_cameras`] for `path_grants` semantics.
 pub fn list_filter_facets(
     mounts: &[(String, PathBuf)],
-    path_grants: &PathGrants,
+    path_grants: Option<&std::collections::HashMap<String, Vec<String>>>,
 ) -> anyhow::Result<FilterFacets> {
     use std::collections::HashMap;
     let cameras = list_cameras(mounts, path_grants)?;
@@ -2798,7 +2780,7 @@ pub fn ensure_heic_preview_jpeg(src: &Path, thumb_dest: &Path) -> anyhow::Result
 
 /// Write a zip of absolute files. `entries` is `(archive_path, absolute_file)`.
 /// Caps at `max_files` (returns Err on overflow). Files living inside Luna's
-/// own namespace (member homes, thumbs, trash, the microdb) are never
+/// own namespace (thumbs, trash, the microdb) are never
 /// packed, and duplicate archive names are made unique with ` (n)` suffixes.
 pub fn write_items_zip(
     entries: &[(String, PathBuf)],
@@ -2824,7 +2806,7 @@ pub fn write_items_zip(
         }
         // Entry paths arrive canonicalized — a `.luna-*` segment means a
         // symlinked item or contrib row resolved onto Luna bookkeeping
-        // (a member home, thumbs, the drive's microdb). Never ship those.
+        // (thumbs, trash, the drive's microdb). Never ship those.
         if crate::files::is_internal_temp(&abs.to_string_lossy()) {
             continue;
         }
@@ -3244,7 +3226,7 @@ mod tests {
         scan("d1", &photos_dir).unwrap();
         let mounts = vec![("d1".into(), photos_dir.clone())];
 
-        let cameras = list_cameras(&mounts, &admin_grants()).unwrap();
+        let cameras = list_cameras(&mounts, None).unwrap();
         assert!(
             cameras
                 .iter()
@@ -3290,43 +3272,6 @@ mod tests {
         assert_eq!(by_q.items[0].name, "nikon.jpg");
     }
 
-    fn admin_grants() -> PathGrants {
-        PathGrants {
-            everything_else: true,
-            ..Default::default()
-        }
-    }
-
-    #[test]
-    fn homes_are_scanned_but_only_their_owner_counts_them() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().join("photos");
-        let container = ".luna-3f6a8c1e-9b2d-4a7c-8e5f-1a2b3c4d5e6f-members";
-        std::fs::create_dir_all(root.join(container).join("sam")).unwrap();
-        std::fs::write(
-            root.join(container).join("sam/canon.jpg"),
-            crate::gallery::exif::jpeg_with_exif(
-                "2020:01:02 03:04:05",
-                Some("Canon"),
-                Some("EOS R5"),
-            ),
-        )
-        .unwrap();
-        scan("d1", &root).unwrap();
-        let mounts = vec![("d1".into(), root.clone())];
-        let all = ListFilter::default();
-        let listed = list_photos(&mounts, None, &all, 50, 0).unwrap();
-        assert_eq!(listed.items.len(), 1, "home photo must be indexed");
-        // Admins see nothing from another member's home.
-        assert!(list_cameras(&mounts, &admin_grants()).unwrap().is_empty());
-        // The owner's home prefix opens it.
-        let mut owner = PathGrants::default();
-        owner
-            .prefixes
-            .insert("d1".into(), vec![format!("{container}/sam")]);
-        assert_eq!(list_cameras(&mounts, &owner).unwrap().len(), 1);
-    }
-
     #[test]
     fn list_cameras_respects_path_grants() {
         let dir = tempfile::tempdir().unwrap();
@@ -3353,9 +3298,9 @@ mod tests {
         .unwrap();
         scan("d1", &photos_dir).unwrap();
         let mounts = vec![("d1".into(), photos_dir.clone())];
-        let mut grants = PathGrants::default();
-        grants.prefixes.insert("d1".into(), vec!["shared".into()]);
-        let cameras = list_cameras(&mounts, &grants).unwrap();
+        let mut grants = std::collections::HashMap::new();
+        grants.insert("d1".into(), vec!["shared".into()]);
+        let cameras = list_cameras(&mounts, Some(&grants)).unwrap();
         assert!(
             cameras
                 .iter()
@@ -3387,12 +3332,13 @@ mod tests {
         scan("d1", &photos_dir).unwrap();
         let mounts = vec![("d1".into(), photos_dir)];
         // Member map present but this drive has no entry — must not equal Admin None.
-        let cameras = list_cameras(&mounts, &PathGrants::default()).unwrap();
+        let grants = std::collections::HashMap::new();
+        let cameras = list_cameras(&mounts, Some(&grants)).unwrap();
         assert!(
             cameras.is_empty(),
             "missing drive key under Some(grants) must deny: {cameras:?}"
         );
-        let admin = list_cameras(&mounts, &admin_grants()).unwrap();
+        let admin = list_cameras(&mounts, None).unwrap();
         assert!(
             admin
                 .iter()
@@ -3513,7 +3459,7 @@ mod tests {
         scan("d1", &photos_dir).unwrap();
         let mounts = vec![("d1".into(), photos_dir.clone())];
 
-        let facets = list_filter_facets(&mounts, &admin_grants()).unwrap();
+        let facets = list_filter_facets(&mounts, None).unwrap();
         assert!(
             facets
                 .lenses
@@ -3770,9 +3716,9 @@ mod tests {
         std::fs::write(b.join("same.jpg"), b"bbbb").unwrap();
         // A file sitting inside Luna's namespace — never pack it.
         let prefix = luna_core::marker::pick_prefix(root).unwrap();
-        let member_home = root.join(format!("{prefix}-members/sam"));
-        std::fs::create_dir_all(&member_home).unwrap();
-        let private = member_home.join("private.jpg");
+        let internal_dir = root.join(format!("{prefix}-trash/entry"));
+        std::fs::create_dir_all(&internal_dir).unwrap();
+        let private = internal_dir.join("private.jpg");
         std::fs::write(&private, b"secret").unwrap();
 
         let zip_path = root.join("out.zip");
@@ -3787,7 +3733,7 @@ mod tests {
             10,
         )
         .unwrap();
-        assert_eq!(n, 2, "the member-home file must be skipped");
+        assert_eq!(n, 2, "the file inside Luna's namespace must be skipped");
 
         let archive = std::fs::File::open(&zip_path).unwrap();
         let mut zip = zip::ZipArchive::new(archive).unwrap();

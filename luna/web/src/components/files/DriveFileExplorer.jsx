@@ -24,7 +24,6 @@ import ModalErrorNotice from "@libreloom/ui/components/common/ModalErrorNotice.j
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
-import { useOptionalAuth } from "../../context/AuthContext.jsx";
 import {
   apiErrorMessage,
   getDrives,
@@ -51,7 +50,6 @@ import {
   fileHref as defaultFileHref,
   folderHref as defaultFolderHref,
   fmtSize,
-  isMemberHomePath,
   isTrashPath,
   joinPath,
   parentPath,
@@ -347,25 +345,9 @@ export default function DriveFileExplorer({
   // Trash browses like a normal folder — same chrome, same actions. The
   // only affordances that stay off are the ones that would put NEW things
   // inside it (upload, create): items reach trash by being deleted.
-  // Guests (share links) have no AuthProvider — optional auth.
-  const user = useOptionalAuth()?.user;
   const inTrash = !guest && isTrashPath(path);
-  // A person's own home isn't a grant row — their whole
-  // `.luna-<uuid>-members/<username>` tree is theirs, Admins included (the
-  // backend never lets anyone into another person's home, so full manage
-  // rights here can't leak sideways). The path comes from `/me` — the
-  // frontend can't derive it (the members container carries the drive's
-  // marker prefix).
-  const ownHomeRoot = !guest && user?.home?.path
-    ? user.home.path
-    : null;
-  const inOwnHome = Boolean(ownHomeRoot
-    && (path === ownHomeRoot || path.startsWith(`${ownHomeRoot}/`)));
-  /** Capability bits for `p`: home tree → manage, else union of grants. */
-  const capsForPath = (p) => (ownHomeRoot
-    && (p === ownHomeRoot || p.startsWith(`${ownHomeRoot}/`)))
-    ? CAP_MANAGE
-    : capsOnPath(access.data, driveId, p);
+  /** Capability bits for `p`: the union of the member's grants. */
+  const capsForPath = (p) => capsOnPath(access.data, driveId, p);
   const myFolderCaps = guest
     ? guestCaps
     : isAdmin
@@ -385,18 +367,14 @@ export default function DriveFileExplorer({
   const memberRows = !guest && !isAdmin && Array.isArray(access.data)
     ? access.data
     : null;
-  // Inside the member's own home the floor is the home root itself — the
-  // `.luna-<uuid>-members` container above it is bookkeeping, never a crumb.
   const pathFloor = inTrash
     ? ""
-    : inOwnHome
-      ? ownHomeRoot
-      : memberRows
-        ? memberPathFloor(memberRows, driveId, path)
-        : "";
+    : memberRows
+      ? memberPathFloor(memberRows, driveId, path)
+      : "";
   // A file whose parent folder isn't browsable for this member is itself
   // the root: `?path=<file>` gets the one-entry listing, `?file=` opens it.
-  const rowFileHref = memberRows && !inOwnHome
+  const rowFileHref = memberRows
     ? (/** @type {string} */ d, /** @type {string} */ p) => memberFileHref(memberRows, d, p)
     : fileHref;
 
@@ -413,11 +391,6 @@ export default function DriveFileExplorer({
     const origin = String(trashedFrom || "");
     const labels = ["Trash", ...origin.split("/").filter(Boolean)];
     segmentLabel = (/** @type {string} */ segment, /** @type {number} */ i) => labels[i] ?? segment;
-  } else if (isMemberHomePath(path)) {
-    // Crumbs floor at the home root, so the username segment (index 1) is
-    // the root crumb — it reads "My files", not the raw username.
-    segmentLabel = (/** @type {string} */ segment, /** @type {number} */ i) =>
-      i === 1 ? "My files" : segment;
   }
 
   // The trash listing — same query key as FileBrowser's, so this shares the
@@ -807,14 +780,14 @@ export default function DriveFileExplorer({
         driveLabel={driveLabel}
         path={path}
         pathFloor={pathFloor}
-        forbiddenState={!guest ? (
+        forbiddenState={!guest && !isAdmin ? (
           <EmptyState
             icon={Lock}
             title="You don't have access to this folder"
-            description="Open items shared with you from Shared with me instead."
+            description="Open items shared with you from Shared instead."
             action={(
               <Button size="sm" variant="primary" asChild>
-                <Link to="/shared">Open Shared with me</Link>
+                <Link to="/shared">Open Shared</Link>
               </Button>
             )}
           />
@@ -863,9 +836,7 @@ export default function DriveFileExplorer({
           // itself but not on folders inside it (they're trash children).
           const label = inTrash
             ? (path === TRASH_PATH ? "Trash" : trashDisplayName(path))
-            : inOwnHome && path === ownHomeRoot
-              ? "My files"
-              : (path || driveLabel || "this folder");
+            : (path || driveLabel || "this folder");
           const trashChildFolder = inTrash && path !== TRASH_PATH;
           return (
             <>
@@ -963,9 +934,6 @@ export default function DriveFileExplorer({
             ? (guestCaps & CAP.EDIT) !== 0 && !source.isFile
             : (rowCaps & CAP.EDIT) !== 0;
           const rowCanShare = !guest && !trashChild && (rowCaps & CAP.SHARE) !== 0;
-          // The member-home root is Luna-owned: browsable and shareable,
-          // never renameable, movable, copyable, or deletable.
-          const isHomeRow = ctx.entry.home === true;
           return (
           <ActionTooltipGroup>
             <div className="flex items-center gap-0.5 flex-wrap justify-end">
@@ -1010,7 +978,7 @@ export default function DriveFileExplorer({
                   </Button>
                 </Tooltip>
               )}
-              {!guest && !isHomeRow && (
+              {!guest && (
                 <Tooltip content="Copy">
                   <Button
                     variant="ghost"
@@ -1023,7 +991,7 @@ export default function DriveFileExplorer({
                   </Button>
                 </Tooltip>
               )}
-              {rowCanEdit && !trashRoot && !isHomeRow && (
+              {rowCanEdit && !trashRoot && (
                 <>
                   <Tooltip content="Move">
                     <Button

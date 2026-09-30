@@ -67,50 +67,34 @@ fn can_contribute_album(
     album_caps(state, user, home, album) & crate::access::CAP_UPLOAD != 0
 }
 
-/// What this caller may count in facets: folder grants plus their own home,
-/// and for Admins everything outside other members' homes.
+/// Viewable path prefixes per drive for Members. `None` means Admin
+/// (unrestricted); a missing drive key denies every path on that drive.
 fn path_grants_for_user(
     state: &AppState,
     user: &crate::auth::CurrentUser,
-) -> Result<gallery::PathGrants, ApiError> {
+) -> Result<Option<std::collections::HashMap<String, Vec<String>>>, ApiError> {
+    if is_admin(user) {
+        return Ok(None);
+    }
     let conn = state.db.lock().map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Luna's index is busy. Try again.",
         )
     })?;
-    let mut grants = gallery::PathGrants {
-        everything_else: is_admin(user),
-        ..Default::default()
-    };
-    if !grants.everything_else {
-        let rows = crate::db::list_access_members_for_user(&conn, &user.id).map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't check your folder access.",
-            )
-        })?;
-        for r in rows {
-            if r.subject_kind == crate::access::KIND_PATH && r.caps & crate::access::CAP_VIEW != 0 {
-                grants.prefixes.entry(r.drive_id).or_default().push(r.path);
-            }
-        }
-    }
-    let drives = crate::db::list_drives(&conn).map_err(|_| {
+    let rows = crate::db::list_access_members_for_user(&conn, &user.id).map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't list your drives.",
+            "Luna couldn't check your folder access.",
         )
     })?;
-    for drive in drives {
-        if let Some(home) = crate::member_home::home_rel(&conn, &drive.id, &user.username)
-            && crate::member_home::owner_of(&conn, &drive.id, &home).as_deref()
-                == Some(user.id.as_str())
-        {
-            grants.prefixes.entry(drive.id).or_default().push(home);
+    let mut map: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    for r in rows {
+        if r.subject_kind == crate::access::KIND_PATH && r.caps & crate::access::CAP_VIEW != 0 {
+            map.entry(r.drive_id).or_default().push(r.path);
         }
     }
-    Ok(grants)
+    Ok(Some(map))
 }
 
 /// Path access, Admin, or album membership (for viewing shared album photos).
@@ -659,7 +643,7 @@ async fn cameras(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let mounts = accessible_mounts(&state, &user, None)?;
     let grants = path_grants_for_user(&state, &user)?;
-    let cameras = gallery::list_cameras(&mounts, &grants).map_err(|_| {
+    let cameras = gallery::list_cameras(&mounts, grants.as_ref()).map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Luna couldn't list cameras.",
@@ -674,7 +658,7 @@ async fn filter_facets(
 ) -> Result<Json<gallery::FilterFacets>, (StatusCode, Json<Value>)> {
     let mounts = accessible_mounts(&state, &user, None)?;
     let grants = path_grants_for_user(&state, &user)?;
-    let facets = gallery::list_filter_facets(&mounts, &grants).map_err(|_| {
+    let facets = gallery::list_filter_facets(&mounts, grants.as_ref()).map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Luna couldn't load photo filters.",
@@ -1000,7 +984,7 @@ pub(crate) fn album_item_allowed(
     if !gallery::is_media(FsPath::new(path)) {
         return false;
     }
-    // Luna's own namespace — member homes, thumbs, trash, the microdb, temp
+    // Luna's own namespace — thumbs, trash, the microdb, temp
     // parts — is never album content, not as a stored row and not through a
     // lexical contrib-path match.
     if crate::files::is_internal_temp(path) {
@@ -1022,7 +1006,7 @@ pub(crate) fn album_item_allowed(
     let item_ok = in_album && {
         // The stored row is only servable when the lexical path really is
         // the file: a symlinked component anywhere in it aliases bytes Luna
-        // never indexed (a member home, a path outside the drive). Home
+        // never indexed (a path outside the drive). Home
         // items are verified here; items on other mounts are re-checked by
         // the serving paths themselves.
         drive_id != home || luna_core::path::resolve_child_nofollow(root, path).is_ok()
@@ -1045,7 +1029,7 @@ fn contrib_file_is_media(root: &FsPath, rel: &str) -> bool {
 }
 
 /// Is `abs` — an already-canonicalized path — inside a namespace Luna owns?
-/// Member homes, thumbs, trash, the microdb and temp parts all live under
+/// Thumbs, trash, the microdb and temp parts all live under
 /// `.luna-*`/`*.part`-style names. Generated thumbnails under `*-thumbs`
 /// are the exception: media routes legitimately stream those.
 fn is_protected_target(abs: &FsPath) -> bool {
@@ -1094,7 +1078,7 @@ pub(crate) async fn resolve_browser_safe_file(
     rel: &str,
 ) -> Result<(PathBuf, String, String), ApiError> {
     // Nofollow all the way down: the file served must be the file the path
-    // names, not whatever a planted symlink aliases (a member home, a path
+    // names, not whatever a planted symlink aliases (a path
     // outside the drive). The media type is then read from the resolved
     // name below.
     let src = luna_core::path::resolve_child_nofollow(mount, rel)
@@ -1149,7 +1133,7 @@ pub(crate) async fn serve_media_path(
     headers: &HeaderMap,
 ) -> Result<Response, ApiError> {
     // `abs` arrives canonicalized. If it lands inside Luna's own namespace
-    // — a member home, thumbs, trash, the microdb — a planted symlink got
+    // — thumbs, trash, the microdb — a planted symlink got
     // it there; serve nothing. Generated thumbnails under `*-thumbs` are
     // the one exception: HEIC previews legitimately stream from there.
     if is_protected_target(&abs) {
@@ -1430,7 +1414,7 @@ async fn download_zip(
     for item in &body.items {
         let root = resolve_mount(&state, &item.drive_id)?;
         // Nofollow: the zipped bytes must be the file the path names — a
-        // symlinked component must not alias a member home or a path
+        // symlinked component must not alias Luna's own folders or a path
         // outside the drive into the archive.
         let abs = match luna_core::path::resolve_child_nofollow(&root, &item.path) {
             Ok(p) => p,
@@ -1812,7 +1796,7 @@ async fn add_items(
             not_media += 1;
             continue;
         }
-        // Luna's own namespace (member homes, thumbs, trash, the microdb)
+        // Luna's own namespace (thumbs, trash, the microdb)
         // can never be album content — a stored row there would hand every
         // album viewer bytes that were never meant to be shared.
         if crate::files::is_internal_temp(&item.path) {
@@ -2436,15 +2420,16 @@ mod tests {
             &prefix,
         )
         .unwrap();
-        // A member-home photo inside Luna's own namespace.
-        let member_home = root.join(format!("{prefix}-members/sam"));
-        std::fs::create_dir_all(&member_home).unwrap();
-        std::fs::write(member_home.join("private.jpg"), [0xFF, 0xD8, 0xFF, 0xE0]).unwrap();
-        let member_home_rel = format!("{prefix}-members/sam/private.jpg");
-        // A `.jpg` whose leaf is a symlink — whether the target is a member
-        // home or a path outside the drive, serving it would leak bytes the
-        // album was never granted.
-        std::os::unix::fs::symlink(member_home.join("private.jpg"), root.join("link.jpg")).unwrap();
+        // A photo inside Luna's own namespace.
+        let internal_dir = root.join(format!("{prefix}-trash/entry"));
+        std::fs::create_dir_all(&internal_dir).unwrap();
+        std::fs::write(internal_dir.join("private.jpg"), [0xFF, 0xD8, 0xFF, 0xE0]).unwrap();
+        let internal_rel = format!("{prefix}-trash/entry/private.jpg");
+        // A `.jpg` whose leaf is a symlink — whether the target is inside
+        // Luna's namespace or a path outside the drive, serving it would
+        // leak bytes the album was never granted.
+        std::os::unix::fs::symlink(internal_dir.join("private.jpg"), root.join("link.jpg"))
+            .unwrap();
         std::os::unix::fs::symlink("/etc/passwd", root.join("escape.jpg")).unwrap();
         // The real photo, as a control.
         std::fs::write(root.join("real.jpg"), [0xFF, 0xD8, 0xFF, 0xE0]).unwrap();
@@ -2453,7 +2438,7 @@ mod tests {
             root,
             &album.id,
             &[
-                ("home".into(), member_home_rel.clone()),
+                ("home".into(), internal_rel.clone()),
                 ("home".into(), "link.jpg".into()),
                 ("home".into(), "escape.jpg".into()),
                 ("home".into(), "real.jpg".into()),
@@ -2465,12 +2450,12 @@ mod tests {
             .unwrap();
 
         assert!(
-            !super::album_item_allowed("home", root, &album, "home", &member_home_rel),
+            !super::album_item_allowed("home", root, &album, "home", &internal_rel),
             "Luna-internal paths must never be album content"
         );
         assert!(
             !super::album_item_allowed("home", root, &album, "home", "link.jpg"),
-            "a symlinked item aliasing a member home must not serve"
+            "a symlinked item aliasing Luna's namespace must not serve"
         );
         assert!(
             !super::album_item_allowed("home", root, &album, "home", "escape.jpg"),

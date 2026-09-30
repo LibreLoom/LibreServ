@@ -174,7 +174,7 @@ pub fn create_scoped(
     // A `.part`-style or Luna-namespace leaf mints a file no listing can
     // ever show — session names are held to the create-path bar so a
     // stranded invisible file can never be uploaded.
-    if files::is_blocked_create_path(&name) {
+    if files::is_internal_temp(&name) {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             "that name is reserved for Luna",
@@ -382,7 +382,7 @@ pub fn complete(
     let mut name = upload.name;
     // Defense in depth on the leaf name — a session row predating the
     // create-time check must not mint an invisible file either.
-    if files::is_blocked_create_path(&name) {
+    if files::is_internal_temp(&name) {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             "that name is reserved for Luna",
@@ -457,7 +457,6 @@ pub fn complete(
         original_path: None,
         link_target: None,
         caps: String::new(),
-        home: false,
     })
 }
 

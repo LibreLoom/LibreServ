@@ -128,7 +128,7 @@ class LoginActivity : AppCompatActivity() {
         thread {
             try {
                 val user = LunaApi.authMe(url, accessToken)
-                BackupPrefs.saveSession(this, url, accessToken, user.username, user.home)
+                BackupPrefs.saveSession(this, url, accessToken, user.username)
                 runOnUiThread {
                     if (isFinishing) return@runOnUiThread
                     startActivity(Intent(this, if (BackupPrefs.setupComplete(this)) ShellActivity::class.java else SetupActivity::class.java))

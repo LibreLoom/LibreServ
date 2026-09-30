@@ -185,8 +185,8 @@ describe("DriveMenu", () => {
 
   it("member mode lists writable roots and drops into their paths", async () => {
     const onDropPaths = vi.fn();
-    const destinations = /** @type {{ driveId: string, path: string, label: string, sub?: string, icon?: "home"|"folder"|"drive", writable?: boolean }[]} */ ([
-      { driveId: "d1", path: ".luna-u1", label: "Home", sub: "Photos Drive", icon: "home" },
+    const destinations = /** @type {{ driveId: string, path: string, label: string, sub?: string, icon?: "folder"|"drive", writable?: boolean }[]} */ ([
+      { driveId: "d1", path: "docs/drop", label: "drop", sub: "Photos Drive", icon: "folder" },
       { driveId: "d2", path: "shared/inbox", label: "inbox", sub: "Spare Drive", icon: "folder" },
     ]);
     render(
@@ -210,13 +210,12 @@ describe("DriveMenu", () => {
     const trigger = screen.getByRole("button", { name: "Places: docs" });
     fireEvent.click(trigger);
     const menu = await screen.findByRole("menu", { name: "Places" });
-    // The Home destination stays in the list even though it is on the
-    // browsed drive — dropping into Home is a real move, not the current
-    // folder.
-    const homeItem = within(menu).getByRole("menuitem", { name: /Home/ });
+    // A folder on the browsed drive stays in the list — dropping into it
+    // is a real move, not the current folder.
+    const dropItem = within(menu).getByRole("menuitem", { name: /drop/ });
     const dataTransfer = lunaDrag(["docs/a.txt"], "d1");
-    fireEvent.dragOver(homeItem, { dataTransfer });
-    fireEvent.drop(homeItem, { dataTransfer });
-    expect(onDropPaths).toHaveBeenCalledWith("d1", ".luna-u1", ["docs/a.txt"], "d1");
+    fireEvent.dragOver(dropItem, { dataTransfer });
+    fireEvent.drop(dropItem, { dataTransfer });
+    expect(onDropPaths).toHaveBeenCalledWith("d1", "docs/drop", ["docs/a.txt"], "d1");
   });
 });

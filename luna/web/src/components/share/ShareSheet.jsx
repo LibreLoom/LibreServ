@@ -29,7 +29,6 @@ import {
   subjectKey,
 } from "../../lib/access.js";
 import { isFormFile } from "../../lib/fileKinds.js";
-import { isMemberHomePath } from "../../lib/paths.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
@@ -192,12 +191,11 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
   });
 
   const memberUserIds = new Set(members.map((m) => m.user_id));
-  // Admins already hold everything outside people's homes, so they are
-  // recipients only for things inside a home (the server refuses the rest).
-  const inHome = !isAlbum && isMemberHomePath(subj?.path || subject?.path || "");
-  const others = asList(directory.data).filter((u) => u.shareable !== false && u.id !== user?.id);
-  const candidates = others.filter((u) => inHome || u.admin !== true);
-  const people = candidates.filter((u) => !memberUserIds.has(u.id));
+  const people = asList(directory.data).filter(
+    // `shareable` is the server flag — admins already hold everything, so a
+    // member row against them is meaningless.
+    (u) => u.shareable !== false && u.id !== user?.id && !memberUserIds.has(u.id),
+  );
   const noPeopleToAdd = directory.isSuccess && people.length === 0;
   const sheetError =
     error ||
@@ -353,11 +351,9 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
                 {noPeopleToAdd ? (
                   <div className="space-y-3 rounded-large-element surface-primary p-3">
                     <p className="text-secondary text-sm">
-                      {candidates.length > 0
-                        ? "Everyone already has access."
-                        : others.length > 0
-                          ? "Admins can already open everything outside people's own folders."
-                          : "No people to share with yet."}
+                      {asList(directory.data).filter((u) => u.shareable !== false && u.id !== user?.id).length === 0
+                        ? "No people to share with yet."
+                        : "Everyone already has access."}
                     </p>
                     {user?.role === "admin" && (
                       <Button variant="secondary" surface="primary" size="sm" asChild>

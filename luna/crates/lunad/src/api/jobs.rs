@@ -46,22 +46,11 @@ async fn create(
         // Raw `.luna-<uuid>-*` names (the real trash dir, upload temps,
         // markers) are Luna's bookkeeping — the API speaks the `.luna-trash`
         // alias. A raw trash path would otherwise slip past the origin-edit
-        // requirement below on nothing but a view grant. Member homes are
-        // addressable, so their contents may be job sources/destinations;
-        // the home root itself never moves through the public API — only
-        // the member-home drive switch relocates it.
-        if crate::files::is_blocked_user_path(from_path)
-            || crate::files::is_blocked_user_path(to_path)
-        {
+        // requirement below on nothing but a view grant.
+        if crate::files::is_internal_temp(from_path) || crate::files::is_internal_temp(to_path) {
             return Err(json_error(
                 StatusCode::BAD_REQUEST,
                 "Luna can't use that path.",
-            ));
-        }
-        if crate::member_home::is_home_root(from_path) {
-            return Err(json_error(
-                StatusCode::BAD_REQUEST,
-                "Home folders stay at the drive root — they can't be moved or copied.",
             ));
         }
         // Moving removes the source — that needs edit, not just view.
@@ -169,29 +158,21 @@ async fn cancel(
 
 fn job_json(job: crate::db::JobRow, viewer: &crate::auth::CurrentUser) -> Value {
     // A job's paths are verbatim only for the member who created it.
-    // Everyone else — admins included — gets member-home and `.luna-<uuid>`
-    // internals blanked: those paths identify another member's private
-    // files and Luna's own bookkeeping, which this surface must not leak.
+    // Everyone else — admins included — gets `.luna-<uuid>` internals
+    // blanked: those paths are Luna's own bookkeeping, which this surface
+    // must not leak.
     let path = |p: String| -> String {
-        if viewer.id == job.user_id
-            || !(crate::member_home::is_member_home_path(&p) || crate::files::is_internal_temp(&p))
-        {
+        if viewer.id == job.user_id || !crate::files::is_internal_temp(&p) {
             p
         } else {
             "private".to_string()
         }
     };
-    // For a member-home move, name the member — admins legitimately know
-    // who lives on the box (they manage users), and a member only ever
-    // lists their own jobs. The home *path* stays scrubbed; this is just
-    // the "whose folder is moving" label.
-    let member = crate::member_home::owner_username(&job.from_path);
     json!({
         "id": job.id,
         "kind": job.kind,
         "state": job.state,
         "user_id": job.user_id,
-        "member": member,
         "from_drive": job.from_drive,
         "from_path": path(job.from_path),
         "to_drive": job.to_drive,
@@ -400,10 +381,10 @@ mod http_tests {
     }
 
     #[test]
-    fn job_json_hides_home_and_internal_paths_from_non_owners() {
-        // Admins list everyone's jobs, but a job path inside a member home
-        // or a `.luna-<uuid>` namespace must not render to them — the owner
-        // alone sees the verbatim path.
+    fn job_json_hides_internal_paths_from_non_owners() {
+        // Admins list everyone's jobs, but a job path inside a `.luna-<uuid>`
+        // namespace must not render to them — the owner alone sees the
+        // verbatim path.
         let row = |from: &str, to: &str| crate::db::JobRow {
             id: "j1".into(),
             kind: "move".into(),
@@ -422,33 +403,25 @@ mod http_tests {
             username: id.into(),
             role: role.into(),
         };
-        let home = ".luna-3f6a8c1e-9b2d-4a7c-8e5f-1a2b3c4d5e6f-members/sam/photo.jpg";
-        let internal = ".luna-3f6a8c1e-9b2d-4a7c-8e5f-1a2b3c4d5e6f-members/sam";
+        let internal = ".luna-3f6a8c1e-9b2d-4a7c-8e5f-1a2b3c4d5e6f-trash/entry/photo.jpg";
 
-        let owner = job_json(row(home, "docs"), &who("sam", "member"));
-        assert_eq!(owner["from_path"], home, "the owner sees their own paths");
+        let owner = job_json(row(internal, "docs"), &who("sam", "member"));
+        assert_eq!(
+            owner["from_path"], internal,
+            "the owner sees their own paths"
+        );
 
-        let admin = job_json(row(home, "docs"), &who("max", "admin"));
+        let admin = job_json(row(internal, "docs"), &who("max", "admin"));
         assert_eq!(admin["from_path"], "private");
         assert_eq!(
             admin["to_path"], "docs",
             "only the internal side is blanked"
         );
-        // …but the member-name label still lands: "whose folder is moving"
-        // is safe metadata for the admin who manages users, and it never
-        // exposes the internal path itself.
-        assert_eq!(admin["member"], "sam");
         assert_eq!(admin["user_id"], "sam");
-
-        let internal_job = job_json(row(internal, internal), &who("max", "admin"));
-        assert_eq!(internal_job["from_path"], "private");
-        assert_eq!(internal_job["to_path"], "private");
-        assert_eq!(internal_job["member"], "sam");
 
         // Ordinary paths stay readable for admins — only internals redact.
         let plain = job_json(row("docs/a.txt", "docs/b.txt"), &who("max", "admin"));
         assert_eq!(plain["from_path"], "docs/a.txt");
-        assert_eq!(plain["member"], serde_json::Value::Null);
     }
 
     #[tokio::test]

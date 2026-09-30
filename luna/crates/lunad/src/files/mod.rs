@@ -46,11 +46,6 @@ pub struct FileEntry {
     /// internal producers and guest-link listings never carry it.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub caps: String,
-    /// This row is the caller's private member home (`.luna-<prefix>-members/<username>`), injected
-    /// into the drive-root listing so they can reach it. The UI renders it
-    /// as "My files" — the raw name is Luna bookkeeping.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub home: bool,
 }
 
 /// How many items sit directly inside a folder — folders, files, anything else.
@@ -207,13 +202,13 @@ pub fn list_dir_with_cache(
     let drive = drive_root(conn, drive_id)?;
     let root = PathBuf::from(&drive.mount_point);
     let rel = real_rel(&root, rel).into_owned();
-    if is_blocked_user_path(&rel) {
+    if is_internal_temp(&rel) {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::NotFound,
             "not found",
         )));
     }
-    let dir = resolve_user_rel(&root, rel.as_ref())?;
+    let dir = resolve_child(&root, rel.as_ref())?;
     if !dir.is_dir() {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::NotADirectory,
@@ -310,7 +305,6 @@ pub fn read_dir_entries(dir: &Path) -> Result<Vec<FileEntry>, FilesError> {
             original_path: None,
             link_target,
             caps: String::new(),
-            home: false,
         });
     }
 
@@ -386,13 +380,13 @@ fn resolve_any_ex(
     let drive = drive_root(conn, drive_id)?;
     let root = PathBuf::from(&drive.mount_point);
     let rel = real_rel(&root, rel).into_owned();
-    if is_blocked_user_path(&rel) && !(allow_trash && is_trash_rel(&rel)) {
+    if is_internal_temp(&rel) && !(allow_trash && is_trash_rel(&rel)) {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::NotFound,
             "not found",
         )));
     }
-    let path = resolve_user_rel(&root, rel.as_ref())?;
+    let path = resolve_child(&root, rel.as_ref())?;
     let meta = std::fs::metadata(&path).map_err(FilesError::Io)?;
     Ok((path, meta))
 }
@@ -531,23 +525,12 @@ fn resolve_leaf(root: &Path, rel: &str) -> Result<(PathBuf, String), FilesError>
         ),
         None => ("", ""),
     };
-    let parent = resolve_user_rel(root, parent_rel)?;
+    let parent = resolve_child(root, parent_rel)?;
     let path = if leaf.is_empty() {
         parent
     } else {
         parent.join(leaf)
     };
-    // Member-home trees are nofollow end to end — leaf included. A home
-    // that is a symlink is not a home, and a symlink leaf inside one gets
-    // no service: stat reports it as an escape rather than following it
-    // into whatever it points at.
-    if crate::member_home::is_member_home_path(trimmed)
-        && std::fs::symlink_metadata(&path)
-            .map(|m| m.file_type().is_symlink())
-            .unwrap_or(false)
-    {
-        return Err(FilesError::Path(luna_core::path::PathError::Escape));
-    }
     Ok((path, leaf.to_string()))
 }
 
@@ -868,13 +851,13 @@ pub fn dest_dir(
     let drive = drive_root(conn, drive_id)?;
     let root = PathBuf::from(&drive.mount_point);
     let rel = real_rel(&root, rel).into_owned();
-    if is_blocked_create_path(&rel) {
+    if is_internal_temp(&rel) {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::NotFound,
             "not found",
         )));
     }
-    let dir = resolve_user_rel(&root, rel.as_ref())?;
+    let dir = resolve_child(&root, rel.as_ref())?;
     if !dir.is_dir() {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::NotADirectory,
@@ -900,13 +883,13 @@ pub fn dest_dir_create(
     let drive = drive_root(conn, drive_id)?;
     let root = PathBuf::from(&drive.mount_point);
     let rel = real_rel(&root, rel).into_owned();
-    if is_blocked_create_path(&rel) {
+    if is_internal_temp(&rel) {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::NotFound,
             "not found",
         )));
     }
-    match resolve_user_rel(&root, rel.as_ref()) {
+    match resolve_child(&root, rel.as_ref()) {
         Ok(dir) => {
             if !dir.is_dir() {
                 return Err(FilesError::Io(std::io::Error::new(
@@ -976,38 +959,6 @@ fn ensure_dir(root: &Path, rel: &str) -> Result<PathBuf, FilesError> {
     resolve_child(root, rel).map_err(FilesError::Path)
 }
 
-/// Engine-internal [`dest_dir_create`]: same nofollow resolution and
-/// create-missing semantics but no user-path block, so daemon jobs can land
-/// inside Luna-managed names (member-home migration creates
-/// `.luna-<uuid>-members` on the destination drive). Only reachable through
-/// internally enqueued jobs — member job submission rejects blocked
-/// destinations up front. Never call this with user-controlled input.
-pub(crate) fn dest_dir_luna(
-    conn: &rusqlite::Connection,
-    drive_id: &str,
-    rel: &str,
-) -> Result<PathBuf, FilesError> {
-    let drive = drive_root(conn, drive_id)?;
-    let root = PathBuf::from(&drive.mount_point);
-    let rel = real_rel(&root, rel).into_owned();
-    match resolve_user_rel(&root, rel.as_ref()) {
-        Ok(dir) => {
-            if !dir.is_dir() {
-                return Err(FilesError::Io(std::io::Error::new(
-                    std::io::ErrorKind::NotADirectory,
-                    "not a directory",
-                )));
-            }
-            Ok(dir)
-        }
-        Err(luna_core::path::PathError::NotFound(_)) => ensure_dir(&root, rel.as_ref()),
-        Err(luna_core::path::PathError::Io(e)) if e.kind() == std::io::ErrorKind::NotADirectory => {
-            ensure_dir(&root, rel.as_ref())
-        }
-        Err(e) => Err(FilesError::Path(e)),
-    }
-}
-
 /// MIME types safe to render inline at the Luna origin. Everything else is
 /// forced to download so a crafted HTML/SVG/PDF/JS file sitting on a drive can
 /// never execute as a Luna page (stored XSS). `nosniff` must also be set on
@@ -1027,12 +978,6 @@ pub fn inline_safe(mime: &str) -> bool {
 /// files. The check works on basenames and whole rel paths: any `.luna-<uuid>`
 /// namespaced segment (marker, trash, thumbs, protected copies, upload temps)
 /// marks the path as Luna's.
-///
-/// Member homes are the one exception: `.luna-<uuid>-members/<username>` is
-/// Luna-owned for *hiding* purposes (never listed, indexed, or downloadable
-/// by name from a parent listing) but stays *addressable* — the owner
-/// reaches it directly. Input-rejection sites therefore test
-/// [`is_blocked_user_path`], not this.
 pub fn is_internal_temp(name: &str) -> bool {
     let base = name.rsplit('/').next().unwrap_or(name);
     name.split('/')
@@ -1040,42 +985,8 @@ pub fn is_internal_temp(name: &str) -> bool {
         || (base.starts_with('.') && base.ends_with(".part"))
 }
 
-/// Path a user may never address through the files API: Luna bookkeeping —
-/// except member homes, which are hidden-but-addressable for their owner.
-/// Use this at input-rejection sites; use [`is_internal_temp`] at hiding
-/// sites (listings, index, zip) where homes must stay invisible too.
-pub fn is_blocked_user_path(rel: &str) -> bool {
-    is_internal_temp(rel) && !crate::member_home::is_member_home_path(rel)
-}
-
-/// Rejection for user-driven *creation*: [`is_blocked_user_path`] plus no
-/// `.luna-*` or `.part` leaf names anywhere — a member cannot mint invisible
-/// bookkeeping names even inside their own home.
-pub fn is_blocked_create_path(rel: &str) -> bool {
-    if is_blocked_user_path(rel) {
-        return true;
-    }
-    let leaf = rel.rsplit('/').next().unwrap_or(rel);
-    crate::drives::layout::Layout::is_luna_name(leaf)
-        || (leaf.starts_with('.') && leaf.ends_with(".part"))
-}
-
 /// Translate the `.luna-trash/...` API alias into this drive's real
 /// `{prefix}-trash/...` path. Non-alias paths pass through unchanged.
-/// Resolve a user-supplied rel under the drive root — same as
-/// [`resolve_child`], except member-home trees never follow symlinks: a
-/// home must be the real directory its members container owns. A symlink
-/// planted inside `.luna-<uuid>-members` (drive image crafted elsewhere,
-/// filesystem surgery) could otherwise redirect reads and writes outside
-/// the container — and outside the drive entirely.
-fn resolve_user_rel(root: &Path, rel: &str) -> Result<PathBuf, luna_core::path::PathError> {
-    if crate::member_home::is_member_home_path(rel) {
-        luna_core::path::resolve_child_nofollow(root, rel)
-    } else {
-        resolve_child(root, rel)
-    }
-}
-
 pub(crate) fn real_rel<'a>(root: &Path, rel: &'a str) -> std::borrow::Cow<'a, str> {
     match rel.strip_prefix(TRASH_API_ALIAS) {
         Some(rest) if rest.is_empty() || rest.starts_with('/') => {
@@ -1332,13 +1243,13 @@ pub fn delete_to_trash(
     let drive = drive_root(conn, drive_id)?;
     let root = PathBuf::from(&drive.mount_point);
     let rel = real_rel(&root, rel).into_owned();
-    if is_blocked_user_path(&rel) {
+    if is_internal_temp(&rel) {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::NotFound,
             "not found",
         )));
     }
-    let path = resolve_user_rel(&root, rel.as_ref())?;
+    let path = resolve_child(&root, rel.as_ref())?;
     if path == root {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -1705,7 +1616,7 @@ pub fn restore_from_trash(
         )));
     }
     if is_trash_rel(dest_rel)
-        || is_blocked_create_path(dest_rel)
+        || is_internal_temp(dest_rel)
         || dest_rel == TRASH_API_ALIAS
         || dest_rel.starts_with(&format!("{TRASH_API_ALIAS}/"))
     {
@@ -1735,7 +1646,7 @@ pub fn restore_from_trash(
     let parent = if parent_rel.is_empty() || parent_rel == "." {
         resolve_child(&root, "")?
     } else {
-        resolve_user_rel(&root, &parent_rel)?
+        resolve_child(&root, &parent_rel)?
     };
     let dest = parent.join(&dest_name);
     // No-replace move: a concurrent restore to the same name gets
@@ -1800,7 +1711,7 @@ pub fn mkdir(conn: &rusqlite::Connection, drive_id: &str, rel: &str) -> Result<(
             "cannot create the drive root",
         )));
     }
-    if is_blocked_create_path(rel) || rel.split('/').next() == Some(TRASH_API_ALIAS) {
+    if is_internal_temp(rel) || rel.split('/').next() == Some(TRASH_API_ALIAS) {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             "that name is reserved for Luna",
@@ -1845,7 +1756,7 @@ pub fn create(conn: &rusqlite::Connection, drive_id: &str, rel: &str) -> Result<
     }
     let leaf = rel.rsplit_once('/').map(|(_, name)| name).unwrap_or(rel);
     let _ = safe_name(leaf)?;
-    if is_blocked_create_path(rel) {
+    if is_internal_temp(rel) {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             "that name is reserved for Luna",
@@ -1896,7 +1807,7 @@ pub fn rename(
     let new_name = safe_name(new_name)?;
     // A `.part`-style or `.luna-*` leaf mints a file no listing can ever
     // show — rename is a create, so it holds the same bar as mkdir/create.
-    if is_blocked_create_path(&new_name) {
+    if is_internal_temp(&new_name) {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             "that name is reserved for Luna",
@@ -1915,8 +1826,7 @@ pub fn rename(
             "not found",
         )));
     }
-    if (is_blocked_user_path(&rel) && !is_trash_rel(&rel)) || crate::member_home::is_home_root(&rel)
-    {
+    if is_internal_temp(&rel) && !is_trash_rel(&rel) {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::NotFound,
             "not found",
@@ -1933,7 +1843,7 @@ pub fn rename(
             "can't rename the trash itself",
         )));
     }
-    let path = resolve_user_rel(&root, rel.as_ref())?;
+    let path = resolve_child(&root, rel.as_ref())?;
     let parent = path.parent().ok_or_else(|| {
         FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -1995,9 +1905,7 @@ pub fn move_rel(
     let from_rel = real_rel(&root, from_rel).into_owned();
     let to_rel = real_rel(&root, to_rel).into_owned();
     // Trash items may move out — into trash stays impossible (a delete is
-    // what puts things there). A home root itself never moves through this
-    // API path — drive-switch migration and user deletion handle it. Trash
-    // sources only arrive through the `.luna-trash` alias, where caps map
+    // what puts things there). Trash sources only arrive through the `.luna-trash` alias, where caps map
     // the entry to its origin: a raw `{prefix}-trash` name would relocate
     // any user's entry with no origin check.
     if is_trash_rel(&from_rel) && !is_trash_api(api_from) {
@@ -2006,9 +1914,8 @@ pub fn move_rel(
             "not found",
         )));
     }
-    if (is_blocked_user_path(&from_rel) && !is_trash_rel(&from_rel))
-        || is_blocked_create_path(&to_rel)
-        || crate::member_home::is_home_root(&from_rel)
+    if (is_internal_temp(&from_rel) && !is_trash_rel(&from_rel))
+        || is_internal_temp(&to_rel)
         || (is_trash_rel(&from_rel) && trash_entry_parts(&from_rel).is_none())
     {
         return Err(FilesError::Io(std::io::Error::new(
@@ -2016,7 +1923,7 @@ pub fn move_rel(
             "that name is reserved for Luna",
         )));
     }
-    let from = resolve_user_rel(&root, &from_rel)?;
+    let from = resolve_child(&root, &from_rel)?;
     // Reject moving a folder into itself before resolving the destination.
     if to_rel == from_rel || to_rel.starts_with(&format!("{from_rel}/")) {
         return Err(FilesError::Io(std::io::Error::new(
@@ -2973,30 +2880,25 @@ mod tests {
     #[test]
     fn hidden_part_names_are_blocked_everywhere_a_name_is_minted() {
         // `something.part`-style leaves are invisible to listings — every
-        // create-style verb must refuse them, even inside a member home
-        // where the looser user-path block does not apply.
+        // create-style verb must refuse them.
         let (_dir, conn, id) = drive_dir();
         let root = std::path::Path::new(&db::get_drive(&conn, &id).unwrap().unwrap().mount_point)
             .to_path_buf();
-        let home = format!(
-            "{}-members/bob",
-            crate::drives::drive_db::prefix_for(&root).unwrap()
-        );
-        std::fs::create_dir_all(root.join(&home)).unwrap();
+        std::fs::create_dir_all(root.join("docs")).unwrap();
         std::fs::write(root.join("a.txt"), b"a").unwrap();
 
         assert!(rename(&conn, &id, "a.txt", ".x.part").is_err());
-        assert!(move_rel(&conn, &id, "a.txt", &format!("{home}/.x.part")).is_err());
+        assert!(move_rel(&conn, &id, "a.txt", "docs/.x.part").is_err());
         let trash_rel = delete_to_trash(&conn, &id, "a.txt").unwrap();
-        assert!(restore_from_trash(&conn, &id, &trash_rel, &format!("{home}/.x.part")).is_err());
+        assert!(restore_from_trash(&conn, &id, &trash_rel, "docs/.x.part").is_err());
         assert!(
-            !root.join(format!("{home}/.x.part")).exists(),
+            !root.join("docs/.x.part").exists(),
             "no invisible file was minted"
         );
 
-        // Ordinary leaf names inside a member home still work.
-        restore_from_trash(&conn, &id, &trash_rel, &format!("{home}/a.txt")).unwrap();
-        assert!(root.join(format!("{home}/a.txt")).exists());
+        // Ordinary leaf names still work.
+        restore_from_trash(&conn, &id, &trash_rel, "docs/a.txt").unwrap();
+        assert!(root.join("docs/a.txt").exists());
     }
 }
 

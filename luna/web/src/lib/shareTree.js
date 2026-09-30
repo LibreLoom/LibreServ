@@ -3,7 +3,6 @@ import { CAP, KIND_ALBUM, capsBits } from "./access.js";
 import {
   fileHref,
   folderHref,
-  isMemberHomePath,
   parentPath,
   searchResultHref,
 } from "./paths.js";
@@ -116,43 +115,21 @@ export function memberPathFloor(rows, driveId, path) {
     }
   }
   if (floor !== null) return floor;
-  // A member home isn't a grant row — the owner's implicit tree floors at
-  // the `.luna-<uid>-members/<name>` root. Checked after grants so a
-  // peer's deep share inside a home floors at their grant, not the
-  // unreadable home root.
-  if (isMemberHomePath(target)) {
-    return target.split("/").slice(0, 2).join("/");
-  }
   return hasDriveRow ? target : "";
 }
 
 /**
  * A member's writable destination roots — where a move/copy/folder-create
- * can actually land. Their home comes first, then every grant root with
- * upload or edit bits on a present drive. Grant rows inside the member's
- * own home collapse into the home root: the whole tree is already theirs.
+ * can actually land: every grant root with upload or edit bits on a
+ * present drive.
  *
  * @param rows   member access rows (`/me/access`)
- * @param home   `/me` home object ({ drive_id, path }) — may be null
  * @param isPresent  (driveId) => the drive is mounted and usable
  * @param driveLabel (driveId) => display label for a drive
  */
-export function memberWritableRoots(rows, home, isPresent, driveLabel) {
+export function memberWritableRoots(rows, isPresent, driveLabel) {
   const roots = [];
   const seen = new Set();
-  const push = (driveId, path, label, isHome) => {
-    const key = `${driveId}:${path || ""}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    roots.push({ driveId, path: path || "", label, isHome: Boolean(isHome) });
-  };
-  const homeDriveId = home?.drive_id || "";
-  const homePath = pathKey(home?.path || "");
-  if (homeDriveId && homePath && isPresent(homeDriveId)) {
-    push(homeDriveId, homePath, "My files", true);
-  }
-  const inHome = (driveId, path) => driveId === homeDriveId && homePath
-    && (path === homePath || path.startsWith(`${homePath}/`));
   for (const row of Array.isArray(rows) ? rows : []) {
     // A file grant isn't a folder anything can move into.
     if (row.kind === KIND_ALBUM || row.is_file) continue;
@@ -160,29 +137,16 @@ export function memberWritableRoots(rows, home, isPresent, driveLabel) {
     if (!driveId || !isPresent(driveId)) continue;
     if ((capsBits(row.caps) & (CAP.UPLOAD | CAP.EDIT)) === 0) continue;
     const path = pathKey(row.path);
-    if (inHome(driveId, path)) continue;
+    const key = `${driveId}:${path}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
     const label = row.name
       || (path ? path.split("/").pop() : "")
       || driveLabel(driveId)
       || "Shared folder";
-    push(driveId, path, label, row.is_home);
+    roots.push({ driveId, path, label });
   }
   return roots;
-}
-
-/**
- * Capability bits for `path` on `driveId` for a member: inside their own
- * home the whole tree is manage (the backend never lets them into anyone
- * else's home); elsewhere the union of grant rows applies.
- */
-export function memberCapsAt(rows, driveId, path, home) {
-  const homePath = pathKey(home?.path || "");
-  const target = pathKey(path);
-  if (home?.drive_id === driveId && homePath
-    && (target === homePath || target.startsWith(`${homePath}/`))) {
-    return CAP.VIEW | CAP.UPLOAD | CAP.EDIT | CAP.SHARE;
-  }
-  return capsOnPath(rows, driveId, path);
 }
 
 /**

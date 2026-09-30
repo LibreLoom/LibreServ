@@ -65,39 +65,4 @@ class LunaApiParseTest {
         val drives = LunaApi.parseDrives("[]")
         assertEquals(0, drives.size)
     }
-
-    @Test
-    fun parseUserReadsHomeForAdminsAndMembers() {
-        for (role in listOf("admin", "member")) {
-            val user = LunaApi.parseUser(
-                """{"id":"u1","username":"max","role":"$role","home":{"drive_id":"d1","path":"h/max","ready":true}}"""
-            )
-            assertEquals(LunaApi.Home("d1", "h/max"), user.home)
-        }
-        assertEquals(null, LunaApi.parseUser("""{"id":"u1","username":"max","home":null}""").home)
-        // Unplugged home drive: Luna knows the drive but not the folder.
-        assertEquals(
-            null,
-            LunaApi.parseUser("""{"id":"u1","username":"max","home":{"drive_id":"d1","path":"","ready":false}}""").home,
-        )
-    }
-
-    @Test
-    fun destinationTextSaysMyFilesInsideHome() {
-        val home = LunaApi.Home("d1", "h/max")
-        assertEquals("My files", LunaApi.destinationText(home, "d1", "Disk", "h/max"))
-        assertEquals("My files · Photos", LunaApi.destinationText(home, "d1", "Disk", "h/max/Photos"))
-        assertEquals("Disk · Drive root", LunaApi.destinationText(home, "d1", "Disk", ""))
-        assertEquals("Disk · h/maxine", LunaApi.destinationText(home, "d1", "Disk", "h/maxine"))
-        assertEquals("Other · Docs", LunaApi.destinationText(home, "d2", "Other", "Docs"))
-    }
-
-    @Test
-    fun homeContainerRowsAreSkipped() {
-        assertEquals(true, LunaApi.isHomeContainerEntry(".luna-3f6a-members/max"))
-        assertEquals(false, LunaApi.isHomeContainerEntry(".luna-3f6a-members"))
-        assertEquals(false, LunaApi.isHomeContainerEntry("Photos/max"))
-        assertEquals(false, LunaApi.isHomeContainerEntry(".luna-cache/max"))
-        assertEquals(false, LunaApi.isHomeContainerEntry("Photos"))
-    }
 }

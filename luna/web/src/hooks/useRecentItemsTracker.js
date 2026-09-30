@@ -20,7 +20,7 @@ export default function useRecentItemsTracker() {
 
   useEffect(() => {
     if (!username) return;
-    const item = recentItemFromLocation({ ...location, home: user?.home });
+    const item = recentItemFromLocation(location);
     if (!item) return;
     const driveLabel = Array.isArray(driveList)
       ? driveList.find((d) => d.id === item.driveId)?.label
@@ -33,5 +33,5 @@ export default function useRecentItemsTracker() {
       .catch(() => {
         // Recents are a convenience, never fatal
       });
-  }, [location, username, user?.home, driveList, queryClient]);
+  }, [location, username, driveList, queryClient]);
 }

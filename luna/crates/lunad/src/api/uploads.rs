@@ -224,13 +224,8 @@ fn check_upload_access(
     })?;
     let row = uploads::get_row(&conn, upload_id).map_err(map_upload_err)?;
     // Sessions belong to the principal that opened them — a member may only
-    // drive their own `user:{id}` uploads. Admins keep the override for
-    // ordinary destinations, but inside a member home the principal rule
-    // binds them too: an admin must not complete or cancel an upload that
-    // lands bytes in a private folder they hold zero caps on.
-    let principal_bound =
-        user.role != "admin" || crate::member_home::is_member_home_path(&row.path);
-    if principal_bound && row.principal != format!("user:{}", user.id) {
+    // drive their own `user:{id}` uploads. Admins keep the override.
+    if user.role != "admin" && row.principal != format!("user:{}", user.id) {
         return Err(json_error(
             StatusCode::FORBIDDEN,
             "That upload belongs to someone else.",

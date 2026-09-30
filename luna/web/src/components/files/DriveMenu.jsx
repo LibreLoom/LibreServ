@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
-import { ChevronDown, Folder, HardDrive, Home } from "lucide-react";
+import { ChevronDown, Folder, HardDrive } from "lucide-react";
 import PropTypes from "prop-types";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import { cn } from "@libreloom/ui/lib/utils.js";
@@ -22,15 +22,15 @@ export const DRIVE_MENU_OPEN_MS = 500;
  */
 export const DRIVE_SPRING_LOAD_MS = SPRING_LOAD_MS;
 
-const DEST_ICONS = { home: Home, folder: Folder, drive: HardDrive };
+const DEST_ICONS = { folder: Folder, drive: HardDrive };
 
 /**
  * Drive menu — Luna's destination picker in the Files page header, modeled
  * on the NewItemMenu dropdown. The trigger shows the place being browsed;
  * opening it lists every OTHER destination as a menu item that navigates
  * there. For admins the destinations are whole drives; for members they
- * are writable roots — their Home folder and shared roots with write
- * access — since members can't address a drive's unrestricted root.
+ * are the shared folders they can write to, since members can't address a
+ * drive's unrestricted root.
  * Renders nothing when no other destination exists.
  *
  * Drag and drop, while a file drag carrying `application/x-luna-paths` is
@@ -50,7 +50,7 @@ const DEST_ICONS = { home: Home, folder: Folder, drive: HardDrive };
  *
  * @param {{
  *   drives?: any[],
- *   destinations?: Array<{ driveId: string, path: string, label: string, sub?: string, icon?: "home"|"folder"|"drive", writable?: boolean }>,
+ *   destinations?: Array<{ driveId: string, path: string, label: string, sub?: string, icon?: "folder"|"drive", writable?: boolean }>,
  *   currentDriveId: string,
  *   currentPath?: string,
  *   currentLabel?: string,
@@ -61,7 +61,7 @@ export default function DriveMenu({ drives, destinations, currentDriveId, curren
   const navigate = useNavigate();
   const items = useMemo(() => {
     if (destinations) return destinations;
-    return /** @type {{ driveId: string, path: string, label: string, sub?: string, icon?: "home"|"folder"|"drive", writable?: boolean }[]} */ (
+    return /** @type {{ driveId: string, path: string, label: string, sub?: string, icon?: "folder"|"drive", writable?: boolean }[]} */ (
       (drives || [])
         .filter(isPresentDrive)
         .map((d) => ({

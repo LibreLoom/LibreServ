@@ -27,7 +27,7 @@ pub const CAP_RESPOND: Caps = 8;
 /// capability.
 pub const CAP_SHARE: Caps = 16;
 pub const CAP_ALL: Caps = CAP_VIEW | CAP_UPLOAD | CAP_EDIT;
-/// Everything an admin (or a member on their own home) holds.
+/// Everything an admin holds.
 pub const CAP_MANAGE: Caps = CAP_ALL | CAP_SHARE;
 
 pub const KIND_PATH: &str = "path";

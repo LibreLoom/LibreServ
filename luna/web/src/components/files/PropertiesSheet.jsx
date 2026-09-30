@@ -40,13 +40,10 @@ import { fileExtension, openableKind } from "../../lib/fileKinds.js";
 import { fileSourceScope, useFileSource } from "../../lib/fileSource.jsx";
 import {
   fmtSize,
-  homeAwareLabel,
-  isMemberHomePath,
   parentPath,
   pathBasename,
   TRASH_PATH,
 } from "../../lib/paths.js";
-import { useOptionalAuth } from "../../context/AuthContext.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 const TYPE_LABELS = {
@@ -140,10 +137,7 @@ function childrenLabel(children) {
 }
 
 /** "Drive / folder / subfolder" — the folder this item lives in. */
-function locationLabel(driveLabel, rel, ownHomePath = "") {
-  if (isMemberHomePath(rel)) {
-    return `${driveLabel} / ${homeAwareLabel(rel, ownHomePath)}`;
-  }
+function locationLabel(driveLabel, rel) {
   const segments = rel ? rel.split("/").filter(Boolean) : [];
   return [driveLabel, ...segments].join(" / ");
 }
@@ -313,7 +307,6 @@ export default function PropertiesSheet({
   inTrash = false,
 }) {
   const source = useFileSource();
-  const ownHomePath = useOptionalAuth()?.user?.home?.path || "";
   const stat = useQuery({
     queryKey: ["file-stat", fileSourceScope(source, driveId), path],
     queryFn: () => source.stat(driveId, path),
@@ -327,7 +320,7 @@ export default function PropertiesSheet({
   const trashedParent = data?.trashed_from ? parentPath(data.trashed_from) : null;
   const location = inTrash
     ? `Trash on ${driveLabel}`
-    : locationLabel(driveLabel, parent, ownHomePath);
+    : locationLabel(driveLabel, parent);
   const saving = Boolean(data?.saving ?? entry?.saving);
   const hidden = Boolean(data?.hidden ?? entry?.hidden);
   const modified = data?.modified ?? entry?.modified;
@@ -494,7 +487,7 @@ export default function PropertiesSheet({
               <DetailRow
                 icon={Undo2}
                 label="Was in"
-                value={locationLabel(driveLabel, trashedParent || "", ownHomePath)}
+                value={locationLabel(driveLabel, trashedParent || "")}
                 mono
               />
             ) : null}

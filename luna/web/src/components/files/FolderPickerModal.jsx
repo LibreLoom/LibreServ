@@ -11,10 +11,10 @@ import NewItemMenu from "./NewItemMenu.jsx";
 import { apiErrorMessage, getDrives, getJson } from "../../lib/api.js";
 import { fileListKey, useFileSource } from "../../lib/fileSource.jsx";
 import { parseCreateName } from "../../lib/createName.js";
-import { isMemberHomePath, isTrashPath, joinPath } from "../../lib/paths.js";
+import { isTrashPath, joinPath } from "../../lib/paths.js";
 import { isPresentDrive, isWritableDrive } from "../../lib/drives.js";
 import { CAP } from "../../lib/access.js";
-import { memberCapsAt, memberWritableRoots, pathContains } from "../../lib/shareTree.js";
+import { capsOnPath, memberWritableRoots, pathContains } from "../../lib/shareTree.js";
 import { useOptionalAuth } from "../../context/AuthContext.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
@@ -59,8 +59,8 @@ export default function FolderPickerModal({
     ));
   }, [drives]);
 
-  // Signed-in people pick from writable roots — My files plus every shared
-  // folder they can put files in (for Admins, each drive's top level).
+  // Signed-in people pick from writable roots — every shared folder they
+  // can put files in (for Admins, each drive's top level).
   // Guests keep whole drives (the caller already scoped `drives`).
   const user = useOptionalAuth()?.user;
   const rooted = Boolean(user);
@@ -71,8 +71,7 @@ export default function FolderPickerModal({
     enabled: open && rooted && !isAdmin,
   });
   // Destinations live on every present drive — not just the subset
-  // the caller passed (an admin-shaped `drives` prop can omit the person's
-  // home drive entirely).
+  // the caller passed.
   const drivesQuery = useQuery({
     queryKey: ["drives"],
     queryFn: getDrives,
@@ -87,15 +86,11 @@ export default function FolderPickerModal({
     if (!rooted || !(isAdmin ? drivesQuery.data : access.data)) return null;
     const present = new Set(memberDrives.map((d) => d.id));
     const labelOf = (id) => memberDrives.find((d) => d.id === id)?.label || id;
-    const own = memberWritableRoots([], user?.home, (id) => present.has(id), labelOf);
-    if (!isAdmin) return memberWritableRoots(access.data, user?.home, (id) => present.has(id), labelOf);
-    return [
-      ...own,
-      ...memberDrives
-        .filter((d) => isWritableDrive(d))
-        .map((d) => ({ driveId: d.id, path: "", label: d.label, isHome: false })),
-    ];
-  }, [rooted, isAdmin, access.data, drivesQuery.data, user?.home, memberDrives]);
+    if (!isAdmin) return memberWritableRoots(access.data, (id) => present.has(id), labelOf);
+    return memberDrives
+      .filter((d) => isWritableDrive(d))
+      .map((d) => ({ driveId: d.id, path: "", label: d.label }));
+  }, [rooted, isAdmin, access.data, drivesQuery.data, memberDrives]);
   const [rootIdx, setRootIdx] = useState(0);
   const root = rooted ? (roots?.[rootIdx] || roots?.[0] || null) : null;
 
@@ -114,14 +109,14 @@ export default function FolderPickerModal({
   /** Capability bits for `p` on the browsed drive (member mode only). */
   const capsAt = (p) => (isAdmin
     ? CAP.VIEW | CAP.UPLOAD | CAP.EDIT | CAP.SHARE
-    : memberCapsAt(access.data, browseDriveId, p, user?.home));
+    : capsOnPath(access.data, browseDriveId, p));
   const canWriteAt = (p) => (capsAt(p) & (CAP.UPLOAD | CAP.EDIT)) !== 0;
 
   useEffect(() => {
     if (!open) return;
     if (rooted) {
-      // Seed on the writable root containing the initial path — usually
-      // Home — or the first root. An unwritable origin folder is never a
+      // Seed on the writable root containing the initial path, or the
+      // first root. An unwritable origin folder is never a
       // destination, so nothing below it is pre-picked.
       if (!roots) return;
       const idx = roots.findIndex((r) => (
@@ -249,8 +244,6 @@ export default function FolderPickerModal({
                   You can add files here, but this folder can't be opened.
                 </p>
               ) : null}
-              segmentLabel={rooted ? (segment, i) =>
-                (i === 1 && isMemberHomePath(path) ? "My files" : segment) : undefined}
               onPathChange={setPath}
               pickerMode="folder"
               selectedPath={picked}

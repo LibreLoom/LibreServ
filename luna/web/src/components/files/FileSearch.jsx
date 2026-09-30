@@ -27,8 +27,8 @@ import ShareSheet, { ShareButton } from "../share/ShareSheet.jsx";
 import FolderPickerModal from "./FolderPickerModal";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { apiErrorMessage, getDrives, getJson, postJson } from "../../lib/api";
-import { downloadHref as fileDownloadHref, homeAwareLabel, isHomeRootPath, isMemberHomePath, parentPath, searchResultHref } from "../../lib/paths";
-import { memberCapsAt, memberSearchHref } from "../../lib/shareTree.js";
+import { downloadHref as fileDownloadHref, parentPath, searchResultHref } from "../../lib/paths";
+import { capsOnPath, memberSearchHref } from "../../lib/shareTree.js";
 import { CAP } from "../../lib/access.js";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { cn } from "@libreloom/ui/lib/utils.js";
@@ -59,13 +59,10 @@ function fmtSize(bytes) {
   return `${(n / 1000 / 1000 / 1000).toFixed(1)} GB`;
 }
 
-function locationLabel(item, driveLabel, ownHomePath = "") {
+function locationLabel(item, driveLabel) {
   const folder = item.parent != null ? item.parent : folderOf(item.path);
   if (!folder) return driveLabel;
-  // A deep share inside a peer's home is searchable — the label names
-  // the owner ("sam's home"), never "Home", and never the raw prefix.
-  const shown = isMemberHomePath(folder) ? homeAwareLabel(folder, ownHomePath) : folder;
-  return `${driveLabel} / ${shown}`;
+  return `${driveLabel} / ${folder}`;
 }
 
 async function parseError(res) {
@@ -439,15 +436,13 @@ export default function FileSearch() {
                       : searchResultHref(item);
                     // Hits only prove VIEW. Everything else is gated on the
                     // member's real caps — share needs the share bit,
-                    // move/trash need edit — and a home root can't move at
-                    // all.
+                    // move/trash need edit.
                     const isMember = user?.role !== "admin";
                     const itemCaps = isMember
-                      ? memberCapsAt(memberAccess.data, item.drive_id, item.path, user?.home)
+                      ? capsOnPath(memberAccess.data, item.drive_id, item.path)
                       : CAP.VIEW | CAP.UPLOAD | CAP.EDIT | CAP.SHARE;
                     const canShare = (itemCaps & CAP.SHARE) !== 0;
-                    const canEdit = !isHomeRootPath(item.path)
-                      && (itemCaps & CAP.EDIT) !== 0;
+                    const canEdit = (itemCaps & CAP.EDIT) !== 0;
                     const openLabel = isDir
                       ? `Open ${item.name}`
                       : `Show ${item.name} in its folder`;
@@ -479,7 +474,7 @@ export default function FileSearch() {
                             <div className="min-w-0 flex-1">
                               <p className="font-mono text-sm truncate text-secondary">{item.name}</p>
                               <p className="text-xs truncate text-secondary">
-                                {locationLabel(item, driveLabel, user?.home?.path || "")}
+                                {locationLabel(item, driveLabel)}
                                 {!isDir && item.size != null ? ` · ${fmtSize(item.size)}` : ""}
                               </p>
                             </div>

@@ -98,7 +98,7 @@ describe("DrivesPage", () => {
     stubDrivesApi();
     renderPage();
     expect(screen.getAllByText(/Plug a USB drive/i).length).toBeGreaterThan(0);
-    expect(await screen.findByRole("heading", { name: "Drives" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Files" })).toBeInTheDocument();
   });
 
   it("shows a header search button that opens the universal search overlay", async () => {
@@ -256,6 +256,90 @@ describe("DrivesPage", () => {
     expect(screen.getByRole("button", { name: /^Add drive$/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Ignore for now/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/found on/i)).not.toBeInTheDocument();
+  });
+
+  it("shows a member the highest shared folder plus a write exception", async () => {
+    stubDrivesApi({
+      fetch: (u) => {
+        if (u.endsWith("/auth/me") || u.endsWith("/api/v1/auth/me")) {
+          return new Response(JSON.stringify({ id: "2", role: "user", username: "sam" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (u.endsWith("/me/access")) {
+          return new Response(JSON.stringify([
+            { id: "g-drive", kind: "path", drive_id: "d1", drive_label: "Photos Drive", path: "", caps: "view" },
+            { id: "g-dcim", kind: "path", drive_id: "d1", drive_label: "Photos Drive", path: "DCIM", caps: "full" },
+            { id: "g-print", kind: "path", drive_id: "d1", drive_label: "Photos Drive", path: "DCIM/print", caps: "view" },
+          ]), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return null;
+      },
+    });
+    renderPage();
+    expect(await screen.findByText(/^Whole drive$/)).toBeInTheDocument();
+    expect(screen.getByText(/^Photos Drive · DCIM$/)).toBeInTheDocument();
+    expect(screen.queryByText(/DCIM\/print/)).not.toBeInTheDocument();
+    const opens = screen.getAllByRole("link", { name: "Browse files" });
+    expect(opens).toHaveLength(2);
+    expect(opens[0]).toHaveAttribute("href", "/drives/d1");
+    expect(opens[1]).toHaveAttribute("href", "/drives/d1?path=DCIM");
+    expect(screen.queryByText(/Unrecognized Drives/i)).not.toBeInTheDocument();
+  });
+
+  it("opens a single-file share at the file, not its folder", async () => {
+    stubDrivesApi({
+      fetch: (u) => {
+        if (u.endsWith("/auth/me") || u.endsWith("/api/v1/auth/me")) {
+          return new Response(JSON.stringify({ id: "2", role: "user", username: "sam" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (u.endsWith("/me/access")) {
+          return new Response(JSON.stringify([
+            { id: "g-file", kind: "path", drive_id: "d1", drive_label: "Photos Drive",
+              path: "docs/report.pdf", name: "report.pdf", is_file: true, caps: "view" },
+          ]), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return null;
+      },
+    });
+    renderPage();
+    expect(await screen.findByText("report.pdf")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open" }))
+      .toHaveAttribute("href", "/drives/d1?path=docs%2Freport.pdf");
+  });
+
+  it("shows granted folders for a household member", async () => {
+    stubDrivesApi({
+      fetch: (u) => {
+        if (u.endsWith("/auth/me") || u.endsWith("/api/v1/auth/me")) {
+          return new Response(JSON.stringify({ id: "2", role: "user", username: "sam" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (u.endsWith("/me/access")) {
+          return new Response(JSON.stringify([]), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return null;
+      },
+    });
+    renderPage();
+    expect(await screen.findByText(/Nothing shared with you yet/i)).toBeInTheDocument();
+    expect(screen.getByText(/Ask an Admin to share a folder, drive, or file with you/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Unrecognized Drives/i)).not.toBeInTheDocument();
   });
 
   it("shows plain-language drive health for an admin", async () => {

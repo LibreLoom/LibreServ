@@ -9,8 +9,6 @@ import { canViewerOpen } from "./officeConvert.js";
 import {
   fileHref,
   folderHref,
-  homeAwareLabel,
-  isHomeRootPath,
   isTrashPath,
   joinPath,
   parentPath,
@@ -115,19 +113,17 @@ export function removeRecentItem(username, { driveId, path }) {
  * counts as a file only when Luna can actually open it; otherwise the
  * surrounding folder is what the user is really looking at.
  *
- * @param {{ pathname: string, search?: string, hash?: string, home?: { drive_id?: string, path?: string } | null }} location
+ * @param {{ pathname: string, search?: string, hash?: string }} location
  * @returns {Omit<RecentItem, "at"> | null}
  */
-export function recentItemFromLocation({ pathname, search = "", hash = "", home = null }) {
-  const isHomeRoute = /^\/files\/?$/.test(String(pathname || ""));
+export function recentItemFromLocation({ pathname, search = "", hash = "" }) {
   const match = String(pathname || "").match(/^\/drives\/([^/]+)\/?$/);
-  if (!match && !(isHomeRoute && home?.drive_id)) return null;
-  // My files carries no drive in its URL — the person's home says which.
-  const driveId = match ? decodeURIComponent(match[1]) : home.drive_id;
+  if (!match) return null;
+  const driveId = decodeURIComponent(match[1]);
   const params = new URLSearchParams(search);
   if (params.get("view") === "trash") return null;
 
-  const path = params.get("path") || (isHomeRoute ? home?.path || "" : "");
+  const path = params.get("path") || "";
   // Trash rows carry generated on-disk names (`{nonce}-file`) — a recent
   // link to one would read as noise and rots on put-back or purge anyway.
   if (isTrashPath(path)) return null;
@@ -156,11 +152,8 @@ export function recentItemHref(item) {
   return folderHref(item.driveId, item.kind === "folder" ? item.path : "");
 }
 
-/** Display name — basename for files/folders, "Home" at a home root, drive label at a drive root. */
-export function recentItemName(item, driveLabel, ownHomePath = "") {
-  if (isHomeRootPath(item.path)) {
-    return homeAwareLabel(item.path, ownHomePath);
-  }
+/** Display name — basename for files/folders, drive label at a drive root. */
+export function recentItemName(item, driveLabel) {
   const base = pathBasename(item.path);
   if (base) return base;
   return driveLabel || item.driveLabel || "Drive";
@@ -168,14 +161,13 @@ export function recentItemName(item, driveLabel, ownHomePath = "") {
 
 /**
  * "Drive · containing/folder" context line, or null for a whole-drive item
- * (the name already says it all). Member-home prefixes collapse to the
- * home label — the internal path never renders.
+ * (the name already says it all).
  */
-export function recentItemLocationLine(item, driveLabel, ownHomePath = "") {
+export function recentItemLocationLine(item, driveLabel) {
   if (item.kind === "drive") return null;
   const label = driveLabel || item.driveLabel || "Drive";
   const parent = parentPath(item.path);
-  return parent ? `${label} · ${homeAwareLabel(parent, ownHomePath)}` : label;
+  return parent ? `${label} · ${parent}` : label;
 }
 
 /** Short relative stamp for the row, e.g. "Just now", "3 h ago", "Mar 4". */

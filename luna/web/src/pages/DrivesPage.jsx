@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FolderOpen, HardDrive, House, PlugZap } from "lucide-react";
+import { FolderOpen, HardDrive, PlugZap } from "lucide-react";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
@@ -20,12 +20,15 @@ import useCanProtect from "../hooks/useCanProtect";
 import FileSearch from "../components/files/FileSearch";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import { TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
+import { useAuth } from "../context/AuthContext";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import useStrandedErrorToast from "../hooks/useStrandedErrorToast";
 import { apiErrorMessage, getDrives, getJson, postJson } from "../lib/api";
 import { withDevMockDetected, isMockUnknownDrive, mockInspectResult } from "../lib/devMockDrives.js";
 import { describeDriveHealth } from "../lib/driveHealth";
 import { ROOT_TERM_HINT } from "../lib/rootTerm.js";
+import { CAP, KIND_ALBUM, capsHint, capsLabel, hasCap, sharedItemAction, sharedItemHref } from "../lib/access.js";
+import { memberAccessRoots } from "../lib/shareTree.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 
 /** @param {number} n @param {string} one @param {string} many */
@@ -47,6 +50,17 @@ export function inspectCountLine(folders, files, unreadable = 0) {
     line += ` (${pluralCount(unreadable, "item", "items")} could not be read)`;
   }
   return `${line}.`;
+}
+
+function PermissionPill({ caps, file = false }) {
+  const variant = caps === "full" ? "success" : caps === "upload" ? "warning" : "info";
+  const label = capsLabel(caps, { file });
+  const hint = capsHint(caps, { file });
+  return (
+    <Pill variant={variant}>
+      {hint ? <TermHint content={hint}>{label}</TermHint> : label}
+    </Pill>
+  );
 }
 
 function sizeLabel(bytes) {
@@ -322,6 +336,8 @@ function driveStatusMessage(drive) {
 export default function DrivesPage() {
   const { addToast } = useToast();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const drives = useQuery({
     queryKey: ["drives"],
     queryFn: getDrives,
@@ -332,6 +348,7 @@ export default function DrivesPage() {
     queryKey: ["drives-detected"],
     queryFn: () => getJson("/api/v1/drives/detected"),
     refetchInterval: 5000,
+    enabled: isAdmin,
   });
   const [inspectFor, setInspectFor] = useState(null);
   const [ejectTarget, setEjectTarget] = useState(null);
@@ -341,6 +358,12 @@ export default function DrivesPage() {
   const [protectingDrive, setProtectingDrive] = useState(null);
   const protectAvailable = useCanProtect();
   const unknownDrives = withDevMockDetected(detected.data);
+  const access = useQuery({
+    queryKey: ["my-access"],
+    queryFn: () => getJson("/api/v1/me/access"),
+    enabled: user?.role === "user",
+  });
+
   const inspect = useMutation({
     mutationFn: (/** @type {any} */ drive) => {
       // Frontend-only review fixture: no real block device, so skip lunad.
@@ -404,8 +427,55 @@ export default function DrivesPage() {
   const actionModalOpen = ejectTarget != null || removeTarget != null || inspectFor != null;
   useStrandedErrorToast(actionError, actionModalOpen, () => setActionError(null));
 
+  if (user?.role === "user") {
+    const grants = memberAccessRoots(access.data || []).filter((g) => g.kind !== KIND_ALBUM);
+    return (
+      <Page title="Files" titleId="drives-title" rightContent={<FileSearch />}>
+        <div className="grid gap-4 md:grid-cols-2">
+          {grants.map((grant) => (
+            <Card key={grant.id} icon={FolderOpen} title={grant.name || grant.drive_label}>
+              <p className="text-primary font-mono text-sm">
+                {grant.path ? `${grant.drive_label} · ${grant.path}` : "Whole drive"}
+              </p>
+              <div className="mt-3 flex items-center justify-between gap-3">
+                <PermissionPill caps={grant.caps} file={grant.is_file === true} />
+                <div className="flex items-center gap-2">
+                  <Button size="sm" variant="primary" asChild>
+                    <Link to={sharedItemHref(grant)}>{sharedItemAction(grant)}</Link>
+                  </Button>
+                  {hasCap(grant.caps, CAP.SHARE) && (
+                    <ShareButton
+                      label={grant.path || grant.drive_label}
+                      onClick={() => setSharingDrive({ id: grant.drive_id, path: grant.path || "" })}
+                    />
+                  )}
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+        {!access.isLoading && grants.length === 0 && (
+          <EmptyState
+            icon={FolderOpen}
+            title="Nothing shared with you yet"
+            description="Ask an Admin to share a folder, drive, or file with you."
+          />
+        )}
+        <ShareSheet
+          open={sharingDrive != null}
+          subject={
+            sharingDrive
+              ? { kind: "path", driveId: sharingDrive.id, path: sharingDrive.path || "" }
+              : null
+          }
+          onClose={() => setSharingDrive(null)}
+        />
+      </Page>
+    );
+  }
+
   return (
-    <Page title="Drives" titleId="drives-title" rightContent={<FileSearch />}>
+    <Page title="Files" titleId="drives-title" rightContent={<FileSearch />}>
       {(drives.data || []).length === 0 && (
         <Card icon={PlugZap} title="No drives yet" className="mb-6">
           <p className="text-primary text-sm">
@@ -430,7 +500,8 @@ export default function DrivesPage() {
         </div>
       )}
 
-      <>
+      {isAdmin && (
+        <>
           <h2 className="font-mono text-sm text-secondary mt-10 mb-4">
             Unrecognized Drives
           </h2>
@@ -451,7 +522,8 @@ export default function DrivesPage() {
           {!detected.isLoading && unknownDrives.length === 0 && (
             <EmptyState description="Nothing new plugged in." />
           )}
-      </>
+        </>
+      )}
 
       <ShareSheet
         open={sharingDrive != null}

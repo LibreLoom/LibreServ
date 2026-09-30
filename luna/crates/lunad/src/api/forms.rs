@@ -2868,9 +2868,6 @@ mod http_tests {
         // Listings, search, Gallery, zips, and the files API skip it.
         let folder = files.file_name().unwrap().to_str().unwrap();
         assert!(crate::files::is_internal_temp(folder), "{folder}");
-        assert!(crate::files::is_blocked_user_path(&format!(
-            "{folder}/x.pdf"
-        )));
 
         let old = upload_pdf(&app, &token).await;
         let stale = std::time::SystemTime::now() - std::time::Duration::from_secs(2 * 60 * 60);

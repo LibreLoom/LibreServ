@@ -199,18 +199,15 @@ fn resolve_subject(
             // shareable subjects — and neither is the bare `.luna-trash`
             // root, which would read everyone's deletions. Individual trash
             // entries stay shareable (their origin ACL still gates who can
-            // mint them). Member homes are shareable — the owner decides who
-            // sees inside their `.luna-<uuid>-members/<name>` tree.
-            if files::is_blocked_user_path(&rel) || rel == files::TRASH_API_ALIAS {
+            // mint them).
+            if files::is_internal_temp(&rel) || rel == files::TRASH_API_ALIAS {
                 return Err(json_error(
                     StatusCode::BAD_REQUEST,
                     "Luna can't share that item.",
                 ));
             }
             let base = rel.rsplit('/').next().unwrap_or("").to_string();
-            let name = if crate::member_home::is_home_root(&rel) {
-                home_display_name(conn, &drive_id, &rel)
-            } else if base.is_empty() {
+            let name = if base.is_empty() {
                 drive.label.clone()
             } else {
                 base
@@ -240,13 +237,8 @@ fn resolve_subject(
 }
 
 /// Capabilities `user` holds on `subj`: everything for admins and album
-/// owners, member rows otherwise. Homes are the exception — the owner is
-/// the only authority there, so admins get no implicit caps and cannot mint
-/// links or member rows inside someone else's home.
+/// owners, member rows otherwise.
 fn my_caps(conn: &rusqlite::Connection, user: &CurrentUser, subj: &Subject) -> Caps {
-    if subj.kind == KIND_PATH && crate::member_home::is_member_home_path(&subj.path) {
-        return auth::caps_on_path(user, conn, &subj.drive_id, &subj.path);
-    }
     if user.role == "admin" {
         return access::CAP_MANAGE;
     }
@@ -267,9 +259,7 @@ fn my_caps(conn: &rusqlite::Connection, user: &CurrentUser, subj: &Subject) -> C
 /// Same, but lenient when the subject itself is gone (drive pulled, album
 /// deleted): only admins keep authority, members can't act on ghosts.
 fn my_caps_on_row(conn: &rusqlite::Connection, user: &CurrentUser, row: &AccessMemberRow) -> Caps {
-    let is_home =
-        row.subject_kind == KIND_PATH && crate::member_home::is_member_home_path(&row.path);
-    if user.role == "admin" && !is_home {
+    if user.role == "admin" {
         return access::CAP_MANAGE;
     }
     match resolve_subject(
@@ -285,9 +275,7 @@ fn my_caps_on_row(conn: &rusqlite::Connection, user: &CurrentUser, row: &AccessM
 }
 
 fn my_caps_on_link(conn: &rusqlite::Connection, user: &CurrentUser, link: &AccessLinkRow) -> Caps {
-    let is_home =
-        link.subject_kind == KIND_PATH && crate::member_home::is_member_home_path(&link.path);
-    if user.role == "admin" && !is_home {
+    if user.role == "admin" {
         return access::CAP_MANAGE;
     }
     match resolve_subject(
@@ -303,33 +291,10 @@ fn my_caps_on_link(conn: &rusqlite::Connection, user: &CurrentUser, link: &Acces
 }
 
 /// Intrinsic authority over a subject — held regardless of any access row.
-/// Admins hold it everywhere except inside a member home (the owner alone
-/// rules there); the home owner inside their home; the album owner on
-/// their album. A `full+share` *grant* is still delegated authority, not
+/// Admins hold it everywhere; the album owner on their album. A `full+share` *grant* is still delegated authority, not
 /// ownership — grantees rank below this class even at equal caps.
-fn is_subject_owner(conn: &rusqlite::Connection, user: &CurrentUser, subj: &Subject) -> bool {
-    if subj.kind == KIND_PATH && crate::member_home::is_member_home_path(&subj.path) {
-        return crate::member_home::owner_of(conn, &subj.drive_id, &subj.path).as_deref()
-            == Some(user.id.as_str());
-    }
+fn is_subject_owner(user: &CurrentUser, subj: &Subject) -> bool {
     user.role == "admin" || (subj.kind == KIND_ALBUM && subj.owner == user.id)
-}
-
-/// Owner-class check for a row whose subject may not resolve (drive pulled,
-/// album deleted): admins stay superior on non-home paths, home owners on
-/// their home paths. Everything else needs a live subject to decide.
-fn is_row_subject_owner(
-    conn: &rusqlite::Connection,
-    user: &CurrentUser,
-    kind: &str,
-    drive_id: &str,
-    path: &str,
-) -> bool {
-    if kind == KIND_PATH && crate::member_home::is_member_home_path(path) {
-        return crate::member_home::owner_of(conn, drive_id, path).as_deref()
-            == Some(user.id.as_str());
-    }
-    user.role == "admin"
 }
 
 fn user_names(conn: &rusqlite::Connection) -> std::collections::HashMap<String, String> {
@@ -357,44 +322,7 @@ fn subject_json(subj: &Subject) -> Value {
         "exists": subj.exists,
         "name": subj.name,
         "item_count": subj.item_count,
-        "is_home": subj.kind == KIND_PATH && crate::member_home::is_home_root(&subj.path),
     })
-}
-
-/// Display name for a member home root — the raw name is Luna bookkeeping,
-/// never something to show people.
-fn home_display_name(conn: &rusqlite::Connection, drive_id: &str, rel: &str) -> String {
-    let owner = crate::member_home::owner_of(conn, drive_id, rel)
-        .and_then(|uid| db::get_user(conn, &uid).ok().flatten())
-        .map(|u| {
-            if u.display_name.trim().is_empty() {
-                u.username
-            } else {
-                u.display_name
-            }
-        });
-    match owner {
-        Some(name) => format!("{name}'s home"),
-        None => "Member home".into(),
-    }
-}
-
-/// For the owner, their own home root reads "My files" — not "Sam's home".
-/// Other viewers keep the possessive label (or never see it at all).
-fn home_aware_name(
-    conn: &rusqlite::Connection,
-    user_id: &str,
-    drive_id: &str,
-    path: &str,
-    fallback: String,
-) -> String {
-    if crate::member_home::is_home_root(path)
-        && crate::member_home::owner_of(conn, drive_id, path).as_deref() == Some(user_id)
-    {
-        "My files".into()
-    } else {
-        fallback
-    }
 }
 
 fn member_json(row: &AccessMemberRow, names: &std::collections::HashMap<String, String>) -> Value {
@@ -465,7 +393,7 @@ async fn subject_state(
     // capability sees that sharing exists (counts), never the roster or link
     // URLs — a plain member must not enumerate identities or minted tokens.
     let can_manage_roster = mine & CAP_SHARE != 0;
-    let subject_owner = is_subject_owner(&conn, &user, &subj);
+    let subject_owner = is_subject_owner(&user, &subj);
     let names = user_names(&conn);
     let labels = drive_labels(&conn);
     let all_members = db::list_all_access_members(&conn).map_err(|_| busy())?;
@@ -546,8 +474,8 @@ async fn subject_state(
             .unwrap_or(false);
         if !can_inspect {
             // A parent the caller can't see yields nothing — emitting the
-            // path or leaf name here would leak a member-home interior
-            // (the marker uuid, the username, proof the home exists).
+            // path or leaf name here would leak folder names the caller may
+            // not see.
             return json!({
                 "kind": KIND_PATH,
                 "drive_id": drive_id,
@@ -606,16 +534,8 @@ async fn subject_state(
             v
         })
         .collect::<Vec<_>>();
-    let mut subject_v = subject_json(&subj);
-    subject_v["name"] = json!(home_aware_name(
-        &conn,
-        &user.id,
-        &subj.drive_id,
-        &subj.path,
-        subj.name.clone()
-    ));
     Ok(Json(json!({
-        "subject": subject_v,
+        "subject": subject_json(&subj),
         "my_caps": caps_to_str(mine),
         "members": members,
         "member_count": member_rows.len(),
@@ -662,9 +582,9 @@ async fn add_member(
     let caps = caps_from_str(&body.caps)
         .ok_or_else(|| json_error(StatusCode::BAD_REQUEST, "That access level doesn't exist."))?;
     let mine = my_caps(&conn, &user, &subj);
-    let subject_owner = is_subject_owner(&conn, &user, &subj);
+    let subject_owner = is_subject_owner(&user, &subj);
     // Authorization before existence: a 404-vs-403 split would let a member
-    // probe which `.luna-<uuid>-members/<name>` homes exist on the drive.
+    // probe which folders exist on the drive.
     if mine & CAP_SHARE == 0 && !subject_owner {
         return Err(json_error(
             StatusCode::FORBIDDEN,
@@ -701,15 +621,12 @@ async fn add_member(
     let target = db::get_user(&conn, &body.user_id)
         .map_err(|_| busy())?
         .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that person."))?;
-    // Admins already hold everything outside people's own folders — a member
-    // row there is dead weight that only confuses the roster. Inside a home
-    // it is the only way an admin sees anything, so it is allowed.
-    if target.role == "admin"
-        && !(subj.kind == KIND_PATH && crate::member_home::is_member_home_path(&subj.path))
-    {
+    // Admins already hold everything — a member row for one is dead weight
+    // that only confuses the roster.
+    if target.role == "admin" {
         return Err(json_error(
             StatusCode::BAD_REQUEST,
-            "Admins can already open everything outside people's own folders.",
+            "Admins can already open everything.",
         ));
     }
 
@@ -796,7 +713,7 @@ async fn update_member(
         // Someone else's row needs the superior class or strict
         // superiority over both the old and the new level — equal-cap
         // members must not retune each other.
-        is_subject_owner(&conn, &user, &subj)
+        is_subject_owner(&user, &subj)
             || (mine & CAP_SHARE != 0
                 && caps_strictly_cover(mine, row.caps)
                 && caps_strictly_cover(mine, caps))
@@ -826,7 +743,7 @@ async fn remove_member(
     // someone else's row needs the superior class or strict superiority —
     // equal-cap members must not kick each other.
     let allowed = row.user_id == user.id
-        || is_row_subject_owner(&conn, &user, &row.subject_kind, &row.drive_id, &row.path)
+        || user.role == "admin"
         || (mine & CAP_SHARE != 0 && caps_strictly_cover(mine, row.caps));
     if !allowed {
         return Err(json_error(
@@ -887,7 +804,7 @@ async fn create_link(
     // Minting a public link is a manage-level action — a member with
     // content access but no share capability must not publish the subject
     // to anonymous guests. Authorization runs before the existence check
-    // so a 404-vs-403 split can't probe which member homes exist.
+    // so a 404-vs-403 split can't probe which folders exist.
     if mine & CAP_SHARE == 0 {
         return Err(json_error(
             StatusCode::FORBIDDEN,
@@ -975,13 +892,7 @@ struct UpdateLinkBody {
 }
 
 fn may_manage_link(conn: &rusqlite::Connection, user: &CurrentUser, link: &AccessLinkRow) -> bool {
-    // Member-home links answer to the home owner alone — the same carve
-    // my_caps_on_link applies. Without it an admin could copy a member's
-    // private home URL, clear its password, or delete the link: a plain
-    // URL into content they must not reach.
-    let in_home =
-        link.subject_kind == KIND_PATH && crate::member_home::is_member_home_path(&link.path);
-    if user.role == "admin" && !in_home {
+    if user.role == "admin" {
         return true;
     }
     let mine = my_caps_on_link(conn, user, link);
@@ -1101,9 +1012,6 @@ fn member_row_name(
         }
         return "Album".into();
     }
-    if crate::member_home::is_home_root(&row.path) {
-        return home_display_name(conn, &row.drive_id, &row.path);
-    }
     if row.path.is_empty() {
         return labels
             .get(&row.drive_id)
@@ -1138,7 +1046,6 @@ fn member_row_json(
         "album_id": row.album_id,
         "name": member_row_name(conn, row, labels),
         "is_file": is_file,
-        "is_home": row.subject_kind == KIND_PATH && crate::member_home::is_home_root(&row.path),
         "exists": exists,
         "caps": caps_to_str(row.caps),
         "created_by": row.created_by,
@@ -1156,40 +1063,10 @@ async fn me_access(
     let labels = drive_labels(&conn);
     let names = user_names(&conn);
     let roots = access::member_access_roots(rows);
-    let mut out: Vec<Value> = roots
+    let out: Vec<Value> = roots
         .iter()
         .map(|r| member_row_json(&conn, r, &labels, &names))
         .collect();
-    // A person's home is implicit access, not a grant row — surface it as a
-    // virtual root so every "your places" listing shows Home alongside real
-    // shares. It leads the list: it's theirs, not something shared. Admins
-    // have one too.
-    {
-        let home = db::get_user(&conn, &user.id)
-            .ok()
-            .flatten()
-            .and_then(|u| crate::member_home::resolve(&conn, &u).ok().flatten());
-        if let Some(home) = home {
-            out.insert(
-                0,
-                json!({
-                    "id": format!("home-{}", user.id),
-                    "kind": KIND_PATH,
-                    "drive_id": home.drive_id,
-                    "drive_label": labels.get(&home.drive_id).cloned().unwrap_or_default(),
-                    "path": home.rel,
-                    "album_id": "",
-                    "name": "My files",
-                    "is_file": false,
-                    "is_home": true,
-                    "exists": home.ready,
-                    "caps": "full+share",
-                    "created_by": "",
-                    "shared_by": "",
-                }),
-            );
-        }
-    }
     Ok(Json(out))
 }
 
@@ -1245,12 +1122,7 @@ async fn mine(
     for k in order {
         let ms = group_members.get(&k).cloned().unwrap_or_default();
         let ls = group_links.get(&k).cloned().unwrap_or_default();
-        // Admin sees everything EXCEPT home subjects — a person's home
-        // roster and minted link URLs stay theirs alone. With no
-        // carve here `mine` would hand the raw `/s/<token>` URL back to an
-        // admin as a working credential into the private home.
-        let subject_in_home = k.0 == KIND_PATH && crate::member_home::is_member_home_path(&k.2);
-        let controls = (is_admin && !subject_in_home) || {
+        let controls = is_admin || {
             let mine = match resolve_subject(&conn, &k.0, &k.1, &k.2, &k.3) {
                 Ok(subj) => my_caps(&conn, &user, &subj),
                 Err(_) => 0,
@@ -1270,12 +1142,7 @@ async fn mine(
         }
         let subj = resolve_subject(&conn, &k.0, &k.1, &k.2, &k.3).ok();
         let (name, exists, is_file, item_count) = match &subj {
-            Some(s) => (
-                home_aware_name(&conn, &user.id, &k.1, &k.2, s.name.clone()),
-                s.exists,
-                s.is_file,
-                s.item_count,
-            ),
+            Some(s) => (s.name.clone(), s.exists, s.is_file, s.item_count),
             None => (
                 if k.0 == KIND_ALBUM {
                     "Album".into()
@@ -1289,13 +1156,10 @@ async fn mine(
                 0,
             ),
         };
-        let mine_caps = subj.as_ref().map(|s| my_caps(&conn, &user, s)).unwrap_or(
-            if is_admin && !subject_in_home {
-                access::CAP_MANAGE
-            } else {
-                0
-            },
-        );
+        let mine_caps = subj
+            .as_ref()
+            .map(|s| my_caps(&conn, &user, s))
+            .unwrap_or(if is_admin { access::CAP_MANAGE } else { 0 });
         sharing.push(json!({
             "kind": k.0,
             "drive_id": k.1,
@@ -1538,11 +1402,8 @@ fn not_in_share() -> ApiError {
 /// `child_under_link` plus the privacy boundaries: a link whose own subject
 /// is not inside `.luna-trash` must never reach into it — a whole-drive view
 /// link could otherwise list and zip every deleted file on the drive. The
-/// same goes for member homes: a whole-drive link must never walk into
-/// someone's `.luna-<prefix>-members/<name>` tree, while a link minted on the home itself
-/// (the owner sharing their own space) scopes normally. The lexical-join
-/// error keeps the caller's message (`lexical_err`); boundary hits answer
-/// 404.
+/// lexical-join error keeps the caller's message (`lexical_err`); boundary
+/// hits answer 404.
 fn scoped_child(
     link: &AccessLinkRow,
     rel: &str,
@@ -1550,11 +1411,6 @@ fn scoped_child(
 ) -> Result<String, ApiError> {
     let joined = child_under_link(&link.path, rel).ok_or(lexical_err)?;
     if files::is_trash_api(&joined) && !files::is_trash_api(&link.path) {
-        return Err(not_in_share());
-    }
-    if crate::member_home::is_member_home_path(&joined)
-        && !crate::member_home::is_member_home_path(&link.path)
-    {
         return Err(not_in_share());
     }
     Ok(joined)
@@ -4196,14 +4052,7 @@ mod http_tests {
         )
         .await;
         let roots = body_json(res).await;
-        // The injected virtual home row rides alongside the grant roots.
-        let grant_roots: Vec<&serde_json::Value> = roots
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter(|r| !r["is_home"].as_bool().unwrap_or(false))
-            .collect();
-        assert_eq!(grant_roots.len(), 2, "{roots}");
+        assert_eq!(roots.as_array().unwrap().len(), 2, "{roots}");
 
         // Removing the root leaves the explicit child standing.
         let res = call(

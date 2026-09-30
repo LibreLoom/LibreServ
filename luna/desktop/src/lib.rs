@@ -234,11 +234,6 @@ pub fn logout(state: &AppState) -> Result<(), String> {
     Ok(())
 }
 
-pub fn my_home(state: &AppState) -> Result<Option<luna::Home>, String> {
-    let s = require_session(state)?;
-    luna::my_home(&s.base_url, &s.token)
-}
-
 pub fn list_drives(state: &AppState) -> Result<Vec<luna::Drive>, String> {
     let s = require_session(state)?;
     luna::list_drives(&s.base_url, &s.token)
@@ -397,11 +392,6 @@ fn sync_pair_local_basename(
     pair: &sync::SyncPair,
     pairs: &[sync::SyncPair],
 ) -> Result<String, String> {
-    if let Ok(Some(home)) = luna::my_home(&session.base_url, &session.token)
-        && home.relative(&remote.drive_id, &remote.path).as_deref() == Some("")
-    {
-        return Ok(dest::sync_local_basename("", "My files"));
-    }
     if !remote.path.is_empty() {
         return Ok(dest::sync_local_basename(&remote.path, ""));
     }

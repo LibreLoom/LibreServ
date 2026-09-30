@@ -35,8 +35,6 @@ class FolderPickerActivity : AppCompatActivity() {
     private var driveLabel: String = ""
     private var path: String = ""
     private var pickingDrive = false
-    private var home: LunaApi.Home? = null
-    private var atHomeChoice = false
     private var drives: List<LunaApi.Drive> = emptyList()
     private var folders: List<String> = emptyList()
     private var busy = false
@@ -48,8 +46,6 @@ class FolderPickerActivity : AppCompatActivity() {
         driveId = intent.getStringExtra(EXTRA_DRIVE_ID).orEmpty()
         driveLabel = intent.getStringExtra(EXTRA_DRIVE_LABEL).orEmpty()
         path = intent.getStringExtra(EXTRA_START_PATH).orEmpty()
-        home = BackupPrefs.home(this)
-        atHomeChoice = LunaApi.homeRelative(home, driveId, path) != null
         pickingDrive = intent.getBooleanExtra(EXTRA_PICK_DRIVE, false) || driveId.isBlank()
 
         if (baseUrl.isBlank() || token.isBlank()) {
@@ -108,17 +104,14 @@ class FolderPickerActivity : AppCompatActivity() {
     }
 
     private fun bindPath() {
-        pathLabel.text = LunaApi.destinationText(home, driveId, driveLabel.ifBlank { getString(R.string.drive_label) }, path)
-        upButton.isEnabled = canGoUp() && !busy
+        val where = if (path.isEmpty()) getString(R.string.drive_root) else path
+        pathLabel.text = getString(R.string.folder_path_fmt, driveLabel.ifBlank { getString(R.string.drive_label) }, where)
+        upButton.isEnabled = path.isNotEmpty() && !busy
     }
-
-    /** My files is a top level of its own: Up stops at its top instead of showing what holds it. */
-    private fun canGoUp(): Boolean =
-        path.isNotEmpty() && LunaApi.homeRelative(home, driveId, path) != ""
 
     private fun setBusy(value: Boolean) {
         busy = value
-        upButton.isEnabled = !value && canGoUp() && !pickingDrive
+        upButton.isEnabled = !value && path.isNotEmpty() && !pickingDrive
         newFolder.isEnabled = !value && !pickingDrive
         useFolder.isEnabled = !value && (if (pickingDrive) driveId.isNotBlank() else true)
         list.isEnabled = !value
@@ -133,7 +126,7 @@ class FolderPickerActivity : AppCompatActivity() {
     }
 
     private fun goUp() {
-        if (busy || pickingDrive || !canGoUp()) return
+        if (busy || pickingDrive) return
         path = LunaApi.parentPath(path)
         loadFolders()
     }
@@ -196,7 +189,7 @@ class FolderPickerActivity : AppCompatActivity() {
                 status.text = getString(R.string.pick_a_drive_first)
                 return
             }
-            path = if (atHomeChoice) home?.path.orEmpty() else ""
+            path = ""
             showFolderStep()
             loadFolders()
             return
@@ -265,7 +258,7 @@ class FolderPickerActivity : AppCompatActivity() {
         thread {
             try {
                 val entries = LunaApi.listFiles(baseUrl, token, driveId, path)
-                    .filter { it.isDir && !LunaApi.isHomeContainerEntry(it.name) }
+                    .filter { it.isDir }
                     .map { it.name }
                     .sortedWith { a, b -> a.lowercase(Locale.US).compareTo(b.lowercase(Locale.US)) }
                 runOnUiThread {
@@ -304,34 +297,17 @@ class FolderPickerActivity : AppCompatActivity() {
     private fun bindDriveChoices() {
         driveChoices.setOnCheckedChangeListener(null)
         driveChoices.removeAllViews()
-        home?.let { h ->
-            val row = layoutInflater.inflate(R.layout.item_choice_row, driveChoices, false) as RadioButton
-            row.id = View.generateViewId()
-            row.text = BackupPrefs.MY_FILES
-            row.tag = HOME_TAG
-            row.isChecked = atHomeChoice
-            driveChoices.addView(row)
-        }
         drives.forEach { drive ->
             val row = layoutInflater.inflate(R.layout.item_choice_row, driveChoices, false) as RadioButton
             row.id = View.generateViewId()
             row.text = drive.label
             row.tag = drive.id
-            row.isChecked = drive.id == driveId && !atHomeChoice
+            row.isChecked = drive.id == driveId
             driveChoices.addView(row)
         }
         driveChoices.setOnCheckedChangeListener { group, checkedId ->
             val row = group.findViewById<RadioButton>(checkedId) ?: return@setOnCheckedChangeListener
-            val h = home
-            if (row.tag == HOME_TAG && h != null) {
-                atHomeChoice = true
-                driveId = h.driveId
-                driveLabel = BackupPrefs.MY_FILES
-                useFolder.isEnabled = !busy
-                return@setOnCheckedChangeListener
-            }
             val drive = drives.firstOrNull { it.id == row.tag } ?: return@setOnCheckedChangeListener
-            atHomeChoice = false
             driveId = drive.id
             driveLabel = drive.label
             useFolder.isEnabled = !busy
@@ -340,7 +316,6 @@ class FolderPickerActivity : AppCompatActivity() {
     }
 
     companion object {
-        private const val HOME_TAG = "my-files"
         const val EXTRA_URL = "url"
         const val EXTRA_TOKEN = "token"
         const val EXTRA_DRIVE_ID = "drive_id"

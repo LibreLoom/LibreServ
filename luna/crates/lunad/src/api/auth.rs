@@ -177,14 +177,6 @@ async fn register(
     if !has_users {
         let _ = state.connect.clear_first_user_secret();
     }
-    // Everyone gets a private home folder right away, the first Admin
-    // included — best-effort: if every drive is unplugged it materializes on
-    // their first visit instead.
-    if let Ok(conn) = state.db.lock()
-        && let Ok(Some(row)) = crate::db::get_user(&conn, &user.id)
-    {
-        let _ = crate::member_home::ensure(&conn, &row);
-    }
     Ok(Json(json!({
         "id": user.id,
         "username": user.username,
@@ -319,30 +311,15 @@ async fn me(State(state): State<AppState>, req: Request) -> Json<Value> {
                 }
             };
             let row = crate::db::get_user(&conn, &user.id).ok().flatten();
-            let (display_name, home) = match &row {
-                Some(row) => {
-                    // Materialize the user's home on first visit — a fresh
-                    // account lands on a real folder, not an empty state.
-                    let home = crate::member_home::ensure(&conn, row)
-                        .ok()
-                        .flatten()
-                        .map(|h| {
-                            json!({
-                                "drive_id": h.drive_id,
-                                "path": h.rel,
-                                "ready": h.ready,
-                            })
-                        });
-                    (row.display_name.clone(), home)
-                }
-                None => (String::new(), None),
-            };
+            let display_name = row
+                .as_ref()
+                .map(|row| row.display_name.clone())
+                .unwrap_or_default();
             Json(json!({
                 "id": user.id,
                 "username": user.username,
                 "display_name": display_name,
                 "role": user.role,
-                "home": home,
             }))
         }
         None => Json(Value::Null),
@@ -497,7 +474,6 @@ pub fn user_json(user: &crate::db::UserRow) -> Value {
         "username": user.username,
         "display_name": user.display_name,
         "role": user.role,
-        "home_drive_id": user.home_drive_id,
     })
 }
 

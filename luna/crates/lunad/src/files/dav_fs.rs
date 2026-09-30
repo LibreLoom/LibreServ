@@ -5,7 +5,7 @@
 //! and opens files with `O_NOFOLLOW`.
 //!
 //! [`GrantFs`] wraps [`JailedFs`] and enforces the same folder grants as the
-//! file API (admins see everything outside homes, plus their own home; members only what they were granted, plus their own home).
+//! file API (admins see everything; members only what they were granted).
 
 use std::collections::BTreeSet;
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -58,11 +58,6 @@ pub struct GrantFs {
     inner: JailedFs,
     user: CurrentUser,
     drive_id: String,
-    /// Subject-tree prefix applied to every DAV rel before capability,
-    /// trash, and repath checks: `/dav/home` mounts `.luna-<prefix>-members/<username>` as if it
-    /// were the whole drive, while grants still resolve against the real
-    /// drive-relative path.
-    prefix: String,
     db: Arc<crate::Db>,
     /// Shared listing cache — every landed write forgets the cached views it
     /// invalidated. Optional: unit tests run a bare fs.
@@ -71,8 +66,8 @@ pub struct GrantFs {
     pending_removes: Arc<Mutex<BTreeSet<String>>>,
     /// Per-request caps context — filled on first use. A PROPFIND over a
     /// large folder evaluates caps for every child; fetching the member
-    /// rows, the drive mount, and the members-container name once keeps
-    /// that to one lock + a few reads per request instead of per entry.
+    /// rows and the drive mount once keeps that to one lock + a few reads
+    /// per request instead of per entry.
     caps_ctx: Arc<Mutex<Option<Arc<CapsCtx>>>>,
 }
 
@@ -81,8 +76,6 @@ pub struct GrantFs {
 struct CapsCtx {
     rows: Vec<crate::db::AccessMemberRow>,
     mount: Option<String>,
-    members_name: Option<String>,
-    home_here: bool,
 }
 
 impl GrantFs {
@@ -92,23 +85,10 @@ impl GrantFs {
         drive_id: impl Into<String>,
         db: Arc<crate::Db>,
     ) -> Self {
-        Self::scoped(root, "", user, drive_id, db)
-    }
-
-    /// A mount rooted inside the drive: `root` is the on-disk subtree,
-    /// `prefix` the subject path it represents in the access model.
-    pub fn scoped(
-        root: impl AsRef<Path>,
-        prefix: impl Into<String>,
-        user: CurrentUser,
-        drive_id: impl Into<String>,
-        db: Arc<crate::Db>,
-    ) -> Self {
         Self {
             inner: JailedFs::new(root),
             user,
             drive_id: drive_id.into(),
-            prefix: prefix.into(),
             db,
             cache: None,
             pending_removes: Arc::new(Mutex::new(BTreeSet::new())),
@@ -130,7 +110,7 @@ impl GrantFs {
     /// inside the same tick — the row must be forgotten outright, not left
     /// to look fresh.
     fn note_landed(&self, rel: &str) {
-        let subject = self.subject_rel(rel);
+        let subject = rel.to_string();
         if let Some(cache) = &self.cache {
             let parent = subject.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
             cache.invalidate_listing(&self.drive_id, parent);
@@ -154,23 +134,17 @@ impl GrantFs {
             .as_ref()
             .filter(|d| !d.mount_point.is_empty())
             .map(|d| d.mount_point.clone());
-        let members_name = mount
-            .as_deref()
-            .and_then(|m| crate::drives::drive_db::prefix_for(Path::new(m)))
-            .map(|p| crate::member_home::members_dir_name(&p));
         let ctx = Arc::new(CapsCtx {
             rows: crate::db::list_access_members_for_user(&conn, &self.user.id).unwrap_or_default(),
             mount,
-            members_name,
-            home_here: crate::member_home::home_on_drive(&conn, &self.user.id, &self.drive_id),
         });
         *guard = Some(ctx.clone());
         Ok(ctx)
     }
 
     /// This caller's capability bits on `subject` — evaluated against the
-    /// request-cached rows/mount/container instead of hitting the db and
-    /// the drive marker for every child of a PROPFIND.
+    /// request-cached rows/mount instead of hitting the db and the drive
+    /// marker for every child of a PROPFIND.
     fn caps_for(&self, ctx: &CapsCtx, subject: &str) -> crate::access::Caps {
         crate::auth::caps_on_path_preloaded(
             &self.user,
@@ -178,26 +152,11 @@ impl GrantFs {
             subject,
             &ctx.rows,
             ctx.mount.as_deref(),
-            ctx.members_name.as_deref(),
         )
     }
 
     fn browsable(&self, ctx: &CapsCtx, subject: &str, caps: crate::access::Caps) -> bool {
-        crate::auth::can_browse_path_preloaded(
-            &self.user,
-            &self.drive_id,
-            subject,
-            caps,
-            &ctx.rows,
-            ctx.members_name.as_deref(),
-            ctx.home_here,
-        )
-    }
-
-    /// The subject path a DAV rel stands for in the access model —
-    /// `""` on `/dav/home` is the member's `.luna-<prefix>-members/<username>` home root.
-    fn subject_rel(&self, rel: &str) -> String {
-        Self::join_child(&self.prefix, rel)
+        crate::auth::can_browse_path_preloaded(&self.user, &self.drive_id, subject, caps, &ctx.rows)
     }
 
     fn rel(path: &DavPath) -> FsResult<String> {
@@ -214,7 +173,7 @@ impl GrantFs {
 
     fn require_cap(&self, rel: &str, cap: crate::access::Caps) -> FsResult<()> {
         let ctx = self.caps_ctx()?;
-        let subject = self.subject_rel(rel);
+        let subject = rel.to_string();
         let caps = self.caps_for(&ctx, &subject);
         if caps & cap == cap {
             Ok(())
@@ -262,7 +221,7 @@ impl GrantFs {
     /// way to a deeper grant.
     fn browse_caps(&self, rel: &str) -> FsResult<crate::access::Caps> {
         let ctx = self.caps_ctx()?;
-        let subject = self.subject_rel(rel);
+        let subject = rel.to_string();
         let caps = self.caps_for(&ctx, &subject);
         if self.browsable(&ctx, &subject, caps) {
             Ok(caps)
@@ -279,7 +238,7 @@ impl GrantFs {
     /// a traversal waypoint on the path to a deeper grant (listed, but with
     /// masked metadata), or not at all.
     fn child_visibility(&self, parent: &str, name: &str) -> Visibility {
-        let child = self.subject_rel(&Self::join_child(parent, name));
+        let child = Self::join_child(parent, name);
         let Ok(ctx) = self.caps_ctx() else {
             return Visibility::Hidden;
         };
@@ -306,10 +265,9 @@ impl GrantFs {
         if is_reserved(rel) {
             return Err(FsError::NotFound);
         }
-        // The mount/drive root itself never moves to trash — only user
-        // deletion and home-drive migration may take out a home root.
+        // The mount/drive root itself never moves to trash.
         let rel = rel.trim_matches('/');
-        if rel.is_empty() || crate::member_home::is_home_root(&self.subject_rel(rel)) {
+        if rel.is_empty() {
             return Err(FsError::Forbidden);
         }
         self.require_cap(rel, CAP_EDIT)?;
@@ -376,12 +334,7 @@ impl GrantFs {
     /// a raw unlink would let member/link grants resurrect onto whatever
     /// later occupies the name.
     fn delete_to_trash(&self, rel: &str) -> FsResult<()> {
-        let subject = self.subject_rel(rel);
-        // The home root itself never moves to trash — only user deletion
-        // and home-drive migration may take it out.
-        if crate::member_home::is_home_root(&subject) {
-            return Err(FsError::Forbidden);
-        }
+        let subject = rel.to_string();
         let conn = self.db.lock().map_err(|_| FsError::GeneralFailure)?;
         crate::files::delete_to_trash(&conn, &self.drive_id, &subject).map_err(files_to_fs)?;
         drop(conn);
@@ -403,14 +356,9 @@ impl GrantFs {
     /// everywhere DAV can reach (trash paths are refused by `is_reserved`).
     fn repath(&self, from_rel: &str, to_rel: &str) -> FsResult<()> {
         let conn = self.db.lock().map_err(|_| FsError::GeneralFailure)?;
-        crate::access::repath_subjects(
-            &conn,
-            &self.drive_id,
-            &self.subject_rel(from_rel),
-            &self.subject_rel(to_rel),
-        )
-        .map(|_| ())
-        .map_err(|_| FsError::GeneralFailure)
+        crate::access::repath_subjects(&conn, &self.drive_id, from_rel, to_rel)
+            .map(|_| ())
+            .map_err(|_| FsError::GeneralFailure)
     }
 }
 
@@ -898,13 +846,6 @@ impl DavFileSystem for GrantFs {
         Box::pin(async move {
             let from_rel = Self::rel(from)?;
             let to_rel = Self::rel(to)?;
-            // A scoped mount's root (the member's home dir) is fixed — only
-            // user deletion or home-drive migration may relocate it.
-            if crate::member_home::is_home_root(&self.subject_rel(&from_rel))
-                || crate::member_home::is_home_root(&self.subject_rel(&to_rel))
-            {
-                return Err(FsError::Forbidden);
-            }
             self.require_cap(&from_rel, CAP_EDIT)?;
             self.require_cap(&to_rel, CAP_UPLOAD)?;
             // dav-server deletes an overwritten destination inside this same
