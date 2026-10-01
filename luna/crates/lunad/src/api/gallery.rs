@@ -854,18 +854,33 @@ async fn serve_thumb_file(
 ) -> Result<Response, (StatusCode, Json<Value>)> {
     // Verified open: the thumb path was resolved by `thumb_path` — this
     // guards against the leaf being swapped for a symlink in between.
-    let mut file = open_checked(&path)
-        .map_err(|_| json_error(StatusCode::NOT_FOUND, "This thumbnail isn't ready yet."))?;
-    let meta = file
-        .metadata()
-        .map_err(|_| json_error(StatusCode::NOT_FOUND, "This thumbnail isn't ready yet."))?;
-    let mtime_secs = meta
-        .modified()
-        .ok()
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    let etag = crate::drives::ram_cache::thumb_etag(meta.len(), mtime_secs);
+    // The open + read runs off the async workers: with a small worker pool
+    // a slow USB read must never park request handling.
+    let (bytes, mtime_secs) = tokio::task::spawn_blocking(move || {
+        let mut file = open_checked(&path)
+            .map_err(|_| json_error(StatusCode::NOT_FOUND, "This thumbnail isn't ready yet."))?;
+        let meta = file
+            .metadata()
+            .map_err(|_| json_error(StatusCode::NOT_FOUND, "This thumbnail isn't ready yet."))?;
+        let mtime_secs = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let mut bytes = Vec::with_capacity(meta.len().min(1024 * 1024) as usize);
+        std::io::Read::read_to_end(&mut file, &mut bytes)
+            .map_err(|_| json_error(StatusCode::NOT_FOUND, "This thumbnail isn't ready yet."))?;
+        Ok::<_, (StatusCode, Json<Value>)>((bytes, mtime_secs))
+    })
+    .await
+    .map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't read the thumbnail.",
+        )
+    })??;
+    let etag = crate::drives::ram_cache::thumb_etag(bytes.len() as u64, mtime_secs);
     if let Some(if_none_match) = headers
         .get(axum::http::header::IF_NONE_MATCH)
         .and_then(|v| v.to_str().ok())
@@ -879,9 +894,6 @@ async fn serve_thumb_file(
             .unwrap()
             .into_response());
     }
-    let mut bytes = Vec::with_capacity(meta.len().min(1024 * 1024) as usize);
-    std::io::Read::read_to_end(&mut file, &mut bytes)
-        .map_err(|_| json_error(StatusCode::NOT_FOUND, "This thumbnail isn't ready yet."))?;
     // One allocation, shared with the cache — no second copy of the bytes.
     let arc: std::sync::Arc<[u8]> = std::sync::Arc::from(bytes.into_boxed_slice());
     state
@@ -3181,5 +3193,46 @@ mod tests {
         assert!(v["owner_user_id"].is_string());
         assert!(v["contrib_path"].is_string());
         assert_eq!(v["cover_path"], "pic.jpg");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn concurrent_thumb_serves_dont_stall_workers() {
+        // Mirrors the production runtime (2 workers): 16 concurrent
+        // cold-thumb serves must all finish. The file reads run on the
+        // blocking pool, never on the async workers.
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
+        let state = std::sync::Arc::new(AppState::new(conn, drive_manager, dir.path()));
+        let thumb_path = dir.path().join("thumb.jpg");
+        let body = vec![0xFFu8; 256 * 1024];
+        std::fs::write(&thumb_path, &body).unwrap();
+
+        let futs: Vec<_> = (0..16)
+            .map(|_| {
+                let state = state.clone();
+                let path = thumb_path.clone();
+                let headers = axum::http::HeaderMap::new();
+                tokio::spawn(async move {
+                    super::serve_thumb_file(&state, "d1", "a.jpg", path, &headers).await
+                })
+            })
+            .collect();
+        // Generous timeout: this fails on a worker stall, not on slowness.
+        let resps = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            let mut out = Vec::new();
+            for f in futs {
+                out.push(f.await.unwrap());
+            }
+            out
+        })
+        .await
+        .expect("16 concurrent thumb serves must finish with 2 workers");
+        for r in &resps {
+            assert_eq!(r.as_ref().unwrap().status(), StatusCode::OK);
+        }
+        // Served bytes match the file; the cache holds the shared copy.
+        let cached = state.ram_cache.get_thumb("d1", "a.jpg").unwrap();
+        assert_eq!(&cached.bytes[..], &body[..]);
     }
 }
