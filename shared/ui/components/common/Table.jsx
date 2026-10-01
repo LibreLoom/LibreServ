@@ -48,8 +48,8 @@ function useIsMdUp() {
 }
 
 /**
- * One extra row after the data, styled like a data row, with only a centered
- * icon (a plus by default). `label` is the accessible name, e.g. "Add user".
+ * One slim extra row after the data, in the data rows' surface and motion,
+ * with only a centered icon (a plus by default). `label` is the accessible name, e.g. "Add user".
  * @typedef {{ label: string, onClick: () => void, icon?: import("react").ElementType, disabled?: boolean }} TableAddRow
  */
 
@@ -74,7 +74,7 @@ function AddRowButton({ addRow, className }) {
         className,
       )}
     >
-      <Icon size={20} aria-hidden="true" />
+      <Icon size={16} aria-hidden="true" />
     </button>
   );
 }
@@ -171,7 +171,7 @@ export default function Table({
           })}
           {addRow && (
             <li>
-              <AddRowButton addRow={addRow} className="p-4" />
+              <AddRowButton addRow={addRow} className="py-2" />
             </li>
           )}
         </ul>
@@ -267,8 +267,8 @@ export default function Table({
             {addRow && (
               <tr>
                 <td colSpan={columns.length} className="p-0">
-                  {/* py-4 + 20px icon = 52px, the height of a row with an h-8 avatar or pill. */}
-                  <AddRowButton addRow={addRow} className="py-4" />
+                  {/* A slim strip, so it reads as an action rather than an empty row. */}
+                  <AddRowButton addRow={addRow} className="py-2" />
                 </td>
               </tr>
             )}
