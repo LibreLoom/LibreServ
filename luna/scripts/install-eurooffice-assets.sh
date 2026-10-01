@@ -18,6 +18,9 @@ cid="$($RUNTIME create "$IMAGE")"
 cleanup() { $RUNTIME rm -f "$cid" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 
+# The image ships some directories (core-fonts) read-only, and `cp` keeps that,
+# so a previous run's tree can't be deleted until it is made writable again.
+[ ! -e "$DEST" ] || chmod -R u+w "$DEST"
 rm -rf "$DEST"
 mkdir -p "$DEST"
 echo "Copying web-apps + sdkjs + fonts inputs into $DEST …"
@@ -26,6 +29,9 @@ $RUNTIME cp "$cid:/var/www/euro-office/documentserver/sdkjs" "$DEST/sdkjs"
 $RUNTIME cp "$cid:/var/www/euro-office/documentserver/dictionaries" "$DEST/dictionaries" 2>/dev/null || true
 # core-fonts are the TTFs the browser-side wasm converter needs — not optional.
 $RUNTIME cp "$cid:/var/www/euro-office/documentserver/core-fonts" "$DEST/core-fonts"
+
+# Make the copy writable so the next run (and `rm`) can replace it.
+chmod -R u+w "$DEST"
 
 # Keep AGPL notices with the assets: copy any license/notice files the image
 # ships at the documentserver root (best effort — names vary by release).
