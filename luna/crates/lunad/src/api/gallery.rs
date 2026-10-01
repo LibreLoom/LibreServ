@@ -2121,8 +2121,76 @@ mod tests {
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use serde_json::Value;
+    #[cfg(unix)]
+    use std::os::unix::ffi::OsStrExt;
     use std::path::PathBuf;
     use tower::ServiceExt;
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn thumb_revalidation_does_not_read_the_file() {
+        // A FIFO read only returns when the writer closes, so a read-first
+        // 304 path waits out the writer's hold; a metadata-only 304 returns
+        // at once. The elapsed-time assertion is the signal — a hanging read
+        // would otherwise still *eventually* answer.
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
+        let state = std::sync::Arc::new(AppState::new(conn, drive_manager, dir.path()));
+        let fifo = dir.path().join("thumb.fifo");
+        let c_path = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        assert_eq!(
+            unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) },
+            0,
+            "mkfifo failed"
+        );
+        let meta = std::fs::metadata(&fifo).unwrap();
+        let mtime_secs = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let etag = crate::drives::ram_cache::thumb_etag(meta.len(), mtime_secs);
+
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel::<()>();
+        let writer_fifo = fifo.clone();
+        let _writer = std::thread::spawn(move || {
+            let _writer = std::fs::OpenOptions::new()
+                .write(true)
+                .open(&writer_fifo)
+                .expect("open fifo for writing");
+            ready_tx.send(()).unwrap();
+            std::thread::sleep(std::time::Duration::from_secs(6));
+        });
+
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(axum::http::header::IF_NONE_MATCH, etag.parse().unwrap());
+        let t0 = std::time::Instant::now();
+        let revalidated = tokio::time::timeout(
+            std::time::Duration::from_secs(3),
+            super::serve_thumb_file(&state, "d1", "a.jpg", fifo.clone(), &headers),
+        )
+        .await
+        .expect("304 must be answered without reading the file")
+        .unwrap();
+        let elapsed = t0.elapsed();
+        assert_eq!(revalidated.status(), StatusCode::NOT_MODIFIED);
+        assert!(
+            revalidated
+                .headers()
+                .get(axum::http::header::ETAG)
+                .is_some()
+        );
+        assert!(
+            elapsed < std::time::Duration::from_secs(1),
+            "revalidation must not read the file (took {elapsed:?})"
+        );
+        ready_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("watchdog writer must open");
+        drop(_writer);
+    }
 
     #[test]
     fn thumbs_are_private() {
@@ -3248,7 +3316,10 @@ mod tests {
                 })
             })
             .collect();
-        // Generous timeout: this fails on a worker stall, not on slowness.
+        // Smoke test, not a stall detector: local tempfile reads finish
+        // microseconds after a worker is parked, so this passes even if the
+        // read runs inline. `slow_thumb_read_does_not_stall_workers` is the
+        // test that actually fails on a parked worker.
         let resps = tokio::time::timeout(std::time::Duration::from_secs(30), async {
             let mut out = Vec::new();
             for f in futs {
@@ -3264,5 +3335,75 @@ mod tests {
         // Served bytes match the file; the cache holds the shared copy.
         let cached = state.ram_cache.get_thumb("d1", "a.jpg").unwrap();
         assert_eq!(&cached.bytes[..], &body[..]);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn slow_thumb_read_does_not_stall_workers() {
+        // A FIFO read only returns when the writer closes, so this is the one
+        // honest way to hold a read open. Two concurrent serves park both
+        // async workers if the read runs inline, and a heartbeat task then
+        // never gets a worker. The writer is an OS thread; the blocking pool
+        // — not the async runtime — is what waits.
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
+        let state = std::sync::Arc::new(AppState::new(conn, drive_manager, dir.path()));
+        let fifo = dir.path().join("thumb.fifo");
+        let c_path = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        assert_eq!(
+            unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) },
+            0,
+            "mkfifo failed"
+        );
+        let fifo_for_writer = fifo.clone();
+        let watchdog = std::thread::spawn(move || {
+            let mut writer = std::fs::OpenOptions::new()
+                .write(true)
+                .open(&fifo_for_writer)
+                .expect("open fifo for writing");
+            // Long enough that a parked worker cannot hide behind it.
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            std::io::Write::write_all(&mut writer, b"thumb").unwrap();
+        });
+
+        let (serves_tx, mut serves_rx) = tokio::sync::mpsc::channel(2);
+        for _ in 0..2 {
+            let (state, path) = (state.clone(), fifo.clone());
+            let serves_tx = serves_tx.clone();
+            tokio::spawn(async move {
+                let headers = axum::http::HeaderMap::new();
+                let result = super::serve_thumb_file(&state, "d1", "a.jpg", path, &headers)
+                    .await
+                    .map(|r| r.status())
+                    .map_err(|e| e.0);
+                serves_tx.send(result).await.unwrap();
+            });
+        }
+        drop(serves_tx);
+
+        // `sleep` reaching its timer is the heartbeat: on a parked runtime no
+        // worker runs it, and the 3s timeout fails the test.
+        let heartbeat = tokio::spawn(async {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+        assert!(
+            heartbeat.is_finished(),
+            "async workers were parked on the slow read"
+        );
+        tokio::time::timeout(std::time::Duration::from_secs(3), heartbeat)
+            .await
+            .expect("async workers were parked on the slow read")
+            .unwrap();
+
+        for _ in 0..2 {
+            let status = tokio::time::timeout(std::time::Duration::from_secs(5), serves_rx.recv())
+                .await
+                .expect("parked reads must finish once the writer closes")
+                .expect("serve task must report a status");
+            assert_eq!(status, Ok(StatusCode::OK));
+        }
+        watchdog.join().unwrap();
     }
 }
