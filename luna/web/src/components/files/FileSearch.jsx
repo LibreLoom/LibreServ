@@ -18,7 +18,13 @@ import FileSearchStatus from "./FileSearchStatus.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { useShortcut } from "@libreloom/ui/context/ShortcutsContext.jsx";
 import useFileSearch from "../../hooks/useFileSearch.js";
-import { MIN_SEARCH_LENGTH, OPEN_FILE_SEARCH_EVENT, openFileSearch } from "../../lib/fileSearch.js";
+import {
+  MIN_SEARCH_LENGTH,
+  OPEN_FILE_SEARCH_EVENT,
+  loadSearchKind,
+  openFileSearch,
+  saveSearchKind,
+} from "../../lib/fileSearch.js";
 import { apiErrorMessage, getDrives, getJson, postJson } from "../../lib/api";
 import { parentPath } from "../../lib/paths";
 import { useAuth } from "../../context/AuthContext.jsx";
@@ -144,7 +150,7 @@ export default function FileSearch() {
   const { addToast } = useToast();
   const { user } = useAuth();
   const [typed, setTyped] = useState("");
-  const [kind, setKind] = useState(/** @type {"all" | "dir" | "file"} */ ("all"));
+  const [kind, setKind] = useState(loadSearchKind);
   const [actionError, setActionError] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [copyTarget, setCopyTarget] = useState(null);
@@ -200,6 +206,8 @@ export default function FileSearch() {
       queryClient.invalidateQueries({ queryKey: ["search"] });
       queryClient.invalidateQueries({ queryKey: ["files"] });
       queryClient.invalidateQueries({ queryKey: ["trash"] });
+      // The row is gone; keep the keyboard in the list's search box.
+      window.setTimeout(() => inputRef.current?.focus(), 0);
     },
     onError: (err) => setActionError(apiErrorMessage(err, "Luna couldn't move that to trash. Try again.")),
   });
@@ -357,6 +365,15 @@ export default function FileSearch() {
   }, []);
 
   const handleInputKeyDown = useCallback((/** @type {import("react").KeyboardEvent<HTMLInputElement>} */ event) => {
+    if (event.key === "Enter" && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
+      // Enter opens the best match, like most search boxes.
+      const firstLink = panelRef.current?.querySelector?.('[data-slot="file-search-link"]');
+      if (firstLink instanceof HTMLElement) {
+        event.preventDefault();
+        firstLink.click();
+      }
+      return;
+    }
     if (event.key === "ArrowDown" && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
       const firstLink = panelRef.current?.querySelector?.('[data-slot="file-search-link"]');
       if (firstLink instanceof HTMLElement) {
@@ -369,6 +386,38 @@ export default function FileSearch() {
 
   const handleListKeyDown = useCallback((/** @type {import("react").KeyboardEvent<HTMLUListElement>} */ event) => {
     if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+
+    // ←/→ move between a row's link and its action buttons.
+    if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      const item = target?.closest?.('[data-slot="file-search-item"]');
+      if (!target || !item) return;
+      const stops = /** @type {HTMLElement[]} */ ([
+        ...item.querySelectorAll('[data-slot="file-search-link"], [data-slot="file-search-actions"] a, [data-slot="file-search-actions"] button'),
+      ]);
+      const at = stops.indexOf(target);
+      if (at < 0) return;
+      const next = stops[at + (event.key === "ArrowRight" ? 1 : -1)];
+      if (next) {
+        event.preventDefault();
+        next.focus();
+      }
+      return;
+    }
+
+    if (event.key === "Home" || event.key === "End") {
+      const links = /** @type {HTMLElement[]} */ ([
+        ...(panelRef.current?.querySelectorAll?.('[data-slot="file-search-link"]') ?? []),
+      ]);
+      const edge = event.key === "Home" ? links[0] : links[links.length - 1];
+      if (edge) {
+        event.preventDefault();
+        edge.focus();
+        edge.scrollIntoView?.({ block: "nearest" });
+      }
+      return;
+    }
+
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
 
     const allLinks = /** @type {HTMLElement[]} */ ([
@@ -482,21 +531,26 @@ export default function FileSearch() {
               </Button>
             </div>
 
-            {search.active && (
-              <div
-                data-slot="file-search-toolbar"
-                className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 shrink-0 border-b border-primary/20"
-              >
-                <SegmentedControl
-                  surface="secondary"
-                  aria-label="Show"
-                  options={KIND_OPTIONS}
-                  value={kind}
-                  onChange={(next) => setKind(/** @type {any} */ (next))}
-                />
-                <FileSearchStatus scan={search.scan} />
-              </div>
-            )}
+            <div
+              data-slot="file-search-toolbar"
+              className={cn(
+                "flex flex-wrap items-center justify-between gap-2 px-4 py-2 shrink-0 border-b-2",
+                // A pulsing accent rule says the list is about to change.
+                search.isUpdating ? "border-accent motion-safe:animate-pulse" : "border-primary/20",
+              )}
+            >
+              <SegmentedControl
+                surface="secondary"
+                aria-label="Show"
+                options={KIND_OPTIONS}
+                value={kind}
+                onChange={(next) => {
+                  setKind(/** @type {any} */ (next));
+                  saveSearchKind(/** @type {any} */ (next));
+                }}
+              />
+              <FileSearchStatus scan={search.scan} />
+            </div>
 
             <div
               className="flex-[0_1_auto] min-h-0 overflow-y-auto overscroll-contain motion-safe:transition-[height] motion-safe:duration-300 motion-safe:ease-[var(--motion-easing-emphasized)]"
@@ -516,9 +570,14 @@ export default function FileSearch() {
               )}
 
               {search.isError && (
-                <p className="text-error text-xs mb-2">
-                  {apiErrorMessage(search.error, "Luna couldn't search right now. Try again.")}
-                </p>
+                <PageNotice variant="error" className="mb-3">
+                  <span className="flex flex-wrap items-center justify-between gap-2">
+                    {apiErrorMessage(search.error, "Luna couldn't search right now.")}
+                    <Button variant="outline" surface="primary" size="sm" onClick={() => search.retry()}>
+                      Try again
+                    </Button>
+                  </span>
+                </PageNotice>
               )}
 
               {search.isLoading && <SearchSkeleton />}
@@ -591,16 +650,24 @@ export default function FileSearch() {
                       </Fragment>
                     ))}
                   </ul>
+                  {search.truncated && (
+                    <p data-slot="file-search-truncated" className="px-1 pt-3 text-xs font-mono text-primary">
+                      There are more matches than fit here. Type more of the name to narrow it down.
+                    </p>
+                  )}
                 </>
               )}
 
               {trimmed.length === 0 && (
-                <Typewriter
-                  as="p"
-                  className="block text-primary text-sm py-6 text-center font-mono"
-                  text="Search every file and folder you can open."
-                  cursor={false}
-                />
+                <div className="py-6 text-center font-mono text-primary">
+                  <Typewriter
+                    as="p"
+                    className="block text-sm"
+                    text="Search every file and folder you can open."
+                    cursor={false}
+                  />
+                  <p className="mt-2 text-xs">Press / on any page to open search.</p>
+                </div>
               )}
              </div>
             </div>

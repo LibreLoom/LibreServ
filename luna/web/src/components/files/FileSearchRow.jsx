@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import {
   Copy,
@@ -11,9 +12,9 @@ import {
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import { ActionTooltipGroup, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { ShareButton } from "../share/ShareSheet.jsx";
-import { highlightParts } from "../../lib/fileSearch.js";
+import { highlightParts, locationParts, searchWhen } from "../../lib/fileSearch.js";
 import { canViewerOpen } from "../../lib/officeConvert.js";
-import { downloadHref, fileHref, parentPath, searchResultHref } from "../../lib/paths";
+import { downloadHref, fileHref, fmtSize, parentPath, searchResultHref } from "../../lib/paths";
 import { capsOnPath, memberFileHref, memberSearchHref } from "../../lib/shareTree.js";
 import { CAP } from "../../lib/access.js";
 import { cn } from "@libreloom/ui/lib/utils.js";
@@ -22,18 +23,14 @@ function folderOf(path) {
   return parentPath(path) ?? "";
 }
 
-function fmtSize(bytes) {
-  const n = Number(bytes) || 0;
-  if (n < 1000) return `${n} B`;
-  if (n < 1000 * 1000) return `${(n / 1000).toFixed(1)} KB`;
-  if (n < 1000 * 1000 * 1000) return `${(n / 1000 / 1000).toFixed(1)} MB`;
-  return `${(n / 1000 / 1000 / 1000).toFixed(1)} GB`;
-}
-
-function locationLabel(item, driveLabel) {
+/** `Drive / … / folder`, plus size and when it last changed. */
+function detailLine(item, driveLabel, isDir) {
   const folder = item.parent != null ? item.parent : folderOf(item.path);
-  if (!folder) return driveLabel;
-  return `${driveLabel} / ${folder}`;
+  const bits = [locationParts(driveLabel, folder).join(" / ")];
+  if (!isDir && item.size != null) bits.push(fmtSize(item.size));
+  const when = searchWhen(item.modified);
+  if (when) bits.push(when);
+  return { text: bits.join(" · "), full: [driveLabel, folder].filter(Boolean).join(" / ") };
 }
 
 /**
@@ -66,6 +63,14 @@ export default function FileSearchRow({
   onTrash,
 }) {
   const isDir = item.kind === "dir";
+  const actionsRef = useRef(/** @type {HTMLDivElement | null} */ (null));
+  // The row link is the row's one Tab stop; ←/→ (see FileSearch) reach the
+  // actions, so a long list isn't six Tab presses per row.
+  useEffect(() => {
+    actionsRef.current
+      ?.querySelectorAll("a, button")
+      .forEach((el) => el.setAttribute("tabindex", "-1"));
+  });
   const href = memberAccess ? memberSearchHref(memberAccess, item) : searchResultHref(item);
   // Hits only prove VIEW. Everything else is gated on the member's real
   // caps — share needs the share bit, move/trash need edit.
@@ -85,8 +90,8 @@ export default function FileSearchRow({
   const openLabel = isDir || opensInViewer
     ? `Open ${item.name}`
     : `Show ${item.name} in its folder`;
-  const iconOpenLabel = isDir ? `Open ${item.name}` : `Go to folder for ${item.name}`;
   // A near miss wasn't typed exactly, so underlining "the match" would lie.
+  const detail = detailLine(item, driveLabel, isDir);
   const parts = item.match === "close"
     ? [{ text: item.name, hit: false }]
     : highlightParts(item.name, query);
@@ -99,7 +104,7 @@ export default function FileSearchRow({
     >
       <div
         className={cn(
-          "relative rounded-large-element surface-primary px-3 py-2",
+          "group relative rounded-large-element surface-primary px-3 py-2",
           "motion-safe:transition-shadow hover:ring-2 hover:ring-accent",
           "has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent",
         )}
@@ -112,13 +117,13 @@ export default function FileSearchRow({
           className="absolute inset-0 z-0 rounded-large-element no-focus-outline"
           onClick={() => onNavigate("medium")}
         />
-        <div className="relative z-10 flex items-center gap-2 min-w-0 pointer-events-none">
+        <div className="relative z-10 flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0 pointer-events-none">
           {isDir ? (
             <Folder size={16} className="shrink-0" aria-hidden="true" />
           ) : (
             <FileIcon size={16} className="shrink-0" aria-hidden="true" />
           )}
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1 basis-40">
             <p className="font-mono text-sm truncate text-secondary">
               {parts.map((part, i) =>
                 part.hit ? (
@@ -130,23 +135,31 @@ export default function FileSearchRow({
                 ),
               )}
             </p>
-            <p className="text-xs truncate text-secondary">
-              {locationLabel(item, driveLabel)}
-              {!isDir && item.size != null ? ` · ${fmtSize(item.size)}` : ""}
+            <p className="text-xs truncate text-secondary" title={detail.full}>
+              {detail.text}
             </p>
           </div>
           <ActionTooltipGroup>
             <div
-              className="flex items-center gap-1 shrink-0 pointer-events-auto"
+              ref={actionsRef}
+              data-slot="file-search-actions"
+              // Phones: actions wrap under the name. Desktops with a mouse:
+              // they appear on hover or focus, so names get the whole row.
+              className={cn(
+                "flex items-center gap-1 shrink-0 pointer-events-auto max-sm:w-full",
+                "[@media(hover:hover)]:sm:opacity-0 [@media(hover:hover)]:sm:group-hover:opacity-100",
+                "[@media(hover:hover)]:sm:group-focus-within:opacity-100 motion-safe:transition-opacity",
+              )}
               onClick={(event) => event.stopPropagation()}
             >
-              <Tooltip content={isDir ? "Open" : "Go to folder"}>
+              {!isDir && (
+              <Tooltip content="Go to folder">
                 <Button
                   variant="ghost"
                   surface="primary"
                   size="iconSm"
                   asChild
-                  aria-label={iconOpenLabel}
+                  aria-label={`Go to folder for ${item.name}`}
                 >
                   <Link
                     to={href}
@@ -159,6 +172,7 @@ export default function FileSearchRow({
                   </Link>
                 </Button>
               </Tooltip>
+              )}
               <Tooltip content="Download">
                 <Button
                   variant="ghost"

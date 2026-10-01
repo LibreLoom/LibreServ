@@ -37,13 +37,14 @@ export default function useFileSearch(typed, { enabled = true, kind = "all" } = 
     refetchInterval: (state) => (state.state.data?.scan?.scanning ? SCAN_POLL_MS : false),
   });
 
-  const { hits, closeOnly, scan } = parseSearchResponse(query.data);
+  const { hits, closeOnly, truncated, scan } = parseSearchResponse(query.data);
   return {
     /** The text actually being searched (trails the box by the debounce). */
     q,
     active,
     hits: active ? hits : [],
     closeOnly: active && closeOnly,
+    truncated: active && truncated,
     // Scan progress is useful even before anything is typed.
     scan,
     /** First answer for this search is on its way. */
@@ -52,5 +53,6 @@ export default function useFileSearch(typed, { enabled = true, kind = "all" } = 
     isUpdating: active && query.isPlaceholderData,
     isError: active && query.isError,
     error: query.error,
+    retry: query.refetch,
   };
 }

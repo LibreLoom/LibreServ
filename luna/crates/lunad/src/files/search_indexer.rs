@@ -11,7 +11,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -22,7 +22,7 @@ use crate::files::index;
 const DIRTY_DEBOUNCE: Duration = Duration::from_millis(1200);
 const IDLE_POLL: Duration = Duration::from_millis(250);
 /// How often a running scan re-checks that its drive is still mounted.
-const MOUNT_CHECK_EVERY: u64 = 64;
+const MOUNT_CHECK_EVERY: u64 = 16;
 
 enum Job {
     Scan { drive_id: String, force: bool },
@@ -34,6 +34,8 @@ enum DriveScan {
     Queued,
     Scanning,
     Ready,
+    /// The drive couldn't be opened or went away mid-read.
+    Failed,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -50,6 +52,8 @@ pub struct ScanStatus {
     pub scanning: bool,
     pub drives_total: usize,
     pub drives_done: usize,
+    /// Drives that couldn't be read, so their files may be missing.
+    pub drives_failed: usize,
     /// Folders read so far across all drives.
     pub dirs_indexed: u64,
 }
@@ -65,13 +69,13 @@ pub struct SearchIndexer {
     shared: Arc<Shared>,
 }
 
-static NUDGE: OnceLock<Sender<Job>> = OnceLock::new();
+static NUDGE: Mutex<Option<Sender<Job>>> = Mutex::new(None);
 
 /// Tell the indexer a folder changed so search catches up within a moment.
 /// Called wherever Luna drops a folder's indexed state; a no-op when no
 /// indexer is running.
 pub fn nudge_dir(drive_id: &str, rel: &str) {
-    if let Some(tx) = NUDGE.get() {
+    if let Some(tx) = NUDGE.lock().unwrap().as_ref() {
         let _ = tx.send(Job::Dirty {
             drive_id: drive_id.to_string(),
             rel: rel.to_string(),
@@ -88,7 +92,9 @@ impl SearchIndexer {
             .name("luna-search-indexer".into())
             .spawn(move || worker(rx, worker_shared))
             .expect("spawn search indexer");
-        let _ = NUDGE.set(tx.clone());
+        // The newest indexer receives nudges; an older one (tests) then ends
+        // once its owner drops it.
+        *NUDGE.lock().unwrap() = Some(tx.clone());
         Arc::new(Self { tx, shared })
     }
 
@@ -122,11 +128,17 @@ impl SearchIndexer {
     pub fn status(&self) -> ScanStatus {
         let progress = self.shared.progress.lock().unwrap();
         ScanStatus {
-            scanning: progress.values().any(|p| p.state != DriveScan::Ready),
+            scanning: progress
+                .values()
+                .any(|p| matches!(p.state, DriveScan::Queued | DriveScan::Scanning)),
             drives_total: progress.len(),
             drives_done: progress
                 .values()
                 .filter(|p| p.state == DriveScan::Ready)
+                .count(),
+            drives_failed: progress
+                .values()
+                .filter(|p| p.state == DriveScan::Failed)
                 .count(),
             dirs_indexed: progress.values().map(|p| p.dirs).sum(),
         }
@@ -224,29 +236,35 @@ fn run_scan(shared: &Shared, drive_id: &str, force: bool) {
         Ok(conn) => conn,
         Err(e) => {
             tracing::warn!(drive_id, error = %e, "search index could not open the drive");
-            set_progress(shared, drive_id, DriveScan::Ready, None);
+            set_progress(shared, drive_id, DriveScan::Failed, None);
             return;
         }
     };
     let mut visited = 0u64;
     let mut tick = || {
         visited += 1;
-        if visited % MOUNT_CHECK_EVERY == 0 {
+        if visited.is_multiple_of(MOUNT_CHECK_EVERY) {
             let still = shared.mounts.lock().unwrap().get(drive_id) == Some(&root);
             if !still {
                 return false;
             }
         }
-        if visited % 16 == 0 {
+        if visited.is_multiple_of(16) {
             set_progress(shared, drive_id, DriveScan::Scanning, Some(visited));
         }
         true
     };
     let result = index::scan_tree(&conn, drive_id, &root, "", force, &mut tick);
-    if let Err(e) = &result {
-        tracing::warn!(drive_id, error = %e, "search index scan stopped");
-    }
-    set_progress(shared, drive_id, DriveScan::Ready, Some(visited));
+    // A scan stopped by an unmount was cut off by `unwatch_mount`, which also
+    // dropped the progress row, so only a real error counts as failed.
+    let state = match &result {
+        Ok(_) => DriveScan::Ready,
+        Err(e) => {
+            tracing::warn!(drive_id, error = %e, "search index scan stopped");
+            DriveScan::Failed
+        }
+    };
+    set_progress(shared, drive_id, state, Some(visited));
 }
 
 /// Re-read one folder, plus any subfolder that isn't indexed yet (a folder
@@ -396,5 +414,16 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM index_entries", [], |r| r.get(0))
             .unwrap();
         assert!(n >= 1, "unplugging a drive must not wipe its index");
+    }
+
+    #[test]
+    fn a_drive_that_cannot_be_opened_is_reported_not_called_done() {
+        let dir = tempfile::tempdir().unwrap();
+        let indexer = SearchIndexer::start();
+        indexer.watch_mount("gone", dir.path().join("missing"));
+        wait_for("the failed scan", || !indexer.status().scanning);
+        let status = indexer.status();
+        assert_eq!(status.drives_failed, 1);
+        assert_eq!(status.drives_done, 0);
     }
 }

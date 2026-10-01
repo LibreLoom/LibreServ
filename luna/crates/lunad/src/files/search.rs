@@ -161,7 +161,13 @@ pub fn search_drive(
         // fall back to names that start with what was typed.
         None => prefix_rows(conn, drive_id, query, kind)?,
     };
+    let saturated = exact_rows.len() as i64 >= CANDIDATE_LIMIT;
     take(exact_rows, &mut out);
+    if saturated {
+        // A common query can fill the limit with weaker matches; names that
+        // start with what was typed must still make it to the ranker.
+        take(prefix_rows(conn, drive_id, query, kind)?, &mut out);
+    }
 
     if out.len() < CLOSE_BELOW
         && let Some(m) = search_rank::fts_match(query, false)

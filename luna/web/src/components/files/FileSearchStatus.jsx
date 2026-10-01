@@ -41,6 +41,22 @@ export default function FileSearchStatus({ scan, className }) {
     return undefined;
   }, [scanning, shown]);
 
+  const failed = scan?.drives_failed ?? 0;
+  if (!shown && failed > 0 && !scanning) {
+    // Stays up: files on that drive can't turn up until it's readable again.
+    return (
+      <p
+        role="status"
+        data-slot="file-search-status"
+        className={cn("inline-flex items-center gap-2 rounded-pill surface-primary px-3 py-1 text-xs font-mono", className)}
+      >
+        <span aria-hidden="true" className="size-2 shrink-0 rounded-pill border-2 border-accent" />
+        {failed === 1
+          ? "Luna couldn't read 1 drive, so some files may not show up."
+          : `Luna couldn't read ${failed} drives, so some files may not show up.`}
+      </p>
+    );
+  }
   if (!shown) return null;
   const reading = scanning;
   return (

@@ -18,9 +18,11 @@ const IDLE_SCAN = { scanning: false, drives_total: 1, drives_done: 1, dirs_index
  *   before?: import("react").ReactNode,
  *   scan?: Record<string, unknown> | (() => Record<string, unknown>),
  *   closeOnly?: boolean,
+ *   truncated?: boolean,
+ *   searchError?: boolean,
  * }} [options]
  */
-function renderSearch(hits, { searchHold, extra = null, before = null, scan = IDLE_SCAN, closeOnly = false } = {}) {
+function renderSearch(hits, { searchHold, extra = null, before = null, scan = IDLE_SCAN, closeOnly = false, truncated = false, searchError = false } = {}) {
   const fetchMock = vi.fn(async (url) => {
     const u = String(url);
     if (u.includes("/auth/me") || u.endsWith("/api/v1/auth/me")) {
@@ -43,10 +45,17 @@ function renderSearch(hits, { searchHold, extra = null, before = null, scan = ID
     }
     if (u.includes("/search")) {
       if (searchHold) await searchHold;
+      if (searchError) {
+        return new Response(JSON.stringify({ error: "Luna's index is busy. Try again." }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
       return new Response(
         JSON.stringify({
           hits,
           close_only: closeOnly,
+          truncated,
           scan: typeof scan === "function" ? scan() : scan,
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
@@ -540,6 +549,110 @@ describe("FileSearch", () => {
     fireEvent.change(screen.getByPlaceholderText("Search for a file"), { target: { value: "zz" } });
     expect(await screen.findByText("Nothing yet")).toBeInTheDocument();
     expect(screen.getByText(/still reading your drives/i)).toBeInTheDocument();
+  });
+
+  it("opens the best match when Enter is pressed in the search box", async () => {
+    renderSearch([
+      { drive_id: "d1", path: "a/beach.jpg", parent: "a", name: "beach.jpg", kind: "file", size: 1, modified: 1 },
+    ]);
+    await openSearchOverlay();
+    const input = screen.getByPlaceholderText("Search for a file");
+    fireEvent.change(input, { target: { value: "beach" } });
+    await screen.findByRole("link", { name: /^Open beach.jpg$/i });
+    fireEvent.keyDown(input, { key: "Enter" });
+    // Following the link closes the overlay.
+    await waitFor(
+      () => expect(screen.queryByRole("dialog", { name: "Search for a file" })).not.toBeInTheDocument(),
+      { timeout: 2000 },
+    );
+  });
+
+  it("keeps a row to one Tab stop and reaches its actions with the arrow keys", async () => {
+    renderSearch([
+      { drive_id: "d1", path: "a/beach.jpg", parent: "a", name: "beach.jpg", kind: "file", size: 1, modified: 1 },
+    ]);
+    await openSearchOverlay();
+    fireEvent.change(screen.getByPlaceholderText("Search for a file"), { target: { value: "beach" } });
+    const row = await screen.findByRole("link", { name: /^Open beach.jpg$/i });
+    const actions = document.querySelector("[data-slot=file-search-actions]");
+    for (const el of actions.querySelectorAll("a, button")) {
+      expect(el).toHaveAttribute("tabindex", "-1");
+    }
+    row.focus();
+    fireEvent.keyDown(row, { key: "ArrowRight" });
+    expect(screen.getByRole("link", { name: /Go to folder for beach.jpg/i })).toHaveFocus();
+    fireEvent.keyDown(document.activeElement, { key: "ArrowLeft" });
+    expect(row).toHaveFocus();
+  });
+
+  it("jumps to the first and last result with Home and End", async () => {
+    renderSearch([
+      { drive_id: "d1", path: "one.txt", parent: "", name: "one.txt", kind: "file", size: 1, modified: 1 },
+      { drive_id: "d1", path: "two.txt", parent: "", name: "two.txt", kind: "file", size: 1, modified: 1 },
+    ]);
+    await openSearchOverlay();
+    fireEvent.change(screen.getByPlaceholderText("Search for a file"), { target: { value: "txt" } });
+    const first = await screen.findByRole("link", { name: /^Open one.txt$/i });
+    const last = screen.getByRole("link", { name: /^Open two.txt$/i });
+    first.focus();
+    fireEvent.keyDown(first, { key: "End" });
+    expect(last).toHaveFocus();
+    fireEvent.keyDown(last, { key: "Home" });
+    expect(first).toHaveFocus();
+  });
+
+  it("offers no second 'open' button on a folder, and shows where and when", async () => {
+    renderSearch([
+      { drive_id: "d1", path: "a/b/c/Spain", parent: "a/b/c", name: "Spain", kind: "dir", size: 0, modified: 1 },
+    ]);
+    await openSearchOverlay();
+    fireEvent.change(screen.getByPlaceholderText("Search for a file"), { target: { value: "spain" } });
+    await screen.findByRole("link", { name: /^Open Spain$/i });
+    expect(screen.queryByRole("link", { name: /Go to folder for Spain/i })).not.toBeInTheDocument();
+    // The middle of a long path collapses so the last folders stay visible.
+    expect(screen.getByText(/Photos Drive \/ … \/ b \/ c · /)).toBeInTheDocument();
+  });
+
+  it("says when more matches exist than fit", async () => {
+    renderSearch(
+      [{ drive_id: "d1", path: "one.txt", parent: "", name: "one.txt", kind: "file", size: 1, modified: 1 }],
+      { truncated: true },
+    );
+    await openSearchOverlay();
+    fireEvent.change(screen.getByPlaceholderText("Search for a file"), { target: { value: "one" } });
+    await screen.findByRole("link", { name: /^Open one.txt$/i });
+    expect(document.querySelector("[data-slot=file-search-truncated]")).toHaveTextContent(/more matches/i);
+  });
+
+  it("warns when a drive could not be read", async () => {
+    renderSearch([], { scan: { scanning: false, drives_total: 2, drives_done: 1, drives_failed: 1, dirs_indexed: 0 } });
+    await openSearchOverlay();
+    fireEvent.change(screen.getByPlaceholderText("Search for a file"), { target: { value: "zz" } });
+    await waitFor(() =>
+      expect(document.querySelector("[data-slot=file-search-status]")).toHaveTextContent(
+        "Luna couldn't read 1 drive, so some files may not show up.",
+      ),
+    );
+  });
+
+  it("offers a retry when searching fails", async () => {
+    const { fetchMock } = renderSearch([], { searchError: true });
+    await openSearchOverlay();
+    fireEvent.change(screen.getByPlaceholderText("Search for a file"), { target: { value: "zz" } });
+    const retry = await screen.findByRole("button", { name: "Try again" });
+    const before = searchCalls(fetchMock).length;
+    fireEvent.click(retry);
+    await waitFor(() => expect(searchCalls(fetchMock).length).toBeGreaterThan(before));
+  });
+
+  it("remembers the Files / Folders choice", async () => {
+    window.localStorage.removeItem("luna.fileSearch.kind");
+    renderSearch([]);
+    await openSearchOverlay();
+    // The choice is there before anything is typed, so nothing shifts later.
+    fireEvent.click(screen.getByRole("radio", { name: "Folders" }));
+    expect(window.localStorage.getItem("luna.fileSearch.kind")).toBe("dir");
+    window.localStorage.removeItem("luna.fileSearch.kind");
   });
 });
 

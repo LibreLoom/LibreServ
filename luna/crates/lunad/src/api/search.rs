@@ -66,10 +66,10 @@ async fn search(
 
     let work_state = state.clone();
     let work_user = user.clone();
-    let hits = tokio::task::spawn_blocking(move || {
+    let (hits, truncated) = tokio::task::spawn_blocking(move || {
         let parsed = NameQuery::new(&raw);
         if parsed.is_empty() {
-            return Ok(Vec::new());
+            return Ok((Vec::new(), false));
         }
         let drives = {
             let conn = work_state.db.lock().map_err(|_| ())?;
@@ -77,8 +77,7 @@ async fn search(
         };
         let candidates = search_all(&drives, &parsed, kind);
         let conn = work_state.db.lock().map_err(|_| ())?;
-        let out = visible_hits(&conn, &work_user, candidates, limit);
-        Ok::<_, ()>(out)
+        Ok::<_, ()>(visible_hits(&conn, &work_user, candidates, limit))
     })
     .await
     .map_err(|_| busy())?
@@ -90,10 +89,13 @@ async fn search(
     Ok(Json(json!({
         "hits": hits,
         "close_only": close_only,
+        // More visible matches exist than `limit` returned.
+        "truncated": truncated,
         "scan": {
             "scanning": status.scanning,
             "drives_total": status.drives_total,
             "drives_done": status.drives_done,
+            "drives_failed": status.drives_failed,
             // Folder counts across every drive are for Admins.
             "dirs_indexed": if admin { Some(status.dirs_indexed) } else { None },
         },
@@ -102,12 +104,13 @@ async fn search(
 
 /// The first `limit` candidates, in rank order, that `user` may open. Access
 /// is checked here, after ranking, so the limit counts only visible hits.
+/// The flag says a further visible hit was left out.
 fn visible_hits(
     conn: &rusqlite::Connection,
     user: &crate::auth::CurrentUser,
     candidates: Vec<Candidate>,
     limit: usize,
-) -> Vec<Value> {
+) -> (Vec<Value>, bool) {
     let admin = user.role == "admin";
     // One grants lookup for the whole pass, not one per candidate.
     let grants = if admin {
@@ -117,9 +120,6 @@ fn visible_hits(
     };
     let mut out = Vec::new();
     for candidate in candidates {
-        if out.len() >= limit {
-            break;
-        }
         let hit = candidate.hit;
         let full = if hit.parent.is_empty() {
             hit.name.clone()
@@ -137,6 +137,9 @@ fn visible_hits(
         if caps & crate::access::CAP_VIEW != crate::access::CAP_VIEW {
             continue;
         }
+        if out.len() >= limit {
+            return (out, true);
+        }
         out.push(json!({
             "drive_id": hit.drive_id,
             "path": full,
@@ -148,7 +151,7 @@ fn visible_hits(
             "match": match_label(candidate.rank.tier),
         }));
     }
-    out
+    (out, false)
 }
 
 /// How a hit matched, for the page: by its name, or a near miss (a typo away).
@@ -475,9 +478,32 @@ mod tests {
             "file",
             Tier::Substring,
         ));
-        let got = visible_hits(&conn, &member, ranked, 2);
+        let (got, truncated) = visible_hits(&conn, &member, ranked, 2);
         let names: Vec<&str> = got.iter().map(|h| h["name"].as_str().unwrap()).collect();
         assert_eq!(names, ["budget a", "budget b"]);
+        // No third visible hit exists, so nothing was cut off.
+        assert!(!truncated);
+    }
+
+    #[test]
+    fn the_limit_reports_when_more_visible_hits_were_left_out() {
+        let (_dir, conn, _) = member_setup();
+        let admin = crate::auth::CurrentUser {
+            id: "a".into(),
+            username: "max".into(),
+            role: "admin".into(),
+        };
+        let ranked = vec![
+            candidate("d1", "docs", "a.txt", "file", Tier::Prefix),
+            candidate("d1", "docs", "b.txt", "file", Tier::Prefix),
+            candidate("d1", "docs", "c.txt", "file", Tier::Prefix),
+        ];
+        let (got, truncated) = visible_hits(&conn, &admin, ranked.clone(), 2);
+        assert_eq!(got.len(), 2);
+        assert!(truncated);
+        let (got, truncated) = visible_hits(&conn, &admin, ranked, 3);
+        assert_eq!(got.len(), 3);
+        assert!(!truncated);
     }
 
     #[test]
@@ -493,7 +519,7 @@ mod tests {
             candidate("d1", "", ".luna-1234-trash", "dir", Tier::Prefix),
             candidate("d1", "docs", "settings.txt", "file", Tier::Prefix),
         ];
-        let got = visible_hits(&conn, &admin, ranked, 10);
+        let (got, _) = visible_hits(&conn, &admin, ranked, 10);
         let paths: Vec<&str> = got.iter().map(|h| h["path"].as_str().unwrap()).collect();
         assert_eq!(paths, ["docs/settings.txt"]);
     }
