@@ -1,37 +1,26 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
-import {
-  Copy,
-  Download,
-  File as FileIcon,
-  Folder,
-  FolderInput,
-  FolderOpen,
-  Search,
-  Trash2,
-  X,
-} from "lucide-react";
+import { Search, X } from "lucide-react";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import ModalErrorNotice from "@libreloom/ui/components/common/ModalErrorNotice.jsx";
+import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
 import { showPageLevelError } from "../../lib/modalScopedError";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
-import DotMatrixLoader from "@libreloom/ui/components/ui/DotMatrixLoader.jsx";
-import { ActionTooltipGroup, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
-import ShareSheet, { ShareButton } from "../share/ShareSheet.jsx";
+import Typewriter, { useTypewriterCycle } from "@libreloom/ui/components/ui/Typewriter.jsx";
+import ShareSheet from "../share/ShareSheet.jsx";
 import FolderPickerModal from "./FolderPickerModal";
+import FileSearchRow from "./FileSearchRow.jsx";
+import FileSearchStatus from "./FileSearchStatus.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { useShortcut } from "@libreloom/ui/context/ShortcutsContext.jsx";
-import { OPEN_FILE_SEARCH_EVENT, openFileSearch } from "../../lib/fileSearch.js";
+import useFileSearch from "../../hooks/useFileSearch.js";
+import { MIN_SEARCH_LENGTH, OPEN_FILE_SEARCH_EVENT, openFileSearch } from "../../lib/fileSearch.js";
 import { apiErrorMessage, getDrives, getJson, postJson } from "../../lib/api";
-import { downloadHref as fileDownloadHref, fileHref, parentPath, searchResultHref } from "../../lib/paths";
-import { canViewerOpen } from "../../lib/officeConvert.js";
-import { capsOnPath, memberFileHref, memberSearchHref } from "../../lib/shareTree.js";
-import { CAP } from "../../lib/access.js";
+import { parentPath } from "../../lib/paths";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
@@ -39,32 +28,28 @@ import { haptic } from "@libreloom/ui/utils/haptics.js";
 /** Match ModalCard exit + FLIP morph duration. */
 const OVERLAY_EXIT_MS = 320;
 
-function prefersReducedMotion() {
-  return typeof window !== "undefined"
-    && typeof window.matchMedia === "function"
-    && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-}
+/** Ideas typed out in the empty search box. */
+const EXAMPLE_SEARCHES = [
+  "Try “tax return”",
+  "Try “vacation photos”",
+  "Try “passport scan”",
+  "Try “lease 2025”",
+];
+
+const KIND_OPTIONS = [
+  { value: "all", label: "All" },
+  { value: "dir", label: "Folders" },
+  { value: "file", label: "Files" },
+];
 
 function folderOf(path) {
   return parentPath(path) ?? "";
 }
 
-function downloadHref(item) {
-  return fileDownloadHref(item.drive_id, item.path);
-}
-
-function fmtSize(bytes) {
-  const n = Number(bytes) || 0;
-  if (n < 1000) return `${n} B`;
-  if (n < 1000 * 1000) return `${(n / 1000).toFixed(1)} KB`;
-  if (n < 1000 * 1000 * 1000) return `${(n / 1000 / 1000).toFixed(1)} MB`;
-  return `${(n / 1000 / 1000 / 1000).toFixed(1)} GB`;
-}
-
-function locationLabel(item, driveLabel) {
-  const folder = item.parent != null ? item.parent : folderOf(item.path);
-  if (!folder) return driveLabel;
-  return `${driveLabel} / ${folder}`;
+function prefersReducedMotion() {
+  return typeof window !== "undefined"
+    && typeof window.matchMedia === "function"
+    && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
 async function parseError(res) {
@@ -159,7 +144,7 @@ export default function FileSearch() {
   const { addToast } = useToast();
   const { user } = useAuth();
   const [typed, setTyped] = useState("");
-  const [q, setQ] = useState("");
+  const [kind, setKind] = useState(/** @type {"all" | "dir" | "file"} */ ("all"));
   const [actionError, setActionError] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [copyTarget, setCopyTarget] = useState(null);
@@ -183,23 +168,14 @@ export default function FileSearch() {
     if (target?.isConnected) target.focus();
   }, []);
 
-  useEffect(() => {
-    const t = setTimeout(() => setQ(typed.trim()), 250);
-    return () => clearTimeout(t);
-  }, [typed]);
-
-  // `q` is debounced, so also require the live text to be long enough —
-  // otherwise old results linger for a moment after the text gets too short.
-  const searchActive = q.length >= 2 && typed.trim().length >= 2;
+  const trimmed = typed.trim();
+  const search = useFileSearch(trimmed, { enabled: present && !isClosing, kind });
+  const exampleHint = useTypewriterCycle(EXAMPLE_SEARCHES, {
+    active: present && !isClosing && typed === "",
+  });
 
   const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives, enabled: present });
   const labels = Object.fromEntries((drives.data || []).map((d) => [d.id, d.label]));
-
-  const results = useQuery({
-    queryKey: ["search", q],
-    queryFn: () => getJson(`/api/v1/search?q=${encodeURIComponent(q)}`),
-    enabled: present && !isClosing && q.length >= 2,
-  });
 
   // Member grants make ancestors unbrowsable — a search hit's parent
   // folder can 403, so member links route through memberSearchHref.
@@ -469,18 +445,29 @@ export default function FileSearch() {
                   <span className="sr-only">Search for a file</span>
                   <span className="flex items-center gap-3 rounded-pill surface-primary border-2 border-transparent px-4 py-2.5 focus-within:border-accent motion-safe:transition-colors">
                     <Search size={18} className="shrink-0" aria-hidden="true" />
-                    <input
-                      ref={inputRef}
-                      className="file-search-input flex-1 min-w-0 appearance-none bg-transparent text-secondary text-sm border-0 shadow-none outline-none no-focus-outline"
-                      placeholder="Search for a file"
-                      value={typed}
-                      onChange={(e) => setTyped(e.target.value)}
-                      onKeyDown={handleInputKeyDown}
-                      aria-label="Search for a file"
-                      autoComplete="off"
-                      autoCorrect="off"
-                      spellCheck={false}
-                    />
+                    <span className="relative flex-1 min-w-0">
+                      <input
+                        ref={inputRef}
+                        className="file-search-input w-full min-w-0 appearance-none bg-transparent text-secondary text-sm border-0 shadow-none outline-none no-focus-outline placeholder:text-transparent"
+                        placeholder="Search for a file"
+                        value={typed}
+                        onChange={(e) => setTyped(e.target.value)}
+                        onKeyDown={handleInputKeyDown}
+                        aria-label="Search for a file"
+                        autoComplete="off"
+                        autoCorrect="off"
+                        spellCheck={false}
+                      />
+                      {typed === "" && exampleHint && (
+                        <span
+                          aria-hidden="true"
+                          data-slot="file-search-example"
+                          className="pointer-events-none absolute inset-y-0 left-0 flex items-center text-sm font-mono text-secondary truncate"
+                        >
+                          {exampleHint}
+                        </span>
+                      )}
+                    </span>
                   </span>
                 </label>
               </ShakeTarget>
@@ -495,6 +482,22 @@ export default function FileSearch() {
               </Button>
             </div>
 
+            {search.active && (
+              <div
+                data-slot="file-search-toolbar"
+                className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 shrink-0 border-b border-primary/20"
+              >
+                <SegmentedControl
+                  surface="secondary"
+                  aria-label="Show"
+                  options={KIND_OPTIONS}
+                  value={kind}
+                  onChange={(next) => setKind(/** @type {any} */ (next))}
+                />
+                <FileSearchStatus scan={search.scan} />
+              </div>
+            )}
+
             <div
               className="flex-[0_1_auto] min-h-0 overflow-y-auto overscroll-contain motion-safe:transition-[height] motion-safe:duration-300 motion-safe:ease-[var(--motion-easing-emphasized)]"
               style={bodyHeight != null ? { height: bodyHeight } : undefined}
@@ -506,215 +509,98 @@ export default function FileSearch() {
                 </PageNotice>
               )}
 
-              {typed.trim().length > 0 && typed.trim().length < 2 && (
+              {trimmed.length > 0 && trimmed.length < MIN_SEARCH_LENGTH && (
                 <p className="text-primary text-sm font-mono py-2">
                   Type at least two characters to search.
                 </p>
               )}
 
-              {searchActive && results.isError && (
+              {search.isError && (
                 <p className="text-error text-xs mb-2">
-                  {apiErrorMessage(results.error, "Luna couldn't search right now. Try again.")}
+                  {apiErrorMessage(search.error, "Luna couldn't search right now. Try again.")}
                 </p>
               )}
 
-              {searchActive && results.isLoading && (
-                <div className="relative mt-1 h-48 overflow-hidden rounded-large-element surface-primary">
-                  <DotMatrixLoader label="Searching…" />
-                  <span
-                    aria-hidden="true"
-                    className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-pill surface-secondary px-4 py-1.5 text-sm font-mono"
+              {search.isLoading && <SearchSkeleton />}
+
+              {search.active && !search.isLoading && !search.isError && search.hits.length === 0 && (
+                search.scan?.scanning ? (
+                  <EmptyState
+                    className="mt-1"
+                    surface="primary"
+                    title="Nothing yet"
+                    description="Luna is still reading your drives. Matches appear here as they're found."
+                  />
+                ) : (
+                  <EmptyState
+                    className="mt-1"
+                    surface="primary"
+                    title="Nothing matched"
+                    description="Try another name, or open a drive and browse. Luna only shows files you're allowed to see."
+                  />
+                )
+              )}
+
+              {search.hits.length > 0 && (
+                <>
+                  {search.closeOnly && (
+                    <Typewriter
+                      as="p"
+                      className="px-1 pb-2 text-sm font-mono text-primary"
+                      text="Nothing matched exactly. These names are close."
+                      cursor={false}
+                    />
+                  )}
+                  <ul
+                    data-slot="file-search-list"
+                    aria-busy={search.isUpdating || undefined}
+                    className="grid gap-2"
+                    onKeyDown={handleListKeyDown}
                   >
-                    Searching…
-                  </span>
-                </div>
+                    {search.hits.map((item, index) => (
+                      <Fragment key={`${item.drive_id}:${item.path}`}>
+                        {!search.closeOnly && item.match === "close" && search.hits[index - 1]?.match !== "close" && (
+                          <li
+                            role="presentation"
+                            className="file-search-row-enter px-1 pt-2 text-xs font-mono text-primary"
+                          >
+                            Similar names
+                          </li>
+                        )}
+                        <FileSearchRow
+                          item={item}
+                          query={search.q}
+                          driveLabel={labels[item.drive_id] || "A drive"}
+                          isAdmin={user?.role === "admin"}
+                          memberAccess={memberAccess.data}
+                          index={index}
+                          onNavigate={beginClose}
+                          onShare={(hit) =>
+                            setAccessTarget({ driveId: hit.drive_id, path: hit.path })
+                          }
+                          onCopy={(copyAs, hit) => {
+                            setCopyKind(copyAs);
+                            setCopyTarget(hit);
+                            setActionError(null);
+                          }}
+                          onTrash={(hit) => {
+                            setDeleteTarget(hit);
+                            setActionError(null);
+                          }}
+                        />
+                      </Fragment>
+                    ))}
+                  </ul>
+                </>
               )}
 
-              {searchActive && !results.isLoading && (results.data || []).length === 0 && (
-                <EmptyState
-                  className="mt-1"
-                  surface="primary"
-                  title="Nothing matched"
-                  description="Try another name, or open a drive and browse. Luna only shows files you're allowed to see."
+              {trimmed.length === 0 && (
+                <Typewriter
+                  as="p"
+                  className="block text-primary text-sm py-6 text-center font-mono"
+                  text="Search every file and folder you can open."
+                  cursor={false}
                 />
-              )}
-
-              {searchActive && (results.data || []).length > 0 && (
-                <ul
-                  data-slot="file-search-list"
-                  className="grid gap-2"
-                  onKeyDown={handleListKeyDown}
-                >
-                  {results.data.map((item) => {
-                    const driveLabel = labels[item.drive_id] || "A drive";
-                    const isDir = item.kind === "dir";
-                    const href = memberAccess.data
-                      ? memberSearchHref(memberAccess.data, item)
-                      : searchResultHref(item);
-                    // Hits only prove VIEW. Everything else is gated on the
-                    // member's real caps — share needs the share bit,
-                    // move/trash need edit.
-                    const isMember = user?.role !== "admin";
-                    const itemCaps = isMember
-                      ? capsOnPath(memberAccess.data, item.drive_id, item.path)
-                      : CAP.VIEW | CAP.UPLOAD | CAP.EDIT | CAP.SHARE;
-                    const canShare = (itemCaps & CAP.SHARE) !== 0;
-                    const canEdit = (itemCaps & CAP.EDIT) !== 0;
-                    // Openable files open in the viewer on a plain click; the
-                    // folder icon still jumps to the file's folder.
-                    const opensInViewer = !isDir && canViewerOpen(item.name);
-                    const rowHref = opensInViewer
-                      ? (memberAccess.data
-                        ? memberFileHref(memberAccess.data, item.drive_id, item.path)
-                        : fileHref(item.drive_id, item.path))
-                      : href;
-                    const openLabel = isDir || opensInViewer
-                      ? `Open ${item.name}`
-                      : `Show ${item.name} in its folder`;
-                    const iconOpenLabel = isDir
-                      ? `Open ${item.name}`
-                      : `Go to folder for ${item.name}`;
-                    return (
-                      <li key={`${item.drive_id}:${item.path}`} data-slot="file-search-item">
-                        <div
-                          className={cn(
-                            "relative rounded-large-element surface-primary px-3 py-2",
-                            "motion-safe:transition-shadow hover:ring-2 hover:ring-accent",
-                            "has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent",
-                          )}
-                        >
-                          {/* Stretched link: row body navigates; action icons sit above it. */}
-                          <Link
-                            to={rowHref}
-                            aria-label={openLabel}
-                            data-slot="file-search-link"
-                            className="absolute inset-0 z-0 rounded-large-element no-focus-outline"
-                            onClick={() => beginClose("medium")}
-                          />
-                          <div className="relative z-10 flex items-center gap-2 min-w-0 pointer-events-none">
-                            {isDir ? (
-                              <Folder size={16} className="shrink-0" aria-hidden="true" />
-                            ) : (
-                              <FileIcon size={16} className="shrink-0" aria-hidden="true" />
-                            )}
-                            <div className="min-w-0 flex-1">
-                              <p className="font-mono text-sm truncate text-secondary">{item.name}</p>
-                              <p className="text-xs truncate text-secondary">
-                                {locationLabel(item, driveLabel)}
-                                {!isDir && item.size != null ? ` · ${fmtSize(item.size)}` : ""}
-                              </p>
-                            </div>
-                            <ActionTooltipGroup>
-                              <div
-                                className="flex items-center gap-1 shrink-0 pointer-events-auto"
-                                onClick={(event) => event.stopPropagation()}
-                              >
-                                <Tooltip content={isDir ? "Open" : "Go to folder"}>
-                                  <Button
-                                    variant="ghost"
-                                    surface="primary"
-                                    size="iconSm"
-                                    asChild
-                                    aria-label={iconOpenLabel}
-                                  >
-                                    <Link
-                                      to={href}
-                                      onClick={(event) => {
-                                        event.stopPropagation();
-                                        beginClose();
-                                      }}
-                                    >
-                                      <FolderOpen size={14} />
-                                    </Link>
-                                  </Button>
-                                </Tooltip>
-                                <Tooltip content="Download">
-                                  <Button
-                                    variant="ghost"
-                                    surface="primary"
-                                    size="iconSm"
-                                    asChild
-                                    aria-label={`Download ${item.name}`}
-                                  >
-                                    <a href={downloadHref(item)}>
-                                      <Download size={14} />
-                                    </a>
-                                  </Button>
-                                </Tooltip>
-                                {canShare && (
-                                <ShareButton
-                                  label={item.name}
-                                  surface="primary"
-                                  onClick={() =>
-                                    setAccessTarget({
-                                      driveId: item.drive_id,
-                                      path: item.path,
-                                    })
-                                  }
-                                />
-                                )}
-                                <Tooltip content="Copy">
-                                  <Button
-                                    variant="ghost"
-                                    surface="primary"
-                                    size="iconSm"
-                                    aria-label={`Copy ${item.name}`}
-                                    onClick={() => {
-                                      setCopyKind("copy");
-                                      setCopyTarget(item);
-                                      setActionError(null);
-                                    }}
-                                  >
-                                    <Copy size={14} />
-                                  </Button>
-                                </Tooltip>
-                                {canEdit && (
-                                <>
-                                <Tooltip content="Move">
-                                  <Button
-                                    variant="ghost"
-                                    surface="primary"
-                                    size="iconSm"
-                                    aria-label={`Move ${item.name}`}
-                                    onClick={() => {
-                                      setCopyKind("move");
-                                      setCopyTarget(item);
-                                      setActionError(null);
-                                    }}
-                                  >
-                                    <FolderInput size={14} />
-                                  </Button>
-                                </Tooltip>
-                                <Tooltip content="Move to trash">
-                                  <Button
-                                    variant="ghost"
-                                    surface="primary"
-                                    size="iconSm"
-                                    aria-label={`Move ${item.name} to trash`}
-                                    onClick={() => {
-                                      setDeleteTarget(item);
-                                      setActionError(null);
-                                    }}
-                                  >
-                                    <Trash2 size={14} />
-                                  </Button>
-                                </Tooltip>
-                                </>
-                                )}
-                              </div>
-                            </ActionTooltipGroup>
-                          </div>
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-
-              {typed.trim().length === 0 && (
-                <p className="text-primary text-sm py-6 text-center font-mono">
-                  Search every file and folder you can open.
-                </p>
               )}
              </div>
             </div>
@@ -796,5 +682,21 @@ export default function FileSearch() {
         onClose={() => setAccessTarget(null)}
       />
     </>
+  );
+}
+
+/** Placeholder rows while the first answer for a search is on its way. */
+function SearchSkeleton() {
+  return (
+    <div role="status" aria-label="Searching…" className="grid gap-2 mt-1">
+      {[0, 1, 2].map((i) => (
+        <div
+          key={i}
+          aria-hidden="true"
+          className="h-12 rounded-large-element surface-primary motion-safe:animate-pulse"
+          style={{ animationDelay: `${i * 120}ms` }}
+        />
+      ))}
+    </div>
   );
 }

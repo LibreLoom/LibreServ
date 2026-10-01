@@ -19,9 +19,7 @@ pub enum Tier {
     Substring,
     /// Every query word appears in the name, in any order.
     AllWords,
-    /// Every query word appears in the name or the folder path.
-    Path,
-    /// Every query word is within a typo or two of a word in the name or path.
+    /// Every query word is within a typo or two of a word in the name.
     Close,
 }
 
@@ -35,7 +33,11 @@ pub struct Query {
 impl Query {
     pub fn new(raw: &str) -> Self {
         let norm = normalize(raw);
-        let words = norm.split(' ').filter(|w| !w.is_empty()).map(str::to_string).collect();
+        let words = norm
+            .split(' ')
+            .filter(|w| !w.is_empty())
+            .map(str::to_string)
+            .collect();
         Self { norm, words }
     }
 
@@ -123,7 +125,7 @@ pub fn typo_budget(len: usize) -> u32 {
 }
 
 /// Rank one entry for `query`, or `None` when it doesn't match at all.
-pub fn rank(query: &Query, name: &str, parent: &str, is_dir: bool) -> Option<Rank> {
+pub fn rank(query: &Query, name: &str, is_dir: bool) -> Option<Rank> {
     if query.is_empty() {
         return None;
     }
@@ -151,39 +153,21 @@ pub fn rank(query: &Query, name: &str, parent: &str, is_dir: bool) -> Option<Ran
     if query.words.iter().all(|w| name_n.contains(w.as_str())) {
         return Some(make(Tier::AllWords, 0));
     }
-    let path_n = normalize(parent);
-    if query
-        .words
-        .iter()
-        .all(|w| name_n.contains(w.as_str()) || path_n.contains(w.as_str()))
-    {
-        return Some(make(Tier::Path, 0));
-    }
-    close_match(query, &name_n, &path_n).map(|typos| make(Tier::Close, typos))
+    close_match(query, &name_n).map(|typos| make(Tier::Close, typos))
 }
 
-/// Total typos if every query word is near some word of the name or path.
-fn close_match(query: &Query, name_n: &str, path_n: &str) -> Option<u32> {
+/// Total typos if every query word is near some word of the name.
+fn close_match(query: &Query, name_n: &str) -> Option<u32> {
     let name_words: Vec<Vec<char>> = name_n.split(' ').map(|w| w.chars().collect()).collect();
-    let path_words: Vec<Vec<char>> = path_n
-        .split(' ')
-        .filter(|w| !w.is_empty())
-        .map(|w| w.chars().collect())
-        .collect();
     let mut total = 0;
     for word in &query.words {
         let q: Vec<char> = word.chars().collect();
         let budget = typo_budget(q.len());
-        let mut best: Option<u32> = None;
-        for (candidates, extra) in [(&name_words, 0), (&path_words, 1)] {
-            for w in candidates.iter() {
-                if let Some(d) = word_distance(&q, w, budget) {
-                    let d = d + extra;
-                    best = Some(best.map_or(d, |b| b.min(d)));
-                }
-            }
-        }
-        total += best?;
+        let best = name_words
+            .iter()
+            .filter_map(|w| word_distance(&q, w, budget))
+            .min()?;
+        total += best;
     }
     Some(total)
 }
@@ -261,15 +245,21 @@ pub fn fts_match(query: &Query, exact: bool) -> Option<String> {
         }
     }
     pieces.truncate(MAX_PIECES);
-    (!pieces.is_empty()).then(|| pieces.iter().map(|p| quote(p)).collect::<Vec<_>>().join(" OR "))
+    (!pieces.is_empty()).then(|| {
+        pieces
+            .iter()
+            .map(|p| quote(p))
+            .collect::<Vec<_>>()
+            .join(" OR ")
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn r(query: &str, name: &str, parent: &str, dir: bool) -> Option<Rank> {
-        rank(&Query::new(query), name, parent, dir)
+    fn r(query: &str, name: &str, dir: bool) -> Option<Rank> {
+        rank(&Query::new(query), name, dir)
     }
 
     #[test]
@@ -281,58 +271,67 @@ mod tests {
 
     #[test]
     fn tiers_run_from_exact_to_close() {
-        let tier = |q, n, p| r(q, n, p, false).unwrap().tier;
-        assert_eq!(tier("report", "Report", ""), Tier::Exact);
-        assert_eq!(tier("report", "report final.pdf", ""), Tier::Prefix);
-        assert_eq!(tier("final", "report final.pdf", ""), Tier::WordPrefix);
-        assert_eq!(tier("inal", "report final.pdf", ""), Tier::Substring);
-        assert_eq!(tier("final report", "report final.pdf", ""), Tier::AllWords);
-        assert_eq!(tier("taxes 2024", "scan.pdf", "taxes/2024"), Tier::Path);
-        assert_eq!(tier("pasport", "passport.pdf", ""), Tier::Close);
-        assert!(r("zebra", "report.pdf", "", false).is_none());
+        let tier = |q, n| r(q, n, false).unwrap().tier;
+        assert_eq!(tier("report", "Report"), Tier::Exact);
+        assert_eq!(tier("report", "report final.pdf"), Tier::Prefix);
+        assert_eq!(tier("final", "report final.pdf"), Tier::WordPrefix);
+        assert_eq!(tier("inal", "report final.pdf"), Tier::Substring);
+        assert_eq!(tier("final report", "report final.pdf"), Tier::AllWords);
+        assert_eq!(tier("pasport", "passport.pdf"), Tier::Close);
+        assert!(r("zebra", "report.pdf", false).is_none());
+    }
+
+    #[test]
+    fn folder_names_never_match_the_files_inside_them() {
+        // Only the name is searched; there is no folder path to match.
+        assert!(r("taxes", "return 2024.pdf", false).is_none());
+        assert!(r("taxes 2024", "scan.pdf", false).is_none());
     }
 
     #[test]
     fn separators_are_interchangeable() {
-        assert!(r("img 19", "IMG_19.jpg", "", false).is_some());
-        assert!(r("img-19", "img 19.jpg", "", false).is_some());
+        assert!(r("img 19", "IMG_19.jpg", false).is_some());
+        assert!(r("img-19", "img 19.jpg", false).is_some());
     }
 
     #[test]
     fn typos_cover_swaps_missing_and_extra_letters() {
-        assert!(r("pasport", "passport.pdf", "", false).is_some());
-        assert!(r("pasaport", "passport.pdf", "", false).is_some());
-        assert!(r("passpotr", "passport.pdf", "", false).is_some());
-        assert!(r("recieve", "receive.txt", "", false).is_some());
+        assert!(r("pasport", "passport.pdf", false).is_some());
+        assert!(r("pasaport", "passport.pdf", false).is_some());
+        assert!(r("passpotr", "passport.pdf", false).is_some());
+        assert!(r("recieve", "receive.txt", false).is_some());
         // A partly typed word with a typo still lands.
-        assert!(r("passpr", "passport.pdf", "", false).is_some());
+        assert!(r("passpr", "passport.pdf", false).is_some());
     }
 
     #[test]
     fn short_words_get_no_typo_slack() {
-        assert!(r("cat", "cut.txt", "", false).is_none());
-        assert!(r("tset", "test.txt", "", false).is_some());
+        assert!(r("cat", "cut.txt", false).is_none());
+        assert!(r("tset", "test.txt", false).is_some());
     }
 
     #[test]
     fn every_word_must_be_close() {
-        assert!(r("pasport zebra", "passport.pdf", "", false).is_none());
+        assert!(r("pasport zebra", "passport.pdf", false).is_none());
     }
 
     #[test]
     fn folders_sort_ahead_of_files_in_the_same_tier() {
-        let dir = r("report", "report", "", true).unwrap();
-        let file = r("report", "report", "", false).unwrap();
+        let dir = r("report", "report", true).unwrap();
+        let file = r("report", "report", false).unwrap();
         assert!(dir < file);
-        let exact_file = r("report", "report", "", false).unwrap();
-        let prefix_dir = r("report", "reports", "", true).unwrap();
-        assert!(exact_file < prefix_dir, "a better tier beats being a folder");
+        let exact_file = r("report", "report", false).unwrap();
+        let prefix_dir = r("report", "reports", true).unwrap();
+        assert!(
+            exact_file < prefix_dir,
+            "a better tier beats being a folder"
+        );
     }
 
     #[test]
     fn close_matches_never_outrank_real_ones() {
-        let real = r("pasport", "my pasport scan.pdf", "", false).unwrap();
-        let close = r("pasport", "passport.pdf", "", false).unwrap();
+        let real = r("pasport", "my pasport scan.pdf", false).unwrap();
+        let close = r("pasport", "passport.pdf", false).unwrap();
         assert!(real < close);
     }
 

@@ -24,6 +24,7 @@ import { useAuth } from "../context/AuthContext";
 import Navbar from "../components/ui/Navbar";
 import { getDrives, getJson } from "../lib/api";
 import { parentPath, searchResultHref } from "../lib/paths";
+import { parseSearchResponse, searchUrl } from "../lib/fileSearch.js";
 import { memberSearchHref } from "../lib/shareTree.js";
 import {
   bestDistinctMatches,
@@ -259,12 +260,12 @@ function FindFile({ initialTerm, user, className }) {
   });
 
   const results = useQuery({
-    queryKey: ["search", q],
-    queryFn: () => getJson(`/api/v1/search?q=${encodeURIComponent(q)}`),
+    queryKey: ["search", q, "all"],
+    queryFn: () => getJson(searchUrl(q)),
     enabled: q.length >= 2,
   });
 
-  const hits = (results.data || []).slice(0, 5);
+  const hits = parseSearchResponse(results.data).hits.slice(0, 5);
   const searched = q.length >= 2 && results.isSuccess;
 
   return (

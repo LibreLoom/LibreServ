@@ -331,7 +331,7 @@ fn configure(conn: &Connection) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Name search: an external-content FTS5 table over `index_entries`, kept in
+/// Name search: an external-content FTS5 table over file and folder names, kept in
 /// step by triggers. The trigram tokenizer makes every 3-letter piece of a
 /// name findable, so substring and typo-tolerant searches are index lookups
 /// instead of a scan of every row. Writers must change rows with an upsert
@@ -340,21 +340,21 @@ fn ensure_search_fts(conn: &Connection) -> anyhow::Result<()> {
     let existed = table_exists(conn, "index_fts");
     conn.execute_batch(
         "CREATE VIRTUAL TABLE IF NOT EXISTS index_fts USING fts5(
-            name, parent,
+            name,
             content = 'index_entries', content_rowid = 'rowid',
             tokenize = 'trigram remove_diacritics 1'
          );
          CREATE TRIGGER IF NOT EXISTS index_fts_ai AFTER INSERT ON index_entries BEGIN
-            INSERT INTO index_fts(rowid, name, parent) VALUES (new.rowid, new.name, new.parent);
+            INSERT INTO index_fts(rowid, name) VALUES (new.rowid, new.name);
          END;
          CREATE TRIGGER IF NOT EXISTS index_fts_ad AFTER DELETE ON index_entries BEGIN
-            INSERT INTO index_fts(index_fts, rowid, name, parent)
-            VALUES ('delete', old.rowid, old.name, old.parent);
+            INSERT INTO index_fts(index_fts, rowid, name)
+            VALUES ('delete', old.rowid, old.name);
          END;
          CREATE TRIGGER IF NOT EXISTS index_fts_au AFTER UPDATE ON index_entries BEGIN
-            INSERT INTO index_fts(index_fts, rowid, name, parent)
-            VALUES ('delete', old.rowid, old.name, old.parent);
-            INSERT INTO index_fts(rowid, name, parent) VALUES (new.rowid, new.name, new.parent);
+            INSERT INTO index_fts(index_fts, rowid, name)
+            VALUES ('delete', old.rowid, old.name);
+            INSERT INTO index_fts(rowid, name) VALUES (new.rowid, new.name);
          END;",
     )?;
     if !existed {

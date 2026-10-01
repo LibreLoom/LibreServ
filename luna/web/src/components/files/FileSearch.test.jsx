@@ -8,9 +8,20 @@ import FileSearch, { FileSearchButton } from "./FileSearch";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import { ShortcutsProvider, useShortcut } from "@libreloom/ui/context/ShortcutsContext.jsx";
 
-/** @param {unknown[]} hits @param {{ searchHold?: Promise<void>, extra?: import("react").ReactNode, before?: import("react").ReactNode }} [options] */
-function renderSearch(hits, { searchHold, extra = null, before = null } = {}) {
-  vi.stubGlobal("fetch", vi.fn(async (url) => {
+const IDLE_SCAN = { scanning: false, drives_total: 1, drives_done: 1, dirs_indexed: 0 };
+
+/**
+ * @param {unknown[]} hits
+ * @param {{
+ *   searchHold?: Promise<void>,
+ *   extra?: import("react").ReactNode,
+ *   before?: import("react").ReactNode,
+ *   scan?: Record<string, unknown> | (() => Record<string, unknown>),
+ *   closeOnly?: boolean,
+ * }} [options]
+ */
+function renderSearch(hits, { searchHold, extra = null, before = null, scan = IDLE_SCAN, closeOnly = false } = {}) {
+  const fetchMock = vi.fn(async (url) => {
     const u = String(url);
     if (u.includes("/auth/me") || u.endsWith("/api/v1/auth/me")) {
       return new Response(JSON.stringify({ id: "1", role: "admin", username: "admin" }), {
@@ -32,10 +43,14 @@ function renderSearch(hits, { searchHold, extra = null, before = null } = {}) {
     }
     if (u.includes("/search")) {
       if (searchHold) await searchHold;
-      return new Response(JSON.stringify(hits), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({
+          hits,
+          close_only: closeOnly,
+          scan: typeof scan === "function" ? scan() : scan,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
     }
     if (u.endsWith("/shares") || u.endsWith("/grants") || u.endsWith("/users") || u.endsWith("/protections")) {
       return new Response(JSON.stringify([]), {
@@ -44,9 +59,10 @@ function renderSearch(hits, { searchHold, extra = null, before = null } = {}) {
       });
     }
     return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
-  }));
+  });
+  vi.stubGlobal("fetch", fetchMock);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  const view = render(
     <ToastProvider>
     <ShortcutsProvider>
     <QueryClientProvider client={client}>
@@ -62,6 +78,12 @@ function renderSearch(hits, { searchHold, extra = null, before = null } = {}) {
     </ShortcutsProvider>
     </ToastProvider>
   );
+  return { ...view, fetchMock };
+}
+
+/** @param {import("vitest").Mock} fetchMock */
+function searchCalls(fetchMock) {
+  return fetchMock.mock.calls.map(([url]) => String(url)).filter((u) => u.includes("/api/v1/search"));
 }
 
 async function openSearchOverlay() {
@@ -96,7 +118,7 @@ describe("FileSearch", () => {
     expect(trigger).toHaveFocus();
   });
 
-  it("shows Searching over the dot matrix while results load", async () => {
+  it("shows placeholder rows while the first results load", async () => {
     /** @type {((value?: unknown) => void) | undefined} */
     let releaseSearch;
     const searchHold = new Promise((resolve) => {
@@ -107,8 +129,7 @@ describe("FileSearch", () => {
     fireEvent.change(screen.getByPlaceholderText("Search for a file"), {
       target: { value: "zz" },
     });
-    const loader = await screen.findByRole("status", { name: /Searching/i });
-    expect(loader.querySelector("[data-slot=matrix-canvas]")).toBeTruthy();
+    expect(await screen.findByRole("status", { name: /Searching/i })).toBeInTheDocument();
     releaseSearch?.();
     expect(await screen.findByText(/Nothing matched/i)).toBeInTheDocument();
     expect(screen.queryByText(/Searching/i)).not.toBeInTheDocument();
@@ -140,7 +161,7 @@ describe("FileSearch", () => {
     fireEvent.change(screen.getByPlaceholderText("Search for a file"), {
       target: { value: "beach" },
     });
-    expect(await screen.findByText("beach.jpg")).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: /^Open beach.jpg$/i })).toBeInTheDocument();
     expect(screen.getByText(/Photos Drive \/ album/i)).toBeInTheDocument();
 
     const row = await screen.findByRole("link", { name: /^Open beach.jpg$/i });
@@ -272,7 +293,7 @@ describe("FileSearch", () => {
     fireEvent.change(screen.getByPlaceholderText("Search for a file"), {
       target: { value: "notes" },
     });
-    expect(await screen.findByText("notes.txt")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /Copy notes.txt/i })).toBeInTheDocument();
 
     await user.hover(screen.getByRole("button", { name: /Copy notes.txt/i }));
     await act(async () => {
@@ -433,6 +454,92 @@ describe("FileSearch", () => {
     // Down arrow when empty does not crash and leaves focus on input
     fireEvent.keyDown(input, { key: "ArrowDown" });
     expect(input).toHaveFocus();
+  });
+  it("underlines the part of a name that matches", async () => {
+    renderSearch([
+      { drive_id: "d1", path: "beach day.jpg", parent: "", name: "beach day.jpg", kind: "file", size: 1, modified: 1, match: "name" },
+    ]);
+    await openSearchOverlay();
+    fireEvent.change(screen.getByPlaceholderText("Search for a file"), { target: { value: "beach" } });
+    const link = await screen.findByRole("link", { name: /^Open beach day.jpg$/i });
+    const underlined = link.closest("[data-slot=file-search-item]")?.querySelector(".underline");
+    expect(underlined).toHaveTextContent("beach");
+  });
+
+  it("asks for only folders or only files when you pick one", async () => {
+    const { fetchMock } = renderSearch([]);
+    await openSearchOverlay();
+    fireEvent.change(screen.getByPlaceholderText("Search for a file"), { target: { value: "photos" } });
+    await waitFor(() => expect(searchCalls(fetchMock)).toContain("/api/v1/search?q=photos"));
+    fireEvent.click(screen.getByRole("radio", { name: "Folders" }));
+    await waitFor(() => expect(searchCalls(fetchMock)).toContain("/api/v1/search?q=photos&kind=dir"));
+    fireEvent.click(screen.getByRole("radio", { name: "Files" }));
+    await waitFor(() => expect(searchCalls(fetchMock)).toContain("/api/v1/search?q=photos&kind=file"));
+  });
+
+  it("says when every result is only a close match", async () => {
+    renderSearch(
+      [{ drive_id: "d1", path: "passport.pdf", parent: "", name: "passport.pdf", kind: "file", size: 1, modified: 1, match: "close" }],
+      { closeOnly: true },
+    );
+    await openSearchOverlay();
+    fireEvent.change(screen.getByPlaceholderText("Search for a file"), { target: { value: "pasport" } });
+    expect(await screen.findByText(/Nothing matched exactly\. These names are close\./)).toBeInTheDocument();
+    expect(screen.queryByText("Similar names")).not.toBeInTheDocument();
+  });
+
+  it("separates near misses from real matches in a mixed list", async () => {
+    renderSearch([
+      { drive_id: "d1", path: "my pasport.pdf", parent: "", name: "my pasport.pdf", kind: "file", size: 1, modified: 1, match: "name" },
+      { drive_id: "d1", path: "passport.pdf", parent: "", name: "passport.pdf", kind: "file", size: 1, modified: 1, match: "close" },
+    ]);
+    await openSearchOverlay();
+    fireEvent.change(screen.getByPlaceholderText("Search for a file"), { target: { value: "pasport" } });
+    expect(await screen.findByText("Similar names")).toBeInTheDocument();
+    const items = screen.getAllByRole("link", { name: /^Open / });
+    expect(items.map((el) => el.getAttribute("aria-label"))).toEqual([
+      "Open my pasport.pdf",
+      "Open passport.pdf",
+    ]);
+  });
+
+  it("keeps searching while Luna is still reading drives, and says so", async () => {
+    let calls = 0;
+    const { fetchMock } = renderSearch(
+      [{ drive_id: "d1", path: "a/found.txt", parent: "a", name: "found.txt", kind: "file", size: 1, modified: 1, match: "name" }],
+      {
+        scan: () => {
+          calls += 1;
+          return calls < 3
+            ? { scanning: true, drives_total: 2, drives_done: 1, dirs_indexed: 1200 }
+            : IDLE_SCAN;
+        },
+      },
+    );
+    await openSearchOverlay();
+    fireEvent.change(screen.getByPlaceholderText("Search for a file"), { target: { value: "found" } });
+    expect(await screen.findByRole("link", { name: /^Open found.txt$/i })).toBeInTheDocument();
+    // Results are already on screen; the page asks again on its own.
+    await waitFor(() => expect(searchCalls(fetchMock).length).toBeGreaterThanOrEqual(3), { timeout: 5000 });
+    // The notice waits a moment so quick scans stay silent, then appears.
+    await waitFor(
+      () => expect(document.querySelector("[data-slot=file-search-status]")).toHaveTextContent(/reading your drives/i),
+      { timeout: 5000 },
+    );
+    // Once the scan is over it stops asking.
+    const settled = searchCalls(fetchMock).length;
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 1600));
+    });
+    expect(searchCalls(fetchMock).length).toBe(settled);
+  }, 15000);
+
+  it("explains an empty search while drives are still being read", async () => {
+    renderSearch([], { scan: { scanning: true, drives_total: 1, drives_done: 0, dirs_indexed: 5 } });
+    await openSearchOverlay();
+    fireEvent.change(screen.getByPlaceholderText("Search for a file"), { target: { value: "zz" } });
+    expect(await screen.findByText("Nothing yet")).toBeInTheDocument();
+    expect(screen.getByText(/still reading your drives/i)).toBeInTheDocument();
   });
 });
 

@@ -326,7 +326,7 @@ mod tests {
         });
 
         assert_eq!(found(&root, "tax return"), ["tax return.pdf"]);
-        assert_eq!(found(&root, "deep folder"), ["deep folder", "tax return.pdf"]);
+        assert_eq!(found(&root, "deep folder"), ["deep folder"]);
         assert!(indexer.status().dirs_indexed >= 4);
     }
 
@@ -347,7 +347,8 @@ mod tests {
         indexer.mark_dirty("d1", "docs");
         wait_for("the refresh", || !found(&root, "brand new").is_empty());
         assert!(found(&root, "old").is_empty());
-        assert_eq!(found(&root, "fresh dir"), ["fresh dir", "inner", "brand new.txt"]);
+        assert_eq!(found(&root, "fresh dir"), ["fresh dir"]);
+        assert_eq!(found(&root, "inner"), ["inner"]);
     }
 
     #[test]

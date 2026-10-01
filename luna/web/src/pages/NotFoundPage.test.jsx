@@ -80,9 +80,11 @@ describe("NotFoundPage", () => {
 
   it("searches for the file an old link pointed at", async () => {
     auth.value = { user: { role: "admin" }, loading: false };
-    api.getJson.mockResolvedValue([
-      { drive_id: "d1", path: "Taxes/Tax 2024.pdf", parent: "Taxes", name: "Tax 2024.pdf", kind: "file" },
-    ]);
+    api.getJson.mockResolvedValue({
+      hits: [
+        { drive_id: "d1", path: "Taxes/Tax 2024.pdf", parent: "Taxes", name: "Tax 2024.pdf", kind: "file" },
+      ],
+    });
     renderAt("/documents/Tax%202024.pdf");
 
     expect(screen.getByLabelText("Search your files by name")).toHaveValue("Tax 2024.pdf");

@@ -251,10 +251,27 @@ select:focus:not(:focus-visible) {
     animation: file-search-panel-in var(--motion-duration-medium4) var(--motion-easing-emphasized-decelerate) both;
 }
 
+/* Results slide up as they arrive; rows are keyed, so only new ones play it. */
+@keyframes file-search-row-in {
+    from {
+        opacity: 0;
+        transform: translateY(8px) scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+.file-search-row-enter {
+    animation: file-search-row-in var(--motion-duration-medium2) var(--motion-easing-emphasized-decelerate) both;
+}
+
 @media (prefers-reduced-motion: reduce) {
     .file-search-backdrop-enter,
     .file-search-backdrop-exit,
-    .file-search-panel-enter {
+    .file-search-panel-enter,
+    .file-search-row-enter {
         animation: none;
     }
 }

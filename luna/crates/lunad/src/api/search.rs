@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 
 use crate::AppState;
 use crate::api::response::json_error;
-use crate::files::search::{KindFilter, indexable_drives, search_all};
+use crate::files::search::{Candidate, KindFilter, indexable_drives, search_all};
 use crate::files::search_rank::{Query as NameQuery, Tier};
 
 #[derive(Deserialize)]
@@ -77,44 +77,7 @@ async fn search(
         };
         let candidates = search_all(&drives, &parsed, kind);
         let conn = work_state.db.lock().map_err(|_| ())?;
-        let mut out = Vec::new();
-        for candidate in candidates {
-            if out.len() >= limit {
-                break;
-            }
-            let hit = candidate.hit;
-            let full = if hit.parent.is_empty() {
-                hit.name.clone()
-            } else {
-                format!("{}/{}", hit.parent, hit.name)
-            };
-            // Anything inside a hidden folder is hidden too.
-            if full.split('/').any(|part| part.starts_with('.'))
-                || crate::files::is_internal_temp(&full)
-                || crate::backup::protect::is_protected_store(&full)
-            {
-                continue;
-            }
-            if !crate::auth::has_cap(
-                &work_user,
-                &conn,
-                &hit.drive_id,
-                &full,
-                crate::access::CAP_VIEW,
-            ) {
-                continue;
-            }
-            out.push(json!({
-                "drive_id": hit.drive_id,
-                "path": full,
-                "parent": hit.parent,
-                "name": hit.name,
-                "kind": hit.kind,
-                "size": hit.size,
-                "modified": hit.modified,
-                "match": match_label(candidate.rank.tier),
-            }));
-        }
+        let out = visible_hits(&conn, &work_user, candidates, limit);
         Ok::<_, ()>(out)
     })
     .await
@@ -137,11 +100,60 @@ async fn search(
     })))
 }
 
-/// How a hit matched, for the page: the name, the folder it sits in, or a
-/// near miss (a typo away).
+/// The first `limit` candidates, in rank order, that `user` may open. Access
+/// is checked here, after ranking, so the limit counts only visible hits.
+fn visible_hits(
+    conn: &rusqlite::Connection,
+    user: &crate::auth::CurrentUser,
+    candidates: Vec<Candidate>,
+    limit: usize,
+) -> Vec<Value> {
+    let admin = user.role == "admin";
+    // One grants lookup for the whole pass, not one per candidate.
+    let grants = if admin {
+        Vec::new()
+    } else {
+        crate::db::list_access_members_for_user(conn, &user.id).unwrap_or_default()
+    };
+    let mut out = Vec::new();
+    for candidate in candidates {
+        if out.len() >= limit {
+            break;
+        }
+        let hit = candidate.hit;
+        let full = if hit.parent.is_empty() {
+            hit.name.clone()
+        } else {
+            format!("{}/{}", hit.parent, hit.name)
+        };
+        // Anything inside a hidden folder is hidden too.
+        if full.split('/').any(|part| part.starts_with('.'))
+            || crate::files::is_internal_temp(&full)
+            || crate::backup::protect::is_protected_store(&full)
+        {
+            continue;
+        }
+        let caps = crate::auth::caps_on_path_rows(user, conn, &hit.drive_id, &full, &grants);
+        if caps & crate::access::CAP_VIEW != crate::access::CAP_VIEW {
+            continue;
+        }
+        out.push(json!({
+            "drive_id": hit.drive_id,
+            "path": full,
+            "parent": hit.parent,
+            "name": hit.name,
+            "kind": hit.kind,
+            "size": hit.size,
+            "modified": hit.modified,
+            "match": match_label(candidate.rank.tier),
+        }));
+    }
+    out
+}
+
+/// How a hit matched, for the page: by its name, or a near miss (a typo away).
 fn match_label(tier: Tier) -> &'static str {
     match tier {
-        Tier::Path => "path",
         Tier::Close => "close",
         _ => "name",
     }
@@ -311,6 +323,7 @@ async fn factory_reset(
 
 #[cfg(test)]
 mod tests {
+    use super::{Candidate, Tier, match_label, visible_hits};
     use crate::api;
     use crate::drives::DriveManager;
     use crate::drives::mount::shared_mock;
@@ -383,6 +396,113 @@ mod tests {
 
     async fn call(app: &axum::Router, r: HttpReq<Body>) -> axum::response::Response {
         app.clone().oneshot(r).await.unwrap()
+    }
+
+    fn candidate(drive: &str, parent: &str, name: &str, kind: &str, tier: Tier) -> Candidate {
+        Candidate {
+            hit: crate::files::search::SearchHit {
+                drive_id: drive.into(),
+                parent: parent.into(),
+                name: name.into(),
+                kind: kind.into(),
+                size: 1,
+                modified: 1,
+            },
+            rank: crate::files::search_rank::Rank {
+                tier,
+                typos: 0,
+                file: u8::from(kind != "dir"),
+                len: name.len(),
+            },
+        }
+    }
+
+    fn member_setup() -> (
+        tempfile::TempDir,
+        rusqlite::Connection,
+        crate::auth::CurrentUser,
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+        let user = crate::auth::CurrentUser {
+            id: "u1".into(),
+            username: "sam".into(),
+            role: "member".into(),
+        };
+        (dir, conn, user)
+    }
+
+    #[test]
+    fn the_limit_counts_only_hits_the_member_can_open() {
+        let (_dir, conn, member) = member_setup();
+        crate::db::insert_access_member(
+            &conn,
+            &crate::db::AccessMemberRow {
+                id: "g1".into(),
+                subject_kind: crate::access::KIND_PATH.into(),
+                drive_id: "d1".into(),
+                path: "shared".into(),
+                album_id: String::new(),
+                user_id: "u1".into(),
+                caps: crate::access::CAP_VIEW,
+                created_by: "a".into(),
+            },
+        )
+        .unwrap();
+        // Ten better-ranked names in a private folder, then two in the shared one.
+        let mut ranked: Vec<Candidate> = (0..10)
+            .map(|i| {
+                candidate(
+                    "d1",
+                    "private",
+                    &format!("budget {i}"),
+                    "file",
+                    Tier::Prefix,
+                )
+            })
+            .collect();
+        ranked.push(candidate(
+            "d1",
+            "shared",
+            "budget a",
+            "file",
+            Tier::Substring,
+        ));
+        ranked.push(candidate(
+            "d1",
+            "shared",
+            "budget b",
+            "file",
+            Tier::Substring,
+        ));
+        let got = visible_hits(&conn, &member, ranked, 2);
+        let names: Vec<&str> = got.iter().map(|h| h["name"].as_str().unwrap()).collect();
+        assert_eq!(names, ["budget a", "budget b"]);
+    }
+
+    #[test]
+    fn hidden_folders_and_luna_files_never_show_up() {
+        let (_dir, conn, _) = member_setup();
+        let admin = crate::auth::CurrentUser {
+            id: "a".into(),
+            username: "max".into(),
+            role: "admin".into(),
+        };
+        let ranked = vec![
+            candidate("d1", ".config", "settings.json", "file", Tier::Prefix),
+            candidate("d1", "", ".luna-1234-trash", "dir", Tier::Prefix),
+            candidate("d1", "docs", "settings.txt", "file", Tier::Prefix),
+        ];
+        let got = visible_hits(&conn, &admin, ranked, 10);
+        let paths: Vec<&str> = got.iter().map(|h| h["path"].as_str().unwrap()).collect();
+        assert_eq!(paths, ["docs/settings.txt"]);
+    }
+
+    #[test]
+    fn match_labels_tell_names_from_near_misses() {
+        assert_eq!(match_label(Tier::Exact), "name");
+        assert_eq!(match_label(Tier::AllWords), "name");
+        assert_eq!(match_label(Tier::Close), "close");
     }
 
     #[tokio::test]

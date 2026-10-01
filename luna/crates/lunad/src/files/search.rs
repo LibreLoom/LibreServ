@@ -4,7 +4,7 @@
 //! `index_entries`. A search runs in two steps per drive, all drives in
 //! parallel:
 //!
-//! 1. Exact: every word of the query appears in the name or folder path.
+//! 1. Exact: every word of the query appears in the name.
 //! 2. Close: only when step 1 found few names, look for names sharing
 //!    3-letter pieces with the query and keep the ones within a typo or two.
 //!
@@ -149,8 +149,7 @@ pub fn search_drive(
             if !seen.insert((hit.parent.clone(), hit.name.clone())) {
                 continue;
             }
-            if let Some(rank) = search_rank::rank(query, &hit.name, &hit.parent, hit.kind == "dir")
-            {
+            if let Some(rank) = search_rank::rank(query, &hit.name, hit.kind == "dir") {
                 out.push(Candidate { hit, rank });
             }
         }
@@ -190,7 +189,7 @@ fn fts_rows(
            AND index_entries.hidden = 0
            AND index_entries.drive_id = ?2
            {}
-         ORDER BY bm25(index_fts, 10.0, 1.0)
+         ORDER BY bm25(index_fts)
          LIMIT ?3",
         kind.clause()
     );
@@ -269,12 +268,8 @@ mod tests {
 
     fn drive_conn(dir: &std::path::Path) -> Connection {
         let marker = luna_core::marker::Marker::new("d1", "D");
-        crate::drives::drive_db::create(
-            dir,
-            &marker,
-            &luna_core::marker::pick_prefix(dir).unwrap(),
-        )
-        .unwrap()
+        crate::drives::drive_db::create(dir, &marker, &luna_core::marker::pick_prefix(dir).unwrap())
+            .unwrap()
     }
 
     fn names(conn: &Connection, q: &str, kind: KindFilter) -> Vec<String> {
@@ -286,7 +281,7 @@ mod tests {
     }
 
     #[test]
-    fn finds_files_and_folders_by_name_and_folder_path() {
+    fn finds_files_and_folders_by_their_own_name_only() {
         let dir = tempfile::tempdir().unwrap();
         let conn = drive_conn(dir.path());
         replace_dir(
@@ -294,7 +289,10 @@ mod tests {
             "d1",
             "",
             1,
-            &[entry("Taxes", "dir", false), entry("notes.txt", "file", false)],
+            &[
+                entry("Taxes", "dir", false),
+                entry("notes.txt", "file", false),
+            ],
         )
         .unwrap();
         replace_dir(
@@ -306,10 +304,14 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(names(&conn, "taxes", KindFilter::All), ["Taxes", "return 2024.pdf"]);
+        // A folder's name finds the folder, not everything inside it.
+        assert_eq!(names(&conn, "taxes", KindFilter::All), ["Taxes"]);
         assert_eq!(names(&conn, "taxes", KindFilter::Folders), ["Taxes"]);
-        assert_eq!(names(&conn, "taxes", KindFilter::Files), ["return 2024.pdf"]);
-        assert_eq!(names(&conn, "return 2024", KindFilter::All), ["return 2024.pdf"]);
+        assert!(names(&conn, "taxes", KindFilter::Files).is_empty());
+        assert_eq!(
+            names(&conn, "return 2024", KindFilter::All),
+            ["return 2024.pdf"]
+        );
     }
 
     #[test]
@@ -381,7 +383,10 @@ mod tests {
             "d1",
             "",
             1,
-            &[entry("ab notes", "file", false), entry("cab", "file", false)],
+            &[
+                entry("ab notes", "file", false),
+                entry("cab", "file", false),
+            ],
         )
         .unwrap();
         assert_eq!(names(&conn, "ab", KindFilter::All), ["ab notes"]);
@@ -396,7 +401,10 @@ mod tests {
             "d1",
             "",
             1,
-            &[entry("IMG_0019.jpg", "file", false), entry("Café menu.pdf", "file", false)],
+            &[
+                entry("IMG_0019.jpg", "file", false),
+                entry("Café menu.pdf", "file", false),
+            ],
         )
         .unwrap();
         assert_eq!(names(&conn, "img 0019", KindFilter::All), ["IMG_0019.jpg"]);
@@ -407,15 +415,36 @@ mod tests {
     fn the_search_table_follows_replaced_and_forgotten_rows() {
         let dir = tempfile::tempdir().unwrap();
         let conn = drive_conn(dir.path());
-        replace_dir(&conn, "d1", "docs", 1, &[entry("old name.txt", "file", false)]).unwrap();
+        replace_dir(
+            &conn,
+            "d1",
+            "docs",
+            1,
+            &[entry("old name.txt", "file", false)],
+        )
+        .unwrap();
         assert_eq!(names(&conn, "old name", KindFilter::All), ["old name.txt"]);
 
-        replace_dir(&conn, "d1", "docs", 2, &[entry("new name.txt", "file", false)]).unwrap();
+        replace_dir(
+            &conn,
+            "d1",
+            "docs",
+            2,
+            &[entry("new name.txt", "file", false)],
+        )
+        .unwrap();
         assert!(names(&conn, "old name", KindFilter::All).is_empty());
         assert_eq!(names(&conn, "new name", KindFilter::All), ["new name.txt"]);
 
         // Re-listing the same name updates in place rather than duplicating it.
-        replace_dir(&conn, "d1", "docs", 3, &[entry("new name.txt", "file", false)]).unwrap();
+        replace_dir(
+            &conn,
+            "d1",
+            "docs",
+            3,
+            &[entry("new name.txt", "file", false)],
+        )
+        .unwrap();
         assert_eq!(names(&conn, "new name", KindFilter::All).len(), 1);
 
         forget_dir_tree(&conn, "d1", "docs").unwrap();
@@ -443,12 +472,25 @@ mod tests {
             &luna_core::marker::pick_prefix(&b).unwrap(),
         )
         .unwrap();
-        replace_dir(&conn_a, "da", "", 1, &[entry("budget notes.txt", "file", false)]).unwrap();
+        replace_dir(
+            &conn_a,
+            "da",
+            "",
+            1,
+            &[entry("budget notes.txt", "file", false)],
+        )
+        .unwrap();
         replace_dir(&conn_b, "db", "", 1, &[entry("budget", "dir", false)]).unwrap();
         drop((conn_a, conn_b));
         let drives = [
-            DriveRef { id: "da".into(), mount: a },
-            DriveRef { id: "db".into(), mount: b },
+            DriveRef {
+                id: "da".into(),
+                mount: a,
+            },
+            DriveRef {
+                id: "db".into(),
+                mount: b,
+            },
         ];
         let got = search_all(&drives, &Query::new("budget"), KindFilter::All);
         let order: Vec<(&str, &str)> = got
@@ -456,5 +498,59 @@ mod tests {
             .map(|c| (c.hit.drive_id.as_str(), c.hit.name.as_str()))
             .collect();
         assert_eq!(order, [("db", "budget"), ("da", "budget notes.txt")]);
+    }
+
+    #[test]
+    #[ignore = "benchmark; run with cargo test --release -- --ignored search_benchmark --nocapture"]
+    fn search_benchmark_300k_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = drive_conn(dir.path());
+        let words = [
+            "report", "invoice", "holiday", "photos", "budget", "passport", "resume", "lease",
+            "taxes", "backup", "project", "notes", "draft", "final", "scan", "receipt",
+        ];
+        conn.execute_batch("BEGIN").unwrap();
+        {
+            let mut stmt = conn
+                .prepare(
+                    "INSERT INTO index_entries (drive_id, parent, name, kind, size, modified, hidden)
+                     VALUES ('d1', ?1, ?2, ?3, 1, 1, 0)",
+                )
+                .unwrap();
+            for d in 0..30_000u32 {
+                let parent = format!(
+                    "{}/{}/dir {d}",
+                    words[(d % 16) as usize],
+                    words[((d / 16) % 16) as usize]
+                );
+                stmt.execute(params![
+                    parent,
+                    format!("{} folder {d}", words[(d % 7) as usize]),
+                    "dir"
+                ])
+                .unwrap();
+                for f in 0..9u32 {
+                    let name = format!(
+                        "{} {} {d}-{f}.pdf",
+                        words[((d + f) % 16) as usize],
+                        words[((d * 3 + f) % 16) as usize]
+                    );
+                    stmt.execute(params![parent, name, "file"]).unwrap();
+                }
+            }
+        }
+        conn.execute_batch("COMMIT").unwrap();
+        for q in [
+            "passport",
+            "pasport 2024",
+            "invoice holiday",
+            "re",
+            "zzzzqq",
+            "taxes final 77",
+        ] {
+            let start = std::time::Instant::now();
+            let got = search_drive(&conn, "d1", &Query::new(q), KindFilter::All).unwrap();
+            println!("{q:>16}: {:>4} hits in {:?}", got.len(), start.elapsed());
+        }
     }
 }
