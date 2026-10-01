@@ -856,7 +856,15 @@ async fn serve_thumb_file(
     // guards against the leaf being swapped for a symlink in between.
     // The open + read runs off the async workers: with a small worker pool
     // a slow USB read must never park request handling.
-    let (bytes, mtime_secs) = tokio::task::spawn_blocking(move || {
+    //
+    // The ETag comes from `metadata()`, so a matching `If-None-Match` is
+    // answered without reading the file. `THUMB_CACHE_CONTROL` is
+    // `must-revalidate`, so that revalidation is the normal case.
+    let if_none_match = headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let fetched = tokio::task::spawn_blocking(move || {
         let mut file = open_checked(&path)
             .map_err(|_| json_error(StatusCode::NOT_FOUND, "This thumbnail isn't ready yet."))?;
         let meta = file
@@ -868,10 +876,21 @@ async fn serve_thumb_file(
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|d| d.as_secs())
             .unwrap_or(0);
+        let etag = crate::drives::ram_cache::thumb_etag(meta.len(), mtime_secs);
+        let not_modified = if_none_match
+            .as_deref()
+            .is_some_and(|v| v.split(',').any(|c| c.trim() == etag));
+        if not_modified {
+            return Ok::<_, (StatusCode, Json<Value>)>(ThumbFetch::NotModified(etag));
+        }
         let mut bytes = Vec::with_capacity(meta.len().min(1024 * 1024) as usize);
         std::io::Read::read_to_end(&mut file, &mut bytes)
             .map_err(|_| json_error(StatusCode::NOT_FOUND, "This thumbnail isn't ready yet."))?;
-        Ok::<_, (StatusCode, Json<Value>)>((bytes, mtime_secs))
+        Ok(ThumbFetch::Bytes {
+            bytes,
+            mtime_secs,
+            etag,
+        })
     })
     .await
     .map_err(|_| {
@@ -880,26 +899,43 @@ async fn serve_thumb_file(
             "Luna couldn't read the thumbnail.",
         )
     })??;
-    let etag = crate::drives::ram_cache::thumb_etag(bytes.len() as u64, mtime_secs);
-    if let Some(if_none_match) = headers
-        .get(axum::http::header::IF_NONE_MATCH)
-        .and_then(|v| v.to_str().ok())
-        && if_none_match.split(',').any(|c| c.trim() == etag)
-    {
-        return Ok(Response::builder()
-            .status(StatusCode::NOT_MODIFIED)
-            .header(axum::http::header::ETAG, etag)
-            .header(axum::http::header::CACHE_CONTROL, THUMB_CACHE_CONTROL)
-            .body(axum::body::Body::empty())
-            .unwrap()
-            .into_response());
-    }
+    let (bytes, mtime_secs, etag) = match fetched {
+        ThumbFetch::NotModified(etag) => {
+            return Ok(not_modified_response(etag));
+        }
+        ThumbFetch::Bytes {
+            bytes,
+            mtime_secs,
+            etag,
+        } => (bytes, mtime_secs, etag),
+    };
     // One allocation, shared with the cache — no second copy of the bytes.
     let arc: std::sync::Arc<[u8]> = std::sync::Arc::from(bytes.into_boxed_slice());
     state
         .ram_cache
         .put_thumb_arc(drive_id, rel, arc.clone(), mtime_secs);
     serve_thumb_bytes(arc, mtime_secs, etag, headers)
+}
+
+/// What the blocking read produced: the bytes to serve, or just the
+/// validator when `If-None-Match` already matched.
+enum ThumbFetch {
+    NotModified(String),
+    Bytes {
+        bytes: Vec<u8>,
+        mtime_secs: u64,
+        etag: String,
+    },
+}
+
+fn not_modified_response(etag: String) -> Response {
+    Response::builder()
+        .status(StatusCode::NOT_MODIFIED)
+        .header(axum::http::header::ETAG, etag)
+        .header(axum::http::header::CACHE_CONTROL, THUMB_CACHE_CONTROL)
+        .body(axum::body::Body::empty())
+        .unwrap()
+        .into_response()
 }
 
 fn serve_thumb_bytes(
@@ -913,13 +949,7 @@ fn serve_thumb_bytes(
         .and_then(|v| v.to_str().ok())
         && if_none_match.split(',').any(|c| c.trim() == etag)
     {
-        return Ok(Response::builder()
-            .status(StatusCode::NOT_MODIFIED)
-            .header(axum::http::header::ETAG, etag)
-            .header(axum::http::header::CACHE_CONTROL, THUMB_CACHE_CONTROL)
-            .body(axum::body::Body::empty())
-            .unwrap()
-            .into_response());
+        return Ok(not_modified_response(etag));
     }
     Ok(Response::builder()
         .status(StatusCode::OK)
