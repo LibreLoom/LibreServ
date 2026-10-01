@@ -7,11 +7,19 @@ use serde_json::{Value, json};
 
 use crate::AppState;
 use crate::api::response::json_error;
+use crate::files::search::{KindFilter, indexable_drives, search_all};
+use crate::files::search_rank::{Query as NameQuery, Tier};
 
 #[derive(Deserialize)]
 struct SearchQuery {
     q: String,
+    /// `dir` or `file` to show only folders or only files.
+    kind: Option<String>,
+    limit: Option<usize>,
 }
+
+const DEFAULT_LIMIT: usize = 60;
+const MAX_LIMIT: usize = 200;
 
 #[derive(Deserialize, Default)]
 struct FactoryResetBody {
@@ -29,43 +37,73 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/system/factory-reset", post(factory_reset))
 }
 
+/// Search file and folder names across every drive the caller can open.
+///
+/// Results are ranked before access is checked and trimmed to `limit` after,
+/// so the limit counts only what the caller can see. `scan` says whether
+/// drives are still being read; the page asks again while it is, and results
+/// that were already searchable stay put.
 async fn search(
     State(state): State<AppState>,
     Extension(user): Extension<crate::auth::CurrentUser>,
     Query(query): Query<SearchQuery>,
-) -> Result<Json<Vec<Value>>, (StatusCode, Json<Value>)> {
-    let q = query.q.trim();
-    if q.len() < 2 {
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let raw = query.q.trim().to_string();
+    if raw.chars().count() < 2 {
         return Err(json_error(
             StatusCode::BAD_REQUEST,
             "Type at least 2 letters to search.",
         ));
     }
-    let conn = state.db.lock().map_err(|_| {
+    let kind = KindFilter::parse(query.kind.as_deref());
+    let limit = query.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
+    let busy = || {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Luna's index is busy. Try again.",
         )
-    })?;
-    let rows = crate::files::index::search(&conn, q).map_err(|_| {
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna's index is busy. Try again.",
-        )
-    })?;
-    let mut out = Vec::new();
-    for hit in rows {
-        let full = if hit.parent.is_empty() {
-            hit.name.clone()
-        } else {
-            format!("{}/{}", hit.parent, hit.name)
-        };
-        if crate::files::is_internal_temp(&full)
-            || crate::backup::protect::is_protected_store(&full)
-        {
-            continue;
+    };
+
+    let work_state = state.clone();
+    let work_user = user.clone();
+    let hits = tokio::task::spawn_blocking(move || {
+        let parsed = NameQuery::new(&raw);
+        if parsed.is_empty() {
+            return Ok(Vec::new());
         }
-        if crate::auth::has_cap(&user, &conn, &hit.drive_id, &full, crate::access::CAP_VIEW) {
+        let drives = {
+            let conn = work_state.db.lock().map_err(|_| ())?;
+            indexable_drives(&conn, false)
+        };
+        let candidates = search_all(&drives, &parsed, kind);
+        let conn = work_state.db.lock().map_err(|_| ())?;
+        let mut out = Vec::new();
+        for candidate in candidates {
+            if out.len() >= limit {
+                break;
+            }
+            let hit = candidate.hit;
+            let full = if hit.parent.is_empty() {
+                hit.name.clone()
+            } else {
+                format!("{}/{}", hit.parent, hit.name)
+            };
+            // Anything inside a hidden folder is hidden too.
+            if full.split('/').any(|part| part.starts_with('.'))
+                || crate::files::is_internal_temp(&full)
+                || crate::backup::protect::is_protected_store(&full)
+            {
+                continue;
+            }
+            if !crate::auth::has_cap(
+                &work_user,
+                &conn,
+                &hit.drive_id,
+                &full,
+                crate::access::CAP_VIEW,
+            ) {
+                continue;
+            }
             out.push(json!({
                 "drive_id": hit.drive_id,
                 "path": full,
@@ -74,12 +112,42 @@ async fn search(
                 "kind": hit.kind,
                 "size": hit.size,
                 "modified": hit.modified,
+                "match": match_label(candidate.rank.tier),
             }));
         }
-    }
-    Ok(Json(out))
+        Ok::<_, ()>(out)
+    })
+    .await
+    .map_err(|_| busy())?
+    .map_err(|_| busy())?;
+
+    let close_only = !hits.is_empty() && hits.iter().all(|h| h["match"] == "close");
+    let status = state.search_index.status();
+    let admin = user.role == "admin";
+    Ok(Json(json!({
+        "hits": hits,
+        "close_only": close_only,
+        "scan": {
+            "scanning": status.scanning,
+            "drives_total": status.drives_total,
+            "drives_done": status.drives_done,
+            // Folder counts across every drive are for Admins.
+            "dirs_indexed": if admin { Some(status.dirs_indexed) } else { None },
+        },
+    })))
 }
 
+/// How a hit matched, for the page: the name, the folder it sits in, or a
+/// near miss (a typo away).
+fn match_label(tier: Tier) -> &'static str {
+    match tier {
+        Tier::Path => "path",
+        Tier::Close => "close",
+        _ => "name",
+    }
+}
+
+/// Admin: read every drive again from scratch, ignoring folder timestamps.
 async fn reindex(
     State(state): State<AppState>,
     Extension(user): Extension<crate::auth::CurrentUser>,
@@ -90,27 +158,18 @@ async fn reindex(
             "Only an Admin can manage search.",
         ));
     }
-    let db = state.db.clone();
-    tokio::task::spawn_blocking(move || {
-        let mounts: Vec<(String, String)> = {
-            let conn = db.lock().unwrap();
-            crate::db::list_drives(&conn)
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|drive| drive.state == "as_is" && !drive.mount_point.is_empty())
-                .map(|drive| (drive.id, drive.mount_point))
-                .collect()
-        };
-        let mut dirs = 0u64;
-        for (id, mount) in mounts {
-            if let Ok(n) =
-                crate::files::index::scan_drive_unlocked(&db, &id, std::path::Path::new(&mount))
-            {
-                dirs += n;
-            }
-        }
-        dirs
-    });
+    let drives = {
+        let conn = state.db.lock().map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna's index is busy. Try again.",
+            )
+        })?;
+        indexable_drives(&conn, true)
+    };
+    state
+        .search_index
+        .rescan(drives.into_iter().map(|d| (d.id, d.mount)).collect(), true);
     Ok(Json(
         json!({ "started": true, "message": "Luna is reading your drives in the background." }),
     ))

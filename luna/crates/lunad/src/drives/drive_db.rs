@@ -331,6 +331,39 @@ fn configure(conn: &Connection) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Name search: an external-content FTS5 table over `index_entries`, kept in
+/// step by triggers. The trigram tokenizer makes every 3-letter piece of a
+/// name findable, so substring and typo-tolerant searches are index lookups
+/// instead of a scan of every row. Writers must change rows with an upsert
+/// (never `INSERT OR REPLACE`, which skips delete triggers).
+fn ensure_search_fts(conn: &Connection) -> anyhow::Result<()> {
+    let existed = table_exists(conn, "index_fts");
+    conn.execute_batch(
+        "CREATE VIRTUAL TABLE IF NOT EXISTS index_fts USING fts5(
+            name, parent,
+            content = 'index_entries', content_rowid = 'rowid',
+            tokenize = 'trigram remove_diacritics 1'
+         );
+         CREATE TRIGGER IF NOT EXISTS index_fts_ai AFTER INSERT ON index_entries BEGIN
+            INSERT INTO index_fts(rowid, name, parent) VALUES (new.rowid, new.name, new.parent);
+         END;
+         CREATE TRIGGER IF NOT EXISTS index_fts_ad AFTER DELETE ON index_entries BEGIN
+            INSERT INTO index_fts(index_fts, rowid, name, parent)
+            VALUES ('delete', old.rowid, old.name, old.parent);
+         END;
+         CREATE TRIGGER IF NOT EXISTS index_fts_au AFTER UPDATE ON index_entries BEGIN
+            INSERT INTO index_fts(index_fts, rowid, name, parent)
+            VALUES ('delete', old.rowid, old.name, old.parent);
+            INSERT INTO index_fts(rowid, name, parent) VALUES (new.rowid, new.name, new.parent);
+         END;",
+    )?;
+    if !existed {
+        // Rows indexed before the table existed.
+        conn.execute("INSERT INTO index_fts(index_fts) VALUES ('rebuild')", [])?;
+    }
+    Ok(())
+}
+
 fn ensure_column(conn: &Connection, table: &str, column: &str, decl: &str) -> anyhow::Result<()> {
     let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
     let cols = stmt.query_map([], |row| row.get::<_, String>(1))?;
@@ -457,6 +490,7 @@ pub fn migrate_schema(conn: &Connection) -> anyhow::Result<()> {
             PRIMARY KEY (upload_id, start)
          );",
     )?;
+    ensure_search_fts(conn)?;
     // Legacy album sharing tables — replaced by access_members/access_links
     // in the central DB. `archive` held per-user archived photos; the Photos
     // archive feature is gone.

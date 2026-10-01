@@ -89,6 +89,7 @@ async fn main() -> anyhow::Result<()> {
                 .collect::<Vec<_>>()
         };
         for (id, mount) in mounts {
+            state.search_index.watch_mount(&id, mount.clone());
             state.gallery.watch_mount(&id, mount);
         }
     }
@@ -243,6 +244,26 @@ async fn main() -> anyhow::Result<()> {
             })
             .ok();
     }
+
+    // Catch changes made behind Luna's back (a drive plugged into another
+    // computer): folders whose timestamp hasn't moved cost one stat each.
+    let rescan_state = state.clone();
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(15 * 60));
+        ticker.tick().await;
+        loop {
+            ticker.tick().await;
+            let drives = rescan_state.db.lock().ok().map(|conn| {
+                lunad::files::search::indexable_drives(&conn, true)
+                    .into_iter()
+                    .map(|d| (d.id, d.mount))
+                    .collect::<Vec<_>>()
+            });
+            if let Some(drives) = drives {
+                rescan_state.search_index.rescan(drives, false);
+            }
+        }
+    });
 
     let health_db = state.db.clone();
     let health_drives = state.drive_manager.clone();

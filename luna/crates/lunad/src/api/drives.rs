@@ -159,6 +159,7 @@ async fn detected(
                     }
                 }
                 state.gallery.unwatch_mount(&row.id);
+                state.search_index.unwatch_mount(&row.id);
                 state.ram_cache.drop_drive(&row.id);
             }
         }
@@ -172,6 +173,7 @@ async fn detected(
     })
     .unwrap_or_default();
     for (id, mount) in remounted {
+        state.search_index.watch_mount(&id, mount.clone());
         state.gallery.watch_mount(&id, mount);
     }
     Ok(Json(
@@ -336,6 +338,7 @@ async fn closed_drive(
         unmount()?;
         crate::files::dav::drop_cached_handler(&st, &drive);
         st.gallery.unwatch_mount(&drive);
+        st.search_index.unwatch_mount(&drive);
         st.ram_cache.drop_drive(&drive);
         Ok(())
     })

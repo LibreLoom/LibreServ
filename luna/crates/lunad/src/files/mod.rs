@@ -2907,4 +2907,7 @@ mod dav_fs;
 pub mod forwarding;
 pub mod index;
 pub mod recents;
+pub mod search;
+pub mod search_indexer;
+pub mod search_rank;
 pub mod uploads;

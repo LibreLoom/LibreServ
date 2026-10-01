@@ -77,6 +77,8 @@ pub struct AppState {
     pub ram_cache: crate::drives::ram_cache::RamCache,
     pub last_io_activity: std::sync::Arc<std::sync::atomic::AtomicI64>,
     pub scrub_running: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// Reads whole drives into the file index so search finds every folder.
+    pub search_index: Arc<crate::files::search_indexer::SearchIndexer>,
     pub collab: std::sync::Arc<crate::office::collab::CollabHub>,
     pub office_docs: std::sync::Arc<crate::office::office_docs::OfficeDocHub>,
 }
@@ -145,6 +147,7 @@ impl AppState {
             ram_cache: crate::drives::ram_cache::RamCache::new(),
             last_io_activity: Arc::new(std::sync::atomic::AtomicI64::new(0)),
             scrub_running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            search_index: crate::files::search_indexer::SearchIndexer::start(),
             collab: Arc::new(crate::office::collab::CollabHub::new()),
             office_docs: Arc::new(crate::office::office_docs::OfficeDocHub::new()),
         }
