@@ -1,4 +1,5 @@
 import {
+  FolderOpen,
   HardDrive,
   Home,
   Image as ImageIcon,
@@ -12,9 +13,16 @@ import { useAuth } from "../../context/AuthContext";
 
 const navItems = [
   { to: "/", icon: Home, label: "Home", end: true },
-  { to: "/gallery", icon: ImageIcon, label: "Photos" },
-  { to: "/drives", icon: HardDrive, label: "Files" },
-  { to: "/shared", icon: Share2, label: "Shared" },
+  {
+    key: "files",
+    icon: FolderOpen,
+    label: "Files",
+    children: [
+      { to: "/drives", icon: HardDrive, label: "Drives" },
+      { to: "/shared", icon: Share2, label: "Shared" },
+      { to: "/gallery", icon: ImageIcon, label: "Photos", match: ["/gallery", "/photos"] },
+    ],
+  },
   { to: "/settings/users", icon: Users, label: "Users", adminOnly: true },
   { to: "/settings", icon: SlidersHorizontal, label: "Settings", end: true },
 ];
