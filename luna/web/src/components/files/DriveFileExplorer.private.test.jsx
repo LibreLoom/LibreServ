@@ -74,7 +74,7 @@ describe("DriveFileExplorer private folders", () => {
     fireEvent.change(field, { target: { value: "Taxes" } });
     // The one-line reality check sits on the surface; the rest is a tap away.
     expect(
-      screen.getByText(/private folder hides what.?s inside from everyone but you/i),
+      screen.getByText(/private folder is only visible to you and the people you share it with/i),
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Create private folder" }));
     await waitFor(() => {

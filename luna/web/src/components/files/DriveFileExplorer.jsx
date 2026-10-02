@@ -1289,7 +1289,7 @@ export default function DriveFileExplorer({
         placeholder={createKind?.placeholder}
         hint={createKind?.private ? (
           <>
-            A private folder hides what&apos;s inside from everyone but you and the people you share it with.
+            A private folder is only visible to you and the people you share it with, no matter who can open the folder it&apos;s in.
             <InfoHint
               label="About private folders"
               content="With physical access to a drive, somebody could read the files inside a private folder."
