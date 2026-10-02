@@ -40,6 +40,19 @@ export const CREATE_KINDS = [
     defaultName: "",
   },
   {
+    id: "private-folder",
+    label: "Private folder",
+    group: "Organize",
+    icon: FolderLock,
+    action: "mkdir",
+    private: true,
+    title: "New private folder",
+    nameLabel: "Name for this private folder",
+    placeholder: "e.g. Taxes",
+    confirmLabel: "Create private folder",
+    defaultName: "",
+  },
+  {
     id: "text",
     label: "Text file",
     group: "Files",
@@ -147,19 +160,6 @@ export const CREATE_KINDS = [
     // Forms carry a real JSON envelope from byte zero — an empty file would
     // just parse to a blank form, but starting valid keeps other tools sane.
     initialContent: () => serializeFormDocument(blankFormDocument("Untitled form")),
-  },
-  {
-    id: "private-folder",
-    label: "Private folder",
-    group: "Private",
-    icon: FolderLock,
-    action: "mkdir",
-    private: true,
-    title: "New private folder",
-    nameLabel: "Name for this private folder",
-    placeholder: "e.g. Taxes",
-    confirmLabel: "Create private folder",
-    defaultName: "",
   },
 ];
 

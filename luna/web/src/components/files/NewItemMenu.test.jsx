@@ -31,13 +31,13 @@ describe("NewItemMenu", () => {
     expect(screen.queryByRole("menuitem", { name: "Private folder" })).not.toBeInTheDocument();
   });
 
-  it("shows the Private group last when private folders are allowed (everyone but link guests)", async () => {
+  it("lists Private folder under Organize when private folders are allowed (everyone but link guests)", async () => {
     const onPick = vi.fn();
     render(<NewItemMenu onPick={onPick} allowPrivate />);
     fireEvent.click(screen.getByRole("button", { name: "New" }));
     const items = await screen.findAllByRole("menuitem");
-    expect(items.at(-1).textContent).toBe("Private folder");
-    expect(screen.getByText("Private")).toBeInTheDocument();
+    expect(items.slice(0, 2).map((item) => item.textContent)).toEqual(["Folder", "Private folder"]);
+    expect(screen.queryByText("Private")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("menuitem", { name: "Private folder" }));
     expect(onPick).toHaveBeenCalledWith(expect.objectContaining({ id: "private-folder", private: true }));
   });
