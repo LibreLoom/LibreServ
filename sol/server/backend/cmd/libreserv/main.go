@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"syscall"
 	"time"
@@ -42,6 +43,12 @@ import (
 )
 
 func main() {
+	// Small-box default: collect garbage earlier so the heap stays small.
+	// The Docker image sets GOGC=50 too; an explicit GOGC in the environment
+	// always wins over this default.
+	if os.Getenv("GOGC") == "" {
+		debug.SetGCPercent(50)
+	}
 	parsed, err := parseCLIArgs(os.Args[1:])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n\n", err)

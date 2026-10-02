@@ -53,10 +53,10 @@ pub struct CacheBudget {
 /// Size the RAM content cache from current free memory.
 pub fn cache_budget_from(available_bytes: u64) -> CacheBudget {
     let avail = available_bytes.max(1);
-    // Thumbs: up to 1/8 of free RAM, clamped 8–96 MiB.
-    let thumb_bytes = clamp(avail / 8, 8 * MIB, 96 * MIB);
-    // Dirty pool: up to 1/16 of free RAM, clamped 1–32 MiB.
-    let dirty_bytes = clamp(avail / 16, MIB, 32 * MIB);
+    // Thumbs: up to 1/8 of free RAM, clamped 8–64 MiB.
+    let thumb_bytes = clamp(avail / 8, 8 * MIB, 64 * MIB);
+    // Dirty pool: up to 1/16 of free RAM, clamped 1–24 MiB.
+    let dirty_bytes = clamp(avail / 16, MIB, 24 * MIB);
     // One dirty file: at most half the dirty pool, capped at 8 MiB.
     let dirty_max_file_bytes = clamp(dirty_bytes / 2, 256 * KIB, 8 * MIB).min(dirty_bytes);
     CacheBudget {
@@ -232,9 +232,9 @@ Cached:           300000 kB
     #[test]
     fn cache_budget_stays_within_available() {
         let c = cache_budget_from(400 * MIB);
-        assert!(c.thumb_bytes <= 96 * MIB);
+        assert!(c.thumb_bytes <= 64 * MIB);
         assert!(c.thumb_bytes <= 400 * MIB / 8);
-        assert!(c.dirty_bytes <= 32 * MIB);
+        assert!(c.dirty_bytes <= 24 * MIB);
         assert!(c.dirty_max_file_bytes <= c.dirty_bytes);
         assert!(c.dirty_max_file_bytes <= 8 * MIB);
     }

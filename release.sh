@@ -765,7 +765,7 @@ build_binaries() {
     log_info "Building libreserv-linux-amd64..."
     cd sol/server/backend
     if ! GOOS=linux GOARCH=amd64 go build -tags "embedfront embedrestic" \
-        -ldflags "-X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers.Version=$VERSION_TAG \
+        -ldflags "-s -w -X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers.Version=$VERSION_TAG \
                   -X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers.GitCommit=$GIT_COMMIT \
                   -X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers.BuildTime=$BUILD_TIME" \
         -o "$BUILD_DIR/libreserv-linux-amd64" ./cmd/libreserv; then
@@ -792,7 +792,7 @@ build_binaries() {
     chmod +x OS/bin/restic
 
     if ! GOOS=linux GOARCH=arm64 go build -tags "embedfront embedrestic" \
-        -ldflags "-X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers.Version=$VERSION_TAG \
+        -ldflags "-s -w -X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers.Version=$VERSION_TAG \
                   -X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers.GitCommit=$GIT_COMMIT \
                   -X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers.BuildTime=$BUILD_TIME" \
         -o "$BUILD_DIR/libreserv-linux-arm64" ./cmd/libreserv; then

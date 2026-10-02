@@ -166,7 +166,7 @@ impl RamCache {
     }
 
     /// Insert or refresh a served thumbnail. Evicts LRU thumbs if over budget.
-    pub fn put_thumb(&self, drive_id: &str, rel: &str, bytes: Vec<u8>, mtime_secs: u64) {
+    pub fn put_thumb_arc(&self, drive_id: &str, rel: &str, bytes: Arc<[u8]>, mtime_secs: u64) {
         if bytes.is_empty() {
             return;
         }
@@ -177,7 +177,7 @@ impl RamCache {
         let key = thumb_key(drive_id, rel);
         let etag = thumb_etag(bytes.len() as u64, mtime_secs);
         let entry = ThumbEntry {
-            bytes: Arc::from(bytes.into_boxed_slice()),
+            bytes,
             mtime_secs,
             etag,
         };
@@ -194,6 +194,16 @@ impl RamCache {
                 break;
             }
         }
+    }
+
+    /// Insert or refresh a served thumbnail. Evicts LRU thumbs if over budget.
+    pub fn put_thumb(&self, drive_id: &str, rel: &str, bytes: Vec<u8>, mtime_secs: u64) {
+        self.put_thumb_arc(
+            drive_id,
+            rel,
+            Arc::from(bytes.into_boxed_slice()),
+            mtime_secs,
+        )
     }
 
     pub fn get_thumb(&self, drive_id: &str, rel: &str) -> Option<ThumbBytes> {
@@ -222,8 +232,8 @@ impl RamCache {
     pub fn put_listing(&self, drive_id: &str, rel: &str, dir_mtime: i64, entries: Vec<FileEntry>) {
         let key = listing_key(drive_id, rel);
         let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        // Cap listing map size (~4k dirs); each entry is small.
-        const MAX_LISTINGS: usize = 4096;
+        // Cap listing map size (~1k dirs); each entry holds a cloned file list.
+        const MAX_LISTINGS: usize = 1024;
         if !g.listings.contains_key(&key) && g.listings.len() >= MAX_LISTINGS {
             Self::evict_one_listing(&mut g);
         }
@@ -763,7 +773,7 @@ impl RamCache {
             }
         }
 
-        let listing_cap = if pressure { 64 } else { 4096 };
+        let listing_cap = if pressure { 64 } else { 1024 };
         while g.listings.len() > listing_cap {
             if !Self::evict_one_listing(&mut g) {
                 break;

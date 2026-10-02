@@ -854,43 +854,88 @@ async fn serve_thumb_file(
 ) -> Result<Response, (StatusCode, Json<Value>)> {
     // Verified open: the thumb path was resolved by `thumb_path` — this
     // guards against the leaf being swapped for a symlink in between.
-    let mut file = open_checked(&path)
-        .map_err(|_| json_error(StatusCode::NOT_FOUND, "This thumbnail isn't ready yet."))?;
-    let meta = file
-        .metadata()
-        .map_err(|_| json_error(StatusCode::NOT_FOUND, "This thumbnail isn't ready yet."))?;
-    let mtime_secs = meta
-        .modified()
-        .ok()
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    let etag = crate::drives::ram_cache::thumb_etag(meta.len(), mtime_secs);
-    if let Some(if_none_match) = headers
-        .get(axum::http::header::IF_NONE_MATCH)
+    // The open + read runs off the async workers: with a small worker pool
+    // a slow USB read must never park request handling.
+    //
+    // The ETag comes from `metadata()`, so a matching `If-None-Match` is
+    // answered without reading the file. `THUMB_CACHE_CONTROL` is
+    // `must-revalidate`, so that revalidation is the normal case.
+    let if_none_match = headers
+        .get(header::IF_NONE_MATCH)
         .and_then(|v| v.to_str().ok())
-        && if_none_match.split(',').any(|c| c.trim() == etag)
-    {
-        return Ok(Response::builder()
-            .status(StatusCode::NOT_MODIFIED)
-            .header(axum::http::header::ETAG, etag)
-            .header(axum::http::header::CACHE_CONTROL, THUMB_CACHE_CONTROL)
-            .body(axum::body::Body::empty())
-            .unwrap()
-            .into_response());
-    }
-    let mut bytes = Vec::with_capacity(meta.len() as usize);
-    std::io::Read::read_to_end(&mut file, &mut bytes)
-        .map_err(|_| json_error(StatusCode::NOT_FOUND, "This thumbnail isn't ready yet."))?;
+        .map(str::to_owned);
+    let fetched = tokio::task::spawn_blocking(move || {
+        let mut file = open_checked(&path)
+            .map_err(|_| json_error(StatusCode::NOT_FOUND, "This thumbnail isn't ready yet."))?;
+        let meta = file
+            .metadata()
+            .map_err(|_| json_error(StatusCode::NOT_FOUND, "This thumbnail isn't ready yet."))?;
+        let mtime_secs = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let etag = crate::drives::ram_cache::thumb_etag(meta.len(), mtime_secs);
+        let not_modified = if_none_match
+            .as_deref()
+            .is_some_and(|v| v.split(',').any(|c| c.trim() == etag));
+        if not_modified {
+            return Ok::<_, (StatusCode, Json<Value>)>(ThumbFetch::NotModified(etag));
+        }
+        let mut bytes = Vec::with_capacity(meta.len().min(1024 * 1024) as usize);
+        std::io::Read::read_to_end(&mut file, &mut bytes)
+            .map_err(|_| json_error(StatusCode::NOT_FOUND, "This thumbnail isn't ready yet."))?;
+        Ok(ThumbFetch::Bytes {
+            bytes,
+            mtime_secs,
+            etag,
+        })
+    })
+    .await
+    .map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't read the thumbnail.",
+        )
+    })??;
+    let (bytes, mtime_secs, etag) = match fetched {
+        ThumbFetch::NotModified(etag) => {
+            return Ok(not_modified_response(etag));
+        }
+        ThumbFetch::Bytes {
+            bytes,
+            mtime_secs,
+            etag,
+        } => (bytes, mtime_secs, etag),
+    };
+    // One allocation, shared with the cache — no second copy of the bytes.
+    let arc: std::sync::Arc<[u8]> = std::sync::Arc::from(bytes.into_boxed_slice());
     state
         .ram_cache
-        .put_thumb(drive_id, rel, bytes.clone(), mtime_secs);
-    serve_thumb_bytes(
-        std::sync::Arc::from(bytes.into_boxed_slice()),
-        mtime_secs,
-        etag,
-        headers,
-    )
+        .put_thumb_arc(drive_id, rel, arc.clone(), mtime_secs);
+    serve_thumb_bytes(arc, mtime_secs, etag, headers)
+}
+
+/// What the blocking read produced: the bytes to serve, or just the
+/// validator when `If-None-Match` already matched.
+enum ThumbFetch {
+    NotModified(String),
+    Bytes {
+        bytes: Vec<u8>,
+        mtime_secs: u64,
+        etag: String,
+    },
+}
+
+fn not_modified_response(etag: String) -> Response {
+    Response::builder()
+        .status(StatusCode::NOT_MODIFIED)
+        .header(axum::http::header::ETAG, etag)
+        .header(axum::http::header::CACHE_CONTROL, THUMB_CACHE_CONTROL)
+        .body(axum::body::Body::empty())
+        .unwrap()
+        .into_response()
 }
 
 fn serve_thumb_bytes(
@@ -904,13 +949,7 @@ fn serve_thumb_bytes(
         .and_then(|v| v.to_str().ok())
         && if_none_match.split(',').any(|c| c.trim() == etag)
     {
-        return Ok(Response::builder()
-            .status(StatusCode::NOT_MODIFIED)
-            .header(axum::http::header::ETAG, etag)
-            .header(axum::http::header::CACHE_CONTROL, THUMB_CACHE_CONTROL)
-            .body(axum::body::Body::empty())
-            .unwrap()
-            .into_response());
+        return Ok(not_modified_response(etag));
     }
     Ok(Response::builder()
         .status(StatusCode::OK)
@@ -2082,8 +2121,76 @@ mod tests {
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use serde_json::Value;
+    #[cfg(unix)]
+    use std::os::unix::ffi::OsStrExt;
     use std::path::PathBuf;
     use tower::ServiceExt;
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn thumb_revalidation_does_not_read_the_file() {
+        // A FIFO read only returns when the writer closes, so a read-first
+        // 304 path waits out the writer's hold; a metadata-only 304 returns
+        // at once. The elapsed-time assertion is the signal — a hanging read
+        // would otherwise still *eventually* answer.
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
+        let state = std::sync::Arc::new(AppState::new(conn, drive_manager, dir.path()));
+        let fifo = dir.path().join("thumb.fifo");
+        let c_path = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        assert_eq!(
+            unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) },
+            0,
+            "mkfifo failed"
+        );
+        let meta = std::fs::metadata(&fifo).unwrap();
+        let mtime_secs = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let etag = crate::drives::ram_cache::thumb_etag(meta.len(), mtime_secs);
+
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel::<()>();
+        let writer_fifo = fifo.clone();
+        let _writer = std::thread::spawn(move || {
+            let _writer = std::fs::OpenOptions::new()
+                .write(true)
+                .open(&writer_fifo)
+                .expect("open fifo for writing");
+            ready_tx.send(()).unwrap();
+            std::thread::sleep(std::time::Duration::from_secs(6));
+        });
+
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(axum::http::header::IF_NONE_MATCH, etag.parse().unwrap());
+        let t0 = std::time::Instant::now();
+        let revalidated = tokio::time::timeout(
+            std::time::Duration::from_secs(3),
+            super::serve_thumb_file(&state, "d1", "a.jpg", fifo.clone(), &headers),
+        )
+        .await
+        .expect("304 must be answered without reading the file")
+        .unwrap();
+        let elapsed = t0.elapsed();
+        assert_eq!(revalidated.status(), StatusCode::NOT_MODIFIED);
+        assert!(
+            revalidated
+                .headers()
+                .get(axum::http::header::ETAG)
+                .is_some()
+        );
+        assert!(
+            elapsed < std::time::Duration::from_secs(1),
+            "revalidation must not read the file (took {elapsed:?})"
+        );
+        ready_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("watchdog writer must open");
+        drop(_writer);
+    }
 
     #[test]
     fn thumbs_are_private() {
@@ -3184,5 +3291,119 @@ mod tests {
         assert!(v["owner_user_id"].is_string());
         assert!(v["contrib_path"].is_string());
         assert_eq!(v["cover_path"], "pic.jpg");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn concurrent_thumb_serves_dont_stall_workers() {
+        // Mirrors the production runtime (2 workers): 16 concurrent
+        // cold-thumb serves must all finish. The file reads run on the
+        // blocking pool, never on the async workers.
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
+        let state = std::sync::Arc::new(AppState::new(conn, drive_manager, dir.path()));
+        let thumb_path = dir.path().join("thumb.jpg");
+        let body = vec![0xFFu8; 256 * 1024];
+        std::fs::write(&thumb_path, &body).unwrap();
+
+        let futs: Vec<_> = (0..16)
+            .map(|_| {
+                let state = state.clone();
+                let path = thumb_path.clone();
+                let headers = axum::http::HeaderMap::new();
+                tokio::spawn(async move {
+                    super::serve_thumb_file(&state, "d1", "a.jpg", path, &headers).await
+                })
+            })
+            .collect();
+        // Smoke test, not a stall detector: local tempfile reads finish
+        // microseconds after a worker is parked, so this passes even if the
+        // read runs inline. `slow_thumb_read_does_not_stall_workers` is the
+        // test that actually fails on a parked worker.
+        let resps = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            let mut out = Vec::new();
+            for f in futs {
+                out.push(f.await.unwrap());
+            }
+            out
+        })
+        .await
+        .expect("16 concurrent thumb serves must finish with 2 workers");
+        for r in &resps {
+            assert_eq!(r.as_ref().unwrap().status(), StatusCode::OK);
+        }
+        // Served bytes match the file; the cache holds the shared copy.
+        let cached = state.ram_cache.get_thumb("d1", "a.jpg").unwrap();
+        assert_eq!(&cached.bytes[..], &body[..]);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn slow_thumb_read_does_not_stall_workers() {
+        // A FIFO read only returns when the writer closes, so this is the one
+        // honest way to hold a read open. Two concurrent serves park both
+        // async workers if the read runs inline, and a heartbeat task then
+        // never gets a worker. The writer is an OS thread; the blocking pool
+        // — not the async runtime — is what waits.
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
+        let state = std::sync::Arc::new(AppState::new(conn, drive_manager, dir.path()));
+        let fifo = dir.path().join("thumb.fifo");
+        let c_path = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        assert_eq!(
+            unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) },
+            0,
+            "mkfifo failed"
+        );
+        let fifo_for_writer = fifo.clone();
+        let watchdog = std::thread::spawn(move || {
+            let mut writer = std::fs::OpenOptions::new()
+                .write(true)
+                .open(&fifo_for_writer)
+                .expect("open fifo for writing");
+            // Long enough that a parked worker cannot hide behind it.
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            std::io::Write::write_all(&mut writer, b"thumb").unwrap();
+        });
+
+        let (serves_tx, mut serves_rx) = tokio::sync::mpsc::channel(2);
+        for _ in 0..2 {
+            let (state, path) = (state.clone(), fifo.clone());
+            let serves_tx = serves_tx.clone();
+            tokio::spawn(async move {
+                let headers = axum::http::HeaderMap::new();
+                let result = super::serve_thumb_file(&state, "d1", "a.jpg", path, &headers)
+                    .await
+                    .map(|r| r.status())
+                    .map_err(|e| e.0);
+                serves_tx.send(result).await.unwrap();
+            });
+        }
+        drop(serves_tx);
+
+        // `sleep` reaching its timer is the heartbeat: on a parked runtime no
+        // worker runs it, and the 3s timeout fails the test.
+        let heartbeat = tokio::spawn(async {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+        assert!(
+            heartbeat.is_finished(),
+            "async workers were parked on the slow read"
+        );
+        tokio::time::timeout(std::time::Duration::from_secs(3), heartbeat)
+            .await
+            .expect("async workers were parked on the slow read")
+            .unwrap();
+
+        for _ in 0..2 {
+            let status = tokio::time::timeout(std::time::Duration::from_secs(5), serves_rx.recv())
+                .await
+                .expect("parked reads must finish once the writer closes")
+                .expect("serve task must report a status");
+            assert_eq!(status, Ok(StatusCode::OK));
+        }
+        watchdog.join().unwrap();
     }
 }

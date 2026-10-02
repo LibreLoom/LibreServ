@@ -15,7 +15,7 @@ LDVARS := -X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/system.
 ifneq ($(strip $(BUILD_TIME)),)
 LDVARS += -X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/system.BuildTime=$(BUILD_TIME)
 endif
-LDFLAGS := -ldflags "$(LDVARS)"
+LDFLAGS := -ldflags "$(LDVARS) -s -w"
 # CODE QUALITY FIX: correctly handle empty BUILD_TAGS (was -tags "" causing vet to see empty tag)
 TAGS_FLAG := $(if $(strip $(BUILD_TAGS)),-tags "$(BUILD_TAGS)",)
 

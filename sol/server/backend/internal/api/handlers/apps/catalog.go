@@ -15,6 +15,10 @@ import (
 
 const iconCacheTTL = 1 * time.Hour
 
+// Upper bound on cached icons: the map used to grow without limit and pin
+// every catalog icon in memory for up to an hour.
+const iconCacheMaxEntries = 256
+
 type iconCacheEntry struct {
 	data        []byte
 	contentType string
@@ -24,6 +28,8 @@ type iconCacheEntry struct {
 var iconCache = struct {
 	sync.RWMutex
 	entries map[string]*iconCacheEntry
+	// Least-recently-used first: mirrors entries keys for bounded eviction.
+	order []string
 }{
 	entries: make(map[string]*iconCacheEntry),
 }
@@ -33,7 +39,54 @@ var iconCache = struct {
 func ClearIconCache() {
 	iconCache.Lock()
 	iconCache.entries = make(map[string]*iconCacheEntry)
+	iconCache.order = nil
 	iconCache.Unlock()
+}
+
+// touchIconCacheLocked marks id as most-recently-used. Call with iconCache held.
+func touchIconCacheLocked(id string) {
+	for i, old := range iconCache.order {
+		if old == id {
+			iconCache.order = append(iconCache.order[:i], iconCache.order[i+1:]...)
+			break
+		}
+	}
+	iconCache.order = append(iconCache.order, id)
+}
+
+// evictIconCacheLocked keeps the icon cache bounded with LRU eviction.
+// Call with iconCache held.
+func evictIconCacheLocked() {
+	if len(iconCache.entries) <= iconCacheMaxEntries {
+		return
+	}
+	now := time.Now()
+	for id, e := range iconCache.entries {
+		if now.After(e.expiresAt) {
+			delete(iconCache.entries, id)
+		}
+	}
+	// Drop purged IDs from the LRU list too, or eviction below burns
+	// through dead IDs and can exit still over budget.
+	kept := iconCache.order[:0]
+	for _, id := range iconCache.order {
+		if _, ok := iconCache.entries[id]; ok {
+			kept = append(kept, id)
+		}
+	}
+	// Clear the tail so dropped IDs don't pin icon bytes.
+	for i := len(kept); i < len(iconCache.order); i++ {
+		iconCache.order[i] = ""
+	}
+	iconCache.order = kept
+	// Still over budget: evict least-recently-used first. Icons are
+	// re-read from disk on demand, so this only costs a re-read, never
+	// correctness.
+	for len(iconCache.entries) > iconCacheMaxEntries && len(iconCache.order) > 0 {
+		oldest := iconCache.order[0]
+		iconCache.order = iconCache.order[1:]
+		delete(iconCache.entries, oldest)
+	}
 }
 
 type CatalogHandler struct {
@@ -147,9 +200,12 @@ func (h *CatalogHandler) GetAppIcon(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	iconCache.RLock()
+	iconCache.Lock()
 	cached, exists := iconCache.entries[appID]
-	iconCache.RUnlock()
+	if exists && time.Now().Before(cached.expiresAt) {
+		touchIconCacheLocked(appID)
+	}
+	iconCache.Unlock()
 
 	if exists && time.Now().Before(cached.expiresAt) {
 		w.Header().Set("Content-Type", cached.contentType)
@@ -182,6 +238,8 @@ func (h *CatalogHandler) GetAppIcon(w http.ResponseWriter, r *http.Request) {
 		contentType: "image/svg+xml",
 		expiresAt:   time.Now().Add(iconCacheTTL),
 	}
+	touchIconCacheLocked(appID)
+	evictIconCacheLocked()
 	iconCache.Unlock()
 
 	w.Header().Set("Content-Type", "image/svg+xml")
