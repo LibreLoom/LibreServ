@@ -57,12 +57,12 @@ async function openNewMenu() {
 describe("DriveFileExplorer private folders", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it("lists Private last in the New menu — folders only", async () => {
+  it("lists Private folder right after Folder in the New menu — folders only", async () => {
     renderExplorer();
     const menu = await openNewMenu();
     await waitFor(() => expect(within(menu).getByRole("menuitem", { name: "Private folder" })).toBeInTheDocument());
     const items = within(menu).getAllByRole("menuitem").map((el) => el.textContent);
-    expect(items.at(-1)).toBe("Private folder");
+    expect(items.indexOf("Private folder")).toBe(items.indexOf("Folder") + 1);
     expect(within(menu).queryByRole("menuitem", { name: "Private file" })).not.toBeInTheDocument();
   });
 
