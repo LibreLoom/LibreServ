@@ -1308,7 +1308,14 @@ select:focus:not(:focus-visible) {
     /* `backwards`, not `both`: same reason as .pop-in — don't hold a
        transform after the animation finishes. */
     animation: page-enter 320ms var(--motion-easing-emphasized-decelerate) backwards;
-    will-change: transform, opacity;
+}
+
+/* Long folders: rows far off screen skip layout and paint until scrolled
+   near. The intrinsic height keeps the scrollbar steady; `auto` remembers
+   each row's real height once seen. */
+.file-row {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 44px;
 }
 
 @media (prefers-reduced-motion: reduce) {

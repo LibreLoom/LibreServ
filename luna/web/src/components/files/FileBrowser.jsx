@@ -77,9 +77,8 @@ import {
   readLunaDrive,
   readLunaPaths,
 } from "../../lib/dnd.js";
-import { canViewerOpen } from "../../lib/officeConvert.js";
-import { isFormFile, viewerNeedsSession } from "../../lib/fileKinds.js";
-import FormResponseBadge from "./forms/FormResponseBadge.jsx";
+import FileRow from "./FileRow.jsx";
+import { canOpenRow, displayNameOf } from "./fileRowUtils.js";
 import PrivateBadge from "../private/PrivateBadge.jsx";
 import PropertiesSheet, { PropertiesButton } from "./PropertiesSheet.jsx";
 import {
@@ -148,11 +147,6 @@ function readStoredSort() {
 function extensionOf(name) {
   const dot = name.lastIndexOf(".");
   return dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
-}
-
-/** What the user sees for this row — trash entries carry `original_name`. */
-function displayNameOf(entry) {
-  return entry?.original_name || entry?.name || "";
 }
 
 /** Folders always lead; the chosen key orders within each group. */
@@ -319,6 +313,8 @@ export default function FileBrowser({
   const folderChromeSplit = hasFolderActions && showBreadcrumbs && measuredFolderChromeSplit;
 
   const selectedPaths = controlledSelected !== undefined ? controlledSelected : innerSelected;
+
+  const selectedSet = useMemo(() => new Set(selectedPaths), [selectedPaths]);
 
   function setSelectedPaths(next) {
     if (controlledSelected === undefined) setInnerSelected(next);
@@ -798,7 +794,7 @@ export default function FileBrowser({
       },
       onDragLeave: (e) => {
         if (e.currentTarget.contains(/** @type {Node|null} */ (e.relatedTarget))) return;
-        if (dropTarget === key) setDropTarget(null);
+        setDropTarget((current) => (current === key ? null : current));
         disarmSpringLoad(destFolder);
       },
       onDrop: (e) => {
@@ -815,16 +811,6 @@ export default function FileBrowser({
       fullPath: fileRoot ? path : joinPath(path, entry.name),
       displayName: displayNameOf(entry),
     };
-  }
-
-  function canPick(ctx) {
-    if (!pickerMode) return false;
-    // Nothing is ever written into trash — a trash path is not a
-    // destination, even though it lists like a folder.
-    if (isTrashPath(ctx.fullPath)) return false;
-    if (pickerMode === "folder") return ctx.entry.kind === "dir";
-    if (pickerMode === "file") return ctx.entry.kind === "file";
-    return true;
   }
 
   function toggleOne(fullPath, { additive = false, range = false } = {}) {
@@ -870,13 +856,8 @@ export default function FileBrowser({
     setLastClicked(null);
   }
 
-  /** Can this row open in the viewer? Trash keeps session kinds closed. */
   function canOpenEntry(ctx) {
-    if (ctx.entry.kind !== "file" || !canViewerOpen(ctx.displayName)) return false;
-    // A failed new file is only a placeholder row — nothing is on the drive.
-    if (ctx.entry.save_failed && ctx.entry.size === 0) return false;
-    if (trashView && viewerNeedsSession(ctx.displayName)) return false;
-    return true;
+    return canOpenRow(ctx.entry, ctx.displayName, trashView);
   }
 
   function openEntry(ctx) {
@@ -955,128 +936,48 @@ export default function FileBrowser({
     dragPathsRef.current = [];
   }
 
-  function rowActions(ctx) {
-    if (renderRowActions) return renderRowActions(ctx);
-    if (isPicker) {
-      if (!canPick(ctx)) return null;
-      const selected = selectedPath === ctx.fullPath;
-      return (
-        <Button
-          variant={selected ? well : "outline"}
-          surface={surface}
-          size="sm"
-          aria-label={selected ? `Selected ${ctx.displayName}` : `Select ${ctx.displayName}`}
-          aria-pressed={selected}
-          onClick={() => onSelect?.(ctx)}
-        >
-          {selected ? <Check size={14} aria-hidden="true" /> : null}
-          {selected ? "Selected" : "Select"}
-        </Button>
+  // Stable handle for the memoized rows. Methods read the latest closure
+  // through the ref, so rows never re-render just because a handler changed.
+  const latest = useRef(/** @type {any} */ (null));
+  latest.current = {
+    onShare, onCopy, onMove, onRename, onDelete, onSelect, onOpenFile,
+    openEntry, onRowDragStart, setPropertiesCtx, folderDropProps,
+    selectedPaths, setSelectedPaths, setLastClicked, toggleOne,
+  };
+  const rowApi = useMemo(() => ({
+    share: (ctx) => latest.current.onShare?.(ctx),
+    copy: (paths) => latest.current.onCopy?.(paths),
+    move: (paths) => latest.current.onMove?.(paths),
+    rename: (ctx) => latest.current.onRename?.(ctx),
+    remove: (paths) => latest.current.onDelete?.(paths),
+    select: (ctx) => latest.current.onSelect?.(ctx),
+    openFile: (ctx) => latest.current.onOpenFile?.(ctx),
+    openEntry: (ctx) => latest.current.openEntry(ctx),
+    openProperties: (ctx) => latest.current.setPropertiesCtx(ctx),
+    dragStart: (ctx, e) => latest.current.onRowDragStart(ctx, e),
+    isTrash: (p) => isTrashPath(p),
+    folderDragOver: (p, e) => latest.current.folderDropProps(p, p).onDragOver?.(e),
+    folderDragLeave: (p, e) => latest.current.folderDropProps(p, p).onDragLeave?.(e),
+    folderDrop: (p, e) => latest.current.folderDropProps(p, p).onDrop?.(e),
+    checkboxChange: (fullPath, next, shift) => {
+      const cur = latest.current;
+      if (shift) {
+        cur.toggleOne(fullPath, { additive: true, range: true });
+        return;
+      }
+      cur.setSelectedPaths(
+        next
+          ? [...new Set([...cur.selectedPaths, fullPath])]
+          : cur.selectedPaths.filter((p) => p !== fullPath),
       );
-    }
-
-    const actions = [];
-    // The share bit is per-entry: a view-only member sees the row but
-    // never the Sharing button. Entries without stamped caps fail closed.
-    if (onShare && (capsBits(ctx.entry?.caps || "") & CAP.SHARE) !== 0) {
-      actions.push(
-        <Button
-          key="share"
-          variant="ghost"
-          surface={surface}
-          size="sm"
-          onClick={() => onShare(ctx)}
-        >
-          Sharing
-        </Button>,
-      );
-    }
-    if (onCopy) {
-      actions.push(
-        <Tooltip key="copy" content="Copy">
-          <Button
-            variant="ghost"
-            surface={surface}
-            size="iconSm"
-            aria-label={`Copy ${ctx.displayName}`}
-            onClick={() => onCopy([ctx.fullPath])}
-          >
-            <Copy size={14} />
-          </Button>
-        </Tooltip>,
-      );
-    }
-    if (onMove) {
-      actions.push(
-        <Tooltip key="move" content="Move">
-          <Button
-            variant="ghost"
-            surface={surface}
-            size="iconSm"
-            aria-label={`Move ${ctx.displayName}`}
-            onClick={() => onMove([ctx.fullPath])}
-          >
-            <FolderInput size={14} />
-          </Button>
-        </Tooltip>,
-      );
-    }
-    if (onRename) {
-      actions.push(
-        <Tooltip key="rename" content="Rename">
-          <Button
-            variant="ghost"
-            surface={surface}
-            size="iconSm"
-            aria-label={`Rename ${ctx.displayName}`}
-            onClick={() => onRename(ctx)}
-          >
-            <Pencil size={14} />
-          </Button>
-        </Tooltip>,
-      );
-    }
-    if (onDelete) {
-      actions.push(
-        <Tooltip key="delete" content="Move to trash">
-          <Button
-            variant="ghost"
-            surface={surface}
-            size="iconSm"
-            aria-label={`Move ${ctx.displayName} to trash`}
-            onClick={() => onDelete([ctx.fullPath])}
-          >
-            <Trash2 size={14} />
-          </Button>
-        </Tooltip>,
-      );
-    }
-    if (enableDownload && (ctx.entry.kind === "file" || ctx.entry.kind === "dir")) {
-      actions.push(
-        <Tooltip key="download" content="Download">
-          <Button
-            variant="ghost"
-            surface={surface}
-            size="iconSm"
-            asChild
-            aria-label={`Download ${ctx.displayName}`}
-          >
-            <a href={source.downloadHref(driveId, ctx.fullPath, ctx.entry.kind)}>
-              <Download size={14} />
-            </a>
-          </Button>
-        </Tooltip>,
-      );
-    }
-    return actions.length ? (
-      <ActionTooltipGroup>
-        <div className="flex items-center gap-0.5 flex-wrap justify-end">{actions}</div>
-      </ActionTooltipGroup>
-    ) : null;
-  }
+      cur.setLastClicked(fullPath);
+    },
+  }), []);
+  // Whether a folder row accepts drops — same gate folderDropProps applies.
+  const rowDropEnabled = (rowPath) => Object.keys(folderDropProps(rowPath, rowPath)).length > 0;
 
   const padY = dense ? "py-2" : "py-2.5";
-  const allSelected = visiblePaths.length > 0 && visiblePaths.every((p) => selectedPaths.includes(p));
+  const allSelected = visiblePaths.length > 0 && visiblePaths.every((p) => selectedSet.has(p));
   const selectedCount = selectedPaths.length;
   const showSelectionToolbar = !isPicker && multiSelect && selectedCount > 0;
   // The browser background is itself a drop target ("::current") for the
@@ -1166,13 +1067,6 @@ export default function FileBrowser({
   const wellSurface = well === "primary" ? "surface-primary" : "surface-secondary";
   const wellFg = well === "primary" ? "text-secondary" : "text-primary";
   const hairline = surface === "primary" ? "border-secondary" : "border-primary";
-  // Soft alternating rows, the same mix Table's `striped` uses — tinted
-  // toward the opposite surface so it reads as a whisper, not a divider.
-  // color-scan: ignore-next-line mixes theme CSS vars only (no hardcoded hex)
-  const stripeBg = surface === "primary"
-    ? "bg-[color-mix(in_oklab,var(--primary)_92%,var(--secondary))]"
-    : "bg-[color-mix(in_oklab,var(--secondary)_92%,var(--primary))]";
-
   return (
     <div
       className={className}
@@ -1821,165 +1715,40 @@ export default function FileBrowser({
             })() : null}
             {visibleEntries.length > 0 ? (
               visibleEntries.map((entry, rowIndex) => {
-                const ctx = rowContext(entry);
-                const isSelected = selectedPaths.includes(ctx.fullPath);
-                const isDrop = dropTarget === ctx.fullPath;
-                const openable = canOpenEntry(ctx);
-                const canDragRow = !isPicker && Boolean(onInternalMove);
-                // Trash counts as the first row when shown, so the striping
-                // stays on the same visual parity either way.
-                const striped = (rowIndex + (showTrashEntry ? 1 : 0)) % 2 === 1;
-
+                const rowPath = fileRoot ? path : joinPath(path, entry.name);
                 return (
-                  <li
+                  <FileRow
                     key={entry.name}
-                    data-file-path={ctx.fullPath}
-                    className={[
-                      "flex items-center gap-2 px-3",
-                      padY,
-                      // The stripe IS the row's background — the only place it
-                      // may ever paint. Selection and drop-target states own the
-                      // whole row color, so the stripe is omitted there rather
-                      // than stacked under them (two bg-* utilities resolve by
-                      // stylesheet order, not class order). bg-clip-padding keeps
-                      // the fill out of the border box, so the translucent
-                      // divider always blends over the card behind it instead of
-                      // being tinted by the stripe/selection color.
-                      `bg-clip-padding ${isSelected || isDrop ? "bg-current/10" : striped ? stripeBg : cardSurface} ${fg}`,
-                      // One outline: the drop ring replaces the row separator
-                      // (border-b kept transparent so the row height doesn't
-                      // shift). The last row always rounds to hug the card's
-                      // bottom edge — same geometry whether or not it's the
-                      // drop target.
-                      isDrop
-                        ? "ring-2 ring-accent ring-inset border-b border-transparent last:border-b-0 last:rounded-b-large-element"
-                        : "border-b border-primary/15 last:border-b-0 last:rounded-b-large-element",
-                      "motion-safe:transition-colors",
-                      canDragRow ? "cursor-grab active:cursor-grabbing select-none" : "",
-                    ].filter(Boolean).join(" ")}
-                    draggable={canDragRow}
-                    onDragStart={(e) => onRowDragStart(ctx, e)}
-                    {...(entry.kind === "dir" ? folderDropProps(ctx.fullPath, ctx.fullPath) : {})}
-                  >
-                    {!isPicker && multiSelect ? (
-                      <div
-                        data-no-row-drag
-                        draggable={false}
-                        onMouseDown={(e) => e.stopPropagation()}
-                        className="shrink-0"
-                      >
-                        <AnimatedCheckbox
-                          checked={isSelected}
-                          onChange={(next, e) => {
-                            const shift = Boolean(
-                              /** @type {MouseEvent|undefined} */ (e?.nativeEvent)?.shiftKey,
-                            );
-                            if (shift) {
-                              toggleOne(ctx.fullPath, { additive: true, range: true });
-                              return;
-                            }
-                            setSelectedPaths(
-                              next
-                                ? [...new Set([...selectedPaths, ctx.fullPath])]
-                                : selectedPaths.filter((p) => p !== ctx.fullPath),
-                            );
-                            setLastClicked(ctx.fullPath);
-                          }}
-                          aria-label={`Select ${ctx.displayName}`}
-                          surface={surface}
-                        />
-                      </div>
-                    ) : null}
-
-                    <div className="flex items-center gap-2 flex-1 min-w-0">
-                      {entry.kind === "dir" ? (
-                        linkNavigation ? (
-                          <Link
-                            to={folderHref(driveId, ctx.fullPath)}
-                            draggable={false}
-                            className={`flex items-center gap-2 min-w-0 ${fg} hover:underline`}
-                          >
-                            <Folder size={16} className="shrink-0" aria-hidden="true" />
-                            <span className="font-mono text-sm truncate">{ctx.displayName}</span>
-                          </Link>
-                        ) : (
-                          <button
-                            type="button"
-                            draggable={false}
-                            className={`flex items-center gap-2 min-w-0 text-left ${fg} hover:underline`}
-                            onClick={() => openEntry(ctx)}
-                          >
-                            <Folder size={16} className="shrink-0" aria-hidden="true" />
-                            <span className="font-mono text-sm truncate">{ctx.displayName}</span>
-                          </button>
-                        )
-                      ) : openable ? (
-                        linkNavigation ? (
-                          <Link
-                            to={fileHref(driveId, ctx.fullPath)}
-                            draggable={false}
-                            className={`flex items-center gap-2 min-w-0 ${fg} hover:underline`}
-                            onClick={() => {
-                              haptic("medium");
-                              onOpenFile?.(ctx);
-                            }}
-                          >
-                            <FileIcon size={16} className="shrink-0" aria-hidden="true" />
-                            <span className="font-mono text-sm truncate">{ctx.displayName}</span>
-                          </Link>
-                        ) : (
-                          <button
-                            type="button"
-                            draggable={false}
-                            className={`flex items-center gap-2 min-w-0 text-left ${fg} hover:underline`}
-                            onClick={() => openEntry(ctx)}
-                          >
-                            <FileIcon size={16} className="shrink-0" aria-hidden="true" />
-                            <span className="font-mono text-sm truncate">{ctx.displayName}</span>
-                          </button>
-                        )
-                      ) : (
-                        <div className={`flex items-center gap-2 min-w-0 ${fg}`} draggable={false}>
-                          <FileIcon size={16} className="shrink-0" aria-hidden="true" />
-                          <span className="font-mono text-sm truncate">{ctx.displayName}</span>
-                        </div>
-                      )}
-                      {entry.private || entry.in_private ? (
-                        <PrivateBadge
-                          className={fg}
-                          label={entry.private ? "Private folder" : "In a private folder"}
-                        />
-                      ) : null}
-                      {entry.saving ? (
-                        <span className="text-xs shrink-0" aria-live="polite">
-                          Saving…
-                        </span>
-                      ) : entry.save_failed ? (
-                        <Pill variant="custom" className="bg-error/20 border-error/30 text-primary shrink-0">
-                          Didn&apos;t save
-                        </Pill>
-                      ) : null}
-                      {!isPicker && !trashView && (!source.guest || ((source.capsBits ?? 0) & CAP.VIEW) !== 0) && entry.kind === "file" && isFormFile(entry.name) ? (
-                        <FormResponseBadge driveId={driveId} formPath={ctx.fullPath} />
-                      ) : null}
-                    </div>
-
-                    <div
-                      data-no-row-drag
-                      className="shrink-0 max-w-[40%] sm:max-w-none flex flex-wrap items-center justify-end gap-0.5"
-                      draggable={false}
-                      onMouseDown={(e) => e.stopPropagation()}
-                    >
-                      {rowActions(ctx)}
-                      {!isPicker && (
-                        <PropertiesButton
-                          label={ctx.displayName}
-                          onClick={() => setPropertiesCtx(ctx)}
-                          surface={surface}
-                        />
-                      )}
-                    </div>
-                  </li>
+                    entry={entry}
+                    path={path}
+                    fileRoot={fileRoot}
+                    // Trash counts as the first row when shown, so the striping
+                    // stays on the same visual parity either way.
+                    striped={(rowIndex + (showTrashEntry ? 1 : 0)) % 2 === 1}
+                    isSelected={selectedSet.has(rowPath)}
+                    isDrop={dropTarget === rowPath}
+                    isPicker={isPicker}
+                    pickerMode={pickerMode}
+                    pickSelected={isPicker && selectedPath === rowPath}
+                    multiSelect={multiSelect}
+                    linkNavigation={linkNavigation}
+                    canDragRow={!isPicker && Boolean(onInternalMove)}
+                    dropEnabled={rowDropEnabled(rowPath)}
+                    trashView={trashView}
+                    driveId={driveId}
+                    surface={surface}
+                    dense={dense}
+                    hasShare={Boolean(onShare)}
+                    hasCopy={Boolean(onCopy)}
+                    hasMove={Boolean(onMove)}
+                    hasRename={Boolean(onRename)}
+                    hasDelete={Boolean(onDelete)}
+                    enableDownload={enableDownload}
+                    renderRowActions={renderRowActions}
+                    folderHref={folderHref}
+                    fileHref={fileHref}
+                    api={rowApi}
+                  />
                 );
               })
             ) : listing.isError ? (

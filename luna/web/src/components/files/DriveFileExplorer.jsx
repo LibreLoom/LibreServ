@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, Download, FolderInput, HardDrive, Lock, Pencil, RotateCcw, Trash2 } from "lucide-react";
@@ -756,6 +756,140 @@ export default function DriveFileExplorer({
     () => setActionError(null),
   );
 
+  // Stable identity so FileBrowser's memoized rows only re-render when one of
+  // these inputs changes, not on every explorer render.
+  const renderRowActions = useCallback((ctx) => {
+    // Same action row as any folder, with trash deltas. The Trash row
+    // itself (the drive-root entry that opens trash) behaves like a
+    // folder: share, protect, download, copy, properties. Items INSIDE
+    // trash lose share/protect/rename, top-level entries gain Restore,
+    // and delete becomes Delete permanently (there is nowhere deeper
+    // to move things to). The API maps trash paths to the item's
+    // original location for permission checks.
+    const trashRoot = ctx.fullPath === TRASH_PATH;
+    const trashChild = isTrashPath(ctx.fullPath) && !trashRoot;
+    const capPath = trashChild ? (ctx.entry.original_path || ctx.fullPath) : ctx.fullPath;
+    // The server stamps each entry's caps — fall back to the grant
+    // union for rows that arrive without them (guest listings).
+    const rowCaps = ctx.entry.caps != null
+      ? capsBits(ctx.entry.caps)
+      : isAdmin
+        ? CAP_MANAGE
+        : capsOnPath(access.data, driveId, capPath);
+    const rowCanEdit = guest
+      ? (guestCaps & CAP.EDIT) !== 0 && !source.isFile
+      : (rowCaps & CAP.EDIT) !== 0;
+    const rowCanShare = !guest && !trashChild && (rowCaps & CAP.SHARE) !== 0;
+    return (
+    <ActionTooltipGroup>
+      <div className="flex items-center gap-0.5 flex-wrap justify-end">
+        {rowCanShare && (
+          <ShareButton
+            label={ctx.displayName}
+            onClick={() => setAccessTarget({ path: ctx.fullPath })}
+          />
+        )}
+        {showProtect && ctx.entry.kind === "dir" && !trashChild && (
+          <ProtectButton
+            label={ctx.displayName}
+            onClick={() => setProtectTarget({ path: ctx.fullPath })}
+          />
+        )}
+        {canView && (
+          <DownloadButton
+            driveId={driveId}
+            path={ctx.fullPath}
+            kind={ctx.entry.kind}
+            label={ctx.displayName}
+          />
+        )}
+        {trashChild && ctx.path === TRASH_PATH && (
+          <Tooltip content="Restore">
+            <Button
+              variant="ghost"
+              surface="secondary"
+              size="iconSm"
+              aria-label={`Restore ${ctx.displayName}`}
+              onClick={() => {
+                setActionError(null);
+                setRestoreTarget({
+                  fullPath: ctx.fullPath,
+                  displayName: ctx.displayName,
+                  originalPath: ctx.entry.original_path || "",
+                });
+                setRestoreName(ctx.displayName);
+              }}
+            >
+              <RotateCcw size={ICON_SIZE.sm} />
+            </Button>
+          </Tooltip>
+        )}
+        {!guest && (
+          <Tooltip content="Copy">
+            <Button
+              variant="ghost"
+              surface="secondary"
+              size="iconSm"
+              aria-label={`Copy ${ctx.displayName}`}
+              onClick={() => setTransfer({ kind: "copy", paths: [ctx.fullPath], label: ctx.displayName })}
+            >
+              <Copy size={ICON_SIZE.sm} />
+            </Button>
+          </Tooltip>
+        )}
+        {rowCanEdit && !trashRoot && (
+          <>
+            <Tooltip content="Move">
+              <Button
+                variant="ghost"
+                surface="secondary"
+                size="iconSm"
+                aria-label={`Move ${ctx.displayName}`}
+                onClick={() => setTransfer({ kind: "move", paths: [ctx.fullPath], label: ctx.displayName })}
+              >
+                <FolderInput size={ICON_SIZE.sm} />
+              </Button>
+            </Tooltip>
+            {!trashChild && (
+              <Tooltip content="Rename">
+                <Button
+                  variant="ghost"
+                  surface="secondary"
+                  size="iconSm"
+                  aria-label={`Rename ${ctx.displayName}`}
+                  onClick={() => {
+                    setActionError(null);
+                    setRenameTarget({ fullPath: ctx.fullPath, name: ctx.displayName, isDir: ctx.entry.kind === "dir" });
+                    setRenameValue(ctx.displayName);
+                  }}
+                >
+                  <Pencil size={ICON_SIZE.sm} />
+                </Button>
+              </Tooltip>
+            )}
+            <Tooltip content={trashChild ? "Delete permanently" : "Move to trash"}>
+              <Button
+                variant="ghost"
+                surface="secondary"
+                size="iconSm"
+                aria-label={trashChild
+                  ? `Delete ${ctx.displayName} permanently`
+                  : `Move ${ctx.displayName} to trash`}
+                onClick={() => (trashChild
+                  ? setPurgeTarget({ paths: [ctx.fullPath], label: ctx.displayName })
+                  : setDeletePaths([ctx.fullPath]))}
+              >
+                <Trash2 size={ICON_SIZE.sm} />
+              </Button>
+            </Tooltip>
+          </>
+        )}
+      </div>
+    </ActionTooltipGroup>
+    );
+  },
+    [access.data, driveId, guest, guestCaps, source.isFile, isAdmin, showProtect, canView]);
+
   return (
     <>
       {uploads.length > 0 && (
@@ -933,136 +1067,7 @@ export default function DriveFileExplorer({
             </Button>
           );
         } : undefined}
-        renderRowActions={(ctx) => {
-          // Same action row as any folder, with trash deltas. The Trash row
-          // itself (the drive-root entry that opens trash) behaves like a
-          // folder: share, protect, download, copy, properties. Items INSIDE
-          // trash lose share/protect/rename, top-level entries gain Restore,
-          // and delete becomes Delete permanently (there is nowhere deeper
-          // to move things to). The API maps trash paths to the item's
-          // original location for permission checks.
-          const trashRoot = ctx.fullPath === TRASH_PATH;
-          const trashChild = isTrashPath(ctx.fullPath) && !trashRoot;
-          const capPath = trashChild ? (ctx.entry.original_path || ctx.fullPath) : ctx.fullPath;
-          // The server stamps each entry's caps — fall back to the grant
-          // union for rows that arrive without them (guest listings).
-          const rowCaps = ctx.entry.caps != null
-            ? capsBits(ctx.entry.caps)
-            : isAdmin
-              ? CAP_MANAGE
-              : capsForPath(capPath);
-          const rowCanEdit = guest
-            ? (guestCaps & CAP.EDIT) !== 0 && !source.isFile
-            : (rowCaps & CAP.EDIT) !== 0;
-          const rowCanShare = !guest && !trashChild && (rowCaps & CAP.SHARE) !== 0;
-          return (
-          <ActionTooltipGroup>
-            <div className="flex items-center gap-0.5 flex-wrap justify-end">
-              {rowCanShare && (
-                <ShareButton
-                  label={ctx.displayName}
-                  onClick={() => setAccessTarget({ path: ctx.fullPath })}
-                />
-              )}
-              {showProtect && ctx.entry.kind === "dir" && !trashChild && (
-                <ProtectButton
-                  label={ctx.displayName}
-                  onClick={() => setProtectTarget({ path: ctx.fullPath })}
-                />
-              )}
-              {canView && (
-                <DownloadButton
-                  driveId={driveId}
-                  path={ctx.fullPath}
-                  kind={ctx.entry.kind}
-                  label={ctx.displayName}
-                />
-              )}
-              {trashChild && ctx.path === TRASH_PATH && (
-                <Tooltip content="Restore">
-                  <Button
-                    variant="ghost"
-                    surface="secondary"
-                    size="iconSm"
-                    aria-label={`Restore ${ctx.displayName}`}
-                    onClick={() => {
-                      setActionError(null);
-                      setRestoreTarget({
-                        fullPath: ctx.fullPath,
-                        displayName: ctx.displayName,
-                        originalPath: ctx.entry.original_path || "",
-                      });
-                      setRestoreName(ctx.displayName);
-                    }}
-                  >
-                    <RotateCcw size={ICON_SIZE.sm} />
-                  </Button>
-                </Tooltip>
-              )}
-              {!guest && (
-                <Tooltip content="Copy">
-                  <Button
-                    variant="ghost"
-                    surface="secondary"
-                    size="iconSm"
-                    aria-label={`Copy ${ctx.displayName}`}
-                    onClick={() => setTransfer({ kind: "copy", paths: [ctx.fullPath], label: ctx.displayName })}
-                  >
-                    <Copy size={ICON_SIZE.sm} />
-                  </Button>
-                </Tooltip>
-              )}
-              {rowCanEdit && !trashRoot && (
-                <>
-                  <Tooltip content="Move">
-                    <Button
-                      variant="ghost"
-                      surface="secondary"
-                      size="iconSm"
-                      aria-label={`Move ${ctx.displayName}`}
-                      onClick={() => setTransfer({ kind: "move", paths: [ctx.fullPath], label: ctx.displayName })}
-                    >
-                      <FolderInput size={ICON_SIZE.sm} />
-                    </Button>
-                  </Tooltip>
-                  {!trashChild && (
-                    <Tooltip content="Rename">
-                      <Button
-                        variant="ghost"
-                        surface="secondary"
-                        size="iconSm"
-                        aria-label={`Rename ${ctx.displayName}`}
-                        onClick={() => {
-                          setActionError(null);
-                          setRenameTarget({ fullPath: ctx.fullPath, name: ctx.displayName, isDir: ctx.entry.kind === "dir" });
-                          setRenameValue(ctx.displayName);
-                        }}
-                      >
-                        <Pencil size={ICON_SIZE.sm} />
-                      </Button>
-                    </Tooltip>
-                  )}
-                  <Tooltip content={trashChild ? "Delete permanently" : "Move to trash"}>
-                    <Button
-                      variant="ghost"
-                      surface="secondary"
-                      size="iconSm"
-                      aria-label={trashChild
-                        ? `Delete ${ctx.displayName} permanently`
-                        : `Move ${ctx.displayName} to trash`}
-                      onClick={() => (trashChild
-                        ? setPurgeTarget({ paths: [ctx.fullPath], label: ctx.displayName })
-                        : setDeletePaths([ctx.fullPath]))}
-                    >
-                      <Trash2 size={ICON_SIZE.sm} />
-                    </Button>
-                  </Tooltip>
-                </>
-              )}
-            </div>
-          </ActionTooltipGroup>
-          );
-        }}
+        renderRowActions={renderRowActions}
       />
       )}
 
