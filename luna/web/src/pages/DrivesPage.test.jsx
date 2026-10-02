@@ -112,8 +112,8 @@ describe("DrivesPage", () => {
     // Lives in the page header right slot, not the body drive list.
     expect(trigger.closest("header")).toBeTruthy();
     fireEvent.click(trigger);
-    const input = await screen.findByPlaceholderText("Search for a file");
-    expect(input).toHaveAttribute("placeholder", "Search for a file");
+    const input = await screen.findByRole("textbox", { name: "Search for a file" });
+    expect(input).toHaveAttribute("placeholder", "A filename, please.");
     expect(screen.getByRole("dialog", { name: "Search for a file" })).toBeInTheDocument();
   });
 

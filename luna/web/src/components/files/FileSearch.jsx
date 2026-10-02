@@ -11,7 +11,7 @@ import LinearProgress from "@libreloom/ui/components/common/LinearProgress.jsx";
 import { showPageLevelError } from "../../lib/modalScopedError";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
-import Typewriter, { useTypewriterCycle } from "@libreloom/ui/components/ui/Typewriter.jsx";
+import Typewriter from "@libreloom/ui/components/ui/Typewriter.jsx";
 import ShareSheet from "../share/ShareSheet.jsx";
 import FolderPickerModal from "./FolderPickerModal";
 import FileSearchRow from "./FileSearchRow.jsx";
@@ -34,14 +34,6 @@ import { haptic } from "@libreloom/ui/utils/haptics.js";
 
 /** Match ModalCard exit + FLIP morph duration. */
 const OVERLAY_EXIT_MS = 320;
-
-/** Ideas typed out in the empty search box. */
-const EXAMPLE_SEARCHES = [
-  "Try “tax return”",
-  "Try “vacation photos”",
-  "Try “passport scan”",
-  "Try “lease 2025”",
-];
 
 const KIND_OPTIONS = [
   { value: "all", label: "All" },
@@ -177,9 +169,6 @@ export default function FileSearch() {
 
   const trimmed = typed.trim();
   const search = useFileSearch(trimmed, { enabled: present && !isClosing, kind });
-  const exampleHint = useTypewriterCycle(EXAMPLE_SEARCHES, {
-    active: present && !isClosing && typed === "",
-  });
 
   const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives, enabled: present });
   const labels = Object.fromEntries((drives.data || []).map((d) => [d.id, d.label]));
@@ -495,11 +484,11 @@ export default function FileSearch() {
                   <span className="sr-only">Search for a file</span>
                   <span className="flex items-center gap-3 rounded-pill surface-primary border-2 border-transparent px-4 py-2.5 focus-within:border-accent motion-safe:transition-colors">
                     <Search size={18} className="shrink-0" aria-hidden="true" />
-                    <span className="relative flex-1 min-w-0">
+                    <span className="flex-1 min-w-0">
                       <input
                         ref={inputRef}
-                        className="file-search-input w-full min-w-0 appearance-none bg-transparent text-secondary text-sm border-0 shadow-none outline-none no-focus-outline placeholder:text-transparent"
-                        placeholder="Search for a file"
+                        className="file-search-input w-full min-w-0 appearance-none bg-transparent text-secondary text-sm border-0 shadow-none outline-none no-focus-outline placeholder:font-mono placeholder:text-secondary"
+                        placeholder="A filename, please."
                         value={typed}
                         onChange={(e) => setTyped(e.target.value)}
                         onKeyDown={handleInputKeyDown}
@@ -508,15 +497,6 @@ export default function FileSearch() {
                         autoCorrect="off"
                         spellCheck={false}
                       />
-                      {typed === "" && exampleHint && (
-                        <span
-                          aria-hidden="true"
-                          data-slot="file-search-example"
-                          className="pointer-events-none absolute inset-y-0 left-0 flex items-center text-sm font-mono text-secondary truncate"
-                        >
-                          {exampleHint}
-                        </span>
-                      )}
                     </span>
                   </span>
                 </label>

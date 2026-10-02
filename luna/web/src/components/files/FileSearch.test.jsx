@@ -20,9 +20,11 @@ const IDLE_SCAN = { scanning: false, drives_total: 1, drives_done: 1, dirs_index
  *   closeOnly?: boolean,
  *   truncated?: boolean,
  *   searchError?: boolean,
+ *   holdSecond?: Promise<void>,
  * }} [options]
  */
-function renderSearch(hits, { searchHold, extra = null, before = null, scan = IDLE_SCAN, closeOnly = false, truncated = false, searchError = false } = {}) {
+function renderSearch(hits, { searchHold, extra = null, before = null, scan = IDLE_SCAN, closeOnly = false, truncated = false, searchError = false, holdSecond } = {}) {
+  let searchCount = 0;
   const fetchMock = vi.fn(async (url) => {
     const u = String(url);
     if (u.includes("/auth/me") || u.endsWith("/api/v1/auth/me")) {
@@ -45,6 +47,7 @@ function renderSearch(hits, { searchHold, extra = null, before = null, scan = ID
     }
     if (u.includes("/search")) {
       if (searchHold) await searchHold;
+      if (holdSecond && searchCount++ >= 1) await holdSecond;
       if (searchError) {
         return new Response(JSON.stringify({ error: "Luna's index is busy. Try again." }), {
           status: 500,
@@ -107,10 +110,10 @@ describe("FileSearch", () => {
     expect(screen.queryByRole("dialog", { name: "Search for a file" })).not.toBeInTheDocument();
     const dialog = await openSearchOverlay();
     expect(dialog).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("Search for a file")).toHaveAttribute(
-      "aria-label",
-      "Search for a file",
-    );
+    const box = screen.getByRole("textbox", { name: "Search for a file" });
+    expect(box).toHaveAttribute("placeholder", "A filename, please.");
+    // No cycling example text on top of it.
+    expect(document.querySelector("[data-slot=file-search-example]")).toBeNull();
     expect(screen.getByRole("button", { name: "Close search" })).toBeInTheDocument();
   });
 
@@ -135,7 +138,7 @@ describe("FileSearch", () => {
     });
     renderSearch([], { searchHold });
     await openSearchOverlay();
-    fireEvent.change(screen.getByPlaceholderText("Search for a file"), {
+    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), {
       target: { value: "zz" },
     });
     expect(await screen.findByRole("status", { name: /Searching/i })).toBeInTheDocument();
@@ -147,7 +150,7 @@ describe("FileSearch", () => {
   it("explains an empty search in plain language", async () => {
     renderSearch([]);
     await openSearchOverlay();
-    fireEvent.change(screen.getByPlaceholderText("Search for a file"), {
+    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), {
       target: { value: "zz" },
     });
     expect(await screen.findByText(/Nothing matched/i)).toBeInTheDocument();
@@ -167,7 +170,7 @@ describe("FileSearch", () => {
       },
     ]);
     await openSearchOverlay();
-    fireEvent.change(screen.getByPlaceholderText("Search for a file"), {
+    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), {
       target: { value: "beach" },
     });
     expect(await screen.findByRole("link", { name: /^Open beach.jpg$/i })).toBeInTheDocument();
@@ -204,7 +207,7 @@ describe("FileSearch", () => {
       },
     ]);
     await openSearchOverlay();
-    fireEvent.change(screen.getByPlaceholderText("Search for a file"), {
+    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), {
       target: { value: "data" },
     });
     const row = await screen.findByRole("link", { name: /Show data.bin in its folder/i });
@@ -224,7 +227,7 @@ describe("FileSearch", () => {
       },
     ]);
     await openSearchOverlay();
-    fireEvent.change(screen.getByPlaceholderText("Search for a file"), {
+    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), {
       target: { value: "alb" },
     });
     const opens = await screen.findAllByRole("link", { name: /^Open album$/i });
@@ -252,7 +255,7 @@ describe("FileSearch", () => {
       },
     ]);
     await openSearchOverlay();
-    fireEvent.change(screen.getByPlaceholderText("Search for a file"), {
+    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), {
       target: { value: "beach" },
     });
     const row = await screen.findByRole("link", { name: /^Open beach.jpg$/i });
@@ -276,7 +279,7 @@ describe("FileSearch", () => {
       },
     ]);
     await openSearchOverlay();
-    fireEvent.change(screen.getByPlaceholderText("Search for a file"), {
+    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), {
       target: { value: "notes" },
     });
     fireEvent.click(await screen.findByRole("button", { name: /Copy notes.txt/i }));
@@ -299,7 +302,7 @@ describe("FileSearch", () => {
     ]);
     fireEvent.click(await screen.findByRole("button", { name: "Search" }));
     expect(await screen.findByRole("dialog", { name: "Search for a file" })).toBeInTheDocument();
-    fireEvent.change(screen.getByPlaceholderText("Search for a file"), {
+    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), {
       target: { value: "notes" },
     });
     expect(await screen.findByRole("button", { name: /Copy notes.txt/i })).toBeInTheDocument();
@@ -329,7 +332,7 @@ describe("FileSearch", () => {
       },
     ]);
     await openSearchOverlay();
-    fireEvent.change(screen.getByPlaceholderText("Search for a file"), {
+    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), {
       target: { value: "notes" },
     });
     fireEvent.click(await screen.findByRole("button", { name: /Move notes.txt to trash/i }));
@@ -397,7 +400,7 @@ describe("FileSearch", () => {
       },
     ]);
     await openSearchOverlay();
-    const input = screen.getByPlaceholderText("Search for a file");
+    const input = screen.getByRole("textbox", { name: "Search for a file" });
     fireEvent.change(input, { target: { value: "jpg" } });
 
     const firstRow = await screen.findByRole("link", { name: /^Open beach.jpg$/i });
@@ -437,7 +440,7 @@ describe("FileSearch", () => {
       },
     ]);
     await openSearchOverlay();
-    const input = screen.getByPlaceholderText("Search for a file");
+    const input = screen.getByRole("textbox", { name: "Search for a file" });
     fireEvent.change(input, { target: { value: "beach" } });
 
     const copyBtn = await screen.findByRole("button", { name: /Copy beach.jpg/i });
@@ -456,7 +459,7 @@ describe("FileSearch", () => {
   it("does not error when pressing ArrowDown with no results", async () => {
     renderSearch([]);
     await openSearchOverlay();
-    const input = screen.getByPlaceholderText("Search for a file");
+    const input = screen.getByRole("textbox", { name: "Search for a file" });
     input.focus();
     expect(input).toHaveFocus();
 
@@ -469,7 +472,7 @@ describe("FileSearch", () => {
       { drive_id: "d1", path: "beach day.jpg", parent: "", name: "beach day.jpg", kind: "file", size: 1, modified: 1, match: "name" },
     ]);
     await openSearchOverlay();
-    fireEvent.change(screen.getByPlaceholderText("Search for a file"), { target: { value: "beach" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), { target: { value: "beach" } });
     const link = await screen.findByRole("link", { name: /^Open beach day.jpg$/i });
     const underlined = link.closest("[data-slot=file-search-item]")?.querySelector(".underline");
     expect(underlined).toHaveTextContent("beach");
@@ -478,7 +481,7 @@ describe("FileSearch", () => {
   it("asks for only folders or only files when you pick one", async () => {
     const { fetchMock } = renderSearch([]);
     await openSearchOverlay();
-    fireEvent.change(screen.getByPlaceholderText("Search for a file"), { target: { value: "photos" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), { target: { value: "photos" } });
     await waitFor(() => expect(searchCalls(fetchMock)).toContain("/api/v1/search?q=photos"));
     fireEvent.click(screen.getByRole("radio", { name: "Folders" }));
     await waitFor(() => expect(searchCalls(fetchMock)).toContain("/api/v1/search?q=photos&kind=dir"));
@@ -492,7 +495,7 @@ describe("FileSearch", () => {
       { closeOnly: true },
     );
     await openSearchOverlay();
-    fireEvent.change(screen.getByPlaceholderText("Search for a file"), { target: { value: "pasport" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), { target: { value: "pasport" } });
     expect(await screen.findByText(/Nothing matched exactly\. These names are close\./)).toBeInTheDocument();
     expect(screen.queryByText("Similar names")).not.toBeInTheDocument();
   });
@@ -503,7 +506,7 @@ describe("FileSearch", () => {
       { drive_id: "d1", path: "passport.pdf", parent: "", name: "passport.pdf", kind: "file", size: 1, modified: 1, match: "close" },
     ]);
     await openSearchOverlay();
-    fireEvent.change(screen.getByPlaceholderText("Search for a file"), { target: { value: "pasport" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), { target: { value: "pasport" } });
     expect(await screen.findByText("Similar names")).toBeInTheDocument();
     const items = screen.getAllByRole("link", { name: /^Open / });
     expect(items.map((el) => el.getAttribute("aria-label"))).toEqual([
@@ -526,7 +529,7 @@ describe("FileSearch", () => {
       },
     );
     await openSearchOverlay();
-    fireEvent.change(screen.getByPlaceholderText("Search for a file"), { target: { value: "found" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), { target: { value: "found" } });
     expect(await screen.findByRole("link", { name: /^Open found.txt$/i })).toBeInTheDocument();
     // Results are already on screen; the page asks again on its own.
     await waitFor(() => expect(searchCalls(fetchMock).length).toBeGreaterThanOrEqual(3), { timeout: 5000 });
@@ -546,7 +549,7 @@ describe("FileSearch", () => {
   it("explains an empty search while drives are still being read", async () => {
     renderSearch([], { scan: { scanning: true, drives_total: 1, drives_done: 0, dirs_indexed: 5 } });
     await openSearchOverlay();
-    fireEvent.change(screen.getByPlaceholderText("Search for a file"), { target: { value: "zz" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), { target: { value: "zz" } });
     expect(await screen.findByText("Nothing yet")).toBeInTheDocument();
     expect(screen.getByText(/still reading your drives/i)).toBeInTheDocument();
   });
@@ -556,7 +559,7 @@ describe("FileSearch", () => {
       { drive_id: "d1", path: "a/beach.jpg", parent: "a", name: "beach.jpg", kind: "file", size: 1, modified: 1 },
     ]);
     await openSearchOverlay();
-    const input = screen.getByPlaceholderText("Search for a file");
+    const input = screen.getByRole("textbox", { name: "Search for a file" });
     fireEvent.change(input, { target: { value: "beach" } });
     await screen.findByRole("link", { name: /^Open beach.jpg$/i });
     fireEvent.keyDown(input, { key: "Enter" });
@@ -572,7 +575,7 @@ describe("FileSearch", () => {
       { drive_id: "d1", path: "a/beach.jpg", parent: "a", name: "beach.jpg", kind: "file", size: 1, modified: 1 },
     ]);
     await openSearchOverlay();
-    fireEvent.change(screen.getByPlaceholderText("Search for a file"), { target: { value: "beach" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), { target: { value: "beach" } });
     const row = await screen.findByRole("link", { name: /^Open beach.jpg$/i });
     const actions = document.querySelector("[data-slot=file-search-actions]");
     for (const el of actions.querySelectorAll("a, button")) {
@@ -591,7 +594,7 @@ describe("FileSearch", () => {
       { drive_id: "d1", path: "two.txt", parent: "", name: "two.txt", kind: "file", size: 1, modified: 1 },
     ]);
     await openSearchOverlay();
-    fireEvent.change(screen.getByPlaceholderText("Search for a file"), { target: { value: "txt" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), { target: { value: "txt" } });
     const first = await screen.findByRole("link", { name: /^Open one.txt$/i });
     const last = screen.getByRole("link", { name: /^Open two.txt$/i });
     first.focus();
@@ -606,7 +609,7 @@ describe("FileSearch", () => {
       { drive_id: "d1", path: "a/b/c/Spain", parent: "a/b/c", name: "Spain", kind: "dir", size: 0, modified: 1 },
     ]);
     await openSearchOverlay();
-    fireEvent.change(screen.getByPlaceholderText("Search for a file"), { target: { value: "spain" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), { target: { value: "spain" } });
     await screen.findByRole("link", { name: /^Open Spain$/i });
     expect(screen.queryByRole("link", { name: /Go to folder for Spain/i })).not.toBeInTheDocument();
     // The middle of a long path collapses so the last folders stay visible.
@@ -619,7 +622,7 @@ describe("FileSearch", () => {
       { truncated: true },
     );
     await openSearchOverlay();
-    fireEvent.change(screen.getByPlaceholderText("Search for a file"), { target: { value: "one" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), { target: { value: "one" } });
     await screen.findByRole("link", { name: /^Open one.txt$/i });
     expect(document.querySelector("[data-slot=file-search-truncated]")).toHaveTextContent(/more matches/i);
   });
@@ -627,7 +630,7 @@ describe("FileSearch", () => {
   it("warns when a drive could not be read", async () => {
     renderSearch([], { scan: { scanning: false, drives_total: 2, drives_done: 1, drives_failed: 1, dirs_indexed: 0 } });
     await openSearchOverlay();
-    fireEvent.change(screen.getByPlaceholderText("Search for a file"), { target: { value: "zz" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), { target: { value: "zz" } });
     await waitFor(() =>
       expect(document.querySelector("[data-slot=file-search-status]")).toHaveTextContent(
         "Luna couldn't read 1 drive, so some files may not show up.",
@@ -638,7 +641,7 @@ describe("FileSearch", () => {
   it("offers a retry when searching fails", async () => {
     const { fetchMock } = renderSearch([], { searchError: true });
     await openSearchOverlay();
-    fireEvent.change(screen.getByPlaceholderText("Search for a file"), { target: { value: "zz" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), { target: { value: "zz" } });
     const retry = await screen.findByRole("button", { name: "Try again" });
     const before = searchCalls(fetchMock).length;
     fireEvent.click(retry);
@@ -653,6 +656,35 @@ describe("FileSearch", () => {
     fireEvent.click(screen.getByRole("radio", { name: "Folders" }));
     expect(window.localStorage.getItem("luna.fileSearch.kind")).toBe("dir");
     window.localStorage.removeItem("luna.fileSearch.kind");
+  });
+
+  it("shows the loading bar when a newer answer is slow, and eases it out after", async () => {
+    /** @type {(() => void) | undefined} */
+    let release;
+    const holdSecond = new Promise((resolve) => {
+      release = () => resolve(undefined);
+    });
+    renderSearch(
+      [{ drive_id: "d1", path: "one.txt", parent: "", name: "one.txt", kind: "file", size: 1, modified: 1 }],
+      { holdSecond },
+    );
+    await openSearchOverlay();
+    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), { target: { value: "one" } });
+    await screen.findByRole("link", { name: /^Open one.txt$/i });
+    expect(screen.queryByRole("progressbar", { name: "Updating results" })).not.toBeInTheDocument();
+
+    // A new search while the old list stays up: the bar waits out its delay.
+    fireEvent.click(screen.getByRole("radio", { name: "Files" }));
+    expect(screen.queryByRole("progressbar", { name: "Updating results" })).not.toBeInTheDocument();
+    const bar = await screen.findByRole("progressbar", { name: "Updating results" }, { timeout: 2000 });
+    expect(bar).toHaveAttribute("data-phase", "in");
+
+    release?.();
+    await waitFor(() => expect(bar).toHaveAttribute("data-phase", "out"), { timeout: 2000 });
+    await waitFor(
+      () => expect(screen.queryByRole("progressbar", { name: "Updating results", hidden: true })).not.toBeInTheDocument(),
+      { timeout: 2000 },
+    );
   });
 });
 
