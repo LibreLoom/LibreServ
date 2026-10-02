@@ -2,7 +2,7 @@ import { cn } from "@libreloom/ui/lib/utils.js";
 import { PLACEHOLDER_TEXT } from "@libreloom/ui/lib/ui-tokens.js";
 import { useState, useEffect, useCallback, useRef, useContext } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { AlertCircle, ArrowRight, Check, ChevronLeft, Eye, EyeOff, Lock } from "lucide-react";
+import { AlertCircle, ArrowRight, Check, ChevronLeft, Eye, EyeOff, Lock, X } from "lucide-react";
 import PropTypes from "prop-types";
 import { getJson, postJson, ApiError } from "../lib/api";
 import { isPublicLunaHost } from "../lib/publicHost";
@@ -379,7 +379,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
     {
       id: "confirm_password",
       question: "Confirm your password",
-      hint: confirmOk && pw ? "Passwords match." : "Re-enter the password you just chose.",
+      hint: "Re-enter the password you just chose.",
       name: "confirm_password",
       type: "password",
       placeholder: "Re-enter your password",
@@ -657,7 +657,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
 
             {/* Hide the short policy hint once the live strength checklist is showing —
                 the ReqChips already cover length / letter / number. */}
-            {currentAuthField.hint && !(currentAuthField.showStrength && strength) && !currentAuthField.inlineError && (
+            {currentAuthField.hint && !(currentAuthField.showStrength && strength) && !currentAuthField.inlineError && !(currentAuthField.name === "confirm_password" && confirm) && (
               <p className="mt-2.5 text-xs text-primary leading-relaxed">{currentAuthField.hint}</p>
             )}
 
@@ -671,9 +671,15 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
               </p>
             )}
 
-            {currentAuthField.name === "confirm_password" && confirm && !confirmOk && (
-              <p className="inline-block text-xs text-primary bg-error/20 border border-error/30 rounded-pill px-3 py-1 mt-2.5">
-                Passwords don&rsquo;t match
+            {currentAuthField.name === "confirm_password" && confirm && (
+              <p
+                className={`inline-flex items-center gap-1.5 text-xs text-primary border rounded-pill px-3 py-1 mt-2.5 ${
+                  confirmOk ? "bg-success/20 border-success/30" : "bg-error/20 border-error/30"
+                }`}
+                role="status"
+              >
+                {confirmOk ? <Check className="w-3.5 h-3.5 text-success" /> : <X className="w-3.5 h-3.5 text-error" />}
+                {confirmOk ? "Passwords match" : "Passwords don\u2019t match"}
               </p>
             )}
           </OneShotSlide>
