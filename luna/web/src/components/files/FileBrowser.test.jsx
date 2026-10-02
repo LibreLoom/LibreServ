@@ -1886,3 +1886,25 @@ describe("FileBrowser keyboard", () => {
     expect(onSelectedPathsChange).not.toHaveBeenCalled();
   });
 });
+
+describe("FileBrowser long folders", () => {
+  const names = Array.from({ length: 600 }, (_, i) => `file-${String(i).padStart(4, "0")}.txt`);
+
+  it("mounts only the rows near the viewport but still counts every row", async () => {
+    // jsdom has no layout: give rows a real height so the window can measure.
+    /** @this {HTMLElement} */
+    function rowHeight() {
+      return this.hasAttribute("data-index") ? 45 : 0;
+    }
+    const offsetHeight = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get")
+      .mockImplementation(rowHeight);
+    stubListing({ "": names.map((name) => ({ name, kind: "file", size: 1 })) });
+    renderBrowser();
+    await screen.findByText("file-0000.txt");
+    const rows = document.querySelectorAll("[data-file-path]");
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.length).toBeLessThan(150);
+    expect(rows[0]).toHaveAttribute("aria-setsize", "600");
+    offsetHeight.mockRestore();
+  });
+});

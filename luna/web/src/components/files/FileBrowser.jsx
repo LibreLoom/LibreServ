@@ -1,6 +1,7 @@
-import { useCallback, useContext, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useContext, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { defaultRangeExtractor, useWindowVirtualizer } from "@tanstack/react-virtual";
 import {
   Check,
   Copy,
@@ -123,6 +124,8 @@ const SORT_OPTIONS = [
   { value: "kind", label: "File type" },
 ];
 const SORT_VALUES = new Set(SORT_OPTIONS.map((option) => option.value));
+/** Folders longer than this render only the rows near the viewport. */
+const VIRTUALIZE_AFTER = 80;
 const SORT_STORAGE_KEY = "luna.files.sort";
 const HIDDEN_STORAGE_KEY = "luna.files.showHidden";
 
@@ -435,6 +438,74 @@ export default function FileBrowser({
     () => visibleEntries.map((e) => (fileRoot ? path : joinPath(path, e.name))),
     [visibleEntries, path, fileRoot],
   );
+  // Long folders mount only the rows near the viewport (the page scrolls on
+  // the window). Short folders and pickers render every row.
+  const virtualOn = !isPicker && visibleEntries.length > VIRTUALIZE_AFTER;
+  const topSpacerRef = useRef(/** @type {HTMLLIElement|null} */ (null));
+  const [scrollMargin, setScrollMargin] = useState(0);
+  const dragIndexRef = useRef(-1);
+  const virtualizer = useWindowVirtualizer({
+    count: virtualOn ? visibleEntries.length : 0,
+    estimateSize: () => (dense ? 37 : 45),
+    overscan: 12,
+    scrollMargin,
+    getItemKey: (i) => visibleEntries[i]?.name ?? i,
+    initialRect: { width: 1024, height: typeof window === "undefined" ? 800 : window.innerHeight },
+    // The row being dragged stays mounted: a source node removed mid-drag
+    // never fires dragend.
+    rangeExtractor: (range) => {
+      const base = defaultRangeExtractor(range);
+      const held = dragIndexRef.current;
+      if (held >= 0 && held < range.count && !base.includes(held)) {
+        base.push(held);
+        base.sort((a, b) => a - b);
+      }
+      return base;
+    },
+  });
+
+  // Where the rows start on the page: everything above them (breadcrumbs,
+  // toolbars) can change height, so re-measure when the page layout shifts.
+  useLayoutEffect(() => {
+    if (!virtualOn) return undefined;
+    let frame = 0;
+    const measure = () => {
+      frame = 0;
+      const el = topSpacerRef.current;
+      if (!el) return;
+      const next = Math.round(el.getBoundingClientRect().top + window.scrollY);
+      setScrollMargin((prev) => (Math.abs(prev - next) > 1 ? next : prev));
+    };
+    const schedule = () => {
+      if (!frame) frame = window.requestAnimationFrame(measure);
+    };
+    measure();
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(schedule) : null;
+    observer?.observe(document.body);
+    window.addEventListener("resize", schedule);
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      observer?.disconnect();
+      window.removeEventListener("resize", schedule);
+    };
+  }, [virtualOn]);
+
+  /**
+   * Bring a row into view, mounting it first when it is outside the window.
+   * @param {string} rowPath
+   * @param {ScrollBehavior} [behavior]
+   */
+  function revealRow(rowPath, behavior = "auto") {
+    const idx = visiblePaths.indexOf(rowPath);
+    const find = () => listRef.current?.querySelector(`[data-file-path="${cssEscape(rowPath)}"]`);
+    if (virtualOn && idx >= 0 && !find()) {
+      virtualizer.scrollToIndex(idx, { align: "auto" });
+    }
+    window.requestAnimationFrame(() => {
+      find()?.scrollIntoView?.({ block: "nearest", behavior });
+    });
+  }
+
   const narrowed = visibleEntries.length !== entries.length;
   const isFiltered = Boolean(filterText.trim() || kindFilter !== "all");
 
@@ -492,16 +563,8 @@ export default function FileBrowser({
     // eslint-disable-next-line react-hooks/set-state-in-effect -- deep-link select= seed
     setSelectedPaths([selectPath]);
     setLastClicked(selectPath);
-    const frame = window.requestAnimationFrame(() => {
-      const root = listRef.current;
-      if (!root) return;
-      const row = root.querySelector(`[data-file-path="${cssEscape(selectPath)}"]`);
-      if (row && typeof row.scrollIntoView === "function") {
-        row.scrollIntoView({ block: "nearest", behavior: prefersReducedMotion() ? "auto" : "smooth" });
-      }
-    });
+    revealRow(selectPath, prefersReducedMotion() ? "auto" : "smooth");
     onSelectPathApplied?.();
-    return () => window.cancelAnimationFrame(frame);
     // setSelectedPaths is stable enough for this deep-link seed; listing/selectPath drive re-runs.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional seed-once-per-selectPath
   }, [selectPath, entryPaths, listBusy, onSelectPathApplied]);
@@ -570,10 +633,7 @@ export default function FileBrowser({
       setSelectedPaths([next]);
       setLastClicked(next);
     }
-    window.requestAnimationFrame(() => {
-      const row = listRef.current?.querySelector(`[data-file-path="${cssEscape(next)}"]`);
-      row?.scrollIntoView?.({ block: "nearest" });
-    });
+    revealRow(next);
     return true;
   }
 
@@ -898,6 +958,7 @@ export default function FileBrowser({
       ? selectedPaths
       : [ctx.fullPath];
     dragPathsRef.current = paths;
+    dragIndexRef.current = visiblePaths.indexOf(ctx.fullPath);
     setLunaDragActive(true);
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData(LUNA_PATHS_MIME, JSON.stringify(paths));
@@ -937,6 +998,15 @@ export default function FileBrowser({
     if (filtered.length) await onInternalMove(filtered, destFolder, undefined, sourceDriveId);
     dragPathsRef.current = [];
   }
+
+  const virtualItems = virtualOn ? virtualizer.getVirtualItems() : [];
+  const rowIndexes = virtualOn
+    ? virtualItems.map((v) => v.index)
+    : visibleEntries.map((_, i) => i);
+  const topPad = virtualItems.length ? Math.max(0, virtualItems[0].start - scrollMargin) : 0;
+  const bottomPad = virtualItems.length
+    ? Math.max(0, virtualizer.getTotalSize() - (virtualItems[virtualItems.length - 1].end - scrollMargin))
+    : 0;
 
   // Stable handle for the memoized rows. Methods read the latest closure
   // through the ref, so rows never re-render just because a handler changed.
@@ -1025,6 +1095,23 @@ export default function FileBrowser({
   useEffect(() => () => {
     if (hereDropExitRef.current != null) clearTimeout(hereDropExitRef.current);
   }, []);
+  // A dragged row can be unmounted by the list window, and a source node that
+  // leaves the page never fires dragend. Pointer events do not fire during a
+  // drag, so the first one after it means the drag is over.
+  useEffect(() => {
+    if (!lunaDragActive) {
+      dragIndexRef.current = -1;
+      return undefined;
+    }
+    function dragOver() {
+      clearSpringLoad();
+      setLunaDragActive(false);
+      setDropTarget(null);
+    }
+    window.addEventListener("pointermove", dragOver, { once: true });
+    return () => window.removeEventListener("pointermove", dragOver);
+  }, [lunaDragActive, clearSpringLoad]);
+
   const showTrashEntry = Boolean(trashHref && !isPicker && path === "");
 
   const folderActionButtons = hasFolderActions ? (
@@ -1716,43 +1803,60 @@ export default function FileBrowser({
               );
             })() : null}
             {visibleEntries.length > 0 ? (
-              visibleEntries.map((entry, rowIndex) => {
-                const rowPath = fileRoot ? path : joinPath(path, entry.name);
-                return (
-                  <FileRow
-                    key={entry.name}
-                    entry={entry}
-                    path={path}
-                    fileRoot={fileRoot}
-                    // Trash counts as the first row when shown, so the striping
-                    // stays on the same visual parity either way.
-                    striped={(rowIndex + (showTrashEntry ? 1 : 0)) % 2 === 1}
-                    isSelected={selectedSet.has(rowPath)}
-                    isDrop={dropTarget === rowPath}
-                    isPicker={isPicker}
-                    pickerMode={pickerMode}
-                    pickSelected={isPicker && selectedPath === rowPath}
-                    multiSelect={multiSelect}
-                    linkNavigation={linkNavigation}
-                    canDragRow={!isPicker && Boolean(onInternalMove)}
-                    dropEnabled={rowDropEnabled(rowPath)}
-                    trashView={trashView}
-                    driveId={driveId}
-                    surface={surface}
-                    dense={dense}
-                    hasShare={Boolean(onShare)}
-                    hasCopy={Boolean(onCopy)}
-                    hasMove={Boolean(onMove)}
-                    hasRename={Boolean(onRename)}
-                    hasDelete={Boolean(onDelete)}
-                    enableDownload={enableDownload}
-                    renderRowActions={renderRowActions}
-                    folderHref={folderHref}
-                    fileHref={fileHref}
-                    api={rowApi}
+              <>
+                {virtualOn ? (
+                  <li
+                    ref={topSpacerRef}
+                    aria-hidden="true"
+                    style={{ height: topPad }}
                   />
-                );
-              })
+                ) : null}
+                {rowIndexes.map((rowIndex) => {
+                  const entry = visibleEntries[rowIndex];
+                  const rowPath = fileRoot ? path : joinPath(path, entry.name);
+                  return (
+                    <FileRow
+                      key={entry.name}
+                      entry={entry}
+                      path={path}
+                      fileRoot={fileRoot}
+                      // Trash counts as the first row when shown, so the striping
+                      // stays on the same visual parity either way.
+                      striped={(rowIndex + (showTrashEntry ? 1 : 0)) % 2 === 1}
+                      isLast={rowIndex === visibleEntries.length - 1}
+                      isSelected={selectedSet.has(rowPath)}
+                      isDrop={dropTarget === rowPath}
+                      isPicker={isPicker}
+                      pickerMode={pickerMode}
+                      pickSelected={isPicker && selectedPath === rowPath}
+                      multiSelect={multiSelect}
+                      linkNavigation={linkNavigation}
+                      canDragRow={!isPicker && Boolean(onInternalMove)}
+                      dropEnabled={rowDropEnabled(rowPath)}
+                      trashView={trashView}
+                      driveId={driveId}
+                      surface={surface}
+                      dense={dense}
+                      hasShare={Boolean(onShare)}
+                      hasCopy={Boolean(onCopy)}
+                      hasMove={Boolean(onMove)}
+                      hasRename={Boolean(onRename)}
+                      hasDelete={Boolean(onDelete)}
+                      enableDownload={enableDownload}
+                      renderRowActions={renderRowActions}
+                      folderHref={folderHref}
+                      fileHref={fileHref}
+                      api={rowApi}
+                      measureRef={virtualOn ? virtualizer.measureElement : undefined}
+                      dataIndex={virtualOn ? rowIndex : undefined}
+                      setSize={virtualOn ? visibleEntries.length : undefined}
+                    />
+                  );
+                })}
+                {virtualOn ? (
+                  <li aria-hidden="true" style={{ height: bottomPad }} />
+                ) : null}
+              </>
             ) : listing.isError ? (
               <li
                 data-slot="listing-error"

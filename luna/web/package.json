@@ -20,6 +20,7 @@
     "@lezer/markdown": "^1.7.2",
     "@libreloom/ui": "file:../../shared/ui",
     "@tanstack/react-query": "^5.102.8",
+    "@tanstack/react-virtual": "^3.14.13",
     "agentation": "^3.0.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

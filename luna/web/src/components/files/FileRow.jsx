@@ -59,6 +59,10 @@ function FileRow({
   folderHref,
   fileHref,
   api,
+  isLast = false,
+  measureRef = undefined,
+  dataIndex = undefined,
+  setSize = undefined,
 }) {
   const source = useFileSource();
   const displayName = displayNameOf(entry);
@@ -261,9 +265,13 @@ function FileRow({
 
   return (
     <li
+      ref={measureRef}
+      data-index={dataIndex}
+      aria-setsize={setSize}
+      aria-posinset={setSize != null && dataIndex != null ? dataIndex + 1 : undefined}
       data-file-path={fullPath}
       className={[
-        "flex items-center gap-2 px-3 file-row",
+        "flex items-center gap-2 px-3",
         padY,
         // The stripe IS the row's background — the only place it
         // may ever paint. Selection and drop-target states own the
@@ -282,6 +290,9 @@ function FileRow({
         isDrop
           ? "ring-2 ring-accent ring-inset border-b border-transparent last:border-b-0 last:rounded-b-large-element"
           : "border-b border-primary/15 last:border-b-0 last:rounded-b-large-element",
+        // `last:` can't see the real last row while the list window has a
+        // spacer after it, so the flag says it explicitly.
+        isLast ? "border-b-0 rounded-b-large-element" : "",
         "motion-safe:transition-colors",
         canDragRow ? "cursor-grab active:cursor-grabbing select-none" : "",
       ].filter(Boolean).join(" ")}
