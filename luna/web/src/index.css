@@ -657,6 +657,31 @@ select:focus:not(:focus-visible) {
     }
 }
 
+/* LinearProgress enter/exit. The bars themselves are the Material 3
+   indeterminate animations above (`animate-md-bar-1` / `animate-md-bar-2`). */
+@keyframes md-linear-in {
+    from { opacity: 0; transform: scaleY(0.2); }
+    to { opacity: 1; transform: none; }
+}
+@keyframes md-linear-out {
+    from { opacity: 1; transform: none; }
+    to { opacity: 0; transform: scaleY(0.2); }
+}
+.md-linear-enter {
+    transform-origin: bottom;
+    animation: md-linear-in 200ms var(--motion-easing-emphasized-decelerate) both;
+}
+.md-linear-exit {
+    transform-origin: bottom;
+    animation: md-linear-out 260ms var(--motion-easing-emphasized-accelerate) both;
+}
+@media (prefers-reduced-motion: reduce) {
+    .md-linear-enter,
+    .md-linear-exit {
+        animation: none;
+    }
+}
+
 /* Fade in up animation */
 @keyframes fade-in-up {
     from {

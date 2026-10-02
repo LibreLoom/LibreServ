@@ -270,9 +270,9 @@ async fn adopt(
         )
     })?;
     if !row.mount_point.is_empty() {
-        state
-            .gallery
-            .watch_mount(&row.id, PathBuf::from(&row.mount_point));
+        let mount = PathBuf::from(&row.mount_point);
+        state.search_index.watch_mount(&row.id, mount.clone());
+        state.gallery.watch_mount(&row.id, mount);
     }
     Ok(Json(row.into()))
 }

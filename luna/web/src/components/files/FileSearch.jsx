@@ -7,6 +7,7 @@ import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import ModalErrorNotice from "@libreloom/ui/components/common/ModalErrorNotice.jsx";
 import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
+import LinearProgress from "@libreloom/ui/components/common/LinearProgress.jsx";
 import { showPageLevelError } from "../../lib/modalScopedError";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
@@ -533,12 +534,16 @@ export default function FileSearch() {
 
             <div
               data-slot="file-search-toolbar"
-              className={cn(
-                "flex flex-wrap items-center justify-between gap-2 px-4 py-2 shrink-0 border-b-2",
-                // A pulsing accent rule says the list is about to change.
-                search.isUpdating ? "border-accent motion-safe:animate-pulse" : "border-primary/20",
-              )}
+              className="relative flex flex-wrap items-center justify-between gap-2 px-4 py-2 shrink-0 border-b border-primary/20"
             >
+              {/* The old list stays up while a new answer loads; this says so. */}
+              <LinearProgress
+                active={search.isUpdating}
+                delayMs={150}
+                surface="secondary"
+                label="Updating results"
+                className="absolute inset-x-0 bottom-0 rounded-none"
+              />
               <SegmentedControl
                 surface="secondary"
                 aria-label="Show"
