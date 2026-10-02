@@ -186,7 +186,7 @@ export default function CreateUserForm({
           Role
           <InfoHint
             label="Admin vs Member"
-            content="Admins can add users, change settings, manage drives, and see everything. Members only use folders and albums shared with them."
+            content="Admins can add users, change settings, manage drives, and open everything except other people's private items. Members only use folders and albums shared with them."
           />
         </span>
         <Dropdown

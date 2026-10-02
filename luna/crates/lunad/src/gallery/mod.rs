@@ -254,7 +254,11 @@ pub fn is_media(path: &Path) -> bool {
 }
 
 fn ext_in(path: &Path, exts: &[&str]) -> bool {
-    path.extension()
+    let Some(leaf) = crate::files::leaf_of(path) else {
+        return false;
+    };
+    Path::new(&leaf)
+        .extension()
         .and_then(|e| e.to_str())
         .map(|e| exts.contains(&e.to_ascii_lowercase().as_str()))
         .unwrap_or(false)
@@ -390,13 +394,16 @@ pub fn scan_drive(drive_id: &str, root: &Path) -> anyhow::Result<ScanReport> {
     let mut report = ScanReport::default();
     let mut seen = HashSet::new();
     let mut pending: Vec<PendingUpsert> = Vec::with_capacity(BATCH_UPSERT);
-    let mut stack = vec![root.to_path_buf()];
+    // Each folder carries its real path: private items sit on disk under
+    // `.luna-` names but are indexed under the names people see.
+    let mut stack = vec![(root.to_path_buf(), String::new())];
 
-    while let Some(dir) = stack.pop() {
+    while let Some((dir, dir_rel)) = stack.pop() {
         let entries = match std::fs::read_dir(&dir) {
             Ok(e) => e,
             Err(_) => continue,
         };
+        let private = crate::private::children_of(root, &dir_rel);
         for entry in entries {
             let entry = match entry {
                 Ok(e) => e,
@@ -409,29 +416,28 @@ pub fn scan_drive(drive_id: &str, root: &Path) -> anyhow::Result<ScanReport> {
             if meta.file_type().is_symlink() {
                 continue;
             }
+            let disk_name = entry.file_name();
+            let item = disk_name.to_str().and_then(|n| private.get(n));
+            let shown = item
+                .map(|i| i.name().to_string())
+                .unwrap_or_else(|| disk_name.to_string_lossy().into_owned());
             if meta.is_dir() {
-                let name = entry.file_name();
-                let name = name.to_string_lossy();
-                if skip_gallery_dir(&name) {
+                if item.is_none() && skip_gallery_dir(&shown) {
                     continue;
                 }
-                stack.push(entry.path());
+                stack.push((entry.path(), gallery_indexer::join_rel(&dir_rel, &shown)));
                 continue;
             }
-            if !meta.is_file() || !is_media(&entry.path()) {
+            if !meta.is_file() || !is_media(Path::new(&shown)) {
                 continue;
             }
             let path_buf = entry.path();
-            let Some(rel) = path_buf.strip_prefix(root).ok().and_then(|p| p.to_str()) else {
+            if disk_name.to_str().is_none() {
                 continue;
-            };
-            let rel = rel.replace('\\', "/");
+            }
+            let rel = gallery_indexer::join_rel(&dir_rel, &shown);
             seen.insert(rel.clone());
-            let file_name = entry.file_name();
-            let Some(name) = file_name.to_str() else {
-                continue;
-            };
-            let name = name.to_string();
+            let name = shown;
             let size = meta.len() as i64;
             let mtime = meta
                 .modified()
@@ -663,16 +669,12 @@ fn photo_cache_row(conn: &Connection, rel: &str) -> anyhow::Result<Option<(i64, 
 /// Fast path: EXIF + DB row so the photo shows in the timeline immediately.
 /// Thumbnails are filled in by [`finish_thumb`].
 pub fn index_one_meta(drive_id: &str, root: &Path, rel: &str) -> anyhow::Result<Option<()>> {
-    let path_buf = root.join(rel);
+    let path_buf = root.join(crate::private::disk_rel(root, rel));
     if !path_buf.is_file() || !is_media(&path_buf) {
         return Ok(None);
     }
     let meta = std::fs::symlink_metadata(&path_buf)?;
-    let name = path_buf
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or(rel)
-        .to_string();
+    let name = crate::files::leaf_of(&path_buf).unwrap_or_else(|| rel.to_string());
     let size = meta.len() as i64;
     let mtime = meta
         .modified()
@@ -744,7 +746,7 @@ pub fn index_one_meta(drive_id: &str, root: &Path, rel: &str) -> anyhow::Result<
 
 /// Build (or refresh) the thumbnail for an already-indexed photo.
 pub fn finish_thumb(drive_id: &str, root: &Path, rel: &str) -> anyhow::Result<()> {
-    let path_buf = root.join(rel);
+    let path_buf = root.join(crate::private::disk_rel(root, rel));
     if !path_buf.is_file() || !is_media(&path_buf) {
         return Ok(());
     }
@@ -973,7 +975,7 @@ pub fn ensure_thumb(src: &Path, dest: &Path, kind: &str) -> anyhow::Result<(u32,
     // and link surfaces reach here through paths a member only *named*, and
     // a symlink they planted must not read out `.luna-*` contents for them.
     if let Ok(canonical) = src.canonicalize()
-        && crate::files::is_internal_temp(&canonical.to_string_lossy())
+        && crate::files::is_internal_abs(&canonical.to_string_lossy())
     {
         anyhow::bail!("Luna can't make a thumbnail from that file");
     }
@@ -1986,6 +1988,7 @@ pub fn list_place_markers(mounts: &[(String, PathBuf)]) -> anyhow::Result<Vec<Pl
 pub fn list_cameras(
     mounts: &[(String, PathBuf)],
     path_grants: Option<&std::collections::HashMap<String, Vec<String>>>,
+    visible: &dyn Fn(&str, &str) -> bool,
 ) -> anyhow::Result<Vec<CameraCount>> {
     use std::collections::HashMap;
     let mut map: HashMap<(String, String), u64> = HashMap::new();
@@ -2011,7 +2014,7 @@ pub fn list_cameras(
         })?;
         for row in rows.flatten() {
             let (make, model, path) = row;
-            if !path_allowed_by_grants(path_grants, drive_id, &path) {
+            if !path_allowed_by_grants(path_grants, visible, drive_id, &path) {
                 continue;
             }
             *map.entry((make, model)).or_insert(0) += 1;
@@ -2035,16 +2038,18 @@ pub fn list_cameras(
 /// a missing drive key denies every path on that drive (never “allow all”).
 fn path_allowed_by_grants(
     path_grants: Option<&std::collections::HashMap<String, Vec<String>>>,
+    visible: &dyn Fn(&str, &str) -> bool,
     drive_id: &str,
     path: &str,
 ) -> bool {
-    match path_grants {
-        None => true,
-        Some(grants) => match grants.get(drive_id) {
-            None => false,
-            Some(prefs) => prefs.iter().any(|p| crate::access::path_contains(p, path)),
-        },
-    }
+    visible(drive_id, path)
+        && match path_grants {
+            None => true,
+            Some(grants) => match grants.get(drive_id) {
+                None => false,
+                Some(prefs) => prefs.iter().any(|p| crate::access::path_contains(p, path)),
+            },
+        }
 }
 
 /// Aggregate filter facet values (cameras, lenses, formats, ISO/focal ranges).
@@ -2053,9 +2058,10 @@ fn path_allowed_by_grants(
 pub fn list_filter_facets(
     mounts: &[(String, PathBuf)],
     path_grants: Option<&std::collections::HashMap<String, Vec<String>>>,
+    visible: &dyn Fn(&str, &str) -> bool,
 ) -> anyhow::Result<FilterFacets> {
     use std::collections::HashMap;
-    let cameras = list_cameras(mounts, path_grants)?;
+    let cameras = list_cameras(mounts, path_grants, visible)?;
     let mut lenses: HashMap<String, u64> = HashMap::new();
     let mut formats: HashMap<String, u64> = HashMap::new();
     let mut iso_min: Option<u32> = None;
@@ -2081,7 +2087,7 @@ pub fn list_filter_facets(
             })?;
             for row in rows.flatten() {
                 let (lens, path) = row;
-                if !path_allowed_by_grants(path_grants, drive_id, &path) {
+                if !path_allowed_by_grants(path_grants, visible, drive_id, &path) {
                     continue;
                 }
                 *lenses.entry(lens).or_insert(0) += 1;
@@ -2091,7 +2097,7 @@ pub fn list_filter_facets(
             let mut stmt = conn.prepare("SELECT path FROM photos")?;
             let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
             for path in rows.flatten() {
-                if !path_allowed_by_grants(path_grants, drive_id, &path) {
+                if !path_allowed_by_grants(path_grants, visible, drive_id, &path) {
                     continue;
                 }
                 let ext = normalize_format_ext(&path_ext_lower(&path));
@@ -2108,7 +2114,7 @@ pub fn list_filter_facets(
             })?;
             for row in rows.flatten() {
                 let (iso, path) = row;
-                if !path_allowed_by_grants(path_grants, drive_id, &path) {
+                if !path_allowed_by_grants(path_grants, visible, drive_id, &path) {
                     continue;
                 }
                 let iso = iso.max(0) as u32;
@@ -2123,7 +2129,7 @@ pub fn list_filter_facets(
             })?;
             for row in rows.flatten() {
                 let (focal, path) = row;
-                if !path_allowed_by_grants(path_grants, drive_id, &path) {
+                if !path_allowed_by_grants(path_grants, visible, drive_id, &path) {
                     continue;
                 }
                 focal_min = Some(focal_min.map_or(focal, |v| v.min(focal)));
@@ -2809,7 +2815,7 @@ pub fn write_items_zip(
         // Entry paths arrive canonicalized — a `.luna-*` segment means a
         // symlinked item or contrib row resolved onto Luna bookkeeping
         // (thumbs, trash, the drive's microdb). Never ship those.
-        if crate::files::is_internal_temp(&abs.to_string_lossy()) {
+        if crate::files::is_internal_abs(&abs.to_string_lossy()) {
             continue;
         }
         let name = unique_zip_name(&mut used_names, archive_name);
@@ -3228,7 +3234,7 @@ mod tests {
         scan("d1", &photos_dir).unwrap();
         let mounts = vec![("d1".into(), photos_dir.clone())];
 
-        let cameras = list_cameras(&mounts, None).unwrap();
+        let cameras = list_cameras(&mounts, None, &|_, _| true).unwrap();
         assert!(
             cameras
                 .iter()
@@ -3302,7 +3308,7 @@ mod tests {
         let mounts = vec![("d1".into(), photos_dir.clone())];
         let mut grants = std::collections::HashMap::new();
         grants.insert("d1".into(), vec!["shared".into()]);
-        let cameras = list_cameras(&mounts, Some(&grants)).unwrap();
+        let cameras = list_cameras(&mounts, Some(&grants), &|_, _| true).unwrap();
         assert!(
             cameras
                 .iter()
@@ -3335,12 +3341,12 @@ mod tests {
         let mounts = vec![("d1".into(), photos_dir)];
         // Member map present but this drive has no entry — must not equal Admin None.
         let grants = std::collections::HashMap::new();
-        let cameras = list_cameras(&mounts, Some(&grants)).unwrap();
+        let cameras = list_cameras(&mounts, Some(&grants), &|_, _| true).unwrap();
         assert!(
             cameras.is_empty(),
             "missing drive key under Some(grants) must deny: {cameras:?}"
         );
-        let admin = list_cameras(&mounts, None).unwrap();
+        let admin = list_cameras(&mounts, None, &|_, _| true).unwrap();
         assert!(
             admin
                 .iter()
@@ -3461,7 +3467,7 @@ mod tests {
         scan("d1", &photos_dir).unwrap();
         let mounts = vec![("d1".into(), photos_dir.clone())];
 
-        let facets = list_filter_facets(&mounts, None).unwrap();
+        let facets = list_filter_facets(&mounts, None, &|_, _| true).unwrap();
         assert!(
             facets
                 .lenses

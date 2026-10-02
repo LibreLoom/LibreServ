@@ -16,6 +16,11 @@ struct CreateJob {
     from_path: Option<String>,
     to_drive: String,
     to_path: Option<String>,
+    /// The caller saw the "this leaves the private folder" warning and chose
+    /// to proceed. WebDAV transfers never set this — native clients follow
+    /// destination permissions without a Luna-specific prompt.
+    #[serde(default)]
+    confirm_broaden: bool,
 }
 
 #[derive(Deserialize)]
@@ -76,6 +81,15 @@ async fn create(
                 "You don't have permission to save here.",
             ));
         }
+        if !body.confirm_broaden
+            && broadens_access(&conn, &body.from_drive, from_path, &body.to_drive, to_path)
+        {
+            return Err(crate::api::response::json_error_code(
+                StatusCode::CONFLICT,
+                "broadens_access",
+                "This is in a private folder. Moving or copying it to this folder lets everyone with access to the destination open it.",
+            ));
+        }
     }
     let job = state
         .job_manager
@@ -112,8 +126,14 @@ async fn list(
             .list_for_user(&user.id, limit)
             .map_err(map_job_err)?
     };
+    let conn = state
+        .db
+        .lock()
+        .map_err(|_| map_job_err(JobError::NotFound))?;
     Ok(Json(
-        jobs.into_iter().map(|job| job_json(job, &user)).collect(),
+        jobs.into_iter()
+            .map(|job| job_json(job, &user, &conn))
+            .collect(),
     ))
 }
 
@@ -133,7 +153,11 @@ async fn get_one(
             "Luna doesn't know this job.",
         ));
     }
-    Ok(Json(job_json(job, &user)))
+    let conn = state
+        .db
+        .lock()
+        .map_err(|_| map_job_err(JobError::NotFound))?;
+    Ok(Json(job_json(job, &user, &conn)))
 }
 
 async fn cancel(
@@ -156,31 +180,87 @@ async fn cancel(
     Ok(Json(json!({ "ok": true })))
 }
 
-fn job_json(job: crate::db::JobRow, viewer: &crate::auth::CurrentUser) -> Value {
+fn job_json(
+    job: crate::db::JobRow,
+    viewer: &crate::auth::CurrentUser,
+    conn: &rusqlite::Connection,
+) -> Value {
     // A job's paths are verbatim only for the member who created it.
     // Everyone else — admins included — gets `.luna-<uuid>` internals
     // blanked: those paths are Luna's own bookkeeping, which this surface
     // must not leak.
-    let path = |p: String| -> String {
-        if viewer.id == job.user_id || !crate::files::is_internal_temp(&p) {
-            p
-        } else {
-            "private".to_string()
-        }
+    let hidden = |drive: &str, path: &str, was_private: bool| {
+        viewer.id != job.user_id
+            && (was_private
+                || crate::files::is_internal_temp(path)
+                || crate::auth::inside_private(conn, drive, path))
     };
+    let from_hidden = hidden(&job.from_drive, &job.from_path, job.from_private);
+    let to_hidden = hidden(&job.to_drive, &job.to_path, job.to_private);
+    let redacted = from_hidden || to_hidden;
     json!({
         "id": job.id,
         "kind": job.kind,
         "state": job.state,
         "user_id": job.user_id,
         "from_drive": job.from_drive,
-        "from_path": path(job.from_path),
+        "from_path": if from_hidden { "private".to_string() } else { job.from_path },
         "to_drive": job.to_drive,
-        "to_path": path(job.to_path),
-        "progress": job.progress,
-        "total": job.total,
-        "error": job.error,
+        "to_path": if to_hidden { "private".to_string() } else { job.to_path },
+        "progress": if redacted { 0 } else { job.progress },
+        "total": if redacted { 0 } else { job.total },
+        "error": if redacted { String::new() } else { job.error },
     })
+}
+
+/// Does this transfer carry an ordinary item out of its private folder's
+/// boundary — so people who can reach the destination can now open it? A
+/// private folder itself keeps its boundary wherever it lands, and a move
+/// inside the same boundary changes nothing. Trash sources answer from
+/// their recorded provenance (the live row may be gone).
+pub(crate) fn broadens_access(
+    conn: &rusqlite::Connection,
+    from_drive: &str,
+    from_path: &str,
+    to_drive: &str,
+    to_path: &str,
+) -> bool {
+    let root_of = |drive_id: &str| {
+        crate::db::get_drive(conn, drive_id)
+            .ok()
+            .flatten()
+            .filter(|d| !d.mount_point.is_empty())
+            .map(|d| std::path::PathBuf::from(d.mount_point))
+    };
+    let Some(src_root) = root_of(from_drive) else {
+        return false;
+    };
+    let src_real = crate::files::real_rel(&src_root, from_path);
+    // A private folder carries its own boundary: no broadening either way.
+    if crate::private::item_at(&src_root, &src_real).is_some() {
+        return false;
+    }
+    let boundary = crate::private::boundary_for(&src_root, &src_real).or_else(|| {
+        crate::files::trash_private_meta(conn, from_drive, from_path)
+            .ok()
+            .flatten()
+            .map(|m| crate::private::Boundary {
+                path: m.private_path,
+                owner: m.private_owner,
+            })
+    });
+    let Some(boundary) = boundary else {
+        return false;
+    };
+    let Some(dst_root) = root_of(to_drive) else {
+        return false;
+    };
+    let dst_real = crate::files::real_rel(&dst_root, to_path);
+    match crate::private::boundary_for(&dst_root, &dst_real) {
+        // Moving within the same private folder keeps the same boundary.
+        Some(dst) => src_root != dst_root || dst.path != boundary.path,
+        None => true,
+    }
 }
 
 fn map_job_err(err: JobError) -> (StatusCode, Json<Value>) {
@@ -194,6 +274,10 @@ fn map_job_err(err: JobError) -> (StatusCode, Json<Value>) {
             "A file or folder with this name is already there. Choose a different destination.",
         ),
         JobError::Symlink => json_error(StatusCode::BAD_REQUEST, "Luna can't copy links yet."),
+        JobError::Blocked => json_error(
+            StatusCode::FORBIDDEN,
+            "This folder holds private items that only their owners can move.",
+        ),
         JobError::Files(crate::files::FilesError::UnknownDrive) => json_error(
             StatusCode::NOT_FOUND,
             "Luna doesn't know one of these drives. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in.",
@@ -397,6 +481,8 @@ mod http_tests {
             total: 10,
             error: String::new(),
             user_id: "sam".into(),
+            from_private: false,
+            to_private: false,
         };
         let who = |id: &str, role: &str| crate::auth::CurrentUser {
             id: id.into(),
@@ -405,13 +491,15 @@ mod http_tests {
         };
         let internal = ".luna-3f6a8c1e-9b2d-4a7c-8e5f-1a2b3c4d5e6f-trash/entry/photo.jpg";
 
-        let owner = job_json(row(internal, "docs"), &who("sam", "member"));
+        let dir = tempfile::tempdir().unwrap();
+        let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+        let owner = job_json(row(internal, "docs"), &who("sam", "member"), &conn);
         assert_eq!(
             owner["from_path"], internal,
             "the owner sees their own paths"
         );
 
-        let admin = job_json(row(internal, "docs"), &who("max", "admin"));
+        let admin = job_json(row(internal, "docs"), &who("max", "admin"), &conn);
         assert_eq!(admin["from_path"], "private");
         assert_eq!(
             admin["to_path"], "docs",
@@ -420,7 +508,7 @@ mod http_tests {
         assert_eq!(admin["user_id"], "sam");
 
         // Ordinary paths stay readable for admins — only internals redact.
-        let plain = job_json(row("docs/a.txt", "docs/b.txt"), &who("max", "admin"));
+        let plain = job_json(row("docs/a.txt", "docs/b.txt"), &who("max", "admin"), &conn);
         assert_eq!(plain["from_path"], "docs/a.txt");
     }
 

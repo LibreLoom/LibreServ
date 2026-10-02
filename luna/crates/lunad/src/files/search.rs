@@ -269,6 +269,8 @@ mod tests {
             original_path: None,
             link_target: None,
             caps: String::new(),
+            private: false,
+            in_private: false,
         }
     }
 

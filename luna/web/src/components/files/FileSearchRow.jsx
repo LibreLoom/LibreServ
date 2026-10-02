@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import { ActionTooltipGroup, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
+import PrivateBadge from "../private/PrivateBadge.jsx";
 import { ShareButton } from "../share/ShareSheet.jsx";
 import { highlightParts, locationParts, searchWhen } from "../../lib/fileSearch.js";
 import { canViewerOpen } from "../../lib/officeConvert.js";
@@ -124,16 +125,19 @@ export default function FileSearchRow({
             <FileIcon size={16} className="shrink-0" aria-hidden="true" />
           )}
           <div className="min-w-0 flex-1 basis-40">
-            <p className="font-mono text-sm truncate text-secondary">
-              {parts.map((part, i) =>
-                part.hit ? (
-                  <span key={i} className="underline decoration-accent decoration-2 underline-offset-4">
-                    {part.text}
-                  </span>
-                ) : (
-                  part.text
-                ),
-              )}
+            <p className="flex items-center gap-1.5 min-w-0 text-secondary">
+              <span className="font-mono text-sm truncate">
+                {parts.map((part, i) =>
+                  part.hit ? (
+                    <span key={i} className="underline decoration-accent decoration-2 underline-offset-4">
+                      {part.text}
+                    </span>
+                  ) : (
+                    part.text
+                  ),
+                )}
+              </span>
+              {item.private ? <PrivateBadge size={12} /> : null}
             </p>
             <p className="text-xs truncate text-secondary" title={detail.full}>
               {detail.text}

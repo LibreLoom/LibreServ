@@ -94,8 +94,60 @@ describe("ShareSheet", () => {
       { id: "u3", username: "root", display_name: "Root Admin", admin: true, shareable: true },
     ]);
     renderSheet();
-    expect(await screen.findByText("Admins can already open everything.")).toBeInTheDocument();
+    expect(await screen.findByText("Admins can already open everything except other people's private items.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Add a person" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Private: only people you add here/)).not.toBeInTheDocument();
+  });
+
+  describe("private items", () => {
+    const privateBody = (path, extra = {}) => {
+      const base = subjectBody(path);
+      return { ...base, subject: { ...base.subject, private: true, private_folder: true }, ...extra };
+    };
+
+    it("can make an ordinary protected subfolder independently private", async () => {
+      const calls = stubApi((path) => {
+        const base = subjectBody(path);
+        return { ...base, subject: { ...base.subject, private: true, private_folder: false, owner: "u1" } };
+      });
+      renderSheet();
+      fireEvent.click(await screen.findByRole("button", { name: "Make private" }));
+      const dialog = await screen.findByRole("dialog", { name: "Make this folder private?" });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Make private" }));
+      await waitFor(() => expect(calls.some(([method, url, body]) => method === "POST" && url.endsWith("/files/privacy") && body.private === true)).toBe(true));
+    });
+
+    it("explains that only added people can open it", async () => {
+      stubApi((path) => privateBody(path));
+      renderSheet();
+      expect(
+        await screen.findByText("Private folder: only people added here can open it. Sharing a folder above it doesn't include it."),
+      ).toBeInTheDocument();
+    });
+
+    it("offers Admins as people to share with", async () => {
+      stubApi((path) => privateBody(path), [
+        { id: "u3", username: "root", display_name: "Root Admin", admin: true, shareable: true },
+      ]);
+      renderSheet();
+      await screen.findByText(/Private folder: only people added here/);
+      expect(await screen.findByRole("button", { name: "Add a person" })).toBeInTheDocument();
+      expect(screen.queryByText(/Admins can already open everything/)).not.toBeInTheDocument();
+    });
+
+    it("shows the shares Luna says still reach in", async () => {
+      // Luna leaves out shares from above the private item, so whatever it
+      // sends is a share at or below the boundary and is shown.
+      stubApi((path) => privateBody(path, {
+        inherited_members: [{
+          id: "m2", user_id: "u3", name: "Alex", caps: "view",
+          inherited_from: { kind: "path", drive_id: "d1", path: "family/private", name: "private", can_inspect: true },
+        }],
+      }));
+      renderSheet();
+      await screen.findByText(/Private folder: only people added here/);
+      expect(screen.getByText(/1 person shared through private/)).toBeInTheDocument();
+    });
   });
 
   it("shows direct members with effective caps and a parent-shares banner", async () => {

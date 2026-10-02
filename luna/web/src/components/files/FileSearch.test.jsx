@@ -686,5 +686,16 @@ describe("FileSearch", () => {
       { timeout: 2000 },
     );
   });
+
+  it("shows a lock on a private hit", async () => {
+    renderSearch([
+      { drive_id: "d1", path: "Taxes", parent: "", name: "Taxes", kind: "dir", size: 0, modified: 1, private: true },
+      { drive_id: "d1", path: "Tax notes.txt", parent: "", name: "Tax notes.txt", kind: "file", size: 10, modified: 1, private: false },
+    ]);
+    await openSearchOverlay();
+    fireEvent.change(screen.getByPlaceholderText("A filename, please."), { target: { value: "tax" } });
+    expect(await screen.findByLabelText("Open Tax notes.txt")).toBeInTheDocument();
+    expect(screen.getAllByLabelText("Private")).toHaveLength(1);
+  });
 });
 

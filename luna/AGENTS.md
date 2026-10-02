@@ -42,6 +42,11 @@ luna/
 - `make mobile-dev` — Android `installDebug` + relaunch on save (needs `adb`)
 - `make eurooffice` — extracts EuroOffice pack into `luna/dev/` + Document Server sidecar on :8088 (see `docs/eurooffice.md`)
 
+### Verification
+
+- Run `./ci run -profile luna` from the repo root; it runs `luna/ci.sh` across the daemon, OS scripts, desktop, mobile, and web.
+- Run permission-based read-only-drive tests as a non-root user. Root bypasses the Unix permission restrictions those tests use.
+
 ### Luna Connect
 ```bash
 cd luna/connect

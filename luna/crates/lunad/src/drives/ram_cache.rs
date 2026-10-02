@@ -370,6 +370,8 @@ impl RamCache {
                 original_path: None,
                 link_target: None,
                 caps: String::new(),
+                private: false,
+                in_private: false,
             };
             if let Some(existing) = listing.entries.iter_mut().find(|e| e.name == name) {
                 *existing = entry;
@@ -523,6 +525,8 @@ impl RamCache {
                 original_path: None,
                 link_target: None,
                 caps: String::new(),
+                private: false,
+                in_private: false,
             };
             if let Some(existing) = entries.iter_mut().find(|e| e.name == dirty.name) {
                 *existing = entry;
@@ -554,6 +558,8 @@ impl RamCache {
                     original_path: None,
                     link_target: None,
                     caps: String::new(),
+                    private: false,
+                    in_private: false,
                 });
             }
         }
@@ -859,6 +865,8 @@ mod tests {
             original_path: None,
             link_target: None,
             caps: String::new(),
+            private: false,
+            in_private: false,
         }];
         cache.put_listing("d1", "", 100, entries.clone());
         assert_eq!(cache.get_listing("d1", "", Some(100)).unwrap().len(), 1);
@@ -924,6 +932,8 @@ mod tests {
                 original_path: None,
                 link_target: None,
                 caps: String::new(),
+                private: false,
+                in_private: false,
             }],
         );
         cache

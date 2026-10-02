@@ -102,6 +102,20 @@ async fn search(
     })))
 }
 
+/// Whether `full` is itself a private item, and whether it is an ordinary
+/// item protected by a private parent's boundary.
+fn private_flags(conn: &rusqlite::Connection, drive_id: &str, full: &str) -> (bool, bool) {
+    crate::files::drive_root(conn, drive_id)
+        .map(|d| {
+            let root = std::path::Path::new(&d.mount_point);
+            (
+                crate::private::item_at(root, full).is_some(),
+                crate::private::boundary_for(root, full).is_some_and(|b| b.path != full),
+            )
+        })
+        .unwrap_or((false, false))
+}
+
 /// The first `limit` candidates, in rank order, that `user` may open. Access
 /// is checked here, after ranking, so the limit counts only visible hits.
 /// The flag says a further visible hit was left out.
@@ -140,6 +154,7 @@ fn visible_hits(
         if out.len() >= limit {
             return (out, true);
         }
+        let (private, in_private) = private_flags(conn, &hit.drive_id, &full);
         out.push(json!({
             "drive_id": hit.drive_id,
             "path": full,
@@ -149,6 +164,8 @@ fn visible_hits(
             "size": hit.size,
             "modified": hit.modified,
             "match": match_label(candidate.rank.tier),
+            "private": private,
+            "in_private": in_private,
         }));
     }
     (out, false)

@@ -19,6 +19,10 @@ pub struct FileEntry {
     pub kind: String,
     pub size: u64,
     pub modified: i64,
+    /// True when this item is itself private (only its owner and people it is
+    /// shared with can see it). Names, sizes and times are always the real ones.
+    #[serde(default)]
+    pub private: bool,
 }
 
 /// Whether an API error means stored credentials are no longer valid.
@@ -291,13 +295,25 @@ pub fn list_files(
                 kind: v.get("kind")?.as_str()?.to_string(),
                 size: v.get("size")?.as_u64().unwrap_or(0),
                 modified: v.get("modified")?.as_i64().unwrap_or(0),
+                private: v.get("private").and_then(|p| p.as_bool()).unwrap_or(false),
             })
         })
         .collect())
 }
 
-pub fn mkdir(base_url: &str, token: &str, drive_id: &str, path: &str) -> Result<(), String> {
-    let body = serde_json::json!({ "path": path });
+/// Create a folder. With `private`, only you (and people you share it with
+/// one by one) can see it.
+pub fn mkdir(
+    base_url: &str,
+    token: &str,
+    drive_id: &str,
+    path: &str,
+    private: bool,
+) -> Result<(), String> {
+    let mut body = serde_json::json!({ "path": path });
+    if private {
+        body["private"] = serde_json::Value::Bool(true);
+    }
     let resp = ureq::post(&format!(
         "{}/api/v1/drives/{drive_id}/files/mkdir",
         base_url.trim_end_matches('/')
@@ -719,7 +735,7 @@ mod tests {
         let token = login(&base, "max", "hunter22hunter").unwrap();
         let files = list_files(&base, &token, "a", "").unwrap();
         assert_eq!(files[0].name, "Family");
-        mkdir(&base, &token, "a", "Family/New").unwrap();
+        mkdir(&base, &token, "a", "Family/New", false).unwrap();
         stop.store(true, std::sync::atomic::Ordering::Relaxed);
         drop(handle);
     }

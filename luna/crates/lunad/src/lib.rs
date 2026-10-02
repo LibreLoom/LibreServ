@@ -15,6 +15,7 @@ pub mod jobs;
 pub mod net;
 pub mod office;
 pub mod password;
+pub mod private;
 pub mod rate_limit;
 pub mod search_query;
 pub mod secrets;
@@ -89,6 +90,7 @@ impl AppState {
         drive_manager: Arc<DriveManager>,
         data_dir: &std::path::Path,
     ) -> Self {
+        private::install();
         let db = Arc::new(crate::Db::new(conn));
         let secret =
             crate::secrets::ensure_jwt_secret(data_dir, &db.lock().unwrap()).expect("jwt secret");

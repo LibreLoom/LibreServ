@@ -4,6 +4,7 @@ import { Link, useParams } from "react-router-dom";
 import { HardDrive, Trash2 } from "lucide-react";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
+import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import { FileSearchButton } from "../components/files/FileSearch";
@@ -72,7 +73,12 @@ export default function FilesPage() {
   });
 
   // Header drive-menu drops: move dragged files to the top of that drive.
-  const moveFilesMutation = useDriveMove({ driveId: id, onError: setActionError });
+  const [broaden, setBroaden] = useState({ open: false, retry: async () => {} });
+  const moveFilesMutation = useDriveMove({
+    driveId: id,
+    onError: setActionError,
+    onBroaden: (retry) => setBroaden({ open: true, retry: async () => { await retry(); } }),
+  });
 
   const activeJobs = (jobs.data || []).filter(jobBusy);
 
@@ -139,6 +145,16 @@ export default function FilesPage() {
       ) : undefined}
       rightContent={<FileSearchButton />}
     >
+      <ConfirmModal
+        open={broaden.open}
+        title="Move it out of the private folder?"
+        message="Everyone with access to the destination will be able to open it."
+        confirmLabel="Move anyway"
+        variant="warning"
+        loading={moveFilesMutation.isPending}
+        onClose={() => !moveFilesMutation.isPending && setBroaden((current) => ({ ...current, open: false }))}
+        onConfirm={() => broaden.retry().then(() => setBroaden((current) => ({ ...current, open: false }))).catch(() => setBroaden((current) => ({ ...current, open: false })))}
+      />
       {activeJobs.length > 0 && (
         <div className="grid gap-3 mb-4">
           {activeJobs.map((job) => (

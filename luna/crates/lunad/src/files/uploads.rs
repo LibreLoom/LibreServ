@@ -393,16 +393,17 @@ pub fn complete(
     // arrived, and a file may have appeared (or a grant been revoked)
     // since. Only a principal still holding UPLOAD on the folder — and
     // EDIT on the destination file — may install over something existing.
-    let may_overwrite = match install_rights(&conn, &row, &dir.join(&name), overwrite) {
-        Ok(may) => may,
-        Err(e) => {
-            if matches!(e, UploadError::Denied) {
-                let _ = db::set_upload_state(&dconn, id, "error", "denied");
+    let may_overwrite =
+        match install_rights(&conn, &row, &files::entry_path(&dir, &name), overwrite) {
+            Ok(may) => may,
+            Err(e) => {
+                if matches!(e, UploadError::Denied) {
+                    let _ = db::set_upload_state(&dconn, id, "error", "denied");
+                }
+                return Err(e);
             }
-            return Err(e);
-        }
-    };
-    let dest = dir.join(&name);
+        };
+    let dest = files::entry_path(&dir, &name);
     if dest.exists() {
         if may_overwrite {
             // EDIT verified above — the install below may clobber.
@@ -421,7 +422,7 @@ pub fn complete(
             ))));
         }
     }
-    let dest = dir.join(&name);
+    let dest = files::entry_path(&dir, &name);
     // Effective overwrite comes from the recheck, never the caller's flag:
     // upload-only sessions land on install_temp's atomic no-overwrite path
     // even if a destination raced into existence after the check above.
@@ -457,6 +458,8 @@ pub fn complete(
         original_path: None,
         link_target: None,
         caps: String::new(),
+        private: false,
+        in_private: false,
     })
 }
 
@@ -518,7 +521,7 @@ fn find_free_name(dir: &Path, name: &str) -> String {
     };
     let mut candidate = name.to_string();
     let mut n = 1;
-    while dir.join(&candidate).exists() {
+    while files::name_taken(dir, &candidate) {
         candidate = format!("{stem} ({n}){ext}");
         n += 1;
     }

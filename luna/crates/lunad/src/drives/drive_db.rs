@@ -470,6 +470,13 @@ pub fn migrate_schema(conn: &Connection) -> anyhow::Result<()> {
             entry_name TEXT PRIMARY KEY NOT NULL,
             original_path TEXT NOT NULL
          );
+         CREATE TABLE IF NOT EXISTS private_items (
+            id TEXT PRIMARY KEY NOT NULL,
+            name TEXT NOT NULL,
+            owner_user_id TEXT NOT NULL,
+            path TEXT NOT NULL
+         );
+         CREATE UNIQUE INDEX IF NOT EXISTS private_items_path ON private_items(path);
          CREATE TABLE IF NOT EXISTS uploads (
             id TEXT PRIMARY KEY,
             drive_id TEXT NOT NULL,
@@ -521,6 +528,21 @@ pub fn migrate_schema(conn: &Connection) -> anyhow::Result<()> {
     // Rows that predate `principal` keep the empty default — they can only
     // be driven by an admin, never silently adopted by another session.
     ensure_column(conn, "uploads", "principal", "TEXT NOT NULL DEFAULT ''")?;
+    // Trash provenance: the private folder an item sat in when it was
+    // deleted. Recorded at trash time so a later move or removal of that
+    // folder can never expose the entry.
+    ensure_column(
+        conn,
+        "trash_meta",
+        "private_owner",
+        "TEXT NOT NULL DEFAULT ''",
+    )?;
+    ensure_column(
+        conn,
+        "trash_meta",
+        "private_path",
+        "TEXT NOT NULL DEFAULT ''",
+    )?;
     backfill_photo_places(conn)?;
     Ok(())
 }

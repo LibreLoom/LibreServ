@@ -11,7 +11,11 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 pub fn is_heif(path: &Path) -> bool {
-    path.extension()
+    let Some(leaf) = crate::files::leaf_of(path) else {
+        return false;
+    };
+    Path::new(&leaf)
+        .extension()
         .and_then(|e| e.to_str())
         .map(|e| matches!(e.to_ascii_lowercase().as_str(), "heic" | "heif" | "hif"))
         .unwrap_or(false)

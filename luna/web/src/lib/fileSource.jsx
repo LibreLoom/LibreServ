@@ -67,8 +67,8 @@ export async function requireOk(res, fallback) {
  *   fetchBytes: (driveId: string, path: string) => Promise<ArrayBuffer>,
  *   fetchText: (driveId: string, path: string) => Promise<string>,
  *   saveFile: (driveId: string, path: string, name: string, blob: Blob, opts?: { headers?: object, coverage?: number }) => Promise<unknown>,
- *   mkdir: (driveId: string, path: string) => Promise<unknown>,
- *   createFile: (driveId: string, path: string) => Promise<unknown>,
+ *   mkdir: (driveId: string, path: string, opts?: { private?: boolean }) => Promise<unknown>,
+ *   createFile: (driveId: string, path: string, opts?: { private?: boolean }) => Promise<unknown>,
  *   rename: (driveId: string, path: string, newName: string) => Promise<unknown>,
  *   remove: (driveId: string, path: string) => Promise<unknown>,
  *   move: (driveId: string, paths: string[], dest: string) => Promise<unknown>,
@@ -134,10 +134,10 @@ export const driveSource = {
       { headers: opts.headers },
     );
   },
-  mkdir: (driveId, path) =>
-    postJson(`/api/v1/drives/${driveId}/files/mkdir`, { path }),
-  createFile: (driveId, path) =>
-    postJson(`/api/v1/drives/${driveId}/files/create`, { path }),
+  mkdir: (driveId, path, opts) =>
+    postJson(`/api/v1/drives/${driveId}/files/mkdir`, opts?.private ? { path, private: true } : { path }),
+  createFile: (driveId, path, opts) =>
+    postJson(`/api/v1/drives/${driveId}/files/create`, opts?.private ? { path, private: true } : { path }),
   rename: (driveId, path, newName) =>
     postJson(`/api/v1/drives/${driveId}/files/rename`, { path, new_name: newName }),
   remove: (driveId, path) =>

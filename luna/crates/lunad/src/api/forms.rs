@@ -134,12 +134,37 @@ pub fn router() -> Router<AppState> {
 /// can neither slip past `maxResponses` nor interleave their lines.
 static RESPONSES_WRITE: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// The name a form file goes by. A private form sits on disk under its
+/// `.luna-` name; its companions are named after the real one.
+fn leaf_name(path: &FsPath) -> Option<String> {
+    let name = path.file_name()?.to_str()?;
+    if crate::drives::layout::Layout::is_luna_name(name) {
+        return crate::private::name_for_disk(name);
+    }
+    Some(name.to_string())
+}
+
+/// Is the file at this on-disk path a form document?
+pub fn is_form_file(path: &FsPath) -> bool {
+    leaf_name(path).is_some_and(|n| is_form_path(&n))
+}
+
 /// The `<name>.lunaform.responses` that sits next to a resolved form file.
 fn responses_path_for(form_path: &FsPath) -> Option<PathBuf> {
-    let name = form_path.file_name()?.to_str()?;
+    responses_path_named(form_path, &leaf_name(form_path)?)
+}
+
+fn responses_path_named(form_path: &FsPath, name: &str) -> Option<PathBuf> {
     let dot = name.rfind('.')?;
     if !name[dot..].eq_ignore_ascii_case(FORM_FILE_SUFFIX) {
         return None;
+    }
+    // A private form's answers stay as private as the form: they sit under a
+    // Luna-owned name next to its disk entry, not as a visible sibling file.
+    if let Some(disk) = form_path.file_name().and_then(|n| n.to_str())
+        && crate::drives::layout::Layout::is_luna_name(disk)
+    {
+        return Some(form_path.with_file_name(format!("{disk}.responses")));
     }
     let sibling = format!("{}{}", &name[..dot], RESPONSES_SUFFIX);
     Some(form_path.parent()?.join(sibling))
@@ -210,8 +235,11 @@ struct FormLoc {
 /// [`repath_form_files`] in the same step or the folder is orphaned; folder
 /// moves need nothing because the folder travels inside its parent.
 pub fn files_dir_for(root: &FsPath, form_path: &FsPath) -> Option<PathBuf> {
+    files_dir_named(root, form_path, &leaf_name(form_path)?)
+}
+
+fn files_dir_named(root: &FsPath, form_path: &FsPath, name: &str) -> Option<PathBuf> {
     let layout = crate::drives::layout::Layout::detect(root)?;
-    let name = form_path.file_name()?.to_str()?;
     let hash = blake3::hash(name.as_bytes()).to_hex();
     Some(
         form_path
@@ -224,14 +252,25 @@ pub fn files_dir_for(root: &FsPath, form_path: &FsPath) -> Option<PathBuf> {
 /// `<name>.lunaform.responses` sibling; for a top-level trash entry it is a
 /// Luna-owned name beside the files folder so the trash list never shows it.
 pub fn responses_file_for(root: &FsPath, form_path: &FsPath) -> Option<PathBuf> {
-    let visible = responses_path_for(form_path)?;
+    responses_file_named(root, form_path, &leaf_name(form_path)?)
+}
+
+fn responses_file_named(root: &FsPath, form_path: &FsPath, name: &str) -> Option<PathBuf> {
+    let visible = responses_path_named(form_path, name)?;
+    if form_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(crate::drives::layout::Layout::is_luna_name)
+    {
+        return Some(visible);
+    }
     let layout = crate::drives::layout::Layout::detect(root)?;
     let in_trash_root = form_path
         .parent()
         .and_then(|p| p.file_name())
         .is_some_and(|n| n.to_str() == Some(layout.trash_name().as_str()));
     if in_trash_root {
-        let dir = files_dir_for(root, form_path)?;
+        let dir = files_dir_named(root, form_path, name)?;
         let mut name = dir.file_name()?.to_os_string();
         name.push(".responses");
         return Some(dir.with_file_name(name));
@@ -252,15 +291,34 @@ fn move_if_present(from: &FsPath, to: &FsPath) {
 /// carry its files folder and answers file along. No-op when `from` is not
 /// a form.
 pub fn repath_form_files(from_root: &FsPath, from: &FsPath, to_root: &FsPath, to: &FsPath) {
-    if !is_form_path(&from.to_string_lossy()) {
+    let (Some(from_name), Some(to_name)) = (leaf_name(from), leaf_name(to)) else {
+        return;
+    };
+    repath_form_files_named(from_root, from, &from_name, to_root, to, &to_name);
+}
+
+/// [`repath_form_files`] with the names given, for a private form whose
+/// disk name says nothing about what it is called.
+pub fn repath_form_files_named(
+    from_root: &FsPath,
+    from: &FsPath,
+    from_name: &str,
+    to_root: &FsPath,
+    to: &FsPath,
+    to_name: &str,
+) {
+    if !is_form_path(from_name) {
         return;
     }
-    if let (Some(a), Some(b)) = (files_dir_for(from_root, from), files_dir_for(to_root, to)) {
+    if let (Some(a), Some(b)) = (
+        files_dir_named(from_root, from, from_name),
+        files_dir_named(to_root, to, to_name),
+    ) {
         move_if_present(&a, &b);
     }
     if let (Some(a), Some(b)) = (
-        responses_file_for(from_root, from),
-        responses_file_for(to_root, to),
+        responses_file_named(from_root, from, from_name),
+        responses_file_named(to_root, to, to_name),
     ) {
         move_if_present(&a, &b);
     }
@@ -269,7 +327,7 @@ pub fn repath_form_files(from_root: &FsPath, from: &FsPath, to_root: &FsPath, to
 /// A form file is being deleted for good: remove its files folder and
 /// answers file so they don't keep using drive space. No-op for non-forms.
 pub fn remove_form_files(root: &FsPath, form_path: &FsPath) {
-    if !is_form_path(&form_path.to_string_lossy()) {
+    if !leaf_name(form_path).is_some_and(|n| is_form_path(&n)) {
         return;
     }
     if let Some(dir) = files_dir_for(root, form_path) {
@@ -1990,7 +2048,8 @@ struct GuestPictureQuery {
 /// Read a picture that is already on the drive, for copying onto a form.
 fn read_source_picture(source: &FsPath) -> Result<PickedFile, (StatusCode, Json<Value>)> {
     let not_picture = || json_error(StatusCode::BAD_REQUEST, PICTURE_KIND_MESSAGE);
-    let name = source.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    let name = crate::files::leaf_of(source).unwrap_or_default();
+    let name = name.as_str();
     let ext = picture_ext(name).ok_or_else(not_picture)?;
     let meta = std::fs::symlink_metadata(source).map_err(|_| not_picture())?;
     if meta.file_type().is_symlink() || !meta.is_file() {

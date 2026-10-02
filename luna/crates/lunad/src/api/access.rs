@@ -107,6 +107,56 @@ struct Subject {
     name: String,
     owner: String,
     item_count: u64,
+    /// A private item, or inside one, whose owner is a person on this Luna.
+    /// Admins get no shortcut here, `owner` is the person who owns it, and
+    /// inherited shares don't apply.
+    private: bool,
+    /// Real path of the private item this sits in (or is), when private.
+    wall: Option<String>,
+}
+
+/// Is this path a private item, or inside one, that belongs to someone?
+fn path_is_private(conn: &rusqlite::Connection, drive_id: &str, path: &str) -> bool {
+    private_owner(conn, drive_id, path).is_some()
+}
+
+/// `Some(owner user id)` when the path is private to a person this Luna
+/// knows. Items whose owner is gone belong to nobody, so no wall stands.
+fn private_owner(conn: &rusqlite::Connection, drive_id: &str, path: &str) -> Option<String> {
+    private_wall(conn, drive_id, path).map(|b| b.owner)
+}
+
+/// The private boundary around a path, when its owner is a person here.
+fn private_wall(
+    conn: &rusqlite::Connection,
+    drive_id: &str,
+    path: &str,
+) -> Option<crate::private::Boundary> {
+    let drive = db::get_drive(conn, drive_id).ok().flatten()?;
+    if drive.mount_point.is_empty() {
+        return None;
+    }
+    let root = FsPath::new(&drive.mount_point);
+    let real = files::real_rel(root, &normalize_subject_path(path)).into_owned();
+    crate::private::boundary_for(root, &real)
+        .filter(|b| crate::private::owner_known(conn, &b.owner))
+}
+
+/// The refusal for someone with no way in: a private item that isn't theirs
+/// doesn't admit it exists.
+fn refuse(subj: &Subject, mine: Caps, msg: &'static str) -> ApiError {
+    if subj.private && mine & CAP_VIEW == 0 {
+        json_error(StatusCode::NOT_FOUND, "Luna can't find that item.")
+    } else {
+        json_error(StatusCode::FORBIDDEN, msg)
+    }
+}
+
+/// Does a share on `path` (an ancestor) still apply to this subject? Not
+/// when a private item stands between them: only shares at or below its
+/// boundary reach in.
+fn reaches_in(subj: &Subject, path: &str) -> bool {
+    subj.wall.as_deref().is_none_or(|w| path_contains(w, path))
 }
 
 fn busy() -> ApiError {
@@ -174,6 +224,8 @@ fn resolve_subject(
                     name: album.name.clone(),
                     owner: album.owner_user_id.clone(),
                     item_count: album.item_count,
+                    private: false,
+                    wall: None,
                 }),
                 None => Ok(Subject {
                     kind,
@@ -185,6 +237,8 @@ fn resolve_subject(
                     name: "Album".into(),
                     owner: String::new(),
                     item_count: 0,
+                    private: false,
+                    wall: None,
                 }),
             }
         }
@@ -221,7 +275,10 @@ fn resolve_subject(
             } else {
                 (false, false)
             };
+            let wall = private_wall(conn, &drive_id, &rel);
+            let private = wall.as_ref().map(|b| b.owner.clone());
             Ok(Subject {
+                wall: wall.map(|b| b.path),
                 kind,
                 drive_id,
                 path: rel,
@@ -229,7 +286,8 @@ fn resolve_subject(
                 is_file,
                 exists,
                 name,
-                owner: String::new(),
+                private: private.is_some(),
+                owner: private.unwrap_or_default(),
                 item_count: 0,
             })
         }
@@ -239,7 +297,9 @@ fn resolve_subject(
 /// Capabilities `user` holds on `subj`: everything for admins and album
 /// owners, member rows otherwise.
 fn my_caps(conn: &rusqlite::Connection, user: &CurrentUser, subj: &Subject) -> Caps {
-    if user.role == "admin" {
+    // Admins hold everything except other people's private items, which
+    // `caps_on_path` decides.
+    if user.role == "admin" && !subj.private {
         return access::CAP_MANAGE;
     }
     match subj.kind {
@@ -259,9 +319,6 @@ fn my_caps(conn: &rusqlite::Connection, user: &CurrentUser, subj: &Subject) -> C
 /// Same, but lenient when the subject itself is gone (drive pulled, album
 /// deleted): only admins keep authority, members can't act on ghosts.
 fn my_caps_on_row(conn: &rusqlite::Connection, user: &CurrentUser, row: &AccessMemberRow) -> Caps {
-    if user.role == "admin" {
-        return access::CAP_MANAGE;
-    }
     match resolve_subject(
         conn,
         &row.subject_kind,
@@ -270,14 +327,12 @@ fn my_caps_on_row(conn: &rusqlite::Connection, user: &CurrentUser, row: &AccessM
         &row.album_id,
     ) {
         Ok(subj) => my_caps(conn, user, &subj),
+        Err(_) if user.role == "admin" => access::CAP_MANAGE,
         Err(_) => 0,
     }
 }
 
 fn my_caps_on_link(conn: &rusqlite::Connection, user: &CurrentUser, link: &AccessLinkRow) -> Caps {
-    if user.role == "admin" {
-        return access::CAP_MANAGE;
-    }
     match resolve_subject(
         conn,
         &link.subject_kind,
@@ -286,6 +341,7 @@ fn my_caps_on_link(conn: &rusqlite::Connection, user: &CurrentUser, link: &Acces
         &link.album_id,
     ) {
         Ok(subj) => my_caps(conn, user, &subj),
+        Err(_) if user.role == "admin" => access::CAP_MANAGE,
         Err(_) => 0,
     }
 }
@@ -294,7 +350,7 @@ fn my_caps_on_link(conn: &rusqlite::Connection, user: &CurrentUser, link: &Acces
 /// Admins hold it everywhere; the album owner on their album. A `full+share` *grant* is still delegated authority, not
 /// ownership — grantees rank below this class even at equal caps.
 fn is_subject_owner(user: &CurrentUser, subj: &Subject) -> bool {
-    user.role == "admin" || (subj.kind == KIND_ALBUM && subj.owner == user.id)
+    (user.role == "admin" && !subj.private) || (!subj.owner.is_empty() && subj.owner == user.id)
 }
 
 fn user_names(conn: &rusqlite::Connection) -> std::collections::HashMap<String, String> {
@@ -322,6 +378,15 @@ fn subject_json(subj: &Subject) -> Value {
         "exists": subj.exists,
         "name": subj.name,
         "item_count": subj.item_count,
+        "private": subj.private,
+        // This folder is itself the boundary (vs. an ordinary item inside
+        // one) — the difference between "Private folder" and "In a
+        // private folder".
+        "private_folder": subj.private
+            && !subj.is_file
+            && subj.wall.as_deref() == Some(subj.path.as_str()),
+        // Whose boundary it is, so the sheet knows who may open it back up.
+        "owner": subj.owner,
     })
 }
 
@@ -384,10 +449,7 @@ async fn subject_state(
     )?;
     let mine = my_caps(&conn, &user, &subj);
     if mine == 0 {
-        return Err(json_error(
-            StatusCode::FORBIDDEN,
-            "You don't have access to share this.",
-        ));
+        return Err(refuse(&subj, mine, "You don't have access to share this."));
     }
     // Who-has-what is share-management detail: a member without the share
     // capability sees that sharing exists (counts), never the roster or link
@@ -431,6 +493,7 @@ async fn subject_state(
                             && other.subject_kind == KIND_PATH
                             && other.drive_id == subj.drive_id
                             && path_contains(&other.path, &subj.path)
+                            && reaches_in(&subj, &other.path)
                             // Ancestor grants the caller can't inspect stay
                             // hidden — don't OR them into what we show.
                             && resolve_subject(&conn, KIND_PATH, &subj.drive_id, &other.path, "")
@@ -502,6 +565,7 @@ async fn subject_state(
                 && r.drive_id == subj.drive_id
                 && r.path != subj.path
                 && path_contains(&r.path, &subj.path)
+                && reaches_in(&subj, &r.path)
         })
         .map(|r| {
             let from = inherited_from(&r.drive_id, &r.path);
@@ -522,6 +586,7 @@ async fn subject_state(
         .iter()
         .filter(|l| {
             subj.kind == KIND_PATH
+                && reaches_in(&subj, &l.path)
                 && l.subject_kind == KIND_PATH
                 && l.drive_id == subj.drive_id
                 && l.path != subj.path
@@ -536,6 +601,7 @@ async fn subject_state(
         .collect::<Vec<_>>();
     Ok(Json(json!({
         "subject": subject_json(&subj),
+        "private": subj.private,
         "my_caps": caps_to_str(mine),
         "members": members,
         "member_count": member_rows.len(),
@@ -586,8 +652,9 @@ async fn add_member(
     // Authorization before existence: a 404-vs-403 split would let a member
     // probe which folders exist on the drive.
     if mine & CAP_SHARE == 0 && !subject_owner {
-        return Err(json_error(
-            StatusCode::FORBIDDEN,
+        return Err(refuse(
+            &subj,
+            mine,
             "You don't have permission to share this.",
         ));
     }
@@ -623,7 +690,7 @@ async fn add_member(
         .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that person."))?;
     // Admins already hold everything — a member row for one is dead weight
     // that only confuses the roster.
-    if target.role == "admin" {
+    if target.role == "admin" && !subj.private {
         return Err(json_error(
             StatusCode::BAD_REQUEST,
             "Admins can already open everything.",
@@ -743,7 +810,11 @@ async fn remove_member(
     // someone else's row needs the superior class or strict superiority —
     // equal-cap members must not kick each other.
     let allowed = row.user_id == user.id
-        || user.role == "admin"
+        || (user.role == "admin"
+            && !(row.subject_kind == KIND_PATH
+                && path_is_private(&conn, &row.drive_id, &row.path)))
+        || (row.subject_kind == KIND_PATH
+            && private_owner(&conn, &row.drive_id, &row.path).as_deref() == Some(user.id.as_str()))
         || (mine & CAP_SHARE != 0 && caps_strictly_cover(mine, row.caps));
     if !allowed {
         return Err(json_error(
@@ -806,8 +877,9 @@ async fn create_link(
     // to anonymous guests. Authorization runs before the existence check
     // so a 404-vs-403 split can't probe which folders exist.
     if mine & CAP_SHARE == 0 {
-        return Err(json_error(
-            StatusCode::FORBIDDEN,
+        return Err(refuse(
+            &subj,
+            mine,
             "You don't have permission to share this.",
         ));
     }
@@ -892,7 +964,9 @@ struct UpdateLinkBody {
 }
 
 fn may_manage_link(conn: &rusqlite::Connection, user: &CurrentUser, link: &AccessLinkRow) -> bool {
-    if user.role == "admin" {
+    if user.role == "admin"
+        && !(link.subject_kind == KIND_PATH && path_is_private(conn, &link.drive_id, &link.path))
+    {
         return true;
     }
     let mine = my_caps_on_link(conn, user, link);
@@ -1062,6 +1136,13 @@ async fn me_access(
     let rows = db::list_access_members_for_user(&conn, &user.id).map_err(|_| busy())?;
     let labels = drive_labels(&conn);
     let names = user_names(&conn);
+    let rows = rows
+        .into_iter()
+        .filter(|row| {
+            row.subject_kind != KIND_PATH
+                || crate::auth::caps_on_path(&user, &conn, &row.drive_id, &row.path) != 0
+        })
+        .collect();
     let roots = access::member_access_roots(rows);
     let out: Vec<Value> = roots
         .iter()
@@ -1122,7 +1203,7 @@ async fn mine(
     for k in order {
         let ms = group_members.get(&k).cloned().unwrap_or_default();
         let ls = group_links.get(&k).cloned().unwrap_or_default();
-        let controls = is_admin || {
+        let controls = (is_admin && !(k.0 == KIND_PATH && path_is_private(&conn, &k.1, &k.2))) || {
             let mine = match resolve_subject(&conn, &k.0, &k.1, &k.2, &k.3) {
                 Ok(subj) => my_caps(&conn, &user, &subj),
                 Err(_) => 0,
@@ -1181,6 +1262,10 @@ async fn mine(
     let my_rows = db::list_access_members_for_user(&conn, &user.id).map_err(|_| busy())?;
     let with_me: Vec<Value> = my_rows
         .iter()
+        .filter(|row| {
+            row.subject_kind != KIND_PATH
+                || crate::auth::caps_on_path(&user, &conn, &row.drive_id, &row.path) != 0
+        })
         .map(|r| member_row_json(&conn, r, &labels, &names))
         .collect();
     Ok(Json(json!({ "sharing": sharing, "with_me": with_me })))
@@ -1237,6 +1322,14 @@ pub(crate) fn resolve_public_link(
     };
     if access::link_expired(&link) {
         return Err(gone());
+    }
+    if link.subject_kind == KIND_PATH {
+        let conn = state.db.lock().map_err(|_| busy())?;
+        if private_wall(&conn, &link.drive_id, &link.path).is_some_and(|b| {
+            crate::private::owner_state(&conn, &b.owner) == crate::private::OwnerState::Deleted
+        }) {
+            return Err(gone());
+        }
     }
     if link.password_hash.is_empty() {
         return Ok((link, None));
@@ -1613,10 +1706,12 @@ async fn public_list(
                 )
             })?
         };
+        retain_reachable(&conn, &link, &rel, &mut entries);
         // Guests never see where a symlink points — it can be an absolute
-        // host path.
+        // host path — and have no use for the private flag.
         for entry in &mut entries {
             entry.link_target = None;
+            entry.private = false;
         }
         if rel == files::TRASH_API_ALIAS {
             // Same clean names members get — the on-disk `{nonce}-` prefix
@@ -1627,7 +1722,12 @@ async fn public_list(
             let meta_map = files::trash_meta_map(&root);
             for entry in &mut entries {
                 entry.original_name = Some(match meta_map.get(&entry.name) {
-                    Some(orig) => orig.rsplit('/').next().unwrap_or(orig).to_string(),
+                    Some(meta) => meta
+                        .original_path
+                        .rsplit('/')
+                        .next()
+                        .unwrap_or(&meta.original_path)
+                        .to_string(),
                     None => files::original_name_from_trash(&entry.name),
                 });
             }
@@ -1873,10 +1973,7 @@ async fn public_media(
                 let abs = luna_core::path::resolve_child(&mount, &query.path).map_err(|_| {
                     json_error(StatusCode::NOT_FOUND, "Luna couldn't find that photo.")
                 })?;
-                let name = abs
-                    .file_name()
-                    .map(|s| s.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| "download".into());
+                let name = files::leaf_of(&abs).unwrap_or_else(|| "download".into());
                 let mime = mime_guess::from_path(&name)
                     .first_or_octet_stream()
                     .essence_str()
@@ -1972,6 +2069,7 @@ async fn folder_zip_response(
     };
     let drive_id = link.drive_id.clone();
     let scope = link.path.clone();
+    let link = link.clone();
     let rel_owned = rel.to_string();
     let state = state.clone();
     crate::api::gallery::stream_zip_response(&zip_name, move |tmp_path| {
@@ -1987,7 +2085,7 @@ async fn folder_zip_response(
             })?;
         let conn = state.db.lock().map_err(|_| busy())?;
         files::write_folder_zip_including_trash(&conn, &drive_id, &rel_owned, &mut file, |child| {
-            path_contains(&scope, child)
+            path_contains(&scope, child) && link_reaches(&conn, &link, child)
         })
         .map(|_| ())
         .map_err(|e| {
@@ -2231,8 +2329,9 @@ fn upload_dest(
             ));
         }
         // Canonical confinement: a symlinked folder inside the share must
-        // never receive an upload that lands outside the link root.
-        if !inside_link_root(&link_root_abs, true, &dest_abs) {
+        // never receive an upload that lands outside the link root, and a
+        // folder link stops at a private item inside it.
+        if !inside_link_root(&link_root_abs, true, &dest_abs) || !link_reaches(conn, link, &dest) {
             return Err(not_in_share());
         }
         Ok((link.drive_id.clone(), dest, None))
@@ -2321,7 +2420,7 @@ fn upload_in_link_scope(
         return false;
     };
     if root_meta.is_dir() {
-        inside_link_root(&root, true, &dest_abs)
+        inside_link_root(&root, true, &dest_abs) && link_reaches(conn, link, dest_path)
     } else {
         // File link: the destination dir must be the shared file's real
         // parent — anything else lands the bytes on a different file.
@@ -2519,7 +2618,7 @@ async fn public_upload_complete(
                     );
                 }
                 _ => {
-                    let _ = std::fs::remove_file(root.join(&rel));
+                    let _ = std::fs::remove_file(root.join(crate::private::disk_rel(&root, &rel)));
                     return Err(json_error(
                         StatusCode::BAD_REQUEST,
                         "Only photos and videos can go in this album.",
@@ -2605,10 +2704,46 @@ fn confined_read(
     let (root, root_is_dir) = link_root(conn, link).map_err(|_| missing.clone())?;
     let (target, meta) = files::resolve_any_including_trash(conn, &link.drive_id, rel)
         .map_err(|_| missing.clone())?;
-    if !inside_link_root(&root, root_is_dir, &target) {
+    if !inside_link_root(&root, root_is_dir, &target) || !link_reaches(conn, link, rel) {
         return Err(not_in_share());
     }
     Ok((target, meta))
+}
+
+/// The private-item boundary rule for links: a link reaches a private item
+/// only when the link itself sits on that item or inside it. A folder link
+/// above a private item stops at it (the item and everything in it is
+/// invisible to that link); a link on or under it works.
+fn link_reaches(conn: &rusqlite::Connection, link: &AccessLinkRow, rel: &str) -> bool {
+    let Ok(drive) = files::drive_root(conn, &link.drive_id) else {
+        return true;
+    };
+    let root = FsPath::new(&drive.mount_point);
+    let real = files::real_rel(root, &normalize_subject_path(rel)).into_owned();
+    let link_real = files::real_rel(root, &normalize_subject_path(&link.path)).into_owned();
+    match crate::private::boundary_for(root, &real) {
+        None => true,
+        Some(b) => {
+            crate::private::owner_state(conn, &b.owner) != crate::private::OwnerState::Deleted
+                && path_contains(&b.path, &link_real)
+        }
+    }
+}
+
+/// Drop listing rows a link may not reach (private items above the link).
+fn retain_reachable(
+    conn: &rusqlite::Connection,
+    link: &AccessLinkRow,
+    dir_rel: &str,
+    entries: &mut Vec<files::FileEntry>,
+) {
+    entries.retain(|e| {
+        link_reaches(
+            conn,
+            link,
+            &crate::gallery::gallery_indexer::join_rel(dir_rel, &e.name),
+        )
+    });
 }
 
 /// Canonical confinement for a mutation: intermediate components resolve
@@ -2641,7 +2776,7 @@ fn confined_write(
         luna_core::path::PathError::Absolute | luna_core::path::PathError::Escape => not_in_share(),
         other => map_guest_files_err(other.into()),
     })?;
-    if !inside_link_root(&root, root_is_dir, &target) {
+    if !inside_link_root(&root, root_is_dir, &target) || !link_reaches(conn, link, rel) {
         return Err(not_in_share());
     }
     Ok(())
@@ -2691,7 +2826,7 @@ pub(crate) fn link_file(
     }
     let (target, _) = files::file_path_including_trash(&conn, &link.drive_id, &path)
         .map_err(map_guest_files_err)?;
-    if !inside_link_root(&root, root_is_dir, &target) {
+    if !inside_link_root(&root, root_is_dir, &target) || !link_reaches(&conn, link, &path) {
         return Err(json_error(
             StatusCode::FORBIDDEN,
             "That file is not inside this share.",
@@ -3070,11 +3205,8 @@ async fn serve_file(
             "The shared file isn't available right now.",
         )
     })?;
-    let mime = mime_guess::from_path(&path).first_or_octet_stream();
-    let name = path
-        .file_name()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "download".into());
+    let name = files::leaf_of(&path).unwrap_or_else(|| "download".into());
+    let mime = mime_guess::from_path(&name).first_or_octet_stream();
     let disposition = if !download && files::inline_safe(mime.as_ref()) {
         "inline"
     } else {

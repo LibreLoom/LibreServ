@@ -156,6 +156,8 @@ pub fn fresh_entries(
                 original_path: None,
                 link_target: None,
                 caps: String::new(),
+                private: false,
+                in_private: false,
             })
         })
         .ok()?;
@@ -197,7 +199,7 @@ pub fn folder_totals_indexed(
                 |row| row.get(0),
             )
             .ok()?;
-        let current = std::fs::metadata(root.join(&dir_rel))
+        let current = std::fs::metadata(root.join(crate::private::disk_rel(root, &dir_rel)))
             .map(|m| dir_stamp(&m))
             .unwrap_or(0);
         if indexed != current {
@@ -224,16 +226,20 @@ pub fn folder_totals_indexed(
             if crate::files::is_internal_temp(&name) {
                 continue;
             }
+            let child = if dir_rel.is_empty() {
+                name
+            } else {
+                format!("{dir_rel}/{name}")
+            };
+            // A private item counts only for people who may read it.
+            let readable =
+                readable && (crate::private::item_at(root, &child).is_none() || include(&child));
             match kind.as_str() {
                 "dir" => {
                     if readable {
                         totals.dirs += 1;
                     }
-                    stack.push(if dir_rel.is_empty() {
-                        name
-                    } else {
-                        format!("{dir_rel}/{name}")
-                    });
+                    stack.push(child);
                 }
                 "file" if readable => {
                     totals.files += 1;
@@ -410,6 +416,8 @@ mod tests {
                 original_path: None,
                 link_target: None,
                 caps: String::new(),
+                private: false,
+                in_private: false,
             },
             FileEntry {
                 name: "a".into(),
@@ -423,6 +431,8 @@ mod tests {
                 original_path: None,
                 link_target: None,
                 caps: String::new(),
+                private: false,
+                in_private: false,
             },
         ];
         replace_dir(&conn, "d1", "sub", 42, &entries).unwrap();

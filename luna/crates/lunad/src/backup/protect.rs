@@ -127,7 +127,9 @@ pub fn sync_all(db: &crate::Db) -> anyhow::Result<u64> {
                 })?;
             (src_root, target_root)
         };
-        match sync_trees(&src_root, &target_root) {
+        match sync_trees(&src_root, &target_root).inspect(|_| {
+            write_private_manifest(&row, &src_root, &target_root);
+        }) {
             Ok(n) => {
                 copied += n;
                 if let Ok(conn) = db.lock() {
@@ -170,6 +172,47 @@ fn sync_trees(src_root: &Path, target_root: &Path) -> anyhow::Result<u64> {
     Ok(copied)
 }
 
+/// Private items are copied under their `.luna-` names, so the copy also
+/// carries a manifest saying what each one is called and who owns it.
+fn write_private_manifest(row: &ProtectionRow, src_dir: &Path, target_root: &Path) {
+    // The source drive's mount is the ancestor of the folder being copied.
+    let Ok(canon) = src_dir.canonicalize() else {
+        return;
+    };
+    let rel = row.source_path.trim_matches('/');
+    let mut root = canon.clone();
+    for _ in rel.split('/').filter(|s| !s.is_empty()) {
+        if !root.pop() {
+            return;
+        }
+    }
+    let (Some(name), Some(json)) = (
+        crate::private::manifest_name(&root),
+        crate::private::manifest_json(&root, rel),
+    ) else {
+        return;
+    };
+    // Protected copies only ever add, so the manifest keeps every item it has
+    // seen for as long as its bytes may still be there.
+    let path = target_root.join(name);
+    let merged = match (
+        std::fs::read_to_string(&path),
+        serde_json::from_str::<Vec<serde_json::Value>>(&json),
+    ) {
+        (Ok(old), Ok(mut now)) => {
+            let mut all: Vec<serde_json::Value> = serde_json::from_str(&old).unwrap_or_default();
+            all.retain(|o| {
+                let id = o.get("id");
+                !now.iter().any(|n| n.get("id") == id)
+            });
+            all.append(&mut now);
+            serde_json::to_string_pretty(&all).unwrap_or(json)
+        }
+        _ => json,
+    };
+    let _ = std::fs::write(path, merged);
+}
+
 pub fn sync(conn: &Connection, row: &ProtectionRow) -> anyhow::Result<u64> {
     let (src_root, src_meta) = files::resolve_any(conn, &row.source_drive, &row.source_path)?;
     if !src_meta.is_dir() {
@@ -182,6 +225,7 @@ pub fn sync(conn: &Connection, row: &ProtectionRow) -> anyhow::Result<u64> {
             .map_err(|e| anyhow::anyhow!("Luna couldn't open the protected-copy folder: {e}"))?
     };
     let copied = sync_trees(&src_root, &target_root)?;
+    write_private_manifest(row, &src_root, &target_root);
     db::touch_protection(conn, &row.id)?;
     Ok(copied)
 }

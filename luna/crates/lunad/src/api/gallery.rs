@@ -94,6 +94,16 @@ fn path_grants_for_user(
             map.entry(r.drive_id).or_default().push(r.path);
         }
     }
+    for drive in crate::db::list_drives(&conn).map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't check your folder access.",
+        )
+    })? {
+        map.entry(drive.id.clone())
+            .or_default()
+            .extend(crate::auth::owned_private_paths(&conn, &user.id, &drive.id));
+    }
     Ok(Some(map))
 }
 
@@ -423,11 +433,22 @@ fn resolve_mount(state: &AppState, drive_id: &str) -> Result<PathBuf, (StatusCod
 /// `path`, which the member UI needs to address media and diff album
 /// selections. Anonymous album links serialize `Photo` directly (see
 /// `api::access::public_items`) and never get these coordinates.
-fn member_photo_json(p: &gallery::Photo) -> Value {
+/// Is this photo a private item, or inside one?
+fn photo_is_private(mounts: &DriveMounts, p: &gallery::Photo) -> bool {
+    mounts
+        .iter()
+        .find(|(id, _)| *id == p.drive_id)
+        .is_some_and(|(_, root)| crate::private::boundary_for(root, &p.path).is_some())
+}
+
+fn member_photo_json(p: &gallery::Photo, private: bool) -> Value {
     let mut v = serde_json::to_value(p).unwrap_or_else(|_| json!({}));
     if let Some(obj) = v.as_object_mut() {
         obj.insert("drive_id".into(), json!(p.drive_id));
         obj.insert("path".into(), json!(p.path));
+        if private {
+            obj.insert("private".into(), json!(true));
+        }
     }
     v
 }
@@ -601,7 +622,10 @@ async fn timeline(
         has_more = true;
     }
     Ok(Json(json!({
-        "items": items.iter().map(member_photo_json).collect::<Vec<_>>(),
+        "items": items
+            .iter()
+            .map(|p| member_photo_json(p, photo_is_private(&mounts, p)))
+            .collect::<Vec<_>>(),
         "next_offset": next_offset,
         "has_more": has_more,
     })))
@@ -643,7 +667,12 @@ async fn cameras(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let mounts = accessible_mounts(&state, &user, None)?;
     let grants = path_grants_for_user(&state, &user)?;
-    let cameras = gallery::list_cameras(&mounts, grants.as_ref()).map_err(|_| {
+    let visible = |drive: &str, path: &str| {
+        state.db.lock().is_ok_and(|conn| {
+            crate::auth::has_cap(&user, &conn, drive, path, crate::access::CAP_VIEW)
+        })
+    };
+    let cameras = gallery::list_cameras(&mounts, grants.as_ref(), &visible).map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Luna couldn't list cameras.",
@@ -658,7 +687,12 @@ async fn filter_facets(
 ) -> Result<Json<gallery::FilterFacets>, (StatusCode, Json<Value>)> {
     let mounts = accessible_mounts(&state, &user, None)?;
     let grants = path_grants_for_user(&state, &user)?;
-    let facets = gallery::list_filter_facets(&mounts, grants.as_ref()).map_err(|_| {
+    let visible = |drive: &str, path: &str| {
+        state.db.lock().is_ok_and(|conn| {
+            crate::auth::has_cap(&user, &conn, drive, path, crate::access::CAP_VIEW)
+        })
+    };
+    let facets = gallery::list_filter_facets(&mounts, grants.as_ref(), &visible).map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Luna couldn't load photo filters.",
@@ -706,7 +740,11 @@ async fn duplicates(
                 "key": g.key,
                 "size": g.size,
                 "name": g.name,
-                "items": g.items.iter().map(member_photo_json).collect::<Vec<_>>(),
+                "items": g
+                    .items
+                    .iter()
+                    .map(|p| member_photo_json(p, photo_is_private(&mounts, p)))
+                    .collect::<Vec<_>>(),
             })
         })
         .collect();
@@ -1122,10 +1160,7 @@ pub(crate) async fn resolve_browser_safe_file(
     // name below.
     let src = luna_core::path::resolve_child_nofollow(mount, rel)
         .map_err(|_| json_error(StatusCode::NOT_FOUND, "Luna couldn't find that photo."))?;
-    let original_name = src
-        .file_name()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "photo".into());
+    let original_name = crate::files::leaf_of(&src).unwrap_or_else(|| "photo".into());
     if gallery::is_heic_image(&src) {
         let thumb = gallery::thumb_path(mount, drive_id, rel)
             .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna couldn't find that photo."))?;
@@ -1459,7 +1494,7 @@ async fn download_zip(
             Ok(p) => p,
             Err(_) => continue,
         };
-        if !abs.is_file() || crate::files::is_internal_temp(&abs.to_string_lossy()) {
+        if !abs.is_file() || crate::files::is_internal_abs(&abs.to_string_lossy()) {
             continue;
         }
         entries.push((zip_entry_name(&item.drive_id, &item.path), abs));

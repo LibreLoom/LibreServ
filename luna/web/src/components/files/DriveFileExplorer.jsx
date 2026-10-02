@@ -19,7 +19,7 @@ import ModalCard, { NESTED_OVERLAY_CLASS } from "@libreloom/ui/components/cards/
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
-import { ActionTooltipGroup, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
+import { ActionTooltipGroup, InfoHint, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import ModalErrorNotice from "@libreloom/ui/components/common/ModalErrorNotice.jsx";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
@@ -31,6 +31,7 @@ import {
   postJson,
 } from "../../lib/api.js";
 import { fileListKey, fileSourceScope, useFileSource } from "../../lib/fileSource.jsx";
+import { submitBatch } from "../../lib/submitBatch.js";
 import UploadFilesPanel from "./UploadFilesPanel.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import {
@@ -269,6 +270,8 @@ export default function DriveFileExplorer({
   const guestCaps = source.capsBits || 0;
   const queryClient = useQueryClient();
   const { addToast } = useToast();
+  // Private items belong to a signed-in person; link guests never make them.
+  const allowPrivate = !guest;
   const [innerPath, setInnerPath] = useState("");
   const path = controlledPath !== undefined ? controlledPath : innerPath;
 
@@ -285,6 +288,7 @@ export default function DriveFileExplorer({
   const [renameValue, setRenameValue] = useState("");
   const [renameWarning, setRenameWarning] = useState(/** @type {ReturnType<typeof renameExtensionWarning>} */ (null));
   const [transfer, setTransfer] = useState(/** @type {null|{ kind: "copy"|"move", paths: string[], label?: string }} */ (null));
+  const [broadenRetry, setBroadenRetry] = useState(/** @type {null|{ kind: "copy"|"move"|"restore", retry: () => Promise<unknown> }} */ (null));
   const [innerViewerPath, setInnerViewerPath] = useState(/** @type {string|null} */ (null));
   const viewerPath = controlledViewerPath !== undefined ? controlledViewerPath : innerViewerPath;
 
@@ -534,9 +538,9 @@ export default function DriveFileExplorer({
 
   const mkdirMutation = useMutation({
     mutationFn: (/** @type {string} */ fullPath) =>
-      source.mkdir(driveId, fullPath),
+      source.mkdir(driveId, fullPath, createKind?.private ? { private: true } : undefined),
     onSuccess: () => {
-      addToast({ type: "success", message: "Folder created." });
+      addToast({ type: "success", message: createKind?.private ? "Private folder created." : "Folder created." });
       invalidate();
     },
     onError: (err) => {
@@ -614,7 +618,7 @@ export default function DriveFileExplorer({
   });
 
   const transferMutation = useMutation({
-    mutationFn: async (/** @type {{ driveId: string, path: string }} */ { driveId: toDrive, path: toPath }) => {
+    mutationFn: async (/** @type {{ driveId: string, path: string, confirmBroaden?: boolean, paths?: string[] }} */ { driveId: toDrive, path: toPath, confirmBroaden = false, paths = transfer?.paths || [] }) => {
       if (!transfer) return;
       // Guests move synchronously inside the link — no job queue.
       if (guest) {
@@ -622,15 +626,14 @@ export default function DriveFileExplorer({
         queryClient.invalidateQueries({ queryKey: fileListKey(source, driveId) });
         return;
       }
-      for (const fromPath of transfer.paths) {
-        await postJson("/api/v1/jobs", {
-          kind: transfer.kind,
-          from_drive: driveId,
-          from_path: fromPath,
-          to_drive: toDrive || driveId,
-          to_path: toPath,
-        });
-      }
+      await submitBatch(paths, (fromPath) => postJson("/api/v1/jobs", {
+        kind: transfer.kind,
+        from_drive: driveId,
+        from_path: fromPath,
+        to_drive: toDrive || driveId,
+        to_path: toPath,
+        ...(confirmBroaden ? { confirm_broaden: true } : {}),
+      }));
     },
     onSuccess: (_d, vars) => {
       addToast({
@@ -644,13 +647,26 @@ export default function DriveFileExplorer({
         queryClient.invalidateQueries({ queryKey: ["files", vars.driveId] });
       }
     },
-    onError: (err) => {
+    onError: (err, vars) => {
+      // Luna refuses to quietly widen who can open something leaving a
+      // private folder — ask first, then resubmit confirmed.
+      const detail = /** @type {any} */ (err);
+      invalidate();
+      if (detail?.code === "broadens_access") {
+        haptic("warning");
+        setBroadenRetry({ kind: transfer.kind, retry: () => transferMutation.mutateAsync({ ...vars, paths: detail.pendingItems || transfer.paths, confirmBroaden: true }) });
+        return;
+      }
       haptic("error");
       setActionError(apiErrorMessage(err, "Couldn't start that transfer. Try again."));
     },
   });
 
-  const internalMoveMutation = useDriveMove({ driveId, onError: setActionError });
+  const internalMoveMutation = useDriveMove({
+    driveId,
+    onError: setActionError,
+    onBroaden: (retry) => setBroadenRetry({ kind: "move", retry }),
+  });
 
   const shareMoveMutation = useMutation({
     mutationFn: (/** @type {{ paths: string[], dest: string }} */ { paths, dest }) =>
@@ -666,10 +682,8 @@ export default function DriveFileExplorer({
   // Trash's two writes: restore a whole entry, or delete it permanently.
   // Both stay top-level — the API only accepts `{trash}/{entry}` paths.
   const restoreMutation = useMutation({
-    mutationFn: async (/** @type {{ path: string, dest: string }[]} */ items) => {
-      for (const item of items) {
-        await postJson(`/api/v1/drives/${driveId}/files/restore`, item);
-      }
+    mutationFn: async (/** @type {{ path: string, dest: string, confirm_broaden?: boolean }[]} */ items) => {
+      await submitBatch(items, (item) => postJson(`/api/v1/drives/${driveId}/files/restore`, item));
     },
     onSuccess: (_d, items) => {
       addToast({
@@ -678,8 +692,15 @@ export default function DriveFileExplorer({
       });
       invalidate(items.flatMap((i) => [i.dest, i.path]));
     },
-    onError: (err) =>
-      setActionError(apiErrorMessage(err, "Couldn't restore that. Try again.")),
+    onError: (err, items) => {
+      invalidate(items.flatMap((i) => [i.dest, i.path]));
+      if ("code" in err && err.code === "broadens_access") {
+        const pending = "pendingItems" in err && Array.isArray(err.pendingItems) ? err.pendingItems : items;
+        setBroadenRetry({ kind: "restore", retry: () => restoreMutation.mutateAsync(pending.map((item) => ({ ...item, confirm_broaden: true }))) });
+        return;
+      }
+      setActionError(apiErrorMessage(err, "Couldn't restore that. Try again."));
+    },
   });
 
   const purgeMutation = useMutation({
@@ -827,7 +848,7 @@ export default function DriveFileExplorer({
           : setDeletePaths) : undefined}
         trashHref={showTrashLink && trashVisible && !inTrash ? folderHref(driveId, TRASH_PATH) : null}
         segmentLabel={segmentLabel}
-        folderActions={folderCanUpload && !source.isFile ? <NewItemMenu onPick={openCreate} /> : null}
+        folderActions={folderCanUpload && !source.isFile ? <NewItemMenu onPick={openCreate} allowPrivate={allowPrivate} /> : null}
         emptyTitle={inTrash ? "Trash is empty" : undefined}
         breadcrumbExtra={(() => {
           // Same buttons a folder's breadcrumb row gets — the label just
@@ -1091,6 +1112,27 @@ export default function DriveFileExplorer({
         }}
       />
 
+      <ConfirmModal
+        open={broadenRetry != null}
+        variant="warning"
+        title={broadenRetry?.kind === "restore" ? "Restore outside the private folder?" : broadenRetry?.kind === "copy" ? "Copy it out of the private folder?" : "Move it out of the private folder?"}
+        message="Everyone with access to the destination will be able to open it."
+        confirmLabel={broadenRetry?.kind === "restore" ? "Restore anyway" : broadenRetry?.kind === "copy" ? "Copy anyway" : "Move anyway"}
+        loading={transferMutation.isPending || internalMoveMutation.isPending || restoreMutation.isPending}
+        overlayClassName={NESTED_OVERLAY_CLASS}
+        onClose={() => setBroadenRetry(null)}
+        onConfirm={() => {
+          if (!broadenRetry) return;
+          broadenRetry.retry()
+            .then(() => {
+              setBroadenRetry(null);
+              setTransfer(null);
+              setRestoreTarget(null);
+            })
+            .catch(() => setBroadenRetry(null));
+        }}
+      />
+
       <ModalCard
         open={deletePaths != null}
         title="Move to trash?"
@@ -1245,7 +1287,15 @@ export default function DriveFileExplorer({
         title={createKind?.title || "New"}
         label={createKind?.nameLabel || "Name"}
         placeholder={createKind?.placeholder}
-        hint="Luna will put it in the folder you are in now."
+        hint={createKind?.private ? (
+          <>
+            A private folder hides what&apos;s inside from everyone but you and the people you share it with.
+            <InfoHint
+              label="About private folders"
+              content="With physical access to a drive, somebody could read the files inside a private folder."
+            />
+          </>
+        ) : "Luna will put it in the folder you are in now."}
         value={createName}
         onChange={setCreateName}
         confirmLabel={createKind?.confirmLabel || "Create"}

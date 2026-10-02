@@ -52,7 +52,10 @@ async fn handle_dav_inner(state: AppState, id: String, req: Request) -> axum::re
         Ok(user) => user,
         Err(err) => return err.into_response(),
     };
-    let handler = match dav_handler_for(&state, &id, user) {
+    // A COPY of a folder arrives as plain creates; naming its source and
+    // destination lets private folders inside it copy as private.
+    let copy = copy_endpoints(&id, &req);
+    let handler = match dav_handler_for(&state, &id, user, copy) {
         Ok(handler) => handler,
         Err(err) => return err.into_response(),
     };
@@ -143,10 +146,32 @@ fn basic_credentials(headers: &HeaderMap) -> Option<(String, String)> {
     Some((user.to_string(), password.to_string()))
 }
 
+/// Drive-relative source and destination of a WebDAV COPY, if this is one.
+fn copy_endpoints(id: &str, req: &Request) -> Option<(String, String)> {
+    if req.method().as_str() != "COPY" {
+        return None;
+    }
+    let prefix = format!("/dav/{id}");
+    let rel = |raw: &str| -> Option<String> {
+        let path = match raw.split_once("://") {
+            Some((_, rest)) => rest.find('/').map(|i| &rest[i..])?,
+            None => raw,
+        };
+        let inside = path.strip_prefix(&prefix)?;
+        let dav =
+            dav_server::davpath::DavPath::new(if inside.is_empty() { "/" } else { inside }).ok()?;
+        Some(dav.as_rel_ospath().to_str()?.trim_matches('/').to_string())
+    };
+    let src = rel(req.uri().path())?;
+    let dst = rel(req.headers().get("destination")?.to_str().ok()?)?;
+    Some((src, dst))
+}
+
 fn dav_handler_for(
     state: &AppState,
     id: &str,
     user: CurrentUser,
+    copy: Option<(String, String)>,
 ) -> Result<crate::DavHandler, (StatusCode, axum::Json<serde_json::Value>)> {
     let conn = state.db.lock().map_err(|_| {
         json_error(
@@ -187,7 +212,8 @@ fn dav_handler_for(
     Ok(crate::DavHandler::builder()
         .filesystem(Box::new(
             GrantFs::new(&mount_point, user, drive_id.clone(), state.db.clone())
-                .with_cache(state.ram_cache.clone()),
+                .with_cache(state.ram_cache.clone())
+                .with_copy(copy),
         ))
         .locksystem(FakeLs::new())
         .strip_prefix(format!("/dav/{drive_id}"))

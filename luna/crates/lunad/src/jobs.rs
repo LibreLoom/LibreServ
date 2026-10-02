@@ -43,6 +43,8 @@ pub enum JobError {
     Symlink,
     #[error("You no longer have permission to do this.")]
     Denied,
+    #[error("This folder holds private items that only their owners can move.")]
+    Blocked,
 }
 
 impl From<FilesError> for JobError {
@@ -64,6 +66,12 @@ struct PreparedJob {
     src: PathBuf,
     dest: PathBuf,
     total: u64,
+    /// Real paths of the source and destination, for private-item rows.
+    from_real: String,
+    dest_rel: String,
+    /// The source is a private item: the copy becomes a private item too,
+    /// with this owner and on-disk id.
+    private_root: Option<(String, String)>,
 }
 
 impl JobManager {
@@ -229,7 +237,10 @@ fn prepare(
     }
     // A top-level trash entry lands under its original name — the `{nonce}-`
     // prefix is storage noise that must not leak into the destination.
+    let src_root = PathBuf::from(files::drive_root(conn, from_drive)?.mount_point);
+    let src_item = crate::private::item_at(&src_root, &from_real);
     let name = files::trash_api_leaf(conn, from_drive, from_path)?
+        .or_else(|| src_item.as_ref().map(|i| i.name().to_string()))
         .or_else(|| src.file_name().map(|s| s.to_string_lossy().into_owned()))
         .ok_or_else(|| {
             FilesError::Io(std::io::Error::new(
@@ -264,12 +275,67 @@ fn prepare(
         }
     }
     let dest_dir = files::dest_dir(conn, to_drive, to_path)?;
-    let dest = dest_dir.join(name);
-    if dest.exists() {
+    let to_root = PathBuf::from(files::drive_root(conn, to_drive)?.mount_point);
+    let dest_rel = crate::gallery::gallery_indexer::join_rel(
+        crate::access::normalize_subject_path(&to_real).as_str(),
+        &name,
+    );
+    // A private item stays private wherever it goes. Renamed in place it
+    // keeps its disk entry; copied (or moved across drives) it gets a fresh
+    // id under the destination drive's prefix.
+    let mut private_root = None;
+    let dest = match &src_item {
+        Some(_) if kind == "move" && from_drive == to_drive => dest_dir
+            .join(crate::private::disk_leaf(&src_root, &from_real).unwrap_or_else(|| name.clone())),
+        Some(item) => {
+            let prefix = crate::private::prefix_of(&to_root).ok_or(JobError::Conflict)?;
+            let id = crate::private::new_id();
+            // A copy belongs to whoever made it; a move keeps its owner.
+            let owner = if kind == "move" {
+                item.owner.clone()
+            } else {
+                user_id.to_string()
+            };
+            let disk = dest_dir.join(crate::private::disk_name(&prefix, &id));
+            private_root = Some((owner, id));
+            disk
+        }
+        None => dest_dir.join(&name),
+    };
+    // A move carries private items whole — the mover never reads them, the
+    // boundary and its owner travel unchanged. Blocking on unreadable
+    // nested folders would let a private folder freeze its shared parent
+    // in place.
+    // The real name must be free of plain and private items alike.
+    if dest.exists()
+        || crate::private::item_at(&to_root, &dest_rel).is_some()
+        || files::name_taken(&dest_dir, &name)
+    {
         return Err(JobError::Conflict);
     }
-    let src_root = PathBuf::from(files::drive_root(conn, from_drive)?.mount_point);
-    let total = walk_total(&src_root, &src, meta.is_dir())?;
+    let user_row = db::get_user(conn, user_id)
+        .map_err(JobError::Db)?
+        .ok_or(JobError::Denied)?;
+    let user = crate::auth::CurrentUser {
+        id: user_row.id,
+        username: user_row.username,
+        role: user_row.role,
+    };
+    let readable = |path: &Path| {
+        path.strip_prefix(&src_root)
+            .ok()
+            .and_then(|p| p.to_str())
+            .is_some_and(|disk| {
+                crate::auth::has_cap(
+                    &user,
+                    conn,
+                    from_drive,
+                    &crate::private::logical_rel(&src_root, disk),
+                    crate::access::CAP_VIEW,
+                )
+            })
+    };
+    let total = walk_total(&src_root, &src, meta.is_dir(), &readable)?;
     if total == 0 && !meta.is_dir() {
         // Zero-byte files are still valid copies.
     }
@@ -287,6 +353,9 @@ fn prepare(
         src,
         dest,
         total,
+        from_real,
+        dest_rel,
+        private_root,
     })
 }
 
@@ -320,7 +389,15 @@ fn walk_total_lossy(dir: &Path) -> u64 {
     total
 }
 
-fn walk_total(root: &Path, path: &Path, is_dir: bool) -> Result<u64, JobError> {
+fn walk_total(
+    root: &Path,
+    path: &Path,
+    is_dir: bool,
+    readable: &dyn Fn(&Path) -> bool,
+) -> Result<u64, JobError> {
+    if !readable(path) {
+        return Ok(0);
+    }
     if !is_dir {
         let meta = std::fs::symlink_metadata(path).map_err(JobError::Io)?;
         if meta.file_type().is_symlink() {
@@ -335,11 +412,12 @@ fn walk_total(root: &Path, path: &Path, is_dir: bool) -> Result<u64, JobError> {
             let entry = entry.map_err(JobError::Io)?;
             // Luna's `.luna-<uuid>-*` bookkeeping and in-flight `.part` temps
             // are not content — they must not count toward the copy total.
-            if entry
-                .file_name()
-                .to_str()
-                .is_none_or(files::is_internal_temp)
-            {
+            if entry.file_name().to_str().is_none_or(|n| {
+                files::is_internal_temp(n) && !crate::private::owns_disk_name(root, n)
+            }) {
+                continue;
+            }
+            if !readable(&entry.path()) {
                 continue;
             }
             let meta = std::fs::symlink_metadata(entry.path()).map_err(JobError::Io)?;
@@ -423,7 +501,18 @@ fn run_job(
     }
     // Same-filesystem moves: rename in place. Never invent a destination we
     // would later roll back — rename either lands the whole tree or fails.
-    if prepared.row.kind == "move" {
+    // A rename keeps private items' rows only within one drive; between two
+    // drives the items are copied across so each gets its row on the new one.
+    let carries_private = prepared.row.from_drive != prepared.row.to_drive
+        && (prepared.private_root.is_some() || {
+            let conn = db.lock().ok();
+            conn.and_then(|c| files::drive_root(&c, &prepared.row.from_drive).ok())
+                .is_some_and(|d| {
+                    !crate::private::under(Path::new(&d.mount_point), &prepared.from_real)
+                        .is_empty()
+                })
+        });
+    if prepared.row.kind == "move" && !carries_private {
         match files::try_rename_move(&prepared.src, &prepared.dest) {
             Ok(true) => {
                 if let Ok(conn) = db.lock() {
@@ -432,29 +521,28 @@ fn run_job(
                         files::drive_root(&conn, &prepared.row.from_drive),
                         files::drive_root(&conn, &prepared.row.to_drive),
                     ) {
-                        crate::api::forms::repath_form_files(
+                        crate::api::forms::repath_form_files_named(
                             Path::new(&from.mount_point),
                             &prepared.src,
+                            prepared.from_real.rsplit('/').next().unwrap_or(""),
                             Path::new(&to.mount_point),
                             &prepared.dest,
+                            prepared.dest_rel.rsplit('/').next().unwrap_or(""),
                         );
                     }
                     // Shares follow the file: subject rows point at the new
                     // drive/path before the job reports done.
-                    let leaf = prepared
-                        .dest
-                        .file_name()
-                        .map(|s| s.to_string_lossy().into_owned())
-                        .unwrap_or_default();
-                    let new_rel =
-                        crate::gallery::gallery_indexer::join_rel(&prepared.row.to_path, &leaf);
-                    if let Err(e) = crate::access::repath_subjects_move(
-                        &conn,
-                        &prepared.row.from_drive,
-                        &prepared.row.from_path,
-                        &prepared.row.to_drive,
-                        &new_rel,
-                    ) {
+                    let new_rel = prepared.dest_rel.clone();
+                    if let Err(e) = repath_rows(&conn, &prepared, false).and_then(|()| {
+                        crate::access::repath_subjects_move(
+                            &conn,
+                            &prepared.row.from_drive,
+                            &prepared.row.from_path,
+                            &prepared.row.to_drive,
+                            &new_rel,
+                        )
+                    }) {
+                        let _ = repath_rows(&conn, &prepared, true);
                         // The rename already landed but the share rows
                         // still point at the source — put the tree back so
                         // they stay truthful, then report the failure.
@@ -522,6 +610,7 @@ fn run_job(
         total: prepared.total,
         cancel: &cancel,
     };
+    let mut created_private_root = false;
     let result = (|| -> Result<(), JobError> {
         if cancel.load(Ordering::Relaxed) {
             return Err(JobError::Io(std::io::Error::new(
@@ -534,17 +623,27 @@ fn run_job(
                 .lock()
                 .map_err(|_| JobError::Db(anyhow::anyhow!("db busy")))?;
             let drive = files::drive_root(&conn, &prepared.row.from_drive)?;
+            let to_root =
+                PathBuf::from(files::drive_root(&conn, &prepared.row.to_drive)?.mount_point);
             CopyCtx {
                 db: &db,
                 row: &prepared.row,
                 src_root: PathBuf::from(drive.mount_point),
+                to_prefix: crate::private::prefix_of(&to_root),
+                to_root,
             }
         };
+        if let Some((owner, id)) = &prepared.private_root {
+            crate::private::create_with_id(&ctx.to_root, &prepared.dest_rel, owner, id)
+                .map_err(JobError::Db)?;
+            created_private_root = true;
+        }
         copy_node(
             &ctx,
             &prepared.src,
             &prepared.row.from_path,
             &prepared.dest,
+            &prepared.dest_rel,
             &mut st,
         )?;
 
@@ -553,12 +652,7 @@ fn run_job(
             // Retarget the subject rows to the destination BEFORE trashing
             // the source — delete_to_trash revokes whatever still points at
             // the old path, so shares must already live at the new one.
-            let leaf = prepared
-                .dest
-                .file_name()
-                .map(|s| s.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            let new_rel = crate::gallery::gallery_indexer::join_rel(&prepared.row.to_path, &leaf);
+            let new_rel = prepared.dest_rel.clone();
             crate::access::repath_subjects_move(
                 &conn,
                 &prepared.row.from_drive,
@@ -582,6 +676,7 @@ fn run_job(
                 // source stays wherever the failed cleanup left it, which
                 // the user can remove by hand.
                 st.owned_dest = false;
+                created_private_root = false;
                 return Err(JobError::from(e));
             }
         }
@@ -604,6 +699,13 @@ fn run_job(
         let _ = std::fs::remove_file(&prepared.dest);
         let _ = std::fs::remove_dir_all(&prepared.dest);
     }
+    if (state == "cancelled" || state == "error")
+        && (st.owned_dest || created_private_root)
+        && let Ok(conn) = db.lock()
+        && let Ok(drive) = files::drive_root(&conn, &prepared.row.to_drive)
+    {
+        let _ = crate::private::remove_under(Path::new(&drive.mount_point), &prepared.dest_rel);
+    }
     if state == "done" {
         // The copy landed whole directories the listings never saw land —
         // forget the indexed snapshots so the next read re-reads the dirs
@@ -614,6 +716,24 @@ fn run_job(
             files::note_write(&conn, &prepared.row.to_drive, &prepared.row.to_path);
         }
         notify_job_gallery(&gallery, &prepared, prepared.row.kind == "move");
+    }
+}
+
+/// Re-key private-item rows after a same-drive rename landed (or undo it).
+fn repath_rows(conn: &Connection, prepared: &PreparedJob, undo: bool) -> anyhow::Result<()> {
+    if prepared.row.from_drive != prepared.row.to_drive {
+        return Ok(());
+    }
+    let root = PathBuf::from(
+        files::drive_root(conn, &prepared.row.from_drive)
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?
+            .mount_point,
+    );
+    let (from, to) = (&prepared.from_real, &prepared.dest_rel);
+    if undo {
+        crate::private::repath(&root, to, from)
+    } else {
+        crate::private::repath(&root, from, to)
     }
 }
 
@@ -631,6 +751,9 @@ struct CopyCtx<'a> {
     row: &'a JobRow,
     /// `row.from_drive`'s mount point — the jail every node re-resolves in.
     src_root: PathBuf,
+    /// `row.to_drive`'s mount point and prefix, for private items copied in.
+    to_root: PathBuf,
+    to_prefix: Option<String>,
 }
 
 /// Map a path-jail failure onto the job error vocabulary: `NotFound`/`Io`
@@ -644,11 +767,36 @@ fn jail_err(e: luna_core::path::PathError) -> JobError {
     }
 }
 
+/// May the job's owner still touch this node of the tree, as the job needs?
+fn node_allowed(ctx: &CopyCtx<'_>, rel: &str) -> Result<bool, JobError> {
+    let conn = ctx
+        .db
+        .lock()
+        .map_err(|_| JobError::Db(anyhow::anyhow!("db busy")))?;
+    let Some(user_row) = db::get_user(&conn, &ctx.row.user_id).map_err(JobError::Db)? else {
+        return Ok(false);
+    };
+    let user = crate::auth::CurrentUser {
+        id: user_row.id,
+        username: user_row.username,
+        role: user_row.role,
+    };
+    let cap = crate::access::CAP_VIEW;
+    Ok(crate::auth::has_cap(
+        &user,
+        &conn,
+        &ctx.row.from_drive,
+        rel,
+        cap,
+    ))
+}
+
 fn copy_node(
     ctx: &CopyCtx<'_>,
     src: &Path,
     rel: &str,
     dest: &Path,
+    dest_rel: &str,
     st: &mut CopyState<'_>,
 ) -> Result<u64, JobError> {
     if st.cancel.load(Ordering::Relaxed) {
@@ -670,7 +818,12 @@ fn copy_node(
             .db
             .lock()
             .map_err(|_| JobError::Db(anyhow::anyhow!("db busy")))?;
-        recheck_job_caps_for(&conn, ctx.row, rel)?;
+        let authorized_path = if ctx.row.kind == "move" {
+            &ctx.row.from_path
+        } else {
+            rel
+        };
+        recheck_job_caps_for(&conn, ctx.row, authorized_path)?;
         files::real_rel_path(&conn, &ctx.row.from_drive, rel)?
     };
     // Re-resolve the node inside the source drive's jail: the verified
@@ -687,7 +840,7 @@ fn copy_node(
         // silently merge into a concurrently-created tree. Child levels are
         // reached only through this root, so plain create_dir is enough.
         if !st.owned_dest {
-            std::fs::create_dir(dest).map_err(|e| {
+            files::create_dir_new(dest).map_err(|e| {
                 if e.kind() == std::io::ErrorKind::AlreadyExists {
                     JobError::Conflict
                 } else {
@@ -696,8 +849,9 @@ fn copy_node(
             })?;
             st.owned_dest = true;
         } else {
-            std::fs::create_dir(dest).map_err(JobError::Io)?;
+            files::create_dir_new(dest).map_err(JobError::Io)?;
         }
+        let private = crate::private::children_of(&ctx.src_root, &real_rel);
         let mut entries: Vec<_> = std::fs::read_dir(&verified)
             .map_err(JobError::Io)?
             .collect::<Result<Vec<_>, _>>()
@@ -708,20 +862,46 @@ fn copy_node(
             // Skip Luna-internal names (`.luna-<uuid>-*`, `.part` temps) and
             // non-UTF-8 names the API can never address — a copy must not
             // sweep bookkeeping or half-uploaded bytes into the destination.
-            let Some(name) = file_name.to_str() else {
+            let Some(disk) = file_name.to_str() else {
                 continue;
             };
-            if files::is_internal_temp(name) {
+            let item = private.get(disk);
+            if item.is_none() && files::is_internal_temp(disk) {
                 continue;
             }
+            let name = item.map_or(disk, |i| i.name());
             let child_src = entry.path();
-            let child_dest = dest.join(name);
-            let child_rel = if rel.is_empty() {
-                name.to_string()
-            } else {
-                format!("{rel}/{name}")
+            let child_rel = crate::gallery::gallery_indexer::join_rel(rel, name);
+            let child_dest_rel = crate::gallery::gallery_indexer::join_rel(dest_rel, name);
+            // A private item inside the tree lands as a private item. A copy
+            // leaves out what the caller can't reach; a move carries the
+            // whole boundary with its owner — the mover reads none of it.
+            let child_dest = match item {
+                Some(item) => {
+                    if ctx.row.kind != "move" && !node_allowed(ctx, &child_rel)? {
+                        continue;
+                    }
+                    let prefix = ctx.to_prefix.as_deref().ok_or(JobError::Conflict)?;
+                    let id = crate::private::new_id();
+                    let owner = if ctx.row.kind == "move" {
+                        item.owner.as_str()
+                    } else {
+                        ctx.row.user_id.as_str()
+                    };
+                    crate::private::create_with_id(&ctx.to_root, &child_dest_rel, owner, &id)
+                        .map_err(JobError::Db)?;
+                    dest.join(crate::private::disk_name(prefix, &id))
+                }
+                None => dest.join(name),
             };
-            copy_node(ctx, &child_src, &child_rel, &child_dest, st)?;
+            copy_node(
+                ctx,
+                &child_src,
+                &child_rel,
+                &child_dest,
+                &child_dest_rel,
+                st,
+            )?;
         }
         return Ok(st.done);
     }
@@ -753,6 +933,7 @@ fn copy_node(
         .create_new(true)
         .open(&tmp)
         .map_err(JobError::Io)?;
+    let count_bytes = node_allowed(ctx, rel)?;
     let mut buf = vec![0u8; COPY_BUF];
     loop {
         if st.cancel.load(Ordering::Relaxed) {
@@ -769,7 +950,9 @@ fn copy_node(
             break;
         }
         output.write_all(&buf[..n]).map_err(JobError::Io)?;
-        st.done += n as u64;
+        if count_bytes {
+            st.done += n as u64;
+        }
         if (st.done % (COPY_BUF as u64) < (COPY_BUF as u64 / 4) || st.done == st.total)
             && let Ok(conn) = ctx.db.lock()
         {
@@ -782,7 +965,7 @@ fn copy_node(
     files::install_temp(&tmp, dest, false)?;
     // We own this leaf now; only our cleanup may ever remove it.
     st.owned_dest = true;
-    copy_form_files(ctx, src, dest, st)?;
+    copy_form_files(ctx, src, dest, st, count_bytes)?;
     Ok(st.done)
 }
 
@@ -796,8 +979,9 @@ fn copy_form_files(
     src: &Path,
     dest: &Path,
     st: &mut CopyState<'_>,
+    count_bytes: bool,
 ) -> Result<(), JobError> {
-    if !crate::api::forms::is_form_path(&dest.to_string_lossy()) {
+    if !crate::api::forms::is_form_file(dest) {
         return Ok(());
     }
     let Some(from_dir) = crate::api::forms::files_dir_for(&ctx.src_root, src) else {
@@ -816,29 +1000,37 @@ fn copy_form_files(
     let Some(to_dir) = crate::api::forms::files_dir_for(&to_root, dest) else {
         return Ok(());
     };
-    let result = copy_plain_tree(&from_dir, &to_dir, st);
+    let result = copy_plain_tree(&from_dir, &to_dir, st, count_bytes);
     if result.is_err() {
         let _ = std::fs::remove_dir_all(&to_dir);
     }
     result
 }
 
-fn copy_plain_tree(src: &Path, dest: &Path, st: &mut CopyState<'_>) -> Result<(), JobError> {
+fn copy_plain_tree(
+    src: &Path,
+    dest: &Path,
+    st: &mut CopyState<'_>,
+    count_bytes: bool,
+) -> Result<(), JobError> {
     if st.cancel.load(Ordering::Relaxed) {
         return Err(JobError::Io(std::io::Error::new(
             std::io::ErrorKind::Interrupted,
             "cancelled",
         )));
     }
-    std::fs::create_dir(dest).map_err(JobError::Io)?;
+    files::create_dir_new(dest).map_err(JobError::Io)?;
     for entry in std::fs::read_dir(src).map_err(JobError::Io)? {
         let entry = entry.map_err(JobError::Io)?;
         let meta = std::fs::symlink_metadata(entry.path()).map_err(JobError::Io)?;
         let target = dest.join(entry.file_name());
         if meta.is_dir() {
-            copy_plain_tree(&entry.path(), &target, st)?;
+            copy_plain_tree(&entry.path(), &target, st, count_bytes)?;
         } else if meta.is_file() {
-            st.done += std::fs::copy(entry.path(), &target).map_err(JobError::Io)?;
+            let bytes = std::fs::copy(entry.path(), &target).map_err(JobError::Io)?;
+            if count_bytes {
+                st.done += bytes;
+            }
         }
     }
     Ok(())
@@ -849,6 +1041,9 @@ fn plain_job_error(err: &JobError) -> String {
         JobError::Conflict => "A file or folder with this name is already there.".into(),
         JobError::Symlink => "Luna can't copy links yet.".into(),
         JobError::Denied => "You no longer have permission to do this.".into(),
+        JobError::Blocked => {
+            "This folder holds private items that only their owners can move.".into()
+        }
         JobError::Files(FilesError::UnknownDrive) => {
             "Luna doesn't know one of these drives. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in.".into()
         }
@@ -1299,6 +1494,161 @@ mod tests {
         assert_eq!(
             std::fs::read(format!("{root}/note.txt")).unwrap(),
             b"hello cross-drive"
+        );
+    }
+
+    #[tokio::test]
+    async fn private_items_stay_private_through_copies_and_moves() {
+        let (dir, db, _a) = setup();
+        {
+            let conn = db.lock().unwrap();
+            files::mkdir(&conn, "a", "inbox").unwrap();
+            files::mkdir_as(&conn, "a", "Vault", Some("user-1")).unwrap();
+            files::create(&conn, "a", "Vault/s.txt").unwrap();
+            files::mkdir_as(&conn, "a", "Vault/Theirs", Some("sam")).unwrap();
+            files::create(&conn, "a", "Vault/Theirs/t.txt").unwrap();
+            files::mkdir_as(&conn, "a", "Vault/Mine", Some("user-1")).unwrap();
+            files::create(&conn, "a", "Vault/Mine/m.txt").unwrap();
+        }
+        let manager = JobManager::new(
+            db.clone(),
+            crate::gallery::gallery_indexer::GalleryIndexer::start(),
+        );
+        let (root_a, root_b) = (dir.path().join("a"), dir.path().join("b"));
+
+        // A copy is private to whoever made it, and leaves out what they can't reach.
+        let job = manager
+            .enqueue("copy", "a", "Vault", "b", "", "user-1")
+            .await
+            .unwrap();
+        wait_done(&manager, &job.id);
+        let done = manager.get(&job.id).unwrap().unwrap();
+        assert_eq!(done.state, "done", "{}", done.error);
+        let copied = crate::private::item_at(&root_b, "Vault").unwrap();
+        assert_eq!(copied.owner, "user-1");
+        assert_ne!(
+            Some(copied.id),
+            crate::private::item_at(&root_a, "Vault").map(|i| i.id)
+        );
+        assert!(crate::private::item_at(&root_b, "Vault/Mine").is_some());
+        assert!(crate::private::item_at(&root_b, "Vault/Theirs").is_none());
+        {
+            let conn = db.lock().unwrap();
+            let names: Vec<_> = files::list_dir(&conn, "b", "Vault")
+                .unwrap()
+                .into_iter()
+                .map(|e| e.name)
+                .collect();
+            assert_eq!(names, vec!["Mine", "s.txt"]);
+        }
+
+        // A move carries private items the mover can't reach — the boundary
+        // and its owner travel unchanged.
+        let job = manager
+            .enqueue("move", "a", "Vault", "a", "inbox", "user-1")
+            .await
+            .unwrap();
+        wait_done(&manager, &job.id);
+        let done = manager.get(&job.id).unwrap().unwrap();
+        assert_eq!(done.state, "done", "{}", done.error);
+        assert!(crate::private::item_at(&root_a, "Vault").is_none());
+        let moved = crate::private::item_at(&root_a, "inbox/Vault").unwrap();
+        assert_eq!(moved.owner, "user-1");
+        // Someone else's private folder inside kept its boundary and owner.
+        let theirs = crate::private::item_at(&root_a, "inbox/Vault/Theirs").unwrap();
+        assert_eq!(theirs.owner, "sam");
+        assert!(
+            root_a
+                .join(crate::private::disk_rel(
+                    &root_a,
+                    "inbox/Vault/Theirs/t.txt"
+                ))
+                .exists()
+        );
+
+        // Moved alone, a private item keeps its owner and follows to the new path.
+        let job = manager
+            .enqueue("move", "a", "inbox/Vault/Mine", "a", "", "user-1")
+            .await
+            .unwrap();
+        wait_done(&manager, &job.id);
+        let done = manager.get(&job.id).unwrap().unwrap();
+        assert_eq!(done.state, "done", "{}", done.error);
+        assert!(crate::private::item_at(&root_a, "inbox/Vault/Mine").is_none());
+        let moved = crate::private::item_at(&root_a, "Mine").unwrap();
+        assert_eq!(moved.owner, "user-1");
+        assert_eq!(
+            std::fs::read_to_string(root_a.join(crate::private::disk_rel(&root_a, "Mine/m.txt")))
+                .unwrap(),
+            ""
+        );
+    }
+
+    #[tokio::test]
+    async fn private_folders_keep_their_row_when_moved_between_drives_and_copies_respect_names() {
+        let (dir, db, _a) = setup();
+        {
+            let conn = db.lock().unwrap();
+            files::mkdir_as(&conn, "a", "Clash", Some("user-1")).unwrap();
+            files::mkdir_as(&conn, "a", "Mover", Some("user-1")).unwrap();
+            files::create(&conn, "b", "Clash").unwrap();
+        }
+        let manager = JobManager::new(
+            db.clone(),
+            crate::gallery::gallery_indexer::GalleryIndexer::start(),
+        );
+        let root_b = dir.path().join("b");
+        // An ordinary item already has the name: the private copy must not
+        // sit beside it under the same name.
+        let clash = manager
+            .enqueue("copy", "a", "Clash", "b", "", "user-1")
+            .await;
+        assert!(matches!(clash, Err(JobError::Conflict)));
+        // Both drives sit on one filesystem, so a rename could succeed; the
+        // item still has to arrive with its row on the new drive.
+        let job = manager
+            .enqueue("move", "a", "Mover", "b", "", "user-1")
+            .await
+            .unwrap();
+        wait_done(&manager, &job.id);
+        let done = manager.get(&job.id).unwrap().unwrap();
+        assert_eq!(done.state, "done", "{}", done.error);
+        assert_eq!(
+            crate::private::item_at(&root_b, "Mover").map(|i| i.owner),
+            Some("user-1".into())
+        );
+        let conn = db.lock().unwrap();
+        assert!(files::stat(&conn, "b", "Mover").unwrap().private);
+    }
+
+    #[test]
+    fn private_copy_collision_does_not_remove_an_existing_boundary() {
+        let (dir, db, _) = setup();
+        let prepared = {
+            let conn = db.lock().unwrap();
+            files::mkdir_as(&conn, "a", "Folder", Some("user-1")).unwrap();
+            let prepared = prepare(&conn, "copy", "a", "Folder", "b", "", "user-1").unwrap();
+            files::mkdir_as(&conn, "b", "Folder", Some("someone-else")).unwrap();
+            files::create(&conn, "b", "Folder/keep.txt").unwrap();
+            prepared
+        };
+        let id = prepared.row.id.clone();
+        run_job(
+            db.clone(),
+            GalleryIndexer::start(),
+            prepared,
+            Arc::new(AtomicBool::new(false)),
+        );
+        let conn = db.lock().unwrap();
+        assert_eq!(db::get_job(&conn, &id).unwrap().unwrap().state, "error");
+        let root = dir.path().join("b");
+        assert_eq!(
+            crate::private::item_at(&root, "Folder").unwrap().owner,
+            "someone-else"
+        );
+        assert!(
+            root.join(crate::private::disk_rel(&root, "Folder/keep.txt"))
+                .exists()
         );
     }
 

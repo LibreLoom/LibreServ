@@ -1747,6 +1747,24 @@ describe("FileBrowser sorting and filtering", () => {
     expect(screen.getByRole("button", { name: "Sort files" })).toBeInTheDocument();
     expect(screen.queryByLabelText("Select all in this folder")).not.toBeInTheDocument();
   });
+
+  it("marks private folders and their contents with a lock, ordinary ones without", async () => {
+    stubListing({
+      "": [
+        { name: "Taxes", kind: "dir", size: 0, hidden: false, private: true },
+        { name: "note.txt", kind: "file", size: 1200, hidden: false, in_private: true },
+        { name: "readme.txt", kind: "file", size: 1200, hidden: false },
+      ],
+    });
+    renderBrowser({ multiSelect: false });
+    expect(await screen.findByText("Taxes")).toBeInTheDocument();
+    const taxesRow = document.querySelector('[data-file-path="Taxes"]');
+    expect(taxesRow?.querySelector('[aria-label="Private folder"]')).not.toBeNull();
+    const noteRow = document.querySelector('[data-file-path="note.txt"]');
+    expect(noteRow?.querySelector('[aria-label="In a private folder"]')).not.toBeNull();
+    const readmeRow = document.querySelector('[data-file-path="readme.txt"]');
+    expect(readmeRow?.querySelector('[data-slot="private-badge"]')).toBeNull();
+  });
 });
 
 describe("FileBrowser keyboard", () => {

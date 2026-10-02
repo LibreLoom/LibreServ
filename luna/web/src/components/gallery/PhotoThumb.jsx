@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { Check, Play } from "lucide-react";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
+import PrivateBadge from "../private/PrivateBadge.jsx";
 
 const LONG_PRESS_MS = 450;
 
@@ -119,7 +120,7 @@ export default function PhotoThumb({
       className={`group relative block w-full aspect-square overflow-hidden surface-secondary animate-cascade-in motion-reduce:animate-none motion-reduce:transition-none motion-safe:transition-opacity hover:opacity-95 outline-none no-focus-outline focus-visible:ring-2 focus-visible:ring-accent ${
  selected ? "ring-2 ring-accent" : ""
  }`}
-      aria-label={photo.name}
+      aria-label={photo.private ? `${photo.name}, private` : photo.name}
     >
       {photo.thumb ? (
         <img
@@ -144,6 +145,11 @@ export default function PhotoThumb({
           <Play size={14} fill="currentColor" aria-hidden="true" />
         </span>
       )}
+      {photo.private && (
+        <span className="absolute top-2 right-2 flex h-6 w-6 items-center justify-center rounded-pill surface-primary">
+          <PrivateBadge size={12} />
+        </span>
+      )}
       {selected && (
         <span
           className="absolute top-2 left-2 flex h-6 w-6 items-center justify-center rounded-pill surface-secondary ring-2 ring-primary"
@@ -161,6 +167,7 @@ PhotoThumb.propTypes = {
     name: PropTypes.string,
     thumb: PropTypes.string,
     kind: PropTypes.string,
+    private: PropTypes.bool,
   }).isRequired,
   onOpen: PropTypes.func,
   onToggle: PropTypes.func,
