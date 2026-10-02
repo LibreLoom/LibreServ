@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components -- lightbox exports URL helpers used by gallery pages and tests */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import PropTypes from "prop-types";
 import {
@@ -18,7 +18,6 @@ import {
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import { ActionTooltipGroup, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import LightboxMedia from "./LightboxMedia.jsx";
-import PhotoInfoPanel from "./PhotoInfoPanel.jsx";
 import { contentHref, downloadHref, folderHref } from "../../lib/paths.js";
 import { isHeicFile } from "../../lib/fileKinds.js";
 import { Link } from "react-router-dom";
@@ -27,6 +26,8 @@ import { photoSelectionKey } from "../../hooks/useMultiSelect.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { useShortcut } from "@libreloom/ui/context/ShortcutsContext.jsx";
 import { cn } from "@libreloom/ui/lib/utils.js";
+
+const PhotoInfoPanel = lazy(() => import("./PhotoInfoPanel.jsx"));
 
 /** Match `fullscreen-overlay-out` / `file-viewer-out` duration in index.css. */
 const FULLSCREEN_EXIT_MS = 250;
@@ -870,19 +871,21 @@ export default function PhotoLightbox({
         )}
       </div>
 
-      <PhotoInfoPanel
-        photo={photo}
-        open={infoOpen}
-        onClose={() => setInfoOpen(false)}
-        photos={photos}
-        onSelectPhoto={(p) => {
-          const next = photos.indexOf(p);
-          if (next >= 0 && next !== index) {
-            haptic("selection");
-            onIndexChange(next);
-          }
-        }}
-      />
+      <Suspense fallback={null}>
+        <PhotoInfoPanel
+          photo={photo}
+          open={infoOpen}
+          onClose={() => setInfoOpen(false)}
+          photos={photos}
+          onSelectPhoto={(p) => {
+            const next = photos.indexOf(p);
+            if (next >= 0 && next !== index) {
+              haptic("selection");
+              onIndexChange(next);
+            }
+          }}
+        />
+      </Suspense>
       </div>
 
       <div className="flex flex-wrap items-center justify-center gap-2 px-4 py-4">

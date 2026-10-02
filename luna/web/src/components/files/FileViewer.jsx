@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import PropTypes from "prop-types";
 import { Code, Download, Eye, FileOutput, ImageOff, Maximize2, VideoOff, X } from "lucide-react";
@@ -9,14 +9,7 @@ import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.j
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import ImagePreviewPanel from "./ImagePreviewPanel.jsx";
-import MarkdownPreview from "./MarkdownPreview.jsx";
 import FullscreenEditorFrame from "./FullscreenEditorFrame.jsx";
-import TextFileEditor from "./TextFileEditor.jsx";
-import FormBuilder from "./forms/FormBuilder.jsx";
-import KindViewer from "./viewers/KindViewer.jsx";
-import OfficeEditor from "./office/OfficeEditor.jsx";
-import DiagramEditor from "./diagram/DiagramEditor.jsx";
-import WhiteboardEditor from "./whiteboard/WhiteboardEditor.jsx";
 import { ApiError, apiErrorMessage, postForm } from "../../lib/api.js";
 import { fileExtension, openableKind } from "../../lib/fileKinds.js";
 import { officeConversionFor } from "../../lib/officeConvert.js";
@@ -26,6 +19,24 @@ import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
+
+// Heavy viewers and editors (CodeMirror, forms, diagrams, whiteboard, office)
+// load only when a file of that kind is opened.
+const MarkdownPreview = lazy(() => import("./MarkdownPreview.jsx"));
+const TextFileEditor = lazy(() => import("./TextFileEditor.jsx"));
+const FormBuilder = lazy(() => import("./forms/FormBuilder.jsx"));
+const KindViewer = lazy(() => import("./viewers/KindViewer.jsx"));
+const OfficeEditor = lazy(() => import("./office/OfficeEditor.jsx"));
+const DiagramEditor = lazy(() => import("./diagram/DiagramEditor.jsx"));
+const WhiteboardEditor = lazy(() => import("./whiteboard/WhiteboardEditor.jsx"));
+
+function ViewerFallback() {
+  return (
+    <div className="flex min-h-[30vh] items-center justify-center">
+      <Spinner size="md" decorative />
+    </div>
+  );
+}
 
 /** Match `file-viewer-out` duration in index.css. */
 const FULLSCREEN_EXIT_MS = 250;
@@ -310,8 +321,9 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
         editorKind={frameView.isOffice ? "office" : frameView.isForm ? "form" : frameView.isDiagram ? "diagram" : frameView.isWhiteboard ? "whiteboard" : "text"}
         onClose={onClose}
       >
-        {({ onRegisterSave, onSaveStateChange, requestClose }) =>
-          frameView.isOffice ? (
+        {({ onRegisterSave, onSaveStateChange, requestClose }) => (
+          <Suspense fallback={<ViewerFallback />}>
+          {frameView.isOffice ? (
             <OfficeEditor
               driveId={driveId}
               path={frameView.path}
@@ -368,8 +380,9 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
               onRegisterSave={onRegisterSave}
               onSaveStateChange={onSaveStateChange}
             />
-          )
-        }
+          )}
+          </Suspense>
+        )}
       </FullscreenEditorFrame>
     );
   }
@@ -428,12 +441,14 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
                 </div>
               ) : isMarkdown ? (
                 mdView === "preview" ? (
-                  <MarkdownPreview
-                    text={text}
-                    name={name}
-                    className="max-h-[65vh] min-h-[50vh] rounded-large-element"
-                    emptyHint="Nothing to preview yet."
-                  />
+                  <Suspense fallback={<ViewerFallback />}>
+                    <MarkdownPreview
+                      text={text}
+                      name={name}
+                      className="max-h-[65vh] min-h-[50vh] rounded-large-element"
+                      emptyHint="Nothing to preview yet."
+                    />
+                  </Suspense>
                 ) : (
                   <ShakeTarget shake={error}>
                     <pre
@@ -458,14 +473,16 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
             )}
 
             {open && kind && kind !== "image" && kind !== "video" && !isTextLike && kind !== "office" && kind !== "form" && kind !== "diagram" && kind !== "whiteboard" && (
-              <KindViewer
-                kind={kind}
-                driveId={driveId}
-                path={path}
-                canWrite={canWrite}
-                onSaved={onSaved}
-                onClose={onClose}
-              />
+              <Suspense fallback={<ViewerFallback />}>
+                <KindViewer
+                  kind={kind}
+                  driveId={driveId}
+                  path={path}
+                  canWrite={canWrite}
+                  onSaved={onSaved}
+                  onClose={onClose}
+                />
+              </Suspense>
             )}
 
             {!kind && (

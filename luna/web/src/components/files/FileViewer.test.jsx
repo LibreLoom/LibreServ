@@ -653,7 +653,7 @@ describe("FileViewer fullscreen office overlay", () => {
       <FileViewer open driveId="d1" path="docs/report.docx" onClose={() => {}} />,
     );
     await findFullscreenOverlay();
-    expect(screen.getByTestId("office-editor")).toBeInTheDocument();
+    expect(await screen.findByTestId("office-editor")).toBeInTheDocument();
 
     for (const path of [
       "docs/sheet.xlsm",
@@ -1129,7 +1129,7 @@ describe("FileViewer fullscreen diagram overlay", () => {
       <FileViewer open driveId="d1" path="diagrams/flow.drawio" onClose={() => {}} />,
     );
     await findFullscreenOverlay();
-    expect(screen.getByTestId("diagram-editor")).toBeInTheDocument();
+    expect(await screen.findByTestId("diagram-editor")).toBeInTheDocument();
     expect(diagramMocks.editorProps.path).toBe("diagrams/flow.drawio");
 
     // The embedded-preview variants are diagrams, not image previews.
@@ -1430,7 +1430,7 @@ describe("FileViewer form overlay", () => {
       <FileViewer open driveId="d1" path="forms/rsvp.lunaform" onClose={() => {}} />,
     );
     await findFullscreenOverlay();
-    expect(screen.getByTestId("form-builder")).toBeInTheDocument();
+    expect(await screen.findByTestId("form-builder")).toBeInTheDocument();
     expect(formMocks.editorProps.canWrite).toBe(true);
 
     rerender(

@@ -1,12 +1,13 @@
 /* eslint-disable react-refresh/only-export-components -- filter sheet exports helpers used by GalleryPage */
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import PropTypes from "prop-types";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import { InfoHint, TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
-import GeozoneMap from "./GeozoneMap.jsx";
 import { getJson } from "../../lib/api";
+
+const GeozoneMap = lazy(() => import("./GeozoneMap.jsx"));
 
 export const SAVED_FILTERS_KEY = "luna.photos.savedFilters";
 
@@ -623,13 +624,15 @@ export default function GalleryFilterSheet({
               }
             />
           </h3>
-          <GeozoneMap
-            places={places}
-            value={draft.placeBbox || null}
-            onChange={(bbox) =>
-              patch(bbox ? { placeBbox: bbox, place: null } : { placeBbox: null })
-            }
-          />
+          <Suspense fallback={null}>
+            <GeozoneMap
+              places={places}
+              value={draft.placeBbox || null}
+              onChange={(bbox) =>
+                patch(bbox ? { placeBbox: bbox, place: null } : { placeBbox: null })
+              }
+            />
+          </Suspense>
         </section>
 
         <section className={sectionClass} aria-labelledby="filter-camera">

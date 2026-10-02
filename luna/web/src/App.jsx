@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Agentation } from "agentation";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
@@ -7,22 +8,24 @@ import { AuthProvider, useAuth } from "./context/AuthContext";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import { ShortcutsProvider } from "@libreloom/ui/context/ShortcutsContext.jsx";
 import Toaster from "@libreloom/ui/components/common/Toaster.jsx";
-import Navbar from "./components/ui/Navbar";
 import FileSearch from "./components/files/FileSearch";
+import Navbar from "./components/ui/Navbar";
 import LoadingBar from "@libreloom/ui/components/common/LoadingBar.jsx";
-import DrivesPage from "./pages/DrivesPage";
-import FilesPage from "./pages/FilesPage";
-import GalleryPage from "./pages/GalleryPage";
-import SharedPage from "./pages/SharedPage";
-import DashboardPage from "./pages/DashboardPage";
-import LoginPage from "./pages/LoginPage";
-import UsersPage from "./pages/UsersPage";
-import SetupPage from "./pages/SetupPage";
-import NotFoundPage from "./pages/NotFoundPage";
-import SettingsPage from "./pages/SettingsPage";
-import PublicSharePage from "./pages/PublicSharePage";
 import RequireAdmin from "./components/auth/RequireAdmin";
 import useRecentItemsTracker from "./hooks/useRecentItemsTracker";
+
+// One chunk per page: the first paint downloads only the page being opened.
+const DrivesPage = lazy(() => import("./pages/DrivesPage"));
+const FilesPage = lazy(() => import("./pages/FilesPage"));
+const GalleryPage = lazy(() => import("./pages/GalleryPage"));
+const SharedPage = lazy(() => import("./pages/SharedPage"));
+const DashboardPage = lazy(() => import("./pages/DashboardPage"));
+const LoginPage = lazy(() => import("./pages/LoginPage"));
+const UsersPage = lazy(() => import("./pages/UsersPage"));
+const SetupPage = lazy(() => import("./pages/SetupPage"));
+const NotFoundPage = lazy(() => import("./pages/NotFoundPage"));
+const SettingsPage = lazy(() => import("./pages/SettingsPage"));
+const PublicSharePage = lazy(() => import("./pages/PublicSharePage"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -58,7 +61,9 @@ function AppShell() {
         <a href="#main-content" className="skip-link">Skip to main content</a>
         {/* Keying by pathname gives every navigation a smooth entrance. */}
         <div key={location.pathname} className="grow w-full animate-page-enter">
-          <Outlet />
+          <Suspense fallback={null}>
+            <Outlet />
+          </Suspense>
         </div>
         <Navbar />
         <FileSearch />
@@ -82,6 +87,7 @@ export default function App() {
           <ToastProvider>
             <ShortcutsProvider>
             <AuthProvider>
+            <Suspense fallback={null}>
             <Routes>
               <Route path="/login" element={<LoginPage />} />
               <Route path="/setup" element={<SetupPage />} />
@@ -99,6 +105,7 @@ export default function App() {
               </Route>
               <Route path="*" element={<NotFoundPage />} />
             </Routes>
+            </Suspense>
             <Toaster />
             </AuthProvider>
             </ShortcutsProvider>

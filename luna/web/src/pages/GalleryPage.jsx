@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components -- page exports helpers used by tests */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -48,7 +48,6 @@ import DayJumpModal, {
   dayBoundsLocal,
   nearestDayKey,
 } from "../components/gallery/DayJumpModal.jsx";
-import PlacesMap from "../components/gallery/PlacesMap.jsx";
 import PhotoThumb from "../components/gallery/PhotoThumb.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
@@ -67,6 +66,8 @@ import {
   postJson,
   putJson,
 } from "../lib/api";
+
+const PlacesMap = lazy(() => import("../components/gallery/PlacesMap.jsx"));
 
 /** @param {{ owner_user_id?: string }|null|undefined} album @param {{ id?: string, role?: string }|null|undefined} user */
 function canManageAlbum(album, user) {
@@ -1850,28 +1851,30 @@ export default function GalleryPage() {
 
       {placesMapOverview && (
         <div className="flex min-h-0 flex-1 flex-col">
-          <PlacesMap
-            places={places.data || []}
-            loading={places.isLoading}
-            drawMode={placesDrawMode}
-            onDrawModeChange={setPlacesDrawMode}
-            onSelect={(p) => {
-              setPlacesDrawMode(false);
-              setFilters((prev) =>
-                p.drawn
-                  ? { ...prev, place: null, placeBbox: p.place_bbox || null }
-                  : {
-                      ...prev,
-                      placeBbox: null,
-                      place: {
-                        key: p.key,
-                        label: p.label,
-                        place_bbox: p.place_bbox || null,
+          <Suspense fallback={null}>
+            <PlacesMap
+              places={places.data || []}
+              loading={places.isLoading}
+              drawMode={placesDrawMode}
+              onDrawModeChange={setPlacesDrawMode}
+              onSelect={(p) => {
+                setPlacesDrawMode(false);
+                setFilters((prev) =>
+                  p.drawn
+                    ? { ...prev, place: null, placeBbox: p.place_bbox || null }
+                    : {
+                        ...prev,
+                        placeBbox: null,
+                        place: {
+                          key: p.key,
+                          label: p.label,
+                          place_bbox: p.place_bbox || null,
+                        },
                       },
-                    },
-              );
-            }}
-          />
+                );
+              }}
+            />
+          </Suspense>
         </div>
       )}
 

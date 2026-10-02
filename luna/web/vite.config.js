@@ -70,13 +70,23 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       output: {
-        manualChunks: {
-          vendor: ["react", "react-dom", "react-router-dom"],
-          ui: ["lucide-react"],
-          query: ["@tanstack/react-query"],
-          // Heavy editor — its own chunk so it only downloads on open. lunad's
-          // system check looks for assets/excalidraw-*.js; keep the name.
-          excalidraw: ["@excalidraw/excalidraw"],
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return undefined;
+          if (/node_modules\/(react|react-dom|react-router|react-router-dom|scheduler)\//.test(id)) return "vendor";
+          if (id.includes("node_modules/lucide-react/")) return "ui";
+          if (id.includes("node_modules/@tanstack/")) return "query";
+          return undefined;
+        },
+        // Excalidraw is a lazy chunk that only downloads on open. A manual
+        // chunk would drag shared helpers into it and make the entry preload
+        // it, so just name the dynamic chunk: lunad's system check looks for
+        // assets/excalidraw-*.js.
+        chunkFileNames(chunk) {
+          const isExcalidraw = chunk.facadeModuleId?.includes(
+            "node_modules/@excalidraw/excalidraw/");
+          return isExcalidraw
+            ? "assets/excalidraw-[hash].js"
+            : "assets/[name]-[hash].js";
         },
       },
     },
