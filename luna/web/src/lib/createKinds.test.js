@@ -5,6 +5,7 @@ describe("createKinds", () => {
   it("lists folder, text, office types, and forms", () => {
     expect(CREATE_KINDS.map((kind) => kind.id)).toEqual([
       "folder",
+      "private-folder",
       "text",
       "document",
       "spreadsheet",
@@ -12,15 +13,12 @@ describe("createKinds", () => {
       "diagram",
       "whiteboard",
       "form",
-      "private-folder",
     ]);
   });
 
   it("keeps Private kinds out unless they are asked for", () => {
     expect(createKindsFor(null).some((kind) => kind.private)).toBe(false);
-    expect(createKindsFor(null, true).map((kind) => kind.id).slice(-1)).toEqual([
-      "private-folder",
-    ]);
+    expect(createKindsFor(null, true).map((kind) => kind.id)).toContain("private-folder");
     // Folder-only pickers never get Private, even when the feature is on.
     expect(createKindsFor(["folder"], true).map((kind) => kind.id)).toEqual(["folder"]);
   });
@@ -30,11 +28,10 @@ describe("createKinds", () => {
     expect(createKindsFor(null)).toEqual(CREATE_KINDS.filter((kind) => !kind.private));
   });
 
-  it("groups kinds under Organize, Files, and Office, with Private last", () => {
+  it("groups kinds under Organize, Files, and Office, with private folders in Organize", () => {
     const groups = groupedCreateKinds();
-    expect(groups.map((group) => group.label)).toEqual(["Organize", "Files", "Office", "Private"]);
-    expect(groups[3].items.map((kind) => kind.id)).toEqual(["private-folder"]);
-    expect(groups[0].items.map((kind) => kind.id)).toEqual(["folder"]);
+    expect(groups.map((group) => group.label)).toEqual(["Organize", "Files", "Office"]);
+    expect(groups[0].items.map((kind) => kind.id)).toEqual(["folder", "private-folder"]);
     expect(groups[1].items.map((kind) => kind.id)).toEqual(["text"]);
     expect(groups[2].items.map((kind) => kind.id)).toEqual([
       "document",
