@@ -55,7 +55,7 @@ export default function Devices() {
 
         {selectedId && device && (
           <Card className="animate-fade-in">
-            <CardHeader><CardTitle>Device Details</CardTitle></CardHeader>
+            <CardHeader><CardTitle>Device details</CardTitle></CardHeader>
             <CardContent>
               <dl className="space-y-2 text-sm">
                 <div className="flex justify-between">
@@ -71,20 +71,20 @@ export default function Devices() {
                   <dd className="font-mono">{new Date(device.activated_at).toLocaleString()}</dd>
                 </div>
                 <div className="flex justify-between">
-                  <dt className="text-muted-foreground">Last Seen</dt>
+                  <dt className="text-muted-foreground">Last seen</dt>
                   <dd className="font-mono">{device.last_seen_at ? new Date(device.last_seen_at).toLocaleString() : "—"}</dd>
                 </div>
               </dl>
 
               {deviceUsage && (
                 <div className="mt-4 pt-4 border-t border-border">
-                  <p className="font-mono text-sm text-muted-foreground mb-2">Usage This Cycle</p>
+                  <p className="font-mono text-sm text-muted-foreground mb-2">Usage this cycle</p>
                   <p className="font-mono text-lg">${(deviceUsage.total_cost_usd || 0).toFixed(2)}</p>
                 </div>
               )}
 
               <div className="mt-4 pt-4 border-t border-border">
-                <p className="font-mono text-sm text-muted-foreground mb-2">Rotate Credentials</p>
+                <p className="font-mono text-sm text-muted-foreground mb-2">Rotate credentials</p>
                 <div className="flex flex-wrap gap-2">
                   {["smtp", "domain", "backup", "tunnel", "ai"].map((svc) => (
                     <Button

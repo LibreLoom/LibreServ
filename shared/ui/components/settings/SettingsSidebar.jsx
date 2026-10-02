@@ -45,7 +45,7 @@ export default function SettingsSidebar({
       <SettingsUserCard user={user} href={userHref} deviceName={deviceName} />
 
       <div className="mt-4 border-t border-primary/10 pt-4">
-        <div className="px-3 mb-3 text-xs font-medium text-primary uppercase tracking-wider">
+        <div className="px-3 mb-3 text-xs font-medium text-primary">
           Settings
         </div>
         <ul className="space-y-1 font-bold">

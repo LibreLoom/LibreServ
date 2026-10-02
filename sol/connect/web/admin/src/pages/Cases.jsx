@@ -26,7 +26,7 @@ export default function Cases() {
 
   return (
     <Layout>
-      <h2 className="font-mono text-2xl mb-6">Support Cases</h2>
+      <h2 className="font-mono text-2xl mb-6">Support cases</h2>
 
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-2">

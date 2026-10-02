@@ -227,9 +227,7 @@ function SetupCodeStep({ onCodeVerified }) {
           <LogoMark size={120} />
         </div>
 
-        <h1 className="font-mono text-3xl font-normal text-primary tracking-tight mb-3">
-          Enter your setup code
-        </h1>
+        <h1 className="font-mono text-3xl font-normal text-primary tracking-tight mb-3">Enter your setup code</h1>
 
         <p className="text-primary/42 text-base leading-relaxed mb-10 max-w-[20rem]">
           Enter the 6-character code from the card included with your device.
@@ -302,7 +300,7 @@ function WelcomeStep({ onBegin }) {
         onClick={onBegin}
         className="group px-9 py-4 font-mono tracking-wide hover:scale-[1.03]"
       >
-        Begin Setup
+        Begin setup
         <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
       </Button>
     </div>
@@ -335,8 +333,8 @@ const CHECK_LABELS = {
 
 const CATEGORY_LABELS = {
   system:   "System",
-  storage:  "Storage Permissions",
-  network:  "Network Storage Permissions",
+  storage:  "Storage permissions",
+  network:  "Network storage permissions",
 };
 
 const CATEGORY_ORDER = ["system", "storage", "network"];
@@ -388,7 +386,7 @@ function PreflightRow({ name, check, delay, done, rerunning }) {
 
       {/* Pass/fail badge — keep visible while re-running so layout doesn't shift */}
       {(done || showPrev) && check && (
-        <span className={cn("flex-shrink-0 font-mono text-[10px] tracking-widest uppercase motion-safe:transition-opacity motion-safe:duration-300", isOk ? "text-primary/30" : "text-error")}>
+        <span className={cn("flex-shrink-0 font-mono text-[10px] motion-safe:transition-opacity motion-safe:duration-300", isOk ? "text-primary/30" : "text-error")}>
           {isOk ? "ok" : "fail"}
         </span>
       )}
@@ -463,9 +461,7 @@ function PreflightStep({ onPass }) {
     <>
       {/* Header */}
         <div className="mb-7">
-          <h2 className="font-mono text-3xl font-normal text-primary tracking-tight">
-            System check
-          </h2>
+          <h2 className="font-mono text-3xl font-normal text-primary tracking-tight">System check</h2>
           <p className="text-sm mt-2">
             Verifying your environment before we continue.
           </p>
@@ -497,7 +493,7 @@ function PreflightStep({ onPass }) {
             if (!catChecks || catChecks.length === 0) return null;
             return (
               <div key={category}>
-                <p className="font-mono text-[11px] uppercase tracking-[0.18em] mt-5 mb-1 first:mt-0">
+                <p className="font-mono text-[11px] mt-5 mb-1 first:mt-0">
                   {CATEGORY_LABELS[category] || category}
                 </p>
                 {catChecks.map(([name, check], i) => (
@@ -679,9 +675,7 @@ function AccountStep({ onSuccess, onError }) {
     <>
       {/* Header */}
         <div className="mb-8">
-          <h2 className="font-mono text-3xl font-normal text-primary tracking-tight">
-            Create your account
-          </h2>
+          <h2 className="font-mono text-3xl font-normal text-primary tracking-tight">Create your account</h2>
           <p className="text-sm mt-2">
             This will be the administrator account.
           </p>
@@ -871,12 +865,10 @@ function ErrorStep({ message }) {
         <div className="mb-6 w-14 h-14 rounded-full border border-error/25 bg-error/12 flex items-center justify-center">
           <AlertCircle className="w-6 h-6 text-error" strokeWidth={1.5} />
         </div>
-        <p className="font-mono text-[11px] uppercase tracking-[0.22em] mb-3">
+        <p className="font-mono text-[11px] mb-3">
           Setup interrupted
         </p>
-        <h2 className="font-mono text-2xl font-normal text-primary mb-4 animate-in fade-in slide-in-from-bottom-2 duration-300 delay-75">
-          Something went wrong
-        </h2>
+        <h2 className="font-mono text-2xl font-normal text-primary mb-4 animate-in fade-in slide-in-from-bottom-2 duration-300 delay-75">Something went wrong</h2>
         <p className="text-sm text-primary/55 mb-8 leading-relaxed animate-in fade-in slide-in-from-bottom-2 duration-300 delay-150">
           {message}
         </p>
@@ -904,9 +896,7 @@ function MfaStep({ onComplete, onSessionExpired }) {
           <div className="w-10 h-10 rounded-full border border-primary/15 flex items-center justify-center">
             <ShieldCheck className="w-5 h-5" />
           </div>
-          <h2 className="font-mono text-3xl font-normal text-primary tracking-tight">
-            Enable MFA
-          </h2>
+          <h2 className="font-mono text-3xl font-normal text-primary tracking-tight">Enable MFA</h2>
         </div>
         {mfaPhase === "choose" && (
           <p className="text-sm leading-relaxed">

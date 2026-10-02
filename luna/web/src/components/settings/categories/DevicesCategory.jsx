@@ -10,7 +10,7 @@ export const DESKTOP_APP_DOWNLOAD_URL = "https://luna.libreloom.org/downloads/de
 export default function DevicesCategory() {
   return (
     <div className="space-y-4" data-slot="devices-category">
-      <SettingsCard icon={Smartphone} title="Mobile App" index={0}>
+      <SettingsCard icon={Smartphone} title="Mobile app" index={0}>
         <p className="text-primary text-sm">
           Back up your photos from your phone onto your Luna.
         </p>

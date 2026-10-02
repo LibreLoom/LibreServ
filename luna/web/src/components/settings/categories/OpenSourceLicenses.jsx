@@ -37,19 +37,19 @@ function LicenseModal({ entry, onClose }) {
           <p className="text-sm text-primary leading-relaxed">{entry.what}</p>
           <dl className="space-y-1.5 text-sm">
             <div className="flex gap-2">
-              <dt className="font-mono text-xs uppercase tracking-widest pt-0.5 shrink-0 w-20">
+              <dt className="font-mono text-xs pt-0.5 shrink-0 w-20">
                 License
               </dt>
               <dd className="text-primary">{entry.license}</dd>
             </div>
             <div className="flex gap-2">
-              <dt className="font-mono text-xs uppercase tracking-widest pt-0.5 shrink-0 w-20">
+              <dt className="font-mono text-xs pt-0.5 shrink-0 w-20">
                 Copyright
               </dt>
               <dd className="text-primary">{entry.copyright}</dd>
             </div>
             <div className="flex gap-2">
-              <dt className="font-mono text-xs uppercase tracking-widest pt-0.5 shrink-0 w-20">
+              <dt className="font-mono text-xs pt-0.5 shrink-0 w-20">
                 Source
               </dt>
               <dd>

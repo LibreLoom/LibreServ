@@ -10,7 +10,7 @@ import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 const GROUP_LABELS = {
   credentials: { label: "Credentials", icon: Lock },
-  connection: { label: "Connection Details", icon: Link },
+  connection: { label: "Connection details", icon: Link },
 };
 
 const GROUP_ORDER = ["credentials", "connection"];
@@ -35,7 +35,7 @@ function AdvancedSection({ show, onToggle, advancedSortedGroups, advancedGrouped
         aria-expanded={show}
         aria-controls={contentId}
       >
-        <span className="uppercase tracking-wider text-xs">Advanced Information</span>
+        <span className=" text-xs">Advanced information</span>
         <ChevronDown
           className={cn("shrink-0 text-secondary/40 motion-safe:transition-transform motion-safe:duration-300", show && "rotate-180")}
         />
@@ -223,7 +223,7 @@ export function ExposedInfoCard({ info }) {
         <div className="flex items-center gap-2 mb-4">
           <GroupIcon size={ICON_SIZE.md}  />
           <h3
-            className={cn("text-sm font-mono uppercase tracking-wider")}
+            className={cn("text-sm font-mono")}
           >
             {groupMeta.label}
           </h3>
@@ -242,7 +242,7 @@ export function ExposedInfoCard({ info }) {
                     {field.label}
                   </p>
                   {field.advanced && (
-                    <span className="rounded-full border border-secondary/15 bg-secondary/5 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-tighter text-secondary/40">
+                    <span className="rounded-full border border-secondary/15 bg-secondary/5 px-1.5 py-0.5 font-mono text-[9px] tracking-tighter text-secondary/40">
                       Advanced
                     </span>
                   )}
@@ -307,7 +307,7 @@ export function ExposedInfoCard({ info }) {
       <Card surface="primary">
         <div className="flex items-center gap-2 mb-8">
           <Key size={ICON_SIZE.xl} />
-          <h2 className="text-2xl font-mono font-normal">Exposed Information</h2>
+          <h2 className="text-2xl font-mono font-normal">Exposed information</h2>
         </div>
 
         {basicSortedGroups.map((gk) => renderGroup(gk, basicGrouped))}

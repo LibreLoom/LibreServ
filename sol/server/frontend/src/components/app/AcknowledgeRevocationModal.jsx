@@ -44,7 +44,7 @@ export default function AcknowledgeRevocationModal({ app, onClose, onAcknowledge
 
   return (
     <ModalCard
-      title={isMalicious ? "Security Warning" : "Version Recalled"}
+      title={isMalicious ? "Security warning" : "Version recalled"}
       onClose={onClose}
       size="md"
     >

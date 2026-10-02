@@ -198,13 +198,13 @@ export default function UserDetailPage() {
         <>
           {/* At-a-glance derived stats — relative time since each key event. */}
           <section className="grid grid-cols-1 sm:grid-cols-3 gap-4" aria-label="User stats">
-            <MetricCard label="Account Age" value={relativeLabel(ageDays)} />
+            <MetricCard label="Account age" value={relativeLabel(ageDays)} />
             <MetricCard
-              label="Since Login"
+              label="Since login"
               value={relativeLabel(loginDays)}
               valueClassName={TIER_TEXT[tier.variant]}
             />
-            <MetricCard label="Last Modified" value={relativeLabel(modDays)} />
+            <MetricCard label="Last modified" value={relativeLabel(modDays)} />
           </section>
 
           {/* Profile details — dense label/value rows in a single card. */}
@@ -216,10 +216,10 @@ export default function UserDetailPage() {
               </div>
               <div className="px-5 pb-5 flex flex-col gap-2">
                 <ValueDisplay label="Email" value={user.email} mono={false} />
-                <ValueDisplay label="Account Created" value={formatDate(user.created_at)} />
-                <ValueDisplay label="Last Updated" value={formatDate(user.updated_at)} />
+                <ValueDisplay label="Account created" value={formatDate(user.created_at)} />
+                <ValueDisplay label="Last updated" value={formatDate(user.updated_at)} />
                 <ValueDisplay
-                  label="Last Login"
+                  label="Last login"
                   value={user.last_login ? formatDate(user.last_login) : "Never"}
                 />
                 <ValueDisplay label="User ID" value={user.id} />
@@ -247,12 +247,12 @@ export default function UserDetailPage() {
               <div className="flex flex-wrap gap-2">
                 <Button variant="outline" surface="primary" onClick={() => setShowEditModal(true)}>
                   <Pencil size={ICON_SIZE.sm} aria-hidden="true" />
-                  Change Email
+                  Change email
                 </Button>
                 {!isSelf && (
                   <Button variant="outline" surface="primary" onClick={() => setShowRoleModal(true)}>
                     <Shield size={ICON_SIZE.sm} aria-hidden="true" />
-                    Change Role
+                    Change role
                   </Button>
                 )}
                 <Button
@@ -261,12 +261,12 @@ export default function UserDetailPage() {
                   onClick={() => setShowSetPasswordModal(true)}
                 >
                   <KeyRound size={ICON_SIZE.sm} aria-hidden="true" />
-                  Set Password
+                  Set password
                 </Button>
                 {!isSelf && (
                   <Button variant="danger" surface="primary" onClick={() => setShowDeleteConfirm(true)}>
                     <Trash2 size={ICON_SIZE.sm} aria-hidden="true" />
-                    Delete User
+                    Delete user
                   </Button>
                 )}
               </div>
@@ -277,7 +277,7 @@ export default function UserDetailPage() {
 
       <ConfirmModal
         open={showDeleteConfirm && !!user}
-        title="Delete User"
+        title="Delete user"
         message={`Are you sure you want to delete user "${user?.username}"? This action cannot be undone.`}
         confirmLabel="Delete"
         variant="danger"
@@ -287,7 +287,7 @@ export default function UserDetailPage() {
       />
 
       {showEditModal && user && (
-        <ModalCard title="Change Email" onClose={() => setShowEditModal(false)}>
+        <ModalCard title="Change email" onClose={() => setShowEditModal(false)}>
           {({ close }) => (
             <ChangeEmailForm user={user} onSuccess={handleEditSuccess} onCancel={close} />
           )}
@@ -295,7 +295,7 @@ export default function UserDetailPage() {
       )}
 
       {showRoleModal && user && (
-        <ModalCard title="Change Role" onClose={() => setShowRoleModal(false)}>
+        <ModalCard title="Change role" onClose={() => setShowRoleModal(false)}>
           {({ close }) => (
             <RoleChangeForm user={user} onSuccess={handleRoleChangeSuccess} onCancel={close} />
           )}
@@ -303,7 +303,7 @@ export default function UserDetailPage() {
       )}
 
       {showSetPasswordModal && user && (
-        <ModalCard title="Set Password" onClose={() => setShowSetPasswordModal(false)}>
+        <ModalCard title="Set password" onClose={() => setShowSetPasswordModal(false)}>
           {({ close }) => (
             <SetPasswordForm user={user} onSuccess={handleSetPasswordSuccess} onCancel={close} />
           )}

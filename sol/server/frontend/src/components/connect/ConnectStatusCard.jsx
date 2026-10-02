@@ -10,9 +10,9 @@ import Callout from "@libreloom/ui/components/common/Callout.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 const PLAN_BADGES = {
-  free: { label: "Connect Free", class: "border border-accent" },
-  one: { label: "Connect One", class: "surface-primary" },
-  lite: { label: "Connect Lite", class: "surface-primary" },
+  free: { label: "Connect free", class: "border border-accent" },
+  one: { label: "Connect one", class: "surface-primary" },
+  lite: { label: "Connect lite", class: "surface-primary" },
 };
 
 export default function ConnectStatusCard({
@@ -62,7 +62,7 @@ export default function ConnectStatusCard({
       </Card>
 
       {showTokenInput && (
-        <ModalCard title="Enter Your Connect Key" onClose={() => setShowTokenInput(false)} size="md">
+        <ModalCard title="Enter your Connect key" onClose={() => setShowTokenInput(false)} size="md">
           {({close}) => (
           <div className="space-y-4">
             <p className="text-sm">

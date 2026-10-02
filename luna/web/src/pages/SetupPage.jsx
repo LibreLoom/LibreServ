@@ -232,7 +232,7 @@ function WelcomeStep({ onBegin }) {
         onClick={onBegin}
         className="group px-9 py-4 font-mono tracking-wide hover:scale-[1.03]"
       >
-        Begin Setup
+        Begin setup
         <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
       </Button>
     </div>
@@ -535,9 +535,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
         <div className="mb-7 w-16 h-16 rounded-full border border-primary/20 flex items-center justify-center animate-in fade-in duration-300">
           <Lock className="w-7 h-7 text-primary" strokeWidth={1.5} />
         </div>
-        <h2 className="font-mono text-3xl font-normal text-primary tracking-tight mb-3 animate-in fade-in slide-in-from-bottom-2 duration-300 delay-100">
-          Sign in to continue
-        </h2>
+        <h2 className="font-mono text-3xl font-normal text-primary tracking-tight mb-3 animate-in fade-in slide-in-from-bottom-2 duration-300 delay-100">Sign in to continue</h2>
         <p className="text-primary text-sm leading-relaxed animate-in fade-in slide-in-from-bottom-2 duration-300 delay-200">
           This Luna already has an account. Sign in with it to finish setup.
         </p>
@@ -559,9 +557,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
     <>
       {/* Header */}
       <div className="mb-8">
-        <h2 className="font-mono text-3xl font-normal text-primary tracking-tight">
-          Create your account
-        </h2>
+        <h2 className="font-mono text-3xl font-normal text-primary tracking-tight">Create your account</h2>
         {authSubStep === 0 && (
           <div className="mt-2 space-y-2">
             <p className="text-primary text-sm leading-relaxed font-sans">
@@ -762,9 +758,7 @@ function NameStep({ initialName, onFinish }) {
     <>
       {/* Header */}
       <div className="mb-8">
-        <h2 className="font-mono text-3xl font-normal text-primary tracking-tight">
-          Name your Luna
-        </h2>
+        <h2 className="font-mono text-3xl font-normal text-primary tracking-tight">Name your Luna</h2>
         <p className="text-primary text-sm mt-2">
           This is the name you&rsquo;ll see when you open Luna. If you ever have two, each gets its own name.
         </p>

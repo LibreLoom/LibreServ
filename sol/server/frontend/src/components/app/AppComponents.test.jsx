@@ -297,7 +297,7 @@ describe("app component coverage", () => {
       "secret",
       expect.any(Object),
     );
-    await user.click(screen.getByRole("button", { name: /Advanced Information/ }));
+    await user.click(screen.getByRole("button", { name: /Advanced information/ }));
     expect(screen.getByText("Advanced value")).toBeVisible();
   });
 
@@ -377,7 +377,7 @@ describe("app component coverage", () => {
     expect(screen.getByText("Port must be between 1 and 65535")).toBeVisible();
     await user.clear(screen.getByLabelText("Port"));
     await user.type(screen.getByLabelText("Port"), "8080");
-    await user.click(screen.getByRole("button", { name: /Advanced Settings/ }));
+    await user.click(screen.getByRole("button", { name: /Advanced settings/ }));
     await user.click(screen.getByLabelText("Debug"));
     await user.click(screen.getByRole("button", { name: "Apply & Restart" }));
 

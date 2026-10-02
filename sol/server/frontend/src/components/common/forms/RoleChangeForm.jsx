@@ -62,7 +62,7 @@ export default function RoleChangeForm({ user, onSuccess, onCancel }) {
             htmlFor="role"
             className="text-secondary font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
           >
-            New Role
+            New role
           </label>
           <Dropdown
             value={role}
@@ -100,7 +100,7 @@ export default function RoleChangeForm({ user, onSuccess, onCancel }) {
           loading={loading}
           className="flex-1"
         >
-          Change Role
+          Change role
         </Button>
       </div>
     </form>

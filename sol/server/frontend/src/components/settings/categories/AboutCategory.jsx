@@ -19,7 +19,7 @@ function SystemChecksCard({ index = 2 }) {
 
   if (isLoading && !data) {
     return (
-      <SettingsCard icon={Activity} title="System Checks" padding={false} index={index}>
+      <SettingsCard icon={Activity} title="System checks" padding={false} index={index}>
         <div className="px-5 py-4 space-y-3 animate-pulse">
           {[0, 1, 2, 3].map((i) => (
             <div key={i} className="flex items-center gap-3">
@@ -34,7 +34,7 @@ function SystemChecksCard({ index = 2 }) {
 
   if (!data && error) {
     return (
-      <SettingsCard icon={Activity} title="System Checks" padding={false} index={index}>
+      <SettingsCard icon={Activity} title="System checks" padding={false} index={index}>
         <p className="px-5 py-4 text-sm text-error">
           Couldn't check your system right now. Please try again later.
         </p>
@@ -56,7 +56,7 @@ function SystemChecksCard({ index = 2 }) {
   });
 
   return (
-    <SettingsCard icon={Activity} title="System Checks" padding={false} index={index}>
+    <SettingsCard icon={Activity} title="System checks" padding={false} index={index}>
       <div className="px-5 py-4">
         <div className="flex items-center justify-between gap-3 mb-4">
           <p className="text-sm">
@@ -217,7 +217,7 @@ export default function AboutCategory({ settings, onUpdateSourceSave }) {
         >
           <div className="px-5 py-4 space-y-4">
             <CollapsibleSection
-              title="System Update Source"
+              title="System update source"
               mono
               size="sm"
               pill
@@ -258,7 +258,7 @@ export default function AboutCategory({ settings, onUpdateSourceSave }) {
       )}
 
       {modalOpen && (
-        <ModalCard title="Update Source" onClose={() => setModalOpen(false)}>
+        <ModalCard title="Update source" onClose={() => setModalOpen(false)}>
           <div className="space-y-4">
             <p className="text-sm">
               Where LibreServ gets its own updates from. This is not for app

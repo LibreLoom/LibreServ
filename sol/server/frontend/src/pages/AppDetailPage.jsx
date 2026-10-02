@@ -61,7 +61,7 @@ function UninstallConfirmModal({ app, onConfirm, onCancel, isUninstalling }) {
   const matches = typedName === appName;
 
   return (
-    <ModalCard title="Uninstall Application" onClose={onCancel}>
+    <ModalCard title="Uninstall application" onClose={onCancel}>
       <div className="space-y-4">
         <div className="flex items-center gap-3 p-3 bg-accent/10 rounded-large-element border border-accent/30">
           <AlertTriangle className="text-primary shrink-0" size={ICON_SIZE.xxl} />
@@ -350,7 +350,7 @@ export default function AppDetailPage() {
                   aria-label="Open app (opens in new tab)"
                   className="text-lg font-mono link-accent-card flex items-center gap-1"
                 >
-                  Open App
+                  Open app
                   <ExternalLink size={ICON_SIZE.sm} aria-hidden="true" />
                 </a>
               </MetricCard>
@@ -362,7 +362,7 @@ export default function AppDetailPage() {
               <Card surface="primary">
                 <div className="flex items-center gap-2 mb-6">
                   <Server size={ICON_SIZE.xl} className="text-secondary" />
-                  <h2 className="text-2xl font-mono font-normal">Resource Usage</h2>
+                  <h2 className="text-2xl font-mono font-normal">Resource usage</h2>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
                   <div className="flex items-center gap-4">
@@ -370,7 +370,7 @@ export default function AppDetailPage() {
                       <Cpu size={ICON_SIZE.xxl} className="text-secondary" />
                     </div>
                     <div>
-                      <p className="text-xs font-mono uppercase tracking-wider text-secondary">
+                      <p className="text-xs font-mono text-secondary">
                         CPU
                       </p>
                       <p className="text-xl font-mono">
@@ -383,7 +383,7 @@ export default function AppDetailPage() {
                       <Activity size={ICON_SIZE.xxl} className="text-secondary" />
                     </div>
                     <div>
-                      <p className="text-xs font-mono uppercase tracking-wider text-secondary">
+                      <p className="text-xs font-mono text-secondary">
                         Memory
                       </p>
                       <p className="text-xl font-mono">
@@ -396,7 +396,7 @@ export default function AppDetailPage() {
                       <HardDrive size={ICON_SIZE.xxl} className="text-secondary" />
                     </div>
                     <div>
-                      <p className="text-xs font-mono uppercase tracking-wider text-secondary">
+                      <p className="text-xs font-mono text-secondary">
                         Network
                       </p>
                       <p className="text-xl font-mono">
@@ -416,7 +416,7 @@ export default function AppDetailPage() {
                 <div className="flex items-center gap-4">
                   <ArrowUpCircle size={32} className="text-secondary" />
                   <div>
-                    <h2 className="text-xl font-mono font-normal">Update Available</h2>
+                    <h2 className="text-xl font-mono font-normal">Update available</h2>
                     <p className="text-sm text-secondary">
                       {availableUpdate.current_version} to {availableUpdate.latest_version}
                     </p>
@@ -444,7 +444,7 @@ export default function AppDetailPage() {
                     loading={actionLoading === "update"}
                   >
                     {actionLoading === "update" ? <Loader2 size={ICON_SIZE.lg} className="animate-spin" /> : <ArrowUpCircle size={ICON_SIZE.lg} />}
-                    {availableUpdate.needs_config ? "Setup Required" : "Update Now"}
+                    {availableUpdate.needs_config ? "Setup required" : "Update now"}
                   </Button>
                 </div>
               </Card>
@@ -482,7 +482,7 @@ export default function AppDetailPage() {
                   onClick={() => setShowLogsViewer(true)}
                 >
                   <Terminal size={ICON_SIZE.lg} />
-                  View Logs
+                  View logs
                 </Button>
                 <Button
                   variant="outline"

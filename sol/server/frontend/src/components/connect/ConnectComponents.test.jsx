@@ -218,7 +218,7 @@ describe("connect component coverage", () => {
        onActivate={vi.fn()} />,
     );
 
-    expect(screen.getByText("Connect One")).toBeVisible();
+    expect(screen.getByText("Connect one")).toBeVisible();
     expect(screen.getByText("1 of 2 services active")).toBeVisible();
     expect(screen.getByText("Key: …abcd")).toBeVisible();
     await user.click(screen.getByRole("button", { name: /Manage Plan/ }));
@@ -459,7 +459,7 @@ describe("connect component coverage", () => {
     );
 
     expect(await screen.findByText("Notes storage")).toBeVisible();
-    expect(screen.getByText("Backup Recovery Key")).toBeVisible();
+    expect(screen.getByText("Backup recovery key")).toBeVisible();
     await user.click(screen.getByRole("button", { name: /Add Destination/ }));
     expect(screen.getByText("Add a new backup destination")).toBeVisible();
     await user.click(screen.getAllByRole("button", { name: "Cancel" })[0]);

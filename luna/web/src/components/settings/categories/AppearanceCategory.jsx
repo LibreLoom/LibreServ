@@ -195,8 +195,8 @@ function createValidatedPresets() {
     { label: "Lavender", colors: { primary: "#e9d5fa", secondary: "#4a148c", accent: "#c061cb" } },
     { label: "Midnight", colors: { primary: "#e2e8f0", secondary: "#0f172a", accent: "#0ea5e9" } },
     { label: "Muted", colors: { primary: "#f5f5f5", secondary: "#1a1a1a", accent: "#686868" } },
-    { label: "Soft Dark", colors: { primary: "#dddddd", secondary: "#000000", accent: "#686868" } },
-    { label: "Soft Light", colors: { primary: "#f5f5f5", secondary: "#1a1a1a", accent: "#808080" } },
+    { label: "Soft dark", colors: { primary: "#dddddd", secondary: "#000000", accent: "#686868" } },
+    { label: "Soft light", colors: { primary: "#f5f5f5", secondary: "#1a1a1a", accent: "#808080" } },
   ];
 
   const MIN_CONTRAST = 12;
@@ -277,7 +277,7 @@ export default function AppearanceCategory() {
   return (
     <div className="space-y-4" data-slot="appearance-category">
       <SettingsCard icon={Palette} title="Theme" padding={false} index={0}>
-        <SettingsRow label="Color Scheme" description="Choose light, dark, or follow system preference" stack>
+        <SettingsRow label="Color scheme" description="Choose light, dark, or follow system preference" stack>
           <SegmentedControl
             options={THEME_OPTIONS}
             value={theme}
@@ -286,12 +286,12 @@ export default function AppearanceCategory() {
         </SettingsRow>
       </SettingsCard>
 
-      <SettingsCard icon={Palette} title="Custom Colors" padding={false} index={1}>
+      <SettingsCard icon={Palette} title="Custom colors" padding={false} index={1}>
         <div className={cn("px-4 pt-4", showCustomColors ? "" : "pb-4")}>
           <Toggle
             checked={showCustomColors}
             onChange={handleToggleCustomColors}
-            label="Enable Custom Colors"
+            label="Enable custom colors"
             description="Customize the primary, secondary, and accent colors"
             iconOn={Check}
             iconOff={Palette}
@@ -302,7 +302,7 @@ export default function AppearanceCategory() {
             style={{ transitionDuration: "var(--motion-duration-medium2)" }}
           >
             <div className="pt-4 border-t border-primary/10 pb-4">
-              <div className="font-mono text-[11px] uppercase tracking-[0.22em] mb-3">Color Presets</div>
+              <div className="font-mono text-[11px] mb-3">Color presets</div>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
                 {COLOR_PRESETS.map((preset) => (
                   <ColorPreset
@@ -318,8 +318,8 @@ export default function AppearanceCategory() {
             </div>
 
             <div className="pt-4 border-t border-primary/10 pb-4">
-              <div className="text-xs font-medium uppercase tracking-wider mb-3">
-                {darkMode ? "Dark Mode Colors" : "Light Mode Colors"}
+              <div className="text-xs font-medium mb-3">
+                {darkMode ? "Dark mode colors" : "Light mode colors"}
               </div>
               <div className="grid gap-2.5 sm:grid-cols-3">
                 <ColorInput
@@ -347,7 +347,7 @@ export default function AppearanceCategory() {
               <Toggle
                 checked={useSeparateDarkColors}
                 onChange={() => setUseSeparateDarkColors(!useSeparateDarkColors)}
-                label="Separate Dark Mode Colors"
+                label="Separate dark mode colors"
                 description="Use different colors when dark mode is active"
               />
 
@@ -356,8 +356,8 @@ export default function AppearanceCategory() {
                 style={{ transitionDuration: "var(--motion-duration-medium2)" }}
               >
                 <div className="pt-4 border-t border-primary/10">
-                  <div className="text-xs font-medium uppercase tracking-wider mb-3">
-                    {darkMode ? "Dark Mode Colors (Active)" : "Dark Mode Colors"}
+                  <div className="text-xs font-medium mb-3">
+                    {darkMode ? "Dark mode colors (active)" : "Dark mode colors"}
                   </div>
                   <div className="grid gap-2.5 sm:grid-cols-3">
                     <ColorInput
@@ -405,7 +405,7 @@ export default function AppearanceCategory() {
           <Toggle
             checked={hapticsEnabled}
             onChange={setHapticsEnabled}
-            label="Vibration Feedback"
+            label="Vibration feedback"
             description="Feel a short buzz when you press buttons and flip switches. Only works on phones and other devices that can vibrate."
             iconOn={Check}
             iconOff={Vibrate}

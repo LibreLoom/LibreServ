@@ -62,9 +62,7 @@ class ErrorBoundary extends Component {
             </div>
 
             <div className="text-center mb-8">
-              <h1 className="text-2xl font-mono text-secondary mb-2">
-                Something went wrong
-              </h1>
+              <h1 className="text-2xl font-mono text-secondary mb-2">Something went wrong</h1>
               <p>
                 We apologize for the inconvenience. An unexpected error has
                 occurred.
@@ -81,7 +79,7 @@ class ErrorBoundary extends Component {
                  </div>
                  <div className="surface-primary rounded-large-element p-4 font-mono text-sm overflow-x-auto border border-secondary/20">
                    <div className="mb-3">
-                     <span className="text-xs uppercase tracking-wider mb-1 block">
+                     <span className="text-xs mb-1 block">
                        Error
                      </span>
                      <p className="text-error font-medium break-all">
@@ -90,8 +88,8 @@ class ErrorBoundary extends Component {
                    </div>
                    {this.state.errorInfo && (
                      <div>
-                       <span className="text-xs uppercase tracking-wider mb-1 block">
-                         Stack Trace
+                       <span className="text-xs mb-1 block">
+                         Stack trace
                        </span>
                        <pre className="text-xs whitespace-pre-wrap font-mono max-h-48 overflow-y-auto">
                          {this.state.errorInfo.componentStack}
@@ -111,7 +109,7 @@ class ErrorBoundary extends Component {
                 onClick={this.handleReload}
               >
                 <RefreshCw className="w-5 h-5" />
-                Reload Page
+                Reload page
               </Button>
 
               <div className="grid grid-cols-2 gap-3">
@@ -121,7 +119,7 @@ class ErrorBoundary extends Component {
                   size="lg"
                   onClick={this.handleGoBack}
                 >
-                  Go Back
+                  Go back
                 </Button>
 
                 <Button
@@ -131,7 +129,7 @@ class ErrorBoundary extends Component {
                   onClick={this.handleGoHome}
                 >
                   <Home className="w-5 h-5" />
-                  Go Home
+                  Go home
                 </Button>
               </div>
             </div>

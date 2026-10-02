@@ -115,7 +115,7 @@ export default function ObjectNotFound({
             <Card className="p-8 ring-2 ring-accent text-left motion-reduce:animate-none">
               <div className="flex flex-col gap-6">
                 <div>
-                  <p className="font-mono text-sm font-normal uppercase tracking-widest text-primary">
+                  <p className="font-mono text-sm font-normal text-primary">
                     Error 404
                   </p>
                   <p id={detailsId} className="mt-3 text-primary max-w-prose">
@@ -136,9 +136,7 @@ export default function ObjectNotFound({
           </div>
 
            <Card className="p-8 ring-2 ring-accent text-left motion-reduce:animate-none">
-            <h2 className="text-xl font-mono font-normal block text-center">
-              Quick Ways Out
-            </h2>
+            <h2 className="text-xl font-mono font-normal block text-center">Quick ways out</h2>
             <p className="mt-2 text-primary max-w-prose block text-center">
               Try a safe page or jump back to the list. The pigeon will not
               judge.

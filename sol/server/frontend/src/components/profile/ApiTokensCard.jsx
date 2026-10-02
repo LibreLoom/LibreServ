@@ -104,7 +104,7 @@ export default function ApiTokensCard() {
   }
 
   return (
-    <Card title="API Tokens" icon={KeyRound} data-slot="api-tokens-card">
+    <Card title="API tokens" icon={KeyRound} data-slot="api-tokens-card">
       <div className="space-y-4">
         <p className="text-sm">
           API tokens let other apps and scripts talk to your LibreServ on your

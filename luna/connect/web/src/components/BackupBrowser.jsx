@@ -63,7 +63,7 @@ export function BackupBrowser({ objects = [], onError }) {
   return (
     <div className="space-y-3" data-testid="backup-browser">
       <Card className="p-4 sm:p-5">
-        <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground mb-1">
+        <p className="text-xs font-mono text-muted-foreground mb-1">
           Current folder
         </p>
         <div className="flex flex-wrap items-center gap-2 font-mono text-sm" aria-live="polite">

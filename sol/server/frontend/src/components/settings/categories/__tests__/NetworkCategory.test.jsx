@@ -200,7 +200,7 @@ describe("NetworkCategory", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("dialog")).toBeInTheDocument();
-      expect(screen.getByText("Add Route", { selector: "h2" })).toBeInTheDocument();
+      expect(screen.getByText("Add route", { selector: "h2" })).toBeInTheDocument();
     });
   });
 
@@ -215,7 +215,7 @@ describe("NetworkCategory", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText("Edit Route", { selector: "h2" })).toBeInTheDocument();
+      expect(screen.getByText("Edit route", { selector: "h2" })).toBeInTheDocument();
     });
   });
 
@@ -230,7 +230,7 @@ describe("NetworkCategory", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText("Delete Route", { selector: "h2" })).toBeInTheDocument();
+      expect(screen.getByText("Delete route", { selector: "h2" })).toBeInTheDocument();
     });
   });
 
@@ -373,7 +373,7 @@ describe("NetworkCategory reachability guidance per network state", () => {
     await waitFor(() => {
       expect(screen.getByText(/shares your address with other customers/)).toBeInTheDocument();
     });
-    expect(screen.getByRole("link", { name: /Open External Services/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Open External services/ })).toBeInTheDocument();
   });
 
   it("tells the user to turn on UPnP when the router has it disabled", async () => {

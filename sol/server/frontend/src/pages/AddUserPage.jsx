@@ -22,12 +22,12 @@ export default function AddUserPage() {
     addToast({
       type: "info",
       message: "Invitations need email setup",
-      description: "Go to Settings → External Services to enable email invitations.",
+      description: "Go to Settings → External services to enable email invitations.",
     });
   };
 
   return (
-    <Page title="Add User" titleId="add-user-title" headerClassName="mb-6" data-slot="add-user">
+    <Page title="Add user" titleId="add-user-title" headerClassName="mb-6" data-slot="add-user">
       <Card className="max-w-lg mx-auto">
         {/* How to add this user: create manually, or (if email is set up) send an
             invitation so they set their own username + password. */}
@@ -45,7 +45,7 @@ export default function AddUserPage() {
                 disabled: !smtpConfigured,
                 title: smtpConfigured
                   ? "Send an invitation by email"
-                  : "Set up email in Settings → External Services first",
+                  : "Set up email in Settings → External services first",
               },
             ]}
           />
@@ -59,7 +59,7 @@ export default function AddUserPage() {
 
         {!smtpConfigured && (
           <p className="text-xs text-primary mt-6 text-center">
-            Want to send an invitation instead? Set up email in Settings → External Services first.
+            Want to send an invitation instead? Set up email in Settings → External services first.
           </p>
         )}
       </Card>

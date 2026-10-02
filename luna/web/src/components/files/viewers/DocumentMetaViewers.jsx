@@ -46,7 +46,7 @@ function NotebookBody({ bytes }) {
             key={i}
             className="rounded-large-element surface-primary border-2 border-secondary/20 p-4"
           >
-            <p className="text-xs uppercase tracking-wide mb-2 opacity-80">{kind}</p>
+            <p className="text-xs mb-2 opacity-80">{kind}</p>
             <pre className="whitespace-pre-wrap font-mono text-sm break-words">{source}</pre>
           </div>
         );

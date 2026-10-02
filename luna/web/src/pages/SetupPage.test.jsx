@@ -117,14 +117,14 @@ describe("SetupPage", () => {
     expect(screen.queryByText("http://luna")).toBeNull();
     expect(screen.queryByText("http://169.254.42.42")).toBeNull();
     expect(screen.queryByText(/Luna Setup/i)).toBeNull();
-    expect(screen.getByRole("button", { name: /Begin Setup/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Begin setup/i })).toBeTruthy();
   });
 
-  it("advances to system check then Create your account when Begin Setup is clicked", async () => {
+  it("advances to system check then Create your account when Begin setup is clicked", async () => {
     const fetchMock = stubFetch();
     vi.stubGlobal("fetch", fetchMock);
     renderSetup();
-    fireEvent.click(await screen.findByRole("button", { name: /Begin Setup/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /Begin setup/i }));
     expect(await screen.findByRole("heading", { name: /System check/i })).toBeTruthy();
     expect(screen.getByText(/2\s*\/\s*5/)).toBeTruthy();
     fireEvent.click(await screen.findByRole("button", { name: /^Continue$/i }));
@@ -356,7 +356,7 @@ describe("SetupPage", () => {
     }));
     vi.stubGlobal("location", { ...window.location, hostname: "photos.luna.servers.libreloom.org" });
     renderSetup();
-    fireEvent.click(await screen.findByRole("button", { name: /Begin Setup/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /Begin setup/i }));
     expect(await screen.findByRole("heading", { name: /System check/i })).toBeTruthy();
     fireEvent.click(await screen.findByRole("button", { name: /^Continue$/i }));
     expect(await screen.findByRole("heading", { name: /Create your account/i })).toBeTruthy();
@@ -379,7 +379,7 @@ describe("SetupPage", () => {
     }));
     vi.stubGlobal("location", { ...window.location, hostname: "photos.luna.servers.libreloom.org" });
     renderSetup();
-    fireEvent.click(await screen.findByRole("button", { name: /Begin Setup/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /Begin setup/i }));
     expect(await screen.findByRole("heading", { name: /System check/i })).toBeTruthy();
     fireEvent.click(await screen.findByRole("button", { name: /^Continue$/i }));
     expect(await screen.findByRole("heading", { name: /Create your account/i })).toBeTruthy();
@@ -432,7 +432,7 @@ describe("SetupPage", () => {
     vi.stubGlobal("location", { ...window.location, hostname: "photos.luna.servers.libreloom.org" });
 
     renderSetup("/setup?token=ABCD-EFGH-IJKM-NPQR-STUV");
-    fireEvent.click(await screen.findByRole("button", { name: /Begin Setup/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /Begin setup/i }));
     expect(await screen.findByRole("heading", { name: /System check/i })).toBeTruthy();
     fireEvent.click(await screen.findByRole("button", { name: /^Continue$/i }));
     expect(await screen.findByRole("heading", { name: /Create your account/i })).toBeTruthy();

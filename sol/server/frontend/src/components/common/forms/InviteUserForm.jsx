@@ -118,7 +118,7 @@ export default function InviteUserForm({ onSuccess } = {}) {
           "Sending..."
         ) : (
           <>
-            Send Invitation
+            Send invitation
             <Mail size={ICON_SIZE.md} aria-hidden="true" />
           </>
         )}

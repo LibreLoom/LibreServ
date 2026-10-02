@@ -92,7 +92,7 @@ export default function Register() {
                   ? "Sending…"
                   : resendState === "sent"
                   ? "Email resent — check your inbox"
-                  : "Resend Verification Email"}
+                  : "Resend verification email"}
               </button>
               <p className="mt-2 text-xs text-muted-foreground">
                 Check your spam or junk folder too — it sometimes lands there.
@@ -116,7 +116,7 @@ export default function Register() {
 
       <Card className="w-full max-w-md animate-pop-in">
         <CardHeader className="text-center">
-          <CardTitle className="text-3xl">Create Account</CardTitle>
+          <CardTitle className="text-3xl">Create account</CardTitle>
           <CardDescription>
             Create a Connect account to manage your LibreServ devices and subscription.
           </CardDescription>
@@ -177,7 +177,7 @@ export default function Register() {
             </ShakeTarget>
             {error && <p className="text-sm text-destructive">{error}</p>}
             <Button type="submit" className="w-full" size="lg" loading={loading}>
-              Create Account
+              Create account
             </Button>
           </form>
           <p className="mt-4 text-center text-sm text-muted-foreground">

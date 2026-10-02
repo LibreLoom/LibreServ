@@ -17,11 +17,11 @@ const SERVICE_FIELDS = {
     description:
       "When a device enables cloud backups, Connect creates one private B2 bucket per device and a scoped key for it. Enter the master B2 account credentials here.",
     credentials: [
-      { key: "account_id", label: "B2 Key ID", placeholder: "001xxxxxxxxxxxxxxxxxxxxx" },
-      { key: "application_key", label: "B2 Application Key", placeholder: "K0xxxxxxxxxxxxxxxxxxxx", type: "password" },
+      { key: "account_id", label: "B2 key ID", placeholder: "001xxxxxxxxxxxxxxxxxxxxx" },
+      { key: "application_key", label: "B2 application key", placeholder: "K0xxxxxxxxxxxxxxxxxxxx", type: "password" },
     ],
     settings: [
-      { key: "bucket_prefix", label: "Bucket Prefix", placeholder: "libreserv-backup" },
+      { key: "bucket_prefix", label: "Bucket prefix", placeholder: "libreserv-backup" },
     ],
   },
   smtp: {
@@ -29,7 +29,7 @@ const SERVICE_FIELDS = {
     description:
       "When a device enables email through Connect, a scoped Resend API key is created per device for sending mail. Enter the master Resend API key here.",
     credentials: [
-      { key: "api_key", label: "Resend API Key", placeholder: "re_xxxxxxxxxxxxxxxx", type: "password" },
+      { key: "api_key", label: "Resend API key", placeholder: "re_xxxxxxxxxxxxxxxx", type: "password" },
     ],
     settings: [],
   },
@@ -38,10 +38,10 @@ const SERVICE_FIELDS = {
     description:
       "When a device gets a subdomain, Connect creates an A record pointing the subdomain at the device's IP. Enter the Cloudflare API token here. The token needs Zone:DNS:Edit permission on the zone.",
     credentials: [
-      { key: "api_token", label: "Cloudflare API Token", placeholder: "cf_xxxxxxxxxxxxxxxxxxxxxxxx", type: "password" },
+      { key: "api_token", label: "Cloudflare API token", placeholder: "cf_xxxxxxxxxxxxxxxxxxxxxxxx", type: "password" },
     ],
     settings: [
-      { key: "zone", label: "DNS Zone", placeholder: "servers.libreloom.org" },
+      { key: "zone", label: "DNS zone", placeholder: "servers.libreloom.org" },
     ],
   },
 };
@@ -120,7 +120,7 @@ export default function Providers() {
 
   return (
     <Layout>
-      <h2 className="font-mono text-2xl mb-2">Service Providers</h2>
+      <h2 className="font-mono text-2xl mb-2">Service providers</h2>
       <p className="text-muted-foreground mb-6">
         Configure the upstream providers that Connect uses to provision backups, email, and DNS
         for devices. These credentials are stored encrypted in the database. If no provider is
@@ -230,7 +230,7 @@ export default function Providers() {
                           loading={createMut.isPending}
                           onClick={() => createMut.mutate(form)}
                         >
-                          Add Provider
+                          Add provider
                         </Button>
                       )}
                     </div>

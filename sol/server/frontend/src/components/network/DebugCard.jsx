@@ -15,7 +15,7 @@ export default function DebugCard({ content, onReload }) {
       padding={false}
     >
       <div className="px-4 py-3">
-        <CollapsibleSection title="Configuration File" pill={true}>
+        <CollapsibleSection title="Configuration file" pill={true}>
           <div className="bg-primary/5 rounded-card p-3">
             <div className="flex items-start justify-between gap-3 mb-3">
               <p className="text-xs">

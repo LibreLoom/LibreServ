@@ -13,7 +13,7 @@ export default function SystemChecksCard({ index = 1 }) {
 
   if (isLoading && !data) {
     return (
-      <SettingsCard icon={Activity} title="System Checks" padding={false} index={index}>
+      <SettingsCard icon={Activity} title="System checks" padding={false} index={index}>
         <div className="px-5 py-4 space-y-3 animate-pulse">
           {[0, 1, 2, 3].map((i) => (
             <div key={i} className="flex items-center gap-3">
@@ -28,7 +28,7 @@ export default function SystemChecksCard({ index = 1 }) {
 
   if (!data && error) {
     return (
-      <SettingsCard icon={Activity} title="System Checks" padding={false} index={index}>
+      <SettingsCard icon={Activity} title="System checks" padding={false} index={index}>
         <p className="px-5 py-4 text-sm text-error">
           Luna couldn&apos;t run system checks right now. Try again in a moment.
         </p>
@@ -65,7 +65,7 @@ export default function SystemChecksCard({ index = 1 }) {
         : { text: "Healthy", tone: "bg-success/20 border-success/30" };
 
   return (
-    <SettingsCard icon={Activity} title="System Checks" padding={false} index={index}>
+    <SettingsCard icon={Activity} title="System checks" padding={false} index={index}>
       <div className="px-5 py-4">
         <div className="flex items-center justify-between gap-3 mb-4">
           <p className="text-sm">{summaryText}</p>

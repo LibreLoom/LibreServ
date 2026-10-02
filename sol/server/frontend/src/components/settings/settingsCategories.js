@@ -5,7 +5,7 @@ import { Settings, Palette, Shield, Info, DatabaseBackup, Globe, Bell, Plug } fr
 // confusing). Appearance is a client-side preference and About is read-only, so
 // both stay available to everyone.
 const CATEGORIES = [
-  { id: "external_services", label: "External Services", icon: Plug, adminOnly: true },
+  { id: "external_services", label: "External services", icon: Plug, adminOnly: true },
   { id: "general", label: "General", icon: Settings, adminOnly: true },
   { id: "appearance", label: "Appearance", icon: Palette },
   { id: "backups", label: "Backups", icon: DatabaseBackup, adminOnly: true },

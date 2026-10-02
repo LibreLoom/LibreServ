@@ -155,7 +155,7 @@ function PassedList({ grouped, count }) {
           if (!list?.length) return null;
           return (
             <div key={category} className="mt-3 first:mt-0">
-              <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-primary mb-1">
+              <p className="font-mono text-[11px] text-primary mb-1">
                 {CATEGORY_LABELS[category] || category}
               </p>
               <ul>
@@ -313,9 +313,7 @@ export default function PreflightStep({ onPass }) {
         >
           {issues.length > 0 && (
             <section>
-              <h3 className="font-mono text-[11px] uppercase tracking-[0.18em] text-primary mb-2">
-                Needs attention
-              </h3>
+              <h3 className="font-mono text-[11px] text-primary mb-2">Needs attention</h3>
               <ul className="space-y-2">
                 {issues.map(([name, check], i) => (
                   <IssueRow key={name} name={name} check={check} delay={i * 70} />

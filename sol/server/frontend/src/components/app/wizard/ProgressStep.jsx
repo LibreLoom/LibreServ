@@ -324,9 +324,7 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
         </div>
 
         <div className="space-y-2">
-          <h2 className="font-mono text-2xl font-normal text-secondary text-balance">
-            Installation Failed
-          </h2>
+          <h2 className="font-mono text-2xl font-normal text-secondary text-balance">Installation failed</h2>
           <p className="text-secondary">{errorSummary}</p>
           <p className="mx-auto max-w-md text-sm leading-relaxed text-secondary text-pretty">
             {errorHint}
@@ -341,7 +339,7 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
             onClick={() => window.location.reload()}
             className="font-mono"
           >
-            Try Again
+            Try again
           </Button>
         </div>
 

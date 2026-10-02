@@ -381,7 +381,7 @@ describe("AppDetailPage", () => {
     expect(screen.getByText("1 MB / 2 MB")).toBeVisible();
     expect(screen.getByText("access:per_user")).toBeVisible();
     expect(screen.getByText("exposed:username")).toBeVisible();
-    expect(screen.getByText("Update Available")).toBeVisible();
+    expect(screen.getByText("Update available")).toBeVisible();
 
     await user.click(screen.getByRole("button", { name: "Stop" }));
     await waitFor(() =>
@@ -394,7 +394,7 @@ describe("AppDetailPage", () => {
       queryKey: ["apps", "instance-1"],
     });
 
-    await user.click(screen.getByRole("button", { name: "View Logs" }));
+    await user.click(screen.getByRole("button", { name: "View logs" }));
     expect(screen.getByRole("dialog", { name: "Logs" })).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Close logs" }));
 
@@ -427,7 +427,7 @@ describe("AppDetailPage", () => {
     });
 
     await user.click(screen.getByRole("button", { name: "Uninstall" }));
-    const dialog = screen.getByRole("dialog", { name: "Uninstall Application" });
+    const dialog = screen.getByRole("dialog", { name: "Uninstall application" });
     await user.type(
       within(dialog).getByPlaceholderText('Type "Notes"'),
       "Notes",
@@ -498,7 +498,7 @@ describe("AppDetailPage", () => {
     render(<AppDetailPage />);
     expect(screen.getByText("N/A")).toBeVisible();
     expect(screen.getAllByText("0 B / 0 B")).toHaveLength(2);
-    expect(screen.getByText("Setup Required")).toBeVisible();
+    expect(screen.getByText("Setup required")).toBeVisible();
     expect(screen.getByText(/Choose a storage folder/)).toBeVisible();
   });
 });

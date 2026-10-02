@@ -88,7 +88,7 @@ export default function Login() {
               <ShakeTarget shake={error} loading={loading}>
                 <div>
                   <Label htmlFor="totp" error={error} shake={error} loading={loading}>
-                    Authenticator Code
+                    Authenticator code
                   </Label>
                   <Input
                     id="totp"
@@ -104,7 +104,7 @@ export default function Login() {
             )}
             {error && <p className="text-sm text-destructive">{error}</p>}
             <Button type="submit" className="w-full" size="lg" loading={loading}>
-              {needs2FA ? "Verify" : "Sign In"}
+              {needs2FA ? "Verify" : "Sign in"}
             </Button>
           </form>
           {!needs2FA && (

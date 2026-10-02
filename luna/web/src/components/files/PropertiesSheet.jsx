@@ -148,7 +148,7 @@ function Section({ title = "", children }) {
   return (
     <section className="rounded-large-element surface-primary p-4">
       {title ? (
-        <h3 className="mb-1 flex items-center gap-2 text-xs font-mono uppercase tracking-widest text-secondary">
+        <h3 className="mb-1 flex items-center gap-2 text-xs font-mono text-secondary">
           {title}
         </h3>
       ) : null}
@@ -168,7 +168,7 @@ function DetailRow({ icon: Icon, label, value, mono = false }) {
   return (
     <div className="flex items-center gap-3 py-2 border-b border-secondary/15 last:border-b-0">
       <Icon size={ICON_SIZE.sm} className="shrink-0" aria-hidden="true" />
-      <span className="shrink-0 text-xs font-mono uppercase tracking-widest text-secondary">
+      <span className="shrink-0 text-xs font-mono text-secondary">
         {label}
       </span>
       <span
@@ -193,7 +193,7 @@ function MiniStat({ icon: Icon, value, label }) {
     <div className="flex flex-1 flex-col items-center gap-1 rounded-large-element surface-secondary px-2 py-3">
       <Icon size={ICON_SIZE.sm} aria-hidden="true" />
       <span className="font-mono text-lg leading-none text-primary">{value}</span>
-      <span className="text-[11px] font-mono uppercase tracking-widest text-primary">{label}</span>
+      <span className="text-[11px] font-mono text-primary">{label}</span>
     </div>
   );
 }
@@ -227,7 +227,7 @@ function TrashDetails({ driveLabel, totals }) {
 
       {totals ? (
         <Section>
-          <div className="flex items-center gap-2 text-xs font-mono uppercase tracking-widest text-secondary">
+          <div className="flex items-center gap-2 text-xs font-mono text-secondary">
             <HardDrive size={ICON_SIZE.sm} aria-hidden="true" />
             {empty ? "Inside" : "Taking up"}
           </div>
@@ -388,7 +388,7 @@ export default function PropertiesSheet({
               {inTrash ? (
                 <Pill variant="warning">
                   <Trash2 size={ICON_SIZE.xs} aria-hidden="true" />
-                  In Trash
+                  In trash
                 </Pill>
               ) : null}
               {hidden ? (
@@ -411,7 +411,7 @@ export default function PropertiesSheet({
           {/* The headline number: size for files, everything-inside for folders. */}
           {kind === "file" && data ? (
             <Section>
-              <div className="flex items-center gap-2 text-xs font-mono uppercase tracking-widest text-secondary">
+              <div className="flex items-center gap-2 text-xs font-mono text-secondary">
                 <HardDrive size={ICON_SIZE.sm} aria-hidden="true" />
                 Size
               </div>
@@ -428,7 +428,7 @@ export default function PropertiesSheet({
             <Section>
               {totals ? (
                 <>
-                  <div className="flex items-center gap-2 text-xs font-mono uppercase tracking-widest text-secondary">
+                  <div className="flex items-center gap-2 text-xs font-mono text-secondary">
                     <HardDrive size={ICON_SIZE.sm} aria-hidden="true" />
                     {emptyFolder || !totalsComplete ? "Inside" : "Total size"}
                   </div>
@@ -470,7 +470,7 @@ export default function PropertiesSheet({
                 </>
               ) : (
                 <>
-                  <div className="flex items-center gap-2 text-xs font-mono uppercase tracking-widest text-secondary">
+                  <div className="flex items-center gap-2 text-xs font-mono text-secondary">
                     <Shapes size={ICON_SIZE.sm} aria-hidden="true" />
                     Inside
                   </div>

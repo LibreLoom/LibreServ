@@ -27,7 +27,7 @@ function MonthlyCostHighlight({ amount }) {
       aria-labelledby="backup-cost-heading"
       data-testid="backup-monthly-cost"
     >
-      <p id="backup-cost-heading" className="font-mono text-xs uppercase tracking-widest">
+      <p id="backup-cost-heading" className="font-mono text-xs">
         This month
       </p>
       <p className="font-mono text-3xl mt-1">${formatted}</p>
@@ -72,9 +72,7 @@ function CancelPaymentSection({ confirmCancel, setConfirmCancel, busy, onCancel 
   if (!confirmCancel) {
     return (
       <section className="space-y-2" aria-labelledby="backup-actions-heading">
-        <h4 id="backup-actions-heading" className="font-mono text-xs uppercase tracking-widest">
-          Payment
-        </h4>
+        <h4 id="backup-actions-heading" className="font-mono text-xs">Payment</h4>
         <Button variant="destructive" size="lg" onClick={() => setConfirmCancel(true)}>
           Turn off payment
         </Button>
@@ -231,9 +229,7 @@ export function BackupsTab({ me, objects, note, paired, onRefresh, setError, err
           </p>
           <Separator />
           <section className="space-y-3" aria-labelledby="backup-reactivate-heading">
-            <h4 id="backup-reactivate-heading" className="font-mono text-xs uppercase tracking-widest">
-              Turn payment back on
-            </h4>
+            <h4 id="backup-reactivate-heading" className="font-mono text-xs">Turn payment back on</h4>
             <BackupPricingTable />
             {addCard}
           </section>

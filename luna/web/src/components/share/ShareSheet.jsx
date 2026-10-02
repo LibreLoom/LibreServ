@@ -253,7 +253,7 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
         <div className="space-y-5" data-slot="share-sheet">
           {(subj?.name || subject?.name) && (
             <div className="rounded-large-element surface-primary p-3">
-              <p className="text-xs font-mono uppercase tracking-widest">
+              <p className="text-xs font-mono">
                 {isAlbum
                   ? "Album"
                   : isFile

@@ -98,9 +98,7 @@ export default function InviteeOnboardingPage() {
       <div className="relative w-full max-w-lg overflow-auto surface-secondary rounded-large-element pop-in p-8 my-8">
         <span className="text-primary font-mono text-2xl block text-center">LibreServ</span>
         <div className="bg-accent p-px rounded-pill mt-6 mb-4"></div>
-        <h1 className="text-primary font-mono text-xl font-normal block text-center">
-          You're invited to join
-        </h1>
+        <h1 className="text-primary font-mono text-xl font-normal block text-center">You're invited to join</h1>
         <p className="text-sm text-center mt-2">
           Invited as <span className="font-medium">{invite.email}</span> ({invite.role}).
           Set your username and password to finish.

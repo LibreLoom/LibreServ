@@ -195,9 +195,9 @@ describe("security API", () => {
   });
 
   it("maps known event names and humanizes unknown names", () => {
-    expect(getEventTypeDisplayName("login_success")).toBe("Successful Login");
+    expect(getEventTypeDisplayName("login_success")).toBe("Successful login");
     expect(getEventTypeDisplayName("token_reuse")).toBe(
-      "Suspicious Token Activity",
+      "Suspicious token activity",
     );
     expect(getEventTypeDisplayName("new_event_name")).toBe("new event name");
   });

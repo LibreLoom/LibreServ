@@ -49,9 +49,7 @@ export default function MfaBlocker() {
           >
             <ShieldCheck size={28} />
           </div>
-          <h1 className="text-xl font-normal font-mono text-center text-balance">
-            Turn on two-factor authentication
-          </h1>
+          <h1 className="text-xl font-normal font-mono text-center text-balance">Turn on two-factor authentication</h1>
           <p className="text-sm text-center text-balance max-w-sm mx-auto mt-3 mb-8">
             As an admin, your account is a target. Add a second sign-in check to
             start using LibreServ — it takes about a minute, and you can change

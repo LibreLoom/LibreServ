@@ -163,7 +163,7 @@ export default function AppsPage() {
               surface="primary"
               onClick={() => window.location.reload()}
             >
-              Try Again
+              Try again
             </Button>
           }
         />
@@ -209,7 +209,7 @@ export default function AppsPage() {
                 onChange={setSelectedCategory}
                 placeholder="All Categories"
                 options={[
-                  { value: "", label: "All Categories" },
+                  { value: "", label: "All categories" },
                   ...categories.map((cat) => {
                     const LABELS = { ai: "AI", seo: "SEO" };
                     return {

@@ -40,9 +40,7 @@ export default function AccessAddressesCard({ index = 2 }) {
       <div className="px-5 py-4 space-y-5">
         {publicUrl ? (
           <section className="space-y-2" aria-labelledby="access-everywhere-heading">
-            <h3 id="access-everywhere-heading" className="font-mono text-sm text-primary">
-              Everywhere
-            </h3>
+            <h3 id="access-everywhere-heading" className="font-mono text-sm text-primary">Everywhere</h3>
             <CopyableValue
               value={publicUrl}
               copyLabel="Copy"
@@ -52,9 +50,7 @@ export default function AccessAddressesCard({ index = 2 }) {
         ) : null}
 
         <section className="space-y-2" aria-labelledby="access-local-heading">
-          <h3 id="access-local-heading" className="font-mono text-sm text-primary">
-            On your local network
-          </h3>
+          <h3 id="access-local-heading" className="font-mono text-sm text-primary">On your local network</h3>
           <CopyableValue
             value={asHttpUrl("luna.local")}
             copyLabel="Copy"

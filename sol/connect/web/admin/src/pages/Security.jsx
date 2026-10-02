@@ -96,7 +96,7 @@ export default function Security() {
               <dd className="font-mono">{account?.email || "—"}</dd>
             </div>
             <div className="flex justify-between items-center">
-              <dt className="text-muted-foreground">Two-Factor Auth</dt>
+              <dt className="text-muted-foreground">Two-factor auth</dt>
               <dd>{account?.has_2fa ? <Badge variant="success">Enabled</Badge> : <Badge variant="outline">Disabled</Badge>}</dd>
             </div>
           </dl>
@@ -124,7 +124,7 @@ export default function Security() {
             {pwdError && <p className="text-sm text-destructive">{pwdError}</p>}
             {pwdSuccess && <p className="text-sm text-success">{pwdSuccess}</p>}
             <Button onClick={handlePasswordSubmit} loading={pwdMut.isPending} disabled={!pwd.current || !pwd.next || !pwd.confirm}>
-              Update Password
+              Update password
             </Button>
           </div>
         </CardContent>
@@ -133,7 +133,7 @@ export default function Security() {
       {/* 2FA */}
       {!account?.has_2fa && (
         <Card className="mb-6">
-          <CardHeader><CardTitle>Enable Two-Factor Authentication</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Enable Two-factor authentication</CardTitle></CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground mb-4">
               2FA adds an extra layer of security for admin access. Required for sensitive operations.

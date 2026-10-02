@@ -99,7 +99,7 @@ export default function InspectModal({ open = true, drive, result, error, onClos
               </p>
               {Array.isArray(result.entries) && result.entries.length > 0 && (
                 <div className="mt-3 rounded-large-element surface-primary p-3">
-                  <p className="text-xs font-mono uppercase tracking-widest mb-2">
+                  <p className="text-xs font-mono mb-2">
                     On this drive
                   </p>
                   <ul

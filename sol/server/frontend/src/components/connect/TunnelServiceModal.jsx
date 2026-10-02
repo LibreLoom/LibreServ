@@ -31,7 +31,7 @@ export default function TunnelServiceModal({ open, onClose, onSaved, service, co
     service?.state === "connected"
       ? "Connected"
       : service?.state === "byo"
-        ? "Bring Your Own"
+        ? "Bring your own"
         : service?.state === "unavailable"
           ? "Not in Plan"
           : "Disabled";
@@ -93,7 +93,7 @@ export default function TunnelServiceModal({ open, onClose, onSaved, service, co
               Bring your own tunnel. We currently support Cloudflare Tunnel.
             </p>
             <div>
-              <label className="block text-xs font-medium mb-1.5 px-4">Tunnel Token</label>
+              <label className="block text-xs font-medium mb-1.5 px-4">Tunnel token</label>
               <ShakeTarget shake={error}>
                 <input
                   type="password"

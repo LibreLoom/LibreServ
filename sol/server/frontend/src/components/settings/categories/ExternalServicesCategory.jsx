@@ -139,7 +139,7 @@ const SERVICE_META = [
   {
     id: "backup",
     Icon: Database,
-    title: "Cloud Backup Storage",
+    title: "Cloud backup storage",
     desc: "Where your backups are stored. Multiple destinations allowed.",
   },
   {
@@ -151,13 +151,13 @@ const SERVICE_META = [
   {
     id: "ai",
     Icon: Sparkles,
-    title: "AI Assistant",
+    title: "AI assistant",
     desc: "AI help managing your server.",
   },
   {
     id: "support",
     Icon: LifeBuoy,
-    title: "Human Support",
+    title: "Human support",
     desc: "A real person to talk to if something goes wrong.",
     informational: true,
   },
@@ -165,9 +165,9 @@ const SERVICE_META = [
 
 const STATE_BADGES = {
   connected: { label: "Connected", class: "bg-success/20 border border-success/30 text-success" },
-  byo: { label: "Bring Your Own", class: "surface-primary border-2 border-accent/30" },
+  byo: { label: "Bring your own", class: "surface-primary border-2 border-accent/30" },
   disabled: { label: "Off", class: "surface-primary border-2 border-secondary/10" },
-  unavailable: { label: "Not in Plan", class: "surface-primary text-secondary/30 border-2 border-secondary/10" },
+  unavailable: { label: "Not in plan", class: "surface-primary text-secondary/30 border-2 border-secondary/10" },
 };
 
 export default function ExternalServicesCategory({

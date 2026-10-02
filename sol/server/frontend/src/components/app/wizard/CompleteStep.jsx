@@ -33,13 +33,13 @@ function CompleteStep({ app, instance, onDone }) {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
             </svg>
             <div>
-              <h3 className="font-mono text-sm font-medium text-secondary">Domain Ready</h3>
+              <h3 className="font-mono text-sm font-medium text-secondary">Domain ready</h3>
               <p className="text-xs">Your app is accessible on the web</p>
             </div>
           </div>
 
           <div className="bg-primary/5 rounded-pill px-4 py-3">
-            <div className="text-xs font-mono uppercase tracking-wide mb-2">Access URL</div>
+            <div className="text-xs font-mono mb-2">Access URL</div>
             <div className="font-mono text-xl break-all">
               {subdomain}.{domain}
             </div>
@@ -67,7 +67,7 @@ function CompleteStep({ app, instance, onDone }) {
         {appUrl && (
           <Button asChild variant="secondary" surface="primary" className="px-6 font-mono">
             <a href={appUrl} target="_blank" rel="noopener noreferrer">
-              Open App
+              Open app
               <ExternalLink size={ICON_SIZE.md} />
             </a>
           </Button>

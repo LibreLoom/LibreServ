@@ -131,7 +131,7 @@ export default function ResetPassword() {
           </span>
           <div className="bg-accent p-px rounded-pill mt-6 mb-4"></div>
           <span className="text-primary font-mono text-xl font-normal block text-center">
-            Reset Password
+            Reset password
           </span>
           <p className="text-sm text-center mt-2">{resetQuip}</p>
           <div className="mt-6">
@@ -158,7 +158,7 @@ export default function ResetPassword() {
         </span>
         <div className="bg-accent p-px rounded-pill mt-6 mb-4"></div>
         <span className="text-primary font-mono text-xl font-normal block text-center">
-          Reset Password
+          Reset password
         </span>
         <p className="text-sm text-center mt-2">{resetQuip}</p>
 
@@ -178,7 +178,7 @@ export default function ResetPassword() {
             className="flex flex-col mt-6 rounded-large-element p-4 surface-primary"
           >
             <FormInput
-              label="New Password"
+              label="New password"
               name="new-password"
               type="password"
               value={password}
@@ -193,7 +193,7 @@ export default function ResetPassword() {
             />
 
             <FormInput
-              label="Confirm Password"
+              label="Confirm password"
               name="confirm-password"
               type="password"
               value={confirmPassword}
@@ -216,7 +216,7 @@ export default function ResetPassword() {
               fullWidth
               className="mt-2"
             >
-              {loading ? "Resetting..." : "Reset Password"}
+              {loading ? "Resetting..." : "Reset password"}
             </Button>
           </form>
         )}

@@ -922,7 +922,7 @@ export default function Onboarding() {
               loading={isLastAuthSubStep && authLoading}
             >
               {isLastAuthSubStep
-                ? isLoginMode ? "Sign In" : "Create Account and Sign In"
+                ? isLoginMode ? "Sign in" : "Create account and sign in"
                 : "Continue"}
               {!isLastAuthSubStep && <ChevronRight className="w-4 h-4 ml-1" />}
             </Button>
@@ -941,9 +941,7 @@ export default function Onboarding() {
           <div className="w-16 h-16 rounded-full bg-success/20 flex items-center justify-center mb-6 animate-step-icon">
             <Check className="w-8 h-8 text-success animate-check-pop" />
           </div>
-          <h1 className="font-mono text-[1.75rem] leading-snug font-normal text-card-foreground tracking-tight mb-3">
-            Email verified
-          </h1>
+          <h1 className="font-mono text-[1.75rem] leading-snug font-normal text-card-foreground tracking-tight mb-3">Email verified</h1>
           <p className="text-muted-foreground text-sm leading-relaxed max-w-md mx-auto mb-8">
             <span className="font-mono text-card-foreground">{email}</span> is confirmed.
             You're all set — on to the next step.
@@ -1004,7 +1002,7 @@ export default function Onboarding() {
               <ChevronLeft className="w-4 h-4" />
             </Button>
             <Button size="lg" className="flex-1" onClick={handleManualCheck} loading={checkingVerification}>
-              Check Again
+              Check again
             </Button>
           </div>
 
@@ -1024,7 +1022,7 @@ export default function Onboarding() {
                     ? "Sending…"
                     : cooldown > 0
                     ? `Resend in ${cooldown}s`
-                    : "Resend Verification Email"}
+                    : "Resend verification email"}
                 </button>
                 .
               </>

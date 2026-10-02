@@ -42,13 +42,13 @@ export default function BackupServiceModal({ open, onClose, onSaved, service, re
     service?.state === "connected"
       ? "Connected"
       : service?.state === "byo"
-        ? "Bring Your Own"
+        ? "Bring your own"
         : service?.state === "unavailable"
           ? "Not in Plan"
           : "Disabled";
 
   return (
-    <ModalCard title="Cloud Backup Storage" onClose={onClose} size="lg" loading={loading} data-slot="backup-service-modal">
+    <ModalCard title="Cloud backup storage" onClose={onClose} size="lg" loading={loading} data-slot="backup-service-modal">
       {({close}) => (
       <div className="p-5 space-y-5">
         <div className="flex items-start gap-3 pb-4 border-b border-primary/10">
@@ -102,7 +102,7 @@ export default function BackupServiceModal({ open, onClose, onSaved, service, re
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-sm text-primary font-medium">
-              Backup Destinations
+              Backup destinations
             </span>
             <Button variant="primary" size="sm" onClick={() => setShowAddRepo(true)}>
               <Plus size={ICON_SIZE.sm} /> Add Destination
@@ -124,7 +124,7 @@ export default function BackupServiceModal({ open, onClose, onSaved, service, re
               <div className="flex items-center gap-3 p-3 rounded-large-element surface-primary border-2 border-accent/20">
                 <Check size={ICON_SIZE.md} className="shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm text-secondary font-medium">Connect Storage</p>
+                  <p className="text-sm text-secondary font-medium">Connect storage</p>
                   <p className="text-xs">S3-compatible</p>
                 </div>
                 <span className="text-xs px-2.5 py-1 rounded-pill surface-secondary font-medium">
@@ -136,7 +136,7 @@ export default function BackupServiceModal({ open, onClose, onSaved, service, re
               ) : (
                 <div className="surface-primary border-2 border-warning/20 rounded-large-element p-4 space-y-2">
                   <p className="text-sm text-secondary font-medium">
-                    Backup Recovery Key
+                    Backup recovery key
                   </p>
                   <p className="text-xs">
                     Your recovery key will appear here once Connect storage is provisioned.

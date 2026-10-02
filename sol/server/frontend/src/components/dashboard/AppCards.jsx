@@ -129,9 +129,7 @@ function NoAppsCard() {
           <Package size={ICON_SIZE.xxl} />
         </div>
 
-        <h3 className="font-mono text-xl font-normal tracking-tight text-primary mb-2">
-          No apps yet
-        </h3>
+        <h3 className="font-mono text-xl font-normal tracking-tight text-primary mb-2">No apps yet</h3>
 
         <p className="text-sm leading-relaxed max-w-md mb-6">
           Your server is ready for its first app. Pick one from the catalog —

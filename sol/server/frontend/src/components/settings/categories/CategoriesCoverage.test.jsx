@@ -363,11 +363,11 @@ describe("settings category coverage", () => {
     );
 
     await user.click(
-      screen.getByRole("button", { name: "Separate Dark Mode Colors" }),
+      screen.getByRole("button", { name: "Separate dark mode colors" }),
     );
     expect(props.setUseSeparateDarkColors).toHaveBeenCalledWith(false);
     await user.click(
-      screen.getByRole("button", { name: "Vibration Feedback" }),
+      screen.getByRole("button", { name: "Vibration feedback" }),
     );
     expect(setHapticsEnabledMock).toHaveBeenCalledWith(false);
     await user.click(
@@ -383,7 +383,7 @@ describe("settings category coverage", () => {
       />,
     );
     await user.click(
-      screen.getByRole("button", { name: "Enable Custom Colors" }),
+      screen.getByRole("button", { name: "Enable custom colors" }),
     );
   });
 
@@ -516,7 +516,7 @@ describe("settings category coverage", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "Send Test" }));
+    await user.click(screen.getByRole("button", { name: "Send test" }));
     expect(apiMock).toHaveBeenCalledWith(
       "/monitoring/email/test",
       expect.objectContaining({
@@ -529,7 +529,7 @@ describe("settings category coverage", () => {
     });
 
     await user.click(
-      screen.getByRole("button", { name: "Enable Notifications" }),
+      screen.getByRole("button", { name: "Enable notifications" }),
     );
     expect(onSettingsChange).toHaveBeenCalledWith(
       expect.objectContaining({ notify: { enabled: false } }),
@@ -559,7 +559,7 @@ describe("settings category coverage", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "Send Test" }));
+    await user.click(screen.getByRole("button", { name: "Send test" }));
     expect(addToastMock).toHaveBeenCalledWith({
       type: "error",
       message: "offline",
@@ -597,7 +597,7 @@ describe("settings category coverage", () => {
     );
     render(<SecurityCategory />);
 
-    expect(await screen.findByText("Failed Login Attempt")).toBeVisible();
+    expect(await screen.findByText("Failed login attempt")).toBeVisible();
     expect(screen.getByText("&lt;admin&gt;")).toBeVisible();
     expect(screen.getByText("System")).toBeVisible();
 
@@ -856,7 +856,7 @@ describe("settings category coverage", () => {
     render(<FactoryResetCard />);
 
     await user.click(
-      screen.getByRole("button", { name: "Factory Reset This Device" }),
+      screen.getByRole("button", { name: "Factory reset this device" }),
     );
     await user.type(screen.getByPlaceholderText("Type RESET"), "RESET");
     await user.type(screen.getByPlaceholderText("Your password"), "secret");

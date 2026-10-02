@@ -190,7 +190,7 @@ export default function FolderPickerModal({
               </p>
             ) : roots.length > 1 ? (
               <div className="mb-3">
-                <label className="block text-primary text-xs mb-1.5 font-mono uppercase tracking-wider">
+                <label className="block text-primary text-xs mb-1.5 font-mono">
                   Destination
                 </label>
                 <Dropdown
@@ -213,7 +213,7 @@ export default function FolderPickerModal({
             ) : null
           ) : activeDrives.length > 1 && (
             <div className="mb-3">
-              <label className="block text-primary text-xs mb-1.5 font-mono uppercase tracking-wider">
+              <label className="block text-primary text-xs mb-1.5 font-mono">
                 Destination drive
               </label>
               <Dropdown

@@ -30,7 +30,7 @@ export default function AppInstallPage() {
   }
 
   return (
-    <Page data-slot="app-install-page" title={app ? `Install ${app.name}` : "Install App"} titleId="install-title" headerClassName="">
+    <Page data-slot="app-install-page" title={app ? `Install ${app.name}` : "Install app"} titleId="install-title" headerClassName="">
       <div className="mt-8">
         <InstallWizard appId={appId} initialInstanceId={initialInstanceId} />
       </div>

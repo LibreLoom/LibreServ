@@ -194,7 +194,7 @@ function MoonHero({ shownPath }) {
       </p>
       <p
         className={cn(
-          "mt-5 text-center font-mono text-xs uppercase tracking-[0.2em] text-secondary",
+          "mt-5 text-center font-mono text-xs text-secondary",
           "motion-safe:transition-[opacity,transform] motion-safe:duration-700",
           settled ? "translate-y-0 opacity-100" : "translate-y-1 opacity-0",
         )}

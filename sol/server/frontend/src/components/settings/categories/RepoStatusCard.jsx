@@ -272,7 +272,7 @@ export default function RepoStatusCard({ index = 0 }) {
     <div data-slot="repo-status-card">
       <SettingsCard
         icon={Package}
-        title="App Sources"
+        title="App sources"
         padding={false}
         index={index}
       >

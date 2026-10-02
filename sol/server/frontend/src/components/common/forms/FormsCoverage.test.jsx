@@ -70,7 +70,7 @@ describe("account form coverage", () => {
     const onSuccess = vi.fn();
     render(<AddUserForm onSuccess={onSuccess} />);
 
-    await user.click(screen.getByRole("button", { name: /Create User/ }));
+    await user.click(screen.getByRole("button", { name: /Create user/ }));
     expect(screen.getByText("Username is required")).toBeVisible();
     expect(screen.getByText("Enter a password.")).toBeVisible();
 
@@ -89,7 +89,7 @@ describe("account form coverage", () => {
     await user.click(screen.getByRole("button", { name: "Show password" }));
     expect(password).toHaveAttribute("type", "text");
     await user.selectOptions(screen.getByLabelText("Role"), "admin");
-    await user.click(screen.getByRole("button", { name: /Create User/ }));
+    await user.click(screen.getByRole("button", { name: /Create user/ }));
 
     expect(requestMock).toHaveBeenCalledWith(
       "/users",
@@ -115,7 +115,7 @@ describe("account form coverage", () => {
     await user.type(screen.getByLabelText(/Username/), "ada");
     await user.type(screen.getByLabelText(/Email/), "ada@example.test");
     await user.type(screen.getByLabelText(/^Password/), "LongPassword123!");
-    await user.click(screen.getByRole("button", { name: /Create User/ }));
+    await user.click(screen.getByRole("button", { name: /Create user/ }));
     expect(await screen.findByText("Email is already in use")).toBeVisible();
   });
 
@@ -126,7 +126,7 @@ describe("account form coverage", () => {
 
     await user.type(screen.getByLabelText(/^Email/), "lin@example.test");
     await user.selectOptions(screen.getByLabelText("Role"), "admin");
-    await user.click(screen.getByRole("button", { name: /Send Invitation/ }));
+    await user.click(screen.getByRole("button", { name: /Send invitation/ }));
     expect(requestMock).toHaveBeenCalledWith(
       "/users/invites",
       expect.objectContaining({
@@ -146,7 +146,7 @@ describe("account form coverage", () => {
     requestMock.mockRejectedValue(badRequest);
     rerender(<InviteUserForm />);
     await user.type(screen.getByLabelText(/^Email/), "next@example.test");
-    await user.click(screen.getByRole("button", { name: /Send Invitation/ }));
+    await user.click(screen.getByRole("button", { name: /Send invitation/ }));
     expect(
       (await screen.findAllByText("Email provider is missing")).length,
     ).toBeGreaterThan(0);
@@ -164,10 +164,10 @@ describe("account form coverage", () => {
       />,
     );
 
-    const email = screen.getByLabelText("New Email");
+    const email = screen.getByLabelText("New email");
     await user.clear(email);
     await user.type(email, "new@example.test");
-    await user.click(screen.getByRole("button", { name: "Change Email" }));
+    await user.click(screen.getByRole("button", { name: "Change email" }));
     expect(emailSuccess).toHaveBeenCalledWith("new@example.test");
     view.unmount();
 
@@ -179,7 +179,7 @@ describe("account form coverage", () => {
       />,
     );
     await user.selectOptions(screen.getByLabelText("Role"), "admin");
-    await user.click(screen.getByRole("button", { name: "Change Role" }));
+    await user.click(screen.getByRole("button", { name: "Change role" }));
     expect(requestMock).toHaveBeenLastCalledWith(
       "/users/one",
       expect.objectContaining({
@@ -200,17 +200,17 @@ describe("account form coverage", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "Reset Password" }));
+    await user.click(screen.getByRole("button", { name: "Reset password" }));
     expect(screen.getByText("Current password is required")).toBeVisible();
     await user.type(
-      screen.getByLabelText("Current Password"),
+      screen.getByLabelText("Current password"),
       "CurrentPassword123",
     );
     await user.type(
-      screen.getByLabelText("New Password"),
+      screen.getByLabelText("New password"),
       "NewLongPassword123",
     );
-    await user.click(screen.getByRole("button", { name: "Reset Password" }));
+    await user.click(screen.getByRole("button", { name: "Reset password" }));
     expect(requestMock).toHaveBeenLastCalledWith(
       "/auth/change-password",
       expect.objectContaining({
@@ -235,18 +235,18 @@ describe("account form coverage", () => {
     );
 
     await user.type(
-      screen.getByLabelText("New Password"),
+      screen.getByLabelText("New password"),
       "AnotherPassword123",
     );
-    await user.type(screen.getByLabelText("Confirm Password"), "different");
-    await user.click(screen.getByRole("button", { name: "Set Password" }));
+    await user.type(screen.getByLabelText("Confirm password"), "different");
+    await user.click(screen.getByRole("button", { name: "Set password" }));
     expect(screen.getByText("Passwords don't match")).toBeVisible();
-    await user.clear(screen.getByLabelText("Confirm Password"));
+    await user.clear(screen.getByLabelText("Confirm password"));
     await user.type(
-      screen.getByLabelText("Confirm Password"),
+      screen.getByLabelText("Confirm password"),
       "AnotherPassword123",
     );
-    await user.click(screen.getByRole("button", { name: "Set Password" }));
+    await user.click(screen.getByRole("button", { name: "Set password" }));
     expect(requestMock).toHaveBeenLastCalledWith(
       "/users/two/password",
       expect.objectContaining({

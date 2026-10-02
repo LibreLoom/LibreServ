@@ -10,28 +10,28 @@ import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 const ACCESS_MODEL_INFO = {
   shared_account: {
     icon: AlertTriangle,
-    label: "Shared Account",
+    label: "Shared account",
     message:
       "All users will access this app with the same login. Anyone who can open the app has full access.",
     variant: "warning",
   },
   external_auth: {
     icon: Info,
-    label: "Separate Accounts",
+    label: "Separate accounts",
     message:
       "This app manages its own user accounts. You'll set up users directly in the app after installation.",
     variant: "info",
   },
   public: {
     icon: Info,
-    label: "Public Access",
+    label: "Public access",
     message:
       "This app doesn't require login. Anyone with the address can access it.",
     variant: "info",
   },
   integrated_users: {
     icon: Info,
-    label: "LibreServ Accounts",
+    label: "LibreServ accounts",
     message:
       "Users can log in with their LibreServ accounts. Each person gets their own private space.",
     variant: "info",
@@ -108,7 +108,7 @@ function OverviewStep({ app, features, onContinue, onBack }) {
 
       {(requirements.min_ram || requirements.min_cpu || requirements.min_disk) && (
         <div className="space-y-2">
-          <p className="text-xs font-mono text-center uppercase tracking-wide">
+          <p className="text-xs font-mono text-center">
             Requirements
           </p>
           <div className="flex flex-wrap justify-center gap-2">

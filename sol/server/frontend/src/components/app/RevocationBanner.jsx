@@ -39,7 +39,7 @@ export default function RevocationBanner({ notice, appName, acknowledged, onSeeD
             )}
             <div className="flex-1">
               <h2 className={cn("text-lg font-mono font-normal", isMalicious ? "text-error" : "text-warning")}>
-                {isMalicious ? "Security Warning" : "Version Recalled"}
+                {isMalicious ? "Security warning" : "Version recalled"}
               </h2>
               <p className="text-sm text-primary mt-1">
                 {isMalicious

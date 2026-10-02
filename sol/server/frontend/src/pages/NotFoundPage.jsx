@@ -85,7 +85,7 @@ export default function NotFoundPage({ includeMain = true }) {
 
   useEffect(() => {
     const previousTitle = document.title;
-    document.title = "404 — Page Not Found · LibreServ";
+    document.title = "404 — Page not found · LibreServ";
     return () => {
       document.title = previousTitle;
     };
@@ -121,14 +121,14 @@ export default function NotFoundPage({ includeMain = true }) {
     <>
       {/* Reliable region label (does not depend on HeaderCard internals). */}
       <span id={regionTitleId} className="sr-only">
-        Page Not Found
+        Page not found
       </span>
 
       <div className="mx-auto w-full max-w-5xl">
         <div className="grid gap-8 items-start lg:grid-cols-2">
           <div className="space-y-4">
             <HeaderCard
-              title="Page Not Found"
+              title="Page not found"
               dynamicRounding={false}
               className="p-8 ring-2 ring-accent text-center motion-reduce:animate-none"
               leftContent={
@@ -140,7 +140,7 @@ export default function NotFoundPage({ includeMain = true }) {
             <Card className="p-8 ring-2 ring-accent text-left motion-reduce:animate-none">
               <div className="flex flex-col gap-6">
                 <div>
-                  <p className="font-mono text-sm font-normal uppercase tracking-widest text-primary">
+                  <p className="font-mono text-sm font-normal text-primary">
                     Error 404
                   </p>
                   <p id={detailsId} className="mt-3 text-primary max-w-prose">
@@ -177,9 +177,7 @@ export default function NotFoundPage({ includeMain = true }) {
           </div>
 
           <Card className="p-8 ring-2 ring-accent text-left motion-reduce:animate-none">
-            <h2 className="text-xl font-mono font-normal block text-center">
-              Quick Ways Out
-            </h2>
+            <h2 className="text-xl font-mono font-normal block text-center">Quick ways out</h2>
             <p className="mt-2 text-primary max-w-prose block text-center">
               Try a safe page. We won't judge! Well, the owl might...
             </p>

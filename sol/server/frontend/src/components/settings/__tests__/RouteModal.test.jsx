@@ -63,7 +63,7 @@ describe("RouteModal — create", () => {
     renderModal();
     fireEvent.change(screen.getByLabelText(/Subdomain/), { target: { value: "nextcloud" } });
     // Destination left empty.
-    fireEvent.click(screen.getByRole("button", { name: "Add Route" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add route" }));
 
     await waitFor(() => {
       expect(screen.getByText(/Enter the address on this device to forward to/)).toBeInTheDocument();
@@ -75,7 +75,7 @@ describe("RouteModal — create", () => {
     renderModal();
     fireEvent.change(screen.getByLabelText(/Subdomain/), { target: { value: "nextcloud" } });
     fireEvent.change(screen.getByLabelText(/Forward to/), { target: { value: "localhost" } });
-    fireEvent.click(screen.getByRole("button", { name: "Add Route" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add route" }));
 
     await waitFor(() => {
       expect(screen.getByText(/Enter it as host:port/)).toBeInTheDocument();
@@ -88,7 +88,7 @@ describe("RouteModal — create", () => {
     renderModal();
     fireEvent.change(screen.getByLabelText(/Subdomain/), { target: { value: "nextcloud" } });
     fireEvent.change(screen.getByLabelText(/Forward to/), { target: { value: "localhost:8080" } });
-    fireEvent.click(screen.getByRole("button", { name: "Add Route" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add route" }));
 
     await waitFor(() => {
       expect(mockRequest).toHaveBeenCalledWith(
@@ -144,7 +144,7 @@ describe("RouteModal — edit", () => {
     // The route's current backend is prefilled and editable.
     expect(screen.getByLabelText(/Forward to/)).toHaveValue("192.168.1.50:3000");
     fireEvent.change(screen.getByLabelText(/Forward to/), { target: { value: "192.168.1.50:4000" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save Changes" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
     await waitFor(() => {
       expect(mockRequest).toHaveBeenCalledWith(

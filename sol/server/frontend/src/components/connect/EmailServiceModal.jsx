@@ -40,7 +40,7 @@ export default function EmailServiceModal({ open, onClose, onSaved, service, con
     service?.state === "connected"
       ? "Connected"
       : service?.state === "byo"
-        ? "Bring Your Own"
+        ? "Bring your own"
         : service?.state === "unavailable"
           ? "Not in Plan"
           : "Disabled";
@@ -168,7 +168,7 @@ export default function EmailServiceModal({ open, onClose, onSaved, service, con
                 />
               </div>
               <div className="col-span-2">
-                <label className="block text-xs font-medium mb-1.5 px-4">From Address</label>
+                <label className="block text-xs font-medium mb-1.5 px-4">From address</label>
                 <input
                   type="email"
                   value={form.from}

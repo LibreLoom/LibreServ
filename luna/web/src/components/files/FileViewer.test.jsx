@@ -441,7 +441,7 @@ describe("FileViewer text editor (fullscreen)", () => {
     await cmReplace("changed");
 
     fireEvent.click(screen.getByRole("button", { name: "Close editor" }));
-    expect(screen.getByText("Document Unsaved")).toBeInTheDocument();
+    expect(screen.getByText("Document unsaved")).toBeInTheDocument();
     expect(onClose).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Save and close" }));
@@ -898,7 +898,7 @@ describe("FileViewer fullscreen office overlay", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Close editor" }));
     expect(onClose).toHaveBeenCalledTimes(1);
-    expect(screen.queryByText("Document Unsaved")).not.toBeInTheDocument();
+    expect(screen.queryByText("Document unsaved")).not.toBeInTheDocument();
   });
 
   it("intercepts a dirty close with the modal; Cancel keeps editing", async () => {
@@ -911,12 +911,12 @@ describe("FileViewer fullscreen office overlay", () => {
     act(() => officeMocks.editorProps.onSaveStateChange(true));
     fireEvent.click(screen.getByRole("button", { name: "Close editor" }));
 
-    expect(screen.getByText("Document Unsaved")).toBeInTheDocument();
+    expect(screen.getByText("Document unsaved")).toBeInTheDocument();
     expect(onClose).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     await waitFor(() => {
-      expect(screen.queryByText("Document Unsaved")).not.toBeInTheDocument();
+      expect(screen.queryByText("Document unsaved")).not.toBeInTheDocument();
     });
     expect(onClose).not.toHaveBeenCalled();
     expect(document.querySelector('[data-slot="file-viewer-overlay"]')).toBeInTheDocument();
@@ -977,7 +977,7 @@ describe("FileViewer fullscreen office overlay", () => {
       expect(screen.getAllByText("EuroOffice couldn't save this file.")).not.toHaveLength(0),
     );
     expect(onClose).not.toHaveBeenCalled();
-    expect(screen.getByText("Document Unsaved")).toBeInTheDocument();
+    expect(screen.getByText("Document unsaved")).toBeInTheDocument();
   });
 
   it("intercepts a dirty Escape with the modal, and modal Escape cancels", async () => {
@@ -990,13 +990,13 @@ describe("FileViewer fullscreen office overlay", () => {
     act(() => officeMocks.editorProps.onSaveStateChange(true));
     fireEvent.keyDown(window, { key: "Escape" });
 
-    expect(screen.getByText("Document Unsaved")).toBeInTheDocument();
+    expect(screen.getByText("Document unsaved")).toBeInTheDocument();
     expect(onClose).not.toHaveBeenCalled();
 
     // ModalCard listens on document; Escape there cancels the modal only.
     fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => {
-      expect(screen.queryByText("Document Unsaved")).not.toBeInTheDocument();
+      expect(screen.queryByText("Document unsaved")).not.toBeInTheDocument();
     });
     expect(onClose).not.toHaveBeenCalled();
   });
@@ -1075,7 +1075,7 @@ describe("FileViewer fullscreen office overlay", () => {
     // Close still funnels through the unsaved-changes guard.
     fireEvent.click(within(menu).getByRole("menuitem", { name: "Close editor" }));
     expect(onClose).not.toHaveBeenCalled();
-    expect(screen.getByText("Document Unsaved")).toBeInTheDocument();
+    expect(screen.getByText("Document unsaved")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Close anyway" }));
     expect(onClose).toHaveBeenCalledTimes(1);

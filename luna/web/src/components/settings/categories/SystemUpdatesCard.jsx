@@ -82,7 +82,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
 
   return (
     <div data-slot="system-updates-card">
-      <SettingsCard icon={Download} title="System Updates" padding={false} index={index}>
+      <SettingsCard icon={Download} title="System updates" padding={false} index={index}>
         <div className="px-5 py-5">
           <div className="flex items-start justify-between gap-4 mb-4">
             <div className="flex-1">

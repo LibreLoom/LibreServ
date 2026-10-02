@@ -640,7 +640,7 @@ export default function BackupsCategory({ connectStatus = null }) {
         </SettingsCard>
       )}
 
-      {/* Hide "Set up in External Services" CTA once any backup destination is
+      {/* Hide "Set up in External services" CTA once any backup destination is
           configured: local-only repos via /backups/repos, or Cloud Backup
           managed by Connect. Both mean there is already off-site storage. */}
       {!loading && !loadError && repos.length === 0 && !["connected", "byo"].includes(connectStatus?.services?.backup?.state) && (
@@ -652,7 +652,7 @@ export default function BackupsCategory({ connectStatus = null }) {
           >
             <Button variant="outline" surface="secondary" size="sm" asChild>
               <a href="#external_services">
-                Set up in External Services
+                Set up in External services
                 <ArrowRight size={ICON_SIZE.sm} aria-hidden="true" />
               </a>
             </Button>

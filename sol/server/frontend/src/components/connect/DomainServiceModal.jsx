@@ -45,7 +45,7 @@ export default function DomainServiceModal({ open, onClose, onSaved, service, co
     service?.state === "connected"
       ? "Connected"
       : service?.state === "byo"
-        ? "Bring Your Own"
+        ? "Bring your own"
         : service?.state === "unavailable"
           ? "Not in Plan"
           : "Disabled";
@@ -108,7 +108,7 @@ export default function DomainServiceModal({ open, onClose, onSaved, service, co
               Connect your own domain. We'll help set up DNS records.
             </p>
             <div>
-              <label className="block text-xs font-medium mb-1.5 px-4">Your Domain</label>
+              <label className="block text-xs font-medium mb-1.5 px-4">Your domain</label>
               <ShakeTarget shake={error}>
                 <input
                   type="text"

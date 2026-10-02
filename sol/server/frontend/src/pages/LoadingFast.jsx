@@ -24,7 +24,7 @@ function LoadingFast({
             first-paint splash, and an opacity:0 entrance delays FCP by the full
             fade duration while making the "loading" state invisible. */}
         <div className="mb-10 text-center">
-          <div className="mb-3 text-[0.65rem] font-sans font-semibold uppercase tracking-[0.3em] text-secondary">
+          <div className="mb-3 text-[0.65rem] font-sans font-semibold text-secondary">
             LibreServ
           </div>
           <h1 className="mb-2 text-3xl font-mono font-normal tracking-tight text-secondary sm:text-4xl">

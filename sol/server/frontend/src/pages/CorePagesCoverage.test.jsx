@@ -261,7 +261,7 @@ describe("NotFoundPage", () => {
 
     expect(screen.getByText("/appps?from=test#lost")).toBeVisible();
     expect(screen.getByText("Did you mean…")).toBeVisible();
-    expect(document.title).toBe("404 — Page Not Found · LibreServ");
+    expect(document.title).toBe("404 — Page not found · LibreServ");
     await user.click(
       screen.getByRole("button", {
         name: /Highly Scientific Investigation/,
@@ -274,7 +274,7 @@ describe("NotFoundPage", () => {
 
   it("renders without a page shell when embedded", () => {
     render(<NotFoundPage includeMain={false} />);
-    expect(screen.getByRole("region", { name: "Page Not Found" })).toHaveAttribute(
+    expect(screen.getByRole("region", { name: "Page not found" })).toHaveAttribute(
       "data-slot",
       "not-found",
     );
@@ -304,19 +304,19 @@ describe("ResetPassword", () => {
     });
 
     render(<ResetPassword />);
-    const password = await screen.findByLabelText("New Password");
-    const confirmation = screen.getByLabelText("Confirm Password");
+    const password = await screen.findByLabelText("New password");
+    const confirmation = screen.getByLabelText("Confirm password");
 
     await user.type(password, "abcdefgh");
     await user.type(confirmation, "different");
-    await user.click(screen.getByRole("button", { name: "Reset Password" }));
+    await user.click(screen.getByRole("button", { name: "Reset password" }));
     expect(screen.getByRole("alert")).toHaveTextContent("Passwords don't match");
 
     await user.clear(password);
     await user.clear(confirmation);
     await user.type(password, "short");
     await user.type(confirmation, "short");
-    await user.click(screen.getByRole("button", { name: "Reset Password" }));
+    await user.click(screen.getByRole("button", { name: "Reset password" }));
     expect(screen.getByRole("alert")).toHaveTextContent(
       "Password must be at least 8 characters",
     );
@@ -325,7 +325,7 @@ describe("ResetPassword", () => {
     await user.clear(confirmation);
     await user.type(password, "new-password");
     await user.type(confirmation, "new-password");
-    await user.click(screen.getByRole("button", { name: "Reset Password" }));
+    await user.click(screen.getByRole("button", { name: "Reset password" }));
 
     expect(
       await screen.findByText(/Password reset successfully! Redirecting/),
@@ -360,17 +360,17 @@ describe("MyProfile", () => {
     const email = screen.getByLabelText("Email (optional)");
     await user.clear(email);
     await user.type(email, "new@example.test");
-    await user.click(screen.getByRole("button", { name: "Save Email" }));
+    await user.click(screen.getByRole("button", { name: "Save email" }));
 
     await user.type(
-      screen.getByLabelText("Current Password"),
+      screen.getByLabelText("Current password"),
       "OldPassword123",
     );
     await user.type(
-      screen.getByLabelText("New Password"),
+      screen.getByLabelText("New password"),
       "NewPassword123",
     );
-    await user.click(screen.getByRole("button", { name: "Change Password" }));
+    await user.click(screen.getByRole("button", { name: "Change password" }));
 
     expect(testState.auth.request).toHaveBeenCalledWith(
       "/auth/profile",
@@ -402,21 +402,21 @@ describe("MyProfile", () => {
     const email = screen.getByLabelText("Email (optional)");
     await user.clear(email);
     await user.type(email, "used@example.test");
-    await user.click(screen.getByRole("button", { name: "Save Email" }));
+    await user.click(screen.getByRole("button", { name: "Save email" }));
     expect(await screen.findByText("Email is already in use")).toBeVisible();
 
-    await user.click(screen.getByRole("button", { name: "Change Password" }));
+    await user.click(screen.getByRole("button", { name: "Change password" }));
     expect(screen.getByText("Current password is required")).toBeVisible();
     expect(
       screen.getByText("Enter a password."),
     ).toBeVisible();
 
-    await user.type(screen.getByLabelText("Current Password"), "wrong");
+    await user.type(screen.getByLabelText("Current password"), "wrong");
     await user.type(
-      screen.getByLabelText("New Password"),
+      screen.getByLabelText("New password"),
       "ValidPassword123",
     );
-    await user.click(screen.getByRole("button", { name: "Change Password" }));
+    await user.click(screen.getByRole("button", { name: "Change password" }));
     expect(
       await screen.findByText("Current password is incorrect"),
     ).toBeVisible();
@@ -426,7 +426,7 @@ describe("MyProfile", () => {
 describe("UsersPage", () => {
   it("shows the current user's profile to non-admins", () => {
     render(<UsersPage />);
-    expect(screen.getByRole("heading", { name: "My Account" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "My account" })).toBeVisible();
     expect(screen.getByText("API tokens")).toBeVisible();
   });
 
@@ -462,7 +462,7 @@ describe("UsersPage", () => {
     await user.click(screen.getByRole("button", { name: "Open Lin" }));
     expect(testState.navigate).toHaveBeenCalledWith("/users/user-2");
     await user.click(screen.getByRole("button", { name: "Delete Lin" }));
-    const dialog = screen.getByRole("dialog", { name: "Delete User" });
+    const dialog = screen.getByRole("dialog", { name: "Delete user" });
     await user.click(within(dialog).getByRole("button", { name: "Delete" }));
     await waitFor(() =>
       expect(screen.queryByText("lin@example.test")).not.toBeInTheDocument(),
@@ -520,19 +520,19 @@ describe("UserDetailPage", () => {
     expect(await screen.findByText("lin@example.test")).toBeVisible();
     expect(screen.getByText("2 days ago")).toBeVisible();
 
-    await user.click(screen.getByRole("button", { name: "Change Email" }));
+    await user.click(screen.getByRole("button", { name: "Change email" }));
     await user.click(screen.getByRole("button", { name: "Apply email" }));
     expect(screen.getByText("changed@example.test")).toBeVisible();
 
-    await user.click(screen.getByRole("button", { name: "Change Role" }));
+    await user.click(screen.getByRole("button", { name: "Change role" }));
     await user.click(screen.getByRole("button", { name: "Apply role" }));
     expect(screen.getByText("Admin")).toBeVisible();
 
-    await user.click(screen.getByRole("button", { name: "Set Password" }));
+    await user.click(screen.getByRole("button", { name: "Set password" }));
     await user.click(screen.getByRole("button", { name: "Apply password" }));
 
-    await user.click(screen.getByRole("button", { name: "Delete User" }));
-    const dialog = screen.getByRole("dialog", { name: "Delete User" });
+    await user.click(screen.getByRole("button", { name: "Delete user" }));
+    const dialog = screen.getByRole("dialog", { name: "Delete user" });
     await user.click(within(dialog).getByRole("button", { name: "Delete" }));
     await waitFor(() =>
       expect(testState.navigate).toHaveBeenCalledWith("/users"),
@@ -551,10 +551,10 @@ describe("UserDetailPage", () => {
     render(<UserDetailPage />);
     expect(await screen.findByText("MFA settings")).toBeVisible();
     expect(
-      screen.queryByRole("button", { name: "Change Role" }),
+      screen.queryByRole("button", { name: "Change role" }),
     ).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Delete User" }),
+      screen.queryByRole("button", { name: "Delete user" }),
     ).not.toBeInTheDocument();
   });
 

@@ -67,9 +67,9 @@ describe("AppearanceCategory", () => {
     const user = userEvent.setup();
     renderAppearance();
 
-    expect(screen.getByText("Enable Custom Colors")).toBeTruthy();
-    await user.click(screen.getByRole("switch", { name: /Enable Custom Colors/i }));
-    expect(screen.getByText("Color Presets")).toBeTruthy();
+    expect(screen.getByText("Enable custom colors")).toBeTruthy();
+    await user.click(screen.getByRole("switch", { name: /Enable custom colors/i }));
+    expect(screen.getByText("Color presets")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Apply Classic preset/i })).toBeTruthy();
   });
 });

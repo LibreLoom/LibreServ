@@ -10,8 +10,8 @@ import ExternalServicesCategory from "./categories/ExternalServicesCategory.jsx"
 import SaveStatusIndicator from "../common/SaveStatusIndicator.jsx";
 
 const CATEGORY_TITLES = {
-	external_services: "External Services",
-	general: "General Settings",
+	external_services: "External services",
+	general: "General settings",
 	appearance: "Appearance",
 	backups: "Backups",
 	security: "Security",

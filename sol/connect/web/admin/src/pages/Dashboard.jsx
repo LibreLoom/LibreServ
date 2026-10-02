@@ -29,20 +29,20 @@ export default function Dashboard() {
       <>
       <div className="grid gap-4 md:grid-cols-3 mb-8">
         <Card>
-          <CardHeader><CardTitle className="text-sm text-muted-foreground">Total Devices</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-sm text-muted-foreground">Total devices</CardTitle></CardHeader>
           <CardContent><p className="font-mono text-2xl">{deviceCount}</p></CardContent>
         </Card>
         <Card>
-          <CardHeader><CardTitle className="text-sm text-muted-foreground">Active Devices</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-sm text-muted-foreground">Active devices</CardTitle></CardHeader>
           <CardContent><p className="font-mono text-2xl">{activeDevices}</p></CardContent>
         </Card>
         <Card>
-          <CardHeader><CardTitle className="text-sm text-muted-foreground">Monthly Cost</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-sm text-muted-foreground">Monthly cost</CardTitle></CardHeader>
           <CardContent><p className="font-mono text-2xl">${totalCost.toFixed(2)}</p></CardContent>
         </Card>
       </div>
 
-      <h3 className="font-mono text-lg mb-4">Usage by Service</h3>
+      <h3 className="font-mono text-lg mb-4">Usage by service</h3>
       <div className="grid gap-3 md:grid-cols-3">
         {["smtp", "backup", "tunnel", "ai", "domain", "support"].map((svc) => {
           const cost = usage?.usage?.[`${svc}_cost`] || 0;

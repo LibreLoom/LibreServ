@@ -64,7 +64,7 @@ export default function ChangeEmailForm({ user, onSuccess, onCancel }) {
             htmlFor="email"
             className="text-secondary font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
           >
-            New Email
+            New email
           </label>
           <div className="relative">
             <Mail
@@ -115,7 +115,7 @@ export default function ChangeEmailForm({ user, onSuccess, onCancel }) {
           loading={loading}
           className="flex-1"
         >
-          {loading ? "Saving..." : "Change Email"}
+          {loading ? "Saving..." : "Change email"}
         </Button>
       </div>
     </form>

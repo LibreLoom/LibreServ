@@ -167,7 +167,7 @@ function DriveHomeCard({ drive, isAdmin = false, grants = [] }) {
                 className="inline-block h-2 w-2 rounded-full surface-primary shrink-0"
                 aria-hidden="true"
               />
-              <span className="text-xs font-mono uppercase tracking-widest">
+              <span className="text-xs font-mono">
                 Storage
               </span>
             </div>
@@ -202,7 +202,7 @@ function DriveHomeCard({ drive, isAdmin = false, grants = [] }) {
 
         {shortcuts.length > 0 ? (
           <div>
-            <div className="text-xs font-mono uppercase tracking-widest mb-2">
+            <div className="text-xs font-mono mb-2">
               Folders
             </div>
             <div className="flex flex-wrap gap-2">
@@ -290,7 +290,7 @@ function UptimeCard({ value }) {
           className="inline-block h-2 w-2 rounded-full surface-primary shrink-0"
           aria-hidden="true"
         />
-        <span className="text-xs font-mono uppercase tracking-widest">
+        <span className="text-xs font-mono">
           Uptime
         </span>
       </div>
@@ -500,7 +500,7 @@ function ConnectionCard({
           className={cn("inline-block h-2 w-2 rounded-full shrink-0", connectionDotClass(net))}
           aria-hidden="true"
         />
-        <span className="text-xs font-mono uppercase tracking-widest">
+        <span className="text-xs font-mono">
           Connection
         </span>
       </div>
@@ -563,7 +563,7 @@ function RecentItemsCard({ items, drives }) {
                       className="inline-block h-2 w-2 rounded-full surface-secondary shrink-0"
                       aria-hidden="true"
                     />
-                    <span className="text-xs font-mono uppercase tracking-widest">
+                    <span className="text-xs font-mono">
                       {RECENT_KIND_LABELS[item.kind]}
                     </span>
                   </div>

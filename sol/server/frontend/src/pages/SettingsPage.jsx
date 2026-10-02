@@ -388,9 +388,7 @@ export default function SettingsPage() {
       <div className="md:hidden flex-1 overflow-y-auto min-h-0">
         {!showMobileContent ? (
           <div className="p-4 pt-6 pb-24">
-            <h1 className="text-xl font-mono font-normal text-secondary mb-4 animate-in fade-in duration-150">
-              Settings
-            </h1>
+            <h1 className="text-xl font-mono font-normal text-secondary mb-4 animate-in fade-in duration-150">Settings</h1>
             <SettingsSidebar
               user={user}
               categories={visibleCategories(isAdmin)}
