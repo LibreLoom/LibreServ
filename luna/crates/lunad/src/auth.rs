@@ -1522,6 +1522,7 @@ pub fn can_browse_path_preloaded(
     path: &str,
     caps: crate::access::Caps,
     rows: &[db::AccessMemberRow],
+    owned: &[String],
     mount: Option<&str>,
     owner_known: &dyn Fn(&str) -> crate::private::OwnerState,
 ) -> bool {
@@ -1539,6 +1540,13 @@ pub fn can_browse_path_preloaded(
         .is_some_and(|b| owner_known(&b.owner) == crate::private::OwnerState::Deleted)
     {
         return false;
+    }
+    // The way down to a private item you own stays open.
+    if owned
+        .iter()
+        .any(|p| crate::access::path_contains(&norm, p))
+    {
+        return true;
     }
     browse_rows_walk(drive_id, &norm, rows)
 }

@@ -1452,16 +1452,19 @@ pub fn delete_to_trash(
         entry = format!("{nonce}-{n}-{name}");
         n += 1;
     };
-    crate::api::forms::repath_form_files_named(&root, &path, &name, &root, &dest, &entry);
     // The private boundary this item sat under (or was) BEFORE its row
     // moves into the trash namespace below.
     let provenance = crate::private::boundary_for(&root, &trash_rel);
-    crate::private::repath(
+    if let Err(e) = crate::private::repath(
         &root,
         &trash_rel,
         &format!("{}/{entry}", layout.trash_name()),
-    )
-    .map_err(FilesError::Db)?;
+    ) {
+        // Put the item back so its row and its place on disk still agree.
+        let _ = rename_noreplace(&dest, &path);
+        return Err(FilesError::Db(e));
+    }
+    crate::api::forms::repath_form_files_named(&root, &path, &name, &root, &dest, &entry);
     if let Ok(dir) = std::fs::File::open(&trash) {
         let _ = dir.sync_all();
     }
@@ -1903,6 +1906,10 @@ pub fn restore_from_trash(
     // No-replace move: a concurrent restore to the same name gets
     // AlreadyExists instead of silently clobbering the earlier winner.
     rename_noreplace(&src, &dest).map_err(FilesError::Io)?;
+    if let Err(e) = crate::private::repath(&root, &trash_rel, dest_real) {
+        let _ = rename_noreplace(&dest, &src);
+        return Err(FilesError::Db(e));
+    }
     crate::api::forms::repath_form_files_named(
         &root,
         &src,
@@ -1911,7 +1918,6 @@ pub fn restore_from_trash(
         &dest,
         &dest_name,
     );
-    crate::private::repath(&root, &trash_rel, dest_real).map_err(FilesError::Db)?;
     if let Some(parent) = dest.parent()
         && let Ok(dir) = std::fs::File::open(parent)
     {
@@ -2178,6 +2184,13 @@ pub fn rename(
         // concurrency; plain rename(2) would silently overwrite.
         rename_noreplace(&path, &dest).map_err(FilesError::Io)?;
     }
+    if let Err(e) = crate::private::repath(&root, &rel, &new_real) {
+        // A private item never moved on disk; anything else did.
+        if private_leaf.is_none() {
+            let _ = rename_noreplace(&dest, &path);
+        }
+        return Err(FilesError::Db(e));
+    }
     crate::api::forms::repath_form_files_named(
         &root,
         &path,
@@ -2186,7 +2199,6 @@ pub fn rename(
         &dest,
         &dest_name,
     );
-    crate::private::repath(&root, &rel, &new_real).map_err(FilesError::Db)?;
     if let Ok(dir) = std::fs::File::open(parent) {
         let _ = dir.sync_all();
     }
@@ -2285,6 +2297,10 @@ pub fn move_rel(
     }
     match try_rename_move(&from, &to)? {
         true => {
+            if let Err(e) = crate::private::repath(&root, &from_rel, &to_rel) {
+                let _ = rename_noreplace(&to, &from);
+                return Err(FilesError::Db(e));
+            }
             crate::api::forms::repath_form_files_named(
                 &root,
                 &from,
@@ -2293,7 +2309,6 @@ pub fn move_rel(
                 &to,
                 to_rel.rsplit('/').next().unwrap_or(&to_rel),
             );
-            crate::private::repath(&root, &from_rel, &to_rel).map_err(FilesError::Db)?;
             // An item leaving trash loses its origin metadata.
             if let Some((entry, None)) = trash_entry_parts(&from_rel) {
                 remove_trash_meta(&root, entry);

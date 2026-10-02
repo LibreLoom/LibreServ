@@ -84,6 +84,8 @@ pub struct GrantFs {
 struct CapsCtx {
     rows: Vec<crate::db::AccessMemberRow>,
     mount: Option<String>,
+    /// Real paths of the private items this caller owns on the drive.
+    owned: Vec<String>,
     /// Ids of every person this Luna knows, to tell ownerless private items.
     users: std::collections::HashMap<String, crate::private::OwnerState>,
 }
@@ -155,6 +157,7 @@ impl GrantFs {
         let ctx = Arc::new(CapsCtx {
             rows: crate::db::list_access_members_for_user(&conn, &self.user.id).unwrap_or_default(),
             mount,
+            owned: crate::auth::owned_private_paths(&conn, &self.user.id, &self.drive_id),
             users: crate::private::owner_states(&conn).map_err(|_| FsError::GeneralFailure)?,
         });
         *guard = Some(ctx.clone());
@@ -187,6 +190,7 @@ impl GrantFs {
             subject,
             caps,
             &ctx.rows,
+            &ctx.owned,
             ctx.mount.as_deref(),
             &|o| {
                 ctx.users
