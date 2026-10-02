@@ -37,6 +37,7 @@ pub fn tick(connect: &ConnectService, last_io_unix: i64, now_unix: i64, db: &cra
                         continue;
                     }
                     sync_tree(connect, Path::new(path), "");
+                    put_private_manifest(connect, Path::new(path), &drives);
                 }
             }
             "drive" => {
@@ -121,6 +122,30 @@ pub fn folder_under_adopted_mount(path: &Path, drives: &[DriveRow]) -> bool {
         };
         canon.starts_with(&root)
     })
+}
+
+/// A folder backed up without its drive's database needs a manifest to put
+/// names back on its private items.
+fn put_private_manifest(connect: &ConnectService, folder: &Path, drives: &[DriveRow]) {
+    let Ok(canon) = folder.canonicalize() else {
+        return;
+    };
+    for d in drives {
+        let Ok(root) = Path::new(&d.mount_point).canonicalize() else {
+            continue;
+        };
+        let Ok(rel) = canon.strip_prefix(&root) else {
+            continue;
+        };
+        let rel = rel.to_string_lossy().replace('\\', "/");
+        if let (Some(name), Some(json)) = (
+            crate::private::manifest_name(&root),
+            crate::private::manifest_json(&root, &rel),
+        ) {
+            let _ = connect.put_backup_object(&name, json.as_bytes());
+        }
+        return;
+    }
 }
 
 fn sync_tree(connect: &ConnectService, root: &Path, prefix: &str) {

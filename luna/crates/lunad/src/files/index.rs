@@ -148,6 +148,8 @@ pub fn fresh_entries(
                 original_path: None,
                 link_target: None,
                 caps: String::new(),
+                private: false,
+                in_private: false,
             })
         })
         .ok()?;
@@ -170,7 +172,15 @@ pub struct SearchHit {
 ///
 /// Fans out across each mounted drive's `.luna-<uuid>.sqlite3` microdb (index
 /// no longer lives in central `luna.db`).
-pub fn search(central: &Connection, query: &str) -> anyhow::Result<Vec<SearchHit>> {
+///
+/// `keep` runs on every match before it counts toward the 200-hit cap, so
+/// hits the caller may not see (someone else's private items) never crowd
+/// out hits they may.
+pub fn search(
+    central: &Connection,
+    query: &str,
+    keep: &mut dyn FnMut(&SearchHit) -> bool,
+) -> anyhow::Result<Vec<SearchHit>> {
     let escaped = query
         .replace('\\', "\\\\")
         .replace('%', "\\%")
@@ -203,8 +213,7 @@ pub fn search(central: &Connection, query: &str) -> anyhow::Result<Vec<SearchHit
                      LIKE ?1 ESCAPE '\\'
                  OR kind LIKE ?1 ESCAPE '\\'
                )
-             ORDER BY name COLLATE NOCASE
-             LIMIT 200",
+             ORDER BY name COLLATE NOCASE",
         )?;
         let mut hits: Vec<SearchHit> = stmt
             .query_map(params![pattern, drive.id], |row| {
@@ -217,14 +226,18 @@ pub fn search(central: &Connection, query: &str) -> anyhow::Result<Vec<SearchHit
                     modified: row.get(5)?,
                 })
             })?
+            .filter(|hit| match hit {
+                Ok(h) => keep(h),
+                Err(_) => true,
+            })
+            .take(200)
             .collect::<Result<Vec<_>, _>>()?;
         if label_hit && hits.is_empty() {
             let mut stmt = conn.prepare(
                 "SELECT drive_id, parent, name, kind, size, modified
                  FROM index_entries
                  WHERE hidden = 0 AND drive_id = ?1
-                 ORDER BY name COLLATE NOCASE
-                 LIMIT 50",
+                 ORDER BY name COLLATE NOCASE",
             )?;
             hits = stmt
                 .query_map(params![drive.id], |row| {
@@ -237,6 +250,11 @@ pub fn search(central: &Connection, query: &str) -> anyhow::Result<Vec<SearchHit
                         modified: row.get(5)?,
                     })
                 })?
+                .filter(|hit| match hit {
+                    Ok(h) => keep(h),
+                    Err(_) => true,
+                })
+                .take(50)
                 .collect::<Result<Vec<_>, _>>()?;
         }
         all.append(&mut hits);
@@ -288,7 +306,7 @@ pub fn folder_totals_indexed(
                 |row| row.get(0),
             )
             .ok()?;
-        let current = std::fs::metadata(root.join(&dir_rel))
+        let current = std::fs::metadata(root.join(crate::private::disk_rel(root, &dir_rel)))
             .map(|m| dir_stamp(&m))
             .unwrap_or(0);
         if indexed != current {
@@ -315,16 +333,20 @@ pub fn folder_totals_indexed(
             if crate::files::is_internal_temp(&name) {
                 continue;
             }
+            let child = if dir_rel.is_empty() {
+                name
+            } else {
+                format!("{dir_rel}/{name}")
+            };
+            // A private item counts only for people who may read it.
+            let readable =
+                readable && (crate::private::item_at(root, &child).is_none() || include(&child));
             match kind.as_str() {
                 "dir" => {
                     if readable {
                         totals.dirs += 1;
                     }
-                    stack.push(if dir_rel.is_empty() {
-                        name
-                    } else {
-                        format!("{dir_rel}/{name}")
-                    });
+                    stack.push(child);
                 }
                 "file" if readable => {
                     totals.files += 1;
@@ -353,7 +375,12 @@ pub fn scan_drive(
     while let Some((rel, dir)) = stack.pop() {
         let meta = std::fs::metadata(&dir)?;
         let mtime = dir_stamp(&meta);
-        let entries = crate::files::read_dir_entries(&dir)?;
+        let private = crate::private::children_of(root, &rel);
+        let entries = crate::files::read_dir_entries_in(
+            &dir,
+            &private,
+            crate::private::boundary_for(root, &rel).is_some(),
+        )?;
         for entry in &entries {
             // read_dir_entries already filtered out Luna's `.luna-<uuid>`
             // bookkeeping (trash, protected copies, thumbs, marker).
@@ -363,7 +390,12 @@ pub fn scan_drive(
                 } else {
                     format!("{rel}/{}", entry.name)
                 };
-                stack.push((child_rel, dir.join(&entry.name)));
+                // A private folder sits on disk under its `.luna-` name.
+                let on_disk = private
+                    .iter()
+                    .find(|(_, i)| i.name() == entry.name)
+                    .map_or(entry.name.as_str(), |(disk, _)| disk.as_str());
+                stack.push((child_rel, dir.join(on_disk)));
             }
         }
         replace_dir(&conn, drive_id, &rel, mtime, &entries)?;
@@ -411,6 +443,8 @@ mod tests {
                 original_path: None,
                 link_target: None,
                 caps: String::new(),
+                private: false,
+                in_private: false,
             },
             FileEntry {
                 name: "a".into(),
@@ -424,6 +458,8 @@ mod tests {
                 original_path: None,
                 link_target: None,
                 caps: String::new(),
+                private: false,
+                in_private: false,
             },
         ];
         replace_dir(&conn, "d1", "sub", 42, &entries).unwrap();
@@ -531,21 +567,23 @@ mod tests {
                 original_path: None,
                 link_target: None,
                 caps: String::new(),
+                private: false,
+                in_private: false,
             }],
         )
         .unwrap();
         drop(dconn);
-        let by_folder = search(&central, "2024").unwrap();
+        let by_folder = search(&central, "2024", &mut |_| true).unwrap();
         assert!(
             by_folder.iter().any(|h| h.name == "beach.jpg"),
             "folder path should match"
         );
-        let by_label = search(&central, "Photos").unwrap();
+        let by_label = search(&central, "Photos", &mut |_| true).unwrap();
         assert!(
             by_label.iter().any(|h| h.name == "beach.jpg"),
             "drive label should match"
         );
-        let by_kind = search(&central, "file").unwrap();
+        let by_kind = search(&central, "file", &mut |_| true).unwrap();
         assert!(by_kind.iter().any(|h| h.name == "beach.jpg"));
     }
 }

@@ -22,4 +22,28 @@ describe("NewItemMenu", () => {
     expect(onPick).toHaveBeenCalledWith(expect.objectContaining({ id: "folder" }));
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
+
+  it("hides the Private group by default", async () => {
+    render(<NewItemMenu onPick={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "New" }));
+    await screen.findByRole("menuitem", { name: "Folder" });
+    expect(screen.queryByText("Private")).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Private folder" })).not.toBeInTheDocument();
+  });
+
+  it("shows the Private group last when private folders are allowed (everyone but link guests)", async () => {
+    const onPick = vi.fn();
+    render(<NewItemMenu onPick={onPick} allowPrivate />);
+    fireEvent.click(screen.getByRole("button", { name: "New" }));
+    const items = await screen.findAllByRole("menuitem");
+    expect(items.at(-1).textContent).toBe("Private folder");
+    expect(screen.getByText("Private")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Private folder" }));
+    expect(onPick).toHaveBeenCalledWith(expect.objectContaining({ id: "private-folder", private: true }));
+  });
+
+  it("never adds Private to a folder-only picker", () => {
+    render(<NewItemMenu ids={["folder"]} allowPrivate onPick={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "New folder" })).toBeInTheDocument();
+  });
 });

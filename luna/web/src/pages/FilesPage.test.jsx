@@ -43,6 +43,7 @@ function stubFilesApi(byPath) {
       return new Response(JSON.stringify({ setup_completed: true }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
     if (u.includes("/api/v1/jobs")) {
+      if (method === "POST" && byPath.__postJob) return byPath.__postJob(JSON.parse(String(init.body || "{}")));
       return new Response(JSON.stringify(byPath.__jobs || []), { status: 200, headers: { "Content-Type": "application/json" } });
     }
     if (u.includes("/api/v1/search")) {
@@ -50,6 +51,9 @@ function stubFilesApi(byPath) {
     }
     if (u.includes("/trash")) {
       return new Response(JSON.stringify(byPath.__trash || []), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    if (u.includes("/files/restore") && method === "POST" && byPath.__postRestore) {
+      return byPath.__postRestore(JSON.parse(String(init.body || "{}")));
     }
     if (u.includes("/files/mkdir") && method === "POST") {
       const body = JSON.parse(String(init.body || "{}"));
@@ -333,6 +337,32 @@ describe("FilesPage", () => {
     expect(screen.getByRole("heading", { name: "Photos Drive" })).toBeInTheDocument();
   });
 
+  it("asks before a drive-menu drop broadens access", async () => {
+    const posts = [];
+    stubFilesApi({
+      "": [],
+      __postJob: (body) => {
+        posts.push(body);
+        return new Response(JSON.stringify(body.confirm_broaden ? { id: "confirmed" } : { code: "broadens_access", error: "Confirm access" }), {
+          status: body.confirm_broaden ? 200 : 409, headers: { "Content-Type": "application/json" },
+        });
+      },
+    });
+    renderFiles();
+    fireEvent.click(await screen.findByRole("button", { name: "Places: Photos Drive" }));
+    const item = await screen.findByRole("menuitem", { name: "Spare Drive" });
+    const dataTransfer = {
+      types: ["application/x-luna-paths"], dropEffect: "",
+      getData: (type) => type === "application/x-luna-paths" ? JSON.stringify(["Private/file.txt"]) : type === "application/x-luna-drive" ? "d1" : "",
+    };
+    fireEvent.dragOver(item, { dataTransfer });
+    fireEvent.drop(item, { dataTransfer });
+    const dialog = await screen.findByRole("dialog", { name: "Move it out of the private folder?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Move anyway" }));
+    await waitFor(() => expect(posts).toHaveLength(2));
+    expect(posts[1].confirm_broaden).toBe(true);
+  });
+
   it("shows a separate Protect button for folders", async () => {
     stubFilesApi({
       "": [{ name: "album", kind: "dir", size: 0, modified: 0, hidden: false }],
@@ -435,6 +465,27 @@ describe("FilesPage", () => {
     expect(document.querySelector('[data-file-path="album/beach.jpg"]')?.className).toMatch(
       /bg-current\/10/,
     );
+  });
+
+  it("asks before restoring outside a private boundary", async () => {
+    const posts = [];
+    stubFilesApi({
+      ".luna-trash": [{ name: "171-photo.jpg", original_name: "photo.jpg", original_path: "photo.jpg", kind: "file", size: 12, modified: 0, hidden: false }],
+      __postRestore: (body) => {
+        posts.push(body);
+        return new Response(JSON.stringify(body.confirm_broaden ? { ok: true } : { code: "broadens_access", error: "Confirm access" }), {
+          status: body.confirm_broaden ? 200 : 409, headers: { "Content-Type": "application/json" },
+        });
+      },
+    });
+    renderFiles("/drives/d1?view=trash");
+    fireEvent.click(await screen.findByRole("button", { name: "Restore photo.jpg" }));
+    const restore = await screen.findByRole("dialog", { name: "Restore this?" });
+    fireEvent.click(within(restore).getByRole("button", { name: "Restore" }));
+    const warning = await screen.findByRole("dialog", { name: "Restore outside the private folder?" });
+    fireEvent.click(within(warning).getByRole("button", { name: "Restore anyway" }));
+    await waitFor(() => expect(posts).toHaveLength(2));
+    expect(posts[1].confirm_broaden).toBe(true);
   });
 
   it("opens trash like a folder and can start a restore", async () => {
@@ -607,6 +658,28 @@ describe("FilesPage", () => {
     );
     expect(postJob).toBeTruthy();
     expect(postJob[1].headers["X-CSRF-Token"]).toBe("copy-tok");
+  });
+
+  it("retries a mixed copy selection without replaying submitted jobs", async () => {
+    const posts = [];
+    stubFilesApi({
+      Private: [{ name: "Nested", kind: "dir", private: true, size: 0, modified: 0, hidden: false }, { name: "file.txt", kind: "file", in_private: true, size: 1, modified: 0, hidden: false }],
+      "": [],
+      __postJob: (body) => {
+        posts.push(body);
+        const blocked = body.from_path.endsWith("file.txt") && !body.confirm_broaden;
+        return new Response(JSON.stringify(blocked ? { code: "broadens_access", error: "Confirm access" } : { id: "copy" }), { status: blocked ? 409 : 200, headers: { "Content-Type": "application/json" } });
+      },
+    });
+    renderFiles("/drives/d1?path=Private");
+    fireEvent.click(await screen.findByLabelText("Select all in this folder"));
+    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Start copying" }));
+    const warning = await screen.findByRole("dialog", { name: "Copy it out of the private folder?" });
+    fireEvent.click(within(warning).getByRole("button", { name: "Copy anyway" }));
+    await waitFor(() => expect(posts).toHaveLength(3));
+    expect(posts.map((body) => body.from_path)).toEqual(["Private/Nested", "Private/file.txt", "Private/file.txt"]);
+    expect(posts[2].confirm_broaden).toBe(true);
   });
 
   it("opens the move dialog with a folder picker", async () => {

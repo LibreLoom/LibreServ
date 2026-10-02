@@ -80,6 +80,7 @@ import {
 import { canViewerOpen } from "../../lib/officeConvert.js";
 import { isFormFile, viewerNeedsSession } from "../../lib/fileKinds.js";
 import FormResponseBadge from "./forms/FormResponseBadge.jsx";
+import PrivateBadge from "../private/PrivateBadge.jsx";
 import PropertiesSheet, { PropertiesButton } from "./PropertiesSheet.jsx";
 import {
   fileHref as defaultFileHref,
@@ -1943,6 +1944,12 @@ export default function FileBrowser({
                           <span className="font-mono text-sm truncate">{ctx.displayName}</span>
                         </div>
                       )}
+                      {entry.private || entry.in_private ? (
+                        <PrivateBadge
+                          className={fg}
+                          label={entry.private ? "Private folder" : "In a private folder"}
+                        />
+                      ) : null}
                       {entry.saving ? (
                         <span className="text-xs shrink-0" aria-live="polite">
                           Saving…

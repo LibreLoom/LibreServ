@@ -287,7 +287,7 @@ function ProfileCard() {
               label={isAdmin ? "What Admin means" : "What Member means"}
               content={
                 isAdmin
-                  ? "An Admin can add users, change settings, and manage everything on this Luna."
+                  ? "An Admin can add users, change settings, and manage everything on this Luna, except other people's private items."
                   : "A Member can use what's shared with them but cannot manage users or change this Luna's settings."
               }
             />

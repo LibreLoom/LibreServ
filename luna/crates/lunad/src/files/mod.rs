@@ -7,7 +7,6 @@
 
 use std::path::{Path, PathBuf};
 
-use luna_core::path::resolve_child;
 use serde::Serialize;
 
 use crate::db::{self, DriveRow};
@@ -46,6 +45,15 @@ pub struct FileEntry {
     /// internal producers and guest-link listings never carry it.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub caps: String,
+    /// A private folder — a boundary only its owner and the people it is
+    /// shared with can reach. Stamped on listings from the drive's
+    /// private-item rows.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub private: bool,
+    /// An ordinary item protected because a private folder sits above it.
+    /// Not set on the private folder itself.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub in_private: bool,
 }
 
 /// How many items sit directly inside a folder — folders, files, anything else.
@@ -110,6 +118,13 @@ pub struct FileStat {
     /// layer. Empty when unstamped.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub caps: String,
+    /// A private folder (see [`FileEntry::private`]).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub private: bool,
+    /// Protected because a private folder sits above this path — not a
+    /// boundary itself (see [`FileEntry::in_private`]).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub in_private: bool,
 }
 
 /// One row in the drive's trash dir, with the path it came from when metadata
@@ -122,6 +137,8 @@ pub struct TrashEntry {
     pub modified: i64,
     /// Drive-relative path before the item was trashed (empty when unknown).
     pub original_path: String,
+    /// A private item: it answers to its owner, wherever it came from.
+    pub private: bool,
 }
 
 /// Stable API-facing alias for the drive's real `.luna-<uuid>-trash`
@@ -155,7 +172,48 @@ impl From<luna_core::path::PathError> for FilesError {
     }
 }
 
+pub(crate) use luna_core::path::{resolve_child, resolve_for_create_nofollow};
+
+/// The name a file goes by: its own, or for a private item (stored under a
+/// `.luna-` name) the real one. Names, extensions and types come from this,
+/// never from the storage name.
+pub fn leaf_of(path: &Path) -> Option<String> {
+    let name = path.file_name()?.to_str()?;
+    if crate::drives::layout::Layout::is_luna_name(name) {
+        return crate::private::name_for_disk(name);
+    }
+    Some(name.to_string())
+}
+
+/// Where `name` lives in the folder at `dir`: its own path, or the
+/// `.luna-` entry of the private item that has that name.
+pub fn entry_path(dir: &Path, name: &str) -> PathBuf {
+    match crate::private::entry_in(dir, name) {
+        Some(disk) => dir.join(disk),
+        None => dir.join(name),
+    }
+}
+
+/// Is `name` taken in the folder at `dir`, by a plain or a private item?
+pub fn name_taken(dir: &Path, name: &str) -> bool {
+    entry_path(dir, name).symlink_metadata().is_ok()
+}
+
+/// Create a new directory at `dest`, failing when the name is taken —
+/// including by a private item, which sits under another name on disk.
+pub fn create_dir_new(dest: &Path) -> std::io::Result<()> {
+    if crate::private::sibling_clash(dest) {
+        return Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists));
+    }
+    std::fs::create_dir(dest)
+}
+
+fn already_exists() -> FilesError {
+    FilesError::Io(std::io::Error::from(std::io::ErrorKind::AlreadyExists))
+}
+
 pub fn drive_root(conn: &rusqlite::Connection, drive_id: &str) -> Result<DriveRow, FilesError> {
+    crate::private::install();
     db::get_drive(conn, drive_id)
         .map_err(FilesError::Db)?
         .filter(|d| !d.mount_point.is_empty())
@@ -194,6 +252,30 @@ pub fn list_dir(
 
 /// Like [`list_dir`], optionally using the process RAM cache.
 pub fn list_dir_with_cache(
+    conn: &rusqlite::Connection,
+    drive_id: &str,
+    rel: &str,
+    cache: Option<&crate::drives::ram_cache::RamCache>,
+) -> Result<Vec<FileEntry>, FilesError> {
+    let mut entries = list_dir_unstamped(conn, drive_id, rel, cache)?;
+    // The index and RAM cache hold names only; which entries are private
+    // comes from the drive's rows, so it is always current.
+    let drive = drive_root(conn, drive_id)?;
+    let root = PathBuf::from(&drive.mount_point);
+    let parent = real_rel(&root, rel);
+    let private = crate::private::children_of(&root, &parent);
+    let in_private = crate::private::boundary_for(&root, &parent).is_some();
+    if !private.is_empty() || in_private {
+        let names: std::collections::HashSet<&str> = private.values().map(|i| i.name()).collect();
+        for entry in &mut entries {
+            entry.private = names.contains(entry.name.as_str());
+            entry.in_private = in_private && !entry.private;
+        }
+    }
+    Ok(entries)
+}
+
+fn list_dir_unstamped(
     conn: &rusqlite::Connection,
     drive_id: &str,
     rel: &str,
@@ -242,7 +324,11 @@ pub fn list_dir_with_cache(
     {
         entries
     } else {
-        let entries = read_dir_entries(&dir)?;
+        let entries = read_dir_entries_in(
+            &dir,
+            &crate::private::children_of(&root, &rel),
+            crate::private::boundary_for(&root, &rel).is_some(),
+        )?;
         let _ = crate::files::index::replace_dir(&drive_conn, drive_id, &rel, mtime, &entries);
         entries
     };
@@ -256,6 +342,20 @@ pub fn list_dir_with_cache(
 
 /// Read one directory into sorted entries (no index involvement).
 pub fn read_dir_entries(dir: &Path) -> Result<Vec<FileEntry>, FilesError> {
+    read_dir_entries_in(dir, &std::collections::HashMap::new(), false)
+}
+
+/// Like [`read_dir_entries`], showing each private item under its real name.
+/// `private` maps on-disk names to rows (see [`crate::private::children_of`]);
+/// any other `.luna-` entry stays hidden, so a private entry with no row is
+/// hidden from everyone.
+/// `dir_in_private` says the directory being listed sits at or below a
+/// private boundary — every ordinary child is then "in a private folder".
+pub fn read_dir_entries_in(
+    dir: &Path,
+    private: &std::collections::HashMap<String, crate::private::Item>,
+    dir_in_private: bool,
+) -> Result<Vec<FileEntry>, FilesError> {
     let mut entries = Vec::new();
     let read = std::fs::read_dir(dir).map_err(FilesError::Io)?;
     for entry in read {
@@ -268,9 +368,11 @@ pub fn read_dir_entries(dir: &Path) -> Result<Vec<FileEntry>, FilesError> {
             continue;
         };
         let meta = std::fs::symlink_metadata(entry.path()).map_err(FilesError::Io)?;
-        if is_internal_temp(name) {
+        let item = private.get(name);
+        if item.is_none() && is_internal_temp(name) {
             continue;
         }
+        let shown = item.map_or(name, |i| i.name());
         let kind = if meta.file_type().is_dir() {
             "dir"
         } else if meta.file_type().is_symlink() {
@@ -294,8 +396,8 @@ pub fn read_dir_entries(dir: &Path) -> Result<Vec<FileEntry>, FilesError> {
             None
         };
         entries.push(FileEntry {
-            hidden: name.starts_with('.'),
-            name: name.to_string(),
+            hidden: shown.starts_with('.'),
+            name: shown.to_string(),
             kind: kind.to_string(),
             size: meta.len(),
             modified,
@@ -305,6 +407,8 @@ pub fn read_dir_entries(dir: &Path) -> Result<Vec<FileEntry>, FilesError> {
             original_path: None,
             link_target,
             caps: String::new(),
+            private: item.is_some(),
+            in_private: dir_in_private && item.is_none(),
         });
     }
 
@@ -429,6 +533,8 @@ pub fn stat(
             original_name: None,
             totals: None,
             caps: String::new(),
+            private: false,
+            in_private: false,
         });
     }
     let (path, leaf) = resolve_leaf(&root, rel.as_ref())?;
@@ -463,7 +569,11 @@ pub fn stat(
         None
     };
     let children = if file_type.is_dir() {
-        let entries = read_dir_entries(&path)?;
+        let entries = read_dir_entries_in(
+            &path,
+            &crate::private::children_of(&root, &rel),
+            crate::private::boundary_for(&root, &rel).is_some(),
+        )?;
         let mut counts = ChildCounts {
             dirs: 0,
             files: 0,
@@ -495,6 +605,9 @@ pub fn stat(
         original_name: None,
         totals: None,
         caps: String::new(),
+        private: crate::private::item_at(&root, &rel).is_some(),
+        in_private: crate::private::item_at(&root, &rel).is_none()
+            && crate::private::boundary_for(&root, &rel).is_some(),
     })
 }
 
@@ -526,10 +639,15 @@ fn resolve_leaf(root: &Path, rel: &str) -> Result<(PathBuf, String), FilesError>
         None => ("", ""),
     };
     let parent = resolve_child(root, parent_rel)?;
+    // A private leaf sits on disk under its `.luna-` name.
     let path = if leaf.is_empty() {
         parent
     } else {
-        parent.join(leaf)
+        parent.join(
+            crate::private::disk_leaf(root, trimmed)
+                .as_deref()
+                .unwrap_or(leaf),
+        )
     };
     Ok((path, leaf.to_string()))
 }
@@ -565,6 +683,7 @@ pub fn folder_totals(
         return Ok(None);
     }
     Ok(Some(walk_totals(
+        &root,
         start,
         rel.trim_end_matches('/'),
         include,
@@ -576,6 +695,7 @@ pub fn folder_totals(
 /// The walk behind [`folder_totals`], split out so tests can shrink the
 /// bounds. `start` must already be verified a real directory.
 fn walk_totals(
+    root: &Path,
     start: PathBuf,
     start_rel: &str,
     include: &mut impl FnMut(&str) -> bool,
@@ -587,6 +707,7 @@ fn walk_totals(
     let mut stack = vec![(start_rel.to_string(), start)];
     while let Some((dir_rel, dir)) = stack.pop() {
         let readable = include(&dir_rel);
+        let private = crate::private::children_of(root, &dir_rel);
         // Best-effort: a folder deleted or denied mid-walk skips rather than
         // failing the whole count.
         let Ok(read) = std::fs::read_dir(&dir) else {
@@ -597,12 +718,14 @@ fn walk_totals(
                 continue;
             };
             let name = entry.file_name();
-            let Some(name) = name.to_str() else {
+            let Some(disk) = name.to_str() else {
                 continue;
             };
-            if is_internal_temp(name) {
+            let item = private.get(disk);
+            if item.is_none() && is_internal_temp(disk) {
                 continue;
             }
+            let name = item.map_or(disk, |i| i.name());
             seen += 1;
             if seen > max_entries
                 || (seen.is_multiple_of(512) && std::time::Instant::now() > deadline)
@@ -614,15 +737,17 @@ fn walk_totals(
                 continue;
             };
             let file_type = meta.file_type();
+            let child = if dir_rel.is_empty() {
+                name.to_string()
+            } else {
+                format!("{dir_rel}/{name}")
+            };
+            // A private item counts only for people who may read it.
+            let readable = readable && (item.is_none() || include(&child));
             if file_type.is_dir() {
                 if readable {
                     totals.dirs += 1;
                 }
-                let child = if dir_rel.is_empty() {
-                    name.to_string()
-                } else {
-                    format!("{dir_rel}/{name}")
-                };
                 stack.push((child, entry.path()));
             } else if readable {
                 if file_type.is_file() {
@@ -754,6 +879,7 @@ fn write_folder_zip_ex(
             "not a directory",
         )));
     }
+    let root = PathBuf::from(drive_root(conn, drive_id)?.mount_point);
 
     // A top-level trash entry's on-disk name carries a `{nonce}-` prefix —
     // the zip should be named after what the folder used to be called.
@@ -784,15 +910,18 @@ fn write_folder_zip_ex(
 
     while let Some((abs_dir, zip_prefix, drive_rel)) = stack.pop() {
         let read = std::fs::read_dir(&abs_dir).map_err(FilesError::Io)?;
+        let private = crate::private::children_of(&root, &real_rel(&root, &drive_rel));
         for entry in read {
             let entry = entry.map_err(FilesError::Io)?;
             let file_name = entry.file_name();
-            let Some(name) = file_name.to_str() else {
+            let Some(disk) = file_name.to_str() else {
                 continue;
             };
-            if is_internal_temp(name) {
+            let item = private.get(disk);
+            if item.is_none() && is_internal_temp(disk) {
                 continue;
             }
+            let name = item.map_or(disk, |i| i.name());
             let child_rel = if drive_rel.is_empty() {
                 name.to_string()
             } else {
@@ -985,6 +1114,18 @@ pub fn is_internal_temp(name: &str) -> bool {
         || (base.starts_with('.') && base.ends_with(".part"))
 }
 
+/// [`is_internal_temp`] for an absolute on-disk path: a private item's
+/// `.luna-<uuid>-<id>` segment is the item itself, not Luna bookkeeping.
+pub fn is_internal_abs(path: &str) -> bool {
+    path.split('/').any(|seg| {
+        crate::drives::layout::Layout::is_luna_name(seg)
+            && !crate::private::is_private_disk_name(seg)
+    }) || path
+        .rsplit('/')
+        .next()
+        .is_some_and(|base| base.starts_with('.') && base.ends_with(".part"))
+}
+
 /// Translate the `.luna-trash/...` API alias into this drive's real
 /// `{prefix}-trash/...` path. Non-alias paths pass through unchanged.
 pub(crate) fn real_rel<'a>(root: &Path, rel: &'a str) -> std::borrow::Cow<'a, str> {
@@ -1066,6 +1207,9 @@ pub fn safe_name(name: &str) -> Result<String, FilesError> {
 /// because some USB/FUSE mounts reject `link(2)` with EPERM.
 pub fn install_temp(temp: &Path, dest: &Path, overwrite: bool) -> Result<(), FilesError> {
     if overwrite {
+        if crate::private::sibling_clash(dest) {
+            return Err(already_exists());
+        }
         std::fs::rename(temp, dest).map_err(FilesError::Io)?;
     } else {
         install_no_overwrite(temp, dest)?;
@@ -1149,6 +1293,9 @@ fn is_cross_device(err: &std::io::Error) -> bool {
 }
 
 pub(crate) fn rename_noreplace(from: &Path, to: &Path) -> std::io::Result<()> {
+    if crate::private::sibling_clash(to) {
+        return Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists));
+    }
     #[cfg(target_os = "linux")]
     {
         use std::os::unix::ffi::OsStrExt;
@@ -1276,22 +1423,45 @@ pub fn delete_to_trash(
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    let mut dest = trash.join(format!("{nonce}-{name}"));
+    // A private item goes in under its `.luna-` disk name; the `{nonce}-`
+    // entry name is its real name in the trash, as for any other item.
+    let private_leaf = crate::private::disk_leaf(&root, &trash_rel);
+    let name = if private_leaf.is_some() {
+        trash_rel.rsplit('/').next().unwrap_or(&name).to_string()
+    } else {
+        name
+    };
+    let mut entry = format!("{nonce}-{name}");
     let mut n = 1;
     // No-replace moves into the trash: two concurrent deletes within the same
     // second each land on their own nonce suffix instead of racing on an
     // exists() check and having rename(2) clobber the first entry.
-    loop {
-        match rename_noreplace(&path, &dest) {
-            Ok(()) => break,
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                dest = trash.join(format!("{nonce}-{n}-{name}"));
-                n += 1;
+    let dest = loop {
+        let dest = trash.join(private_leaf.as_deref().unwrap_or(&entry));
+        let logical = format!("{}/{entry}", layout.trash_name());
+        let taken = crate::private::item_at(&root, &logical).is_some()
+            || (private_leaf.is_some() && std::fs::symlink_metadata(trash.join(&entry)).is_ok());
+        if !taken {
+            match rename_noreplace(&path, &dest) {
+                Ok(()) => break dest,
+                Err(e)
+                    if e.kind() == std::io::ErrorKind::AlreadyExists && private_leaf.is_none() => {}
+                Err(e) => return Err(FilesError::Io(e)),
             }
-            Err(e) => return Err(FilesError::Io(e)),
         }
-    }
-    crate::api::forms::repath_form_files(&root, &path, &root, &dest);
+        entry = format!("{nonce}-{n}-{name}");
+        n += 1;
+    };
+    crate::api::forms::repath_form_files_named(&root, &path, &name, &root, &dest, &entry);
+    // The private boundary this item sat under (or was) BEFORE its row
+    // moves into the trash namespace below.
+    let provenance = crate::private::boundary_for(&root, &trash_rel);
+    crate::private::repath(
+        &root,
+        &trash_rel,
+        &format!("{}/{entry}", layout.trash_name()),
+    )
+    .map_err(FilesError::Db)?;
     if let Ok(dir) = std::fs::File::open(&trash) {
         let _ = dir.sync_all();
     }
@@ -1300,48 +1470,77 @@ pub fn delete_to_trash(
     {
         let _ = dir.sync_all();
     }
-    let trash_entry_name = dest
-        .file_name()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    write_trash_meta(&root, &trash_entry_name, &trash_rel)?;
+    // Record where it came from AND the private boundary it sat under at
+    // delete time — the boundary row itself may move or disappear later,
+    // but the entry's confidentiality must not depend on that. `provenance`
+    // was computed above, before `repath` moved this item's own row.
+    write_trash_meta(
+        &root,
+        &entry,
+        &TrashMeta {
+            original_path: trash_rel.clone(),
+            private_owner: provenance
+                .as_ref()
+                .map(|b| b.owner.clone())
+                .unwrap_or_default(),
+            private_path: provenance.map(|b| b.path).unwrap_or_default(),
+        },
+    )?;
     // Trash is a revoke, not a move: grants on the trashed subject die here
     // and restoring the file never brings them back.
     crate::access::drop_subjects_under(conn, drive_id, &trash_rel).map_err(FilesError::Db)?;
     note_write(conn, drive_id, &trash_rel);
     // Return the API-alias path (`trash_meta` keeps the real entry name, which
     // is shared by both forms since the alias only swaps the dir prefix).
-    let real = dest
-        .strip_prefix(&root)
-        .unwrap_or(&dest)
-        .to_string_lossy()
-        .into_owned();
-    match real.split_once('/') {
-        Some((_, entry)) => Ok(format!("{TRASH_API_ALIAS}/{entry}")),
-        None => Ok(real),
-    }
+    Ok(format!("{TRASH_API_ALIAS}/{entry}"))
+}
+
+/// What a top-level trash entry remembers: where it came from and the
+/// private folder it sat under when it was deleted (`private_*` empty when
+/// it was not protected). Provenance survives the boundary's row moving or
+/// disappearing — a private folder renamed, trashed, or purged later can
+/// never expose a child that was deleted while inside it.
+#[derive(Debug, Clone, Default)]
+pub struct TrashMeta {
+    pub original_path: String,
+    /// Owner of the private folder the item sat under ("" = none).
+    pub private_owner: String,
+    /// That private folder's path at delete time.
+    pub private_path: String,
 }
 
 fn write_trash_meta(
     drive_root: &Path,
     entry_name: &str,
-    original_path: &str,
+    meta: &TrashMeta,
 ) -> Result<(), FilesError> {
     let conn = crate::drives::drive_db::open(drive_root).map_err(files_error_from_drive_db)?;
     conn.execute(
-        "INSERT OR REPLACE INTO trash_meta (entry_name, original_path) VALUES (?1, ?2)",
-        rusqlite::params![entry_name, original_path],
+        "INSERT OR REPLACE INTO trash_meta (entry_name, original_path, private_owner, private_path)
+         VALUES (?1, ?2, ?3, ?4)",
+        rusqlite::params![
+            entry_name,
+            meta.original_path,
+            meta.private_owner,
+            meta.private_path
+        ],
     )
     .map_err(|e| FilesError::Db(e.into()))?;
     Ok(())
 }
 
-fn read_trash_meta(drive_root: &Path, entry_name: &str) -> Option<String> {
+fn read_trash_meta(drive_root: &Path, entry_name: &str) -> Option<TrashMeta> {
     let conn = crate::drives::drive_db::open(drive_root).ok()?;
     conn.query_row(
-        "SELECT original_path FROM trash_meta WHERE entry_name = ?1",
+        "SELECT original_path, private_owner, private_path FROM trash_meta WHERE entry_name = ?1",
         rusqlite::params![entry_name],
-        |row| row.get(0),
+        |row| {
+            Ok(TrashMeta {
+                original_path: row.get(0)?,
+                private_owner: row.get(1)?,
+                private_path: row.get(2)?,
+            })
+        },
     )
     .ok()
 }
@@ -1436,7 +1635,11 @@ pub fn list_trash_dir(
             "not a directory",
         )));
     }
-    read_dir_entries(&dir)
+    read_dir_entries_in(
+        &dir,
+        &crate::private::children_of(&root, &rel),
+        crate::private::boundary_for(&root, &rel).is_some(),
+    )
 }
 
 /// List items sitting in the drive's `{prefix}-trash` dir.
@@ -1453,33 +1656,70 @@ pub fn list_trash(
     if !trash.exists() {
         return Ok(Vec::new());
     }
-    let entries = read_dir_entries(&trash)?;
+    let entries = read_dir_entries_in(
+        &trash,
+        &crate::private::children_of(&root, &layout.trash_name()),
+        false,
+    )?;
     Ok(entries
         .into_iter()
-        .map(|entry| TrashEntry {
-            original_path: read_trash_meta(&root, &entry.name).unwrap_or_default(),
-            name: entry.name,
-            kind: entry.kind,
-            size: entry.size,
-            modified: entry.modified,
+        .map(|entry| {
+            let meta = read_trash_meta(&root, &entry.name).unwrap_or_default();
+            TrashEntry {
+                original_path: meta.original_path,
+                name: entry.name,
+                kind: entry.kind,
+                size: entry.size,
+                modified: entry.modified,
+                // A private row repathed into trash marks it; so does
+                // provenance recorded for an ordinary child of a private
+                // folder, whose protection no live row still describes.
+                private: entry.private || !meta.private_owner.is_empty(),
+            }
         })
         .collect())
 }
 
 /// Every `trash_meta` row for the drive rooted at `drive_root`:
-/// trash entry name → drive-relative original path.
-pub fn trash_meta_map(drive_root: &Path) -> std::collections::HashMap<String, String> {
+/// trash entry name → its provenance.
+pub fn trash_meta_map(drive_root: &Path) -> std::collections::HashMap<String, TrashMeta> {
     let Ok(conn) = crate::drives::drive_db::open(drive_root) else {
         return Default::default();
     };
-    let Ok(mut stmt) = conn.prepare("SELECT entry_name, original_path FROM trash_meta") else {
+    let Ok(mut stmt) = conn
+        .prepare("SELECT entry_name, original_path, private_owner, private_path FROM trash_meta")
+    else {
         return Default::default();
     };
     stmt.query_map([], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        Ok((
+            row.get::<_, String>(0)?,
+            TrashMeta {
+                original_path: row.get(1)?,
+                private_owner: row.get(2)?,
+                private_path: row.get(3)?,
+            },
+        ))
     })
     .map(|rows| rows.filter_map(|r| r.ok()).collect())
     .unwrap_or_default()
+}
+
+/// The private boundary recorded for a trash path, if the entry it belongs
+/// to was inside a private folder (or was one) when deleted. Survives the
+/// boundary's row later moving or disappearing.
+pub fn trash_private_meta(
+    conn: &rusqlite::Connection,
+    drive_id: &str,
+    trash_rel: &str,
+) -> Result<Option<TrashMeta>, FilesError> {
+    let drive = drive_root(conn, drive_id)?;
+    let root = PathBuf::from(&drive.mount_point);
+    let trash_rel = real_rel(&root, trash_rel);
+    let Some((entry_name, _rest)) = trash_entry_parts(&trash_rel) else {
+        return Ok(None);
+    };
+    Ok(read_trash_meta(&root, entry_name).filter(|m| !m.private_owner.is_empty()))
 }
 
 /// Whether `rel` is the `.luna-trash` API alias root or a path inside it.
@@ -1542,13 +1782,15 @@ pub fn trash_top_level_names(
     let Ok(read) = std::fs::read_dir(layout.trash_dir(&root)) else {
         return map;
     };
+    let private = crate::private::children_of(&root, &layout.trash_name());
     for entry in read.flatten() {
-        let Some(name) = entry.file_name().to_str().map(str::to_string) else {
+        let Some(disk) = entry.file_name().to_str().map(str::to_string) else {
             continue;
         };
+        let name = private.get(&disk).map_or(disk, |i| i.name().to_string());
         let leaf = meta
             .get(&name)
-            .and_then(|orig| orig.rsplit('/').next())
+            .and_then(|m| m.original_path.rsplit('/').next())
             .map(str::to_string)
             .unwrap_or_else(|| original_name_from_trash(&name));
         map.insert(name, leaf);
@@ -1588,9 +1830,9 @@ pub fn trash_original_path(
     let Some((entry_name, rest)) = trash_entry_parts(&trash_rel) else {
         return Ok(None);
     };
-    Ok(read_trash_meta(&root, entry_name).map(|orig| match rest {
-        Some(rest) => format!("{orig}/{rest}"),
-        None => orig,
+    Ok(read_trash_meta(&root, entry_name).map(|meta| match rest {
+        Some(rest) => format!("{}/{rest}", meta.original_path),
+        None => meta.original_path,
     }))
 }
 
@@ -1648,11 +1890,28 @@ pub fn restore_from_trash(
     } else {
         resolve_child(&root, &parent_rel)?
     };
-    let dest = parent.join(&dest_name);
+    // A private item keeps its `.luna-` disk name; its real name must be
+    // free of plain and private items alike.
+    let dest_real = dest_rel.trim_matches('/');
+    let private_leaf = crate::private::disk_leaf(&root, &trash_rel);
+    if crate::private::item_at(&root, dest_real).is_some()
+        || (private_leaf.is_some() && resolve_child(&root, dest_real).is_ok())
+    {
+        return Err(already_exists());
+    }
+    let dest = parent.join(private_leaf.as_deref().unwrap_or(&dest_name));
     // No-replace move: a concurrent restore to the same name gets
     // AlreadyExists instead of silently clobbering the earlier winner.
     rename_noreplace(&src, &dest).map_err(FilesError::Io)?;
-    crate::api::forms::repath_form_files(&root, &src, &root, &dest);
+    crate::api::forms::repath_form_files_named(
+        &root,
+        &src,
+        trash_entry_name(&trash_rel).unwrap_or(&dest_name),
+        &root,
+        &dest,
+        &dest_name,
+    );
+    crate::private::repath(&root, &trash_rel, dest_real).map_err(FilesError::Db)?;
     if let Some(parent) = dest.parent()
         && let Ok(dir) = std::fs::File::open(parent)
     {
@@ -1691,6 +1950,7 @@ pub fn purge_trash(
         // A form's files folder and answers file go with it.
         crate::api::forms::remove_form_files(&root, &path);
     }
+    crate::private::remove_under(&root, &trash_rel).map_err(FilesError::Db)?;
     // Only a whole top-level entry owns a trash_meta row — purging a child
     // inside a trashed folder must leave the entry's origin intact so the
     // rest still restores to the right place.
@@ -1703,6 +1963,36 @@ pub fn purge_trash(
 
 /// Create a directory at `rel`. The parent must already exist. Never overwrites.
 pub fn mkdir(conn: &rusqlite::Connection, drive_id: &str, rel: &str) -> Result<(), FilesError> {
+    mkdir_as(conn, drive_id, rel, None)
+}
+
+/// Record a new private item at `rel` before its disk entry exists. `None`
+/// owner means a plain item. A name already taken (plain or private) is
+/// `AlreadyExists`, so nothing says which kind it clashed with.
+fn begin_private(
+    root: &Path,
+    rel: &str,
+    plain_path: &Path,
+    owner: Option<&str>,
+) -> Result<bool, FilesError> {
+    let Some(owner) = owner else {
+        return Ok(false);
+    };
+    if std::fs::symlink_metadata(plain_path).is_ok() || crate::private::item_at(root, rel).is_some()
+    {
+        return Err(already_exists());
+    }
+    crate::private::create(root, rel, owner).map_err(FilesError::Db)?;
+    Ok(true)
+}
+
+/// [`mkdir`], making the folder private to `private_owner` when given.
+pub fn mkdir_as(
+    conn: &rusqlite::Connection,
+    drive_id: &str,
+    rel: &str,
+    private_owner: Option<&str>,
+) -> Result<(), FilesError> {
     let drive = drive_root(conn, drive_id)?;
     let root = PathBuf::from(&drive.mount_point);
     if rel.is_empty() || rel == "." {
@@ -1717,7 +2007,7 @@ pub fn mkdir(conn: &rusqlite::Connection, drive_id: &str, rel: &str) -> Result<(
             "that name is reserved for Luna",
         )));
     }
-    let path = luna_core::path::resolve_for_create_nofollow(&root, rel)?;
+    let path = resolve_for_create_nofollow(&root, rel)?;
     // Reject creating more than one missing component (parent must exist).
     let parent = path.parent().ok_or_else(|| {
         FilesError::Io(std::io::Error::new(
@@ -1731,6 +2021,12 @@ pub fn mkdir(conn: &rusqlite::Connection, drive_id: &str, rel: &str) -> Result<(
             "parent folder does not exist",
         )));
     }
+    let private = begin_private(&root, rel, &path, private_owner)?;
+    let path = if private {
+        resolve_for_create_nofollow(&root, rel)?
+    } else {
+        path.clone()
+    };
     match std::fs::create_dir(&path) {
         Ok(()) => {
             if let Ok(dir) = std::fs::File::open(parent) {
@@ -1739,12 +2035,18 @@ pub fn mkdir(conn: &rusqlite::Connection, drive_id: &str, rel: &str) -> Result<(
             note_write(conn, drive_id, rel);
             Ok(())
         }
-        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Err(FilesError::Io(e)),
-        Err(e) => Err(FilesError::Io(e)),
+        Err(e) => {
+            if private {
+                let _ = crate::private::remove(&root, rel);
+            }
+            Err(FilesError::Io(e))
+        }
     }
 }
 
 /// Create an empty file at `rel`. The parent must already exist. Never overwrites.
+/// Files are never private items — only folders are; a file inside a
+/// private folder is protected by the folder's boundary.
 pub fn create(conn: &rusqlite::Connection, drive_id: &str, rel: &str) -> Result<(), FilesError> {
     let drive = drive_root(conn, drive_id)?;
     let root = PathBuf::from(&drive.mount_point);
@@ -1762,7 +2064,7 @@ pub fn create(conn: &rusqlite::Connection, drive_id: &str, rel: &str) -> Result<
             "that name is reserved for Luna",
         )));
     }
-    let path = luna_core::path::resolve_for_create_nofollow(&root, rel)?;
+    let path = resolve_for_create_nofollow(&root, rel)?;
     // Reject creating more than one missing component (parent must exist).
     let parent = path.parent().ok_or_else(|| {
         FilesError::Io(std::io::Error::new(
@@ -1789,7 +2091,6 @@ pub fn create(conn: &rusqlite::Connection, drive_id: &str, rel: &str) -> Result<
             note_write(conn, drive_id, rel);
             Ok(())
         }
-        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Err(FilesError::Io(e)),
         Err(e) => Err(FilesError::Io(e)),
     }
 }
@@ -1858,11 +2159,34 @@ pub fn rename(
         }
         None => new_name.clone(),
     };
-    let dest = parent.join(&dest_name);
-    // No-replace move keeps the never-overwrites contract honest under
-    // concurrency; plain rename(2) would silently overwrite.
-    rename_noreplace(&path, &dest).map_err(FilesError::Io)?;
-    crate::api::forms::repath_form_files(&root, &path, &root, &dest);
+    // A private item keeps its `.luna-` disk entry; only its real name
+    // changes. Either way the new name must be free of plain and private
+    // items alike.
+    let private_leaf = crate::private::disk_leaf(&root, &rel);
+    let parent_real = rel.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
+    let new_real = crate::gallery::gallery_indexer::join_rel(parent_real, &dest_name);
+    if crate::private::item_at(&root, &new_real).is_some() {
+        return Err(already_exists());
+    }
+    let dest = parent.join(private_leaf.as_deref().unwrap_or(&dest_name));
+    if private_leaf.is_some() {
+        if resolve_child(&root, &new_real).is_ok() {
+            return Err(already_exists());
+        }
+    } else {
+        // No-replace move keeps the never-overwrites contract honest under
+        // concurrency; plain rename(2) would silently overwrite.
+        rename_noreplace(&path, &dest).map_err(FilesError::Io)?;
+    }
+    crate::api::forms::repath_form_files_named(
+        &root,
+        &path,
+        rel.rsplit('/').next().unwrap_or(&rel),
+        &root,
+        &dest,
+        &dest_name,
+    );
+    crate::private::repath(&root, &rel, &new_real).map_err(FilesError::Db)?;
     if let Ok(dir) = std::fs::File::open(parent) {
         let _ = dir.sync_all();
     }
@@ -1875,14 +2199,15 @@ pub fn rename(
     // A top-level entry's origin retitles with it: `docs/old` trashed and
     // renamed to `new` restores as `docs/new`.
     if let Some(old_entry) = top_entry
-        && let Some(orig) = read_trash_meta(&root, &old_entry)
+        && let Some(mut meta) = read_trash_meta(&root, &old_entry)
     {
-        let orig_parent = orig.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
-        write_trash_meta(
-            &root,
-            &dest_name,
-            &crate::gallery::gallery_indexer::join_rel(orig_parent, &new_name),
-        )?;
+        let orig_parent = meta
+            .original_path
+            .rsplit_once('/')
+            .map(|(p, _)| p)
+            .unwrap_or("");
+        meta.original_path = crate::gallery::gallery_indexer::join_rel(orig_parent, &new_name);
+        write_trash_meta(&root, &dest_name, &meta)?;
         remove_trash_meta(&root, &old_entry);
     }
     note_write(conn, drive_id, api_rel);
@@ -1931,7 +2256,7 @@ pub fn move_rel(
             "can't move an item into itself",
         )));
     }
-    let to = luna_core::path::resolve_for_create_nofollow(&root, &to_rel)?;
+    let to = resolve_for_create_nofollow(&root, &to_rel)?;
     let to_parent = to.parent().ok_or_else(|| {
         FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -1944,9 +2269,31 @@ pub fn move_rel(
             "destination folder does not exist",
         )));
     }
+    // A private item keeps its `.luna-` disk name wherever it lands; the
+    // real destination name must be free of plain and private items alike.
+    let to = match crate::private::disk_leaf(&root, &from_rel) {
+        Some(leaf) => {
+            if resolve_child(&root, &to_rel).is_ok() {
+                return Err(already_exists());
+            }
+            to.with_file_name(leaf)
+        }
+        None => to,
+    };
+    if crate::private::item_at(&root, &to_rel).is_some() {
+        return Err(already_exists());
+    }
     match try_rename_move(&from, &to)? {
         true => {
-            crate::api::forms::repath_form_files(&root, &from, &root, &to);
+            crate::api::forms::repath_form_files_named(
+                &root,
+                &from,
+                from_rel.rsplit('/').next().unwrap_or(&from_rel),
+                &root,
+                &to,
+                to_rel.rsplit('/').next().unwrap_or(&to_rel),
+            );
+            crate::private::repath(&root, &from_rel, &to_rel).map_err(FilesError::Db)?;
             // An item leaving trash loses its origin metadata.
             if let Some((entry, None)) = trash_entry_parts(&from_rel) {
                 remove_trash_meta(&root, entry);
@@ -2020,6 +2367,255 @@ mod tests {
         )
         .unwrap();
         (dir, conn, id.into())
+    }
+
+    #[test]
+    fn private_items_nest_and_follow_moves_and_trash() {
+        let (_dir, conn, id) = drive_dir();
+        let root = std::path::Path::new(&db::get_drive(&conn, &id).unwrap().unwrap().mount_point)
+            .to_path_buf();
+        let prefix = crate::drives::drive_db::prefix_for(&root).unwrap();
+        let names = |rel: &str| -> Vec<(String, bool)> {
+            list_dir(&conn, &id, rel)
+                .unwrap()
+                .into_iter()
+                .map(|e| (e.name, e.private))
+                .collect()
+        };
+
+        mkdir_as(&conn, &id, "Taxes", Some("alice")).unwrap();
+        mkdir(&conn, &id, "Taxes/2024").unwrap();
+        mkdir_as(&conn, &id, "Taxes/2024/Receipts", Some("alice")).unwrap();
+        create(&conn, &id, "Taxes/2024/Receipts/a.pdf").unwrap();
+        create(&conn, &id, "Taxes/notes.txt").unwrap();
+
+        // On disk the private items sit under `.luna-<uuid>-<id>` names.
+        let top: Vec<String> = std::fs::read_dir(&root)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert!(!top.contains(&"Taxes".to_string()));
+        assert!(
+            top.iter()
+                .any(|n| n.starts_with(&format!("{prefix}-")) && n.len() == prefix.len() + 27)
+        );
+        assert!(crate::files::is_internal_temp(&format!(
+            "{prefix}-aaaaaaaaaaaaaaaaaaaaaaaaaa"
+        )));
+
+        // Listings show real names and flag private entries.
+        assert_eq!(names(""), vec![("Taxes".into(), true)]);
+        // Ordinary children inherit the folder's protection — the private
+        // flag marks a boundary, not an inherited file.
+        assert_eq!(
+            names("Taxes"),
+            vec![("2024".into(), false), ("notes.txt".into(), false)]
+        );
+        assert_eq!(names("Taxes/2024/Receipts"), vec![("a.pdf".into(), false)]);
+
+        // A name is taken whether the clash is plain or private.
+        assert!(mkdir(&conn, &id, "Taxes").is_err());
+        assert!(create(&conn, &id, "Taxes/notes.txt").is_err());
+        assert!(mkdir_as(&conn, &id, "Taxes/2024", Some("alice")).is_err());
+
+        // Rename and move re-key the item and what is inside it.
+        rename(&conn, &id, "Taxes", "Money").unwrap();
+        assert_eq!(names(""), vec![("Money".into(), true)]);
+        assert_eq!(names("Money/2024/Receipts"), vec![("a.pdf".into(), false)]);
+        assert!(list_dir(&conn, &id, "Taxes").is_err());
+        mkdir(&conn, &id, "Archive").unwrap();
+        move_rel(&conn, &id, "Money/2024", "Archive/2024").unwrap();
+        assert_eq!(
+            names("Archive/2024/Receipts"),
+            vec![("a.pdf".into(), false)]
+        );
+        assert!(crate::private::item_at(&root, "Archive/2024/Receipts").is_some());
+
+        // Trash keeps the private entry's name and origin; restore brings it back.
+        let trashed = delete_to_trash(&conn, &id, "Money").unwrap();
+        assert!(list_dir(&conn, &id, "Money").is_err());
+        let entry = trashed.strip_prefix(".luna-trash/").unwrap().to_string();
+        assert!(entry.ends_with("-Money"), "{entry}");
+        assert_eq!(
+            trash_original_path(&conn, &id, &trashed)
+                .unwrap()
+                .as_deref(),
+            Some("Money")
+        );
+        assert_eq!(list_trash(&conn, &id).unwrap()[0].name, entry);
+        restore_from_trash(&conn, &id, &trashed, "Money").unwrap();
+        assert_eq!(names("Money"), vec![("notes.txt".into(), false)]);
+
+        // Purging from trash drops the rows with the files.
+        let trashed = delete_to_trash(&conn, &id, "Money").unwrap();
+        purge_trash(&conn, &id, &trashed).unwrap();
+        assert!(
+            crate::private::under(&root, "")
+                .iter()
+                .all(|i| i.path.starts_with("Archive"))
+        );
+    }
+
+    #[test]
+    fn private_rows_follow_the_drive_when_it_was_edited_elsewhere() {
+        let (_dir, conn, id) = drive_dir();
+        let root = std::path::Path::new(&db::get_drive(&conn, &id).unwrap().unwrap().mount_point)
+            .to_path_buf();
+        mkdir(&conn, &id, "a").unwrap();
+        mkdir(&conn, &id, "b").unwrap();
+        mkdir_as(&conn, &id, "a/Keep", Some("alice")).unwrap();
+        mkdir_as(&conn, &id, "a/Gone", Some("alice")).unwrap();
+        create(&conn, &id, "a/Keep/x.txt").unwrap();
+        let keep = crate::private::disk_leaf(&root, "a/Keep").unwrap();
+        let gone = crate::private::disk_leaf(&root, "a/Gone").unwrap();
+
+        // Someone moves one entry and deletes the other with a file manager.
+        std::fs::rename(root.join("a").join(&keep), root.join("b").join(&keep)).unwrap();
+        std::fs::remove_dir(root.join("a").join(&gone)).unwrap();
+        crate::private::forget(&root);
+
+        // On the next read the rows match what is on the drive.
+        assert_eq!(
+            crate::private::item_at(&root, "b/Keep").map(|i| i.owner),
+            Some("alice".into())
+        );
+        assert!(crate::private::item_at(&root, "a/Keep").is_none());
+        assert!(crate::private::item_at(&root, "a/Gone").is_none());
+        let names: Vec<_> = list_dir(&conn, &id, "b/Keep")
+            .unwrap()
+            .into_iter()
+            .map(|e| e.name)
+            .collect();
+        assert_eq!(names, vec!["x.txt"]);
+        // An entry with no row at all is hidden from everyone.
+        std::fs::create_dir(root.join(crate::private::disk_name(
+            &crate::drives::drive_db::prefix_for(&root).unwrap(),
+            "zzzzzzzzzzzzzzzzzzzzzzzzzz",
+        )))
+        .unwrap();
+        assert!(
+            list_dir(&conn, &id, "")
+                .unwrap()
+                .iter()
+                .all(|e| e.name == "a" || e.name == "b")
+        );
+    }
+
+    #[test]
+    fn a_form_in_a_private_folder_keeps_its_files_through_rename_trash_and_restore() {
+        let (_dir, conn, id) = drive_dir();
+        let root = std::path::Path::new(&db::get_drive(&conn, &id).unwrap().unwrap().mount_point)
+            .to_path_buf();
+        mkdir_as(&conn, &id, "Mine", Some("alice")).unwrap();
+        create(&conn, &id, "Mine/rsvp.lunaform").unwrap();
+        let form = |rel: &str| root.join(crate::private::disk_rel(&root, rel));
+        let files = |rel: &str| crate::api::forms::files_dir_for(&root, &form(rel)).unwrap();
+        std::fs::create_dir_all(files("Mine/rsvp.lunaform")).unwrap();
+        std::fs::write(files("Mine/rsvp.lunaform").join("pic.png"), b"png").unwrap();
+
+        rename(&conn, &id, "Mine/rsvp.lunaform", "party.lunaform").unwrap();
+        assert_eq!(
+            std::fs::read(files("Mine/party.lunaform").join("pic.png")).unwrap(),
+            b"png"
+        );
+
+        let trashed = delete_to_trash(&conn, &id, "Mine").unwrap();
+        restore_from_trash(&conn, &id, &trashed, "Mine").unwrap();
+        assert_eq!(
+            std::fs::read(files("Mine/party.lunaform").join("pic.png")).unwrap(),
+            b"png"
+        );
+        assert_eq!(
+            crate::private::item_at(&root, "Mine").map(|i| i.owner),
+            Some("alice".into())
+        );
+    }
+
+    #[test]
+    fn a_path_spelling_out_the_disk_name_reaches_nothing() {
+        let (_dir, conn, id) = drive_dir();
+        let root = std::path::Path::new(&db::get_drive(&conn, &id).unwrap().unwrap().mount_point)
+            .to_path_buf();
+        mkdir_as(&conn, &id, "Vault", Some("alice")).unwrap();
+        let disk = crate::private::disk_leaf(&root, "Vault").unwrap();
+        for path in [disk.clone(), format!("{disk}/x"), format!("a/{disk}")] {
+            let b = crate::private::boundary_for(&root, &path).unwrap();
+            assert_eq!(b.owner, crate::private::SEALED, "{path}");
+        }
+        // The real name still reaches its owner's item.
+        assert_eq!(
+            crate::private::boundary_for(&root, "Vault").unwrap().owner,
+            "alice"
+        );
+    }
+
+    #[test]
+    fn a_symlink_cannot_carry_a_request_across_a_private_boundary() {
+        let (_dir, conn, id) = drive_dir();
+        let root = std::path::Path::new(&db::get_drive(&conn, &id).unwrap().unwrap().mount_point)
+            .to_path_buf();
+        mkdir_as(&conn, &id, "Vault", Some("alice")).unwrap();
+        create(&conn, &id, "Vault/secret.txt").unwrap();
+        let disk = crate::private::disk_leaf(&root, "Vault").unwrap();
+        std::os::unix::fs::symlink(root.join(&disk), root.join("Shortcut")).unwrap();
+        assert!(resolve_child(&root, "Vault/secret.txt").is_ok());
+        assert!(resolve_child(&root, "Shortcut/secret.txt").is_err());
+        assert!(resolve_any(&conn, &id, "Shortcut/secret.txt").is_err());
+    }
+
+    #[test]
+    fn removing_an_owner_lifts_out_what_belongs_to_others() {
+        let (_dir, conn, id) = drive_dir();
+        let root = std::path::Path::new(&db::get_drive(&conn, &id).unwrap().unwrap().mount_point)
+            .to_path_buf();
+        mkdir_as(&conn, &id, "Bobs", Some("bob")).unwrap();
+        create(&conn, &id, "Bobs/mine.txt").unwrap();
+        mkdir_as(&conn, &id, "Bobs/Alices", Some("alice")).unwrap();
+        create(&conn, &id, "Bobs/Alices/hers.txt").unwrap();
+        crate::private::purge_owner_for_test(&root, "bob");
+        // Bob's folder and what was in it are gone; Alice's item is still
+        // hers, now beside where his sat.
+        assert!(crate::private::item_at(&root, "Bobs").is_none());
+        assert_eq!(
+            crate::private::item_at(&root, "Alices").map(|i| i.owner),
+            Some("alice".into())
+        );
+        let names: Vec<_> = list_dir(&conn, &id, "")
+            .unwrap()
+            .into_iter()
+            .map(|e| e.name)
+            .collect();
+        assert_eq!(names, vec!["Alices"]);
+        assert_eq!(list_dir(&conn, &id, "Alices").unwrap()[0].name, "hers.txt");
+    }
+
+    #[test]
+    fn a_forms_answers_stay_inside_the_private_folder() {
+        let (_dir, conn, id) = drive_dir();
+        let root = std::path::Path::new(&db::get_drive(&conn, &id).unwrap().unwrap().mount_point)
+            .to_path_buf();
+        mkdir_as(&conn, &id, "Mine", Some("alice")).unwrap();
+        create(&conn, &id, "Mine/rsvp.lunaform").unwrap();
+        let form = root.join(crate::private::disk_rel(&root, "Mine/rsvp.lunaform"));
+        let answers = crate::api::forms::responses_file_for(&root, &form).unwrap();
+        std::fs::write(&answers, b"{}").unwrap();
+        // Ordinary form inside a private folder: the answers sibling keeps the
+        // ordinary name and sits inside the same private disk directory.
+        assert_eq!(answers, form.with_file_name("rsvp.lunaform.responses"));
+        assert!(
+            files_in(&root.join(crate::private::disk_rel(&root, "Mine")))
+                .iter()
+                .any(|n| n == "rsvp.lunaform.responses")
+        );
+    }
+
+    fn files_in(root: &std::path::Path) -> Vec<String> {
+        std::fs::read_dir(root)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect()
     }
 
     #[test]
@@ -2780,6 +3376,7 @@ mod tests {
         // A bound hit keeps what it counted as a lower bound, never zeroes
         // the answer out.
         let partial = walk_totals(
+            &root,
             root.join("a"),
             "a",
             &mut all,

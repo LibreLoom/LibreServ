@@ -24,6 +24,7 @@ import DotMatrixLoader from "@libreloom/ui/components/ui/DotMatrixLoader.jsx";
 import { ActionTooltipGroup, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import ShareSheet, { ShareButton } from "../share/ShareSheet.jsx";
 import FolderPickerModal from "./FolderPickerModal";
+import PrivateBadge from "../private/PrivateBadge.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { useShortcut } from "@libreloom/ui/context/ShortcutsContext.jsx";
 import { OPEN_FILE_SEARCH_EVENT, openFileSearch } from "../../lib/fileSearch.js";
@@ -598,7 +599,10 @@ export default function FileSearch() {
                               <FileIcon size={16} className="shrink-0" aria-hidden="true" />
                             )}
                             <div className="min-w-0 flex-1">
-                              <p className="font-mono text-sm truncate text-secondary">{item.name}</p>
+                              <p className="flex items-center gap-1.5 min-w-0 text-secondary">
+                                <span className="font-mono text-sm truncate">{item.name}</span>
+                                {item.private ? <PrivateBadge size={12} /> : null}
+                              </p>
                               <p className="text-xs truncate text-secondary">
                                 {locationLabel(item, driveLabel)}
                                 {!isDir && item.size != null ? ` · ${fmtSize(item.size)}` : ""}

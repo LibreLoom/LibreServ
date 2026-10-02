@@ -7,6 +7,7 @@ import { AuthProvider } from "../context/AuthContext";
 import { ThemeProvider } from"@libreloom/ui/context/ThemeContext.jsx";
 import UsersPage from "./UsersPage";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
+import Toaster from "@libreloom/ui/components/common/Toaster.jsx";
 
 function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -17,6 +18,12 @@ function jsonResponse(body, status = 200) {
 
 function stubFetch({
   role = "admin",
+  privateCount = 0,
+  ownerless = 0,
+  adopted = [],
+  orphans = { owners: [], offline_drives: [] },
+  cleaned = [],
+  cleanupResult = { ok: true, skipped_readonly: [], failed_drives: [], offline_drives: [] },
   users = [
     { id: "1", username: "demouser", display_name: "Demo", role: "admin" },
     { id: "2", username: "alex", display_name: "Alex", role: "user" },
@@ -31,6 +38,23 @@ function stubFetch({
       }
       if (u.endsWith("/api/v1/users") && (!init || !init.method || init.method === "GET")) {
         return jsonResponse(users);
+      }
+      if (u.endsWith("/private-count")) {
+        return jsonResponse({ count: privateCount });
+      }
+      if (u.endsWith("/api/v1/private/ownerless")) {
+        return jsonResponse({ count: ownerless });
+      }
+      if (u.endsWith("/api/v1/private/orphans")) {
+        return jsonResponse(orphans);
+      }
+      if (u.includes("/api/v1/private/orphans/") && init?.method === "DELETE") {
+        cleaned.push(u);
+        return jsonResponse(cleanupResult);
+      }
+      if (u.endsWith("/adopt-private") && init?.method === "POST") {
+        adopted.push(u);
+        return jsonResponse({ count: ownerless });
       }
       if (u.includes("/api/v1/users/") && init?.method === "DELETE") {
         return jsonResponse({ ok: true });
@@ -47,6 +71,7 @@ function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <ToastProvider>
+    <Toaster />
     <MemoryRouter>
       <ThemeProvider>
         <QueryClientProvider client={client}>
@@ -150,6 +175,77 @@ describe("UsersPage", () => {
       expect.stringContaining("/api/v1/users/2"),
       expect.objectContaining({ method: "DELETE" }),
     );
+  });
+
+  it("says a removed user's private folders stay behind, hidden", async () => {
+    stubFetch({ privateCount: 3 });
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: /Remove Alex/i }));
+    expect(await screen.findByText(/Their 3 private folders stay on the drives, hidden from everyone/)).toBeTruthy();
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining("/api/v1/users/2/private-count"), expect.anything());
+  });
+
+  it("says nothing about private folders when the user has none", async () => {
+    stubFetch({ privateCount: 0 });
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: /Remove Alex/i }));
+    expect(await screen.findByText(/Remove "Alex" from this Luna/i)).toBeTruthy();
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledWith(expect.stringContaining("/private-count"), expect.anything()));
+    expect(screen.queryByText(/private folder/i)).toBeNull();
+  });
+
+  it("offers to give ownerless private folders to someone", async () => {
+    const adopted = [];
+    stubFetch({ ownerless: 2, adopted });
+    const user = userEvent.setup();
+    renderPage();
+    expect(await screen.findByText(/2 private folders came from another Luna and have no owner\./)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Give private folders to" }));
+    await user.click(await screen.findByRole("option", { name: "Alex" }));
+    await user.click(screen.getByRole("button", { name: "Give" }));
+    await vi.waitFor(() => expect(adopted).toHaveLength(1));
+    expect(adopted[0]).toMatch(/\/api\/v1\/users\/2\/adopt-private$/);
+  });
+
+  it("lists private folders left by removed people and deletes them on confirm", async () => {
+    const cleaned = [];
+    stubFetch({
+      cleaned,
+      orphans: {
+        owners: [{
+          user_id: "gone1",
+          username: "sam",
+          display_name: "Sam",
+          deleted_at: 1,
+          total: 2,
+          drives: [{ drive_id: "d1", drive_label: "Photos", count: 2, readonly: false }],
+        }],
+        offline_drives: [],
+      },
+    });
+    const user = userEvent.setup();
+    renderPage();
+    expect(await screen.findByText("Private folders left behind")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: /Delete private folders left by Sam/i }));
+    await user.click(await screen.findByRole("button", { name: /^Delete permanently$/i }));
+    await vi.waitFor(() => expect(cleaned).toHaveLength(1));
+    expect(cleaned[0]).toMatch(/\/api\/v1\/private\/orphans\/gone1$/);
+  });
+
+  it("counts retained Trash items and reports incomplete cleanup", async () => {
+    stubFetch({
+      orphans: { owners: [{ user_id: "gone", display_name: "Sam", total: 1, drives: [{ count: 1, trash_count: 1, drive_label: "Photos", readonly: false }] }], offline_drives: [] },
+      cleanupResult: { ok: false, skipped_readonly: [], failed_drives: ["Photos"], offline_drives: [] },
+    });
+    const user = userEvent.setup();
+    renderPage();
+    expect(await screen.findByText(/1 item in Trash on Photos/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Delete private folders left by Sam/ }));
+    await user.click(await screen.findByRole("button", { name: /^Delete permanently$/ }));
+    expect(await screen.findByText("Some private content remains.")).toBeInTheDocument();
+    expect(screen.queryByText("Private content deleted.")).not.toBeInTheDocument();
   });
 
   it("blocks non-admins from managing users", async () => {

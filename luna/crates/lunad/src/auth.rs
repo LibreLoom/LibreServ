@@ -447,6 +447,8 @@ impl AuthService {
             .db
             .lock()
             .map_err(|_| AuthError::Db(anyhow::anyhow!("db busy")))?;
+        // The person's private folders stay on their drives, walled off from
+        // everyone. An Admin clears them later from Users → Private folders.
         db::delete_user(&conn, id).map_err(AuthError::Db)?;
         Ok(())
     }
@@ -1087,6 +1089,27 @@ pub fn caps_on_path(
     // on `.luna-trash` itself never exist, so it simply gets no caps.
     let origin;
     let path = if crate::files::is_trash_api(path) {
+        // A private item in the trash answers to its own owner and never to
+        // the Admin role — whether a live row says so (the item itself was
+        // private) or its trash_meta provenance does (it was an ordinary
+        // child deleted from inside a private folder, whose boundary may
+        // since have moved or vanished).
+        if let Some(b) = private_boundary(mount.as_deref(), path) {
+            let rows = db::list_access_members_for_user(conn, &user.id).unwrap_or_default();
+            return private_caps(user, &rows, drive_id, path, &b, &|o| {
+                crate::private::owner_state(conn, o)
+            });
+        }
+        if let Ok(Some(meta)) = crate::files::trash_private_meta(conn, drive_id, path) {
+            let rows = db::list_access_members_for_user(conn, &user.id).unwrap_or_default();
+            let b = crate::private::Boundary {
+                path: meta.private_path,
+                owner: meta.private_owner,
+            };
+            return private_caps(user, &rows, drive_id, path, &b, &|o| {
+                crate::private::owner_state(conn, o)
+            });
+        }
         match crate::files::trash_original_path(conn, drive_id, path) {
             Ok(Some(o)) => {
                 origin = o;
@@ -1097,10 +1120,113 @@ pub fn caps_on_path(
     } else {
         path
     };
+    if let Some(b) = private_boundary(mount.as_deref(), path) {
+        let rows = db::list_access_members_for_user(conn, &user.id).unwrap_or_default();
+        return private_caps(user, &rows, drive_id, path, &b, &|o| {
+            crate::private::owner_state(conn, o)
+        });
+    }
     if user.role == "admin" {
         return crate::access::CAP_MANAGE;
     }
     member_row_caps(user, conn, drive_id, path, mount.as_deref())
+}
+
+/// The nearest private item at or above `path`, if the drive has any.
+fn private_boundary(mount: Option<&str>, path: &str) -> Option<crate::private::Boundary> {
+    let root = std::path::Path::new(mount?);
+    let norm = crate::access::normalize_subject_path(path);
+    let real = crate::files::real_rel(root, &norm);
+    crate::private::boundary_for(root, &real)
+}
+
+/// Access inside a private item: the owner holds everything; anyone else
+/// only what grant rows between the boundary and the target give them. Grants
+/// above the boundary and the Admin role do not reach in.
+fn private_caps(
+    user: &CurrentUser,
+    rows: &[db::AccessMemberRow],
+    drive_id: &str,
+    path: &str,
+    b: &crate::private::Boundary,
+    owner_known: &dyn Fn(&str) -> crate::private::OwnerState,
+) -> crate::access::Caps {
+    if b.owner == crate::private::SEALED
+        || owner_known(&b.owner) == crate::private::OwnerState::Deleted
+    {
+        return 0;
+    }
+    if b.owner == user.id {
+        return crate::access::CAP_MANAGE;
+    }
+    // Nobody here owns it (it came from another Luna): an Admin can reach
+    // it, to give it to someone.
+    if user.role == "admin" && owner_known(&b.owner) == crate::private::OwnerState::Foreign {
+        return crate::access::CAP_MANAGE;
+    }
+    let path = crate::access::normalize_subject_path(path);
+    rows.iter()
+        .filter(|r| r.subject_kind == crate::access::KIND_PATH && r.drive_id == drive_id)
+        .filter(|r| {
+            let row = crate::access::normalize_subject_path(&r.path);
+            crate::access::path_contains(&row, &path) && crate::access::path_contains(&b.path, &row)
+        })
+        .fold(0, |caps, r| caps | r.caps)
+}
+
+/// Does `path` hold private items this user may not change? Deleting or
+/// moving such a folder would destroy or carry someone else's items.
+pub fn holds_unreachable_private(
+    user: &CurrentUser,
+    conn: &Connection,
+    drive_id: &str,
+    path: &str,
+) -> bool {
+    let Some(mount) = db::get_drive(conn, drive_id)
+        .ok()
+        .flatten()
+        .filter(|d| !d.mount_point.is_empty())
+        .map(|d| d.mount_point)
+    else {
+        return false;
+    };
+    let root = std::path::Path::new(&mount);
+    let norm = crate::access::normalize_subject_path(path);
+    let real = crate::files::real_rel(root, &norm);
+    crate::private::under(root, &real)
+        .iter()
+        .any(|item| !has_cap(user, conn, drive_id, &item.path, crate::access::CAP_EDIT))
+}
+
+/// Does a private item with an owner sit at or above `norm`? That is the
+/// wall the Admin role does not cross.
+fn walls_off_admin(conn: &Connection, drive_id: &str, norm: &str) -> bool {
+    let mount = db::get_drive(conn, drive_id)
+        .ok()
+        .flatten()
+        .filter(|d| !d.mount_point.is_empty())
+        .map(|d| d.mount_point);
+    private_boundary(mount.as_deref(), norm)
+        .is_some_and(|b| crate::private::owner_known(conn, &b.owner))
+}
+
+/// Is `norm` a private item, or inside one? For trash paths, recorded
+/// provenance counts too: a child deleted out of a private folder stays
+/// private even after the folder's row is gone.
+pub fn inside_private(conn: &Connection, drive_id: &str, norm: &str) -> bool {
+    let mount = db::get_drive(conn, drive_id)
+        .ok()
+        .flatten()
+        .filter(|d| !d.mount_point.is_empty())
+        .map(|d| d.mount_point);
+    if private_boundary(mount.as_deref(), norm).is_some() {
+        return true;
+    }
+    crate::files::is_trash_api(norm)
+        && crate::files::trash_private_meta(conn, drive_id, norm)
+            .ok()
+            .flatten()
+            .is_some()
 }
 
 /// [`caps_on_path`] with the caller's member rows already fetched — for
@@ -1118,6 +1244,11 @@ pub fn caps_on_path_rows(
         .flatten()
         .filter(|d| !d.mount_point.is_empty())
         .map(|d| d.mount_point);
+    if let Some(b) = private_boundary(mount.as_deref(), path) {
+        return private_caps(user, rows, drive_id, path, &b, &|o| {
+            crate::private::owner_state(conn, o)
+        });
+    }
     if user.role == "admin" {
         return crate::access::CAP_MANAGE;
     }
@@ -1202,7 +1333,8 @@ pub fn can_access(
 }
 
 fn grant_covers_canonical(root: &str, grant_rel: &str, request_rel: &str) -> bool {
-    use luna_core::path::{is_under_prefix, resolve_child};
+    use crate::files::resolve_child;
+    use luna_core::path::is_under_prefix;
     let root = std::path::Path::new(root);
     let grant_canon = match resolve_child(root, grant_rel) {
         Ok(p) => p,
@@ -1248,6 +1380,9 @@ pub fn has_drive_access(user: &CurrentUser, conn: &Connection, drive_id: &str) -
     if user.role == "admin" {
         return true;
     }
+    if !owned_private_paths(conn, &user.id, drive_id).is_empty() {
+        return true;
+    }
     let Ok(rows) = db::list_access_members_for_user(conn, &user.id) else {
         return false;
     };
@@ -1255,10 +1390,31 @@ pub fn has_drive_access(user: &CurrentUser, conn: &Connection, drive_id: &str) -
         .any(|r| r.subject_kind == crate::access::KIND_PATH && r.drive_id == drive_id)
 }
 
+/// Real paths of the private items this person owns on a drive. Owning one
+/// is a way into the drive even with no folder shared with them.
+pub(crate) fn owned_private_paths(conn: &Connection, user_id: &str, drive_id: &str) -> Vec<String> {
+    let Some(mount) = db::get_drive(conn, drive_id)
+        .ok()
+        .flatten()
+        .filter(|d| !d.mount_point.is_empty())
+        .map(|d| d.mount_point)
+    else {
+        return Vec::new();
+    };
+    crate::private::under(std::path::Path::new(&mount), "")
+        .into_iter()
+        .filter(|i| i.owner == user_id)
+        .map(|i| i.path)
+        .collect()
+}
+
 /// True if the user may change anything on this drive (upload or edit,
 /// whole drive or a folder).
 pub fn has_write_on_drive(user: &CurrentUser, conn: &Connection, drive_id: &str) -> bool {
     if user.role == "admin" {
+        return true;
+    }
+    if !owned_private_paths(conn, &user.id, drive_id).is_empty() {
         return true;
     }
     let Ok(rows) = db::list_access_members_for_user(conn, &user.id) else {
@@ -1282,7 +1438,23 @@ pub fn can_browse_path(user: &CurrentUser, conn: &Connection, drive_id: &str, pa
     if can_access(user, conn, drive_id, &norm, false) {
         return true;
     }
-    if user.role == "admin" {
+    if user.role == "admin" && !walls_off_admin(conn, drive_id, &norm) {
+        return true;
+    }
+    let mount = db::get_drive(conn, drive_id)
+        .ok()
+        .flatten()
+        .map(|d| d.mount_point);
+    if private_boundary(mount.as_deref(), &norm).is_some_and(|b| {
+        crate::private::owner_state(conn, &b.owner) == crate::private::OwnerState::Deleted
+    }) {
+        return false;
+    }
+    // The way down to a private item you own stays open.
+    if owned_private_paths(conn, &user.id, drive_id)
+        .iter()
+        .any(|p| crate::access::path_contains(&norm, p))
+    {
         return true;
     }
     let Ok(rows) = db::list_access_members_for_user(conn, &user.id) else {
@@ -1330,7 +1502,11 @@ pub fn caps_on_path_preloaded(
     path: &str,
     rows: &[db::AccessMemberRow],
     mount: Option<&str>,
+    owner_known: &dyn Fn(&str) -> crate::private::OwnerState,
 ) -> crate::access::Caps {
+    if let Some(b) = private_boundary(mount, path) {
+        return private_caps(user, rows, drive_id, path, &b, owner_known);
+    }
     if user.role == "admin" {
         return crate::access::CAP_MANAGE;
     }
@@ -1346,13 +1522,23 @@ pub fn can_browse_path_preloaded(
     path: &str,
     caps: crate::access::Caps,
     rows: &[db::AccessMemberRow],
+    mount: Option<&str>,
+    owner_known: &dyn Fn(&str) -> crate::private::OwnerState,
 ) -> bool {
     let norm = crate::access::normalize_subject_path(path);
     if caps & crate::access::CAP_VIEW == crate::access::CAP_VIEW {
         return true;
     }
-    if user.role == "admin" {
+    if user.role == "admin"
+        && !private_boundary(mount, &norm)
+            .is_some_and(|b| owner_known(&b.owner) != crate::private::OwnerState::Foreign)
+    {
         return true;
+    }
+    if private_boundary(mount, &norm)
+        .is_some_and(|b| owner_known(&b.owner) == crate::private::OwnerState::Deleted)
+    {
+        return false;
     }
     browse_rows_walk(drive_id, &norm, rows)
 }
@@ -1373,16 +1559,26 @@ pub fn can_inspect_path(user: &CurrentUser, conn: &Connection, drive_id: &str, p
     if can_access(user, conn, drive_id, path, false) {
         return true;
     }
-    if user.role == "admin" {
+    if user.role == "admin" && !walls_off_admin(conn, drive_id, &norm) {
         return true;
+    }
+    let mount = db::get_drive(conn, drive_id)
+        .ok()
+        .flatten()
+        .map(|d| d.mount_point);
+    if private_boundary(mount.as_deref(), &norm).is_some_and(|b| {
+        crate::private::owner_state(conn, &b.owner) == crate::private::OwnerState::Deleted
+    }) {
+        return false;
     }
     let Ok(rows) = db::list_access_members_for_user(conn, &user.id) else {
         return false;
     };
     if norm.is_empty() {
-        return rows
-            .iter()
-            .any(|r| r.subject_kind == crate::access::KIND_PATH && r.drive_id == drive_id);
+        return !owned_private_paths(conn, &user.id, drive_id).is_empty()
+            || rows
+                .iter()
+                .any(|r| r.subject_kind == crate::access::KIND_PATH && r.drive_id == drive_id);
     }
     rows.iter().any(|r| {
         r.subject_kind == crate::access::KIND_PATH
@@ -1738,6 +1934,198 @@ mod tests {
         assert!(can_inspect_path(&sam_user, &conn, "drive-b", ""));
         drop(conn);
         drop((dir, auth));
+    }
+
+    #[test]
+    fn private_items_answer_to_their_owner_not_to_admins_or_wide_grants() {
+        let (dir, auth) = service();
+        let admin = auth
+            .register("Max", "Max", "hunter22hunter1", "user")
+            .unwrap();
+        let alice = auth
+            .register("alice", "Alice", "hunter22hunter1", "user")
+            .unwrap();
+        let bob = auth
+            .register("bob", "Bob", "hunter22hunter1", "user")
+            .unwrap();
+        let mount = dir.path().join("drive-a");
+        std::fs::create_dir_all(&mount).unwrap();
+        let prefix = luna_core::marker::pick_prefix(&mount).unwrap();
+        crate::drives::drive_db::create(
+            &mount,
+            &luna_core::marker::Marker::new("drive-a", "A"),
+            &prefix,
+        )
+        .unwrap();
+        let conn = auth.db.lock().unwrap();
+        crate::db::upsert_drive(
+            &conn,
+            "drive-a",
+            "A",
+            "as_is",
+            "ext4",
+            "sda",
+            mount.to_str().unwrap(),
+        )
+        .unwrap();
+        crate::db::set_drive_state(&conn, "drive-a", "as_is").unwrap();
+        crate::files::mkdir(&conn, "drive-a", "Family").unwrap();
+        crate::files::mkdir_as(&conn, "drive-a", "Family/Vault", Some(&alice.id)).unwrap();
+        crate::files::create(&conn, "drive-a", "Family/Vault/note.txt").unwrap();
+        let user = |u: &db::UserRow, role: &str| CurrentUser {
+            id: u.id.clone(),
+            username: u.username.clone(),
+            role: role.into(),
+        };
+        let (admin_u, alice_u, bob_u) = (
+            user(&admin, "admin"),
+            user(&alice, "user"),
+            user(&bob, "user"),
+        );
+
+        // Bob can edit all of Family, but not what Alice made private in it.
+        member(
+            &conn,
+            "g1",
+            &bob.id,
+            "drive-a",
+            "Family",
+            crate::access::CAP_ALL,
+        );
+        assert!(can_access(&bob_u, &conn, "drive-a", "Family/other", true));
+        assert!(!can_access(&bob_u, &conn, "drive-a", "Family/Vault", false));
+        assert!(!can_access(
+            &bob_u,
+            &conn,
+            "drive-a",
+            "Family/Vault/note.txt",
+            false
+        ));
+        assert!(!can_inspect_path(&bob_u, &conn, "drive-a", "Family/Vault"));
+        // Admin owns the box, not Alice's private items.
+        assert!(can_access(&admin_u, &conn, "drive-a", "Family/other", true));
+        assert!(!can_access(
+            &admin_u,
+            &conn,
+            "drive-a",
+            "Family/Vault",
+            false
+        ));
+        assert!(!can_inspect_path(
+            &admin_u,
+            &conn,
+            "drive-a",
+            "Family/Vault/note.txt"
+        ));
+        assert!(!can_browse_path(&admin_u, &conn, "drive-a", "Family/Vault"));
+        // The owner holds everything inside.
+        assert!(can_access(
+            &alice_u,
+            &conn,
+            "drive-a",
+            "Family/Vault/note.txt",
+            true
+        ));
+        // An exact grant on the private item reaches in; one above does not.
+        member(
+            &conn,
+            "g2",
+            &bob.id,
+            "drive-a",
+            "Family/Vault",
+            crate::access::CAP_VIEW,
+        );
+        assert!(can_access(
+            &bob_u,
+            &conn,
+            "drive-a",
+            "Family/Vault/note.txt",
+            false
+        ));
+        assert!(!can_access(
+            &bob_u,
+            &conn,
+            "drive-a",
+            "Family/Vault/note.txt",
+            true
+        ));
+        // Deleting Family would delete Alice's folder.
+        assert!(holds_unreachable_private(
+            &bob_u, &conn, "drive-a", "Family"
+        ));
+        assert!(!holds_unreachable_private(
+            &alice_u, &conn, "drive-a", "Family"
+        ));
+
+        // An item whose owner this Luna doesn't know belongs to nobody: only
+        // an Admin can reach it.
+        crate::private::create(&mount, "Family/Orphan", "someone-else").unwrap();
+        assert!(can_access(
+            &admin_u,
+            &conn,
+            "drive-a",
+            "Family/Orphan",
+            true
+        ));
+        assert!(!can_access(
+            &bob_u,
+            &conn,
+            "drive-a",
+            "Family/Orphan",
+            false
+        ));
+        assert_eq!(crate::private::ownerless_total(&conn), 1);
+        assert_eq!(crate::private::adopt_ownerless(&conn, &bob.id), 1);
+        assert!(can_access(&bob_u, &conn, "drive-a", "Family/Orphan", true));
+        drop(conn);
+        drop((dir, auth));
+    }
+
+    #[test]
+    fn owning_a_private_item_keeps_the_drive_in_reach() {
+        let (dir, auth) = service();
+        auth.register("Max", "Max", "hunter22hunter1", "user")
+            .unwrap();
+        let alice = auth
+            .register("alice", "Alice", "hunter22hunter1", "user")
+            .unwrap();
+        let mount = dir.path().join("drive-a");
+        std::fs::create_dir_all(&mount).unwrap();
+        let prefix = luna_core::marker::pick_prefix(&mount).unwrap();
+        crate::drives::drive_db::create(
+            &mount,
+            &luna_core::marker::Marker::new("drive-a", "A"),
+            &prefix,
+        )
+        .unwrap();
+        let conn = auth.db.lock().unwrap();
+        crate::db::upsert_drive(
+            &conn,
+            "drive-a",
+            "A",
+            "as_is",
+            "ext4",
+            "sda",
+            mount.to_str().unwrap(),
+        )
+        .unwrap();
+        let alice_u = CurrentUser {
+            id: alice.id.clone(),
+            username: alice.username.clone(),
+            role: "user".into(),
+        };
+        assert!(!has_drive_access(&alice_u, &conn, "drive-a"));
+        crate::files::mkdir_as(&conn, "drive-a", "Mine", Some(&alice.id)).unwrap();
+        // No folder is shared with her, yet her own item keeps the drive open.
+        assert!(has_drive_access(&alice_u, &conn, "drive-a"));
+        assert!(has_write_on_drive(&alice_u, &conn, "drive-a"));
+        assert!(can_inspect_path(&alice_u, &conn, "drive-a", ""));
+        assert!(can_browse_path(&alice_u, &conn, "drive-a", ""));
+        // A deleted person's items stay walled off, not ownerless.
+        drop(conn);
+        auth.delete_user(&alice.id).unwrap();
+        let conn = auth.db.lock().unwrap();
+        assert_eq!(crate::private::ownerless_total(&conn), 0);
     }
 
     #[cfg(unix)]

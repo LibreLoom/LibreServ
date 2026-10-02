@@ -34,3 +34,16 @@ describe("PhotoThumb focus", () => {
     expect(button.className).toMatch(/focus-visible:ring-2/);
   });
 });
+
+describe("PhotoThumb private", () => {
+  it("shows a lock on a private photo and names it in the button", () => {
+    const view = render(<PhotoThumb photo={{ name: "id.jpg", kind: "image", private: true }} />);
+    expect(view.getByRole("button", { name: "id.jpg, private" })).toBeInTheDocument();
+    expect(view.getByLabelText("Private")).toBeInTheDocument();
+  });
+
+  it("shows no lock on an ordinary photo", () => {
+    const view = render(<PhotoThumb photo={photo} />);
+    expect(view.queryByLabelText("Private")).toBeNull();
+  });
+});

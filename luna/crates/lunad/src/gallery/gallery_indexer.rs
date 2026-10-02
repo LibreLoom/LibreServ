@@ -293,7 +293,8 @@ fn handle_watch_event(indexer: &GalleryIndexer, drive_id: &str, root: &Path, eve
         let Some(rel) = rel.to_str() else {
             continue;
         };
-        let rel = normalize_rel(rel);
+        // Private items sit on disk under `.luna-` names; index them by real path.
+        let rel = normalize_rel(&crate::private::logical_rel(root, &normalize_rel(rel)));
         if !should_index_rel(&rel) && !remove_like && !rename {
             continue;
         }

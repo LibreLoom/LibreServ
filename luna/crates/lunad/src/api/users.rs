@@ -1,6 +1,6 @@
 use axum::extract::{Extension, Path, State};
 use axum::http::StatusCode;
-use axum::routing::{delete, get};
+use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -33,6 +33,11 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/users", get(list).post(create))
         .route("/api/v1/users/directory", get(directory))
         .route("/api/v1/users/{id}", delete(remove).patch(update))
+        .route("/api/v1/users/{id}/private-count", get(private_count))
+        .route("/api/v1/private/ownerless", get(ownerless_count))
+        .route("/api/v1/users/{id}/adopt-private", post(adopt_private))
+        .route("/api/v1/private/orphans", get(orphans))
+        .route("/api/v1/private/orphans/{owner}", delete(purge_orphan))
 }
 
 fn require_admin(user: &crate::auth::CurrentUser) -> Result<(), (StatusCode, Json<Value>)> {
@@ -221,6 +226,122 @@ async fn remove(
     }
     state.auth.delete_user(&id).map_err(map_err)?;
     Ok(Json(json!({ "ok": true })))
+}
+
+/// How many private items deleting this person would delete.
+async fn private_count(
+    State(state): State<AppState>,
+    Extension(admin): Extension<crate::auth::CurrentUser>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    require_admin(&admin)?;
+    let conn = lock_db(&state)?;
+    Ok(Json(
+        json!({ "count": crate::private::owned_total(&conn, &id) }),
+    ))
+}
+
+/// Private items that came with a drive from another Luna and have no owner.
+async fn ownerless_count(
+    State(state): State<AppState>,
+    Extension(admin): Extension<crate::auth::CurrentUser>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    require_admin(&admin)?;
+    let conn = lock_db(&state)?;
+    Ok(Json(
+        json!({ "count": crate::private::ownerless_total(&conn) }),
+    ))
+}
+
+/// Give every ownerless private item to this person.
+async fn adopt_private(
+    State(state): State<AppState>,
+    Extension(admin): Extension<crate::auth::CurrentUser>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    require_admin(&admin)?;
+    let conn = lock_db(&state)?;
+    if crate::db::get_user(&conn, &id)
+        .map_err(|_| map_err(AuthError::Db(anyhow::anyhow!("db"))))?
+        .is_none()
+    {
+        return Err(json_error(
+            StatusCode::NOT_FOUND,
+            "Luna doesn't know that person.",
+        ));
+    }
+    Ok(Json(
+        json!({ "count": crate::private::adopt_ownerless(&conn, &id) }),
+    ))
+}
+
+/// Private folders a removed person still owns — their files stay on the
+/// drives, walled off, until an Admin clears them here. Counts only cover
+/// drives that are connected right now.
+async fn orphans(
+    State(state): State<AppState>,
+    Extension(admin): Extension<crate::auth::CurrentUser>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    require_admin(&admin)?;
+    let conn = lock_db(&state)?;
+    let report = crate::private::orphaned(&conn);
+    Ok(Json(json!({
+        "owners": report.owners.iter().map(|o| json!({
+            "user_id": o.user_id,
+            "username": o.username,
+            "display_name": o.display_name,
+            "deleted_at": o.deleted_at,
+            "total": o.drives.iter().map(|d| d.count).sum::<usize>(),
+            "drives": o.drives.iter().map(|d| json!({
+                "drive_id": d.drive_id,
+                "drive_label": d.drive_label,
+                "count": d.count,
+                "trash_count": d.trash_count,
+                "readonly": d.readonly,
+            })).collect::<Vec<_>>(),
+        })).collect::<Vec<_>>(),
+        "offline_drives": report.offline_drives,
+    })))
+}
+
+/// Permanently delete every private folder this removed person still owns,
+/// on every writable drive. Private folders inside them that belong to other
+/// people are kept. Read-only drives are reported, not cleaned.
+async fn purge_orphan(
+    State(state): State<AppState>,
+    Extension(admin): Extension<crate::auth::CurrentUser>,
+    Path(owner): Path<String>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    require_admin(&admin)?;
+    let conn = lock_db(&state)?;
+    let is_orphan = conn
+        .prepare("SELECT 1 FROM deleted_users WHERE id = ?1")
+        .and_then(|mut s| s.exists(rusqlite::params![owner]))
+        .unwrap_or(false);
+    if !is_orphan {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "Luna can only clear private folders after their owner is removed.",
+        ));
+    }
+    let report = crate::private::purge_orphan(&conn, &owner).map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't finish the cleanup. Refresh this page and try again.",
+        )
+    })?;
+    let drives = crate::db::list_drives(&conn).unwrap_or_default();
+    drop(conn);
+    for drive in drives {
+        state.ram_cache.invalidate_listing_tree(&drive.id, "");
+        state.gallery.rescan(&drive.id);
+    }
+    Ok(Json(json!({
+        "ok": report.failed_drives.is_empty() && report.skipped_readonly.is_empty() && report.offline_drives.is_empty(),
+        "skipped_readonly": report.skipped_readonly,
+        "failed_drives": report.failed_drives,
+        "offline_drives": report.offline_drives,
+    })))
 }
 
 fn map_err(err: AuthError) -> (StatusCode, Json<Value>) {

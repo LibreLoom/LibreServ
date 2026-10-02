@@ -1,4 +1,4 @@
-import { ClipboardList, FilePlus, FileSpreadsheet, FileText, FolderPlus, PenLine, Presentation, Workflow } from "lucide-react";
+import { ClipboardList, FilePlus, FileSpreadsheet, FileText, FolderLock, FolderPlus, PenLine, Presentation, Workflow } from "lucide-react";
 import { blankFormDocument, serializeFormDocument } from "./formDocument.js";
 import { BLANK_DRAWIO_XML } from "./diagramFile.js";
 import { BLANK_EXCALIDRAW_JSON } from "./whiteboardFile.js";
@@ -12,6 +12,7 @@ import { BLANK_EXCALIDRAW_JSON } from "./whiteboardFile.js";
  *   group: string,
  *   icon: import("react").ElementType,
  *   action: "mkdir" | "create-file",
+ *   private?: boolean,
  *   openAfter?: "text" | "viewer",
  *   title: string,
  *   nameLabel: string,
@@ -147,16 +148,35 @@ export const CREATE_KINDS = [
     // just parse to a blank form, but starting valid keeps other tools sane.
     initialContent: () => serializeFormDocument(blankFormDocument("Untitled form")),
   },
+  {
+    id: "private-folder",
+    label: "Private folder",
+    group: "Private",
+    icon: FolderLock,
+    action: "mkdir",
+    private: true,
+    title: "New private folder",
+    nameLabel: "Name for this private folder",
+    placeholder: "e.g. Taxes",
+    confirmLabel: "Create private folder",
+    defaultName: "",
+  },
 ];
 
 /**
+ * Private kinds only appear for a signed-in person (not a link guest);
+ * folder-only pickers pass explicit ids.
+ *
  * @param {string[] | null | undefined} ids
+ * @param {boolean} [includePrivate]
  * @returns {CreateKind[]}
  */
-export function createKindsFor(ids) {
-  if (!ids || ids.length === 0) return CREATE_KINDS;
+export function createKindsFor(ids, includePrivate = false) {
+  if (!ids || ids.length === 0) {
+    return includePrivate ? CREATE_KINDS : CREATE_KINDS.filter((kind) => !kind.private);
+  }
   const allow = new Set(ids);
-  return CREATE_KINDS.filter((kind) => allow.has(kind.id));
+  return CREATE_KINDS.filter((kind) => allow.has(kind.id) && (includePrivate || !kind.private));
 }
 
 /**

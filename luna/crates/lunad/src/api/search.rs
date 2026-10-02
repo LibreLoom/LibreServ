@@ -47,7 +47,17 @@ async fn search(
             "Luna's index is busy. Try again.",
         )
     })?;
-    let rows = crate::files::index::search(&conn, q).map_err(|_| {
+    let visible = |hit: &crate::files::index::SearchHit| {
+        let full = if hit.parent.is_empty() {
+            hit.name.clone()
+        } else {
+            format!("{}/{}", hit.parent, hit.name)
+        };
+        !crate::files::is_internal_temp(&full)
+            && !crate::backup::protect::is_protected_store(&full)
+            && crate::auth::has_cap(&user, &conn, &hit.drive_id, &full, crate::access::CAP_VIEW)
+    };
+    let rows = crate::files::index::search(&conn, q, &mut |hit| visible(hit)).map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Luna's index is busy. Try again.",
@@ -60,22 +70,27 @@ async fn search(
         } else {
             format!("{}/{}", hit.parent, hit.name)
         };
-        if crate::files::is_internal_temp(&full)
-            || crate::backup::protect::is_protected_store(&full)
-        {
-            continue;
-        }
-        if crate::auth::has_cap(&user, &conn, &hit.drive_id, &full, crate::access::CAP_VIEW) {
-            out.push(json!({
-                "drive_id": hit.drive_id,
-                "path": full,
-                "parent": hit.parent,
-                "name": hit.name,
-                "kind": hit.kind,
-                "size": hit.size,
-                "modified": hit.modified,
-            }));
-        }
+        let (private, in_private) = crate::files::drive_root(&conn, &hit.drive_id)
+            .map(|d| {
+                let root = std::path::Path::new(&d.mount_point);
+                // Own boundary vs. ordinary item protected by a parent's.
+                (
+                    crate::private::item_at(root, &full).is_some(),
+                    crate::private::boundary_for(root, &full).is_some_and(|b| b.path != full),
+                )
+            })
+            .unwrap_or((false, false));
+        out.push(json!({
+            "drive_id": hit.drive_id,
+            "path": full,
+            "parent": hit.parent,
+            "name": hit.name,
+            "kind": hit.kind,
+            "size": hit.size,
+            "modified": hit.modified,
+            "private": private,
+            "in_private": in_private,
+        }));
     }
     Ok(Json(out))
 }

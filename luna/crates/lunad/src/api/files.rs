@@ -70,12 +70,27 @@ struct UploadQuery {
 struct MkdirBody {
     /// Relative path of the new folder (parent must already exist).
     path: String,
+    /// Make the folder private to the person creating it.
+    #[serde(default)]
+    private: bool,
 }
 
 #[derive(Deserialize)]
 struct CreateBody {
     /// Relative path of the new empty file (parent must already exist).
     path: String,
+    /// Rejected: files are never private items — only folders are. A file
+    /// inside a private folder is protected by the folder's boundary.
+    #[serde(default)]
+    private: bool,
+}
+
+#[derive(Deserialize)]
+struct PrivacyBody {
+    /// The folder whose boundary changes.
+    path: String,
+    /// `true` makes it private to the caller; `false` uses parent access.
+    private: bool,
 }
 
 #[derive(Deserialize)]
@@ -88,6 +103,8 @@ struct RenameBody {
 struct RestoreBody {
     path: String,
     dest: String,
+    #[serde(default)]
+    confirm_broaden: bool,
 }
 
 #[derive(Deserialize)]
@@ -104,6 +121,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/drives/{id}/files/stat", get(stat_entry))
         .route("/api/v1/drives/{id}/files/resolve", get(resolve_entry))
         .route("/api/v1/drives/{id}/files/mkdir", post(mkdir_entry))
+        .route("/api/v1/drives/{id}/files/privacy", post(set_privacy))
         .route("/api/v1/drives/{id}/files/create", post(create_entry))
         .route("/api/v1/drives/{id}/files/rename", post(rename_entry))
         .route("/api/v1/drives/{id}/files/restore", post(restore_entry))
@@ -169,6 +187,8 @@ fn file_list_entry(
             original_path: None,
             link_target: None,
             caps: stamped_caps(state, user, id, rel),
+            private: false,
+            in_private: false,
         }));
     }
     let stat = with_db(state, |conn| files::stat(conn, id, rel)).map_err(map_files_err)?;
@@ -188,6 +208,8 @@ fn file_list_entry(
         original_path: None,
         link_target: stat.link_target,
         caps: stamped_caps(state, user, id, rel),
+        private: stat.private,
+        in_private: stat.in_private,
     }))
 }
 
@@ -256,16 +278,28 @@ fn list_trash_view(
             Some((e, r)) => (e, Some(r)),
             None => (child.as_str(), None),
         };
-        let original = meta.get(entry_name).map(|orig| match rest {
-            Some(rest) => format!("{orig}/{rest}"),
-            None => orig.clone(),
+        let entry_meta = meta.get(entry_name);
+        let original = entry_meta.map(|m| match rest {
+            Some(rest) => format!("{}/{rest}", m.original_path),
+            None => m.original_path.clone(),
         });
         // Everyone filters by origin caps. Only entries with no origin
         // metadata at all stay admin-visible (their provenance is
         // unknowable anyway).
-        let visible = match original.as_deref() {
-            Some(o) => crate::auth::has_cap(user, &conn, id, o, crate::access::CAP_EDIT),
-            None => user.role == "admin",
+        // A private item in the trash answers to its own owner at its trash
+        // path, never to the Admin role or to where it used to sit. That
+        // holds for private rows repathed into trash AND for ordinary
+        // children whose trash_meta recorded the private folder they were
+        // deleted from.
+        let protected = entry.private || entry_meta.is_some_and(|m| !m.private_owner.is_empty());
+        let trash_path = format!("{}/{child}", files::TRASH_API_ALIAS);
+        let visible = if protected {
+            crate::auth::has_cap(user, &conn, id, &trash_path, crate::access::CAP_EDIT)
+        } else {
+            match original.as_deref() {
+                Some(o) => crate::auth::has_cap(user, &conn, id, o, crate::access::CAP_EDIT),
+                None => user.role == "admin",
+            }
         };
         if !visible {
             return false;
@@ -273,9 +307,13 @@ fn list_trash_view(
         // Trash inherits the origin's access row, so the caller's caps on
         // a trashed entry are their caps on where it came from — the same
         // rule `caps_on_path` applies to `.luna-trash` paths.
-        entry.caps = crate::access::caps_to_str(match original.as_deref() {
-            Some(o) => crate::auth::caps_on_path(user, &conn, id, o),
-            None => crate::access::CAP_MANAGE,
+        entry.caps = crate::access::caps_to_str(if protected {
+            crate::auth::caps_on_path(user, &conn, id, &trash_path)
+        } else {
+            match original.as_deref() {
+                Some(o) => crate::auth::caps_on_path(user, &conn, id, o),
+                None => crate::access::CAP_MANAGE,
+            }
         });
         entry.original_path = original;
         if top_level {
@@ -312,8 +350,12 @@ fn visible_entries(
             )
         })?;
         let parent = crate::access::normalize_subject_path(rel);
-        if user.role != "admin" {
+        // Admins see everything except other people's private items.
+        if user.role != "admin" || entries.iter().any(|e| e.private) {
             entries.retain(|entry| {
+                if user.role == "admin" && !entry.private {
+                    return true;
+                }
                 let child = if parent.is_empty() {
                     entry.name.clone()
                 } else {
@@ -719,6 +761,8 @@ async fn stat_entry(
             original_name: None,
             totals: None,
             caps: stamped_caps(&state, &user, &id, &rel),
+            private: false,
+            in_private: false,
         }));
     }
 
@@ -949,6 +993,17 @@ async fn serve_folder_zip(
                 // ORIGIN the caller could still edit. Entries with no
                 // recorded origin stay admin-only, like the listing.
                 files::write_folder_zip_including_trash(&conn, &id, &rel, &mut file, |child| {
+                    // A private item (or anything inside one) answers at its
+                    // current trash path, never to where it used to sit.
+                    if crate::auth::inside_private(&conn, &id, child) {
+                        return crate::auth::has_cap(
+                            &user,
+                            &conn,
+                            &id,
+                            child,
+                            crate::access::CAP_EDIT,
+                        );
+                    }
                     let origin = files::trash_original_path(&conn, &id, child).ok().flatten();
                     match origin {
                         Some(o) => {
@@ -1179,9 +1234,7 @@ async fn serve_file_content(
             .map_err(map_files_err)?
             .unwrap_or_else(|| String::from("download"))
     } else {
-        path.file_name()
-            .map(|s| s.to_string_lossy().into_owned())
-            .unwrap_or_else(|| String::from("download"))
+        files::leaf_of(&path).unwrap_or_else(|| String::from("download"))
     };
     if files::is_internal_temp(&name) {
         return Err(json_error(
@@ -1247,6 +1300,7 @@ async fn delete_entry(
     let rel = query.path.unwrap_or_default();
     let rel = rel.trim().trim_matches('/').to_string();
     check_access(&state, &user, &id, &rel, crate::access::CAP_EDIT)?;
+    check_no_foreign_private(&state, &user, &id, &rel)?;
     let trash_path =
         with_db(&state, |conn| files::delete_to_trash(conn, &id, &rel)).map_err(map_files_err)?;
     state.gallery.remove(&id, &rel);
@@ -1268,6 +1322,11 @@ async fn delete_entry(
     Ok(Json(json!({ "ok": true, "trash_path": trash_path })))
 }
 
+/// The folder a path sits in ("" for the drive root).
+fn parent_of(rel: &str) -> &str {
+    rel.rsplit_once('/').map(|(p, _)| p).unwrap_or("")
+}
+
 async fn mkdir_entry(
     State(state): State<AppState>,
     Extension(user): Extension<crate::auth::CurrentUser>,
@@ -1281,8 +1340,19 @@ async fn mkdir_entry(
             "Choose a name for the new folder.",
         ));
     }
-    check_access(&state, &user, &id, &rel, crate::access::CAP_UPLOAD)?;
-    with_db(&state, |conn| files::mkdir(conn, &id, &rel)).map_err(|e| match e {
+    // Authorized on the folder it goes in, so a name taken by someone's
+    // private item answers the same conflict for everyone.
+    check_access(
+        &state,
+        &user,
+        &id,
+        parent_of(&rel),
+        crate::access::CAP_UPLOAD,
+    )?;
+    with_db(&state, |conn| {
+        files::mkdir_as(conn, &id, &rel, body.private.then_some(user.id.as_str()))
+    })
+    .map_err(|e| match e {
         FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::AlreadyExists => json_error(
             StatusCode::CONFLICT,
             "A folder with this name is already here. Choose another name.",
@@ -1293,6 +1363,126 @@ async fn mkdir_entry(
         ),
         other => map_files_err(other),
     })?;
+    invalidate_parent_listing(&state, &id, &rel);
+    state.touch_io_activity();
+    Ok(Json(json!({ "ok": true, "path": rel })))
+}
+
+/// Make an ordinary folder private to the caller, or open a private folder
+/// to its parent's access. Making private takes full access ("full +
+/// share") on the folder — the caller becomes its owner. Opening it takes
+/// being its owner (or an Admin when the owner is a stranger this Luna
+/// doesn't know, the same people who could adopt it instead). Private
+/// folders nested inside are untouched either way.
+async fn set_privacy(
+    State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
+    Path(id): Path<String>,
+    Json(body): Json<PrivacyBody>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let rel = body.path.trim().trim_matches('/').to_string();
+    if rel.is_empty() {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "Choose a folder first.",
+        ));
+    }
+    if files::is_trash_api(&rel) {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "Restore it from Trash first.",
+        ));
+    }
+    let conn = state.db.lock().map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna's index is busy. Try again.",
+        )
+    })?;
+    let root = crate::db::get_drive(&conn, &id)
+        .ok()
+        .flatten()
+        .filter(|d| !d.mount_point.is_empty())
+        .map(|d| std::path::PathBuf::from(d.mount_point))
+        .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna can't find that drive."))?;
+    if !crate::auth::has_cap(&user, &conn, &id, &rel, crate::access::CAP_VIEW) {
+        return Err(json_error(
+            StatusCode::NOT_FOUND,
+            "Luna can't find that folder.",
+        ));
+    }
+    if crate::db::get_drive(&conn, &id)
+        .ok()
+        .flatten()
+        .is_none_or(|d| d.state != "as_is")
+    {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "This drive isn't writable right now.",
+        ));
+    }
+    if body.private {
+        if !crate::auth::has_cap(&user, &conn, &id, &rel, crate::access::CAP_MANAGE) {
+            return Err(json_error(
+                StatusCode::FORBIDDEN,
+                "Only someone who manages this folder can make it private.",
+            ));
+        }
+        if crate::private::item_at(&root, &rel).is_some() {
+            return Err(json_error(
+                StatusCode::BAD_REQUEST,
+                "That folder is already private.",
+            ));
+        }
+        crate::private::privatize(&root, &rel, &user.id).map_err(|e| {
+            let msg = e.to_string();
+            if msg == "already private" {
+                json_error(StatusCode::BAD_REQUEST, "That folder is already private.")
+            } else if msg == "only folders can be private" {
+                json_error(StatusCode::BAD_REQUEST, "Only folders can be private.")
+            } else {
+                json_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Luna couldn't make that folder private. Try again.",
+                )
+            }
+        })?;
+    } else {
+        let Some(item) = crate::private::item_at(&root, &rel) else {
+            return Err(json_error(
+                StatusCode::BAD_REQUEST,
+                "That folder already uses its parent's access.",
+            ));
+        };
+        let can_open = item.owner == user.id
+            || (user.role == "admin" && !crate::private::owner_known(&conn, &item.owner));
+        if !can_open {
+            return Err(json_error(
+                StatusCode::FORBIDDEN,
+                "Only the folder's owner can open it to parent access.",
+            ));
+        }
+        crate::private::unprivatize(&root, &rel).map_err(|e| {
+            if e.to_string() == "a folder already has that name" {
+                json_error(
+                    StatusCode::CONFLICT,
+                    "A folder with this name is already here.",
+                )
+            } else {
+                json_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Luna couldn't open that folder. Try again.",
+                )
+            }
+        })?;
+    }
+    // The listing cache holds a private flag per entry — the folder's own
+    // row changed, and children's "in a private folder" state may have too.
+    if let Ok(real) = files::real_rel_path(&conn, &id, &rel) {
+        state.ram_cache.invalidate_listing(&id, &real);
+        state.ram_cache.invalidate_listing_tree(&id, &real);
+    }
+    drop(conn);
     invalidate_parent_listing(&state, &id, &rel);
     state.touch_io_activity();
     Ok(Json(json!({ "ok": true, "path": rel })))
@@ -1311,7 +1501,19 @@ async fn create_entry(
             "Choose a name for the new file.",
         ));
     }
-    check_access(&state, &user, &id, &rel, crate::access::CAP_UPLOAD)?;
+    if body.private {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "Only folders can be private. Put this file in a private folder instead.",
+        ));
+    }
+    check_access(
+        &state,
+        &user,
+        &id,
+        parent_of(&rel),
+        crate::access::CAP_UPLOAD,
+    )?;
     with_db(&state, |conn| files::create(conn, &id, &rel)).map_err(|e| match e {
         FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::AlreadyExists => json_error(
             StatusCode::CONFLICT,
@@ -1354,7 +1556,7 @@ async fn rename_entry(
     let renamed_dir = with_db(&state, |conn| {
         let drive = crate::files::drive_root(conn, &id)?;
         let root = std::path::PathBuf::from(&drive.mount_point);
-        Ok::<_, FilesError>(root.join(&new_rel).is_dir())
+        Ok::<_, FilesError>(files::resolve_child(&root, &new_rel).is_ok_and(|p| p.is_dir()))
     })
     .unwrap_or(false);
     if renamed_dir {
@@ -1387,6 +1589,15 @@ async fn list_trash(
     let visible: Vec<_> = entries
         .into_iter()
         .filter(|entry| {
+            if entry.private {
+                return crate::auth::has_cap(
+                    &user,
+                    &conn,
+                    &id,
+                    &format!("{}/{}", files::TRASH_API_ALIAS, entry.name),
+                    crate::access::CAP_EDIT,
+                );
+            }
             if entry.original_path.is_empty() {
                 return user.role == "admin";
             }
@@ -1425,6 +1636,22 @@ async fn restore_entry(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     check_trash_item(&state, &user, &id, &body.path)?;
     check_access(&state, &user, &id, &body.dest, crate::access::CAP_UPLOAD)?;
+    if !body.confirm_broaden {
+        let conn = state.db.lock().map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna's index is busy. Try again.",
+            )
+        })?;
+        let parent = body.dest.rsplit_once('/').map_or("", |(p, _)| p);
+        if crate::api::jobs::broadens_access(&conn, &id, &body.path, &id, parent) {
+            return Err(crate::api::response::json_error_code(
+                StatusCode::CONFLICT,
+                "broadens_access",
+                "Restoring here lets everyone with access to this folder open it.",
+            ));
+        }
+    }
     with_db(&state, |conn| {
         files::restore_from_trash(conn, &id, &body.path, &body.dest)
     })
@@ -1457,11 +1684,17 @@ async fn purge_entry(
         let Json(entries) = list_trash_view(&state, &user, &id, &body.path)?;
         for entry in entries {
             let rel = format!("{}/{}", files::TRASH_API_ALIAS, entry.name);
+            // Someone else's private item inside stays; only its owner can
+            // remove it for good.
+            if check_no_foreign_private(&state, &user, &id, &rel).is_err() {
+                continue;
+            }
             with_db(&state, |conn| files::purge_trash(conn, &id, &rel)).map_err(map_files_err)?;
         }
         return Ok(Json(json!({ "ok": true })));
     }
     check_trash_item(&state, &user, &id, &body.path)?;
+    check_no_foreign_private(&state, &user, &id, &body.path)?;
     with_db(&state, |conn| files::purge_trash(conn, &id, &body.path)).map_err(|e| match e {
         FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::InvalidInput => json_error(
             StatusCode::BAD_REQUEST,
@@ -1519,7 +1752,7 @@ async fn upload(
                 }
                 let dir = with_db(&state, |conn| files::dest_dir_create(conn, &id, &dest_rel))
                     .map_err(map_files_err)?;
-                let dest = dir.join(&name);
+                let dest = files::entry_path(&dir, &name);
                 // Only a destination that existed — and passed the EDIT
                 // check — at this decision point may be replaced. Anything
                 // that lands between here and install_temp is covered by the
@@ -1647,6 +1880,8 @@ async fn upload(
                                 original_path: None,
                                 link_target: None,
                                 caps: String::new(),
+                                private: false,
+                                in_private: false,
                             }));
                         }
                         // Dirty accept refused — durable write of the buffered bytes.
@@ -1730,6 +1965,8 @@ async fn upload(
                     original_path: None,
                     link_target: None,
                     caps: stamped_caps(&state, &user, &id, &rel),
+                    private: false,
+                    in_private: false,
                 }));
             }
             _ => {}
@@ -1774,6 +2011,29 @@ async fn buffer_field_up_to(
     Ok(Some(buf))
 }
 
+/// Refuse to delete a folder that holds private items only their owners can
+/// change — deleting it would destroy them.
+fn check_no_foreign_private(
+    state: &AppState,
+    user: &crate::auth::CurrentUser,
+    drive_id: &str,
+    path: &str,
+) -> Result<(), (StatusCode, Json<Value>)> {
+    let conn = state.db.lock().map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna's index is busy. Try again.",
+        )
+    })?;
+    if crate::auth::holds_unreachable_private(user, &conn, drive_id, path) {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "This folder holds private items that only their owners can delete.",
+        ));
+    }
+    Ok(())
+}
+
 fn check_trash_list(
     state: &AppState,
     user: &crate::auth::CurrentUser,
@@ -1813,6 +2073,17 @@ fn check_trash_item(
             "Luna's index is busy. Try again.",
         )
     })?;
+    // A private item in the trash answers to its owner alone, Admin or not.
+    if crate::auth::inside_private(&conn, drive_id, trash_rel) {
+        return if crate::auth::has_cap(user, &conn, drive_id, trash_rel, crate::access::CAP_EDIT) {
+            Ok(())
+        } else {
+            Err(json_error(
+                StatusCode::NOT_FOUND,
+                "Luna can't find that file or folder.",
+            ))
+        };
+    }
     let original = files::trash_original_path(&conn, drive_id, trash_rel).map_err(map_files_err)?;
     // Admins reach everything.
     if user.role == "admin" {
@@ -2216,6 +2487,411 @@ mod http_tests {
         .await;
         assert_eq!(res.status(), StatusCode::FORBIDDEN);
         assert!(!mount.path().join("secret/nope").exists());
+    }
+
+    async fn body_json(res: axum::response::Response) -> serde_json::Value {
+        let bytes = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        serde_json::from_slice(&bytes).unwrap()
+    }
+
+    #[tokio::test]
+    async fn private_items_are_the_owners_not_the_admins() {
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(mount.path().join("family")).unwrap();
+        let (dir, app) = test_app(mount.path());
+        let (sam_cookie, sam_csrf, sam_id) = admin_and_sam(&app).await;
+        {
+            let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+            crate::db::insert_access_member(
+                &conn,
+                &crate::db::AccessMemberRow {
+                    id: "g1".into(),
+                    subject_kind: crate::access::KIND_PATH.into(),
+                    drive_id: "photos".into(),
+                    path: "family".into(),
+                    album_id: String::new(),
+                    user_id: sam_id,
+                    caps: crate::access::CAP_ALL,
+                    created_by: "test".into(),
+                },
+            )
+            .unwrap();
+        }
+        let res = call(
+            &app,
+            json_req(
+                Method::POST,
+                "/api/v1/auth/login",
+                r#"{"username":"max","password":"hunter22hunter1"}"#,
+                None,
+                None,
+            ),
+        )
+        .await;
+        let (admin_session, admin_csrf) = auth_cookies(&res);
+        let admin_cookie = cookie_header(&admin_session, &admin_csrf);
+        let post = |uri: &'static str, body: &'static str, cookie: &str, csrf: &str| {
+            json_req(Method::POST, uri, body, Some(cookie), Some(csrf))
+        };
+        let get = |uri: &str, cookie: &str| {
+            let mut r = HttpReq::builder()
+                .method(Method::GET)
+                .uri(uri)
+                .header("cookie", cookie)
+                .body(Body::empty())
+                .unwrap();
+            r.extensions_mut().insert(ConnectInfo(CLIENT));
+            r
+        };
+
+        // Sam makes a private folder and puts a file in it.
+        let res = call(
+            &app,
+            post(
+                "/api/v1/drives/photos/files/mkdir",
+                r#"{"path":"family/Vault","private":true}"#,
+                &sam_cookie,
+                &sam_csrf,
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+        let res = call(
+            &app,
+            post(
+                "/api/v1/drives/photos/files/create",
+                r#"{"path":"family/Vault/note.txt"}"#,
+                &sam_cookie,
+                &sam_csrf,
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+        // On disk it is not a folder called Vault.
+        assert!(!mount.path().join("family/Vault").exists());
+
+        // The same name is taken, whether or not the person can see why.
+        for (cookie, csrf) in [(&sam_cookie, &sam_csrf), (&admin_cookie, &admin_csrf)] {
+            let res = call(
+                &app,
+                post(
+                    "/api/v1/drives/photos/files/mkdir",
+                    r#"{"path":"family/Vault"}"#,
+                    cookie,
+                    csrf,
+                ),
+            )
+            .await;
+            assert_eq!(res.status(), StatusCode::CONFLICT);
+        }
+
+        // Sam sees it, flagged; the Admin's listing has nothing.
+        let sam_list = body_json(
+            call(
+                &app,
+                get("/api/v1/drives/photos/files?path=family", &sam_cookie),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(sam_list[0]["name"], "Vault");
+        assert_eq!(sam_list[0]["private"], true);
+        let admin_list = body_json(
+            call(
+                &app,
+                get("/api/v1/drives/photos/files?path=family", &admin_cookie),
+            )
+            .await,
+        )
+        .await;
+        assert!(admin_list.as_array().unwrap().is_empty(), "{admin_list}");
+        let inside = call(
+            &app,
+            get("/api/v1/drives/photos/files?path=family/Vault", &sam_cookie),
+        )
+        .await;
+        assert_eq!(inside.status(), 200);
+        assert_eq!(body_json(inside).await[0]["name"], "note.txt");
+
+        // The Admin can't open it, stat it, or read what is inside.
+        for uri in [
+            "/api/v1/drives/photos/files?path=family/Vault",
+            "/api/v1/drives/photos/files/stat?path=family/Vault",
+            "/api/v1/drives/photos/files/stat?path=family/Vault/note.txt",
+        ] {
+            let res = call(&app, get(uri, &admin_cookie)).await;
+            assert_eq!(res.status(), StatusCode::FORBIDDEN, "{uri}");
+        }
+        let stat = body_json(
+            call(
+                &app,
+                get(
+                    "/api/v1/drives/photos/files/stat?path=family/Vault",
+                    &sam_cookie,
+                ),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(stat["private"], true);
+
+        // Deleting the folder around it would delete it.
+        let mut del = HttpReq::builder()
+            .method(Method::DELETE)
+            .uri("/api/v1/drives/photos/files?path=family")
+            .header("cookie", &admin_cookie)
+            .header("x-csrf-token", &admin_csrf)
+            .body(Body::empty())
+            .unwrap();
+        del.extensions_mut().insert(ConnectInfo(CLIENT));
+        assert_eq!(call(&app, del).await.status(), StatusCode::FORBIDDEN);
+        assert!(crate::private::item_at(mount.path(), "family/Vault").is_some());
+
+        // Renaming keeps it private and under its new name.
+        let res = call(
+            &app,
+            post(
+                "/api/v1/drives/photos/files/rename",
+                r#"{"path":"family/Vault","new_name":"Safe"}"#,
+                &sam_cookie,
+                &sam_csrf,
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+        let sam_list = body_json(
+            call(
+                &app,
+                get("/api/v1/drives/photos/files?path=family", &sam_cookie),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(sam_list[0]["name"], "Safe");
+        assert_eq!(sam_list[0]["private"], true);
+
+        // Its owner can open a private file by its real name.
+        let res = call(
+            &app,
+            get(
+                "/api/v1/drives/photos/files/content?path=family/Safe/note.txt",
+                &sam_cookie,
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+
+        // A zip of the trash never carries a private item to an Admin.
+        let mut del = HttpReq::builder()
+            .method(Method::DELETE)
+            .uri("/api/v1/drives/photos/files?path=family/Safe")
+            .header("cookie", &sam_cookie)
+            .header("x-csrf-token", &sam_csrf)
+            .body(Body::empty())
+            .unwrap();
+        del.extensions_mut().insert(ConnectInfo(CLIENT));
+        assert_eq!(call(&app, del).await.status(), 200);
+        let res = call(
+            &app,
+            get(
+                "/api/v1/drives/photos/files/content?path=.luna-trash",
+                &admin_cookie,
+            ),
+        )
+        .await;
+        let bytes = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        assert!(!String::from_utf8_lossy(&bytes).contains("note.txt"));
+    }
+
+    /// An ordinary file deleted out of a private folder stays private in
+    /// the trash — the row recording that must not depend on the boundary
+    /// still being at its old path, or existing at all.
+    #[tokio::test]
+    async fn a_child_deleted_from_a_private_folder_stays_private_in_trash() {
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(mount.path().join("family")).unwrap();
+        let (_dir, app) = test_app(mount.path());
+        let (sam_cookie, sam_csrf, sam_id) = admin_and_sam(&app).await;
+        {
+            let conn = crate::db::open(&_dir.path().join("luna.db")).unwrap();
+            crate::db::insert_access_member(
+                &conn,
+                &crate::db::AccessMemberRow {
+                    id: "g1".into(),
+                    subject_kind: crate::access::KIND_PATH.into(),
+                    drive_id: "photos".into(),
+                    path: "family".into(),
+                    album_id: String::new(),
+                    user_id: sam_id,
+                    caps: crate::access::CAP_ALL,
+                    created_by: "test".into(),
+                },
+            )
+            .unwrap();
+        }
+        let admin_login = call(
+            &app,
+            json_req(
+                Method::POST,
+                "/api/v1/auth/login",
+                r#"{"username":"max","password":"hunter22hunter1"}"#,
+                None,
+                None,
+            ),
+        )
+        .await;
+        let (admin_session, admin_csrf) = auth_cookies(&admin_login);
+        let admin_cookie = cookie_header(&admin_session, &admin_csrf);
+        let post = |uri: &'static str, body: &'static str, cookie: &str, csrf: &str| {
+            json_req(Method::POST, uri, body, Some(cookie), Some(csrf))
+        };
+        let get = |uri: &str, cookie: &str| {
+            let mut r = HttpReq::builder()
+                .method(Method::GET)
+                .uri(uri)
+                .header("cookie", cookie)
+                .body(Body::empty())
+                .unwrap();
+            r.extensions_mut().insert(ConnectInfo(CLIENT));
+            r
+        };
+        let del = |path: &str, cookie: &str, csrf: &str| {
+            let mut r = HttpReq::builder()
+                .method(Method::DELETE)
+                .uri(format!("/api/v1/drives/photos/files?path={path}"))
+                .header("cookie", cookie)
+                .header("x-csrf-token", csrf)
+                .body(Body::empty())
+                .unwrap();
+            r.extensions_mut().insert(ConnectInfo(CLIENT));
+            r
+        };
+        let trash_names = |cookie: &str| {
+            let app = app.clone();
+            let cookie = cookie.to_string();
+            async move {
+                let v =
+                    body_json(call(&app, get("/api/v1/drives/photos/trash", &cookie)).await).await;
+                v.as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|e| e["name"].as_str().unwrap().to_string())
+                    .collect::<Vec<_>>()
+            }
+        };
+
+        // Sam's private folder, ordinary file inside it, file to trash.
+        assert_eq!(
+            call(
+                &app,
+                post(
+                    "/api/v1/drives/photos/files/mkdir",
+                    r#"{"path":"family/Vault","private":true}"#,
+                    &sam_cookie,
+                    &sam_csrf,
+                ),
+            )
+            .await
+            .status(),
+            200
+        );
+        assert_eq!(
+            call(
+                &app,
+                post(
+                    "/api/v1/drives/photos/files/create",
+                    r#"{"path":"family/Vault/note.txt"}"#,
+                    &sam_cookie,
+                    &sam_csrf,
+                ),
+            )
+            .await
+            .status(),
+            200
+        );
+        assert_eq!(
+            call(&app, del("family/Vault/note.txt", &sam_cookie, &sam_csrf))
+                .await
+                .status(),
+            200
+        );
+
+        // Sam sees it; the Admin's trash list and reads do not.
+        assert_eq!(trash_names(&sam_cookie).await.len(), 1);
+        assert!(trash_names(&admin_cookie).await.is_empty());
+        let entry = trash_names(&sam_cookie).await[0].clone();
+        let res = call(
+            &app,
+            get(
+                &format!("/api/v1/drives/photos/files/content?path=.luna-trash/{entry}"),
+                &admin_cookie,
+            ),
+        )
+        .await;
+        assert_ne!(res.status(), 200, "admin read of trashed private child");
+
+        // The boundary moves — the deleted child still isn't the Admin's.
+        assert_eq!(
+            call(
+                &app,
+                post(
+                    "/api/v1/drives/photos/files/rename",
+                    r#"{"path":"family/Vault","new_name":"Moved"}"#,
+                    &sam_cookie,
+                    &sam_csrf,
+                ),
+            )
+            .await
+            .status(),
+            200
+        );
+        assert!(trash_names(&admin_cookie).await.is_empty());
+
+        // The boundary itself is trashed and purged — provenance still holds.
+        assert_eq!(
+            call(&app, del("family/Moved", &sam_cookie, &sam_csrf))
+                .await
+                .status(),
+            200
+        );
+        let folder = trash_names(&sam_cookie)
+            .await
+            .into_iter()
+            .find(|n| n.ends_with("Moved"))
+            .unwrap();
+        let purge_body = format!(r#"{{"path":".luna-trash/{folder}"}}"#);
+        let res = call(
+            &app,
+            json_req(
+                Method::POST,
+                "/api/v1/drives/photos/files/purge",
+                &purge_body,
+                Some(&sam_cookie),
+                Some(&sam_csrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+        assert!(crate::private::under(mount.path(), "").is_empty());
+        assert_eq!(trash_names(&sam_cookie).await, vec![entry.clone()]);
+        assert!(trash_names(&admin_cookie).await.is_empty());
+        let res = call(
+            &app,
+            get(
+                &format!("/api/v1/drives/photos/files/content?path=.luna-trash/{entry}"),
+                &admin_cookie,
+            ),
+        )
+        .await;
+        assert_ne!(
+            res.status(),
+            200,
+            "admin read after the boundary was purged"
+        );
     }
 
     #[tokio::test]

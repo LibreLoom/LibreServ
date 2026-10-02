@@ -10,6 +10,9 @@ use super::adaptive::{configure_prompt_dialog, horizontal_scroll, make_action_ro
 use super::spawn_blocking;
 use super::toast_error;
 
+/// Opens the create-folder dialog; the flag makes the new folder private.
+type OpenCreate = Rc<dyn Fn(&gtk::Button, bool)>;
+
 /// Browse Luna drives/folders and keep `drive_id` / `remote_path` in sync.
 pub struct FolderBrowser {
     root: gtk::Widget,
@@ -34,10 +37,15 @@ impl FolderBrowser {
 
         let create_btn = gtk::Button::with_label("Create folder");
         create_btn.add_css_class("pill");
+        let create_private_btn = gtk::Button::with_label("Create private folder");
+        create_private_btn.add_css_class("pill");
+        let create_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        create_box.append(&create_btn);
+        create_box.append(&create_private_btn);
         let use_btn = gtk::Button::with_label("Use this folder");
         use_btn.add_css_class("pill");
         use_btn.add_css_class("suggested-action");
-        let actions = make_action_row(&root, &create_btn, &use_btn);
+        let actions = make_action_row(&root, &create_box, &use_btn);
 
         let selected_lbl = gtk::Label::new(None);
         selected_lbl.add_css_class("caption");
@@ -203,6 +211,16 @@ impl FolderBrowser {
                                             .title(&format!("{}/", e.name))
                                             .activatable(true)
                                             .build();
+                                        if e.private {
+                                            let lock = gtk::Image::from_icon_name(
+                                                "changes-prevent-symbolic",
+                                            );
+                                            lock.set_tooltip_text(Some("Private"));
+                                            lock.update_property(&[
+                                                gtk::accessible::Property::Label("Private"),
+                                            ]);
+                                            row.add_prefix(&lock);
+                                        }
                                         row.connect_activated({
                                             let browse_path = browse_path.clone();
                                             let update_selected = update_selected.clone();
@@ -334,7 +352,7 @@ impl FolderBrowser {
             }
         });
 
-        create_btn.connect_clicked({
+        let open_create: OpenCreate = Rc::new({
             let state = state.clone();
             let toast = toast.clone();
             let drive_id = drive_id.clone();
@@ -343,7 +361,7 @@ impl FolderBrowser {
             let do_reload = do_reload.clone();
             let update_selected = update_selected.clone();
             let root = root.clone();
-            move |btn| {
+            move |btn: &gtk::Button, private: bool| {
                 let d = drive_id.borrow().clone();
                 if d.is_empty() {
                     toast_error(&toast, "Choose a drive first.");
@@ -351,7 +369,11 @@ impl FolderBrowser {
                 }
 
                 let dialog = adw::Dialog::new();
-                dialog.set_title("Create folder");
+                dialog.set_title(if private {
+                    "Create private folder"
+                } else {
+                    "Create folder"
+                });
                 configure_prompt_dialog(&dialog, &root);
 
                 let dialog_toast = Rc::new(adw::ToastOverlay::new());
@@ -421,7 +443,7 @@ impl FolderBrowser {
                         };
                         let state = state.clone();
                         let full2 = full.clone();
-                        spawn_blocking(move || luna_desktop::mkdir(&state, &d, &full2), {
+                        spawn_blocking(move || luna_desktop::mkdir(&state, &d, &full2, private), {
                             let toast = toast.clone();
                             let browse_path = browse_path.clone();
                             let remote_path = remote_path.clone();
@@ -445,6 +467,11 @@ impl FolderBrowser {
                 dialog.present(Some(&parent));
             }
         });
+        create_btn.connect_clicked({
+            let open_create = open_create.clone();
+            move |btn| open_create(btn, false)
+        });
+        create_private_btn.connect_clicked(move |btn| open_create(btn, true));
 
         Self {
             root: root.upcast(),

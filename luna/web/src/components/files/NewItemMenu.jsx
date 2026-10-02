@@ -19,11 +19,12 @@ import { useShortcut } from "@libreloom/ui/context/ShortcutsContext.jsx";
  * @param {{
  *   onPick: (kind: import("../../lib/createKinds.js").CreateKind) => void,
  *   ids?: string[],
+ *   allowPrivate?: boolean,
  *   surface?: "primary" | "secondary",
  * }} props
  */
-export default function NewItemMenu({ onPick, ids, surface = "secondary" }) {
-  const kinds = useMemo(() => createKindsFor(ids), [ids]);
+export default function NewItemMenu({ onPick, ids, allowPrivate = false, surface = "secondary" }) {
+  const kinds = useMemo(() => createKindsFor(ids, allowPrivate), [ids, allowPrivate]);
   const groups = useMemo(() => groupedCreateKinds(kinds), [kinds]);
   const showGroupLabels = groups.length > 1;
   const single = kinds.length === 1 ? kinds[0] : null;
@@ -220,5 +221,6 @@ export default function NewItemMenu({ onPick, ids, surface = "secondary" }) {
 NewItemMenu.propTypes = {
   onPick: PropTypes.func.isRequired,
   ids: PropTypes.arrayOf(PropTypes.string),
+  allowPrivate: PropTypes.bool,
   surface: PropTypes.oneOf(["primary", "secondary"]),
 };

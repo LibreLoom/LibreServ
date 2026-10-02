@@ -35,6 +35,7 @@ import IconCircle from "@libreloom/ui/components/ui/IconCircle.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import { TermHint, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
+import PrivateBadge from "../private/PrivateBadge.jsx";
 import { apiErrorMessage } from "../../lib/api.js";
 import { fileExtension, openableKind } from "../../lib/fileKinds.js";
 import { fileSourceScope, useFileSource } from "../../lib/fileSource.jsx";
@@ -292,7 +293,7 @@ PropertiesButton.propTypes = {
  *   driveLabel?: string,
  *   path: string,
  *   parent?: string,
- *   entry?: { name?: string, kind?: string, size?: number, modified?: number, hidden?: boolean, saving?: boolean } | null,
+ *   entry?: { name?: string, kind?: string, size?: number, modified?: number, hidden?: boolean, saving?: boolean, private?: boolean } | null,
  *   inTrash?: boolean,
  * }} props
  */
@@ -359,6 +360,12 @@ export default function PropertiesSheet({
               <Pill variant="accent" className="max-w-full">
                 <span className="truncate">{typeLabel(name, kind)}</span>
               </Pill>
+              {(data?.private ?? entry?.private) ? (
+                <Pill variant="muted">
+                  <PrivateBadge size={ICON_SIZE.xs} />
+                  Private
+                </Pill>
+              ) : null}
               {data ? (
                 <Pill variant={data.writable ? "success" : "muted"}>
                   {data.writable ? (

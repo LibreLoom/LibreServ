@@ -76,11 +76,14 @@ fn hash_drive_walk(drive_id: &str, root: &Path) -> anyhow::Result<ScrubReport> {
         mismatches: 0,
         bytes_hashed: 0,
     };
-    let mut stack = vec![root.to_path_buf()];
-    while let Some(dir) = stack.pop() {
+    // Each folder carries its real path: private items sit on disk under
+    // `.luna-` names but are baselined under the names people see.
+    let mut stack = vec![(root.to_path_buf(), String::new())];
+    while let Some((dir, dir_rel)) = stack.pop() {
         let Ok(entries) = std::fs::read_dir(&dir) else {
             continue;
         };
+        let private = crate::private::children_of(root, &dir_rel);
         for entry in entries.flatten() {
             let Ok(meta) = std::fs::symlink_metadata(entry.path()) else {
                 continue;
@@ -88,24 +91,27 @@ fn hash_drive_walk(drive_id: &str, root: &Path) -> anyhow::Result<ScrubReport> {
             if meta.file_type().is_symlink() {
                 continue;
             }
+            // Only lossless UTF-8 names are baselined; anything else is skipped
+            // rather than lossy-mangled (which would strand the file).
+            let file_name = entry.file_name();
+            let Some(disk) = file_name.to_str() else {
+                continue;
+            };
+            let item = private.get(disk);
+            if item.is_none() && crate::files::is_internal_temp(disk) {
+                continue;
+            }
+            let rel = &crate::gallery::gallery_indexer::join_rel(
+                &dir_rel,
+                item.map_or(disk, |i| i.name()),
+            );
             if meta.is_dir() {
-                let name = entry.file_name();
-                let name = name.to_string_lossy();
-                if crate::files::is_internal_temp(&name) {
-                    continue;
-                }
-                stack.push(entry.path());
+                stack.push((entry.path(), rel.clone()));
                 continue;
             }
             if !meta.is_file() {
                 continue;
             }
-            // Only lossless UTF-8 paths are baselined; anything else is skipped
-            // rather than lossy-mangled (which would strand the file).
-            let path_buf = entry.path();
-            let Some(rel) = path_buf.strip_prefix(root).ok().and_then(|p| p.to_str()) else {
-                continue;
-            };
             // Skip Luna's own on-drive stores (microdb, trash, thumbs, …).
             if crate::files::is_internal_temp(rel)
                 || rel

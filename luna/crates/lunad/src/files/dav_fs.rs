@@ -28,6 +28,12 @@ use crate::auth::CurrentUser;
 #[derive(Clone)]
 pub struct JailedFs {
     root: PathBuf,
+    /// Who is acting, so a copy of a private file becomes theirs.
+    actor: Option<String>,
+    /// Source and destination (drive-relative) of a COPY in progress, so the
+    /// plain creates a folder copy turns into can tell which ones copy a
+    /// private folder.
+    copy: Option<(String, String)>,
 }
 
 impl JailedFs {
@@ -35,6 +41,8 @@ impl JailedFs {
     pub fn new(root: impl AsRef<Path>) -> Self {
         Self {
             root: root.as_ref().to_path_buf(),
+            actor: None,
+            copy: None,
         }
     }
 
@@ -76,6 +84,8 @@ pub struct GrantFs {
 struct CapsCtx {
     rows: Vec<crate::db::AccessMemberRow>,
     mount: Option<String>,
+    /// Ids of every person this Luna knows, to tell ownerless private items.
+    users: std::collections::HashMap<String, crate::private::OwnerState>,
 }
 
 impl GrantFs {
@@ -85,8 +95,10 @@ impl GrantFs {
         drive_id: impl Into<String>,
         db: Arc<crate::Db>,
     ) -> Self {
+        let mut inner = JailedFs::new(root);
+        inner.actor = Some(user.id.clone());
         Self {
-            inner: JailedFs::new(root),
+            inner,
             user,
             drive_id: drive_id.into(),
             db,
@@ -94,6 +106,12 @@ impl GrantFs {
             pending_removes: Arc::new(Mutex::new(BTreeSet::new())),
             caps_ctx: Arc::new(Mutex::new(None)),
         }
+    }
+
+    /// Tell the filesystem it is serving a COPY from `src` to `dst`.
+    pub fn with_copy(mut self, copy: Option<(String, String)>) -> Self {
+        self.inner.copy = copy;
+        self
     }
 
     /// Attach the shared RAM listing cache so writes landing through DAV are
@@ -137,6 +155,7 @@ impl GrantFs {
         let ctx = Arc::new(CapsCtx {
             rows: crate::db::list_access_members_for_user(&conn, &self.user.id).unwrap_or_default(),
             mount,
+            users: crate::private::owner_states(&conn).map_err(|_| FsError::GeneralFailure)?,
         });
         *guard = Some(ctx.clone());
         Ok(ctx)
@@ -152,11 +171,30 @@ impl GrantFs {
             subject,
             &ctx.rows,
             ctx.mount.as_deref(),
+            &|o| {
+                ctx.users
+                    .get(o)
+                    .copied()
+                    .unwrap_or(crate::private::OwnerState::Foreign)
+            },
         )
     }
 
     fn browsable(&self, ctx: &CapsCtx, subject: &str, caps: crate::access::Caps) -> bool {
-        crate::auth::can_browse_path_preloaded(&self.user, &self.drive_id, subject, caps, &ctx.rows)
+        crate::auth::can_browse_path_preloaded(
+            &self.user,
+            &self.drive_id,
+            subject,
+            caps,
+            &ctx.rows,
+            ctx.mount.as_deref(),
+            &|o| {
+                ctx.users
+                    .get(o)
+                    .copied()
+                    .unwrap_or(crate::private::OwnerState::Foreign)
+            },
+        )
     }
 
     fn rel(path: &DavPath) -> FsResult<String> {
@@ -271,6 +309,12 @@ impl GrantFs {
             return Err(FsError::Forbidden);
         }
         self.require_cap(rel, CAP_EDIT)?;
+        {
+            let conn = self.db.lock().map_err(|_| FsError::GeneralFailure)?;
+            if crate::auth::holds_unreachable_private(&self.user, &conn, &self.drive_id, rel) {
+                return Err(FsError::Forbidden);
+            }
+        }
         let mut pending = self
             .pending_removes
             .lock()
@@ -605,6 +649,7 @@ impl DavFileSystem for JailedFs {
             }
             let dir = resolve_child_nofollow(&self.root, &rel).map_err(Self::map_err)?;
             let read = std::fs::read_dir(&dir).map_err(io_to_fs)?;
+            let private = crate::private::children_of(&self.root, rel.trim_matches('/'));
             let mut entries: Vec<FsResult<Box<dyn DavDirEntry>>> = Vec::new();
             for ent in read {
                 let ent = match ent {
@@ -615,12 +660,14 @@ impl DavFileSystem for JailedFs {
                     }
                 };
                 let name = ent.file_name();
-                let Some(name_s) = name.to_str() else {
+                let Some(disk_s) = name.to_str() else {
                     continue;
                 };
-                if is_reserved(name_s) {
+                let item = private.get(disk_s);
+                if item.is_none() && is_reserved(disk_s) {
                     continue;
                 }
+                let name_s = item.map_or(disk_s, |i| i.name());
                 let meta = match std::fs::symlink_metadata(ent.path()) {
                     Ok(m) => m,
                     Err(e) => {
@@ -661,7 +708,32 @@ impl DavFileSystem for JailedFs {
                 return Err(FsError::Forbidden);
             }
             let disk = resolve_for_create_nofollow(&self.root, &rel).map_err(Self::map_err)?;
-            std::fs::create_dir(&disk).map_err(io_to_fs)
+            // A folder copied from a private folder is a private folder: its
+            // own row and disk name, owned by whoever copied it.
+            let real = rel.trim_matches('/');
+            let source = self.copy.as_ref().and_then(|(src, dst)| {
+                if !crate::access::path_contains(dst, real) {
+                    return None;
+                }
+                let from = format!("{src}{}", &real[dst.len()..]);
+                crate::private::item_at(&self.root, from.trim_matches('/'))
+            });
+            let Some(item) = source else {
+                return std::fs::create_dir(&disk).map_err(io_to_fs);
+            };
+            let prefix = crate::private::prefix_of(&self.root).ok_or(FsError::GeneralFailure)?;
+            let id = crate::private::new_id();
+            if resolve_child_nofollow(&self.root, real).is_ok() {
+                return Err(FsError::Exists);
+            }
+            let owner = self.actor.clone().unwrap_or(item.owner);
+            crate::private::create_with_id(&self.root, real, &owner, &id)
+                .map_err(|_| FsError::GeneralFailure)?;
+            std::fs::create_dir(disk.with_file_name(crate::private::disk_name(&prefix, &id)))
+                .map_err(|e| {
+                    let _ = crate::private::remove(&self.root, real);
+                    io_to_fs(e)
+                })
         })
     }
 
@@ -696,12 +768,31 @@ impl DavFileSystem for JailedFs {
             }
             let src = resolve_child_nofollow(&self.root, &from_rel).map_err(Self::map_err)?;
             let dest = resolve_for_create_nofollow(&self.root, &to_rel).map_err(Self::map_err)?;
+            // A private item keeps its `.luna-` disk name; its real name
+            // must be free of plain and private items alike.
+            let (from_real, to_real) = (from_rel.trim_matches('/'), to_rel.trim_matches('/'));
+            let dest = match crate::private::disk_leaf(&self.root, from_real) {
+                Some(leaf) => {
+                    if resolve_child_nofollow(&self.root, to_real).is_ok() {
+                        return Err(FsError::Exists);
+                    }
+                    dest.with_file_name(leaf)
+                }
+                None => dest,
+            };
+            if crate::private::item_at(&self.root, to_real).is_some() {
+                return Err(FsError::Exists);
+            }
             // Never clobber: an atomic no-replace move closes the window
             // between the caller's existence check and the rename, where a
             // plain rename(2) would silently replace a just-created file.
             // dav-server deletes an overwritten destination first anyway.
             match crate::files::try_rename_move(&src, &dest).map_err(files_to_fs)? {
-                true => Ok(()),
+                true => {
+                    crate::private::repath(&self.root, from_real, to_real)
+                        .map_err(|_| FsError::GeneralFailure)?;
+                    Ok(())
+                }
                 // A move inside one jail root cannot be cross-device.
                 false => Err(FsError::GeneralFailure),
             }
@@ -717,6 +808,26 @@ impl DavFileSystem for JailedFs {
             }
             let src = resolve_child_nofollow(&self.root, &from_rel).map_err(Self::map_err)?;
             let dest = resolve_for_create_nofollow(&self.root, &to_rel).map_err(Self::map_err)?;
+            // A copy of a private file is a private file: its own row and
+            // disk name, owned by whoever copied it.
+            let to_real = to_rel.trim_matches('/');
+            let mut new_row = false;
+            let dest = match crate::private::item_at(&self.root, from_rel.trim_matches('/')) {
+                Some(item) => {
+                    let prefix =
+                        crate::private::prefix_of(&self.root).ok_or(FsError::GeneralFailure)?;
+                    let id = crate::private::new_id();
+                    let owner = self.actor.clone().unwrap_or(item.owner);
+                    if resolve_child_nofollow(&self.root, to_real).is_ok() {
+                        return Err(FsError::Exists);
+                    }
+                    crate::private::create_with_id(&self.root, to_real, &owner, &id)
+                        .map_err(|_| FsError::GeneralFailure)?;
+                    new_row = true;
+                    dest.with_file_name(crate::private::disk_name(&prefix, &id))
+                }
+                None => dest,
+            };
             // create_new: an atomic no-clobber create — `std::fs::copy`
             // truncates an existing destination, which must fail instead.
             let mut src_file = std::fs::OpenOptions::new()
@@ -729,7 +840,12 @@ impl DavFileSystem for JailedFs {
                 .create_new(true)
                 .custom_flags(libc::O_NOFOLLOW)
                 .open(&dest)
-                .map_err(io_to_fs)?;
+                .map_err(|e| {
+                    if new_row {
+                        let _ = crate::private::remove(&self.root, to_real);
+                    }
+                    io_to_fs(e)
+                })?;
             std::io::copy(&mut src_file, &mut dst_file).map_err(io_to_fs)?;
             // Match fs::copy: the destination inherits the source's mode.
             if let Ok(meta) = src_file.metadata() {
@@ -849,7 +965,10 @@ impl DavFileSystem for GrantFs {
             self.require_cap(&from_rel, CAP_EDIT)?;
             self.require_cap(&to_rel, CAP_UPLOAD)?;
             // dav-server deletes an overwritten destination inside this same
-            // request; those removes are buffered, so run them now.
+            // request; those removes are buffered, so run them now. A move
+            // carries any unreachable private folders whole — their boundary
+            // and owner travel with the rename, so it needs no reach into
+            // them.
             self.flush_pending_under(&to_rel)?;
             self.require_dest_free(to).await?;
             self.inner.rename(from, to).await?;
@@ -1082,6 +1201,101 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    /// A private folder shows up over DAV under its real name for its owner,
+    /// is invisible to everyone else (Admins included), and renames and
+    /// moves keep it private.
+    #[tokio::test]
+    async fn grantfs_serves_private_items_to_their_owner_only() {
+        use futures_util::StreamExt;
+        let fx = fixture();
+        {
+            let conn = fx.db.lock().unwrap();
+            crate::db::insert_user(&conn, "admin-1", "admin", "Admin", "hash", "admin").unwrap();
+            crate::db::insert_user(&conn, "sam", "sam", "Sam", "hash", "user").unwrap();
+        }
+        std::fs::create_dir_all(fx.root.join("docs")).unwrap();
+        std::fs::create_dir_all(fx.root.join("elsewhere")).unwrap();
+        {
+            let conn = fx.db.lock().unwrap();
+            crate::files::mkdir_as(&conn, &fx.drive_id, "docs/Diary", Some("sam")).unwrap();
+        }
+        let disk = crate::private::disk_leaf(&fx.root, "docs/Diary").unwrap();
+        std::fs::write(
+            fx.root.join("docs").join(&disk).join("entry.txt"),
+            b"dear diary",
+        )
+        .unwrap();
+        grant(&fx, "sam", "docs", crate::access::CAP_ALL);
+        grant(&fx, "sam", "elsewhere", crate::access::CAP_ALL);
+
+        let names = |fs: &GrantFs, dir: &str| {
+            let fs = fs.clone();
+            let dir = dir.to_string();
+            async move {
+                let mut stream = fs
+                    .read_dir(&davpath(&dir), dav_server::fs::ReadDirMeta::None)
+                    .await
+                    .unwrap();
+                let mut out = Vec::new();
+                while let Some(Ok(ent)) = stream.next().await {
+                    out.push(String::from_utf8_lossy(&ent.name()).into_owned());
+                }
+                out
+            }
+        };
+        let sam_fs = GrantFs::new(&fx.root, member("sam"), fx.drive_id.clone(), fx.db.clone());
+        assert_eq!(names(&sam_fs, "docs").await, vec!["Diary"]);
+        let admin_fs = GrantFs::new(&fx.root, admin(), fx.drive_id.clone(), fx.db.clone());
+        assert!(names(&admin_fs, "docs").await.is_empty());
+        assert!(admin_fs.metadata(&davpath("docs/Diary")).await.is_err());
+        let read = OpenOptions {
+            read: true,
+            ..Default::default()
+        };
+        let mut f = sam_fs
+            .open(&davpath("docs/Diary/entry.txt"), read)
+            .await
+            .unwrap();
+        assert_eq!(f.read_bytes(64).await.unwrap().as_ref(), b"dear diary");
+
+        // Moving it keeps its disk entry and re-keys the row.
+        sam_fs
+            .rename(&davpath("docs/Diary"), &davpath("elsewhere/Journal"))
+            .await
+            .unwrap();
+        assert!(crate::private::item_at(&fx.root, "docs/Diary").is_none());
+        assert_eq!(
+            crate::private::item_at(&fx.root, "elsewhere/Journal").map(|i| i.owner),
+            Some("sam".into())
+        );
+        assert!(fx.root.join("elsewhere").join(&disk).exists());
+    }
+
+    /// DAV copies a folder as a create plus its children; a private folder
+    /// must still come out private, children and nested private items too.
+    #[tokio::test]
+    async fn grantfs_folder_copy_keeps_private_folders_private() {
+        let fx = fixture();
+        {
+            let conn = fx.db.lock().unwrap();
+            crate::db::insert_user(&conn, "admin-1", "admin", "Admin", "hash", "admin").unwrap();
+            crate::db::insert_user(&conn, "sam", "sam", "Sam", "hash", "user").unwrap();
+            crate::files::mkdir_as(&conn, &fx.drive_id, "Vault", Some("sam")).unwrap();
+        }
+        grant(&fx, "sam", "", crate::access::CAP_ALL);
+        let sam_fs = GrantFs::new(&fx.root, member("sam"), fx.drive_id.clone(), fx.db.clone())
+            .with_copy(Some(("Vault".into(), "Vault copy".into())));
+        sam_fs.create_dir(&davpath("Vault copy")).await.unwrap();
+        assert_eq!(
+            crate::private::item_at(&fx.root, "Vault copy").map(|i| i.owner),
+            Some("sam".into())
+        );
+        assert!(!fx.root.join("Vault copy").exists());
+        // The Admin can't see the copy any more than the original.
+        let admin_fs = GrantFs::new(&fx.root, admin(), fx.drive_id.clone(), fx.db.clone());
+        assert!(admin_fs.metadata(&davpath("Vault copy")).await.is_err());
     }
 
     /// A DAV rename retargets member/link subject rows — a grant on the old

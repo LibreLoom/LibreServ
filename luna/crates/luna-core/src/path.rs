@@ -5,7 +5,38 @@
 //! result is still inside that root. Symlink escape and `..` traversal are
 //! impossible by construction.
 
+use std::borrow::Cow;
 use std::path::{Component, Path, PathBuf};
+use std::sync::OnceLock;
+
+/// Turns a real drive-relative path into the path stored on disk, or `None`
+/// when they are the same. Set once by the daemon so every jail lookup (files,
+/// WebDAV, Gallery, jobs) finds items that live under another on-disk name.
+pub type RelMapper = fn(&Path, &str) -> Option<String>;
+
+static REL_MAPPER: OnceLock<RelMapper> = OnceLock::new();
+
+pub fn set_rel_mapper(f: RelMapper) {
+    let _ = REL_MAPPER.set(f);
+}
+
+/// Says whether a path that resolved (following symlinks) to `resolved` may
+/// stand for the requested `rel`: the daemon uses it so a link cannot carry a
+/// request across a private boundary.
+pub type ResolvedCheck = fn(&Path, &str, &Path) -> bool;
+
+static RESOLVED_CHECK: OnceLock<ResolvedCheck> = OnceLock::new();
+
+pub fn set_resolved_check(f: ResolvedCheck) {
+    let _ = RESOLVED_CHECK.set(f);
+}
+
+fn mapped<'a>(root: &Path, rel: &'a str) -> Cow<'a, str> {
+    match REL_MAPPER.get().and_then(|f| f(root, rel)) {
+        Some(disk) => Cow::Owned(disk),
+        None => Cow::Borrowed(rel),
+    }
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum PathError {
@@ -25,6 +56,8 @@ pub enum PathError {
 /// component-for-component. This protects against `..` and symlinked
 /// directories pointing outside the root.
 pub fn resolve_child(root: &Path, rel: &str) -> Result<PathBuf, PathError> {
+    let original = rel;
+    let rel = &*mapped(root, rel);
     if rel.is_empty() || rel == "." {
         return canonical_root(root);
     }
@@ -52,6 +85,11 @@ pub fn resolve_child(root: &Path, rel: &str) -> Result<PathBuf, PathError> {
     })?;
 
     if !canonical.starts_with(&canonical_root) {
+        return Err(PathError::Escape);
+    }
+    if let Some(check) = RESOLVED_CHECK.get()
+        && !check(root, original, &canonical)
+    {
         return Err(PathError::Escape);
     }
     Ok(canonical)
@@ -102,6 +140,7 @@ pub fn resolve_for_create_nofollow(root: &Path, rel: &str) -> Result<PathBuf, Pa
 }
 
 fn walk_nofollow(root: &Path, rel: &str, last_may_missing: bool) -> Result<PathBuf, PathError> {
+    let rel = &*mapped(root, rel);
     let requested = lexical_rel(rel)?;
     let canonical_root = canonical_root(root)?;
     if requested.as_os_str().is_empty() {

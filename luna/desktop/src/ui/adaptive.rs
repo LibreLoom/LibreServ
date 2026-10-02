@@ -139,7 +139,7 @@ pub fn make_page_toolbar(
 
 fn apply_action_row_layout(
     row: &gtk::Box,
-    create: &gtk::Button,
+    create: &gtk::Widget,
     use_btn: &gtk::Button,
     narrow: bool,
 ) {
@@ -159,15 +159,16 @@ fn apply_action_row_layout(
 /// Pair of folder-browser actions that stack on narrow parents.
 pub fn make_action_row(
     host: &impl IsA<gtk::Widget>,
-    create: &gtk::Button,
+    create: &impl IsA<gtk::Widget>,
     use_btn: &gtk::Button,
 ) -> gtk::Box {
+    let create = create.clone().upcast::<gtk::Widget>();
     let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-    row.append(create);
+    row.append(&create);
     row.append(use_btn);
 
     let row_c = row.clone();
-    let create_c = create.clone();
+    let create_c = create;
     let use_c = use_btn.clone();
     let update = Rc::new(move |narrow: bool| {
         apply_action_row_layout(&row_c, &create_c, &use_c, narrow);

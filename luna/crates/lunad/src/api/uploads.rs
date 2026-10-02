@@ -144,7 +144,7 @@ async fn complete(
         let row = uploads::get_row(&conn, &id).map_err(map_upload_err)?;
         let rel = crate::gallery::gallery_indexer::join_rel(&row.path, &row.name);
         let exists = crate::files::dest_dir(&conn, &row.drive_id, &row.path)
-            .map(|dir| dir.join(&row.name).exists())
+            .map(|dir| crate::files::name_taken(&dir, &row.name))
             .unwrap_or(false);
         (row.drive_id, rel, exists)
     };

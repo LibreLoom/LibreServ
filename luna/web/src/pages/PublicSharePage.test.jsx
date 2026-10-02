@@ -360,21 +360,21 @@ describe("PublicSharePage", () => {
     const fileRowLink = () =>
       screen.getAllByRole("link", { name: "report.pdf" })
         .find((a) => a.getAttribute("href")?.includes("file="));
-    expect(await screen.findByRole("dialog", dialogName, {}, SLOW)).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", dialogName, SLOW)).toBeInTheDocument();
 
     closeViewer();
     await waitFor(() =>
       expect(screen.queryByRole("dialog", dialogName)).not.toBeInTheDocument(), SLOW);
 
     fireEvent.click(fileRowLink());
-    expect(await screen.findByRole("dialog", dialogName, {}, SLOW)).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", dialogName, SLOW)).toBeInTheDocument();
 
     closeViewer();
     await waitFor(() =>
       expect(screen.queryByRole("dialog", dialogName)).not.toBeInTheDocument(), SLOW);
 
     fireEvent.click(screen.getByRole("button", { name: "open file deep link" }));
-    expect(await screen.findByRole("dialog", dialogName, {}, SLOW)).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", dialogName, SLOW)).toBeInTheDocument();
   }, 30_000);
 
   it("resets the whole session when the link token changes", async () => {

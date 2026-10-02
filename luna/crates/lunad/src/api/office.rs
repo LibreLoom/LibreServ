@@ -207,11 +207,7 @@ async fn prepare_session(
         .map(|d| d.as_secs())
         .unwrap_or(0);
     let size = meta.len();
-    let title = abs
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or("document")
-        .to_string();
+    let title = crate::files::leaf_of(&abs).unwrap_or_else(|| "document".to_string());
     let file_type = title
         .rsplit_once('.')
         .map(|(_, ext)| ext.to_lowercase())

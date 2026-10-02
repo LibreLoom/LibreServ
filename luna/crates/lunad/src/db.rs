@@ -56,6 +56,12 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             updated_at INTEGER NOT NULL,
             user_id TEXT NOT NULL DEFAULT ''
         );
+        CREATE TABLE IF NOT EXISTS deleted_users (
+            id TEXT PRIMARY KEY NOT NULL,
+            username TEXT NOT NULL DEFAULT '',
+            display_name TEXT NOT NULL DEFAULT '',
+            deleted_at INTEGER NOT NULL DEFAULT 0
+        );
         CREATE TABLE IF NOT EXISTS users (
             id TEXT PRIMARY KEY,
             username TEXT NOT NULL UNIQUE,
@@ -143,6 +149,26 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
         "INTEGER NOT NULL DEFAULT 0",
     )?;
     ensure_column(&conn, "jobs", "user_id", "TEXT NOT NULL DEFAULT ''")?;
+    ensure_column(&conn, "jobs", "from_private", "INTEGER NOT NULL DEFAULT 0")?;
+    ensure_column(&conn, "jobs", "to_private", "INTEGER NOT NULL DEFAULT 0")?;
+    ensure_column(
+        &conn,
+        "deleted_users",
+        "username",
+        "TEXT NOT NULL DEFAULT ''",
+    )?;
+    ensure_column(
+        &conn,
+        "deleted_users",
+        "display_name",
+        "TEXT NOT NULL DEFAULT ''",
+    )?;
+    ensure_column(
+        &conn,
+        "deleted_users",
+        "deleted_at",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
     ensure_column(&conn, "device_tokens", "expires_at", "INTEGER")?;
     crate::files::forwarding::migrate(&conn)?;
     crate::files::recents::migrate(&conn)?;
@@ -277,7 +303,23 @@ pub fn upsert_drive(
     Ok(())
 }
 
+/// A drive that is no longer readable must not keep its private-item rows in
+/// memory: whatever mounts there next gets read fresh.
+fn forget_private_rows(conn: &Connection, id: &str, state: &str) {
+    if matches!(state, "as_is" | "readonly") {
+        // Back online: rows load fresh on first use. Deleted people's
+        // private items stay put — clearing them is an explicit Admin action.
+        return;
+    }
+    if let Ok(Some(drive)) = get_drive(conn, id)
+        && !drive.mount_point.is_empty()
+    {
+        crate::private::forget(std::path::Path::new(&drive.mount_point));
+    }
+}
+
 pub fn set_drive_state(conn: &Connection, id: &str, state: &str) -> anyhow::Result<()> {
+    forget_private_rows(conn, id, state);
     conn.execute(
         "UPDATE drives SET state = ?2, updated_at = ?3 WHERE id = ?1",
         params![id, state, now_unix()],
@@ -295,6 +337,7 @@ pub fn update_drive_placement(
     state: &str,
 ) -> anyhow::Result<()> {
     let now = now_unix();
+    forget_private_rows(conn, id, state);
     if let Some(mp) = mount_point {
         conn.execute(
             "UPDATE drives SET device = ?2, mount_point = ?3, state = ?4, updated_at = ?5 WHERE id = ?1",
@@ -385,6 +428,8 @@ pub struct JobRow {
     pub total: u64,
     pub error: String,
     pub user_id: String,
+    pub from_private: bool,
+    pub to_private: bool,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -401,9 +446,11 @@ pub fn insert_job(
 ) -> anyhow::Result<()> {
     let now = now_unix();
     conn.execute(
-        "INSERT INTO jobs (id, kind, state, from_drive, from_path, to_drive, to_path, progress, total, created_at, updated_at, user_id)
-         VALUES (?1, ?2, 'running', ?3, ?4, ?5, ?6, 0, ?7, ?8, ?8, ?9)",
-        params![id, kind, from_drive, from_path, to_drive, to_path, total as i64, now, user_id],
+        "INSERT INTO jobs (id, kind, state, from_drive, from_path, to_drive, to_path, progress, total, created_at, updated_at, user_id, from_private, to_private)
+         VALUES (?1, ?2, 'running', ?3, ?4, ?5, ?6, 0, ?7, ?8, ?8, ?9, ?10, ?11)",
+        params![id, kind, from_drive, from_path, to_drive, to_path, total as i64, now, user_id,
+            crate::auth::inside_private(conn, from_drive, from_path),
+            crate::auth::inside_private(conn, to_drive, to_path)],
     )?;
     Ok(())
 }
@@ -421,12 +468,14 @@ fn job_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<JobRow> {
         total: row.get::<_, i64>(8)? as u64,
         error: row.get(9)?,
         user_id: row.get::<_, String>(10).unwrap_or_default(),
+        from_private: row.get(11)?,
+        to_private: row.get(12)?,
     })
 }
 
 pub fn get_job(conn: &Connection, id: &str) -> anyhow::Result<Option<JobRow>> {
     let mut stmt = conn.prepare(
-        "SELECT id, kind, state, from_drive, from_path, to_drive, to_path, progress, total, error, user_id
+        "SELECT id, kind, state, from_drive, from_path, to_drive, to_path, progress, total, error, user_id, from_private, to_private
          FROM jobs WHERE id = ?1",
     )?;
     let mut rows = stmt.query_map(params![id], job_from_row)?;
@@ -435,7 +484,7 @@ pub fn get_job(conn: &Connection, id: &str) -> anyhow::Result<Option<JobRow>> {
 
 pub fn list_jobs(conn: &Connection, limit: i64) -> anyhow::Result<Vec<JobRow>> {
     let mut stmt = conn.prepare(
-        "SELECT id, kind, state, from_drive, from_path, to_drive, to_path, progress, total, error, user_id
+        "SELECT id, kind, state, from_drive, from_path, to_drive, to_path, progress, total, error, user_id, from_private, to_private
          FROM jobs ORDER BY created_at DESC LIMIT ?1",
     )?;
     let rows = stmt.query_map(params![limit], job_from_row)?;
@@ -448,7 +497,7 @@ pub fn list_jobs_for_user(
     limit: i64,
 ) -> anyhow::Result<Vec<JobRow>> {
     let mut stmt = conn.prepare(
-        "SELECT id, kind, state, from_drive, from_path, to_drive, to_path, progress, total, error, user_id
+        "SELECT id, kind, state, from_drive, from_path, to_drive, to_path, progress, total, error, user_id, from_private, to_private
          FROM jobs WHERE user_id = ?1 ORDER BY created_at DESC LIMIT ?2",
     )?;
     let rows = stmt.query_map(params![user_id, limit], job_from_row)?;
@@ -553,6 +602,14 @@ pub fn delete_user(conn: &Connection, id: &str) -> anyhow::Result<()> {
     tx.execute(
         "DELETE FROM access_links WHERE created_by = ?1",
         params![id],
+    )?;
+    // Remembered so private folders this person owned stay walled off
+    // instead of reading as another Luna's — and so the Admin cleanup list
+    // can still say whose they were.
+    tx.execute(
+        "INSERT OR REPLACE INTO deleted_users (id, username, display_name, deleted_at)
+         SELECT id, username, display_name, ?2 FROM users WHERE id = ?1",
+        params![id, now_unix()],
     )?;
     tx.execute("DELETE FROM users WHERE id = ?1", params![id])?;
     tx.commit()?;

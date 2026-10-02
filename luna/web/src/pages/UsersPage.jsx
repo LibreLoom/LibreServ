@@ -53,6 +53,86 @@ export default function UsersPage() {
       setError(apiErrorMessage(err, "Couldn't add this user. Try again."));
     },
   });
+  // Removing someone keeps their private folders on the drives — hidden
+  // from everyone, cleaned up separately below. Say how many.
+  const privateCountQuery = useQuery({
+    queryKey: ["user-private-count", userToDelete?.id],
+    queryFn: () => getJson(`/api/v1/users/${userToDelete.id}/private-count`),
+    enabled: Boolean(userToDelete?.id),
+    retry: false,
+  });
+  const privateCount = userToDelete ? Number(privateCountQuery.data?.count) || 0 : 0;
+
+  // Removed people whose private folders are still on a drive.
+  const orphansQuery = useQuery({
+    queryKey: ["private-orphans"],
+    queryFn: () => getJson("/api/v1/private/orphans"),
+    enabled: user?.role === "admin",
+    retry: false,
+  });
+  const orphans = orphansQuery.data?.owners || [];
+  const orphanOffline = orphansQuery.data?.offline_drives || [];
+  const [orphanToClean, setOrphanToClean] = useState(null);
+  const cleanMutation = useMutation({
+    mutationFn: (/** @type {string} */ owner) => deleteJson(`/api/v1/private/orphans/${owner}`),
+    onSuccess: (data) => {
+      const skipped = data?.skipped_readonly || [];
+      const failed = data?.failed_drives || [];
+      const offline = data?.offline_drives || [];
+      const partial = skipped.length > 0 || failed.length > 0 || offline.length > 0;
+      addToast({
+        type: partial ? "warning" : "success",
+        message: partial ? "Some private content remains." : "Private content deleted.",
+        description: partial ? [
+          skipped.length ? `${skipped.join(", ")} ${skipped.length === 1 ? "is" : "are"} read-only.` : "",
+          offline.length ? `${offline.join(", ")} ${offline.length === 1 ? "is" : "are"} disconnected.` : "",
+          failed.length ? `Cleanup failed on ${failed.join(", ")}. Refresh this page and try again.` : "",
+        ].filter(Boolean).join(" ") : undefined,
+      });
+      setOrphanToClean(null);
+      queryClient.invalidateQueries({ queryKey: ["private-orphans"] });
+    },
+    onError: (err) => {
+      haptic("error");
+      addToast({
+        type: "error",
+        message: "Couldn't delete those private folders.",
+        description: apiErrorMessage(err, "Try again."),
+      });
+    },
+  });
+
+  // Private items that came with a drive from another Luna belong to nobody
+  // until an Admin gives them to someone.
+  const ownerlessQuery = useQuery({
+    queryKey: ["ownerless-private"],
+    queryFn: () => getJson("/api/v1/private/ownerless"),
+    enabled: user?.role === "admin",
+    retry: false,
+  });
+  const ownerlessCount = Number(ownerlessQuery.data?.count) || 0;
+  const [adoptId, setAdoptId] = useState("");
+  const adoptMutation = useMutation({
+    mutationFn: (/** @type {string} */ id) => postJson(`/api/v1/users/${id}/adopt-private`, {}),
+    onSuccess: (data) => {
+      const n = Number(data?.count) || 0;
+      addToast({
+        type: "success",
+        message: n === 1 ? "1 private folder given." : `${n} private folders given.`,
+      });
+      setAdoptId("");
+      queryClient.invalidateQueries({ queryKey: ["ownerless-private"] });
+    },
+    onError: (err) => {
+      haptic("error");
+      addToast({
+        type: "error",
+        message: "Couldn't give the private folders.",
+        description: apiErrorMessage(err, "Try again."),
+      });
+    },
+  });
+
   const deleteMutation = useMutation({
     mutationFn: (id) => deleteJson(`/api/v1/users/${id}`),
     onSuccess: () => {
@@ -60,6 +140,7 @@ export default function UsersPage() {
       setUserToDelete(null);
       setError(null);
       queryClient.invalidateQueries({ queryKey: ["users"] });
+      queryClient.invalidateQueries({ queryKey: ["private-orphans"] });
     },
     onError: (err) => {
       haptic("error");
@@ -113,6 +194,93 @@ export default function UsersPage() {
           <PageNotice variant="error" className="mb-4">
             {String(users.error?.message || "Couldn't load users. Try again.")}
           </PageNotice>
+        )}
+
+        {ownerlessCount > 0 && (
+          <PageNotice variant="warning" className="mb-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <p className="text-sm">
+                {ownerlessCount === 1
+                  ? "1 private folder came from another Luna and has no owner."
+                  : `${ownerlessCount} private folders came from another Luna and have no owner.`}{" "}
+                Only an Admin can open {ownerlessCount === 1 ? "it" : "them"} until you give{" "}
+                {ownerlessCount === 1 ? "it" : "them"} to someone.
+              </p>
+              <Dropdown
+                options={list.map((u) => ({ value: u.id, label: u.display_name || u.username }))}
+                value={adoptId}
+                onChange={setAdoptId}
+                placeholder="Give to…"
+                bg="secondary"
+                size="form"
+                aria-label="Give private folders to"
+              />
+              <Button
+                size="sm"
+                variant="primary"
+                disabled={!adoptId || adoptMutation.isPending}
+                onClick={() => adoptMutation.mutate(adoptId)}
+              >
+                Give
+              </Button>
+            </div>
+          </PageNotice>
+        )}
+
+        {(orphans.length > 0 || orphanOffline.length > 0) && (
+          <section className="mb-4" aria-label="Private folders left behind">
+            <Card surface="primary" padding>
+              <h2 className="font-mono text-secondary text-sm uppercase tracking-widest">
+                Private folders left behind
+              </h2>
+              {orphanOffline.length > 0 && (
+                <p className="text-secondary text-sm mt-2">
+                  {orphanOffline.length === 1
+                    ? `${orphanOffline[0]} isn't connected, so what it holds isn't counted here.`
+                    : `${orphanOffline.join(", ")} aren't connected, so what they hold isn't counted here.`}
+                </p>
+              )}
+              <ul className="mt-3 space-y-2">
+                {orphans.map((o) => (
+                  <li
+                    key={o.user_id}
+                    className="flex flex-wrap items-center justify-between gap-3 rounded-large-element surface-secondary p-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm text-primary">
+                        {o.display_name || o.username}
+                        {" "}(removed)
+                      </p>
+                      <p className="text-xs text-primary mt-0.5">
+                        {o.drives
+                          .map((d) => {
+                            const trash = Number(d.trash_count) || 0;
+                            const folders = d.count - trash;
+                            const counts = [folders ? `${folders} ${folders === 1 ? "folder" : "folders"}` : "", trash ? `${trash} ${trash === 1 ? "item" : "items"} in Trash` : ""].filter(Boolean).join(", ");
+                            return `${counts} on ${d.drive_label}${d.readonly ? " (read-only)" : ""}`;
+                          })
+                          .join(" · ")}
+                        {" — nobody can open "}
+                        {o.total === 1 ? "it" : "them"}
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="danger"
+                      disabled={cleanMutation.isPending || o.drives.every((d) => d.readonly)}
+                      onClick={() => setOrphanToClean(o)}
+                      aria-label={`Delete private folders left by ${o.display_name || o.username}`}
+                    >
+                      Delete permanently
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+              <p className="text-secondary text-xs mt-3">
+                Private folders inside them that belong to other people are kept.
+              </p>
+            </Card>
+          </section>
         )}
 
         {showEmpty && (
@@ -201,7 +369,7 @@ export default function UsersPage() {
                             </Pill>
                             <InfoHint
                               label="What Admin means"
-                              content="An Admin can add users, change settings, manage drives, and see everything on this Luna."
+                              content="An Admin can add users, change settings, manage drives, and open everything on this Luna except other people's private items."
                             />
                           </span>
                         ) : (
@@ -329,7 +497,14 @@ export default function UsersPage() {
       <ConfirmModal
         open={!!userToDelete}
         title="Remove user"
-        message={`Remove "${userToDelete?.name}" from this Luna? They will lose access to shared drives.`}
+        disabledConfirm={privateCountQuery.isPending || privateCountQuery.isError}
+        message={`Remove "${userToDelete?.name}" from this Luna? They will lose access to shared drives.${
+          privateCountQuery.isError ? " Luna couldn't check for their private folders, so removing is paused. Close this and try again." : ""
+        }${
+          privateCount > 0
+            ? ` Their ${privateCount === 1 ? "1 private folder stays" : `${privateCount} private folders stay`} on the drives, hidden from everyone — you can delete them under "Private folders left behind" on this page.`
+            : ""
+        }`}
         confirmLabel="Remove"
         variant="danger"
         icon={User}
@@ -341,6 +516,21 @@ export default function UsersPage() {
           setError(null);
         }}
       />
+
+      <ConfirmModal
+        open={!!orphanToClean}
+        title="Delete private content?"
+        variant="danger"
+        confirmLabel="Delete permanently"
+        loading={cleanMutation.isPending}
+        onConfirm={() => orphanToClean && cleanMutation.mutate(orphanToClean.user_id)}
+        onClose={() => setOrphanToClean(null)}
+      >
+        <p className="text-primary text-sm">
+          {orphanToClean?.display_name || orphanToClean?.username}&apos;s{" "}
+          private folders and files deleted from them will be deleted permanently — Luna cannot get them back. Read-only and disconnected drives are skipped.
+        </p>
+      </ConfirmModal>
     </>
   );
 }
@@ -422,7 +612,7 @@ function EditUserModal({ open, user: target, busy, submitError, onClose, onSubmi
         />
         <p className="text-primary text-xs mt-1">
           {role === "admin"
-            ? "An Admin can add users, manage drives and settings, and see everything."
+            ? "An Admin can add users, manage drives and settings, and open everything except other people's private items."
             : "A Member can use whatever is shared with them."}
         </p>
       </div>

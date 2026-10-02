@@ -248,9 +248,9 @@ pub fn list_files(
     luna::list_files(&s.base_url, &s.token, drive_id, path)
 }
 
-pub fn mkdir(state: &AppState, drive_id: &str, path: &str) -> Result<(), String> {
+pub fn mkdir(state: &AppState, drive_id: &str, path: &str, private: bool) -> Result<(), String> {
     let s = require_session(state)?;
-    luna::mkdir(&s.base_url, &s.token, drive_id, path)
+    luna::mkdir(&s.base_url, &s.token, drive_id, path, private)
 }
 
 pub fn save_backup_job(
