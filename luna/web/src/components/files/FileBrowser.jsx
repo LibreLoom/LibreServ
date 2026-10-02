@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useContext, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import {
@@ -419,15 +419,17 @@ export default function FileBrowser({
 
   // Rows after the view controls: kind filter, name filter, then the sort.
   // Folders stay grouped on top for every sort — see compareEntries.
+  // Deferred: the input stays instant while a big folder re-filters behind it.
+  const deferredFilterText = useDeferredValue(filterText);
   const visibleEntries = useMemo(() => {
-    const query = filterText.trim().toLowerCase();
+    const query = deferredFilterText.trim().toLowerCase();
     return entries
       .filter((e) => (
         (kindFilter === "all" || (kindFilter === "dir" ? e.kind === "dir" : e.kind !== "dir"))
         && (!query || displayNameOf(e).toLowerCase().includes(query))
       ))
       .sort((a, b) => compareEntries(a, b, sortKey));
-  }, [entries, kindFilter, filterText, sortKey]);
+  }, [entries, kindFilter, deferredFilterText, sortKey]);
 
   const visiblePaths = useMemo(
     () => visibleEntries.map((e) => (fileRoot ? path : joinPath(path, e.name))),

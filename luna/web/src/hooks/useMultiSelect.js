@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 /**
  * @param {unknown} item
@@ -22,19 +22,24 @@ export function photoSelectionKey(item) {
 export default function useMultiSelect({ items = [], keyOf = photoSelectionKey } = {}) {
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState(/** @type {Set<string>} */ (new Set()));
-  const [anchorKey, setAnchorKey] = useState(/** @type {string|null} */ (null));
+  // The range anchor and the visible keys live in refs so `toggle` keeps one
+  // identity for the whole session — a toggle that changed on every click would
+  // re-render every thumbnail in the grid.
+  const anchorRef = useRef(/** @type {string|null} */ (null));
 
   const keysInView = useMemo(() => items.map((item) => keyOf(item)).filter(Boolean), [items, keyOf]);
+  const keysInViewRef = useRef(keysInView);
+  keysInViewRef.current = keysInView;
 
   const clear = useCallback(() => {
     setSelected(new Set());
-    setAnchorKey(null);
+    anchorRef.current = null;
   }, []);
 
   const exit = useCallback(() => {
     setSelectMode(false);
     setSelected(new Set());
-    setAnchorKey(null);
+    anchorRef.current = null;
   }, []);
 
   const enter = useCallback(() => {
@@ -46,14 +51,17 @@ export default function useMultiSelect({ items = [], keyOf = photoSelectionKey }
       const key = keyOf(item);
       if (!key) return;
       setSelectMode(true);
+      // Read before the updater runs: it executes later, after the anchor moves.
+      const keys = keysInViewRef.current;
+      const anchorKey = anchorRef.current;
       setSelected((prev) => {
         const next = new Set(prev);
-        if (range && anchorKey && keysInView.includes(anchorKey)) {
-          const a = keysInView.indexOf(anchorKey);
-          const b = keysInView.indexOf(key);
+        if (range && anchorKey && keys.includes(anchorKey)) {
+          const a = keys.indexOf(anchorKey);
+          const b = keys.indexOf(key);
           if (a >= 0 && b >= 0) {
             const [lo, hi] = a < b ? [a, b] : [b, a];
-            for (let i = lo; i <= hi; i += 1) next.add(keysInView[i]);
+            for (let i = lo; i <= hi; i += 1) next.add(keys[i]);
             return next;
           }
         }
@@ -61,9 +69,9 @@ export default function useMultiSelect({ items = [], keyOf = photoSelectionKey }
         else next.add(key);
         return next;
       });
-      setAnchorKey(key);
+      anchorRef.current = key;
     },
-    [anchorKey, keyOf, keysInView],
+    [keyOf],
   );
 
   const selectAllInView = useCallback(() => {

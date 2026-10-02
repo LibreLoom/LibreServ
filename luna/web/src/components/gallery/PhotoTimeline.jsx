@@ -117,6 +117,20 @@ export default function PhotoTimeline({
     });
   }, []);
 
+  // Stable handlers for the memoized thumbs: they read the latest props
+  // through a ref, so selecting one photo re-renders one thumb, not the grid.
+  const latest = useRef({ onOpen, onToggle, onLongPress });
+  latest.current = { onOpen, onToggle, onLongPress };
+  const open = useCallback((p) => latest.current.onOpen?.(p), []);
+  const toggle = useCallback((p, opts) => latest.current.onToggle?.(p, opts), []);
+  const longPress = useCallback((p) => latest.current.onLongPress?.(p), []);
+  const dragStart = useCallback(() => {
+    dragSelecting.current = true;
+  }, []);
+  const dragEnter = useCallback((p) => {
+    if (dragSelecting.current) latest.current.onToggle?.(p, { range: true });
+  }, []);
+
   const gridClass = COL_CLASS[columns] || COL_CLASS[6];
 
   return (
@@ -133,7 +147,7 @@ export default function PhotoTimeline({
             key={group.key}
             aria-labelledby={`day-${group.key}`}
           >
-            <div className="sticky top-0 z-10 mb-3 flex flex-wrap items-center gap-2 bg-primary/95 text-secondary px-1 py-2 backdrop-blur-sm">
+            <div className="sticky top-0 z-10 mb-3 flex flex-wrap items-center gap-2 surface-primary px-1 py-2">
               <button
                 type="button"
                 className="inline-flex h-7 w-7 items-center justify-center rounded-pill hover:bg-secondary hover:text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent motion-safe:transition-colors"
@@ -211,7 +225,7 @@ export default function PhotoTimeline({
                 isCollapsed ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"
               }`}
             >
-              <div className="min-h-0 overflow-hidden p-1 -m-1">
+              <div className="photo-day-grid min-h-0 overflow-hidden p-1 -m-1">
                 <div className={`grid gap-1 ${gridClass}`}>
                   {group.items.map(({ photo, index }) => {
                     const key = photoSelectionKey(photo);
@@ -222,23 +236,11 @@ export default function PhotoTimeline({
                         index={index}
                         selected={!!selectedKeys?.has(key)}
                         selectMode={selectMode}
-                        onOpen={selectMode ? undefined : onOpen}
-                        onToggle={onToggle}
-                        onLongPress={onLongPress}
-                        onDragSelectStart={
-                          selectMode
-                            ? () => {
-                                dragSelecting.current = true;
-                              }
-                            : undefined
-                        }
-                        onDragSelectEnter={
-                          selectMode
-                            ? (p) => {
-                                if (dragSelecting.current) onToggle?.(p, { range: true });
-                              }
-                            : undefined
-                        }
+                        onOpen={selectMode || !onOpen ? undefined : open}
+                        onToggle={onToggle ? toggle : undefined}
+                        onLongPress={onLongPress ? longPress : undefined}
+                        onDragSelectStart={selectMode ? dragStart : undefined}
+                        onDragSelectEnter={selectMode ? dragEnter : undefined}
                       />
                     );
                   })}

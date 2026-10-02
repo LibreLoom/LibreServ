@@ -1313,6 +1313,11 @@ select:focus:not(:focus-visible) {
 /* Long folders: rows far off screen skip layout and paint until scrolled
    near. The intrinsic height keeps the scrollbar steady; `auto` remembers
    each row's real height once seen. */
+.photo-day-grid {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 400px;
+}
+
 .file-row {
     content-visibility: auto;
     contain-intrinsic-size: auto 44px;

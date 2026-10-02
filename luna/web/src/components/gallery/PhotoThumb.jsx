@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { memo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { Check, Play } from "lucide-react";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
@@ -23,7 +23,7 @@ const LONG_PRESS_MS = 450;
  *   style?: object,
  * }} props
  */
-export default function PhotoThumb({
+function PhotoThumb({
   photo,
   onOpen = undefined,
   onToggle = undefined,
@@ -161,6 +161,8 @@ export default function PhotoThumb({
     </button>
   );
 }
+
+export default memo(PhotoThumb);
 
 PhotoThumb.propTypes = {
   photo: PropTypes.shape({
