@@ -6,6 +6,7 @@ import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
 import GalleryPage, { galleryUrl, parseGalleryHash } from "./GalleryPage";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
+import { ShortcutsProvider } from "@libreloom/ui/context/ShortcutsContext.jsx";
 
 const STATUS_OK = { scanning: false, pending: 0, busy: false };
 
@@ -121,14 +122,20 @@ function stubGalleryFetch({
   );
 }
 
-function renderGallery() {
+function renderGallery({ withShortcuts = false } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <ToastProvider>
     <QueryClientProvider client={client}>
       <MemoryRouter>
         <AuthProvider>
-          <GalleryPage />
+          {withShortcuts ? (
+            <ShortcutsProvider>
+              <GalleryPage />
+            </ShortcutsProvider>
+          ) : (
+            <GalleryPage />
+          )}
         </AuthProvider>
       </MemoryRouter>
     </QueryClientProvider>
@@ -328,6 +335,17 @@ describe("GalleryPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /Open albums/i }));
     expect(await screen.findByRole("button", { name: /^Family trip\b/i })).toBeInTheDocument();
     expect(screen.queryByText(/No photos you can open yet/i)).not.toBeInTheDocument();
+  });
+
+  it("focuses the photo search when / is pressed", async () => {
+    stubGalleryFetch();
+    renderGallery({ withShortcuts: true });
+    await screen.findByLabelText("one.jpg");
+    const input = screen.getByLabelText("Search photos");
+    expect(input).not.toHaveFocus();
+    await userEvent.keyboard("/");
+    await waitFor(() => expect(input).toHaveFocus());
+    expect(input).toHaveValue("");
   });
 
   it("defaults the URL hash to #library when none is set", async () => {

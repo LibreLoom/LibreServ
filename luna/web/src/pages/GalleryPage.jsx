@@ -743,7 +743,15 @@ export default function GalleryPage() {
   }, [selection]);
 
   // Beats the all-files search on `/`: here it means "search these photos".
-  useShortcut("/", () => setSearchOpen(true), {
+  useShortcut("/", () => {
+    setSearchOpen(true);
+    const input =
+      document.getElementById("photo-search") || document.getElementById("photo-search-mobile");
+    if (!input) return false;
+    input.focus();
+    input.select();
+    return true;
+  }, {
     label: "Search your photos",
     group: "Search",
     priority: 1,
