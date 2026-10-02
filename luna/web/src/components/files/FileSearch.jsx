@@ -598,7 +598,7 @@ export default function FileSearch() {
                   <ul
                     data-slot="file-search-list"
                     aria-busy={search.isUpdating || undefined}
-                    className="grid gap-2"
+                    className="grid grid-cols-[minmax(0,1fr)] gap-2"
                     onKeyDown={handleListKeyDown}
                   >
                     {search.hits.map((item, index) => (

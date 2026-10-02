@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Copy,
@@ -8,8 +8,12 @@ import {
   FolderInput,
   FolderOpen,
   Trash2,
+  Users,
+  Zap,
 } from "lucide-react";
+import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
+import CardButton from "@libreloom/ui/components/ui/CardButton.jsx";
 import { ActionTooltipGroup, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import PrivateBadge from "../private/PrivateBadge.jsx";
 import { ShareButton } from "../share/ShareSheet.jsx";
@@ -20,6 +24,25 @@ import { capsOnPath, memberFileHref, memberSearchHref } from "../../lib/shareTre
 import { CAP } from "../../lib/access.js";
 import { cn } from "@libreloom/ui/lib/utils.js";
 
+const SM_UP_QUERY = "(min-width: 640px)";
+
+/** Phones get one action button; a missing matchMedia (tests) counts as desktop. */
+function useIsSmUp() {
+  const read = () =>
+    typeof window === "undefined" || typeof window.matchMedia !== "function"
+      ? true
+      : window.matchMedia(SM_UP_QUERY).matches;
+  const [isSmUp, setIsSmUp] = useState(read);
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return undefined;
+    const mq = window.matchMedia(SM_UP_QUERY);
+    const onChange = () => setIsSmUp(mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  return isSmUp;
+}
+
 function folderOf(path) {
   return parentPath(path) ?? "";
 }
@@ -27,11 +50,12 @@ function folderOf(path) {
 /** `Drive / … / folder`, plus size and when it last changed. */
 function detailLine(item, driveLabel, isDir) {
   const folder = item.parent != null ? item.parent : folderOf(item.path);
-  const bits = [locationParts(driveLabel, folder).join(" / ")];
-  if (!isDir && item.size != null) bits.push(fmtSize(item.size));
-  const when = searchWhen(item.modified);
-  if (when) bits.push(when);
-  return { text: bits.join(" · "), full: [driveLabel, folder].filter(Boolean).join(" / ") };
+  const size = !isDir && item.size != null ? fmtSize(item.size) : "";
+  return {
+    path: locationParts(driveLabel, folder).join(" / "),
+    size,
+    when: searchWhen(item.modified) || "",
+    full: [driveLabel, folder].filter(Boolean).join(" / ") };
 }
 
 /**
@@ -64,6 +88,8 @@ export default function FileSearchRow({
   onTrash,
 }) {
   const isDir = item.kind === "dir";
+  const isSmUp = useIsSmUp();
+  const [sheetOpen, setSheetOpen] = useState(false);
   const actionsRef = useRef(/** @type {HTMLDivElement | null} */ (null));
   // The row link is the row's one Tab stop; ←/→ (see FileSearch) reach the
   // actions, so a long list isn't six Tab presses per row.
@@ -100,7 +126,7 @@ export default function FileSearchRow({
   return (
     <li
       data-slot="file-search-item"
-      className="file-search-row-enter"
+      className="file-search-row-enter min-w-0"
       style={{ animationDelay: `${Math.min(index, 8) * 28}ms` }}
     >
       <div
@@ -118,13 +144,13 @@ export default function FileSearchRow({
           className="absolute inset-0 z-0 rounded-large-element no-focus-outline"
           onClick={() => onNavigate("medium")}
         />
-        <div className="relative z-10 flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0 pointer-events-none">
+        <div className="relative z-10 flex items-center sm:flex-wrap gap-x-2 gap-y-1 min-w-0 pointer-events-none">
           {isDir ? (
             <Folder size={16} className="shrink-0" aria-hidden="true" />
           ) : (
             <FileIcon size={16} className="shrink-0" aria-hidden="true" />
           )}
-          <div className="min-w-0 flex-1 basis-40">
+          <div className="@container min-w-0 flex-1 sm:basis-40">
             <p className="flex items-center gap-1.5 min-w-0 text-secondary">
               <span className="font-mono text-sm truncate">
                 {parts.map((part, i) =>
@@ -139,21 +165,22 @@ export default function FileSearchRow({
               </span>
               {item.private ? <PrivateBadge size={12} /> : null}
             </p>
-            <p className="text-xs truncate text-secondary" title={detail.full}>
-              {detail.text}
+            {/* Short on room, the folder end matters most: cut the start of the path. */}
+            <p className="flex text-xs text-secondary" title={detail.full}>
+              <span className="min-w-0 truncate text-left" dir="rtl">
+                <span dir="ltr">{detail.path}</span>
+              </span>
+              {/* Size is the first thing to go when the row is narrow. */}
+              {detail.size && <span className="hidden shrink-0 whitespace-pre @[22rem]:inline">{` · ${detail.size}`}</span>}
+              {detail.when && <span className="shrink-0 whitespace-pre">{` · ${detail.when}`}</span>}
             </p>
           </div>
+          {isSmUp ? (
           <ActionTooltipGroup>
             <div
               ref={actionsRef}
               data-slot="file-search-actions"
-              // Phones: actions wrap under the name. Desktops with a mouse:
-              // they appear on hover or focus, so names get the whole row.
-              className={cn(
-                "flex items-center gap-1 shrink-0 pointer-events-auto max-sm:w-full",
-                "[@media(hover:hover)]:sm:opacity-0 [@media(hover:hover)]:sm:group-hover:opacity-100",
-                "[@media(hover:hover)]:sm:group-focus-within:opacity-100 motion-safe:transition-opacity",
-              )}
+              className="flex items-center gap-1 shrink-0 pointer-events-auto"
               onClick={(event) => event.stopPropagation()}
             >
               {!isDir && (
@@ -236,8 +263,72 @@ export default function FileSearchRow({
               )}
             </div>
           </ActionTooltipGroup>
+          ) : (
+            <div
+              ref={actionsRef}
+              data-slot="file-search-actions"
+              className="shrink-0 pointer-events-auto"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <Button
+                variant="outline"
+                surface="primary"
+                size="icon"
+                className="size-11"
+                aria-label={`Actions for ${item.name}`}
+                aria-haspopup="dialog"
+                onClick={() => setSheetOpen(true)}
+              >
+                <Zap size={24} aria-hidden="true" />
+              </Button>
+            </div>
+          )}
         </div>
       </div>
+      <ModalCard open={sheetOpen} title={item.name} size="sm" onClose={() => setSheetOpen(false)}>
+        {({ close }) => {
+          const run = (fn) => () => {
+            close();
+            fn();
+          };
+          return (
+            <div className="grid gap-2">
+              {!isDir && (
+                <CardButton action={href} actionLabel="Go to folder" icon={FolderOpen} align="start" className="mt-0" onClick={() => { close(); onNavigate(); }}>
+                  Go to folder
+                </CardButton>
+              )}
+              <CardButton
+                actionLabel="Download"
+                icon={Download}
+                align="start"
+                className="mt-0"
+                onClick={run(() => window.location.assign(downloadHref(item.drive_id, item.path)))}
+              >
+                Download
+              </CardButton>
+              {canShare && (
+                <CardButton actionLabel="Share" icon={Users} align="start" className="mt-0" onClick={run(() => onShare(item))}>
+                  Share
+                </CardButton>
+              )}
+              <CardButton actionLabel="Copy" icon={Copy} align="start" className="mt-0" onClick={run(() => onCopy("copy", item))}>
+                Copy
+              </CardButton>
+              {canEdit && (
+                <>
+                  <CardButton actionLabel="Move" icon={FolderInput} align="start" className="mt-0" onClick={run(() => onCopy("move", item))}>
+                    Move
+                  </CardButton>
+                  <CardButton variant="danger" actionLabel="Move to trash" icon={Trash2} align="start" className="mt-0 py-2" onClick={run(() => onTrash(item))}>
+                    Move to trash
+                  </CardButton>
+                </>
+              )}
+            </div>
+          );
+        }}
+      </ModalCard>
     </li>
   );
 }

@@ -194,6 +194,42 @@ describe("FileSearch", () => {
     expect(screen.getByRole("button", { name: /Move beach.jpg to trash/i })).toBeInTheDocument();
   });
 
+  it("shows one lightning-bolt button on phones that opens the actions", async () => {
+    const original = window.matchMedia;
+    window.matchMedia = (query) => /** @type {any} */ ({
+      matches: false,
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    });
+    try {
+      renderSearch([
+        {
+          drive_id: "d1",
+          path: "album/beach.jpg",
+          parent: "album",
+          name: "beach.jpg",
+          kind: "file",
+          size: 2048,
+          modified: 1,
+        },
+      ]);
+      await openSearchOverlay();
+      fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), {
+        target: { value: "beach" },
+      });
+      const bolt = await screen.findByRole("button", { name: "Actions for beach.jpg" });
+      expect(screen.queryByRole("button", { name: /Copy beach.jpg/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /Download beach.jpg/i })).not.toBeInTheDocument();
+      fireEvent.click(bolt);
+      expect(await screen.findByRole("button", { name: "Copy" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Download" })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Go to folder" })).toBeInTheDocument();
+    } finally {
+      window.matchMedia = original;
+    }
+  });
+
   it("keeps select= for a file the viewer can't open", async () => {
     renderSearch([
       {
@@ -613,7 +649,8 @@ describe("FileSearch", () => {
     await screen.findByRole("link", { name: /^Open Spain$/i });
     expect(screen.queryByRole("link", { name: /Go to folder for Spain/i })).not.toBeInTheDocument();
     // The middle of a long path collapses so the last folders stay visible.
-    expect(screen.getByText(/Photos Drive \/ … \/ b \/ c · /)).toBeInTheDocument();
+    expect(screen.getByText("Photos Drive / … / b / c")).toBeInTheDocument();
+    expect(screen.getAllByText(/^· /).length).toBeGreaterThan(0);
   });
 
   it("says when more matches exist than fit", async () => {
