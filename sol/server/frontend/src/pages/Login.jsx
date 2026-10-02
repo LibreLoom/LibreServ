@@ -61,7 +61,7 @@ function ForgotPasswordModal({ isOpen, onClose }) {
   if (!isOpen) return null;
 
   return (
-    <ModalCard title="Reset Password" onClose={onClose}>
+    <ModalCard title="Reset password" onClose={onClose}>
       {!sent ? (
         <>
           <p className="text-sm mb-4">
@@ -85,7 +85,7 @@ function ForgotPasswordModal({ isOpen, onClose }) {
               <Alert variant="error" message={error} className="mb-4" />
             )}
             <Button type="submit" disabled={loading} fullWidth>
-              {loading ? "Sending..." : "Send Reset Link"}
+              {loading ? "Sending..." : "Send reset link"}
             </Button>
           </form>
         </>

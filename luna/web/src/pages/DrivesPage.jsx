@@ -148,7 +148,7 @@ function DriveStorageBar({ summary }) {
             className="inline-block h-2 w-2 rounded-full surface-primary shrink-0"
             aria-hidden="true"
           />
-          <span className="text-xs font-mono uppercase tracking-widest">
+          <span className="text-xs font-mono">
             <TermHint content="How much room is left for new files on this drive.">
               Available storage
             </TermHint>
@@ -502,9 +502,7 @@ export default function DrivesPage() {
 
       {isAdmin && (
         <>
-          <h2 className="font-mono text-sm text-secondary mt-10 mb-4">
-            Unrecognized Drives
-          </h2>
+          <h2 className="font-mono text-sm text-secondary mt-10 mb-4">Unrecognized drives</h2>
           <div className="grid gap-5 md:grid-cols-2">
             {unknownDrives.map((drive) => (
               <DetectedCard

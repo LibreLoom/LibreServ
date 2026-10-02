@@ -518,7 +518,7 @@ export default function Navbar() {
                     className={cn(menuItemClasses, "hover:bg-primary", "hover:text-secondary", "text-left")}
                   >
                     <X size={ICON_SIZE.md} aria-hidden="true" />
-                    <span className="text-sm font-semibold">Sign Out</span>
+                    <span className="text-sm font-semibold">Sign out</span>
                   </button>
                 </div>
               </div>
@@ -605,7 +605,7 @@ export default function Navbar() {
               className={mobileMenuItemClasses}
             >
               <X size={ICON_SIZE.lg} aria-hidden="true" />
-              <span>Sign Out</span>
+              <span>Sign out</span>
             </button>
           </div>
         </nav>

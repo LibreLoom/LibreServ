@@ -101,7 +101,7 @@ export default function Table({
                       >
                         <span
                           className={cn(
-                            "font-mono whitespace-nowrap text-[13px] font-normal uppercase tracking-[0.14em]",
+                            "font-mono whitespace-nowrap text-[13px] font-normal",
                             headClassName,
                           )}
                         >
@@ -147,9 +147,9 @@ export default function Table({
                   scope="col"
                   className={cn(
                     // Column labels use the same eyebrow the dashboard stat
-                    // cards and MfaCard sections use: mono, uppercase, tracked
+                    // cards and MfaCard sections use: mono
                     // out and quiet, so the row pills stay the loud element.
-                    `${ALIGN[col.align] || ALIGN.left} px-3 pt-0.5 pb-2.5 font-mono whitespace-nowrap text-[15px] font-normal uppercase tracking-[0.14em] ${headClassName}`,
+                    `${ALIGN[col.align] || ALIGN.left} px-3 pt-0.5 pb-2.5 font-mono whitespace-nowrap text-[15px] font-normal ${headClassName}`,
                     col.hidden ? `hidden ${col.hidden}:table-cell` : "",
                     col.width || "",
                   )}

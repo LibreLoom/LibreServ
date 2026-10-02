@@ -96,9 +96,7 @@ export function ProgressFeedback({
       <div className="text-center space-y-4">
         <XCircle className="mx-auto text-secondary" size={48} />
         <div className="space-y-2">
-          <h2 className="font-mono text-2xl font-normal text-secondary">
-            Something went wrong
-          </h2>
+          <h2 className="font-mono text-2xl font-normal text-secondary">Something went wrong</h2>
           <p>
             {title || "Action"} couldn't be completed.
           </p>

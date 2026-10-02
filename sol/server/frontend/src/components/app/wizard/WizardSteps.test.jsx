@@ -127,7 +127,7 @@ describe("installation wizard steps", () => {
       />,
     );
 
-    expect(screen.getByText("Shared Account")).toBeVisible();
+    expect(screen.getByText("Shared account")).toBeVisible();
     expect(screen.getByText("1 GB")).toBeVisible();
     expect(screen.getByText("2 cores")).toBeVisible();
     expect(screen.getByText("5 GB")).toBeVisible();
@@ -177,7 +177,7 @@ describe("installation wizard steps", () => {
     );
     await user.click(screen.getByRole("button", { name: "Install" }));
     expect(screen.getByText("Port must be between 1 and 65535")).toBeVisible();
-    await user.click(screen.getByRole("button", { name: /Advanced Settings/ }));
+    await user.click(screen.getByRole("button", { name: /Advanced settings/ }));
     await user.click(screen.getByLabelText("Debug"));
     expect(onConfigChange).toHaveBeenCalledWith(
       expect.objectContaining({ debug: true }),
@@ -234,9 +234,9 @@ describe("installation wizard steps", () => {
       </>,
     );
 
-    expect(screen.getByText("Domain Required")).toBeVisible();
+    expect(screen.getByText("Domain required")).toBeVisible();
     await user.click(
-      screen.getByRole("button", { name: /Set Up Remote Access/ }),
+      screen.getByRole("button", { name: /Set up remote access/ }),
     );
     expect(navigateMock).toHaveBeenCalledWith("/settings/network");
     await user.click(

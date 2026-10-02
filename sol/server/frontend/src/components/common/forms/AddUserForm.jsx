@@ -185,7 +185,7 @@ export default function AddUserForm({ onSuccess }) {
           "Creating..."
         ) : (
           <>
-            Create User
+            Create user
             <ArrowRight size={ICON_SIZE.lg} aria-hidden="true" />
           </>
         )}

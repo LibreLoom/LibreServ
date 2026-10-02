@@ -398,7 +398,7 @@ export default function Navbar() {
                       className={cn(menuItemClasses, "hover:bg-primary", "hover:text-secondary")}
                     >
                       <Users size={ICON_SIZE.md} aria-hidden="true" />
-                      <span className="text-sm font-semibold">Manage Users</span>
+                      <span className="text-sm font-semibold">Manage users</span>
                     </NavLink>
                   )}
                   <NavLink
@@ -408,7 +408,7 @@ export default function Navbar() {
                   >
                     <Settings size={ICON_SIZE.md} aria-hidden="true" />
                     <span className="text-sm font-semibold">
-                      Manage Profile
+                      Manage profile
                     </span>
                   </NavLink>
                   <button
@@ -419,7 +419,7 @@ export default function Navbar() {
                     className={cn(menuItemClasses, "hover:bg-primary", "hover:text-secondary", "text-left")}
                   >
                     <X size={ICON_SIZE.md} aria-hidden="true" />
-                    <span className="text-sm font-semibold">Sign Out</span>
+                    <span className="text-sm font-semibold">Sign out</span>
                   </button>
                 </div>
               </div>
@@ -497,7 +497,7 @@ export default function Navbar() {
               className={cn("w-full", "justify-center", "border-6", "border-secondary", "py-4", navButtonClasses)}
             >
               <X size={ICON_SIZE.lg} aria-hidden="true" />
-              <span>Sign Out</span>
+              <span>Sign out</span>
             </button>
           </div>
         </nav>

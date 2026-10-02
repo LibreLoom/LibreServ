@@ -325,7 +325,7 @@ describe("GalleryPage", () => {
     });
     renderGallery();
     expect(await screen.findByText(/Shared photos are in Albums/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Open Albums/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Open albums/i }));
     expect(await screen.findByRole("button", { name: /^Family trip\b/i })).toBeInTheDocument();
     expect(screen.queryByText(/No photos you can open yet/i)).not.toBeInTheDocument();
   });

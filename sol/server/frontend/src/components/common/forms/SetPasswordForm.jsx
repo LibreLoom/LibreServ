@@ -94,7 +94,7 @@ export default function SetPasswordForm({ user, onSuccess, onCancel }) {
             htmlFor="newPassword"
             className="text-primary font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
           >
-            New Password
+            New password
           </label>
           <div className="relative">
           <Lock
@@ -133,7 +133,7 @@ export default function SetPasswordForm({ user, onSuccess, onCancel }) {
             htmlFor="confirmPassword"
             className="text-primary font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
           >
-            Confirm Password
+            Confirm password
           </label>
           <div className="relative">
           <Lock
@@ -176,7 +176,7 @@ export default function SetPasswordForm({ user, onSuccess, onCancel }) {
           Cancel
         </Button>
         <Button type="submit" variant="accent" loading={loading} className="flex-1">
-          {loading ? "Setting..." : "Set Password"}
+          {loading ? "Setting..." : "Set password"}
         </Button>
       </div>
     </form>

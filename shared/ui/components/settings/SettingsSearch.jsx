@@ -85,9 +85,7 @@ function preview(text) {
 export function SettingsSearchResults({ query, results, onPick }) {
   return (
     <div data-slot="settings-search-results" className="space-y-4">
-      <h1 className="sticky top-0 z-10 surface-primary pt-1 text-2xl font-mono font-normal text-secondary">
-        Search results
-      </h1>
+      <h1 className="sticky top-0 z-10 surface-primary pt-1 text-2xl font-mono font-normal text-secondary">Search results</h1>
       <p role="status" className="sr-only">
         {results ? `${results.length} ${results.length === 1 ? "match" : "matches"}` : "Searching settings"}
       </p>

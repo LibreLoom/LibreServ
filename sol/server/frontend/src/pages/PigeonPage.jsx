@@ -7,7 +7,7 @@ import pigeonImg from "../assets/pigeon.jpg";
 export default function PigeonPage() {
   return (
     <Page
-      title="A Wild Pigeon Appears"
+      title="A wild pigeon appears"
       headerClassName="mb-10"
       bottomContent={
         <p className="text-lg font-semibold">

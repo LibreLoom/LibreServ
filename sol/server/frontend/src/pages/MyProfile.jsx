@@ -97,7 +97,7 @@ export default function MyProfile() {
   };
 
   return (
-    <Page title="My Account" titleId="profile-title" headerClassName="mb-6" data-slot="my-profile">
+    <Page title="My account" titleId="profile-title" headerClassName="mb-6" data-slot="my-profile">
       {/* One column while the cards still fill the width; two once there is
           room, so a wide screen isn't ~900px of empty margin. */}
       <div className="mx-auto grid max-w-lg grid-cols-1 items-start gap-6 xl:max-w-5xl xl:grid-cols-2">
@@ -138,16 +138,16 @@ export default function MyProfile() {
                 className="w-full"
               >
                 <Save size={ICON_SIZE.md} aria-hidden="true" />
-                Save Email
+                Save email
               </Button>
             </form>
           </div>
         </Card>
 
-        <Card title="Change Password">
+        <Card title="Change password">
           <form onSubmit={handleChangePassword} className="space-y-3">
             <FormInput
-              label="Current Password"
+              label="Current password"
               name="old_password"
               type="password"
               value={pw.old}
@@ -162,7 +162,7 @@ export default function MyProfile() {
               disabled={pwSaving}
             />
             <FormInput
-              label="New Password"
+              label="New password"
               name="new_password"
               type="password"
               value={pw.new}
@@ -189,7 +189,7 @@ export default function MyProfile() {
               loading={pwSaving}
               className="w-full"
             >
-              Change Password
+              Change password
               <ArrowRight size={ICON_SIZE.md} aria-hidden="true" />
             </Button>
           </form>

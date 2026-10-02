@@ -164,7 +164,7 @@ export default function AccessControlSection({ instanceId, accessModel, appName 
           ) : (
             <Lock size={ICON_SIZE.xl} />
           )}
-          <h2 className="text-2xl font-mono font-normal">Access Control</h2>
+          <h2 className="text-2xl font-mono font-normal">Access control</h2>
         </div>
 
         <div className="space-y-6">

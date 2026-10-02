@@ -74,7 +74,7 @@ export function ActionResultModal({ result, onClose }) {
   };
 
   return (
-    <ModalCard data-slot="action-result-modal" title={result.success ? "Action Completed" : "Action Failed"} onClose={onClose}>
+    <ModalCard data-slot="action-result-modal" title={result.success ? "Action completed" : "Action failed"} onClose={onClose}>
       {({ close }) => {
         const closeHandler = /** @type {Function} */ (close);
         return (

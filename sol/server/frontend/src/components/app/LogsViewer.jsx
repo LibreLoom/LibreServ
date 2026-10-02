@@ -184,7 +184,7 @@ export default function LogsViewer({
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-current opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-current"></span>
                 </span>
-                Live Stream
+                Live stream
               </div>
             </>
           )}
@@ -213,7 +213,7 @@ export default function LogsViewer({
             <Toggle
               checked={autoScroll}
               onChange={setAutoScroll}
-              aria-label="Auto Scroll"
+              aria-label="Auto scroll"
               className="[&>div]:hidden"
             />
           </div>
@@ -270,7 +270,7 @@ export default function LogsViewer({
           <div className="flex items-center gap-3 shrink-0">
             <div className="flex items-center gap-3 px-4 py-1.5 rounded-pill border-2 border-primary/20 surface-secondary transition-colors focus-within:border-accent">
               <Toggle
-                label="Auto Scroll"
+                label="Auto scroll"
                 checked={autoScroll}
                 onChange={setAutoScroll}
                 iconOn={ArrowDownToLine}

@@ -76,7 +76,7 @@ function ShortcutsSheet({ open, onClose, registrations }) {
       <div className="space-y-5">
         {groups.map(([group, rows]) => (
           <section key={group} aria-label={group}>
-            <h3 className="font-mono text-xs uppercase tracking-wider mb-2">{group}</h3>
+            <h3 className="font-mono text-xs mb-2">{group}</h3>
             <ul className="space-y-1.5">
               {rows.map((row) => (
                 <li key={row.label} className="flex items-center justify-between gap-4 text-sm text-primary">

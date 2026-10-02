@@ -49,8 +49,8 @@ export default function StressIndexCard({ value, breakdownItems = [] }) {
     >
       <div className="p-6">
         <div className="flex items-baseline justify-between mb-3">
-          <div className="text-xs font-mono uppercase tracking-widest">
-            Server Stress Index
+          <div className="text-xs font-mono">
+            Server stress index
           </div>
           <div className={cn("text-xs font-mono", `text-${level.variant}`)}>
             {level.label}

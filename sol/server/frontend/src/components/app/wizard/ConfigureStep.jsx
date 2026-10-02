@@ -121,8 +121,8 @@ function ConfigureStep({ app, config, onConfigChange, onContinue, onBack }) {
 
       {basicFields.length > 0 && (
         <div className="space-y-4">
-          <p className="text-xs font-mono uppercase tracking-wide">
-            Application Settings
+          <p className="text-xs font-mono">
+            Application settings
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {basicFields.map((field) => (
@@ -154,12 +154,12 @@ function ConfigureStep({ app, config, onConfigChange, onContinue, onBack }) {
           <button
             type="button"
             onClick={() => setShowAdvanced(!showAdvanced)}
-            className="flex items-center gap-2 text-xs font-mono uppercase tracking-wide hover:text-secondary/70 motion-safe:transition-colors"
+            className="flex items-center gap-2 text-xs font-mono hover:text-secondary/70 motion-safe:transition-colors"
           >
             <span>
               {showAdvanced ? <ChevronUp size={ICON_SIZE.sm} /> : <ChevronDown size={ICON_SIZE.sm} />}
             </span>
-            Advanced Settings
+            Advanced settings
           </button>
 
           <AdvancedContent show={showAdvanced} advancedFields={advancedFields} config={config} handleFieldChange={handleFieldChange} errors={errors} />

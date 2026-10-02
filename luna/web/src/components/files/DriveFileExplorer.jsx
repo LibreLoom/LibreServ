@@ -136,7 +136,7 @@ export function UploadProgressList({ uploads, onCancel }) {
                   className="inline-block h-2 w-2 rounded-full surface-primary shrink-0"
                   aria-hidden="true"
                 />
-                <span className="text-xs font-mono uppercase tracking-widest shrink-0">
+                <span className="text-xs font-mono shrink-0">
                   Uploading
                 </span>
                 <Spinner size="sm" decorative className="text-primary shrink-0" />

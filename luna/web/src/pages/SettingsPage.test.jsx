@@ -142,7 +142,7 @@ describe("SettingsPage", () => {
     expect(screen.getByText(/Luna only installs updates when you tell it to/i)).toBeTruthy();
   });
 
-  it("splits Devices into Mobile App and Luna Desktop cards", async () => {
+  it("splits Devices into Mobile app and Luna Desktop cards", async () => {
     stubFetch("admin");
     const user = userEvent.setup();
     renderPage();
@@ -150,7 +150,7 @@ describe("SettingsPage", () => {
 
     await user.click(screen.getByRole("button", { name: /^Devices$/i }));
     expect(await screen.findByRole("heading", { level: 1, name: "Devices" })).toBeTruthy();
-    expect(screen.getByRole("heading", { level: 2, name: "Mobile App" })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 2, name: "Mobile app" })).toBeTruthy();
     expect(screen.getByRole("heading", { level: 2, name: "Luna Desktop" })).toBeTruthy();
     expect(screen.queryByRole("heading", { level: 2, name: "Desktop App" })).toBeNull();
     expect(screen.queryByRole("heading", { level: 2, name: "Devices" })).toBeNull();
@@ -187,10 +187,10 @@ describe("SettingsPage", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "Security" })).toBeTruthy();
   });
 
-  it("maps legacy /settings#remote hash to External Services", async () => {
+  it("maps legacy /settings#remote hash to External services", async () => {
     stubFetch("admin", true);
     renderPage("/settings#remote");
-    expect(await screen.findByRole("heading", { level: 1, name: "External Services" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { level: 1, name: "External services" })).toBeTruthy();
   });
 
   it("switches to Security when the Devices access-token link is clicked", async () => {
@@ -211,9 +211,9 @@ describe("SettingsPage", () => {
     stubFetch("user");
     renderPage();
     await screen.findByText("max");
-    expect(screen.getByText(/You're signed in as a Member\. Ask an Admin to change External Services or About/i)).toBeTruthy();
+    expect(screen.getByText(/You're signed in as a Member\. Ask an Admin to change External services or About/i)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^About$/i })).toBeNull();
-    expect(screen.queryByRole("button", { name: /External Services/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /External services/i })).toBeNull();
   });
 
   it("does not offer a Local Network category", async () => {
@@ -224,11 +224,11 @@ describe("SettingsPage", () => {
     expect(screen.getByRole("button", { name: /^About$/i })).toBeTruthy();
   });
 
-  it("hides External Services when Luna Connect is inactive on the device", async () => {
+  it("hides External services when Luna Connect is inactive on the device", async () => {
     stubFetch("admin", false);
     renderPage();
     await screen.findByText("max");
-    expect(screen.queryByRole("button", { name: /External Services/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /External services/i })).toBeNull();
     expect(screen.getByRole("button", { name: /^About$/i })).toBeTruthy();
   });
 

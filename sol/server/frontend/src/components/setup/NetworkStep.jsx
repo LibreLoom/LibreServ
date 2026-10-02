@@ -211,9 +211,7 @@ export default function NetworkStep({ name, onContinue }) {
     <div className="flex flex-col items-center text-center py-2" data-slot="setup-network-step">
       <Router size={40} className="mx-auto mb-4" />
 
-      <h1 className="font-mono text-3xl font-normal text-primary tracking-tight mb-3">
-        Get online
-      </h1>
+      <h1 className="font-mono text-3xl font-normal text-primary tracking-tight mb-3">Get online</h1>
 
       <p className="text-primary text-sm leading-relaxed max-w-md mb-8">
         {online

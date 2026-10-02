@@ -189,7 +189,7 @@ export default function UsersPage() {
                     },
                     {
                       key: "last_login",
-                      label: "Last Login",
+                      label: "Last login",
                       render: (row) => <Pill variant="muted">{formatLastLogin(row.last_login, use12HourTime)}</Pill>,
                     },
                     {
@@ -251,7 +251,7 @@ export default function UsersPage() {
 
       <ConfirmModal
         open={showVerification && !!userToDelete}
-        title="Delete User"
+        title="Delete user"
         message={`Are you sure you want to delete user "${userToDelete?.name}"? This action cannot be undone.`}
         confirmLabel="Delete"
         variant="danger"

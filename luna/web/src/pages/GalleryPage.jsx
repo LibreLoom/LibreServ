@@ -1698,10 +1698,10 @@ export default function GalleryPage() {
         <EmptyState
           icon={ImageIcon}
           title="Shared photos are in Albums"
-          description="An Admin shared albums with you. Open Albums to see them."
+          description="An Admin shared albums with you. Open albums to see them."
           action={
             <Button variant="primary" onClick={() => handleSegmentChange("albums")}>
-              Open Albums
+              Open albums
             </Button>
           }
         />

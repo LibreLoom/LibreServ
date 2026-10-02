@@ -420,7 +420,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
                   aria-label={`Opening ${name}`}
                 >
                   <div className="flex items-center gap-3 text-primary">
-                    <p className="font-mono text-sm uppercase tracking-widest">
+                    <p className="font-mono text-sm">
                       Opening
                     </p>
                     <Spinner size="md" decorative />

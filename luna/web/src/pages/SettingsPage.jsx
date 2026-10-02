@@ -172,7 +172,7 @@ export default function SettingsPage() {
             <SettingsSidebar
               user={user}
               categories={categories}
-              memberHint="You're signed in as a Member. Ask an Admin to change External Services or About."
+              memberHint="You're signed in as a Member. Ask an Admin to change External services or About."
               userHref={(u) => (u.role === "admin" ? "/settings/users" : null)}
               deviceName="this Luna"
               activeCategory={activeCategory}
@@ -187,9 +187,7 @@ export default function SettingsPage() {
         <div className="flex-1 overflow-y-auto min-h-0">
           {!showMobileContent || searching ? (
             <div className="p-4 pt-6 pb-24">
-              <h1 className="text-xl font-mono font-normal text-secondary mb-4 animate-in fade-in duration-150">
-                Settings
-              </h1>
+              <h1 className="text-xl font-mono font-normal text-secondary mb-4 animate-in fade-in duration-150">Settings</h1>
               <div className="mb-3">{searchBox}</div>
               {searching ? (
                 <SettingsSearchResults query={query} results={results} onPick={pickHit} />
@@ -197,7 +195,7 @@ export default function SettingsPage() {
               <SettingsSidebar
                 user={user}
                 categories={categories}
-                memberHint="You're signed in as a Member. Ask an Admin to change External Services or About."
+                memberHint="You're signed in as a Member. Ask an Admin to change External services or About."
                 userHref={(u) => (u.role === "admin" ? "/settings/users" : null)}
                 deviceName="this Luna"
                 activeCategory={activeCategory}

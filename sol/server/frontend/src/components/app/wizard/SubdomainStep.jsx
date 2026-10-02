@@ -120,7 +120,7 @@ function SubdomainStep({ app, domain, onSubdomainChange, onContinue, onBack, loa
   return (
     <div className="space-y-6" data-slot="subdomain-step">
       <div className="text-center space-y-2">
-        <h2 className="font-mono text-2xl font-normal text-secondary">Choose Subdomain</h2>
+        <h2 className="font-mono text-2xl font-normal text-secondary">Choose subdomain</h2>
         {noDomainConfigured ? (
           <p className="text-sm">
             No domain configured. App will be accessible locally only.

@@ -106,7 +106,7 @@ export default function ResetPasswordForm({ user, onSuccess, onCancel }) {
             htmlFor="oldPassword"
             className="text-secondary font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
           >
-            Current Password
+            Current password
           </label>
           <div className="relative">
             <Lock
@@ -146,7 +146,7 @@ export default function ResetPasswordForm({ user, onSuccess, onCancel }) {
             htmlFor="newPassword"
             className="text-secondary font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
           >
-            New Password
+            New password
           </label>
           <div className="relative">
             <Lock
@@ -203,7 +203,7 @@ export default function ResetPasswordForm({ user, onSuccess, onCancel }) {
           loading={loading}
           className="flex-1"
         >
-          {loading ? "Resetting..." : "Reset Password"}
+          {loading ? "Resetting..." : "Reset password"}
         </Button>
       </div>
     </form>

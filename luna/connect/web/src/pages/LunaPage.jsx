@@ -38,7 +38,7 @@ function HostnameHero({ hostname, copied, onCopy }) {
       className="rounded-large-element bg-muted border border-border p-5 sm:p-6 text-foreground"
       data-testid="luna-hostname-hero"
     >
-      <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground mb-3">
+      <p className="font-mono text-xs text-muted-foreground mb-3">
         Public address
       </p>
       <div className="flex items-start gap-3">
@@ -263,7 +263,7 @@ export default function LunaPage() {
               className="rounded-large-element bg-muted border border-border px-5 py-4 space-y-3"
               data-testid="luna-device-token"
             >
-              <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
+              <p className="font-mono text-xs text-muted-foreground">
                 Device token
               </p>
               <p className="font-mono text-xl tracking-widest break-all">{shownCode}</p>

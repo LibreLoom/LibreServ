@@ -1091,7 +1091,7 @@ export default function OnboardingPage() {
                 goTo("account", "left");
               }}
             >
-              Go Back
+              Go back
             </button>
           </p>
         </div>
@@ -1138,7 +1138,7 @@ export default function OnboardingPage() {
         <ShakeTarget shake={error} loading={loading}>
           <Input
             id="code"
-            className="font-mono uppercase tracking-widest"
+            className="font-mono"
             value={code}
             onChange={(e) => setCode(e.target.value)}
             placeholder="****-****-****-****-****"
@@ -1534,7 +1534,7 @@ export default function OnboardingPage() {
         <div
           className="fixed bottom-3 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted border border-border text-xs font-mono shadow-lg text-foreground"
           role="region"
-          aria-label="Dev State Switcher"
+          aria-label="Dev state switcher"
         >
           <span className="text-muted-foreground mr-1">Preview:</span>
           <button

@@ -46,7 +46,7 @@ export default function Models() {
 
   return (
     <Layout>
-      <h2 className="font-mono text-2xl mb-2">AI Models</h2>
+      <h2 className="font-mono text-2xl mb-2">AI models</h2>
       <p className="text-muted-foreground mb-6">
         Configure AI inference providers and models. No provider URLs are hardcoded — all are loaded from the database.
         Free-tier models are configured separately from paid models.
@@ -60,7 +60,7 @@ export default function Models() {
       {tab === "providers" && (
         <div>
           <Button size="sm" className="mb-4" onClick={() => setShowProviderForm(!showProviderForm)}>
-            {showProviderForm ? "Cancel" : "Add Provider"}
+            {showProviderForm ? "Cancel" : "Add provider"}
           </Button>
 
           {showProviderForm && (
@@ -101,7 +101,7 @@ export default function Models() {
       {tab === "models" && (
         <div>
           <Button size="sm" className="mb-4" onClick={() => setShowModelForm(!showModelForm)}>
-            {showModelForm ? "Cancel" : "Add Model"}
+            {showModelForm ? "Cancel" : "Add model"}
           </Button>
 
           {showModelForm && (

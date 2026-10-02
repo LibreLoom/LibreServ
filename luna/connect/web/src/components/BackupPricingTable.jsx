@@ -11,9 +11,7 @@ export function BackupPricingTable({ surface = "secondary", className = "" }) {
   return (
     <section className={`space-y-3 ${className}`.trim()} aria-labelledby="backup-pricing-heading">
       <div className="flex items-center gap-2">
-        <h4 id="backup-pricing-heading" className="font-mono text-xs uppercase tracking-widest text-foreground">
-          Pricing
-        </h4>
+        <h4 id="backup-pricing-heading" className="font-mono text-xs text-foreground">Pricing</h4>
         <InfoHint
           surface={surface}
           delayMs={0}

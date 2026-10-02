@@ -230,9 +230,7 @@ export default function UsersPage() {
         {(orphans.length > 0 || orphanOffline.length > 0) && (
           <section className="mb-4" aria-label="Private folders left behind">
             <Card surface="primary" padding>
-              <h2 className="font-mono text-secondary text-sm uppercase tracking-widest">
-                Private folders left behind
-              </h2>
+              <h2 className="font-mono text-secondary text-sm">Private folders left behind</h2>
               {orphanOffline.length > 0 && (
                 <p className="text-secondary text-sm mt-2">
                   {orphanOffline.length === 1

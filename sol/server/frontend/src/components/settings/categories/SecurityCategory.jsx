@@ -172,7 +172,7 @@ export default function SecurityCategory() {
     <div className="space-y-4" data-slot="security-category">
       <SettingsCard
         icon={Activity}
-        title="Activity Log"
+        title="Activity log"
         padding={false}
         index={0}
         headerActions={

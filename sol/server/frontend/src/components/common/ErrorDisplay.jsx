@@ -63,7 +63,7 @@ export function FormErrorSummary({ errors, onRetry }) {
       </ul>
       {onRetry && (
         <Button variant="secondary" surface="primary" onClick={onRetry}>
-          Try Again
+          Try again
         </Button>
       )}
     </ErrorDisplay>

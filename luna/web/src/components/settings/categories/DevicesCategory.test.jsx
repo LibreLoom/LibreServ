@@ -15,10 +15,10 @@ function renderDevices() {
 }
 
 describe("DevicesCategory", () => {
-  it("shows Mobile App and Luna Desktop cards with download and security links", () => {
+  it("shows Mobile app and Luna Desktop cards with download and security links", () => {
     renderDevices();
 
-    expect(screen.getByRole("heading", { name: "Mobile App" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Mobile app" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Luna Desktop" })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Desktop App" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "Devices" })).toBeNull();

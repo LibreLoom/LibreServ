@@ -508,9 +508,7 @@ export default function GalleryFilterSheet({
     >
       <div className="space-y-4" data-slot="gallery-filter-sheet">
         <section className={sectionClass} aria-labelledby="filter-when" id="filter-when">
-          <h3 className="font-mono text-sm">
-            When
-          </h3>
+          <h3 className="font-mono text-sm">When</h3>
           <p className="text-sm">Show photos taken between these dates.</p>
           <div className="flex flex-wrap gap-2">
             {[
@@ -754,9 +752,7 @@ export default function GalleryFilterSheet({
         )}
 
         <section className={sectionClass} aria-labelledby="filter-look" id="filter-look">
-          <h3 id="filter-look-heading" className="font-mono text-sm">
-            Look
-          </h3>
+          <h3 id="filter-look-heading" className="font-mono text-sm">Look</h3>
           <div className="space-y-2">
             <p className="text-sm">Type</p>
             <div className="flex flex-wrap gap-2">
@@ -917,9 +913,7 @@ export default function GalleryFilterSheet({
         </section>
 
         <section className={sectionClass} aria-labelledby="filter-tod">
-          <h3 id="filter-tod" className="font-mono text-sm">
-            Time of day
-          </h3>
+          <h3 id="filter-tod" className="font-mono text-sm">Time of day</h3>
           <div className="flex flex-wrap gap-2">
             {Object.entries(TIME_PRESETS).map(([key, preset]) => (
               <Button
@@ -963,9 +957,7 @@ export default function GalleryFilterSheet({
         </section>
 
         <section className={sectionClass} aria-labelledby="filter-saved">
-          <h3 id="filter-saved" className="font-mono text-sm">
-            Saved filters
-          </h3>
+          <h3 id="filter-saved" className="font-mono text-sm">Saved filters</h3>
           <p className="text-sm">Save this set to reuse later on this browser.</p>
           <div className="flex flex-wrap gap-2">
             <input

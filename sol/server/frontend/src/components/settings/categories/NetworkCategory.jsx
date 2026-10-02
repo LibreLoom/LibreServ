@@ -137,11 +137,11 @@ function ReachabilityCard({ report, loading, onRetry, connectivity }) {
               Your apps need a protected connection out to the internet. The simple fix: LibreServ Connect gives this device an address on the internet — no router changes needed.
             </p>
             <p className="text-xs text-primary leading-relaxed">
-              In External Services: activate <strong>Connect</strong> at the top, then open the <strong>Tunnel</strong> card and turn it on.
+              In External services: activate <strong>Connect</strong> at the top, then open the <strong>Tunnel</strong> card and turn it on.
             </p>
             <div>
               <Button asChild variant="primary" size="sm" surface="secondary">
-                <a href="#external_services">Open External Services →</a>
+                <a href="#external_services">Open External services →</a>
               </Button>
             </div>
 
@@ -230,7 +230,7 @@ function ReachabilityCard({ report, loading, onRetry, connectivity }) {
             </div>
             <div className="border-t border-primary/10 pt-3 space-y-2">
               <p className="text-xs text-primary leading-relaxed">
-                Prefer to skip the router setup? Open the <strong>Tunnel</strong> card in External Services and turn it on — no router changes needed. You'll need either a LibreServ Connect account or a Cloudflare Tunnel token.
+                Prefer to skip the router setup? Open the <strong>Tunnel</strong> card in External services and turn it on — no router changes needed. You'll need either a LibreServ Connect account or a Cloudflare Tunnel token.
               </p>
               <Button asChild variant="outline" size="sm" surface="secondary">
                 <a href="#external_services-tunnel">Open Tunnel setup →</a>
@@ -247,7 +247,7 @@ function ReachabilityCard({ report, loading, onRetry, connectivity }) {
             </p>
             <ol className="list-decimal list-inside space-y-2 text-xs text-primary leading-relaxed">
               <li><strong>Port forwarding</strong> — tell your router to send web traffic (ports 80 and 443) to this device. In your router settings, look for <strong>Port Forwarding</strong> (sometimes called <strong>NAT</strong>).</li>
-              <li><strong>A protected connection</strong> — open the <a href="#external_services-tunnel" className="underline">Tunnel</a> card in External Services and turn it on. No router changes needed.</li>
+              <li><strong>A protected connection</strong> — open the <a href="#external_services-tunnel" className="underline">Tunnel</a> card in External services and turn it on. No router changes needed.</li>
             </ol>
           </div>
         )}
@@ -257,13 +257,13 @@ function ReachabilityCard({ report, loading, onRetry, connectivity }) {
             <p className="font-mono text-xs text-primary">About your network</p>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               {report.stacks?.v4?.public_addr && (
-                <ValueDisplay label="Public Address" value={report.stacks.v4.public_addr} />
+                <ValueDisplay label="Public address" value={report.stacks.v4.public_addr} />
               )}
               {report.stacks?.v6?.public_addr && (
-                <ValueDisplay label="IPv6 Address" value={report.stacks.v6.public_addr} />
+                <ValueDisplay label="IPv6 address" value={report.stacks.v6.public_addr} />
               )}
               {report.nat?.type && report.nat.type !== "unknown" && (
-                <ValueDisplay label="Network Type" value={report.nat.type} mono={false} />
+                <ValueDisplay label="Network type" value={report.nat.type} mono={false} />
               )}
               {report.upnp?.discovered && (
                 <ValueDisplay
@@ -336,7 +336,7 @@ AppPlanRow.propTypes = { plan: PropTypes.object };
 
 function AppsCard({ plans, index }) {
   return (
-    <SettingsCard icon={PlugZap} title="Your Apps" padding={false} index={index}>
+    <SettingsCard icon={PlugZap} title="Your apps" padding={false} index={index}>
       <div className="divide-y divide-primary/10">
         {plans.map((plan) => <AppPlanRow key={plan.app_id} plan={plan} />)}
       </div>
@@ -396,7 +396,7 @@ function ExternalServicesLinkRow({ label, description }) {
   return (
     <SettingsRow label={label} description={description}>
       <Button asChild variant="outline" size="sm" surface="secondary">
-        <a href="#external_services">External Services →</a>
+        <a href="#external_services">External services →</a>
       </Button>
     </SettingsRow>
   );
@@ -634,7 +634,7 @@ export default function NetworkCategory({ settings }) {
         <UPnPCard upnp={upnpStatus} index={cardIndex++} />
 
         {caddyStatus && (
-          <SettingsCard icon={Server} title="Web Server" index={cardIndex++}>
+          <SettingsCard icon={Server} title="Web server" index={cardIndex++}>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
               <ValueDisplay
                 label="Status"
@@ -654,7 +654,7 @@ export default function NetworkCategory({ settings }) {
                     : <span className="text-warning">Invalid</span>
                 }
               />
-              <ValueDisplay label="Web Addresses" value={String(caddyStatus.routes || routes.length)} />
+              <ValueDisplay label="Web addresses" value={String(caddyStatus.routes || routes.length)} />
               <ValueDisplay label="Domains" value={String(caddyStatus.domains?.length || 0)} />
             </div>
           </SettingsCard>
@@ -691,7 +691,7 @@ export default function NetworkCategory({ settings }) {
         onClose={() => { setDeleteModalOpen(false); setRouteToDelete(null); }}
         onConfirm={handleDeleteConfirm}
         icon={Trash2}
-        title="Delete Route"
+        title="Delete route"
         message={routeToDelete
           ? `Delete route for ${routeToDelete.subdomain ? `${routeToDelete.subdomain}.${routeToDelete.domain}` : routeToDelete.domain}?`
           : ""}

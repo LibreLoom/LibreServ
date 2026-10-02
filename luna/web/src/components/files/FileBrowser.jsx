@@ -1238,7 +1238,7 @@ export default function FileBrowser({
                 style={{ gap: FOLDER_ROW_GAP }}
               >
                 <div className="shrink-0">
-                  <p className={`text-xs font-mono uppercase tracking-widest ${fg} mb-1`}>
+                  <p className={`text-xs font-mono ${fg} mb-1`}>
                     Current folder
                   </p>
                   <div className={`flex items-center gap-2 font-mono text-sm ${fg}`}>
@@ -1273,7 +1273,7 @@ export default function FileBrowser({
               )}
             >
               <div className="min-w-0 flex-1">
-                <p className={`text-xs font-mono uppercase tracking-widest ${fg} mb-1`}>
+                <p className={`text-xs font-mono ${fg} mb-1`}>
                   Current folder
                 </p>
                 <div

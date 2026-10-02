@@ -55,7 +55,7 @@ export default function RoutesCard({
     <Card
       data-slot="network-routes"
       icon={Globe}
-      title="Network Routes"
+      title="Network routes"
       padding={false}
       headerActions={
         <Button
@@ -64,7 +64,7 @@ export default function RoutesCard({
           onClick={onAdd}
         >
           <Plus size={ICON_SIZE.sm} aria-hidden="true" />
-          Add Route
+          Add route
         </Button>
       }
       className="animate-in fade-in slide-in-from-bottom-2"

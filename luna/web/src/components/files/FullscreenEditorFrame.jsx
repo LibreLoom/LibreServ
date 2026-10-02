@@ -615,7 +615,7 @@ export default function FullscreenEditorFrame({
       <ModalCard
         open={confirmClose}
         onClose={() => setConfirmClose(false)}
-        title="Document Unsaved"
+        title="Document unsaved"
         showCloseButton={false}
         overlayClassName={NESTED_OVERLAY_CLASS}
         initialFocusRef={cancelRef}

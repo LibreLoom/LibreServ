@@ -303,7 +303,7 @@ export default function EpubReader({ bytes, driveId, path, fill = false }) {
         {phase === "loading" && !error && (
           <div className="absolute inset-0 flex items-center justify-center gap-3 text-secondary">
             <Spinner size="md" decorative />
-            <p className="font-mono text-sm uppercase tracking-widest">Preparing pages</p>
+            <p className="font-mono text-sm">Preparing pages</p>
           </div>
         )}
         {error && (
@@ -325,7 +325,7 @@ export default function EpubReader({ bytes, driveId, path, fill = false }) {
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex shrink-0 items-center justify-between gap-2 p-3">
-                <p className="font-mono text-sm uppercase tracking-widest">Contents</p>
+                <p className="font-mono text-sm">Contents</p>
                 <Button
                   variant="ghost"
                   surface="secondary"

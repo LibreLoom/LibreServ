@@ -91,7 +91,7 @@ export default function Login() {
               <ShakeTarget shake={error} loading={loading}>
                 <div>
                   <Label htmlFor="totp" error={error} shake={error} loading={loading}>
-                    Authenticator Code
+                    Authenticator code
                   </Label>
                   <Input id="totp" type="text" value={totpCode} onChange={(e) => setTotpCode(e.target.value)} placeholder="000000" maxLength={6} autoFocus />
                 </div>
@@ -99,7 +99,7 @@ export default function Login() {
             )}
             {error && <p className="text-sm text-destructive">{error}</p>}
             <Button type="submit" className="w-full" size="lg" loading={loading}>
-              {needs2FA ? "Verify" : mode === "seed" ? "Create Admin" : "Sign In"}
+              {needs2FA ? "Verify" : mode === "seed" ? "Create Admin" : "Sign in"}
             </Button>
           </form>
           {mode === "login" && !needs2FA && (

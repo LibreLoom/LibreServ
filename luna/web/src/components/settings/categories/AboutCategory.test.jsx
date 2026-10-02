@@ -137,26 +137,26 @@ describe("AboutCategory", () => {
     expect(await screen.findByDisplayValue("http://192.168.1.20")).toBeTruthy();
     expect(screen.queryByText(/None yet/i)).toBeNull();
     expect(screen.queryByText(/Waiting for an address/i)).toBeNull();
-    expect(await screen.findByRole("heading", { name: "System Updates" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "System updates" })).toBeTruthy();
     expect(await screen.findByRole("button", { name: /Check for updates/i })).toBeTruthy();
     expect(screen.getByText("Default source")).toBeTruthy();
     expect(screen.getByText("LibreLoom/LibreServ")).toBeTruthy();
-    expect(await screen.findByRole("heading", { name: "System Checks" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "System checks" })).toBeTruthy();
   });
 
   it("orders the About page: updates, support, addresses, advanced, checks, then Luna", async () => {
     renderPage(stubFetch());
-    await screen.findByRole("heading", { name: "System Checks" });
+    await screen.findByRole("heading", { name: "System checks" });
     const about = document.querySelector("[data-slot='about-category']");
     expect(about).toBeTruthy();
     const headings = Array.from(about.querySelectorAll("h2")).map((el) => el.textContent);
     const idx = (re) => headings.findIndex((t) => re.test(t));
     const order = [
-      /System Updates/i,
+      /System updates/i,
       /Support Luna/i,
       /Where to open Luna/i,
       /Advanced/i,
-      /System Checks/i,
+      /System checks/i,
       /^Luna$/i,
     ];
     for (const re of order) expect(idx(re)).toBeGreaterThanOrEqual(0);
@@ -178,7 +178,7 @@ describe("AboutCategory", () => {
       return baseFetch(path, options);
     });
     renderPage(fetchImpl);
-    await screen.findByRole("heading", { name: "System Checks" });
+    await screen.findByRole("heading", { name: "System checks" });
 
     const toggle = screen.getByRole("button", { name: /Open source licenses/i });
     expect(toggle).toHaveAttribute("aria-expanded", "false");

@@ -103,14 +103,14 @@ export default function SystemUpdatesCard({ index = 0 }) {
     <div data-slot="system-updates-card">
       <SettingsCard
         icon={Download}
-        title="System Updates"
+        title="System updates"
         padding={false}
         index={index}
       >
         <div className="px-5 py-5">
           <div className="flex items-start justify-between gap-4 mb-4">
             <div className="flex-1">
-              <div className="text-sm mb-1">Current Version</div>
+              <div className="text-sm mb-1">Current version</div>
               <div className="text-lg font-mono text-primary">
                 {getVersionDisplay()}
               </div>
@@ -186,7 +186,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
                 ) : (
                   <>
                     <Download size={ICON_SIZE.md} />
-                    Update Now
+                    Update now
                   </>
                 )}
               </Button>
@@ -211,7 +211,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
         onClose={() => setShowUpdateModal(false)}
         onConfirm={handleApplyUpdate}
         icon={Download}
-        title="Apply Update"
+        title="Apply update"
         message={
           updateInfo
             ? `Update to version ${updateInfo.latest_version} will download and install. The system will restart automatically.`

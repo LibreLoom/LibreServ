@@ -43,7 +43,7 @@ function FactoryResetCard({ index = 2, className = "" }) {
 
   return (
     <div data-slot="factory-reset-card">
-      <SettingsCard icon={AlertTriangle} title="Factory Reset" index={index} className={className}>
+      <SettingsCard icon={AlertTriangle} title="Factory reset" index={index} className={className}>
         <p className="text-sm text-primary mb-4">
           Reset this device to factory defaults. <strong>This will delete all data and settings.</strong>
         </p>
@@ -51,7 +51,7 @@ function FactoryResetCard({ index = 2, className = "" }) {
           variant="danger"
           onClick={() => setModalOpen(true)}
         >
-          Factory Reset This Device
+          Factory reset this device
         </Button>
       </SettingsCard>
 
@@ -64,7 +64,7 @@ function FactoryResetCard({ index = 2, className = "" }) {
         }}
         onConfirm={handleFactoryReset}
         icon={AlertTriangle}
-        title="Factory Reset This Device"
+        title="Factory reset this device"
         variant="danger"
         confirmLabel={loading ? "Resetting..." : "Reset"}
         confirmIcon={loading ? Loader2 : undefined}

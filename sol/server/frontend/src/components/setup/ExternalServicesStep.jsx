@@ -27,7 +27,7 @@ const SERVICES = [
  *    tab, then shows a focused paste-your-key view. If the popup was blocked,
  *    a fallback link is shown.
  * 2. "Set up on your own" — skips to MFA. The user configures each service
- *    individually later in Settings → External Services.
+ *    individually later in Settings → External services.
  */
 export default function ExternalServicesStep({ onActivate, onSkip }) {
   const [mode, setMode] = useState(null); // null | "connect"
@@ -67,9 +67,7 @@ export default function ExternalServicesStep({ onActivate, onSkip }) {
       <>
       <div className="flex flex-col items-center text-center py-4" data-slot="external-services">
         <Globe size={48} className="mx-auto mb-4" />
-        <h1 className="font-mono text-3xl font-normal text-primary tracking-tight mb-3">
-          Connect to the outside world
-        </h1>
+        <h1 className="font-mono text-3xl font-normal text-primary tracking-tight mb-3">Connect to the outside world</h1>
         <p className="text-sm leading-relaxed max-w-md mb-2">
           LibreServ works on its own. But a few external services make it
           much more useful — and harder to accidentally lock yourself out.
@@ -164,9 +162,7 @@ export default function ExternalServicesStep({ onActivate, onSkip }) {
   return (
     <div className="flex flex-col items-center text-center py-4" data-slot="external-services-connect">
       <Key size={48} className="mx-auto mb-4" />
-      <h1 className="font-mono text-3xl font-normal text-primary tracking-tight mb-3">
-        Paste your Connect key
-      </h1>
+      <h1 className="font-mono text-3xl font-normal text-primary tracking-tight mb-3">Paste your Connect key</h1>
       <p className="text-sm leading-relaxed max-w-md mb-6">
         We've opened the Connect setup in a new tab. Complete the signup there,
         then copy the Connect key from the final step and paste it below.

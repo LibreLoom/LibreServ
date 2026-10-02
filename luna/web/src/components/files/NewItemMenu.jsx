@@ -178,7 +178,7 @@ export default function NewItemMenu({ onPick, ids, allowPrivate = false, surface
               return (
               <div key={group.label || "items"}>
                 {showGroupLabels && group.label ? (
-                  <p className="px-4 pt-2.5 pb-1 font-mono text-xs uppercase tracking-widest text-primary">
+                  <p className="px-4 pt-2.5 pb-1 font-mono text-xs text-primary">
                     {group.label}
                   </p>
                 ) : null}

@@ -300,8 +300,8 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
 
   if (!open && !isClosing) return null;
 
-  const title = mode === "create" ? "Add Route" : "Edit Route";
-  const submitLabel = mode === "create" ? "Add Route" : "Save Changes";
+  const title = mode === "create" ? "Add route" : "Edit route";
+  const submitLabel = mode === "create" ? "Add route" : "Save changes";
 
   return (
     <ModalCard
@@ -319,7 +319,7 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
               onClick={() => setConfirmClose(false)}
               className="flex-1"
             >
-              Continue Saving
+              Continue saving
             </Button>
             <Button
               variant="accent"

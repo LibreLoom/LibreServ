@@ -706,9 +706,7 @@ function BuilderSession({
                     <h3
                       id="form-settings-title"
                       className="px-2 pt-1 font-mono text-base font-normal text-primary"
-                    >
-                      Settings
-                    </h3>
+                    >Settings</h3>
 
                     <SettingsGroup title="Taking answers">
                       <Toggle

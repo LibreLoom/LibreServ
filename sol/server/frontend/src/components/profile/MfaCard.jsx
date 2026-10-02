@@ -365,7 +365,7 @@ export default function MfaCard({ onMethodEnabled, onComplete, embedded = false 
   // transition) and pop-in runs once, at the size the card will keep.
   if (!entered) return null;
 
-  return <Card title="Two-Factor Authentication">{body}</Card>;
+  return <Card title="Two-factor authentication">{body}</Card>;
 }
 
 // --- Enrollment flow per method type (shared by MfaCard + setup wizard) ---
@@ -1012,7 +1012,7 @@ export function MfaSetupWizard({ onComplete, smtpConfigured = true, onSessionExp
     return (
       <div key="phase-choose" className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
         <div>
-          <p className="font-mono text-xs uppercase tracking-[0.18em] mb-3">
+          <p className="font-mono text-xs mb-3">
             Step 1 — Choose a method
           </p>
           {loadingAvail && (
@@ -1078,7 +1078,7 @@ export function MfaSetupWizard({ onComplete, smtpConfigured = true, onSessionExp
     return (
       <div key="phase-backup" className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
         <div>
-          <p className="font-mono text-xs uppercase tracking-[0.18em] mb-3">
+          <p className="font-mono text-xs mb-3">
             Step 3 — Save your backup codes
           </p>
           <p className="text-sm mb-4">
@@ -1159,7 +1159,7 @@ export function MfaSetupWizard({ onComplete, smtpConfigured = true, onSessionExp
   return (
     <div key="phase-setup" className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
       <div>
-        <p className="font-mono text-xs uppercase tracking-[0.18em] mb-3">
+        <p className="font-mono text-xs mb-3">
           Step 2 — Set up {selectedType ? TYPE_META[selectedType].label.toLowerCase() : "your method"}
         </p>
       </div>

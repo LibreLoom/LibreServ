@@ -51,7 +51,7 @@ export default function AIServiceModal({ open, onClose, onSaved, service, connec
     service?.state === "connected"
       ? "Connected"
       : service?.state === "byo"
-        ? "Bring Your Own"
+        ? "Bring your own"
         : service?.state === "unavailable"
           ? "Not in Plan"
           : "Disabled";
@@ -85,7 +85,7 @@ export default function AIServiceModal({ open, onClose, onSaved, service, connec
   }
 
   return (
-    <ModalCard title="AI Assistant" onClose={onClose} size="md" loading={loading} data-slot="ai-service-modal">
+    <ModalCard title="AI assistant" onClose={onClose} size="md" loading={loading} data-slot="ai-service-modal">
       {({ close }) => (
         <div className="p-5 space-y-5">
           <div className="flex items-start gap-3 pb-4 border-b border-primary/10">
@@ -175,7 +175,7 @@ export default function AIServiceModal({ open, onClose, onSaved, service, connec
                 </ShakeTarget>
               </div>
               <div>
-                <label className="block text-xs font-medium mb-1.5 px-4">Agent Model</label>
+                <label className="block text-xs font-medium mb-1.5 px-4">Agent model</label>
                 <ShakeTarget shake={error}>
                 {modelOptions.length > 0 ? (
                   <Dropdown
@@ -201,7 +201,7 @@ export default function AIServiceModal({ open, onClose, onSaved, service, connec
                 </p>
               </div>
               <div>
-                <label className="block text-xs font-medium mb-1.5 px-4">Review Model</label>
+                <label className="block text-xs font-medium mb-1.5 px-4">Review model</label>
                 <ShakeTarget shake={error}>
                 {modelOptions.length > 0 ? (
                   <Dropdown

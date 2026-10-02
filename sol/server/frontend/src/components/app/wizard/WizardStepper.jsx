@@ -14,7 +14,7 @@ function WizardStepper({ currentStep, hasSubdomainStep }) {
     if (hasSubdomainStep) {
       baseSteps.push({ id: 3, label: "Network" });
     } else {
-      baseSteps.push({ id: 3, label: "Domain Required" });
+      baseSteps.push({ id: 3, label: "Domain required" });
     }
 
     baseSteps.push(

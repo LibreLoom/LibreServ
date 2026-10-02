@@ -24,7 +24,7 @@ const FREQUENCY_OPTIONS = [
     label: "Normal",
     description: "Batch non-critical, instant for critical",
   },
-  { value: "digest", label: "Daily Digest", description: "Send daily summary" },
+  { value: "digest", label: "Daily digest", description: "Send daily summary" },
 ];
 
 const NOTIFICATION_OPTIONS = [
@@ -131,16 +131,16 @@ export default function NotificationsCategory({ settings, securitySettings, onSe
       <SettingsCard icon={Mail} title={<>Email <InfoHint content="LibreServ sends notifications through a mail provider (SMTP)." /></>} padding={false} index={0}>
         <SettingsRow
           label="Email provider configuration"
-          description={smtpConfigured ? "Connected — change provider in External Services" : "Not configured — set up in External Services"}
+          description={smtpConfigured ? "Connected — change provider in External services" : "Not configured — set up in External services"}
         >
           <Button asChild variant="outline" size="sm" surface="secondary">
-            <a href="#external_services">External Services →</a>
+            <a href="#external_services">External services →</a>
           </Button>
         </SettingsRow>
       </SettingsCard>
 
       {smtpConfigured && (
-        <SettingsCard icon={Mail} title="Test Email" padding={false} index={1}>
+        <SettingsCard icon={Mail} title="Test email" padding={false} index={1}>
           <div className="px-4 py-3">
             <div className="rounded-large-element border border-accent p-4">
               <div className="flex items-center justify-between">
@@ -150,7 +150,7 @@ export default function NotificationsCategory({ settings, securitySettings, onSe
                   </div>
                   <div>
                     <div className="font-medium text-primary text-sm">
-                      Send Test Notification
+                      Send test notification
                     </div>
                     <div className="text-xs mt-0.5">
                       Send a test message to check that email is set up
@@ -167,7 +167,7 @@ export default function NotificationsCategory({ settings, securitySettings, onSe
                   ) : (
                     <>
                       <Mail size={ICON_SIZE.sm} />
-                      Send Test
+                      Send test
                     </>
                   )}
                 </Button>
@@ -179,7 +179,7 @@ export default function NotificationsCategory({ settings, securitySettings, onSe
 
       <SettingsCard
         icon={Bell}
-        title="Notification Preferences"
+        title="Notification preferences"
         padding={false}
         index={2}
       >
@@ -195,7 +195,7 @@ export default function NotificationsCategory({ settings, securitySettings, onSe
                 },
               })
             }
-            label="Enable Notifications"
+            label="Enable notifications"
             description="Receive email notifications"
           />
 
@@ -222,7 +222,7 @@ export default function NotificationsCategory({ settings, securitySettings, onSe
 
               <div>
                 <div className="font-medium text-primary mb-3">
-                  Security Notifications
+                  Security notifications
                 </div>
                 <CheckboxOptionGroup
                   options={NOTIFICATION_OPTIONS}
@@ -255,7 +255,7 @@ export default function NotificationsCategory({ settings, securitySettings, onSe
 
               <div>
                 <div className="font-medium text-primary mb-3">
-                  User Management
+                  User management
                 </div>
                 <CheckboxOptionGroup
                   options={USER_MANAGEMENT_OPTIONS}
@@ -269,7 +269,7 @@ export default function NotificationsCategory({ settings, securitySettings, onSe
 
               <div>
                 <div className="font-medium text-primary mb-3">
-                  System Health Notifications
+                  System health notifications
                 </div>
                 <CheckboxOptionGroup
                   options={HEALTH_NOTIFICATION_OPTIONS}

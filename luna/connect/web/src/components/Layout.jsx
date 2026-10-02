@@ -58,7 +58,7 @@ export function Layout({ children }) {
           <Button variant="ghost" size="sm" className="w-full justify-start" onClick={toggle}>
             <Sun className="h-4 w-4 dark:hidden" />
             <Moon className="h-4 w-4 hidden dark:block" />
-            Toggle Theme
+            Toggle theme
           </Button>
           <Button
             variant="ghost"
@@ -70,7 +70,7 @@ export function Layout({ children }) {
             }}
           >
             <LogOut className="h-4 w-4" />
-            Sign Out
+            Sign out
           </Button>
         </div>
       </aside>
