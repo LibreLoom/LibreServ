@@ -666,13 +666,13 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
             )}
 
             {currentAuthField.inlineError && (
-              <p className="text-xs text-error mt-2.5" role="alert">
+              <p className="inline-block text-xs text-primary bg-error/20 border border-error/30 rounded-pill px-3 py-1 mt-2.5" role="alert">
                 {currentAuthField.inlineError}
               </p>
             )}
 
             {currentAuthField.name === "confirm_password" && confirm && !confirmOk && (
-              <p className="text-xs text-error mt-2.5">
+              <p className="inline-block text-xs text-primary bg-error/20 border border-error/30 rounded-pill px-3 py-1 mt-2.5">
                 Passwords don&rsquo;t match
               </p>
             )}
