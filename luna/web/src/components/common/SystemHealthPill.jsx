@@ -107,10 +107,12 @@ export default function SystemHealthPill() {
 
   if (!hasIssues) {
     return (
-      <Pill variant="success" data-slot="system-health-pill">
-        <CheckCircle size={ICON_SIZE.xs} strokeWidth={2.5} aria-hidden="true" />
-        <span className="font-medium">Everything looks good</span>
-      </Pill>
+      <span data-slot="system-health-pill" data-header-item>
+        <Pill variant="success">
+          <CheckCircle size={ICON_SIZE.xs} strokeWidth={2.5} aria-hidden="true" />
+          <span className="font-medium">Everything looks good</span>
+        </Pill>
+      </span>
     );
   }
 
@@ -119,7 +121,7 @@ export default function SystemHealthPill() {
   const countText = `${count} ${noun}${count !== 1 ? "s" : ""}`;
 
   return (
-    <div className="relative" ref={containerRef} data-slot="system-health-pill">
+    <div className="relative" ref={containerRef} data-slot="system-health-pill" data-header-item>
       <button
         ref={buttonRef}
         type="button"

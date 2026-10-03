@@ -131,4 +131,39 @@ describe("HeaderCard auto-split", () => {
       /overflow-x-hidden/,
     );
   });
+
+  it("slides the title to its new place when a side item disappears", async () => {
+    vi.useFakeTimers();
+    const animate = vi.fn();
+    HTMLElement.prototype.animate = animate;
+    let titleLeft = 300;
+    const rectOf = (el) =>
+      el.tagName === "H1"
+        ? { left: titleLeft, top: 0, width: 100, right: titleLeft + 100, bottom: 0, height: 0 }
+        : { left: 0, top: 0, width: 900, right: 900, bottom: 0, height: 0 };
+    const spy = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function () {
+      return /** @type {any} */ (rectOf(this));
+    });
+
+    const { rerender } = render(
+      <HeaderCard title="Home" leftContent={<span data-header-item>Tip</span>} rightContent={<span>OK</span>} />,
+    );
+    await act(async () => {
+      vi.advanceTimersByTime(60);
+      observers.forEach((cb) => cb([], /** @type {ResizeObserver} */ ({})));
+    });
+    expect(animate).not.toHaveBeenCalled();
+
+    titleLeft = 200;
+    rerender(<HeaderCard title="Home" leftContent={<span>Tip</span>} rightContent={<span>OK</span>} />);
+    await act(async () => {
+      observers.forEach((cb) => cb([], /** @type {ResizeObserver} */ ({})));
+    });
+
+    expect(animate).toHaveBeenCalledTimes(1);
+    expect(animate.mock.calls[0][0][0].transform).toBe("translate(100px, 0px)");
+    spy.mockRestore();
+    // @ts-expect-error cleanup test polyfill
+    delete HTMLElement.prototype.animate;
+  });
 });

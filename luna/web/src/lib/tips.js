@@ -30,6 +30,30 @@ export const TIPS = [
     when: hasMouse,
   },
   {
+    id: "share-link",
+    text: "Share a file with a link, and add a password or expiry date if you like",
+  },
+  {
+    id: "photo-albums",
+    text: "Select photos and choose Add to album to group them",
+  },
+  {
+    id: "photo-favorites",
+    text: "Favorite a photo to find it again under Favorites in Photos",
+  },
+  {
+    id: "photo-places",
+    text: "Photos with a location show up on a map under Places",
+  },
+  {
+    id: "whiteboard",
+    text: "Sketch an idea: in Files, choose New, then Whiteboard",
+  },
+  {
+    id: "custom-colors",
+    text: "Pick your own colors in Settings → Appearance",
+  },
+  {
     id: "touch-select-photos",
     text: "Touch and hold a photo to select several at once",
     when: hasTouch,

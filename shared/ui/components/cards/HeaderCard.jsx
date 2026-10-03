@@ -6,6 +6,10 @@ import Card from "./Card";
 const CARD_PAD_X = 40;
 /** `gap-3` between title / side chrome in the combined row. */
 const ROW_GAP = 12;
+/** How long the title and `data-header-item` elements take to slide to their new place. */
+const SHIFT_MS = 300;
+const SHIFT_EASING = "cubic-bezier(0.2, 0, 0, 1)";
+
 /** Extra room required before collapsing a split back to one pill (anti-flicker). */
 const UNSPLIT_SLACK = 24;
 
@@ -56,6 +60,48 @@ export default function HeaderCard({
   const split = hasSides && measuredSplit;
   const [isMultiline, setIsMultiline] = useState(false);
 
+  /** Where each moving element sat after the last layout, relative to the card. */
+  const shiftRectsRef = useRef(/** @type {Map<Element, { x: number, y: number }>} */ (new Map()));
+  const shiftWidthRef = useRef(0);
+
+  // When an item appears or disappears, the title (and any `data-header-item`
+  // pill) is already at its new spot by the time this runs. Slide it there
+  // from where it was instead of jumping. Skipped when the card itself was
+  // resized (window drag), where following the layout live is what you want.
+  const slideToNewLayout = useCallback(() => {
+    const container = containerRef.current;
+    const previous = shiftRectsRef.current;
+    const next = new Map();
+    if (!container || split) {
+      shiftRectsRef.current = next;
+      return;
+    }
+    const origin = container.getBoundingClientRect();
+    const resized = Math.abs(origin.width - shiftWidthRef.current) > 0.5;
+    shiftWidthRef.current = origin.width;
+    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    const movers = [titleRef.current, ...container.querySelectorAll("[data-header-item]")];
+    for (const el of movers) {
+      if (!el) continue;
+      if (typeof el.getAnimations === "function") el.getAnimations().forEach((a) => a.cancel());
+      const rect = el.getBoundingClientRect();
+      // Centers, so a title that grows or shrinks beside its neighbours still
+      // reads as one smooth slide.
+      const at = { x: rect.left - origin.left + rect.width / 2, y: rect.top - origin.top };
+      next.set(el, at);
+      const before = previous.get(el);
+      if (!before || resized || reduceMotion || typeof el.animate !== "function") continue;
+      const dx = before.x - at.x;
+      const dy = before.y - at.y;
+      if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
+      el.animate(
+        [{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "translate(0, 0)" }],
+        { duration: SHIFT_MS, easing: SHIFT_EASING },
+      );
+    }
+    shiftRectsRef.current = next;
+  }, [split]);
+
   const remeasure = useCallback(() => {
     const container = containerRef.current;
     const probe = probeRef.current;
@@ -93,10 +139,14 @@ export default function HeaderCard({
     if (!container) return;
 
     const timeoutId = window.setTimeout(remeasure, 50);
+    slideToNewLayout();
     /** @type {ResizeObserver | null} */
     let observer = null;
     if (typeof ResizeObserver !== "undefined") {
-      observer = new ResizeObserver(remeasure);
+      observer = new ResizeObserver(() => {
+        remeasure();
+        slideToNewLayout();
+      });
       observer.observe(container);
       if (probe) observer.observe(probe);
     }
@@ -107,7 +157,7 @@ export default function HeaderCard({
       observer?.disconnect();
       window.removeEventListener("resize", remeasure);
     };
-  }, [hasSides, split, remeasure, title, leftContent, rightContent, children]);
+  }, [hasSides, split, remeasure, slideToNewLayout, title, leftContent, rightContent, children]);
 
   const titleClasses = cn(
     "font-mono text-2xl font-normal tracking-tight text-center min-w-0",

@@ -42,7 +42,7 @@ export default function TipPill() {
       value=""
       onChange={onChoose}
       renderTrigger={({ toggle, onKeyDown }) => (
-        <div data-slot="tip-pill" onKeyDown={onKeyDown}>
+        <div data-slot="tip-pill" data-header-item onKeyDown={onKeyDown}>
           <LayeredPill
             icon={<Lightbulb size={ICON_SIZE.xs} aria-hidden="true" />}
             actionIcon={<X size={ICON_SIZE.xs} aria-hidden="true" />}

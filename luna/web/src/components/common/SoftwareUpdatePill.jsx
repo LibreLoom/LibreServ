@@ -21,6 +21,7 @@ export default function SoftwareUpdatePill() {
       to="/settings#about"
       onClick={() => haptic("light")}
       data-slot="software-update-pill"
+      data-header-item
       className="rounded-pill no-focus-outline focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 motion-safe:transition-transform active:motion-safe:scale-95"
       aria-label={`Software update ${version} available. Open Settings to install.`}
     >
