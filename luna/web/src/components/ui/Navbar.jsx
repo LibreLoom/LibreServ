@@ -20,8 +20,8 @@ import { useShortcut, useShortcutsSheet } from "@libreloom/ui/context/ShortcutsC
 const TRANSITION = {
   duration: "duration-200",
   ease: "ease-out",
-  base: "motion-safe:transition-all duration-300",
-  full: "motion-safe:transition-all duration-300 ease-out",
+  base: "motion-safe:transition-[color,background-color,border-color,box-shadow,opacity,translate,scale,rotate,visibility] duration-300",
+  full: "motion-safe:transition-[color,background-color,border-color,box-shadow,opacity,translate,scale,rotate,visibility] duration-300 ease-out",
 };
 
 const navButtonBaseClasses = cn(
@@ -544,9 +544,9 @@ export default function Navbar() {
         aria-expanded={isMobileMenuOpen}
         aria-controls={mobileMenuId}
       >
-        <span className={cn("absolute", "w-6", "h-[3px]", "surface-primary", "rounded-full", "transition-all", "duration-400", "ease-[cubic-bezier(0.34,1.56,0.64,1)]", isMobileMenuOpen ? "translate-y-0 rotate-45" : "-translate-y-2")} />
-        <span className={cn("absolute", "w-6", "h-[3px]", "surface-primary", "rounded-full", "transition-all", "duration-400", "ease-[cubic-bezier(0.34,1.56,0.64,1)]", isMobileMenuOpen ? "opacity-0 scale-0" : "opacity-100 scale-100")} />
-        <span className={cn("absolute", "w-6", "h-[3px]", "surface-primary", "rounded-full", "transition-all", "duration-400", "ease-[cubic-bezier(0.34,1.56,0.64,1)]", isMobileMenuOpen ? "translate-y-0 -rotate-45" : "translate-y-2")} />
+        <span className={cn("absolute", "w-6", "h-[3px]", "surface-primary", "rounded-full", "transition-[translate,rotate,scale,opacity]", "duration-400", "ease-[cubic-bezier(0.34,1.56,0.64,1)]", isMobileMenuOpen ? "translate-y-0 rotate-45" : "-translate-y-2")} />
+        <span className={cn("absolute", "w-6", "h-[3px]", "surface-primary", "rounded-full", "transition-[translate,rotate,scale,opacity]", "duration-400", "ease-[cubic-bezier(0.34,1.56,0.64,1)]", isMobileMenuOpen ? "opacity-0 scale-0" : "opacity-100 scale-100")} />
+        <span className={cn("absolute", "w-6", "h-[3px]", "surface-primary", "rounded-full", "transition-[translate,rotate,scale,opacity]", "duration-400", "ease-[cubic-bezier(0.34,1.56,0.64,1)]", isMobileMenuOpen ? "translate-y-0 -rotate-45" : "translate-y-2")} />
       </button>
       )}
 
