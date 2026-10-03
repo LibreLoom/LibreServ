@@ -138,7 +138,7 @@ function PublicShareSession() {
       (list) => {
         if (list.some((e) => e.isIntersecting)) loadMore();
       },
-      { rootMargin: "400px" },
+      { rootMargin: "1000px" },
     );
     io.observe(el);
     return () => io.disconnect();

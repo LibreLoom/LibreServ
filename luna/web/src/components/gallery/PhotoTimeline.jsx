@@ -255,7 +255,7 @@ export default function PhotoTimeline({
       (entries) => {
         if (entries.some((e) => e.isIntersecting)) onLoadMore?.();
       },
-      { rootMargin: "600px" },
+      { rootMargin: "1400px" },
     );
     io.observe(el);
     return () => io.disconnect();
