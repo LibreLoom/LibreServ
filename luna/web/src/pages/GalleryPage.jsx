@@ -746,8 +746,8 @@ export default function GalleryPage() {
   // Beats the all-files search on `/`: here it means "search these photos".
   useShortcut("/", () => {
     setSearchOpen(true);
-    const input =
-      document.getElementById("photo-search") || document.getElementById("photo-search-mobile");
+    const input = /** @type {HTMLInputElement | null} */ (
+      document.getElementById("photo-search") || document.getElementById("photo-search-mobile"));
     if (!input) return false;
     input.focus();
     input.select();

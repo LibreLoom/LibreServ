@@ -22,7 +22,7 @@ export function searchUrl(q, kind = "all") {
  * @typedef {{
  *   drive_id: string, path: string, parent: string, name: string,
  *   kind: string, size: number, modified: number,
- *   match: "name" | "close",
+ *   match: "name" | "close", private?: boolean,
  * }} SearchHit
  * @typedef {{
  *   scanning: boolean, drives_total: number, drives_done: number,

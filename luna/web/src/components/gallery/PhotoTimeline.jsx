@@ -42,7 +42,7 @@ const COL_CLASS = {
  * selecting a photo or loading the next page only re-renders the days it
  * touches, not every day on the page.
  */
-const DaySection = memo(function DaySection({
+const DaySection = memo(/** @param {any} props */ function DaySection({
   group,
   isCollapsed,
   selectedKeys,
@@ -176,7 +176,11 @@ const DaySection = memo(function DaySection({
   );
 }, daySectionEqual);
 
-/** Same day, same photos, same selection within it, same view settings. */
+/**
+ * Same day, same photos, same selection within it, same view settings.
+ * @param {any} prev
+ * @param {any} next
+ */
 function daySectionEqual(prev, next) {
   for (const k of Object.keys(next)) {
     if (k === "group" || k === "selectedKeys") continue;
