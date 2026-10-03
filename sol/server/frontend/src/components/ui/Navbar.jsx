@@ -83,6 +83,7 @@ export default function Navbar() {
   const firstNavLinkRef = useRef(null);
   const dialogRef = useRef(null);
   const userMenuRef = useRef(null);
+  const userMenuPointerRef = useRef("");
   const mobileMenuId = "mobile-nav-menu";
 
   const [position, setPosition] = useState({ x: null, y: null });
@@ -271,8 +272,8 @@ export default function Navbar() {
     };
   }, []);
 
-  // Close the user menu on outside click or Escape, so it works as a
-  // click-toggle (Fitts's Law: hover-only menus are unreachable on touch).
+  // The user menu opens on mouse hover; touch and keyboard toggle it by click.
+  // Close it on outside click or Escape.
   useEffect(() => {
     if (!isUserMenuOpen) return;
     const onPointerDown = (e) => {
@@ -369,14 +370,31 @@ export default function Navbar() {
             <div className="flex items-center gap-6 text-sm font-sans justify-center flex-1">
               {navButtonsElements}
             </div>
-            <div className="group flex items-center gap-2 relative" ref={userMenuRef}>
+            <div
+              className="group flex items-center gap-2 relative"
+              ref={userMenuRef}
+              onPointerEnter={(e) => {
+                if (e.pointerType === "mouse") setIsUserMenuOpen(true);
+              }}
+              onPointerLeave={(e) => {
+                if (e.pointerType === "mouse") setIsUserMenuOpen(false);
+              }}
+            >
               <button
                 type="button"
                 className={cn("font-semibold", "text-sm", "inline-block", "min-w-[6ch]", "max-w-[18ch]", "truncate", "text-left", TRANSITION.full, user?.username ? "opacity-100 translate-y-0" : "opacity-0 translate-y-1", "translate-y-[-0.5px]")}
                 aria-label="User menu"
                 aria-haspopup="menu"
                 aria-expanded={isUserMenuOpen}
-                onClick={() => setIsUserMenuOpen((v) => !v)}
+                onPointerDown={(e) => {
+                  userMenuPointerRef.current = e.pointerType;
+                }}
+                onClick={() => {
+                  // A mouse click lands while hover already opened the menu, so keep it open.
+                  if (userMenuPointerRef.current === "mouse") setIsUserMenuOpen(true);
+                  else setIsUserMenuOpen((v) => !v);
+                  userMenuPointerRef.current = "";
+                }}
               >
                 {user?.username || ""}
               </button>
