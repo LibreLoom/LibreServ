@@ -1,4 +1,4 @@
-import { Keyboard, User, X } from "lucide-react";
+import { User, X } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { cn } from "../../lib/utils.js";
@@ -525,21 +525,6 @@ export default function Navbar({ brand, items, user, onLogout, menuItems = [], s
                         <span className="text-sm font-semibold">{item.label}</span>
                       </NavLink>
                     ))}
-                  {shortcutsSheet && (
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={() => {
-                        haptic("light");
-                        setIsUserMenuOpen(false);
-                        shortcutsSheet.open();
-                      }}
-                      className={cn(menuItemClasses, "hover:bg-primary", "hover:text-secondary", "text-left")}
-                    >
-                      <Keyboard size={ICON_SIZE.md} aria-hidden="true" />
-                      <span className="text-sm font-semibold">Keyboard shortcuts</span>
-                    </button>
-                  )}
                   <button
                     type="button"
                     role="menuitem"
@@ -553,6 +538,9 @@ export default function Navbar({ brand, items, user, onLogout, menuItems = [], s
                     <X size={ICON_SIZE.md} aria-hidden="true" />
                     <span className="text-sm font-semibold">Sign out</span>
                   </button>
+                  {shortcutsSheet && (
+                    <p className="px-3 pt-1 text-sm">Press ? for keyboard shortcuts</p>
+                  )}
                 </div>
               </div>
             </div>
