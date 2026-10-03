@@ -50,6 +50,7 @@ export default function TipPill() {
             actionLabel={<span className="sr-only">Hide tips</span>}
             actionAriaLabel="Hide tips"
             actionHaptic={false}
+            noWrap
             onAction={toggle}
           >
             {tip.text}

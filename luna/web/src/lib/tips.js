@@ -7,7 +7,8 @@ const CHANGE_EVENT = "luna:tips-changed";
 const MIN_GAP_MS = 20 * 60 * 60 * 1000;
 
 /**
- * Every tip must teach something a person can use right now. `when` hides a
+ * Every tip must teach something a person can use right now, in about 30
+ * characters so the pill stays on one line on a phone. `when` hides a
  * tip on devices where it can't apply (a keyboard tip on a phone).
  *
  * @typedef {{ id: string, text: string, when?: () => boolean }} Tip
@@ -16,46 +17,46 @@ const MIN_GAP_MS = 20 * 60 * 60 * 1000;
 export const TIPS = [
   {
     id: "keyboard-shortcuts",
-    text: "Press ? to see all keyboard shortcuts",
+    text: "Press ? for shortcuts",
     when: hasMouse,
   },
   {
     id: "drag-to-upload",
-    text: "Drag files from your computer into a folder to upload them",
+    text: "Drag in files to upload them",
     when: hasMouse,
   },
   {
     id: "drag-to-move",
-    text: "Drag a file onto a folder to move it there",
+    text: "Drag files to folders to move",
     when: hasMouse,
   },
   {
     id: "share-link",
-    text: "Share a file with a link, and add a password or expiry date if you like",
+    text: "Share links can have a password",
   },
   {
     id: "photo-albums",
-    text: "Select photos and choose Add to album to group them",
+    text: "Select photos, add to an album",
   },
   {
     id: "photo-favorites",
-    text: "Favorite a photo to find it again under Favorites in Photos",
+    text: "Favorite a photo to revisit it",
   },
   {
     id: "photo-places",
-    text: "Photos with a location show up on a map under Places",
+    text: "See photos on a map in Places",
   },
   {
     id: "whiteboard",
-    text: "Sketch an idea: in Files, choose New, then Whiteboard",
+    text: "Sketch ideas: New → Whiteboard",
   },
   {
     id: "custom-colors",
-    text: "Pick your own colors in Settings → Appearance",
+    text: "Change colors in Settings",
   },
   {
     id: "touch-select-photos",
-    text: "Touch and hold a photo to select several at once",
+    text: "Hold a photo to select several",
     when: hasTouch,
   },
 ];

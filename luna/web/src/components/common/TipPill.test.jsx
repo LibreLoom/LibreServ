@@ -24,27 +24,27 @@ describe("TipPill", () => {
 
   it("shows the keyboard shortcut tip", () => {
     renderPill();
-    expect(screen.getByText("Press ? to see all keyboard shortcuts")).toBeInTheDocument();
+    expect(screen.getByText("Press ? for shortcuts")).toBeInTheDocument();
   });
 
   it("skips the keyboard tip on touch devices", () => {
     vi.stubGlobal("matchMedia", (query) => ({ matches: false, media: query }));
     renderPill();
-    expect(screen.queryByText(/keyboard shortcuts/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/for shortcuts/)).not.toBeInTheDocument();
   });
 
   it("keeps the same tip when the page reloads in one session", () => {
     const first = renderPill();
     first.unmount();
     renderPill();
-    expect(screen.getByText(/keyboard shortcuts/)).toBeInTheDocument();
+    expect(screen.getByText(/for shortcuts/)).toBeInTheDocument();
   });
 
   it("hides just this tip", async () => {
     renderPill();
     await userEvent.click(screen.getByRole("button", { name: "Hide tips" }));
     await userEvent.click(screen.getByRole("option", { name: "Hide this tip" }));
-    expect(screen.queryByText(/keyboard shortcuts/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/for shortcuts/)).not.toBeInTheDocument();
     expect(readTipState().dismissed).toEqual(["keyboard-shortcuts"]);
     expect(readTipState().enabled).toBe(true);
   });
@@ -53,7 +53,7 @@ describe("TipPill", () => {
     renderPill();
     await userEvent.click(screen.getByRole("button", { name: "Hide tips" }));
     await userEvent.click(screen.getByRole("option", { name: "Turn off all tips" }));
-    expect(screen.queryByText(/keyboard shortcuts/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/for shortcuts/)).not.toBeInTheDocument();
     expect(readTipState().enabled).toBe(false);
     expect(await screen.findByText(/Settings → Appearance/)).toBeInTheDocument();
   });
@@ -61,6 +61,6 @@ describe("TipPill", () => {
   it("shows nothing when tips are off", () => {
     localStorage.setItem("luna-tips", JSON.stringify({ enabled: false }));
     renderPill();
-    expect(screen.queryByText(/keyboard shortcuts/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/for shortcuts/)).not.toBeInTheDocument();
   });
 });

@@ -37,6 +37,7 @@ import { haptic } from "../../utils/haptics.js";
  *   onAction?: () => void,
  *   actionDisabled?: boolean,
  *   actionAriaLabel?: string,
+ *   noWrap?: boolean,  // keep the action beside the text; long text is cut off with … instead of wrapping
  *   actionHaptic?: boolean,  // false when onAction opens something that buzzes itself
  *   actionRef?: React.Ref<HTMLButtonElement>,
  *   mono?: boolean,
@@ -53,6 +54,7 @@ export default function LayeredPill({
   actionDisabled = false,
   actionAriaLabel,
   actionHaptic = true,
+  noWrap = false,
   actionRef,
   mono = false,
   title,
@@ -72,17 +74,19 @@ export default function LayeredPill({
   const pill = (
     <div
       className={cn(
-        "inline-flex max-w-full flex-wrap items-center rounded-pill surface-secondary text-xs border border-accent",
+        "inline-flex max-w-full items-center rounded-pill surface-secondary text-xs border border-accent",
+        noWrap ? "flex-nowrap" : "flex-wrap",
         className,
       )}
     >
       <span
         className={cn(
           "flex items-center gap-1.5 whitespace-nowrap surface-primary rounded-pill py-1.5 pl-3 pr-2.5",
+          noWrap && "min-w-0",
           mono && "font-mono",
         )}
       >
-        {chipIcon} {children}
+        {chipIcon} {noWrap ? <span className="truncate">{children}</span> : children}
       </span>
       {/* Trailing segment — always mounted; collapses via the grid-track
           trick (grid-template-columns 0fr → 1fr) so content arriving later
@@ -140,6 +144,7 @@ LayeredPill.propTypes = {
   actionDisabled: PropTypes.bool,
   actionAriaLabel: PropTypes.string,
   actionHaptic: PropTypes.bool,
+  noWrap: PropTypes.bool,
   actionRef: PropTypes.oneOfType([
     PropTypes.func,
     PropTypes.shape({ current: PropTypes.elementType }),
