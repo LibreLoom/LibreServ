@@ -308,7 +308,8 @@ export default function FullscreenEditorFrame({
     let left = rect.left + window.scrollX;
     if (left + menuWidth > window.innerWidth - 8) left = window.innerWidth - menuWidth - 8;
     if (left < 8) left = 8;
-    setMenuPos({ top: rect.bottom + window.scrollY + 4, left });
+    const next = { top: rect.bottom + window.scrollY + 4, left };
+    setMenuPos((prev) => (prev.top === next.top && prev.left === next.left ? prev : next));
   }, []);
 
   const openMenu = useCallback(() => {

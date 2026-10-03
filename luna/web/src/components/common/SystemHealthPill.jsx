@@ -47,7 +47,8 @@ export default function SystemHealthPill() {
       const menuWidth = portalRef.current?.offsetWidth || 280;
       let left = rect.right + window.scrollX - menuWidth;
       if (left < 8) left = 8;
-      setPosition({ top: rect.bottom + window.scrollY + 4, left });
+      const next = { top: rect.bottom + window.scrollY + 4, left };
+      setPosition((prev) => (prev.top === next.top && prev.left === next.left ? prev : next));
     }
   }, []);
 

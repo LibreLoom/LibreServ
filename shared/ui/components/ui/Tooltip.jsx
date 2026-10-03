@@ -168,7 +168,9 @@ function HintShell({
 
   const updatePosition = useCallback(() => {
     if (triggerRef.current && popupRef.current) {
-      setPosition(placePopup(triggerRef.current, popupRef.current));
+      const next = placePopup(triggerRef.current, popupRef.current);
+      // Same spot: keep the old object so a scroll tick doesn't re-render.
+      setPosition((prev) => (prev.top === next.top && prev.left === next.left ? prev : next));
     }
   }, []);
 
@@ -192,13 +194,23 @@ function HintShell({
     }
     document.addEventListener("keydown", onKey);
     document.addEventListener("pointerdown", onPointerDown);
-    window.addEventListener("resize", updatePosition);
-    window.addEventListener("scroll", updatePosition, true);
+    // At most one reposition per frame while scrolling.
+    let frame = 0;
+    const scheduleUpdate = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        updatePosition();
+      });
+    };
+    window.addEventListener("resize", scheduleUpdate);
+    window.addEventListener("scroll", scheduleUpdate, true);
     return () => {
+      if (frame) window.cancelAnimationFrame(frame);
       document.removeEventListener("keydown", onKey);
       document.removeEventListener("pointerdown", onPointerDown);
-      window.removeEventListener("resize", updatePosition);
-      window.removeEventListener("scroll", updatePosition, true);
+      window.removeEventListener("resize", scheduleUpdate);
+      window.removeEventListener("scroll", scheduleUpdate, true);
     };
   }, [open, hide, updatePosition]);
 

@@ -53,7 +53,8 @@ export default function NewItemMenu({ onPick, ids, allowPrivate = false, surface
     let left = rect.left + window.scrollX;
     if (left + menuWidth > window.innerWidth - 8) left = window.innerWidth - menuWidth - 8;
     if (left < 8) left = 8;
-    setPosition({ top: rect.bottom + window.scrollY + 4, left });
+    const next = { top: rect.bottom + window.scrollY + 4, left };
+    setPosition((prev) => (prev.top === next.top && prev.left === next.left ? prev : next));
   }, []);
 
   useEffect(() => {

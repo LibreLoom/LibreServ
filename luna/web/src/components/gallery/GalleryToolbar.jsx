@@ -206,7 +206,8 @@ export default function GalleryToolbar({
       }
       if (left < 12) left = 12;
       const top = rect.bottom + window.scrollY + 6;
-      setMenuPosition({ top, left });
+      const next = { top, left };
+      setMenuPosition((prev) => (prev.top === next.top && prev.left === next.left ? prev : next));
     }
   }, []);
 
