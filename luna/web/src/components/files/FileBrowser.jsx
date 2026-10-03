@@ -1,6 +1,6 @@
 import { useCallback, useContext, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { defaultRangeExtractor, useWindowVirtualizer } from "@tanstack/react-virtual";
 import {
   Check,
@@ -304,6 +304,7 @@ export default function FileBrowser({
   const [measuredFolderChromeSplit, setMeasuredFolderChromeSplit] = useState(false);
   const navigate = useNavigate();
   const source = useFileSource();
+  const queryClient = useQueryClient();
 
   const isControlled = controlledPath !== undefined;
   const path = isControlled ? controlledPath : innerPath;
@@ -1015,8 +1016,25 @@ export default function FileBrowser({
     onShare, onCopy, onMove, onRename, onDelete, onSelect, onOpenFile,
     openEntry, onRowDragStart, setPropertiesCtx, folderDropProps,
     selectedPaths, setSelectedPaths, setLastClicked, toggleOne,
+    source, driveId, queryClient,
   };
-  const rowApi = useMemo(() => ({
+  const rowApi = useMemo(() => {
+    // Folder rows warm the next listing on hover/press so the click lands on
+    // cached rows. A short hover-intent delay keeps a fast mouse sweep or a
+    // scroll under the pointer from firing a request per row.
+    let prefetchTimer = 0;
+    return {
+    prefetchFolder: (folderPath, immediate) => {
+      window.clearTimeout(prefetchTimer);
+      const { source: src, driveId: drive, queryClient: qc } = latest.current;
+      const run = () => qc.prefetchQuery({
+        queryKey: fileListKey(src, drive, folderPath),
+        queryFn: () => src.listDir(drive, folderPath),
+      });
+      if (immediate) run();
+      else prefetchTimer = window.setTimeout(run, 60);
+    },
+    cancelPrefetch: () => window.clearTimeout(prefetchTimer),
     share: (ctx) => latest.current.onShare?.(ctx),
     copy: (paths) => latest.current.onCopy?.(paths),
     move: (paths) => latest.current.onMove?.(paths),
@@ -1044,7 +1062,8 @@ export default function FileBrowser({
       );
       cur.setLastClicked(fullPath);
     },
-  }), []);
+    };
+  }, []);
   // Whether a folder row accepts drops — same gate folderDropProps applies.
   const rowDropEnabled = (rowPath) => Object.keys(folderDropProps(rowPath, rowPath)).length > 0;
 

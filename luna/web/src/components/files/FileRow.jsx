@@ -224,6 +224,16 @@ function FileRow({
       <span className="font-mono text-sm truncate">{displayName}</span>
     </>
   );
+  // Folders warm their listing before the click; mouse hover waits a beat,
+  // press/keyboard focus fetch at once.
+  const prefetchProps = isDir
+    ? {
+      onPointerEnter: (e) => { if (e.pointerType === "mouse") api.prefetchFolder(fullPath); },
+      onPointerLeave: () => api.cancelPrefetch(),
+      onPointerDown: () => api.prefetchFolder(fullPath, true),
+      onFocus: () => api.prefetchFolder(fullPath, true),
+    }
+    : {};
   const linkClass = `flex items-center gap-2 min-w-0 ${fg} hover:underline`;
   const buttonClass = `flex items-center gap-2 min-w-0 text-left ${fg} hover:underline`;
 
@@ -235,6 +245,7 @@ function FileRow({
           to={isDir ? folderHref(driveId, fullPath) : fileHref(driveId, fullPath)}
           draggable={false}
           className={linkClass}
+          {...prefetchProps}
           onClick={isDir ? undefined : () => {
             haptic("medium");
             api.openFile(ctx);
@@ -249,6 +260,7 @@ function FileRow({
           type="button"
           draggable={false}
           className={buttonClass}
+          {...prefetchProps}
           onClick={() => api.openEntry(ctx)}
         >
           {label}
