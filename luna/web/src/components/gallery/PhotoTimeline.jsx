@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components -- timeline exports grouping helpers used by GalleryPage and tests */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { Check, ChevronDown } from "lucide-react";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
@@ -15,15 +15,19 @@ export function dayKey(ts) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+// One formatter for every day header — toLocaleDateString builds a new one per
+// call, which adds up over thousands of days.
+const DAY_FORMAT = new Intl.DateTimeFormat(undefined, {
+  weekday: "long",
+  year: "numeric",
+  month: "long",
+  day: "numeric",
+});
+
 /** @param {number|null|undefined} ts */
 function dayLabel(ts) {
   if (!ts) return "Unknown date";
-  return new Date(ts * 1000).toLocaleDateString(undefined, {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
+  return DAY_FORMAT.format(new Date(ts * 1000));
 }
 
 const COL_CLASS = {
@@ -32,6 +36,168 @@ const COL_CLASS = {
   5: "grid-cols-3 sm:grid-cols-4 md:grid-cols-5",
   6: "grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6",
 };
+
+/**
+ * One day: sticky header plus its photo grid. Memoized with a custom check so
+ * selecting a photo or loading the next page only re-renders the days it
+ * touches, not every day on the page.
+ */
+const DaySection = memo(function DaySection({
+  group,
+  isCollapsed,
+  selectedKeys,
+  selectMode,
+  gridClass,
+  hasOpen,
+  hasToggle,
+  hasLongPress,
+  hasDayClick,
+  hasSelectDay,
+  onToggleCollapsed,
+  onDayClick,
+  onSelectDay,
+  onDeselectDay,
+  onOpen,
+  onToggle,
+  onLongPress,
+  onDragStart,
+  onDragEnter,
+}) {
+  const dayPhotos = group.items.map((i) => i.photo);
+  const allSelected =
+    dayPhotos.length > 0 &&
+    dayPhotos.every((p) => selectedKeys?.has(photoSelectionKey(p)));
+  const showDaySelect = Boolean(selectMode && hasSelectDay);
+  return (
+    <section
+      aria-labelledby={`day-${group.key}`}
+    >
+      <div className="sticky top-0 z-10 mb-3 flex flex-wrap items-center gap-2 surface-primary px-1 py-2">
+        <button
+          type="button"
+          className="inline-flex h-7 w-7 items-center justify-center rounded-pill hover:bg-secondary hover:text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent motion-safe:transition-colors"
+          aria-expanded={!isCollapsed}
+          aria-controls={`day-grid-${group.key}`}
+          aria-label={isCollapsed ? `Expand ${group.label}` : `Collapse ${group.label}`}
+          onClick={() => onToggleCollapsed(group.key)}
+        >
+          <ChevronDown
+            size={16}
+            className={`motion-safe:transition-transform duration-200 ${isCollapsed ? "-rotate-90" : ""}`}
+            aria-hidden="true"
+          />
+        </button>
+        {hasDayClick && group.key !== "undated" && !selectMode ? (
+          <button
+            type="button"
+            id={`day-${group.key}`}
+            onClick={() => {
+              haptic("selection");
+              onDayClick(group.key, group.label);
+            }}
+            className="font-mono text-sm text-left hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-pill"
+          >
+            {group.label}
+          </button>
+        ) : (
+          <h2 id={`day-${group.key}`} className="font-mono text-sm">
+            {group.label}
+          </h2>
+        )}
+        {isCollapsed && (
+          <span className="font-mono text-xs text-secondary">
+            {group.items.length} {group.items.length === 1 ? "photo" : "photos"}
+          </span>
+        )}
+        <div
+          className={`grid shrink-0 min-w-0 motion-safe:transition-[grid-template-columns,opacity] motion-safe:duration-300 motion-safe:ease-[var(--motion-easing-emphasized)] ${
+            showDaySelect
+              ? "grid-cols-[1fr] opacity-100"
+              : "grid-cols-[0fr] opacity-0 pointer-events-none"
+          }`}
+          aria-hidden={!showDaySelect}
+        >
+          {/* overflow-x-clip only so the focus ring isn't clipped;
+              px-1 gives the ring room on the sides. */}
+          <div className="min-w-0 overflow-x-clip px-1">
+            <Button
+              type="button"
+              size="sm"
+              variant={allSelected ? "secondary" : "outline"}
+              // outline has border-2, secondary doesn't — without this
+              // the button changes height when toggling state.
+              className={allSelected ? "border-2 border-transparent" : ""}
+              surface="primary"
+              tabIndex={showDaySelect ? 0 : -1}
+              aria-pressed={allSelected}
+              onClick={() => {
+                haptic("selection");
+                if (allSelected) onDeselectDay?.(dayPhotos);
+                else onSelectDay?.(dayPhotos);
+              }}
+            >
+              {allSelected && <Check size={14} aria-hidden="true" />}
+              {allSelected ? "Day selected" : "Select day"}
+            </Button>
+          </div>
+        </div>
+      </div>
+      <div
+        id={`day-grid-${group.key}`}
+        aria-hidden={isCollapsed}
+        inert={isCollapsed}
+        className={`grid motion-safe:transition-[grid-template-rows,opacity] motion-safe:duration-300 motion-safe:ease-[var(--motion-easing-emphasized)] ${
+          isCollapsed ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"
+        }`}
+      >
+        <div className="photo-day-grid min-h-0 overflow-hidden p-1 -m-1">
+          <div className={`grid gap-1 ${gridClass}`}>
+            {group.items.map(({ photo, index }) => {
+              const key = photoSelectionKey(photo);
+              return (
+                <PhotoThumb
+                  key={key || `${photo.drive_id}/${photo.path}`}
+                  photo={photo}
+                  index={index}
+                  selected={!!selectedKeys?.has(key)}
+                  selectMode={selectMode}
+                  onOpen={selectMode || !hasOpen ? undefined : onOpen}
+                  onToggle={hasToggle ? onToggle : undefined}
+                  onLongPress={hasLongPress ? onLongPress : undefined}
+                  onDragSelectStart={selectMode ? onDragStart : undefined}
+                  onDragSelectEnter={selectMode ? onDragEnter : undefined}
+                />
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}, daySectionEqual);
+
+/** Same day, same photos, same selection within it, same view settings. */
+function daySectionEqual(prev, next) {
+  for (const k of Object.keys(next)) {
+    if (k === "group" || k === "selectedKeys") continue;
+    if (prev[k] !== next[k]) return false;
+  }
+  const a = prev.group;
+  const b = next.group;
+  if (a !== b) {
+    if (a.key !== b.key || a.label !== b.label || a.items.length !== b.items.length) return false;
+    for (let i = 0; i < a.items.length; i++) {
+      if (a.items[i].photo !== b.items[i].photo || a.items[i].index !== b.items[i].index) return false;
+    }
+  }
+  if (prev.selectedKeys !== next.selectedKeys) {
+    for (const { photo } of b.items) {
+      const key = photoSelectionKey(photo);
+      if (Boolean(prev.selectedKeys?.has(key)) !== Boolean(next.selectedKeys?.has(key))) return false;
+    }
+  }
+  return true;
+}
 
 /**
  * Date-grouped infinite photo grid.
@@ -119,8 +285,11 @@ export default function PhotoTimeline({
 
   // Stable handlers for the memoized thumbs: they read the latest props
   // through a ref, so selecting one photo re-renders one thumb, not the grid.
-  const latest = useRef({ onOpen, onToggle, onLongPress });
-  latest.current = { onOpen, onToggle, onLongPress };
+  const latest = useRef({ onOpen, onToggle, onLongPress, onDayClick, onSelectDay, onDeselectDay });
+  latest.current = { onOpen, onToggle, onLongPress, onDayClick, onSelectDay, onDeselectDay };
+  const dayClick = useCallback((key, label) => latest.current.onDayClick?.(key, label), []);
+  const selectDay = useCallback((photos) => latest.current.onSelectDay?.(photos), []);
+  const deselectDay = useCallback((photos) => latest.current.onDeselectDay?.(photos), []);
   const open = useCallback((p) => latest.current.onOpen?.(p), []);
   const toggle = useCallback((p, opts) => latest.current.onToggle?.(p, opts), []);
   const longPress = useCallback((p) => latest.current.onLongPress?.(p), []);
@@ -135,121 +304,30 @@ export default function PhotoTimeline({
 
   return (
     <div className="relative space-y-8" data-slot="photo-timeline">
-      {groups.map((group) => {
-        const isCollapsed = collapsed.has(group.key);
-        const dayPhotos = group.items.map((i) => i.photo);
-        const allSelected =
-          dayPhotos.length > 0 &&
-          dayPhotos.every((p) => selectedKeys?.has(photoSelectionKey(p)));
-        const showDaySelect = Boolean(selectMode && onSelectDay);
-        return (
-          <section
-            key={group.key}
-            aria-labelledby={`day-${group.key}`}
-          >
-            <div className="sticky top-0 z-10 mb-3 flex flex-wrap items-center gap-2 surface-primary px-1 py-2">
-              <button
-                type="button"
-                className="inline-flex h-7 w-7 items-center justify-center rounded-pill hover:bg-secondary hover:text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent motion-safe:transition-colors"
-                aria-expanded={!isCollapsed}
-                aria-controls={`day-grid-${group.key}`}
-                aria-label={isCollapsed ? `Expand ${group.label}` : `Collapse ${group.label}`}
-                onClick={() => toggleCollapsed(group.key)}
-              >
-                <ChevronDown
-                  size={16}
-                  className={`motion-safe:transition-transform duration-200 ${isCollapsed ? "-rotate-90" : ""}`}
-                  aria-hidden="true"
-                />
-              </button>
-              {onDayClick && group.key !== "undated" && !selectMode ? (
-                <button
-                  type="button"
-                  id={`day-${group.key}`}
-                  onClick={() => {
-                    haptic("selection");
-                    onDayClick(group.key, group.label);
-                  }}
-                  className="font-mono text-sm text-left hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-pill"
-                >
-                  {group.label}
-                </button>
-              ) : (
-                <h2 id={`day-${group.key}`} className="font-mono text-sm">
-                  {group.label}
-                </h2>
-              )}
-              {isCollapsed && (
-                <span className="font-mono text-xs text-secondary">
-                  {group.items.length} {group.items.length === 1 ? "photo" : "photos"}
-                </span>
-              )}
-              <div
-                className={`grid shrink-0 min-w-0 motion-safe:transition-[grid-template-columns,opacity] motion-safe:duration-300 motion-safe:ease-[var(--motion-easing-emphasized)] ${
-                  showDaySelect
-                    ? "grid-cols-[1fr] opacity-100"
-                    : "grid-cols-[0fr] opacity-0 pointer-events-none"
-                }`}
-                aria-hidden={!showDaySelect}
-              >
-                {/* overflow-x-clip only so the focus ring isn't clipped;
-                    px-1 gives the ring room on the sides. */}
-                <div className="min-w-0 overflow-x-clip px-1">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={allSelected ? "secondary" : "outline"}
-                    // outline has border-2, secondary doesn't — without this
-                    // the button changes height when toggling state.
-                    className={allSelected ? "border-2 border-transparent" : ""}
-                    surface="primary"
-                    tabIndex={showDaySelect ? 0 : -1}
-                    aria-pressed={allSelected}
-                    onClick={() => {
-                      haptic("selection");
-                      if (allSelected) onDeselectDay?.(dayPhotos);
-                      else onSelectDay?.(dayPhotos);
-                    }}
-                  >
-                    {allSelected && <Check size={14} aria-hidden="true" />}
-                    {allSelected ? "Day selected" : "Select day"}
-                  </Button>
-                </div>
-              </div>
-            </div>
-            <div
-              id={`day-grid-${group.key}`}
-              aria-hidden={isCollapsed}
-              inert={isCollapsed}
-              className={`grid motion-safe:transition-[grid-template-rows,opacity] motion-safe:duration-300 motion-safe:ease-[var(--motion-easing-emphasized)] ${
-                isCollapsed ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"
-              }`}
-            >
-              <div className="photo-day-grid min-h-0 overflow-hidden p-1 -m-1">
-                <div className={`grid gap-1 ${gridClass}`}>
-                  {group.items.map(({ photo, index }) => {
-                    const key = photoSelectionKey(photo);
-                    return (
-                      <PhotoThumb
-                        key={key || `${photo.drive_id}/${photo.path}`}
-                        photo={photo}
-                        index={index}
-                        selected={!!selectedKeys?.has(key)}
-                        selectMode={selectMode}
-                        onOpen={selectMode || !onOpen ? undefined : open}
-                        onToggle={onToggle ? toggle : undefined}
-                        onLongPress={onLongPress ? longPress : undefined}
-                        onDragSelectStart={selectMode ? dragStart : undefined}
-                        onDragSelectEnter={selectMode ? dragEnter : undefined}
-                      />
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          </section>
-        );
-      })}
+      {groups.map((group) => (
+        <DaySection
+          key={group.key}
+          group={group}
+          isCollapsed={collapsed.has(group.key)}
+          selectedKeys={selectedKeys}
+          selectMode={selectMode}
+          gridClass={gridClass}
+          hasOpen={Boolean(onOpen)}
+          hasToggle={Boolean(onToggle)}
+          hasLongPress={Boolean(onLongPress)}
+          hasDayClick={Boolean(onDayClick)}
+          hasSelectDay={Boolean(onSelectDay)}
+          onToggleCollapsed={toggleCollapsed}
+          onDayClick={dayClick}
+          onSelectDay={selectDay}
+          onDeselectDay={deselectDay}
+          onOpen={open}
+          onToggle={toggle}
+          onLongPress={longPress}
+          onDragStart={dragStart}
+          onDragEnter={dragEnter}
+        />
+      ))}
       <div ref={sentinel} className="h-8" aria-hidden="true" />
       {loadingMore && (
         <div
