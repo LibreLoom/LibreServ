@@ -41,6 +41,7 @@ export default function TipPill() {
       options={DISMISS_OPTIONS}
       value=""
       onChange={onChoose}
+      align="end"
       renderTrigger={({ toggle, onKeyDown }) => (
         <div data-slot="tip-pill" data-header-item onKeyDown={onKeyDown}>
           <LayeredPill

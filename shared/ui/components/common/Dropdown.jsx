@@ -27,6 +27,7 @@ import { ICON_SIZE } from "../../lib/ui-tokens.js";
  * @property {import("react").ComponentType<any>} [icon] Render the trigger as an
  *   icon-only button (toolbar menus) instead of a labeled pill. Pair with
  *   `aria-label`.
+ * @property {"start"|"end"} [align] Which edge of the trigger the menu lines up with. Default "start".
  * @property {string} [className]
  * @property {string} [triggerClassName]
  * @property {"default"|"form"} [size]
@@ -47,6 +48,7 @@ export default function Dropdown({
   ghost = false,
   icon: Icon,
   renderTrigger,
+  align = "start",
   className = "",
   triggerClassName = "",
   size = "default",
@@ -83,13 +85,13 @@ export default function Dropdown({
     if (buttonRef.current) {
       const rect = buttonRef.current.getBoundingClientRect();
       const menuWidth = portalRef.current?.offsetWidth || rect.width;
-      let left = rect.left + window.scrollX;
+      let left = (align === "end" ? rect.right - menuWidth : rect.left) + window.scrollX;
       if (left + menuWidth > window.innerWidth - 8) left = window.innerWidth - menuWidth - 8;
       if (left < 8) left = 8;
       const next = { top: rect.bottom + window.scrollY + 4, left, width: rect.width };
       setPosition((prev) => (prev.top === next.top && prev.left === next.left && prev.width === next.width ? prev : next));
     }
-  }, []);
+  }, [align]);
 
   // A custom trigger sits inside a span — focus the control inside it.
   const focusTrigger = useCallback(() => {
