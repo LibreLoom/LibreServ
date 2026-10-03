@@ -17,16 +17,40 @@ export const TIPS = [
   {
     id: "keyboard-shortcuts",
     text: "Press ? to see all keyboard shortcuts",
-    when: hasKeyboard,
+    when: hasMouse,
+  },
+  {
+    id: "drag-to-upload",
+    text: "Drag files from your computer into a folder to upload them",
+    when: hasMouse,
+  },
+  {
+    id: "drag-to-move",
+    text: "Drag a file onto a folder to move it there",
+    when: hasMouse,
+  },
+  {
+    id: "touch-select-photos",
+    text: "Touch and hold a photo to select several at once",
+    when: hasTouch,
   },
 ];
 
-function hasKeyboard() {
+function matches(query) {
   try {
-    return window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+    return window.matchMedia(query).matches;
   } catch {
     return false;
   }
+}
+
+/** A mouse or trackpad, so keyboards and dragging are in play. */
+function hasMouse() {
+  return matches("(hover: hover) and (pointer: fine)");
+}
+
+function hasTouch() {
+  return matches("(pointer: coarse)");
 }
 
 /** @typedef {{ enabled: boolean, dismissed: string[], seen: string[], lastShown: number }} TipState */
