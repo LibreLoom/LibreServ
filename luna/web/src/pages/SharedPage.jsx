@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { AnimatePresence, MotionConfig, motion as Motion } from "motion/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 import { File as FileIcon, Folder, Image as ImageIcon, Search, Share2 } from "lucide-react";
@@ -24,6 +25,17 @@ import {
   sharedItemHref,
 } from "../lib/access.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
+
+// Same carousel as the form builder's tabs: Manage sharing sits right of
+// Shared with you, so going there pushes the list left and the new one follows
+// in from the right. Variants so the leaving list reads the new direction.
+const TAB_SLIDE = {
+  enter: (/** @type {number} */ dir) => ({ x: `${100 * dir}%`, opacity: 0.6 }),
+  shown: { x: 0, opacity: 1 },
+  leave: (/** @type {number} */ dir) => ({ x: `${-100 * dir}%`, opacity: 0.6 }),
+};
+/** @type {import("motion/react").Transition} */
+const TAB_SPRING = { type: "spring", duration: 0.35, bounce: 0.12 };
 
 function SubjectIcon({ kind, isFile }) {
   const Icon = kind === KIND_ALBUM ? ImageIcon : isFile ? FileIcon : Folder;
@@ -90,6 +102,7 @@ export default function SharedPage() {
   const shownSharing = sharing.filter(matches);
 
   return (
+    <MotionConfig reducedMotion="user">
     <Page title="Shared" titleId="shared-title">
       {mine.isLoading && (
         <div className="flex items-center gap-2 py-4 text-secondary" role="status">
@@ -133,6 +146,17 @@ export default function SharedPage() {
             </label>
           </div>
 
+          <div className="relative overflow-x-clip">
+          <AnimatePresence mode="popLayout" initial={false} custom={tab === "manage" ? 1 : -1}>
+          <Motion.div
+            key={tab}
+            custom={tab === "manage" ? 1 : -1}
+            variants={TAB_SLIDE}
+            initial="enter"
+            animate="shown"
+            exit="leave"
+            transition={TAB_SPRING}
+          >
           {tab === "with_me" && (
             shownWithMe.length === 0 ? (
               <EmptyState
@@ -316,6 +340,9 @@ export default function SharedPage() {
               </Card>
             )
           )}
+          </Motion.div>
+          </AnimatePresence>
+          </div>
         </>
       )}
 
@@ -343,5 +370,6 @@ export default function SharedPage() {
         </p>
       </ConfirmModal>
     </Page>
+    </MotionConfig>
   );
 }
