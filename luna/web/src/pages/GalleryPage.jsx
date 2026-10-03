@@ -769,13 +769,21 @@ export default function GalleryPage() {
       ? galleryStatus.data.last_error.trim()
       : null;
 
+  // While indexing, new photos appear without a refresh. Every refetch reloads
+  // and re-lays-out the whole timeline, so only do it when the found count has
+  // actually moved, and not more than every 4 seconds.
+  const foundCountRef = useRef(foundCount);
+  foundCountRef.current = foundCount;
   useEffect(() => {
     if (!indexing) return undefined;
+    let refreshedAt = foundCountRef.current;
     const id = setInterval(() => {
+      if (foundCountRef.current === refreshedAt) return;
+      refreshedAt = foundCountRef.current;
       queryClient.invalidateQueries({ queryKey: ["gallery"] });
       queryClient.invalidateQueries({ queryKey: ["gallery-places"] });
       queryClient.invalidateQueries({ queryKey: ["gallery-albums"] });
-    }, 2000);
+    }, 4000);
     return () => clearInterval(id);
   }, [indexing, queryClient]);
 

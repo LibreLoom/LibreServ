@@ -1,9 +1,10 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, useCallback, useRef } from "react";
 import PropTypes from "prop-types";
 import { haptic } from "../utils/haptics.js";
 
 const ToastContext = createContext(null);
+const ToastListContext = createContext([]);
 
 const DEFAULT_DURATIONS = {
   success: 3000,
@@ -136,22 +137,30 @@ export function ToastProvider({ children, maxToasts = 5 }) {
     setToasts([]);
   }, []);
 
-  const value = {
-    toasts,
-    addToast,
-    dismissToast,
-    pauseToast,
-    resumeToast,
-    clearToasts,
-  };
+  // The actions never change, so components that only raise toasts don't
+  // re-render each time a toast appears, fades, or is dismissed. Only the
+  // Toaster reads the list.
+  const value = useMemo(
+    () => ({ addToast, dismissToast, pauseToast, resumeToast, clearToasts }),
+    [addToast, dismissToast, pauseToast, resumeToast, clearToasts],
+  );
 
-  return <ToastContext.Provider value={value}>{children}</ToastContext.Provider>;
+  return (
+    <ToastContext.Provider value={value}>
+      <ToastListContext.Provider value={toasts}>{children}</ToastListContext.Provider>
+    </ToastContext.Provider>
+  );
 }
 
 ToastProvider.propTypes = {
   children: PropTypes.node,
   maxToasts: PropTypes.number,
 };
+
+/** The toasts on screen — for the Toaster; everything else wants `useToast`. */
+export function useToastList() {
+  return useContext(ToastListContext);
+}
 
 export function useToast() {
   const context = useContext(ToastContext);

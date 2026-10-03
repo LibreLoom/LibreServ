@@ -282,7 +282,28 @@ async function getJsonSkipForbidden(path) {
   }
 }
 
-function UptimeCard({ value }) {
+// Owns the once-a-second tick so only this card re-renders, not the dashboard.
+function UptimeCard({ serverSeconds }) {
+  const dataRef = useRef({ serverUptime: 0, fetchTime: 0 });
+  const read = useCallback(() => {
+    const { serverUptime, fetchTime } = dataRef.current;
+    if (fetchTime === 0) return "…";
+    return formatUptime(Math.floor(serverUptime + (Date.now() - fetchTime) / 1000));
+  }, []);
+  const [value, setValue] = useState(read);
+
+  useEffect(() => {
+    if (serverSeconds == null) return;
+    dataRef.current = { serverUptime: Number(serverSeconds) || 0, fetchTime: Date.now() };
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- show the fresh reading without waiting for the next tick
+    setValue(read());
+  }, [serverSeconds, read]);
+
+  useEffect(() => {
+    const interval = setInterval(() => setValue(read()), 1000);
+    return () => clearInterval(interval);
+  }, [read]);
+
   return (
     <Card data-slot="uptime-card">
       <div className="flex items-center gap-2 mb-1">
@@ -662,31 +683,6 @@ export default function DashboardPage() {
     ? apiErrorMessage(adopt.error, "Luna couldn't add this drive. Try again.")
     : null;
 
-  const uptimeDataRef = useRef({ serverUptime: 0, fetchTime: 0 });
-  const getDisplayUptime = useCallback(() => {
-    const { serverUptime, fetchTime } = uptimeDataRef.current;
-    if (fetchTime === 0) return "…";
-    const elapsed = (Date.now() - fetchTime) / 1000;
-    return formatUptime(Math.floor(serverUptime + elapsed));
-  }, []);
-  const [displayUptime, setDisplayUptime] = useState(getDisplayUptime);
-
-  useEffect(() => {
-    const seconds = health.data?.uptime_seconds;
-    if (seconds == null) return;
-    uptimeDataRef.current = {
-      serverUptime: Number(seconds) || 0,
-      fetchTime: Date.now(),
-    };
-  }, [health.data?.uptime_seconds]);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setDisplayUptime(getDisplayUptime());
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [getDisplayUptime]);
-
   const greetingBase = greeting.endsWith(", ") ? greeting.slice(0, -2) : greeting;
   const showUsername = user?.username;
   const greetingTitle = (
@@ -754,7 +750,7 @@ export default function DashboardPage() {
         aria-label="Home overview"
       >
         <div className="grid grid-cols-1 gap-6 flex-1 content-start order-1 md:order-0">
-          <UptimeCard value={displayUptime} />
+          <UptimeCard serverSeconds={health.data?.uptime_seconds} />
           <ConnectionCard
             net={network.data}
             isAdmin={isAdmin}

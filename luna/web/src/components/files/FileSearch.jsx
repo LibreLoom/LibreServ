@@ -276,6 +276,22 @@ export default function FileSearch() {
     }, prefersReducedMotion() ? 0 : OVERLAY_EXIT_MS);
   }, [finishClose, present]);
 
+  // Stable for the memoized result rows: typing re-renders the panel, not
+  // every row in the list.
+  const shareHit = useCallback(
+    (hit) => setAccessTarget({ driveId: hit.drive_id, path: hit.path }),
+    [],
+  );
+  const copyHit = useCallback((copyAs, hit) => {
+    setCopyKind(copyAs);
+    setCopyTarget(hit);
+    setActionError(null);
+  }, []);
+  const trashHit = useCallback((hit) => {
+    setDeleteTarget(hit);
+    setActionError(null);
+  }, []);
+
   const openOverlay = useCallback(() => {
     if (present && !isClosing) return;
     if (exitTimerRef.current != null) {
@@ -619,18 +635,9 @@ export default function FileSearch() {
                           memberAccess={memberAccess.data}
                           index={index}
                           onNavigate={beginClose}
-                          onShare={(hit) =>
-                            setAccessTarget({ driveId: hit.drive_id, path: hit.path })
-                          }
-                          onCopy={(copyAs, hit) => {
-                            setCopyKind(copyAs);
-                            setCopyTarget(hit);
-                            setActionError(null);
-                          }}
-                          onTrash={(hit) => {
-                            setDeleteTarget(hit);
-                            setActionError(null);
-                          }}
+                          onShare={shareHit}
+                          onCopy={copyHit}
+                          onTrash={trashHit}
                         />
                       </Fragment>
                     ))}

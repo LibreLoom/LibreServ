@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { getJson, postJson } from "../lib/api";
 
@@ -112,8 +112,14 @@ export function AuthProvider({ children }) {
     setUser(null);
   }, []);
 
+  // Stable between renders so consumers only update when auth state changes.
+  const value = useMemo(
+    () => ({ user, setup, hasAdmin, loading, login, register, logout, refresh }),
+    [user, setup, hasAdmin, loading, login, register, logout, refresh],
+  );
+
   return (
-    <AuthContext.Provider value={{ user, setup, hasAdmin, loading, login, register, logout, refresh }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );

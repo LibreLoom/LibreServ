@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Copy,
@@ -75,7 +75,7 @@ function detailLine(item, driveLabel, isDir) {
  *   onTrash: (item: any) => void,
  * }} props
  */
-export default function FileSearchRow({
+function FileSearchRow({
   item,
   query,
   driveLabel,
@@ -332,3 +332,4 @@ export default function FileSearchRow({
     </li>
   );
 }
+export default memo(FileSearchRow);

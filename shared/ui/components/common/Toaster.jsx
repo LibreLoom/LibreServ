@@ -1,7 +1,7 @@
 import { CheckCircle2, XCircle, Info, X, ChevronDown } from "lucide-react";
 import PropTypes from "prop-types";
 import { useState, useRef, useEffect, useLayoutEffect } from "react";
-import { useToast } from "../../context/ToastContext";
+import { useToast, useToastList } from "../../context/ToastContext";
 import { cn } from "../../lib/utils.js";
 import { ICON_SIZE } from "../../lib/ui-tokens.js";
 import { haptic } from "../../utils/haptics.js";
@@ -179,7 +179,8 @@ Toast.propTypes = {
 };
 
 export default function Toaster() {
-  const { toasts, dismissToast, pauseToast, resumeToast } = useToast();
+  const { dismissToast, pauseToast, resumeToast } = useToast();
+  const toasts = useToastList();
 
   if (toasts.length === 0) return null;
 
