@@ -157,27 +157,28 @@ function compareEntries(a, b, sortKey) {
   const aDir = a.kind === "dir" ? 0 : 1;
   const bDir = b.kind === "dir" ? 0 : 1;
   if (aDir !== bDir) return aDir - bDir;
-  const byName = NAME_COLLATOR.compare(displayNameOf(a), displayNameOf(b));
+  // Only a tie-break for most sorts, so compare names lazily.
+  const byName = () => NAME_COLLATOR.compare(displayNameOf(a), displayNameOf(b));
   switch (sortKey) {
     case "name-desc":
       return NAME_COLLATOR.compare(displayNameOf(b), displayNameOf(a));
     case "date-desc":
-      return (Number(b.modified) || 0) - (Number(a.modified) || 0) || byName;
+      return (Number(b.modified) || 0) - (Number(a.modified) || 0) || byName();
     case "date-asc":
-      return (Number(a.modified) || 0) - (Number(b.modified) || 0) || byName;
+      return (Number(a.modified) || 0) - (Number(b.modified) || 0) || byName();
     case "size-desc":
-      return (Number(b.size) || 0) - (Number(a.size) || 0) || byName;
+      return (Number(b.size) || 0) - (Number(a.size) || 0) || byName();
     case "size-asc":
-      return (Number(a.size) || 0) - (Number(b.size) || 0) || byName;
+      return (Number(a.size) || 0) - (Number(b.size) || 0) || byName();
     case "kind": {
       const byExtension = NAME_COLLATOR.compare(
         extensionOf(displayNameOf(a)),
         extensionOf(displayNameOf(b)),
       );
-      return byExtension || byName;
+      return byExtension || byName();
     }
     default:
-      return byName;
+      return byName();
   }
 }
 
