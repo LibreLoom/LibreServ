@@ -487,11 +487,17 @@ export default function DriveFileExplorer({
 
     await mapPool(batch, UPLOAD_PARALLEL, async (item) => {
       const row = uploadsRef.current.find((u) => u.id === item.id) || item;
+      let lastProgressAt = 0;
       try {
         await source.uploadFile(driveId, item.file, item.destPath, item.leafName, {
           signal: row.abort.signal,
           onSession: (uploadId) => patchUpload(item.id, { uploadId }),
           onProgress: (loaded, total) => {
+            // The browser reports progress many times a second; every report
+            // re-renders the whole explorer, so show at most ten a second.
+            const now = performance.now();
+            if (now - lastProgressAt < 100 && loaded < total) return;
+            lastProgressAt = now;
             patchUpload(item.id, { received: Math.min(loaded, total), size: total });
           },
         });
