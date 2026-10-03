@@ -127,6 +127,7 @@ function PhotoThumb({
           src={photo.thumb}
           alt=""
           loading="lazy"
+          decoding="async"
           onLoad={() => setLoaded(true)}
           ref={(img) => {
             if (img?.complete) setLoaded(true);

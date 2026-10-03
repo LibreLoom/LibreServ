@@ -50,21 +50,31 @@ function RecentItemsTracker() {
   return null;
 }
 
+/**
+ * The routed page. Keying by pathname gives every navigation a smooth
+ * entrance. It alone reads the location, so the navbar and search around it
+ * don't re-render on every folder click (which only changes the query string).
+ */
+function PageOutlet() {
+  const location = useLocation();
+  return (
+    <div key={location.pathname} className="grow w-full animate-page-enter">
+      <Suspense fallback={null}>
+        <Outlet />
+      </Suspense>
+    </div>
+  );
+}
+
 /** Authenticated chrome: page content + fixed bottom navbar. */
 function AppShell() {
-  const location = useLocation();
   return (
     <RequireAuth>
       <div data-slot="app-shell" className="relative flex min-h-screen flex-col surface-primary">
         <RecentItemsTracker />
         <LoadingBar />
         <a href="#main-content" className="skip-link">Skip to main content</a>
-        {/* Keying by pathname gives every navigation a smooth entrance. */}
-        <div key={location.pathname} className="grow w-full animate-page-enter">
-          <Suspense fallback={null}>
-            <Outlet />
-          </Suspense>
-        </div>
+        <PageOutlet />
         <Navbar />
         <FileSearch />
       </div>

@@ -2431,7 +2431,7 @@ function AlbumsPanel({
               >
                 <div className="aspect-square surface-primary relative">
                   {album.cover_thumb ? (
-                    <img src={album.cover_thumb} alt="" className="h-full w-full object-cover" />
+                    <img src={album.cover_thumb} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
                   ) : (
                     <span className="flex h-full items-center justify-center">
                       <ImageIcon size={24} />
