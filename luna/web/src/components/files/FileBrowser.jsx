@@ -1658,7 +1658,7 @@ export default function FileBrowser({
                   {/* Always rendered so the bar keeps its height: the button is
                       taller than the text row. Hidden until there's text, and
                       zero-width then so the counter sits at the pill's edge. */}
-                  <div className={`overflow-hidden motion-safe:transition-all ${filterText ? "max-w-10 ml-0 opacity-100" : "pointer-events-none max-w-0 -ml-2 opacity-0"}`}>
+                  <div className={`overflow-hidden motion-safe:transition-[max-width,margin,opacity] ${filterText ? "max-w-10 ml-0 opacity-100" : "pointer-events-none max-w-0 -ml-2 opacity-0"}`}>
                     <Button
                       variant="ghost"
                       surface={well}
@@ -1726,7 +1726,12 @@ export default function FileBrowser({
         ) : (
           <ul
             ref={listRef}
-            className={["m-0 p-0 list-none flex flex-col", showingStaleListing ? "pointer-events-none" : ""]
+            className={[
+              "m-0 p-0 list-none flex flex-col motion-safe:transition-opacity motion-safe:duration-200",
+              // The next folder is still loading: dim the old rows after a beat
+              // (fast loads never flash) so the click visibly registered.
+              showingStaleListing ? "pointer-events-none opacity-60 motion-safe:delay-150" : "",
+            ]
               .filter(Boolean)
               .join(" ")}
             aria-label="Files and folders"

@@ -176,7 +176,7 @@ export default function FilesPage() {
               </p>
               <div className="mt-2 h-2 rounded-pill surface-primary p-0.5 overflow-hidden" aria-hidden="true">
                 <div
-                  className="h-full rounded-pill surface-secondary motion-safe:transition-all"
+                  className="h-full rounded-pill surface-secondary motion-safe:transition-[width]"
                   style={{ width: `${job.total > 0 ? Math.min(100, (100 * job.progress) / job.total) : 8}%` }}
                 />
               </div>

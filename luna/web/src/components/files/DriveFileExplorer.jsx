@@ -170,7 +170,7 @@ export function UploadProgressList({ uploads, onCancel }) {
                 }
               >
                 <div
-                  className="h-full rounded-pill surface-secondary motion-safe:transition-all motion-safe:duration-300"
+                  className="h-full rounded-pill surface-secondary motion-safe:transition-[width] motion-safe:duration-300"
                   style={{ width: `${pct ?? 0}%` }}
                 />
               </div>

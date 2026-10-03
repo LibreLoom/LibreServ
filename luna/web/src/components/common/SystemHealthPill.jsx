@@ -124,7 +124,7 @@ export default function SystemHealthPill() {
         type="button"
         onClick={handleToggle}
         className={cn(
-          "cursor-pointer motion-safe:transition-all active:motion-safe:scale-95",
+          "cursor-pointer motion-safe:transition-[scale] active:motion-safe:scale-95",
           "no-focus-outline focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2",
           "rounded-pill",
         )}

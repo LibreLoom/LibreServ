@@ -233,7 +233,7 @@ export default function AddToAlbumModal({
                       >
                         <span
                           className={cn(
-                            "size-5 shrink-0 rounded-full border-2 flex items-center justify-center motion-safe:transition-all",
+                            "size-5 shrink-0 rounded-full border-2 flex items-center justify-center motion-safe:transition-[background-color,border-color]",
                             checked || state === "mixed"
                               ? "border-secondary surface-secondary"
                               : "border-secondary/50",

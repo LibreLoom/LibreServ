@@ -582,7 +582,7 @@ export default function FullscreenEditorFrame({
                   disabled={item.disabled}
                   className={cn(
                     "w-full flex items-center gap-2 px-4 py-2 text-sm text-left",
-                    "text-primary font-mono motion-safe:transition-all motion-safe:duration-150",
+                    "text-primary font-mono motion-safe:transition-[background-color,translate,box-shadow] motion-safe:duration-150",
                     item.disabled
                       ? "cursor-not-allowed opacity-50"
                       : cn(

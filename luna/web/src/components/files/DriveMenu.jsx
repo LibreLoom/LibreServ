@@ -361,7 +361,7 @@ export default function DriveMenu({ drives, destinations, currentDriveId, curren
                   role="menuitem"
                   className={cn(
                     "w-full flex items-center gap-2 px-4 py-2 text-sm text-left cursor-pointer",
-                    "text-primary font-mono motion-safe:transition-all motion-safe:duration-150",
+                    "text-primary font-mono motion-safe:transition-[background-color,translate,box-shadow] motion-safe:duration-150",
                     isDragTarget
                       ? "ring-2 ring-inset ring-accent"
                       : index === activeIndex

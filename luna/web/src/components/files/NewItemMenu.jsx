@@ -192,7 +192,7 @@ export default function NewItemMenu({ onPick, ids, allowPrivate = false, surface
                       role="menuitem"
                       className={cn(
                         "w-full flex items-center gap-2 px-4 py-2 text-sm text-left cursor-pointer",
-                        "text-primary font-mono motion-safe:transition-all motion-safe:duration-150",
+                        "text-primary font-mono motion-safe:transition-[background-color,translate,box-shadow] motion-safe:duration-150",
                         index === activeIndex
                           ? "bg-primary/10 motion-safe:translate-x-0.5"
                           : "hover:bg-primary/10 hover:motion-safe:translate-x-0.5",

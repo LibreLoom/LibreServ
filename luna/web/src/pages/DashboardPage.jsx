@@ -187,7 +187,7 @@ function DriveHomeCard({ drive, isAdmin = false, grants = [] }) {
               aria-label={`${usedPct}% used`}
             >
               <div
-                className="h-full rounded-pill surface-secondary motion-safe:transition-all motion-safe:duration-500"
+                className="h-full rounded-pill surface-secondary motion-safe:transition-[width] motion-safe:duration-500"
                 style={{ width: `${usedPct}%` }}
               />
             </div>

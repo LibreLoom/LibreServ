@@ -13,7 +13,7 @@ function ReqChip({ ok, label, surface = "secondary" }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 font-mono text-xs px-2 py-0.5 rounded-pill border motion-safe:transition-all motion-safe:duration-200",
+        "inline-flex items-center gap-1 font-mono text-xs px-2 py-0.5 rounded-pill border motion-safe:transition-[background-color,border-color,color] motion-safe:duration-200",
         textTone,
         ok ? "bg-success/20 border-success/30" : cn("bg-transparent", borderTone),
       )}

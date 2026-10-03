@@ -221,7 +221,7 @@ export default function PhotoTimeline({
               id={`day-grid-${group.key}`}
               aria-hidden={isCollapsed}
               inert={isCollapsed}
-              className={`grid motion-safe:transition-all motion-safe:duration-300 motion-safe:ease-[var(--motion-easing-emphasized)] ${
+              className={`grid motion-safe:transition-[grid-template-rows,opacity] motion-safe:duration-300 motion-safe:ease-[var(--motion-easing-emphasized)] ${
                 isCollapsed ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"
               }`}
             >

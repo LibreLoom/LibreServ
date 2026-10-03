@@ -202,7 +202,7 @@ export default function Dropdown({
             : Icon
               ? "justify-center p-1.5"
               : "gap-1.5 min-h-[34px] px-3.5 py-1.5 text-xs",
-          "motion-safe:transition-all no-focus-outline",
+          "motion-safe:transition-[background-color,color,border-color,box-shadow,scale,opacity] no-focus-outline",
           "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1",
           `focus-visible:ring-offset-${pill}`,
           "active:motion-safe:scale-95 disabled:opacity-50 disabled:cursor-not-allowed",
@@ -285,7 +285,7 @@ export default function Dropdown({
                     aria-selected={value === option.value}
                     onClick={() => handleSelect(option.value)}
                     className={cn(
-                      "w-full text-left px-4 py-2 text-xs motion-safe:transition-all motion-safe:duration-150 motion-safe:ease-out",
+                      "w-full text-left px-4 py-2 text-xs motion-safe:transition-[background-color,color,translate] motion-safe:duration-150 motion-safe:ease-out",
                       option.icon && "flex items-center gap-2",
                       "cursor-pointer rounded-none",
                       value === option.value

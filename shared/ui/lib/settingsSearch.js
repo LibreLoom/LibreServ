@@ -90,6 +90,26 @@ export async function buildSettingsIndex(categories, wrap, { onError } = {}) {
   return hits;
 }
 
+// The index is fixed once built, but searching runs on every keystroke:
+// normalize each hit's text once, not once per key press.
+const normalizedCache = new WeakMap();
+/** @param {SettingsHit} hit */
+function normalizedHit(hit) {
+  let n = normalizedCache.get(hit);
+  if (!n) {
+    const title = normalize(hit.title);
+    n = {
+      title,
+      titleWords: title.split(" "),
+      card: normalize(hit.cardTitle),
+      category: normalize(hit.categoryLabel),
+      text: normalize(hit.text),
+    };
+    normalizedCache.set(hit, n);
+  }
+  return n;
+}
+
 /**
  * Hits for what the person typed, best first. Every word has to appear somewhere
  * in a hit; words in the name count for more than words in the small print.
@@ -104,14 +124,11 @@ export function searchSettings(index, query, limit = 30) {
   /** @type {{ hit: SettingsHit, score: number, order: number }[]} */
   const scored = [];
   index.forEach((hit, order) => {
-    const title = normalize(hit.title);
-    const card = normalize(hit.cardTitle);
-    const category = normalize(hit.categoryLabel);
-    const text = normalize(hit.text);
+    const { title, titleWords, card, category, text } = normalizedHit(hit);
     let score = 0;
     for (const word of words) {
       let best = 0;
-      if (title.split(" ").some((w) => w.startsWith(word))) best = 6;
+      if (titleWords.some((w) => w.startsWith(word))) best = 6;
       else if (title.includes(word)) best = 4;
       else if (card.includes(word)) best = 3;
       else if (category.includes(word)) best = 2;
