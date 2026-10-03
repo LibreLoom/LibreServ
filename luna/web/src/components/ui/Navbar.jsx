@@ -28,6 +28,7 @@ export default function Navbar() {
       onLogout={logout}
       storageKey="lunaHamburgerPosition"
       editorKey="lunaEditor"
+      showShortcutsHint={false}
     />
   );
 }

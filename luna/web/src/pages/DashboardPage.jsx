@@ -16,6 +16,7 @@ import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { dashboard as greetingMessages } from "../assets/greetings.jsx";
 import SystemHealthPill from "../components/common/SystemHealthPill.jsx";
 import SoftwareUpdatePill from "../components/common/SoftwareUpdatePill.jsx";
+import TipPill from "../components/common/TipPill.jsx";
 import { ApiError, apiErrorMessage, getDrives, getHealth, getJson, getRecents, postJson } from "../lib/api.js";
 import { folderHref as driveFolderHref } from "../lib/paths.js";
 import { CAP, KIND_ALBUM, sharedItemAction, sharedItemHref } from "../lib/access.js";
@@ -738,6 +739,7 @@ export default function DashboardPage() {
       padded={false}
       headerClassName="px-8 mb-10"
       headerCardClassName="group"
+      leftContent={<TipPill />}
       rightContent={
         <div className="flex items-center gap-2 flex-wrap justify-end">
           {isAdmin ? <SoftwareUpdatePill /> : null}

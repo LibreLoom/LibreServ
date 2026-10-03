@@ -1,6 +1,6 @@
 import { cn } from "@libreloom/ui/lib/utils.js";
 import { useState, useRef } from "react";
-import { Palette, Moon, Sun, Monitor, RotateCcw, Check, Vibrate } from "lucide-react";
+import { Palette, Moon, Sun, Monitor, RotateCcw, Check, Lightbulb, Vibrate } from "lucide-react";
 import Toggle from "@libreloom/ui/components/common/Toggle.jsx";
 import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
 import SettingsRow from "@libreloom/ui/components/settings/SettingsRow.jsx";
@@ -9,6 +9,7 @@ import Button from "@libreloom/ui/components/ui/Button.jsx";
 import { useTheme } from "@libreloom/ui/hooks/useTheme.jsx";
 import { useHapticsEnabled, setHapticsEnabled, haptic } from "@libreloom/ui/utils/haptics.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
+import { restoreDismissedTips, setTipsEnabled, useTipState } from "../../../lib/tips.js";
 
 const THEME_OPTIONS = [
   { value: "system", icon: Monitor, label: "System" },
@@ -232,6 +233,7 @@ export default function AppearanceCategory() {
   } = useTheme();
   const [showCustomColors, setShowCustomColors] = useState(isCustomTheme);
   const hapticsEnabled = useHapticsEnabled();
+  const tips = useTipState();
 
   const darkMode = resolvedTheme === "dark";
 
@@ -410,6 +412,25 @@ export default function AppearanceCategory() {
             iconOn={Check}
             iconOff={Vibrate}
           />
+        </div>
+      </SettingsCard>
+
+      <SettingsCard icon={Lightbulb} title="Tips" padding={false} index={3}>
+        <div className="px-4 py-4 space-y-4">
+          <Toggle
+            checked={tips.enabled}
+            onChange={setTipsEnabled}
+            label="Show tips on Home"
+            description="Now and then, a short tip about using Luna appears at the top of Home."
+            iconOn={Check}
+            iconOff={Lightbulb}
+          />
+          {tips.dismissed.length > 0 ? (
+            <Button variant="ghost" surface="secondary" size="sm" onClick={restoreDismissedTips}>
+              <RotateCcw size={ICON_SIZE.sm} />
+              <span>Show hidden tips again</span>
+            </Button>
+          ) : null}
         </div>
       </SettingsCard>
     </div>

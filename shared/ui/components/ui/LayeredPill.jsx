@@ -37,6 +37,7 @@ import { haptic } from "../../utils/haptics.js";
  *   onAction?: () => void,
  *   actionDisabled?: boolean,
  *   actionAriaLabel?: string,
+ *   actionHaptic?: boolean,  // false when onAction opens something that buzzes itself
  *   actionRef?: React.Ref<HTMLButtonElement>,
  *   mono?: boolean,
  *   title?: string,
@@ -51,6 +52,7 @@ export default function LayeredPill({
   onAction,
   actionDisabled = false,
   actionAriaLabel,
+  actionHaptic = true,
   actionRef,
   mono = false,
   title,
@@ -101,7 +103,7 @@ export default function LayeredPill({
               ref={actionRef}
               type="button"
               onClick={() => {
-                haptic("light");
+                if (actionHaptic) haptic("light");
                 onAction();
               }}
               disabled={actionDisabled}
@@ -137,6 +139,7 @@ LayeredPill.propTypes = {
   onAction: PropTypes.func,
   actionDisabled: PropTypes.bool,
   actionAriaLabel: PropTypes.string,
+  actionHaptic: PropTypes.bool,
   actionRef: PropTypes.oneOfType([
     PropTypes.func,
     PropTypes.shape({ current: PropTypes.elementType }),

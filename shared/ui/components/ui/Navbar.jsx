@@ -100,10 +100,11 @@ function NavShortcut({ item, position, enabled }) {
  * @param {{ to: string, icon: React.ElementType, label: string, adminOnly?: boolean }[]} [props.menuItems]
  *   Extra links at the top of the desktop user menu.
  * @param {string} props.storageKey localStorage key remembering where the mobile button was parked.
+ * @param {boolean} [props.showShortcutsHint] Show "Press ? for keyboard shortcuts" in the user menu. Default true.
  * @param {string} [props.editorKey] `document.documentElement.dataset` key an app sets while a
  *   fullscreen editor is open; the mobile button then hides unless parked in the top strip.
  */
-export default function Navbar({ brand, items, user, onLogout, menuItems = [], storageKey, editorKey }) {
+export default function Navbar({ brand, items, user, onLogout, menuItems = [], storageKey, editorKey, showShortcutsHint = true }) {
   const logout = onLogout;
   const isAdmin = user?.role === "admin";
   const shortcutsSheet = useShortcutsSheet();
@@ -538,7 +539,7 @@ export default function Navbar({ brand, items, user, onLogout, menuItems = [], s
                     <X size={ICON_SIZE.md} aria-hidden="true" />
                     <span className="text-sm font-semibold">Sign out</span>
                   </button>
-                  {shortcutsSheet && (
+                  {shortcutsSheet && showShortcutsHint && (
                     <p className="px-3 pt-1 text-sm">Press ? for keyboard shortcuts</p>
                   )}
                 </div>
