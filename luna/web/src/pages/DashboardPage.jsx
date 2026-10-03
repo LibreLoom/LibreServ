@@ -960,7 +960,7 @@ export default function DashboardPage() {
                 })}
               </ul>
               <div className="mt-4">
-                <Button variant="outline" onClick={close}>Not now</Button>
+                <Button variant="outline" onClick={close}>Cancel</Button>
               </div>
             </>
           )}

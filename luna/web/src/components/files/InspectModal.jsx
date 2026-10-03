@@ -246,7 +246,7 @@ export default function InspectModal({ open = true, drive, result, error, onClos
                         {needsErase ? "Yes, erase it" : "Add this drive"}
                       </Button>
                     )}
-                    <Button variant="outline" onClick={close}>Not now</Button>
+                    <Button variant="outline" onClick={close}>Cancel</Button>
                   </div>
                 </>
               )}

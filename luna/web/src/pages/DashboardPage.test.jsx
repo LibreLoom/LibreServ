@@ -317,7 +317,7 @@ describe("DashboardPage", () => {
     // Modal should open listing the drive
     expect(await screen.findByText(/New drive detected/i)).toBeInTheDocument();
     expect(screen.getByText("SanDisk")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Not now/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Cancel$/i })).toBeInTheDocument();
   });
 
   it("opens the inspect wizard when a listed drive is selected", async () => {
