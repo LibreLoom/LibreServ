@@ -429,7 +429,6 @@ select:focus:not(:focus-visible) {
 
 .animate-dropdown-option {
     animation: dropdown-option-enter 260ms var(--motion-easing-emphasized-decelerate) both;
-    will-change: transform, opacity;
 }
 
 /* Rescan menu row — conveyor swap between states: the outgoing icon + label
@@ -538,7 +537,6 @@ select:focus:not(:focus-visible) {
 
 .animate-alert-enter {
     animation: alert-enter 220ms var(--motion-easing-emphasized-decelerate) both;
-    will-change: transform, opacity;
 }
 
 /* PillGauge — per-segment fill-up on mount */
@@ -556,7 +554,6 @@ select:focus:not(:focus-visible) {
 .animate-pill-gauge-fill {
     animation: pill-gauge-fill 300ms var(--motion-easing-emphasized-decelerate) both;
     transform-origin: left center;
-    will-change: transform, opacity;
 }
 
 /* Settings sidebar nav — staggered slide-in from left */
@@ -573,7 +570,6 @@ select:focus:not(:focus-visible) {
 
 .animate-nav-slide-in {
     animation: nav-slide-in 200ms var(--motion-easing-emphasized-decelerate) both;
-    will-change: transform, opacity;
 }
 
 /* Pop-out animation for modal/dialog exits */
@@ -616,7 +612,6 @@ select:focus:not(:focus-visible) {
 
 .animate-card-stagger {
     animation: card-stagger var(--motion-duration-medium4) var(--motion-easing-emphasized-decelerate) both;
-    will-change: transform, opacity;
 }
 
 /* Cascading photo grid entrance — subtle lift + scale */
@@ -633,7 +628,6 @@ select:focus:not(:focus-visible) {
 
 .animate-cascade-in {
     animation: cascade-in 280ms var(--motion-easing-emphasized-decelerate) backwards;
-    will-change: transform, opacity;
 }
 
 /* Material Design 3 Indeterminate Linear Progress Animations */
@@ -862,14 +856,11 @@ select:focus:not(:focus-visible) {
         transform 200ms ease-out;
 }
 
-/* GPU acceleration hints */
+/* GPU acceleration hint — modal exits only. Never put will-change on classes
+   that repeat across lists (photo thumbs, rows): each one becomes its own
+   compositor layer and stays in memory. */
 .pop-out {
     will-change: transform, opacity;
-}
-
-.motion-safe\:transition,
-.motion-safe\:transition-all {
-    will-change: transform, opacity, color, background-color;
 }
 
 .fixed.h-16.w-16.z-1000 {
