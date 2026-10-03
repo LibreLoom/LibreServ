@@ -1,40 +1,25 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { AuthProvider } from "../../context/AuthContext";
-import Navbar from "./Navbar";
+import { Home } from "lucide-react";
+import Navbar from "./Navbar.jsx";
 
 afterEach(() => {
   delete document.documentElement.dataset.lunaEditor;
   window.localStorage.removeItem("lunaHamburgerPosition");
-  vi.unstubAllGlobals();
 });
-
-function stubAuthApi() {
-  vi.stubGlobal("fetch", vi.fn(async (url) => {
-    const u = String(url);
-    if (u.endsWith("/auth/me") || u.endsWith("/api/v1/auth/me")) {
-      return new Response(JSON.stringify({ id: "1", role: "admin", username: "admin" }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-    if (u.endsWith("/setup") || u.endsWith("/api/v1/setup")) {
-      return new Response(JSON.stringify({ setup_completed: true }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-    return new Response("{}", { status: 500 });
-  }));
-}
 
 function renderNavbar() {
   return render(
     <MemoryRouter>
-      <AuthProvider>
-        <Navbar />
-      </AuthProvider>
+      <Navbar
+        brand="Test"
+        items={[{ to: "/", icon: Home, label: "Home", end: true }]}
+        user={{ username: "admin", role: "admin" }}
+        onLogout={() => {}}
+        storageKey="lunaHamburgerPosition"
+        editorKey="lunaEditor"
+      />
     </MemoryRouter>
   );
 }
@@ -51,7 +36,6 @@ async function setEditorOpen(open) {
 
 describe("Navbar mobile FAB vs fullscreen editor", () => {
   it("hides the menu button while the fullscreen editor is open", async () => {
-    stubAuthApi();
     renderNavbar();
     const fab = await screen.findByLabelText("Toggle menu");
     expect(fab).toBeInTheDocument();
@@ -72,7 +56,6 @@ describe("Navbar mobile FAB vs fullscreen editor", () => {
       "lunaHamburgerPosition",
       JSON.stringify({ x: 20, y: 20 }),
     );
-    stubAuthApi();
     renderNavbar();
 
     await setEditorOpen(true);
@@ -85,7 +68,6 @@ describe("Navbar mobile FAB vs fullscreen editor", () => {
       "lunaHamburgerPosition",
       JSON.stringify({ x: 20, y: 20 }),
     );
-    stubAuthApi();
     renderNavbar();
 
     await setEditorOpen(true);

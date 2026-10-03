@@ -7,6 +7,7 @@ import { BrowserRouter } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
 import { ThemeProvider } from"@libreloom/ui/context/ThemeContext.jsx";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
+import { ShortcutsProvider } from "@libreloom/ui/context/ShortcutsContext.jsx";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { setupGlobalErrorHandlers } from "./utils/errorReporting.js";
 import Toaster from "@libreloom/ui/components/common/Toaster.jsx";
@@ -29,8 +30,10 @@ createRoot(document.getElementById("root")).render(
         <AuthProvider queryClient={queryClient}>
           <ThemeProvider>
             <ToastProvider>
-              <App />
-              <Toaster />
+              <ShortcutsProvider>
+                <App />
+                <Toaster />
+              </ShortcutsProvider>
             </ToastProvider>
           </ThemeProvider>
         </AuthProvider>
