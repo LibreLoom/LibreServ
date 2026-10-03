@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Agentation } from "agentation";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
@@ -15,16 +15,22 @@ import RequireAdmin from "./components/auth/RequireAdmin";
 import useRecentItemsTracker from "./hooks/useRecentItemsTracker";
 
 // One chunk per page: the first paint downloads only the page being opened.
-const DrivesPage = lazy(() => import("./pages/DrivesPage"));
-const FilesPage = lazy(() => import("./pages/FilesPage"));
-const GalleryPage = lazy(() => import("./pages/GalleryPage"));
-const SharedPage = lazy(() => import("./pages/SharedPage"));
-const DashboardPage = lazy(() => import("./pages/DashboardPage"));
+const loadDrivesPage = () => import("./pages/DrivesPage");
+const loadFilesPage = () => import("./pages/FilesPage");
+const loadGalleryPage = () => import("./pages/GalleryPage");
+const loadSharedPage = () => import("./pages/SharedPage");
+const loadDashboardPage = () => import("./pages/DashboardPage");
+const loadSettingsPage = () => import("./pages/SettingsPage");
+const DrivesPage = lazy(loadDrivesPage);
+const FilesPage = lazy(loadFilesPage);
+const GalleryPage = lazy(loadGalleryPage);
+const SharedPage = lazy(loadSharedPage);
+const DashboardPage = lazy(loadDashboardPage);
 const LoginPage = lazy(() => import("./pages/LoginPage"));
 const UsersPage = lazy(() => import("./pages/UsersPage"));
 const SetupPage = lazy(() => import("./pages/SetupPage"));
 const NotFoundPage = lazy(() => import("./pages/NotFoundPage"));
-const SettingsPage = lazy(() => import("./pages/SettingsPage"));
+const SettingsPage = lazy(loadSettingsPage);
 const PublicSharePage = lazy(() => import("./pages/PublicSharePage"));
 
 const queryClient = new QueryClient({
@@ -66,8 +72,34 @@ function PageOutlet() {
   );
 }
 
+/**
+ * Once the first page is up and the browser is idle, fetch the other pages'
+ * code so a tap in the navbar opens them without a blank wait. Skipped on
+ * Data Saver.
+ */
+function usePreloadPages() {
+  useEffect(() => {
+    if (/** @type {any} */ (navigator).connection?.saveData) return undefined;
+    const loaders = [loadFilesPage, loadDrivesPage, loadGalleryPage, loadSharedPage, loadDashboardPage, loadSettingsPage];
+    const idle = window.requestIdleCallback
+      ? (fn) => window.requestIdleCallback(fn, { timeout: 4000 })
+      : (fn) => window.setTimeout(fn, 1500);
+    const cancel = window.cancelIdleCallback || window.clearTimeout;
+    let i = 0;
+    let handle = 0;
+    const next = () => {
+      if (i >= loaders.length) return;
+      loaders[i++]().catch(() => {});
+      handle = idle(next);
+    };
+    handle = idle(next);
+    return () => cancel(handle);
+  }, []);
+}
+
 /** Authenticated chrome: page content + fixed bottom navbar. */
 function AppShell() {
+  usePreloadPages();
   return (
     <RequireAuth>
       <div data-slot="app-shell" className="relative flex min-h-screen flex-col surface-primary">
