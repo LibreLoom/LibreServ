@@ -193,7 +193,7 @@ describe("EuroOfficeHost source plumbing", () => {
     /** @type {() => void} */
     let finishUpload = () => {};
     vi.mocked(saveEuroOfficeDocument).mockImplementationOnce(
-      () => new Promise((resolve) => { finishUpload = () => resolve({}); }),
+      () => new Promise((resolve) => { finishUpload = () => resolve({ bytes: 0 }); }),
     );
     act(edit);
     let saving;
