@@ -138,7 +138,7 @@ export default function GeozoneMap({
         </MapContainer>
       </div>
 
-      <CollapsibleSection pill title="Set area with coordinates" className="mt-2">
+      <CollapsibleSection pill surface="primary" title="Set area with coordinates" className="mt-2">
         <MapAreaFields
           idPrefix="geozone-area"
           value={value}

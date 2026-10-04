@@ -12,16 +12,21 @@ export default function CollapsibleSection({
   mono = false,
   size = "sm",
   pill = false,
+  surface = "secondary",
   className = "",
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const contentId = useId();
   const sizeClass = size === "xs" ? "text-xs" : size === "md" ? "text-base" : "text-sm";
 
+  // The pill's tint and text invert when it sits on the page surface.
+  const onPage = surface === "primary";
   const wrapperClass = pill
     ? cn(
-        "border rounded-large-element bg-primary/5 motion-safe:transition-colors motion-safe:duration-150",
-        open ? "border-primary/35 bg-primary/10" : "border-primary/20 hover:border-primary/35",
+        "border rounded-large-element motion-safe:transition-colors motion-safe:duration-150",
+        onPage
+          ? cn("bg-secondary/5", open ? "border-secondary/35 bg-secondary/10" : "border-secondary/20 hover:border-secondary/35")
+          : cn("bg-primary/5", open ? "border-primary/35 bg-primary/10" : "border-primary/20 hover:border-primary/35"),
         className
       )
     : className;
@@ -38,7 +43,7 @@ export default function CollapsibleSection({
           "flex items-center gap-1.5 motion-safe:transition-all w-full cursor-pointer",
           "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 rounded-pill",
           sizeClass,
-          pill ? "text-primary font-medium py-2 px-3" : "text-inherit py-1",
+          pill ? cn(onPage ? "text-secondary" : "text-primary", "font-medium py-2 px-3") : "text-inherit py-1",
           mono && "font-mono"
         )}
         aria-expanded={open}
@@ -82,5 +87,6 @@ CollapsibleSection.propTypes = {
   mono: PropTypes.bool,
   size: PropTypes.oneOf(["sm", "md", "xs"]),
   pill: PropTypes.bool,
+  surface: PropTypes.oneOf(["primary", "secondary"]),
   className: PropTypes.string,
 };
