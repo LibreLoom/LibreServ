@@ -763,3 +763,23 @@ describe("saveEuroOfficeDocument source roundtrip", () => {
     expect(String(puts[puts.length - 1][0])).toContain("Editor.bin?coverage=7");
   });
 });
+
+describe("editor modified-flag helpers", () => {
+  it("resetEuroOfficeModified clears the word/slide flag and the spreadsheet history marker", async () => {
+    const { resetEuroOfficeModified, getEuroOfficeHistoryIndex } = await import("./euroOfficeApi.js");
+    const SetDocumentModified = vi.fn();
+    const Reset_SavedIndex = vi.fn();
+    const iframe = /** @type {any} */ ({
+      contentWindow: {
+        Asc: { editor: { SetDocumentModified, asc_isDocumentModified: () => true } },
+        AscCommon: { History: { Reset_SavedIndex, Index: 7 } },
+      },
+    });
+    resetEuroOfficeModified(iframe);
+    expect(SetDocumentModified).toHaveBeenCalledWith(false);
+    expect(Reset_SavedIndex).toHaveBeenCalled();
+    expect(getEuroOfficeHistoryIndex(iframe)).toBe(7);
+    expect(getEuroOfficeHistoryIndex(null)).toBeNull();
+    expect(() => resetEuroOfficeModified(null)).not.toThrow();
+  });
+});

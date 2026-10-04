@@ -10,6 +10,8 @@ import {
   canSaveOfficeExt,
   createEuroOfficeSession,
   emitEuroOfficeSaved,
+  getEuroOfficeHistoryIndex,
+  resetEuroOfficeModified,
   EuroOfficeUnavailableError,
   requestEuroOfficeSaveLock,
   releaseEuroOfficeSaveLock,
@@ -93,6 +95,10 @@ export default function EuroOfficeHost({
   // flag if this hasn't moved since the document was serialized — edits that
   // land during the convert + upload are not in the file being written.
   const editSeqRef = useRef(0);
+  // Undo-history position at the last save (or at open). The sdk only
+  // reports "modified" on a false → true flip, so a mismatch here marks edits
+  // it didn't announce.
+  const savedHistoryIdxRef = useRef(/** @type {number | null} */ (null));
   const lastEditRef = useRef(0);
   // Highest op index known to be persisted (our own save or a peer's
   // lunaSaved). Ops at or below it can't dirty the doc.
@@ -220,6 +226,7 @@ export default function EuroOfficeHost({
       setPhase("Starting EuroOffice…");
       setError("");
       sawReadyRef.current = false;
+      savedHistoryIdxRef.current = null;
       const docType = euroOfficeDocumentType(path);
       if (!docType) {
         setStatus("error");
@@ -301,6 +308,7 @@ export default function EuroOfficeHost({
             const snapshotIndex =
               typeof co?.changesIndex === "number" ? co.changesIndex : null;
             const snapshotSeq = editSeqRef.current;
+            const snapshotHistoryIdx = getEuroOfficeHistoryIndex(iframe);
             let timeout;
             const timedOut = new Promise((_, reject) => {
               timeout = setTimeout(
@@ -333,10 +341,12 @@ export default function EuroOfficeHost({
                 snapshotIndex,
               );
             }
+            savedHistoryIdxRef.current = snapshotHistoryIdx;
             if (editSeqRef.current === snapshotSeq) {
               peerSavedRef.current = undefined;
               dirtyRef.current = false;
               onSaveStateChangeRef.current?.(false);
+              resetEuroOfficeModified(iframe);
             } else {
               // Edited while saving: the file lacks those changes, so stay
               // dirty and let the next autosave tick write them.
@@ -402,6 +412,22 @@ export default function EuroOfficeHost({
                 dirtySinceRef.current = now;
                 onSaveStateChangeRef.current?.(false);
                 return;
+              }
+            }
+            if (!savingRef.current) {
+              const histIdx = getEuroOfficeHistoryIndex(
+                mountRef.current?.querySelector('iframe[name="frameEditor"]') ?? null,
+              );
+              if (histIdx != null) {
+                if (savedHistoryIdxRef.current == null) {
+                  savedHistoryIdxRef.current = histIdx;
+                } else if (!dirtyRef.current && histIdx !== savedHistoryIdxRef.current) {
+                  dirtySinceRef.current = now;
+                  lastEditRef.current = now;
+                  editSeqRef.current += 1;
+                  dirtyRef.current = true;
+                  onSaveStateChangeRef.current?.(true);
+                }
               }
             }
             if (!dirtyRef.current || savingRef.current) return;

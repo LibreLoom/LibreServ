@@ -963,6 +963,50 @@ export function watchEuroOfficeChanges(iframe, cb) {
 }
 
 /**
+ * Re-arm the editor's own "document modified" event after a save.
+ *
+ * The sdk raises `onDocumentStateChange(true)` only when its modified flag
+ * flips false → true, and a Luna save never flips it back (the stock save
+ * transaction that would is deliberately bypassed). So after the first edit
+ * the flag stays true forever and every later edit is silent — the host would
+ * think a freshly saved document is still saved. Clearing the flag here makes
+ * the next edit a real transition again.
+ * @param {HTMLIFrameElement | null} iframe
+ */
+export function resetEuroOfficeModified(iframe) {
+  try {
+    const w = /** @type {any} */ (iframe?.contentWindow);
+    const api = w?.Asc?.editor;
+    if (!api) return;
+    // Spreadsheets derive "modified" from the history's saved marker.
+    if (api.asc_isDocumentModified && w.AscCommon?.History?.Reset_SavedIndex) {
+      w.AscCommon.History.Reset_SavedIndex(true);
+    }
+    // Word/slides keep an explicit flag; spreadsheets route the same name to
+    // onUpdateDocumentModified(bool).
+    if (typeof api.SetDocumentModified === "function") api.SetDocumentModified(false);
+  } catch {
+    // best effort — the history-index check in the host is the backstop
+  }
+}
+
+/**
+ * The editor's undo-history position. It moves on every local edit (and on
+ * undo/redo), independent of the sdk's modified flag — the host compares it
+ * with its value at the last save to catch edits the flag missed.
+ * @param {HTMLIFrameElement | null} iframe
+ * @returns {number | null}
+ */
+export function getEuroOfficeHistoryIndex(iframe) {
+  try {
+    const idx = /** @type {any} */ (iframe?.contentWindow)?.AscCommon?.History?.Index;
+    return typeof idx === "number" ? idx : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Diagnostic breadcrumb: collab state transitions land in
  * `iframe.contentWindow.__lunaCollabLog` (ring, last 100) and the debug
  * console. The editor's failure modes are silent otherwise — a parked view
