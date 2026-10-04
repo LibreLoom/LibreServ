@@ -13,6 +13,13 @@ const CLIENT: std::net::SocketAddr = std::net::SocketAddr::new(
 );
 
 fn test_app(mount: &std::path::Path) -> (tempfile::TempDir, axum::Router) {
+    let (dir, app, _) = test_app_with_state(mount);
+    (dir, app)
+}
+
+fn test_app_with_state(
+    mount: &std::path::Path,
+) -> (tempfile::TempDir, axum::Router, crate::AppState) {
     let dir = tempfile::tempdir().unwrap();
     let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
     let prefix = luna_core::marker::pick_prefix(mount).unwrap();
@@ -39,8 +46,8 @@ fn test_app(mount: &std::path::Path) -> (tempfile::TempDir, axum::Router) {
             state.clone(),
             crate::auth::guard,
         ))
-        .with_state(state);
-    (dir, app)
+        .with_state(state.clone());
+    (dir, app, state)
 }
 
 fn json_req(
@@ -2609,4 +2616,91 @@ async fn recents_check_drive_entries() {
     let list = recents.as_array().unwrap();
     assert_eq!(list.len(), 1);
     assert_eq!(list[0]["kind"], "drive");
+}
+
+async fn trash_one(app: &axum::Router, cookie: &str, csrf: &str, name: &str) -> String {
+    delete_path(app, cookie, csrf, name).await
+}
+
+fn status_of(res: &axum::response::Response) -> u16 {
+    res.status().as_u16()
+}
+
+#[tokio::test]
+async fn two_restores_of_one_trash_item_have_one_winner() {
+    let mount = tempfile::tempdir().unwrap();
+    std::fs::write(mount.path().join("a.txt"), b"x").unwrap();
+    let (_dir, app) = test_app(mount.path());
+    let (cookie, csrf) = admin_cookie(&app).await;
+    let trashed = trash_one(&app, &cookie, &csrf, "a.txt").await;
+    let restore = |dest: &str| {
+        json_req(
+            Method::POST,
+            "/api/v1/drives/photos/files/restore",
+            &format!(r#"{{"path":"{trashed}","dest":"{dest}"}}"#),
+            Some(&cookie),
+            Some(&csrf),
+        )
+    };
+    let (one, two) = tokio::join!(
+        call(&app, restore("first.txt")),
+        call(&app, restore("second.txt"))
+    );
+    let ok = [status_of(&one), status_of(&two)]
+        .iter()
+        .filter(|s| **s == 200)
+        .count();
+    assert_eq!(ok, 1, "exactly one restore wins");
+    let landed = ["first.txt", "second.txt"]
+        .iter()
+        .filter(|n| mount.path().join(n).is_file())
+        .count();
+    assert_eq!(landed, 1, "the item exists in exactly one place");
+}
+
+#[tokio::test]
+async fn a_purge_waits_for_the_drive_lock_while_reads_carry_on() {
+    let mount = tempfile::tempdir().unwrap();
+    std::fs::write(mount.path().join("a.txt"), b"x").unwrap();
+    let (_dir, app, state) = test_app_with_state(mount.path());
+    let (cookie, csrf) = admin_cookie(&app).await;
+    let trashed = trash_one(&app, &cookie, &csrf, "a.txt").await;
+
+    // Someone else is changing this drive.
+    let guard = state.db.drive_lock("photos").lock_owned().await;
+    let purge = tokio::spawn({
+        let app = app.clone();
+        let (cookie, csrf) = (cookie.clone(), csrf.clone());
+        async move {
+            call(
+                &app,
+                json_req(
+                    Method::POST,
+                    "/api/v1/drives/photos/files/purge",
+                    &format!(r#"{{"path":"{trashed}"}}"#),
+                    Some(&cookie),
+                    Some(&csrf),
+                ),
+            )
+            .await
+        }
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    assert!(!purge.is_finished(), "the purge queues behind the lock");
+
+    // The database lock is free, so listings still answer.
+    let listing = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        get_files(&app, &cookie, &csrf, ""),
+    )
+    .await
+    .expect("a listing is not stuck behind a purge");
+    assert_eq!(listing.status(), 200);
+
+    drop(guard);
+    let res = tokio::time::timeout(std::time::Duration::from_secs(5), purge)
+        .await
+        .expect("the purge runs once the lock frees")
+        .unwrap();
+    assert_eq!(res.status(), 200);
 }

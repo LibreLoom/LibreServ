@@ -1034,16 +1034,20 @@ async fn serve_folder_zip(
                 .truncate(true)
                 .open(&tmp_path)
                 .map_err(files::FilesError::Io)?;
-            let conn = state
-                .db
-                .lock()
-                .map_err(|_| files::FilesError::UnknownDrive)?;
+            // Only the lookup holds the database lock; the walk and
+            // compression below run without it, taking it for one
+            // permission check per entry.
+            let plan = with_db(&state, |conn| files::zip_plan(conn, &id, &rel, in_trash))?;
+            let db = state.db.clone();
             if in_trash {
                 // Mirror list_trash_view + check_trash_item: a zip of the
                 // trash root — or of one entry — only ships children whose
                 // ORIGIN the caller could still edit. Entries with no
                 // recorded origin stay admin-only, like the listing.
-                files::write_folder_zip_including_trash(&conn, &id, &rel, &mut file, |child| {
+                files::write_zip_from_plan(plan, &mut file, |child| {
+                    let Ok(conn) = db.lock() else {
+                        return false;
+                    };
                     // A private item (or anything inside one) answers at its
                     // current trash path, never to where it used to sit.
                     if crate::auth::inside_private(&conn, &id, child) {
@@ -1071,8 +1075,9 @@ async fn serve_folder_zip(
                     }
                 })
             } else {
-                files::write_folder_zip(&conn, &id, &rel, &mut file, |child| {
-                    crate::auth::can_inspect_path(&user, &conn, &id, child)
+                files::write_zip_from_plan(plan, &mut file, |child| {
+                    db.lock()
+                        .is_ok_and(|conn| crate::auth::can_inspect_path(&user, &conn, &id, child))
                 })
             }
         }
@@ -1349,8 +1354,10 @@ async fn delete_entry(
     let rel = rel.trim().trim_matches('/').to_string();
     check_access(&state, &user, &id, &rel, crate::access::CAP_EDIT)?;
     check_no_foreign_private(&state, &user, &id, &rel)?;
-    let trash_path =
-        with_db(&state, |conn| files::delete_to_trash(conn, &id, &rel)).map_err(map_files_err)?;
+    let trash_path = {
+        let _guard = state.db.drive_lock(&id).lock_owned().await;
+        with_db(&state, |conn| files::delete_to_trash(conn, &id, &rel)).map_err(map_files_err)?
+    };
     state.gallery.remove(&id, &rel);
     // Eagerly drop album refs so shared albums update without waiting on the indexer.
     if let Ok(conn) = state.db.lock()
@@ -1590,6 +1597,7 @@ async fn rename_entry(
     check_access(&state, &user, &id, &body.path, crate::access::CAP_EDIT)?;
     let parent = body.path.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
     let new_rel = crate::gallery::gallery_indexer::join_rel(parent, &body.new_name);
+    let guard = state.db.drive_lock(&id).lock_owned().await;
     with_db(&state, |conn| {
         files::rename(conn, &id, &body.path, &body.new_name)
     })
@@ -1600,6 +1608,7 @@ async fn rename_entry(
         ),
         other => map_files_err(other),
     })?;
+    drop(guard);
     // Folder renames move many gallery rows; a catch-up rescan is the safe path.
     let renamed_dir = with_db(&state, |conn| {
         let drive = crate::files::drive_root(conn, &id)?;
@@ -1643,6 +1652,7 @@ async fn restore_entry(
             ));
         }
     }
+    let guard = state.db.drive_lock(&id).lock_owned().await;
     with_db(&state, |conn| {
         files::restore_from_trash(conn, &id, &body.path, &body.dest)
     })
@@ -1657,6 +1667,7 @@ async fn restore_entry(
         ),
         other => map_files_err(other),
     })?;
+    drop(guard);
     state.gallery.upsert(&id, &body.dest);
     invalidate_parent_listing(&state, &id, &body.dest);
     state.touch_io_activity();
@@ -1673,6 +1684,7 @@ async fn purge_entry(
         // Empty trash. Everyone purges only the entries they can see (their
         // own origins); admins see every entry.
         let Json(entries) = list_trash_view(&state, &user, &id, &body.path)?;
+        let mut rels = Vec::new();
         for entry in entries {
             let rel = format!("{}/{}", files::TRASH_API_ALIAS, entry.name);
             // Someone else's private item inside stays; only its owner can
@@ -1680,20 +1692,44 @@ async fn purge_entry(
             if check_no_foreign_private(&state, &user, &id, &rel).is_err() {
                 continue;
             }
-            with_db(&state, |conn| files::purge_trash(conn, &id, &rel)).map_err(map_files_err)?;
+            rels.push(rel);
         }
-        return Ok(Json(json!({ "ok": true })));
+        let guard = state.db.drive_lock(&id).lock_owned().await;
+        let drive = drive_row(&state, &id).map_err(map_files_err)?;
+        blocking(move || {
+            // Held by the delete itself, so a dropped request can't free it early.
+            let _guard = guard;
+            for rel in &rels {
+                match files::purge_trash_at(&drive, &id, rel) {
+                    Ok(()) => {}
+                    // A second "empty trash" got there first.
+                    Err(FilesError::Io(ref io)) if io.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(e) => return Err(map_files_err(e)),
+                }
+            }
+            Ok(Json(json!({ "ok": true })))
+        })
+        .await
+    } else {
+        check_trash_item(&state, &user, &id, &body.path)?;
+        check_no_foreign_private(&state, &user, &id, &body.path)?;
+        let guard = state.db.drive_lock(&id).lock_owned().await;
+        let drive = drive_row(&state, &id).map_err(map_files_err)?;
+        blocking(move || {
+            let _guard = guard;
+            files::purge_trash_at(&drive, &id, &body.path).map_err(|e| match e {
+                FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::InvalidInput => {
+                    json_error(
+                        StatusCode::BAD_REQUEST,
+                        "Luna only permanently removes files that are already in the trash.",
+                    )
+                }
+                other => map_files_err(other),
+            })?;
+            Ok(Json(json!({ "ok": true })))
+        })
+        .await
     }
-    check_trash_item(&state, &user, &id, &body.path)?;
-    check_no_foreign_private(&state, &user, &id, &body.path)?;
-    with_db(&state, |conn| files::purge_trash(conn, &id, &body.path)).map_err(|e| match e {
-        FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::InvalidInput => json_error(
-            StatusCode::BAD_REQUEST,
-            "Luna only permanently removes files that are already in the trash.",
-        ),
-        other => map_files_err(other),
-    })?;
-    Ok(Json(json!({ "ok": true })))
 }
 
 async fn upload(

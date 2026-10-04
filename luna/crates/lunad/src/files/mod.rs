@@ -437,7 +437,12 @@ pub fn note_write(conn: &rusqlite::Connection, drive_id: &str, api_rel: &str) {
     let Ok(drive) = drive_root(conn, drive_id) else {
         return;
     };
-    let Ok(dconn) = open_drive_db(&drive) else {
+    note_write_at(&drive, drive_id, api_rel);
+}
+
+/// [`note_write`] for a drive row already in hand.
+pub fn note_write_at(drive: &DriveRow, drive_id: &str, api_rel: &str) {
+    let Ok(dconn) = open_drive_db(drive) else {
         return;
     };
     let root = PathBuf::from(&drive.mount_point);
@@ -900,13 +905,29 @@ fn write_folder_zip_ex(
     drive_id: &str,
     rel: &str,
     writer: impl std::io::Write + std::io::Seek,
-    mut include_rel: impl FnMut(&str) -> bool,
+    include_rel: impl FnMut(&str) -> bool,
     allow_trash: bool,
 ) -> Result<usize, FilesError> {
-    use std::io::{Read, Write};
-    use zip::write::SimpleFileOptions;
-    use zip::{CompressionMethod, ZipWriter};
+    let plan = zip_plan(conn, drive_id, rel, allow_trash)?;
+    write_zip_from_plan(plan, writer, include_rel)
+}
 
+/// What a folder zip needs from the database, gathered up front so the walk
+/// and compression that follow can run without holding the database lock.
+pub struct ZipPlan {
+    folder: PathBuf,
+    root: PathBuf,
+    rel: String,
+    archive_root: String,
+    trash_names: std::collections::HashMap<String, String>,
+}
+
+pub fn zip_plan(
+    conn: &rusqlite::Connection,
+    drive_id: &str,
+    rel: &str,
+    allow_trash: bool,
+) -> Result<ZipPlan, FilesError> {
     let (folder, meta) = resolve_any_ex(conn, drive_id, rel, allow_trash)?;
     if !meta.is_dir() {
         return Err(FilesError::Io(std::io::Error::new(
@@ -934,6 +955,33 @@ fn write_folder_zip_ex(
     } else {
         std::collections::HashMap::new()
     };
+    Ok(ZipPlan {
+        folder,
+        root,
+        rel: rel.to_string(),
+        archive_root,
+        trash_names,
+    })
+}
+
+/// Walk and compress a planned folder. Touches the drive only.
+pub fn write_zip_from_plan(
+    plan: ZipPlan,
+    writer: impl std::io::Write + std::io::Seek,
+    mut include_rel: impl FnMut(&str) -> bool,
+) -> Result<usize, FilesError> {
+    use std::io::{Read, Write};
+    use zip::write::SimpleFileOptions;
+    use zip::{CompressionMethod, ZipWriter};
+
+    let ZipPlan {
+        folder,
+        root,
+        rel,
+        archive_root,
+        trash_names,
+    } = plan;
+    let rel = rel.as_str();
     let mut zip = ZipWriter::new(writer);
     let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
     let mut file_count = 0usize;
@@ -1978,7 +2026,13 @@ pub fn purge_trash(
     drive_id: &str,
     trash_rel: &str,
 ) -> Result<(), FilesError> {
-    let drive = drive_root(conn, drive_id)?;
+    purge_trash_at(&drive_root(conn, drive_id)?, drive_id, trash_rel)
+}
+
+/// [`purge_trash`] for a drive row already in hand, so the (possibly long)
+/// delete runs without the database lock. Callers hold the drive's mutation
+/// lock instead.
+pub fn purge_trash_at(drive: &DriveRow, drive_id: &str, trash_rel: &str) -> Result<(), FilesError> {
     let root = PathBuf::from(&drive.mount_point);
     let trash_rel = real_rel(&root, trash_rel);
     let Some((entry_name, rest)) = trash_entry_parts(&trash_rel) else {
@@ -2003,7 +2057,7 @@ pub fn purge_trash(
     if rest.is_none() {
         remove_trash_meta(&root, entry_name);
     }
-    note_write(conn, drive_id, &trash_rel);
+    note_write_at(drive, drive_id, &trash_rel);
     Ok(())
 }
 

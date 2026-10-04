@@ -37,11 +37,23 @@ pub type DavHandler = dav_server::DavHandler;
 /// can't do from the UI. `lock` instead rolls back whatever transaction the
 /// panicking thread left open and hands the connection on. SQLite keeps the
 /// file consistent on its own; only the half-done work is dropped.
-pub struct Db(Mutex<Connection>);
+pub struct Db(
+    Mutex<Connection>,
+    Mutex<std::collections::HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+);
 
 impl Db {
     pub fn new(conn: Connection) -> Self {
-        Self(Mutex::new(conn))
+        Self(Mutex::new(conn), Mutex::default())
+    }
+
+    /// The drive's mutation lock. Whoever changes files or trash on a drive
+    /// holds it from the check through the change, so two writers to the same
+    /// item queue instead of interleaving, while the database lock stays
+    /// free for everyone else. Always take it BEFORE the database lock.
+    pub fn drive_lock(&self, drive_id: &str) -> Arc<tokio::sync::Mutex<()>> {
+        let mut locks = self.1.lock().unwrap_or_else(|p| p.into_inner());
+        locks.entry(drive_id.to_string()).or_default().clone()
     }
 
     /// Never returns `Err` — the `LockResult` shape keeps existing call sites

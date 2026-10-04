@@ -642,6 +642,10 @@ fn run_job(
         )?;
 
         if prepared.row.kind == "move" {
+            // Queue behind any other change on the source drive; taken before
+            // the database lock, like every other writer.
+            let drive_lock = db.drive_lock(&prepared.row.from_drive);
+            let _drive_guard = drive_lock.blocking_lock();
             let conn = db.lock().map_err(|_| index_busy())?;
             // Retarget the subject rows to the destination BEFORE trashing
             // the source — delete_to_trash revokes whatever still points at
