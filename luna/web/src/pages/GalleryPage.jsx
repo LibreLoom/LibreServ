@@ -913,9 +913,10 @@ export default function GalleryPage() {
       !!albumView ||
       !!viewLabel ||
       filterActiveCount > 0);
-  const searchAndFiltersEmpty = scopedEmpty && !!search && filterActiveCount > 0;
+  const searchAndFiltersEmpty = scopedEmpty && !placesMapOverview && !!search && filterActiveCount > 0;
   const filtersEmpty =
     scopedEmpty &&
+    !placesMapOverview &&
     !search &&
     filterActiveCount > 0 &&
     (driveList.length > 0 || !!albumView || !!viewLabel || activeSegment === "albums" || activeSegment === "places");
@@ -1411,7 +1412,10 @@ export default function GalleryPage() {
   // filter (dates, places, kind, month-day…) show the same Back + label +
   // Save-as-album bar.
   const detailChrome =
-    albumView || viewLabel || duplicatesView || filterActiveCount > 0;
+    albumView ||
+    viewLabel ||
+    duplicatesView ||
+    (filterActiveCount > 0 && !placesMapOverview);
 
   // Cheap probe: does the library hold photos taken on today's month-day in
   // previous years? It only drives the dismissable "On this day" pill — the
