@@ -2,9 +2,9 @@ import {
   HardDrive,
   Home,
   Image as ImageIcon,
-  Shield,
   Share2,
   SlidersHorizontal,
+  UserRound,
   Users,
 } from "lucide-react";
 import SharedNavbar from "@libreloom/ui/components/ui/Navbar.jsx";
@@ -19,7 +19,7 @@ const navItems = [
   { to: "/settings", icon: SlidersHorizontal, label: "Settings", end: true },
 ];
 
-const menuItems = [{ to: "/settings#security", icon: Shield, label: "Security" }];
+const menuItems = [{ to: "/settings#security", icon: UserRound, label: "Me" }];
 
 export default function Navbar() {
   const { user, logout } = useAuth();
