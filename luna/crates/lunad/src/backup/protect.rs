@@ -226,8 +226,9 @@ pub fn sync(conn: &Connection, row: &ProtectionRow) -> anyhow::Result<u64> {
         luna_core::path::resolve_for_create_nofollow(&root, &row.target_path)
             .map_err(|e| anyhow::anyhow!("Luna couldn't open the protected-copy folder: {e}"))?
     };
-    let copied = sync_trees(&src_root, &target_root)?;
+    let result = sync_trees(&src_root, &target_root);
     write_private_manifest(row, &src_root, &target_root);
+    let copied = result?;
     db::touch_protection(conn, &row.id)?;
     Ok(copied)
 }
