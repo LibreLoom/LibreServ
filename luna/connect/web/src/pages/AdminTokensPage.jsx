@@ -324,7 +324,20 @@ export default function AdminTokensPage() {
                   {rows.map((r) => (
                     <tr key={r.id} className="border-b border-border last:border-0 align-top">
                       <td className="px-3 py-2">
-                        <TokenReveal hint={r.hint} code={r.code} />
+                        <TokenReveal
+                          hint={r.hint}
+                          code={r.code}
+                          onReveal={
+                            r.can_reveal && !r.code
+                              ? async () => {
+                                  const data = await adminApi(
+                                    `/admin/setup-tokens/${encodeURIComponent(r.id)}/reveal`,
+                                  );
+                                  return data.code || "";
+                                }
+                              : undefined
+                          }
+                        />
                       </td>
                       <td className="px-3 py-2">
                         <Badge variant="outline">{kindLabel(r.kind)}</Badge>

@@ -48,8 +48,8 @@ VALUES (?, 'bucket-test', 'bid', 'https://b2.example', 'kid', 'sealed', ?)`, dev
 
 	var bucketCount int
 	_ = d.DB.QueryRow(`SELECT COUNT(*) FROM device_backup_buckets WHERE device_id = ?`, devID).Scan(&bucketCount)
-	if bucketCount != 0 {
-		t.Fatal("device backup bucket mapping should be removed")
+	if bucketCount != 1 {
+		t.Fatal("bucket mapping must survive purge so kept backup objects stay reachable")
 	}
 
 	var objCount int

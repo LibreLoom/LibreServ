@@ -97,14 +97,12 @@ func (h AccountHandler) Register(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusInternalServerError, "Could not create the account. Try again.")
 		return
 	}
-	cust, err := billing.CreateCustomer(email)
-	if err != nil {
-		JSONError(w, http.StatusBadGateway, "Could not start billing. Try again in a few minutes.")
-		return
-	}
+	// The account row comes first: signup must not depend on Stripe being up.
+	// The Stripe customer is created lazily on the first billing call via
+	// billing.EnsureCustomer (AttachCard / onboarding backups / verify-human).
 	id := security.NewID("acct")
-	_, err = h.DB.Exec(`INSERT INTO accounts (id, email, password_hash, stripe_customer_id, has_card, billing_status, email_verified, created_at)
-VALUES (?, ?, ?, ?, 0, 'none', 0, ?)`, id, email, string(hash), cust, time.Now().Unix())
+	_, err = h.DB.Exec(`INSERT INTO accounts (id, email, password_hash, has_card, billing_status, email_verified, created_at)
+VALUES (?, ?, ?, 0, 'none', 0, ?)`, id, email, string(hash), time.Now().Unix())
 	if err != nil {
 		_ = allowAuthAttempt(h.DB, ip, email, authAttemptMax, authAttemptWindow)
 		JSONError(w, http.StatusConflict, "That email already has an account. Sign in instead.")
@@ -256,8 +254,23 @@ func (h AccountHandler) AttachCard(w http.ResponseWriter, r *http.Request) {
 		status = "dev"
 		out["dev"] = true
 	}
-	_, _ = h.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = ?, stripe_subscription_id = ?, stripe_subscription_item_id = ?, backup_purge_after = NULL, purge_mail_day = NULL WHERE id = ?`,
+	// Race-safe claim: two concurrent subscribes both reach Stripe, but only
+	// one wins this conditional UPDATE. The loser cancels the subscription it
+	// just created so the customer is never billed twice.
+	res, err := h.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = ?, stripe_subscription_id = ?, stripe_subscription_item_id = ?, backup_purge_after = NULL, purge_mail_day = NULL WHERE id = ? AND (stripe_subscription_id IS NULL OR stripe_subscription_id = '')`,
 		status, sub, item, acct.ID)
+	if err != nil {
+		_ = billing.CancelSubscription(sub)
+		JSONError(w, http.StatusInternalServerError, "Could not save billing. Try again.")
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		_ = billing.CancelSubscription(sub)
+		var liveStatus string
+		_ = h.DB.QueryRow(`SELECT billing_status FROM accounts WHERE id = ?`, acct.ID).Scan(&liveStatus)
+		JSON(w, http.StatusOK, map[string]any{"ok": true, "already_active": liveStatus == "active" || liveStatus == "dev"})
+		return
+	}
 	JSON(w, http.StatusOK, out)
 }
 
@@ -428,33 +441,6 @@ WHERE s.token_hash = ? AND s.expires_at > ?`, security.HashToken(c.Value), time.
 			Scan(&id, &email, &has, &status, &cust, &sub, &emailVerified, &purgeAfter, &obPath, &obStep)
 		if err != nil {
 			JSONError(w, http.StatusUnauthorized, "Sign in to continue.")
-			return
-		}
-		next.ServeHTTP(w, r.WithContext(WithAccount(r.Context(), Account{
-			ID: id, Email: email, HasCard: has == 1, BillingStatus: status,
-			StripeCustomer: cust, StripeSub: sub, BackupPurgeAfter: purgeAfter, EmailVerified: emailVerified == 1,
-			OnboardingPath: obPath, OnboardingStep: obStep,
-		})))
-	})
-}
-
-func (h AccountHandler) OptionalAccountAuth(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		c, err := r.Cookie("luna_connect_session")
-		if err != nil {
-			next.ServeHTTP(w, r)
-			return
-		}
-		var id, email, status, cust, sub, obPath, obStep string
-		var has, emailVerified int
-		var purgeAfter int64
-		err = h.DB.QueryRow(`
-SELECT a.id, a.email, a.has_card, a.billing_status, COALESCE(a.stripe_customer_id,''), COALESCE(a.stripe_subscription_id,''), a.email_verified, COALESCE(a.backup_purge_after, 0), COALESCE(a.onboarding_path,''), COALESCE(a.onboarding_step,'')
-FROM sessions s JOIN accounts a ON a.id = s.account_id
-WHERE s.token_hash = ? AND s.expires_at > ?`, security.HashToken(c.Value), time.Now().Unix()).
-			Scan(&id, &email, &has, &status, &cust, &sub, &emailVerified, &purgeAfter, &obPath, &obStep)
-		if err != nil {
-			next.ServeHTTP(w, r)
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(WithAccount(r.Context(), Account{

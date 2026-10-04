@@ -119,14 +119,16 @@ CREATE TABLE IF NOT EXISTS service_providers (
   UNIQUE(service, name)
 );
 CREATE TABLE IF NOT EXISTS device_backup_buckets (
+  -- No FK to devices: the row must survive device purge so retained
+  -- backup_objects stay reachable in the same B2 bucket (deleting it would
+  -- orphan the paid bucket and let EnsureDeviceBucket provision a new one).
   device_id TEXT PRIMARY KEY,
   bucket_name TEXT NOT NULL UNIQUE,
   bucket_id TEXT NOT NULL,
   endpoint TEXT NOT NULL,
   key_id TEXT NOT NULL,
   application_key_sealed TEXT NOT NULL,
-  provisioned_at INTEGER NOT NULL,
-  FOREIGN KEY(device_id) REFERENCES devices(id) ON DELETE CASCADE
+  provisioned_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS billing_storage_samples (
   account_id TEXT NOT NULL,
@@ -261,14 +263,16 @@ CREATE TABLE IF NOT EXISTS service_providers (
   UNIQUE(service, name)
 );
 CREATE TABLE IF NOT EXISTS device_backup_buckets (
+  -- No FK to devices: the row must survive device purge so retained
+  -- backup_objects stay reachable in the same B2 bucket (deleting it would
+  -- orphan the paid bucket and let EnsureDeviceBucket provision a new one).
   device_id TEXT PRIMARY KEY,
   bucket_name TEXT NOT NULL UNIQUE,
   bucket_id TEXT NOT NULL,
   endpoint TEXT NOT NULL,
   key_id TEXT NOT NULL,
   application_key_sealed TEXT NOT NULL,
-  provisioned_at BIGINT NOT NULL,
-  FOREIGN KEY(device_id) REFERENCES devices(id) ON DELETE CASCADE
+  provisioned_at BIGINT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS billing_storage_samples (
   account_id TEXT NOT NULL,

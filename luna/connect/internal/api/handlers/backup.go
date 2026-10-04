@@ -64,9 +64,9 @@ func (h BackupHandler) PutObject(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusPaymentRequired, "Add a payment card at connect.luna.libreloom.org so we can store a cloud backup. It costs $8 per terabyte each month.")
 		return
 	}
-	rel := objectPath(r)
+	rel := cleanBackupPath(objectPath(r))
 	if rel == "" {
-		JSONError(w, http.StatusBadRequest, "Cloud backup did not receive a file path. Try the backup again from Luna.")
+		JSONError(w, http.StatusBadRequest, "Cloud backup did not receive a usable file path. Try the backup again from Luna.")
 		return
 	}
 	maxObj := config.C.Backup.MaxObjectBytes
@@ -146,7 +146,11 @@ func (h BackupHandler) DeleteObject(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusForbidden, "Link this Luna to your account first.")
 		return
 	}
-	rel := objectPath(r)
+	rel := cleanBackupPath(objectPath(r))
+	if rel == "" {
+		JSONError(w, http.StatusBadRequest, "Cloud backup did not receive a usable file path.")
+		return
+	}
 	_ = h.Store.Delete(dev.AccountID.String, dev.ID, rel)
 	_, _ = h.DB.Exec(`DELETE FROM backup_objects WHERE account_id = ? AND device_id = ? AND relative_path = ?`,
 		dev.AccountID.String, dev.ID, rel)
@@ -257,7 +261,7 @@ func backupObjectRef(r *http.Request) (deviceID, rel string) {
 			rel = strings.TrimSpace(req.Path)
 		}
 	}
-	return deviceID, rel
+	return deviceID, cleanBackupPath(rel)
 }
 
 func objectPath(r *http.Request) string {
@@ -270,7 +274,16 @@ func objectPath(r *http.Request) string {
 	return rel
 }
 
-func ContentHash(b []byte) string {
-	sum := sha256.Sum256(b)
-	return hex.EncodeToString(sum[:])
+// cleanBackupPath returns the canonical relative path the store backends write
+// (rejects "..", "\", NUL; collapses a//b → a/b). DB rows and lookups must use
+// this form so the same logical file cannot be stored under two spellings.
+func cleanBackupPath(rel string) string {
+	if rel == "" || strings.ContainsRune(rel, 0) || strings.Contains(rel, "..") || strings.Contains(rel, `\`) {
+		return ""
+	}
+	clean := strings.TrimPrefix(filepath.ToSlash(filepath.Clean("/"+rel)), "/")
+	if clean == "" || clean == "." || strings.Contains(clean, "..") {
+		return ""
+	}
+	return clean
 }

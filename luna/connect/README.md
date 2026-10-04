@@ -110,7 +110,9 @@ sudo ./luna/connect/deploy/deploy.sh
 # sudo ./luna/connect/deploy/deploy.sh --tag luna-connect-v0.2.17
 ```
 
-Instances: `luna-connect-a` `:8101`, `luna-connect-b` `:8102`. Shared DB: PostgreSQL in production (`database.driver` / `database.url` in `/etc/luna/connect/luna-connect-{a,b}.yaml`); SQLite for local dev. Host: `connect.luna.libreloom.org`.
+Instances: `luna-connect-a` `:8101`, `luna-connect-b` `:8102`. Shared DB: PostgreSQL in production (`database.driver` / `database.url` in `/etc/luna/connect/luna-connect-{a,b}.yaml`); SQLite for local dev. Host: `connect.luna.libreloom.org`. Paths: binary + web under `/opt/luna/connect`, configs under `/etc/luna/connect`, database + drain files under `/var/lib/luna/connect`, logs under `/var/log/luna/connect`.
+
+**Inbound must be Cloudflare-only.** The app trusts `CF-Connecting-IP`/`X-Forwarded-For` for client IPs (rate limits, admin gating) because `deploy/Caddyfile.conf` aborts any request that did not arrive from a Cloudflare edge IP. Do not remove that matcher, and keep the host firewall restricted to Cloudflare ranges as well — a direct-origin request could otherwise forge client IPs.
 
 Fill Cloudflare (tunnel + DNS for `*.luna.servers.libreloom.org`) and Stripe in both `/etc/luna/connect/luna-connect-{a,b}.yaml` (same `admin_token` and `at_rest_key` on both), or set them in Admin → Connections (shared SQLite). Cloudflare and Stripe yaml values are the fallback when nothing is enabled in the database.
 

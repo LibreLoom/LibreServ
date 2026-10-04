@@ -8,10 +8,10 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 export PATH="/usr/local/go/bin:${PATH:-/usr/bin:/bin}"
 
-INSTALL_DIR="/opt/luna-connect"
-CONFIG_DIR="/etc/luna-connect"
-DATA_DIR="/var/lib/luna-connect"
-LOG_DIR="/var/log/luna-connect"
+INSTALL_DIR="/opt/luna/connect"
+CONFIG_DIR="/etc/luna/connect"
+DATA_DIR="/var/lib/luna/connect"
+LOG_DIR="/var/log/luna/connect"
 USER="luna-connect"
 INSTANCES=("a:8101" "b:8102")
 BASE_URL="${BASE_URL:-https://connect.luna.libreloom.org}"
@@ -132,7 +132,7 @@ log_step "Building Luna Connect"
 (cd "$REPO_ROOT/luna/connect/web" && npm install --silent && npm run build)
 git_commit=$(cd "$REPO_ROOT" && git rev-parse --short HEAD)
 build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-(cd "$REPO_ROOT/luna-connect" && go build \
+(cd "$REPO_ROOT/luna/connect" && go build \
     -ldflags "-X main.version=$(git describe --tags --always 2>/dev/null || echo dev) \
               -X main.gitCommit=$git_commit \
               -X main.buildTime=$build_time" \

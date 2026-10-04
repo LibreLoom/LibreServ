@@ -13,7 +13,8 @@ import (
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
 )
 
-const sealedPrefix = "v1:"
+// SealedPrefix marks values encrypted at rest by SealString.
+const SealedPrefix = "v1:"
 
 // AtRestReady reports whether secrets can be encrypted at rest (production requires server.at_rest_key).
 func AtRestReady() error {
@@ -58,14 +59,14 @@ func SealString(plain string) (string, error) {
 		return "", err
 	}
 	out := gcm.Seal(nonce, nonce, []byte(plain), nil)
-	return sealedPrefix + hex.EncodeToString(out), nil
+	return SealedPrefix + hex.EncodeToString(out), nil
 }
 
 func OpenString(blob string) (string, error) {
 	if blob == "" {
 		return "", nil
 	}
-	if !strings.HasPrefix(blob, sealedPrefix) {
+	if !strings.HasPrefix(blob, SealedPrefix) {
 		if config.DevMode() {
 			return blob, nil
 		}
@@ -75,7 +76,7 @@ func OpenString(blob string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	raw, err := hex.DecodeString(strings.TrimPrefix(blob, sealedPrefix))
+	raw, err := hex.DecodeString(strings.TrimPrefix(blob, SealedPrefix))
 	if err != nil {
 		return "", err
 	}

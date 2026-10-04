@@ -30,8 +30,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 export PATH="/usr/local/go/bin:${PATH:-/usr/bin:/bin}"
-INSTALL_DIR="/opt/luna-connect"
-DATA_DIR="/var/lib/luna-connect"
+INSTALL_DIR="/opt/luna/connect"
+DATA_DIR="/var/lib/luna/connect"
 BINARY_NAME="luna-connect"
 HEALTH_TIMEOUT=30
 # Must exceed Caddy health_interval (1s) × health_fails (1) with margin.

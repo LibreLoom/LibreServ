@@ -10,35 +10,19 @@ import (
 	"net/mail"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/providers"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/security"
 )
 
-// emailVerifyRate tracks per-account verification email sends (max 3 / 60s).
-var emailVerifyRate sync.Map // accountID → []time.Time
-
-func emailRateLimitOK(accountID string) bool {
-	now := time.Now()
-	cutoff := now.Add(-60 * time.Second)
-	var recent []time.Time
-	if v, ok := emailVerifyRate.Load(accountID); ok {
-		for _, t := range v.([]time.Time) {
-			if t.After(cutoff) {
-				recent = append(recent, t)
-			}
-		}
-	}
-	if len(recent) >= 3 {
-		emailVerifyRate.Store(accountID, recent)
-		return false
-	}
-	recent = append(recent, now)
-	emailVerifyRate.Store(accountID, recent)
-	return true
+// emailRateLimitOK enforces max 3 verification email sends per account per 60s.
+// Stored in guess_attempts so blue/green instances share the budget and a
+// restart does not reset it.
+func emailRateLimitOK(db *database.DB, accountID string) bool {
+	return allowGuess(db, "email-verify:"+accountID, 3, 60)
 }
 
 func (h AccountHandler) resendClient() *providers.ResendClient {
@@ -121,7 +105,7 @@ func (h AccountHandler) ResendVerification(w http.ResponseWriter, r *http.Reques
 		})
 		return
 	}
-	if !emailRateLimitOK(acct.ID) {
+	if !emailRateLimitOK(h.DB, acct.ID) {
 		JSONError(w, http.StatusTooManyRequests, "Too many verification emails sent. Wait a minute and try again.")
 		return
 	}
@@ -198,7 +182,7 @@ func (h AccountHandler) UpdateEmail(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusBadRequest, "That's already the address on your account. Check your inbox (and spam folder), or resend the email below.")
 		return
 	}
-	if !emailRateLimitOK(acct.ID) {
+	if !emailRateLimitOK(h.DB, acct.ID) {
 		JSONError(w, http.StatusTooManyRequests, "Too many emails sent. Wait a minute and try again.")
 		return
 	}

@@ -1,19 +1,21 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/security"
 )
 
 func TestAdminStatsAndDevices(t *testing.T) {
 	d := testDeps(t)
 	h := AdminConsoleHandler{Deps: d}
-	_, code, err := insertPermanentDevice(d.DB, "official", security.OfficialDeviceToken(), "order-1")
+	devID, code, err := insertPermanentDevice(d.DB, "official", security.OfficialDeviceToken(), "order-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,11 +51,35 @@ VALUES ('acct_1', 'a@b.co', 'x', 0, 'none', 1, ?)`, time.Now().Unix())
 		t.Fatalf("expected tokens, got %v", tokBody)
 	}
 	row, _ := tokens[0].(map[string]any)
-	if row["code"] != code {
-		t.Fatalf("list should return full sealed code for reveal UI, got %v want %v", row["code"], code)
+	// The list must never ship the full device token — only hint, prefix, and
+	// a flag telling the UI a reveal endpoint exists.
+	if _, has := row["code"]; has {
+		t.Fatalf("list row leaked full code: %v", row)
+	}
+	if row["can_reveal"] != true {
+		t.Fatalf("expected can_reveal on list row: %v", row)
+	}
+	if row["setup_prefix"] != security.SetupPrefix(code) {
+		t.Fatalf("setup_prefix %v want %v", row["setup_prefix"], security.SetupPrefix(code))
 	}
 	if row["hint"] == nil || row["hint"] == "" {
 		t.Fatalf("expected hint on list row: %v", row)
+	}
+
+	// The per-token reveal endpoint returns the full code for one row.
+	rev := httptest.NewRecorder()
+	revReq := httptest.NewRequest(http.MethodGet, "/admin/setup-tokens/"+devID+"/reveal", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("tokenID", devID)
+	revReq = revReq.WithContext(context.WithValue(revReq.Context(), chi.RouteCtxKey, rctx))
+	h.RevealSetupToken(rev, revReq)
+	if rev.Code != 200 {
+		t.Fatalf("reveal %d %s", rev.Code, rev.Body.String())
+	}
+	var revealBody map[string]any
+	_ = json.Unmarshal(rev.Body.Bytes(), &revealBody)
+	if revealBody["code"] != code {
+		t.Fatalf("reveal got %v want %v", revealBody["code"], code)
 	}
 }
 

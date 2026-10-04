@@ -310,11 +310,14 @@ WHERE 1=1`
 			"order_ref":       orderRef,
 			"created_at":      created,
 			"can_revoke":      status == "unbound",
+			"can_reveal":      false,
 			"setup_prefix":    "",
 		}
+		// The full device token never ships in a list response; reveal goes
+		// through GET /admin/setup-tokens/{id}/reveal for a single row.
 		if sealed != "" {
 			if code, err := security.OpenString(sealed); err == nil && code != "" {
-				item["code"] = code
+				item["can_reveal"] = true
 				item["setup_prefix"] = security.SetupPrefix(code)
 			}
 		}
@@ -332,6 +335,44 @@ WHERE 1=1`
 		out["pagination"] = buildListPage(limit, offset, len(list), &totalPtr)
 	}
 	JSON(w, http.StatusOK, out)
+}
+
+// RevealSetupToken opens the sealed device token for one row (support path).
+// The list endpoint only ever returns the hint and the 8-char setup prefix.
+func (h AdminConsoleHandler) RevealSetupToken(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(chi.URLParam(r, "tokenID"))
+	if id == "" {
+		JSONError(w, http.StatusBadRequest, "Device token id is required.")
+		return
+	}
+	var hint, sealed string
+	err := h.DB.QueryRow(`SELECT COALESCE(code_hint,''), COALESCE(code_sealed,'') FROM devices WHERE id = ?`, id).
+		Scan(&hint, &sealed)
+	if err == sql.ErrNoRows {
+		JSONError(w, http.StatusNotFound, "That device token was not found.")
+		return
+	}
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "Could not read the device token. Try again.")
+		return
+	}
+	if sealed == "" {
+		JSON(w, http.StatusOK, map[string]any{
+			"code_hint": hint,
+			"message":   "Only the short hint is stored for this token. The full token is on the quick-start card.",
+		})
+		return
+	}
+	code, err := security.OpenString(sealed)
+	if err != nil || code == "" {
+		JSONError(w, http.StatusInternalServerError, "Could not read the device token. Try again.")
+		return
+	}
+	JSON(w, http.StatusOK, map[string]any{
+		"code":         code,
+		"code_hint":    hint,
+		"setup_prefix": security.SetupPrefix(code),
+	})
 }
 
 func (h AdminConsoleHandler) RevokeSetupToken(w http.ResponseWriter, r *http.Request) {

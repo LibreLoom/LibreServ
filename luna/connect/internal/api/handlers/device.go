@@ -32,10 +32,6 @@ func (h DeviceHandler) Available(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, map[string]any{"available": n == 0, "hostname": domainname.Hostname(name, config.C.Server.PublicZone)})
 }
 
-func (h DeviceHandler) Register(w http.ResponseWriter, r *http.Request) {
-	JSONError(w, http.StatusGone, "Luna no longer creates a remote address by itself. Open connect.luna.libreloom.org, enter your device token, and pick a name there.")
-}
-
 // Bind attaches an unbound permanent device to the signed-in account (offline).
 func (h DeviceHandler) Bind(w http.ResponseWriter, r *http.Request) {
 	acct, ok := AccountFrom(r.Context())
@@ -308,12 +304,6 @@ func (h DeviceHandler) Domain(w http.ResponseWriter, r *http.Request) {
 		JSON(w, http.StatusOK, out)
 		return
 	}
-	var exists int
-	_ = h.DB.QueryRow(`SELECT COUNT(*) FROM devices WHERE subdomain = ? AND id != ?`, sub, dev.ID).Scan(&exists)
-	if exists > 0 {
-		JSONError(w, http.StatusConflict, "That name is already in use. Pick another.")
-		return
-	}
 	var tunnelID, sealed string
 	var port int
 	_ = h.DB.QueryRow(`SELECT COALESCE(tunnel_id,''), COALESCE(tunnel_token,''), local_port FROM devices WHERE id = ?`, dev.ID).Scan(&tunnelID, &sealed, &port)
@@ -322,27 +312,37 @@ func (h DeviceHandler) Domain(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusConflict, "Pick a name on the Luna Connect website first.")
 		return
 	}
+	// Claim the name in the DB before touching DNS: devices.subdomain is
+	// UNIQUE, so a racing request fails here instead of deleting the winner's
+	// DNS record below. A failed later step releases the claim.
+	if _, err := h.DB.Exec(`UPDATE devices SET subdomain = ? WHERE id = ?`, sub, dev.ID); err != nil {
+		if database.IsUniqueViolation(err) {
+			JSONError(w, http.StatusConflict, "That name is already in use. Pick another.")
+			return
+		}
+		JSONError(w, http.StatusInternalServerError, "Could not save the address. Try again.")
+		return
+	}
+	releaseClaim := func() {
+		_, _ = h.DB.Exec(`UPDATE devices SET subdomain = NULLIF(?, '') WHERE id = ?`, dev.Subdomain, dev.ID)
+	}
 	oldHost := domainname.Hostname(dev.Subdomain, config.C.Server.PublicZone)
 	newHost := domainname.Hostname(sub, config.C.Server.PublicZone)
-	_ = h.DNS.DeleteRecord(config.C.Cloudflare.APIToken, config.C.Cloudflare.ZoneID, oldHost)
+	if dev.Subdomain != "" && dev.Subdomain != sub {
+		_ = h.DNS.DeleteRecord(config.C.Cloudflare.APIToken, config.C.Cloudflare.ZoneID, oldHost)
+	}
 	if err := h.Tunnel.ConfigureIngress(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tunnelID, newHost, "http://127.0.0.1:"+itoa(port)); err != nil {
+		releaseClaim()
 		JSONError(w, http.StatusBadGateway, "Could not move the address. Try again.")
 		return
 	}
 	if err := h.DNS.UpsertCNAME(config.C.Cloudflare.APIToken, config.C.Cloudflare.ZoneID, newHost, tunnelID+".cfargotunnel.com"); err != nil {
+		releaseClaim()
 		JSONError(w, http.StatusBadGateway, "Could not publish the new address. Try again.")
 		return
 	}
-	_, _ = h.DB.Exec(`UPDATE devices SET subdomain = ?, name = ? WHERE id = ?`, sub, sub, dev.ID)
+	_, _ = h.DB.Exec(`UPDATE devices SET name = ? WHERE id = ?`, sub, dev.ID)
 	JSON(w, http.StatusOK, map[string]any{"hostname": newHost, "subdomain": sub, "tunnel_token": token})
-}
-
-func (h DeviceHandler) FirstUserUsed(w http.ResponseWriter, r *http.Request) {
-	if _, ok := DeviceFrom(r.Context()); !ok {
-		JSONError(w, http.StatusUnauthorized, "This Luna is not linked to Luna Connect. Add your device token in Settings → About → Advanced.")
-		return
-	}
-	JSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 func (h DeviceHandler) Unregister(w http.ResponseWriter, r *http.Request) {

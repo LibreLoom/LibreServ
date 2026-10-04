@@ -81,7 +81,10 @@ function loadProgress() {
 
 function saveProgress(data) {
   try {
-    localStorage.setItem(PROGRESS_KEY, JSON.stringify(data));
+    // Device tokens are credentials: they live in component state only and
+    // must never be persisted (a copied token fully identifies a Luna).
+    const { code: _code, diyCode: _diyCode, ...rest } = data || {};
+    localStorage.setItem(PROGRESS_KEY, JSON.stringify(rest));
   } catch {
     /* storage unavailable */
   }
@@ -315,13 +318,14 @@ export default function OnboardingPage() {
   const [error, setError] = useState("");
   const { outerRef, innerRef } = useAnimatedHeight();
 
-  const [code, setCode] = useState(saved.current?.code || "");
+  // Tokens are never restored from storage — the user re-enters them.
+  const [code, setCode] = useState("");
   // Prefill from the signed-in account on first paint when available; later seeding is step-entry only.
   const [email, setEmail] = useState(() => saved.current?.email || me?.email || "");
   const accountEmailVisitSeededRef = useRef(false);
   const [password, setPassword] = useState("");
   const [name, setName] = useState(saved.current?.name || "");
-  const [diyCode, setDiyCode] = useState(saved.current?.diyCode || "");
+  const [diyCode, setDiyCode] = useState("");
   const [deviceId, setDeviceId] = useState(saved.current?.deviceId || "");
   const [hostname, setHostname] = useState(saved.current?.hostname || "");
   const [loading, setLoading] = useState(false);

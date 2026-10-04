@@ -6,7 +6,6 @@ import (
 	"net"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
@@ -15,20 +14,28 @@ import (
 
 type adminCtxKey struct{}
 
+const adminAuthFailMax = 10
+const adminAuthFailWindowSec = 60
+
 // AdminAuth accepts a staff session Bearer from /admin/login, or the static
-// server.admin_token (ops / tests).
+// server.admin_token (ops / tests). Failed attempts are limited via the
+// guess_attempts table so the budget is shared across both instances and
+// survives restarts (10 per minute per source IP).
 func AdminAuth(db *database.DB) func(http.Handler) http.Handler {
-	fails := newFailLimiter(10, time.Minute)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ip := ClientIP(r)
-			if fails.blocked(ip) {
+			key := "admin-auth:" + ip
+			fail := func() {
+				_ = allowGuess(db, key, adminAuthFailMax, adminAuthFailWindowSec)
+			}
+			if guessBlocked(db, key, adminAuthFailMax, adminAuthFailWindowSec) {
 				JSONError(w, http.StatusTooManyRequests, "Too many failed admin sign-ins from this network. Wait a minute, then try again.")
 				return
 			}
 			token := security.BearerToken(r.Header.Get("Authorization"))
 			if token == "" {
-				fails.fail(ip)
+				fail()
 				JSONError(w, http.StatusUnauthorized, "Admin sign-in required.")
 				return
 			}
@@ -39,14 +46,14 @@ func AdminAuth(db *database.DB) func(http.Handler) http.Handler {
 				Scan(&adminID, &expiresAt)
 			if err == nil {
 				if time.Now().Unix() > expiresAt {
-					fails.fail(ip)
+					fail()
 					JSONError(w, http.StatusUnauthorized, "Admin session expired. Sign in again.")
 					return
 				}
 				var active int
 				_ = db.QueryRow(`SELECT is_active FROM admin_accounts WHERE id = ?`, adminID).Scan(&active)
 				if active != 1 {
-					fails.fail(ip)
+					fail()
 					JSONError(w, http.StatusForbidden, "This admin account is disabled.")
 					return
 				}
@@ -57,7 +64,7 @@ func AdminAuth(db *database.DB) func(http.Handler) http.Handler {
 				next.ServeHTTP(w, r.WithContext(WithAdminID(r.Context(), "static-admin")))
 				return
 			}
-			fails.fail(ip)
+			fail()
 			JSONError(w, http.StatusUnauthorized, "Admin sign-in required.")
 		})
 	}
@@ -89,19 +96,6 @@ func CreateAdminSession(db *database.DB, adminID string) (string, error) {
 	return token, nil
 }
 
-// requireAdmin allows handlers called with or without AdminAuth middleware
-// (tests still pass the static Bearer directly).
-func requireAdmin(w http.ResponseWriter, r *http.Request) bool {
-	if AdminIDFrom(r.Context()) != "" {
-		return true
-	}
-	if security.AdminAuthorized(r.Header.Get("Authorization"), config.C.Server.AdminToken) {
-		return true
-	}
-	JSONError(w, http.StatusUnauthorized, "Admin sign-in required.")
-	return false
-}
-
 func IsLocalRequest(r *http.Request) bool {
 	// Behind Caddy/loopback bind, RemoteAddr is always 127.0.0.1. Any client
 	// identity header means this is a proxied request, not an on-box seed.
@@ -111,44 +105,4 @@ func IsLocalRequest(r *http.Request) bool {
 	host := remoteHost(r.RemoteAddr)
 	ip := net.ParseIP(strings.Trim(host, "[]"))
 	return ip != nil && ip.IsLoopback()
-}
-
-type failLimiter struct {
-	mu     sync.Mutex
-	limit  int
-	window time.Duration
-	hits   map[string][]time.Time
-}
-
-func newFailLimiter(limit int, window time.Duration) *failLimiter {
-	return &failLimiter{limit: limit, window: window, hits: map[string][]time.Time{}}
-}
-
-func (f *failLimiter) blocked(key string) bool {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.pruneLocked(key)
-	return len(f.hits[key]) >= f.limit
-}
-
-func (f *failLimiter) fail(key string) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.pruneLocked(key)
-	f.hits[key] = append(f.hits[key], time.Now())
-}
-
-func (f *failLimiter) pruneLocked(key string) {
-	cut := time.Now().Add(-f.window)
-	kept := f.hits[key][:0]
-	for _, t := range f.hits[key] {
-		if t.After(cut) {
-			kept = append(kept, t)
-		}
-	}
-	if len(kept) == 0 {
-		delete(f.hits, key)
-	} else {
-		f.hits[key] = kept
-	}
 }

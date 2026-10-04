@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
+	"log/slog"
+	"strings"
 	"time"
 
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/security"
@@ -51,7 +53,7 @@ func (s *Service) List(service string) ([]Provider, error) {
 
 	out := []Provider{}
 	for rows.Next() {
-		p, err := scanProvider(rows)
+		p, err := s.scanProvider(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -65,7 +67,7 @@ func (s *Service) Get(id string) (*Provider, error) {
 	row := s.db.QueryRow(
 		`SELECT id, service, name, credentials_json, settings_json, enabled, created_at, updated_at
 		 FROM service_providers WHERE id = ?`, id)
-	p, err := scanProvider(row)
+	p, err := s.scanProvider(row)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -80,7 +82,7 @@ func (s *Service) FindEnabled(service string) (*Provider, error) {
 	row := s.db.QueryRow(
 		`SELECT id, service, name, credentials_json, settings_json, enabled, created_at, updated_at
 		 FROM service_providers WHERE service = ? AND enabled = 1 ORDER BY created_at LIMIT 1`, service)
-	p, err := scanProvider(row)
+	p, err := s.scanProvider(row)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -94,9 +96,12 @@ func (s *Service) FindEnabled(service string) (*Provider, error) {
 func (s *Service) Create(service, name string, credentials, settings map[string]string, enabled bool) (*Provider, error) {
 	id := security.NewID("prov")
 	now := time.Now().Unix()
-	credJSON := mustJSONStringMap(credentials)
+	credJSON, err := security.SealString(mustJSONStringMap(credentials))
+	if err != nil {
+		return nil, err
+	}
 	settingsJSON := mustJSONStringMap(settings)
-	_, err := s.db.Exec(
+	_, err = s.db.Exec(
 		`INSERT INTO service_providers (id, service, name, credentials_json, settings_json, enabled, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, service, name, credJSON, settingsJSON, boolToInt(enabled), now, now)
@@ -131,12 +136,16 @@ func (s *Service) Update(id, service, name string, credentials, settings map[str
 	if settings == nil {
 		settings = map[string]string{}
 	}
+	credJSON, err := security.SealString(mustJSONStringMap(merged))
+	if err != nil {
+		return err
+	}
 	now := time.Now().Unix()
 	_, err = s.db.Exec(
 		`UPDATE service_providers
 		 SET service = ?, name = ?, credentials_json = ?, settings_json = ?, enabled = ?, updated_at = ?
 		 WHERE id = ?`,
-		service, name, mustJSONStringMap(merged), mustJSONStringMap(settings), boolToInt(enabled), now, id)
+		service, name, credJSON, mustJSONStringMap(settings), boolToInt(enabled), now, id)
 	return err
 }
 
@@ -150,7 +159,7 @@ type scanner interface {
 	Scan(dest ...any) error
 }
 
-func scanProvider(row scanner) (Provider, error) {
+func (s *Service) scanProvider(row scanner) (Provider, error) {
 	var p Provider
 	var credJSON, settingsJSON string
 	var enabled int
@@ -161,9 +170,37 @@ func scanProvider(row scanner) (Provider, error) {
 	p.Enabled = enabled != 0
 	p.CreatedAt = formatUnix(createdAt)
 	p.UpdatedAt = formatUnix(updatedAt)
-	p.Credentials = parseStringMap(credJSON)
+	p.Credentials = s.openCredentials(p.ID, credJSON)
 	p.Settings = parseStringMap(settingsJSON)
 	return p, nil
+}
+
+// openCredentials decrypts a sealed credentials_json blob. Rows written before
+// at-rest sealing hold plain JSON: they are read as-is and re-sealed in place.
+// Corrupt sealed blobs fail closed to an empty map rather than leaking garbage.
+func (s *Service) openCredentials(id, blob string) map[string]string {
+	blob = strings.TrimSpace(blob)
+	if blob == "" {
+		return map[string]string{}
+	}
+	if strings.HasPrefix(blob, security.SealedPrefix) {
+		plain, err := security.OpenString(blob)
+		if err != nil {
+			slog.Error("provider credentials: could not open sealed value", "provider", id, "err", err)
+			return map[string]string{}
+		}
+		return parseStringMap(plain)
+	}
+	creds := parseStringMap(blob)
+	sealed, err := security.SealString(blob)
+	if err != nil {
+		slog.Error("provider credentials: could not re-seal legacy plaintext", "provider", id, "err", err)
+		return creds
+	}
+	if _, err := s.db.Exec(`UPDATE service_providers SET credentials_json = ? WHERE id = ?`, sealed, id); err != nil {
+		slog.Warn("provider credentials: re-seal write failed", "provider", id, "err", err)
+	}
+	return creds
 }
 
 func mustJSONStringMap(m map[string]string) string {

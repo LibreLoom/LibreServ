@@ -59,10 +59,22 @@ func cloudflareDomainReady() (int, string) {
 	return 0, ""
 }
 
+// allowedLocalPort restricts which origin ports a device may report or a
+// caller may request. Anything else is refused: tunnel ingress must only ever
+// point at the HTTP ports lunad actually serves on (80 on Luna OS, 443/8443
+// for TLS variants, 8090 for the dev/default build).
+func allowedLocalPort(port int) bool {
+	switch port {
+	case 80, 443, 8090, 8443:
+		return true
+	}
+	return false
+}
+
 // syncDeviceLocalPort updates the stored origin port when Luna reports a different HTTP listen port
 // (production Luna OS uses port 80; dev defaults to 8090). Reconfigures tunnel ingress when needed.
 func syncDeviceLocalPort(deps Deps, deviceID string, port int) {
-	if port <= 0 || port > 65535 {
+	if !allowedLocalPort(port) {
 		return
 	}
 	var curPort int
@@ -101,7 +113,7 @@ func applyDeviceDomain(deps Deps, deviceID, sub string, port int) (map[string]an
 	if msg := domainname.Validate(sub); msg != "" {
 		return nil, 400, msg
 	}
-	if port <= 0 {
+	if !allowedLocalPort(port) {
 		port = 8090
 	}
 
@@ -121,47 +133,63 @@ func applyDeviceDomain(deps Deps, deviceID, sub string, port int) (map[string]an
 		return out, 200, ""
 	}
 
-	var exists int
-	_ = deps.DB.QueryRow(`SELECT COUNT(*) FROM devices WHERE subdomain = ? AND id != ?`, sub, deviceID).Scan(&exists)
-	if exists > 0 {
-		return nil, 409, "That name is already in use. Pick another."
-	}
 	if status, msg := cloudflareDomainReady(); status != 0 {
 		return nil, status, msg
+	}
+
+	// Claim the name in the DB before any Cloudflare call: devices.subdomain
+	// is UNIQUE, so a racing request fails here instead of deleting the
+	// winner's tunnel/DNS record in the cleanup paths below. If a later step
+	// fails we release the claim back to the previous value.
+	if _, err := deps.DB.Exec(`UPDATE devices SET subdomain = ? WHERE id = ?`, sub, deviceID); err != nil {
+		if database.IsUniqueViolation(err) {
+			return nil, 409, "That name is already in use. Pick another."
+		}
+		return nil, 500, "Could not save the address. Try again."
+	}
+	releaseClaim := func() {
+		_, _ = deps.DB.Exec(`UPDATE devices SET subdomain = NULLIF(?, '') WHERE id = ?`, d.Subdomain, deviceID)
 	}
 
 	host := domainname.Hostname(sub, config.C.Server.PublicZone)
 	if d.TunnelID != "" {
 		_ = deps.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, d.TunnelID)
 	}
-	if d.Subdomain != "" {
+	if d.Subdomain != "" && d.Subdomain != sub {
 		_ = deps.DNS.DeleteRecord(config.C.Cloudflare.APIToken, config.C.Cloudflare.ZoneID, domainname.Hostname(d.Subdomain, config.C.Server.PublicZone))
 	}
 
 	creds, err := deps.Tunnel.CreateTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, "luna-"+sub)
 	if err != nil {
+		releaseClaim()
 		return nil, 502, "Could not create the secure connection. Try again."
 	}
 	tid, ttoken := creds.TunnelID, creds.Token
 	if err := deps.Tunnel.ConfigureIngress(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tid, host, "http://127.0.0.1:"+itoa(port)); err != nil {
 		_ = deps.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tid)
+		releaseClaim()
 		return nil, 502, "Could not set up the address. Try again."
 	}
 	if err := deps.DNS.UpsertCNAME(config.C.Cloudflare.APIToken, config.C.Cloudflare.ZoneID, host, tid+".cfargotunnel.com"); err != nil {
 		_ = deps.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tid)
+		releaseClaim()
 		return nil, 502, "Could not publish the address. Try again."
 	}
 	sealedTok, err := security.SealString(ttoken)
 	if err != nil {
 		_ = deps.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tid)
 		_ = deps.DNS.DeleteRecord(config.C.Cloudflare.APIToken, config.C.Cloudflare.ZoneID, host)
+		releaseClaim()
 		return nil, 500, "Could not protect the connection secret. Try again."
 	}
-	_, err = deps.DB.Exec(`UPDATE devices SET subdomain = ?, tunnel_id = ?, tunnel_token = ?, local_port = ?, name = ? WHERE id = ?`,
-		sub, tid, sealedTok, port, sub, deviceID)
+	// The subdomain claim above already holds; this update only fills in the
+	// tunnel material and display fields for the device we still own.
+	_, err = deps.DB.Exec(`UPDATE devices SET tunnel_id = ?, tunnel_token = ?, local_port = ?, name = ? WHERE id = ?`,
+		tid, sealedTok, port, sub, deviceID)
 	if err != nil {
 		_ = deps.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tid)
 		_ = deps.DNS.DeleteRecord(config.C.Cloudflare.APIToken, config.C.Cloudflare.ZoneID, host)
+		releaseClaim()
 		return nil, 500, "Could not save the address. Try again."
 	}
 	return map[string]any{

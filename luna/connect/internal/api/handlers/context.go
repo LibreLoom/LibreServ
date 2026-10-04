@@ -81,7 +81,11 @@ type Deps struct {
 func ClientIP(r *http.Request) string {
 	remote := remoteHost(r.RemoteAddr)
 	if trustedProxy(remote) {
-		// Cloudflare sets this to the real client; Caddy on loopback passes it through.
+		// Cloudflare sets this to the real client; Caddy on loopback passes it
+		// through. Header trust is only safe because deploy/Caddyfile.conf
+		// aborts every request that did not come from a Cloudflare edge IP —
+		// direct-origin requests could otherwise forge CF-Connecting-IP and
+		// defeat per-IP rate limits. Keep that matcher in place.
 		// Prefer it over XFF so we do not bucket everyone on the edge/proxy IP.
 		if cf := strings.TrimSpace(r.Header.Get("CF-Connecting-IP")); cf != "" {
 			return stripPort(cf)
@@ -121,8 +125,4 @@ func trustedProxy(ip string) bool {
 	parsed := net.ParseIP(strings.Trim(ip, "[]"))
 	// Loopback (Caddy on the same host) or private (docker/LAN proxy hop).
 	return parsed != nil && (parsed.IsLoopback() || parsed.IsPrivate())
-}
-
-func deviceOnline(lastSeen sql.NullInt64, now int64) bool {
-	return lastSeen.Valid && lastSeen.Int64 > 0 && now-lastSeen.Int64 <= OnlineWithinSec
 }

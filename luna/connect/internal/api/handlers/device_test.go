@@ -49,17 +49,6 @@ func mintDevice(t *testing.T, d Deps, kind string) (id, code string) {
 	return id, code
 }
 
-func TestRegisterGoneOnHandler(t *testing.T) {
-	d := testDeps(t)
-	h := DeviceHandler{Deps: d}
-	req := httptest.NewRequest(http.MethodPost, "/register", bytes.NewBufferString(`{"subdomain":"photos"}`))
-	rec := httptest.NewRecorder()
-	h.Register(rec, req)
-	if rec.Code != http.StatusGone {
-		t.Fatalf("got %d %s", rec.Code, rec.Body.String())
-	}
-}
-
 func TestOfflineBindStatusUnbind(t *testing.T) {
 	d := testDeps(t)
 	acctH := AccountHandler{Deps: d}

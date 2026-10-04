@@ -81,10 +81,5 @@ func shouldTouchLastSeen(lastSeen sql.NullInt64, now int64) bool {
 	return lastSeen.Int64 < now-LastSeenDebounceSec
 }
 
-// deviceOnlineAt is a test helper around OnlineWithinSec.
-func deviceOnlineAt(lastSeen int64, now int64) bool {
-	return lastSeen > 0 && now-lastSeen <= OnlineWithinSec
-}
-
 // nowUnix is injectable in tests via time.Now().Unix().
 var nowUnix = func() int64 { return time.Now().Unix() }

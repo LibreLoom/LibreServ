@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
 )
 
@@ -166,30 +165,6 @@ func authBlocked(db *database.DB, ip, email string, max int, windowSec int64) bo
 		return false
 	}
 	return count >= int64(max)
-}
-
-func cookieSessionID(r *http.Request) string {
-	c, err := r.Cookie("luna_setup_session")
-	if err != nil {
-		return ""
-	}
-	return c.Value
-}
-
-func setupSessionID(r *http.Request) string {
-	return cookieSessionID(r)
-}
-
-func setSetupSessionCookie(w http.ResponseWriter, id string) {
-	http.SetCookie(w, &http.Cookie{
-		Name:     "luna_setup_session",
-		Value:    id,
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   config.CookieSecure(),
-		SameSite: http.SameSiteStrictMode,
-		MaxAge:   int(15 * 60),
-	})
 }
 
 func clientKeyIP(r *http.Request) string {

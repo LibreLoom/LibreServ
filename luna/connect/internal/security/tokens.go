@@ -42,11 +42,6 @@ func GroupCrockford(raw string) string {
 	return strings.Join(parts, "-")
 }
 
-// WebsiteSetupToken is a one-use device token for self-built boxes (same format as official).
-func WebsiteSetupToken() string {
-	return OfficialDeviceToken()
-}
-
 // NormalizeToken strips grouping and maps lookalike Crockford letters.
 func NormalizeToken(s string) string {
 	s = strings.TrimSpace(s)

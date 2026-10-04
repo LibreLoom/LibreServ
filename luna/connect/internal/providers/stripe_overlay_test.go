@@ -9,6 +9,8 @@ import (
 )
 
 func TestRefreshStripeLoadsPeerAdminWrite(t *testing.T) {
+	// Credentials are sealed at rest; dev mode supplies the test key.
+	t.Setenv("LUNACONNECT_DEV", "1")
 	dir := t.TempDir()
 	db, err := database.Open(filepath.Join(dir, "t.db"))
 	if err != nil {

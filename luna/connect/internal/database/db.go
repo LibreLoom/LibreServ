@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 )
@@ -49,6 +50,11 @@ func applyAdditiveColumnsSQLite(db *DB) error {
 	if err := upgradeDevicesTable(db); err != nil {
 		return err
 	}
+	// Older DBs cascade-deleted device_backup_buckets with the device row,
+	// orphaning retained backup objects; rebuilt tables keep the mapping.
+	if err := upgradeBucketsTable(db); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -71,6 +77,9 @@ func applyAdditiveColumnsPostgres(db *DB) error {
 		`ALTER TABLE devices ADD COLUMN IF NOT EXISTS revoked INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE devices ADD COLUMN IF NOT EXISTS tunnel_token TEXT`,
 		`ALTER TABLE backup_objects ADD COLUMN IF NOT EXISTS storage_backend TEXT NOT NULL DEFAULT 'local'`,
+		// The mapping must survive device purge so retained backup objects
+		// stay reachable in the same B2 bucket.
+		`ALTER TABLE device_backup_buckets DROP CONSTRAINT IF EXISTS device_backup_buckets_device_id_fkey`,
 	}
 	for _, q := range cols {
 		if _, err := db.Exec(q); err != nil {
@@ -146,14 +155,21 @@ func upgradeDevicesTable(db *DB) error {
 		return nil
 	}
 
-	// SQLite ignores foreign_keys changes inside an open transaction — flip
-	// the connection flag first, then rebuild.
-	if _, err := db.Exec(`PRAGMA foreign_keys=OFF`); err != nil {
+	// SQLite ignores foreign_keys changes inside an open transaction, and the
+	// pragma only applies to one pooled connection — pin a single Conn so the
+	// OFF setting and the rebuild run on the same connection.
+	ctx := context.Background()
+	conn, err := db.Conn(ctx)
+	if err != nil {
 		return err
 	}
-	defer func() { _, _ = db.Exec(`PRAGMA foreign_keys=ON`) }()
+	defer func() { _ = conn.Close() }()
+	if _, err := conn.ExecContext(ctx, `PRAGMA foreign_keys=OFF`); err != nil {
+		return err
+	}
+	defer func() { _, _ = conn.ExecContext(ctx, `PRAGMA foreign_keys=ON`) }()
 
-	tx, err := db.Begin()
+	tx, err := conn.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -284,6 +300,81 @@ WHERE %s IS NOT NULL AND %s != ''`,
 	}
 	if _, err := tx.Exec(`ALTER TABLE devices_new RENAME TO devices`); err != nil {
 		return fmt.Errorf("rename devices_new: %w", err)
+	}
+	return tx.Commit()
+}
+
+// upgradeBucketsTable rebuilds device_backup_buckets when it still carries the
+// legacy FOREIGN KEY … ON DELETE CASCADE to devices. The mapping must outlive
+// the device row so retained backup objects keep pointing at their B2 bucket.
+func upgradeBucketsTable(db *DB) error {
+	if db.driver != DriverSQLite {
+		return nil
+	}
+	rows, err := db.Query(`PRAGMA foreign_key_list(device_backup_buckets)`)
+	if err != nil {
+		return fmt.Errorf("buckets pragma: %w", err)
+	}
+	hasFK := false
+	for rows.Next() {
+		// PRAGMA foreign_key_list columns: id, seq, table, from, to, on_update, on_delete, match.
+		var id, seq int
+		var table, from, to, onUpdate, onDelete, match string
+		if err := rows.Scan(&id, &seq, &table, &from, &to, &onUpdate, &onDelete, &match); err != nil {
+			rows.Close()
+			return fmt.Errorf("buckets pragma scan: %w", err)
+		}
+		if table == "devices" {
+			hasFK = true
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if !hasFK {
+		return nil
+	}
+
+	// foreign_keys cannot be toggled inside a transaction, and the pragma only
+	// applies to one pooled connection — pin a single Conn for the rebuild.
+	ctx := context.Background()
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = conn.Close() }()
+	if _, err := conn.ExecContext(ctx, `PRAGMA foreign_keys=OFF`); err != nil {
+		return err
+	}
+	defer func() { _, _ = conn.ExecContext(ctx, `PRAGMA foreign_keys=ON`) }()
+
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.Exec(`
+CREATE TABLE device_backup_buckets_new (
+  device_id TEXT PRIMARY KEY,
+  bucket_name TEXT NOT NULL UNIQUE,
+  bucket_id TEXT NOT NULL,
+  endpoint TEXT NOT NULL,
+  key_id TEXT NOT NULL,
+  application_key_sealed TEXT NOT NULL,
+  provisioned_at INTEGER NOT NULL
+)`); err != nil {
+		return fmt.Errorf("create device_backup_buckets_new: %w", err)
+	}
+	if _, err := tx.Exec(`INSERT INTO device_backup_buckets_new SELECT * FROM device_backup_buckets`); err != nil {
+		return fmt.Errorf("copy device_backup_buckets: %w", err)
+	}
+	if _, err := tx.Exec(`DROP TABLE device_backup_buckets`); err != nil {
+		return fmt.Errorf("drop device_backup_buckets: %w", err)
+	}
+	if _, err := tx.Exec(`ALTER TABLE device_backup_buckets_new RENAME TO device_backup_buckets`); err != nil {
+		return fmt.Errorf("rename device_backup_buckets_new: %w", err)
 	}
 	return tx.Commit()
 }

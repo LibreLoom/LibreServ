@@ -11,7 +11,7 @@ Wants=network-online.target
 Type=simple
 User=luna-connect
 Group=luna-connect
-WorkingDirectory=/opt/luna-connect
+WorkingDirectory=/opt/luna/connect
 Environment=LUNACONNECT_CONFIG=/etc/luna/connect/luna-connect-{INSTANCE}.yaml
 Environment=LUNACONNECT_DRAIN_FILE=/var/lib/luna/connect/drain-{INSTANCE}
 ExecStart=/opt/luna/connect/luna-connect
@@ -23,7 +23,7 @@ TimeoutStopSec=15
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/luna-connect /var/log/luna-connect /opt/luna-connect /etc/luna-connect
+ReadWritePaths=/var/lib/luna/connect /var/log/luna/connect /opt/luna/connect /etc/luna/connect
 PrivateTmp=true
 
 [Install]
