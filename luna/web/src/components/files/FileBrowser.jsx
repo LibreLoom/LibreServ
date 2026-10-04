@@ -30,6 +30,8 @@ import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import { ActionTooltipGroup, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
+import RollingNumber from "@libreloom/ui/components/common/RollingNumber.jsx";
+import SlideCollapse from "@libreloom/ui/components/common/SlideCollapse.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { useShortcut } from "@libreloom/ui/context/ShortcutsContext.jsx";
 import ToastContext from "@libreloom/ui/context/ToastContext.jsx";
@@ -1073,6 +1075,18 @@ export default function FileBrowser({
   const allSelected = visiblePaths.length > 0 && visiblePaths.every((p) => selectedSet.has(p));
   const selectedCount = selectedPaths.length;
   const showSelectionToolbar = !isPicker && multiSelect && selectedCount > 0;
+  // The single-item Sharing button: only when exactly one item is selected and
+  // it carries the share bit (same rule as the row action).
+  const shareTarget = (() => {
+    if (selectedCount !== 1 || !onShare) return null;
+    const fullPath = selectedPaths[0];
+    const name = fullPath.split("/").pop() || fullPath;
+    const entry = entries.find(
+      (e) => (fileRoot ? path : joinPath(path, e.name)) === fullPath,
+    ) || { name, kind: "file" };
+    if ((capsBits(entry.caps || "") & CAP.SHARE) === 0) return null;
+    return { entry, fullPath };
+  })();
   // The browse controls (search pill, segmented control, dropdown) are taller
   // than the selection buttons. Remember the browse height and hold it while
   // selecting so the list below doesn't jump on every mode flip.
@@ -1551,53 +1565,39 @@ export default function FileBrowser({
                 className="flex flex-nowrap items-center gap-2 flex-1 min-w-0 overflow-x-auto animate-in slide-in-from-bottom-2"
                 style={{ animationFillMode: "backwards" }}
               >
-                {/* Count ticks upward on each change — remounting the span
-                    replays the micro-slide like an odometer. */}
-                <span
-                  key={selectedCount}
-                  className={`font-mono text-xs ${fg} shrink-0 whitespace-nowrap animate-in slide-in-from-bottom-1 duration-200`}
-                  style={{ animationFillMode: "backwards" }}
-                >
-                  {selectedCount} selected
+                {/* The count rolls like an odometer: only the digits that
+                    change move, the rest of the bar stays put. */}
+                <span className="sr-only" role="status">{selectedCount} selected</span>
+                <span aria-hidden="true" className={`font-mono text-xs ${fg} shrink-0 whitespace-nowrap`}>
+                  <RollingNumber value={selectedCount} /> selected
                 </span>
                 <Button variant="outline" surface={surface} size="sm" className="shrink-0" onClick={clearSelection}>
                   Clear
                 </Button>
-                {selectedCount === 1 && onShare ? (() => {
-                  const fullPath = selectedPaths[0];
-                  const name = fullPath.split("/").pop() || fullPath;
-                  const entry = entries.find(
-                    (e) => (fileRoot ? path : joinPath(path, e.name)) === fullPath,
-                  ) || { name, kind: "file" };
-                  // Same rule as the row action: no share bit, no button.
-                  if ((capsBits(entry.caps || "") & CAP.SHARE) === 0) return null;
-                  return (
-                    <Button
-                      variant="outline"
-                      surface={surface}
-                      size="sm"
-                      className="shrink-0 animate-in slide-in-from-left-2"
-                      style={{ animationFillMode: "backwards" }}
-                      onClick={() => {
-                        onShare({ entry, path, fullPath, displayName: displayNameOf(entry) });
-                      }}
-                    >
-                      Sharing
-                    </Button>
-                  );
-                })() : null}
-                {selectedCount === 1 && enableDownload ? (
+                <SlideCollapse show={!!shareTarget}>
                   <Button
                     variant="outline"
                     surface={surface}
                     size="sm"
-                    className="shrink-0 animate-in slide-in-from-left-2"
-                    style={{ animationFillMode: "backwards" }}
-                    asChild
+                    className="shrink-0"
+                    onClick={() => {
+                      if (!shareTarget) return;
+                      onShare({
+                        entry: shareTarget.entry,
+                        path,
+                        fullPath: shareTarget.fullPath,
+                        displayName: displayNameOf(shareTarget.entry),
+                      });
+                    }}
                   >
-                    <a href={source.downloadHref(driveId, selectedPaths[0])}>Download</a>
+                    Sharing
                   </Button>
-                ) : null}
+                </SlideCollapse>
+                <SlideCollapse show={selectedCount === 1 && !!enableDownload}>
+                  <Button variant="outline" surface={surface} size="sm" className="shrink-0" asChild>
+                    <a href={source.downloadHref(driveId, selectedPaths[0] ?? "")}>Download</a>
+                  </Button>
+                </SlideCollapse>
                 {onCopy ? (
                   <Button
                     variant="outline"
