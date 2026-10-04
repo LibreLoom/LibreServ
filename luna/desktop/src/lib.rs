@@ -13,6 +13,7 @@ pub mod dest;
 pub mod instance;
 pub mod luna;
 pub mod luna_url;
+pub mod paths;
 pub mod session;
 pub mod sync;
 pub mod tray;

@@ -15,6 +15,10 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "1"
 blake3 = "1"
+# Access token goes to the OS keychain (Secret Service / Keychain /
+# Credential Manager) instead of plaintext session.json — best effort,
+# with a 0600 file fallback for headless machines.
+keyring = "4"
 glib = "0.20"
 gtk = { version = "0.9", package = "gtk4", features = ["v4_14"] }
 adw = { version = "0.7", package = "libadwaita", features = ["v1_5"] }

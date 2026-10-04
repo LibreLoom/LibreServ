@@ -28,6 +28,18 @@ pub enum InstanceEvent {
 pub struct Instance {
     /// Held for the process lifetime; the OS releases it on exit/crash.
     _lock: std::fs::File,
+    /// `luna-desktop.port` — removed on clean exit so a later launch never
+    /// reads a stale port. Crashes leave it behind; `signal_existing`
+    /// already tolerates that (connect fails → retries → exits).
+    port_path: Option<std::path::PathBuf>,
+}
+
+impl Drop for Instance {
+    fn drop(&mut self) {
+        if let Some(path) = self.port_path.take() {
+            let _ = std::fs::remove_file(path);
+        }
+    }
 }
 
 /// Try to become the single running instance.
@@ -65,10 +77,14 @@ pub fn claim(events: Sender<InstanceEvent>) -> Result<Instance, ()> {
     let Ok(listener) = TcpListener::bind("127.0.0.1:0") else {
         // No loopback listener — keep the lock (still single instance) and run
         // without the wake-up channel rather than doubling up.
-        return Ok(Instance { _lock: lock });
+        return Ok(Instance {
+            _lock: lock,
+            port_path: None,
+        });
     };
+    let port_path = dir.join("luna-desktop.port");
     if let Ok(addr) = listener.local_addr() {
-        let _ = std::fs::write(dir.join("luna-desktop.port"), addr.port().to_string());
+        write_port_file(&port_path, addr.port());
     }
     std::thread::spawn(move || {
         for conn in listener.incoming().flatten() {
@@ -80,7 +96,31 @@ pub fn claim(events: Sender<InstanceEvent>) -> Result<Instance, ()> {
             }
         }
     });
-    Ok(Instance { _lock: lock })
+    Ok(Instance {
+        _lock: lock,
+        port_path: Some(port_path),
+    })
+}
+
+/// The port file tells later launches where the primary listens — no reason
+/// for it to be world-readable; write it 0600 like the session file.
+fn write_port_file(path: &Path, port: u16) {
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    let Ok(mut file) = opts.open(path) else {
+        return;
+    };
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = file.set_permissions(std::fs::Permissions::from_mode(0o600));
+    }
+    let _ = file.write_all(port.to_string().as_bytes());
 }
 
 /// Ask the existing primary to show its window. Best-effort: the port file

@@ -2,8 +2,13 @@ SHELL := /bin/bash
 ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 PORT ?= 8090
 DATA_DIR ?= $(ROOT)/dev
-DS_IMAGE ?= ghcr.io/euro-office/documentserver:latest
+# Pinned by digest — `latest` floats (currently :latest as of 2026-10-04).
+# To bump: skopeo inspect docker://ghcr.io/euro-office/documentserver:<tag>
+# and copy .Digest.
+DS_IMAGE ?= ghcr.io/euro-office/documentserver@sha256:889e681923d2dcc8bdfb92fe128d10e185fcff880d302b6a0c0c7bf339499290
 DRAWIO_VERSION ?= v31.5.2
+# sha256 of the draw.war asset on that release — bump both together.
+DRAWIO_SHA256 ?= abd58ad15baef57f43acb79a56350ba8900a8b6fabe94391d8906148fe64e264
 MAKEFLAGS += --no-print-directory
 
 .PHONY: web build test run dev dev-daemon daemon-dev dev-web lint clean iso desktop desktop-bundle desktop-dev desktop-dev-login desktop-appimage desktop-flatpak ensure-web-dist mock-drive mock-connect mobile-dev mobile-dev-repair companion-dev eurooffice eurooffice-assets eurooffice-pack drawio drawio-pack
@@ -85,6 +90,7 @@ eurooffice-pack:
 # See docs/drawio.md.
 drawio:
 	LUNA_DATA_DIR="$(DATA_DIR)" DRAWIO_VERSION="$(DRAWIO_VERSION)" \
+		DRAWIO_SHA256="$(DRAWIO_SHA256)" \
 		bash scripts/install-drawio-assets.sh
 
 # Release pack: os/dist/drawio-pack.tar.zst, baked into the install ISO and
@@ -139,7 +145,9 @@ companion-dev:
 # Linux desktop (GTK 4 + libadwaita). See desktop/README.md for packages.
 # Ship: Flatpak on Linux, .exe installer on Windows. AppImage is demo/CI only.
 # Rapid GTK loop: cargo-watch + GTK Inspector + auto sign-in to local Luna.
-# Needs lunad on :8090 (make dev-daemon). Default user: desktop / hunter22hunter1.
+# Needs lunad on :8090 (make dev-daemon). Dev user: `desktop`, with a random
+# per-workspace password in dev/dev-password (gitignored; override via
+# LUNA_DEV_PASS / LUNA_DESKTOP_DEV_PASS).
 desktop-dev:
 	chmod +x desktop/scripts/dev.sh desktop/scripts/ensure-dev-token.sh
 	cd desktop && bash scripts/dev.sh

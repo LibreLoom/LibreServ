@@ -1,0 +1,74 @@
+# Pinned MSYS2 mingw64 packages for the Windows cross-build.
+# Each line is 'sha256  filename' (sha256sum -c format), resolved from the
+# repo.msys2.org pacman database (mingw64.db) on 2026-10-04.
+#
+# To bump: download https://repo.msys2.org/mingw/mingw64/mingw64.db,
+# untar (zstd), and for each package dir read %NAME%/%FILENAME%/%SHA256SUM%
+# from its desc file. Only the packages listed here are fetched and
+# extracted — a tampered or renamed package fails the checksum.
+abb37b5b27893cc7572c46c29a2e5d535378c7f177f4f804621d7cc8f5b39807  mingw-w64-x86_64-gtk4-4.24.1-1-any.pkg.tar.zst
+79e63f2d17a2c19721deb065ae80ef78c7d9c62c5f4dec6ccfa3da454aa551e8  mingw-w64-x86_64-libadwaita-1.10.0-1-any.pkg.tar.zst
+34361784125c950f84bfbd137c6056e0023783238b6659ce24b0d5440655fcdf  mingw-w64-x86_64-glib2-2.90.0-1-any.pkg.tar.zst
+937a911b5efd6388b4ed8e6e268bbc4985db2f897648fb60de57ae4bc7fac7d6  mingw-w64-x86_64-cairo-1.18.6-2-any.pkg.tar.zst
+6aa68db02f6158dba802da406d25b29650011beb2d5d1b0a0050081e19874e57  mingw-w64-x86_64-pango-1.58.2-1-any.pkg.tar.zst
+8ca07a6ba0abc968597cd2915ac7bfc5d0588af4ad5d52cbeaa86f10a5ab7d23  mingw-w64-x86_64-gdk-pixbuf2-2.44.7-1-any.pkg.tar.zst
+5b0e3dd70111d2a9b676b7b6e59a1807262ce2547807ce4e32ba8b306ae1026b  mingw-w64-x86_64-graphene-1.10.8-3-any.pkg.tar.zst
+0f94e145caba9a3adc05e8a8f17410c7de30efc11064c3656aac49777fe4749b  mingw-w64-x86_64-harfbuzz-14.5.1-1-any.pkg.tar.zst
+707f6a2f9a49c83938271bfd92a11f80bd4c18c4837210173fcb39e9d841e5ac  mingw-w64-x86_64-fribidi-1.0.17-1-any.pkg.tar.zst
+b3e310f457c90348fd14b8c1085e9c036016d168812a657fec21f496f7e3de99  mingw-w64-x86_64-freetype-2.14.3-1-any.pkg.tar.zst
+7cdd32ad27ee9f8d176698744f3efa123feba57cecb833e87c221b50cd7224d1  mingw-w64-x86_64-fontconfig-2.18.3-1-any.pkg.tar.zst
+435715dd1ca4c55873cf3c38d644615196bc2d238e3366f8ff81cc0811260eb2  mingw-w64-x86_64-pixman-0.46.4-3-any.pkg.tar.zst
+e1830319ea6c601c1e4d146b8e78264bcbb6326f0935b82c14a9b282af2127e1  mingw-w64-x86_64-libpng-1.6.59-1-any.pkg.tar.zst
+ef3f55cf5238a8045c8f37796d730e4a5ee619d29ca9254aaa62456e5b5b7e51  mingw-w64-x86_64-libjpeg-turbo-3.2.0-1-any.pkg.tar.zst
+ebc466fa5664c1528834c59ee7134ba57df6db224e503b690870e2c613f30c3e  mingw-w64-x86_64-libtiff-4.7.2-1-any.pkg.tar.zst
+9e75842a070ba648e986e12424e1c92c9d7d77200e85f6a34eeb600819f2e694  mingw-w64-x86_64-zlib-1.3.2-2-any.pkg.tar.zst
+0abc5313085a0f9b4a77a1580d92b09761371cb3a1f31d01051a94a289fb9413  mingw-w64-x86_64-pcre2-10.49-1-any.pkg.tar.zst
+be68d7f260633284b910c588c6d82ee304a81c8817a686d2cd9df83f872c27af  mingw-w64-x86_64-gettext-runtime-1.0-1-any.pkg.tar.zst
+a2dca7211c2c6a3bb335c074167db9929f62da55d566df29aea26e5e88f35bfc  mingw-w64-x86_64-libepoxy-1.5.10-7-any.pkg.tar.zst
+254d05d2e89acbbb998636dd478fc1d640ce3ec4e63326f17398958d2b68dfeb  mingw-w64-x86_64-expat-2.8.5-1-any.pkg.tar.zst
+6dad7f3c6c900d3c64a4fe0c2764b405e678b22df3521d2284ffaeff0198b84b  mingw-w64-x86_64-libffi-3.8.0-1-any.pkg.tar.zst
+281fa31b1a023485d4fd04a092a8b5e9ca2f59804df7fcf9f2d4e5aaa5438af0  mingw-w64-x86_64-vulkan-loader-1~1.4.363.0-1-any.pkg.tar.zst
+d2e0c72a461e3d128caeac9fbf113fb3cce14644acece32339e448b984d8938d  mingw-w64-x86_64-vulkan-headers-1~1.4.363.0-1-any.pkg.tar.zst
+5e0f305cf0190f0644e8e66fe0ad37fa274f621fdeb55e7645179665df292593  mingw-w64-x86_64-shaderc-2026.3-1-any.pkg.tar.zst
+f9858d910df27d3762590e5da75e2589f9f0216ebbf1b6d58bdddbab3d4f35ad  mingw-w64-x86_64-lcms2-2.19.1-1-any.pkg.tar.zst
+b869803666bcfa6709efc0a773b1cd0df1432b727a68fd694232fdf9ed4d8402  mingw-w64-x86_64-libcloudproviders-0.3.6-2-any.pkg.tar.zst
+d99e3344892456a64e6a307f9a4b606844add6b3303da166dbfda96326224fc3  mingw-w64-x86_64-shared-mime-info-2.5.1-1-any.pkg.tar.zst
+010e4b4b6817c3dcaafcbd7f7ecbd3951d3ca1bd18a96c077faa876811b2597b  mingw-w64-x86_64-librsvg-2.63.2-1-any.pkg.tar.zst
+b79dcaea6713e8d09af334de946db364eb501b5be2ec2f75dc7608e61b5d0316  mingw-w64-x86_64-libxml2-2.15.4-1-any.pkg.tar.zst
+21e334d0911f25de75d3e18e0697648bcecfa9658256d600cad0827d719c2f35  mingw-w64-x86_64-libiconv-1.19-1-any.pkg.tar.zst
+f5f2f7e723a08378241d15f0537386950c1a48e2d82bc47bedd632bd61852aba  mingw-w64-x86_64-brotli-1.2.0-1-any.pkg.tar.zst
+123768f30ae14ba654a6feb70f8526146a331bc85f831a91a549ffb3f6cbffc7  mingw-w64-x86_64-bzip2-1.0.8-4-any.pkg.tar.zst
+2de0f26da60b7ff7aa192a226330d7de6b1099cb9b9f9de4145affb80146bbc8  mingw-w64-x86_64-xz-5.8.4-1-any.pkg.tar.zst
+1add6705b344664f6aca108c85f79ab5bdd9e1162662bb06a4cf40a34f6e0907  mingw-w64-x86_64-zstd-1.5.7-2-any.pkg.tar.zst
+445115c31e91486801af9493278c0eb86c6194c2644a54e92d5afac10edea630  mingw-w64-x86_64-lzo2-2.10-3-any.pkg.tar.zst
+aa0d9b5e2d0413d5e01745a48ef0c8fa293172d48c13f87b61ada627ab7407ad  mingw-w64-x86_64-libdeflate-1.26-1-any.pkg.tar.zst
+3db9e32abca5d208920a096e5ae01952f2d8a361780428b9646b6da6750f7321  mingw-w64-x86_64-jbigkit-2.1-6-any.pkg.tar.zst
+5bc170650bc02812a7c674a5f7b8ff2781b4bfa259ab2da2264c3008e2a04c72  mingw-w64-x86_64-lerc-4.1.1-1-any.pkg.tar.zst
+360b1690d41eb497dfe50526460a2424600a6a806cbb76c5b0fec9f14623ac59  mingw-w64-x86_64-libwebp-1.6.0-1-any.pkg.tar.zst
+86143d9b6844d724473180c4c56379bd1c0c299a409a293ef7505e8448a8819f  mingw-w64-x86_64-appstream-glib-0.8.3-2-any.pkg.tar.zst
+e5e8d53722d634218648a44efefbcfcb890b6b3dca3d056a35deb597c44da1e6  mingw-w64-x86_64-appstream-1.2.0-1-any.pkg.tar.zst
+554a9127053f9253f715bbf4ebb0e77bf57c1c9d2ccd58651f78c3db564445b8  mingw-w64-x86_64-gobject-introspection-runtime-1.86.0-4-any.pkg.tar.zst
+6ad20d6c16e559f7c4b06fe71248e1201c7edf494d04e5721ed7f9b3f7fd1f74  mingw-w64-x86_64-graphite2-1.3.15-1-any.pkg.tar.zst
+8ed68f945b21a62f1b5ccde2e6cd7b6f5334d31ed58ab5434a4b8efba99a4770  mingw-w64-x86_64-libxmlb-0.3.29-1-any.pkg.tar.zst
+7437678e6b1ccdca9fc9e13d98a3e11aa8957449661ea49455af54be7f694560  mingw-w64-x86_64-libstemmer-3.1.1-1-any.pkg.tar.zst
+fbbf30e9a911c1139ba5c38c5ae008309dd912f6c6b1e05f4310ec698e1b1339  mingw-w64-x86_64-libdatrie-0.2.14-1-any.pkg.tar.zst
+e8cfad91934e24e9a88221b66f2d1c5a310c952ef86631107a632d3ff1738211  mingw-w64-x86_64-libthai-0.1.30-1-any.pkg.tar.zst
+0f5645e49e258cc75e7e6a8b25d0117b726fc0c3f69eed881db9bf643a5d0d62  mingw-w64-x86_64-json-glib-1.10.8-2-any.pkg.tar.zst
+eb0dac5ac9a11f59235437ad9337d62f8f3681377df6ffe30ae98a8698471a3b  mingw-w64-x86_64-libsoup3-3.6.6-1-any.pkg.tar.zst
+baca1837b4f5ae4ea39198c4ec98459a446eb4af17459ad6376d734b285b4ff0  mingw-w64-x86_64-sqlite3-3.53.4-1-any.pkg.tar.zst
+c086d42107f8c142f0f45e32f81665816732f071d9486359875da20df0a7cdd3  mingw-w64-x86_64-nghttp2-1.70.0-1-any.pkg.tar.zst
+2a86f7ce3cd3fabff7eb8e5c0d3eb1134808881a44c3838e1b518b75cb402e35  mingw-w64-x86_64-libpsl-0.21.5-3-any.pkg.tar.zst
+389d1af21e99223d9e2cd32d4c073131b276da85be7636bd8d23571f6938864f  mingw-w64-x86_64-openssl-3.6.5-1-any.pkg.tar.zst
+895f8c2bdfee379c2d1d91857fb21838e890a4e9d035c96a2ece2cf2f447a1ac  mingw-w64-x86_64-adwaita-icon-theme-51.0-1-any.pkg.tar.zst
+8140b5f0f824be2073cc60d40e6977c00ffcfc3c7eeff24bd5dffbe61f4dae75  mingw-w64-x86_64-hicolor-icon-theme-0.18-1-any.pkg.tar.zst
+7d5b2103da4be46cd526f3a7c3023b2073cc694c8eb975ccfd00f7432aca8761  mingw-w64-x86_64-gstreamer-1.28.7-1-any.pkg.tar.zst
+10c2697fcc2d811aa6281d96ab937d93a6c67b19eb410b1e12c3c10051bb82e5  mingw-w64-x86_64-gst-plugins-base-1.28.7-1-any.pkg.tar.zst
+c24f93ee591e211ee32863d9f20f760daa8404eea8c4a104122cb8e718742ee3  mingw-w64-x86_64-gst-plugins-bad-libs-1.28.7-1-any.pkg.tar.zst
+3aef056c8f1093d7a6c1d19a0a34ac074056ce7ddd7d8122de01e25e66d2788b  mingw-w64-x86_64-orc-0.4.44-1-any.pkg.tar.zst
+4d764abd873d4fa89809ff934747bff6be98abd669f9e4056b5b96727a142777  mingw-w64-x86_64-libnice-0.1.24-1-any.pkg.tar.zst
+0d5a373ac558af20dc0a46d249e99f8a3b3d3562ae013e73f00642dc3bd118cf  mingw-w64-x86_64-gnutls-3.8.13-3-any.pkg.tar.zst
+505773abfb4f3af514012e2926c11db6365299c7eda141d958a065740740dc86  mingw-w64-x86_64-nettle-4.0-1-any.pkg.tar.zst
+171b877586efd64888648007a56c3a263eb2d4abc82594c90d30b1b7e4b9f5eb  mingw-w64-x86_64-p11-kit-0.26.5-1-any.pkg.tar.zst
+9f7aa213d14135e5856cc7a1254d871cbed60dee00b40db87a6ca7a4e733d2b2  mingw-w64-x86_64-libtasn1-4.21.0-1-any.pkg.tar.zst
+f98a157446f9ac35465022e329cdaf6169b0c9fa19837e9d80aff9d4e5109013  mingw-w64-x86_64-libidn2-2.3.8-4-any.pkg.tar.zst
+c940cf52fb2b579baa596d3c1d911f7544cbf90f8bd19c260377aa115c65b059  mingw-w64-x86_64-libunistring-1.4.2-1-any.pkg.tar.zst

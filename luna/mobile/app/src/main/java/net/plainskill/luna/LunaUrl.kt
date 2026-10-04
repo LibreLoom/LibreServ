@@ -7,7 +7,9 @@ package net.plainskill.luna
  * 1. Trim leading/trailing whitespace; collapse internal whitespace from messy pastes.
  * 2. Repair common scheme typos (`HTTP://`, `http:/`, `https//`, `http:host`, …).
  * 3. If no scheme: use `http` for localhost / loopback / private LAN / `.local`
- *    (and `.lan` / `.home`); use `https` for public hosts.
+ *    (and `.lan` / `.home`); use `https` for public hosts. An explicit `http://`
+ *    on a public host is upgraded to `https` — the access token never goes out
+ *    in the clear.
  * 4. Lowercase the host; keep an explicit port when present.
  * 5. Drop path, query, and fragment — companions talk to the Luna origin only.
  * 6. No trailing slash.
@@ -37,7 +39,13 @@ object LunaUrl {
         val host = normalizeHost(hostRaw)
         if (host.isEmpty()) return null
 
-        val scheme = schemeHint ?: defaultSchemeForHost(host)
+        val scheme = when {
+            // Explicit http:// on a public host would send the access token in
+            // the clear — upgrade it to https. Loopback/LAN keep http by design.
+            schemeHint == "http" && !PrivateLan.allowsCleartext(host.trim('[', ']')) -> "https"
+            schemeHint != null -> schemeHint
+            else -> defaultSchemeForHost(host)
+        }
         return buildString {
             append(scheme)
             append("://")

@@ -6,7 +6,9 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DATA_DIR="${LUNA_DATA_DIR:-$ROOT/dev}"
-IMAGE="${EUROOFFICE_IMAGE:-ghcr.io/euro-office/documentserver:latest}"
+# Digest-pinned (matches the Makefile's DS_IMAGE; :latest floats) — bump via
+# `skopeo inspect docker://ghcr.io/euro-office/documentserver:<tag>` → .Digest.
+IMAGE="${EUROOFFICE_IMAGE:-ghcr.io/euro-office/documentserver@sha256:889e681923d2dcc8bdfb92fe128d10e185fcff880d302b6a0c0c7bf339499290}"
 DEST="$DATA_DIR/eurooffice"
 X2T_VERSION="${X2T_VERSION:-v9.3.0+0}"
 X2T_URL="https://github.com/cryptpad/onlyoffice-x2t-wasm/releases/download/${X2T_VERSION}/x2t.zip"

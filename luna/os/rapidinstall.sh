@@ -1,7 +1,8 @@
 #!/bin/sh
 # Rapidinstall: run from the live ISO. Picks the smallest non-USB disk
 # (built-in eMMC, SATA, or NVMe). USB sticks, including the one this
-# image booted from, are never chosen automatically.
+# image booted from, are never chosen automatically — and when the
+# install media can't be identified at all, it refuses to pick.
 
 set -eu
 
@@ -32,15 +33,22 @@ if [ -z "${LUNA_TARGET:-}" ] && [ -r /proc/cmdline ]; then
 	export LUNA_TARGET LUNA_INSTALL_MEDIA LUNA_OVERRIDE_WAIT LUNA_CONFIRM LUNA_ROOTFS
 fi
 
+_media_known=0
+
 discover_install_disk() {
 	_src="${LUNA_INSTALL_MEDIA:-}"
-	if [ -z "$_src" ] && [ -f /proc/mounts ]; then
-		_src="$(awk '$2=="/src" { print $1; exit }' /proc/mounts || true)"
+	_mounts="${LUNA_PROC_MOUNTS:-/proc/mounts}"
+	if [ -z "$_src" ] && [ -f "$_mounts" ]; then
+		# The device holding the live medium — /run/live/medium on newer
+		# live-boot, /lib/live/mount/medium on older; /src is the QEMU
+		# staging convention. Field 1 is the device node.
+		_src="$(awk '$2=="/src" || $2=="/run/live/medium" || $2=="/lib/live/mount/medium" { print $1; exit }' "$_mounts" || true)"
 	fi
 	if [ -z "$_src" ]; then
-		echo "WARNING: could not identify the boot media; installer-stick protection may be inactive." >&2
+		echo "Luna could not identify the install media." >&2
 		return 0
 	fi
+	_media_known=1
 	LUNA_INSTALL_DISK="$(whole_disk_of "$_src")"
 	export LUNA_INSTALL_DISK
 }
@@ -188,6 +196,17 @@ TARGET="${LUNA_TARGET:-}"
 _forced_target=0
 if [ -n "$TARGET" ]; then
 	_forced_target=1
+elif [ "$_media_known" -eq 0 ]; then
+	# When the install media is unidentified the smallest-disk guess could
+	# pick the installer itself. Never auto-pick in that state: require an
+	# explicit LUNA_TARGET (or LUNA_INSTALL_MEDIA so it can be ruled out),
+	# otherwise stop.
+	echo "Because Luna can't tell which disk is the installer, it will not" >&2
+	echo "choose a disk on its own — choosing wrong would erase it." >&2
+	print_disks
+	echo "To install anyway, reboot with LUNA_TARGET=/dev/<disk> on the kernel" >&2
+	echo "command line, or name the installer media with LUNA_INSTALL_MEDIA=/dev/<disk>." >&2
+	exit 2
 else
 	TARGET="$(pick_builtin || true)"
 fi

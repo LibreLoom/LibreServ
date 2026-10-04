@@ -55,13 +55,26 @@ class LunaUrlTest {
     @Test
     fun keepsExplicitScheme() {
         assertEquals(
-            "http://kitchen.luna.servers.libreloom.org",
-            LunaUrl.normalize("http://kitchen.luna.servers.libreloom.org"),
-        )
-        assertEquals(
             "https://192.168.1.20:8090",
             LunaUrl.normalize("https://192.168.1.20:8090"),
         )
+        assertEquals(
+            "http://192.168.1.20:8090",
+            LunaUrl.normalize("http://192.168.1.20:8090"),
+        )
+        assertEquals("http://luna.local", LunaUrl.normalize("http://luna.local"))
+    }
+
+    @Test
+    fun upgradesHttpOnPublicHosts() {
+        // Bearer tokens never go over cleartext to a public host: an explicit
+        // http:// is upgraded to https (LAN hosts are left alone).
+        assertEquals(
+            "https://kitchen.luna.servers.libreloom.org",
+            LunaUrl.normalize("http://kitchen.luna.servers.libreloom.org"),
+        )
+        assertEquals("https://8.8.8.8", LunaUrl.normalize("http://8.8.8.8"))
+        assertEquals("https://8.8.8.8", LunaUrl.normalize("http:/8.8.8.8"))
     }
 
     @Test

@@ -567,6 +567,16 @@ fn walk_remote_rec(
         if e.name.starts_with('.') {
             continue;
         }
+        // A listing can be forged (plain HTTP on the LAN): a name with a
+        // separator or `..` would escape the sync folder once joined
+        // locally. Refuse the whole listing rather than skip-and-continue —
+        // a skipped name would make its files look remotely deleted and
+        // hide the attack as ordinary cleanup.
+        if !crate::paths::valid_remote_name(&e.name) {
+            return Err(
+                "Luna listed a file name this computer can't store. Sync stopped.".to_string(),
+            );
+        }
         let child_rel = if rel.is_empty() {
             e.name.clone()
         } else {

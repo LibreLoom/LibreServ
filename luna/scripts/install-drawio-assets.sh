@@ -7,11 +7,14 @@
 # skipped: they're the Java server bits Luna never serves.
 #
 # Requires curl + unzip. LUNA_DATA_DIR defaults to luna/dev.
-# DRAWIO_VERSION pins the release; DRAWIO_SHA256 optionally verifies the war.
+# DRAWIO_VERSION pins the release; DRAWIO_SHA256 pins the war's checksum —
+# it must be updated whenever DRAWIO_VERSION is bumped (the release doesn't
+# publish checksums, so the pinned value was computed at pin time).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DATA_DIR="${LUNA_DATA_DIR:-$ROOT/dev}"
 DRAWIO_VERSION="${DRAWIO_VERSION:-v31.5.2}"
+DRAWIO_SHA256="${DRAWIO_SHA256:-abd58ad15baef57f43acb79a56350ba8900a8b6fabe94391d8906148fe64e264}"
 DRAWIO_URL="${DRAWIO_URL:-https://github.com/jgraph/drawio/releases/download/${DRAWIO_VERSION}/draw.war}"
 DEST="$DATA_DIR/drawio"
 
@@ -20,7 +23,8 @@ tmp_war="$(mktemp)"
 trap 'rm -f "$tmp_war"' EXIT
 curl -fsSL --proto '=https' --tlsv1.2 "$DRAWIO_URL" -o "$tmp_war"
 
-# The release doesn't publish checksums; pass DRAWIO_SHA256 to pin one.
+# Checksum is pinned by default; DRAWIO_SHA256="" only for deliberate
+# debugging of a new release (then compute and pin the new hash).
 if [ -n "${DRAWIO_SHA256:-}" ]; then
 	actual="$(sha256sum "$tmp_war" | awk '{print $1}')"
 	if [ "$actual" != "$DRAWIO_SHA256" ]; then

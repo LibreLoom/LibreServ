@@ -19,7 +19,9 @@ finish-args:
   - --socket=wayland
   - --device=dri
   - --filesystem=home
-  - --talk-name=org.freedesktop.portal.Desktop
+  # Only the portals the app actually uses: GTK 4's FileDialog talks to
+  # FileChooser directly — the org.freedesktop.portal.Desktop umbrella would
+  # grant every portal interface (screenshots, camera, location, …).
   - --talk-name=org.freedesktop.portal.FileChooser
 modules:
   - name: luna-desktop

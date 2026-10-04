@@ -4,7 +4,9 @@
 //! 1. Trim leading/trailing whitespace; collapse internal whitespace from messy pastes.
 //! 2. Repair common scheme typos (`HTTP://`, `http:/`, `https//`, `http:host`, …).
 //! 3. If no scheme: use `http` for localhost / loopback / private LAN / `.local` (and
-//!    `.lan` / `.home`); use `https` for public hosts.
+//!    `.lan` / `.home`); use `https` for public hosts. An explicit `http://` on
+//!    a public host is upgraded to `https` — the access token never goes out
+//!    in the clear.
 //! 4. Lowercase the host; keep an explicit port when present.
 //! 5. Drop path, query, and fragment — companions talk to the Luna origin only.
 //! 6. No trailing slash.
@@ -32,6 +34,9 @@ pub fn normalize_luna_base_url(raw: &str) -> Result<String, String> {
     }
 
     let scheme = match scheme {
+        // Explicit http:// on a public host would send the access token in
+        // the clear — upgrade it to https. Loopback/LAN keep http by design.
+        Some("http") if !allows_cleartext(host.trim_matches(|c| c == '[' || c == ']')) => "https",
         Some(s) => s,
         None => default_scheme_for_host(&host),
     };
@@ -273,11 +278,21 @@ mod tests {
 
     #[test]
     fn keeps_explicit_scheme() {
+        assert_eq!(ok("https://192.168.1.20:8090"), "https://192.168.1.20:8090");
+        assert_eq!(ok("http://192.168.1.20:8090"), "http://192.168.1.20:8090");
+        assert_eq!(ok("http://luna.local"), "http://luna.local");
+    }
+
+    #[test]
+    fn upgrades_http_on_public_hosts() {
+        // Bearer tokens never go over cleartext to a public host: an explicit
+        // http:// is upgraded to https (LAN hosts are left alone).
         assert_eq!(
             ok("http://kitchen.luna.servers.libreloom.org"),
-            "http://kitchen.luna.servers.libreloom.org"
+            "https://kitchen.luna.servers.libreloom.org"
         );
-        assert_eq!(ok("https://192.168.1.20:8090"), "https://192.168.1.20:8090");
+        assert_eq!(ok("http://8.8.8.8"), "https://8.8.8.8");
+        assert_eq!(ok("http:/8.8.8.8"), "https://8.8.8.8");
     }
 
     #[test]

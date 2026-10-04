@@ -25,14 +25,14 @@ RepoType: git
 Repo: https://gt.plainskill.net/LibreLoom/LibreServ.git
 
 Builds:
-  - versionName: 0.1.5
-    versionCode: 6
-    commit: luna-v0.0.34
+  - versionName: 0.1.6
+    versionCode: 7
+    commit: luna-v0.0.39
     subdir: luna/mobile
     gradle:
       - yes
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags ^luna-v[0-9.]+$
-CurrentVersion: 0.1.5
-CurrentVersionCode: 6
+CurrentVersion: 0.1.6
+CurrentVersionCode: 7

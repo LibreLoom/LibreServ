@@ -3,18 +3,28 @@ package net.plainskill.luna
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
 import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 import kotlin.concurrent.thread
 
 class LoginActivity : AppCompatActivity() {
+
+    companion object {
+        /** Pairing token can also arrive as an intent extra (used by
+         *  scripts/dev.sh so the secret never lands in a loggable URI). */
+        const val EXTRA_PAIR_TOKEN = "net.plainskill.luna.extra.PAIR_TOKEN"
+    }
 
     private lateinit var baseUrl: EditText
     private lateinit var token: EditText
@@ -76,8 +86,51 @@ class LoginActivity : AppCompatActivity() {
     }
 
     private fun applyPairing(intent: Intent?) {
-        val data = intent?.data?.toString() ?: return
-        val pairing = PairingQr.decode(data) ?: return
+        if (intent == null) return
+        var data = intent.data?.toString()
+        // The token can arrive as an intent extra instead of the URI, so dev
+        // tooling doesn't put it where logcat would print it.
+        val extraToken = intent.getStringExtra(EXTRA_PAIR_TOKEN)
+        if (data != null && !extraToken.isNullOrBlank() &&
+            data.lowercase().startsWith("luna://pair") && !data.contains("token=")
+        ) {
+            data = "$data&token=" +
+                URLEncoder.encode(extraToken, StandardCharsets.UTF_8.name())
+        }
+        val pairing = data?.let { PairingQr.decode(it) } ?: return
+        // A luna://pair link can be sent by anything — while signed in it must
+        // not silently re-point this phone (and its photo backups) at another
+        // Luna. Same Luna → nothing to do; different Luna → ask first.
+        if (BackupPrefs.signedIn(this)) {
+            val current = BackupPrefs.baseUrl(this)
+            if (current != null && current.equals(pairing.url, ignoreCase = true)) {
+                status.text = "This phone is already connected to that Luna."
+                return
+            }
+            AlertDialog.Builder(this)
+                .setTitle("Connect to a different Luna?")
+                .setMessage(
+                    "This phone is connected to ${urlLabel(current)}. " +
+                        "Switch to ${urlLabel(pairing.url)}? " +
+                        "Photos will back up to the new Luna."
+                )
+                .setPositiveButton("Switch") { _, _ -> fillPairing(pairing) }
+                .setNegativeButton("Cancel", null)
+                .show()
+            return
+        }
+        fillPairing(pairing)
+    }
+
+    /** The address as a person sees it: host, plus port when non-default. */
+    private fun urlLabel(url: String?): String {
+        if (url.isNullOrBlank()) return "another Luna"
+        val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return url
+        val host = uri.host ?: return url
+        return if (uri.port > 0) "$host:${uri.port}" else host
+    }
+
+    private fun fillPairing(pairing: Pairing) {
         baseUrl.setText(pairing.url)
         token.setText(pairing.token)
         // Rapid-dev: luna://pair from `make mobile-dev` auto-signs in on debug builds.

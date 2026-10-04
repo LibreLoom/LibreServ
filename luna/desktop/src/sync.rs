@@ -273,6 +273,64 @@ fn bump(progress: &Arc<Mutex<HashMap<String, SyncProgress>>>, id: &str, up: bool
     }
 }
 
+/// Where remote-deleted local files are set aside. A dot name, so
+/// `walk_local` never syncs the trash back up to Luna.
+const TRASH_DIR_NAME: &str = ".luna-desktop-trash";
+
+/// Local path for a sync-relative `rel`, or a user-facing error when it
+/// would land outside the sync folder. The remote walk already rejects
+/// unsafe names; this is the last check before anything touches the disk.
+fn local_path(local_root: &Path, rel: &str) -> Result<PathBuf, String> {
+    crate::paths::join_under(local_root, rel).ok_or_else(|| {
+        "Luna listed a file name this computer can't store. Sync stopped.".to_string()
+    })
+}
+
+/// Move `path` into the pair's trash instead of deleting it. A remote
+/// delete — or a forged listing that simply omits files — must not destroy
+/// the local copy: the file lands in `.luna-desktop-trash/<unix seconds>/`
+/// under its relative path and can be moved back by hand.
+fn quarantine_local(local_root: &Path, path: &Path, rel: &str) -> Result<(), String> {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let trash = local_root.join(TRASH_DIR_NAME).join(stamp.to_string());
+    let dest = crate::paths::join_under(&trash, rel).ok_or_else(|| {
+        "Couldn't move the removed file aside on this computer.".to_string()
+    })?;
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent).map_err(|_| {
+            "Couldn't move the removed file aside on this computer.".to_string()
+        })?;
+    }
+    let dest = free_trash_path(&dest);
+    std::fs::rename(path, &dest).map_err(|_| {
+        "Couldn't move the removed file aside on this computer.".to_string()
+    })
+}
+
+/// `dest`, or a never-clobbering `name 2.ext` sibling when it already exists —
+/// two files with the same name can land in one timestamped trash folder.
+fn free_trash_path(dest: &Path) -> PathBuf {
+    if !dest.exists() {
+        return dest.to_path_buf();
+    }
+    let stem = dest.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
+    let ext = dest
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(|e| format!(".{e}"))
+        .unwrap_or_default();
+    for n in 2.. {
+        let next = dest.with_file_name(format!("{stem} {n}{ext}"));
+        if !next.exists() {
+            return next;
+        }
+    }
+    unreachable!()
+}
+
 fn mtime_secs(meta: &std::fs::Metadata) -> i64 {
     meta.modified()
         .ok()
@@ -363,7 +421,7 @@ fn sync_once(
                     std::fs::rename(path, &conflict_name).map_err(|_| {
                         "Couldn't set aside the changed file on this computer.".to_string()
                     })?;
-                    let dest = local_root.join(&rel);
+                    let dest = local_path(local_root, &rel)?;
                     let remote_abs = join_remote(&remote.path, &rel);
                     set_current(progress, pair_id, &rel);
                     if let Err(e) =
@@ -413,7 +471,7 @@ fn sync_once(
                     bump(progress, pair_id, true, false);
                 } else if remote_changed {
                     set_current(progress, pair_id, &rel);
-                    let dest = local_root.join(&rel);
+                    let dest = local_path(local_root, &rel)?;
                     let remote_abs = join_remote(&remote.path, &rel);
                     luna::download_file(base_url, token, &remote.drive_id, &remote_abs, &dest)?;
                     let meta = std::fs::metadata(&dest)
@@ -454,7 +512,7 @@ fn sync_once(
                     bump(progress, pair_id, true, false);
                 } else {
                     set_current(progress, pair_id, &rel);
-                    let dest = local_root.join(&rel);
+                    let dest = local_path(local_root, &rel)?;
                     let remote_abs = join_remote(&remote.path, &rel);
                     luna::download_file(base_url, token, &remote.drive_id, &remote_abs, &dest)?;
                     let meta = std::fs::metadata(&dest)
@@ -471,11 +529,16 @@ fn sync_once(
                 }
             }
             (Some((path, size, lm)), None, Some(_)) => {
-                // Remote deleted → delete local
+                // Remote deleted → set the local copy aside in the pair's
+                // trash, never hard-delete: a forged listing could claim
+                // every file is gone. On failure keep the ledger entry so
+                // the move is retried next pass rather than resurrected as
+                // a new upload.
                 set_current(progress, pair_id, &rel);
-                let _ = std::fs::remove_file(path);
-                ledger.map.remove(&rel);
-                bump(progress, pair_id, false, false);
+                if quarantine_local(local_root, path, &rel).is_ok() {
+                    ledger.map.remove(&rel);
+                    bump(progress, pair_id, false, false);
+                }
                 let _ = size;
                 let _ = lm;
             }
@@ -505,7 +568,7 @@ fn sync_once(
             (None, Some(re), None) => {
                 // New remote file
                 set_current(progress, pair_id, &rel);
-                let dest = local_root.join(&rel);
+                let dest = local_path(local_root, &rel)?;
                 let remote_abs = join_remote(&remote.path, &rel);
                 luna::download_file(base_url, token, &remote.drive_id, &remote_abs, &dest)?;
                 let meta = std::fs::metadata(&dest)

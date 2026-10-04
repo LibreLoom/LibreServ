@@ -41,7 +41,7 @@ cd luna && make mobile-dev
 What `make mobile-dev` does:
 
 1. Checks `adb` for an emulator or phone
-2. Mints (or reuses) an access token for user `desktop` / `hunter22hunter1`
+2. Mints (or reuses) an access token for user `desktop`, signing in with the random per-workspace password in `luna/dev/dev-password`
 3. `installDebug`, then opens `luna://pair` so DEBUG builds **auto-sign in**
 4. Watches `app/src` — save a file to rebuild, reinstall, and relaunch
 
@@ -53,7 +53,7 @@ Useful env vars:
 | `LUNA_MOBILE_HOST_URL` | `http://127.0.0.1:8090` | Luna address used to mint the token on the host |
 | `LUNA_MOBILE_REPAIR` | `0` | Set `1` (or `make mobile-dev-repair`) to force a fresh pair/sign-in |
 | `LUNA_DESKTOP_DEV_USER` | `desktop` | User used to mint the token |
-| `LUNA_DESKTOP_DEV_PASS` | `hunter22hunter1` | Password for that user |
+| `LUNA_DESKTOP_DEV_PASS` | random, per workspace | Password for that user (stored in `luna/dev/dev-password`) |
 
 Token cache lives in `mobile/.dev/` (gitignored). Emulators reach the host as `10.0.2.2`. Physical phones need a LAN URL, e.g. `LUNA_MOBILE_URL=http://192.168.1.20:8090`.
 

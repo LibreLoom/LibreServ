@@ -68,14 +68,16 @@ export LUNA_MOBILE_HOST_URL="$HOST_URL"
 bash "$ROOT/scripts/ensure-dev-token.sh"
 
 TOKEN="$(tr -d '\n' <"$ROOT/.dev/token")"
-PAIR_URI="$(DEVICE_URL="$DEVICE_URL" TOKEN="$TOKEN" python3 - <<'PY'
+# The token goes in an intent extra, not the luna://pair URI — `am start`
+# logs the data URI to logcat, so a token in the URI would leak there.
+PAIR_URI="$(DEVICE_URL="$DEVICE_URL" python3 - <<'PY'
 from urllib.parse import quote
 import os
 url = os.environ["DEVICE_URL"]
-token = os.environ["TOKEN"]
-print(f"luna://pair?url={quote(url, safe='')}&token={quote(token, safe='')}")
+print(f"luna://pair?url={quote(url, safe='')}")
 PY
 )"
+PAIR_EXTRA="net.plainskill.luna.extra.PAIR_TOKEN"
 
 install_and_launch() {
   local mode="${1:-restart}"
@@ -87,11 +89,13 @@ install_and_launch() {
 
   if [ "$REPAIR" = "1" ] || [ "$mode" = "pair" ]; then
     echo "    Pairing via $DEVICE_URL"
-    adb shell am start -a android.intent.action.VIEW -d "'$PAIR_URI'" -n "${APP_ID}/${ACTIVITY}" >/dev/null
+    adb shell am start -a android.intent.action.VIEW -d "'$PAIR_URI'" \
+      --es "$PAIR_EXTRA" "$TOKEN" -n "${APP_ID}/${ACTIVITY}" >/dev/null
   else
     # Session usually survives reinstall; bring the app forward.
     adb shell am start -n "${APP_ID}/${ACTIVITY}" >/dev/null \
-      || adb shell am start -a android.intent.action.VIEW -d "'$PAIR_URI'" -n "${APP_ID}/${ACTIVITY}" >/dev/null
+      || adb shell am start -a android.intent.action.VIEW -d "'$PAIR_URI'" \
+        --es "$PAIR_EXTRA" "$TOKEN" -n "${APP_ID}/${ACTIVITY}" >/dev/null
   fi
   echo "==> Ready. Save under app/src to rebuild."
 }

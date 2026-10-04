@@ -38,79 +38,12 @@ need x86_64-w64-mingw32-windres
 mkdir -p "$PKG_DIR" "$OUT_DIR" "$STAGE"
 
 # --- MSYS2 packages needed for gtk4 + libadwaita ---
-MSYS2_PKGS=(
-  mingw-w64-x86_64-gtk4
-  mingw-w64-x86_64-libadwaita
-  mingw-w64-x86_64-glib2
-  mingw-w64-x86_64-cairo
-  mingw-w64-x86_64-pango
-  mingw-w64-x86_64-gdk-pixbuf2
-  mingw-w64-x86_64-graphene
-  mingw-w64-x86_64-harfbuzz
-  mingw-w64-x86_64-fribidi
-  mingw-w64-x86_64-freetype
-  mingw-w64-x86_64-fontconfig
-  mingw-w64-x86_64-pixman
-  mingw-w64-x86_64-libpng
-  mingw-w64-x86_64-libjpeg-turbo
-  mingw-w64-x86_64-libtiff
-  mingw-w64-x86_64-zlib
-  mingw-w64-x86_64-pcre2
-  mingw-w64-x86_64-gettext-runtime
-  mingw-w64-x86_64-libepoxy
-  mingw-w64-x86_64-expat
-  mingw-w64-x86_64-libffi
-  mingw-w64-x86_64-vulkan-loader
-  mingw-w64-x86_64-vulkan-headers
-  mingw-w64-x86_64-shaderc
-  mingw-w64-x86_64-lcms2
-  mingw-w64-x86_64-libcloudproviders
-  mingw-w64-x86_64-shared-mime-info
-  mingw-w64-x86_64-librsvg
-  mingw-w64-x86_64-libxml2
-  mingw-w64-x86_64-libiconv
-  mingw-w64-x86_64-brotli
-  mingw-w64-x86_64-bzip2
-  mingw-w64-x86_64-xz
-  mingw-w64-x86_64-zstd
-  mingw-w64-x86_64-lzo2
-  mingw-w64-x86_64-libdeflate
-  mingw-w64-x86_64-jbigkit
-  mingw-w64-x86_64-lerc
-  mingw-w64-x86_64-libwebp
-  mingw-w64-x86_64-appstream-glib
-  mingw-w64-x86_64-appstream
-  mingw-w64-x86_64-gobject-introspection-runtime
-  mingw-w64-x86_64-graphite2
-  mingw-w64-x86_64-libxmlb
-  mingw-w64-x86_64-libstemmer
-  mingw-w64-x86_64-libdatrie
-  mingw-w64-x86_64-libthai
-  mingw-w64-x86_64-json-glib
-  mingw-w64-x86_64-libsoup3
-  mingw-w64-x86_64-sqlite3
-  mingw-w64-x86_64-nghttp2
-  mingw-w64-x86_64-libpsl
-  mingw-w64-x86_64-openssl
-  mingw-w64-x86_64-adwaita-icon-theme
-  mingw-w64-x86_64-hicolor-icon-theme
-  # gtk4 hard-imports the gstreamer media stack — without these the app
-  # cannot even launch (B1). Only the linked libs are needed: gst runtime
-  # plugins are dlopen'd on demand and the UI does not play media.
-  mingw-w64-x86_64-gstreamer
-  mingw-w64-x86_64-gst-plugins-base
-  # the -libs split holds libgstd3d12 / libgstplay — the plugins themselves
-  # are dlopen'd at runtime and not needed for launch
-  mingw-w64-x86_64-gst-plugins-bad-libs
-  mingw-w64-x86_64-orc
-  mingw-w64-x86_64-libnice
-  mingw-w64-x86_64-gnutls
-  mingw-w64-x86_64-nettle
-  mingw-w64-x86_64-p11-kit
-  mingw-w64-x86_64-libtasn1
-  mingw-w64-x86_64-libidn2
-  mingw-w64-x86_64-libunistring
-)
+# Pinned, checksum-verified list: msys2-manifest.txt (same dir) holds
+# 'sha256  filename' lines resolved from repo.msys2.org's pacman database.
+# gtk4 hard-imports the gstreamer media stack — without it the app cannot
+# even launch (B1). Only the linked libs ship: gst runtime plugins are
+# dlopen'd on demand and the UI does not play media.
+MANIFEST="$(cd "$(dirname "$0")" && pwd)/msys2-manifest.txt"
 
 ensure_sysroot() {
   if [ -f "$SYSROOT/mingw64/lib/pkgconfig/gtk4.pc" ] \
@@ -120,31 +53,26 @@ ensure_sysroot() {
     echo "==> reusing MSYS2 sysroot at $SYSROOT"
     return 0
   fi
-  echo "==> fetching MSYS2 mingw64 packages into $SYSROOT"
+  echo "==> fetching pinned MSYS2 mingw64 packages into $SYSROOT"
+  [ -f "$MANIFEST" ] || die "missing $MANIFEST"
   mkdir -p "$SYSROOT" "$PKG_DIR"
-  local INDEX
-  INDEX="$(curl -fsS --proto '=https' --tlsv1.2 https://repo.msys2.org/mingw/mingw64/)"
   cd "$PKG_DIR"
-  local name file
-  for name in "${MSYS2_PKGS[@]}"; do
-    file="$(printf '%s' "$INDEX" | grep -oE "${name}-[0-9][^\"<]*\.pkg\.tar\.(zst|xz)" | sort -V | tail -1 || true)"
-    if [ -z "$file" ]; then
-      file="$(printf '%s' "$INDEX" | grep -oE "${name}-[^\"<]*\.pkg\.tar\.(zst|xz)" | sort -V | tail -1 || true)"
-    fi
-    if [ -z "$file" ]; then
-      echo "WARN: no package listing for $name (continuing)" >&2
-      continue
-    fi
+  local _sha file
+  while read -r _sha file; do
+    case "$_sha" in '' | \#*) continue ;; esac
+    [ -n "$file" ] || die "bad manifest line: $_sha"
     if [ ! -f "$file" ]; then
       echo "  fetch $file"
       curl -fL --proto '=https' --tlsv1.2 --retry 3 -o "$file" "https://repo.msys2.org/mingw/mingw64/$file"
     fi
-  done
-  for file in *.pkg.tar.zst *.pkg.tar.xz; do
-    [ -f "$file" ] || continue
+  done <"$MANIFEST"
+  # Verify before anything is unpacked — a tampered or stale download fails here.
+  sha256sum -c "$MANIFEST" >/dev/null || die "MSYS2 package checksum failed"
+  while read -r _sha file; do
+    case "$_sha" in '' | \#*) continue ;; esac
     tar -C "$SYSROOT" --use-compress-program=unzstd -xf "$file" 2>/dev/null \
       || tar -C "$SYSROOT" -xf "$file"
-  done
+  done <"$MANIFEST"
 }
 
 write_pkg_config_wrapper() {
