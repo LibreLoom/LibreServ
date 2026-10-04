@@ -1,6 +1,6 @@
 import { Component, lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import PropTypes from "prop-types";
-import DocumentLoadingScreen from "../DocumentLoadingScreen.jsx";
+import EditorLoadingScreen from "../EditorLoadingScreen.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import { useTheme } from "@libreloom/ui/hooks/useTheme.jsx";
 import { apiErrorMessage } from "../../../lib/api.js";
@@ -758,7 +758,7 @@ function EditorSession({
   return (
     <div ref={hostRef} className="relative flex min-h-0 flex-1 flex-col surface-primary">
       {showLoading ? (
-        <DocumentLoadingScreen
+        <EditorLoadingScreen
           label={`Opening ${name}`}
           className="absolute inset-0 z-10"
         />

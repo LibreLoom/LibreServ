@@ -28,7 +28,7 @@ import Toggle from "@libreloom/ui/components/common/Toggle.jsx";
 import ModalCard, { NESTED_OVERLAY_CLASS } from "@libreloom/ui/components/cards/ModalCard.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import ShareSheet from "../../share/ShareSheet.jsx";
-import DocumentLoadingScreen from "../DocumentLoadingScreen.jsx";
+import EditorLoadingScreen from "../EditorLoadingScreen.jsx";
 import FormResponses from "./FormResponses.jsx";
 import FormInput from "../../common/forms/FormInput.jsx";
 import {
@@ -545,7 +545,7 @@ function BuilderSession({
       ) : null}
       <div className="relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
         {loading || (!error && !doc) ? (
-          <DocumentLoadingScreen label={`Opening ${name}`} />
+          <EditorLoadingScreen label={`Opening ${name}`} />
         ) : error ? (
           <div className="p-4"><PageNotice variant="error">{error}</PageNotice></div>
         ) : (

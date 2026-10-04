@@ -8,6 +8,7 @@ import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
+import { EditorMountedSignal } from "./EditorLoadingScreen.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import ImagePreviewPanel from "./ImagePreviewPanel.jsx";
 import FullscreenEditorFrame from "./FullscreenEditorFrame.jsx";
@@ -323,7 +324,8 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
         onClose={onClose}
       >
         {({ onRegisterSave, onSaveStateChange, requestClose }) => (
-          <Suspense fallback={<ViewerFallback />}>
+          <Suspense fallback={null}>
+          <EditorMountedSignal />
           {frameView.isOffice ? (
             <OfficeEditor
               driveId={driveId}

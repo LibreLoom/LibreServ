@@ -7,7 +7,7 @@ import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
-import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
+import EditorLoadingScreen from "./EditorLoadingScreen.jsx";
 import { TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { CollabDocSync } from "./collabDocSync.js";
 import { apiErrorMessage } from "../../lib/api.js";
@@ -310,18 +310,7 @@ function EditorSession({
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-4">
         {loading ? (
-          <div
-            className="flex h-full items-center justify-center"
-            role="status"
-            aria-label={`Opening ${name}`}
-          >
-            <div className="flex items-center gap-3 text-secondary">
-              <p className="font-mono text-sm">
-                Opening
-              </p>
-              <Spinner size="md" decorative />
-            </div>
-          </div>
+          <EditorLoadingScreen label={`Opening ${name}`} />
         ) : error ? (
           <PageNotice variant="error">{error}</PageNotice>
         ) : isMarkdown ? (

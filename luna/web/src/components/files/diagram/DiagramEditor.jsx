@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import PropTypes from "prop-types";
-import DocumentLoadingScreen from "../DocumentLoadingScreen.jsx";
+import EditorLoadingScreen from "../EditorLoadingScreen.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import { useTheme } from "@libreloom/ui/hooks/useTheme.jsx";
@@ -601,7 +601,7 @@ function EditorSession({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {phase === "loading" ? (
-        <DocumentLoadingScreen label={`Opening ${name}`} />
+        <EditorLoadingScreen label={`Opening ${name}`} />
       ) : (
         <iframe
           ref={iframeRef}

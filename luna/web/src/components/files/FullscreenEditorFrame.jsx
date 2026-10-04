@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import PropTypes from "prop-types";
 import { MoreHorizontal, Save, X } from "lucide-react";
@@ -11,6 +11,8 @@ import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
+import DocumentLoadingScreen from "./DocumentLoadingScreen.jsx";
+import { EditorLoadingContext } from "./editorLoadingContext.js";
 
 /** Under this age the save indicator reads "Saved just now". */
 const RECENT_SAVE_MS = 90_000;
@@ -116,6 +118,30 @@ export default function FullscreenEditorFrame({
   // editor must hold typing focus).
   const focusedRef = useRef(false);
 
+  // One loading screen for the whole open. It stays up until the lazy editor
+  // has downloaded (`mounted`) and every loader the editor registered has
+  // cleared — it is one element in one place, so the dots never restart.
+  const [mounted, setMounted] = useState(false);
+  const [loaders, setLoaders] = useState(/** @type {Record<string, string>} */ ({}));
+  const loadingApi = useMemo(
+    () => ({
+      markMounted: () => setMounted(true),
+      setLoader: (id, label) =>
+        setLoaders((prev) => {
+          if (label == null) {
+            if (!(id in prev)) return prev;
+            const { [id]: _removed, ...rest } = prev;
+            return rest;
+          }
+          return prev[id] === label ? prev : { ...prev, [id]: label };
+        }),
+    }),
+    [],
+  );
+  const loaderLabels = Object.values(loaders);
+  const showLoader = !mounted || loaderLabels.length > 0;
+  const loaderLabel = loaderLabels[loaderLabels.length - 1] ?? `Opening ${name}`;
+
   // A different file inside the same frame — reset the save chrome so the
   // previous editor's dirty flag or save thunk can't leak across. Render-
   // phase reset, same pattern as FileViewer's previewKey scope.
@@ -130,6 +156,8 @@ export default function FullscreenEditorFrame({
     setSaveError("");
     setConfirmClose(false);
     setMenuOpen(false);
+    setMounted(false);
+    setLoaders({});
   }
 
   // Unsaved-changes guard: every close path (X button, Escape) funnels
@@ -445,12 +473,20 @@ export default function FullscreenEditorFrame({
                   />
                 </div>
               )}
-              <div className="flex min-h-0 min-w-0 flex-1 flex-col surface-primary">
-                {children({
-                  onRegisterSave: handleRegisterSave,
-                  onSaveStateChange: handleSaveState,
-                  requestClose,
-                })}
+              <div className="relative flex min-h-0 min-w-0 flex-1 flex-col surface-primary">
+                <EditorLoadingContext.Provider value={loadingApi}>
+                  {children({
+                    onRegisterSave: handleRegisterSave,
+                    onSaveStateChange: handleSaveState,
+                    requestClose,
+                  })}
+                </EditorLoadingContext.Provider>
+                {showLoader ? (
+                  <DocumentLoadingScreen
+                    label={loaderLabel}
+                    className="absolute inset-0 z-[5]"
+                  />
+                ) : null}
               </div>
             </div>
           </div>

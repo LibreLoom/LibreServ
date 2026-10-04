@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import PropTypes from "prop-types";
-import DocumentLoadingScreen from "../DocumentLoadingScreen.jsx";
+import EditorLoadingScreen from "../EditorLoadingScreen.jsx";
 import OfficeIssueCard from "./OfficeIssueCard.jsx";
 import { useOptionalAuth } from "../../../context/AuthContext.jsx";
 import { useTheme } from "@libreloom/ui/hooks/useTheme.jsx";
@@ -793,7 +793,7 @@ export default function EuroOfficeHost({
            imperatively in the effect instead. */
         <div className="relative min-h-0 flex-1">
           {status === "loading" ? (
-            <DocumentLoadingScreen
+            <EditorLoadingScreen
               label={phase}
               className="absolute inset-0 z-[1]"
             />
