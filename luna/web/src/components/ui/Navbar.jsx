@@ -19,7 +19,7 @@ const navItems = [
   { to: "/settings", icon: SlidersHorizontal, label: "Settings", end: true },
 ];
 
-const menuItems = [{ to: "/settings#security", icon: UserRound, label: "Me" }];
+const menuItems = [{ to: "/settings#security", icon: UserRound, label: "You" }];
 
 export default function Navbar() {
   const { user, logout } = useAuth();
