@@ -46,7 +46,11 @@ async fn status(
     }
     let setup = state.auth.count_users().unwrap_or(1) == 0;
     let admin = current.as_ref().is_some_and(|u| u.role == "admin");
-    Json(state.connect.status_for(setup || admin))
+    let mut status = state.connect.status_for(setup || admin);
+    // The token is a credential and no screen shows it; only the on-device
+    // console reads it, in-process.
+    status.setup_code = None;
+    Json(status)
 }
 
 fn setup_or_admin(state: &AppState, current: Option<&Extension<crate::auth::CurrentUser>>) -> bool {
@@ -449,7 +453,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn status_is_readable_but_only_admins_receive_the_token() {
+    async fn status_is_readable_and_never_carries_the_token() {
         let h = harness(true);
         h.state.connect.set_oss_code(TOKEN).unwrap();
         let (status, admin_view) = send(
@@ -470,10 +474,10 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::OK);
-        // Only the Admin's view carries the device token (it is shown in
-        // Settings → About); a member never receives it.
-        assert!(admin_view.to_string().contains(TOKEN));
+        // The token is a credential no screen shows, so nobody gets it back.
+        assert!(!admin_view.to_string().contains(TOKEN));
         assert!(!member_view.to_string().contains(TOKEN));
+        assert!(admin_view["setup_code"].is_null());
         assert_eq!(member_view["connect_active"], true);
     }
 }

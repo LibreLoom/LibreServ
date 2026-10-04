@@ -806,12 +806,19 @@ describe("FileBrowser", () => {
       types: ["application/x-luna-paths"],
       getData: vi.fn(() => ""),
     };
-    fireEvent.dragOver(folderRow, { dataTransfer });
-    fireEvent.dragLeave(folderRow, { dataTransfer, relatedTarget: document.body });
-    // Wait past the spring-load delay — leaving first must have cancelled it.
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-    });
+    // The spring-load timer is made by dragOver, so freeze timers first and
+    // step past its delay by hand.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      fireEvent.dragOver(folderRow, { dataTransfer });
+      fireEvent.dragLeave(folderRow, { dataTransfer, relatedTarget: document.body });
+      // Past the spring-load delay — leaving first must have cancelled it.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
     // Still at drive root — no navigation happened.
     expect(screen.getByText("docs")).toBeInTheDocument();
     expect(screen.queryByText("inner.txt")).not.toBeInTheDocument();

@@ -574,9 +574,15 @@ describe("FileSearch", () => {
     );
     // Once the scan is over it stops asking.
     const settled = searchCalls(fetchMock).length;
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 1600));
-    });
+    vi.useFakeTimers({ toFake: ["setTimeout", "setInterval", "clearInterval", "clearTimeout"] });
+    try {
+      // Well past a couple of 1.2s polls.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
     expect(searchCalls(fetchMock).length).toBe(settled);
   }, 15000);
 

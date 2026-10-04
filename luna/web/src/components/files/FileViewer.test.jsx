@@ -400,18 +400,30 @@ describe("FileViewer text editor (fullscreen)", () => {
       cmView().dispatch({ changes: { from: 5, insert: " world" } });
     });
 
-    // Under the idle threshold the tick notices the dirty doc but holds.
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-    });
-    expect(
-      fetchMock.mock.calls.some(([url]) => String(url).includes("/files/upload")),
-    ).toBe(false);
+    // The tick (every 250ms) decides from Date.now, so move the clock instead
+    // of waiting out the idle pause. Only Date is faked: the interval that
+    // already exists keeps running on the real timer.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      // Under the idle threshold the tick notices the dirty doc but holds.
+      vi.setSystemTime(Date.now() + 1000);
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 600));
+      });
+      expect(
+        fetchMock.mock.calls.some(([url]) => String(url).includes("/files/upload")),
+      ).toBe(false);
 
-    // Past the ~2s idle pause the tick saves and the rail button goes clean.
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 1800));
-    });
+      // Past the ~2s idle pause the next tick saves and the rail button goes clean.
+      vi.setSystemTime(Date.now() + 1800);
+      await waitFor(() =>
+        expect(
+          fetchMock.mock.calls.some(([url]) => String(url).includes("/files/upload")),
+        ).toBe(true),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
     const upload = fetchMock.mock.calls.find(([url, init]) =>
       String(url).includes("/files/upload") &&
       (init?.method || "GET").toUpperCase() === "POST",
