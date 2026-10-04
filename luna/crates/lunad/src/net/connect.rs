@@ -107,7 +107,6 @@ pub struct ConnectService {
     token_path: PathBuf,
     legacy_token_path: PathBuf,
     base_url: String,
-    device_key: [u8; 32],
     child: Arc<Mutex<Option<Child>>>,
     active_tunnel_token: Arc<Mutex<Option<String>>>,
     /// Serializes ensure/stop so concurrent poll + supervisor ticks cannot drop a
@@ -125,7 +124,6 @@ pub struct ConnectService {
 
 impl ConnectService {
     pub fn new(data_dir: &Path, base_url: Option<String>) -> Self {
-        let device_key = crate::secrets::ensure_device_key(data_dir).unwrap_or([0u8; 32]);
         // Legacy opt-out marker — Connect is off by default now; drop the file if present.
         let _ = std::fs::remove_file(data_dir.join("disable-connect"));
         let state_path = data_dir.join("connect.json");
@@ -148,7 +146,6 @@ impl ConnectService {
             base_url: base_url
                 .filter(|u| !u.is_empty())
                 .unwrap_or_else(|| DEFAULT_CONNECT_URL.to_string()),
-            device_key,
             child: Arc::new(Mutex::new(None)),
             active_tunnel_token: Arc::new(Mutex::new(None)),
             tunnel_mu: Mutex::new(()),
@@ -1190,12 +1187,6 @@ impl ConnectService {
         let Some(bytes) = std::fs::read(&self.state_path).ok() else {
             return json!({ "base_url": self.base_url });
         };
-        if crate::at_rest::is_encrypted_blob(&bytes)
-            && let Ok(text) = std::str::from_utf8(&bytes)
-            && let Ok(value) = crate::at_rest::decrypt_json(&self.device_key, text)
-        {
-            return value;
-        }
         serde_json::from_slice(&bytes).unwrap_or_else(|_| json!({ "base_url": self.base_url }))
     }
 
@@ -1203,9 +1194,10 @@ impl ConnectService {
         if let Some(parent) = self.state_path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        let enc = crate::at_rest::encrypt_json(&self.device_key, state)
+        // Plain JSON, readable only by lunad (0600) — same as `device-token`.
+        let json = serde_json::to_vec(state)
             .map_err(|_| ConnectError::Other("Luna couldn't save that. Try again.".into()))?;
-        std::fs::write(&self.state_path, enc.as_bytes())
+        std::fs::write(&self.state_path, json)
             .map_err(|_| ConnectError::Other("Luna couldn't save that. Try again.".into()))?;
         #[cfg(unix)]
         {
@@ -2308,5 +2300,36 @@ mod tests {
         assert!(service.status().device_token_error.is_some());
         service.set_oss_code("ZZZZ-YYYY-XXXX-WWWW-VVVV").unwrap();
         assert!(service.status().device_token_error.is_none());
+    }
+}
+
+#[cfg(test)]
+mod plain_state_tests {
+    use super::*;
+
+    #[test]
+    fn connect_json_is_plain_private_json_and_round_trips() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
+        service
+            .save(&json!({ "hostname": "kitchen.example" }))
+            .unwrap();
+        let raw = std::fs::read_to_string(dir.path().join("connect.json")).unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&raw).unwrap()["hostname"],
+            "kitchen.example"
+        );
+        assert_eq!(service.load()["hostname"], "kitchen.example");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(dir.path().join("connect.json"))
+                .unwrap()
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+        // Nothing else is written beside it.
+        assert!(!dir.path().join("device_key").exists());
     }
 }

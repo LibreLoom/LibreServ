@@ -1,6 +1,5 @@
 pub mod access;
 pub mod api;
-pub mod at_rest;
 pub mod auth;
 pub mod backup;
 pub mod budget;

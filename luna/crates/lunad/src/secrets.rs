@@ -1,17 +1,15 @@
-//! Device-local secrets stored outside SQLite (0600 files).
+//! The sign-in signing key, stored outside SQLite as a 0600 file.
 
 use std::fs;
 use std::io::Write;
 use std::path::Path;
 
 use argon2::password_hash::rand_core::{OsRng, RngCore};
-use base64::Engine;
 use rusqlite::Connection;
 
 use crate::db;
 
 const JWT_FILE: &str = "jwt_secret";
-const DEVICE_KEY_FILE: &str = "device_key";
 
 fn write_secret_file(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
@@ -69,31 +67,6 @@ pub fn rotate_jwt_secret(data_dir: &Path) -> anyhow::Result<Vec<u8>> {
     Ok(bytes)
 }
 
-/// Stable 256-bit device key for at-rest encryption of connect.json.
-pub fn ensure_device_key(data_dir: &Path) -> anyhow::Result<[u8; 32]> {
-    let path = data_dir.join(DEVICE_KEY_FILE);
-    if path.exists() {
-        let bytes = read_secret_file(&path)?;
-        if bytes.len() == 32 {
-            let mut key = [0u8; 32];
-            key.copy_from_slice(&bytes);
-            return Ok(key);
-        }
-    }
-    let bytes = random_bytes(32);
-    write_secret_file(&path, &bytes)?;
-    let mut key = [0u8; 32];
-    key.copy_from_slice(&bytes);
-    Ok(key)
-}
-
-/// Human-readable backup of the device key (for support docs only — not shown in UI).
-#[allow(dead_code)]
-pub fn device_key_b64(data_dir: &Path) -> anyhow::Result<String> {
-    let key = ensure_device_key(data_dir)?;
-    Ok(base64::engine::general_purpose::STANDARD.encode(key))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -128,9 +101,7 @@ mod tests {
     fn secret_files_are_private_and_leave_no_temp_file() {
         let dir = tempfile::tempdir().unwrap();
         ensure_jwt_secret(dir.path(), &conn()).unwrap();
-        ensure_device_key(dir.path()).unwrap();
         assert_eq!(mode(&dir.path().join("jwt_secret")), 0o600);
-        assert_eq!(mode(&dir.path().join("device_key")), 0o600);
         let leftovers: Vec<_> = fs::read_dir(dir.path())
             .unwrap()
             .filter_map(|e| e.ok())
@@ -187,33 +158,6 @@ mod tests {
             )
             .unwrap();
         assert_eq!(left, 0, "the database copy is removed once the file has it");
-    }
-
-    #[test]
-    fn device_key_is_stable_and_regenerated_when_corrupt() {
-        let dir = tempfile::tempdir().unwrap();
-        let key = ensure_device_key(dir.path()).unwrap();
-        assert_eq!(ensure_device_key(dir.path()).unwrap(), key);
-
-        // A truncated key file is not trusted; a fresh 32-byte key replaces it.
-        fs::write(dir.path().join("device_key"), b"short").unwrap();
-        let fresh = ensure_device_key(dir.path()).unwrap();
-        assert_ne!(fresh, key);
-        assert_eq!(fs::read(dir.path().join("device_key")).unwrap().len(), 32);
-        assert_eq!(ensure_device_key(dir.path()).unwrap(), fresh);
-    }
-
-    #[test]
-    fn the_backup_copy_of_the_device_key_round_trips() {
-        let dir = tempfile::tempdir().unwrap();
-        let key = ensure_device_key(dir.path()).unwrap();
-        let b64 = device_key_b64(dir.path()).unwrap();
-        assert_eq!(
-            base64::engine::general_purpose::STANDARD
-                .decode(b64)
-                .unwrap(),
-            key
-        );
     }
 
     #[test]
