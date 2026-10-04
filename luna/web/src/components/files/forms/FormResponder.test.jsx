@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import FormResponder from "./FormResponder.jsx";
 
 /** @type {{ version: number, title: string, description: string, settings: Record<string, unknown>, questions: Record<string, unknown>[] }} */
@@ -332,6 +332,61 @@ describe("FormResponder", () => {
     const stored = storedResponses();
     expect(stored).toHaveLength(1);
     expect("edit_token" in stored[0]).toBe(false);
+  });
+
+  it("strips the edit token from the address bar once read", async () => {
+    const seen = [];
+    function Probe() {
+      seen.push(useLocation().search);
+      return null;
+    }
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => okJson({ ok: true, id: "r_1", answers: { q_1: "Yes" } })),
+    );
+
+    render(
+      <MemoryRouter initialEntries={["/s/tok?keep=1&edit=tok-edit"]}>
+        <FormResponder token="tok" form={FORM} />
+        <Probe />
+      </MemoryRouter>,
+    );
+
+    // The link still opens the stored answers…
+    expect(await screen.findByText(/Changing your answers/i)).toBeInTheDocument();
+    // …but the secret is gone from the URL while other params stay.
+    expect(seen[0]).toContain("edit=tok-edit");
+    expect(seen.at(-1)).toBe("?keep=1");
+  });
+
+  it("keeps only the newest 50 stored responses on this device", async () => {
+    seedResponses(
+      Array.from({ length: 50 }, (_, i) => ({
+        id: `r_${i}`,
+        edit_token: `t_${i}`,
+        at: i,
+        answers: { q_1: "Yes" },
+      })),
+    );
+    const fetchMock = vi.fn(async (_url, options = {}) =>
+      options.method === "POST"
+        ? okJson({ ok: true, id: "r_new", edit_token: "t_new" })
+        : okJson({}),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderResponder(FORM);
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Send another response/i }),
+    );
+    fireEvent.click(await screen.findByRole("radio", { name: "Yes" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Send answers/i }));
+    await screen.findByText(/Response submitted/i);
+
+    const stored = storedResponses();
+    expect(stored).toHaveLength(50);
+    expect(stored.at(-1).id).toBe("r_new");
+    expect(stored[0].id).toBe("r_1");
   });
 
   it("lands on the intro with a notice when an edit link fails", async () => {

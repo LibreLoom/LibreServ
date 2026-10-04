@@ -51,6 +51,9 @@ function storageName(token) {
   return `lunaform_responses_${token}`;
 }
 
+/** Kept responses per form — the list also feeds the edit picker, not a log. */
+const MAX_STORED_RESPONSES = 50;
+
 /**
  * Every response this device has sent to this form, oldest first:
  * `{id, edit_token?, at, answers}` — `edit_token` only exists when the form
@@ -77,13 +80,14 @@ function readStoredResponses(token) {
   return [];
 }
 
-/** Upsert one response record by id; returns the new array (null if storage failed). */
+/** Upsert one response record by id, oldest first; returns the new array (null if storage failed). */
 function saveStoredResponse(token, entry) {
   try {
     const next = readStoredResponses(token).filter((r) => r.id !== entry.id);
     next.push(entry);
-    localStorage.setItem(storageName(token), JSON.stringify(next));
-    return next;
+    const kept = next.slice(-MAX_STORED_RESPONSES);
+    localStorage.setItem(storageName(token), JSON.stringify(kept));
+    return kept;
   } catch {
     // private browsing etc — the copyable edit link still works without it
     return null;
@@ -150,7 +154,7 @@ function Responder({
   full = false,
   closedMessage = "",
 }) {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const questions = useMemo(
     () => (Array.isArray(form?.questions) ? form.questions : []),
     [form],
@@ -162,7 +166,10 @@ function Responder({
     ? settings.thankYou.trim()
     : DEFAULT_THANK_YOU;
 
-  const urlEdit = (searchParams.get("edit") || "").trim();
+  const urlEdit = (searchParams.get("edit") || searchParams.get("edit_token") || "").trim();
+  // Captured before the scrub effect strips it — the token is a secret and
+  // shouldn't linger in the address bar or history (same as setup's ?token=).
+  const [editLinkToken] = useState(urlEdit);
   const [storedResponses, setStoredResponses] = useState(() => readStoredResponses(token));
   const [remembered] = useState(
     () => readCookie(cookieName("done", token)) === "1" || storedResponses.length > 0,
@@ -173,14 +180,14 @@ function Responder({
   const [isEdit, setIsEdit] = useState(false);
   /** Bumps whenever a different response is opened, so every field starts clean. */
   const [session, setSession] = useState(0);
-  const [checkingEdit, setCheckingEdit] = useState(Boolean(urlEdit));
+  const [checkingEdit, setCheckingEdit] = useState(Boolean(editLinkToken));
   const [editNotice, setEditNotice] = useState("");
   const [errors, setErrors] = useState(/** @type {Record<string, string>} */ ({}));
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
   /** "form" while filling in; "done" for the sent / answered-before screen. */
   const [stage, setStage] = useState(
-    /** @type {"form" | "done" | "picking"} */ (!urlEdit && storedResponses.length > 0 ? "done" : !urlEdit && limitOne && remembered ? "done" : "form"),
+    /** @type {"form" | "done" | "picking"} */ (!editLinkToken && storedResponses.length > 0 ? "done" : !editLinkToken && limitOne && remembered ? "done" : "form"),
   );
   /** True only for the screen right after a send — a return visit uses the older headings. */
   const [justSent, setJustSent] = useState(false);
@@ -190,13 +197,22 @@ function Responder({
     [questions, answers],
   );
 
+  // Scrub ?edit=/?edit_token= once read — replace, so Back doesn't land on it.
   useEffect(() => {
-    if (!urlEdit) return undefined;
+    if (!urlEdit) return;
+    const next = new URLSearchParams(searchParams);
+    next.delete("edit");
+    next.delete("edit_token");
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams, urlEdit]);
+
+  useEffect(() => {
+    if (!editLinkToken) return undefined;
     let cancelled = false;
     const headers = { Accept: "application/json" };
     if (sharePassword) headers["X-Share-Password"] = sharePassword;
     fetch(
-      `/s/${encodeURIComponent(token)}/respond?edit_token=${encodeURIComponent(urlEdit)}`,
+      `/s/${encodeURIComponent(token)}/respond?edit_token=${encodeURIComponent(editLinkToken)}`,
       { headers },
     )
       .then(async (res) => {
@@ -207,7 +223,7 @@ function Responder({
           );
         }
         if (cancelled) return;
-        setEditToken(urlEdit);
+        setEditToken(editLinkToken);
         setResponseId(typeof data?.id === "string" ? data.id : "");
         setAnswers(data && typeof data.answers === "object" && data.answers ? data.answers : {});
         setIsEdit(true);
@@ -223,7 +239,7 @@ function Responder({
         if (!cancelled) setCheckingEdit(false);
       });
     return () => { cancelled = true; };
-  }, [token, sharePassword, urlEdit]);
+  }, [token, sharePassword, editLinkToken]);
 
   const editableResponses = allowEdits
     ? storedResponses.filter((r) => typeof r.edit_token === "string" && r.edit_token !== "")

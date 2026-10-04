@@ -58,6 +58,7 @@ import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { useShortcut, useShortcutsSheet } from "@libreloom/ui/context/ShortcutsContext.jsx";
 import {
   apiErrorMessage,
+  apiFetch,
   deleteJson,
   getDrives,
   getJson,
@@ -1173,10 +1174,9 @@ export default function GalleryPage() {
 
   async function downloadSelected(items) {
     try {
-      // Prefer zip endpoint when backend agent adds it.
-      const res = await fetch("/api/v1/gallery/download", {
+      // Prefer the zip endpoint; daemons without it answer 404 and fall through.
+      const res = await apiFetch("/api/v1/gallery/download", {
         method: "POST",
-        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           items: items.map((p) => ({ drive_id: p.drive_id, path: p.path })),
@@ -1188,8 +1188,12 @@ export default function GalleryPage() {
         const a = document.createElement("a");
         a.href = url;
         a.download = "photos.zip";
+        document.body.appendChild(a);
         a.click();
-        URL.revokeObjectURL(url);
+        a.remove();
+        // Firefox starts the download after the click returns; revoking in
+        // the same tick can cancel it.
+        setTimeout(() => URL.revokeObjectURL(url), 30_000);
         return;
       }
     } catch {
@@ -1199,7 +1203,9 @@ export default function GalleryPage() {
       const a = document.createElement("a");
       a.href = downloadHref(photo.drive_id, photo.path);
       a.download = photo.name || "photo";
+      document.body.appendChild(a);
       a.click();
+      a.remove();
     }
   }
 

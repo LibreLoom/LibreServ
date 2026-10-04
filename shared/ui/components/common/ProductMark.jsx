@@ -7,7 +7,7 @@ import PropTypes from "prop-types";
 const LUNA_MOON = "M88 40.2V99.7A48 48 0 0 0 136.0 147.7H201.4A86 86 0 1 1 88 40.2Z";
 
 /** Luna: a moon cradling a disc. */
-export function LunaMark({ size = 64, className }) {
+export function LunaMark({ size = 64, className = "" }) {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
@@ -44,7 +44,7 @@ const SOL_PATHS = Array.from({ length: THREADS }, (_, i) => {
 
 /** Sol: thirty-seven threads spiraling into a circle. `strokeWidth` is in 240-unit
  *  drawing space; raise it at small sizes so the threads stay visible. */
-export function SolMark({ size = 64, className, strokeWidth = 3 }) {
+export function SolMark({ size = 64, className = "", strokeWidth = 3 }) {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"

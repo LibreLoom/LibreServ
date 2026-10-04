@@ -27,7 +27,7 @@ import {
   openFileSearch,
   saveSearchKind,
 } from "../../lib/fileSearch.js";
-import { apiErrorMessage, getDrives, getJson, postJson } from "../../lib/api";
+import { apiErrorMessage, deleteJson, getDrives, getJson, postJson } from "../../lib/api";
 import { parentPath } from "../../lib/paths";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { cn } from "@libreloom/ui/lib/utils.js";
@@ -50,15 +50,6 @@ function prefersReducedMotion() {
   return typeof window !== "undefined"
     && typeof window.matchMedia === "function"
     && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-}
-
-async function parseError(res) {
-  try {
-    const data = await res.json();
-    return data.error || `Request failed (${res.status})`;
-  } catch {
-    return `Request failed (${res.status})`;
-  }
 }
 
 /**
@@ -183,14 +174,10 @@ export default function FileSearch() {
   });
 
   const removeMutation = useMutation({
-    mutationFn: async (/** @type {any} */ item) => {
-      const res = await fetch(
+    mutationFn: (/** @type {any} */ item) =>
+      deleteJson(
         `/api/v1/drives/${item.drive_id}/files?path=${encodeURIComponent(item.path)}`,
-        { method: "DELETE", credentials: "include" }
-      );
-      if (!res.ok) throw new Error(await parseError(res));
-      return res.json();
-    },
+      ),
     onSuccess: () => {
       setActionError(null);
       addToast({ type: "success", message: "Moved to Trash." });
