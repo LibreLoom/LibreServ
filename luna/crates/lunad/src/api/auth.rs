@@ -67,10 +67,10 @@ async fn update_me(
     }
     // Password work happens BEFORE the db lock: the mutex is not reentrant
     // (AuthService calls would deadlock) and neither argon2 nor the breach
-    // check's network call may run while it is held.
+    // check's network call may run while it is held — or on the async worker.
     let mut new_hash = None;
-    if let Some(new_password) = body.new_password.as_deref() {
-        let current_password = body.current_password.as_deref().unwrap_or("");
+    if let Some(new_password) = body.new_password.clone() {
+        let current_password = body.current_password.clone().unwrap_or_default();
         let stored_hash = {
             let conn = state.db.lock().map_err(|_| {
                 json_error(
@@ -88,26 +88,39 @@ async fn update_me(
                 .ok_or_else(|| json_error(StatusCode::UNAUTHORIZED, "Sign in to Luna first."))?
                 .password_hash
         };
-        let parsed = argon2::password_hash::PasswordHash::new(&stored_hash).map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't do that. Try again.",
-            )
-        })?;
-        auth::verify_password_hash(current_password, &parsed)
-            .map_err(|_| json_error(StatusCode::FORBIDDEN, "That's not your current password."))?;
-        if let Err(e) = crate::password::validate_password(new_password) {
-            return Err(json_error(StatusCode::BAD_REQUEST, e.message()));
-        }
-        if let Err(e) = crate::hibp::ensure_password_not_breached(new_password) {
-            return Err(json_error(StatusCode::BAD_REQUEST, e.message()));
-        }
-        new_hash = Some(auth::hash_password(new_password).map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't save that. Try again.",
-            )
-        })?);
+        new_hash = Some(
+            tokio::task::spawn_blocking(move || {
+                let parsed =
+                    argon2::password_hash::PasswordHash::new(&stored_hash).map_err(|_| {
+                        json_error(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            "Luna couldn't do that. Try again.",
+                        )
+                    })?;
+                auth::verify_password_hash(&current_password, &parsed).map_err(|_| {
+                    json_error(StatusCode::FORBIDDEN, "That's not your current password.")
+                })?;
+                if let Err(e) = crate::password::validate_password(&new_password) {
+                    return Err(json_error(StatusCode::BAD_REQUEST, e.message()));
+                }
+                if let Err(e) = crate::hibp::ensure_password_not_breached(&new_password) {
+                    return Err(json_error(StatusCode::BAD_REQUEST, e.message()));
+                }
+                auth::hash_password(&new_password).map_err(|_| {
+                    json_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "Luna couldn't save that. Try again.",
+                    )
+                })
+            })
+            .await
+            .map_err(|_| {
+                json_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Luna couldn't do that. Try again.",
+                )
+            })??,
+        );
     }
 
     let conn = state.db.lock().map_err(|_| {
@@ -195,15 +208,26 @@ async fn register(
             return Err(json_error(StatusCode::FORBIDDEN, msg));
         }
     }
-    let user = state
-        .auth
-        .register(
-            &body.username,
-            body.display_name.as_deref().unwrap_or(&body.username),
-            &body.password,
-            "user",
+    // Argon2 and the breach check's network call are blocking — off the
+    // async worker.
+    let auth = state.auth.clone();
+    let username = body.username.clone();
+    let display_name = body
+        .display_name
+        .clone()
+        .unwrap_or_else(|| body.username.clone());
+    let password = body.password.clone();
+    let user = tokio::task::spawn_blocking(move || {
+        auth.register(&username, &display_name, &password, "user")
+    })
+    .await
+    .map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't do that. Try again.",
         )
-        .map_err(map_auth_err)?;
+    })?
+    .map_err(map_auth_err)?;
     if !has_users {
         // One-time cleanup does a Connect round-trip — off the async worker.
         let connect = state.connect.clone();
@@ -243,9 +267,17 @@ async fn login(
             "Too many tries. Wait a few minutes and try again.",
         ));
     }
-    let (user, token) = state
-        .auth
-        .login(&body.username, &body.password)
+    // Argon2 verification is CPU-bound — off the async worker.
+    let auth = state.auth.clone();
+    let (username, password) = (body.username.clone(), body.password.clone());
+    let (user, token) = tokio::task::spawn_blocking(move || auth.login(&username, &password))
+        .await
+        .map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't do that. Try again.",
+            )
+        })?
         .map_err(map_auth_err)?;
     let secure = auth::request_is_https(&headers);
     let mut response = Json(json!({

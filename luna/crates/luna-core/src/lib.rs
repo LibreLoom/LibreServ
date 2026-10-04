@@ -14,7 +14,6 @@ pub use marker::{Marker, MarkerError, marker_file_name, read_marker, remove_mark
 #[cfg(target_os = "linux")]
 pub use path::open_verified;
 pub use path::{
-    PathError, is_under_prefix, open_nofollow, resolve_child, resolve_child_nofollow,
-    resolve_for_create_nofollow,
+    PathError, is_under_prefix, resolve_child, resolve_child_nofollow, resolve_for_create_nofollow,
 };
 pub use scan::{TopLevelEntry, TopLevelSummary, scan_top_level};

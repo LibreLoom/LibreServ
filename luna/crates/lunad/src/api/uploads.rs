@@ -62,16 +62,20 @@ async fn create(
         ));
     }
     let path = body.path.unwrap_or_default();
-    let upload = with_db(&state, |conn| {
-        uploads::create_scoped(
-            conn,
-            &body.drive_id,
-            &path,
-            &body.name,
-            body.size,
-            &format!("user:{}", user.id),
-        )
-    })
+    let upload = crate::db::with_db(
+        &state.db,
+        || UploadError::NotFound,
+        |conn| {
+            uploads::create_scoped(
+                conn,
+                &body.drive_id,
+                &path,
+                &body.name,
+                body.size,
+                &format!("user:{}", user.id),
+            )
+        },
+    )
     .map_err(map_upload_err)?;
     Ok(Json(json!({
         "upload_id": upload.id,
@@ -247,14 +251,6 @@ fn check_upload_access(
             "You don't have permission to save here.",
         ))
     }
-}
-
-fn with_db<T>(
-    state: &AppState,
-    f: impl FnOnce(&rusqlite::Connection) -> Result<T, UploadError>,
-) -> Result<T, UploadError> {
-    let conn = state.db.lock().map_err(|_| UploadError::NotFound)?;
-    f(&conn)
 }
 
 fn map_upload_err(err: UploadError) -> (StatusCode, Json<Value>) {

@@ -59,7 +59,12 @@ async fn handle_dav_inner(state: AppState, id: String, req: Request) -> axum::re
         Ok(handler) => handler,
         Err(err) => return err.into_response(),
     };
-    let resp = handler.handle(req).await;
+    // dav-server drives its sync filesystem trait inline; on two worker
+    // threads a slow drive walk would stall the whole API. block_in_place
+    // parks this worker so the runtime can replace it while it blocks.
+    let resp = tokio::task::block_in_place(|| {
+        tokio::runtime::Handle::current().block_on(handler.handle(req))
+    });
     let (parts, body) = resp.into_parts();
     axum::response::Response::from_parts(parts, axum::body::Body::new(body))
 }
@@ -221,10 +226,6 @@ fn dav_handler_for(
         .strip_prefix(format!("/dav/{drive_id}"))
         .build_handler())
 }
-
-/// Kept for call sites that used to invalidate a shared DavHandler cache.
-/// Handlers are built per request now, so this is a no-op.
-pub fn drop_cached_handler(_state: &AppState, _drive_id: &str) {}
 
 #[cfg(test)]
 mod tests {
@@ -473,7 +474,7 @@ mod tests {
         (admin_token, member_token, sam_id)
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn dav_accepts_device_token_as_basic_password() {
         let mount = tempfile::tempdir().unwrap();
         let (_dir, app, _state) = test_app(mount.path());
@@ -493,7 +494,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn dav_rejects_household_password() {
         let mount = tempfile::tempdir().unwrap();
         let (_dir, app, _state) = test_app(mount.path());
@@ -519,7 +520,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn dav_accepts_token_as_username_with_empty_password() {
         let mount = tempfile::tempdir().unwrap();
         let (_dir, app, _state) = test_app(mount.path());
@@ -534,7 +535,7 @@ mod tests {
         assert_ne!(res.status(), StatusCode::FORBIDDEN);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn dav_member_with_write_grant_can_read_granted_path() {
         let mount = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(mount.path().join("family")).unwrap();
@@ -572,7 +573,7 @@ mod tests {
         assert_eq!(res.status(), StatusCode::FORBIDDEN);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn dav_member_read_grant_rejects_put() {
         let mount = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(mount.path().join("family")).unwrap();
@@ -593,7 +594,7 @@ mod tests {
         assert_eq!(res.status(), StatusCode::FORBIDDEN);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn dav_member_without_grant_forbidden() {
         let mount = tempfile::tempdir().unwrap();
         let (_dir, app, _state) = test_app(mount.path());
@@ -646,7 +647,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn dav_admin_still_sees_whole_drive() {
         let mount = tempfile::tempdir().unwrap();
         std::fs::write(mount.path().join("anywhere.txt"), b"yes").unwrap();
@@ -665,7 +666,7 @@ mod tests {
         assert_eq!(res.status(), StatusCode::OK);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn dav_deep_grant_lists_ancestors_hides_siblings() {
         let mount = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(mount.path().join("family/photos")).unwrap();
@@ -718,7 +719,7 @@ mod tests {
     /// Waypoint ancestors must answer PROPFIND with masked metadata: the dir
     /// stays a dir, but real mtimes/sizes on an unviewable ancestor would be
     /// an activity-timing oracle.
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn dav_waypoint_ancestor_propfind_masks_metadata() {
         let mount = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(mount.path().join("family/photos")).unwrap();
@@ -769,7 +770,7 @@ mod tests {
 
     /// DELETE on a folder tree must land in trash as ONE entry for the
     /// requested path — not a scatter of per-child entries.
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn dav_delete_tree_lands_as_single_trash_entry() {
         let mount = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(mount.path().join("family/sub")).unwrap();
@@ -826,7 +827,7 @@ mod tests {
     }
 
     #[cfg(unix)]
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn dav_does_not_follow_symlink_escape() {
         use std::os::unix::fs::symlink;
         let mount = tempfile::tempdir().unwrap();

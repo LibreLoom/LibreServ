@@ -187,23 +187,6 @@ fn walk_nofollow(root: &Path, rel: &str, last_may_missing: bool) -> Result<PathB
     Ok(current)
 }
 
-/// Open a file without following a final symlink (`O_NOFOLLOW` on Unix).
-pub fn open_nofollow(root: &Path, rel: &str) -> Result<(std::fs::File, PathBuf), PathError> {
-    let path = resolve_child_nofollow(root, rel)?;
-    let mut opts = std::fs::OpenOptions::new();
-    opts.read(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        opts.custom_flags(libc::O_NOFOLLOW);
-    }
-    let file = opts.open(&path).map_err(|e| match e.kind() {
-        std::io::ErrorKind::NotFound => PathError::NotFound(e),
-        _ => PathError::Io(e),
-    })?;
-    Ok((file, path))
-}
-
 /// Open a file inside the jail and verify, against the *actually opened* file
 /// descriptor, that it still lives under `root`.
 ///

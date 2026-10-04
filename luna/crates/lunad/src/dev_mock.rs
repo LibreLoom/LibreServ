@@ -134,19 +134,6 @@ pub fn scan_mock_drives() -> Vec<DetectedDrive> {
     scan_mock_drives_at(&mock_drives_path(), enabled())
 }
 
-/// Scan sysfs-backed drives and append spawned mock drives when active.
-pub fn scan_all(sys_block: &Path, proc_mounts: &str) -> Vec<DetectedDrive> {
-    let mut drives = crate::drives::detect::scan(sys_block, proc_mounts);
-    if enabled() {
-        for mock in scan_mock_drives() {
-            drives.retain(|d| d.name != mock.name);
-            drives.push(mock);
-        }
-        drives.sort_by(|a, b| a.name.cmp(&b.name));
-    }
-    drives
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

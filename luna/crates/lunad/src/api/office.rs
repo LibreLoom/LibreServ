@@ -25,10 +25,10 @@ use uuid::Uuid;
 use crate::AppState;
 use crate::access::{CAP_EDIT, CAP_VIEW, KIND_PATH, path_contains};
 use crate::api::access;
-use crate::api::response::{json_error, json_error_code};
+use crate::api::response::json_error;
 use crate::auth::{self, CurrentUser, OfficeClaims};
 use crate::db::{self, AccessLinkRow};
-use crate::files::{self, FilesError};
+use crate::files;
 
 const OFFICE_TOKEN_TTL_SECS: i64 = 24 * 60 * 60; // all-day edit sessions
 /// Bundle dirs outlive sessions; sweep ones untouched for a week at boot.
@@ -195,7 +195,7 @@ async fn prepare_session(
                 "Luna couldn't open this document right now. Try again.",
             )
         })?;
-        files::file_path(&conn, &drive_id, &path).map_err(map_files_err)?
+        files::file_path(&conn, &drive_id, &path).map_err(crate::api::files::map_files_err)?
     };
     let modified = meta
         .modified()
@@ -878,7 +878,8 @@ fn ensure_file(
             "Luna couldn't open this document right now. Try again.",
         )
     })?;
-    let (_abs, meta) = files::file_path(&conn, drive_id, path).map_err(map_files_err)?;
+    let (_abs, meta) =
+        files::file_path(&conn, drive_id, path).map_err(crate::api::files::map_files_err)?;
     if !meta.is_file() {
         return Err(json_error(
             StatusCode::BAD_REQUEST,
@@ -912,28 +913,6 @@ fn user_can(
             crate::access::CAP_VIEW
         },
     ))
-}
-
-fn map_files_err(err: FilesError) -> (StatusCode, Json<Value>) {
-    match err {
-        FilesError::UnknownDrive => json_error(
-            StatusCode::NOT_FOUND,
-            "Luna doesn't know this drive. Make sure it is plugged in.",
-        ),
-        FilesError::MissingDriveDb => json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            files::MISSING_DRIVE_DB_MSG,
-        ),
-        FilesError::Path(_) => json_error_code(
-            StatusCode::NOT_FOUND,
-            "not_found",
-            "This file doesn't exist anymore.",
-        ),
-        FilesError::Io(_) | FilesError::Db(_) => json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't open that file. Try again.",
-        ),
-    }
 }
 
 #[cfg(test)]

@@ -203,9 +203,17 @@ async fn factory_reset(
             "Type your current password to confirm this reset.",
         ));
     }
-    state
-        .auth
-        .verify_password_for_user(&user.id, &body.password)
+    // Argon2 verification is CPU-bound — off the async worker.
+    let auth = state.auth.clone();
+    let (user_id, password) = (user.id.clone(), body.password.clone());
+    tokio::task::spawn_blocking(move || auth.verify_password_for_user(&user_id, &password))
+        .await
+        .map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't do that. Try again.",
+            )
+        })?
         .map_err(|_| {
             json_error(
                 StatusCode::UNAUTHORIZED,
@@ -225,7 +233,6 @@ async fn factory_reset(
     // Luna.
     let drives = crate::db::list_drives(&conn).unwrap_or_default();
     for drive in drives {
-        crate::files::dav::drop_cached_handler(&state, &drive.id);
         if !drive.mount_point.is_empty() {
             let _ = luna_core::marker::remove_marker(
                 std::path::Path::new(&drive.mount_point),

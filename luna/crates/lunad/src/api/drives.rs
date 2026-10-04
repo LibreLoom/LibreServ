@@ -1,11 +1,9 @@
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use axum::extract::{Extension, Path, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
 use crate::AppState;
@@ -118,7 +116,12 @@ async fn list(
     State(state): State<AppState>,
     Extension(user): Extension<crate::auth::CurrentUser>,
 ) -> Result<Json<Vec<DriveJson>>, (StatusCode, Json<serde_json::Value>)> {
-    let rows = with_db(&state.db, crate::db::list_drives).map_err(|_| {
+    let rows = crate::db::with_db(
+        &state.db,
+        || anyhow::anyhow!("db lock poisoned"),
+        crate::db::list_drives,
+    )
+    .map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Luna couldn't list your drives. Try again.",
@@ -156,20 +159,39 @@ async fn detected(
     Extension(user): Extension<crate::auth::CurrentUser>,
 ) -> Result<Json<Vec<DetectedDriveJson>>, (StatusCode, Json<serde_json::Value>)> {
     require_admin(user)?;
-    let mounts = std::fs::read_to_string("/proc/mounts").unwrap_or_default();
-    let drives = crate::dev_mock::scan_all(std::path::Path::new("/sys/block"), &mounts);
+    // Sysfs + mock-dir scanning touches the filesystem — off the async worker.
+    let drives = tokio::task::spawn_blocking(|| {
+        let mounts = std::fs::read_to_string("/proc/mounts").unwrap_or_default();
+        crate::drives::detect::scan_with_dev_mocks(std::path::Path::new("/sys/block"), &mounts)
+    })
+    .await
+    .map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't check for drives. Try again.",
+        )
+    })?;
     // Idempotent reconciliation on every poll: gone -> missing, returned -> as_is,
     // ejected stays ejected while still plugged in. Remounted Ready drives re-arm
     // the gallery watcher (eject→replug / kernel remount). The DB mutex only
     // covers row reads/writes — marker probes, mounts, and the dirty flush
     // run unlocked so a slow USB stick never stalls unrelated queries.
-    let snapshot = with_db(&state.db, crate::db::list_drives).unwrap_or_default();
+    let snapshot = crate::db::with_db(
+        &state.db,
+        || anyhow::anyhow!("db lock poisoned"),
+        crate::db::list_drives,
+    )
+    .unwrap_or_default();
     let plan = state.drive_manager.reconcile_scan(&snapshot, &drives);
-    let (rows, remounted) = with_db(&state.db, |conn| {
-        let remounted = state.drive_manager.reconcile_apply(conn, plan)?;
-        let rows = crate::db::list_drives(conn)?;
-        Ok((rows, remounted))
-    })
+    let (rows, remounted) = crate::db::with_db(
+        &state.db,
+        || anyhow::anyhow!("db lock poisoned"),
+        |conn| {
+            let remounted = state.drive_manager.reconcile_apply(conn, plan)?;
+            let rows = crate::db::list_drives(conn)?;
+            Ok((rows, remounted))
+        },
+    )
     .unwrap_or_default();
     let known_devices: std::collections::HashSet<String> = rows
         .iter()
@@ -226,7 +248,7 @@ async fn peek(
     Path(name): Path<String>,
 ) -> Result<Json<PeekJson>, (StatusCode, Json<serde_json::Value>)> {
     require_admin(user)?;
-    let device = find_device(&name).ok_or_else(|| {
+    let device = find_device(&name).await.ok_or_else(|| {
         json_error(
             StatusCode::NOT_FOUND,
             "Luna can't see a drive with that name.",
@@ -277,18 +299,24 @@ async fn inspect(
     Path(name): Path<String>,
 ) -> Result<Json<InspectionJson>, (StatusCode, Json<serde_json::Value>)> {
     require_admin(user)?;
-    let device = find_device(&name).ok_or_else(|| {
+    let device = find_device(&name).await.ok_or_else(|| {
         json_error(
             StatusCode::NOT_FOUND,
             "Luna can't see a drive with that name.",
         )
     })?;
-    let inspection = state.drive_manager.inspect(&device).map_err(|_| {
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't look at this drive safely. Make sure it's plugged in and try again.",
-        )
-    })?;
+    // Inspect mounts and probes the drive — off the async worker.
+    let manager = state.drive_manager.clone();
+    let inspection = tokio::task::spawn_blocking(move || manager.inspect(&device))
+        .await
+        .ok()
+        .and_then(|r| r.ok())
+        .ok_or_else(|| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't look at this drive safely. Make sure it's plugged in and try again.",
+            )
+        })?;
     Ok(Json(InspectionJson {
         device: inspection.device,
         model: inspection.model,
@@ -328,15 +356,25 @@ async fn adopt(
             "Give this drive a name between 1 and 80 characters.",
         ));
     }
-    let device = find_device(&name).ok_or_else(|| {
+    let device = find_device(&name).await.ok_or_else(|| {
         json_error(
             StatusCode::NOT_FOUND,
             "Luna can't see a drive with that name.",
         )
     })?;
-    let row = with_db(&state.db, |conn| {
-        state.drive_manager.adopt(conn, &device, &label, body.erase)
+    // Adopt mounts and probes the drive while holding the DB lock — off the
+    // async worker so a slow disk can't stall unrelated requests.
+    let (manager, db) = (state.drive_manager.clone(), state.db.clone());
+    let erase = body.erase;
+    let row = tokio::task::spawn_blocking(move || {
+        crate::db::with_db(
+            &db,
+            || anyhow::anyhow!("db lock poisoned"),
+            |conn| manager.adopt(conn, &device, &label, erase),
+        )
     })
+    .await
+    .unwrap_or_else(|_| Err(anyhow::anyhow!("task failed")))
     .map_err(|e| {
         json_error(
             StatusCode::BAD_REQUEST,
@@ -374,8 +412,12 @@ async fn eject(
     require_admin(user)?;
     let (st, drive) = (state.clone(), id.clone());
     closed_drive(&state, &id, move || {
-        with_db(&st.db, |conn| st.drive_manager.eject(conn, &drive))
-            .map_err(|e| json_error(StatusCode::BAD_REQUEST, plain_eject_error(&e)))
+        crate::db::with_db(
+            &st.db,
+            || anyhow::anyhow!("db lock poisoned"),
+            |conn| st.drive_manager.eject(conn, &drive),
+        )
+        .map_err(|e| json_error(StatusCode::BAD_REQUEST, plain_eject_error(&e)))
     })
     .await?;
     Ok(Json(serde_json::json!({ "ok": true })))
@@ -389,8 +431,12 @@ async fn remove(
     require_admin(user)?;
     let (st, drive) = (state.clone(), id.clone());
     closed_drive(&state, &id, move || {
-        with_db(&st.db, |conn| st.drive_manager.remove(conn, &drive))
-            .map_err(|e| json_error(StatusCode::BAD_REQUEST, plain_remove_error(&e)))
+        crate::db::with_db(
+            &st.db,
+            || anyhow::anyhow!("db lock poisoned"),
+            |conn| st.drive_manager.remove(conn, &drive),
+        )
+        .map_err(|e| json_error(StatusCode::BAD_REQUEST, plain_remove_error(&e)))
     })
     .await?;
     Ok(Json(serde_json::json!({ "ok": true })))
@@ -410,7 +456,6 @@ async fn closed_drive(
     let result = tokio::task::spawn_blocking(move || {
         flush_dirty_before_unmount(&st, &drive)?;
         unmount()?;
-        crate::files::dav::drop_cached_handler(&st, &drive);
         st.gallery.unwatch_mount(&drive);
         st.search_index.unwatch_mount(&drive);
         st.ram_cache.drop_drive(&drive);
@@ -435,12 +480,16 @@ fn flush_dirty_before_unmount(
     if state.ram_cache.dirty_rels_for_drive(id).is_empty() {
         return Ok(());
     }
-    let mount = with_db(&state.db, |conn| {
-        crate::db::get_drive(conn, id)?
-            .filter(|d| !d.mount_point.is_empty())
-            .map(|d| PathBuf::from(d.mount_point))
-            .ok_or_else(|| anyhow::anyhow!("drive is not mounted"))
-    })
+    let mount = crate::db::with_db(
+        &state.db,
+        || anyhow::anyhow!("db lock poisoned"),
+        |conn| {
+            crate::db::get_drive(conn, id)?
+                .filter(|d| !d.mount_point.is_empty())
+                .map(|d| PathBuf::from(d.mount_point))
+                .ok_or_else(|| anyhow::anyhow!("drive is not mounted"))
+        },
+    )
     .ok();
     let Some(mount) = mount else {
         return Err(json_error(
@@ -599,12 +648,19 @@ async fn drive_summary(
     }))
 }
 
-fn find_device(name: &str) -> Option<crate::drives::detect::DetectedDrive> {
+/// The sysfs scan reads /proc + the mock-drive dir — run off the async worker.
+async fn find_device(name: &str) -> Option<crate::drives::detect::DetectedDrive> {
     // No /proc/mounts off Linux (e.g. macOS dev hosts) — mock drives still scan.
-    let mounts = std::fs::read_to_string("/proc/mounts").unwrap_or_default();
-    crate::dev_mock::scan_all(std::path::Path::new("/sys/block"), &mounts)
-        .into_iter()
-        .find(|d| d.name == name && d.is_storage_candidate())
+    let name = name.to_string();
+    tokio::task::spawn_blocking(move || {
+        let mounts = std::fs::read_to_string("/proc/mounts").unwrap_or_default();
+        crate::drives::detect::scan_with_dev_mocks(std::path::Path::new("/sys/block"), &mounts)
+            .into_iter()
+            .find(|d| d.name == name && d.is_storage_candidate())
+    })
+    .await
+    .ok()
+    .flatten()
 }
 
 fn require_admin(
@@ -694,14 +750,6 @@ fn plain_remove_error(err: &anyhow::Error) -> String {
     } else {
         "Luna couldn't remove this drive. Try again.".into()
     }
-}
-
-fn with_db<T>(
-    db: &Arc<crate::Db>,
-    f: impl FnOnce(&Connection) -> anyhow::Result<T>,
-) -> anyhow::Result<T> {
-    let conn = db.lock().map_err(|_| anyhow::anyhow!("db lock poisoned"))?;
-    f(&conn)
 }
 
 impl From<crate::db::DriveRow> for DriveJson {

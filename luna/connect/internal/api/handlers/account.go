@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -240,7 +241,9 @@ func (h AccountHandler) AttachCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if cust != acct.StripeCustomer {
-		_, _ = h.DB.Exec(`UPDATE accounts SET stripe_customer_id = ? WHERE id = ?`, cust, acct.ID)
+		if _, err := h.DB.Exec(`UPDATE accounts SET stripe_customer_id = ? WHERE id = ?`, cust, acct.ID); err != nil {
+			slog.Error("subscribe: failed to persist stripe customer id", "account", acct.ID, "err", err)
+		}
 		acct.StripeCustomer = cust
 	}
 	sub, item, err := billing.Subscribe(cust, pm)
@@ -260,14 +263,20 @@ func (h AccountHandler) AttachCard(w http.ResponseWriter, r *http.Request) {
 	res, err := h.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = ?, stripe_subscription_id = ?, stripe_subscription_item_id = ?, backup_purge_after = NULL, purge_mail_day = NULL WHERE id = ? AND (stripe_subscription_id IS NULL OR stripe_subscription_id = '')`,
 		status, sub, item, acct.ID)
 	if err != nil {
-		_ = billing.CancelSubscription(sub)
+		if cerr := billing.CancelSubscription(sub); cerr != nil {
+			slog.Error("subscribe: failed to cancel orphaned subscription; customer may be billed twice", "account", acct.ID, "subscription", sub, "err", cerr)
+		}
 		JSONError(w, http.StatusInternalServerError, "Could not save billing. Try again.")
 		return
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		_ = billing.CancelSubscription(sub)
+		if cerr := billing.CancelSubscription(sub); cerr != nil {
+			slog.Error("subscribe: failed to cancel losing subscription in race; customer may be billed twice", "account", acct.ID, "subscription", sub, "err", cerr)
+		}
 		var liveStatus string
-		_ = h.DB.QueryRow(`SELECT billing_status FROM accounts WHERE id = ?`, acct.ID).Scan(&liveStatus)
+		if err := h.DB.QueryRow(`SELECT billing_status FROM accounts WHERE id = ?`, acct.ID).Scan(&liveStatus); err != nil {
+			slog.Warn("subscribe: failed to re-read billing status for already_active check", "account", acct.ID, "err", err)
+		}
 		JSON(w, http.StatusOK, map[string]any{"ok": true, "already_active": liveStatus == "active" || liveStatus == "dev"})
 		return
 	}

@@ -253,11 +253,15 @@ fn stamped_caps(
     drive_id: &str,
     rel: &str,
 ) -> String {
-    with_db(state, |conn| {
-        Ok(crate::access::caps_to_str(crate::auth::caps_on_path(
-            user, conn, drive_id, rel,
-        )))
-    })
+    crate::db::with_db(
+        &state.db,
+        || FilesError::UnknownDrive,
+        |conn| {
+            Ok(crate::access::caps_to_str(crate::auth::caps_on_path(
+                user, conn, drive_id, rel,
+            )))
+        },
+    )
     .unwrap_or_default()
 }
 
@@ -1067,7 +1071,11 @@ async fn serve_folder_zip(
             // Only the lookup holds the database lock; the walk and
             // compression below run without it, taking it for one
             // permission check per entry.
-            let plan = with_db(&state, |conn| files::zip_plan(conn, &id, &rel, in_trash))?;
+            let plan = crate::db::with_db(
+                &state.db,
+                || FilesError::UnknownDrive,
+                |conn| files::zip_plan(conn, &id, &rel, in_trash),
+            )?;
             let db = state.db.clone();
             if in_trash {
                 // Mirror list_trash_view + check_trash_item: a zip of the
@@ -1236,7 +1244,12 @@ async fn serve_file_content(
     // open_verified works on real on-disk paths — the `.luna-trash` API
     // alias does not exist on the drive.
     let real_rel = if in_trash {
-        with_db(&state, |conn| files::real_rel_path(conn, &id, &rel)).map_err(map_files_err)?
+        crate::db::with_db(
+            &state.db,
+            || FilesError::UnknownDrive,
+            |conn| files::real_rel_path(conn, &id, &rel),
+        )
+        .map_err(map_files_err)?
     } else {
         rel.clone()
     };
@@ -1262,8 +1275,12 @@ async fn serve_file_content(
     }
 
     let mut file = {
-        let drive =
-            with_db(&state, |conn| crate::files::drive_root(conn, &id)).map_err(map_files_err)?;
+        let drive = crate::db::with_db(
+            &state.db,
+            || FilesError::UnknownDrive,
+            |conn| crate::files::drive_root(conn, &id),
+        )
+        .map_err(map_files_err)?;
         let root = std::path::PathBuf::from(&drive.mount_point);
         // Open the file against a re-verified descriptor so a mid-request
         // symlink swap on the drive cannot read outside the jail.
@@ -1313,9 +1330,13 @@ async fn serve_file_content(
     let name = if in_trash {
         // The meta leaf is authoritative — a rename in trash retitles the
         // origin while the on-disk name keeps its `{nonce}-` prefix.
-        with_db(&state, |conn| files::trash_api_leaf(conn, &id, &rel))
-            .map_err(map_files_err)?
-            .unwrap_or_else(|| String::from("download"))
+        crate::db::with_db(
+            &state.db,
+            || FilesError::UnknownDrive,
+            |conn| files::trash_api_leaf(conn, &id, &rel),
+        )
+        .map_err(map_files_err)?
+        .unwrap_or_else(|| String::from("download"))
     } else {
         files::leaf_of(&path).unwrap_or_else(|| String::from("download"))
     };
@@ -1825,8 +1846,12 @@ async fn upload(
                         "That file name can't be used. Try renaming it.",
                     ));
                 }
-                let dir = with_db(&state, |conn| files::dest_dir_create(conn, &id, &dest_rel))
-                    .map_err(map_files_err)?;
+                let dir = crate::db::with_db(
+                    &state.db,
+                    || FilesError::UnknownDrive,
+                    |conn| files::dest_dir_create(conn, &id, &dest_rel),
+                )
+                .map_err(map_files_err)?;
                 let dest = files::entry_path(&dir, &name);
                 // Only a destination that existed — and passed the EDIT
                 // check — at this decision point may be replaced. Anything
@@ -1857,8 +1882,12 @@ async fn upload(
                 let max_dirty =
                     crate::budget::cache_budget_from(crate::budget::meminfo().available_bytes)
                         .dirty_max_file_bytes;
-                let temp = with_db(&state, |conn| files::temp_path(conn, &id, &dir))
-                    .map_err(map_files_err)?;
+                let temp = crate::db::with_db(
+                    &state.db,
+                    || FilesError::UnknownDrive,
+                    |conn| files::temp_path(conn, &id, &dir),
+                )
+                .map_err(map_files_err)?;
 
                 match buffer_field_up_to(&mut field, max_dirty, &temp).await {
                     Ok(Some(bytes)) => {
@@ -2245,19 +2274,25 @@ fn check_access(
 
 /// The drive's row, read under a brief hold of the central lock.
 fn drive_row(state: &AppState, id: &str) -> Result<crate::db::DriveRow, FilesError> {
-    with_db(state, |conn| files::drive_root(conn, id))
+    crate::db::with_db(
+        &state.db,
+        || FilesError::UnknownDrive,
+        |conn| files::drive_root(conn, id),
+    )
 }
 
-/// [`with_db`] on a background thread, so a slow drive stalls this request
-/// and not the async runtime.
+/// [`crate::db::with_db`] on a background thread, so a slow drive stalls this
+/// request and not the async runtime.
 async fn with_db_blocking<T: Send + 'static>(
     state: &AppState,
     f: impl FnOnce(&rusqlite::Connection) -> Result<T, FilesError> + Send + 'static,
 ) -> Result<T, FilesError> {
     let state = state.clone();
-    tokio::task::spawn_blocking(move || with_db(&state, f))
-        .await
-        .unwrap_or_else(|_| Err(FilesError::Io(std::io::Error::other("task failed"))))
+    tokio::task::spawn_blocking(move || {
+        crate::db::with_db(&state.db, || FilesError::UnknownDrive, f)
+    })
+    .await
+    .unwrap_or_else(|_| Err(FilesError::Io(std::io::Error::other("task failed"))))
 }
 
 /// [`with_db_blocking`] holding the drive's mutation lock for the whole
@@ -2272,21 +2307,13 @@ async fn changing<T: Send + 'static>(
     let state = state.clone();
     tokio::task::spawn_blocking(move || {
         let _guard = guard;
-        with_db(&state, f)
+        crate::db::with_db(&state.db, || FilesError::UnknownDrive, f)
     })
     .await
     .unwrap_or_else(|_| Err(FilesError::Io(std::io::Error::other("task failed"))))
 }
 
-fn with_db<T>(
-    state: &AppState,
-    f: impl FnOnce(&rusqlite::Connection) -> Result<T, FilesError>,
-) -> Result<T, FilesError> {
-    let conn = state.db.lock().map_err(|_| FilesError::UnknownDrive)?;
-    f(&conn)
-}
-
-fn map_files_err(err: FilesError) -> (StatusCode, Json<Value>) {
+pub(crate) fn map_files_err(err: FilesError) -> (StatusCode, Json<Value>) {
     match err {
         FilesError::UnknownDrive => json_error_code(
             StatusCode::NOT_FOUND,

@@ -110,6 +110,22 @@ pub fn scan(sys_block: &Path, proc_mounts: &str) -> Vec<DetectedDrive> {
     drives
 }
 
+/// Scan sysfs-backed drives and append spawned dev-mock drives when active.
+///
+/// This is the production scan entry point: real hardware plus, in debug
+/// builds or with `LUNA_MOCK_DRIVES=1`, directory mock drives for UI review.
+pub fn scan_with_dev_mocks(sys_block: &Path, proc_mounts: &str) -> Vec<DetectedDrive> {
+    let mut drives = scan(sys_block, proc_mounts);
+    if crate::dev_mock::enabled() {
+        for mock in crate::dev_mock::scan_mock_drives() {
+            drives.retain(|d| d.name != mock.name);
+            drives.push(mock);
+        }
+        drives.sort_by(|a, b| a.name.cmp(&b.name));
+    }
+    drives
+}
+
 /// Names of the block devices backing the running OS root (`/`) — the exact
 /// device and its parent disk (so `sda1` → `sda` is covered).
 fn system_devices(proc_mounts: &str) -> Vec<String> {

@@ -18,9 +18,9 @@ use serde_json::Value;
 use tokio::sync::broadcast;
 
 use crate::AppState;
-use crate::api::response::{json_error, json_error_code};
+use crate::api::response::json_error;
 use crate::auth::CurrentUser;
-use crate::files::{self, FilesError};
+use crate::files;
 use crate::office::collab::{ClientMsg, CollabHub, JoinError, ServerEvent};
 
 #[derive(Debug, Deserialize)]
@@ -357,7 +357,8 @@ fn ensure_file(
             "Luna's index is busy. Try again.",
         )
     })?;
-    let (_abs, meta) = files::file_path(&conn, drive_id, path).map_err(map_files_err)?;
+    let (_abs, meta) =
+        files::file_path(&conn, drive_id, path).map_err(crate::api::files::map_files_err)?;
     if !meta.is_file() {
         return Err(json_error(
             StatusCode::BAD_REQUEST,
@@ -428,28 +429,6 @@ fn user_can(
             crate::access::CAP_VIEW
         },
     ))
-}
-
-fn map_files_err(err: FilesError) -> (StatusCode, Json<Value>) {
-    match err {
-        FilesError::UnknownDrive => json_error(
-            StatusCode::NOT_FOUND,
-            "Luna doesn't know this drive. Make sure it is plugged in.",
-        ),
-        FilesError::MissingDriveDb => json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            files::MISSING_DRIVE_DB_MSG,
-        ),
-        FilesError::Path(_) => json_error_code(
-            StatusCode::NOT_FOUND,
-            "not_found",
-            "This file doesn't exist anymore.",
-        ),
-        FilesError::Io(_) | FilesError::Db(_) => json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't open that file. Try again.",
-        ),
-    }
 }
 
 #[cfg(test)]

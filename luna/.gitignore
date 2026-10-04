@@ -26,3 +26,4 @@ __pycache__/
 # EuroOffice pack + converted doc bundles — installed/generated, never commit
 eurooffice/
 office_bundles/
+/os/debian-live/config/includes.chroot/usr/lib/luna-installer/find-media.sh

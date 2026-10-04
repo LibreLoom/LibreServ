@@ -122,6 +122,36 @@ async fn update(
     Json(body): Json<UpdateUser>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     require_admin(&admin)?;
+    // Password work happens BEFORE the db lock: argon2 and the breach check's
+    // network call must run neither inside it nor on the async worker. Failing
+    // validation here also rejects before any other field is half-applied.
+    let mut new_hash = None;
+    if let Some(password) = body.password.clone() {
+        new_hash = Some(
+            tokio::task::spawn_blocking(move || {
+                if let Err(e) = crate::password::validate_password(&password) {
+                    return Err(json_error(StatusCode::BAD_REQUEST, e.message()));
+                }
+                if let Err(e) = crate::hibp::ensure_password_not_breached(&password) {
+                    return Err(json_error(StatusCode::BAD_REQUEST, e.message()));
+                }
+                crate::auth::hash_password(&password).map_err(|_| {
+                    json_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "Luna couldn't save that. Try again.",
+                    )
+                })
+            })
+            .await
+            .map_err(|_| {
+                json_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Luna couldn't do that. Try again.",
+                )
+            })??,
+        );
+    }
+
     let conn = lock_db(&state)?;
     let target = crate::db::get_user(&conn, &id)
         .map_err(|_| map_err(AuthError::Db(anyhow::anyhow!("db"))))?
@@ -189,15 +219,7 @@ async fn update(
         }
     }
 
-    if let Some(password) = body.password.as_deref() {
-        if let Err(e) = crate::password::validate_password(password) {
-            return Err(json_error(StatusCode::BAD_REQUEST, e.message()));
-        }
-        if let Err(e) = crate::hibp::ensure_password_not_breached(password) {
-            return Err(json_error(StatusCode::BAD_REQUEST, e.message()));
-        }
-        let hash = crate::auth::hash_password(password)
-            .map_err(|_| map_err(AuthError::Db(anyhow::anyhow!("hash"))))?;
+    if let Some(hash) = new_hash {
         crate::db::set_user_password_hash(&conn, &id, &hash)
             .map_err(|_| map_err(AuthError::Db(anyhow::anyhow!("db"))))?;
         // A reset password means every stolen session and device token for

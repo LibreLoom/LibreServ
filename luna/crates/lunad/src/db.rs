@@ -1589,6 +1589,17 @@ pub fn share_auth_clear(conn: &Connection, key: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Lock the OS database and run `f` on the connection. `lock_err` builds the
+/// caller's error for a poisoned mutex so each module keeps its own mapping.
+pub fn with_db<T, E>(
+    db: &crate::Db,
+    lock_err: impl FnOnce() -> E,
+    f: impl FnOnce(&Connection) -> Result<T, E>,
+) -> Result<T, E> {
+    let conn = db.lock().map_err(|_| lock_err())?;
+    f(&conn)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

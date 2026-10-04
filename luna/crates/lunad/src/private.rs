@@ -1290,7 +1290,7 @@ mod tests {
         assert!(item_at(&root, "Parent/Private").is_some());
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn deleted_owner_denies_recipients_and_admin_over_rest_and_dav() {
         use tower::ServiceExt;
         let (dir, state) = fixture();
