@@ -132,7 +132,8 @@ function Toast({ toast, onDismiss, onPause, onResume }) {
           }}
           className={cn(
             "flex-shrink-0 self-center rounded-pill surface-primary px-3 py-1 text-xs font-mono",
-            "motion-safe:transition-transform active:motion-safe:scale-95",
+            "hover:bg-secondary hover:text-primary hover:ring-2 hover:ring-primary",
+            "motion-safe:transition-all active:motion-safe:scale-95",
             "focus-visible:ring-2 focus-visible:ring-accent no-focus-outline",
           )}
         >
