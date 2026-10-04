@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { InfoHint, TermHint, Tooltip, ActionTooltipGroup } from "./Tooltip";
 
@@ -178,5 +178,192 @@ describe("Tooltip + ActionTooltipGroup", () => {
     expect(onCopy).toHaveBeenCalledTimes(1);
     // Click hides then re-arms from active hover (pointer still inside).
     expect(await screen.findByRole("tooltip")).toHaveTextContent("Copy");
+  });
+});
+
+describe("Tooltip leak guards", () => {
+  it("closes when pointerleave is missed and the pointer moves elsewhere", async () => {
+    const user = userEvent.setup();
+    render(
+      <div>
+        <Tooltip delayMs={0} content="Copy">
+          <button type="button">Copy</button>
+        </Tooltip>
+        <p>elsewhere</p>
+      </div>,
+    );
+    await user.hover(screen.getByRole("button", { name: "Copy" }));
+    expect(await screen.findByRole("tooltip")).toBeInTheDocument();
+
+    // No pointerleave on the button, as when a modal covers it.
+    fireEvent.pointerMove(screen.getByText("elsewhere"));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 200));
+    });
+    expect(screen.queryByRole("tooltip")).toBeNull();
+  });
+
+  it("closes a hover hint when pointerleave is missed too", async () => {
+    const user = userEvent.setup();
+    render(
+      <div>
+        <InfoHint delayMs={0} label="About" content="Details" />
+        <p>elsewhere</p>
+      </div>,
+    );
+    await user.hover(screen.getByRole("button", { name: "About" }));
+    expect(await screen.findByRole("tooltip")).toBeInTheDocument();
+    fireEvent.pointerMove(screen.getByText("elsewhere"));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 200));
+    });
+    expect(screen.queryByRole("tooltip")).toBeNull();
+  });
+
+  it("keeps a clicked (pinned) hint open when the pointer moves away", async () => {
+    const user = userEvent.setup();
+    render(
+      <div>
+        <InfoHint delayMs={0} label="About" content="Details" />
+        <p>elsewhere</p>
+      </div>,
+    );
+    await user.click(screen.getByRole("button", { name: "About" }));
+    expect(await screen.findByRole("tooltip")).toBeInTheDocument();
+    fireEvent.pointerMove(screen.getByText("elsewhere"));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 200));
+    });
+    expect(screen.getByRole("tooltip")).toBeInTheDocument();
+  });
+
+  it("closes when the window loses focus", async () => {
+    const user = userEvent.setup();
+    render(
+      <Tooltip delayMs={0} content="Copy">
+        <button type="button">Copy</button>
+      </Tooltip>,
+    );
+    await user.hover(screen.getByRole("button", { name: "Copy" }));
+    expect(await screen.findByRole("tooltip")).toBeInTheDocument();
+    act(() => {
+      window.dispatchEvent(new Event("blur"));
+    });
+    expect(screen.queryByRole("tooltip")).toBeNull();
+  });
+
+  it("never has two popups open at once", async () => {
+    const user = userEvent.setup();
+    render(
+      <div>
+        <InfoHint delayMs={0} label="About" content="Details" />
+        <Tooltip delayMs={0} content="Copy">
+          <button type="button">Copy</button>
+        </Tooltip>
+      </div>,
+    );
+    await user.click(screen.getByRole("button", { name: "About" }));
+    expect(await screen.findAllByRole("tooltip")).toHaveLength(1);
+    await user.hover(screen.getByRole("button", { name: "Copy" }));
+    await screen.findByText("Copy", { selector: '[role="tooltip"]' });
+    expect(screen.getAllByRole("tooltip")).toHaveLength(1);
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Copy");
+  });
+
+  it("shows on keyboard focus again after Tab away and Shift+Tab back", async () => {
+    const user = userEvent.setup();
+    render(
+      <div>
+        <InfoHint delayMs={0} label="About" content="Details" />
+        <button type="button">next</button>
+      </div>,
+    );
+    await user.tab();
+    expect(await screen.findByRole("tooltip")).toBeInTheDocument();
+    await user.tab();
+    expect(screen.queryByRole("tooltip")).toBeNull();
+    await user.tab({ shift: true });
+    expect(await screen.findByRole("tooltip")).toBeInTheDocument();
+  });
+
+  it("does not open from mouse focus", async () => {
+    const user = userEvent.setup();
+    render(
+      <Tooltip delayMs={0} content="Copy">
+        <button type="button">Copy</button>
+      </Tooltip>,
+    );
+    const btn = screen.getByRole("button", { name: "Copy" });
+    await user.pointer({ keys: "[MouseLeft>]", target: btn });
+    act(() => btn.focus());
+    await user.pointer({ keys: "[/MouseLeft]" });
+    await user.unhover(btn);
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 200));
+    });
+    expect(screen.queryByRole("tooltip")).toBeNull();
+  });
+
+  it("ignores touch hover", async () => {
+    render(
+      <Tooltip delayMs={0} content="Copy">
+        <button type="button">Copy</button>
+      </Tooltip>,
+    );
+    fireEvent.pointerEnter(screen.getByRole("button", { name: "Copy" }), { pointerType: "touch" });
+    expect(screen.queryByRole("tooltip")).toBeNull();
+  });
+
+  it("releases the group when the open tooltip unmounts", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    function Row({ showCopy }) {
+      return (
+        <ActionTooltipGroup delayMs={400} leaveGraceMs={300}>
+          {showCopy && (
+            <Tooltip content="Copy">
+              <button type="button">Copy</button>
+            </Tooltip>
+          )}
+          <Tooltip content="Move">
+            <button type="button">Move</button>
+          </Tooltip>
+        </ActionTooltipGroup>
+      );
+    }
+    const { rerender } = render(<Row showCopy />);
+    await user.hover(screen.getByRole("button", { name: "Copy" }));
+    await act(async () => {
+      vi.advanceTimersByTime(400);
+    });
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Copy");
+
+    rerender(<Row showCopy={false} />);
+    await act(async () => {
+      vi.advanceTimersByTime(400); // past the grace window: group is cold again
+    });
+    expect(screen.queryByRole("tooltip")).toBeNull();
+
+    await user.hover(screen.getByRole("button", { name: "Move" }));
+    await act(async () => {
+      vi.advanceTimersByTime(100);
+    });
+    expect(screen.queryByRole("tooltip")).toBeNull(); // waits the full delay again
+    await act(async () => {
+      vi.advanceTimersByTime(400);
+    });
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Move");
+    vi.useRealTimers();
+  });
+
+  it("draws popups above modals and lightboxes", async () => {
+    const user = userEvent.setup();
+    render(
+      <Tooltip delayMs={0} content="Copy">
+        <button type="button">Copy</button>
+      </Tooltip>,
+    );
+    await user.hover(screen.getByRole("button", { name: "Copy" }));
+    expect((await screen.findByRole("tooltip")).className).toMatch(/z-\[3000\]/);
   });
 });

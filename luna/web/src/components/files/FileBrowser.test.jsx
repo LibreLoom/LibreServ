@@ -268,6 +268,8 @@ describe("FileBrowser", () => {
     });
     const copyBtn = await screen.findByRole("button", { name: "Copy note.txt" });
     // Focus opens immediately (keyboard path); hover uses the group delay.
+    // A keypress first: focus with no keyboard input is not a keyboard path.
+    await user.keyboard("{Shift}");
     copyBtn.focus();
     expect(await screen.findByRole("tooltip")).toHaveTextContent("Copy");
     await user.hover(screen.getByRole("button", { name: "Move note.txt" }));
