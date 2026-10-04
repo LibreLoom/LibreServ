@@ -14,6 +14,7 @@ import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
+import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import { InfoHint, TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { ROOT_TERM_HINT } from "../../lib/rootTerm.js";
 import { describeInspectSummary } from "../../lib/fileCounts.js";
@@ -119,9 +120,6 @@ export default function InspectModal({ open = true, drive, result, error, onClos
                             <FileIcon size={14} className="shrink-0" aria-hidden="true" />
                           )}
                           <span className="truncate">{entry.name}</span>
-                          <span className="text-xs shrink-0">
-                            {isFolder ? "folder" : "file"}
-                          </span>
                         </li>
                       );
                     })}
@@ -210,7 +208,7 @@ export default function InspectModal({ open = true, drive, result, error, onClos
                 <div className="mt-4 flex items-center gap-3">
                   <Info size={18} className="shrink-0" aria-hidden="true" />
                   <p className="text-primary text-xs">
-                    Adding it writes a <span className="font-mono">.luna</span> database
+                    Adding it writes a <InlinePill>.luna</InlinePill> database
                     file at the{" "}
                     <TermHint content={ROOT_TERM_HINT}>root</TermHint> of the drive.
                     Your files are untouched.
