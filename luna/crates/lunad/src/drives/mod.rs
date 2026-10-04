@@ -53,12 +53,28 @@ pub struct Inspection {
     pub writable: bool,
 }
 
+/// A passive look at a detected drive: what's on it, without writing to it.
+#[derive(Debug, Clone)]
+pub struct Peek {
+    pub fs_type: Option<String>,
+    /// False when Luna couldn't open the drive (blank, unformatted, damaged
+    /// or a format Linux can't read).
+    pub readable: bool,
+    pub has_marker: bool,
+    /// Installer media that would have to be erased before Luna could use it.
+    pub needs_erase: bool,
+    pub summary: luna_core::scan::TopLevelSummary,
+}
+
 #[derive(Clone)]
 pub struct DriveManager {
     mounter: Arc<dyn Mounter>,
     probe: Arc<dyn FsProbe>,
     foreign_base: PathBuf,
     adopted_base: PathBuf,
+    /// Serializes the temporary look-inside mounts (peek, inspect) so two
+    /// of them never fight over one foreign mount point.
+    look_lock: Arc<std::sync::Mutex<()>>,
 }
 
 impl DriveManager {
@@ -80,12 +96,14 @@ impl DriveManager {
             probe,
             foreign_base: data_dir.join("mounts/foreign"),
             adopted_base: data_dir.join("mounts/drives"),
+            look_lock: Arc::new(std::sync::Mutex::new(())),
         }
     }
 
     /// Look at a detected device. Mounts it read-only only when it is not
     /// already mounted anywhere, then briefly probes whether writing works.
     pub fn inspect(&self, device: &DetectedDrive) -> anyhow::Result<Inspection> {
+        let _look = self.look_lock.lock().unwrap_or_else(|e| e.into_inner());
         let choice = self.choice_for(device);
         let (mount_point, mounted_by_luna) = if let Some(existing) = &device.mount_point {
             (PathBuf::from(existing), false)
@@ -131,6 +149,45 @@ impl DriveManager {
             readable,
             writable,
         })
+    }
+
+    /// Look inside a detected drive without changing anything: no write
+    /// probe, no marker, and a mount Luna makes itself is read-only and
+    /// dropped again before returning.
+    pub fn peek(&self, device: &DetectedDrive) -> Peek {
+        let _look = self.look_lock.lock().unwrap_or_else(|e| e.into_inner());
+        let choice = self.choice_for(device);
+        let fs_type = if choice.fs_type.is_empty() {
+            device.fs_type.clone()
+        } else {
+            Some(choice.fs_type.clone())
+        };
+        let look = |root: &Path| {
+            (
+                scan_top_level(root),
+                luna_core::marker::read_marker(root).ok().flatten().is_some(),
+            )
+        };
+        let seen = match &device.mount_point {
+            Some(existing) => Some(look(Path::new(existing))),
+            None => self.with_temp_ro_mount(device, look),
+        };
+        match seen {
+            Some((summary, has_marker)) => Peek {
+                fs_type,
+                readable: true,
+                has_marker,
+                needs_erase: choice.needs_erase,
+                summary,
+            },
+            None => Peek {
+                fs_type,
+                readable: false,
+                has_marker: false,
+                needs_erase: choice.needs_erase,
+                summary: Default::default(),
+            },
+        }
     }
 
     /// Remount briefly as read-write when needed, run the create/delete probe,
@@ -983,6 +1040,26 @@ mod tests {
             remounts.iter().any(|r| !r.1) && remounts.iter().any(|r| r.1),
             "inspect briefly remounts RW to probe, then back to RO: {remounts:?}"
         );
+    }
+
+    #[test]
+    fn peek_lists_what_is_on_a_mounted_drive_and_writes_nothing() {
+        let root = tempfile::tempdir().unwrap();
+        let mgr = DriveManager::new(shared_mock(), root.path());
+        let stick = root.path().join("stick");
+        std::fs::create_dir_all(stick.join("Holiday")).unwrap();
+        std::fs::write(stick.join("notes.txt"), b"hi").unwrap();
+        std::fs::write(stick.join(".secret"), b"x").unwrap();
+        let before: Vec<_> = std::fs::read_dir(&stick).unwrap().flatten().map(|e| e.file_name()).collect();
+
+        let peek = mgr.peek(&detected("sdz", stick.to_str()));
+        assert!(peek.readable);
+        assert!(!peek.has_marker);
+        assert_eq!((peek.summary.folders, peek.summary.files), (1, 2));
+        assert!(peek.summary.entries.iter().all(|e| !e.name.starts_with('.')));
+
+        let after: Vec<_> = std::fs::read_dir(&stick).unwrap().flatten().map(|e| e.file_name()).collect();
+        assert_eq!(before.len(), after.len(), "peek must not add a probe file");
     }
 
     #[test]

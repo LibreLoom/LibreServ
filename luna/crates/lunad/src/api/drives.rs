@@ -46,6 +46,20 @@ struct InspectEntryJson {
     kind: String,
 }
 
+/// What's on a not-yet-added drive, for the card on the Files page.
+#[derive(Serialize)]
+struct PeekJson {
+    readable: bool,
+    fs_type: Option<String>,
+    /// The drive was set up by a Luna before.
+    has_marker: bool,
+    needs_erase: bool,
+    folders: u64,
+    files: u64,
+    /// A few non-hidden top-level names (folders first).
+    sample: Vec<InspectEntryJson>,
+}
+
 #[derive(Serialize)]
 struct InspectionJson {
     device: String,
@@ -92,6 +106,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/drives/detected", get(detected))
         .route("/api/v1/drives/{name}/inspect", post(inspect))
         .route("/api/v1/drives/{name}/adopt", post(adopt))
+        .route("/api/v1/drives/{name}/peek", get(peek))
         .route("/api/v1/drives/{name}/dismiss", post(dismiss))
         .route("/api/v1/drives/{id}/eject", post(eject))
         .route("/api/v1/drives/{id}/remove", post(remove))
@@ -198,6 +213,55 @@ async fn detected(
             })
             .collect(),
     ))
+}
+
+/// A passive look inside a detected drive: nothing is written, and a mount
+/// Luna makes for it is read-only and gone again before this returns.
+async fn peek(
+    State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
+    Path(name): Path<String>,
+) -> Result<Json<PeekJson>, (StatusCode, Json<serde_json::Value>)> {
+    require_admin(user)?;
+    let device = find_device(&name).ok_or_else(|| {
+        json_error(
+            StatusCode::NOT_FOUND,
+            "Luna can't see a drive with that name.",
+        )
+    })?;
+    let manager = state.drive_manager.clone();
+    let peek = tokio::task::spawn_blocking(move || manager.peek(&device))
+        .await
+        .map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't look inside this drive. Try again.",
+            )
+        })?;
+    let mut sample: Vec<InspectEntryJson> = peek
+        .summary
+        .entries
+        .into_iter()
+        .map(|e| InspectEntryJson {
+            name: e.name,
+            kind: e.kind,
+        })
+        .collect();
+    sample.sort_by(|a, b| {
+        (a.kind != "folder")
+            .cmp(&(b.kind != "folder"))
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+    sample.truncate(5);
+    Ok(Json(PeekJson {
+        readable: peek.readable,
+        fs_type: peek.fs_type,
+        has_marker: peek.has_marker,
+        needs_erase: peek.needs_erase,
+        folders: peek.summary.folders,
+        files: peek.summary.files,
+        sample,
+    }))
 }
 
 async fn inspect(

@@ -55,6 +55,12 @@ function stubDrivesApi(extra = {}) {
     if (u.endsWith("/drives/detected")) {
       return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
     }
+    if (u.endsWith("/peek")) {
+      return new Response(JSON.stringify({
+        readable: true, fs_type: "exfat", has_marker: false, needs_erase: false,
+        folders: 1, files: 1, sample: [{ name: "Photos", kind: "folder" }, { name: "a.txt", kind: "file" }],
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
     if (u.includes("/api/v1/connect/status")) {
       return new Response(JSON.stringify({
         backup_unlocked: Boolean(extra.backupUnlocked),
@@ -263,6 +269,38 @@ describe("DrivesPage", () => {
     expect(screen.getByRole("button", { name: /^Add drive$/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Ignore for now/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/found on/i)).not.toBeInTheDocument();
+  });
+
+  it("tells the admin what is on each unrecognized drive before they add it", async () => {
+    const peeks = {
+      sdb: { readable: true, fs_type: "exfat", has_marker: false, needs_erase: false,
+        folders: 2, files: 10, sample: [
+          { name: "Holiday", kind: "folder" }, { name: "Taxes", kind: "folder" }, { name: "notes.txt", kind: "file" },
+        ] },
+      sdc: { readable: true, fs_type: "exfat", has_marker: false, needs_erase: false,
+        folders: 0, files: 0, sample: [] },
+      sdd: { readable: false, fs_type: null, has_marker: false, needs_erase: false,
+        folders: 0, files: 0, sample: [] },
+    };
+    stubDrivesApi({
+      fetch: (u) => {
+        if (u.endsWith("/drives/detected")) {
+          return new Response(JSON.stringify(["sdb", "sdc", "sdd"].map((name, i) => ({
+            name, model: `Stick ${i + 1}`, size_bytes: 16000000000,
+            removable: true, usb: true, mount_point: null, fs_type: null,
+          }))), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        const m = u.match(/\/drives\/(sd[bcd])\/peek$/);
+        if (m) return new Response(JSON.stringify(peeks[m[1]]), { status: 200, headers: { "Content-Type": "application/json" } });
+        return null;
+      },
+    });
+    renderPage();
+    expect(await screen.findByText("2 folders, 10 files")).toBeInTheDocument();
+    expect(screen.getByText("Holiday, Taxes, notes.txt and 9 more")).toBeInTheDocument();
+    expect(await screen.findByText("Empty")).toBeInTheDocument();
+    expect(await screen.findByText("Can't read it")).toBeInTheDocument();
+    expect(screen.getByText(/may be blank or need formatting/i)).toBeInTheDocument();
   });
 
   it("marks an empty card reader and lets the admin dismiss and restore it", async () => {

@@ -8,6 +8,7 @@ import Card from "@libreloom/ui/components/cards/Card.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
+import Callout from "@libreloom/ui/components/common/Callout.jsx";
 import DriveStatusPill from "../components/common/DriveStatusPill.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
@@ -269,12 +270,84 @@ function AdoptedDriveDetails({ drive }) {
   );
 }
 
+/**
+ * What the peek found, as card rows a person can act on.
+ * `note` only appears when there's something to do about it.
+ * @param {{ readable: boolean, needs_erase?: boolean, has_marker?: boolean, folders: number, files: number, sample?: { name: string }[] }} peek
+ * @returns {{ value: string, includes: string, history: string, note: string }}
+ */
+export function describePeek(peek) {
+  if (!peek.readable) {
+    return {
+      value: "Can't read it",
+      includes: "",
+      history: "",
+      note: "It may be blank or need formatting before Luna can use it.",
+    };
+  }
+  if (peek.needs_erase) {
+    return {
+      value: "Installer disk",
+      includes: "",
+      history: "",
+      note: "Using it with Luna erases what's on it.",
+    };
+  }
+  const history = peek.has_marker ? "Used with Luna before" : "";
+  const total = peek.folders + peek.files;
+  if (total === 0) return { value: "Empty", includes: "", history, note: "" };
+  const names = (peek.sample || []).map((e) => e.name);
+  const more = total - names.length;
+  return {
+    value: `${pluralCount(peek.folders, "folder", "folders")}, ${pluralCount(peek.files, "file", "files")}`,
+    includes: names.length > 0 ? `${names.join(", ")}${more > 0 ? ` and ${more} more` : ""}` : "",
+    history,
+    note: "",
+  };
+}
+
+/** Card rows for what's on a drive that hasn't been added yet. */
+function DetectedContents({ peek }) {
+  if (peek.isPending) {
+    return <ValueDisplay label="On the drive" value="Looking inside…" mono={false} />;
+  }
+  if (peek.isError || !peek.data) {
+    return (
+      <>
+        <ValueDisplay label="On the drive" value="Couldn't look inside" mono={false} />
+        <Callout tone="warning">Luna couldn&apos;t open this drive to see what&apos;s on it.</Callout>
+      </>
+    );
+  }
+  const info = describePeek(peek.data);
+  return (
+    <>
+      <ValueDisplay label="On the drive" value={info.value} mono={false} />
+      {info.includes ? <ValueDisplay label="Includes" value={info.includes} mono={false} /> : null}
+      {info.history ? <ValueDisplay label="History" value={info.history} mono={false} /> : null}
+      {info.note ? <Callout tone="warning">{info.note}</Callout> : null}
+    </>
+  );
+}
+
 function DetectedCard({ drive, onOpen, dismissed = false, leaving = false, onToggleDismiss }) {
   // A card reader with nothing in it reports a size of 0.
   const empty = !drive.size_bytes;
   const title = drive.model || "New drive";
   const fs = prettyFsType(drive.fs_type);
   const kind = drive.usb ? "USB drive" : drive.removable ? "Removable drive" : "Built-in drive";
+  // A read-only look inside (lunad mounts it read-only and lets go again).
+  const peek = useQuery({
+    queryKey: ["drive-peek", detectedDriveKey(drive)],
+    queryFn: () =>
+      isMockUnknownDrive(drive.name)
+        ? Promise.resolve({ ...mockInspectResult(), sample: mockInspectResult().entries })
+        : getJson(`/api/v1/drives/${encodeURIComponent(drive.name)}/peek`),
+    enabled: !empty,
+    staleTime: Infinity,
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
   return (
     // The row collapses to zero height as the card fades, so the cards after
     // it slide up instead of snapping into the gap.
@@ -303,25 +376,25 @@ function DetectedCard({ drive, onOpen, dismissed = false, leaving = false, onTog
             )
           }
         >
-          <div className="flex flex-col gap-2" role="list" aria-label="Drive details">
+          <div className="flex flex-col gap-2">
             <ValueDisplay label="Size" value={empty ? "Nothing inserted" : formatBytes(drive.size_bytes)} />
-            <ValueDisplay label="Kind" value={kind} />
-            {fs ? (
-              <ValueDisplay
-                label={(
-                  <TermHint content="How files are arranged on this drive. Most USB sticks use exFAT so phones, Macs, and PCs can all open them.">
-                    File system
-                  </TermHint>
-                )}
-                value={fs}
-              />
-            ) : null}
+            {empty ? null : <DetectedContents peek={peek} />}
             {drive.read_only ? (
-              <ValueDisplay
-                label="Access"
-                value={<Pill variant="warning">Read-only: Luna can&apos;t save files to it</Pill>}
-              />
+              <Callout tone="warning">Read-only: Luna can&apos;t save files to this drive.</Callout>
             ) : null}
+            <CollapsibleSection title="Drive details" size="sm" mono pill>
+              <div className="flex flex-col gap-2" role="list" aria-label="Drive detail values">
+                <ValueDisplay label="Kind" value={kind} />
+                <ValueDisplay
+                  label={(
+                    <TermHint content="How files are arranged on this drive. Most USB sticks use exFAT so phones, Macs, and PCs can all open them.">
+                      File system
+                    </TermHint>
+                  )}
+                  value={fs || "Unknown"}
+                />
+              </div>
+            </CollapsibleSection>
           </div>
           <div className="mt-3">
             <Button size="sm" variant="outline" disabled={empty} onClick={() => onOpen(drive)}>
