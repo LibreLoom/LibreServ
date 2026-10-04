@@ -5,6 +5,8 @@ import { cn } from "../../lib/utils.js";
 import { ICON_SIZE } from "../../lib/ui-tokens.js";
 import { haptic } from "../../utils/haptics.js";
 import { useShortcut, useShortcutsSheet } from "../../context/ShortcutsContext.jsx";
+import { DesktopNavGroup, MobileNavGroup } from "./NavGroup.jsx";
+import { useGroupTarget } from "../../hooks/useNavGroup.js";
 
 const TRANSITION = {
   duration: "duration-200",
@@ -87,13 +89,23 @@ function NavShortcut({ item, position, enabled }) {
   return null;
 }
 
+/** Same shortcut for a group: it opens the sub-page used last. */
+function NavGroupShortcut({ item, position, enabled }) {
+  const to = useGroupTarget(item);
+  return <NavShortcut item={{ ...item, to }} position={position} enabled={enabled} />;
+}
+
+/** Stable key for an item or a group (groups have no `to`). */
+const navKey = (item) => item.to ?? `group:${item.key}`;
+
 /**
  * The bottom navigation shared by every LibreLoom product: a pill on desktop,
  * a draggable menu button plus dialog on small screens.
  *
  * @param {object} props
  * @param {string} props.brand Name shown at the left of the desktop pill.
- * @param {{ to: string, icon: React.ElementType, label: string, end?: boolean, adminOnly?: boolean }[]} props.items
+ * @param {Array<{ to?: string, key?: string, icon: React.ElementType, label: string, end?: boolean, adminOnly?: boolean, children?: import("../../hooks/useNavGroup.js").NavGroupChild[] }>} props.items
+ *   An item with `children` is a group (see NavGroup.jsx): one pill that unfolds its sub-pages on hover.
  *   Navigation entries in order. `Alt+Shift+<position>` jumps to each visible one.
  * @param {{ username?: string, display_name?: string, role?: string } | null | undefined} props.user The signed-in person.
  * @param {() => unknown} props.onLogout Called from "Sign out".
@@ -472,7 +484,14 @@ export default function Navbar({ brand, items, user, onLogout, menuItems = [], s
   const navButtonsElements = useMemo(
     () =>
       visibleNav.map((item, index) => (
-        <React.Fragment key={`desktopNav-${item.to}`}>
+        <React.Fragment key={`desktopNav-${navKey(item)}`}>
+          {item.children ? (
+            <DesktopNavGroup
+              group={/** @type {import("../../hooks/useNavGroup.js").NavGroupItem} */ (item)}
+              closedClassName={navButtonClasses}
+              keyShortcut={`Alt+Shift+${index + 1}`}
+            />
+          ) : (
           <NavLink
             to={item.to}
             end={item.end}
@@ -483,6 +502,7 @@ export default function Navbar({ brand, items, user, onLogout, menuItems = [], s
             <item.icon size={ICON_SIZE.lg} aria-hidden="true" />
             <span>{item.label}</span>
           </NavLink>
+          )}
         </React.Fragment>
       )),
     [visibleNav],
@@ -491,7 +511,11 @@ export default function Navbar({ brand, items, user, onLogout, menuItems = [], s
   return (
     <div data-slot="navbar">
       {visibleNav.slice(0, 9).map((item, index) => (
-        <NavShortcut key={item.to} item={item} position={index + 1} enabled={!editorOpen} />
+        item.children ? (
+          <NavGroupShortcut key={navKey(item)} item={item} position={index + 1} enabled={!editorOpen} />
+        ) : (
+          <NavShortcut key={navKey(item)} item={item} position={index + 1} enabled={!editorOpen} />
+        )
       ))}
       <div className="hidden xl:flex">
         <nav
@@ -660,7 +684,14 @@ export default function Navbar({ brand, items, user, onLogout, menuItems = [], s
         >
           <div className="p-2.5 gap-1 flex flex-col">
             {visibleNav.map((item, index) => (
-              <React.Fragment key={`mobileNav-${item.to}`}>
+              <React.Fragment key={`mobileNav-${navKey(item)}`}>
+                {item.children ? (
+                  <MobileNavGroup
+                    group={/** @type {import("../../hooks/useNavGroup.js").NavGroupItem} */ (item)}
+                    itemClassName={mobileMenuItemClasses}
+                    onNavigate={closeMobileMenu}
+                  />
+                ) : (
                 <NavLink
                   to={item.to}
                   end={item.end}
@@ -675,6 +706,7 @@ export default function Navbar({ brand, items, user, onLogout, menuItems = [], s
                   <item.icon size={ICON_SIZE.lg} aria-hidden="true" />
                   <span>{item.label}</span>
                 </NavLink>
+                )}
               </React.Fragment>
             ))}
             <div className="mx-4 my-1 h-px bg-accent" aria-hidden="true" />
