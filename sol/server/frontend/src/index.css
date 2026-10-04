@@ -158,6 +158,12 @@ select:focus:not(:focus-visible) {
     box-shadow: none;
 }
 
+/* Every placeholder is italic so it never reads as text the user typed. */
+input::placeholder,
+textarea::placeholder {
+    font-style: italic;
+}
+
 .skip-link {
     position: absolute;
     top: 0.75rem;
