@@ -1,5 +1,6 @@
 import PropTypes from "prop-types";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
+import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import { useFileSource } from "../../../lib/fileSource.jsx";
 import { pathBasename } from "../../../lib/paths.js";
 import EuroOfficeHost from "./EuroOfficeHost.jsx";
@@ -53,11 +54,11 @@ export default function OfficeEditor({
           Download it to keep working in another office app.
         </p>
         <PageNotice variant="info" surface="secondary" className="mt-3">
-          Technical details: Luna's <span className="font-mono">EuroOffice</span>{" "}
+          Technical details: Luna's <InlinePill>EuroOffice</InlinePill>{" "}
           pack is missing or incomplete. It normally arrives with Luna setup and
           lives in the{" "}
-          <span className="font-mono">eurooffice</span> folder inside Luna's data
-          directory (<span className="font-mono">/var/lib/luna/eurooffice</span>{" "}
+          <InlinePill>eurooffice</InlinePill> folder inside Luna's data
+          directory (<InlinePill>/var/lib/luna/eurooffice</InlinePill>{" "}
           on installed devices). Add the pack and restart Luna.
         </PageNotice>
       </OfficeIssueCard>

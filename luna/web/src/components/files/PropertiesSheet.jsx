@@ -34,6 +34,7 @@ import Button from "@libreloom/ui/components/ui/Button.jsx";
 import IconCircle from "@libreloom/ui/components/ui/IconCircle.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
+import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import { TermHint, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import PrivateBadge from "../private/PrivateBadge.jsx";
 import { apiErrorMessage } from "../../lib/api.js";
@@ -171,10 +172,8 @@ function DetailRow({ icon: Icon, label, value, mono = false }) {
       <span className="shrink-0 text-xs font-mono text-secondary">
         {label}
       </span>
-      <span
-        className={`ml-auto min-w-0 break-all text-right text-sm text-secondary ${mono ? "font-mono" : ""}`}
-      >
-        {value}
+      <span className="ml-auto min-w-0 break-all text-right text-sm text-secondary">
+        {mono ? <InlinePill>{value}</InlinePill> : value}
       </span>
     </div>
   );

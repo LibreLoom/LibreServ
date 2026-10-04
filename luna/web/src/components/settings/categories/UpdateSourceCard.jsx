@@ -7,6 +7,7 @@ import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
+import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
 import ConnectSetupCodeForm from "../ConnectSetupCodeForm.jsx";
 import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
@@ -93,9 +94,9 @@ export default function UpdateSourceCard({ index = 3 }) {
             <Pill variant={customized ? "warning" : "success"}>
               {customized ? "Custom source" : "Default source"}
             </Pill>
-            <span className="text-primary text-sm font-mono break-all">
+            <InlinePill className="break-all">
               {s.owner ? `${s.owner}/${s.repo}` : "…"}
-            </span>
+            </InlinePill>
           </div>
           <Button
             type="button"

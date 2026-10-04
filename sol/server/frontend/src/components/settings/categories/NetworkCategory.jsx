@@ -9,6 +9,7 @@ import RoutesCard from "../../network/RoutesCard";
 import DebugCard from "../../network/DebugCard";
 import RouteModal from "../RouteModal";
 import ValueDisplay from "@libreloom/ui/components/common/ValueDisplay.jsx";
+import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import CollapsibleSection from "@libreloom/ui/components/common/CollapsibleSection.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import { useAuth } from "../../../hooks/useAuth";
@@ -195,14 +196,14 @@ function ReachabilityCard({ report, loading, onRetry, connectivity }) {
               Your {routerName ? `${routerName} ` : ""}router already has the setting that opens your apps to the internet automatically — it's just turned off. Turning it on is the easiest fix.
             </p>
             <ol className="list-decimal list-inside space-y-2 text-xs text-primary leading-relaxed">
-              <li>Open your router settings (usually <span className="font-mono text-primary">http://192.168.1.1</span> or <span className="font-mono text-primary">http://10.0.0.1</span>)</li>
+              <li>Open your router settings (usually <InlinePill>http://192.168.1.1</InlinePill> or <InlinePill>http://10.0.0.1</InlinePill>)</li>
               <li>Find the setting called <strong>UPnP</strong> (often under Advanced or Network settings)</li>
               <li>Turn it on</li>
               <li>Save and apply</li>
             </ol>
             <div className="border-t border-primary/10 pt-2">
               <p className="text-xs text-primary">
-                Prefer not to use UPnP? Set up port forwarding manually instead: forward <span className="font-mono text-primary">TCP ports 80 and 443</span> to <span className="font-mono text-primary">{localIP || "this device"}</span>.
+                Prefer not to use UPnP? Set up port forwarding manually instead: forward <InlinePill>TCP ports 80 and 443</InlinePill> to <InlinePill>{localIP || "this device"}</InlinePill>.
               </p>
             </div>
           </div>
@@ -217,15 +218,15 @@ function ReachabilityCard({ report, loading, onRetry, connectivity }) {
               traffic to this device (that's ports 80 and 443). This is a one-time setup.
             </p>
             <ol className="list-decimal list-inside space-y-2 text-xs text-primary leading-relaxed">
-              <li>Open your router settings (usually <span className="font-mono text-primary">http://192.168.1.1</span> or <span className="font-mono text-primary">http://10.0.0.1</span>)</li>
+              <li>Open your router settings (usually <InlinePill>http://192.168.1.1</InlinePill> or <InlinePill>http://10.0.0.1</InlinePill>)</li>
               <li>Find the section called <strong>Port Forwarding</strong> (sometimes listed as <strong>NAT</strong> or <strong>Port Mapping</strong>)</li>
-              <li>Add a rule: forward <span className="font-mono text-primary">TCP port 80</span> to <span className="font-mono text-primary">{localIP || "this device"}</span></li>
-              <li>Add a rule: forward <span className="font-mono text-primary">TCP port 443</span> to <span className="font-mono text-primary">{localIP || "this device"}</span></li>
+              <li>Add a rule: forward <InlinePill>TCP port 80</InlinePill> to <InlinePill>{localIP || "this device"}</InlinePill></li>
+              <li>Add a rule: forward <InlinePill>TCP port 443</InlinePill> to <InlinePill>{localIP || "this device"}</InlinePill></li>
               <li>Save and apply</li>
             </ol>
             <div className="border-t border-primary/10 pt-2">
               <p className="text-xs text-primary">
-                <strong className="font-mono font-normal text-primary">Your device IP:</strong> {localIP || "Detecting..."}
+                <strong>Your device IP:</strong> <InlinePill>{localIP || "Detecting..."}</InlinePill>
               </p>
             </div>
             <div className="border-t border-primary/10 pt-3 space-y-2">

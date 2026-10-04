@@ -337,7 +337,7 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
             surface="primary"
             size="lg"
             onClick={() => window.location.reload()}
-            className="font-mono"
+            className="font-mono" // surface-scan: ignore-line -- whole button label is mono on purpose
           >
             Try again
           </Button>

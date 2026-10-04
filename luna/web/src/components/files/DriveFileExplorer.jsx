@@ -22,6 +22,7 @@ import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import { ActionTooltipGroup, InfoHint, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import ModalErrorNotice from "@libreloom/ui/components/common/ModalErrorNotice.jsx";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
+import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import {
@@ -1155,7 +1156,7 @@ export default function DriveFileExplorer({
         {({ close }) => (
           <>
             <p className="text-primary text-sm">
-              <span className="font-mono">{deleteLabel}</span> will move to
+              <InlinePill>{deleteLabel}</InlinePill> will move to
               Luna&apos;s trash on this drive. You can get it back later from Trash.
             </p>
             <ModalErrorNotice error={actionError} />
@@ -1237,7 +1238,7 @@ export default function DriveFileExplorer({
         {({ close }) => (
           <>
             <p className="text-primary text-sm">
-              <span className="font-mono">{purgeTarget?.label}</span> will be
+              <InlinePill>{purgeTarget?.label}</InlinePill> will be
               deleted permanently. Luna cannot get it back after this.
             </p>
             <ModalErrorNotice error={actionError} />

@@ -172,7 +172,7 @@ export default function CriticalIssues() {
                   className="text-error"
                   aria-hidden="true"
                 />
-                <span className="font-mono text-sm font-medium text-error">
+                <span className="font-mono text-sm text-error">
                   {count} issue{count !== 1 ? "s" : ""} found
                 </span>
               </div>

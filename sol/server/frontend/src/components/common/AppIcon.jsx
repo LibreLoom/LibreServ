@@ -82,10 +82,8 @@ export default function AppIcon({ appId, size = 48, className = "" }) {
         className={cn("rounded-large-element bg-secondary/10 flex items-center justify-center", className)}
         style={{ width: size, height: size }}
       >
-        <span
-          className="font-mono"
-          style={{ fontSize: size * 0.4 }}
-        >
+        {/* surface-scan: ignore-next-line -- fallback glyph, mono is the icon face */}
+        <span className="font-mono" style={{ fontSize: size * 0.4 }}>
           {appId.charAt(0).toUpperCase()}
         </span>
       </div>

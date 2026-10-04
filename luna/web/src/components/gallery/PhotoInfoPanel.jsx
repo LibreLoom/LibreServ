@@ -18,6 +18,7 @@ import { MapContainer, TileLayer, CircleMarker } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
+import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import { fmtSize, folderHref } from "../../lib/paths.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
@@ -229,14 +230,14 @@ function PhotoInfoBody({ photo, photos, onSelectPhoto }) {
           {photo.size != null && (
             <>
               <dt className="text-secondary">Size</dt>
-              <dd className="font-mono">{fmtSize(photo.size)}</dd>
+              <dd><InlinePill>{fmtSize(photo.size)}</InlinePill></dd>
             </>
           )}
           {(photo.width > 0 || photo.height > 0) && (
             <>
               <dt className="text-secondary">Dimensions</dt>
-              <dd className="font-mono">
-                {photo.width} × {photo.height}
+              <dd>
+                <InlinePill>{photo.width} × {photo.height}</InlinePill>
               </dd>
             </>
           )}
@@ -246,7 +247,7 @@ function PhotoInfoBody({ photo, photos, onSelectPhoto }) {
                 <Clock size={12} aria-hidden="true" />
                 Length
               </dt>
-              <dd className="font-mono">{duration}</dd>
+              <dd><InlinePill>{duration}</InlinePill></dd>
             </>
           )}
           {photo.drive_id && (
@@ -258,10 +259,10 @@ function PhotoInfoBody({ photo, photos, onSelectPhoto }) {
               <dd className="min-w-0">
                 <Link
                   to={folderHref(photo.drive_id, folder)}
-                  className="block truncate font-mono underline decoration-dotted underline-offset-4 hover:decoration-solid"
+                  className="block truncate"
                   onClick={() => haptic("selection")}
                 >
-                  {folder || "/"}
+                  <InlinePill className="truncate">{folder || "/"}</InlinePill>
                 </Link>
               </dd>
             </>

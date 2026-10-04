@@ -3,6 +3,7 @@ import { Check, AlertTriangle, Loader2 } from "lucide-react";
 import PropTypes from "prop-types";
 import { useAuth } from "../../../hooks/useAuth.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
+import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 
 function SubdomainStep({ app, domain, onSubdomainChange, onContinue, onBack, loading }) {
   const { request } = useAuth();
@@ -128,7 +129,7 @@ function SubdomainStep({ app, domain, onSubdomainChange, onContinue, onBack, loa
         ) : (
           <p className="text-sm">
             Select a subdomain for your app. It will be accessible at{" "}
-            <span className="font-mono">{subdomain}.{domain}</span>
+            <InlinePill>{subdomain}.{domain}</InlinePill>
           </p>
         )}
       </div>
@@ -137,6 +138,7 @@ function SubdomainStep({ app, domain, onSubdomainChange, onContinue, onBack, loa
         <div className="flex items-start gap-2 p-3 rounded-large-element bg-warning/10 border border-warning/30">
           <AlertTriangle className="w-4 h-4 text-warning mt-0.5 flex-shrink-0" />
           <div className="text-xs text-warning/80 space-y-1">
+            {/* surface-scan: ignore-next-line -- callout heading, mono is the heading face */}
             <p className="font-mono">No domain configured</p>
             <p>
               Without a domain, this app will only be accessible from this device.

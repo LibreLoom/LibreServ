@@ -349,6 +349,7 @@ function EditorSession({
         )}
       </div>
       <div className="flex h-9 shrink-0 items-center justify-between gap-3 border-t border-secondary/15 px-4 text-xs">
+        {/* surface-scan: ignore-next-line -- status bar readout, mono is its face */}
         <span className="font-mono">
           Ln {stats.line}, Col {stats.col} · {stats.words}{" "}
           {stats.words === 1 ? "word" : "words"}

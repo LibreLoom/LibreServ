@@ -3,6 +3,7 @@ import { CheckCircle2, Globe, XCircle } from "lucide-react";
 import PropTypes from "prop-types";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
+import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import Toggle from "@libreloom/ui/components/common/Toggle.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
@@ -436,8 +437,8 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
               </div>
               <p className="text-xs mt-2 leading-relaxed">
                 The address on this device that should answer for this subdomain.
-                Use <span className="font-mono">localhost:8080</span> for a service
-                on this device, or an IP like <span className="font-mono">192.168.1.50:3000</span>.
+                Use <InlinePill>localhost:8080</InlinePill> for a service
+                on this device, or an IP like <InlinePill>192.168.1.50:3000</InlinePill>.
               </p>
               {errors.destination && (
                 <p className="text-error text-xs mt-1">{errors.destination}</p>
@@ -447,12 +448,12 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
                   {backendTestResult.reachable ? (
                     <>
                       <CheckCircle2 size={ICON_SIZE.xs} />
-                      <span className="font-mono">Reachable</span>
+                      <InlinePill>Reachable</InlinePill>
                     </>
                   ) : (
                     <>
                       <XCircle size={ICON_SIZE.xs} />
-                      <span className="font-mono">{backendTestResult.error || "Unreachable"}</span>
+                      <InlinePill>{backendTestResult.error || "Unreachable"}</InlinePill>
                     </>
                   )}
                 </div>
@@ -497,7 +498,7 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
 
           {mode === "edit" && selectedApp && (
             <p className="text-xs">
-              This route belongs to <span className="font-mono text-primary">{selectedApp.name}</span>.
+              This route belongs to <InlinePill>{selectedApp.name}</InlinePill>.
             </p>
           )}
         </div>

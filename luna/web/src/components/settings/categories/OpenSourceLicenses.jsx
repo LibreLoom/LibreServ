@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ExternalLink, ScrollText } from "lucide-react";
 import CollapsibleSection from "@libreloom/ui/components/common/CollapsibleSection.jsx";
+import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import { OPEN_SOURCE_LICENSES } from "../../../lib/openSourceLicenses.js";
@@ -78,7 +79,7 @@ function LicenseModal({ entry, onClose }) {
             ) : text.isError ? (
               <p className="text-sm text-error">
                 Couldn't load the license text. It's bundled with Luna at{" "}
-                <span className="font-mono">{entry.licenseFile}</span>.
+                <InlinePill>{entry.licenseFile}</InlinePill>.
               </p>
             ) : (
               <pre className="max-h-[45vh] overflow-y-auto rounded-large-element border border-primary/20 bg-primary/5 p-4 font-mono text-xs leading-relaxed text-primary whitespace-pre-wrap">

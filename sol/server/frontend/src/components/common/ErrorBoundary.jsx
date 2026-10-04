@@ -73,7 +73,8 @@ class ErrorBoundary extends Component {
                <div className="surface-secondary rounded-large-element p-5 mb-6 ring-2 ring-accent/30">
                  <div className="flex items-center gap-2 mb-4">
                    <Bug className="w-5 h-5" />
-                   <span className="font-mono font-medium text-primary">
+                   {/* surface-scan: ignore-next-line -- dev-error section heading */}
+                   <span className="font-mono text-primary">
                      Error Details (Development)
                    </span>
                  </div>

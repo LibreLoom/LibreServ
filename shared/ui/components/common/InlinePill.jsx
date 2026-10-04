@@ -19,7 +19,6 @@ import { cn } from "../../lib/utils";
  */
 export default function InlinePill({ children, className = "" }) {
   return (
-    // surface-scan: ignore-line -- InlinePill owns the mono emphasis itself
     <span
       data-slot="inline-pill"
       className={cn(

@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Search, X } from "lucide-react";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
+import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import ModalErrorNotice from "@libreloom/ui/components/common/ModalErrorNotice.jsx";
 import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
@@ -685,7 +686,7 @@ export default function FileSearch() {
           <>
             <ShakeTarget shake={actionError}>
               <p className="text-primary text-sm">
-                <span className="font-mono">{deleteTarget?.name}</span> will move to
+                <InlinePill>{deleteTarget?.name}</InlinePill> will move to
                 Luna&apos;s trash on its drive. You can get it back later from Trash.
               </p>
             </ShakeTarget>

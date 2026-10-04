@@ -70,6 +70,7 @@ function Card({
           <div className={cn("flex items-center justify-between px-4 py-3 border-b", headerBorder)}>
             <div className="flex items-center gap-2">
               {Icon && <Icon size={ICON_SIZE.lg} />}
+              {/* surface-scan: ignore-next-line -- card title, mono is the heading face */}
               {title && <h2 className="font-mono font-normal">{title}</h2>}
             </div>
             {headerActions && <div className="flex items-center gap-2">{headerActions}</div>}
@@ -118,6 +119,7 @@ function Card({
           <div className={cn("flex items-center justify-between px-4 py-3 border-b", headerBorder)}>
             <div className="flex items-center gap-2">
               {Icon && <Icon size={ICON_SIZE.lg} />}
+              {/* surface-scan: ignore-next-line -- card title, mono is the heading face */}
               {title && <h2 className="font-mono font-normal">{title}</h2>}
             </div>
             {headerActions && <div className="flex items-center gap-2">{headerActions}</div>}

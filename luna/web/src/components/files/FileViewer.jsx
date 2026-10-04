@@ -6,6 +6,7 @@ import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
+import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import ImagePreviewPanel from "./ImagePreviewPanel.jsx";
@@ -494,7 +495,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
             {conversion && !guest && (
               <p className="mt-3 text-sm text-primary">
                 You can open this file in the editing view by converting it to a{" "}
-                <span className="font-mono">.{conversion.targetExt}</span> file.
+                <InlinePill>.{conversion.targetExt}</InlinePill> file.
                 {conversion.convert && canWrite
                   ? ""
                   : " Convert it on another device, then upload the copy here."}

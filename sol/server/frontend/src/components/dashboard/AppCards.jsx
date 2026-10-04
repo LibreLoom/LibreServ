@@ -6,6 +6,7 @@ import Button from "@libreloom/ui/components/ui/Button.jsx";
 import CardButton from "@libreloom/ui/components/ui/CardButton.jsx";
 import AppIcon from "../common/AppIcon";
 import StatusPill from "../common/StatusPill";
+import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import { useApps } from "../../hooks/useApps";
 import { useIsNarrow } from "../../hooks/useIsNarrow";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
@@ -73,28 +74,28 @@ function AppCardInner({ app }) {
         <div className="flex items-center gap-2">
           <Cpu size={ICON_SIZE.sm} aria-hidden="true" />
           <span>CPU:</span>
-          <span className="font-mono">
+          <InlinePill>
             {app.cpu_percent != null ? `${app.cpu_percent.toFixed(1)}%` : "-"}
-          </span>
+          </InlinePill>
         </div>
         <div className="flex items-center gap-2">
           <MemoryStick size={ICON_SIZE.sm} aria-hidden="true" />
           <span>RAM:</span>
-          <span className="font-mono">
+          <InlinePill>
             {app.memory_usage != null ? formatBytes(app.memory_usage) : "-"}
-          </span>
+          </InlinePill>
         </div>
         <div className="flex items-center gap-2">
           <Clock size={ICON_SIZE.sm} aria-hidden="true" />
           <span>{uptimeLabel}:</span>
-          <span className="font-mono">{formatDuration(uptime)}</span>
+          <InlinePill>{formatDuration(uptime)}</InlinePill>
         </div>
         <div className="flex items-center gap-2">
           <TrendingUp size={ICON_SIZE.sm} aria-hidden="true" />
           <span>Avail:</span>
-          <span className="font-mono">
+          <InlinePill>
             {app.availability_pct != null ? `${app.availability_pct.toFixed(0)}%` : "-"}
-          </span>
+          </InlinePill>
         </div>
       </div>
 
@@ -136,6 +137,7 @@ function NoAppsCard() {
           it'll be live in a couple of minutes.
         </p>
 
+        {/* surface-scan: ignore-next-line -- whole button label is mono on purpose */}
         <Button asChild variant="primary" size="md" className="font-mono">
           <Link to="/apps">
             Install an Application <ArrowRight size={ICON_SIZE.md} className="ml-1" />
@@ -158,6 +160,7 @@ export default function AppCards({ refreshInterval = 30000 }) {
             <Package size={ICON_SIZE.xxl} className="text-primary/30" />
           </div>
           <div className="text-left">
+            {/* surface-scan: ignore-next-line -- status line, mono is its face */}
             <div className="font-mono font-normal">Loading apps...</div>
           </div>
         </div>
@@ -177,6 +180,7 @@ export default function AppCards({ refreshInterval = 30000 }) {
             <Package size={ICON_SIZE.xxl} className="text-error" />
           </div>
           <div className="text-left">
+            {/* surface-scan: ignore-next-line -- status line, mono is its face */}
             <div className="font-mono font-normal text-error">Failed to load apps</div>
             <div className="font-mono font-normal text-sm">{error.message}</div>
           </div>

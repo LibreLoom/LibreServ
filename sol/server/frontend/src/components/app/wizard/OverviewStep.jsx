@@ -5,6 +5,7 @@ import Card from "@libreloom/ui/components/cards/Card.jsx";
 import AppIcon from "../../common/AppIcon";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
+import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 
 
 const ACCESS_MODEL_INFO = {
@@ -46,7 +47,7 @@ function RequirementBadge({ icon: Icon, label, value, warning }) {
     >
       <Icon size={ICON_SIZE.md} aria-hidden="true" />
       <span className="text-xs font-mono">{label}:</span>
-      <span className="text-xs font-mono font-medium">{value}</span>
+      <InlinePill>{value}</InlinePill>
     </div>
   );
 }

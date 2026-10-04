@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import DocumentLoadingScreen from "../DocumentLoadingScreen.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
+import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import { useTheme } from "@libreloom/ui/hooks/useTheme.jsx";
 import { apiErrorMessage } from "../../../lib/api.js";
 import { pathBasename } from "../../../lib/paths.js";
@@ -572,10 +573,10 @@ function EditorSession({
           Download it to keep working in another app.
         </p>
         <PageNotice variant="info" surface="secondary" className="mt-3">
-          Technical details: Luna's <span className="font-mono">draw.io</span>{" "}
+          Technical details: Luna's <InlinePill>draw.io</InlinePill>{" "}
           pack is missing or incomplete. It lives in the{" "}
-          <span className="font-mono">drawio</span> folder inside Luna's data
-          directory (<span className="font-mono">/var/lib/luna/drawio</span>{" "}
+          <InlinePill>drawio</InlinePill> folder inside Luna's data
+          directory (<InlinePill>/var/lib/luna/drawio</InlinePill>{" "}
           on installed devices). Add the pack and restart Luna.
         </PageNotice>
       </OfficeIssueCard>

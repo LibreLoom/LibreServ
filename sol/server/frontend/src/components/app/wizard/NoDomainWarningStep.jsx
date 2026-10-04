@@ -3,6 +3,7 @@ import { AlertTriangle, Globe, ArrowRight, Check } from "lucide-react";
 import PropTypes from "prop-types";
 import { useNavigate } from "react-router-dom";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
+import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 function NoDomainWarningStep({ app, onBack, onContinue }) {
@@ -20,7 +21,7 @@ function NoDomainWarningStep({ app, onBack, onContinue }) {
         </div>
         <h2 className="font-mono text-2xl font-normal text-secondary">No remote access</h2>
         <p className="text-sm max-w-md mx-auto">
-          To install <span className="font-mono">{app?.name}</span> with remote access, you need to set up a domain and network access first.
+          To install <InlinePill>{app?.name}</InlinePill> with remote access, you need to set up a domain and network access first.
         </p>
       </div>
 

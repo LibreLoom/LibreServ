@@ -157,6 +157,7 @@ export default function NotFoundPage({ includeMain = true }) {
 
                 {suggestedPages.length > 0 && (
                   <div className="rounded-large-element bg-primary/10 p-6">
+                    {/* surface-scan: ignore-next-line -- heading, mono is the heading face */}
                     <h2 className="font-mono font-normal">Did you mean…</h2>
                     <p className="mt-2 text-sm text-primary max-w-prose">
                       We found a close match.
@@ -197,6 +198,7 @@ export default function NotFoundPage({ includeMain = true }) {
             </div>
 
             <div className="mt-8 rounded-large-element bg-primary/10 p-6">
+              {/* surface-scan: ignore-next-line -- heading, mono is the heading face */}
               <h3 className="font-mono font-normal">
                 If This Surprised You (Valid Reaction)
               </h3>

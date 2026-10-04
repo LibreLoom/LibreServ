@@ -7,6 +7,7 @@ import { canUseClipboard, copyToClipboard as clipboardCopy } from "@libreloom/ui
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { sanitizeURL } from "../../lib/sanitize";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
+import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 
 const GROUP_LABELS = {
   credentials: { label: "Credentials", icon: Lock },
@@ -108,7 +109,7 @@ export function ExposedInfoCard({ info }) {
       const safeHref = sanitizeURL(String(field.value));
       // Reject javascript:/data:/etc. so exposed_info cannot become an XSS vector.
       if (!safeHref) {
-        return <span className="font-mono text-secondary">{String(field.value)}</span>;
+        return <InlinePill>{String(field.value)}</InlinePill>;
       }
       return (
         <a
@@ -179,7 +180,7 @@ export function ExposedInfoCard({ info }) {
       );
     }
 
-    return <span className="font-mono text-secondary">{String(field.value ?? "")}</span>;
+    return <InlinePill>{String(field.value ?? "")}</InlinePill>;
   };
 
   const entries = Object.entries(info || {});

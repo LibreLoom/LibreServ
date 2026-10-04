@@ -164,6 +164,7 @@ export default function ObjectNotFound({
             </div>
 
             <div className="mt-8 rounded-large-element bg-primary/10 p-6">
+              {/* surface-scan: ignore-next-line -- heading, mono is the heading face */}
               <h3 className="font-mono font-normal">
                 If This Seems Wrong (and You're Probably Right)
               </h3>

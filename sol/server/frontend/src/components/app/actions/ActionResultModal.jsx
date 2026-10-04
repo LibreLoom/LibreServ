@@ -91,7 +91,8 @@ export function ActionResultModal({ result, onClose }) {
               <XCircle className="text-error shrink-0" size={ICON_SIZE.xxl} />
             )}
             <div className="flex-1">
-              <p className="font-mono font-medium">
+              {/* surface-scan: ignore-next-line -- result title, mono is the heading face */}
+              <p className="font-mono">
                 {result.success ? "Success" : "Failed"}
               </p>
               <p className="text-sm text-primary">

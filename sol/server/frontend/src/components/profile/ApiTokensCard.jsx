@@ -4,6 +4,7 @@ import Card from "@libreloom/ui/components/cards/Card.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import CopyableValue from "@libreloom/ui/components/ui/CopyableValue.jsx";
+import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import { useAuth } from "../../hooks/useAuth";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
@@ -125,7 +126,7 @@ export default function ApiTokensCard() {
             />
             <p className="text-xs text-secondary">
               Use it in your app or script by sending it as an{" "}
-              <span className="font-mono">Authorization: Bearer</span> header.
+              <InlinePill>Authorization: Bearer</InlinePill> header.
             </p>
             <button
               type="button"

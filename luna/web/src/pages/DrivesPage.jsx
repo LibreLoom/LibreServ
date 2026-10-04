@@ -8,6 +8,7 @@ import Card from "@libreloom/ui/components/cards/Card.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
+import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import Callout from "@libreloom/ui/components/common/Callout.jsx";
 import DriveStatusPill from "../components/common/DriveStatusPill.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
@@ -64,13 +65,6 @@ function PermissionPill({ caps, file = false }) {
       {hint ? <TermHint content={hint}>{label}</TermHint> : label}
     </Pill>
   );
-}
-
-function sizeLabel(bytes) {
-  if (!bytes) return "";
-  const gb = bytes / 1000 / 1000 / 1000;
-  if (gb >= 1000) return `${(gb / 1000).toFixed(1)} TB`;
-  return `${gb.toFixed(0)} GB`;
 }
 
 /** Decimal sizes for drive details (matches DashboardPage). */
@@ -589,8 +583,8 @@ export default function DrivesPage() {
         <div className="grid gap-4 md:grid-cols-2">
           {grants.map((grant) => (
             <Card key={grant.id} icon={FolderOpen} title={grant.name || grant.drive_label}>
-              <p className="text-primary font-mono text-sm">
-                {grant.path ? `${grant.drive_label} · ${grant.path}` : "Whole drive"}
+              <p className="text-primary text-sm">
+                {grant.path ? <InlinePill>{`${grant.drive_label} · ${grant.path}`}</InlinePill> : "Whole drive"}
               </p>
               <div className="mt-3 flex items-center justify-between gap-3">
                 <PermissionPill caps={grant.caps} file={grant.is_file === true} />
@@ -733,7 +727,7 @@ export default function DrivesPage() {
         }}
       >
         <p className="text-primary text-sm">
-          Luna will stop listing <span className="font-mono">{dismissTarget?.model || "this drive"}</span>{" "}
+          Luna will stop listing <InlinePill>{dismissTarget?.model || "this drive"}</InlinePill>{" "}
           here. Nothing on it changes, and you can bring it back with Show dismissed.
         </p>
       </ConfirmModal>
@@ -755,7 +749,7 @@ export default function DrivesPage() {
           <>
             <p className="text-primary text-sm">
               After a safe eject, you&apos;ll need to physically unplug{" "}
-              <span className="font-mono">{ejectTarget?.label}</span> and plug it back
+              <InlinePill>{ejectTarget?.label}</InlinePill> and plug it back
               in again to use it.
             </p>
             <ModalErrorNotice error={actionError} />
@@ -791,17 +785,17 @@ export default function DrivesPage() {
               {removeTarget?.state === "missing" || removeTarget?.state === "ejected" ? (
                 <>
                   Luna will stop managing{" "}
-                  <span className="font-mono">{removeTarget?.label}</span>, but the{" "}
-                  <span className="font-mono">.luna</span> drive database will stay on the
+                  <InlinePill>{removeTarget?.label}</InlinePill>, but the{" "}
+                  <InlinePill>.luna</InlinePill> drive database will stay on the
                   drive since it is currently unplugged. Your files stay exactly where
                   they are.
                 </>
               ) : (
                 <>
                   Luna will stop managing{" "}
-                  <span className="font-mono">{removeTarget?.label}</span>, but your
+                  <InlinePill>{removeTarget?.label}</InlinePill>, but your
                   files stay on the drive — it only removes its tiny{" "}
-                  <span className="font-mono">.luna</span> drive database.
+                  <InlinePill>.luna</InlinePill> drive database.
                 </>
               )}
             </p>

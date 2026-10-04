@@ -36,6 +36,7 @@ import PreflightStep from "../components/setup/PreflightStep.jsx";
 import DiscoveryPaths from "../components/setup/DiscoveryPaths.jsx";
 import TextLink from "../components/ui/TextLink";
 import PasswordStrengthChecklist from "@libreloom/ui/components/common/PasswordStrengthChecklist.jsx";
+import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 
 // ─── Step constants ───────────────────────────────────────────────────────────
@@ -495,7 +496,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
             You&rsquo;re signed in
           </h2>
           <p className="text-primary text-sm leading-relaxed animate-in fade-in slide-in-from-bottom-2 duration-300 delay-200">
-            Signed in as <span className="font-mono text-primary">{user.username}</span>
+            Signed in as <InlinePill>{user.username}</InlinePill>
             {isAdmin
               ? ". You're an Admin on this Luna."
               : ". You're a Member. An Admin finishes setup and shares folders with you."}

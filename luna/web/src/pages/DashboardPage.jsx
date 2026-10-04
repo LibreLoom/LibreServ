@@ -9,6 +9,7 @@ import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import DriveStatusPill from "../components/common/DriveStatusPill.jsx";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
+import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import { TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { ROOT_TERM_HINT } from "../lib/rootTerm.js";
 import { useAuth } from "../context/AuthContext.jsx";
@@ -446,7 +447,7 @@ function RemoteAccessLink({ remoteOn, remoteDomain }) {
             className="flex w-max items-center gap-2 whitespace-nowrap px-4 text-sm"
           >
             <span>{label}</span>
-            <span className="font-mono">{remoteDomain}</span>
+            <InlinePill>{remoteDomain}</InlinePill>
             <ChevronRight size={16} />
           </div>
         </div>
@@ -473,16 +474,16 @@ function RemoteAccessLink({ remoteOn, remoteDomain }) {
                 <span>{label}</span>
                 <ChevronRight size={16} aria-hidden="true" className="shrink-0" />
               </span>
-              <span className="font-mono break-words [overflow-wrap:anywhere]">
+              <InlinePill className="break-words [overflow-wrap:anywhere]">
                 {remoteDomain}
-              </span>
+              </InlinePill>
             </span>
           ) : (
             <>
               <span className="shrink-0">{label}</span>
               <span className="flex min-w-0 items-center gap-2">
                 {showDomain ? (
-                  <span className="font-mono truncate">{remoteDomain}</span>
+                  <InlinePill className="truncate">{remoteDomain}</InlinePill>
                 ) : null}
                 <ChevronRight size={16} aria-hidden="true" className="shrink-0" />
               </span>
