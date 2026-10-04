@@ -4,7 +4,7 @@ import PropTypes from "prop-types";
 // Flat, one color: they take the surrounding text color, so on an inverted card
 // they flip with it. Nothing else to theme.
 
-const LUNA_MOON = "M88 40.2V99.7A48 48 0 0 0 136.0 147.7H201.4A86 86 0 1 1 88 40.2Z";
+const LUNA_MOON = "M88.00 44.74 L88.00 99.70 A48 48 0 0 0 136.00 147.70 L197.11 147.70 A3.0 3.0 0 0 1 199.90 151.81 A86.0 86.0 0 1 1 83.73 42.02 A3.0 3.0 0 0 1 88.00 44.74Z";
 
 /** Luna: a moon cradling a disc. */
 export function LunaMark({ size = 64, className = "" }) {
