@@ -1073,6 +1073,20 @@ export default function FileBrowser({
   const allSelected = visiblePaths.length > 0 && visiblePaths.every((p) => selectedSet.has(p));
   const selectedCount = selectedPaths.length;
   const showSelectionToolbar = !isPicker && multiSelect && selectedCount > 0;
+  // The browse controls (search pill, segmented control, dropdown) are taller
+  // than the selection buttons. Remember the browse height and hold it while
+  // selecting so the list below doesn't jump on every mode flip.
+  const headerRef = useRef(/** @type {HTMLDivElement | null} */ (null));
+  const [browseHeaderHeight, setBrowseHeaderHeight] = useState(0);
+  useLayoutEffect(() => {
+    const el = headerRef.current;
+    if (!el || showSelectionToolbar || typeof ResizeObserver === "undefined") return undefined;
+    const measure = () => setBrowseHeaderHeight(el.offsetHeight);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [showSelectionToolbar, listingForbidden]);
   // The browser background is itself a drop target ("::current") for the
   // folder being browsed — no visible highlight, only the a11y status.
   const currentFolderDrop = dropTarget === "::current";
@@ -1495,6 +1509,8 @@ export default function FileBrowser({
         {!listingForbidden && (
           <div
             data-slot="file-browser-column-header"
+            ref={headerRef}
+            style={showSelectionToolbar && browseHeaderHeight ? { minHeight: browseHeaderHeight } : undefined}
             className={`min-h-11 flex flex-wrap items-center gap-2 px-3 py-1 border-b ${hairline}/20 motion-safe:transition-colors ${
               showSelectionToolbar ? "bg-current/10" : ""
             }`}
