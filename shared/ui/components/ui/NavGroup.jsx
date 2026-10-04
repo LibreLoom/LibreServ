@@ -16,9 +16,11 @@ const PEEK_OPEN_MS = 120;
 const PEEK_CLOSE_MS = 220;
 
 /**
- * Desktop: a normal nav pill — shown as selected while you are on one of its
- * sub-pages — that unfolds its sub-pages in place only while you hover or
- * focus it, with a puck that springs to whichever sub-page is open.
+ * Desktop: a layered pill — an accent-outlined secondary track with the
+ * group's label inset as a primary chip — that unfolds its sub-pages into the
+ * track while you hover or focus it, with a puck that springs to whichever
+ * sub-page is open. The outline is always there, so the group reads as a
+ * container next to the flat single-item pills even when it is folded.
  *
  * @param {{ group: NavGroupItem, closedClassName: string, keyShortcut?: string }} props
  */
@@ -79,6 +81,9 @@ export function DesktopNavGroup({ group, closedClassName, keyShortcut }) {
   const GroupIcon = group.icon;
 
   return (
+    // The layered pill: an always-present accent-outlined secondary track. The
+    // label is its inset primary chip; the sub-pages unfold into the trailing
+    // space. Closed, only the chip shows — but the outline still says "group".
     <div
       data-slot="nav-group"
       data-open={open || undefined}
@@ -103,8 +108,8 @@ export function DesktopNavGroup({ group, closedClassName, keyShortcut }) {
         }
       }}
       className={cn(
-        "flex items-center rounded-pill motion-safe:transition-[background-color,color,padding] duration-300",
-        open ? "surface-primary pr-1" : "",
+        "flex items-center rounded-pill surface-secondary border border-accent p-0.5",
+        "motion-safe:transition-[background-color,color,border-color] duration-300",
       )}
     >
       <Link
@@ -112,11 +117,7 @@ export function DesktopNavGroup({ group, closedClassName, keyShortcut }) {
         to={target}
         aria-current={current && !open ? "page" : undefined}
         aria-keyshortcuts={keyShortcut}
-        className={
-          open
-            ? "flex items-center gap-2 px-3 py-1.5 rounded-pill text-secondary hover:ring-2 hover:ring-accent focus-visible:ring-3 focus-visible:ring-accent motion-safe:transition-shadow duration-200"
-            : closedClassName
-        }
+        className={cn(closedClassName, open && "surface-primary")}
         onClick={() => haptic("selection")}
       >
         <GroupIcon size={ICON_SIZE.lg} aria-hidden="true" />
@@ -129,36 +130,42 @@ export function DesktopNavGroup({ group, closedClassName, keyShortcut }) {
         )}
       >
         <div className="min-w-0 overflow-hidden" inert={!open}>
-          <div className="flex items-center w-max py-1">
+          <div className="flex items-center w-max">
             <span className="mx-1.5 h-4 w-0.5 rounded-pill bg-accent" aria-hidden="true" />
             <div ref={trackRef} className="relative flex items-center gap-1">
               <span
                 ref={puckRef}
                 aria-hidden="true"
                 className={cn(
-                  "absolute left-0 top-0 h-full rounded-pill surface-secondary opacity-0",
+                  "absolute left-0 top-0 h-full rounded-pill surface-primary opacity-0",
                   "motion-safe:transition-[transform,width,opacity] duration-500",
                   SPRING,
                 )}
               />
-              {group.children.map((child) => (
-                <NavLink
-                  key={child.to}
-                  to={child.to}
-                  ref={(el) => {
-                    linkRefs.current[child.to] = el;
-                  }}
-                  className={cn(
-                    "relative flex items-center gap-1.5 px-3 py-1 rounded-pill text-secondary",
-                    "aria-[current=page]:text-primary motion-safe:transition-[color,box-shadow] duration-300",
-                    "hover:ring-2 hover:ring-accent focus-visible:ring-3 focus-visible:ring-accent",
-                  )}
-                  onClick={() => haptic("selection")}
-                >
-                  <child.icon size={ICON_SIZE.md} aria-hidden="true" />
-                  <span>{child.label}</span>
-                </NavLink>
-              ))}
+              {group.children.map((child) => {
+                const active = current?.to === child.to;
+                return (
+                  <NavLink
+                    key={child.to}
+                    to={child.to}
+                    ref={(el) => {
+                      linkRefs.current[child.to] = el;
+                    }}
+                    className={cn(
+                      "relative flex items-center gap-1.5 px-3 py-1.5 rounded-pill",
+                      active ? "text-secondary" : "text-primary",
+                      "motion-safe:transition-[color,box-shadow] duration-300",
+                      "hover:ring-2 hover:ring-accent focus-visible:ring-3 focus-visible:ring-accent",
+                    )}
+                    // The selected sub-page sits on the puck, a sibling.
+                    data-contrast-surface={active ? "primary" : undefined}
+                    onClick={() => haptic("selection")}
+                  >
+                    <child.icon size={ICON_SIZE.md} aria-hidden="true" />
+                    <span>{child.label}</span>
+                  </NavLink>
+                );
+              })}
             </div>
           </div>
         </div>

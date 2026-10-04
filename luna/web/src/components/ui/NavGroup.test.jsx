@@ -64,6 +64,19 @@ describe("Files nav group", () => {
     expect(desktop.querySelector("[inert]")).not.toBeNull();
   });
 
+  it("is a layered pill: an accent-outlined track around the label chip", async () => {
+    const { desktop } = renderAt("/");
+    // The outline is always there, so the group reads as a container when folded.
+    expect(desktop.className).toContain("surface-secondary");
+    expect(desktop.className).toContain("border-accent");
+
+    const files = within(desktop).getByRole("link", { name: "Files" });
+    await act(async () => files.focus());
+    expect(desktop).toHaveAttribute("data-open");
+    // Open, the label is the inset primary chip in the secondary track.
+    expect(files.className).toContain("surface-primary");
+  });
+
   it("shows Files as selected inside Files, folded until hovered", async () => {
     vi.useFakeTimers();
     try {
