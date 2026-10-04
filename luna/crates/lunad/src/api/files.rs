@@ -359,6 +359,27 @@ fn list_trash_view(
 
 /// One folder's entries filtered to what `user` may browse — the same rows
 /// the `list` endpoint returns.
+/// Top-level folder count, file count and shortcut folder names for the
+/// dashboard card — taken from the same listing the Files page shows, so
+/// private folders appear under their real names and nothing the caller
+/// can't open is counted.
+pub(crate) fn root_summary(
+    state: &AppState,
+    user: &crate::auth::CurrentUser,
+    id: &str,
+) -> Result<(u64, u64, Vec<String>), (StatusCode, Json<Value>)> {
+    let entries = visible_entries(state, user, id, "")?;
+    let folders = entries.iter().filter(|e| e.kind == "dir").count() as u64;
+    let files = entries.len() as u64 - folders;
+    let shortcuts = crate::drives::summary::shortcuts_from_names(
+        entries
+            .into_iter()
+            .filter(|e| e.kind == "dir")
+            .map(|e| e.name),
+    );
+    Ok((folders, files, shortcuts))
+}
+
 fn visible_entries(
     state: &AppState,
     user: &crate::auth::CurrentUser,

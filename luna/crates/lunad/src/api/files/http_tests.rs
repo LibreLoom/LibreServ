@@ -2465,6 +2465,56 @@ async fn summary_space_follows_view_grants() {
 }
 
 #[tokio::test]
+async fn summary_counts_and_shortcuts_include_the_callers_private_folders() {
+    let mount = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(mount.path().join("Docs")).unwrap();
+    let (dir, app) = test_app(mount.path());
+    let (sam_cookie, sam_csrf, sam_id) = admin_and_sam(&app).await;
+    {
+        let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+        crate::db::insert_access_member(
+            &conn,
+            &crate::db::AccessMemberRow {
+                id: "g1".into(),
+                subject_kind: crate::access::KIND_PATH.into(),
+                drive_id: "photos".into(),
+                path: String::new(),
+                album_id: String::new(),
+                user_id: sam_id,
+                caps: crate::access::CAP_ALL,
+                created_by: "test".into(),
+            },
+        )
+        .unwrap();
+    }
+    let res = call(
+        &app,
+        json_req(
+            Method::POST,
+            "/api/v1/drives/photos/files/mkdir",
+            r#"{"path":"Vault","private":true}"#,
+            Some(&sam_cookie),
+            Some(&sam_csrf),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), 200);
+
+    // Sam's own private folder counts and shows up as a shortcut, under
+    // its real name — not hidden behind its `.luna-…` disk name.
+    let (status, summary) = get_json(
+        &app,
+        &sam_cookie,
+        &sam_csrf,
+        "/api/v1/drives/photos/summary",
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert_eq!(summary["folders"], 2, "{summary}");
+    assert_eq!(summary["shortcuts"], serde_json::json!(["Docs", "Vault"]));
+}
+
+#[tokio::test]
 async fn recents_reflect_renames_without_duplicates_and_prune_deletes() {
     let mount = tempfile::tempdir().unwrap();
     let (_dir, app) = test_app(mount.path());

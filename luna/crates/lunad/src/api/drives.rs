@@ -498,8 +498,16 @@ async fn drive_summary(
         None
     };
     let (folders, files, shortcuts) = if can_list_root {
-        let (folders, files) = visible_top_level_counts(&root);
-        let shortcuts = crate::drives::summary::top_level_shortcuts(&root);
+        let (st, uid, did) = (state.clone(), user.clone(), id.clone());
+        let (folders, files, shortcuts) =
+            tokio::task::spawn_blocking(move || crate::api::files::root_summary(&st, &uid, &did))
+                .await
+                .map_err(|_| {
+                    json_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "Luna couldn't read this drive. Try again.",
+                    )
+                })??;
         (Some(folders), Some(files), shortcuts)
     } else {
         (None, None, grant_shortcuts)
@@ -515,34 +523,6 @@ async fn drive_summary(
         files,
         shortcuts,
     }))
-}
-
-/// Top-level folder/file counts for the dashboard, counting only names a
-/// file listing would show. `.luna-<uuid>*` bookkeeping (marker, trash,
-/// thumbs, upload temps) never appears in listings — counting
-/// it here would hand members a hidden-item oracle they could diff against
-/// what they can see.
-fn visible_top_level_counts(root: &std::path::Path) -> (u64, u64) {
-    let Ok(entries) = std::fs::read_dir(root) else {
-        return (0, 0);
-    };
-    let mut folders = 0u64;
-    let mut files = 0u64;
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        let Some(name) = name.to_str() else {
-            continue;
-        };
-        if crate::files::is_internal_temp(name) {
-            continue;
-        }
-        match entry.file_type() {
-            Ok(ft) if ft.is_dir() => folders += 1,
-            Ok(ft) if ft.is_file() || ft.is_symlink() => files += 1,
-            _ => {}
-        }
-    }
-    (folders, files)
 }
 
 fn find_device(name: &str) -> Option<crate::drives::detect::DetectedDrive> {
@@ -668,36 +648,6 @@ impl From<crate::db::DriveRow> for DriveJson {
 #[cfg(test)]
 mod tests {
     use crate::db;
-
-    #[test]
-    fn summary_counts_skip_luna_internal_names() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path();
-        std::fs::create_dir(root.join("Photos")).unwrap();
-        std::fs::create_dir(root.join("plain")).unwrap();
-        // Luna bookkeeping must not move the needle: marker db, trash dir,
-        // in-flight upload temp.
-        std::fs::create_dir(root.join(".luna-3f6a8c1e-9b2d-4a7c-8e5f-1a2b3c4d5e6f-trash")).unwrap();
-        std::fs::write(
-            root.join(".luna-3f6a8c1e-9b2d-4a7c-8e5f-1a2b3c4d5e6f.sqlite3"),
-            b"x",
-        )
-        .unwrap();
-        std::fs::write(
-            root.join(".luna-3f6a8c1e-9b2d-4a7c-8e5f-1a2b3c4d5e6f-upload.ab12.part"),
-            b"x",
-        )
-        .unwrap();
-        // Ordinary dotfiles and non-uuid .luna-* names are user files and
-        // still count.
-        std::fs::write(root.join(".hidden.txt"), b"x").unwrap();
-        std::fs::create_dir(root.join(".luna-notes")).unwrap();
-        std::fs::write(root.join("readme.txt"), b"x").unwrap();
-
-        let (folders, files) = super::visible_top_level_counts(root);
-        assert_eq!(folders, 3, "Photos + plain + .luna-notes");
-        assert_eq!(files, 2, "readme.txt + .hidden.txt");
-    }
 
     /// Build a state + router pair with one adopted drive and a member who
     /// can see it (a grant), so the drives list reaches the per-user fields.

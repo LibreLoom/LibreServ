@@ -75,25 +75,26 @@ pub fn top_level_shortcuts(root: &Path) -> Vec<String> {
     let Ok(entries) = fs::read_dir(root) else {
         return Vec::new();
     };
-    let mut names = Vec::new();
-    for entry in entries.flatten() {
-        let Ok(ft) = entry.file_type() else {
-            continue;
-        };
+    shortcuts_from_names(entries.flatten().filter_map(|entry| {
+        let ft = entry.file_type().ok()?;
         if !ft.is_dir() {
-            continue;
+            return None;
         }
-        let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
-            continue;
-        };
-        if name.starts_with('.') {
-            continue;
-        }
-        if SKIP_FOLDERS.iter().any(|s| s.eq_ignore_ascii_case(&name)) {
-            continue;
-        }
-        names.push(name);
-    }
+        entry.file_name().to_str().map(str::to_owned)
+    }))
+}
+
+/// Pick dashboard shortcuts from top-level folder names the caller may see
+/// (already real names — private folders arrive under their own name, not
+/// their `.luna-…` disk name). Same skip and ordering rules as
+/// [`top_level_shortcuts`].
+pub fn shortcuts_from_names(folders: impl IntoIterator<Item = String>) -> Vec<String> {
+    let mut names: Vec<String> = folders
+        .into_iter()
+        .filter(|name| {
+            !name.starts_with('.') && !SKIP_FOLDERS.iter().any(|s| s.eq_ignore_ascii_case(name))
+        })
+        .collect();
     names.sort_by(|a, b| {
         let ai = preferred_rank(a);
         let bi = preferred_rank(b);
