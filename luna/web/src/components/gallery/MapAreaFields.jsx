@@ -56,7 +56,7 @@ export default function MapAreaFields({ value = null, onChange, idPrefix = "map-
   }
 
   return (
-    <div className="space-y-3 text-sm">
+    <div className="space-y-3 rounded-large-element surface-secondary p-4 text-sm">
       <p>Latitude runs north (+) to south (−). Longitude runs east (+) to west (−).</p>
       <div className="grid grid-cols-2 gap-3">
         {EDGES.map((edge) => (
@@ -90,7 +90,7 @@ export default function MapAreaFields({ value = null, onChange, idPrefix = "map-
         </p>
       ) : null}
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <Button type="button" size="sm" variant="secondary" surface="primary" onClick={apply}>
+        <Button type="button" size="sm" variant="primary" onClick={apply}>
           Set area
         </Button>
         {value ? (
