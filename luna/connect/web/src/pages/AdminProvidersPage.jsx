@@ -86,7 +86,9 @@ function emptyForm(service) {
 
 export default function AdminProvidersPage() {
   const [providers, setProviders] = useState([]);
-  const [configStatus, setConfigStatus] = useState({});
+  const [configStatus, setConfigStatus] = useState(
+    /** @type {Record<string, any>} */ ({}),
+  );
   const [error, setError] = useState("");
   const [formError, setFormError] = useState("");
   const [loading, setLoading] = useState(true);

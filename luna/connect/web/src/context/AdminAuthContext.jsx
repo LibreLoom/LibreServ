@@ -41,7 +41,9 @@ export async function adminApi(path, opts = {}) {
     data = { message: text };
   }
   if (!res.ok) {
-    const err = new Error(data.message || data.error || "That didn't work. Try again.");
+    const err = /** @type {Error & { status?: number }} */ (
+      new Error(data.message || data.error || "That didn't work. Try again.")
+    );
     err.status = res.status;
     throw err;
   }

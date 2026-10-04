@@ -277,16 +277,8 @@ const blackWhiteAlphaRe =
 const wantsJson = process.argv.includes("--json");
 const inputPaths = process.argv.slice(2).filter((arg) => arg !== "--json");
 
-const defaultRoots = (() => {
-  const cwd = process.cwd();
-  const repoRoots = [
-    path.join(cwd, "server", "frontend", "src"),
-    path.join(cwd, "server", "frontend", "public"),
-  ];
-  const localRoots = [path.join(cwd, "src"), path.join(cwd, "public")];
-  const repoExists = repoRoots.some((p) => fs.existsSync(p));
-  return repoExists ? repoRoots : localRoots;
-})();
+// Run from an app folder: scans its src/ and public/ unless paths are given.
+const defaultRoots = [path.join(process.cwd(), "src"), path.join(process.cwd(), "public")];
 
 const roots = inputPaths.length > 0 ? inputPaths : defaultRoots;
 

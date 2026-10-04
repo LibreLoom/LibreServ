@@ -5,11 +5,11 @@ import { useEffect, useRef } from "react";
  * Measures inner content with ResizeObserver and sets an explicit pixel height
  * on the outer container so height can animate between known values.
  *
- * @returns {{ outerRef: import("react").RefObject<HTMLElement|null>, innerRef: import("react").RefObject<HTMLElement|null> }}
+ * @returns {{ outerRef: import("react").RefObject<HTMLDivElement|null>, innerRef: import("react").RefObject<HTMLDivElement|null> }}
  */
 export function useAnimatedHeight() {
-  const outerRef = useRef(null);
-  const innerRef = useRef(null);
+  const outerRef = useRef(/** @type {HTMLDivElement | null} */ (null));
+  const innerRef = useRef(/** @type {HTMLDivElement | null} */ (null));
 
   useEffect(() => {
     const outer = outerRef.current;

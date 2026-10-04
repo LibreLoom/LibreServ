@@ -6,7 +6,10 @@ const PRICING_ROWS = [
   { label: "Extra download traffic", value: "$0.01 / GB", mono: true },
 ];
 
-/** Scannable pricing rows — label left, value right, one line per row. */
+/**
+ * Scannable pricing rows — label left, value right, one line per row.
+ * @param {{ surface?: "primary"|"secondary", className?: string }} props
+ */
 export function BackupPricingTable({ surface = "secondary", className = "" }) {
   return (
     <section className={`space-y-3 ${className}`.trim()} aria-labelledby="backup-pricing-heading">

@@ -4,13 +4,14 @@ import { getStripePromise } from "../billing/stripeConfig.js";
 import { Button } from "./ui/button.jsx";
 import ShakeTarget from "./ui/shake-target.jsx";
 
+/** @returns {import("@stripe/stripe-js").Appearance} */
 function appearanceFromTheme() {
   if (typeof window === "undefined") return { theme: "stripe" };
   const s = getComputedStyle(document.documentElement);
   const token = (name) => s.getPropertyValue(name).trim();
   const dark = document.documentElement.classList.contains("dark");
   return {
-    theme: dark ? "night" : "stripe",
+    theme: /** @type {"night" | "stripe"} */ (dark ? "night" : "stripe"),
     variables: {
       colorPrimary: token("--foreground"),
       colorBackground: token("--secondary"),

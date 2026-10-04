@@ -246,6 +246,7 @@ function ErrorBanner({ error }) {
   );
 }
 
+/** @param {{ icon: import("react").ElementType, title: string, className?: string, fullWidth?: boolean, children?: import("react").ReactNode }} props */
 function StepShell({ icon: Icon, title, className, fullWidth = false, children }) {
   return (
     <div className={cn("flex flex-col items-center text-center", fullWidth ? "w-[calc(100%+3rem)] sm:w-[calc(100%+6rem)] -mx-6 sm:-mx-12" : "w-full")}>

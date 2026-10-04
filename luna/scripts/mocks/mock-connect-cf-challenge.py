@@ -15,6 +15,18 @@ Usage:
   # listens on 127.0.0.1:18765
 
   LUNA_CONNECT_URL=http://127.0.0.1:18765 make -C luna dev-daemon
+
+Reproduction recipe (lunad built, mock on :18765):
+  1. Put a device token in `luna/dev/device-token` (e.g. ABCD-EFGH-JKMN-PQRS-TVWX)
+     and seed `luna/dev/connect.json` with a prior claim (hostname, subdomain,
+     a `mock-preexisting-tunnel-token`, "paired": true, "bound": true).
+  2. Start lunad against the mock:
+       LUNA_CONNECT_URL=http://127.0.0.1:18765 LUNA_DATA_DIR=luna/dev ./target/debug/lunad --port 8090
+  3. Switch modes and let Luna poll (or open Connect status in the UI):
+       curl -s -X POST http://127.0.0.1:18765/_debug/mode -H 'Content-Type: application/json' -d '{"mode":"challenge"}'
+  Expect: challenge -> connect.json stays and Connect shows "unreachable";
+          unbound   -> connect.json is deleted;
+          bound     -> the tunnel token is stored.
 """
 
 from __future__ import annotations

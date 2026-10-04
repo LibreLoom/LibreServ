@@ -3,12 +3,16 @@ import { cn } from "../../lib/utils.js";
 import useShakeOnError from "../../hooks/useShakeOnError.js";
 
 /**
+ * @typedef {{ shake?: unknown, loading?: boolean, as?: import("react").ElementType, className?: string, children?: import("react").ReactNode } & Record<string, unknown>} ShakeTargetProps
+ */
+
+/**
  * Shakes its root element when `shake` becomes a new non-empty failure signal.
- * @param {{ shake?: unknown, as?: import("react").ElementType, className?: string, children?: import("react").ReactNode } & Record<string, unknown>} props
+ * @type {import("react").ForwardRefExoticComponent<ShakeTargetProps & import("react").RefAttributes<HTMLElement>>}
  */
 const ShakeTarget = forwardRef(function ShakeTarget(
-  { shake, loading, as: Component = "div", className, children, ...props },
-  forwardedRef,
+  /** @type {ShakeTargetProps} */ { shake, loading, as: Component = "div", className, children, ...props },
+  /** @type {import("react").ForwardedRef<HTMLElement>} */ forwardedRef,
 ) {
   const localRef = useRef(/** @type {HTMLElement | null} */ (null));
 

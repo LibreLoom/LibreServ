@@ -121,7 +121,6 @@ package-lock.json
 !sol/connect/web/admin/package-lock.json
 !sol/connect/web/customer/package-lock.json
 !luna/connect/web/package-lock.json
-!luna/desktop/package-lock.json
 !luna/quick-start/package-lock.json
 !shared/ui/package-lock.json
 

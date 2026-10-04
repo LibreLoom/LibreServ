@@ -12,7 +12,7 @@ export function ThemeProvider({ children }) {
       && window.matchMedia("(prefers-color-scheme:dark)").matches;
     const isDark = t === "dark" || (t === "system" && prefersDark);
     document.documentElement.classList.toggle("dark", isDark);
-    const favicon = document.getElementById("favicon");
+    const favicon = /** @type {HTMLLinkElement | null} */ (document.getElementById("favicon"));
     if (favicon) {
       favicon.href = isDark ? "/favicon-dark.svg" : "/favicon.svg";
     }

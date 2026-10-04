@@ -1528,6 +1528,7 @@ pub fn caps_on_path_preloaded(
 /// [`can_browse_path`] with the per-request context preloaded — see
 /// [`caps_on_path_preloaded`]. `caps` must be the result of evaluating
 /// [`caps_on_path_preloaded`] (or [`caps_on_path`]) on the same path.
+#[allow(clippy::too_many_arguments)]
 pub fn can_browse_path_preloaded(
     user: &CurrentUser,
     drive_id: &str,

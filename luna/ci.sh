@@ -126,4 +126,23 @@ echo "==> web build"
   npm run typecheck
 )
 
+echo "==> connect web"
+(
+  cd connect/web
+  npm install --no-audit --no-fund --cache /tmp/luna-npm-cache
+  npm run build
+  npm test
+  npm run lint
+  npm run typecheck
+)
+
+echo "==> quick-start print layout"
+(
+  cd quick-start
+  npm install --no-audit --no-fund --cache /tmp/luna-npm-cache
+  npm run build
+  npm run lint
+  npm run typecheck
+)
+
 echo "==> ci ok"

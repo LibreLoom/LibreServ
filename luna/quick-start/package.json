@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "scan:colors": "node ../web/scripts/scan-hardcoded-colors.js"
+    "scan:colors": "node ../../shared/ui/scripts/scan-hardcoded-colors.js"
   },
   "dependencies": {
     "react": "19.2.0",

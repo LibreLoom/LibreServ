@@ -10,7 +10,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "preview": "vite preview",
-    "scan:colors": "node scripts/scan-hardcoded-colors.js && node ../../../shared/ui/scripts/scan-surfaces.js src",
+    "scan:colors": "node ../../../shared/ui/scripts/scan-hardcoded-colors.js && node ../../../shared/ui/scripts/scan-surfaces.js src",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

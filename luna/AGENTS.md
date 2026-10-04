@@ -19,7 +19,9 @@ luna/
 │   └── luna-core/        # shared lib (drive/path/scan/marker)
 ├── web/                  # Luna web UI — React/Vite (dev port 3001)
 ├── desktop/              # companion app — Rust + GTK 4/libadwaita
-│   └── packaging/        # flatpak (ship), appimage (demo/CI), windows (NSIS)
+│   └── packaging/        # flatpak (ship), appimage (demo/CI), windows (NSIS),
+│                         # macos/build.sh (.app + .dmg; runs on a Mac only —
+│                         # GTK needs the macOS SDK; not part of CI)
 ├── mobile/               # companion app — native Android (Kotlin/Gradle)
 │   ├── fdroid/           # fdroiddata metadata draft for F-Droid submission
 │   └── fastlane/         # store listing text (F-Droid reads this)
@@ -27,6 +29,8 @@ luna/
 │                         # module). Host: connect.luna.libreloom.org.
 │                         # Device names: *.luna.servers.libreloom.org.
 │                         # Stripe $8/TB/month backups.
+├── quick-start/          # printable quick-start leaflet (React/Vite) — two guides per US Letter
+│                         # sheet, one device token each; see quick-start/README.md
 ├── os/                   # Debian live OS: rootfs build, A/B updates, factory ISO
 ├── scripts/              # dev helpers; mocks/ holds the mock-connect/mock-drive cluster
 ├── docs/                 # eurooffice guide, THIRD_PARTY license, HW qualification
@@ -46,6 +50,14 @@ luna/
 
 - Run `./ci run -profile luna` from the repo root; it runs `luna/ci.sh` across the daemon, OS scripts, desktop, mobile, and web.
 - Run permission-based read-only-drive tests as a non-root user. Root bypasses the Unix permission restrictions those tests use.
+
+### Luna Connect web (`connect/web`)
+
+`connect/web` is **not** on `@libreloom/ui`. It keeps its own shadcn base
+(`src/components/ui/`) on purpose — do not migrate it or restyle it to match
+`luna/web`. It still shares the repo tooling: `npm run scan:colors` (script lives
+in `shared/ui/scripts/`), `npm run typecheck`, and the FreeMono fonts in
+`shared/ui/fonts/` (served by `shared/ui/vite/sharedFonts.js`).
 
 ### Luna Connect
 ```bash

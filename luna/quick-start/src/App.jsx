@@ -8,7 +8,7 @@ const DEFAULT_TOKENS = [
 const panelH2 = "mb-[0.12in] font-mono text-[16pt] leading-none";
 const panelH3 = "mb-[0.04in] font-mono text-[10pt] leading-[1.08]";
 const chip = "eyebrow mb-[0.06in] inline-block border-[0.75pt] px-[0.07in] pt-[0.065in] pb-[0.06in] leading-none [text-box-trim:trim-both] [text-box-edge:cap_alphabetic]";
-const footnote = "border-t-[0.75pt] border-accent pt-[0.07in] text-accent";
+const footnote = "border-t-[0.75pt] border-accent pt-[0.07in]";
 
 function LogoMark() {
   return (
@@ -53,7 +53,7 @@ function IndexPanel() {
         <p className="mb-[0.08in]">Remote access from anywhere, with optional cloud backup.</p>
         <p className="bg-ink px-[0.06in] py-[0.04in] text-center font-mono text-[7.5pt] text-paper">Start on the panel beside this one →</p>
       </div>
-      <p className="mt-[0.12in] flex items-center gap-[0.08in] font-mono text-[9pt] leading-none text-accent before:flex-1 before:border-t-[0.75pt] before:border-accent before:content-[''] after:flex-1 after:border-t-[0.75pt] after:border-accent after:content-['']">
+      <p className="mt-[0.12in] flex items-center gap-[0.08in] font-mono text-[9pt] leading-none before:flex-1 before:border-t-[0.75pt] before:border-accent before:content-[''] after:flex-1 after:border-t-[0.75pt] after:border-accent after:content-['']">
         or
       </p>
       <div className="mt-[0.12in] border-[0.75pt] border-accent px-[0.1in] py-[0.09in]">

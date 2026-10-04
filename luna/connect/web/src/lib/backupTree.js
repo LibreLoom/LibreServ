@@ -90,7 +90,7 @@ export function listBackupFolder(objects, path = "") {
 /**
  * Files under `path`. Recursive includes nested folders.
  *
- * @param {Array<{ relative_path?: string }>} objects
+ * @param {Array<{ device_id?: string, relative_path?: string }>} objects
  * @param {string} [path]
  * @param {{ recursive?: boolean }} [opts]
  */

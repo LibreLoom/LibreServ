@@ -36,7 +36,7 @@
 
 @layer components {
   .eyebrow {
-    @apply font-mono text-[6.6pt] text-accent;
+    @apply font-mono text-[6.6pt] text-ink;
   }
 
   /* Print sheet geometry — fixed physical dimensions, kept as CSS. */
