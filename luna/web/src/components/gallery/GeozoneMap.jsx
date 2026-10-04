@@ -13,6 +13,7 @@ import Button from "@libreloom/ui/components/ui/Button.jsx";
 import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import MapAreaDraw, { bboxToBounds, boundsToBbox } from "./MapAreaDraw.jsx";
+import MapAreaFields from "./MapAreaFields.jsx";
 
 export { bboxToBounds, boundsToBbox };
 
@@ -135,6 +136,20 @@ export default function GeozoneMap({
           />
         </MapContainer>
       </div>
+
+      <details className="mt-2 text-sm">
+        <summary className="cursor-pointer font-mono">Set the area without the mouse</summary>
+        <div className="mt-2">
+          <MapAreaFields
+            idPrefix="geozone-area"
+            value={value}
+            onChange={(bbox) => {
+              onChange?.(bbox);
+              setMode("pan");
+            }}
+          />
+        </div>
+      </details>
 
       {value && (
         <div className="mt-2 flex flex-wrap items-center justify-end gap-2">

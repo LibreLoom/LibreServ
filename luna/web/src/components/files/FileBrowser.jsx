@@ -15,6 +15,7 @@ import {
   Search,
   SearchX,
   Trash2,
+  TriangleAlert,
   UploadCloud,
   X,
 } from "lucide-react";
@@ -1885,9 +1886,10 @@ export default function FileBrowser({
             ) : listing.isError ? (
               <li
                 data-slot="listing-error"
-                className="flex flex-col items-center justify-center py-20 px-3 text-center select-none"
+                className={`flex flex-col items-center justify-center py-20 px-3 text-center select-none ${fg}`}
               >
-                <p className="text-error font-mono text-base" role="alert">
+                <TriangleAlert size={32} className="mb-3 text-error" aria-hidden="true" />
+                <p className="font-mono text-base" role="alert">
                   {folderListingError(listing.error)}
                 </p>
               </li>

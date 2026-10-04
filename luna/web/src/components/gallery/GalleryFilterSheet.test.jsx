@@ -95,6 +95,29 @@ describe("GalleryFilterSheet", () => {
     expect(screen.getByRole("button", { name: /^Not in an album$/i })).toBeInTheDocument();
   });
 
+  it("names each section by its heading and reports chip state with aria-pressed", async () => {
+    render(
+      <GalleryFilterSheet
+        open
+        value={{ ...EMPTY_FILTERS }}
+        onClose={vi.fn()}
+        onApply={vi.fn()}
+      />,
+    );
+    await screen.findByRole("heading", { name: /^When$/i });
+    for (const name of ["When", "Where", "Look"]) {
+      expect(screen.getByRole("region", { name })).toBeInTheDocument();
+    }
+    const photos = screen.getByRole("button", { name: /^Photos$/i });
+    expect(photos).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(photos);
+    expect(screen.getByRole("button", { name: /^Photos$/i })).toHaveAttribute("aria-pressed", "true");
+    const undated = screen.getByRole("button", { name: /^Undated$/i });
+    expect(undated).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(undated);
+    expect(screen.getByRole("button", { name: /^Undated$/i })).toHaveAttribute("aria-pressed", "true");
+  });
+
   it("toggles the On this day filter from the When section", async () => {
     const onApply = vi.fn();
     render(

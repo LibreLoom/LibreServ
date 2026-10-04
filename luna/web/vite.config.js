@@ -153,5 +153,8 @@ export default defineConfig({
     setupFiles: ["./src/test/setup.js"],
     globals: true,
     include: ["src/**/*.test.{js,jsx}"],
+    // Heavy jsdom pages (Settings, Files) take 1-2s alone and several times
+    // that when every worker is busy; the 5s default flaked on a loaded machine.
+    testTimeout: 20000,
   },
 });

@@ -577,3 +577,33 @@ describe("PhotoLightbox keys", () => {
     expect(sheet).toHaveTextContent("Favorite or unfavorite");
   });
 });
+
+describe("PhotoLightbox focus", () => {
+  it("focuses Close, keeps Tab inside, and returns focus to the opener", () => {
+    const root = document.createElement("div");
+    root.id = "root";
+    document.body.append(root);
+    const opener = document.createElement("button");
+    opener.textContent = "thumb";
+    root.append(opener);
+    opener.focus();
+
+    const { unmount } = renderLightbox();
+    const close = screen.getByRole("button", { name: "Close" });
+    expect(close).toHaveFocus();
+    // The gallery behind the lightbox is out of reach.
+    expect(root).toHaveAttribute("inert");
+
+    // Tab from the last control wraps to the first instead of leaving.
+    const dialog = screen.getByRole("dialog", { name: "one.jpg" });
+    const focusable = /** @type {NodeListOf<HTMLElement>} */ (dialog.querySelectorAll("a[href], button:not([disabled])"));
+    focusable[focusable.length - 1].focus();
+    fireEvent.keyDown(document, { key: "Tab" });
+    expect(dialog.contains(document.activeElement)).toBe(true);
+
+    unmount();
+    expect(root).not.toHaveAttribute("inert");
+    expect(opener).toHaveFocus();
+    root.remove();
+  });
+});

@@ -82,3 +82,43 @@ describe("Navbar mobile FAB vs fullscreen editor", () => {
     expect(fab.style.top).toBe("48px");
   });
 });
+
+describe("Navbar user menu keyboard", () => {
+  function openFromKeyboard() {
+    renderNavbar();
+    const trigger = screen.getAllByRole("button", { name: "User menu" }).at(-1);
+    return trigger;
+  }
+
+  it("keeps closed menu items out of reach", () => {
+    renderNavbar();
+    const menu = document.querySelector('[role="menu"]');
+    expect(menu).toHaveAttribute("inert");
+  });
+
+  it("opens from ArrowDown, lands on the first item and moves with the arrows", async () => {
+    const trigger = openFromKeyboard();
+    trigger.focus();
+    fireEvent.keyDown(trigger, { key: "ArrowDown" });
+    await waitFor(() => expect(document.querySelector('[role="menu"]')).not.toHaveAttribute("inert"));
+    const items = screen.getAllByRole("menuitem");
+    await waitFor(() => expect(items[0]).toHaveFocus());
+    fireEvent.keyDown(items[0], { key: "ArrowDown" });
+    expect(items.at(-1)).toHaveFocus();
+    fireEvent.keyDown(items.at(-1), { key: "ArrowDown" });
+    expect(items[0]).toHaveFocus();
+    fireEvent.keyDown(items[0], { key: "ArrowUp" });
+    expect(items.at(-1)).toHaveFocus();
+  });
+
+  it("returns focus to the trigger on Escape", async () => {
+    const trigger = openFromKeyboard();
+    trigger.focus();
+    fireEvent.keyDown(trigger, { key: "ArrowDown" });
+    const item = (await screen.findAllByRole("menuitem"))[0];
+    await waitFor(() => expect(item).toHaveFocus());
+    fireEvent.keyDown(item, { key: "Escape" });
+    expect(trigger).toHaveFocus();
+    await waitFor(() => expect(document.querySelector('[role="menu"]')).toHaveAttribute("inert"));
+  });
+});

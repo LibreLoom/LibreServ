@@ -533,8 +533,9 @@ function ConnectionCard({
       <p className="text-primary text-sm mt-2">{connectionDetail(net)}</p>
       {isAdmin && deviceTokenError ? (
         <div className="mt-4 space-y-3">
-          <p className="text-sm text-error leading-relaxed" role="alert">
-            {deviceTokenError}
+          <p className="flex items-start gap-2 text-sm text-primary leading-relaxed" role="alert">
+            <TriangleAlert size={16} className="mt-0.5 shrink-0 text-error" aria-hidden="true" />
+            <span>{deviceTokenError}</span>
           </p>
           <Button size="md" variant="primary" asChild fullWidth className="justify-between">
             <Link to="/settings#about" aria-label="Change the device token">

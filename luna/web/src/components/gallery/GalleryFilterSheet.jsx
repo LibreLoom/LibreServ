@@ -508,8 +508,8 @@ export default function GalleryFilterSheet({
       )}
     >
       <div className="space-y-4" data-slot="gallery-filter-sheet">
-        <section className={sectionClass} aria-labelledby="filter-when" id="filter-when">
-          <h3 className="font-mono text-sm">When</h3>
+        <section className={sectionClass} aria-labelledby="filter-when-heading" id="filter-when">
+          <h3 id="filter-when-heading" className="font-mono text-sm">When</h3>
           <p className="text-sm">Show photos taken between these dates.</p>
           <div className="flex flex-wrap gap-2">
             {[
@@ -535,6 +535,7 @@ export default function GalleryFilterSheet({
               type="button"
               size="sm"
               variant={draft.undated ? "primary" : "outline"}
+              aria-pressed={Boolean(draft.undated)}
               surface="primary"
               onClick={() =>
                 patch({
@@ -550,6 +551,7 @@ export default function GalleryFilterSheet({
               type="button"
               size="sm"
               variant={draft.monthDay ? "primary" : "outline"}
+              aria-pressed={Boolean(draft.monthDay)}
               surface="primary"
               onClick={() => patch({ monthDay: draft.monthDay ? "" : "today" })}
             >
@@ -607,7 +609,7 @@ export default function GalleryFilterSheet({
           </div>
         </section>
 
-        <section className={sectionClass} aria-labelledby="filter-where" id="filter-where">
+        <section className={sectionClass} aria-labelledby="filter-where-heading" id="filter-where">
           <h3 id="filter-where-heading" className="font-mono text-sm flex items-center gap-2">
             Where
             <InfoHint
@@ -754,7 +756,7 @@ export default function GalleryFilterSheet({
           </section>
         )}
 
-        <section className={sectionClass} aria-labelledby="filter-look" id="filter-look">
+        <section className={sectionClass} aria-labelledby="filter-look-heading" id="filter-look">
           <h3 id="filter-look-heading" className="font-mono text-sm">Look</h3>
           <div className="space-y-2">
             <p className="text-sm">Type</p>
@@ -769,6 +771,7 @@ export default function GalleryFilterSheet({
                   type="button"
                   size="sm"
                   variant={(draft.kind || "") === opt.value ? "primary" : "outline"}
+                  aria-pressed={Boolean((draft.kind || "") === opt.value)}
                   surface="primary"
                   onClick={() => patch({ kind: opt.value })}
                 >
@@ -797,6 +800,7 @@ export default function GalleryFilterSheet({
                   type="button"
                   size="sm"
                   variant={(draft.albumMembership || "") === opt.value ? "primary" : "outline"}
+                  aria-pressed={Boolean((draft.albumMembership || "") === opt.value)}
                   surface="primary"
                   onClick={() => patch({ albumMembership: opt.value })}
                 >
@@ -819,6 +823,7 @@ export default function GalleryFilterSheet({
                   type="button"
                   size="sm"
                   variant={(draft.orientation || "") === opt.value ? "primary" : "outline"}
+                  aria-pressed={Boolean((draft.orientation || "") === opt.value)}
                   surface="primary"
                   onClick={() => patch({ orientation: opt.value })}
                 >
@@ -838,6 +843,7 @@ export default function GalleryFilterSheet({
                     type="button"
                     size="sm"
                     variant={active ? "primary" : "outline"}
+                    aria-pressed={Boolean(active)}
                     surface="primary"
                     onClick={() => toggleFormat(fmt)}
                   >
@@ -869,6 +875,7 @@ export default function GalleryFilterSheet({
                   type="button"
                   size="sm"
                   variant={(draft.hasGps || "") === opt.value ? "primary" : "outline"}
+                  aria-pressed={Boolean((draft.hasGps || "") === opt.value)}
                   surface="primary"
                   onClick={() => patch({ hasGps: opt.value })}
                 >
@@ -924,6 +931,7 @@ export default function GalleryFilterSheet({
                 type="button"
                 size="sm"
                 variant={draft.timePreset === key ? "primary" : "outline"}
+                aria-pressed={Boolean(draft.timePreset === key)}
                 surface="primary"
                 onClick={() => applyTimePreset(draft.timePreset === key ? "" : key)}
               >

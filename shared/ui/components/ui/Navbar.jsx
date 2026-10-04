@@ -115,6 +115,9 @@ export default function Navbar({ brand, items, user, onLogout, menuItems = [], s
   const dialogRef = useRef(null);
   const userMenuRef = useRef(null);
   const userMenuPointerRef = useRef("");
+  const userTriggerRef = useRef(null);
+  // Which item a keyboard open should land on, once the menu is interactive.
+  const focusMenuItemRef = useRef(/** @type {"first" | "last" | null} */ (null));
   const mobileMenuId = "mobile-nav-menu";
 
   const [position, setPosition] = useState({ x: null, y: null });
@@ -330,6 +333,55 @@ export default function Navbar({ brand, items, user, onLogout, menuItems = [], s
     };
   }, []);
 
+  // A keyboard open waits for the menu to stop being inert, then lands on an item.
+  useEffect(() => {
+    if (!isUserMenuOpen || !focusMenuItemRef.current) return;
+    const which = focusMenuItemRef.current;
+    focusMenuItemRef.current = null;
+    const items = userMenuItems();
+    (which === "last" ? items.at(-1) : items[0])?.focus();
+  }, [isUserMenuOpen]);
+
+  /** The user menu's items, in order. */
+  function userMenuItems() {
+    return [...(userMenuRef.current?.querySelectorAll('[role="menuitem"]') ?? [])];
+  }
+
+  // Arrow keys move through the menu (and open it from the trigger); Escape
+  // closes it and puts focus back on the trigger.
+  const handleUserMenuKeyDown = (event) => {
+    if (event.key === "Escape") {
+      if (!isUserMenuOpen) return;
+      setIsUserMenuOpen(false);
+      userTriggerRef.current?.focus();
+      return;
+    }
+    const isNav = ["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key);
+    if (!isNav) return;
+    const toEnd = event.key === "ArrowUp" || event.key === "End";
+    if (event.target.closest?.('[aria-haspopup="menu"]')) {
+      event.preventDefault();
+      if (!isUserMenuOpen) {
+        focusMenuItemRef.current = toEnd ? "last" : "first";
+        setIsUserMenuOpen(true);
+      } else {
+        const items = userMenuItems();
+        (toEnd ? items.at(-1) : items[0])?.focus();
+      }
+      return;
+    }
+    const items = userMenuItems();
+    const at = items.indexOf(document.activeElement);
+    if (at < 0) return;
+    event.preventDefault();
+    const next =
+      event.key === "Home" ? 0
+      : event.key === "End" ? items.length - 1
+      : event.key === "ArrowDown" ? (at + 1) % items.length
+      : (at - 1 + items.length) % items.length;
+    items[next].focus();
+  };
+
   // The user menu opens on mouse hover; touch and keyboard toggle it by click.
   // Close it on outside click or Escape.
   useEffect(() => {
@@ -456,6 +508,7 @@ export default function Navbar({ brand, items, user, onLogout, menuItems = [], s
             <div
               className="group flex items-center gap-2 relative"
               ref={userMenuRef}
+              onKeyDown={handleUserMenuKeyDown}
               onPointerEnter={(e) => {
                 if (e.pointerType === "mouse") setIsUserMenuOpen(true);
               }}
@@ -474,6 +527,8 @@ export default function Navbar({ brand, items, user, onLogout, menuItems = [], s
                 }}
                 onClick={() => {
                   haptic("light");
+                  // A keyboard click (no pointer) that opens the menu lands on its first item.
+                  if (userMenuPointerRef.current === "" && !isUserMenuOpen) focusMenuItemRef.current = "first";
                   // A mouse click lands while hover already opened the menu, so keep it open.
                   if (userMenuPointerRef.current === "mouse") setIsUserMenuOpen(true);
                   else setIsUserMenuOpen((v) => !v);
@@ -483,6 +538,7 @@ export default function Navbar({ brand, items, user, onLogout, menuItems = [], s
                 {user?.username || ""}
               </button>
               <button
+                ref={userTriggerRef}
                 type="button"
                 className={cn("h-8", "w-8", "rounded-full", "surface-primary", "flex", "items-center", "justify-center", TRANSITION.full, "focus-visible:ring-3", "focus-visible:ring-accent")}
                 aria-label="User menu"
@@ -493,6 +549,8 @@ export default function Navbar({ brand, items, user, onLogout, menuItems = [], s
                 }}
                 onClick={() => {
                   haptic("light");
+                  // A keyboard click (no pointer) that opens the menu lands on its first item.
+                  if (userMenuPointerRef.current === "" && !isUserMenuOpen) focusMenuItemRef.current = "first";
                   // A mouse click lands while hover already opened the menu, so keep it open.
                   if (userMenuPointerRef.current === "mouse") setIsUserMenuOpen(true);
                   else setIsUserMenuOpen((v) => !v);
@@ -504,6 +562,9 @@ export default function Navbar({ brand, items, user, onLogout, menuItems = [], s
 
               <div
                 role="menu"
+                aria-label="User menu"
+                // Closed means out of the tab order and the accessibility tree, not just invisible.
+                inert={!isUserMenuOpen}
                 className={cn("absolute", "bottom-0", "right-0", "pb-16", "opacity-0", "pointer-events-none", isUserMenuOpen && "opacity-100 pointer-events-auto", TRANSITION.full)}
               >
                 <div

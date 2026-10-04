@@ -30,6 +30,15 @@
             android:textColor="@color/luna_ink"
             android:textSize="15sp" />
 
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingBottom="4dp"
+            android:labelFor="@id/baseUrl"
+            android:text="@string/luna_address_label"
+            android:textColor="@color/luna_ink"
+            android:textSize="14sp" />
+
         <EditText
             android:id="@+id/baseUrl"
             android:layout_width="match_parent"
@@ -42,6 +51,15 @@
             android:padding="16dp"
             android:textColor="@color/luna_ink"
             android:textColorHint="@color/luna_hint" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingBottom="4dp"
+            android:labelFor="@id/accessToken"
+            android:text="@string/access_token_label"
+            android:textColor="@color/luna_ink"
+            android:textSize="14sp" />
 
         <EditText
             android:id="@+id/accessToken"

@@ -19,6 +19,7 @@ import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { useSmoothResize } from "@libreloom/ui/hooks/useSmoothResize.js";
 import MapAreaDraw from "./MapAreaDraw.jsx";
+import MapAreaFields from "./MapAreaFields.jsx";
 
 function FitBounds({ points }) {
   const map = useMap();
@@ -524,6 +525,15 @@ export default function PlacesMap({
           </div>
         )}
       </div>
+
+      {isDrawMode && (
+        <details className="absolute top-16 right-3 z-[1000] w-72 max-w-[calc(100%-1.5rem)] rounded-large-element surface-secondary p-3 text-sm shadow-xl ring-2 ring-accent">
+          <summary className="cursor-pointer font-mono">Set the area without the mouse</summary>
+          <div className="mt-2 max-h-[60vh] overflow-y-auto">
+            <MapAreaFields idPrefix="places-area" value={drawnBbox} onChange={setDrawnBbox} />
+          </div>
+        </details>
+      )}
 
       <MapContainer
         center={center}

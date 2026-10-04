@@ -486,7 +486,7 @@ function Responder({
                         {question.image ? (
                           <img
                             src={`/s/${encodeURIComponent(token)}/form-image?name=${encodeURIComponent(question.image)}`}
-                            alt=""
+                            alt={question.label ? `Picture for “${question.label}”` : "Picture for this question"}
                             className="max-h-64 w-full rounded-large-element object-contain surface-primary"
                           />
                         ) : null}

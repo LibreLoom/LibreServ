@@ -1,4 +1,4 @@
-import { Activity } from "lucide-react";
+import { Activity, TriangleAlert } from "lucide-react";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
 import { useSystemHealthCheck } from "../../../hooks/useSystemHealthCheck.jsx";
@@ -29,8 +29,9 @@ export default function SystemChecksCard({ index = 1 }) {
   if (!data && error) {
     return (
       <SettingsCard icon={Activity} title="System checks" padding={false} index={index}>
-        <p className="px-5 py-4 text-sm text-error">
-          Luna couldn&apos;t run system checks right now. Try again in a moment.
+        <p className="flex items-start gap-2 px-5 py-4 text-sm" role="alert">
+          <TriangleAlert size={ICON_SIZE.md} className="mt-0.5 shrink-0 text-error" aria-hidden="true" />
+          <span>Luna couldn&apos;t run system checks right now. Try again in a moment.</span>
         </p>
       </SettingsCard>
     );

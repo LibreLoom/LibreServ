@@ -23,6 +23,7 @@
         android:id="@+id/rowChevron"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:importantForAccessibility="no"
         android:paddingStart="8dp"
         android:text="@string/open_folder_mark"
         android:textColor="@color/luna_ink"

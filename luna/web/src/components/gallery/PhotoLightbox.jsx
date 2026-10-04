@@ -24,6 +24,7 @@ import { Link } from "react-router-dom";
 import { lockBodyScroll } from "../../utils/bodyScrollLock.js";
 import { photoSelectionKey } from "../../hooks/useMultiSelect.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
+import useDialogFocus from "@libreloom/ui/hooks/useDialogFocus.js";
 import { useShortcut } from "@libreloom/ui/context/ShortcutsContext.jsx";
 import { cn } from "@libreloom/ui/lib/utils.js";
 
@@ -167,6 +168,8 @@ export default function PhotoLightbox({
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   const stageRef = useRef(/** @type {HTMLDivElement|null} */ (null));
+  const dialogRef = useRef(/** @type {HTMLDivElement|null} */ (null));
+  const closeButtonRef = useRef(/** @type {HTMLButtonElement|null} */ (null));
   const trackElRef = useRef(/** @type {HTMLDivElement|null} */ (null));
   const gestureRef = useRef(/** @type {{x0:number,y0:number,lastX:number,lastT:number,vel:number,axis:(string|null),grab:number,near:number}|null} */ (null));
   // Set when a real swipe ends so the synthetic click that follows touchend
@@ -697,6 +700,10 @@ export default function PhotoLightbox({
     commitTo(dest, g.axis === "h" && !cancelled ? g.vel : 0);
   }
 
+  // Focus lands on Close, Tab stays in the lightbox, the gallery behind it is
+  // inert, and focus returns to the thumbnail that opened it.
+  useDialogFocus(dialogRef, { active: Boolean(photo), initialFocusRef: closeButtonRef });
+
   if (!photo) return null;
 
   const dl = resolveDownloadSrc(photo, { downloadSrc });
@@ -704,6 +711,7 @@ export default function PhotoLightbox({
 
   return createPortal(
     <div
+      ref={dialogRef}
       role="dialog"
       aria-modal="true"
       aria-label={photo.name}
@@ -760,6 +768,7 @@ export default function PhotoLightbox({
           </Tooltip>
           <Tooltip content="Close" popupClassName="z-[100]">
             <Button
+              ref={closeButtonRef}
               variant="ghost"
               surface="primary"
               size="icon"
