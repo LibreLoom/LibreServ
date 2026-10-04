@@ -4,7 +4,6 @@
 //! for Luna's users on those media, so we don't run checks or show messages.
 
 use serde::Serialize;
-use std::process::Command;
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct DriveHealth {
@@ -99,14 +98,23 @@ pub fn read(device: &str) -> DriveHealth {
         reallocated_sectors: None,
         status_bits: 0,
     };
-    let Ok(output) = Command::new("smartctl")
-        .args([
-            "-H",
-            "-A",
-            "-i",
-            &format!("/dev/{}", device.trim().trim_start_matches("/dev/")),
-        ])
-        .output()
+    let Some(smartctl) = crate::sandbox::which("smartctl") else {
+        return health;
+    };
+    // smartctl reports on drive-supplied data, but it must stay root: the
+    // SG_IO ioctls it issues need a device fd opened read-write (which would
+    // be root-equivalent if handed to `nobody`), and seccomp can't filter
+    // inside a SCSI command block. Scrubbed env + no_new_privs + a timeout
+    // is the hardening that fits.
+    let mut cmd = crate::sandbox::hardened(&smartctl);
+    cmd.args([
+        "-H",
+        "-A",
+        "-i",
+        &format!("/dev/{}", device.trim().trim_start_matches("/dev/")),
+    ])
+    .stderr(std::process::Stdio::null());
+    let Ok(output) = crate::sandbox::output_limited(&mut cmd, std::time::Duration::from_secs(45))
     else {
         return health;
     };

@@ -24,24 +24,26 @@ dependency advisories.
 
 ### Medium
 
-**M1 — Media decoders and drive tools parse untrusted input as root**
+**M1 — Media decoders and drive tools parse untrusted input as root** — **fixed**
 
-`lunad` runs as root on the OS image, and several child processes parse
-attacker-controlled or device-controlled data with that privilege:
+`lunad` runs as root on the OS image, and several child processes parsed
+attacker-controlled or device-controlled data with that privilege. Fixed in
+`luna/crates/lunad/src/sandbox.rs`:
 
-- `luna/crates/lunad/src/gallery/mod.rs:1009` — `ffmpeg` on user-uploaded
-  videos for previews (and `ffprobe` at `:1070`)
-- `luna/crates/lunad/src/gallery/heif.rs:352` — external HEIF decoder on
-  user-uploaded images
-- `luna/crates/lunad/src/drives/smart.rs:102` — `smartctl` parses drive-reported
-  data (a malicious USB enclosure firmware can return crafted SMART output)
-
-All invocations use argument arrays — no shell injection was found. The risk is
-a parser vulnerability in ffmpeg/imagemagick/smartmontools yielding root code
-execution; any member with upload capability can feed media to the decoders.
-Recommend running decode workers as a dedicated unprivileged user (or under
-`bwrap`/`seccomp`), and considering a non-root `lunad` with narrowly-scoped
-privileged helpers for mount/partition operations.
+- `ffmpeg`/`ffprobe` (`gallery/mod.rs`), `heif-dec`/`heif-convert`
+  (`gallery/heif.rs`), and `blkid` (`drives/fsprobe.rs`) now run as `nobody`
+  with `no_new_privs`, cleared supplementary groups, a scrubbed environment,
+  `RLIMIT_CORE=0`, an output write cap, and a hard timeout. Input reaches the
+  child on an inherited fd (`/proc/self/fd/N`), so a parser exploit gets no
+  filesystem access beyond the file it was handed; output is written into a
+  per-call `nobody`-owned staging dir and read back via `O_NOFOLLOW`.
+- `smartctl`, `wipefs`, `sfdisk`, `mkfs.*`, `blockdev`, `partprobe` keep root
+  (they issue device ioctls/writes) but run through `sandbox::hardened`
+  (scrubbed env, `no_new_privs`, no core dumps) plus timeouts.
+- Residual: the pure-Rust `image` crate decode stays in-process (memory-safe
+  but shares the address space), and `smartctl` can't be deprivileged further
+  — SG_IO commands can't be filtered below the disk. A true non-root `lunad`
+  with privileged helper binaries would be the stronger end state.
 
 **M2 — Cleartext HTTP on the LAN is the security boundary**
 

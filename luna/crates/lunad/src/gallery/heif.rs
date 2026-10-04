@@ -338,35 +338,43 @@ fn read_box(buf: &[u8], pos: usize) -> Option<(u64, [u8; 4], usize, usize)> {
 
 /// Decode a HEIC file to `jpeg_out` using Alpine `libheif-tools` when present.
 /// Never writes next to the original photo.
+///
+/// The decoder parses attacker-controlled bytes, so it runs sandboxed as
+/// `nobody`: the source arrives on an inherited fd and the JPEG lands in a
+/// nobody-owned staging dir that we copy out of (not a path the child could
+/// symlink-swap inside our own directories).
 pub fn decode_heif_to_jpeg(src: &Path, jpeg_out: &Path) -> anyhow::Result<()> {
     if let Some(parent) = jpeg_out.parent() {
         std::fs::create_dir_all(parent)?;
     }
     let dest_tmp = jpeg_out.with_extension("jpg.tmp");
+    let mut io = crate::sandbox::SandboxIo::new()?;
+    let input = io.input_path(src)?;
+    let staged = io.out_path("decoded.jpg")?;
     let tools = ["heif-dec", "heif-convert"];
     let mut last_err = anyhow::anyhow!("HEIC decoder is not installed on this Luna.");
     for bin in tools {
-        if which(bin).is_none() {
+        let Some(binpath) = which(bin) else {
             continue;
-        }
-        let mut cmd = Command::new(bin);
-        cmd.arg(src)
-            .arg(&dest_tmp)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            // Discard stderr so a chatty heif-dec cannot fill a pipe and stall
-            // while holding RAM on a 2 GiB box.
-            .stderr(Stdio::null());
-        match run_limited(cmd, Duration::from_secs(30)) {
-            Ok(()) if dest_tmp.exists() => {
+        };
+        let mut cmd = Command::new(binpath);
+        cmd.arg(&input).arg(&staged).stdout(Stdio::null());
+        // Discard stderr so a chatty heif-dec cannot fill a pipe and stall
+        // while holding RAM on a 2 GiB box.
+        match crate::sandbox::run(&mut cmd, &io, Duration::from_secs(30)) {
+            Ok(status) if status.success() && staged.exists() => {
+                let mut rd = io.open_out("decoded.jpg")?;
+                let mut wr = std::fs::File::create(&dest_tmp)?;
+                std::io::copy(&mut rd, &mut wr)?;
                 std::fs::rename(&dest_tmp, jpeg_out)?;
                 return Ok(());
             }
-            Ok(()) => {
+            Ok(_) => {
                 last_err = anyhow::anyhow!("{bin} produced no JPEG");
             }
-            Err(e) => last_err = e,
+            Err(e) => last_err = e.into(),
         }
+        let _ = std::fs::remove_file(&staged);
         let _ = std::fs::remove_file(&dest_tmp);
     }
     Err(last_err)
@@ -381,22 +389,6 @@ fn which(bin: &str) -> Option<std::path::PathBuf> {
         }
     }
     None
-}
-
-fn run_limited(mut cmd: Command, timeout: Duration) -> anyhow::Result<()> {
-    let mut child = cmd.spawn()?;
-    let start = std::time::Instant::now();
-    loop {
-        match child.try_wait()? {
-            Some(status) if status.success() => return Ok(()),
-            Some(status) => anyhow::bail!("heif tool exited {status}"),
-            None if start.elapsed() > timeout => {
-                let _ = child.kill();
-                anyhow::bail!("heif tool timed out");
-            }
-            None => std::thread::sleep(Duration::from_millis(20)),
-        }
-    }
 }
 
 /// Build a tiny HEIF with an Exif item (tests).

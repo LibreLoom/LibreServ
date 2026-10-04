@@ -236,10 +236,16 @@ fn read_size_bytes(path: &Path) -> Option<u64> {
 }
 
 fn blkid_export(dev: &str) -> Option<(String, String)> {
-    let out = Command::new("blkid")
-        .args(["-o", "export", dev])
-        .output()
-        .ok()?;
+    // blkid parses filesystem superblocks from whatever USB stick somebody
+    // plugs in — it runs sandboxed as `nobody`, reading the device through an
+    // inherited read-only fd so a parser exploit can't reach the rest of the
+    // disk or the daemon's files.
+    let mut io = crate::sandbox::SandboxIo::new().ok()?;
+    let arg = io.input_path(Path::new(dev)).ok()?;
+    let blkid = crate::sandbox::which("blkid")?;
+    let mut cmd = Command::new(blkid);
+    cmd.args(["-o", "export"]).arg(&arg).stderr(Stdio::null());
+    let out = crate::sandbox::output(&mut cmd, &io, std::time::Duration::from_secs(15)).ok()?;
     if !out.status.success() {
         return None;
     }
@@ -268,7 +274,19 @@ fn format_data_usb_cmd(disk: &str, volume_label: &str) -> anyhow::Result<()> {
     if !Path::new(&dev).exists() {
         anyhow::bail!("Luna can't see that USB stick. Plug it in and try again.");
     }
-    let wipe = Command::new("wipefs").args(["-af", &dev]).output();
+    // Disk tools need real root (they write the device), but wipefs still
+    // parses attacker-provided signatures — run them hardened.
+    let wipe = match crate::sandbox::which("wipefs") {
+        Some(bin) => {
+            let mut cmd = crate::sandbox::hardened(&bin);
+            cmd.args(["-af", &dev]).stderr(Stdio::piped());
+            crate::sandbox::output_limited(&mut cmd, std::time::Duration::from_secs(60))
+        }
+        None => Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "wipefs missing",
+        )),
+    };
     match wipe {
         Ok(o) if o.status.success() => {}
         Ok(o) => {
@@ -282,17 +300,17 @@ fn format_data_usb_cmd(disk: &str, volume_label: &str) -> anyhow::Result<()> {
         ),
     }
 
-    let mut sfdisk = Command::new("sfdisk")
-        .arg(&dev)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|_| {
-            anyhow::anyhow!(
-                "Luna couldn't prepare this USB. The box is missing a disk tool (sfdisk)."
-            )
-        })?;
+    let Some(sfdisk_bin) = crate::sandbox::which("sfdisk") else {
+        anyhow::bail!("Luna couldn't prepare this USB. The box is missing a disk tool (sfdisk).");
+    };
+    let mut sfdisk = {
+        let mut cmd = crate::sandbox::hardened(&sfdisk_bin);
+        cmd.arg(&dev)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped());
+        cmd.spawn()?
+    };
     {
         let mut stdin = sfdisk
             .stdin
@@ -314,8 +332,16 @@ fn format_data_usb_cmd(disk: &str, volume_label: &str) -> anyhow::Result<()> {
         if Path::new(&part_dev).exists() {
             break;
         }
-        let _ = Command::new("blockdev").args(["--rereadpt", &dev]).status();
-        let _ = Command::new("partprobe").arg(&dev).status();
+        if let Some(blockdev) = crate::sandbox::which("blockdev") {
+            let mut cmd = crate::sandbox::hardened(&blockdev);
+            cmd.args(["--rereadpt", &dev]);
+            let _ = crate::sandbox::run_limited(&mut cmd, std::time::Duration::from_secs(15));
+        }
+        if let Some(partprobe) = crate::sandbox::which("partprobe") {
+            let mut cmd = crate::sandbox::hardened(&partprobe);
+            cmd.arg(&dev);
+            let _ = crate::sandbox::run_limited(&mut cmd, std::time::Duration::from_secs(15));
+        }
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
     if !Path::new(&part_dev).exists() {
@@ -325,15 +351,32 @@ fn format_data_usb_cmd(disk: &str, volume_label: &str) -> anyhow::Result<()> {
     }
 
     let label = sanitize_volume_label(volume_label);
-    let exfat = Command::new("mkfs.exfat")
-        .args(["-n", &label, &part_dev])
-        .output();
+    let exfat = crate::sandbox::which("mkfs.exfat").map(|bin| {
+        let mut cmd = crate::sandbox::hardened(&bin);
+        cmd.args(["-n", &label, &part_dev]).stderr(Stdio::piped());
+        crate::sandbox::output_limited(&mut cmd, std::time::Duration::from_secs(120))
+    });
+    let exfat = exfat.unwrap_or_else(|| {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "mkfs.exfat missing",
+        ))
+    });
     if exfat.as_ref().is_ok_and(|o| o.status.success()) {
         return Ok(());
     }
-    let fat = Command::new("mkfs.vfat")
-        .args(["-F", "32", "-n", &label, &part_dev])
-        .output();
+    let fat = crate::sandbox::which("mkfs.vfat").map(|bin| {
+        let mut cmd = crate::sandbox::hardened(&bin);
+        cmd.args(["-F", "32", "-n", &label, &part_dev])
+            .stderr(Stdio::piped());
+        crate::sandbox::output_limited(&mut cmd, std::time::Duration::from_secs(120))
+    });
+    let fat = fat.unwrap_or_else(|| {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "mkfs.vfat missing",
+        ))
+    });
     if fat.as_ref().is_ok_and(|o| o.status.success()) {
         return Ok(());
     }

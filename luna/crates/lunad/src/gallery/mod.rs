@@ -1006,9 +1006,16 @@ fn ensure_video_thumb(src: &Path, dest: &Path) -> anyhow::Result<(u32, u32, bool
     if let Some(parent) = tmp.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let status = std::process::Command::new(ffmpeg)
-        .args(["-y", "-ss", "0", "-i"])
-        .arg(src)
+    // ffmpeg parses attacker-controlled media. It runs as `nobody` with the
+    // source on an inherited fd and writes its frame into a nobody-owned
+    // staging dir; we copy the result out ourselves.
+    let mut io = crate::sandbox::SandboxIo::new()?;
+    let input = io.input_path(src)?;
+    let frame = io.out_path("frame.jpg")?;
+    let mut cmd = std::process::Command::new(ffmpeg);
+    cmd.arg("-y")
+        .args(["-ss", "0", "-i"])
+        .arg(&input)
         .args([
             "-frames:v",
             "1",
@@ -1017,11 +1024,17 @@ fn ensure_video_thumb(src: &Path, dest: &Path) -> anyhow::Result<(u32, u32, bool
             "-q:v",
             "2",
         ])
-        .arg(&tmp)
+        .arg(&frame)
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()?;
-    if !status.success() || !tmp.exists() {
+        .stderr(std::process::Stdio::null());
+    let status = crate::sandbox::run(&mut cmd, &io, std::time::Duration::from_secs(60))?;
+    let staged_ok = status.success() && frame.exists();
+    if staged_ok {
+        let mut rd = io.open_out("frame.jpg")?;
+        let mut wr = std::fs::File::create(&tmp)?;
+        std::io::copy(&mut rd, &mut wr)?;
+    }
+    if !staged_ok || !tmp.exists() {
         let _ = std::fs::remove_file(&tmp);
         anyhow::bail!("ffmpeg could not make a video preview");
     }
@@ -1067,20 +1080,25 @@ fn probe_video_duration_secs(src: &Path) -> u32 {
     let Some(ffprobe) = which_ffprobe() else {
         return 0;
     };
-    let output = std::process::Command::new(ffprobe)
-        .args([
-            "-v",
-            "error",
-            "-show_entries",
-            "format=duration",
-            "-of",
-            "default=noprint_wrappers=1:nokey=1",
-        ])
-        .arg(src)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .output();
-    let Ok(out) = output else {
+    // Same sandboxing as ffmpeg: untrusted input on an inherited fd.
+    let Ok(mut io) = crate::sandbox::SandboxIo::new() else {
+        return 0;
+    };
+    let Ok(input) = io.input_path(src) else {
+        return 0;
+    };
+    let mut cmd = std::process::Command::new(ffprobe);
+    cmd.args([
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+    ])
+    .arg(&input)
+    .stderr(std::process::Stdio::null());
+    let Ok(out) = crate::sandbox::output(&mut cmd, &io, std::time::Duration::from_secs(15)) else {
         return 0;
     };
     if !out.status.success() {

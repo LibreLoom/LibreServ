@@ -16,6 +16,7 @@ pub mod office;
 pub mod password;
 pub mod private;
 pub mod rate_limit;
+pub mod sandbox;
 pub mod search_query;
 pub mod secrets;
 pub mod system;
