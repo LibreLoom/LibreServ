@@ -10,10 +10,11 @@ import { activeChild, useGroupTarget } from "../../hooks/useNavGroup.js";
 // Same overshoot spring as the mobile menu button.
 const SPRING = "ease-[cubic-bezier(0.34,1.56,0.64,1)]";
 
-// Hover intent: a mouse sweeping across the bar shouldn't fan Files open,
-// and a brief slip off the pill shouldn't snap it shut.
-const PEEK_OPEN_MS = 120;
-const PEEK_CLOSE_MS = 220;
+// Hover intent: a quick sweep across the bar shouldn't fan the group open,
+// and brushing the pill's edge shouldn't snap it shut — both kept short so
+// the group feels immediate. The unfold uses LayeredPill's easing.
+const PEEK_OPEN_MS = 60;
+const PEEK_CLOSE_MS = 40;
 
 /**
  * Desktop: a layered pill — an accent-outlined secondary track with the
@@ -109,7 +110,7 @@ export function DesktopNavGroup({ group, closedClassName, keyShortcut }) {
       }}
       className={cn(
         "flex items-center rounded-pill surface-secondary border border-accent p-0.5",
-        "motion-safe:transition-[background-color,color,border-color] duration-300",
+        "motion-safe:transition-[background-color,color,border-color] duration-200",
       )}
     >
       <Link
@@ -125,7 +126,7 @@ export function DesktopNavGroup({ group, closedClassName, keyShortcut }) {
       </Link>
       <div
         className={cn(
-          "grid motion-safe:transition-[grid-template-columns] duration-500 ease-[var(--motion-easing-standard)]",
+          "grid motion-safe:transition-[grid-template-columns] duration-250 ease-[var(--motion-easing-emphasized-decelerate)]",
           open ? "grid-cols-[1fr]" : "grid-cols-[0fr]",
         )}
       >
@@ -138,7 +139,7 @@ export function DesktopNavGroup({ group, closedClassName, keyShortcut }) {
                 aria-hidden="true"
                 className={cn(
                   "absolute left-0 top-0 h-full rounded-pill surface-primary opacity-0",
-                  "motion-safe:transition-[transform,width,opacity] duration-500",
+                  "motion-safe:transition-[transform,width,opacity] duration-300",
                   SPRING,
                 )}
               />
@@ -154,7 +155,7 @@ export function DesktopNavGroup({ group, closedClassName, keyShortcut }) {
                     className={cn(
                       "relative flex items-center gap-1.5 px-3 py-1.5 rounded-pill",
                       active ? "text-secondary" : "text-primary",
-                      "motion-safe:transition-[color,box-shadow] duration-300",
+                      "motion-safe:transition-[color,box-shadow] duration-200",
                       "hover:ring-2 hover:ring-accent focus-visible:ring-3 focus-visible:ring-accent",
                     )}
                     // The selected sub-page sits on the puck, a sibling.

@@ -117,14 +117,14 @@ describe("Files nav group", () => {
       const { desktop } = renderAt("/");
       fireEvent.pointerEnter(desktop, { pointerType: "mouse" });
       // A quick sweep across the bar doesn't open it.
-      await act(async () => vi.advanceTimersByTime(60));
+      await act(async () => vi.advanceTimersByTime(30));
       expect(desktop).not.toHaveAttribute("data-open");
-      await act(async () => vi.advanceTimersByTime(100));
+      await act(async () => vi.advanceTimersByTime(40));
       expect(desktop).toHaveAttribute("data-open");
       expect(desktop.querySelector("[inert]")).toBeNull();
 
       fireEvent.pointerLeave(desktop, { pointerType: "mouse" });
-      await act(async () => vi.advanceTimersByTime(300));
+      await act(async () => vi.advanceTimersByTime(50));
       expect(desktop).not.toHaveAttribute("data-open");
     } finally {
       vi.useRealTimers();
