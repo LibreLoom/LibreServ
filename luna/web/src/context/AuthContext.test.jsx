@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./AuthContext";
 import { getJson } from "../lib/api";
 
@@ -211,5 +211,50 @@ describe("AuthProvider session ending mid-use", () => {
     await new Promise((r) => setTimeout(r, 50));
     expect(screen.getByText("USER ada")).toBeInTheDocument();
     expect(screen.queryByText("SESSION ENDED")).not.toBeInTheDocument();
+  });
+});
+
+describe("AuthProvider endSession", () => {
+  it("clears the user without moving off the current URL", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      const u = String(url);
+      const json = (body, status = 200) =>
+        new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+      if (u.endsWith("/api/v1/auth/me")) return json({ id: "u1", username: "ada", role: "admin" });
+      if (u.endsWith("/api/v1/auth/status")) return json({ has_admin: true });
+      if (u.endsWith("/api/v1/setup")) return json({ name: "Luna", setup_completed: true });
+      return json({}, 404);
+    }));
+
+    function Probe() {
+      const { user, loading, endSession } = useAuth();
+      const { pathname } = useLocation();
+      if (loading) return null;
+      return (
+        <div>
+          <span>{user ? `USER ${user.username}` : "NO USER"}</span>
+          <span>AT {pathname}</span>
+          <button type="button" onClick={endSession}>END</button>
+        </div>
+      );
+    }
+
+    render(
+      <MemoryRouter initialEntries={["/settings"]}>
+        <AuthProvider>
+          <Routes>
+            <Route path="/settings" element={<Probe />} />
+            <Route path="/login" element={<div>LOGIN ROUTE</div>} />
+          </Routes>
+        </AuthProvider>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText("USER ada")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("END"));
+    expect(await screen.findByText("NO USER")).toBeInTheDocument();
+    // The tab stays put; RequireAuth is what shows the sign-in form in place.
+    expect(screen.getByText("AT /settings")).toBeInTheDocument();
+    expect(screen.queryByText("LOGIN ROUTE")).not.toBeInTheDocument();
   });
 });

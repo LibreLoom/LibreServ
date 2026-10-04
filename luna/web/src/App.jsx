@@ -42,12 +42,15 @@ const queryClient = new QueryClient({
 
 function RequireAuth({ children }) {
   const { user, setup, hasAdmin, loading } = useAuth();
-  const location = useLocation();
   if (loading) return null;
   if (setup?.setup_completed === false || (!user && hasAdmin === false)) {
     return <Navigate to="/setup" replace />;
   }
-  if (!user) return <Navigate to="/login" replace state={{ from: location }} />;
+  // Sign-in shows up in place, keeping the URL on the page you were on. When a
+  // session dies mid-use (password changed, signed out elsewhere) every open
+  // tab lands on the sign-in form together, and each returns to its own page
+  // after signing in — instead of every tab being dragged to /login.
+  if (!user) return <LoginPage />;
   return children;
 }
 

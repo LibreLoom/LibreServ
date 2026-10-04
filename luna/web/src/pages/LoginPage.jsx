@@ -44,6 +44,10 @@ export default function LoginPage() {
   // Where to send the user after a successful login — the page they were
   // trying to reach, or home.
   const returnTo = location.state?.from?.pathname || "/";
+  // RequireAuth renders this page in place of the page you were on, so the URL
+  // never moves to /login. Signing in then just swaps your page back in; only
+  // the real /login route needs to navigate anywhere.
+  const inPlace = location.pathname !== "/login";
 
   // TODO: in luna web website, need wizard that asks users a set of questions, then gives them a luna-recover-<device_token>.luna file (or luna-recover.luna if no device token is configured on Luna) to put onto the root of a dedicated, otherwise-empty flash drive. Luna only honours it at boot. Lunas without a device token must be supported (e.g. allow skipping the device token field).
 
@@ -92,7 +96,7 @@ export default function LoginPage() {
     try {
       await login(username.trim(), password);
       addToast({ type: "success", message: "Signed in." });
-      navigate(returnTo, { replace: true });
+      if (!inPlace) navigate(returnTo, { replace: true });
     } catch (err) {
       setErrorStatus(err.status || "NetworkError");
     } finally {

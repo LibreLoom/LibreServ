@@ -16,11 +16,13 @@ import Button from "@libreloom/ui/components/ui/Button.jsx";
 import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import { getJson, postJson, apiErrorMessage } from "../../../lib/api";
+import { useOptionalAuth } from "../../../context/AuthContext";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 
 export default function SystemUpdatesCard({ index = 0 }) {
   const { addToast } = useToast();
   const queryClient = useQueryClient();
+  const { endSession } = useOptionalAuth() || {};
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [showReleaseNotesModal, setShowReleaseNotesModal] = useState(false);
   const [checkMessage, setCheckMessage] = useState(null);
@@ -52,7 +54,9 @@ export default function SystemUpdatesCard({ index = 0 }) {
     onSuccess: () => {
       setShowUpdateModal(false);
       setTimeout(() => {
-        window.location.href = "/login?reason=update";
+        // The restart ends the session; show sign-in in place so this tab
+        // stays on Settings and comes back to it after signing in.
+        endSession?.();
       }, 3000);
     },
   });

@@ -93,8 +93,9 @@ export function AuthProvider({ children }) {
 
   // Any API call that comes back 401 lands here. Ask /auth/me whether the
   // session really ended (a 401 can also be a wrong password or device token);
-  // if it did, drop the user so RequireAuth sends them to /login, which returns
-  // them to this page after they sign in.
+  // if it did, drop the user so RequireAuth shows the sign-in form in place of
+  // this page — the URL never moves, so every open tab keeps its place and
+  // returns to it after signing in.
   const userRef = useRef(user);
   useEffect(() => {
     userRef.current = user;
@@ -144,10 +145,20 @@ export function AuthProvider({ children }) {
     setUser(null);
   }, []);
 
+  // Drop the session in this tab without touching the URL, so RequireAuth
+  // shows the sign-in form in place of the page you were on. Flows that end
+  // the session themselves (password change, sign out everywhere, an update
+  // that restarts Luna) use this instead of bouncing to /login — every open
+  // tab then keeps its place and comes back to it after signing in.
+  const endSession = useCallback(() => {
+    setSessionEnded(false);
+    setUser(null);
+  }, []);
+
   // Stable between renders so consumers only update when auth state changes.
   const value = useMemo(
-    () => ({ user, setup, hasAdmin, loading, sessionEnded, login, register, logout, refresh }),
-    [user, setup, hasAdmin, loading, sessionEnded, login, register, logout, refresh],
+    () => ({ user, setup, hasAdmin, loading, sessionEnded, login, register, logout, endSession, refresh }),
+    [user, setup, hasAdmin, loading, sessionEnded, login, register, logout, endSession, refresh],
   );
 
   return (

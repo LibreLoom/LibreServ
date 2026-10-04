@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { AuthProvider } from "../context/AuthContext";
+import { AuthProvider, useAuth } from "../context/AuthContext";
 import LoginPage from "./LoginPage";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 
@@ -70,6 +70,34 @@ describe("LoginPage", () => {
     fireEvent.change(screen.getByLabelText("Password", { selector: "input" }), { target: { value: "hunter22hunter" } });
     fireEvent.click(screen.getByRole("button", { name: "Login" }));
     expect(await screen.findByText(/LUNA HOME/i)).toBeInTheDocument();
+  });
+
+  it("signs in on the page you were on when rendered in place", async () => {
+    stubFetch();
+    // Stands in for RequireAuth: no user means the sign-in form in place of
+    // the page, the same URL throughout.
+    function Guard() {
+      const { user } = useAuth();
+      return user ? <div>DRIVES PAGE</div> : <LoginPage />;
+    }
+    render(
+      <ToastProvider>
+        <MemoryRouter initialEntries={["/drives/d1"]}>
+          <AuthProvider>
+            <Routes>
+              <Route path="/drives/:id" element={<Guard />} />
+              <Route path="/" element={<div>LUNA HOME</div>} />
+            </Routes>
+          </AuthProvider>
+        </MemoryRouter>
+      </ToastProvider>
+    );
+    fireEvent.change(screen.getByLabelText("Username", { selector: "input" }), { target: { value: "max" } });
+    fireEvent.change(screen.getByLabelText("Password", { selector: "input" }), { target: { value: "hunter22hunter" } });
+    fireEvent.click(screen.getByRole("button", { name: "Login" }));
+    // Back on the page you were on — not bounced to home.
+    expect(await screen.findByText("DRIVES PAGE")).toBeInTheDocument();
+    expect(screen.queryByText("LUNA HOME")).not.toBeInTheDocument();
   });
 
   it("explains a wrong password in plain language", async () => {
