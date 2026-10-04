@@ -1,7 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { getJson, postJson } from "../lib/api";
+import { UNAUTHORIZED_EVENT, getJson, postJson } from "../lib/api";
 
 const AuthContext = createContext(undefined);
 
@@ -16,6 +16,8 @@ export function AuthProvider({ children }) {
   const [setup, setSetup] = useState(null);
   const [hasAdmin, setHasAdmin] = useState(null);
   const [loading, setLoading] = useState(true);
+  // True after a live session was found dead, so LoginPage can say why.
+  const [sessionEnded, setSessionEnded] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -89,9 +91,40 @@ export function AuthProvider({ children }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps -- location.pathname intentionally omitted: the setup check runs once at startup
   }, [refresh]);
 
+  // Any API call that comes back 401 lands here. Ask /auth/me whether the
+  // session really ended (a 401 can also be a wrong password or device token);
+  // if it did, drop the user so RequireAuth shows the sign-in form in place of
+  // this page — the URL never moves, so every open tab keeps its place and
+  // returns to it after signing in.
+  const userRef = useRef(user);
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
+  const checkingRef = useRef(false);
+  useEffect(() => {
+    async function onUnauthorized() {
+      if (!userRef.current || checkingRef.current) return;
+      checkingRef.current = true;
+      try {
+        const me = await getJson("/api/v1/auth/me");
+        if (!me && userRef.current) {
+          setSessionEnded(true);
+          setUser(null);
+        }
+      } catch {
+        // Couldn't reach Luna — keep the user; a blip is not a sign-out.
+      } finally {
+        checkingRef.current = false;
+      }
+    }
+    window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+  }, []);
+
   const login = useCallback(async (username, password) => {
     // Cookie session only — login JSON has no JWT. fetch uses credentials: include.
     const me = await postJson("/api/v1/auth/login", { username, password });
+    setSessionEnded(false);
     setUser(me);
     return me;
   }, []);
@@ -112,10 +145,20 @@ export function AuthProvider({ children }) {
     setUser(null);
   }, []);
 
+  // Drop the session in this tab without touching the URL, so RequireAuth
+  // shows the sign-in form in place of the page you were on. Flows that end
+  // the session themselves (password change, sign out everywhere, an update
+  // that restarts Luna) use this instead of bouncing to /login — every open
+  // tab then keeps its place and comes back to it after signing in.
+  const endSession = useCallback(() => {
+    setSessionEnded(false);
+    setUser(null);
+  }, []);
+
   // Stable between renders so consumers only update when auth state changes.
   const value = useMemo(
-    () => ({ user, setup, hasAdmin, loading, login, register, logout, refresh }),
-    [user, setup, hasAdmin, loading, login, register, logout, refresh],
+    () => ({ user, setup, hasAdmin, loading, sessionEnded, login, register, logout, endSession, refresh }),
+    [user, setup, hasAdmin, loading, sessionEnded, login, register, logout, endSession, refresh],
   );
 
   return (

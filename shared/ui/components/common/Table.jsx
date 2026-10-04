@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import PropTypes from "prop-types";
+import { Plus } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { haptic } from "../../utils/haptics.js";
 
@@ -16,6 +17,11 @@ const ALIGN = {
   center: "text-center",
   right: "text-right",
 };
+
+// color-scan: ignore-next-line mixes theme CSS vars only (no hardcoded hex)
+const ROW_HOVER_BG = "hover:bg-[color-mix(in_oklab,var(--secondary)_85%,var(--primary))]";
+const ROW_SLIDE =
+  "cursor-pointer motion-safe:transition-[translate,background-color] duration-200 ease-[var(--motion-easing-standard)] hover:motion-safe:translate-x-0.5 active:motion-safe:translate-x-0";
 
 const MD_UP_QUERY = "(min-width: 768px)";
 
@@ -42,7 +48,39 @@ function useIsMdUp() {
 }
 
 /**
- * @param {{ columns: any, data: any, rowKey: any, scrollable?: any, maxHeight?: any, className?: string, headClassName?: string, onRowClick?: (row: any, rowIndex: number) => void, mobileCards?: boolean, striped?: boolean }} _
+ * One slim extra row after the data, in the data rows' surface and motion,
+ * with only a centered icon (a plus by default). `label` is the accessible name, e.g. "Add user".
+ * @typedef {{ label: string, onClick: () => void, icon?: import("react").ElementType, disabled?: boolean }} TableAddRow
+ */
+
+/** @param {{ addRow: TableAddRow, className: string }} _ */
+function AddRowButton({ addRow, className }) {
+  const Icon = addRow.icon || Plus;
+  return (
+    <button
+      type="button"
+      aria-label={addRow.label}
+      disabled={addRow.disabled}
+      onClick={() => {
+        haptic("selection");
+        addRow.onClick();
+      }}
+      className={cn(
+        "w-full flex items-center justify-center rounded-large-element text-primary",
+        CELL_BG,
+        ROW_SLIDE,
+        ROW_HOVER_BG,
+        "disabled:opacity-50 disabled:cursor-not-allowed",
+        className,
+      )}
+    >
+      <Icon size={16} aria-hidden="true" />
+    </button>
+  );
+}
+
+/**
+ * @param {{ columns: any, data: any, rowKey: any, scrollable?: any, maxHeight?: any, className?: string, headClassName?: string, onRowClick?: (row: any, rowIndex: number) => void, mobileCards?: boolean, striped?: boolean, addRow?: TableAddRow }} _
  */
 export default function Table({
   columns,
@@ -55,6 +93,7 @@ export default function Table({
   onRowClick,
   mobileCards = false,
   striped = false,
+  addRow,
 }) {
   const isMdUp = useIsMdUp();
   const showCards = mobileCards && !isMdUp;
@@ -130,6 +169,11 @@ export default function Table({
               </li>
             );
           })}
+          {addRow && (
+            <li>
+              <AddRowButton addRow={addRow} className="py-2" />
+            </li>
+          )}
         </ul>
       </div>
     );
@@ -220,6 +264,14 @@ export default function Table({
                 </tr>
               );
             })}
+            {addRow && (
+              <tr>
+                <td colSpan={columns.length} className="p-0">
+                  {/* A slim strip, so it reads as an action rather than an empty row. */}
+                  <AddRowButton addRow={addRow} className="py-2" />
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -249,4 +301,10 @@ Table.propTypes = {
   onRowClick: PropTypes.func,
   mobileCards: PropTypes.bool,
   striped: PropTypes.bool,
+  addRow: PropTypes.shape({
+    label: PropTypes.string.isRequired,
+    onClick: PropTypes.func.isRequired,
+    icon: PropTypes.elementType,
+    disabled: PropTypes.bool,
+  }),
 };

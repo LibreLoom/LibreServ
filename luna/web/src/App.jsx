@@ -28,6 +28,7 @@ const SharedPage = lazy(loadSharedPage);
 const DashboardPage = lazy(loadDashboardPage);
 const LoginPage = lazy(() => import("./pages/LoginPage"));
 const UsersPage = lazy(() => import("./pages/UsersPage"));
+const EditUserPage = lazy(() => import("./pages/EditUserPage"));
 const SetupPage = lazy(() => import("./pages/SetupPage"));
 const NotFoundPage = lazy(() => import("./pages/NotFoundPage"));
 const SettingsPage = lazy(loadSettingsPage);
@@ -41,12 +42,15 @@ const queryClient = new QueryClient({
 
 function RequireAuth({ children }) {
   const { user, setup, hasAdmin, loading } = useAuth();
-  const location = useLocation();
   if (loading) return null;
   if (setup?.setup_completed === false || (!user && hasAdmin === false)) {
     return <Navigate to="/setup" replace />;
   }
-  if (!user) return <Navigate to="/login" replace state={{ from: location }} />;
+  // Sign-in shows up in place, keeping the URL on the page you were on. When a
+  // session dies mid-use (password changed, signed out elsewhere) every open
+  // tab lands on the sign-in form together, and each returns to its own page
+  // after signing in — instead of every tab being dragged to /login.
+  if (!user) return <LoginPage />;
   return children;
 }
 
@@ -142,6 +146,7 @@ export default function App() {
                 <Route path="/shared" element={<SharedPage />} />
                 <Route path="/photos" element={<PhotosToGalleryRedirect />} />
                 <Route path="/settings/users" element={<RequireAdmin><UsersPage /></RequireAdmin>} />
+                <Route path="/settings/users/:id" element={<RequireAdmin><EditUserPage /></RequireAdmin>} />
                 <Route path="/settings" element={<SettingsPage />} />
               </Route>
               <Route path="*" element={<NotFoundPage />} />

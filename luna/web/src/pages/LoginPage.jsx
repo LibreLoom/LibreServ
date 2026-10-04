@@ -24,7 +24,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [errorStatus, setErrorStatus] = useState(null);
 
-  const { login, hasAdmin, loading: authLoading } = useAuth();
+  const { login, hasAdmin, loading: authLoading, sessionEnded } = useAuth();
   const loginQuip = useMemo(() => getLoginQuip(), []);
 
   useEffect(() => {
@@ -33,9 +33,21 @@ export default function LoginPage() {
     }
   }, [authLoading, hasAdmin, navigate]);
 
+  // Landed here because the session ended mid-use (password changed,
+  // signed out elsewhere) — say so instead of a silent bounce.
+  useEffect(() => {
+    if (sessionEnded) {
+      addToast({ type: "info", message: "You were signed out. Sign in again to keep going." });
+    }
+  }, [sessionEnded, addToast]);
+
   // Where to send the user after a successful login — the page they were
   // trying to reach, or home.
   const returnTo = location.state?.from?.pathname || "/";
+  // RequireAuth renders this page in place of the page you were on, so the URL
+  // never moves to /login. Signing in then just swaps your page back in; only
+  // the real /login route needs to navigate anywhere.
+  const inPlace = location.pathname !== "/login";
 
   // TODO: in luna web website, need wizard that asks users a set of questions, then gives them a luna-recover-<device_token>.luna file (or luna-recover.luna if no device token is configured on Luna) to put onto the root of a dedicated, otherwise-empty flash drive. Luna only honours it at boot. Lunas without a device token must be supported (e.g. allow skipping the device token field).
 
@@ -84,7 +96,7 @@ export default function LoginPage() {
     try {
       await login(username.trim(), password);
       addToast({ type: "success", message: "Signed in." });
-      navigate(returnTo, { replace: true });
+      if (!inPlace) navigate(returnTo, { replace: true });
     } catch (err) {
       setErrorStatus(err.status || "NetworkError");
     } finally {

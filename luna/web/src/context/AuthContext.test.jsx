@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./AuthContext";
+import { getJson } from "../lib/api";
 
 function renderAt(path, { setupCompleted = false, hasAdmin = false } = {}) {
   vi.stubGlobal("fetch", vi.fn(async (url) => {
@@ -154,5 +155,106 @@ describe("AuthProvider session survival", () => {
     expect(await screen.findByText("SIGNED IN AS max")).toBeInTheDocument();
     // The startup me read happens once; in-app navigation must not re-run it.
     expect(meCalls.n).toBe(1);
+  });
+});
+
+describe("AuthProvider session ending mid-use", () => {
+  function renderSignedIn({ sessionStillValid }) {
+    let signedIn = true;
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      const u = String(url);
+      const json = (body, status = 200) =>
+        new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+      if (u.endsWith("/api/v1/auth/me")) {
+        return json(signedIn ? { id: "u1", username: "ada", role: "admin" } : null);
+      }
+      if (u.endsWith("/api/v1/auth/status")) return json({ has_admin: true });
+      if (u.endsWith("/api/v1/setup")) return json({ name: "Luna", setup_completed: true });
+      if (u.endsWith("/api/v1/users")) {
+        if (!sessionStillValid) signedIn = false;
+        return json({ error: "Sign in to Luna first." }, 401);
+      }
+      return json({}, 404);
+    }));
+
+    function Probe() {
+      const { user, sessionEnded, loading } = useAuth();
+      if (loading) return null;
+      return (
+        <div>
+          <span>{user ? `USER ${user.username}` : "NO USER"}</span>
+          {sessionEnded && <span>SESSION ENDED</span>}
+          <button type="button" onClick={() => getJson("/api/v1/users").catch(() => {})}>LOAD</button>
+        </div>
+      );
+    }
+
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <AuthProvider>
+          <Probe />
+        </AuthProvider>
+      </MemoryRouter>
+    );
+  }
+
+  it("signs the user out when a 401 turns out to be a dead session", async () => {
+    renderSignedIn({ sessionStillValid: false });
+    fireEvent.click(await screen.findByText("LOAD"));
+    expect(await screen.findByText("NO USER")).toBeInTheDocument();
+    expect(screen.getByText("SESSION ENDED")).toBeInTheDocument();
+  });
+
+  it("keeps the user when the session is still valid after a 401", async () => {
+    renderSignedIn({ sessionStillValid: true });
+    fireEvent.click(await screen.findByText("LOAD"));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.getByText("USER ada")).toBeInTheDocument();
+    expect(screen.queryByText("SESSION ENDED")).not.toBeInTheDocument();
+  });
+});
+
+describe("AuthProvider endSession", () => {
+  it("clears the user without moving off the current URL", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      const u = String(url);
+      const json = (body, status = 200) =>
+        new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+      if (u.endsWith("/api/v1/auth/me")) return json({ id: "u1", username: "ada", role: "admin" });
+      if (u.endsWith("/api/v1/auth/status")) return json({ has_admin: true });
+      if (u.endsWith("/api/v1/setup")) return json({ name: "Luna", setup_completed: true });
+      return json({}, 404);
+    }));
+
+    function Probe() {
+      const { user, loading, endSession } = useAuth();
+      const { pathname } = useLocation();
+      if (loading) return null;
+      return (
+        <div>
+          <span>{user ? `USER ${user.username}` : "NO USER"}</span>
+          <span>AT {pathname}</span>
+          <button type="button" onClick={endSession}>END</button>
+        </div>
+      );
+    }
+
+    render(
+      <MemoryRouter initialEntries={["/settings"]}>
+        <AuthProvider>
+          <Routes>
+            <Route path="/settings" element={<Probe />} />
+            <Route path="/login" element={<div>LOGIN ROUTE</div>} />
+          </Routes>
+        </AuthProvider>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText("USER ada")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("END"));
+    expect(await screen.findByText("NO USER")).toBeInTheDocument();
+    // The tab stays put; RequireAuth is what shows the sign-in form in place.
+    expect(screen.getByText("AT /settings")).toBeInTheDocument();
+    expect(screen.queryByText("LOGIN ROUTE")).not.toBeInTheDocument();
   });
 });

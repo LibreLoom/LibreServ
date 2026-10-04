@@ -36,6 +36,20 @@ export function withCsrfHeaders(method, headers = {}) {
 }
 
 /**
+ * Window event fired when a request comes back 401. AuthProvider listens and
+ * re-checks /auth/me: a 401 can also mean "wrong password" or "wrong device
+ * token", so only a confirmed dead session signs the user out.
+ */
+export const UNAUTHORIZED_EVENT = "luna:unauthorized";
+
+function notifyUnauthorized(path) {
+  if (typeof window === "undefined") return;
+  // /auth/* answers 401 for bad logins; those never mean the session ended.
+  if (String(path).startsWith("/api/v1/auth/")) return;
+  window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT));
+}
+
+/**
  * Low-level fetch for callers that need a raw Response. Always includes
  * credentials and attaches X-CSRF-Token on mutating methods.
  */
@@ -43,10 +57,11 @@ export async function apiFetch(path, options = {}) {
   const method = (options.method || "GET").toUpperCase();
   const headers = withCsrfHeaders(method, options.headers || {});
 
+  let res;
   try {
     // Spread options first, then force credentials + merged headers so a
     // caller's Content-Type object cannot wipe X-CSRF-Token.
-    return await fetch(path, {
+    res = await fetch(path, {
       ...options,
       credentials: "include",
       headers,
@@ -57,6 +72,8 @@ export async function apiFetch(path, options = {}) {
       apiErrorMessage(err, "Couldn't reach Luna. Check this device's connection and try again."),
     );
   }
+  if (res.status === 401) notifyUnauthorized(path);
+  return res;
 }
 
 export async function getJson(path, options = {}) {
@@ -154,6 +171,7 @@ export function putBinaryProgress(path, body, options = {}) {
 
     xhr.onload = () => {
       options.signal?.removeEventListener("abort", onAbort);
+      if (xhr.status === 401) notifyUnauthorized(path);
       if (xhr.status >= 200 && xhr.status < 300) {
         const text = xhr.responseText || "";
         if (!text) {
@@ -231,6 +249,7 @@ export function postFormProgress(path, formData, options = {}) {
 
     xhr.onload = () => {
       options.signal?.removeEventListener("abort", onAbort);
+      if (xhr.status === 401) notifyUnauthorized(path);
       if (xhr.status >= 200 && xhr.status < 300) {
         const text = xhr.responseText || "";
         if (!text) {

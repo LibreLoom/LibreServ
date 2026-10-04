@@ -225,7 +225,7 @@ CreateTokenModal.propTypes = {
  */
 function ProfileCard() {
   // Optional: unit surfaces render this card without an auth tree.
-  const { user, refresh } = useOptionalAuth() || {};
+  const { user, refresh, endSession } = useOptionalAuth() || {};
   const { addToast } = useToast();
   const [name, setName] = useState(user?.display_name || "");
   const [nameError, setNameError] = useState(null);
@@ -256,7 +256,8 @@ function ProfileCard() {
     }),
     onSuccess: () => {
       addToast({ type: "success", message: "Password changed. Sign in again with your new password." });
-      window.location.href = "/login";
+      // Sign-in replaces this page in place, so the URL stays on Settings.
+      endSession?.();
     },
     onError: (err) => setPasswordError(apiErrorMessage(err, "Couldn't change your password. Try again.")),
   });
@@ -393,6 +394,7 @@ function ProfileCard() {
 export default function AccessCategory() {
   const { addToast } = useToast();
   const queryClient = useQueryClient();
+  const { endSession } = useOptionalAuth() || {};
   const [error, setError] = useState(null);
   const [tokenError, setTokenError] = useState(null);
   const [creating, setCreating] = useState(false);
@@ -414,7 +416,11 @@ export default function AccessCategory() {
 
   const signOutBrowsers = useMutation({
     mutationFn: () => postJson("/api/v1/auth/revoke-sessions", {}),
-    onSuccess: () => { window.location.href = "/login"; },
+    onSuccess: () => {
+      addToast({ type: "success", message: "Signed out of every browser." });
+      // Sign-in replaces this page in place, so the URL stays on Settings.
+      endSession?.();
+    },
     onError: (err) => setError(apiErrorMessage(err)),
   });
 
