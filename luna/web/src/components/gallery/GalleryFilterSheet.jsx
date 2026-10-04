@@ -1,6 +1,7 @@
 /* eslint-disable react-refresh/only-export-components -- filter sheet exports helpers used by GalleryPage */
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
+import { Check } from "lucide-react";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
@@ -353,6 +354,10 @@ export default function GalleryFilterSheet({
   const [facets, setFacets] = useState(/** @type {object|null} */ (null));
   const [saved, setSaved] = useState(readSavedFilters);
   const [saveName, setSaveName] = useState("");
+  const [justCleared, setJustCleared] = useState(false);
+  const clearedTimer = useRef(0);
+
+  useEffect(() => () => window.clearTimeout(clearedTimer.current), []);
 
   useEffect(() => {
     if (!open) return;
@@ -463,6 +468,9 @@ export default function GalleryFilterSheet({
 
   function clearAll() {
     setDraft({ ...EMPTY_FILTERS, formats: [] });
+    setJustCleared(true);
+    window.clearTimeout(clearedTimer.current);
+    clearedTimer.current = window.setTimeout(() => setJustCleared(false), 1500);
   }
 
   function saveCurrent() {
@@ -492,8 +500,8 @@ export default function GalleryFilterSheet({
       onClose={onClose}
       footer={({ close }) => (
         <div className="flex flex-wrap gap-2 justify-end">
-          <Button type="button" variant="outline" onClick={clearAll}>
-            Clear all
+          <Button type="button" variant="outline" onClick={clearAll} aria-live="polite">
+            {justCleared ? <Check className="w-4 h-4" aria-label="Filters cleared" /> : "Clear all"}
           </Button>
           <Button
             type="button"
