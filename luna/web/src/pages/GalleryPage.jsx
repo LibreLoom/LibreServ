@@ -2397,7 +2397,7 @@ function AlbumsPanel({
             className="w-36"
             aria-label="Sort albums"
           />
-          <Button variant="secondary" surface="primary" size="sm" className="w-36" onClick={onCreate}>
+          <Button variant="secondary" surface="primary" size="sm" className="min-h-[34px] w-36" onClick={onCreate}>
             <Plus size={16} /> New album
           </Button>
         </div>
