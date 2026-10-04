@@ -208,12 +208,13 @@ select:focus:not(:focus-visible) {
     box-shadow: none;
 }
 
-/* Every placeholder: the field's own text color, slightly faded and italic, so it never reads as typed text. Don't override per field. */
+/* Every placeholder: the field's own text color, slightly faded, italic and always sans, so it never reads as typed text. Don't override per field. */
 input::placeholder,
 textarea::placeholder {
     color: currentColor;
     opacity: 0.7;
     font-style: italic;
+    font-family: var(--font-sans);
 }
 
 /* Search field lives inside a pill — never draw a rectangular outline on the input. */
