@@ -23,8 +23,9 @@ client-side; lunad is a thin storage + collaboration relay.
    file in plain language — never the raw `x2t exit N` code.
 4. **First opener** downloads the file, converts it to the editor's internal
    `Editor.bin` in a Web Worker with `x2t.wasm`, and uploads the bundle
-   (`PUT /api/v1/office/bundle/{key}/Editor.bin`, `origin.<ext>`, `media/*`).
-   Joiners find the bundle already on Luna.
+   (`PUT /s/office-bundle/{key}/{bundle_id}/Editor.bin`, `origin.<ext>`,
+   `media/*`) with the session's office token. Joiners find the bundle already
+   on Luna.
 5. The editor connects to the docstorage socket
    `/eurooffice/{ver}/doc/{key}/c` — Engine.IO v4 + Socket.IO v5 over
    WebSocket. Lunad authenticates the office token, relays changes/cursors,
@@ -99,7 +100,7 @@ the pack shows the normal "not installed" card on office files.
 | Endpoint | Purpose |
 |---|---|
 | `POST /api/v1/office/session` | Mint doc key + office token; register key → file binding |
-| `GET/HEAD/PUT /api/v1/office/bundle/{key}/{*name}` | Converted bundle files (Editor.bin, media/*, origin) |
+| `GET/HEAD/PUT /s/office-bundle/{key}/{bundle_id}/{*name}` | Converted bundle files (Editor.bin, media/*, origin); scoped to the session's office token (the iframe's `luna_office` cookie on GET/HEAD, `X-Office-Token` on PUT) |
 | `GET /eurooffice/**` | Pack assets via one dispatcher — strips the `9.3.4-<hash>` version segment and upgrades `doc/{key}/c` sockets inside it |
 | `GET /sdkjs/**` | Root-level sdkjs alias — the editor iframe resolves `../../sdkjs/` against the root like Document Server's nginx layout |
 | `GET /api/v1/collab/ws` | Presence room (existing) |
