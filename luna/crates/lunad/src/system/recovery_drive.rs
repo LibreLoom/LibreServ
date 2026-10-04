@@ -51,7 +51,7 @@ use crate::auth::hash_password_unchecked;
 use crate::db;
 use crate::drives::DriveManager;
 use crate::drives::detect::DetectedDrive;
-use crate::net::connect::{DEVICE_TOKEN_FILE, normalize_setup_code};
+use crate::net::connect::{DEVICE_TOKEN_FILE, normalize_device_code};
 
 #[derive(Debug, Deserialize)]
 pub struct RecoveryPayload {
@@ -138,12 +138,12 @@ pub fn verify_device_token(data_dir: &Path, offered_token: &str) -> bool {
     .iter()
     .filter_map(|f| fs::read_to_string(data_dir.join(f)).ok())
     .map(|s| s.trim().to_string())
-    .map(|raw| normalize_setup_code(&raw))
+    .map(|raw| normalize_device_code(&raw))
     .find(|norm| crate::net::connect::is_device_token_format(norm));
 
     match expected {
         Some(norm_expected) => {
-            let norm_offered = normalize_setup_code(offered_token);
+            let norm_offered = normalize_device_code(offered_token);
             !norm_offered.is_empty() && norm_offered == norm_expected
         }
         None => {

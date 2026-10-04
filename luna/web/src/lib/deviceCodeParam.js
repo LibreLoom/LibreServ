@@ -1,28 +1,28 @@
 /** Query param Connect puts on Luna `/setup` so the device-token step can be skipped. */
-export const SETUP_TOKEN_PARAM = "token";
+export const DEVICE_CODE_PARAM = "token";
 
 /**
  * @param {string | URLSearchParams | null | undefined} search
  * @returns {string}
  */
-export function readSetupTokenFromSearch(search) {
+export function readDeviceCodeFromSearch(search) {
   const params =
     search instanceof URLSearchParams
       ? search
       : new URLSearchParams(String(search || "").replace(/^\?/, ""));
-  return (params.get(SETUP_TOKEN_PARAM) || "").trim();
+  return (params.get(DEVICE_CODE_PARAM) || "").trim();
 }
 
 /**
- * Returns a copy of `search` without the setup token param.
+ * Returns a copy of `search` without the device code param.
  * @param {string | URLSearchParams | null | undefined} search
  * @returns {URLSearchParams}
  */
-export function stripSetupTokenFromSearch(search) {
+export function stripDeviceCodeFromSearch(search) {
   const params =
     search instanceof URLSearchParams
       ? new URLSearchParams(search)
       : new URLSearchParams(String(search || "").replace(/^\?/, ""));
-  params.delete(SETUP_TOKEN_PARAM);
+  params.delete(DEVICE_CODE_PARAM);
   return params;
 }

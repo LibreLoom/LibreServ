@@ -8,7 +8,7 @@ use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
-use crate::net::connect::{group_device_token, is_device_token_format, normalize_setup_code};
+use crate::net::connect::{group_device_token, is_device_token_format, normalize_device_code};
 
 pub const MAG_RETRY_ATTEMPTS: u32 = 3;
 pub const MAG_RETRY_DELAY: Duration = Duration::from_millis(500);
@@ -80,7 +80,7 @@ pub fn fetch_device_token_from_mag(token_path: &Path, opts: &MagFetchOptions) ->
 }
 
 fn is_valid_device_token(raw: &str) -> bool {
-    let norm = normalize_setup_code(raw.trim());
+    let norm = normalize_device_code(raw.trim());
     is_device_token_format(&norm)
 }
 
@@ -88,7 +88,7 @@ fn write_device_token(path: &Path, raw: &str) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let norm = normalize_setup_code(raw.trim());
+    let norm = normalize_device_code(raw.trim());
     let grouped = group_device_token(&norm);
     std::fs::write(path, format!("{grouped}\n"))?;
     #[cfg(unix)]

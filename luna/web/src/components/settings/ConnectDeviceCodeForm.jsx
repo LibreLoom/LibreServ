@@ -16,7 +16,7 @@ const LUNA_CONNECT_HOST = "connect.luna.libreloom.org";
  * Enter or replace the Luna Connect device token.
  * Used in Settings → About → Advanced (device token modal).
  */
-export default function ConnectSetupCodeForm({ surface = "secondary" }) {
+export default function ConnectDeviceCodeForm({ surface = "secondary" }) {
   const { addToast } = useToast();
   const queryClient = useQueryClient();
   const [code, setCode] = useState("");
@@ -157,7 +157,7 @@ export default function ConnectSetupCodeForm({ surface = "secondary" }) {
   );
 }
 
-ConnectSetupCodeForm.propTypes = {
+ConnectDeviceCodeForm.propTypes = {
   /** Backdrop the form sits on: page bg (`primary`) or card (`secondary`). */
   surface: PropTypes.oneOf(["primary", "secondary"]),
 };

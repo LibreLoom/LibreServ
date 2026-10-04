@@ -19,9 +19,9 @@ import {
   usernamePolicyError,
 } from "../lib/usernamePolicy";
 import {
-  readSetupTokenFromSearch,
-  stripSetupTokenFromSearch,
-} from "../lib/setupTokenParam.js";
+  readDeviceCodeFromSearch,
+  stripDeviceCodeFromSearch,
+} from "../lib/deviceCodeParam.js";
 import { useAuth } from "../context/AuthContext";
 import { useAnimatedHeight } from "@libreloom/ui/hooks/useAnimatedHeight.jsx";
 import useSetupProgress from "../hooks/useSetupProgress";
@@ -310,13 +310,13 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
   // so the full device token does not linger in the address bar / history entry.
   useEffect(() => {
     if (consumedQueryTokenRef.current) return;
-    const fromQuery = readSetupTokenFromSearch(searchParams);
+    const fromQuery = readDeviceCodeFromSearch(searchParams);
     if (!fromQuery) return;
     consumedQueryTokenRef.current = true;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot ?token= seed from URL
     setForm((f) => ({ ...f, setup_secret: fromQuery }));
     setHideSetupSecretStep(true);
-    setSearchParams(stripSetupTokenFromSearch(searchParams), { replace: true });
+    setSearchParams(stripDeviceCodeFromSearch(searchParams), { replace: true });
   }, [searchParams, setSearchParams]);
 
   const setField = (name, value) => {

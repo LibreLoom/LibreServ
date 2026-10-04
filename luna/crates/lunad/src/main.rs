@@ -265,7 +265,7 @@ async fn async_main() -> anyhow::Result<()> {
                         ipv4: net.ipv4.clone(),
                         cable_in: net.ethernet_connected,
                         has_default_route: net.has_default_route,
-                        setup_code: st.setup_code.clone(),
+                        device_code: st.device_code.clone(),
                         connect_hostname: st.hostname.clone(),
                         problems,
                     };

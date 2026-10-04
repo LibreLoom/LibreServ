@@ -216,8 +216,8 @@ ORDER BY d.created_at DESC`, accountID)
 	return list, nil
 }
 
-// SetupTokens lists permanent device tokens for support / print (replaces issued_tokens admin UI).
-func (h AdminConsoleHandler) SetupTokens(w http.ResponseWriter, r *http.Request) {
+// DeviceCodes lists permanent device tokens for support / print (replaces issued_tokens admin UI).
+func (h AdminConsoleHandler) DeviceCodes(w http.ResponseWriter, r *http.Request) {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	status := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("status")))
 	all := strings.EqualFold(r.URL.Query().Get("all"), "1") ||
@@ -311,14 +311,14 @@ WHERE 1=1`
 			"created_at":      created,
 			"can_revoke":      status == "unbound",
 			"can_reveal":      false,
-			"setup_prefix":    "",
+			"device_code_prefix":    "",
 		}
 		// The full device token never ships in a list response; reveal goes
-		// through GET /admin/setup-tokens/{id}/reveal for a single row.
+		// through GET /admin/device-codes/{id}/reveal for a single row.
 		if sealed != "" {
 			if code, err := security.OpenString(sealed); err == nil && code != "" {
 				item["can_reveal"] = true
-				item["setup_prefix"] = security.SetupPrefix(code)
+				item["device_code_prefix"] = security.DeviceCodePrefix(code)
 			}
 		}
 		list = append(list, item)
@@ -337,10 +337,10 @@ WHERE 1=1`
 	JSON(w, http.StatusOK, out)
 }
 
-// RevealSetupToken opens the sealed device token for one row (support path).
+// RevealDeviceCode opens the sealed device token for one row (support path).
 // The list endpoint only ever returns the hint and the 8-char setup prefix.
-func (h AdminConsoleHandler) RevealSetupToken(w http.ResponseWriter, r *http.Request) {
-	id := strings.TrimSpace(chi.URLParam(r, "tokenID"))
+func (h AdminConsoleHandler) RevealDeviceCode(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(chi.URLParam(r, "codeID"))
 	if id == "" {
 		JSONError(w, http.StatusBadRequest, "Device token id is required.")
 		return
@@ -371,12 +371,12 @@ func (h AdminConsoleHandler) RevealSetupToken(w http.ResponseWriter, r *http.Req
 	JSON(w, http.StatusOK, map[string]any{
 		"code":         code,
 		"code_hint":    hint,
-		"setup_prefix": security.SetupPrefix(code),
+		"device_code_prefix": security.DeviceCodePrefix(code),
 	})
 }
 
-func (h AdminConsoleHandler) RevokeSetupToken(w http.ResponseWriter, r *http.Request) {
-	id := strings.TrimSpace(chi.URLParam(r, "tokenID"))
+func (h AdminConsoleHandler) RevokeDeviceCode(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(chi.URLParam(r, "codeID"))
 	if id == "" {
 		JSONError(w, http.StatusBadRequest, "Device token id is required.")
 		return
@@ -408,9 +408,9 @@ func (h AdminConsoleHandler) RevokeSetupToken(w http.ResponseWriter, r *http.Req
 	JSON(w, http.StatusOK, map[string]any{"ok": true, "id": id, "status": "revoked"})
 }
 
-// PurgeSetupToken removes a device token and its live Connect state. Backups stay.
-func (h AdminConsoleHandler) PurgeSetupToken(w http.ResponseWriter, r *http.Request) {
-	id := strings.TrimSpace(chi.URLParam(r, "tokenID"))
+// PurgeDeviceCode removes a device token and its live Connect state. Backups stay.
+func (h AdminConsoleHandler) PurgeDeviceCode(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(chi.URLParam(r, "codeID"))
 	if id == "" {
 		JSONError(w, http.StatusBadRequest, "Device token id is required.")
 		return

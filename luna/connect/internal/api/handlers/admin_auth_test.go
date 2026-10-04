@@ -46,7 +46,7 @@ func TestAdminSeedLoginAndMint(t *testing.T) {
 		t.Fatalf("session token must be opaque, got prefix of admin id")
 	}
 
-	mintReq := httptest.NewRequest(http.MethodPost, "/admin/setup-tokens", bytes.NewBufferString(`{}`))
+	mintReq := httptest.NewRequest(http.MethodPost, "/admin/device-codes", bytes.NewBufferString(`{}`))
 	mintReq.Header.Set("Authorization", "Bearer "+token)
 	mintReq = mintReq.WithContext(WithAdminID(mintReq.Context(), loginOut["id"].(string)))
 	mintRec := httptest.NewRecorder()
@@ -55,7 +55,7 @@ func TestAdminSeedLoginAndMint(t *testing.T) {
 		t.Fatalf("mint %d %s", mintRec.Code, mintRec.Body.String())
 	}
 
-	bulkReq := httptest.NewRequest(http.MethodPost, "/admin/setup-tokens/bulk", bytes.NewBufferString(`{"count":5}`))
+	bulkReq := httptest.NewRequest(http.MethodPost, "/admin/device-codes/bulk", bytes.NewBufferString(`{"count":5}`))
 	bulkReq.Header.Set("Authorization", "Bearer "+token)
 	bulkReq = bulkReq.WithContext(WithAdminID(bulkReq.Context(), loginOut["id"].(string)))
 	bulkRec := httptest.NewRecorder()

@@ -44,7 +44,7 @@ pub struct ConsoleSnapshot {
     pub ipv4: Vec<String>,
     pub cable_in: bool,
     pub has_default_route: bool,
-    pub setup_code: Option<String>,
+    pub device_code: Option<String>,
     pub connect_hostname: Option<String>,
     /// User-facing problems, highest priority first. Empty means healthy.
     pub problems: Vec<String>,
@@ -115,7 +115,7 @@ pub fn help_lines(snap: &ConsoleSnapshot) -> Vec<String> {
 
     // Keep showing the device token after setup / Connect claim — HDMI is
     // local-only, and the token is the durable identity for recovery and re-bind.
-    if !token_problem && let Some(code) = &snap.setup_code {
+    if !token_problem && let Some(code) = &snap.device_code {
         lines.push(String::new());
         lines.push("  Device token (for Luna Connect):".into());
         lines.push(format!("    {code}"));
@@ -183,7 +183,7 @@ mod tests {
             ipv4: vec!["192.168.1.20".into()],
             cable_in: true,
             has_default_route: true,
-            setup_code: Some("ABCD-EFGH".into()),
+            device_code: Some("ABCD-EFGH".into()),
             connect_hostname: None,
             problems: vec![],
         });
@@ -255,7 +255,7 @@ mod tests {
             ipv4: vec!["192.168.1.20".into()],
             cable_in: true,
             has_default_route: true,
-            setup_code: Some("ABCD-EFGH-JKMN-PQRS-TVWX".into()),
+            device_code: Some("ABCD-EFGH-JKMN-PQRS-TVWX".into()),
             connect_hostname: Some("photos.luna.servers.libreloom.org".into()),
             problems: vec![crate::net::connect::DEVICE_TOKEN_REJECTED_MSG.into()],
         });
@@ -285,7 +285,7 @@ mod tests {
             ipv4: vec!["192.168.1.20".into()],
             cable_in: true,
             has_default_route: true,
-            setup_code: Some("ABCD-EFGH-JKMN-PQRS-TVWX".into()),
+            device_code: Some("ABCD-EFGH-JKMN-PQRS-TVWX".into()),
             connect_hostname: Some("photos.luna.servers.libreloom.org".into()),
             problems: vec![],
         });

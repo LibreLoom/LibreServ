@@ -40,7 +40,7 @@ VALUES ('acct_1', 'a@b.co', 'x', 0, 'none', 1, ?)`, time.Now().Unix())
 	}
 
 	rec2 := httptest.NewRecorder()
-	h.SetupTokens(rec2, httptest.NewRequest(http.MethodGet, "/admin/setup-tokens", nil))
+	h.DeviceCodes(rec2, httptest.NewRequest(http.MethodGet, "/admin/device-codes", nil))
 	if rec2.Code != 200 {
 		t.Fatalf("tokens %d %s", rec2.Code, rec2.Body.String())
 	}
@@ -59,8 +59,8 @@ VALUES ('acct_1', 'a@b.co', 'x', 0, 'none', 1, ?)`, time.Now().Unix())
 	if row["can_reveal"] != true {
 		t.Fatalf("expected can_reveal on list row: %v", row)
 	}
-	if row["setup_prefix"] != security.SetupPrefix(code) {
-		t.Fatalf("setup_prefix %v want %v", row["setup_prefix"], security.SetupPrefix(code))
+	if row["device_code_prefix"] != security.DeviceCodePrefix(code) {
+		t.Fatalf("device_code_prefix %v want %v", row["device_code_prefix"], security.DeviceCodePrefix(code))
 	}
 	if row["hint"] == nil || row["hint"] == "" {
 		t.Fatalf("expected hint on list row: %v", row)
@@ -68,11 +68,11 @@ VALUES ('acct_1', 'a@b.co', 'x', 0, 'none', 1, ?)`, time.Now().Unix())
 
 	// The per-token reveal endpoint returns the full code for one row.
 	rev := httptest.NewRecorder()
-	revReq := httptest.NewRequest(http.MethodGet, "/admin/setup-tokens/"+devID+"/reveal", nil)
+	revReq := httptest.NewRequest(http.MethodGet, "/admin/device-codes/"+devID+"/reveal", nil)
 	rctx := chi.NewRouteContext()
-	rctx.URLParams.Add("tokenID", devID)
+	rctx.URLParams.Add("codeID", devID)
 	revReq = revReq.WithContext(context.WithValue(revReq.Context(), chi.RouteCtxKey, rctx))
-	h.RevealSetupToken(rev, revReq)
+	h.RevealDeviceCode(rev, revReq)
 	if rev.Code != 200 {
 		t.Fatalf("reveal %d %s", rev.Code, rev.Body.String())
 	}
@@ -83,7 +83,7 @@ VALUES ('acct_1', 'a@b.co', 'x', 0, 'none', 1, ?)`, time.Now().Unix())
 	}
 }
 
-func TestSetupTokensPaginationAndSearch(t *testing.T) {
+func TestDeviceCodesPaginationAndSearch(t *testing.T) {
 	d := testDeps(t)
 	h := AdminConsoleHandler{Deps: d}
 
@@ -112,7 +112,7 @@ VALUES ('acct_search', 'tester@example.com', 'x', 0, 'none', 1, ?)`, now)
 
 	// Test 1: Pagination (limit=2, offset=0)
 	rec := httptest.NewRecorder()
-	h.SetupTokens(rec, httptest.NewRequest(http.MethodGet, "/admin/setup-tokens?limit=2&offset=0", nil))
+	h.DeviceCodes(rec, httptest.NewRequest(http.MethodGet, "/admin/device-codes?limit=2&offset=0", nil))
 	if rec.Code != 200 {
 		t.Fatalf("status %d", rec.Code)
 	}
@@ -129,7 +129,7 @@ VALUES ('acct_search', 'tester@example.com', 'x', 0, 'none', 1, ?)`, now)
 
 	// Test 2: Search by full token (tok1)
 	rec = httptest.NewRecorder()
-	h.SetupTokens(rec, httptest.NewRequest(http.MethodGet, "/admin/setup-tokens?q="+tok1, nil))
+	h.DeviceCodes(rec, httptest.NewRequest(http.MethodGet, "/admin/device-codes?q="+tok1, nil))
 	var searchRes map[string]any
 	_ = json.Unmarshal(rec.Body.Bytes(), &searchRes)
 	stList := searchRes["tokens"].([]any)
@@ -139,7 +139,7 @@ VALUES ('acct_search', 'tester@example.com', 'x', 0, 'none', 1, ?)`, now)
 
 	// Test 3: Search by subdomain ("myluna")
 	rec = httptest.NewRecorder()
-	h.SetupTokens(rec, httptest.NewRequest(http.MethodGet, "/admin/setup-tokens?q=myluna", nil))
+	h.DeviceCodes(rec, httptest.NewRequest(http.MethodGet, "/admin/device-codes?q=myluna", nil))
 	var subRes map[string]any
 	_ = json.Unmarshal(rec.Body.Bytes(), &subRes)
 	subList := subRes["tokens"].([]any)
@@ -149,7 +149,7 @@ VALUES ('acct_search', 'tester@example.com', 'x', 0, 'none', 1, ?)`, now)
 
 	// Test 4: Search by account email ("tester@example.com")
 	rec = httptest.NewRecorder()
-	h.SetupTokens(rec, httptest.NewRequest(http.MethodGet, "/admin/setup-tokens?q=tester@example.com", nil))
+	h.DeviceCodes(rec, httptest.NewRequest(http.MethodGet, "/admin/device-codes?q=tester@example.com", nil))
 	var emailRes map[string]any
 	_ = json.Unmarshal(rec.Body.Bytes(), &emailRes)
 	emailList := emailRes["tokens"].([]any)
@@ -159,7 +159,7 @@ VALUES ('acct_search', 'tester@example.com', 'x', 0, 'none', 1, ?)`, now)
 
 	// Test 5: Status filter - unbound
 	rec = httptest.NewRecorder()
-	h.SetupTokens(rec, httptest.NewRequest(http.MethodGet, "/admin/setup-tokens?status=unbound", nil))
+	h.DeviceCodes(rec, httptest.NewRequest(http.MethodGet, "/admin/device-codes?status=unbound", nil))
 	var unbRes map[string]any
 	_ = json.Unmarshal(rec.Body.Bytes(), &unbRes)
 	unbList := unbRes["tokens"].([]any)
@@ -172,7 +172,7 @@ VALUES ('acct_search', 'tester@example.com', 'x', 0, 'none', 1, ?)`, now)
 
 	// Test 6: Status filter - bound
 	rec = httptest.NewRecorder()
-	h.SetupTokens(rec, httptest.NewRequest(http.MethodGet, "/admin/setup-tokens?status=bound", nil))
+	h.DeviceCodes(rec, httptest.NewRequest(http.MethodGet, "/admin/device-codes?status=bound", nil))
 	var bndRes map[string]any
 	_ = json.Unmarshal(rec.Body.Bytes(), &bndRes)
 	bndList := bndRes["tokens"].([]any)
@@ -182,7 +182,7 @@ VALUES ('acct_search', 'tester@example.com', 'x', 0, 'none', 1, ?)`, now)
 
 	// Test 7: Status filter - revoked
 	rec = httptest.NewRecorder()
-	h.SetupTokens(rec, httptest.NewRequest(http.MethodGet, "/admin/setup-tokens?status=revoked", nil))
+	h.DeviceCodes(rec, httptest.NewRequest(http.MethodGet, "/admin/device-codes?status=revoked", nil))
 	var revRes map[string]any
 	_ = json.Unmarshal(rec.Body.Bytes(), &revRes)
 	revList := revRes["tokens"].([]any)

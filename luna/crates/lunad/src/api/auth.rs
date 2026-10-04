@@ -471,11 +471,11 @@ async fn first_user_device_token(state: &AppState, body: &RegisterBody) -> Resul
         );
     }
 
-    let norm_offered = crate::net::connect::normalize_setup_code(offered);
+    let norm_offered = crate::net::connect::normalize_device_code(offered);
 
     // 1. Check against first_user_secret if set by Connect
     if let Some(want) = state.connect.first_user_secret() {
-        let norm_want = crate::net::connect::normalize_setup_code(&want);
+        let norm_want = crate::net::connect::normalize_device_code(&want);
         if offered.eq_ignore_ascii_case(want.trim())
             || (!norm_offered.is_empty() && norm_offered == norm_want)
         {
@@ -485,7 +485,7 @@ async fn first_user_device_token(state: &AppState, body: &RegisterBody) -> Resul
 
     // 2. Check against the device token on disk
     if let Ok(device_code) = state.connect.device_code() {
-        let norm_code = crate::net::connect::normalize_setup_code(&device_code);
+        let norm_code = crate::net::connect::normalize_device_code(&device_code);
         if offered.eq_ignore_ascii_case(device_code.trim())
             || (!norm_offered.is_empty() && norm_offered == norm_code)
         {
@@ -498,7 +498,7 @@ async fn first_user_device_token(state: &AppState, body: &RegisterBody) -> Resul
     let connect = state.connect.clone();
     let _ = tokio::task::spawn_blocking(move || connect.poll_status()).await;
     if let Some(want) = state.connect.first_user_secret() {
-        let norm_want = crate::net::connect::normalize_setup_code(&want);
+        let norm_want = crate::net::connect::normalize_device_code(&want);
         if offered.eq_ignore_ascii_case(want.trim())
             || (!norm_offered.is_empty() && norm_offered == norm_want)
         {

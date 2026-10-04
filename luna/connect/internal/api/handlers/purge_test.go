@@ -11,7 +11,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/security"
 )
 
-func TestPurgeSetupTokenBoundDevice(t *testing.T) {
+func TestPurgeDeviceCodeBoundDevice(t *testing.T) {
 	d := testDeps(t)
 	h := AdminConsoleHandler{Deps: d}
 	devH := DeviceHandler{Deps: d}
@@ -30,12 +30,12 @@ VALUES ('acct_purge', 'purge@b.co', 'x', 0, 'none', 1, ?)`, now)
 	_, _ = d.DB.Exec(`INSERT INTO device_backup_buckets (device_id, bucket_name, bucket_id, endpoint, key_id, application_key_sealed, provisioned_at)
 VALUES (?, 'bucket-test', 'bid', 'https://b2.example', 'kid', 'sealed', ?)`, devID, now)
 
-	req := httptest.NewRequest(http.MethodPost, "/admin/setup-tokens/"+devID+"/purge", nil)
+	req := httptest.NewRequest(http.MethodPost, "/admin/device-codes/"+devID+"/purge", nil)
 	rctx := chi.NewRouteContext()
-	rctx.URLParams.Add("tokenID", devID)
+	rctx.URLParams.Add("codeID", devID)
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 	rec := httptest.NewRecorder()
-	h.PurgeSetupToken(rec, req)
+	h.PurgeDeviceCode(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("purge %d %s", rec.Code, rec.Body.String())
 	}
@@ -73,7 +73,7 @@ VALUES (?, 'bucket-test', 'bid', 'https://b2.example', 'kid', 'sealed', ?)`, dev
 	}
 }
 
-func TestPurgeSetupTokenUnboundRevokesInsteadOfConflict(t *testing.T) {
+func TestPurgeDeviceCodeUnboundRevokesInsteadOfConflict(t *testing.T) {
 	d := testDeps(t)
 	h := AdminConsoleHandler{Deps: d}
 	devID, code, err := insertPermanentDevice(d.DB, "official", security.OfficialDeviceToken(), "")
@@ -81,12 +81,12 @@ func TestPurgeSetupTokenUnboundRevokesInsteadOfConflict(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/admin/setup-tokens/"+devID+"/purge", nil)
+	req := httptest.NewRequest(http.MethodPost, "/admin/device-codes/"+devID+"/purge", nil)
 	rctx := chi.NewRouteContext()
-	rctx.URLParams.Add("tokenID", devID)
+	rctx.URLParams.Add("codeID", devID)
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 	rec := httptest.NewRecorder()
-	h.PurgeSetupToken(rec, req)
+	h.PurgeDeviceCode(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("purge unbound %d %s", rec.Code, rec.Body.String())
 	}

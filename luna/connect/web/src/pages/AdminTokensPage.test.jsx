@@ -4,10 +4,10 @@ import { MemoryRouter } from "react-router-dom";
 import AdminTokensPage from "./AdminTokensPage.jsx";
 
 const adminApiMock = vi.fn(async (path) => {
-  if (path === "/admin/setup-tokens/dev_1/reveal") {
+  if (path === "/admin/device-codes/dev_1/reveal") {
     return { code: "AAAA-BBBB-CCCC-DDDD-WXYZ", code_hint: "…WXYZ" };
   }
-  if (path.startsWith("/admin/setup-tokens")) {
+  if (path.startsWith("/admin/device-codes")) {
     return {
       tokens: [
         {
@@ -15,7 +15,7 @@ const adminApiMock = vi.fn(async (path) => {
           hint: "…WXYZ",
           // The list must not carry the full token; reveal is a per-row GET.
           can_reveal: true,
-          setup_prefix: "AAAA-BBBB",
+          device_code_prefix: "AAAA-BBBB",
           kind: "official",
           status: "unbound",
           created_at: 1700000000,
@@ -117,7 +117,7 @@ describe("AdminTokensPage", () => {
     expect(screen.queryByText("AAAA-BBBB-CCCC-DDDD-WXYZ")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /Show full token/i }));
     expect(await screen.findByText("AAAA-BBBB-CCCC-DDDD-WXYZ")).toBeTruthy();
-    expect(adminApiMock).toHaveBeenCalledWith("/admin/setup-tokens/dev_1/reveal");
+    expect(adminApiMock).toHaveBeenCalledWith("/admin/device-codes/dev_1/reveal");
     fireEvent.click(screen.getByRole("button", { name: /Hide full token/i }));
     expect(screen.getByText("…WXYZ")).toBeTruthy();
     expect(screen.queryByText("AAAA-BBBB-CCCC-DDDD-WXYZ")).toBeNull();

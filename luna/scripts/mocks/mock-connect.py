@@ -100,7 +100,7 @@ def group_token(norm: str) -> str:
     return "-".join(norm[i : i + 4] for i in range(0, len(norm), 4))
 
 
-def setup_prefix(norm_or_grouped: str) -> str:
+def device_code_prefix(norm_or_grouped: str) -> str:
     """First 8 normalized characters (first two groups)."""
     norm = normalize_token(norm_or_grouped)
     return norm[:8] if len(norm) >= 8 else norm
@@ -611,7 +611,7 @@ class MockConnectHandler(BaseHTTPRequestHandler):
                 "ok": True,
                 "token": token,
                 "normalized": normalize_token(token),
-                "setup_prefix": setup_prefix(token),
+                "device_code_prefix": device_code_prefix(token),
             })
             return
 
@@ -983,7 +983,7 @@ def cmd_backup_clean(args: argparse.Namespace) -> int:
 def cmd_mint_token(args: argparse.Namespace) -> int:
     token = mint_device_token()
     norm = normalize_token(token)
-    prefix = setup_prefix(token)
+    prefix = device_code_prefix(token)
 
     write_path: Path | None = None
     if getattr(args, "write_to", None):

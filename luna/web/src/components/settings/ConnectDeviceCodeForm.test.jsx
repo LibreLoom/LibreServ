@@ -3,7 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
-import ConnectSetupCodeForm from "./ConnectSetupCodeForm.jsx";
+import ConnectDeviceCodeForm from "./ConnectDeviceCodeForm.jsx";
 
 const json = (body, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -27,7 +27,7 @@ function renderForm(props = {}) {
   return render(
     <ToastProvider>
       <QueryClientProvider client={client}>
-        <ConnectSetupCodeForm {...props} />
+        <ConnectDeviceCodeForm {...props} />
       </QueryClientProvider>
     </ToastProvider>,
   );
@@ -36,7 +36,7 @@ function renderForm(props = {}) {
 const calls = (fetchMock, method) =>
   fetchMock.mock.calls.filter(([, init]) => (init?.method || "GET") === method);
 
-describe("ConnectSetupCodeForm", () => {
+describe("ConnectDeviceCodeForm", () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it("keeps Save off until the token is long enough, then sends it trimmed", async () => {

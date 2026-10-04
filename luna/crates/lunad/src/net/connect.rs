@@ -99,7 +99,7 @@ pub struct ConnectStatus {
     pub backup_unlocked: bool,
     pub paired: bool,
     pub unclaimed: bool,
-    pub setup_code: Option<String>,
+    pub device_code: Option<String>,
     /// Present when the on-disk token is malformed or Connect rejected it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub device_token_error: Option<String>,
@@ -193,7 +193,7 @@ impl ConnectService {
             status.hostname = None;
             status.domain = None;
             status.subdomain = None;
-            status.setup_code = None;
+            status.device_code = None;
         }
         // HDMI console and the web UI both read tunnel_error — synthesize the
         // "not running yet" case so they stay in sync when the connector is down.
@@ -210,7 +210,7 @@ impl ConnectService {
         status.connect_unreachable = unreachable;
         status.tunnel_error = tunnel_err;
         if !reveal_secrets {
-            status.setup_code = None;
+            status.device_code = None;
             status.backup_sources = Vec::new();
         }
         status
@@ -256,7 +256,7 @@ impl ConnectService {
             backup_unlocked: false,
             paired: false,
             unclaimed: true,
-            setup_code: None,
+            device_code: None,
             device_token_error: None,
             connect_unreachable: None,
             tunnel_error: None,
@@ -312,7 +312,7 @@ impl ConnectService {
             unclaimed: !enabled,
             // Permanent device token stays available after claim so HDMI (and
             // admin status) can still show it for recovery / re-bind.
-            setup_code: self.display_setup_code(),
+            device_code: self.display_device_code(),
             device_token_error: None,
             connect_unreachable: None,
             tunnel_error: None,
@@ -324,7 +324,7 @@ impl ConnectService {
         }
     }
 
-    fn display_setup_code(&self) -> Option<String> {
+    fn display_device_code(&self) -> Option<String> {
         self.read_device_token()
     }
 
@@ -344,7 +344,7 @@ impl ConnectService {
         code: &str,
         require_verified: bool,
     ) -> Result<(), ConnectError> {
-        let norm = normalize_setup_code(code);
+        let norm = normalize_device_code(code);
         if !is_device_token_format(&norm) {
             return Err(ConnectError::Other(
                 "That device token should look like ****-****-****-****-**** from connect.luna.libreloom.org or the card that came with Luna.".into(),
@@ -373,7 +373,7 @@ impl ConnectService {
     }
 
     pub fn set_oss_code(&self, code: &str) -> Result<(), ConnectError> {
-        let norm = normalize_setup_code(code);
+        let norm = normalize_device_code(code);
         if !is_device_token_format(&norm) {
             return Err(ConnectError::Other(
                 "That device token should look like ****-****-****-****-**** from connect.luna.libreloom.org or the card that came with Luna.".into(),
@@ -455,13 +455,13 @@ impl ConnectService {
 
     fn read_device_token(&self) -> Option<String> {
         if let Some(raw) = read_trimmed_token_file(&self.token_path) {
-            let norm = normalize_setup_code(&raw);
+            let norm = normalize_device_code(&raw);
             if is_device_token_format(&norm) {
                 return Some(raw);
             }
         }
         if let Some(raw) = read_trimmed_token_file(&self.legacy_token_path) {
-            let norm = normalize_setup_code(&raw);
+            let norm = normalize_device_code(&raw);
             if is_device_token_format(&norm) {
                 let grouped = group_device_token(&norm);
                 let _ = std::fs::write(&self.token_path, format!("{grouped}\n"));
@@ -1562,7 +1562,7 @@ fn read_trimmed_token_file(path: &Path) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-pub(crate) fn normalize_setup_code(raw: &str) -> String {
+pub(crate) fn normalize_device_code(raw: &str) -> String {
     let mut out = String::with_capacity(raw.len());
     for c in raw.chars() {
         if matches!(c, '-' | ' ' | '_') {
@@ -1663,12 +1663,12 @@ mod tests {
         assert!(st.enabled);
         assert!(!st.unclaimed);
         assert_eq!(
-            st.setup_code.as_deref(),
+            st.device_code.as_deref(),
             Some("ABCD-EFGH-JKMN-PQRS-TVWX"),
             "claimed Luna must still expose the device token for HDMI / admin status"
         );
         assert!(
-            service.status_for(false).setup_code.is_none(),
+            service.status_for(false).device_code.is_none(),
             "non-admin must never see a live pairing token"
         );
         service.clear_first_user_secret().unwrap();
@@ -1713,11 +1713,11 @@ mod tests {
         );
         assert!(service.status().connect_active);
         assert_eq!(
-            service.status().setup_code.as_deref(),
+            service.status().device_code.as_deref(),
             Some("3097-V4YK-3HYX-2E3P-V4B3")
         );
         assert!(
-            service.status_for(false).setup_code.is_none(),
+            service.status_for(false).device_code.is_none(),
             "non-admin must never see a live pairing code"
         );
         assert!(
@@ -2204,7 +2204,7 @@ mod tests {
             st.device_token_error.as_deref(),
             Some(DEVICE_TOKEN_REJECTED_MSG)
         );
-        assert!(st.setup_code.is_none());
+        assert!(st.device_code.is_none());
     }
 
     #[test]

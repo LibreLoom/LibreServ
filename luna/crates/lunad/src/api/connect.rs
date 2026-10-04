@@ -49,7 +49,7 @@ async fn status(
     let mut status = state.connect.status_for(setup || admin);
     // The token is a credential and no screen shows it; only the on-device
     // console reads it, in-process.
-    status.setup_code = None;
+    status.device_code = None;
     Json(status)
 }
 
@@ -92,8 +92,8 @@ async fn save_device_token(
             ));
         }
         if let Ok(existing) = state.connect.device_code() {
-            let same = crate::net::connect::normalize_setup_code(&existing)
-                == crate::net::connect::normalize_setup_code(&token);
+            let same = crate::net::connect::normalize_device_code(&existing)
+                == crate::net::connect::normalize_device_code(&token);
             if same {
                 return Ok(Json(json!({
                     "ok": true,
@@ -618,7 +618,7 @@ mod tests {
         // The token is a credential no screen shows, so nobody gets it back.
         assert!(!admin_view.to_string().contains(TOKEN));
         assert!(!member_view.to_string().contains(TOKEN));
-        assert!(admin_view["setup_code"].is_null());
+        assert!(admin_view["device_code"].is_null());
         assert_eq!(member_view["connect_active"], true);
     }
 }

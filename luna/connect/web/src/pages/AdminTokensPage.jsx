@@ -74,7 +74,7 @@ export default function AdminTokensPage() {
       if (f && f !== "all") params.set("status", f);
       if (q) params.set("q", q);
 
-      const data = await adminApi(`/admin/setup-tokens?${params.toString()}`);
+      const data = await adminApi(`/admin/device-codes?${params.toString()}`);
       setRows(data.tokens || []);
       setPagination(data.pagination || { total: data.tokens?.length || 0, has_more: false });
     } catch (err) {
@@ -111,7 +111,7 @@ export default function AdminTokensPage() {
     setRevokeBusy(id);
     setError("");
     try {
-      await adminApi(`/admin/setup-tokens/${encodeURIComponent(id)}`, { method: "DELETE" });
+      await adminApi(`/admin/device-codes/${encodeURIComponent(id)}`, { method: "DELETE" });
       await loadTokens();
     } catch (err) {
       setError(err.message);
@@ -130,7 +130,7 @@ export default function AdminTokensPage() {
     setPurgeBusy(row.id);
     setError("");
     try {
-      await adminApi(`/admin/setup-tokens/${encodeURIComponent(row.id)}/purge`, { method: "POST" });
+      await adminApi(`/admin/device-codes/${encodeURIComponent(row.id)}/purge`, { method: "POST" });
       await loadTokens();
     } catch (err) {
       setError(err.message);
@@ -158,7 +158,7 @@ export default function AdminTokensPage() {
               setError("");
               setSingleBusy(true);
               try {
-                const data = await adminApi("/admin/setup-tokens", { method: "POST", body: "{}" });
+                const data = await adminApi("/admin/device-codes", { method: "POST", body: "{}" });
                 setToken(data.code);
                 await loadTokens();
               } catch (err) {
@@ -204,7 +204,7 @@ export default function AdminTokensPage() {
                 setBulkBusy(true);
                 try {
                   const n = Number.parseInt(bulkCount, 10);
-                  const data = await adminApi("/admin/setup-tokens/bulk", {
+                  const data = await adminApi("/admin/device-codes/bulk", {
                     method: "POST",
                     body: JSON.stringify({ count: n }),
                   });
@@ -331,7 +331,7 @@ export default function AdminTokensPage() {
                             r.can_reveal && !r.code
                               ? async () => {
                                   const data = await adminApi(
-                                    `/admin/setup-tokens/${encodeURIComponent(r.id)}/reveal`,
+                                    `/admin/device-codes/${encodeURIComponent(r.id)}/reveal`,
                                   );
                                   return data.code || "";
                                 }

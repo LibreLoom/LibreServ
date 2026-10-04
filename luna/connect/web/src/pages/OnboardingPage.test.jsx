@@ -308,7 +308,7 @@ describe("OnboardingPage DIY verify", () => {
       if (path === "/api/v1/account/verification-status") return { email_verified: true };
       if (path === "/api/v1/account/verify-human") return { ok: true };
       if (path === "/api/v1/account/diy-token") {
-        return { code: "BACK-TO-SETUP-CODE-1234-5678", device_id: "dev_diy" };
+        return { code: "BACK-TO-DEVICE-CODE-1234-5678", device_id: "dev_diy" };
       }
       if (path === "/api/v1/onboarding/progress") return { ok: true };
       return {};
@@ -316,7 +316,7 @@ describe("OnboardingPage DIY verify", () => {
 
     mount("/diyonboarding");
 
-    expect(await screen.findByText("BACK-TO-SETUP-CODE-1234-5678")).toBeTruthy();
+    expect(await screen.findByText("BACK-TO-DEVICE-CODE-1234-5678")).toBeTruthy();
     expect(screen.queryByRole("heading", { name: /Check your inbox/i })).toBeNull();
   });
 

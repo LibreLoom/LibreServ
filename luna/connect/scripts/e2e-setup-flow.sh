@@ -63,7 +63,7 @@ wait_for_connect
 
 # --- Step 1: mint official device token ---
 log "Minting official device token"
-MINT=$(curl -s -X POST "$CONNECT_URL/admin/setup-tokens" -H "Authorization: Bearer $ADMIN_TOKEN")
+MINT=$(curl -s -X POST "$CONNECT_URL/admin/device-codes" -H "Authorization: Bearer $ADMIN_TOKEN")
 TOKEN=$(echo "$MINT" | python3 -c "import sys,json; print(json.load(sys.stdin)['code'])" 2>/dev/null) \
   || fail "mint failed: $MINT"
 log "Official device token minted"
