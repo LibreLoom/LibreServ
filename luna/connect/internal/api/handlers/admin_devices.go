@@ -106,28 +106,32 @@ WHERE d.id = ?`, deviceID).
 	hasTunnel := tunnelID != ""
 
 	out := map[string]any{
-		"id":              id,
-		"name":            name,
-		"subdomain":       sub,
-		"device_hostname": hostname,
-		"hostname":        hostname,
-		"tunnel_id":       tunnelID,
-		"has_tunnel":      hasTunnel,
-		"hint":            hint,
-		"kind":            kind,
-		"status":          status,
-		"order_ref":       orderRef,
-		"account_id":      acctID,
-		"account_email":   email,
-		"last_seen_at":    lastSeen,
-		"online":          online,
-		"revoked":         revoked != 0,
-		"created_at":      created,
+		"id":                 id,
+		"name":               name,
+		"subdomain":          sub,
+		"device_hostname":    hostname,
+		"hostname":           hostname,
+		"tunnel_id":          tunnelID,
+		"has_tunnel":         hasTunnel,
+		"hint":               hint,
+		"kind":               kind,
+		"status":             status,
+		"order_ref":          orderRef,
+		"account_id":         acctID,
+		"account_email":      email,
+		"last_seen_at":       lastSeen,
+		"online":             online,
+		"revoked":            revoked != 0,
+		"created_at":         created,
+		"can_reveal":         false,
+		"device_code_prefix": "",
 	}
+	// The full device token never ships in a detail response either; reveal
+	// goes through GET /admin/device-codes/{id}/reveal like the list rows.
 	if sealed != "" {
 		if code, err := security.OpenString(sealed); err == nil && code != "" {
-			out["code"] = code
-			out["setup_prefix"] = security.SetupPrefix(code)
+			out["can_reveal"] = true
+			out["device_code_prefix"] = security.DeviceCodePrefix(code)
 		}
 	}
 	return out, nil

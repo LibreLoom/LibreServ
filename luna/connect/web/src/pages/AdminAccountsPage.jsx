@@ -204,7 +204,16 @@ function LinkedLunaRow({ device, onRefresh }) {
                 <dd className="text-right max-w-[min(100%,20rem)]">
                   <TokenReveal
                     hint={detail.hint || device.hint}
-                    code={detail.code}
+                    onReveal={
+                      detail.can_reveal
+                        ? async () => {
+                            const data = await adminApi(
+                              `/admin/device-codes/${encodeURIComponent(device.id)}/reveal`,
+                            );
+                            return data.code || "";
+                          }
+                        : undefined
+                    }
                     label="token"
                     compact
                   />

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -160,7 +159,7 @@ func TestAdminGetDeviceDetail(t *testing.T) {
 	_, _ = d.DB.Exec(`INSERT INTO accounts (id, email, password_hash, has_card, billing_status, email_verified, created_at)
 VALUES ('acct_view', 'view@b.co', 'x', 0, 'none', 1, ?)`, now)
 
-	id, _, err := insertPermanentDevice(d.DB, "official", security.OfficialDeviceToken(), "")
+	id, code, err := insertPermanentDevice(d.DB, "official", security.OfficialDeviceToken(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,9 +183,14 @@ VALUES ('acct_view', 'view@b.co', 'x', 0, 'none', 1, ?)`, now)
 	if body["online"] != true {
 		t.Fatalf("online: %v", body["online"])
 	}
-	code, _ := body["code"].(string)
-	if code == "" || !strings.Contains(code, "-") {
-		t.Fatalf("expected sealed device token in admin detail, got %v", body["code"])
+	if _, has := body["code"]; has {
+		t.Fatalf("device detail must not ship the full token: %v", body["code"])
+	}
+	if body["can_reveal"] != true {
+		t.Fatalf("expected can_reveal on detail: %v", body["can_reveal"])
+	}
+	if body["device_code_prefix"] != security.DeviceCodePrefix(code) {
+		t.Fatalf("device_code_prefix %v want %v", body["device_code_prefix"], security.DeviceCodePrefix(code))
 	}
 	hint, _ := body["hint"].(string)
 	if hint == "" {

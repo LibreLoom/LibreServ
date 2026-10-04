@@ -6,7 +6,7 @@ import { Button } from "./ui/button.jsx";
  * admin asks: pass `onReveal` (async, returns the code) for rows whose token is
  * stored sealed — the list response itself never contains it.
  */
-export default function TokenReveal({ hint, code, onReveal = null, label = "token", compact = false }) {
+export default function TokenReveal({ hint, code = null, onReveal = null, label = "token", compact = false }) {
   const [revealed, setRevealed] = useState(false);
   const [fetched, setFetched] = useState("");
   const [busy, setBusy] = useState(false);

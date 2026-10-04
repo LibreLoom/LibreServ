@@ -54,8 +54,11 @@ const adminApiMock = vi.fn(async (path, opts) => {
       last_seen_at: 1700000000,
       online: true,
       hint: "…1234",
-      code: "AAAA-BBBB-CCCC-DDDD-EEEE",
+      can_reveal: true,
     };
+  }
+  if (path === "/admin/device-codes/dev_1/reveal") {
+    return { code: "AAAA-BBBB-CCCC-DDDD-EEEE" };
   }
   if (path === "/admin/devices/dev_1/regenerate-tunnel") {
     return { hostname: "myluna.luna.servers.libreloom.org", regenerated: true };
@@ -118,7 +121,8 @@ describe("AdminAccountsPage", () => {
     expect(adminApiMock).toHaveBeenCalledWith("/admin/devices/dev_1");
     expect(screen.getByText("…1234")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Show full token/i }));
-    expect(screen.getByText("AAAA-BBBB-CCCC-DDDD-EEEE")).toBeTruthy();
+    expect(await screen.findByText("AAAA-BBBB-CCCC-DDDD-EEEE")).toBeTruthy();
+    expect(adminApiMock).toHaveBeenCalledWith("/admin/device-codes/dev_1/reveal");
   });
 
   it("calls regenerate tunnel API after confirm", async () => {
