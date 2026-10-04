@@ -71,6 +71,9 @@ import {
 const placesUrlFor = (listUrl) =>
   listUrl.replace("/api/v1/gallery?", "/api/v1/gallery/places?");
 const UNFILTERED_PLACES_URL = placesUrlFor(galleryUrl());
+/** Shared empty list so an unloaded places query keeps a stable prop identity. */
+const NO_PLACES = [];
+
 const loadPlacesMap = () => import("../components/gallery/PlacesMap.jsx");
 const PlacesMap = lazy(loadPlacesMap);
 
@@ -1319,6 +1322,21 @@ export default function GalleryPage() {
     [enterSelect, exitSelect],
   );
   const handleOpenDates = useCallback(() => setJumpOpen(true), []);
+  const handleCloseFilters = useCallback(() => {
+    setFiltersOpen(false);
+    setFilterFocus("");
+  }, []);
+  const handleFiltersToDates = useCallback(() => {
+    setFiltersOpen(false);
+    setFilterFocus("");
+    setJumpOpen(true);
+  }, []);
+  const handleApplyFilters = useCallback((next) => {
+    setDuplicatesView(false);
+    setFilters({ ...EMPTY_FILTERS, ...next, formats: [...(next.formats || [])] });
+    setFiltersOpen(false);
+    setFilterFocus("");
+  }, []);
   const handleOpenFilters = useCallback(() => {
     setFilterFocus("");
     setFiltersOpen(true);
@@ -1929,7 +1947,7 @@ export default function GalleryPage() {
         <div className="flex min-h-0 flex-1 flex-col">
           <Suspense fallback={null}>
             <PlacesMap
-              places={places.data || []}
+              places={places.data || NO_PLACES}
               loading={places.isLoading}
               filtered={filterActiveCount > 0}
               drawMode={placesDrawMode}
@@ -2340,23 +2358,11 @@ export default function GalleryPage() {
       <GalleryFilterSheet
         open={filtersOpen}
         value={filters}
-        places={places.data || []}
+        places={places.data || NO_PLACES}
         focusSection={filterFocus}
-        onClose={() => {
-          setFiltersOpen(false);
-          setFilterFocus("");
-        }}
-        onOpenDates={() => {
-          setFiltersOpen(false);
-          setFilterFocus("");
-          setJumpOpen(true);
-        }}
-        onApply={(next) => {
-          setDuplicatesView(false);
-          setFilters({ ...EMPTY_FILTERS, ...next, formats: [...(next.formats || [])] });
-          setFiltersOpen(false);
-          setFilterFocus("");
-        }}
+        onClose={handleCloseFilters}
+        onOpenDates={handleFiltersToDates}
+        onApply={handleApplyFilters}
       />
 
       </div>

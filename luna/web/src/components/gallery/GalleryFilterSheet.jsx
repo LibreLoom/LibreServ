@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components -- filter sheet exports helpers used by GalleryPage */
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { Check } from "lucide-react";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
@@ -340,7 +340,7 @@ const sectionClass = "space-y-3 rounded-large-element surface-primary p-4";
  *   focusSection?: ""|"when"|"where"|"camera"|"look"|string,
  * }} props
  */
-export default function GalleryFilterSheet({
+function GalleryFilterSheet({
   open,
   value,
   onClose,
@@ -1035,6 +1035,8 @@ export default function GalleryFilterSheet({
     </ModalCard>
   );
 }
+
+export default memo(GalleryFilterSheet);
 
 GalleryFilterSheet.propTypes = {
   open: PropTypes.bool.isRequired,
