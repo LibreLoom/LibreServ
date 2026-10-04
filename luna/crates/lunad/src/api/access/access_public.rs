@@ -1284,6 +1284,8 @@ pub(super) async fn public_rename(
             return Err(gone());
         }
         let rel = mutable_child(&link, &body.path)?;
+        // Queue behind any other change on this drive (see `Db::drive_lock`).
+        let drive_guard = state.db.drive_lock(&link.drive_id).lock_owned().await;
         {
             let conn = state.db.lock().map_err(|_| busy())?;
             confined_write(&conn, &link, &rel, false)?;
@@ -1295,6 +1297,7 @@ pub(super) async fn public_rename(
             files::rename(&conn, &link.drive_id, &rel, &body.new_name)
                 .map_err(map_guest_files_err)?;
         }
+        drop(drive_guard);
         // Folder renames move many gallery rows; rescan is the safe path.
         let renamed_dir = {
             let conn = state.db.lock().map_err(|_| busy())?;
@@ -1329,6 +1332,8 @@ pub(super) async fn public_delete(
             return Err(gone());
         }
         let rel = mutable_child(&link, query.path.as_deref().unwrap_or(""))?;
+        // Queue behind any other change on this drive (see `Db::drive_lock`).
+        let drive_guard = state.db.drive_lock(&link.drive_id).lock_owned().await;
         {
             let conn = state.db.lock().map_err(|_| busy())?;
             confined_write(&conn, &link, &rel, false)?;
@@ -1337,6 +1342,7 @@ pub(super) async fn public_delete(
             let conn = state.db.lock().map_err(|_| busy())?;
             files::delete_to_trash(&conn, &link.drive_id, &rel).map_err(map_guest_files_err)?
         };
+        drop(drive_guard);
         state.gallery.remove(&link.drive_id, &rel);
         // Eagerly drop album refs so shared albums update without the indexer.
         if let Ok(conn) = state.db.lock()
