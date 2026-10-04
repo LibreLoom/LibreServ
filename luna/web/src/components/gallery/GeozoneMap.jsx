@@ -10,6 +10,7 @@ import {
 } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
+import CollapsibleSection from "@libreloom/ui/components/common/CollapsibleSection.jsx";
 import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import MapAreaDraw, { bboxToBounds, boundsToBbox } from "./MapAreaDraw.jsx";
@@ -97,7 +98,7 @@ export default function GeozoneMap({
       </div>
 
       <div
-        className="overflow-hidden rounded-large-element border-2 border-secondary/30 surface-primary"
+        className="isolate overflow-hidden rounded-large-element border-2 border-secondary/30 surface-primary"
         style={{ height }}
       >
         <MapContainer
@@ -137,19 +138,16 @@ export default function GeozoneMap({
         </MapContainer>
       </div>
 
-      <details className="mt-2 text-sm">
-        <summary className="cursor-pointer font-mono">Set the area without the mouse</summary>
-        <div className="mt-2">
-          <MapAreaFields
-            idPrefix="geozone-area"
-            value={value}
-            onChange={(bbox) => {
-              onChange?.(bbox);
-              setMode("pan");
-            }}
-          />
-        </div>
-      </details>
+      <CollapsibleSection title="Set area with coordinates" className="mt-2">
+        <MapAreaFields
+          idPrefix="geozone-area"
+          value={value}
+          onChange={(bbox) => {
+            onChange?.(bbox);
+            setMode("pan");
+          }}
+        />
+      </CollapsibleSection>
 
       {value && (
         <div className="mt-2 flex flex-wrap items-center justify-end gap-2">

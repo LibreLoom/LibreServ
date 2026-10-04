@@ -1,16 +1,22 @@
 import { useEffect, useState } from "react";
 import PropTypes from "prop-types";
-import { TriangleAlert } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, TriangleAlert } from "lucide-react";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { EDGES, nudgeBbox, parseAreaFields, toDraft } from "../../lib/mapAreaFields.js";
 
 /** @typedef {import("../../lib/mapAreaFields.js").Bbox} Bbox */
 
+const MOVES = [
+  { key: "ArrowLeft", label: "Move area west", icon: ArrowLeft },
+  { key: "ArrowUp", label: "Move area north", icon: ArrowUp },
+  { key: "ArrowDown", label: "Move area south", icon: ArrowDown },
+  { key: "ArrowRight", label: "Move area east", icon: ArrowRight },
+];
+
 /**
  * Keyboard-friendly way to set the map area the drag tool draws: type the
- * four edges, or focus the area summary and use the arrow keys to move it
- * (Shift + arrows to resize).
+ * four edges, or nudge the current area with the move buttons.
  *
  * @param {{
  *   value?: Bbox | null,
@@ -41,14 +47,21 @@ export default function MapAreaFields({ value = null, onChange, idPrefix = "map-
     onChange(parsed.bbox);
   }
 
+  function move(key) {
+    if (!value) return;
+    const next = nudgeBbox(value, key, false);
+    if (!next) return;
+    haptic("selection");
+    onChange(next);
+  }
+
   return (
-    <fieldset className="space-y-2 text-sm">
-      <legend className="font-mono text-sm">Set the area with the keyboard</legend>
-      <p>Type the four edges, then choose Set area. Positive latitude is north, positive longitude is east.</p>
-      <div className="grid grid-cols-2 gap-2">
+    <div className="space-y-3 text-sm">
+      <p>Latitude runs north (+) to south (−). Longitude runs east (+) to west (−).</p>
+      <div className="grid grid-cols-2 gap-3">
         {EDGES.map((edge) => (
           <label key={edge.key} className="block" htmlFor={`${idPrefix}-${edge.key}`}>
-            <span className="block">{edge.label}</span>
+            <span className="block translate-x-5">{edge.label}</span>
             <input
               id={`${idPrefix}-${edge.key}`}
               type="number"
@@ -65,7 +78,7 @@ export default function MapAreaFields({ value = null, onChange, idPrefix = "map-
                 }
               }}
               aria-invalid={error ? true : undefined}
-              className="mt-1 w-full rounded-pill surface-primary border-2 border-secondary/30 px-4 py-2 text-sm outline-none focus:border-accent"
+              className="mt-1 w-full rounded-large-element surface-primary border-2 border-secondary/30 px-3 py-2 text-sm font-mono focus:border-accent focus:outline-none no-focus-outline"
             />
           </label>
         ))}
@@ -76,31 +89,29 @@ export default function MapAreaFields({ value = null, onChange, idPrefix = "map-
           <span>{error}</span>
         </p>
       ) : null}
-      <Button type="button" size="sm" variant="secondary" surface="primary" onClick={apply}>
-        Set area
-      </Button>
-      {value ? (
-        <div
-          role="group"
-          tabIndex={0}
-          aria-label="Selected area. Use the arrow keys to move it, and Shift with the arrow keys to resize it."
-          className="rounded-large-element surface-primary p-3 focus-visible:outline-2 focus-visible:outline-accent"
-          onKeyDown={(e) => {
-            const next = nudgeBbox(value, e.key, e.shiftKey);
-            if (!next) return;
-            e.preventDefault();
-            haptic("selection");
-            onChange(next);
-          }}
-        >
-          <p className="font-mono text-xs">Selected area</p>
-          <p>
-            {`North ${draft.north}, south ${draft.south}, west ${draft.west}, east ${draft.east}`}
-          </p>
-          <p className="text-xs">Arrow keys move it. Shift with an arrow key resizes it.</p>
-        </div>
-      ) : null}
-    </fieldset>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Button type="button" size="sm" variant="secondary" surface="primary" onClick={apply}>
+          Set area
+        </Button>
+        {value ? (
+          <div role="group" aria-label="Move the area" className="flex items-center gap-1">
+            {MOVES.map(({ key, label, icon: Icon }) => (
+              <Button
+                key={key}
+                type="button"
+                size="sm"
+                variant="outline"
+                aria-label={label}
+                title={label}
+                onClick={() => move(key)}
+              >
+                <Icon size={14} aria-hidden="true" />
+              </Button>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </div>
   );
 }
 

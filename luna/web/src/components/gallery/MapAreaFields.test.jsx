@@ -59,13 +59,10 @@ describe("MapAreaFields", () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
-  it("moves and resizes the selected area with the arrow keys", () => {
+  it("moves the selected area with the move buttons", () => {
     const onChange = vi.fn();
     render(<MapAreaFields value={BOX} onChange={onChange} />);
-    const area = screen.getByRole("group", { name: /Selected area/ });
-    fireEvent.keyDown(area, { key: "ArrowUp" });
+    fireEvent.click(screen.getByRole("button", { name: "Move area north" }));
     expect(onChange.mock.calls[0][0].map((n) => Number(n.toFixed(3)))).toEqual([4, 51.1, 5, 52.1]);
-    fireEvent.keyDown(area, { key: "ArrowRight", shiftKey: true });
-    expect(onChange.mock.calls[1][0]).toEqual([4, 51, 5.1, 52]);
   });
 });
