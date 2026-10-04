@@ -23,6 +23,7 @@ export const CHECK_LABELS = {
   erase_tools: "Erasing drives",
   smart_tool: "Hard drive health reports",
   trim_tool: "SSD upkeep",
+  cloud_backup: "Cloud backup",
 };
 
 export const CATEGORY_LABELS = {
@@ -30,10 +31,14 @@ export const CATEGORY_LABELS = {
   storage: "Storage",
   network: "Network",
   drives: "Drives",
+  backups: "Backups",
   features: "Features",
 };
 
-export const CATEGORY_ORDER = ["system", "storage", "network", "drives", "features"];
+export const CATEGORY_ORDER = ["system", "storage", "network", "drives", "backups", "features"];
+
+/** Areas the setup system check covers — backups don't exist yet then. */
+export const SETUP_CATEGORY_ORDER = CATEGORY_ORDER.filter((id) => id !== "backups");
 
 /** @typedef {"passed" | "warning" | "failed"} CheckStatus */
 
@@ -50,13 +55,19 @@ export function labelFor(name) {
   if (driveRw) return `Drive save test`;
   const driveSmart = name.match(/^drive_(.+)_smart$/);
   if (driveSmart) return "Hard drive wear check";
+  if (name.startsWith("protect_")) return "Protected folder";
   return String(name)
     .replace(/_/g, " ")
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-/** Prefer the drive label from check details when present. */
+/** Prefer the drive label (or protected folder) from check details when present. */
 export function displayLabel(name, check) {
+  const folder = check?.details?.folder;
+  if (folder && name.startsWith("protect_")) {
+    const target = check?.details?.target_drive;
+    return target ? `${folder} — copy on ${target}` : `${folder} — protected copy`;
+  }
   const label = check?.details?.drive_label;
   if (label && name.startsWith("drive_")) {
     if (name.endsWith("_read_write")) return `${label} — save test`;

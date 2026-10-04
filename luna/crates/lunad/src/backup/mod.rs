@@ -2,3 +2,4 @@
 
 pub mod cloud_backup;
 pub mod protect;
+pub mod status;

@@ -3,7 +3,8 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use serde_json::{Value, json};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::db::{self, DriveRow};
 use crate::net::connect::{self, ConnectError, ConnectService};
@@ -16,22 +17,114 @@ const MAX_BYTES_PER_TICK: u64 = 4 * 1024 * 1024 * 1024;
 /// not retried forever.
 const MAX_OBJECT_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
-/// Counts and the last failure for one tick, persisted in the meta table so
-/// a status surface can answer "did the last cloud backup run work?".
+/// The meta-table key holding [`CloudBackupStatus`] as JSON.
+const STATUS_KEY: &str = "cloud_backup_status";
+
+/// What the cloud backup has recorded about its runs — read by the health
+/// checks and `GET /api/v1/connect/status`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct CloudBackupStatus {
+    /// When the backup was turned on (sources saved while none were set) —
+    /// the staleness clock before the first success.
+    pub since: i64,
+    pub last_run_at: i64,
+    /// Last run with nothing failed and no source skipped. 0 = never.
+    pub last_ok_at: i64,
+    /// When the current run of failures began. 0 while healthy.
+    pub failing_since: i64,
+    /// Plain-language reason; empty while healthy.
+    pub last_error: String,
+    /// The problem won't fix itself — see [`super::status::Record::hard`].
+    pub hard: bool,
+    pub last_result: RunResult,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct RunResult {
+    pub uploaded: u64,
+    pub failed: u64,
+    pub bytes: u64,
+    pub unchanged: u64,
+    pub skipped_too_large: u64,
+    /// Drives or folders that couldn't be reached this run.
+    pub skipped_sources: Vec<String>,
+}
+
+impl CloudBackupStatus {
+    pub fn state(&self, now: i64) -> super::status::BackupState {
+        super::status::state(
+            super::status::Record {
+                last_ok_at: self.last_ok_at,
+                failing_since: self.failing_since,
+                last_error: &self.last_error,
+                hard: self.hard,
+                since: self.since,
+            },
+            now,
+        )
+    }
+}
+
+pub fn read_status(conn: &rusqlite::Connection) -> Option<CloudBackupStatus> {
+    db::get_meta(conn, STATUS_KEY)
+        .ok()
+        .flatten()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+}
+
+fn write_status(conn: &rusqlite::Connection, status: &CloudBackupStatus) {
+    if let Ok(raw) = serde_json::to_string(status) {
+        let _ = db::set_meta(conn, STATUS_KEY, &raw);
+    }
+}
+
+/// Sources were just saved. Turning backup on (none before) starts a fresh
+/// record; changing what's copied keeps the history, including any failure.
+pub fn note_sources_saved(conn: &rusqlite::Connection, had_sources: bool, now: i64) {
+    if had_sources && read_status(conn).is_some() {
+        return;
+    }
+    write_status(
+        conn,
+        &CloudBackupStatus {
+            since: now,
+            ..Default::default()
+        },
+    );
+}
+
+/// Counts and the worst failure for one tick.
 #[derive(Default)]
 struct TickStats {
-    uploaded: u64,
-    failed: u64,
-    unchanged: u64,
-    too_large: u64,
-    bytes: u64,
+    result: RunResult,
     last_error: Option<String>,
+    /// Some failure this tick won't fix itself on the next one.
+    hard: bool,
 }
 
 impl TickStats {
     fn fail(&mut self, err: &ConnectError) {
-        self.failed += 1;
-        self.last_error = Some(err.to_string());
+        self.result.failed += 1;
+        let hard = !matches!(
+            err,
+            ConnectError::Unreachable | ConnectError::GatewayChallenge
+        );
+        self.problem(err.to_string(), hard);
+    }
+
+    /// Keep the first hard problem's message over any soft one.
+    fn problem(&mut self, message: String, hard: bool) {
+        if self.last_error.is_none() || (hard && !self.hard) {
+            self.last_error = Some(message);
+        }
+        self.hard |= hard;
+    }
+
+    /// A source Luna couldn't reach — won't fix itself until a person
+    /// plugs a drive back in.
+    fn skip_source(&mut self, name: String, message: String) {
+        self.problem(message, true);
+        self.result.skipped_sources.push(name);
     }
 }
 
@@ -48,24 +141,40 @@ impl Budget {
     }
 }
 
-pub fn tick(connect: &ConnectService, last_io_unix: i64, now_unix: i64, db: &crate::Db) {
+/// One idle-time pass. Returns true when the backup went from working to
+/// failing or back, so the caller can refresh the health checks.
+pub fn tick(connect: &ConnectService, last_io_unix: i64, now_unix: i64, db: &crate::Db) -> bool {
     if !connect.is_connect_active() {
-        return;
+        return false;
     }
-    if !connect::is_idle(last_io_unix, now_unix) {
-        return;
+    let sources = connect.backup_sources();
+    if sources.is_empty() {
+        return false;
+    }
+    // Start the staleness clock even if Luna is never idle long enough to
+    // run — "hasn't finished in over a day" must still show.
+    if let Ok(conn) = db.lock()
+        && read_status(&conn).is_none()
+    {
+        note_sources_saved(&conn, false, now_unix);
     }
     if !connect.backup_unlocked() {
-        return;
+        let mut stats = TickStats::default();
+        stats.problem(
+            "Cloud backup is paused because your Luna Connect account has no payment card. Add one at connect.luna.libreloom.org."
+                .into(),
+            true,
+        );
+        return record_run(db, now_unix, stats);
     }
-    let (drives, sources) = {
+    if !connect::is_idle(last_io_unix, now_unix) {
+        return false;
+    }
+    let drives = {
         let Ok(conn) = db.lock() else {
-            return;
+            return false;
         };
-        (
-            db::list_drives(&conn).unwrap_or_default(),
-            connect.backup_sources(),
-        )
+        db::list_drives(&conn).unwrap_or_default()
     };
     let mut stats = TickStats::default();
     let mut budget = Budget {
@@ -73,14 +182,19 @@ pub fn tick(connect: &ConnectService, last_io_unix: i64, now_unix: i64, db: &cra
         bytes: MAX_BYTES_PER_TICK,
     };
     for source in sources {
-        if budget.exhausted() {
-            break;
-        }
         let kind = source.get("kind").and_then(|v| v.as_str()).unwrap_or("");
         match kind {
             "folder" => {
                 if let Some(path) = source.get("path").and_then(|v| v.as_str()) {
                     if !folder_under_adopted_mount(Path::new(path), &drives) {
+                        let name = folder_name(path);
+                        let message = format!(
+                            "Luna can't find {name}, so it wasn't copied to the cloud. Check that its drive is plugged in."
+                        );
+                        stats.skip_source(name, message);
+                        continue;
+                    }
+                    if budget.exhausted() {
                         continue;
                     }
                     sync_tree(
@@ -97,17 +211,22 @@ pub fn tick(connect: &ConnectService, last_io_unix: i64, now_unix: i64, db: &cra
             }
             "drive" => {
                 if let Some(id) = source.get("drive_id").and_then(|v| v.as_str()) {
-                    let mount = drives
-                        .iter()
-                        .find(|d| d.id == id)
-                        .map(|d| d.mount_point.clone())
-                        .unwrap_or_default();
-                    let label = drives
-                        .iter()
-                        .find(|d| d.id == id)
-                        .map(|d| d.label.clone())
-                        .unwrap_or_default();
+                    let drive = drives.iter().find(|d| d.id == id);
+                    let label = drive.map(|d| d.label.clone()).unwrap_or_default();
+                    let mount = drive.map(|d| d.mount_point.clone()).unwrap_or_default();
                     if mount.is_empty() {
+                        let name = if label.trim().is_empty() {
+                            "a drive".to_string()
+                        } else {
+                            label
+                        };
+                        let message = format!(
+                            "Luna can't find the drive {name}, so it wasn't copied to the cloud."
+                        );
+                        stats.skip_source(name, message);
+                        continue;
+                    }
+                    if budget.exhausted() {
                         continue;
                     }
                     let prefix = label.replace('/', "_");
@@ -125,41 +244,57 @@ pub fn tick(connect: &ConnectService, last_io_unix: i64, now_unix: i64, db: &cra
             _ => {}
         }
     }
-    record_run(db, now_unix, &stats);
+    record_run(db, now_unix, stats)
 }
 
-/// Persist the tick's outcome — same meta-table pattern as the scrub/trim
-/// stamps, so a status surface can report it later.
-fn record_run(db: &crate::Db, now_unix: i64, stats: &TickStats) {
+/// A folder source's name for messages: its last path segment.
+fn folder_name(path: &str) -> String {
+    path.trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .filter(|s| !s.is_empty())
+        .unwrap_or(path)
+        .to_string()
+}
+
+/// Persist the tick's outcome. Returns true when the backup went from
+/// working to failing or back.
+fn record_run(db: &crate::Db, now_unix: i64, stats: TickStats) -> bool {
     let Ok(conn) = db.lock() else {
-        return;
+        return false;
     };
-    let _ = db::set_meta(&conn, "cloud_backup_last_run_at", &now_unix.to_string());
-    let _ = db::set_meta(
-        &conn,
-        "cloud_backup_last_result",
-        &json!({
-            "uploaded": stats.uploaded,
-            "failed": stats.failed,
-            "bytes": stats.bytes,
-            "unchanged": stats.unchanged,
-            "skipped_too_large": stats.too_large,
-        })
-        .to_string(),
-    );
-    // ConnectError messages are already written for users.
-    let _ = db::set_meta(
-        &conn,
-        "cloud_backup_last_error",
-        stats.last_error.as_deref().unwrap_or(""),
-    );
-    if stats.failed > 0 {
-        tracing::warn!(
-            failed = stats.failed,
-            uploaded = stats.uploaded,
-            "cloud backup tick finished with failures"
-        );
+    let mut status = read_status(&conn).unwrap_or(CloudBackupStatus {
+        since: now_unix,
+        ..Default::default()
+    });
+    let was_failing = !status.last_error.is_empty();
+    status.last_run_at = now_unix;
+    status.last_result = stats.result;
+    match stats.last_error {
+        None => {
+            status.last_ok_at = now_unix;
+            status.failing_since = 0;
+            status.last_error.clear();
+            status.hard = false;
+        }
+        Some(message) => {
+            if status.failing_since == 0 {
+                status.failing_since = now_unix;
+            }
+            // ConnectError messages are already written for users.
+            status.last_error = message;
+            status.hard = stats.hard;
+            tracing::warn!(
+                failed = status.last_result.failed,
+                uploaded = status.last_result.uploaded,
+                skipped_sources = status.last_result.skipped_sources.len(),
+                error = %status.last_error,
+                "cloud backup tick finished with problems"
+            );
+        }
     }
+    write_status(&conn, &status);
+    was_failing == status.last_error.is_empty()
 }
 
 /// Reject `kind: folder` unless the path is inside an adopted drive mount.
@@ -246,7 +381,7 @@ fn put_private_manifest(
             crate::private::manifest_json(&root, &rel),
         ) {
             match connect.put_backup_object(&name, json.as_bytes()) {
-                Ok(()) => stats.uploaded += 1,
+                Ok(()) => stats.result.uploaded += 1,
                 Err(e) => stats.fail(&e),
             }
         }
@@ -288,28 +423,30 @@ fn sync_tree(
             .unwrap_or(0);
         // size+mtime match means the object in the cloud is already current.
         if manifest.get(&rel_s) == Some(&(size, mtime)) {
-            stats.unchanged += 1;
+            stats.result.unchanged += 1;
             return 0;
         }
         if size > MAX_OBJECT_BYTES {
-            stats.too_large += 1;
+            stats.result.skipped_too_large += 1;
             tracing::warn!(path = %path.display(), size, "cloud backup skipping oversized file");
             return 0;
         }
         let file = match std::fs::File::open(path) {
             Ok(f) => f,
             Err(e) => {
-                stats.failed += 1;
-                stats.last_error =
-                    Some("Luna couldn't read a file for cloud backup. It will try again.".into());
+                stats.result.failed += 1;
+                stats.problem(
+                    "Luna couldn't read a file to copy to the cloud. It will try again.".into(),
+                    true,
+                );
                 tracing::warn!(path = %path.display(), error = %e, "cloud backup file open failed");
                 return 0;
             }
         };
         match connect.put_backup_object(&rel_s, &file) {
             Ok(()) => {
-                stats.uploaded += 1;
-                stats.bytes += size;
+                stats.result.uploaded += 1;
+                stats.result.bytes += size;
                 if let Ok(conn) = db.lock() {
                     let _ = db::backup_manifest_put(&conn, source_key, &rel_s, size, mtime);
                 }
@@ -372,6 +509,125 @@ mod tests {
     #[test]
     fn tick_skips_when_busy() {
         assert!(!is_idle(50, 60));
+    }
+
+    /// A linked Luna with these backup settings. Connect itself is never
+    /// reached: the tests stop before any upload.
+    fn linked(dir: &Path, unlocked: bool, sources: Value) -> ConnectService {
+        let svc = ConnectService::new(dir, Some("http://127.0.0.1:9".into()));
+        svc.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
+        svc.save(&serde_json::json!({
+            "backup_unlocked": unlocked,
+            "backup_sources": sources,
+        }))
+        .unwrap();
+        svc
+    }
+
+    fn test_db(dir: &Path) -> crate::Db {
+        crate::Db::new(db::open(&dir.join("luna.db")).unwrap())
+    }
+
+    #[test]
+    fn locked_backup_with_sources_is_a_hard_problem() {
+        let dir = tempfile::tempdir().unwrap();
+        let svc = linked(
+            dir.path(),
+            false,
+            serde_json::json!([{"kind": "drive", "drive_id": "d1"}]),
+        );
+        let db = test_db(dir.path());
+        assert!(tick(&svc, 0, 1_000, &db), "healthy → failing is a change");
+        let status = read_status(&db.lock().unwrap()).unwrap();
+        assert!(status.hard);
+        assert!(status.last_error.contains("no payment card"));
+        assert_eq!(
+            status.state(1_000),
+            super::super::status::BackupState::Failing
+        );
+    }
+
+    #[test]
+    fn unplugged_source_drive_is_recorded_not_skipped_silently() {
+        let dir = tempfile::tempdir().unwrap();
+        let svc = linked(
+            dir.path(),
+            true,
+            serde_json::json!([{"kind": "drive", "drive_id": "d1"}]),
+        );
+        let db = test_db(dir.path());
+        db::upsert_drive(
+            &db.lock().unwrap(),
+            "d1",
+            "Photos",
+            "as_is",
+            "ext4",
+            "sda",
+            "",
+        )
+        .unwrap();
+        tick(&svc, 0, 1_000, &db);
+        let status = read_status(&db.lock().unwrap()).unwrap();
+        assert_eq!(
+            status.last_error,
+            "Luna can't find the drive Photos, so it wasn't copied to the cloud."
+        );
+        assert!(status.hard);
+        assert_eq!(status.last_ok_at, 0, "a skipped source is not a success");
+        assert_eq!(
+            status.last_result.skipped_sources,
+            vec!["Photos".to_string()]
+        );
+    }
+
+    #[test]
+    fn a_clean_run_clears_a_failure_and_keeps_the_streak_start_until_then() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = test_db(dir.path());
+        let mut blip = TickStats::default();
+        blip.fail(&ConnectError::Unreachable);
+        assert!(record_run(&db, 100, blip));
+        let mut again = TickStats::default();
+        again.fail(&ConnectError::Unreachable);
+        assert!(!record_run(&db, 220, again), "still failing is no change");
+        let status = read_status(&db.lock().unwrap()).unwrap();
+        assert_eq!(status.failing_since, 100);
+        assert!(!status.hard, "Connect being unreachable may fix itself");
+
+        assert!(record_run(&db, 340, TickStats::default()));
+        let status = read_status(&db.lock().unwrap()).unwrap();
+        assert_eq!(status.last_error, "");
+        assert_eq!(status.failing_since, 0);
+        assert_eq!(status.last_ok_at, 340);
+    }
+
+    #[test]
+    fn a_hard_problem_wins_over_a_soft_one_in_the_same_run() {
+        let mut stats = TickStats::default();
+        stats.fail(&ConnectError::Unreachable);
+        stats.fail(&ConnectError::Other(
+            "Cloud backup for this account is full.".into(),
+        ));
+        stats.fail(&ConnectError::Unreachable);
+        assert!(stats.hard);
+        assert_eq!(
+            stats.last_error.as_deref(),
+            Some("Cloud backup for this account is full.")
+        );
+    }
+
+    #[test]
+    fn turning_backup_on_starts_a_fresh_record_but_editing_keeps_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = test_db(dir.path());
+        let conn = db.lock().unwrap();
+        note_sources_saved(&conn, false, 50);
+        assert_eq!(read_status(&conn).unwrap().since, 50);
+        let mut failing = read_status(&conn).unwrap();
+        failing.last_error = "Drive missing.".into();
+        write_status(&conn, &failing);
+        note_sources_saved(&conn, true, 90);
+        assert_eq!(read_status(&conn).unwrap().last_error, "Drive missing.");
     }
 
     #[test]

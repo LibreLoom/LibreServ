@@ -834,15 +834,40 @@ impl ConnectService {
             self.base_url.trim_end_matches('/'),
             encode_object_key(rel.trim_start_matches('/'))
         );
-        ureq::put(&url)
+        let mut response = ureq::put(&url)
             .config()
+            .http_status_as_error(false)
             .timeout_global(Some(CONNECT_HTTP_TIMEOUT))
             .timeout_connect(Some(CONNECT_HTTP_CONNECT_TIMEOUT))
             .build()
             .header("Authorization", format!("Bearer {token}"))
             .send(body)
-            .map(|_| ())
-            .map_err(map_transport_error)
+            .map_err(map_transport_error)?;
+        let status = response.status().as_u16();
+        if (200..300).contains(&status) {
+            return Ok(());
+        }
+        let header = |name: &str| {
+            response
+                .headers()
+                .get(name)
+                .and_then(|v| v.to_str().ok())
+                .map(str::to_string)
+        };
+        let content_type = header("content-type").unwrap_or_default();
+        let cf_mitigated = header("cf-mitigated");
+        let body_text = response
+            .body_mut()
+            .with_config()
+            .limit(MAX_REPLY_BYTES)
+            .read_to_string()
+            .unwrap_or_default();
+        Err(classify_backup_reply(
+            status,
+            &content_type,
+            &body_text,
+            cf_mitigated.as_deref(),
+        ))
     }
 
     pub fn delete_backup_object(&self, rel: &str) -> Result<(), ConnectError> {
@@ -1517,6 +1542,33 @@ fn classify_403(
         return ConnectError::Unbound;
     }
     // Non-JSON gateway block (WAF plain text, empty body, etc.) — keep local claim.
+    ConnectError::Unreachable
+}
+
+/// A backup upload Connect refused. Its own 4xx messages (no payment card,
+/// cloud backup full, file too large) are written for users, so they pass
+/// through — the cloud backup status shows them as they are.
+fn classify_backup_reply(
+    status: u16,
+    content_type: &str,
+    body: &str,
+    cf_mitigated: Option<&str>,
+) -> ConnectError {
+    if status == 401 {
+        return ConnectError::InvalidToken;
+    }
+    if looks_like_cf_challenge(status, content_type, body, cf_mitigated) {
+        return ConnectError::GatewayChallenge;
+    }
+    if (400..500).contains(&status) && is_json_connect_body(content_type, body) {
+        let message = serde_json::from_str::<Value>(body)
+            .ok()
+            .and_then(|v| v.get("error").and_then(|e| e.as_str()).map(str::to_string))
+            .filter(|m| !m.trim().is_empty());
+        if let Some(message) = message {
+            return ConnectError::Other(message);
+        }
+    }
     ConnectError::Unreachable
 }
 
@@ -2526,6 +2578,28 @@ mod tests {
             ConnectError::Unreachable => {}
             other => panic!("expected Unreachable, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn backup_refusals_keep_connects_message() {
+        let full = classify_backup_reply(
+            413,
+            "application/json",
+            "{\"error\":\"Cloud backup for this account is full. Remove some files, then try again.\"}",
+            None,
+        );
+        assert_eq!(
+            full.to_string(),
+            "Cloud backup for this account is full. Remove some files, then try again."
+        );
+        assert!(matches!(
+            classify_backup_reply(502, "text/html", "<html>Bad gateway</html>", None),
+            ConnectError::Unreachable
+        ));
+        assert!(matches!(
+            classify_backup_reply(401, "application/json", "{}", None),
+            ConnectError::InvalidToken
+        ));
     }
 
     #[test]

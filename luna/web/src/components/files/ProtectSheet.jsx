@@ -14,6 +14,7 @@ import { useAnimatedHeight } from "@libreloom/ui/hooks/useAnimatedHeight.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
+import BackupStatusNotice from "../common/BackupStatusNotice.jsx";
 
 function pathKey(value) {
   return value || "";
@@ -123,12 +124,24 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
   });
   const runProtect = useMutation({
     mutationFn: (id) => postJson(`/api/v1/protections/${id}/run`, {}),
-    onSuccess: () => {
-      addToast({ type: "success", message: "Protection started — Luna is copying files." });
+    onSuccess: (res) => {
+      const copied = res?.copied || 0;
+      addToast({
+        type: "success",
+        message:
+          copied === 0
+            ? "The copy is already up to date."
+            : `Copied ${copied} new or changed ${copied === 1 ? "file" : "files"}.`,
+      });
+      setError(null);
     },
     onError: (err) => {
       haptic("error");
       setError(apiErrorMessage(err));
+    },
+    // Success or failure, the row's status changed.
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["protections"] });
     },
   });
   const stopProtect = useMutation({
@@ -239,14 +252,20 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                 >
                   <p className="text-primary text-xs">
                     Copy on {driveName(p.target_drive)}
-                    {p.last_run ? ` · ${new Date(p.last_run * 1000).toLocaleString()}` : ""}
+                    {p.last_ok_at ? ` · ${new Date(p.last_ok_at * 1000).toLocaleString()}` : ""}
                   </p>
+                  <BackupStatusNotice
+                    state={p.state}
+                    lastError={p.last_error}
+                    lastOkAt={p.last_ok_at}
+                    staleText={`This ${thingLabel} hasn't been copied to ${driveName(p.target_drive)} in over a day.`}
+                  />
                   <div className="flex flex-wrap gap-2">
                     <Button
                       size="sm"
                       variant="outline"
                       surface="secondary"
-                      loading={runProtect.isPending}
+                      loading={runProtect.isPending && runProtect.variables === p.id}
                       onClick={() => runProtect.mutate(p.id)}
                     >
                       Refresh now
@@ -329,6 +348,15 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                 )}
               </div>
             </div>
+
+            {cloudOn && cloudUnlocked && (
+              <BackupStatusNotice
+                state={connect.data?.backup_status?.state}
+                lastError={connect.data?.backup_status?.last_error}
+                lastOkAt={connect.data?.backup_status?.last_ok_at}
+                staleText="Cloud backup hasn't finished in over a day. Luna copies files to the cloud only while nobody is using it."
+              />
+            )}
 
             {cloudUnlocked && (
               <Button

@@ -39,7 +39,7 @@ pub fn router() -> Router<AppState> {
 async fn status(
     State(state): State<AppState>,
     current: Option<Extension<crate::auth::CurrentUser>>,
-) -> Json<crate::net::connect::ConnectStatus> {
+) -> Json<Value> {
     if state.connect.is_connect_active() {
         let connect = state.connect.clone();
         let _ = tokio::task::spawn_blocking(move || connect.sync_status_from_cloud()).await;
@@ -50,7 +50,24 @@ async fn status(
     // The token is a credential and no screen shows it; only the on-device
     // console reads it, in-process.
     status.device_code = None;
-    Json(status)
+    let has_sources = !status.backup_sources.is_empty();
+    let mut body = serde_json::to_value(status).unwrap_or_else(|_| json!({}));
+    // How the cloud backup is doing — Admins manage it, so only they see it.
+    if admin && has_sources {
+        let record = state
+            .db
+            .lock()
+            .ok()
+            .and_then(|conn| crate::backup::cloud_backup::read_status(&conn));
+        if let Some(record) = record {
+            body["backup_status"] = json!({
+                "state": record.state(crate::db::now_unix()),
+                "last_ok_at": record.last_ok_at,
+                "last_error": record.last_error,
+            });
+        }
+    }
+    Json(body)
 }
 
 fn setup_or_admin(state: &AppState, current: Option<&Extension<crate::auth::CurrentUser>>) -> bool {
@@ -169,6 +186,8 @@ async fn set_sources(
         crate::backup::cloud_backup::validate_backup_sources(body.sources, &drives)
             .map_err(map_connect_err)?
     };
+    let had_sources = !state.connect.backup_sources().is_empty();
+    let now_on = !sources.is_empty();
     let service = state.connect.clone();
     tokio::task::spawn_blocking(move || service.set_backup_sources(sources))
         .await
@@ -179,6 +198,11 @@ async fn set_sources(
             )
         })?
         .map_err(map_connect_err)?;
+    if now_on && let Ok(conn) = state.db.lock() {
+        crate::backup::cloud_backup::note_sources_saved(&conn, had_sources, crate::db::now_unix());
+    }
+    // Turning backup off removes its health row; on, adds one.
+    state.health_cache.invalidate();
     Ok(Json(json!({ "ok": true })))
 }
 

@@ -74,11 +74,21 @@ async fn comprehensive_check(
 /// Gather probes first — the DB lock is held only for the database checks,
 /// and drive probes run after it's released.
 fn compute(state: &AppState) -> crate::system::system_health::ComprehensiveHealthResponse {
-    use crate::system::system_health::{Probes, finish_comprehensive, run_preflight};
+    use crate::system::system_health::{
+        Probes, backup_checks, finish_comprehensive, run_preflight,
+    };
     let probes = Probes::from_state(state);
+    let cloud_sources = probes
+        .connect
+        .as_ref()
+        .is_some_and(|c| !c.backup_sources.is_empty());
     let (preflight, drives) = {
         let conn = state.db.lock().unwrap();
-        let preflight = run_preflight(&state.data_dir, &conn, &probes);
+        let mut preflight = run_preflight(&state.data_dir, &conn, &probes);
+        // Backup rows warn only, so they never change `healthy`.
+        preflight
+            .checks
+            .extend(backup_checks(&conn, cloud_sources, crate::db::now_unix()));
         let drives = crate::db::list_drives(&conn).unwrap_or_default();
         (preflight, drives)
     };

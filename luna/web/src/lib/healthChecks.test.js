@@ -21,4 +21,14 @@ describe("healthChecks", () => {
       }),
     ).toBe("Family photos — hard drive wear");
   });
+
+  it("names backup rows by what they copy", () => {
+    expect(labelFor("cloud_backup")).toBe("Cloud backup");
+    expect(labelFor("protect_3f6a")).toBe("Protected folder");
+    expect(
+      displayLabel("protect_3f6a", {
+        details: { folder: "Photos", target_drive: "Backup B" },
+      }),
+    ).toBe("Photos — copy on Backup B");
+  });
 });

@@ -44,6 +44,7 @@ async fn list(
             "Luna couldn't list protected folders.",
         )
     })?;
+    let now = crate::db::now_unix();
     Ok(Json(
         rows.into_iter()
             .map(|p| {
@@ -53,7 +54,9 @@ async fn list(
                     "source_path": p.source_path,
                     "target_drive": p.target_drive,
                     "target_path": p.target_path,
-                    "last_run": p.last_run,
+                    "last_ok_at": p.last_ok_at,
+                    "last_error": p.last_error,
+                    "state": crate::backup::protect::state(&p, now),
                 })
             })
             .collect(),
@@ -134,6 +137,8 @@ async fn remove(
             "Luna couldn't remove this protection.",
         )
     })?;
+    // A removed folder's health row goes with it.
+    state.health_cache.invalidate();
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -148,35 +153,40 @@ async fn run(
             "Only an Admin can run a protection now.",
         ));
     }
-    // Answer 404 for an id Luna doesn't know — claiming a refresh started
-    // for a protection that does not exist hides typos and stale rows.
-    let conn = state.db.lock().map_err(|_| {
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna's index is busy. Try again.",
-        )
-    })?;
-    let row = crate::db::get_protection(&conn, &id)
-        .map_err(|_| {
+    // Answer 404 for an id Luna doesn't know — a quiet no-op for a
+    // protection that does not exist would hide typos and stale rows.
+    let row = {
+        let conn = state.db.lock().map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't read the protected folders.",
-            )
-        })?
-        .ok_or_else(|| {
-            json_error(
-                StatusCode::NOT_FOUND,
-                "Luna doesn't know this protected folder.",
+                "Luna's index is busy. Try again.",
             )
         })?;
+        crate::db::get_protection(&conn, &id)
+            .map_err(|_| {
+                json_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Luna couldn't read the protected folders.",
+                )
+            })?
+            .ok_or_else(|| {
+                json_error(
+                    StatusCode::NOT_FOUND,
+                    "Luna doesn't know this protected folder.",
+                )
+            })?
+    };
     let db = state.db.clone();
-    tokio::task::spawn_blocking(move || {
-        let conn = db.lock().unwrap();
-        crate::backup::protect::sync(&conn, &row).unwrap_or(0)
-    });
-    Ok(Json(
-        json!({ "started": true, "message": "Luna is refreshing the protected copy." }),
-    ))
+    let health = state.health_cache.clone();
+    let result = tokio::task::spawn_blocking(move || crate::backup::protect::run_one(&db, &row))
+        .await
+        .unwrap_or_else(|_| Err("Luna couldn't finish copying this folder. Try again.".into()));
+    // The folder's health row may have changed either way.
+    health.invalidate();
+    match result {
+        Ok(copied) => Ok(Json(json!({ "ok": true, "copied": copied }))),
+        Err(msg) => Err(json_error(StatusCode::CONFLICT, msg)),
+    }
 }
 
 #[cfg(test)]

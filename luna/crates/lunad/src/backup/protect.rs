@@ -104,54 +104,211 @@ pub fn create(
         .ok_or_else(|| anyhow::anyhow!("Luna couldn't confirm that protected folder. Try again."))
 }
 
-pub fn sync_all(db: &crate::Db) -> anyhow::Result<u64> {
+/// What one pass over the protected folders changed.
+#[derive(Debug, Default)]
+pub struct SyncAllOutcome {
+    pub copied: u64,
+    /// A folder went from working to failing or back — the health checks
+    /// should be recomputed.
+    pub state_changed: bool,
+}
+
+/// Copy every protected folder. One folder failing never stops the others;
+/// each records its own result on its row.
+pub fn sync_all(db: &crate::Db) -> anyhow::Result<SyncAllOutcome> {
     let rows = {
         let conn = db.lock().map_err(|_| anyhow::anyhow!("db lock poisoned"))?;
         db::list_protections(&conn)?
     };
-    let mut copied = 0;
+    let mut outcome = SyncAllOutcome::default();
     for row in rows {
-        // Resolve paths under a short lock, then copy without holding it.
-        let (src_root, target_root) = {
-            let conn = db.lock().map_err(|_| anyhow::anyhow!("db lock poisoned"))?;
-            let (src_root, src_meta) =
-                files::resolve_any(&conn, &row.source_drive, &row.source_path)?;
-            if !src_meta.is_dir() {
-                continue;
-            }
-            let drive = files::drive_root(&conn, &row.target_drive)?;
-            let root = std::path::PathBuf::from(&drive.mount_point);
-            let target_root = luna_core::path::resolve_for_create_nofollow(&root, &row.target_path)
-                .map_err(|e| {
-                    anyhow::anyhow!("Luna couldn't open the protected-copy folder: {e}")
-                })?;
-            (src_root, target_root)
-        };
-        // The manifest goes down even when the copy stops partway: the
-        // `.luna-` entries that did arrive are useless without their names.
-        let result = sync_trees(&src_root, &target_root);
-        write_private_manifest(&row, &src_root, &target_root);
-        match result {
-            Ok(n) => {
-                copied += n;
-                if let Ok(conn) = db.lock() {
-                    let _ = db::touch_protection(&conn, &row.id);
-                }
-            }
-            Err(_) => continue,
-        }
+        let was_failing = !row.last_error.is_empty();
+        let result = run_one(db, &row);
+        outcome.copied += result.as_ref().copied().unwrap_or(0);
+        outcome.state_changed |= was_failing != result.is_err();
     }
-    Ok(copied)
+    Ok(outcome)
 }
 
-fn sync_trees(src_root: &Path, target_root: &Path) -> anyhow::Result<u64> {
-    let mut copied = 0u64;
+/// Copy one protected folder and record the result on its row. Paths
+/// resolve under a short lock; the copy runs without holding it. The error
+/// is a sentence for an Admin.
+pub fn run_one(db: &crate::Db, row: &ProtectionRow) -> Result<u64, String> {
+    let resolved = {
+        let conn = db.lock().unwrap_or_else(|p| p.into_inner());
+        resolve(&conn, row)
+    };
+    let result = resolved.and_then(|(names, src, target)| copy(row, &names, &src, &target));
+    if let Err(msg) = &result {
+        tracing::warn!(protection = %row.id, error = %msg, "protected copy failed");
+    }
+    let conn = db.lock().unwrap_or_else(|p| p.into_inner());
+    record(&conn, row, &result);
+    result
+}
+
+/// Whether this protected folder needs an Admin's attention. Every protect
+/// failure is one that won't fix itself (a drive, folder, or file problem).
+pub fn state(row: &ProtectionRow, now: i64) -> super::status::BackupState {
+    super::status::state(
+        super::status::Record {
+            last_ok_at: row.last_ok_at,
+            failing_since: row.failing_since,
+            last_error: &row.last_error,
+            hard: true,
+            since: row.created_at,
+        },
+        now,
+    )
+}
+
+/// [`run_one`] on a connection the caller already holds.
+pub fn sync(conn: &Connection, row: &ProtectionRow) -> Result<u64, String> {
+    let result =
+        resolve(conn, row).and_then(|(names, src, target)| copy(row, &names, &src, &target));
+    record(conn, row, &result);
+    result
+}
+
+fn record(conn: &Connection, row: &ProtectionRow, result: &Result<u64, String>) {
+    let now = crate::db::now_unix();
+    let _ = match result {
+        Ok(_) => db::record_protection_ok(conn, &row.id, now),
+        Err(msg) => db::record_protection_error(conn, &row.id, msg, now),
+    };
+}
+
+/// The names a person knows this protection by, for messages.
+pub struct Names {
+    pub folder: String,
+    pub source_drive: String,
+    pub target_drive: String,
+}
+
+pub fn names(conn: &Connection, row: &ProtectionRow) -> Names {
+    let label = |id: &str| {
+        db::get_drive(conn, id)
+            .ok()
+            .flatten()
+            .map(|d| d.label)
+            .filter(|l| !l.trim().is_empty())
+            .unwrap_or_else(|| "a drive".into())
+    };
+    let source_drive = label(&row.source_drive);
+    let folder = row
+        .source_path
+        .trim_matches('/')
+        .rsplit('/')
+        .next()
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| source_drive.clone());
+    Names {
+        folder,
+        source_drive,
+        target_drive: label(&row.target_drive),
+    }
+}
+
+fn resolve(
+    conn: &Connection,
+    row: &ProtectionRow,
+) -> Result<(Names, std::path::PathBuf, std::path::PathBuf), String> {
+    let names = names(conn, row);
+    let Names {
+        folder,
+        source_drive,
+        target_drive,
+    } = &names;
+    if files::drive_root(conn, &row.source_drive).is_err() {
+        return Err(format!(
+            "Luna can't find the drive {source_drive}, so {folder} wasn't copied."
+        ));
+    }
+    let src_root = match files::resolve_any(conn, &row.source_drive, &row.source_path) {
+        Ok((path, meta)) if meta.is_dir() => path,
+        _ => {
+            return Err(format!(
+                "Luna can't find {folder} on {source_drive} anymore, so there was nothing to copy."
+            ));
+        }
+    };
+    let Ok(drive) = files::drive_root(conn, &row.target_drive) else {
+        return Err(format!(
+            "Luna can't find the drive {target_drive}, so {folder} wasn't copied."
+        ));
+    };
+    let root = std::path::PathBuf::from(&drive.mount_point);
+    let target_root = luna_core::path::resolve_for_create_nofollow(&root, &row.target_path)
+        .map_err(|_| format!("Luna couldn't open the copy of {folder} on {target_drive}."))?;
+    Ok((names, src_root, target_root))
+}
+
+fn copy(
+    row: &ProtectionRow,
+    names: &Names,
+    src_root: &Path,
+    target_root: &Path,
+) -> Result<u64, String> {
+    // The manifest goes down even when the copy stops partway: the
+    // `.luna-` entries that did arrive are useless without their names.
+    let stats = sync_trees(src_root, target_root);
+    write_private_manifest(row, src_root, target_root);
+    let Names {
+        folder,
+        target_drive,
+        ..
+    } = names;
+    if let Some(err) = &stats.stopped {
+        return Err(match err.kind() {
+            std::io::ErrorKind::StorageFull | std::io::ErrorKind::QuotaExceeded => {
+                format!("{target_drive} is full, so the copy of {folder} stopped.")
+            }
+            _ => format!("Luna can't save to {target_drive}, so the copy of {folder} stopped."),
+        });
+    }
+    match stats.unreadable {
+        0 => Ok(stats.copied),
+        1 => Err(format!(
+            "Luna couldn't read 1 file in {folder}, so it wasn't copied."
+        )),
+        n => Err(format!(
+            "Luna couldn't read {n} files in {folder}, so they weren't copied."
+        )),
+    }
+}
+
+#[derive(Debug, Default)]
+struct CopyStats {
+    copied: u64,
+    /// Source files or folders Luna couldn't read — skipped, the rest go on.
+    unreadable: u64,
+    /// The target refused a write (full, read-only, gone): nothing more
+    /// can land there, so the pass stops.
+    stopped: Option<std::io::Error>,
+}
+
+fn sync_trees(src_root: &Path, target_root: &Path) -> CopyStats {
+    let mut stats = CopyStats::default();
     let mut stack = vec![(src_root.to_path_buf(), target_root.to_path_buf())];
     while let Some((src_dir, dst_dir)) = stack.pop() {
-        std::fs::create_dir_all(&dst_dir)?;
-        for entry in std::fs::read_dir(&src_dir)? {
-            let entry = entry?;
-            let meta = std::fs::symlink_metadata(entry.path())?;
+        if let Err(e) = std::fs::create_dir_all(&dst_dir) {
+            stats.stopped = Some(e);
+            return stats;
+        }
+        let Ok(entries) = std::fs::read_dir(&src_dir) else {
+            stats.unreadable += 1;
+            continue;
+        };
+        for entry in entries {
+            let Ok(entry) = entry else {
+                stats.unreadable += 1;
+                continue;
+            };
+            let Ok(meta) = std::fs::symlink_metadata(entry.path()) else {
+                stats.unreadable += 1;
+                continue;
+            };
             if meta.file_type().is_symlink() {
                 continue;
             }
@@ -167,11 +324,21 @@ fn sync_trees(src_root: &Path, target_root: &Path) -> anyhow::Result<u64> {
             if is_current(&dest, &meta) {
                 continue;
             }
-            copy_atomic(&entry.path(), &dest)?;
-            copied += 1;
+            let Ok(input) = std::fs::File::open(entry.path()) else {
+                stats.unreadable += 1;
+                continue;
+            };
+            match copy_atomic(input, &dest) {
+                Ok(()) => stats.copied += 1,
+                Err(CopyError::Read) => stats.unreadable += 1,
+                Err(CopyError::Write(e)) => {
+                    stats.stopped = Some(e);
+                    return stats;
+                }
+            }
         }
     }
-    Ok(copied)
+    stats
 }
 
 /// Private items are copied under their `.luna-` names, so the copy also
@@ -215,24 +382,6 @@ fn write_private_manifest(row: &ProtectionRow, src_dir: &Path, target_root: &Pat
     let _ = std::fs::write(path, merged);
 }
 
-pub fn sync(conn: &Connection, row: &ProtectionRow) -> anyhow::Result<u64> {
-    let (src_root, src_meta) = files::resolve_any(conn, &row.source_drive, &row.source_path)?;
-    if !src_meta.is_dir() {
-        anyhow::bail!("The protected folder is missing.");
-    }
-    let target_root = {
-        let drive = files::drive_root(conn, &row.target_drive)?;
-        let root = std::path::PathBuf::from(&drive.mount_point);
-        luna_core::path::resolve_for_create_nofollow(&root, &row.target_path)
-            .map_err(|e| anyhow::anyhow!("Luna couldn't open the protected-copy folder: {e}"))?
-    };
-    let result = sync_trees(&src_root, &target_root);
-    write_private_manifest(row, &src_root, &target_root);
-    let copied = result?;
-    db::touch_protection(conn, &row.id)?;
-    Ok(copied)
-}
-
 fn is_current(dest: &Path, src_meta: &std::fs::Metadata) -> bool {
     let Ok(dest_meta) = std::fs::metadata(dest) else {
         return false;
@@ -258,8 +407,12 @@ fn mtime(meta: &std::fs::Metadata) -> i64 {
         .unwrap_or(0)
 }
 
-fn copy_atomic(src: &Path, dest: &Path) -> anyhow::Result<()> {
-    let mut input = std::fs::File::open(src)?;
+enum CopyError {
+    Read,
+    Write(std::io::Error),
+}
+
+fn copy_atomic(mut input: std::fs::File, dest: &Path) -> Result<(), CopyError> {
     let tmp = {
         let mut s = dest.as_os_str().to_owned();
         s.push(".part");
@@ -269,19 +422,27 @@ fn copy_atomic(src: &Path, dest: &Path) -> anyhow::Result<()> {
         .write(true)
         .create(true)
         .truncate(true)
-        .open(&tmp)?;
+        .open(&tmp)
+        .map_err(CopyError::Write)?;
     let mut buf = vec![0u8; 1024 * 1024];
     loop {
-        let n = input.read(&mut buf)?;
+        let n = match input.read(&mut buf) {
+            Ok(n) => n,
+            Err(_) => {
+                drop(output);
+                let _ = std::fs::remove_file(&tmp);
+                return Err(CopyError::Read);
+            }
+        };
         if n == 0 {
             break;
         }
-        output.write_all(&buf[..n])?;
+        output.write_all(&buf[..n]).map_err(CopyError::Write)?;
     }
-    output.flush()?;
-    output.sync_all()?;
+    output.flush().map_err(CopyError::Write)?;
+    output.sync_all().map_err(CopyError::Write)?;
     drop(output);
-    std::fs::rename(&tmp, dest)?;
+    std::fs::rename(&tmp, dest).map_err(CopyError::Write)?;
     if let Some(parent) = dest.parent()
         && let Ok(dir) = std::fs::File::open(parent)
     {
@@ -469,5 +630,96 @@ mod tests {
         let manifest = Path::new(&dst).join(&row.target_path).join(name);
         let json = std::fs::read_to_string(manifest).expect("manifest written despite the failure");
         assert!(json.contains("\"owner\": \"alice\""), "{json}");
+    }
+
+    #[test]
+    fn one_missing_drive_does_not_stop_the_other_folders() {
+        let (_dir, conn) = setup();
+        let src = db::get_drive(&conn, "a").unwrap().unwrap().mount_point;
+        std::fs::create_dir_all(format!("{src}/family")).unwrap();
+        std::fs::create_dir_all(format!("{src}/work")).unwrap();
+        std::fs::write(format!("{src}/work/plan.txt"), b"x").unwrap();
+        let broken = create(&conn, "a", "family", "b").unwrap();
+        let fine = create(&conn, "a", "work", "b").unwrap();
+        std::fs::remove_dir_all(format!("{src}/family")).unwrap();
+
+        let db = crate::Db::new(conn);
+        let outcome = sync_all(&db).unwrap();
+        assert_eq!(outcome.copied, 1);
+        assert!(outcome.state_changed);
+
+        let conn = db.lock().unwrap();
+        let broken = db::get_protection(&conn, &broken.id).unwrap().unwrap();
+        assert!(
+            broken.last_error.contains("can't find family on A"),
+            "{}",
+            broken.last_error
+        );
+        assert!(broken.failing_since > 0);
+        assert_eq!(broken.last_ok_at, 0);
+        let fine = db::get_protection(&conn, &fine.id).unwrap().unwrap();
+        assert_eq!(fine.last_error, "");
+        assert!(fine.last_ok_at > 0);
+    }
+
+    #[test]
+    fn a_success_clears_the_recorded_error() {
+        let (_dir, conn) = setup();
+        let src = db::get_drive(&conn, "a").unwrap().unwrap().mount_point;
+        std::fs::create_dir_all(format!("{src}/family")).unwrap();
+        let row = create(&conn, "a", "family", "b").unwrap();
+        db::record_protection_error(&conn, &row.id, "Earlier problem.", 5).unwrap();
+        db::record_protection_error(&conn, &row.id, "Later problem.", 9).unwrap();
+        let failing = db::get_protection(&conn, &row.id).unwrap().unwrap();
+        assert_eq!(failing.failing_since, 5, "streak start is kept");
+        assert_eq!(failing.last_error, "Later problem.");
+
+        sync(&conn, &row).unwrap();
+        let ok = db::get_protection(&conn, &row.id).unwrap().unwrap();
+        assert_eq!(ok.last_error, "");
+        assert_eq!(ok.failing_since, 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unreadable_files_are_counted_and_the_rest_still_copy() {
+        use std::os::unix::fs::PermissionsExt;
+        let (_dir, conn) = setup();
+        let src = db::get_drive(&conn, "a").unwrap().unwrap().mount_point;
+        std::fs::create_dir_all(format!("{src}/family")).unwrap();
+        std::fs::write(format!("{src}/family/good.txt"), b"x").unwrap();
+        let blocked = format!("{src}/family/blocked.txt");
+        std::fs::write(&blocked, b"x").unwrap();
+        std::fs::set_permissions(&blocked, std::fs::Permissions::from_mode(0o000)).unwrap();
+        if std::fs::File::open(&blocked).is_ok() {
+            return; // root ignores file modes
+        }
+        let row = create(&conn, "a", "family", "b").unwrap();
+        let err = sync(&conn, &row).unwrap_err();
+        assert_eq!(
+            err,
+            "Luna couldn't read 1 file in family, so it wasn't copied."
+        );
+        let dst = db::get_drive(&conn, "b").unwrap().unwrap().mount_point;
+        assert!(
+            Path::new(&dst)
+                .join(&row.target_path)
+                .join("good.txt")
+                .exists()
+        );
+    }
+
+    #[test]
+    fn missing_target_drive_names_it() {
+        let (_dir, conn) = setup();
+        let src = db::get_drive(&conn, "a").unwrap().unwrap().mount_point;
+        std::fs::create_dir_all(format!("{src}/family")).unwrap();
+        let row = create(&conn, "a", "family", "b").unwrap();
+        conn.execute("UPDATE drives SET mount_point = '' WHERE id = 'b'", [])
+            .unwrap();
+        assert_eq!(
+            sync(&conn, &row).unwrap_err(),
+            "Luna can't find the drive B, so family wasn't copied."
+        );
     }
 }

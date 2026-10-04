@@ -12,6 +12,7 @@ import { getJsonAllowErrorStatus } from "../../lib/api.js";
 import {
   CATEGORY_LABELS,
   CATEGORY_ORDER,
+  SETUP_CATEGORY_ORDER,
   displayLabel,
   statusRank,
 } from "../../lib/healthChecks.js";
@@ -258,7 +259,7 @@ export default function PreflightStep({ onPass }) {
         id,
         status: worstStatus(grouped[id]),
       }))
-    : CATEGORY_ORDER.map((id) => ({ id, status: "pending" }));
+    : SETUP_CATEGORY_ORDER.map((id) => ({ id, status: "pending" }));
 
   let verdict = "pending";
   let title = "Checking Luna…";

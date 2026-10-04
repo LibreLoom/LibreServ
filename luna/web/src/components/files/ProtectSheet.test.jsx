@@ -16,11 +16,13 @@ function stubProtectApi({
   protections = [],
   connect = { backup_unlocked: false, backup_sources: [] },
   onBackupSources,
+  runReply = { status: 200, body: { ok: true, copied: 0 } },
 } = /** @type {{
   drives?: any[],
   protections?: any[],
-  connect?: { backup_unlocked: boolean, backup_sources: any[] },
+  connect?: { backup_unlocked: boolean, backup_sources: any[], backup_status?: any },
   onBackupSources?: (sources: unknown) => void,
+  runReply?: { status: number, body: any },
 }} */ ({})) {
   vi.stubGlobal(
     "fetch",
@@ -40,6 +42,12 @@ function stubProtectApi({
       }
       if (u.includes("/api/v1/drives") && !u.includes("/detected") && !u.includes("/files") && !u.includes("/health")) {
         return new Response(JSON.stringify(drives), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (u.includes("/api/v1/protections/") && u.endsWith("/run")) {
+        return new Response(JSON.stringify(runReply.body), {
+          status: runReply.status,
+          headers: { "Content-Type": "application/json" },
+        });
       }
       if (u.includes("/api/v1/protections")) {
         return new Response(JSON.stringify(protections), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -141,7 +149,7 @@ describe("ProtectSheet", () => {
           source_drive: "d1",
           source_path: "photos",
           target_drive: "d2",
-          last_run: 1_700_000_000,
+          last_ok_at: 1_700_000_000,
         },
       ],
       connect: { backup_unlocked: false, backup_sources: [] },
@@ -169,7 +177,7 @@ describe("ProtectSheet", () => {
           source_drive: "d1",
           source_path: "photos",
           target_drive: "d2",
-          last_run: 0,
+          last_ok_at: 0,
         },
       ],
     });
@@ -177,6 +185,97 @@ describe("ProtectSheet", () => {
     expect(await screen.findByText(/Copy on Backup/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Add another copy" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Copy onto" })).not.toBeInTheDocument();
+  });
+
+  it("shows why a protected copy is out of date", async () => {
+    stubProtectApi({
+      drives: [
+        { id: "d1", label: "Main", mount_point: "/mnt/main" },
+        { id: "d2", label: "Backup", mount_point: "/mnt/backup" },
+      ],
+      protections: [
+        {
+          id: "p1",
+          source_drive: "d1",
+          source_path: "photos",
+          target_drive: "d2",
+          last_ok_at: 0,
+          last_error: "Luna can't find the drive Backup, so photos wasn't copied.",
+          state: "failing",
+        },
+      ],
+    });
+    renderSheet();
+    expect(
+      await screen.findByText("Luna can't find the drive Backup, so photos wasn't copied."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Last full copy: never")).toBeInTheDocument();
+  });
+
+  it("says nothing extra while a protected copy is working", async () => {
+    stubProtectApi({
+      drives: [
+        { id: "d1", label: "Main", mount_point: "/mnt/main" },
+        { id: "d2", label: "Backup", mount_point: "/mnt/backup" },
+      ],
+      protections: [
+        {
+          id: "p1",
+          source_drive: "d1",
+          source_path: "photos",
+          target_drive: "d2",
+          last_ok_at: 1_700_000_000,
+          last_error: "",
+          state: "ok",
+        },
+      ],
+    });
+    renderSheet();
+    expect(await screen.findByText(/Copy on Backup/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Last full copy/)).not.toBeInTheDocument();
+  });
+
+  it("reports what Refresh now actually did", async () => {
+    const user = userEvent.setup();
+    stubProtectApi({
+      drives: [
+        { id: "d1", label: "Main", mount_point: "/mnt/main" },
+        { id: "d2", label: "Backup", mount_point: "/mnt/backup" },
+      ],
+      protections: [
+        { id: "p1", source_drive: "d1", source_path: "photos", target_drive: "d2", last_ok_at: 0 },
+      ],
+      runReply: {
+        status: 409,
+        body: { error: "Backup is full, so the copy of photos stopped." },
+      },
+    });
+    renderSheet();
+    await user.click(await screen.findByRole("button", { name: "Refresh now" }));
+    expect(
+      await screen.findByText("Backup is full, so the copy of photos stopped."),
+    ).toBeInTheDocument();
+  });
+
+  it("shows a cloud backup problem on the cloud row", async () => {
+    stubProtectApi({
+      drives: [{ id: "d1", label: "Main", mount_point: "/mnt/main" }],
+      connect: {
+        backup_unlocked: true,
+        backup_sources: [{ kind: "folder", path: "/mnt/main/photos" }],
+        backup_status: {
+          state: "failing",
+          last_ok_at: 0,
+          last_error: "Cloud backup for this account is full. Remove some files, then try again.",
+        },
+      },
+    });
+    renderSheet();
+    expect(
+      await screen.findByText(
+        "Cloud backup for this account is full. Remove some files, then try again.",
+      ),
+    ).toBeInTheDocument();
   });
 
   it("lets an admin start cloud backup when unlocked", async () => {

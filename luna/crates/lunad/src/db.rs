@@ -116,7 +116,9 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             source_path TEXT NOT NULL,
             target_drive TEXT NOT NULL,
             target_path TEXT NOT NULL,
-            last_run INTEGER NOT NULL DEFAULT 0,
+            last_ok_at INTEGER NOT NULL DEFAULT 0,
+            last_error TEXT NOT NULL DEFAULT '',
+            failing_since INTEGER NOT NULL DEFAULT 0,
             created_at INTEGER NOT NULL
         );
         CREATE TABLE IF NOT EXISTS device_tokens (
@@ -189,6 +191,24 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
         "INTEGER NOT NULL DEFAULT 0",
     )?;
     ensure_column(&conn, "device_tokens", "expires_at", "INTEGER")?;
+    ensure_column(
+        &conn,
+        "protections",
+        "last_ok_at",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    ensure_column(
+        &conn,
+        "protections",
+        "last_error",
+        "TEXT NOT NULL DEFAULT ''",
+    )?;
+    ensure_column(
+        &conn,
+        "protections",
+        "failing_since",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
     crate::files::forwarding::migrate(&conn)?;
     crate::files::recents::migrate(&conn)?;
     // Legacy sharing tables — replaced by access_members/access_links.
@@ -998,7 +1018,13 @@ pub struct ProtectionRow {
     pub source_path: String,
     pub target_drive: String,
     pub target_path: String,
-    pub last_run: i64,
+    /// Last run that copied everything. 0 = never.
+    pub last_ok_at: i64,
+    /// Plain-language reason the last run failed; empty once a run succeeds.
+    pub last_error: String,
+    /// When the current run of failures began. 0 while healthy.
+    pub failing_since: i64,
+    pub created_at: i64,
 }
 
 pub fn insert_protection(
@@ -1019,7 +1045,8 @@ pub fn insert_protection(
 
 pub fn list_protections(conn: &Connection) -> anyhow::Result<Vec<ProtectionRow>> {
     let mut stmt = conn.prepare_cached(
-        "SELECT id, source_drive, source_path, target_drive, target_path, last_run
+        "SELECT id, source_drive, source_path, target_drive, target_path,
+                last_ok_at, last_error, failing_since, created_at
          FROM protections ORDER BY created_at DESC",
     )?;
     let rows = stmt.query_map([], |row| {
@@ -1029,7 +1056,10 @@ pub fn list_protections(conn: &Connection) -> anyhow::Result<Vec<ProtectionRow>>
             source_path: row.get(2)?,
             target_drive: row.get(3)?,
             target_path: row.get(4)?,
-            last_run: row.get(5)?,
+            last_ok_at: row.get(5)?,
+            last_error: row.get(6)?,
+            failing_since: row.get(7)?,
+            created_at: row.get(8)?,
         })
     })?;
     Ok(rows.collect::<Result<Vec<_>, _>>()?)
@@ -1037,7 +1067,8 @@ pub fn list_protections(conn: &Connection) -> anyhow::Result<Vec<ProtectionRow>>
 
 pub fn get_protection(conn: &Connection, id: &str) -> anyhow::Result<Option<ProtectionRow>> {
     let mut stmt = conn.prepare_cached(
-        "SELECT id, source_drive, source_path, target_drive, target_path, last_run
+        "SELECT id, source_drive, source_path, target_drive, target_path,
+                last_ok_at, last_error, failing_since, created_at
          FROM protections WHERE id = ?1",
     )?;
     let mut rows = stmt.query_map(params![id], |row| {
@@ -1047,7 +1078,10 @@ pub fn get_protection(conn: &Connection, id: &str) -> anyhow::Result<Option<Prot
             source_path: row.get(2)?,
             target_drive: row.get(3)?,
             target_path: row.get(4)?,
-            last_run: row.get(5)?,
+            last_ok_at: row.get(5)?,
+            last_error: row.get(6)?,
+            failing_since: row.get(7)?,
+            created_at: row.get(8)?,
         })
     })?;
     Ok(rows.next().transpose()?)
@@ -1058,10 +1092,28 @@ pub fn delete_protection(conn: &Connection, id: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn touch_protection(conn: &Connection, id: &str) -> anyhow::Result<()> {
+/// A run copied everything: clear any failure.
+pub fn record_protection_ok(conn: &Connection, id: &str, now: i64) -> anyhow::Result<()> {
     conn.execute(
-        "UPDATE protections SET last_run = ?2 WHERE id = ?1",
-        params![id, now_unix()],
+        "UPDATE protections SET last_ok_at = ?2, last_error = '', failing_since = 0 WHERE id = ?1",
+        params![id, now],
+    )?;
+    Ok(())
+}
+
+/// A run failed: keep the reason, and keep `failing_since` from the first
+/// failure in a row.
+pub fn record_protection_error(
+    conn: &Connection,
+    id: &str,
+    message: &str,
+    now: i64,
+) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE protections SET last_error = ?2,
+             failing_since = CASE WHEN failing_since = 0 THEN ?3 ELSE failing_since END
+         WHERE id = ?1",
+        params![id, message, now],
     )?;
     Ok(())
 }

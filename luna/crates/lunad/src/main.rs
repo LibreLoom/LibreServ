@@ -256,6 +256,21 @@ async fn async_main() -> anyhow::Result<()> {
                                 }
                             }
                         }
+
+                        // Same rows and wording as the web's system checks.
+                        let cloud_sources = st.connect_active && !st.backup_sources.is_empty();
+                        let mut backup_problems: Vec<_> =
+                            lunad::system::system_health::backup_checks(
+                                &conn,
+                                cloud_sources,
+                                lunad::db::now_unix(),
+                            )
+                            .into_values()
+                            .filter(|c| c.status == lunad::system::system_health::WARNING)
+                            .map(|c| c.message)
+                            .collect();
+                        backup_problems.sort();
+                        problems.extend(backup_problems);
                     }
 
                     // Keep problem list short enough for a small HDMI screen.
@@ -357,15 +372,25 @@ async fn async_main() -> anyhow::Result<()> {
     }));
 
     let protect_db = state.db.clone();
+    let protect_health = state.health_cache.clone();
     bg_tasks.push(tokio::spawn(async move {
         let mut ticker = tokio::time::interval(std::time::Duration::from_secs(30 * 60));
         loop {
             ticker.tick().await;
             let db = protect_db.clone();
-            let _ = tokio::task::spawn_blocking(move || {
-                let _ = lunad::backup::protect::sync_all(&db);
-            })
-            .await;
+            let changed =
+                tokio::task::spawn_blocking(move || match lunad::backup::protect::sync_all(&db) {
+                    Ok(outcome) => outcome.state_changed,
+                    Err(e) => {
+                        tracing::warn!(error = %e, "protected folders couldn't be listed");
+                        false
+                    }
+                })
+                .await
+                .unwrap_or(false);
+            if changed {
+                protect_health.invalidate();
+            }
         }
     }));
 
@@ -380,10 +405,14 @@ async fn async_main() -> anyhow::Result<()> {
             let now = lunad::db::now_unix();
             let connect = backup_state.connect.clone();
             let db = backup_state.db.clone();
-            let _ = tokio::task::spawn_blocking(move || {
-                lunad::backup::cloud_backup::tick(&connect, last, now, &db);
+            let changed = tokio::task::spawn_blocking(move || {
+                lunad::backup::cloud_backup::tick(&connect, last, now, &db)
             })
-            .await;
+            .await
+            .unwrap_or(false);
+            if changed {
+                backup_state.health_cache.invalidate();
+            }
         }
     }));
 

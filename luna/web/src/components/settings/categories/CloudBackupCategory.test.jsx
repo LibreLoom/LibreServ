@@ -33,5 +33,16 @@ describe("CloudBackupCategory", () => {
     expect(await screen.findByText(/costs \$8 per terabyte each month/)).toBeInTheDocument();
     expect(screen.getByText(/open it and tap Protect, then use In the cloud/)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Cloud backup" })).toBeInTheDocument();
+    expect(screen.queryByText(/Last full copy/)).toBeNull();
+  });
+
+  it("says when cloud backup has stopped finishing", async () => {
+    stubStatus({
+      backup_unlocked: true,
+      backup_status: { state: "stale", last_ok_at: 0, last_error: "" },
+    });
+    renderCard();
+    expect(await screen.findByText(/Cloud backup hasn't finished in over a day/)).toBeInTheDocument();
+    expect(screen.getByText("Last full copy: never")).toBeInTheDocument();
   });
 });
