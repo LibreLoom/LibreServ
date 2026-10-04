@@ -1355,8 +1355,12 @@ async fn delete_entry(
     check_access(&state, &user, &id, &rel, crate::access::CAP_EDIT)?;
     check_no_foreign_private(&state, &user, &id, &rel)?;
     let trash_path = {
-        let _guard = state.db.drive_lock(&id).lock_owned().await;
-        with_db(&state, |conn| files::delete_to_trash(conn, &id, &rel)).map_err(map_files_err)?
+        let (id, rel) = (id.clone(), rel.clone());
+        changing(&state, &id.clone(), move |conn| {
+            files::delete_to_trash(conn, &id, &rel)
+        })
+        .await
+        .map_err(map_files_err)?
     };
     state.gallery.remove(&id, &rel);
     // Eagerly drop album refs so shared albums update without waiting on the indexer.
@@ -1404,9 +1408,15 @@ async fn mkdir_entry(
         parent_of(&rel),
         crate::access::CAP_UPLOAD,
     )?;
-    with_db(&state, |conn| {
-        files::mkdir_as(conn, &id, &rel, body.private.then_some(user.id.as_str()))
+    let (drive, path, owner) = (
+        id.clone(),
+        rel.clone(),
+        body.private.then(|| user.id.clone()),
+    );
+    with_db_blocking(&state, move |conn| {
+        files::mkdir_as(conn, &drive, &path, owner.as_deref())
     })
+    .await
     .map_err(|e| match e {
         FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::AlreadyExists => json_error(
             StatusCode::CONFLICT,
@@ -1569,20 +1579,23 @@ async fn create_entry(
         parent_of(&rel),
         crate::access::CAP_UPLOAD,
     )?;
-    with_db(&state, |conn| files::create(conn, &id, &rel)).map_err(|e| match e {
-        FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::AlreadyExists => json_error(
-            StatusCode::CONFLICT,
-            "A file with this name is already here. Choose another name.",
-        ),
-        FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::NotFound => json_error(
-            StatusCode::NOT_FOUND,
-            "Luna can't find the parent folder. Open it and try again.",
-        ),
-        FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::InvalidInput => {
-            json_error(StatusCode::BAD_REQUEST, "Choose a name for the new file.")
-        }
-        other => map_files_err(other),
-    })?;
+    let (drive, path) = (id.clone(), rel.clone());
+    with_db_blocking(&state, move |conn| files::create(conn, &drive, &path))
+        .await
+        .map_err(|e| match e {
+            FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::AlreadyExists => json_error(
+                StatusCode::CONFLICT,
+                "A file with this name is already here. Choose another name.",
+            ),
+            FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::NotFound => json_error(
+                StatusCode::NOT_FOUND,
+                "Luna can't find the parent folder. Open it and try again.",
+            ),
+            FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::InvalidInput => {
+                json_error(StatusCode::BAD_REQUEST, "Choose a name for the new file.")
+            }
+            other => map_files_err(other),
+        })?;
     invalidate_parent_listing(&state, &id, &rel);
     state.touch_io_activity();
     Ok(Json(json!({ "ok": true, "path": rel })))
@@ -1597,10 +1610,19 @@ async fn rename_entry(
     check_access(&state, &user, &id, &body.path, crate::access::CAP_EDIT)?;
     let parent = body.path.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
     let new_rel = crate::gallery::gallery_indexer::join_rel(parent, &body.new_name);
-    let guard = state.db.drive_lock(&id).lock_owned().await;
-    with_db(&state, |conn| {
-        files::rename(conn, &id, &body.path, &body.new_name)
+    let (drive, path, new_name, moved_to) = (
+        id.clone(),
+        body.path.clone(),
+        body.new_name.clone(),
+        new_rel.clone(),
+    );
+    // One locked change: rename, then see whether a folder moved.
+    let renamed_dir = changing(&state, &id, move |conn| {
+        files::rename(conn, &drive, &path, &new_name)?;
+        let root = std::path::PathBuf::from(&files::drive_root(conn, &drive)?.mount_point);
+        Ok(files::resolve_child(&root, &moved_to).is_ok_and(|p| p.is_dir()))
     })
+    .await
     .map_err(|e| match e {
         FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::AlreadyExists => json_error(
             StatusCode::CONFLICT,
@@ -1608,14 +1630,6 @@ async fn rename_entry(
         ),
         other => map_files_err(other),
     })?;
-    drop(guard);
-    // Folder renames move many gallery rows; a catch-up rescan is the safe path.
-    let renamed_dir = with_db(&state, |conn| {
-        let drive = crate::files::drive_root(conn, &id)?;
-        let root = std::path::PathBuf::from(&drive.mount_point);
-        Ok::<_, FilesError>(files::resolve_child(&root, &new_rel).is_ok_and(|p| p.is_dir()))
-    })
-    .unwrap_or(false);
     if renamed_dir {
         state.gallery.rescan(&id);
     } else {
@@ -1652,10 +1666,11 @@ async fn restore_entry(
             ));
         }
     }
-    let guard = state.db.drive_lock(&id).lock_owned().await;
-    with_db(&state, |conn| {
-        files::restore_from_trash(conn, &id, &body.path, &body.dest)
+    let (drive, path, dest) = (id.clone(), body.path.clone(), body.dest.clone());
+    changing(&state, &id, move |conn| {
+        files::restore_from_trash(conn, &drive, &path, &dest)
     })
+    .await
     .map_err(|e| match e {
         FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::AlreadyExists => json_error(
             StatusCode::CONFLICT,
@@ -1667,7 +1682,6 @@ async fn restore_entry(
         ),
         other => map_files_err(other),
     })?;
-    drop(guard);
     state.gallery.upsert(&id, &body.dest);
     invalidate_parent_listing(&state, &id, &body.dest);
     state.touch_io_activity();
@@ -2196,6 +2210,36 @@ fn check_access(
 /// The drive's row, read under a brief hold of the central lock.
 fn drive_row(state: &AppState, id: &str) -> Result<crate::db::DriveRow, FilesError> {
     with_db(state, |conn| files::drive_root(conn, id))
+}
+
+/// [`with_db`] on a background thread, so a slow drive stalls this request
+/// and not the async runtime.
+async fn with_db_blocking<T: Send + 'static>(
+    state: &AppState,
+    f: impl FnOnce(&rusqlite::Connection) -> Result<T, FilesError> + Send + 'static,
+) -> Result<T, FilesError> {
+    let state = state.clone();
+    tokio::task::spawn_blocking(move || with_db(&state, f))
+        .await
+        .unwrap_or_else(|_| Err(FilesError::Io(std::io::Error::other("task failed"))))
+}
+
+/// [`with_db_blocking`] holding the drive's mutation lock for the whole
+/// change (see `Db::drive_lock`). Changes to one drive queue; the lock rides
+/// into the thread so a dropped request can't release it early.
+async fn changing<T: Send + 'static>(
+    state: &AppState,
+    drive_id: &str,
+    f: impl FnOnce(&rusqlite::Connection) -> Result<T, FilesError> + Send + 'static,
+) -> Result<T, FilesError> {
+    let guard = state.db.drive_lock(drive_id).lock_owned().await;
+    let state = state.clone();
+    tokio::task::spawn_blocking(move || {
+        let _guard = guard;
+        with_db(&state, f)
+    })
+    .await
+    .unwrap_or_else(|_| Err(FilesError::Io(std::io::Error::other("task failed"))))
 }
 
 fn with_db<T>(
