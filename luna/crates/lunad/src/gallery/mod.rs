@@ -119,7 +119,7 @@ pub struct ScanReport {
     pub pruned: u64,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct ListFilter {
     pub q: Option<String>,
     pub from: Option<i64>,

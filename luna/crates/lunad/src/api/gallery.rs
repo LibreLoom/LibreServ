@@ -166,7 +166,7 @@ fn can_view_gallery_path(
     ))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 struct GalleryQuery {
     #[serde(default)]
     drive_id: Option<String>,
@@ -453,6 +453,59 @@ fn member_photo_json(p: &gallery::Photo, private: bool) -> Value {
     v
 }
 
+fn list_filter(query: &GalleryQuery, user: &crate::auth::CurrentUser) -> ListFilter {
+    ListFilter {
+        q: query.q.clone().filter(|s| !s.trim().is_empty()),
+        from: query.from,
+        to: query.to,
+        favorites_user: if query.favorites.unwrap_or(false) {
+            Some(user.id.clone())
+        } else {
+            None
+        },
+        album_id: query.album_id.clone(),
+        album_home_drive: query.album_home.clone(),
+        place: query.place.clone(),
+        place_bbox: query.place_bbox.as_deref().and_then(parse_place_bbox),
+        user_id: Some(user.id.clone()),
+        kind: query
+            .kind
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| *s == "image" || *s == "video")
+            .map(str::to_string),
+        camera_make: query.camera_make.clone().filter(|s| !s.trim().is_empty()),
+        camera_model: query.camera_model.clone().filter(|s| !s.trim().is_empty()),
+        lens: query.lens.clone().filter(|s| !s.trim().is_empty()),
+        iso_min: query.iso_min,
+        iso_max: query.iso_max,
+        focal_min: query.focal_min,
+        focal_max: query.focal_max,
+        flash: query.flash.filter(|v| *v == 0 || *v == 1),
+        orientation: query
+            .orientation
+            .as_deref()
+            .map(str::trim)
+            .map(str::to_ascii_lowercase)
+            .filter(|s| s == "landscape" || s == "portrait" || s == "square"),
+        has_gps: query.has_gps,
+        format: query.format.clone().filter(|s| !s.trim().is_empty()),
+        hour_from: query.hour_from.filter(|h| *h <= 23),
+        hour_to: query.hour_to.filter(|h| *h <= 23),
+        min_megapixels: query.min_megapixels.filter(|v| *v > 0.0),
+        min_duration: query.min_duration,
+        max_duration: query.max_duration,
+        undated: query.undated,
+        album_membership: query
+            .album_membership
+            .as_deref()
+            .map(str::trim)
+            .map(str::to_ascii_lowercase)
+            .filter(|s| s == "none" || s == "any"),
+        month_day: query.month_day.clone().filter(|s| !s.trim().is_empty()),
+    }
+}
+
 async fn timeline(
     State(state): State<AppState>,
     Extension(user): Extension<crate::auth::CurrentUser>,
@@ -527,56 +580,7 @@ async fn timeline(
     };
     let limit = query.limit.unwrap_or(80).clamp(1, 500);
     let offset = query.offset.unwrap_or(0);
-    let filter = ListFilter {
-        q: query.q.filter(|s| !s.trim().is_empty()),
-        from: query.from,
-        to: query.to,
-        favorites_user: if query.favorites.unwrap_or(false) {
-            Some(user.id.clone())
-        } else {
-            None
-        },
-        album_id: query.album_id.clone(),
-        album_home_drive: query.album_home.clone(),
-        place: query.place,
-        place_bbox: query.place_bbox.as_deref().and_then(parse_place_bbox),
-        user_id: Some(user.id.clone()),
-        kind: query
-            .kind
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| *s == "image" || *s == "video")
-            .map(str::to_string),
-        camera_make: query.camera_make.filter(|s| !s.trim().is_empty()),
-        camera_model: query.camera_model.filter(|s| !s.trim().is_empty()),
-        lens: query.lens.filter(|s| !s.trim().is_empty()),
-        iso_min: query.iso_min,
-        iso_max: query.iso_max,
-        focal_min: query.focal_min,
-        focal_max: query.focal_max,
-        flash: query.flash.filter(|v| *v == 0 || *v == 1),
-        orientation: query
-            .orientation
-            .as_deref()
-            .map(str::trim)
-            .map(str::to_ascii_lowercase)
-            .filter(|s| s == "landscape" || s == "portrait" || s == "square"),
-        has_gps: query.has_gps,
-        format: query.format.filter(|s| !s.trim().is_empty()),
-        hour_from: query.hour_from.filter(|h| *h <= 23),
-        hour_to: query.hour_to.filter(|h| *h <= 23),
-        min_megapixels: query.min_megapixels.filter(|v| *v > 0.0),
-        min_duration: query.min_duration,
-        max_duration: query.max_duration,
-        undated: query.undated,
-        album_membership: query
-            .album_membership
-            .as_deref()
-            .map(str::trim)
-            .map(str::to_ascii_lowercase)
-            .filter(|s| s == "none" || s == "any"),
-        month_day: query.month_day.filter(|s| !s.trim().is_empty()),
-    };
+    let filter = list_filter(&query, &user);
 
     // Keep fetching until we fill `limit` ACL-visible items or run out of pages.
     let mut items = Vec::new();
@@ -634,9 +638,37 @@ async fn timeline(
 async fn places(
     State(state): State<AppState>,
     Extension(user): Extension<crate::auth::CurrentUser>,
+    Query(query): Query<GalleryQuery>,
 ) -> Result<Json<Vec<gallery::PlaceMarker>>, (StatusCode, Json<Value>)> {
     let mounts = accessible_mounts(&state, &user, None)?;
-    let markers = gallery::list_place_markers(&mounts).map_err(|_| {
+    let filter = list_filter(&query, &user);
+    let markers = if filter == list_filter(&GalleryQuery::default(), &user) {
+        gallery::list_place_markers(&mounts)
+    } else {
+        // Same filters as the photo list, so the map shows what the list would.
+        let filter = gallery::ListFilter {
+            has_gps: Some(true),
+            ..filter
+        };
+        gallery::list_photos(&mounts, None, &filter, u32::MAX, 0).map(|page| {
+            page.items
+                .into_iter()
+                .filter_map(|p| {
+                    Some(gallery::PlaceMarker {
+                        key: gallery::place_key(p.lat?, p.lon?),
+                        id: format!("{}:{}", p.drive_id, p.path),
+                        label: p
+                            .place_label
+                            .unwrap_or_else(|| "Photos from this place".into()),
+                        lat: p.lat?,
+                        lon: p.lon?,
+                        cover_thumb: p.thumb,
+                    })
+                })
+                .collect()
+        })
+    }
+    .map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Luna couldn't open Places.",

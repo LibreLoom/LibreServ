@@ -68,6 +68,9 @@ import {
   putJson,
 } from "../lib/api";
 
+const placesUrlFor = (listUrl) =>
+  listUrl.replace("/api/v1/gallery?", "/api/v1/gallery/places?");
+const UNFILTERED_PLACES_URL = placesUrlFor(galleryUrl());
 const loadPlacesMap = () => import("../components/gallery/PlacesMap.jsx");
 const PlacesMap = lazy(loadPlacesMap);
 
@@ -566,11 +569,6 @@ export default function GalleryPage() {
       newAlbumOpen ||
       (!isAdmin && drivesEmpty),
   });
-  const places = useQuery({
-    queryKey: ["gallery-places"],
-    queryFn: () => getJson("/api/v1/gallery/places"),
-    enabled: activeSegment === "places" || filtersOpen,
-  });
 
   // Warm Places and Albums while the Library is idle, so switching tabs shows
   // data and the map code immediately instead of loading on click.
@@ -578,8 +576,8 @@ export default function GalleryPage() {
     const warm = () => {
       loadPlacesMap();
       queryClient.prefetchQuery({
-        queryKey: ["gallery-places"],
-        queryFn: () => getJson("/api/v1/gallery/places"),
+        queryKey: ["gallery-places", UNFILTERED_PLACES_URL],
+        queryFn: () => getJson(UNFILTERED_PLACES_URL),
       });
       queryClient.prefetchQuery({
         queryKey: ["gallery-albums"],
@@ -625,6 +623,13 @@ export default function GalleryPage() {
   const filterPlaceBbox = filters.placeBbox?.length === 4 ? filters.placeBbox.join(",") : "";
   const placeBboxParam = filterPlaceBbox || filters.place?.place_bbox?.join(",") || "";
   const filterActiveCount = countActiveFilters(filters);
+  // The Places map stays up while filters narrow it; only picking a place
+  // (or an area) switches to the photo list.
+  const placesMapOverview =
+    activeSegment === "places" &&
+    !filters.place &&
+    !placeBboxParam &&
+    !duplicatesView;
   const filterChips = filterChipList(filters);
 
   const listKey = useMemo(
@@ -670,45 +675,58 @@ export default function GalleryPage() {
     ],
   );
 
+  // Everything the photo list filters on; the Places map sends the same set.
+  const listOpts = {
+    q: search || undefined,
+    favorites: activeSegment === "favorites",
+    albumId: albumView?.id,
+    albumHome: albumView?.home_drive_id,
+    place: placeBboxParam ? undefined : filters.place?.key,
+    placeBbox: placeBboxParam || undefined,
+    from: effectiveFrom,
+    to: effectiveTo,
+    kind: filters.kind || undefined,
+    cameraMake: filters.cameraMake || undefined,
+    cameraModel: filters.cameraModel || undefined,
+    orientation: filters.orientation || undefined,
+    hasGps: filters.hasGps || undefined,
+    format: filters.formats?.length ? filters.formats.join(",") : undefined,
+    hourFrom: filters.hourFrom || undefined,
+    hourTo: filters.hourTo || undefined,
+    isoMin: filters.isoMin || undefined,
+    isoMax: filters.isoMax || undefined,
+    focalMin: filters.focalMin || undefined,
+    focalMax: filters.focalMax || undefined,
+    flash: filters.flash || undefined,
+    minMegapixels: filters.minMegapixels || undefined,
+    minDuration: filters.minDuration || undefined,
+    maxDuration: filters.maxDuration || undefined,
+    lens: filters.lens || undefined,
+    undated: filters.undated || undefined,
+    albumMembership: filters.albumMembership || undefined,
+    monthDay: monthDayParam || undefined,
+  };
+
+  // The map plots the photos the filters keep, so it takes the list's filters
+  // (minus the picked place, which sends you to the list instead).
+  const placesUrl = placesUrlFor(
+    galleryUrl({ ...listOpts, place: undefined, placeBbox: undefined }),
+  );
+  const places = useQuery({
+    queryKey: ["gallery-places", placesUrl],
+    queryFn: () => getJson(placesUrl),
+    enabled: activeSegment === "places" || filtersOpen,
+  });
+
   const gallery = useInfiniteQuery({
     queryKey: listKey,
     initialPageParam: 0,
     queryFn: ({ pageParam }) =>
       getJson(
-        galleryUrl({
-          q: search || undefined,
-          favorites: activeSegment === "favorites",
-          albumId: albumView?.id,
-          albumHome: albumView?.home_drive_id,
-          place: placeBboxParam ? undefined : filters.place?.key,
-          placeBbox: placeBboxParam || undefined,
-          from: effectiveFrom,
-          to: effectiveTo,
-          kind: filters.kind || undefined,
-          cameraMake: filters.cameraMake || undefined,
-          cameraModel: filters.cameraModel || undefined,
-          orientation: filters.orientation || undefined,
-          hasGps: filters.hasGps || undefined,
-          format: filters.formats?.length ? filters.formats.join(",") : undefined,
-          hourFrom: filters.hourFrom || undefined,
-          hourTo: filters.hourTo || undefined,
-          isoMin: filters.isoMin || undefined,
-          isoMax: filters.isoMax || undefined,
-          focalMin: filters.focalMin || undefined,
-          focalMax: filters.focalMax || undefined,
-          flash: filters.flash || undefined,
-          minMegapixels: filters.minMegapixels || undefined,
-          minDuration: filters.minDuration || undefined,
-          maxDuration: filters.maxDuration || undefined,
-          lens: filters.lens || undefined,
-          undated: filters.undated || undefined,
-          albumMembership: filters.albumMembership || undefined,
-          monthDay: monthDayParam || undefined,
-          offset: pageParam,
-        }),
+        galleryUrl({ ...listOpts, offset: pageParam }),
       ),
     getNextPageParam: (last) => (last?.has_more ? last.next_offset : undefined),
-    enabled: (activeSegment !== "places" || filterActiveCount > 0) && !duplicatesView,
+    enabled: !placesMapOverview && !duplicatesView,
   });
 
   const duplicates = useQuery({
@@ -1320,12 +1338,9 @@ export default function GalleryPage() {
     !duplicatesView &&
     (activeSegment === "library" ||
       activeSegment === "favorites" ||
-      (activeSegment === "places" && filterActiveCount > 0) ||
+      (activeSegment === "places" && !placesMapOverview) ||
       (activeSegment === "albums" &&
         (albumView || viewLabel || filterActiveCount > 0)));
-
-  const placesMapOverview =
-    activeSegment === "places" && filterActiveCount === 0 && !duplicatesView;
 
   // Track window scroll into the hash (`?y=`) so a reload lands back here.
   useEffect(() => {
