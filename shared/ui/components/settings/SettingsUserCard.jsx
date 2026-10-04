@@ -25,7 +25,7 @@ export default function SettingsUserCard({ user, href, deviceName = "this device
         <User size={ICON_SIZE.xl} />
       </div>
       <div className="flex-1 min-w-0">
-        <div className="font-semibold text-primary truncate">{user.username}</div>
+        <div className="font-semibold text-primary truncate">{user.display_name || user.username}</div>
         <div className="text-sm text-primary flex items-center gap-1">
           <Shield size={ICON_SIZE.xs} />
           {isAdmin ? (

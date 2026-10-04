@@ -95,7 +95,7 @@ function NavShortcut({ item, position, enabled }) {
  * @param {string} props.brand Name shown at the left of the desktop pill.
  * @param {{ to: string, icon: React.ElementType, label: string, end?: boolean, adminOnly?: boolean }[]} props.items
  *   Navigation entries in order. `Alt+Shift+<position>` jumps to each visible one.
- * @param {{ username?: string, role?: string } | null | undefined} props.user The signed-in person.
+ * @param {{ username?: string, display_name?: string, role?: string } | null | undefined} props.user The signed-in person.
  * @param {() => unknown} props.onLogout Called from "Sign out".
  * @param {{ to: string, icon: React.ElementType, label: string, adminOnly?: boolean }[]} [props.menuItems]
  *   Extra links at the top of the desktop user menu.
@@ -518,7 +518,7 @@ export default function Navbar({ brand, items, user, onLogout, menuItems = [], s
             >
               <button
                 type="button"
-                className={cn("font-semibold", "text-sm", "inline-block", "min-w-[6ch]", "max-w-[18ch]", "truncate", "text-left", TRANSITION.full, user?.username ? "opacity-100 translate-y-0" : "opacity-0 translate-y-1", "translate-y-[-0.5px]")}
+                className={cn("font-semibold", "text-sm", "inline-block", "min-w-[6ch]", "max-w-[18ch]", "truncate", "text-left", TRANSITION.full, (user?.display_name || user?.username) ? "opacity-100 translate-y-0" : "opacity-0 translate-y-1", "translate-y-[-0.5px]")}
                 aria-label="User menu"
                 aria-haspopup="menu"
                 aria-expanded={isUserMenuOpen}
@@ -535,7 +535,7 @@ export default function Navbar({ brand, items, user, onLogout, menuItems = [], s
                   userMenuPointerRef.current = "";
                 }}
               >
-                {user?.username || ""}
+                {user?.display_name || user?.username || ""}
               </button>
               <button
                 ref={userTriggerRef}
