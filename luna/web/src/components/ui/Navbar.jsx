@@ -2,8 +2,6 @@ import {
   HardDrive,
   Home,
   Image as ImageIcon,
-  Laptop,
-  Palette,
   Shield,
   Share2,
   SlidersHorizontal,
@@ -21,12 +19,7 @@ const navItems = [
   { to: "/settings", icon: SlidersHorizontal, label: "Settings", end: true },
 ];
 
-// Shortcuts into Settings, so your own account is one hover away.
-const menuItems = [
-  { to: "/settings#security", icon: Shield, label: "Security" },
-  { to: "/settings#devices", icon: Laptop, label: "Devices" },
-  { to: "/settings#appearance", icon: Palette, label: "Appearance" },
-];
+const menuItems = [{ to: "/settings#security", icon: Shield, label: "Security" }];
 
 export default function Navbar() {
   const { user, logout } = useAuth();
