@@ -367,3 +367,25 @@ describe("Tooltip leak guards", () => {
     expect((await screen.findByRole("tooltip")).className).toMatch(/z-\[3000\]/);
   });
 });
+
+describe("hint fade", () => {
+  it("fades the popup in, then fades it out before removing it", async () => {
+    const user = userEvent.setup();
+    render(<InfoHint delayMs={0} label="What Admin means" content="Admins manage this Luna." />);
+    await user.click(screen.getByRole("button", { name: /What Admin means/i }));
+    const tip = await screen.findByRole("tooltip");
+    // Mounts transparent, then fades up on the next frames.
+    await vi.waitFor(() => expect(tip.className).toMatch(/opacity-100/));
+    expect(tip.className).toMatch(/transition-opacity/);
+
+    await user.keyboard("{Escape}");
+    // Fading out: no longer announced as a tooltip, ignores the pointer.
+    expect(screen.queryByRole("tooltip")).toBeNull();
+    const fading = screen.getByText("Admins manage this Luna.");
+    expect(fading).toHaveAttribute("aria-hidden", "true");
+    expect(fading.className).toMatch(/opacity-0/);
+    expect(fading.className).toMatch(/pointer-events-none/);
+    // Then it is removed once the fade has played.
+    await vi.waitFor(() => expect(screen.queryByText("Admins manage this Luna.")).toBeNull());
+  });
+});

@@ -58,6 +58,47 @@ import { cn } from "../../lib/utils.js";
  * }>} */
 const TooltipGroupContext = createContext(null);
 
+// Every hint popup fades in and out. The popup stays mounted for FADE_MS
+// after closing so the fade-out can play; while fading out it drops its
+// tooltip role and ignores the pointer, so it never blocks a click or reads
+// as open. Reduced motion skips the transition (motion-safe:), not the delay.
+const FADE_MS = 50;
+
+/** @param {boolean} open */
+function useFadePresence(open) {
+  const [mounted, setMounted] = useState(open);
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    if (open) {
+      // Two frames: paint the popup transparent first, then fade it up.
+      /** @type {(cb: () => void) => any} */
+      const frame = typeof requestAnimationFrame === "function"
+        ? requestAnimationFrame
+        : (cb) => setTimeout(cb, 16);
+      /** @type {(id: any) => void} */
+      const cancel = typeof cancelAnimationFrame === "function" ? cancelAnimationFrame : clearTimeout;
+      /** @type {any} */
+      let inner = 0;
+      const outer = frame(() => {
+        inner = frame(() => {
+          setMounted(true);
+          setShown(true);
+        });
+      });
+      return () => {
+        cancel(outer);
+        cancel(inner);
+      };
+    }
+    const timer = setTimeout(() => {
+      setMounted(false);
+      setShown(false);
+    }, FADE_MS);
+    return () => clearTimeout(timer);
+  }, [open]);
+  return { mounted: open || mounted, shown: open && shown };
+}
+
 /**
  * @param {HTMLElement} trigger
  * @param {HTMLElement} popup
@@ -113,6 +154,7 @@ function HintShell({
   const openTimer = useRef(null);
   const closeTimer = useRef(null);
   const [open, setOpen] = useState(false);
+  const fade = useFadePresence(open);
   const [pinned, setPinned] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0 });
   const textClass = surface === "primary" ? "text-secondary" : "text-primary";
@@ -220,19 +262,21 @@ function HintShell({
         onBlur,
         textClass,
       })}
-      {open &&
+      {fade.mounted &&
         createPortal(
           <div
             ref={popupRef}
-            id={tooltipId}
-            role="tooltip"
+            id={open ? tooltipId : undefined}
+            role={open ? "tooltip" : undefined}
+            aria-hidden={open ? undefined : true}
             data-slot="tooltip-popup"
             onPointerEnter={show}
             onPointerLeave={pinned ? undefined : scheduleHide}
             style={{ position: "fixed", top: position.top, left: position.left }}
             className={cn(
               "z-50 bg-secondary text-primary ring-2 ring-inset ring-accent",
-              "motion-safe:transition-opacity motion-safe:duration-150",
+              "motion-safe:transition-opacity motion-safe:duration-50 ease-out",
+              fade.shown ? "opacity-100" : "opacity-0 pointer-events-none",
               popupClassName,
             )}
           >
@@ -458,6 +502,7 @@ export function Tooltip({ content, children, surface: _surface = "secondary", de
   const [position, setPosition] = useState({ top: 0, left: 0 });
 
   const open = group ? group.activeId === localId : soloOpen;
+  const fade = useFadePresence(open);
   const resolvedDelay = delayMs ?? group?.delayMs ?? 400;
 
   const clearTimers = useCallback(() => {
@@ -554,12 +599,13 @@ export function Tooltip({ content, children, surface: _surface = "secondary", de
       onClick={hideNow}
     >
       {children}
-      {open &&
+      {fade.mounted &&
         createPortal(
           <div
             ref={popupRef}
-            id={tooltipId}
-            role="tooltip"
+            id={open ? tooltipId : undefined}
+            role={open ? "tooltip" : undefined}
+            aria-hidden={open ? undefined : true}
             data-slot="tooltip-popup"
             onPointerEnter={showNow}
             onPointerLeave={scheduleHide}
@@ -567,7 +613,8 @@ export function Tooltip({ content, children, surface: _surface = "secondary", de
             className={cn(
               "z-50 bg-secondary text-primary ring-2 ring-inset ring-accent",
               "max-w-xs rounded-large-element px-3 py-1.5 text-xs leading-snug pointer-events-auto",
-              "motion-safe:transition-opacity motion-safe:duration-150",
+              "motion-safe:transition-opacity motion-safe:duration-50 ease-out",
+              fade.shown ? "opacity-100" : "opacity-0 pointer-events-none",
             )}
           >
             {content}
