@@ -35,6 +35,8 @@ struct DetectedDriveJson {
     usb: bool,
     mount_point: Option<String>,
     fs_type: Option<String>,
+    /// The system mounted it read-only (e.g. a locked SD card).
+    read_only: bool,
 }
 
 #[derive(Serialize)]
@@ -192,6 +194,7 @@ async fn detected(
                 usb: d.usb,
                 mount_point: d.mount_point,
                 fs_type: d.fs_type,
+                read_only: d.mount_readonly,
             })
             .collect(),
     ))

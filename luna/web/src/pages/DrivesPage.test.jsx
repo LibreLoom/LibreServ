@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen, within, fireEvent } from "@testing-library/react";
+import { render, screen, within, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
@@ -123,7 +123,7 @@ describe("DrivesPage", () => {
     renderPage();
     expect(await screen.findByText("64GB PSSD")).toBeInTheDocument();
     expect(screen.getByText("64 GB")).toBeInTheDocument();
-    expect(screen.getByText("USB")).toBeInTheDocument();
+    expect(screen.getByText("USB drive")).toBeInTheDocument();
     expect(screen.getByText("exFAT")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Add drive$/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Ignore for now/i })).not.toBeInTheDocument();
@@ -257,9 +257,9 @@ describe("DrivesPage", () => {
     });
     renderPage();
     expect(await screen.findByText("8.0 GB")).toBeInTheDocument();
-    expect(screen.getByText("USB")).toBeInTheDocument();
+    expect(screen.getByText("USB drive")).toBeInTheDocument();
     expect(screen.getByText("FAT")).toBeInTheDocument();
-    expect(screen.getByText("sdb")).toBeInTheDocument();
+    expect(screen.queryByText("sdb")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Add drive$/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Ignore for now/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/found on/i)).not.toBeInTheDocument();
@@ -290,8 +290,12 @@ describe("DrivesPage", () => {
 
     const dismiss = screen.getAllByRole("button", { name: /^Dismiss Generic STORAGE DEVICE$/i });
     await user.click(dismiss[0]);
-    expect(screen.queryByText("Nothing inserted")).not.toBeInTheDocument();
-    expect(screen.getByText("sdd")).toBeInTheDocument();
+    // A confirm comes first; nothing is hidden until it's accepted.
+    expect(screen.getByText("Dismiss this drive?")).toBeInTheDocument();
+    expect(screen.getByText("Nothing inserted")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /^Dismiss$/ }));
+    await waitFor(() => expect(screen.queryByText("Nothing inserted")).not.toBeInTheDocument());
+    expect(screen.getByText("32 GB")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /^Show 1 dismissed$/i }));
     expect(screen.getByText("Nothing inserted")).toBeInTheDocument();
