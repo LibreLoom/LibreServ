@@ -354,6 +354,7 @@ ClusterMarkers.propTypes = {
  * @param {{
  *   places?: Array<any>,
  *   loading?: boolean,
+ *   filtered?: boolean,
  *   onSelect?: (place: any) => void,
  *   onDrawArea?: () => void,
  *   drawMode?: boolean,
@@ -363,6 +364,7 @@ ClusterMarkers.propTypes = {
 export default function PlacesMap({
   places,
   loading = false,
+  filtered = false,
   onSelect,
   onDrawArea = undefined,
   drawMode: drawModeProp = undefined,
@@ -430,7 +432,8 @@ export default function PlacesMap({
     );
   }
 
-  if (!markers.length) {
+  // With filters on, no matches is just an empty map, not an empty state.
+  if (!markers.length && !filtered) {
     return (
       <EmptyState
         icon={MapPin}
@@ -441,7 +444,7 @@ export default function PlacesMap({
   }
 
   /** @type {[number, number]} */
-  const center = [markers[0].lat, markers[0].lon];
+  const center = markers.length ? [markers[0].lat, markers[0].lon] : [20, 0];
 
   return (
     <Card
@@ -553,7 +556,7 @@ export default function PlacesMap({
 
       <MapContainer
         center={center}
-        zoom={4}
+        zoom={markers.length ? 4 : 2}
         className="places-map min-h-0 h-full w-full flex-1 [&_.leaflet-control-attribution]:text-[10px]"
         scrollWheelZoom
       >
@@ -582,6 +585,7 @@ export default function PlacesMap({
 PlacesMap.propTypes = {
   places: PropTypes.arrayOf(PropTypes.object),
   loading: PropTypes.bool,
+  filtered: PropTypes.bool,
   onSelect: PropTypes.func,
   onDrawArea: PropTypes.func,
   drawMode: PropTypes.bool,

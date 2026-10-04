@@ -1,7 +1,7 @@
 /* eslint-disable react-refresh/only-export-components -- page exports helpers used by tests */
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   Image as ImageIcon,
@@ -715,6 +715,7 @@ export default function GalleryPage() {
   const places = useQuery({
     queryKey: ["gallery-places", placesUrl],
     queryFn: () => getJson(placesUrl),
+    placeholderData: keepPreviousData,
     enabled: activeSegment === "places" || filtersOpen,
   });
 
@@ -1911,6 +1912,7 @@ export default function GalleryPage() {
             <PlacesMap
               places={places.data || []}
               loading={places.isLoading}
+              filtered={filterActiveCount > 0}
               drawMode={placesDrawMode}
               onDrawModeChange={setPlacesDrawMode}
               onSelect={(p) => {

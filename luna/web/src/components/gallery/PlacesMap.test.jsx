@@ -102,6 +102,12 @@ describe("PlacesMap", () => {
     expect(document.querySelector("[data-slot=spinner]")).toBeTruthy();
   });
 
+  it("shows a bare map, not an empty state, when filters match nothing", () => {
+    render(<PlacesMap places={[]} filtered onSelect={vi.fn()} />);
+    expect(screen.queryByText(/No places yet/i)).toBeNull();
+    expect(document.querySelector(".places-map")).toBeTruthy();
+  });
+
   it("uses EmptyState (Card pop-in) when there are no places", () => {
     render(<PlacesMap places={[]} onSelect={vi.fn()} />);
     expect(screen.getByText(/No places yet/i)).toBeInTheDocument();
