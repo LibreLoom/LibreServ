@@ -102,12 +102,19 @@ export default function RemoteCategory() {
           ) : null}
 
           {isOn ? (
-            <Button variant="outline" fullWidth asChild className="justify-between">
-              <a href={LUNA_CONNECT_URL} target="_blank" rel="noopener noreferrer">
-                <span>Manage on Luna Connect</span>
-                <ChevronRight size={ICON_SIZE.md} aria-hidden="true" />
-              </a>
-            </Button>
+            <>
+              {address ? (
+                <p className="text-primary text-sm leading-relaxed">
+                  To change this address, open Luna Connect → Devices → Change address.
+                </p>
+              ) : null}
+              <Button variant="outline" fullWidth asChild className="justify-between">
+                <a href={LUNA_CONNECT_URL} target="_blank" rel="noopener noreferrer">
+                  <span>Manage on Luna Connect</span>
+                  <ChevronRight size={ICON_SIZE.md} aria-hidden="true" />
+                </a>
+              </Button>
+            </>
           ) : (
             <Button
               variant="primary"

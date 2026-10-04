@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import LunaPage from "./LunaPage.jsx";
 import { api } from "../api.js";
@@ -116,5 +116,49 @@ describe("LunaPage one Luna", () => {
       expect(api).toHaveBeenCalledWith("/api/v1/devices/dev_1", { method: "DELETE" });
     });
     expect(refreshMe).toHaveBeenCalled();
+  });
+
+  it("changes the address from the Luna page", async () => {
+    let hostname = "photos.luna.servers.libreloom.org";
+    api.mockImplementation(async (path, opts) => {
+      if (path === "/api/v1/account/devices") {
+        return { devices: [{ id: "dev_1", hostname, online: true }] };
+      }
+      if (path === "/api/v1/devices/dev_1/domain" && opts?.method === "POST") {
+        hostname = `${JSON.parse(opts.body).subdomain}.luna.servers.libreloom.org`;
+        return { hostname };
+      }
+      return {};
+    });
+    mount();
+    fireEvent.click(await screen.findByRole("button", { name: /^Change address$/i }));
+    const input = screen.getByLabelText(/New address/i);
+    fireEvent.change(input, { target: { value: "Kitchen" } });
+    const save = within(screen.getByTestId("luna-change-address")).getByRole("button", { name: /^Change address$/i });
+    fireEvent.click(save);
+
+    await waitFor(() => {
+      expect(api).toHaveBeenCalledWith("/api/v1/devices/dev_1/domain", {
+        method: "POST",
+        body: JSON.stringify({ subdomain: "kitchen" }),
+      });
+    });
+    expect(await screen.findByText(/Address changed to kitchen\.luna\.servers\.libreloom\.org/i)).toBeTruthy();
+  });
+
+  it("shows the reason when the new address is refused", async () => {
+    api.mockImplementation(async (path, opts) => {
+      if (path === "/api/v1/account/devices") {
+        return { devices: [{ id: "dev_1", hostname: "photos.luna.servers.libreloom.org", online: true }] };
+      }
+      if (opts?.method === "POST") throw new Error("That name is already taken.");
+      return {};
+    });
+    mount();
+    fireEvent.click(await screen.findByRole("button", { name: /^Change address$/i }));
+    fireEvent.change(screen.getByLabelText(/New address/i), { target: { value: "taken" } });
+    const save = within(screen.getByTestId("luna-change-address")).getByRole("button", { name: /^Change address$/i });
+    fireEvent.click(save);
+    expect((await screen.findByRole("alert")).textContent).toMatch(/already taken/i);
   });
 });

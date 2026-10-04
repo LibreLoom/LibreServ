@@ -6,7 +6,83 @@ import { api } from "../api.js";
 import { Layout } from "../components/Layout.jsx";
 import { Button } from "../components/ui/button.jsx";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card.jsx";
+import { Input } from "../components/ui/input.jsx";
+import ShakeTarget from "../components/ui/shake-target.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
+
+const PUBLIC_ZONE = "luna.servers.libreloom.org";
+
+function subdomainOf(hostname) {
+  const suffix = `.${PUBLIC_ZONE}`;
+  return hostname && hostname.endsWith(suffix) ? hostname.slice(0, -suffix.length) : "";
+}
+
+function ChangeAddressForm({ deviceId, hostname, onSaved, onCancel }) {
+  const current = subdomainOf(hostname);
+  const [name, setName] = useState(current);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const trimmed = name.trim().toLowerCase();
+
+  async function save(e) {
+    e.preventDefault();
+    setError("");
+    setBusy(true);
+    try {
+      await api(`/api/v1/devices/${encodeURIComponent(deviceId)}/domain`, {
+        method: "POST",
+        body: JSON.stringify({ subdomain: trimmed }),
+      });
+      await onSaved(`${trimmed}.${PUBLIC_ZONE}`);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form
+      className="rounded-large-element bg-muted border border-border px-4 py-4 space-y-3"
+      data-testid="luna-change-address"
+      onSubmit={save}
+    >
+      <label htmlFor="luna-address-name" className="block font-mono text-xs text-muted-foreground">
+        New address
+      </label>
+      <ShakeTarget shake={error} loading={busy} className="space-y-2">
+        <Input
+          id="luna-address-name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="kitchen"
+          autoFocus
+          aria-invalid={error ? "true" : undefined}
+          aria-describedby="luna-address-hint"
+        />
+        <p className="font-mono text-sm break-all">
+          {trimmed ? `${trimmed}.${PUBLIC_ZONE}` : `kitchen.${PUBLIC_ZONE}`}
+        </p>
+      </ShakeTarget>
+      <p id="luna-address-hint" className="text-sm leading-relaxed text-muted-foreground">
+        Use letters and numbers, at least 3 characters. The old address stops working, and Luna switches to the new one the next time it checks in.
+      </p>
+      {error && (
+        <p className="text-sm text-error" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="flex flex-col sm:flex-row gap-2">
+        <Button type="submit" loading={busy} disabled={trimmed.length < 3 || trimmed === current}>
+          Change address
+        </Button>
+        <Button type="button" variant="outline" onClick={onCancel}>
+          Keep current address
+        </Button>
+      </div>
+    </form>
+  );
+}
 
 function DeviceStatusRow({ online, codeHint }) {
   return (
@@ -64,7 +140,7 @@ function HostnameHero({ hostname, copied, onCopy }) {
   );
 }
 
-function DeviceToolbar({ hostname, shownCode, confirmUnbind, onToggleCode, onUnbindClick }) {
+function DeviceToolbar({ hostname, shownCode, confirmUnbind, onToggleCode, onUnbindClick, onChangeAddress }) {
   return (
     <div
       className="flex flex-wrap items-center gap-2 pt-4 border-t border-border"
@@ -76,6 +152,11 @@ function DeviceToolbar({ hostname, shownCode, confirmUnbind, onToggleCode, onUnb
             <ExternalLink className="h-4 w-4" />
             Open Luna
           </a>
+        </Button>
+      ) : null}
+      {hostname ? (
+        <Button variant="outline" size="sm" onClick={onChangeAddress}>
+          Change address
         </Button>
       ) : null}
       <Button variant="outline" size="sm" onClick={onToggleCode}>
@@ -99,6 +180,8 @@ export default function LunaPage() {
   const [unbinding, setUnbinding] = useState(false);
   const [confirmUnbind, setConfirmUnbind] = useState(false);
   const [copied, setCopied] = useState(null);
+  const [changingAddress, setChangingAddress] = useState(false);
+  const [addressNotice, setAddressNotice] = useState("");
 
   const load = useCallback(() => {
     return api("/api/v1/account/devices")
@@ -235,7 +318,30 @@ export default function LunaPage() {
                   showCode();
                 }}
                 onUnbindClick={() => setConfirmUnbind(true)}
+                onChangeAddress={() => {
+                  setAddressNotice("");
+                  setChangingAddress(true);
+                }}
               />
+
+              {addressNotice && !changingAddress && (
+                <p className="text-sm leading-relaxed" role="status">
+                  {addressNotice}
+                </p>
+              )}
+
+              {changingAddress && luna.hostname && (
+                <ChangeAddressForm
+                  deviceId={luna.id}
+                  hostname={luna.hostname}
+                  onCancel={() => setChangingAddress(false)}
+                  onSaved={async (newHostname) => {
+                    await load();
+                    setChangingAddress(false);
+                    setAddressNotice(`Address changed to ${newHostname}. Luna switches to it the next time it checks in.`);
+                  }}
+                />
+              )}
 
               {confirmUnbind && (
                 <div
