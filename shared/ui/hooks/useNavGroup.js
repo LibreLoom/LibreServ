@@ -5,7 +5,9 @@ import { useLocation } from "react-router-dom";
  * A navbar item that holds sub-pages (e.g. Luna's Files → Drives · Shared · Photos).
  *
  * @typedef {{ to: string, label: string, icon: import("react").ElementType, match?: string[] }} NavGroupChild
- * @typedef {{ key: string, label: string, icon: import("react").ElementType, children: NavGroupChild[] }} NavGroupItem
+ * @typedef {{ key: string, label: string, icon: import("react").ElementType, children: NavGroupChild[], storageKey?: string }} NavGroupItem
+ *   `storageKey` names the localStorage entry that remembers the last sub-page
+ *   (default `navGroup:<key>`), so two apps on one origin don't share it.
  */
 
 function childMatches(child, pathname) {
@@ -25,7 +27,7 @@ export function activeChild(group, pathname) {
 export function useGroupTarget(group) {
   const { pathname } = useLocation();
   const current = activeChild(group, pathname);
-  const key = `navGroup:${group.key}`;
+  const key = group.storageKey ?? `navGroup:${group.key}`;
 
   useEffect(() => {
     if (!current) return;

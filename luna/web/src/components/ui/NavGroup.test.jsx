@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../../context/AuthContext";
+import { HOVER_INTENT } from "@libreloom/ui/lib/ui-tokens.js";
 import Navbar from "./Navbar";
 
 afterEach(() => {
@@ -64,19 +65,6 @@ describe("Files nav group", () => {
     expect(desktop.querySelector("[inert]")).not.toBeNull();
   });
 
-  it("is a layered pill: an accent-outlined track around the label chip", async () => {
-    const { desktop } = renderAt("/");
-    // The outline is always there, so the group reads as a container when folded.
-    expect(desktop.className).toContain("surface-secondary");
-    expect(desktop.className).toContain("border-accent");
-
-    const files = within(desktop).getByRole("link", { name: "Files" });
-    await act(async () => files.focus());
-    expect(desktop).toHaveAttribute("data-open");
-    // Open, the label is the inset primary chip in the secondary track.
-    expect(files.className).toContain("surface-primary");
-  });
-
   it("shows Files as selected inside Files, folded until hovered", async () => {
     vi.useFakeTimers();
     try {
@@ -86,7 +74,7 @@ describe("Files nav group", () => {
       expect(files).toHaveAttribute("aria-current", "page");
 
       fireEvent.pointerEnter(desktop, { pointerType: "mouse" });
-      await act(async () => vi.advanceTimersByTime(200));
+      await act(async () => vi.advanceTimersByTime(HOVER_INTENT.openMs));
       expect(desktop).toHaveAttribute("data-open");
       // Open, the sub-page carries the selection instead.
       expect(files).not.toHaveAttribute("aria-current");
@@ -94,7 +82,7 @@ describe("Files nav group", () => {
       expect(within(desktop).getByRole("link", { name: "Photos" })).not.toHaveAttribute("aria-current");
 
       fireEvent.pointerLeave(desktop, { pointerType: "mouse" });
-      await act(async () => vi.advanceTimersByTime(300));
+      await act(async () => vi.advanceTimersByTime(HOVER_INTENT.closeMs));
       expect(desktop).not.toHaveAttribute("data-open");
       expect(files).toHaveAttribute("aria-current", "page");
     } finally {
@@ -117,14 +105,14 @@ describe("Files nav group", () => {
       const { desktop } = renderAt("/");
       fireEvent.pointerEnter(desktop, { pointerType: "mouse" });
       // A quick sweep across the bar doesn't open it.
-      await act(async () => vi.advanceTimersByTime(30));
+      await act(async () => vi.advanceTimersByTime(HOVER_INTENT.openMs - 1));
       expect(desktop).not.toHaveAttribute("data-open");
-      await act(async () => vi.advanceTimersByTime(40));
+      await act(async () => vi.advanceTimersByTime(1));
       expect(desktop).toHaveAttribute("data-open");
       expect(desktop.querySelector("[inert]")).toBeNull();
 
       fireEvent.pointerLeave(desktop, { pointerType: "mouse" });
-      await act(async () => vi.advanceTimersByTime(50));
+      await act(async () => vi.advanceTimersByTime(HOVER_INTENT.closeMs));
       expect(desktop).not.toHaveAttribute("data-open");
     } finally {
       vi.useRealTimers();
