@@ -8,6 +8,9 @@ use serde_json::{Value, json};
 use crate::AppState;
 use crate::api::response::json_error;
 
+/// How long Refresh waits for the copy before answering "still copying".
+const REFRESH_WAIT: std::time::Duration = std::time::Duration::from_secs(15);
+
 #[derive(Deserialize)]
 struct CreateProtection {
     source_drive_id: String,
@@ -178,14 +181,23 @@ async fn run(
     };
     let db = state.db.clone();
     let health = state.health_cache.clone();
-    let result = tokio::task::spawn_blocking(move || crate::backup::protect::run_one(&db, &row))
-        .await
-        .unwrap_or_else(|_| Err("Luna couldn't finish copying this folder. Try again.".into()));
-    // The folder's health row may have changed either way.
-    health.invalidate();
-    match result {
-        Ok(copied) => Ok(Json(json!({ "ok": true, "copied": copied }))),
-        Err(msg) => Err(json_error(StatusCode::CONFLICT, msg)),
+    let job = tokio::task::spawn_blocking(move || {
+        let result = crate::backup::protect::run_one(&db, &row);
+        // The folder's health row may have changed either way.
+        health.invalidate();
+        result
+    });
+    // A big first copy can take hours — far longer than a request (or the
+    // remote-access tunnel) stays open. Answer with the result when it's
+    // quick; otherwise say it's still going and let the row's status tell.
+    match tokio::time::timeout(REFRESH_WAIT, job).await {
+        Ok(joined) => match joined
+            .unwrap_or_else(|_| Err("Luna couldn't finish copying this folder. Try again.".into()))
+        {
+            Ok(copied) => Ok(Json(json!({ "ok": true, "copied": copied }))),
+            Err(msg) => Err(json_error(StatusCode::CONFLICT, msg)),
+        },
+        Err(_) => Ok(Json(json!({ "ok": true, "still_copying": true }))),
     }
 }
 
@@ -232,5 +244,49 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), axum::http::StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn refresh_reports_why_the_copy_failed() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        db::insert_protection(&conn, "p1", "gone", "family", "also-gone", "x").unwrap();
+        let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
+        let state = AppState::new(conn, drive_manager, dir.path());
+        let auth = state.auth.clone();
+        let admin = auth
+            .register("Max", "Max", "hunter22hunter1", "admin")
+            .unwrap();
+        let token = auth.issue(&admin).unwrap();
+        let db_handle = state.db.clone();
+        let router = axum::Router::new()
+            .merge(super::router())
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                crate::auth::guard,
+            ))
+            .with_state(state);
+        let response = router
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/protections/p1/run")
+                    .header("Authorization", format!("Bearer {token}"))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), axum::http::StatusCode::CONFLICT);
+        let bytes = axum::body::to_bytes(response.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let expected = "Luna can't find one of Luna's drives, so family wasn't copied.";
+        assert_eq!(v["error"], expected);
+        let row = db::get_protection(&db_handle.lock().unwrap(), "p1")
+            .unwrap()
+            .unwrap();
+        assert_eq!(row.last_error, expected);
     }
 }

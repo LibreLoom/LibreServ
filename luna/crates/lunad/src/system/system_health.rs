@@ -1033,6 +1033,22 @@ pub fn backup_checks(
             record.state(now)
         };
         match state {
+            BackupState::Ok if record.last_progress_at > record.last_ok_at => {
+                checks
+                    .add(
+                        "cloud_backup",
+                        "backups",
+                        PASSED,
+                        format!(
+                            "Cloud backup is still copying files; it last made progress {}.",
+                            ago(record.last_progress_at, now)
+                        ),
+                        details,
+                    )
+                    .more(format!(
+                        "Luna sends up to 4 GB each time it's idle, so a big backup takes a while. {last_backup}"
+                    ));
+            }
             BackupState::Ok if record.last_ok_at > 0 => {
                 checks.add(
                     "cloud_backup",

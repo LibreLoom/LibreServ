@@ -79,6 +79,8 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
   const protections = useQuery({
     queryKey: ["protections"],
     queryFn: () => getJson("/api/v1/protections"),
+    // A long Refresh keeps copying after it answers; its row updates here.
+    refetchInterval: 30_000,
   });
   const connect = useQuery({
     queryKey: ["connect-status"],
@@ -126,13 +128,15 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
     mutationFn: (id) => postJson(`/api/v1/protections/${id}/run`, {}),
     onSuccess: (res) => {
       const copied = res?.copied || 0;
-      addToast({
-        type: "success",
-        message:
-          copied === 0
-            ? "The copy is already up to date."
-            : `Copied ${copied} new or changed ${copied === 1 ? "file" : "files"}.`,
-      });
+      let message;
+      if (res?.still_copying) {
+        message = "Luna is still copying. This copy's status updates when it finishes.";
+      } else if (copied === 0) {
+        message = "The copy is already up to date.";
+      } else {
+        message = `Copied ${copied} new or changed ${copied === 1 ? "file" : "files"}.`;
+      }
+      addToast({ type: "success", message });
       setError(null);
     },
     onError: (err) => {

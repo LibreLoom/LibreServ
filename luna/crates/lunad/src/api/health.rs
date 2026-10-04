@@ -215,4 +215,45 @@ mod tests {
             .unwrap();
         assert_eq!(response.status(), axum::http::StatusCode::FORBIDDEN);
     }
+
+    #[tokio::test]
+    async fn a_failing_backup_warns_without_marking_luna_unhealthy() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        db::insert_protection(&conn, "p1", "a", "family", "b", "x").unwrap();
+        db::record_protection_error(&conn, "p1", "Luna can't find the drive B.", 1).unwrap();
+        let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
+        let state = AppState::new(conn, drive_manager, dir.path());
+        let auth = state.auth.clone();
+        let user = auth
+            .register("Max", "Max", "hunter22hunter1", "admin")
+            .unwrap();
+        let token = auth.issue(&user).unwrap();
+        let router = axum::Router::new()
+            .merge(super::router())
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                crate::auth::guard,
+            ))
+            .with_state(state);
+        let response = router
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/api/v1/system/health/check")
+                    .header("Authorization", format!("Bearer {token}"))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let status = response.status();
+        let bytes = axum::body::to_bytes(response.into_body(), 256 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(status, axum::http::StatusCode::OK, "{v}");
+        assert_eq!(v["overall_pass"], true);
+        assert_eq!(v["checks"]["protect_p1"]["status"], "warning");
+        assert_eq!(v["checks"]["protect_p1"]["category"], "backups");
+    }
 }

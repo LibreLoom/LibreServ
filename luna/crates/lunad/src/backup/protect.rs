@@ -178,6 +178,18 @@ fn record(conn: &Connection, row: &ProtectionRow, result: &Result<u64, String>) 
     };
 }
 
+/// Stands in for a drive with a blank label.
+const UNNAMED_DRIVE: &str = "Unnamed drive";
+
+/// "the drive Backup B", or a phrase that reads right without a name.
+fn the_drive(label: &str) -> String {
+    if label == UNNAMED_DRIVE {
+        "one of Luna's drives".into()
+    } else {
+        format!("the drive {label}")
+    }
+}
+
 /// The names a person knows this protection by, for messages.
 pub struct Names {
     pub folder: String,
@@ -192,7 +204,7 @@ pub fn names(conn: &Connection, row: &ProtectionRow) -> Names {
             .flatten()
             .map(|d| d.label)
             .filter(|l| !l.trim().is_empty())
-            .unwrap_or_else(|| "a drive".into())
+            .unwrap_or_else(|| UNNAMED_DRIVE.into())
     };
     let source_drive = label(&row.source_drive);
     let folder = row
@@ -222,7 +234,8 @@ fn resolve(
     } = &names;
     if files::drive_root(conn, &row.source_drive).is_err() {
         return Err(format!(
-            "Luna can't find the drive {source_drive}, so {folder} wasn't copied."
+            "Luna can't find {}, so {folder} wasn't copied.",
+            the_drive(source_drive)
         ));
     }
     let src_root = match files::resolve_any(conn, &row.source_drive, &row.source_path) {
@@ -235,7 +248,8 @@ fn resolve(
     };
     let Ok(drive) = files::drive_root(conn, &row.target_drive) else {
         return Err(format!(
-            "Luna can't find the drive {target_drive}, so {folder} wasn't copied."
+            "Luna can't find {}, so {folder} wasn't copied.",
+            the_drive(target_drive)
         ));
     };
     let root = std::path::PathBuf::from(&drive.mount_point);
@@ -267,13 +281,18 @@ fn copy(
             _ => format!("Luna can't save to {target_drive}, so the copy of {folder} stopped."),
         });
     }
+    let name = stats.first_unreadable.as_deref().unwrap_or("a file");
     match stats.unreadable {
         0 => Ok(stats.copied),
         1 => Err(format!(
-            "Luna couldn't read 1 file in {folder}, so it wasn't copied."
+            "Luna couldn't read {name} in {folder}, so it wasn't copied."
+        )),
+        2 => Err(format!(
+            "Luna couldn't read {name} and 1 other file in {folder}, so they weren't copied."
         )),
         n => Err(format!(
-            "Luna couldn't read {n} files in {folder}, so they weren't copied."
+            "Luna couldn't read {name} and {} other files in {folder}, so they weren't copied.",
+            n - 1
         )),
     }
 }
@@ -283,9 +302,20 @@ struct CopyStats {
     copied: u64,
     /// Source files or folders Luna couldn't read — skipped, the rest go on.
     unreadable: u64,
+    /// The first one's name, so the message points at something real.
+    first_unreadable: Option<String>,
     /// The target refused a write (full, read-only, gone): nothing more
     /// can land there, so the pass stops.
     stopped: Option<std::io::Error>,
+}
+
+impl CopyStats {
+    fn skip(&mut self, path: &Path) {
+        self.unreadable += 1;
+        if self.first_unreadable.is_none() {
+            self.first_unreadable = path.file_name().map(|n| n.to_string_lossy().into_owned());
+        }
+    }
 }
 
 fn sync_trees(src_root: &Path, target_root: &Path) -> CopyStats {
@@ -297,16 +327,16 @@ fn sync_trees(src_root: &Path, target_root: &Path) -> CopyStats {
             return stats;
         }
         let Ok(entries) = std::fs::read_dir(&src_dir) else {
-            stats.unreadable += 1;
+            stats.skip(&src_dir);
             continue;
         };
         for entry in entries {
             let Ok(entry) = entry else {
-                stats.unreadable += 1;
+                stats.skip(&src_dir);
                 continue;
             };
             let Ok(meta) = std::fs::symlink_metadata(entry.path()) else {
-                stats.unreadable += 1;
+                stats.skip(&entry.path());
                 continue;
             };
             if meta.file_type().is_symlink() {
@@ -325,12 +355,12 @@ fn sync_trees(src_root: &Path, target_root: &Path) -> CopyStats {
                 continue;
             }
             let Ok(input) = std::fs::File::open(entry.path()) else {
-                stats.unreadable += 1;
+                stats.skip(&entry.path());
                 continue;
             };
             match copy_atomic(input, &dest) {
                 Ok(()) => stats.copied += 1,
-                Err(CopyError::Read) => stats.unreadable += 1,
+                Err(CopyError::Read) => stats.skip(&entry.path()),
                 Err(CopyError::Write(e)) => {
                     stats.stopped = Some(e);
                     return stats;
@@ -698,7 +728,7 @@ mod tests {
         let err = sync(&conn, &row).unwrap_err();
         assert_eq!(
             err,
-            "Luna couldn't read 1 file in family, so it wasn't copied."
+            "Luna couldn't read blocked.txt in family, so it wasn't copied."
         );
         let dst = db::get_drive(&conn, "b").unwrap().unwrap().mount_point;
         assert!(

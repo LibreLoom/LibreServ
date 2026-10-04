@@ -10,6 +10,7 @@ import ProtectSheet, {
   matchesCloudSource,
 } from "./ProtectSheet";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
+import Toaster from "@libreloom/ui/components/common/Toaster.jsx";
 
 function stubProtectApi({
   drives = [],
@@ -73,6 +74,7 @@ function renderSheet(props = {}) {
       <QueryClientProvider client={client}>
         <AuthProvider>
           <ProtectSheet driveId="d1" path="photos" onClose={() => {}} {...props} />
+          <Toaster />
         </AuthProvider>
       </QueryClientProvider>
     </MemoryRouter>
@@ -255,6 +257,23 @@ describe("ProtectSheet", () => {
     expect(
       await screen.findByText("Backup is full, so the copy of photos stopped."),
     ).toBeInTheDocument();
+  });
+
+  it("says when a long Refresh is still copying", async () => {
+    const user = userEvent.setup();
+    stubProtectApi({
+      drives: [
+        { id: "d1", label: "Main", mount_point: "/mnt/main" },
+        { id: "d2", label: "Backup", mount_point: "/mnt/backup" },
+      ],
+      protections: [
+        { id: "p1", source_drive: "d1", source_path: "photos", target_drive: "d2", last_ok_at: 0 },
+      ],
+      runReply: { status: 200, body: { ok: true, still_copying: true } },
+    });
+    renderSheet();
+    await user.click(await screen.findByRole("button", { name: "Refresh now" }));
+    expect(await screen.findByText(/Luna is still copying/)).toBeInTheDocument();
   });
 
   it("shows a cloud backup problem on the cloud row", async () => {
