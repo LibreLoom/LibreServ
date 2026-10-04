@@ -1,8 +1,8 @@
 /* eslint-disable react-refresh/only-export-components -- page exports helpers used by tests */
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FolderOpen, HardDrive, PlugZap } from "lucide-react";
+import { FolderOpen, HardDrive, PlugZap, X } from "lucide-react";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
@@ -20,7 +20,7 @@ import { releaseInspectedDrive } from "../lib/drives.js";
 import useCanProtect from "../hooks/useCanProtect";
 import { FileSearchButton } from "../components/files/FileSearch";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
-import { TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
+import { InfoHint, TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import useStrandedErrorToast from "../hooks/useStrandedErrorToast";
@@ -108,19 +108,44 @@ function prettyFsType(fs) {
   return names[key] || fs;
 }
 
+const DISMISSED_DRIVES_KEY = "luna.dismissedDrives";
+
 /**
- * Useful one-line details for an unrecognized drive card.
- * Capacity + USB (when known) + filesystem — not kernel names like "sdmock".
- * @param {{ size_bytes?: number, usb?: boolean, removable?: boolean, fs_type?: string | null }} drive
+ * Identity for dismissing a detected drive. Includes the size so a different
+ * card or disk put into the same slot isn't hidden by an old dismissal.
+ * @param {{ name: string, model?: string, size_bytes?: number }} drive
  */
-function detectedDriveMeta(drive) {
-  const parts = [];
-  const size = sizeLabel(drive.size_bytes);
-  if (size) parts.push(size);
-  if (drive.usb || drive.removable) parts.push("USB");
-  const fs = prettyFsType(drive.fs_type);
-  if (fs) parts.push(fs);
-  return parts.length > 0 ? parts.join(" · ") : "A new drive";
+export function detectedDriveKey(drive) {
+  return `${drive.name}|${drive.model || ""}|${drive.size_bytes || 0}`;
+}
+
+/** @returns {Set<string>} */
+function readDismissedDrives() {
+  try {
+    const raw = JSON.parse(window.localStorage.getItem(DISMISSED_DRIVES_KEY) || "[]");
+    return new Set(Array.isArray(raw) ? raw.filter((k) => typeof k === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+/** Dismissed unrecognized drives, remembered in this browser. */
+function useDismissedDrives() {
+  const [dismissed, setDismissed] = useState(readDismissedDrives);
+  const update = useCallback((/** @type {string} */ key, /** @type {boolean} */ hide) => {
+    setDismissed((prev) => {
+      const next = new Set(prev);
+      if (hide) next.add(key);
+      else next.delete(key);
+      try {
+        window.localStorage.setItem(DISMISSED_DRIVES_KEY, JSON.stringify([...next]));
+      } catch {
+        // Private browsing — the dismissal lasts until the page reloads.
+      }
+      return next;
+    });
+  }, []);
+  return /** @type {[Set<string>, (key: string, hide: boolean) => void]} */ ([dismissed, update]);
 }
 
 /**
@@ -243,17 +268,48 @@ function AdoptedDriveDetails({ drive }) {
   );
 }
 
-function DetectedCard({ drive, onOpen }) {
+function DetectedCard({ drive, onOpen, dismissed = false, onToggleDismiss }) {
+  // A card reader with nothing in it reports a size of 0.
+  const empty = !drive.size_bytes;
+  const title = drive.model || `Drive ${drive.name}`;
+  const fs = prettyFsType(drive.fs_type);
+  const connection = drive.usb ? "USB" : drive.removable ? "Removable" : "Internal";
   return (
-    <Card icon={HardDrive} title={drive.model || `Drive ${drive.name}`}>
-      <p className="text-primary text-sm">
-        {detectedDriveMeta(drive)}
-      </p>
-      <p className="text-primary text-sm mt-2">
-        You&apos;ll see what&apos;s on the drive before adding it — Luna won&apos;t touch it until you confirm.
-      </p>
+    <Card
+      icon={HardDrive}
+      title={title}
+      headerActions={
+        dismissed ? (
+          <Button size="sm" variant="ghost" onClick={onToggleDismiss}>Restore</Button>
+        ) : (
+          <Button
+            size="iconSm"
+            variant="ghost"
+            aria-label={`Dismiss ${title}`}
+            onClick={onToggleDismiss}
+          >
+            <X size={14} aria-hidden="true" />
+          </Button>
+        )
+      }
+    >
+      <div className="flex flex-col gap-2" role="list" aria-label="Drive details">
+        <ValueDisplay label="Size" value={empty ? "Nothing inserted" : formatBytes(drive.size_bytes)} />
+        <ValueDisplay label="Connection" value={connection} />
+        {fs ? <ValueDisplay label="File system" value={fs} /> : null}
+        <ValueDisplay
+          label={(
+            <TermHint content="Luna's short name for this plug. Use it to tell apart drives with the same name.">
+              Device
+            </TermHint>
+          )}
+          value={drive.name}
+        />
+      </div>
       <div className="mt-3">
-        <Button size="sm" variant="outline" onClick={() => onOpen(drive)}>Add drive</Button>
+        <Button size="sm" variant="outline" disabled={empty} onClick={() => onOpen(drive)}>
+          Add drive
+        </Button>
       </div>
     </Card>
   );
@@ -359,6 +415,12 @@ export default function DrivesPage() {
   const [protectingDrive, setProtectingDrive] = useState(null);
   const protectAvailable = useCanProtect();
   const unknownDrives = withDevMockDetected(detected.data);
+  const [dismissedDrives, setDriveDismissed] = useDismissedDrives();
+  const [showDismissed, setShowDismissed] = useState(false);
+  const dismissedCount = unknownDrives.filter((d) => dismissedDrives.has(detectedDriveKey(d))).length;
+  const shownDrives = unknownDrives.filter(
+    (d) => showDismissed || !dismissedDrives.has(detectedDriveKey(d)),
+  );
   const access = useQuery({
     queryKey: ["my-access"],
     queryFn: () => getJson("/api/v1/me/access"),
@@ -503,20 +565,40 @@ export default function DrivesPage() {
 
       {isAdmin && (
         <>
-          <h2 className="font-mono text-sm text-secondary mt-10 mb-4">Unrecognized drives</h2>
+          <div className="mt-10 mb-4 flex items-center gap-2">
+            <h2 className="font-mono text-sm text-secondary">Unrecognized drives</h2>
+            <InfoHint surface="primary" content="Luna shows what's on a drive before adding it, and changes nothing until you confirm." />
+            {dismissedCount > 0 ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="ml-auto"
+                aria-pressed={showDismissed}
+                onClick={() => setShowDismissed((v) => !v)}
+              >
+                {showDismissed ? "Hide dismissed" : `Show ${dismissedCount} dismissed`}
+              </Button>
+            ) : null}
+          </div>
           <div className="grid gap-5 md:grid-cols-2">
-            {unknownDrives.map((drive) => (
-              <DetectedCard
-                key={drive.name}
-                drive={drive}
-                onOpen={(d) => {
-                  inspect.reset();
-                  adopt.reset();
-                  setInspectFor(d);
-                  inspect.mutate(d);
-                }}
-              />
-            ))}
+            {shownDrives.map((drive) => {
+              const key = detectedDriveKey(drive);
+              const isDismissed = dismissedDrives.has(key);
+              return (
+                <DetectedCard
+                  key={drive.name}
+                  drive={drive}
+                  dismissed={isDismissed}
+                  onToggleDismiss={() => setDriveDismissed(key, !isDismissed)}
+                  onOpen={(d) => {
+                    inspect.reset();
+                    adopt.reset();
+                    setInspectFor(d);
+                    inspect.mutate(d);
+                  }}
+                />
+              );
+            })}
           </div>
           {!detected.isLoading && unknownDrives.length === 0 && (
             <EmptyState description="Nothing new plugged in." />

@@ -122,9 +122,10 @@ describe("DrivesPage", () => {
     stubDrivesApi();
     renderPage();
     expect(await screen.findByText("64GB PSSD")).toBeInTheDocument();
-    expect(screen.getByText(/64 GB · USB · exFAT/i)).toBeInTheDocument();
+    expect(screen.getByText("64 GB")).toBeInTheDocument();
+    expect(screen.getByText("USB")).toBeInTheDocument();
+    expect(screen.getByText("exFAT")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Add drive$/i })).toBeInTheDocument();
-    expect(screen.getByText(/You'll see what's on the drive before adding it/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Ignore for now/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/found on/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Nothing new plugged in/i)).not.toBeInTheDocument();
@@ -255,10 +256,48 @@ describe("DrivesPage", () => {
       },
     });
     renderPage();
-    expect(await screen.findByText(/8 GB · USB · FAT/i)).toBeInTheDocument();
+    expect(await screen.findByText("8.0 GB")).toBeInTheDocument();
+    expect(screen.getByText("USB")).toBeInTheDocument();
+    expect(screen.getByText("FAT")).toBeInTheDocument();
+    expect(screen.getByText("sdb")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Add drive$/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Ignore for now/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/found on/i)).not.toBeInTheDocument();
+  });
+
+  it("marks an empty card reader and lets the admin dismiss and restore it", async () => {
+    window.localStorage.removeItem("luna.dismissedDrives");
+    stubDrivesApi({
+      fetch: (u) => {
+        if (u.endsWith("/drives/detected")) {
+          return new Response(JSON.stringify([
+            { name: "sdc", model: "Generic STORAGE DEVICE", size_bytes: 0,
+              removable: true, usb: true, mount_point: null, fs_type: null },
+            { name: "sdd", model: "Generic STORAGE DEVICE", size_bytes: 32000000000,
+              removable: true, usb: true, mount_point: null, fs_type: null },
+          ]), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        return null;
+      },
+    });
+    const { default: userEvent } = await import("@testing-library/user-event");
+    const user = userEvent.setup();
+    renderPage();
+    expect(await screen.findByText("Nothing inserted")).toBeInTheDocument();
+    const adds = screen.getAllByRole("button", { name: /^Add drive$/i });
+    expect(adds[0]).toBeDisabled();
+    expect(adds[1]).toBeEnabled();
+
+    const dismiss = screen.getAllByRole("button", { name: /^Dismiss Generic STORAGE DEVICE$/i });
+    await user.click(dismiss[0]);
+    expect(screen.queryByText("Nothing inserted")).not.toBeInTheDocument();
+    expect(screen.getByText("sdd")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /^Show 1 dismissed$/i }));
+    expect(screen.getByText("Nothing inserted")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /^Restore$/i }));
+    expect(screen.queryByRole("button", { name: /dismissed/i })).not.toBeInTheDocument();
+    window.localStorage.removeItem("luna.dismissedDrives");
   });
 
   it("shows a member the highest shared folder plus a write exception", async () => {
