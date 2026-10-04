@@ -534,7 +534,7 @@ export default function GalleryFilterSheet({
             <Button
               type="button"
               size="sm"
-              variant={draft.undated ? "primary" : "outline"}
+              variant={draft.undated ? "secondary" : "outline"}
               aria-pressed={Boolean(draft.undated)}
               surface="primary"
               onClick={() =>
@@ -550,7 +550,7 @@ export default function GalleryFilterSheet({
             <Button
               type="button"
               size="sm"
-              variant={draft.monthDay ? "primary" : "outline"}
+              variant={draft.monthDay ? "secondary" : "outline"}
               aria-pressed={Boolean(draft.monthDay)}
               surface="primary"
               onClick={() => patch({ monthDay: draft.monthDay ? "" : "today" })}
@@ -770,7 +770,7 @@ export default function GalleryFilterSheet({
                   key={opt.value || "all"}
                   type="button"
                   size="sm"
-                  variant={(draft.kind || "") === opt.value ? "primary" : "outline"}
+                  variant={(draft.kind || "") === opt.value ? "secondary" : "outline"}
                   aria-pressed={Boolean((draft.kind || "") === opt.value)}
                   surface="primary"
                   onClick={() => patch({ kind: opt.value })}
@@ -799,7 +799,7 @@ export default function GalleryFilterSheet({
                   key={opt.value || "album-any"}
                   type="button"
                   size="sm"
-                  variant={(draft.albumMembership || "") === opt.value ? "primary" : "outline"}
+                  variant={(draft.albumMembership || "") === opt.value ? "secondary" : "outline"}
                   aria-pressed={Boolean((draft.albumMembership || "") === opt.value)}
                   surface="primary"
                   onClick={() => patch({ albumMembership: opt.value })}
@@ -822,7 +822,7 @@ export default function GalleryFilterSheet({
                   key={opt.value || "any-orient"}
                   type="button"
                   size="sm"
-                  variant={(draft.orientation || "") === opt.value ? "primary" : "outline"}
+                  variant={(draft.orientation || "") === opt.value ? "secondary" : "outline"}
                   aria-pressed={Boolean((draft.orientation || "") === opt.value)}
                   surface="primary"
                   onClick={() => patch({ orientation: opt.value })}
@@ -842,7 +842,7 @@ export default function GalleryFilterSheet({
                     key={fmt}
                     type="button"
                     size="sm"
-                    variant={active ? "primary" : "outline"}
+                    variant={active ? "secondary" : "outline"}
                     aria-pressed={Boolean(active)}
                     surface="primary"
                     onClick={() => toggleFormat(fmt)}
@@ -874,7 +874,7 @@ export default function GalleryFilterSheet({
                   key={opt.value || "gps-any"}
                   type="button"
                   size="sm"
-                  variant={(draft.hasGps || "") === opt.value ? "primary" : "outline"}
+                  variant={(draft.hasGps || "") === opt.value ? "secondary" : "outline"}
                   aria-pressed={Boolean((draft.hasGps || "") === opt.value)}
                   surface="primary"
                   onClick={() => patch({ hasGps: opt.value })}
@@ -930,7 +930,7 @@ export default function GalleryFilterSheet({
                 key={key}
                 type="button"
                 size="sm"
-                variant={draft.timePreset === key ? "primary" : "outline"}
+                variant={draft.timePreset === key ? "secondary" : "outline"}
                 aria-pressed={Boolean(draft.timePreset === key)}
                 surface="primary"
                 onClick={() => applyTimePreset(draft.timePreset === key ? "" : key)}
