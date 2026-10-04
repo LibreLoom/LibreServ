@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { Check, Crop, ImageIcon, MapPin, Pencil, X } from "lucide-react";
 import Supercluster from "supercluster";
@@ -258,64 +258,90 @@ function ClusterMarkers({ markers, onSelect }) {
   return (
     <>
       {clusters.map((cluster) => {
-        const [lon, lat] = cluster.geometry.coordinates;
         const isCluster = Boolean(cluster.properties.cluster);
-        const count = isCluster ? cluster.properties.point_count : 1;
-        const radius = clusterRadius(count, zoom);
-        const place = clusterToPlace(cluster, index);
-        const markerKey = isCluster ? `cluster-${cluster.id}` : cluster.properties.id;
-
-        const expandZoom = isCluster
-          ? Math.min(index.getClusterExpansionZoom(cluster.id), 18)
-          : null;
-
         return (
-          <CircleMarker
-            key={markerKey}
-            center={[lat, lon]}
-            radius={radius}
-            eventHandlers={{
-              click: () => {
-                haptic("selection");
-              },
-              dblclick: (e) => {
-                if (!isCluster || expandZoom == null) return;
-                e.originalEvent?.preventDefault?.();
-                haptic("medium");
-                map.setView([lat, lon], expandZoom, { animate: true });
-              },
-            }}
-            pathOptions={{
-              color: "var(--primary)",
-              fillColor: "var(--secondary)",
-              fillOpacity: 1,
-              weight: isCluster ? 3 : 2.5,
-            }}
-          >
-            {isCluster && count > 1 && (
-              <Tooltip
-                permanent
-                direction="center"
-                className="places-map-cluster-count"
-                offset={[0, 0]}
-              >
-                {count}
-              </Tooltip>
-            )}
-            <Popup
-              className="places-map-popup"
-              closeButton={false}
-              minWidth={0}
-              maxWidth={280}
-            >
-              <PlacePopupContent place={place} onSelect={onSelect} />
-            </Popup>
-          </CircleMarker>
+          <ClusterMarker
+            key={isCluster ? `cluster-${cluster.id}` : cluster.properties.id}
+            cluster={cluster}
+            index={index}
+            zoom={zoom}
+            onSelect={onSelect}
+          />
         );
       })}
     </>
   );
 }
+
+/**
+ * One map dot. Memoized so panning only redraws the dots that changed, and the
+ * popup's place (which walks every photo in a cluster) is built when the popup
+ * opens, not for every dot on every move.
+ */
+const ClusterMarker = memo(
+  function ClusterMarker({ cluster, index, zoom, onSelect }) {
+    const map = useMap();
+    const popupRef = useRef(/** @type {import("leaflet").Popup|null} */ (null));
+    const [popupOpen, setPopupOpen] = useState(false);
+    const [lon, lat] = cluster.geometry.coordinates;
+    const isCluster = Boolean(cluster.properties.cluster);
+    const count = isCluster ? cluster.properties.point_count : 1;
+    const radius = clusterRadius(count, zoom);
+    const place = useMemo(
+      () => (popupOpen ? clusterToPlace(cluster, index) : null),
+      [popupOpen, cluster, index],
+    );
+
+    // The popup was measured while empty; re-measure once its content exists.
+    useEffect(() => {
+      if (place) popupRef.current?.update();
+    }, [place]);
+
+    return (
+      <CircleMarker
+        center={[lat, lon]}
+        radius={radius}
+        eventHandlers={{
+          click: () => {
+            haptic("selection");
+          },
+          dblclick: (e) => {
+            if (!isCluster) return;
+            e.originalEvent?.preventDefault?.();
+            haptic("medium");
+            const expandZoom = Math.min(index.getClusterExpansionZoom(cluster.id), 18);
+            map.setView([lat, lon], expandZoom, { animate: true });
+          },
+          popupopen: () => setPopupOpen(true),
+          popupclose: () => setPopupOpen(false),
+        }}
+        pathOptions={{
+          color: "var(--primary)",
+          fillColor: "var(--secondary)",
+          fillOpacity: 1,
+          weight: isCluster ? 3 : 2.5,
+        }}
+      >
+        {isCluster && count > 1 && (
+          <Tooltip permanent direction="center" className="places-map-cluster-count" offset={[0, 0]}>
+            {count}
+          </Tooltip>
+        )}
+        <Popup ref={popupRef} className="places-map-popup" closeButton={false} minWidth={0} maxWidth={280}>
+          {place ? <PlacePopupContent place={place} onSelect={onSelect} /> : null}
+        </Popup>
+      </CircleMarker>
+    );
+  },
+  (prev, next) =>
+    prev.index === next.index &&
+    prev.zoom === next.zoom &&
+    prev.onSelect === next.onSelect &&
+    prev.cluster.id === next.cluster.id &&
+    prev.cluster.properties.point_count === next.cluster.properties.point_count &&
+    prev.cluster.geometry.coordinates[0] === next.cluster.geometry.coordinates[0] &&
+    prev.cluster.geometry.coordinates[1] === next.cluster.geometry.coordinates[1],
+);
 
 ClusterMarkers.propTypes = {
   markers: PropTypes.arrayOf(PropTypes.object).isRequired,

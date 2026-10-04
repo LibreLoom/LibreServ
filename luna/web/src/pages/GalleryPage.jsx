@@ -68,7 +68,8 @@ import {
   putJson,
 } from "../lib/api";
 
-const PlacesMap = lazy(() => import("../components/gallery/PlacesMap.jsx"));
+const loadPlacesMap = () => import("../components/gallery/PlacesMap.jsx");
+const PlacesMap = lazy(loadPlacesMap);
 
 /** @param {{ owner_user_id?: string }|null|undefined} album @param {{ id?: string, role?: string }|null|undefined} user */
 function canManageAlbum(album, user) {
@@ -570,6 +571,28 @@ export default function GalleryPage() {
     queryFn: () => getJson("/api/v1/gallery/places"),
     enabled: activeSegment === "places" || filtersOpen,
   });
+
+  // Warm Places and Albums while the Library is idle, so switching tabs shows
+  // data and the map code immediately instead of loading on click.
+  useEffect(() => {
+    const warm = () => {
+      loadPlacesMap();
+      queryClient.prefetchQuery({
+        queryKey: ["gallery-places"],
+        queryFn: () => getJson("/api/v1/gallery/places"),
+      });
+      queryClient.prefetchQuery({
+        queryKey: ["gallery-albums"],
+        queryFn: () => getJson("/api/v1/gallery/albums"),
+      });
+    };
+    if (typeof window.requestIdleCallback === "function") {
+      const id = window.requestIdleCallback(warm, { timeout: 3000 });
+      return () => window.cancelIdleCallback?.(id);
+    }
+    const id = window.setTimeout(warm, 1500);
+    return () => window.clearTimeout(id);
+  }, [queryClient]);
 
   // Toolbar / filter sheet dates → unix range. A day click sets a single-day
   // range (`dateFrom === dateTo`), which deep-links back out as `#day/`.
