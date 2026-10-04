@@ -1,7 +1,8 @@
-import { User, X } from "lucide-react";
+import { LogOut, User, X } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { cn } from "../../lib/utils.js";
+import Pill from "../common/Pill.jsx";
 import { ICON_SIZE } from "../../lib/ui-tokens.js";
 import { haptic } from "../../utils/haptics.js";
 import { useShortcut, useShortcutsSheet } from "../../context/ShortcutsContext.jsx";
@@ -570,6 +571,19 @@ export default function Navbar({ brand, items, user, onLogout, menuItems = [], s
                 <div
                   className={cn("surface-secondary", "rounded-large-element", "ring-2", "ring-accent", "px-4", "py-3", "flex", "flex-col", "gap-2", "min-w-48", "translate-y-2", isUserMenuOpen && "translate-y-0", TRANSITION.full)}
                 >
+                  {user?.username && (
+                    <>
+                      <div className="flex items-center gap-2 px-3 pt-1 min-w-0">
+                        <span className="text-sm font-semibold truncate">
+                          {user.display_name || user.username}
+                        </span>
+                        {user.role && (
+                          <Pill className="shrink-0">{isAdmin ? "Admin" : "Member"}</Pill>
+                        )}
+                      </div>
+                      <div className="mx-3 h-px bg-accent" aria-hidden="true" />
+                    </>
+                  )}
                   {menuItems
                     .filter((item) => !item.adminOnly || isAdmin)
                     .map((item) => (
@@ -597,7 +611,7 @@ export default function Navbar({ brand, items, user, onLogout, menuItems = [], s
                     }}
                     className={cn(menuItemClasses, "hover:bg-primary", "hover:text-secondary", "text-left")}
                   >
-                    <X size={ICON_SIZE.md} aria-hidden="true" />
+                    <LogOut size={ICON_SIZE.md} aria-hidden="true" />
                     <span className="text-sm font-semibold">Sign out</span>
                   </button>
                   {shortcutsSheet && showShortcutsHint && (
