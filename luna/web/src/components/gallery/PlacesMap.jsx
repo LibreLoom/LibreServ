@@ -279,6 +279,7 @@ function ClusterMarkers({ markers, onSelect }) {
  * opens, not for every dot on every move.
  */
 const ClusterMarker = memo(
+  /** @param {{ cluster: any, index: Supercluster, zoom: number, onSelect?: (place: any) => void }} props */
   function ClusterMarker({ cluster, index, zoom, onSelect }) {
     const map = useMap();
     const popupRef = useRef(/** @type {import("leaflet").Popup|null} */ (null));

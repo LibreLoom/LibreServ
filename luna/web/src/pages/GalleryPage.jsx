@@ -498,7 +498,15 @@ export default function GalleryPage() {
         // A named-place view only lives on the Places segment; a drawn
         // `placeBbox` is an ordinary filter and rides along anywhere.
         if (parsed.segment !== "places") next.place = null;
-        return next;
+        // Our own hash writes echo back here; keep the same object when
+        // nothing changed so the page doesn't re-render and re-query.
+        const same =
+          next.monthDay === prev.monthDay &&
+          next.dateFrom === prev.dateFrom &&
+          next.dateTo === prev.dateTo &&
+          next.undated === prev.undated &&
+          next.place === prev.place;
+        return same ? prev : next;
       });
       if (!parsed.photo) {
         setLightbox(null);
@@ -1304,6 +1312,20 @@ export default function GalleryPage() {
     return () => clearTimeout(id);
   }, [q]);
 
+  // Stable handlers so the memoized toolbar skips re-rendering on page updates.
+  const { enter: enterSelect, exit: exitSelect } = selection;
+  const handleSelectModeChange = useCallback(
+    (on) => (on ? enterSelect() : exitSelect()),
+    [enterSelect, exitSelect],
+  );
+  const handleOpenDates = useCallback(() => setJumpOpen(true), []);
+  const handleOpenFilters = useCallback(() => {
+    setFilterFocus("");
+    setFiltersOpen(true);
+  }, []);
+  const rescanAsync = rescan.mutateAsync;
+  const handleRescan = useCallback(() => rescanAsync(), [rescanAsync]);
+
   const handleQueryChange = useCallback(
     (e) => {
       const next = e.target.value;
@@ -1500,17 +1522,14 @@ export default function GalleryPage() {
         searchOpen={searchOpen}
         onSearchOpenChange={setSearchOpen}
         selectMode={selection.selectMode}
-        onSelectModeChange={(on) => (on ? selection.enter() : selection.exit())}
-        onOpenDates={() => setJumpOpen(true)}
-        onOpenFilters={() => {
-          setFilterFocus("");
-          setFiltersOpen(true);
-        }}
+        onSelectModeChange={handleSelectModeChange}
+        onOpenDates={handleOpenDates}
+        onOpenFilters={handleOpenFilters}
         filterActiveCount={filterActiveCount}
         columns={columns}
         onColumnsChange={setColumns}
         showSelect={showTimeline || duplicatesView}
-        onRescan={() => rescan.mutateAsync()}
+        onRescan={handleRescan}
         rescanPending={rescan.isPending}
         onOpenShortcuts={shortcutsSheet ? shortcutsSheet.open : undefined}
       />

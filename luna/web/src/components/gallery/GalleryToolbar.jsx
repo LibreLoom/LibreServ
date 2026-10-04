@@ -1,5 +1,5 @@
 import PropTypes from "prop-types";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import {
   CalendarDays,
   Check,
@@ -140,7 +140,7 @@ GallerySearchInput.propTypes = {
  *   isDesktop?: boolean,
  * }} props
  */
-export default function GalleryToolbar({
+function GalleryToolbar({
   segments,
   segment,
   onSegmentChange,
@@ -454,6 +454,8 @@ export default function GalleryToolbar({
     </div>
   );
 }
+
+export default memo(GalleryToolbar);
 
 GalleryToolbar.propTypes = {
   segments: PropTypes.arrayOf(
