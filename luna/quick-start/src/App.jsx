@@ -12,10 +12,9 @@ const footnote = "border-t-[0.75pt] border-accent pt-[0.07in]";
 
 function LogoMark() {
   return (
-    <svg className="mb-[0.16in] size-[0.72in]" viewBox="0 0 240 240" aria-hidden="true">
-      <rect className="fill-accent" width="240" height="240" rx="32" />
-      <rect className="fill-ink" x="8" y="8" width="224" height="224" rx="26" />
-      <circle className="fill-paper stroke-accent" cx="196" cy="196" r="24" strokeWidth="6" />
+    <svg className="mb-[0.16in] size-[0.72in] fill-ink" viewBox="30 30 180 180" aria-hidden="true">
+      <path d="M88 40.2V99.7A48 48 0 0 0 136.0 147.7H201.4A86 86 0 1 1 88 40.2Z" />
+      <circle cx="136" cy="99.7" r="30" />
     </svg>
   );
 }

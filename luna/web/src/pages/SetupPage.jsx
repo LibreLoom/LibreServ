@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef, useContext } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { AlertCircle, ArrowRight, Check, ChevronLeft, Eye, EyeOff, Lock, X } from "lucide-react";
 import PropTypes from "prop-types";
+import { LunaMark } from "@libreloom/ui/components/common/ProductMark.jsx";
 import { getJson, postJson, ApiError } from "../lib/api";
 import { isPublicLunaHost } from "../lib/publicHost";
 import {
@@ -186,24 +187,10 @@ function StepDots({ current }) {
 }
 StepDots.propTypes = { current: PropTypes.string.isRequired };
 
-// ─── Logo mark (inline SVG — theme-aware, renders on the inverted setup card) ─
-// The accent (#767676) border is constant; the white/black face and dot invert
-// with bg-secondary so the mark stays readable in both themes.
+// ─── Logo mark ────────────────────────────────────────────────────────────────
+// Takes the card's text color, so it inverts with the setup card in both themes.
 function LogoMark({ size = 64 }) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 240 240"
-      fill="none"
-      width={size}
-      height={size}
-      aria-hidden="true"
-    >
-      <rect x="0" y="0" width="240" height="240" rx="32" fill="var(--color-accent)" />
-      <rect x="2" y="2" width="236" height="236" rx="30" fill="var(--color-primary)" />
-      <circle cx="200" cy="200" r="24" fill="var(--color-secondary)" stroke="var(--color-accent)" strokeWidth="2" />
-    </svg>
-  );
+  return <LunaMark size={size} />;
 }
 LogoMark.propTypes = { size: PropTypes.number };
 

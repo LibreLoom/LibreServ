@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rasterize the centered Luna moon (no frame) for legacy launcher mipmaps."""
+"""Rasterize the centered Luna logo (no frame) for legacy launcher mipmaps."""
 
 from pathlib import Path
 
@@ -7,12 +7,14 @@ import cairosvg
 
 ROOT = Path(__file__).resolve().parents[1] / "app" / "src" / "main" / "res"
 
-# Same path as drawable/ic_launcher_foreground.xml, plus a black plate so
-# older launchers that ignore the adaptive XML still show a moon.
+# Same shapes as drawable/ic_launcher_foreground.xml, plus a black plate so
+# older launchers that ignore the adaptive XML still show the logo.
 SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108">
   <rect width="108" height="108" fill="#000"/>
-  <path d="M54 36a12 12 0 0 0 18 18 18 18 0 1 1-18-18Z" fill="none"
-        stroke="#fff" stroke-width="5.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <g transform="translate(6 6) scale(0.4)" fill="#fff">
+    <path d="M88 40.2V99.7A48 48 0 0 0 136 147.7H201.4A86 86 0 1 1 88 40.2Z"/>
+    <circle cx="136" cy="99.7" r="30"/>
+  </g>
 </svg>
 """
 
