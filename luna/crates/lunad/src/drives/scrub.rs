@@ -248,32 +248,7 @@ pub fn should_run_periodic(
 }
 
 pub fn local_hour_now() -> u32 {
-    let unix = db::now_unix();
-    let mut tm = unsafe { std::mem::zeroed::<LibcTm>() };
-    let p = unsafe { localtime_r(&unix, &mut tm) };
-    if p.is_null() {
-        return 0;
-    }
-    tm.tm_hour.clamp(0, 23) as u32
-}
-
-#[repr(C)]
-struct LibcTm {
-    tm_sec: i32,
-    tm_min: i32,
-    tm_hour: i32,
-    tm_mday: i32,
-    tm_mon: i32,
-    tm_year: i32,
-    tm_wday: i32,
-    tm_yday: i32,
-    tm_isdst: i32,
-    tm_gmtoff: i64,
-    tm_zone: *const i8,
-}
-
-unsafe extern "C" {
-    fn localtime_r(timep: *const i64, result: *mut LibcTm) -> *mut LibcTm;
+    crate::time::local_tm(db::now_unix()).map_or(0, |tm| tm.tm_hour.clamp(0, 23) as u32)
 }
 
 pub fn scrub_all_drives(conn: &Connection) -> anyhow::Result<ScrubReport> {

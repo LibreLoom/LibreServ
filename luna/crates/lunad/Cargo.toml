@@ -51,3 +51,5 @@ path = "src/bin/luna-console.rs"
 
 [dev-dependencies]
 minisign = "0.7"
+# Statement tracing, to count database queries in a regression test.
+rusqlite = { workspace = true, features = ["trace"] }

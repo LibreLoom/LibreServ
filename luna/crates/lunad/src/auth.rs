@@ -1235,12 +1235,20 @@ pub fn caps_on_path_rows(
     path: &str,
     rows: &[db::AccessMemberRow],
 ) -> crate::access::Caps {
-    let mount = db::get_drive(conn, drive_id)
-        .ok()
-        .flatten()
-        .filter(|d| !d.mount_point.is_empty())
-        .map(|d| d.mount_point);
-    if let Some(b) = private_boundary(mount.as_deref(), path) {
+    let mount = drive_mount(conn, drive_id);
+    caps_on_path_rows_at(user, conn, drive_id, path, rows, mount.as_deref())
+}
+
+/// [`caps_on_path_rows`] with the drive's mount point already looked up too.
+fn caps_on_path_rows_at(
+    user: &CurrentUser,
+    conn: &Connection,
+    drive_id: &str,
+    path: &str,
+    rows: &[db::AccessMemberRow],
+    mount: Option<&str>,
+) -> crate::access::Caps {
+    if let Some(b) = private_boundary(mount, path) {
         return private_caps(user, rows, drive_id, path, &b, &|o| {
             crate::private::owner_state(conn, o)
         });
@@ -1248,7 +1256,15 @@ pub fn caps_on_path_rows(
     if user.role == "admin" {
         return crate::access::CAP_MANAGE;
     }
-    member_row_caps_rows(rows, drive_id, path, mount.as_deref())
+    member_row_caps_rows(rows, drive_id, path, mount)
+}
+
+fn drive_mount(conn: &Connection, drive_id: &str) -> Option<String> {
+    db::get_drive(conn, drive_id)
+        .ok()
+        .flatten()
+        .filter(|d| !d.mount_point.is_empty())
+        .map(|d| d.mount_point)
 }
 
 fn member_row_caps(
@@ -1556,23 +1572,101 @@ pub fn can_browse_path_preloaded(
 /// keeps the wider ancestor walk in [`can_browse_path`] — this gate is only
 /// for the HTTP surface.
 pub fn can_inspect_path(user: &CurrentUser, conn: &Connection, drive_id: &str, path: &str) -> bool {
+    can_inspect_path_in(user, conn, &InspectCtx::new(user, conn, drive_id), path)
+}
+
+/// What [`can_inspect_path`] looks up once per drive: the mount point and the
+/// user's grant rows. Build it once and test many paths (a folder listing).
+pub struct InspectCtx<'a> {
+    drive_id: &'a str,
+    mount: Option<String>,
+    rows: Option<Vec<db::AccessMemberRow>>,
+}
+
+impl<'a> InspectCtx<'a> {
+    pub fn new(user: &CurrentUser, conn: &Connection, drive_id: &'a str) -> Self {
+        Self {
+            drive_id,
+            // The mount point `can_inspect_path` has always used, empty or not.
+            mount: db::get_drive(conn, drive_id)
+                .ok()
+                .flatten()
+                .map(|d| d.mount_point),
+            rows: db::list_access_members_for_user(conn, &user.id).ok(),
+        }
+    }
+}
+
+/// [`caps_on_path`] against a prebuilt [`InspectCtx`] — same answer, without
+/// the per-call drive and grant-row lookups.
+pub fn caps_on_path_in(
+    user: &CurrentUser,
+    conn: &Connection,
+    ctx: &InspectCtx<'_>,
+    path: &str,
+) -> crate::access::Caps {
+    if crate::files::is_trash_api(path) {
+        return caps_on_path(user, conn, ctx.drive_id, path);
+    }
+    let live_mount = ctx.mount.as_deref().filter(|m| !m.is_empty());
+    let rows = ctx.rows.as_deref().unwrap_or(&[]);
+    caps_on_path_rows_at(user, conn, ctx.drive_id, path, rows, live_mount)
+}
+
+/// [`can_inspect_path`] against a prebuilt [`InspectCtx`].
+pub fn can_inspect_path_in(
+    user: &CurrentUser,
+    conn: &Connection,
+    ctx: &InspectCtx<'_>,
+    path: &str,
+) -> bool {
+    let drive_id = ctx.drive_id;
     let norm = crate::access::normalize_subject_path(path);
-    if can_access(user, conn, drive_id, path, false) {
+    // Trash paths map to where the item came from; leave that to the
+    // single-path code.
+    if crate::files::is_trash_api(path) {
+        return can_inspect_path_slow(user, conn, drive_id, path, &norm);
+    }
+    let live_mount = ctx.mount.as_deref().filter(|m| !m.is_empty());
+    let caps = match &ctx.rows {
+        Some(rows) => caps_on_path_rows_at(user, conn, drive_id, path, rows, live_mount),
+        None => 0,
+    };
+    if caps & crate::access::CAP_VIEW == crate::access::CAP_VIEW {
         return true;
     }
-    if user.role == "admin" && !walls_off_admin(conn, drive_id, &norm) {
+    if user.role == "admin"
+        && !private_boundary(live_mount, &norm)
+            .is_some_and(|b| crate::private::owner_known(conn, &b.owner))
+    {
         return true;
     }
-    let mount = db::get_drive(conn, drive_id)
-        .ok()
-        .flatten()
-        .map(|d| d.mount_point);
-    if private_boundary(mount.as_deref(), &norm).is_some_and(|b| {
+    inspect_by_grant(
+        user,
+        conn,
+        drive_id,
+        &norm,
+        ctx.mount.as_deref(),
+        ctx.rows.as_deref(),
+    )
+}
+
+/// The last gate of [`can_inspect_path`]: a path no caps cover is still
+/// listed when it is the exact folder of a grant, or the way down to one.
+fn inspect_by_grant(
+    user: &CurrentUser,
+    conn: &Connection,
+    drive_id: &str,
+    norm: &str,
+    mount: Option<&str>,
+    rows: Option<&[db::AccessMemberRow]>,
+) -> bool {
+    if private_boundary(mount, norm).is_some_and(|b| {
         crate::private::owner_state(conn, &b.owner) == crate::private::OwnerState::Deleted
     }) {
         return false;
     }
-    let Ok(rows) = db::list_access_members_for_user(conn, &user.id) else {
+    let Some(rows) = rows else {
         return false;
     };
     if norm.is_empty() {
@@ -1586,6 +1680,34 @@ pub fn can_inspect_path(user: &CurrentUser, conn: &Connection, drive_id: &str, p
             && r.drive_id == drive_id
             && crate::access::normalize_subject_path(&r.path) == norm
     })
+}
+
+fn can_inspect_path_slow(
+    user: &CurrentUser,
+    conn: &Connection,
+    drive_id: &str,
+    path: &str,
+    norm: &str,
+) -> bool {
+    if can_access(user, conn, drive_id, path, false) {
+        return true;
+    }
+    if user.role == "admin" && !walls_off_admin(conn, drive_id, norm) {
+        return true;
+    }
+    let mount = db::get_drive(conn, drive_id)
+        .ok()
+        .flatten()
+        .map(|d| d.mount_point);
+    let rows = db::list_access_members_for_user(conn, &user.id).ok();
+    inspect_by_grant(
+        user,
+        conn,
+        drive_id,
+        norm,
+        mount.as_deref(),
+        rows.as_deref(),
+    )
 }
 
 pub fn require_admin(req: &axum::extract::Request) -> Result<&CurrentUser, AuthError> {

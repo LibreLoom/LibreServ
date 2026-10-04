@@ -20,6 +20,7 @@ pub mod rate_limit;
 pub mod search_query;
 pub mod secrets;
 pub mod system;
+pub mod time;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use rusqlite::Connection;
@@ -168,6 +169,53 @@ impl AppState {
     pub fn touch_io_activity(&self) {
         self.last_io_activity
             .store(crate::db::now_unix(), std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// Does a request path move or read file data? Such requests keep the nightly
+/// scrub from starting. Matches whole path prefixes: a folder that merely has
+/// `/files` in its name (`/api/v1/me/files-backup`) is not file traffic.
+pub fn is_io_path(path: &str) -> bool {
+    const PREFIXES: [&str; 4] = ["/api/v1/uploads", "/api/v1/jobs", "/s/", "/dav/"];
+    if PREFIXES.iter().any(|p| path.starts_with(p)) {
+        return true;
+    }
+    // /api/v1/drives/{id}/files[/...]
+    path.strip_prefix("/api/v1/drives/")
+        .and_then(|rest| rest.split_once('/'))
+        .is_some_and(|(_, tail)| tail == "files" || tail.starts_with("files/"))
+}
+
+#[cfg(test)]
+mod io_path_tests {
+    use super::is_io_path;
+
+    #[test]
+    fn counts_file_webdav_upload_job_and_share_traffic() {
+        for path in [
+            "/api/v1/drives/d1/files",
+            "/api/v1/drives/d1/files/content",
+            "/api/v1/uploads/abc",
+            "/api/v1/jobs",
+            "/s/token/file",
+            "/dav/d1/photos/a.jpg",
+        ] {
+            assert!(is_io_path(path), "{path}");
+        }
+    }
+
+    #[test]
+    fn ignores_everything_else() {
+        for path in [
+            "/api/v1/auth/me",
+            "/api/v1/me/files-backup",
+            "/api/v1/drives/d1/filesystem",
+            "/api/v1/drives",
+            "/dashboard/files",
+            "/davinci",
+        ] {
+            assert!(!is_io_path(path), "{path}");
+        }
     }
 }
 

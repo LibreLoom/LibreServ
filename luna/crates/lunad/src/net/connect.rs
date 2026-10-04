@@ -1307,11 +1307,37 @@ fn external_cloudflared_running(bin_paths: &[PathBuf]) -> bool {
 }
 
 /// Send SIGINT to unmanaged cloudflared processes from our known binary paths.
+///
+/// A pid can be recycled between the scan and the kill, so each process's
+/// start time is noted at scan time and checked again just before the signal.
 fn reap_stale_cloudflared(bin_paths: &[PathBuf]) {
-    for pid in cloudflared_tunnel_pids(bin_paths) {
+    let found: Vec<(i32, Option<u64>)> = cloudflared_tunnel_pids(bin_paths)
+        .into_iter()
+        .map(|pid| (pid, proc_start_time(pid)))
+        .collect();
+    for (pid, started) in found {
+        if proc_start_time(pid) != started {
+            tracing::info!(pid, "skipping cloudflared pid: the process changed");
+            continue;
+        }
         tracing::info!(pid, "reaping stale cloudflared tunnel process");
         let _ = nix_kill(pid);
     }
+}
+
+/// When the process started, in clock ticks since boot (`/proc/<pid>/stat`
+/// field 22). `None` where there is no `/proc` or the process is gone.
+fn proc_start_time(pid: i32) -> Option<u64> {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    parse_stat_start_time(&stat)
+}
+
+/// The command name in `stat` is parenthesised and may hold spaces or
+/// parentheses, so fields are counted from the last `)`.
+fn parse_stat_start_time(stat: &str) -> Option<u64> {
+    let after_comm = stat.get(stat.rfind(')')? + 1..)?;
+    // Fields after `)` start at field 3 (state), so field 22 is index 19.
+    after_comm.split_whitespace().nth(19)?.parse().ok()
 }
 
 fn nix_kill(pid: i32) -> std::io::Result<()> {
@@ -1464,6 +1490,15 @@ pub fn detect_public_ip_fallback() -> Option<std::net::IpAddr> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn stat_start_time_survives_awkward_command_names() {
+        let stat = "4242 (cloud (flared) x) S 1 4242 4242 0 -1 4194560 100 0 0 0 5 3 0 0 20 0 9 0 \
+                    987654 1000000 500 18446744073709551615";
+        assert_eq!(parse_stat_start_time(stat), Some(987654));
+        assert_eq!(parse_stat_start_time("garbage"), None);
+        assert_eq!(parse_stat_start_time("1 (x) S 1 2"), None);
+    }
+
     use super::*;
 
     #[test]

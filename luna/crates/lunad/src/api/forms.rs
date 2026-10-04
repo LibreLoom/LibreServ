@@ -450,12 +450,9 @@ fn form_max_responses(doc: &Map<String, Value>) -> Option<u64> {
 }
 
 fn local_ymd(unix: i64) -> String {
-    let t = unix as libc::time_t;
-    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    let p = unsafe { libc::localtime_r(&t, &mut tm) };
-    if p.is_null() {
+    let Some(tm) = crate::time::local_tm(unix) else {
         return String::new();
-    }
+    };
     format!(
         "{:04}-{:02}-{:02}",
         tm.tm_year + 1900,

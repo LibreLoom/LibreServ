@@ -32,8 +32,6 @@ struct FactoryResetBody {
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/v1/search", get(search))
-        .route("/api/v1/system/reindex", post(reindex))
-        .route("/api/v1/system/scrub", get(scrub_status).post(start_scrub))
         .route("/api/v1/system/factory-reset", post(factory_reset))
 }
 
@@ -179,92 +177,6 @@ fn match_label(tier: Tier) -> &'static str {
     }
 }
 
-/// Admin: read every drive again from scratch, ignoring folder timestamps.
-async fn reindex(
-    State(state): State<AppState>,
-    Extension(user): Extension<crate::auth::CurrentUser>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    if user.role != "admin" {
-        return Err(json_error(
-            StatusCode::FORBIDDEN,
-            "Only an Admin can manage search.",
-        ));
-    }
-    let drives = {
-        let conn = state.db.lock().map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna's index is busy. Try again.",
-            )
-        })?;
-        indexable_drives(&conn, true)
-    };
-    state
-        .search_index
-        .rescan(drives.into_iter().map(|d| (d.id, d.mount)).collect(), true);
-    Ok(Json(
-        json!({ "started": true, "message": "Luna is reading your drives in the background." }),
-    ))
-}
-
-async fn scrub_status(
-    State(state): State<AppState>,
-    Extension(user): Extension<crate::auth::CurrentUser>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    if user.role != "admin" {
-        return Err(json_error(
-            StatusCode::FORBIDDEN,
-            "Only an Admin can manage search.",
-        ));
-    }
-    let conn = state.db.lock().map_err(|_| {
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna's index is busy. Try again.",
-        )
-    })?;
-    let report = crate::db::get_meta(&conn, "last_scrub_report")
-        .map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't read scrub status.",
-            )
-        })?
-        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
-        .unwrap_or(json!({ "files_hashed": 0, "files_checked": 0, "mismatches": 0 }));
-    Ok(Json(report))
-}
-
-async fn start_scrub(
-    State(state): State<AppState>,
-    Extension(user): Extension<crate::auth::CurrentUser>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    if user.role != "admin" {
-        return Err(json_error(
-            StatusCode::FORBIDDEN,
-            "Only an Admin can manage search.",
-        ));
-    }
-    if state
-        .scrub_running
-        .swap(true, std::sync::atomic::Ordering::SeqCst)
-    {
-        return Err(json_error(
-            StatusCode::CONFLICT,
-            "Luna is already checking files. Try again later.",
-        ));
-    }
-    let db = state.db.clone();
-    let flag = state.scrub_running.clone();
-    tokio::task::spawn_blocking(move || {
-        let _ = crate::drives::scrub::scrub_all_drives_unlocked(&db);
-        flag.store(false, std::sync::atomic::Ordering::SeqCst);
-    });
-    Ok(Json(
-        json!({ "started": true, "message": "Luna is checking your files in the background." }),
-    ))
-}
-
 /// Wipe all accounts, shares, and settings and return the box to first-run,
 /// leaving the actual files on the drives untouched. Also turns off Luna
 /// Connect and stops cloud backup so a reset box is not still paired.
@@ -276,7 +188,7 @@ async fn factory_reset(
     if user.role != "admin" {
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "Only an Admin can manage search.",
+            "Only an Admin can reset this Luna.",
         ));
     }
     if !body.confirm {

@@ -121,10 +121,7 @@ impl JobManager {
         .map_err(|e| JobError::Db(anyhow::anyhow!("job task crashed: {e}")))??;
 
         let cancel = Arc::new(AtomicBool::new(false));
-        self.cancels
-            .lock()
-            .unwrap()
-            .insert(prepared.row.id.clone(), cancel.clone());
+        lock_cancels(&self.cancels).insert(prepared.row.id.clone(), cancel.clone());
 
         let db = self.db.clone();
         let gallery = self.gallery.clone();
@@ -133,17 +130,14 @@ impl JobManager {
         let cancels = self.cancels.clone();
         tokio::task::spawn_blocking(move || {
             run_job(db, gallery, job, cancel);
-            cancels.lock().unwrap().remove(&job_id);
+            lock_cancels(&cancels).remove(&job_id);
         });
 
         Ok(prepared.row)
     }
 
     pub fn cancel(&self, id: &str) -> Result<(), JobError> {
-        let flag = self
-            .cancels
-            .lock()
-            .unwrap()
+        let flag = lock_cancels(&self.cancels)
             .get(id)
             .cloned()
             .ok_or(JobError::NotFound)?;
@@ -648,7 +642,7 @@ fn run_job(
         )?;
 
         if prepared.row.kind == "move" {
-            let conn = db.lock().unwrap();
+            let conn = db.lock().map_err(|_| index_busy())?;
             // Retarget the subject rows to the destination BEFORE trashing
             // the source — delete_to_trash revokes whatever still points at
             // the old path, so shares must already live at the new one.
@@ -680,7 +674,7 @@ fn run_job(
                 return Err(JobError::from(e));
             }
         }
-        let conn = db.lock().unwrap();
+        let conn = db.lock().map_err(|_| index_busy())?;
         db::set_job_state(&conn, &prepared.row.id, "done", "").map_err(JobError::Db)
     })();
 
@@ -1034,6 +1028,19 @@ fn copy_plain_tree(
         }
     }
     Ok(())
+}
+
+/// The cancel flags are plain bools; a panic elsewhere must not wedge them.
+fn lock_cancels(
+    cancels: &Mutex<HashMap<String, Arc<AtomicBool>>>,
+) -> std::sync::MutexGuard<'_, HashMap<String, Arc<AtomicBool>>> {
+    cancels
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn index_busy() -> JobError {
+    JobError::Db(anyhow::anyhow!("Luna's index is busy"))
 }
 
 fn plain_job_error(err: &JobError) -> String {

@@ -125,12 +125,13 @@ pub fn search_all(drives: &[DriveRef], query: &Query, kind: KindFilter) -> Vec<C
 }
 
 fn sort_candidates(all: &mut [Candidate]) {
-    all.sort_by(|a, b| {
-        a.rank
-            .cmp(&b.rank)
-            .then_with(|| a.hit.name.to_lowercase().cmp(&b.hit.name.to_lowercase()))
-            .then_with(|| a.hit.parent.cmp(&b.hit.parent))
-            .then_with(|| a.hit.drive_id.cmp(&b.hit.drive_id))
+    all.sort_by_cached_key(|c| {
+        (
+            c.rank.clone(),
+            c.hit.name.to_lowercase(),
+            c.hit.parent.clone(),
+            c.hit.drive_id.clone(),
+        )
     });
 }
 

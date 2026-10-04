@@ -130,6 +130,9 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             origin TEXT NOT NULL DEFAULT '',
             used_at INTEGER NOT NULL
         );
+        CREATE INDEX IF NOT EXISTS device_token_usage_token
+            ON device_token_usage(token_id, used_at);
+        CREATE INDEX IF NOT EXISTS jobs_user ON jobs(user_id);
         CREATE TABLE IF NOT EXISTS rate_limit_buckets (
             key TEXT PRIMARY KEY,
             count INTEGER NOT NULL,
@@ -245,7 +248,7 @@ fn ensure_column(conn: &Connection, table: &str, column: &str, decl: &str) -> an
 }
 
 pub fn list_drives(conn: &Connection) -> anyhow::Result<Vec<DriveRow>> {
-    let mut stmt = conn.prepare(
+    let mut stmt = conn.prepare_cached(
         "SELECT id, label, state, fs_type, device, mount_point FROM drives ORDER BY label, id",
     )?;
     let rows = stmt.query_map([], |row| {
@@ -262,7 +265,7 @@ pub fn list_drives(conn: &Connection) -> anyhow::Result<Vec<DriveRow>> {
 }
 
 pub fn get_drive(conn: &Connection, id: &str) -> anyhow::Result<Option<DriveRow>> {
-    let mut stmt = conn.prepare(
+    let mut stmt = conn.prepare_cached(
         "SELECT id, label, state, fs_type, device, mount_point FROM drives WHERE id = ?1",
     )?;
     let mut rows = stmt.query_map(params![id], |row| {
@@ -474,7 +477,7 @@ fn job_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<JobRow> {
 }
 
 pub fn get_job(conn: &Connection, id: &str) -> anyhow::Result<Option<JobRow>> {
-    let mut stmt = conn.prepare(
+    let mut stmt = conn.prepare_cached(
         "SELECT id, kind, state, from_drive, from_path, to_drive, to_path, progress, total, error, user_id, from_private, to_private
          FROM jobs WHERE id = ?1",
     )?;
@@ -483,7 +486,7 @@ pub fn get_job(conn: &Connection, id: &str) -> anyhow::Result<Option<JobRow>> {
 }
 
 pub fn list_jobs(conn: &Connection, limit: i64) -> anyhow::Result<Vec<JobRow>> {
-    let mut stmt = conn.prepare(
+    let mut stmt = conn.prepare_cached(
         "SELECT id, kind, state, from_drive, from_path, to_drive, to_path, progress, total, error, user_id, from_private, to_private
          FROM jobs ORDER BY created_at DESC LIMIT ?1",
     )?;
@@ -496,7 +499,7 @@ pub fn list_jobs_for_user(
     user_id: &str,
     limit: i64,
 ) -> anyhow::Result<Vec<JobRow>> {
-    let mut stmt = conn.prepare(
+    let mut stmt = conn.prepare_cached(
         "SELECT id, kind, state, from_drive, from_path, to_drive, to_path, progress, total, error, user_id, from_private, to_private
          FROM jobs WHERE user_id = ?1 ORDER BY created_at DESC LIMIT ?2",
     )?;
@@ -564,7 +567,7 @@ pub fn insert_user(
 }
 
 pub fn get_user_by_username(conn: &Connection, username: &str) -> anyhow::Result<Option<UserRow>> {
-    let mut stmt = conn.prepare(
+    let mut stmt = conn.prepare_cached(
         "SELECT id, username, display_name, password_hash, role, token_version FROM users WHERE username = ?1",
     )?;
     let mut rows = stmt.query_map(params![username], user_from_row)?;
@@ -572,7 +575,7 @@ pub fn get_user_by_username(conn: &Connection, username: &str) -> anyhow::Result
 }
 
 pub fn get_user(conn: &Connection, id: &str) -> anyhow::Result<Option<UserRow>> {
-    let mut stmt = conn.prepare(
+    let mut stmt = conn.prepare_cached(
         "SELECT id, username, display_name, password_hash, role, token_version FROM users WHERE id = ?1",
     )?;
     let mut rows = stmt.query_map(params![id], user_from_row)?;
@@ -580,7 +583,7 @@ pub fn get_user(conn: &Connection, id: &str) -> anyhow::Result<Option<UserRow>> 
 }
 
 pub fn list_users(conn: &Connection) -> anyhow::Result<Vec<UserRow>> {
-    let mut stmt = conn.prepare(
+    let mut stmt = conn.prepare_cached(
         "SELECT id, username, display_name, password_hash, role, token_version FROM users ORDER BY username",
     )?;
     let rows = stmt.query_map([], user_from_row)?;
@@ -671,7 +674,7 @@ pub fn set_user_role(conn: &Connection, id: &str, role: &str) -> anyhow::Result<
 }
 
 pub fn first_admin(conn: &Connection) -> anyhow::Result<Option<UserRow>> {
-    let mut stmt = conn.prepare(
+    let mut stmt = conn.prepare_cached(
         "SELECT id, username, display_name, password_hash, role, token_version FROM users WHERE role = 'admin' ORDER BY created_at ASC LIMIT 1",
     )?;
     let mut rows = stmt.query_map([], user_from_row)?;
@@ -679,7 +682,7 @@ pub fn first_admin(conn: &Connection) -> anyhow::Result<Option<UserRow>> {
 }
 
 pub fn list_admins(conn: &Connection) -> anyhow::Result<Vec<UserRow>> {
-    let mut stmt = conn.prepare(
+    let mut stmt = conn.prepare_cached(
         "SELECT id, username, display_name, password_hash, role, token_version FROM users WHERE role = 'admin' ORDER BY username ASC",
     )?;
     let rows = stmt.query_map([], user_from_row)?;
@@ -999,7 +1002,7 @@ pub fn insert_protection(
 }
 
 pub fn list_protections(conn: &Connection) -> anyhow::Result<Vec<ProtectionRow>> {
-    let mut stmt = conn.prepare(
+    let mut stmt = conn.prepare_cached(
         "SELECT id, source_drive, source_path, target_drive, target_path, last_run
          FROM protections ORDER BY created_at DESC",
     )?;
@@ -1017,7 +1020,7 @@ pub fn list_protections(conn: &Connection) -> anyhow::Result<Vec<ProtectionRow>>
 }
 
 pub fn get_protection(conn: &Connection, id: &str) -> anyhow::Result<Option<ProtectionRow>> {
-    let mut stmt = conn.prepare(
+    let mut stmt = conn.prepare_cached(
         "SELECT id, source_drive, source_path, target_drive, target_path, last_run
          FROM protections WHERE id = ?1",
     )?;
@@ -1103,7 +1106,7 @@ pub fn insert_upload(
 }
 
 pub fn get_upload(conn: &Connection, id: &str) -> anyhow::Result<Option<UploadRow>> {
-    let mut stmt = conn.prepare(
+    let mut stmt = conn.prepare_cached(
         "SELECT id, drive_id, path, name, size, received, state, principal FROM uploads WHERE id = ?1",
     )?;
     let mut rows = stmt.query_map(params![id], upload_from_row)?;
@@ -1113,7 +1116,7 @@ pub fn get_upload(conn: &Connection, id: &str) -> anyhow::Result<Option<UploadRo
 /// Upload sessions whose last activity is older than `idle_before` (unix
 /// seconds) — the candidates for the boot-time orphan sweep.
 pub fn list_stale_uploads(conn: &Connection, idle_before: i64) -> anyhow::Result<Vec<UploadRow>> {
-    let mut stmt = conn.prepare(
+    let mut stmt = conn.prepare_cached(
         "SELECT id, drive_id, path, name, size, received, state, principal FROM uploads
          WHERE updated_at < ?1",
     )?;
@@ -1156,8 +1159,9 @@ pub fn upsert_upload_chunk(
 
 /// All recorded covered ranges for an upload, sorted by start.
 pub fn list_upload_chunks(conn: &Connection, upload_id: &str) -> anyhow::Result<Vec<(u64, u64)>> {
-    let mut stmt =
-        conn.prepare("SELECT start, end FROM upload_chunks WHERE upload_id = ?1 ORDER BY start")?;
+    let mut stmt = conn.prepare_cached(
+        "SELECT start, end FROM upload_chunks WHERE upload_id = ?1 ORDER BY start",
+    )?;
     let rows = stmt.query_map(params![upload_id], |row| {
         Ok((row.get::<_, i64>(0)? as u64, row.get::<_, i64>(1)? as u64))
     })?;
@@ -1240,7 +1244,7 @@ pub fn get_device_token_by_hash(
     conn: &Connection,
     token_hash: &str,
 ) -> anyhow::Result<Option<DeviceTokenRow>> {
-    let mut stmt = conn.prepare(
+    let mut stmt = conn.prepare_cached(
         "SELECT id, user_id, name, token_hash, created_at, last_used_at, revoked_at, expires_at
          FROM device_tokens WHERE token_hash = ?1",
     )?;
@@ -1263,7 +1267,7 @@ pub fn list_device_tokens_for_user(
     conn: &Connection,
     user_id: &str,
 ) -> anyhow::Result<Vec<DeviceTokenRow>> {
-    let mut stmt = conn.prepare(
+    let mut stmt = conn.prepare_cached(
         "SELECT id, user_id, name, token_hash, created_at, last_used_at, revoked_at, expires_at
          FROM device_tokens WHERE user_id = ?1 ORDER BY created_at DESC",
     )?;
@@ -1412,7 +1416,7 @@ pub fn list_device_token_usage(
     token_id: &str,
     limit: i64,
 ) -> anyhow::Result<Vec<DeviceTokenUsageRow>> {
-    let mut stmt = conn.prepare(
+    let mut stmt = conn.prepare_cached(
         "SELECT action, detail, client, origin, used_at FROM device_token_usage
          WHERE token_id = ?1 ORDER BY used_at DESC, id DESC LIMIT ?2",
     )?;

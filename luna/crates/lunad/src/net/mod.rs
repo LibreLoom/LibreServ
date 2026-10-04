@@ -283,4 +283,3 @@ mod tests {
 
 pub mod connect;
 pub mod dhcp;
-pub mod hotspot;

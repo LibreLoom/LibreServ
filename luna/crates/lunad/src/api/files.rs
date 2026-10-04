@@ -130,7 +130,6 @@ pub fn router() -> Router<AppState> {
             "/api/v1/me/recents",
             get(get_recents).post(record_recent).delete(delete_recent),
         )
-        .route("/api/v1/drives/{id}/trash", get(list_trash))
         .route("/api/v1/drives/{id}/files/content", get(content))
         .route(
             "/api/v1/drives/{id}/files/upload",
@@ -138,11 +137,33 @@ pub fn router() -> Router<AppState> {
         )
 }
 
+/// Runs drive-touching work off the async runtime so a slow or hung drive
+/// stalls one request, not every connection.
+async fn blocking<T: Send + 'static>(
+    f: impl FnOnce() -> Result<T, (StatusCode, Json<Value>)> + Send + 'static,
+) -> Result<T, (StatusCode, Json<Value>)> {
+    tokio::task::spawn_blocking(f).await.unwrap_or_else(|_| {
+        Err(json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't read that. Try again.",
+        ))
+    })
+}
+
 async fn list(
     State(state): State<AppState>,
     Extension(user): Extension<crate::auth::CurrentUser>,
     Path(id): Path<String>,
     Query(query): Query<ListQuery>,
+) -> Result<Json<Vec<FileEntry>>, (StatusCode, Json<Value>)> {
+    blocking(move || list_sync(state, user, id, query)).await
+}
+
+fn list_sync(
+    state: AppState,
+    user: crate::auth::CurrentUser,
+    id: String,
+    query: ListQuery,
 ) -> Result<Json<Vec<FileEntry>>, (StatusCode, Json<Value>)> {
     let rel = query.path.unwrap_or_default();
     let rel = rel.trim().trim_matches('/').to_string();
@@ -260,6 +281,7 @@ fn list_trash_view(
         .unwrap_or_default();
     let meta = files::trash_meta_map(&root);
     let top_level = rel == files::TRASH_API_ALIAS;
+    let ctx = crate::auth::InspectCtx::new(user, &conn, id);
     // Path under the trash root this listing represents ("" at the root).
     let under_root = rel
         .strip_prefix(&format!("{}/", files::TRASH_API_ALIAS))
@@ -294,10 +316,14 @@ fn list_trash_view(
         let protected = entry.private || entry_meta.is_some_and(|m| !m.private_owner.is_empty());
         let trash_path = format!("{}/{child}", files::TRASH_API_ALIAS);
         let visible = if protected {
-            crate::auth::has_cap(user, &conn, id, &trash_path, crate::access::CAP_EDIT)
+            crate::auth::caps_on_path_in(user, &conn, &ctx, &trash_path) & crate::access::CAP_EDIT
+                == crate::access::CAP_EDIT
         } else {
             match original.as_deref() {
-                Some(o) => crate::auth::has_cap(user, &conn, id, o, crate::access::CAP_EDIT),
+                Some(o) => {
+                    crate::auth::caps_on_path_in(user, &conn, &ctx, o) & crate::access::CAP_EDIT
+                        == crate::access::CAP_EDIT
+                }
                 None => user.role == "admin",
             }
         };
@@ -308,10 +334,10 @@ fn list_trash_view(
         // a trashed entry are their caps on where it came from — the same
         // rule `caps_on_path` applies to `.luna-trash` paths.
         entry.caps = crate::access::caps_to_str(if protected {
-            crate::auth::caps_on_path(user, &conn, id, &trash_path)
+            crate::auth::caps_on_path_in(user, &conn, &ctx, &trash_path)
         } else {
             match original.as_deref() {
-                Some(o) => crate::auth::caps_on_path(user, &conn, id, o),
+                Some(o) => crate::auth::caps_on_path_in(user, &conn, &ctx, o),
                 None => crate::access::CAP_MANAGE,
             }
         });
@@ -350,6 +376,7 @@ fn visible_entries(
             )
         })?;
         let parent = crate::access::normalize_subject_path(rel);
+        let ctx = crate::auth::InspectCtx::new(user, &conn, id);
         // Admins see everything except other people's private items.
         if user.role != "admin" || entries.iter().any(|e| e.private) {
             entries.retain(|entry| {
@@ -364,21 +391,19 @@ fn visible_entries(
                 // Strict inspection, not the WebDAV ancestor walk: an entry that
                 // is only an ancestor of a deeper grant stays hidden, so the
                 // chain down to a deep grant never appears in listings.
-                crate::auth::can_inspect_path(user, &conn, id, &child)
+                crate::auth::can_inspect_path_in(user, &conn, &ctx, &child)
             });
         }
         // Stamp every visible entry with the caller's own capabilities —
         // the UI renders affordances off this, never off its own math.
-        let rows = crate::db::list_access_members_for_user(&conn, &user.id).unwrap_or_default();
         for entry in &mut entries {
             let child = if parent.is_empty() {
                 entry.name.clone()
             } else {
                 format!("{parent}/{}", entry.name)
             };
-            entry.caps = crate::access::caps_to_str(crate::auth::caps_on_path_rows(
-                user, &conn, id, &child, &rows,
-            ));
+            entry.caps =
+                crate::access::caps_to_str(crate::auth::caps_on_path_in(user, &conn, &ctx, &child));
         }
     }
     Ok(entries)
@@ -424,6 +449,15 @@ async fn resolve_entry(
     Extension(user): Extension<crate::auth::CurrentUser>,
     Path(id): Path<String>,
     Query(query): Query<ListQuery>,
+) -> Result<Json<Resolved>, (StatusCode, Json<Value>)> {
+    blocking(move || resolve_entry_sync(state, user, id, query)).await
+}
+
+fn resolve_entry_sync(
+    state: AppState,
+    user: crate::auth::CurrentUser,
+    id: String,
+    query: ListQuery,
 ) -> Result<Json<Resolved>, (StatusCode, Json<Value>)> {
     let not_found = || {
         json_error(
@@ -482,6 +516,13 @@ struct DeleteRecentQuery {
 async fn get_recents(
     State(state): State<AppState>,
     Extension(user): Extension<crate::auth::CurrentUser>,
+) -> Result<Json<Vec<files::recents::RecentItem>>, (StatusCode, Json<Value>)> {
+    blocking(move || get_recents_sync(state, user)).await
+}
+
+fn get_recents_sync(
+    state: AppState,
+    user: crate::auth::CurrentUser,
 ) -> Result<Json<Vec<files::recents::RecentItem>>, (StatusCode, Json<Value>)> {
     let conn = state.db.lock().map_err(|_| {
         json_error(
@@ -712,6 +753,15 @@ async fn stat_entry(
     Extension(user): Extension<crate::auth::CurrentUser>,
     Path(id): Path<String>,
     Query(query): Query<ListQuery>,
+) -> Result<Json<files::FileStat>, (StatusCode, Json<Value>)> {
+    blocking(move || stat_entry_sync(state, user, id, query)).await
+}
+
+fn stat_entry_sync(
+    state: AppState,
+    user: crate::auth::CurrentUser,
+    id: String,
+    query: ListQuery,
 ) -> Result<Json<files::FileStat>, (StatusCode, Json<Value>)> {
     let rel = query.path.unwrap_or_default();
     let rel = rel.trim().trim_matches('/').to_string();
@@ -1571,63 +1621,6 @@ async fn rename_entry(
     Ok(Json(json!({ "ok": true })))
 }
 
-async fn list_trash(
-    State(state): State<AppState>,
-    Extension(user): Extension<crate::auth::CurrentUser>,
-    Path(id): Path<String>,
-) -> Result<Json<Vec<Value>>, (StatusCode, Json<Value>)> {
-    check_trash_list(&state, &user, &id)?;
-    let entries = with_db(&state, |conn| files::list_trash(conn, &id)).map_err(map_files_err)?;
-    let conn = state.db.lock().map_err(|_| {
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna's index is busy. Try again.",
-        )
-    })?;
-    // Same origin-caps rule for everyone; entries with no recorded origin
-    // stay admin-only.
-    let visible: Vec<_> = entries
-        .into_iter()
-        .filter(|entry| {
-            if entry.private {
-                return crate::auth::has_cap(
-                    &user,
-                    &conn,
-                    &id,
-                    &format!("{}/{}", files::TRASH_API_ALIAS, entry.name),
-                    crate::access::CAP_EDIT,
-                );
-            }
-            if entry.original_path.is_empty() {
-                return user.role == "admin";
-            }
-            crate::auth::has_cap(
-                &user,
-                &conn,
-                &id,
-                &entry.original_path,
-                crate::access::CAP_EDIT,
-            )
-        })
-        .collect();
-    Ok(Json(
-        visible
-            .into_iter()
-            .map(|e| {
-                json!({
-                    "name": e.name,
-                    "kind": e.kind,
-                    "size": e.size,
-                    "modified": e.modified,
-                    "path": format!(".luna-trash/{}", e.name),
-                    "original_name": files::original_name_from_trash(&e.name),
-                    "original_path": e.original_path,
-                })
-            })
-            .collect(),
-    ))
-}
-
 async fn restore_entry(
     State(state): State<AppState>,
     Extension(user): Extension<crate::auth::CurrentUser>,
@@ -2377,6 +2370,78 @@ mod http_tests {
         app.clone().oneshot(r).await.unwrap()
     }
 
+    static LIST_QUERIES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    fn count_query(_: &str) {
+        LIST_QUERIES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// A member's listing must cost a bounded number of queries, not a few
+    /// per entry: 600 files here would be thousands of statements if the
+    /// drive row and the member's grants were looked up per entry.
+    #[test]
+    fn member_listing_issues_a_bounded_number_of_queries() {
+        use std::sync::atomic::Ordering;
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(mount.path().join("family")).unwrap();
+        for i in 0..600 {
+            std::fs::write(mount.path().join(format!("family/file{i}.txt")), b"x").unwrap();
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let mut conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+        crate::drives::drive_db::create(
+            mount.path(),
+            &luna_core::marker::Marker::new("photos", "Photos"),
+            &luna_core::marker::pick_prefix(mount.path()).unwrap(),
+        )
+        .unwrap();
+        crate::db::upsert_drive(
+            &conn,
+            "photos",
+            "Photos",
+            "as_is",
+            "ext4",
+            "sda",
+            mount.path().to_str().unwrap(),
+        )
+        .unwrap();
+        crate::db::insert_access_member(
+            &conn,
+            &crate::db::AccessMemberRow {
+                id: "g1".into(),
+                subject_kind: crate::access::KIND_PATH.into(),
+                drive_id: "photos".into(),
+                path: "family".into(),
+                album_id: String::new(),
+                user_id: "sam".into(),
+                caps: crate::access::CAP_VIEW,
+                created_by: "test".into(),
+            },
+        )
+        .unwrap();
+        conn.trace(Some(count_query));
+        let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
+        let state = crate::AppState::new(conn, drive_manager, dir.path());
+        let sam = crate::auth::CurrentUser {
+            id: "sam".into(),
+            username: "sam".into(),
+            role: "member".into(),
+        };
+
+        LIST_QUERIES.store(0, Ordering::Relaxed);
+        let entries = visible_entries(&state, &sam, "photos", "family").unwrap();
+        assert_eq!(entries.len(), 600);
+        assert!(
+            entries
+                .iter()
+                .all(|e| e.caps.contains("view") || !e.caps.is_empty())
+        );
+        let queries = LIST_QUERIES.load(Ordering::Relaxed);
+        assert!(
+            queries < 40,
+            "listing 600 files issued {queries} queries; per-entry lookups are back"
+        );
+    }
+
     async fn admin_and_sam(app: &axum::Router) -> (String, String, String) {
         let res = call(
             app,
@@ -2774,8 +2839,14 @@ mod http_tests {
             let app = app.clone();
             let cookie = cookie.to_string();
             async move {
-                let v =
-                    body_json(call(&app, get("/api/v1/drives/photos/trash", &cookie)).await).await;
+                let v = body_json(
+                    call(
+                        &app,
+                        get("/api/v1/drives/photos/files?path=.luna-trash", &cookie),
+                    )
+                    .await,
+                )
+                .await;
                 v.as_array()
                     .unwrap()
                     .iter()
@@ -3246,7 +3317,7 @@ mod http_tests {
 
         let mut http = HttpReq::builder()
             .method(Method::GET)
-            .uri("/api/v1/drives/photos/trash")
+            .uri("/api/v1/drives/photos/files?path=.luna-trash")
             .header("cookie", &sam_cookie)
             .header("x-csrf-token", &sam_csrf)
             .body(Body::empty())
@@ -3304,7 +3375,7 @@ mod http_tests {
         }
         let mut http = HttpReq::builder()
             .method(Method::GET)
-            .uri("/api/v1/drives/photos/trash")
+            .uri("/api/v1/drives/photos/files?path=.luna-trash")
             .header("cookie", &sam_cookie)
             .header("x-csrf-token", &sam_csrf)
             .body(Body::empty())

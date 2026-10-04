@@ -367,7 +367,7 @@ pub fn read_dir_entries_in(
         let Some(name) = file_name.to_str() else {
             continue;
         };
-        let meta = std::fs::symlink_metadata(entry.path()).map_err(FilesError::Io)?;
+        let meta = entry.metadata().map_err(FilesError::Io)?;
         let item = private.get(name);
         if item.is_none() && is_internal_temp(name) {
             continue;
@@ -412,13 +412,9 @@ pub fn read_dir_entries_in(
         });
     }
 
-    entries.sort_by(|a, b| {
-        let a_dir = a.kind == "dir";
-        let b_dir = b.kind == "dir";
-        b_dir
-            .cmp(&a_dir)
-            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
-    });
+    // Folders first, then case-insensitively by name. The lowercase name is
+    // built once per entry, not once per comparison.
+    entries.sort_by_cached_key(|e| (e.kind != "dir", e.name.to_lowercase()));
     Ok(entries)
 }
 
@@ -733,7 +729,7 @@ fn walk_totals(
                 // Stopped early — what was counted stands as a lower bound.
                 return totals;
             }
-            let Ok(meta) = std::fs::symlink_metadata(entry.path()) else {
+            let Ok(meta) = entry.metadata() else {
                 continue;
             };
             let file_type = meta.file_type();
@@ -930,7 +926,7 @@ fn write_folder_zip_ex(
             if !include_rel(&child_rel) {
                 continue;
             }
-            let meta = std::fs::symlink_metadata(entry.path()).map_err(FilesError::Io)?;
+            let meta = entry.metadata().map_err(FilesError::Io)?;
             if meta.file_type().is_symlink() {
                 continue;
             }

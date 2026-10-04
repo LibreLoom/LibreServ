@@ -2,6 +2,8 @@
 
 use std::io::Read;
 use std::path::Path;
+use std::sync::OnceLock;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
@@ -23,6 +25,22 @@ pub struct FileEntry {
     /// shared with can see it). Names, sizes and times are always the real ones.
     #[serde(default)]
     pub private: bool,
+}
+
+/// The one agent for Luna calls. ureq 3 waits forever by default, so a Luna
+/// that stops answering would hang the app: every call gets a connect budget,
+/// a wait for the reply, and an overall cap generous enough for one upload chunk.
+fn agent() -> &'static ureq::Agent {
+    static AGENT: OnceLock<ureq::Agent> = OnceLock::new();
+    AGENT.get_or_init(|| {
+        ureq::Agent::new_with_config(
+            ureq::Agent::config_builder()
+                .timeout_connect(Some(Duration::from_secs(10)))
+                .timeout_recv_response(Some(Duration::from_secs(60)))
+                .timeout_global(Some(Duration::from_secs(600)))
+                .build(),
+        )
+    })
 }
 
 /// Whether an API error means stored credentials are no longer valid.
@@ -80,12 +98,13 @@ fn session_login_cookies(
     password: &str,
 ) -> Result<SessionCookies, String> {
     let body = serde_json::json!({ "username": username, "password": password });
-    let resp = ureq::post(&format!(
-        "{}/api/v1/auth/login",
-        base_url.trim_end_matches('/')
-    ))
-    .send_json(body)
-    .map_err(|e| plain_connect_error(&e))?;
+    let resp = agent()
+        .post(&format!(
+            "{}/api/v1/auth/login",
+            base_url.trim_end_matches('/')
+        ))
+        .send_json(body)
+        .map_err(|e| plain_connect_error(&e))?;
     if resp.status() == 401 {
         return Err("That username or password didn't work. Check them and try again.".into());
     }
@@ -121,11 +140,12 @@ fn create_device_token(
     name: &str,
 ) -> Result<String, String> {
     let body = serde_json::json!({ "name": name });
-    let mut req = ureq::post(&format!(
-        "{}/api/v1/device-tokens",
-        base_url.trim_end_matches('/')
-    ))
-    .header("Cookie", &cookies.cookie_header);
+    let mut req = agent()
+        .post(&format!(
+            "{}/api/v1/device-tokens",
+            base_url.trim_end_matches('/')
+        ))
+        .header("Cookie", &cookies.cookie_header);
     if let Some(csrf) = &cookies.csrf {
         req = req.header("X-CSRF-Token", csrf);
     }
@@ -148,11 +168,12 @@ fn create_device_token(
 }
 
 fn drop_session_cookie(base_url: &str, cookies: &SessionCookies) -> Result<(), String> {
-    let mut req = ureq::post(&format!(
-        "{}/api/v1/auth/logout",
-        base_url.trim_end_matches('/')
-    ))
-    .header("Cookie", &cookies.cookie_header);
+    let mut req = agent()
+        .post(&format!(
+            "{}/api/v1/auth/logout",
+            base_url.trim_end_matches('/')
+        ))
+        .header("Cookie", &cookies.cookie_header);
     if let Some(csrf) = &cookies.csrf {
         req = req.header("X-CSRF-Token", csrf);
     }
@@ -165,7 +186,8 @@ fn auth_get(
     token: &str,
     path: &str,
 ) -> Result<ureq::http::Response<ureq::Body>, String> {
-    ureq::get(&format!("{}{path}", base_url.trim_end_matches('/')))
+    agent()
+        .get(&format!("{}{path}", base_url.trim_end_matches('/')))
         .header("Authorization", &format!("Bearer {token}"))
         .call()
         .map_err(|e| plain_connect_error(&e))
@@ -240,18 +262,17 @@ pub fn list_files(
     // Keep 4xx/5xx bodies. The default agent turns those into StatusCode
     // errors and drops the JSON, so a missing drive database would read as
     // a generic connection failure instead of the remove-and-add message.
-    let mut resp = ureq::Agent::new_with_config(
-        ureq::Agent::config_builder()
-            .http_status_as_error(false)
-            .build(),
-    )
-    .get(&format!(
-        "{}/api/v1/drives/{drive_id}/files?path={enc}",
-        base_url.trim_end_matches('/')
-    ))
-    .header("Authorization", &format!("Bearer {token}"))
-    .call()
-    .map_err(|e| plain_connect_error(&e))?;
+    let mut resp = agent()
+        .get(&format!(
+            "{}/api/v1/drives/{drive_id}/files?path={enc}",
+            base_url.trim_end_matches('/')
+        ))
+        .config()
+        .http_status_as_error(false)
+        .build()
+        .header("Authorization", &format!("Bearer {token}"))
+        .call()
+        .map_err(|e| plain_connect_error(&e))?;
     let status = resp.status().as_u16();
     if status == 401 {
         return Err("unauthorized".into());
@@ -314,13 +335,14 @@ pub fn mkdir(
     if private {
         body["private"] = serde_json::Value::Bool(true);
     }
-    let resp = ureq::post(&format!(
-        "{}/api/v1/drives/{drive_id}/files/mkdir",
-        base_url.trim_end_matches('/')
-    ))
-    .header("Authorization", &format!("Bearer {token}"))
-    .send_json(body)
-    .map_err(|e| plain_connect_error(&e))?;
+    let resp = agent()
+        .post(&format!(
+            "{}/api/v1/drives/{drive_id}/files/mkdir",
+            base_url.trim_end_matches('/')
+        ))
+        .header("Authorization", &format!("Bearer {token}"))
+        .send_json(body)
+        .map_err(|e| plain_connect_error(&e))?;
     match resp.status().as_u16() {
         200 => Ok(()),
         401 => Err("unauthorized".into()),
@@ -333,13 +355,14 @@ pub fn mkdir(
 
 pub fn delete_path(base_url: &str, token: &str, drive_id: &str, path: &str) -> Result<(), String> {
     let enc = urlencoding_path(path);
-    let resp = ureq::delete(&format!(
-        "{}/api/v1/drives/{drive_id}/files?path={enc}",
-        base_url.trim_end_matches('/')
-    ))
-    .header("Authorization", &format!("Bearer {token}"))
-    .call()
-    .map_err(|e| plain_connect_error(&e))?;
+    let resp = agent()
+        .delete(&format!(
+            "{}/api/v1/drives/{drive_id}/files?path={enc}",
+            base_url.trim_end_matches('/')
+        ))
+        .header("Authorization", &format!("Bearer {token}"))
+        .call()
+        .map_err(|e| plain_connect_error(&e))?;
     match resp.status().as_u16() {
         200 => Ok(()),
         401 => Err("unauthorized".into()),
@@ -418,18 +441,19 @@ pub fn upload_file(
     let dest_dir = full.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
     let file_name = full.rsplit('/').next().unwrap_or(&name);
 
-    let mut created = ureq::post(&format!(
-        "{}/api/v1/uploads",
-        base_url.trim_end_matches('/')
-    ))
-    .header("Authorization", &format!("Bearer {token}"))
-    .send_json(serde_json::json!({
-        "drive_id": dest.drive_id,
-        "path": dest_dir,
-        "name": file_name,
-        "size": size
-    }))
-    .map_err(|e| plain_connect_error(&e))?;
+    let mut created = agent()
+        .post(&format!(
+            "{}/api/v1/uploads",
+            base_url.trim_end_matches('/')
+        ))
+        .header("Authorization", &format!("Bearer {token}"))
+        .send_json(serde_json::json!({
+            "drive_id": dest.drive_id,
+            "path": dest_dir,
+            "name": file_name,
+            "size": size
+        }))
+        .map_err(|e| plain_connect_error(&e))?;
     if created.status() == 401 {
         return Err("unauthorized".into());
     }
@@ -457,15 +481,16 @@ pub fn upload_file(
             break;
         }
         let end = start + n as u64 - 1;
-        let resp = ureq::put(&format!(
-            "{}/api/v1/uploads/{upload_id}",
-            base_url.trim_end_matches('/')
-        ))
-        .header("Authorization", &format!("Bearer {token}"))
-        .header("Content-Range", &format!("bytes {start}-{end}/{size}"))
-        .header("Content-Type", "application/octet-stream")
-        .send(&buf[..n])
-        .map_err(|e| plain_connect_error(&e))?;
+        let resp = agent()
+            .put(&format!(
+                "{}/api/v1/uploads/{upload_id}",
+                base_url.trim_end_matches('/')
+            ))
+            .header("Authorization", &format!("Bearer {token}"))
+            .header("Content-Range", &format!("bytes {start}-{end}/{size}"))
+            .header("Content-Type", "application/octet-stream")
+            .send(&buf[..n])
+            .map_err(|e| plain_connect_error(&e))?;
         if !resp.status().is_success() {
             return Err("Luna couldn't accept part of the upload. Try again.".into());
         }
@@ -483,7 +508,8 @@ pub fn upload_file(
             base_url.trim_end_matches('/')
         )
     };
-    match ureq::post(&complete_url)
+    match agent()
+        .post(&complete_url)
         .header("Authorization", &format!("Bearer {token}"))
         .send_empty()
     {

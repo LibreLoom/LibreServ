@@ -44,6 +44,14 @@ pub fn forget_dir(conn: &Connection, drive_id: &str, rel: &str) -> anyhow::Resul
 /// Drop every indexed row under `rel` — the directory itself and its whole
 /// subtree. Renames, deletes, and moves of a folder leave the old rows
 /// unreachable by path, but forgetting them keeps `search` honest.
+/// Bounds for "everything under `rel/`" as a range scan: `rel/` up to (not
+/// including) `rel0`, since `0` is the character after `/`. Binary order, so
+/// it rides the table's index — a `LIKE` would not, and would also match a
+/// differently-cased sibling.
+pub(crate) fn subtree_bounds(rel: &str) -> (String, String) {
+    (format!("{rel}/"), format!("{rel}0"))
+}
+
 pub fn forget_dir_tree(conn: &Connection, drive_id: &str, rel: &str) -> anyhow::Result<()> {
     if rel.is_empty() {
         conn.execute(
@@ -56,22 +64,16 @@ pub fn forget_dir_tree(conn: &Connection, drive_id: &str, rel: &str) -> anyhow::
         )?;
         return Ok(());
     }
-    // Escape LIKE metachars in the rel — a folder named `50%` or `a_b` must
-    // forget only its own subtree.
-    let escaped = rel
-        .replace('\\', "\\\\")
-        .replace('%', "\\%")
-        .replace('_', "\\_");
-    let prefix = format!("{escaped}/%");
+    let (from, to) = subtree_bounds(rel);
     conn.execute(
         "DELETE FROM indexed_dirs
-         WHERE drive_id = ?1 AND (path = ?2 OR path LIKE ?3 ESCAPE '\\')",
-        params![drive_id, rel, prefix],
+         WHERE drive_id = ?1 AND (path = ?2 OR (path >= ?3 AND path < ?4))",
+        params![drive_id, rel, from, to],
     )?;
     conn.execute(
         "DELETE FROM index_entries
-         WHERE drive_id = ?1 AND (parent = ?2 OR parent LIKE ?3 ESCAPE '\\')",
-        params![drive_id, rel, prefix],
+         WHERE drive_id = ?1 AND (parent = ?2 OR (parent >= ?3 AND parent < ?4))",
+        params![drive_id, rel, from, to],
     )?;
     Ok(())
 }
@@ -498,5 +500,45 @@ mod tests {
         )
         .unwrap();
         assert!(folder_totals_indexed(&conn, &root, "d1", "", &mut all).is_none());
+    }
+
+    #[test]
+    fn forget_dir_tree_drops_only_that_subtree() {
+        let dir = tempfile::tempdir().unwrap();
+        let marker = luna_core::marker::Marker::new("d1", "D");
+        let conn = crate::drives::drive_db::create(
+            dir.path(),
+            &marker,
+            &luna_core::marker::pick_prefix(dir.path()).unwrap(),
+        )
+        .unwrap();
+        // The folder, its subtree, and look-alikes that must survive: a
+        // sibling sharing the prefix, a differently-cased one, `%`/`_` names.
+        for path in ["a", "a/deep", "ab", "a0", "A", "a_b", "50%", "50%/x"] {
+            replace_dir(&conn, "d1", path, 1, &[]).unwrap();
+        }
+        replace_dir(&conn, "d2", "a", 1, &[]).unwrap();
+
+        forget_dir_tree(&conn, "d1", "a").unwrap();
+        let left: Vec<String> = conn
+            .prepare("SELECT path FROM indexed_dirs WHERE drive_id = 'd1' ORDER BY path")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert_eq!(left, ["50%", "50%/x", "A", "a0", "a_b", "ab"]);
+        // Another drive is untouched.
+        assert!(fresh_entries(&conn, "d2", "a", 1).is_some());
+
+        forget_dir_tree(&conn, "d1", "50%").unwrap();
+        let left: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM indexed_dirs WHERE drive_id = 'd1' AND path LIKE '50%'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(left, 0);
     }
 }

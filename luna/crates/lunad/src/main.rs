@@ -495,7 +495,14 @@ async fn async_main() -> anyhow::Result<()> {
     let eurooffice_dir = cfg.data_dir.join("eurooffice");
     let mut app = axum::Router::new()
         .merge(protected_api)
-        .merge(lunad::files::dav::router());
+        // WebDAV sits outside protected_api (it authenticates itself) but is
+        // file traffic all the same.
+        .merge(
+            lunad::files::dav::router().layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                touch_io_activity,
+            )),
+        );
     if eurooffice_dir.is_dir() {
         tracing::info!(dir = %eurooffice_dir.display(), "serving EuroOffice assets");
         // One wildcard route handles the whole /eurooffice tree: versioned
@@ -574,12 +581,7 @@ async fn touch_io_activity(
     req: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
-    let path = req.uri().path();
-    if path.contains("/files")
-        || path.starts_with("/api/v1/uploads")
-        || path.starts_with("/api/v1/jobs")
-        || path.starts_with("/s/")
-    {
+    if lunad::is_io_path(req.uri().path()) {
         state.touch_io_activity();
     }
     next.run(req).await

@@ -18,6 +18,9 @@ pub struct DriveHealth {
 
 /// True when this block device is a rotational hard drive worth a SMART read.
 pub fn applicable(device: &str) -> bool {
+    if !is_plain_device_name(device) {
+        return false;
+    }
     let disk = disk_name(device);
     if disk.is_empty() {
         return false;
@@ -26,6 +29,19 @@ pub fn applicable(device: &str) -> bool {
         return false;
     }
     rotational(&disk)
+}
+
+/// A kernel block-device name (`sda1`, `nvme0n1p2`, `dm-0`), optionally with
+/// `/dev/`. Anything else — path separators, dots, flags — never reaches
+/// `/sys` or `smartctl`.
+fn is_plain_device_name(device: &str) -> bool {
+    let name = device.trim().strip_prefix("/dev/").unwrap_or(device.trim());
+    !name.is_empty()
+        && name.len() <= 32
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+        && !name.starts_with('-')
 }
 
 fn disk_name(device: &str) -> String {
@@ -79,7 +95,12 @@ pub fn read(device: &str) -> DriveHealth {
         reallocated_sectors: None,
     };
     let Ok(output) = Command::new("smartctl")
-        .args(["-H", "-A", "-i", &format!("/dev/{device}")])
+        .args([
+            "-H",
+            "-A",
+            "-i",
+            &format!("/dev/{}", device.trim().trim_start_matches("/dev/")),
+        ])
         .output()
     else {
         return health;
@@ -142,6 +163,26 @@ mod tests {
         assert_eq!(disk_name("sda1"), "sda");
         assert_eq!(disk_name("/dev/sdb2"), "sdb");
         assert_eq!(disk_name("nvme0n1p2"), "nvme0n1");
+    }
+
+    #[test]
+    fn device_names_are_whitelisted() {
+        assert!(is_plain_device_name("sda1"));
+        assert!(is_plain_device_name("/dev/nvme0n1p2"));
+        assert!(is_plain_device_name("dm-0"));
+        for bad in [
+            "",
+            "../sda",
+            "sda/../../etc",
+            "sda;rm",
+            "-H",
+            "sda 1",
+            "sd.a",
+            "/dev/",
+        ] {
+            assert!(!is_plain_device_name(bad), "{bad:?}");
+            assert!(!applicable(bad), "{bad:?}");
+        }
     }
 
     #[test]

@@ -325,39 +325,48 @@ fn format_data_usb_cmd(disk: &str, volume_label: &str) -> anyhow::Result<()> {
     }
 
     let label = sanitize_volume_label(volume_label);
-    let mkfs = Command::new("mkfs.exfat")
+    let exfat = Command::new("mkfs.exfat")
         .args(["-n", &label, &part_dev])
         .output();
-    match mkfs {
-        Ok(o) if o.status.success() => Ok(()),
-        Ok(o) => {
-            let fat = Command::new("mkfs.vfat")
-                .args(["-F", "32", "-n", &label, &part_dev])
-                .output();
-            match fat {
-                Ok(f) if f.status.success() => Ok(()),
-                _ => anyhow::bail!(
-                    "Luna couldn't set up this USB for files. {}",
-                    String::from_utf8_lossy(&o.stderr).trim()
-                ),
+    if exfat.as_ref().is_ok_and(|o| o.status.success()) {
+        return Ok(());
+    }
+    let fat = Command::new("mkfs.vfat")
+        .args(["-F", "32", "-n", &label, &part_dev])
+        .output();
+    if fat.as_ref().is_ok_and(|o| o.status.success()) {
+        return Ok(());
+    }
+    anyhow::bail!(
+        "Luna couldn't set up this USB for files. {}",
+        mkfs_failure_details(&exfat, &fat)
+    )
+}
+
+/// What each format tool said, so a failure shows both attempts. A tool that
+/// couldn't start at all is reported as missing.
+fn mkfs_failure_details(
+    exfat: &std::io::Result<std::process::Output>,
+    fat: &std::io::Result<std::process::Output>,
+) -> String {
+    fn one(name: &str, result: &std::io::Result<std::process::Output>) -> String {
+        match result {
+            Ok(o) => {
+                let said = String::from_utf8_lossy(&o.stderr).trim().to_string();
+                if said.is_empty() {
+                    format!("{name} failed.")
+                } else {
+                    format!("{name}: {said}")
+                }
             }
-        }
-        Err(_) => {
-            let fat = Command::new("mkfs.vfat")
-                .args(["-F", "32", "-n", &label, &part_dev])
-                .output()
-                .map_err(|_| {
-                    anyhow::anyhow!(
-                        "Luna couldn't set up this USB for files. The box is missing a format tool."
-                    )
-                })?;
-            if fat.status.success() {
-                Ok(())
-            } else {
-                anyhow::bail!("Luna couldn't set up this USB for files.")
-            }
+            Err(_) => format!("{name} is not installed on this Luna."),
         }
     }
+    format!(
+        "{} {}",
+        one("exFAT format", exfat),
+        one("FAT32 format", fat)
+    )
 }
 
 #[cfg(test)]

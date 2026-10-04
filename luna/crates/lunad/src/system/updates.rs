@@ -137,12 +137,24 @@ pub trait Installer: Send + Sync {
     }
 }
 
+/// ureq 3 has no timeout by default; a wedged connection would hang the
+/// update thread for good. Release lists, checksums and keys are small.
+const API_TIMEOUT: Duration = Duration::from_secs(30);
+/// An OS image is gigabytes: the clock covers the whole download, so it
+/// allows a slow home connection while still ending a stuck one.
+const IMAGE_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(2 * 60 * 60);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
 pub struct UreqHttp;
 
 impl HttpGet for UreqHttp {
     fn get(&self, url: &str) -> Result<(u16, Vec<u8>), UpdateError> {
         let max = crate::budget::limits().update_download_bytes;
         let resp = ureq::get(url)
+            .config()
+            .timeout_global(Some(API_TIMEOUT))
+            .timeout_connect(Some(CONNECT_TIMEOUT))
+            .build()
             .call()
             .map_err(|_| UpdateError::Unreachable)?;
         let status = resp.status().as_u16();
@@ -173,6 +185,11 @@ impl HttpGet for UreqHttp {
         max_bytes: u64,
     ) -> Result<(u16, String), UpdateError> {
         let resp = ureq::get(url)
+            .config()
+            .timeout_global(Some(IMAGE_DOWNLOAD_TIMEOUT))
+            .timeout_connect(Some(CONNECT_TIMEOUT))
+            .timeout_recv_response(Some(API_TIMEOUT))
+            .build()
             .call()
             .map_err(|_| UpdateError::Unreachable)?;
         let status = resp.status().as_u16();

@@ -32,7 +32,9 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             PRIMARY KEY (user_id, drive_id, path)
         );
         CREATE INDEX IF NOT EXISTS idx_user_recents_user_accessed
-        ON user_recents (user_id, accessed_at DESC);",
+        ON user_recents (user_id, accessed_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_user_recents_drive_path
+        ON user_recents (drive_id, path);",
     )
 }
 
@@ -111,14 +113,15 @@ pub fn repath(
         return Ok(());
     }
 
-    let mut stmt = conn.prepare(
+    let (from, to) = crate::files::index::subtree_bounds(&old_path);
+    let mut stmt = conn.prepare_cached(
         "SELECT user_id, path, kind, accessed_at
          FROM user_recents
-         WHERE drive_id = ?1 AND (path = ?2 OR substr(path, 1, length(?2) + 1) = ?2 || '/')",
+         WHERE drive_id = ?1 AND (path = ?2 OR (path >= ?3 AND path < ?4))",
     )?;
 
     let rows: Vec<(String, String, String, i64)> = stmt
-        .query_map(params![old_drive, old_path], |r| {
+        .query_map(params![old_drive, old_path, from, to], |r| {
             Ok((
                 r.get::<_, String>(0)?,
                 r.get::<_, String>(1)?,
@@ -157,11 +160,11 @@ pub fn drop_under(conn: &Connection, drive_id: &str, path: &str) -> anyhow::Resu
     if path.is_empty() {
         return Ok(0);
     }
+    let (from, to) = crate::files::index::subtree_bounds(&path);
     let count = conn.execute(
         "DELETE FROM user_recents
-         WHERE drive_id = ?1
-           AND (path = ?2 OR substr(path, 1, length(?2) + 1) = ?2 || '/')",
-        params![drive_id, path],
+         WHERE drive_id = ?1 AND (path = ?2 OR (path >= ?3 AND path < ?4))",
+        params![drive_id, path, from, to],
     )?;
     Ok(count)
 }
