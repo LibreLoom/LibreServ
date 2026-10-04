@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { canViewerOpen } from "../lib/officeConvert.js";
 import { viewerNeedsSession } from "../lib/fileKinds.js";
-import { isTrashPath, joinPath, parentPath, pathBasename, TRASH_PATH } from "../lib/paths.js";
+import { isTrashPath, joinPath, parentPath, pathBasename } from "../lib/paths.js";
 import { pathContains } from "../lib/shareTree.js";
 
 function safeDecode(value) {
@@ -21,10 +21,7 @@ export default function useFileNavigation({ defaultFile = null, singleFile = fal
   const [singleClosed, setSingleClosed] = useState(false);
 
   const rawPath = searchParams.get("path") || "";
-  // `?view=trash` is the old link shape — trash is just the `.luna-trash`
-  // folder now, so the alias folds into the regular path.
-  const legacyTrash = searchParams.get("view") === "trash";
-  const path = singleFile ? "" : (legacyTrash && !rawPath ? TRASH_PATH : rawPath);
+  const path = singleFile ? "" : rawPath;
   const selectPath = searchParams.get("select") || "";
   const inTrash = isTrashPath(path);
   const fileParam = searchParams.get("file") || searchParams.get("open") || "";
@@ -74,7 +71,6 @@ export default function useFileNavigation({ defaultFile = null, singleFile = fal
         else params.delete("path");
       }
       params.delete("select");
-      params.delete("view");
       params.delete("open");
       setSearchParams(params);
     } else {
@@ -92,7 +88,6 @@ export default function useFileNavigation({ defaultFile = null, singleFile = fal
     const params = new URLSearchParams(searchParams);
     if (next && !singleFile) params.set("path", next);
     else params.delete("path");
-    params.delete("view");
     params.delete("select");
     params.delete("file");
     params.delete("open");

@@ -13,7 +13,7 @@ import { TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { ROOT_TERM_HINT } from "../lib/rootTerm.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
-import { dashboard as greetingMessages } from "../assets/greetings.jsx";
+import { dashboard as greetingMessages } from "../lib/greetings.jsx";
 import SystemHealthPill from "../components/common/SystemHealthPill.jsx";
 import SoftwareUpdatePill from "../components/common/SoftwareUpdatePill.jsx";
 import TipPill from "../components/common/TipPill.jsx";
@@ -30,6 +30,7 @@ import {
 } from "../lib/recentItems.js";
 import useConnectActive from "../hooks/useConnectActive.js";
 import InspectModal from "../components/files/InspectModal.jsx";
+import { releaseInspectedDrive } from "../lib/drives.js";
 import { isMockUnknownDrive, mockInspectResult, withDevMockDetected } from "../lib/devMockDrives.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 
@@ -970,7 +971,7 @@ export default function DashboardPage() {
         drive={inspectFor}
         result={inspect.data}
         error={inspect.isError ? "Luna couldn't look at this drive safely. Make sure it's plugged in and try again." : null}
-        onClose={() => { setInspectFor(null); inspect.reset(); adopt.reset(); }}
+        onClose={() => { releaseInspectedDrive(inspectFor); setInspectFor(null); inspect.reset(); adopt.reset(); }}
         onAdopt={(label, erase) => adopt.mutateAsync({ drive: inspectFor, label, erase })}
         adoptError={adoptError}
         adopting={adopt.isPending}

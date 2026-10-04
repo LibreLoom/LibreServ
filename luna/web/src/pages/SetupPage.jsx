@@ -41,7 +41,6 @@ import { haptic } from "@libreloom/ui/utils/haptics.js";
 const STEP = {
   WELCOME:    "welcome",
   PREFLIGHT:  "preflight",
-  NETWORK:    "network", // legacy saved progress only — no user-facing step (ethernet-only)
   ACCOUNT:    "account",
   NAME:       "name",
   DONE:       "done",
@@ -947,9 +946,7 @@ export default function SetupPage() {
 
         let next = STEP.WELCOME;
         if (savedStep && savedStep !== STEP.WELCOME) {
-          // Luna is ethernet-only: if you can open setup, the cable path is already
-          // satisfied — skip the legacy network step from older saved progress.
-          next = savedStep === STEP.NETWORK ? STEP.ACCOUNT : savedStep;
+          next = savedStep;
           if (savedStep === STEP.WELCOME && savedData.preflight_passed) {
             next = STEP.ACCOUNT;
           }

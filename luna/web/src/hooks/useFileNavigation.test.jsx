@@ -21,10 +21,9 @@ describe("useFileNavigation", () => {
     expect(result.current.nav.inTrash).toBe(false);
   });
 
-  it("reads trash view and select params", () => {
-    const { result } = harness("/drives/d1?view=trash&select=a/b.txt");
+  it("reads trash path and select params", () => {
+    const { result } = harness("/drives/d1?path=.luna-trash&select=a/b.txt");
     expect(result.current.nav.inTrash).toBe(true);
-    // The legacy view=trash link folds into the .luna-trash folder path.
     expect(result.current.nav.path).toBe(".luna-trash");
     expect(result.current.nav.selectPath).toBe("a/b.txt");
   });
@@ -52,8 +51,8 @@ describe("useFileNavigation", () => {
     expect(result.current.nav.viewerPath).toBeNull();
   });
 
-  it("onPathChange drops file, view, and select params", () => {
-    const { result } = harness("/drives/d1?path=docs&file=a.txt&view=trash&select=b.txt");
+  it("onPathChange drops file and select params", () => {
+    const { result } = harness("/drives/d1?path=docs&file=a.txt&select=b.txt");
     act(() => result.current.nav.onPathChange("docs/sub"));
     expect(result.current.nav.path).toBe("docs/sub");
     expect(result.current.nav.viewerPath).toBeNull();

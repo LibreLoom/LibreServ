@@ -478,7 +478,7 @@ describe("FilesPage", () => {
         });
       },
     });
-    renderFiles("/drives/d1?view=trash");
+    renderFiles("/drives/d1?path=.luna-trash");
     fireEvent.click(await screen.findByRole("button", { name: "Restore photo.jpg" }));
     const restore = await screen.findByRole("dialog", { name: "Restore this?" });
     fireEvent.click(within(restore).getByRole("button", { name: "Restore" }));
@@ -500,7 +500,7 @@ describe("FilesPage", () => {
         hidden: false,
       }],
     });
-    renderFiles("/drives/d1?view=trash");
+    renderFiles("/drives/d1?path=.luna-trash");
     // The regular browser renders the trash entry under its pre-trash name.
     expect(await screen.findByText("photo.jpg")).toBeInTheDocument();
     expect(screen.queryByText("171-photo.jpg")).not.toBeInTheDocument();

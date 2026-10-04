@@ -19,7 +19,7 @@ import {
   Users,
 } from "lucide-react";
 
-import { notfound as quips } from "../assets/greetings";
+import { notfound as quips } from "../lib/greetings.jsx";
 import { useAuth } from "../context/AuthContext";
 import Navbar from "../components/ui/Navbar";
 import { getDrives, getJson } from "../lib/api";

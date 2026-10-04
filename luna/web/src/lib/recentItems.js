@@ -121,7 +121,6 @@ export function recentItemFromLocation({ pathname, search = "", hash = "" }) {
   if (!match) return null;
   const driveId = decodeURIComponent(match[1]);
   const params = new URLSearchParams(search);
-  if (params.get("view") === "trash") return null;
 
   const path = params.get("path") || "";
   // Trash rows carry generated on-disk names (`{nonce}-file`) — a recent

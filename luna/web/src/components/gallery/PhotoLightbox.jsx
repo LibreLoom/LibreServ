@@ -29,7 +29,7 @@ import { cn } from "@libreloom/ui/lib/utils.js";
 
 const PhotoInfoPanel = lazy(() => import("./PhotoInfoPanel.jsx"));
 
-/** Match `fullscreen-overlay-out` / `file-viewer-out` duration in index.css. */
+/** Match `fullscreen-overlay-out` duration in index.css. */
 const FULLSCREEN_EXIT_MS = 250;
 /** Breathing room between panes so neighbors peek in like a carousel. */
 const PANE_GAP_PX = 12;
@@ -80,7 +80,6 @@ export function resolveDisplaySrc(photo, opts = {}) {
   if (opts.contentSrc) return opts.contentSrc;
   if (photo?.content) return photo.content;
   if (isHeicFile(photo?.name) && photo?.drive_id && photo?.path) {
-    // TODO: backend `/api/v1/gallery/preview` may still be landing — fall back to content if 404.
     return `/api/v1/gallery/preview?drive_id=${encodeURIComponent(photo.drive_id)}&path=${encodeURIComponent(photo.path)}`;
   }
   if (photo?.drive_id && photo?.path) return contentHref(photo.drive_id, photo.path);

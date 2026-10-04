@@ -8,6 +8,7 @@ import SystemChecksCard from "./SystemChecksCard.jsx";
 import UpdateSourceCard from "./UpdateSourceCard.jsx";
 import AccessAddressesCard from "./AccessAddressesCard.jsx";
 import OpenSourceLicenses from "./OpenSourceLicenses.jsx";
+import ResetLunaCard from "./ResetLunaCard.jsx";
 import { getJson } from "../../../lib/api";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
@@ -67,6 +68,8 @@ export default function AboutCategory() {
           </div>
         </div>
       </SettingsCard>
+
+      <ResetLunaCard index={6} />
     </div>
   );
 }

@@ -418,6 +418,16 @@ export default function AccessCategory() {
     onError: (err) => setError(apiErrorMessage(err)),
   });
 
+  const signOutApps = useMutation({
+    mutationFn: () => postJson("/api/v1/auth/revoke-devices", {}),
+    onSuccess: () => {
+      addToast({ type: "success", message: "Signed out of every app." });
+      queryClient.invalidateQueries({ queryKey: ["device-tokens"] });
+      setUsageFor(null);
+    },
+    onError: (err) => setError(apiErrorMessage(err)),
+  });
+
   const createToken = useMutation({
     mutationFn: (/** @type {{ name: string, days: string }} */ { name, days }) => postJson("/api/v1/device-tokens", {
       name,
@@ -461,7 +471,6 @@ export default function AccessCategory() {
         <SettingsRow
           label="Sign out of Luna in every browser"
           description="Signs your account out in every browser — including this one. Apps and access tokens below keep working."
-          hideDivider
           stack
         >
           <Button
@@ -470,6 +479,20 @@ export default function AccessCategory() {
             onClick={() => signOutBrowsers.mutate()}
           >
             Sign out of Luna in every browser
+          </Button>
+        </SettingsRow>
+        <SettingsRow
+          label="Sign out all apps"
+          description="Stops every access token below from working. Each app on a phone or computer needs a new one."
+          hideDivider
+          stack
+        >
+          <Button
+            variant="accent"
+            loading={signOutApps.isPending}
+            onClick={() => signOutApps.mutate()}
+          >
+            Sign out all apps
           </Button>
         </SettingsRow>
       </SettingsCard>

@@ -54,7 +54,7 @@ vi.mock("./diagram/DiagramEditor.jsx", () => ({
   },
 }));
 
-/** Fullscreen exit animation duration (file-viewer-out, 250ms) + slack. */
+/** Fullscreen exit animation duration (fullscreen-overlay-out, 250ms) + slack. */
 const EXIT_WAIT_MS = 300;
 
 /** The mounted CodeMirror view — stashed on the editor host element. */

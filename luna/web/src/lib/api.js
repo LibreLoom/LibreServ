@@ -355,17 +355,6 @@ export function recordRecent({ kind, driveId, path }) {
   return postJson("/api/v1/me/recents", { kind, driveId, path });
 }
 
-/**
- * @param {{ driveId?: string, path?: string }} [opts]
- */
-export function deleteRecent({ driveId, path } = {}) {
-  const params = new URLSearchParams();
-  if (driveId) params.set("driveId", driveId);
-  if (path) params.set("path", path);
-  const q = params.toString();
-  return deleteJson(`/api/v1/me/recents${q ? `?${q}` : ""}`);
-}
-
 export class ApiError extends Error {
   /**
    * @param {number} status

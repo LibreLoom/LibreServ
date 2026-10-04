@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
-import { dashboard as greetingMessages } from "../assets/greetings.jsx";
+import { dashboard as greetingMessages } from "../lib/greetings.jsx";
 import DashboardPage from "./DashboardPage";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import { readRecentItems } from "../lib/recentItems.js";

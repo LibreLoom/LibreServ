@@ -16,6 +16,7 @@ import ValueDisplay from "@libreloom/ui/components/common/ValueDisplay.jsx";
 import ShareSheet, { ShareButton } from "../components/share/ShareSheet.jsx";
 import ProtectSheet, { ProtectButton } from "../components/files/ProtectSheet";
 import InspectModal from "../components/files/InspectModal.jsx";
+import { releaseInspectedDrive } from "../lib/drives.js";
 import useCanProtect from "../hooks/useCanProtect";
 import { FileSearchButton } from "../components/files/FileSearch";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
@@ -625,7 +626,7 @@ export default function DrivesPage() {
         drive={inspectFor}
         result={inspect.data}
         error={inspect.isError ? "Luna couldn't look at this drive safely. Make sure it's plugged in and try again." : null}
-        onClose={() => { setInspectFor(null); inspect.reset(); adopt.reset(); }}
+        onClose={() => { releaseInspectedDrive(inspectFor); setInspectFor(null); inspect.reset(); adopt.reset(); }}
         onAdopt={(label, erase) => adopt.mutateAsync({ drive: inspectFor, label, erase })}
         adoptError={adoptError}
         adopting={adopt.isPending}

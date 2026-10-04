@@ -103,19 +103,10 @@ describe("recentItemFromLocation", () => {
     ).toEqual({ kind: "drive", driveId: "d1", path: "" });
   });
 
-  it("ignores the skip-link hash and trash view", () => {
+  it("ignores the skip-link hash", () => {
     expect(
       recentItemFromLocation({ pathname: "/drives/d1", hash: "#main-content" }),
     ).toEqual({ kind: "drive", driveId: "d1", path: "" });
-    expect(
-      recentItemFromLocation({ pathname: "/drives/d1", search: "?view=trash" }),
-    ).toBeNull();
-    expect(
-      recentItemFromLocation({
-        pathname: "/drives/d1",
-        search: "?path=X&view=trash",
-      }),
-    ).toBeNull();
     // Trash browses as the `.luna-trash` folder — still not a recent item.
     expect(
       recentItemFromLocation({ pathname: "/drives/d1", search: "?path=.luna-trash" }),

@@ -50,22 +50,10 @@ class MockWorker {
 
 describe("bundleUrl", () => {
   it("escapes each path segment but keeps slashes", () => {
-    expect(bundleUrl("k-1", "Editor.bin")).toBe("/api/v1/office/bundle/k-1/Editor.bin");
-    expect(bundleUrl("k 2", "media/my image.png")).toBe(
-      "/api/v1/office/bundle/k%202/media/my%20image.png",
-    );
-  });
-
-  it("uses the session's scoped bundle_url when present", () => {
-    const session = /** @type {any} */ ({
-      key: "k1",
-      bundle_url: "/s/office-bundle/k1",
-      token: "jwt",
-    });
-    expect(bundleUrl(session, "Editor.bin")).toBe("/s/office-bundle/k1/Editor.bin");
-    // A session without bundle_url falls back to the legacy cookie route.
-    expect(bundleUrl(/** @type {any} */ ({ key: "k1" }), "Editor.bin")).toBe(
-      "/api/v1/office/bundle/k1/Editor.bin",
+    const session = { bundle_url: "/s/office-bundle/k1/b1" };
+    expect(bundleUrl(session, "Editor.bin")).toBe("/s/office-bundle/k1/b1/Editor.bin");
+    expect(bundleUrl(session, "media/my image.png")).toBe(
+      "/s/office-bundle/k1/b1/media/my%20image.png",
     );
   });
 });

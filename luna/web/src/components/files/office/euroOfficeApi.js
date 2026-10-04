@@ -216,26 +216,18 @@ export function x2tConvert(inName, outName, bytes) {
 // ---------- bundle (converted document storage on lunad) ----------
 
 /**
- * URL of one bundle file. Sessions minted after the scoped bridge carry a
- * `bundle_url` (`/s/office-bundle/{key}`, authorized by the token); older
- * callers pass a bare key and get the session-cookie route.
- * @param {string | { key: string, bundle_url?: string }} sessionOrKey
+ * URL of one bundle file: the session's scoped `bundle_url`
+ * (`/s/office-bundle/{key}/{id}`), authorized by the session token.
+ * @param {{ bundle_url: string }} session
  * @param {string} name
  */
-export function bundleUrl(sessionOrKey, name) {
-  const base =
-    typeof sessionOrKey === "string"
-      ? `/api/v1/office/bundle/${encodeURIComponent(sessionOrKey)}`
-      : sessionOrKey.bundle_url || `/api/v1/office/bundle/${encodeURIComponent(sessionOrKey.key)}`;
-  return `${base}/${name.split("/").map(encodeURIComponent).join("/")}`;
+export function bundleUrl(session, name) {
+  return `${session.bundle_url}/${name.split("/").map(encodeURIComponent).join("/")}`;
 }
 
-/**
- * Credential header for scoped bundle endpoints. Only sent when the session
- * actually carries a `bundle_url` — legacy callers keep the cookie route.
- */
+/** Credential header for the scoped bundle endpoints. */
 function bundleHeaders(session) {
-  return session?.bundle_url ? { "X-Office-Token": session.token } : {};
+  return { "X-Office-Token": session.token };
 }
 
 async function bundleHas(session, name) {

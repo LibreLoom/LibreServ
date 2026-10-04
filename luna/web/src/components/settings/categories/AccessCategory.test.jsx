@@ -20,6 +20,12 @@ function stubFetch(tokens = []) {
         headers: { "Content-Type": "application/json" },
       });
     }
+    if (u.includes("/auth/revoke-devices") && method === "POST") {
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
     return new Response("{}", { status: 404 });
   }));
 }
@@ -50,6 +56,17 @@ describe("AccessCategory", () => {
     expect(screen.getByRole("button", { name: /Sign out of Luna in every browser/i })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Revoke app access/i })).toBeNull();
     expect(screen.queryByText(/Luna cannot show a list of every browser/i)).toBeNull();
+  });
+
+  it("signs out every app through revoke-devices", async () => {
+    const { userEvent } = await import("@testing-library/user-event");
+    const user = userEvent.setup();
+    renderAccess();
+    await user.click(await screen.findByRole("button", { name: "Sign out all apps" }));
+    await waitFor(() => {
+      const calls = /** @type {any} */ (fetch).mock.calls;
+      expect(calls.some(([u, init]) => String(u).includes("/auth/revoke-devices") && init?.method === "POST")).toBe(true);
+    });
   });
 
   it("shows apps and access tokens section", async () => {

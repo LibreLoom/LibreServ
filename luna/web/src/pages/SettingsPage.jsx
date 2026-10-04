@@ -14,17 +14,10 @@ import { useAuth } from "../context/AuthContext";
 import useConnectActive from "../hooks/useConnectActive";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
-/** Old category ids → current sidebar ids (bookmarks / deep links). */
-const HASH_ALIASES = {
-  remote: "external_services",
-  access: "security",
-};
-
 /** Hash without `#`. In-app Links use history.push, so we read the router location. */
 function categoryFromHash(hash, allowedCategoryIds) {
   const raw = String(hash || "").replace(/^#/, "");
-  const id = HASH_ALIASES[raw] || raw;
-  return allowedCategoryIds.includes(id) ? id : null;
+  return allowedCategoryIds.includes(raw) ? raw : null;
 }
 
 function useIsDesktop() {

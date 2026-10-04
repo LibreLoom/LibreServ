@@ -143,7 +143,6 @@ export default function App() {
                 <Route path="/photos" element={<PhotosToGalleryRedirect />} />
                 <Route path="/settings/users" element={<RequireAdmin><UsersPage /></RequireAdmin>} />
                 <Route path="/settings" element={<SettingsPage />} />
-                <Route path="/settings/remote" element={<Navigate to={{ pathname: "/settings", hash: "external_services" }} replace />} />
               </Route>
               <Route path="*" element={<NotFoundPage />} />
             </Routes>
