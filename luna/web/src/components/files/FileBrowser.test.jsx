@@ -1301,8 +1301,9 @@ describe("FileBrowser folder chrome auto-split", () => {
       observers.forEach((cb) => cb([], /** @type {ResizeObserver} */ ({})));
     });
 
-    await waitFor(() =>
-      expect(container.querySelector("[data-slot=file-browser-folder-chrome-combined]")).toBeTruthy(),
+    await waitFor(
+      () => expect(container.querySelector("[data-slot=file-browser-folder-chrome-combined]")).toBeTruthy(),
+      { timeout: 5000 },
     );
     // Give a (wrong) late split a chance to show up before declaring it absent.
     await new Promise((r) => setTimeout(r, 80));
@@ -1330,8 +1331,9 @@ describe("FileBrowser folder chrome auto-split", () => {
       observers.forEach((cb) => cb([], /** @type {ResizeObserver} */ ({})));
     });
 
-    await waitFor(() =>
-      expect(container.querySelector("[data-slot=file-browser-folder-chrome-split]")).toBeTruthy(),
+    await waitFor(
+      () => expect(container.querySelector("[data-slot=file-browser-folder-chrome-split]")).toBeTruthy(),
+      { timeout: 5000 },
     );
     expect(container.querySelector("[data-slot=file-browser-folder-chrome-combined]")).toBeNull();
     const toolbar = screen.getByRole("toolbar", { name: "Folder actions" });

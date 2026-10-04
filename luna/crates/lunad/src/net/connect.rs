@@ -2236,6 +2236,97 @@ mod tests {
         assert!(service.tunnel_ready());
     }
 
+    /// Answers each connection with the next body in `bodies`, then stops.
+    fn serve_sequence(bodies: Vec<String>) -> String {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            for body in bodies {
+                let Ok((mut stream, _)) = listener.accept() else {
+                    return;
+                };
+                let mut buf = [0u8; 2048];
+                let _ = stream.read(&mut buf);
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = stream.write_all(resp.as_bytes());
+            }
+        });
+        format!("http://{addr}")
+    }
+
+    /// Changing the address on Luna Connect hands Luna a new hostname and
+    /// tunnel token on its next check. Luna must save both and restart the
+    /// tunnel with the new token, not keep serving the old address.
+    #[cfg(unix)]
+    #[test]
+    fn a_new_address_from_connect_restarts_the_tunnel_on_the_new_token() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let bin_dir = dir.path().join("bin");
+        std::fs::create_dir_all(&bin_dir).unwrap();
+        let log = dir.path().join("cloudflared-starts.log");
+        let fake = bin_dir.join("cloudflared");
+        let mut body = format!(
+            "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo cloudflared version fake; exit 0; fi\necho \"$*\" >> {}\nsleep 3600\n",
+            log.display()
+        );
+        while body.len() < MIN_CLOUDFLARED_BYTES as usize {
+            body.push('#');
+        }
+        std::fs::write(&fake, body).unwrap();
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let reply = |sub: &str, token: &str| {
+            format!(
+                r#"{{"hostname":"{sub}.luna.servers.libreloom.org","subdomain":"{sub}","tunnel_token":"{token}","backup_unlocked":false,"paired":true,"bound":true}}"#
+            )
+        };
+        let url = serve_sequence(vec![
+            reply("old", "real-token-old"),
+            reply("old", "real-token-old"),
+            reply("fresh", "real-token-new"),
+        ]);
+        let service = ConnectService::new(dir.path(), Some(url));
+        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
+        let starts = || {
+            std::fs::read_to_string(&log)
+                .unwrap_or_default()
+                .lines()
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        };
+
+        assert!(service.poll_status());
+        assert_eq!(
+            service.status().hostname.as_deref(),
+            Some("old.luna.servers.libreloom.org")
+        );
+        assert_eq!(starts().len(), 1);
+        assert!(starts()[0].ends_with("real-token-old"));
+
+        // The same address again leaves the running tunnel alone.
+        assert!(service.poll_status());
+        assert_eq!(starts().len(), 1, "an unchanged address must not restart");
+
+        // The address changed on Connect.
+        assert!(service.poll_status());
+        let st = service.status();
+        assert_eq!(
+            st.hostname.as_deref(),
+            Some("fresh.luna.servers.libreloom.org")
+        );
+        assert_eq!(st.subdomain.as_deref(), Some("fresh"));
+        assert!(st.tunnel_active);
+        let after = starts();
+        assert_eq!(after.len(), 2, "the tunnel restarts once for a new address");
+        assert!(after[1].ends_with("real-token-new"), "{after:?}");
+        service.stop_tunnel();
+    }
+
     #[test]
     fn looks_like_cf_challenge_detects_markers() {
         assert!(looks_like_cf_challenge(
