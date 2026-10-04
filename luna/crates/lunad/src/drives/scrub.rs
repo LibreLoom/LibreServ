@@ -273,11 +273,6 @@ pub fn scrub_all_drives(conn: &Connection) -> anyhow::Result<ScrubReport> {
             total.mismatches += report.mismatches;
         }
     }
-    let _ = db::set_meta(
-        conn,
-        "last_scrub_report",
-        &serde_json::to_string(&total).unwrap_or_default(),
-    );
     Ok(total)
 }
 
@@ -336,12 +331,6 @@ pub fn scrub_all_drives_unlocked(db: &crate::Db) -> anyhow::Result<ScrubReport> 
             total.mismatches += report.mismatches;
         }
     }
-    let conn = db.lock().map_err(|_| anyhow::anyhow!("db lock poisoned"))?;
-    let _ = db::set_meta(
-        &conn,
-        "last_scrub_report",
-        &serde_json::to_string(&total).unwrap_or_default(),
-    );
     Ok(total)
 }
 

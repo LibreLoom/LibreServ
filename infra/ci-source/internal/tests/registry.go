@@ -320,6 +320,28 @@ func addConnectWebTests() {
 	})
 
 	DefaultRegistry.Add(&Test{
+		ID:          "luna-connect-web-typecheck",
+		Name:        "Luna Connect Web Typecheck",
+		Description: "Type-check the Luna Connect web frontend (JSDoc via tsc)",
+		Type:        TestTypeUnit,
+		Container:   "node:20-alpine",
+		Command:     "npm install --no-fund && npm run typecheck",
+		WorkDir:     "/repo/luna/connect/web",
+		Timeout:     10 * time.Minute,
+	})
+
+	DefaultRegistry.Add(&Test{
+		ID:          "luna-quick-start-check",
+		Name:        "Luna Quick-start Print Layout",
+		Description: "Lint, type-check and build the printable quick-start page",
+		Type:        TestTypeUnit,
+		Container:   "node:20-alpine",
+		Command:     "npm install --no-fund && npm run lint && npm run typecheck && npm run build",
+		WorkDir:     "/repo/luna/quick-start",
+		Timeout:     10 * time.Minute,
+	})
+
+	DefaultRegistry.Add(&Test{
 		ID:          "connect-web-admin-lint",
 		Name:        "Connect Admin Web ESLint",
 		Description: "Run ESLint on the Connect admin frontend",

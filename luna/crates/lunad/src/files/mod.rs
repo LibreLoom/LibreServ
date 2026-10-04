@@ -128,7 +128,8 @@ pub struct FileStat {
 }
 
 /// One row in the drive's trash dir, with the path it came from when metadata
-/// exists.
+/// exists. Test-only: the API lists trash through `list_trash_dir`.
+#[cfg(test)]
 #[derive(Debug, Serialize, PartialEq, Eq)]
 pub struct TrashEntry {
     pub name: String,
@@ -257,10 +258,19 @@ pub fn list_dir_with_cache(
     rel: &str,
     cache: Option<&crate::drives::ram_cache::RamCache>,
 ) -> Result<Vec<FileEntry>, FilesError> {
-    let mut entries = list_dir_unstamped(conn, drive_id, rel, cache)?;
+    list_dir_with_cache_at(&drive_root(conn, drive_id)?, rel, cache)
+}
+
+/// [`list_dir_with_cache`] for a drive row already in hand, so the caller can
+/// release the central database lock before touching the drive.
+pub fn list_dir_with_cache_at(
+    drive: &DriveRow,
+    rel: &str,
+    cache: Option<&crate::drives::ram_cache::RamCache>,
+) -> Result<Vec<FileEntry>, FilesError> {
+    let mut entries = list_dir_unstamped(drive, rel, cache)?;
     // The index and RAM cache hold names only; which entries are private
     // comes from the drive's rows, so it is always current.
-    let drive = drive_root(conn, drive_id)?;
     let root = PathBuf::from(&drive.mount_point);
     let parent = real_rel(&root, rel);
     let private = crate::private::children_of(&root, &parent);
@@ -276,12 +286,11 @@ pub fn list_dir_with_cache(
 }
 
 fn list_dir_unstamped(
-    conn: &rusqlite::Connection,
-    drive_id: &str,
+    drive: &DriveRow,
     rel: &str,
     cache: Option<&crate::drives::ram_cache::RamCache>,
 ) -> Result<Vec<FileEntry>, FilesError> {
-    let drive = drive_root(conn, drive_id)?;
+    let drive_id = drive.id.as_str();
     let root = PathBuf::from(&drive.mount_point);
     let rel = real_rel(&root, rel).into_owned();
     if is_internal_temp(&rel) {
@@ -318,7 +327,7 @@ fn list_dir_unstamped(
         return Ok(entries);
     }
 
-    let drive_conn = open_drive_db(&drive)?;
+    let drive_conn = open_drive_db(drive)?;
     let mut entries = if let Some(entries) =
         crate::files::index::fresh_entries(&drive_conn, drive_id, &rel, mtime)
     {
@@ -477,7 +486,16 @@ fn resolve_any_ex(
     rel: &str,
     allow_trash: bool,
 ) -> Result<(PathBuf, std::fs::Metadata), FilesError> {
-    let drive = drive_root(conn, drive_id)?;
+    resolve_any_at(&drive_root(conn, drive_id)?, rel, allow_trash)
+}
+
+/// [`resolve_any`] (or, with `allow_trash`, [`resolve_any_including_trash`])
+/// for a drive row already in hand.
+pub fn resolve_any_at(
+    drive: &DriveRow,
+    rel: &str,
+    allow_trash: bool,
+) -> Result<(PathBuf, std::fs::Metadata), FilesError> {
     let root = PathBuf::from(&drive.mount_point);
     let rel = real_rel(&root, rel).into_owned();
     if is_internal_temp(&rel) && !(allow_trash && is_trash_rel(&rel)) {
@@ -501,7 +519,11 @@ pub fn stat(
     drive_id: &str,
     rel: &str,
 ) -> Result<FileStat, FilesError> {
-    let drive = drive_root(conn, drive_id)?;
+    stat_at(&drive_root(conn, drive_id)?, rel)
+}
+
+/// [`stat`] for a drive row already in hand.
+pub fn stat_at(drive: &DriveRow, rel: &str) -> Result<FileStat, FilesError> {
     let root = PathBuf::from(&drive.mount_point);
     let rel = real_rel(&root, rel).into_owned();
     // The trash root is created on the first delete. Until then it is an
@@ -766,6 +788,23 @@ pub fn file_path(
     rel: &str,
 ) -> Result<(PathBuf, std::fs::Metadata), FilesError> {
     let (path, meta) = resolve_any(conn, drive_id, rel)?;
+    if !meta.is_file() {
+        return Err(FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "not a file",
+        )));
+    }
+    Ok((path, meta))
+}
+
+/// [`file_path`] / [`file_path_including_trash`] for a drive row already in
+/// hand.
+pub fn file_path_at(
+    drive: &DriveRow,
+    rel: &str,
+    allow_trash: bool,
+) -> Result<(PathBuf, std::fs::Metadata), FilesError> {
+    let (path, meta) = resolve_any_at(drive, rel, allow_trash)?;
     if !meta.is_file() {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -1604,7 +1643,11 @@ pub fn list_trash_dir(
     drive_id: &str,
     rel: &str,
 ) -> Result<Vec<FileEntry>, FilesError> {
-    let drive = drive_root(conn, drive_id)?;
+    list_trash_dir_at(&drive_root(conn, drive_id)?, rel)
+}
+
+/// [`list_trash_dir`] for a drive row already in hand.
+pub fn list_trash_dir_at(drive: &DriveRow, rel: &str) -> Result<Vec<FileEntry>, FilesError> {
     let root = PathBuf::from(&drive.mount_point);
     let rel = real_rel(&root, rel).into_owned();
     if !is_trash_rel(&rel) {
@@ -1641,7 +1684,8 @@ pub fn list_trash_dir(
     )
 }
 
-/// List items sitting in the drive's `{prefix}-trash` dir.
+/// List items sitting in the drive's `{prefix}-trash` dir (test-only).
+#[cfg(test)]
 pub fn list_trash(
     conn: &rusqlite::Connection,
     drive_id: &str,

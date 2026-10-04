@@ -13,7 +13,7 @@
  *     settings     Y.Map of primitives + a passthrough string
  *     questions    Y.Array of Y.Map
  *       v, id, type, required, image, passthrough
- *       label, help   Y.Text
+ *       label, help, imageAlt   Y.Text
  *       config        Y.Map: allowOther, min, max, passthrough,
  *                     options → Y.Array of Y.Map { id, label: Y.Text }
  *       logic         Y.Map: questionId, equals
@@ -35,7 +35,7 @@ import {
   serializeFormDocument,
 } from "./formDocument.js";
 
-const QUESTION_KEYS = ["v", "id", "type", "label", "help", "required", "image", "config", "logic"];
+const QUESTION_KEYS = ["v", "id", "type", "label", "help", "required", "image", "imageAlt", "config", "logic"];
 const CONFIG_KEYS = ["options", "allowOther", "min", "max"];
 const SETTING_KEYS = ["responseLimit", "allowEdits", "collecting", "thankYou", "closeOn", "maxResponses"];
 
@@ -185,6 +185,9 @@ export function buildQuestion(question) {
   map.set("help", new Y.Text(typeof src.help === "string" ? src.help : ""));
   if (src.required === true) map.set("required", true);
   if (typeof src.image === "string" && src.image) map.set("image", src.image);
+  if (typeof src.imageAlt === "string" && src.imageAlt) {
+    map.set("imageAlt", new Y.Text(src.imageAlt));
+  }
   map.set("config", buildConfig(src.config));
   if (isObject(src.logic) && typeof src.logic.questionId === "string" && src.logic.questionId) {
     const logic = new Y.Map();
@@ -234,6 +237,8 @@ function readQuestion(map, withIds) {
   if (help) out.help = help;
   const image = map.get("image");
   if (typeof image === "string" && image) out.image = image;
+  const imageAlt = textOf(map.get("imageAlt"));
+  if (imageAlt) out.imageAlt = imageAlt;
   const config = map.get("config");
   out.config = config instanceof Y.Map ? readConfig(config, withIds) : {};
   const logic = map.get("logic");
@@ -518,6 +523,7 @@ export function patchFormQuestion(ydoc, id, patch) {
   ydoc.transact(() => {
     if ("label" in patch) setTextField(map, "label", String(patch.label ?? ""));
     if ("help" in patch) setTextField(map, "help", String(patch.help ?? ""));
+    if ("imageAlt" in patch) setTextField(map, "imageAlt", String(patch.imageAlt ?? ""));
     if ("type" in patch) map.set("type", String(patch.type ?? "short_text"));
     if ("required" in patch) {
       if (patch.required) map.set("required", true);

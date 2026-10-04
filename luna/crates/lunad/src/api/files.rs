@@ -212,7 +212,8 @@ fn file_list_entry(
             in_private: false,
         }));
     }
-    let stat = with_db(state, |conn| files::stat(conn, id, rel)).map_err(map_files_err)?;
+    let drive = drive_row(state, id).map_err(map_files_err)?;
+    let stat = files::stat_at(&drive, rel).map_err(map_files_err)?;
     if stat.kind == "dir" {
         return Ok(None);
     }
@@ -267,8 +268,8 @@ fn list_trash_view(
     } else {
         check_trash_item(state, user, id, rel)?;
     }
-    let mut entries =
-        with_db(state, |conn| files::list_trash_dir(conn, id, rel)).map_err(map_files_err)?;
+    let drive = drive_row(state, id).map_err(map_files_err)?;
+    let mut entries = files::list_trash_dir_at(&drive, rel).map_err(map_files_err)?;
 
     let conn = state.db.lock().map_err(|_| {
         json_error(
@@ -364,10 +365,11 @@ fn visible_entries(
     id: &str,
     rel: &str,
 ) -> Result<Vec<FileEntry>, (StatusCode, Json<Value>)> {
-    let mut entries = with_db(state, |conn| {
-        files::list_dir_with_cache(conn, id, rel, Some(&state.ram_cache))
-    })
-    .map_err(map_files_err)?;
+    // The central lock covers only the drive lookup; reading the drive
+    // happens without it, so a slow drive can't stall other requests.
+    let drive = drive_row(state, id).map_err(map_files_err)?;
+    let mut entries = files::list_dir_with_cache_at(&drive, rel, Some(&state.ram_cache))
+        .map_err(map_files_err)?;
     {
         let conn = state.db.lock().map_err(|_| {
             json_error(
@@ -817,7 +819,8 @@ fn stat_entry_sync(
     }
 
     // Authorized above; resolution now only reports whether it exists.
-    let mut stat = with_db(&state, |conn| files::stat(conn, &id, &rel)).map_err(map_files_err)?;
+    let drive = drive_row(&state, &id).map_err(map_files_err)?;
+    let mut stat = files::stat_at(&drive, &rel).map_err(map_files_err)?;
 
     // A browsed folder counts only the children this user can see — the
     // unfiltered filesystem count would leak restricted siblings.
@@ -948,14 +951,12 @@ async fn content(
     } else {
         check_access(&state, &user, &id, &rel, crate::access::CAP_VIEW)?;
     }
-    let (_path, meta) = with_db(&state, |conn| {
-        if in_trash {
-            files::resolve_any_including_trash(conn, &id, &rel)
-        } else {
-            files::resolve_any(conn, &id, &rel)
-        }
-    })
-    .map_err(|err| match err {
+    let drive = drive_row(&state, &id).map_err(map_files_err)?;
+    let resolved = {
+        let rel = rel.clone();
+        blocking(move || Ok(files::resolve_any_at(&drive, &rel, in_trash))).await?
+    };
+    let (_path, meta) = resolved.map_err(|err| match err {
         FilesError::Path(luna_core::path::PathError::NotFound(_)) => json_error_code(
             StatusCode::NOT_FOUND,
             "not_found",
@@ -1192,14 +1193,11 @@ async fn serve_file_content(
             .unwrap());
     }
 
-    let (path, meta) = with_db(&state, |conn| {
-        if in_trash {
-            files::file_path_including_trash(conn, &id, &rel)
-        } else {
-            files::file_path(conn, &id, &rel)
-        }
-    })
-    .map_err(map_files_err)?;
+    let drive = drive_row(&state, &id).map_err(map_files_err)?;
+    let (path, meta) = {
+        let (drive, rel) = (drive.clone(), rel.clone());
+        blocking(move || files::file_path_at(&drive, &rel, in_trash).map_err(map_files_err)).await?
+    };
     // open_verified works on real on-disk paths — the `.luna-trash` API
     // alias does not exist on the drive.
     let real_rel = if in_trash {
@@ -2157,6 +2155,11 @@ fn check_access(
             "You don't have permission to view this folder.",
         ))
     }
+}
+
+/// The drive's row, read under a brief hold of the central lock.
+fn drive_row(state: &AppState, id: &str) -> Result<crate::db::DriveRow, FilesError> {
+    with_db(state, |conn| files::drive_root(conn, id))
 }
 
 fn with_db<T>(

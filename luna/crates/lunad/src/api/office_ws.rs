@@ -546,14 +546,14 @@ async fn handle_message(
                     }
                     // openCmd → documentOpen with this key's bundle urls.
                     if msg.get("openCmd").is_some() {
-                        // Scoped tokens (every new session, member or guest)
-                        // read bundles through this open's per-key+id /s
-                        // endpoint; legacy member tokens keep the session-
-                        // cookie route.
-                        let base = match (claims.key.as_deref(), claims.bundle_id.as_deref()) {
-                            (Some(k), Some(bid)) => format!("/s/office-bundle/{k}/{bid}"),
-                            _ => format!("/api/v1/office/bundle/{key}"),
+                        // Every session token carries its key and bundle id;
+                        // bundles are read through that open's /s endpoint.
+                        let (Some(k), Some(bid)) =
+                            (claims.key.as_deref(), claims.bundle_id.as_deref())
+                        else {
+                            return PacketOutcome::Close;
                         };
+                        let base = format!("/s/office-bundle/{k}/{bid}");
                         let urls = bundle_urls(state, key, &base).await;
                         if let Some(open) = hub.open_urls(key, &urls).await {
                             frames.push(open);

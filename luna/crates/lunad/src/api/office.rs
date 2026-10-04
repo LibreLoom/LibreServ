@@ -6,7 +6,7 @@
 //! docstorage socket — no Document Server, no server-side conversion.
 //!
 //! - `POST /api/v1/office/session` mints the doc key + office token.
-//! - `GET/HEAD/PUT /api/v1/office/bundle/{key}/{*name}` serves the bundle.
+//! - `GET/HEAD/PUT /s/office-bundle/{key}/{id}/{*name}` serves the bundle.
 //! - `GET /eurooffice/{ver}/doc/{key}/c` (in `office_ws`) is the socket.
 
 use std::net::SocketAddr;
@@ -56,12 +56,6 @@ pub fn router() -> Router<AppState> {
         // must sit on the PUT method router, not the route (session POSTs
         // keep the 2 MiB default) — or `Bytes` extracts hit axum's default
         // and large Editor.bin saves 413 before the size check runs.
-        .route(
-            "/api/v1/office/bundle/{key}/{*name}",
-            get(bundle_get)
-                .head(bundle_head)
-                .merge(put(bundle_put).layer(DefaultBodyLimit::max(MAX_BUNDLE_FILE_BYTES))),
-        )
         .route(
             "/s/office-bundle/{key}/{bundle_id}/{*name}",
             get(scoped_bundle_get)
@@ -374,36 +368,6 @@ fn can_save_office_ext(ext: &str) -> bool {
     )
 }
 
-/// Bundle GET — the editor iframe fetches `Editor.bin`, `media/*`, and the
-/// stored original from here. Cookie-authed (same-origin iframe), then
-/// read-checked against the key's bound file.
-async fn bundle_get(
-    state: State<AppState>,
-    user: Extension<CurrentUser>,
-    path: Path<(String, String)>,
-) -> Result<Response, (StatusCode, Json<Value>)> {
-    bundle_inner(state, user, path, false).await
-}
-
-async fn bundle_head(
-    state: State<AppState>,
-    user: Extension<CurrentUser>,
-    path: Path<(String, String)>,
-) -> Result<Response, (StatusCode, Json<Value>)> {
-    bundle_inner(state, user, path, true).await
-}
-
-async fn bundle_inner(
-    State(state): State<AppState>,
-    Extension(user): Extension<CurrentUser>,
-    Path((key, name)): Path<(String, String)>,
-    head_only: bool,
-) -> Result<Response, (StatusCode, Json<Value>)> {
-    let (drive_id, rel) = bound_file(&state, &user, &key, false).await?;
-    let _ = (drive_id, rel);
-    bundle_read(&state, &key, &name, head_only).await
-}
-
 async fn bundle_read(
     state: &AppState,
     key: &str,
@@ -438,20 +402,6 @@ async fn bundle_read(
     Ok(builder
         .body(Body::from_stream(ReaderStream::new(file)))
         .unwrap())
-}
-
-/// Bundle PUT — the first opener uploads the wasm-converted `Editor.bin` +
-/// media; the saver uploads a fresh `Editor.bin` + `origin.<ext>` after a
-/// save. Write access on the bound file is required.
-async fn bundle_put(
-    State(state): State<AppState>,
-    Extension(user): Extension<CurrentUser>,
-    Path((key, name)): Path<(String, String)>,
-    Query(query): Query<std::collections::HashMap<String, String>>,
-    body: Bytes,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    bound_file(&state, &user, &key, true).await?;
-    bundle_write(&state, &key, &name, &query, body, Some(&user.id)).await
 }
 
 /// Shared bundle write: size/empty/path validation, UUID temp file + rename,
@@ -732,39 +682,6 @@ pub(crate) fn current_office_access(state: &AppState, claims: &OfficeClaims) -> 
         return None;
     }
     Some(claims.write && auth::has_cap(&user, &conn, &claims.drive_id, &claims.path, CAP_EDIT))
-}
-
-/// Resolve `key` → bound (drive_id, path) and check this user's access.
-/// Returns the binding for callers that need it.
-async fn bound_file(
-    state: &AppState,
-    user: &CurrentUser,
-    key: &str,
-    write: bool,
-) -> Result<(String, String), (StatusCode, Json<Value>)> {
-    if !valid_key(key) {
-        return Err(json_error(
-            StatusCode::BAD_REQUEST,
-            "That editing session key is not valid.",
-        ));
-    }
-    let Some((drive_id, rel)) = state.office_docs.binding(key).await else {
-        return Err(json_error(
-            StatusCode::NOT_FOUND,
-            "This editing session expired. Close the file and open it again.",
-        ));
-    };
-    if !user_can(state, user, &drive_id, &rel, write)? {
-        return Err(json_error(
-            StatusCode::FORBIDDEN,
-            if write {
-                "You don't have permission to change this file."
-            } else {
-                "You don't have permission to open this file."
-            },
-        ));
-    }
-    Ok((drive_id, rel))
 }
 
 fn bundle_file(
@@ -1201,17 +1118,17 @@ mod http_tests {
         );
         let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
         let key = v["key"].as_str().unwrap().to_string();
-        let uri = format!("/api/v1/office/bundle/{key}/Editor.bin");
+        let jwt = v["token"].as_str().unwrap().to_string();
+        let uri = format!("{}/Editor.bin", v["bundle_url"].as_str().unwrap());
 
         // A real upload lands.
         let res = call(
             &app,
-            req(
+            scoped_req(
                 Method::PUT,
                 &uri,
                 Body::from(vec![1u8, 2, 3, 4]),
-                &cookie,
-                &csrf,
+                &[("x-office-token", &jwt)],
             ),
         )
         .await;
@@ -1226,7 +1143,16 @@ mod http_tests {
         // An emptied upload (detached buffer client-side) is refused and the
         // good file survives — before this check it silently wrote 0 bytes
         // and still compacted the replay log.
-        let res = call(&app, req(Method::PUT, &uri, Body::empty(), &cookie, &csrf)).await;
+        let res = call(
+            &app,
+            scoped_req(
+                Method::PUT,
+                &uri,
+                Body::empty(),
+                &[("x-office-token", &jwt)],
+            ),
+        )
+        .await;
         assert_eq!(res.status(), StatusCode::BAD_REQUEST);
         assert_eq!(std::fs::metadata(&bin).unwrap().len(), 4);
     }
@@ -1273,17 +1199,17 @@ mod http_tests {
             .unwrap();
         let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
         let key = v["key"].as_str().unwrap().to_string();
-        let uri = format!("/api/v1/office/bundle/{key}/Editor.bin");
+        let jwt = v["token"].as_str().unwrap().to_string();
+        let uri = format!("{}/Editor.bin", v["bundle_url"].as_str().unwrap());
 
         // 3 MiB — over the 2 MiB default, far under MAX_BUNDLE_FILE_BYTES.
         let res = call(
             &app,
-            req(
+            scoped_req(
                 Method::PUT,
                 &uri,
                 Body::from(vec![7u8; 3 * 1024 * 1024]),
-                &cookie,
-                &csrf,
+                &[("x-office-token", &jwt)],
             ),
         )
         .await;

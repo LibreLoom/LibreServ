@@ -425,4 +425,17 @@ describe("FormResponder", () => {
     await screen.findByText(/Changing your answers/i);
     expect(screen.queryByText(/Attached:/)).toBeNull();
   });
+
+  it("reads a picture's description aloud, falling back to the question", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => okJson({})));
+    renderResponder({
+      ...FORM,
+      questions: [
+        { id: "q_p", type: "short_text", label: "Dish?", image: "a.png", imageAlt: "A salad bowl" },
+        { id: "q_r", type: "short_text", label: "Drink?", image: "b.png" },
+      ],
+    });
+    expect(await screen.findByAltText("A salad bowl")).toBeInTheDocument();
+    expect(screen.getByAltText("Picture for “Drink?”")).toBeInTheDocument();
+  });
 });

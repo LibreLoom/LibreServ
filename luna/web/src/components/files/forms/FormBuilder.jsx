@@ -825,7 +825,7 @@ function BuilderSession({
           onPicked={(pictureName) => {
             const id = pickingImageFor;
             setPickingImageFor(null);
-            if (id) updateQuestion(id, { image: pictureName });
+            if (id) updateQuestion(id, { image: pictureName, imageAlt: "" });
             addToast({ type: "success", message: "Picture added" });
           }}
         />
@@ -1169,11 +1169,24 @@ function QuestionCard({
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.98 }}
             src={imageHref}
-            alt=""
+            alt={question.imageAlt || ""}
             className="max-h-48 w-full rounded-large-element surface-primary object-contain"
           />
         ) : null}
       </AnimatePresence>
+
+      {/* The picture's description edits in place too; screen readers read
+          it where the picture sits. */}
+      {question.image && (canWrite || question.imageAlt) ? (
+        <input
+          className="-mt-1 w-full bg-transparent text-sm text-primary outline-none no-focus-outline"
+          value={question.imageAlt || ""}
+          onChange={(e) => onPatch({ imageAlt: e.target.value })}
+          placeholder="Describe the picture for people who can't see it (optional)"
+          aria-label={`Picture description for question ${index + 1}`}
+          disabled={!canWrite}
+        />
+      ) : null}
 
       <AnimatePresence initial={false}>
         {watching ? (
@@ -1215,7 +1228,7 @@ function QuestionCard({
                 variant="ghost"
                 surface="secondary"
                 size="sm"
-                onClick={() => onPatch({ image: "" })}
+                onClick={() => onPatch({ image: "", imageAlt: "" })}
               >
                 Remove picture
               </Button>

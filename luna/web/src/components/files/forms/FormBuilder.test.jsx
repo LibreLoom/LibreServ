@@ -250,6 +250,36 @@ describe("FormBuilder editing", () => {
     });
   }
 
+  it("edits a picture's description in place and clears it with the picture", async () => {
+    const withPicture = JSON.stringify({
+      version: 1,
+      title: "Potluck",
+      settings: {},
+      questions: [
+        { v: 1, id: "q_a", type: "short_text", label: "Dish?", image: "ab12.png", imageAlt: "A salad bowl", config: {} },
+        { v: 1, id: "q_b", type: "short_text", label: "Drink?", config: {} },
+      ],
+    });
+    stubFetch((u) => {
+      if (u.includes("/files/content") && !u.includes("ab12")) {
+        return new Response(withPicture, { status: 200 });
+      }
+      if (u.includes("/api/v1/forms/responses")) return json({ responses: [] });
+      return json({}, 404);
+    });
+    mountBuilder();
+    const alt = await screen.findByLabelText("Picture description for question 1");
+    expect(alt).toHaveValue("A salad bowl");
+    // Only questions with a picture get the field.
+    expect(screen.queryByLabelText("Picture description for question 2")).toBeNull();
+    fireEvent.change(alt, { target: { value: "A big salad" } });
+    expect(await screen.findByDisplayValue("A big salad")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Remove picture" }));
+    await waitFor(() =>
+      expect(screen.queryByLabelText("Picture description for question 1")).toBeNull(),
+    );
+  });
+
   it("moves a question down and keeps everything on it", async () => {
     stubForm();
     mountBuilder();

@@ -44,6 +44,7 @@ describe("formYDoc", () => {
           help: "One pick",
           required: true,
           image: "photos/cake.jpg",
+          imageAlt: "A chocolate cake",
           config: { options: ["Yes", "No"], allowOther: true },
           logic: { questionId: "q_0", equals: "yes" },
         },
@@ -64,6 +65,7 @@ describe("formYDoc", () => {
     expect(read.settings.allowEdits).toBe(true);
     expect(read.questions[0].help).toBe("One pick");
     expect(read.questions[0].image).toBe("photos/cake.jpg");
+    expect(read.questions[0].imageAlt).toBe("A chocolate cake");
     expect(read.questions[0].config.allowOther).toBe(true);
     expect(read.questions[0].config.options).toEqual(["Yes", "No"]);
     expect(read.questions[0].logic).toEqual({ questionId: "q_0", equals: "yes" });
