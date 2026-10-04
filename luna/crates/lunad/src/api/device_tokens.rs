@@ -191,3 +191,317 @@ async fn remove(
         .map_err(map_err)?;
     Ok(StatusCode::NO_CONTENT)
 }
+
+#[cfg(test)]
+mod tests {
+    use axum::body::Body;
+    use axum::http::{Method, Request, StatusCode};
+    use serde_json::{Value, json};
+    use tower::ServiceExt;
+
+    use crate::drives::DriveManager;
+    use crate::drives::mount::shared_mock;
+    use crate::{AppState, db};
+
+    struct Harness {
+        _dir: tempfile::TempDir,
+        state: AppState,
+        router: axum::Router,
+        max: String,
+        jamie: String,
+    }
+
+    fn harness() -> Harness {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
+        let state = AppState::new(conn, drive_manager, dir.path());
+        let max = state
+            .auth
+            .register("Max", "Max", "hunter22hunter1", "admin")
+            .unwrap();
+        let jamie = state
+            .auth
+            .register("Jamie", "Jamie", "hunter22hunter1", "user")
+            .unwrap();
+        let (max, jamie) = (
+            state.auth.issue(&max).unwrap(),
+            state.auth.issue(&jamie).unwrap(),
+        );
+        // device-tokens plus one route that any signed-in caller can use, so a
+        // minted token can be tried for real.
+        let router = axum::Router::new()
+            .merge(super::router())
+            .merge(crate::api::users::router())
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                crate::auth::guard,
+            ))
+            .with_state(state.clone());
+        Harness {
+            _dir: dir,
+            state,
+            router,
+            max,
+            jamie,
+        }
+    }
+
+    async fn send(
+        h: &Harness,
+        method: Method,
+        uri: &str,
+        token: &str,
+        body: Option<Value>,
+    ) -> (StatusCode, Value) {
+        let mut req = Request::builder()
+            .method(method)
+            .uri(uri)
+            .header("Authorization", format!("Bearer {token}"));
+        let body = match body {
+            Some(v) => {
+                req = req.header("content-type", "application/json");
+                Body::from(v.to_string())
+            }
+            None => Body::empty(),
+        };
+        let res = h
+            .router
+            .clone()
+            .oneshot(req.body(body).unwrap())
+            .await
+            .unwrap();
+        let status = res.status();
+        let bytes = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        (
+            status,
+            serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+        )
+    }
+
+    async fn mint(h: &Harness, owner_token: &str, name: &str) -> Value {
+        let (status, body) = send(
+            h,
+            Method::POST,
+            "/api/v1/device-tokens",
+            owner_token,
+            Some(json!({ "name": name })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        body
+    }
+
+    #[tokio::test]
+    async fn a_new_token_is_shown_once_and_then_works_as_credentials() {
+        let h = harness();
+        let created = mint(&h, &h.jamie, "Kitchen Mac").await;
+        let token = created["token"].as_str().unwrap().to_string();
+        assert!(token.len() >= 40, "token should be long and random");
+
+        // The list never repeats the secret.
+        let (status, list) = send(&h, Method::GET, "/api/v1/device-tokens", &h.jamie, None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(list.as_array().unwrap().len(), 1);
+        assert_eq!(list[0]["name"], "Kitchen Mac");
+        assert!(list[0].get("token").is_none());
+        assert!(!db_holds_plain_token(&h, &token), "only a hash is stored");
+
+        // And the token itself signs in, as Jamie.
+        let (status, _) = send(&h, Method::GET, "/api/v1/users/directory", &token, None).await;
+        assert_eq!(status, StatusCode::OK);
+        // A made-up one does not.
+        let (status, _) = send(
+            &h,
+            Method::GET,
+            "/api/v1/users/directory",
+            "not-a-token",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    fn db_holds_plain_token(h: &Harness, token: &str) -> bool {
+        let conn = h.state.db.lock().unwrap();
+        conn.prepare("SELECT 1 FROM device_tokens WHERE token_hash = ?1")
+            .unwrap()
+            .exists([token])
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn names_are_required_and_bounded() {
+        let h = harness();
+        for name in ["", "   ", &"x".repeat(81)] {
+            let (status, body) = send(
+                &h,
+                Method::POST,
+                "/api/v1/device-tokens",
+                &h.jamie,
+                Some(json!({ "name": name })),
+            )
+            .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{name:?}");
+            assert_eq!(
+                body["error"],
+                "Give this device a name between 1 and 80 characters."
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn expiry_is_clamped_and_an_expired_token_stops_working() {
+        let h = harness();
+        let now = db::now_unix();
+        let (_, one_day) = send(
+            &h,
+            Method::POST,
+            "/api/v1/device-tokens",
+            &h.max,
+            Some(json!({ "name": "short", "expires_in_days": 0 })),
+        )
+        .await;
+        let secs = one_day["expires_at"].as_i64().unwrap() - now;
+        assert!(
+            (86_390..=86_410).contains(&secs),
+            "0 days becomes 1 day, got {secs}s"
+        );
+        let (_, long) = send(
+            &h,
+            Method::POST,
+            "/api/v1/device-tokens",
+            &h.max,
+            Some(json!({ "name": "forever", "expires_in_days": 100000 })),
+        )
+        .await;
+        let days = (long["expires_at"].as_i64().unwrap() - now) / 86_400;
+        assert_eq!(days, 3650);
+
+        // A token whose expiry already passed is refused.
+        let token = "expired-token-value";
+        {
+            let conn = h.state.db.lock().unwrap();
+            let user = db::get_user_by_username(&conn, "max").unwrap().unwrap();
+            db::insert_device_token(
+                &conn,
+                "expired",
+                &user.id,
+                "old",
+                &crate::auth::hash_device_token(token),
+                Some(now - 60),
+            )
+            .unwrap();
+        }
+        let (status, _) = send(&h, Method::GET, "/api/v1/users", token, None).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn revoking_stops_the_token_and_hides_it() {
+        let h = harness();
+        let created = mint(&h, &h.jamie, "Phone").await;
+        let (id, token) = (
+            created["id"].as_str().unwrap(),
+            created["token"].as_str().unwrap(),
+        );
+
+        let (status, _) = send(
+            &h,
+            Method::DELETE,
+            &format!("/api/v1/device-tokens/{id}"),
+            &h.jamie,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        let (status, _) = send(&h, Method::GET, "/api/v1/users/directory", token, None).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        let (_, list) = send(&h, Method::GET, "/api/v1/device-tokens", &h.jamie, None).await;
+        assert_eq!(list, json!([]));
+    }
+
+    #[tokio::test]
+    async fn nobody_can_see_use_or_revoke_someone_elses_token() {
+        let h = harness();
+        let created = mint(&h, &h.jamie, "Jamie's phone").await;
+        let (id, token) = (
+            created["id"].as_str().unwrap(),
+            created["token"].as_str().unwrap(),
+        );
+
+        // Not even an Admin: tokens belong to the person who made them.
+        let (_, max_list) = send(&h, Method::GET, "/api/v1/device-tokens", &h.max, None).await;
+        assert_eq!(max_list, json!([]));
+        let (status, _) = send(
+            &h,
+            Method::DELETE,
+            &format!("/api/v1/device-tokens/{id}"),
+            &h.max,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        let (status, _) = send(
+            &h,
+            Method::GET,
+            &format!("/api/v1/device-tokens/{id}/usage"),
+            &h.max,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        // The token is untouched.
+        let (status, _) = send(&h, Method::GET, "/api/v1/users/directory", token, None).await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn usage_log_belongs_to_the_owner_and_records_use() {
+        let h = harness();
+        let created = mint(&h, &h.jamie, "Desktop").await;
+        let (id, token) = (
+            created["id"].as_str().unwrap(),
+            created["token"].as_str().unwrap(),
+        );
+        send(&h, Method::GET, "/api/v1/users/directory", token, None).await;
+        let (status, usage) = send(
+            &h,
+            Method::GET,
+            &format!("/api/v1/device-tokens/{id}/usage"),
+            &h.jamie,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(usage.is_array());
+        let (status, _) = send(
+            &h,
+            Method::GET,
+            "/api/v1/device-tokens/nope/usage",
+            &h.jamie,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn changing_a_password_revokes_every_token() {
+        let h = harness();
+        let created = mint(&h, &h.jamie, "Laptop").await;
+        let token = created["token"].as_str().unwrap().to_string();
+        let jamie_id = {
+            let conn = h.state.db.lock().unwrap();
+            db::get_user_by_username(&conn, "jamie")
+                .unwrap()
+                .unwrap()
+                .id
+        };
+        h.state.auth.revoke_all_device_tokens(&jamie_id).unwrap();
+        let (status, _) = send(&h, Method::GET, "/api/v1/users/directory", &token, None).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+}

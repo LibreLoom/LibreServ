@@ -82,6 +82,7 @@ function lastSocket() {
 afterEach(() => {
   sockets.length = 0;
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 describe("DiagramEditor collaboration", () => {
@@ -171,6 +172,10 @@ describe("DiagramEditor collaboration", () => {
     stubLuna();
     render(<DiagramEditor {...PROPS} />);
     const iframe = /** @type {HTMLIFrameElement} */ (await screen.findByTitle(/Diagram editor/));
+    // Patch timeouts are real timers; on a busy machine the steps below can
+    // take longer than the timeout and add retries nobody asked for. Freeze
+    // setTimeout from here on (timers made after this line are the patch ones).
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     /** @type {object[]} */
     const posted = [];
     iframe.contentWindow.postMessage = (data) => {
@@ -249,6 +254,7 @@ describe("DiagramEditor collaboration", () => {
       });
     });
     expect(patchPosts()).toHaveLength(4);
+    vi.useRealTimers();
   });
 
   it("uploads the sequence from before the export, not a patch that arrives during it", async () => {

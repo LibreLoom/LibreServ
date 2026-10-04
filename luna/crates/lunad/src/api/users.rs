@@ -370,6 +370,7 @@ mod tests {
     use crate::drives::DriveManager;
     use crate::drives::mount::shared_mock;
     use crate::{AppState, db};
+    use serde_json::json;
     use tower::ServiceExt;
 
     fn app_with_admin_and_member() -> (tempfile::TempDir, AppState, String, String) {
@@ -442,5 +443,341 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), axum::http::StatusCode::FORBIDDEN);
+    }
+
+    // ---- the irreversible paths: edit, remove, adopt, orphans ------------
+
+    struct Harness {
+        _dir: tempfile::TempDir,
+        state: AppState,
+        router: axum::Router,
+        admin_id: String,
+        admin_token: String,
+        member_id: String,
+        member_token: String,
+    }
+
+    fn harness() -> Harness {
+        let (dir, state, admin_token, member_token) = app_with_admin_and_member();
+        let users = state.auth.list_users().unwrap();
+        let id_of = |name: &str| {
+            users
+                .iter()
+                .find(|u| u.username.eq_ignore_ascii_case(name))
+                .unwrap()
+                .id
+                .clone()
+        };
+        let router = axum::Router::new()
+            .merge(super::router())
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                crate::auth::guard,
+            ))
+            .with_state(state.clone());
+        Harness {
+            admin_id: id_of("max"),
+            member_id: id_of("jamie"),
+            _dir: dir,
+            state,
+            router,
+            admin_token,
+            member_token,
+        }
+    }
+
+    async fn send(
+        h: &Harness,
+        method: &str,
+        uri: &str,
+        token: &str,
+        body: Option<serde_json::Value>,
+    ) -> (axum::http::StatusCode, serde_json::Value) {
+        let mut req = axum::http::Request::builder()
+            .method(method)
+            .uri(uri)
+            .header("Authorization", format!("Bearer {token}"));
+        let body = match body {
+            Some(v) => {
+                req = req.header("content-type", "application/json");
+                axum::body::Body::from(v.to_string())
+            }
+            None => axum::body::Body::empty(),
+        };
+        let res = h
+            .router
+            .clone()
+            .oneshot(req.body(body).unwrap())
+            .await
+            .unwrap();
+        let status = res.status();
+        let bytes = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let json = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
+        (status, json)
+    }
+
+    fn user_row(h: &Harness, id: &str) -> Option<crate::db::UserRow> {
+        let conn = h.state.db.lock().unwrap();
+        db::get_user(&conn, id).unwrap()
+    }
+
+    #[tokio::test]
+    async fn update_renames_and_refuses_a_taken_username() {
+        let h = harness();
+        let uri = format!("/api/v1/users/{}", h.member_id);
+        let (status, body) = send(
+            &h,
+            "PATCH",
+            &uri,
+            &h.admin_token,
+            Some(json!({ "username": "Jamie2" })),
+        )
+        .await;
+        assert_eq!(status, 200, "{body}");
+        assert_eq!(user_row(&h, &h.member_id).unwrap().username, "jamie2");
+
+        let (status, body) = send(
+            &h,
+            "PATCH",
+            &uri,
+            &h.admin_token,
+            Some(json!({ "username": "max" })),
+        )
+        .await;
+        assert_eq!(status, 409);
+        assert_eq!(body["error"], "That username is already taken.");
+        assert_eq!(user_row(&h, &h.member_id).unwrap().username, "jamie2");
+    }
+
+    #[tokio::test]
+    async fn a_taken_username_leaves_no_partial_display_name_change() {
+        let h = harness();
+        let uri = format!("/api/v1/users/{}", h.member_id);
+        let before = user_row(&h, &h.member_id).unwrap().display_name;
+        let (status, _) = send(
+            &h,
+            "PATCH",
+            &uri,
+            &h.admin_token,
+            Some(json!({ "username": "max", "display_name": "Someone else" })),
+        )
+        .await;
+        assert_eq!(status, 409);
+        assert_eq!(user_row(&h, &h.member_id).unwrap().display_name, before);
+    }
+
+    #[tokio::test]
+    async fn update_checks_names_and_roles() {
+        let h = harness();
+        let uri = format!("/api/v1/users/{}", h.member_id);
+        for body in [
+            json!({ "display_name": "   " }),
+            json!({ "display_name": "x".repeat(81) }),
+        ] {
+            let (status, _) = send(&h, "PATCH", &uri, &h.admin_token, Some(body)).await;
+            assert_eq!(status, 400);
+        }
+        let (status, _) = send(
+            &h,
+            "PATCH",
+            &uri,
+            &h.admin_token,
+            Some(json!({ "role": "owner" })),
+        )
+        .await;
+        assert_eq!(status, 400);
+        let (status, _) = send(
+            &h,
+            "PATCH",
+            &uri,
+            &h.admin_token,
+            Some(json!({ "role": "admin" })),
+        )
+        .await;
+        assert_eq!(status, 200);
+        assert_eq!(user_row(&h, &h.member_id).unwrap().role, "admin");
+        let (status, _) = send(
+            &h,
+            "PATCH",
+            "/api/v1/users/nobody",
+            &h.admin_token,
+            Some(json!({})),
+        )
+        .await;
+        assert_eq!(status, 404);
+    }
+
+    #[tokio::test]
+    async fn admins_cannot_demote_themselves_but_can_demote_another_admin() {
+        let h = harness();
+        // Promote the member so there are two Admins.
+        let member_uri = format!("/api/v1/users/{}", h.member_id);
+        send(
+            &h,
+            "PATCH",
+            &member_uri,
+            &h.admin_token,
+            Some(json!({ "role": "admin" })),
+        )
+        .await;
+
+        let own_uri = format!("/api/v1/users/{}", h.admin_id);
+        let (status, body) = send(
+            &h,
+            "PATCH",
+            &own_uri,
+            &h.admin_token,
+            Some(json!({ "role": "user" })),
+        )
+        .await;
+        assert_eq!(status, 400);
+        assert_eq!(body["error"], "You can't take away your own admin rights.");
+        assert_eq!(user_row(&h, &h.admin_id).unwrap().role, "admin");
+
+        let (status, _) = send(
+            &h,
+            "PATCH",
+            &member_uri,
+            &h.admin_token,
+            Some(json!({ "role": "user" })),
+        )
+        .await;
+        assert_eq!(status, 200);
+        assert_eq!(user_row(&h, &h.member_id).unwrap().role, "user");
+    }
+
+    #[tokio::test]
+    async fn a_weak_password_is_refused_and_a_reset_signs_the_person_out() {
+        let h = harness();
+        let uri = format!("/api/v1/users/{}", h.member_id);
+        let (status, _) = send(
+            &h,
+            "PATCH",
+            &uri,
+            &h.admin_token,
+            Some(json!({ "password": "short" })),
+        )
+        .await;
+        assert_eq!(status, 400);
+
+        // The member's current token works until the password is reset...
+        let (status, _) = send(&h, "GET", "/api/v1/users/directory", &h.member_token, None).await;
+        assert_eq!(status, 200);
+        let (status, _) = send(
+            &h,
+            "PATCH",
+            &uri,
+            &h.admin_token,
+            Some(json!({ "password": "a-Brand-new-p4ssphrase!" })),
+        )
+        .await;
+        assert_eq!(status, 200);
+        // ...and is dead afterwards.
+        let (status, _) = send(&h, "GET", "/api/v1/users/directory", &h.member_token, None).await;
+        assert_eq!(status, 401);
+    }
+
+    #[tokio::test]
+    async fn members_cannot_edit_or_remove_anyone() {
+        let h = harness();
+        let uri = format!("/api/v1/users/{}", h.admin_id);
+        let (status, _) = send(
+            &h,
+            "PATCH",
+            &uri,
+            &h.member_token,
+            Some(json!({ "display_name": "Mine now" })),
+        )
+        .await;
+        assert_eq!(status, 403);
+        let (status, _) = send(&h, "DELETE", &uri, &h.member_token, None).await;
+        assert_eq!(status, 403);
+        assert!(user_row(&h, &h.admin_id).is_some());
+    }
+
+    #[tokio::test]
+    async fn remove_refuses_self_and_removes_others() {
+        let h = harness();
+        let (status, body) = send(
+            &h,
+            "DELETE",
+            &format!("/api/v1/users/{}", h.admin_id),
+            &h.admin_token,
+            None,
+        )
+        .await;
+        assert_eq!(status, 400);
+        assert_eq!(body["error"], "You can't remove your own account.");
+        assert!(user_row(&h, &h.admin_id).is_some());
+
+        let (status, body) = send(
+            &h,
+            "DELETE",
+            &format!("/api/v1/users/{}", h.member_id),
+            &h.admin_token,
+            None,
+        )
+        .await;
+        assert_eq!(status, 200);
+        assert_eq!(body["ok"], true);
+        assert!(user_row(&h, &h.member_id).is_none());
+        // The removed person's token no longer opens anything.
+        let (status, _) = send(&h, "GET", "/api/v1/users/directory", &h.member_token, None).await;
+        assert_eq!(status, 401);
+    }
+
+    #[tokio::test]
+    async fn adopt_private_needs_a_real_person_and_an_admin() {
+        let h = harness();
+        let (status, _) = send(
+            &h,
+            "POST",
+            "/api/v1/users/nobody/adopt-private",
+            &h.admin_token,
+            None,
+        )
+        .await;
+        assert_eq!(status, 404);
+        let uri = format!("/api/v1/users/{}/adopt-private", h.member_id);
+        let (status, body) = send(&h, "POST", &uri, &h.admin_token, None).await;
+        assert_eq!(status, 200);
+        assert_eq!(body["count"], 0);
+        let (status, _) = send(&h, "POST", &uri, &h.member_token, None).await;
+        assert_eq!(status, 403);
+    }
+
+    #[tokio::test]
+    async fn orphans_list_removed_owners_and_purge_only_after_removal() {
+        let h = harness();
+        let (status, body) = send(&h, "GET", "/api/v1/private/orphans", &h.admin_token, None).await;
+        assert_eq!(status, 200);
+        assert_eq!(body["owners"], json!([]));
+        let (status, _) = send(&h, "GET", "/api/v1/private/orphans", &h.member_token, None).await;
+        assert_eq!(status, 403);
+
+        // A live person's private folders can't be cleared as "orphans".
+        let purge = format!("/api/v1/private/orphans/{}", h.member_id);
+        let (status, body) = send(&h, "DELETE", &purge, &h.admin_token, None).await;
+        assert_eq!(status, 400);
+        assert_eq!(
+            body["error"],
+            "Luna can only clear private folders after their owner is removed."
+        );
+
+        send(
+            &h,
+            "DELETE",
+            &format!("/api/v1/users/{}", h.member_id),
+            &h.admin_token,
+            None,
+        )
+        .await;
+        let (status, body) = send(&h, "DELETE", &purge, &h.admin_token, None).await;
+        assert_eq!(status, 200, "{body}");
+        assert_eq!(body["ok"], true);
+        let (status, _) = send(&h, "DELETE", &purge, &h.member_token, None).await;
+        assert_eq!(status, 401);
     }
 }

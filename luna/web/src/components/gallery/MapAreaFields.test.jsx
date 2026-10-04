@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
-import MapAreaFields, { nudgeBbox, parseAreaFields } from "./MapAreaFields.jsx";
+import MapAreaFields from "./MapAreaFields.jsx";
+import { nudgeBbox, parseAreaFields } from "../../lib/mapAreaFields.js";
 
 const BOX = /** @type {[number, number, number, number]} */ ([4, 51, 5, 52]);
 

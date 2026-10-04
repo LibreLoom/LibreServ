@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import PropTypes from "prop-types";
+import { TriangleAlert } from "lucide-react";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import { deleteJson, getJson, postJson, apiErrorMessage } from "../../lib/api";
+import { cn } from "@libreloom/ui/lib/utils.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 
@@ -73,6 +75,8 @@ export default function ConnectSetupCodeForm({ surface = "secondary" }) {
       ? "w-full min-w-0 rounded-pill surface-secondary px-4 py-2 font-mono"
       : "w-full min-w-0 rounded-pill surface-primary px-4 py-2 font-mono";
   const btnSurface = surface === "primary" ? "primary" : "secondary";
+  // Body text takes the backdrop's own text color; the icon carries the error color.
+  const textClass = surface === "primary" ? "text-secondary" : "text-primary";
 
   return (
     <div className="space-y-3" data-slot="connect-device-token-form">
@@ -89,8 +93,9 @@ export default function ConnectSetupCodeForm({ surface = "secondary" }) {
         , or remove the saved token to disable Luna Connect.
       </p>
       {tokenError && (
-        <p className="text-sm text-error leading-relaxed" role="alert">
-          {tokenError}
+        <p className={cn("flex items-start gap-2 text-sm leading-relaxed", textClass)} role="alert">
+          <TriangleAlert size={16} className="mt-0.5 shrink-0 text-error" aria-hidden="true" />
+          <span>{tokenError}</span>
         </p>
       )}
       <div>
@@ -115,7 +120,12 @@ export default function ConnectSetupCodeForm({ surface = "secondary" }) {
           />
         </ShakeTarget>
       </div>
-      {error && <p className="text-sm text-error leading-relaxed">{error}</p>}
+      {error && (
+        <p className={cn("flex items-start gap-2 text-sm leading-relaxed", textClass)} role="alert">
+          <TriangleAlert size={16} className="mt-0.5 shrink-0 text-error" aria-hidden="true" />
+          <span>{error}</span>
+        </p>
+      )}
       {saved && !error && !tokenError && (
         <p className="text-sm leading-relaxed">Device token saved.</p>
       )}

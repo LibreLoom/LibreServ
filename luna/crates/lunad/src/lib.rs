@@ -20,6 +20,8 @@ pub mod rate_limit;
 pub mod search_query;
 pub mod secrets;
 pub mod system;
+#[cfg(test)]
+pub(crate) mod testutil;
 pub mod time;
 use std::sync::{Arc, Mutex, MutexGuard};
 

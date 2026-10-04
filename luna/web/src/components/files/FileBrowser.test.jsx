@@ -1288,13 +1288,17 @@ describe("FileBrowser folder chrome auto-split", () => {
 
     expect(await screen.findByRole("button", { name: "New" })).toBeInTheDocument();
 
-    vi.useFakeTimers();
+    // Let the component's own first measure (a 50ms timer) and a resize both
+    // happen; the layout then settles on its own, however slow the machine is.
     await act(async () => {
-      vi.advanceTimersByTime(60);
       observers.forEach((cb) => cb([], /** @type {ResizeObserver} */ ({})));
     });
 
-    expect(container.querySelector("[data-slot=file-browser-folder-chrome-combined]")).toBeTruthy();
+    await waitFor(() =>
+      expect(container.querySelector("[data-slot=file-browser-folder-chrome-combined]")).toBeTruthy(),
+    );
+    // Give a (wrong) late split a chance to show up before declaring it absent.
+    await new Promise((r) => setTimeout(r, 80));
     expect(container.querySelector("[data-slot=file-browser-folder-chrome-split]")).toBeNull();
     expect(screen.queryByRole("toolbar", { name: "Folder actions" })).not.toBeInTheDocument();
   });
@@ -1313,13 +1317,15 @@ describe("FileBrowser folder chrome auto-split", () => {
 
     expect(await screen.findByRole("button", { name: "New" })).toBeInTheDocument();
 
-    vi.useFakeTimers();
+    // Let the component's own first measure (a 50ms timer) and a resize both
+    // happen; the layout then settles on its own, however slow the machine is.
     await act(async () => {
-      vi.advanceTimersByTime(60);
       observers.forEach((cb) => cb([], /** @type {ResizeObserver} */ ({})));
     });
 
-    expect(container.querySelector("[data-slot=file-browser-folder-chrome-split]")).toBeTruthy();
+    await waitFor(() =>
+      expect(container.querySelector("[data-slot=file-browser-folder-chrome-split]")).toBeTruthy(),
+    );
     expect(container.querySelector("[data-slot=file-browser-folder-chrome-combined]")).toBeNull();
     const toolbar = screen.getByRole("toolbar", { name: "Folder actions" });
     expect(toolbar).toContainElement(screen.getByRole("button", { name: "New" }));

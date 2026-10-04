@@ -14,7 +14,15 @@ object BackupPrefs {
      * encrypted at rest (Android Keystore-backed). If encryption is
      * unavailable we fail closed — never fall back to a plaintext file.
      */
-    private fun prefs(context: Context): SharedPreferences? {
+    private fun prefs(context: Context): SharedPreferences? = storeFactory(context)
+
+    /**
+     * Where the values live. Production uses the encrypted store; unit tests
+     * swap in a plain one (there is no Keystore on the JVM).
+     */
+    internal var storeFactory: (Context) -> SharedPreferences? = { encryptedPrefs(it) }
+
+    private fun encryptedPrefs(context: Context): SharedPreferences? {
         return try {
             val masterKey = MasterKey.Builder(context)
                 .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)

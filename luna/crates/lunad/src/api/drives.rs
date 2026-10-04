@@ -868,4 +868,200 @@ mod tests {
         assert!(!plain_raw.contains("/var/lib"));
         assert!(!plain_raw.contains("os error"));
     }
+
+    // ---- eject / remove / dismiss over HTTP -----------------------------
+
+    use axum::http::{Method, Request, StatusCode};
+
+    struct DriveApp {
+        _dir: tempfile::TempDir,
+        state: crate::AppState,
+        router: axum::Router,
+        mounter: std::sync::Arc<crate::drives::mount::MockMounter>,
+        admin: String,
+        member: String,
+        drive_id: String,
+    }
+
+    /// A drive Luna adopted on a mock mount, plus an Admin and a member.
+    fn drive_app() -> DriveApp {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        let mounter = crate::drives::mount::shared_mock();
+        let drive_manager = std::sync::Arc::new(crate::drives::DriveManager::new(
+            mounter.clone(),
+            dir.path(),
+        ));
+        let device = crate::drives::detect::DetectedDrive {
+            name: "sdz".into(),
+            model: "Test Drive".into(),
+            size_bytes: 1000,
+            removable: true,
+            usb: true,
+            mount_point: None,
+            fs_type: Some("ext4".into()),
+            mount_readonly: false,
+        };
+        let row = drive_manager
+            .adopt(&conn, &device, "Photos", false)
+            .unwrap();
+        let state = crate::AppState::new(conn, drive_manager, dir.path());
+        let admin = state
+            .auth
+            .register("Max", "Max", "hunter22hunter1", "admin")
+            .unwrap();
+        let member = state
+            .auth
+            .register("Jamie", "Jamie", "hunter22hunter1", "user")
+            .unwrap();
+        let (admin, member) = (
+            state.auth.issue(&admin).unwrap(),
+            state.auth.issue(&member).unwrap(),
+        );
+        let router = axum::Router::new()
+            .merge(super::router())
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                crate::auth::guard,
+            ))
+            .with_state(state.clone());
+        DriveApp {
+            _dir: dir,
+            state,
+            router,
+            mounter,
+            admin,
+            member,
+            drive_id: row.id,
+        }
+    }
+
+    async fn post(app: &DriveApp, uri: &str, token: &str) -> (StatusCode, serde_json::Value) {
+        let res = tower::ServiceExt::oneshot(
+            app.router.clone(),
+            Request::builder()
+                .method(Method::POST)
+                .uri(uri)
+                .header("Authorization", format!("Bearer {token}"))
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+        let status = res.status();
+        let bytes = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        (
+            status,
+            serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null),
+        )
+    }
+
+    fn drive_state(app: &DriveApp) -> Option<String> {
+        let conn = app.state.db.lock().unwrap();
+        db::get_drive(&conn, &app.drive_id)
+            .unwrap()
+            .map(|d| d.state)
+    }
+
+    #[tokio::test]
+    async fn eject_unmounts_and_marks_the_drive_ejected() {
+        let app = drive_app();
+        assert_eq!(drive_state(&app).as_deref(), Some("as_is"));
+        let (status, body) = post(
+            &app,
+            &format!("/api/v1/drives/{}/eject", app.drive_id),
+            &app.admin,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["ok"], true);
+        assert_eq!(drive_state(&app).as_deref(), Some("ejected"));
+        assert_eq!(app.mounter.unmounts.lock().unwrap().len(), 1);
+        // Pressing eject again is fine and unmounts nothing more.
+        let (status, _) = post(
+            &app,
+            &format!("/api/v1/drives/{}/eject", app.drive_id),
+            &app.admin,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(app.mounter.unmounts.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn remove_forgets_the_drive_and_clears_its_marker() {
+        let app = drive_app();
+        let mount = {
+            let conn = app.state.db.lock().unwrap();
+            std::path::PathBuf::from(
+                db::get_drive(&conn, &app.drive_id)
+                    .unwrap()
+                    .unwrap()
+                    .mount_point,
+            )
+        };
+        assert!(luna_core::marker::read_marker(&mount).unwrap().is_some());
+        let (status, body) = post(
+            &app,
+            &format!("/api/v1/drives/{}/remove", app.drive_id),
+            &app.admin,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(drive_state(&app), None);
+    }
+
+    #[tokio::test]
+    async fn only_an_admin_can_eject_remove_or_dismiss() {
+        let app = drive_app();
+        for uri in [
+            format!("/api/v1/drives/{}/eject", app.drive_id),
+            format!("/api/v1/drives/{}/remove", app.drive_id),
+            "/api/v1/drives/sdz/dismiss".to_string(),
+            "/api/v1/drives/sdz/inspect".to_string(),
+        ] {
+            let (status, body) = post(&app, &uri, &app.member).await;
+            assert_eq!(status, StatusCode::FORBIDDEN, "{uri}");
+            assert_eq!(body["error"], "Only an Admin can manage drives.");
+        }
+        assert_eq!(
+            drive_state(&app).as_deref(),
+            Some("as_is"),
+            "nothing changed"
+        );
+        assert!(app.mounter.unmounts.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn ejecting_an_unknown_drive_says_so_plainly() {
+        let app = drive_app();
+        let (status, body) = post(&app, "/api/v1/drives/not-a-drive/eject", &app.admin).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        let message = body["error"].as_str().unwrap();
+        assert!(
+            !message.contains('/') && !message.contains("sdz"),
+            "{message}"
+        );
+    }
+
+    #[tokio::test]
+    async fn dismiss_lets_go_of_an_inspected_drive_and_is_harmless_otherwise() {
+        let app = drive_app();
+        // Nothing was opened for inspection: still a success, never an error.
+        let (status, body) = post(&app, "/api/v1/drives/sdy/dismiss", &app.admin).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["ok"], true);
+        // Inspecting a drive Luna can't see is a plain 404 (no hardware in tests).
+        let (status, _) = post(&app, "/api/v1/drives/no-such-device/inspect", &app.admin).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        let (status, _) = post(&app, "/api/v1/drives/no-such-device/adopt", &app.admin).await;
+        assert!(
+            status == StatusCode::UNPROCESSABLE_ENTITY
+                || status == StatusCode::BAD_REQUEST
+                || status == StatusCode::NOT_FOUND
+        );
+    }
 }

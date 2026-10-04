@@ -34,6 +34,15 @@ cargo clippy --workspace --all-targets -- -D warnings
 echo "==> cargo test"
 cargo test --workspace
 
+# Coverage is a report, not a gate: it never fails the run. Needs cargo-llvm-cov.
+echo "==> coverage (report only)"
+if cargo llvm-cov --version >/dev/null 2>&1; then
+	cargo llvm-cov --workspace --summary-only || echo "    coverage run failed (not gating)"
+else
+	echo "    cargo-llvm-cov is not installed; skipping (cargo install cargo-llvm-cov)"
+fi
+sh scripts/test-presence.sh
+
 echo "==> os scripts"
 sh -n os/build-rootfs.sh os/flash.sh os/make-image.sh os/make-iso.sh os/build-iso.sh os/rapidinstall.sh \
 	os/lib/disk.sh os/lib/flash-disk.sh os/lib/console.sh os/lib/factory-assets.sh \

@@ -123,10 +123,9 @@ describe("FileSearch", () => {
     fireEvent.click(trigger);
     expect(await screen.findByRole("dialog", { name: "Search for a file" })).toBeInTheDocument();
     fireEvent.keyDown(document, { key: "Escape" });
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 350));
-    });
-    expect(screen.queryByRole("dialog", { name: "Search for a file" })).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Search for a file" })).not.toBeInTheDocument(),
+    );
     expect(trigger).toHaveFocus();
   });
 
@@ -296,10 +295,9 @@ describe("FileSearch", () => {
     });
     const row = await screen.findByRole("link", { name: /^Open beach.jpg$/i });
     fireEvent.click(row);
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 350));
-    });
-    expect(screen.queryByRole("dialog", { name: "Search for a file" })).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Search for a file" })).not.toBeInTheDocument(),
+    );
   });
 
   it("keeps action buttons from also triggering row navigation", async () => {

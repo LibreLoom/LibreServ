@@ -93,3 +93,135 @@ pub fn device_key_b64(data_dir: &Path) -> anyhow::Result<String> {
     let key = ensure_device_key(data_dir)?;
     Ok(base64::engine::general_purpose::STANDARD.encode(key))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(unix)]
+    fn mode(path: &Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+        fs::metadata(path).unwrap().permissions().mode() & 0o777
+    }
+
+    fn conn() -> Connection {
+        Connection::open_in_memory()
+            .and_then(|c| {
+                c.execute_batch("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);")?;
+                Ok(c)
+            })
+            .unwrap()
+    }
+
+    #[test]
+    fn jwt_secret_is_created_once_and_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = conn();
+        let first = ensure_jwt_secret(dir.path(), &conn).unwrap();
+        assert_eq!(first.len(), 32);
+        assert_eq!(ensure_jwt_secret(dir.path(), &conn).unwrap(), first);
+        assert_eq!(fs::read(dir.path().join("jwt_secret")).unwrap(), first);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn secret_files_are_private_and_leave_no_temp_file() {
+        let dir = tempfile::tempdir().unwrap();
+        ensure_jwt_secret(dir.path(), &conn()).unwrap();
+        ensure_device_key(dir.path()).unwrap();
+        assert_eq!(mode(&dir.path().join("jwt_secret")), 0o600);
+        assert_eq!(mode(&dir.path().join("device_key")), 0o600);
+        let leftovers: Vec<_> = fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".tmp"))
+            .collect();
+        assert!(
+            leftovers.is_empty(),
+            "atomic write must rename its temp file away"
+        );
+    }
+
+    #[test]
+    fn writing_replaces_the_old_secret_whole() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nested/secret");
+        write_secret_file(&path, b"first, longer value").unwrap();
+        write_secret_file(&path, b"second").unwrap();
+        assert_eq!(
+            fs::read(&path).unwrap(),
+            b"second",
+            "no tail of the old value"
+        );
+    }
+
+    #[test]
+    fn rotating_changes_the_key_and_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let first = ensure_jwt_secret(dir.path(), &conn()).unwrap();
+        let rotated = rotate_jwt_secret(dir.path()).unwrap();
+        assert_ne!(first, rotated);
+        assert_eq!(fs::read(dir.path().join("jwt_secret")).unwrap(), rotated);
+    }
+
+    #[test]
+    fn a_legacy_database_secret_moves_into_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = conn();
+        conn.execute(
+            "INSERT INTO meta (key, value) VALUES ('jwt_secret', 'legacy-secret')",
+            [],
+        )
+        .unwrap();
+        let bytes = ensure_jwt_secret(dir.path(), &conn).unwrap();
+        assert_eq!(bytes, b"legacy-secret");
+        assert_eq!(
+            fs::read(dir.path().join("jwt_secret")).unwrap(),
+            b"legacy-secret"
+        );
+        let left: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM meta WHERE key = 'jwt_secret'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(left, 0, "the database copy is removed once the file has it");
+    }
+
+    #[test]
+    fn device_key_is_stable_and_regenerated_when_corrupt() {
+        let dir = tempfile::tempdir().unwrap();
+        let key = ensure_device_key(dir.path()).unwrap();
+        assert_eq!(ensure_device_key(dir.path()).unwrap(), key);
+
+        // A truncated key file is not trusted; a fresh 32-byte key replaces it.
+        fs::write(dir.path().join("device_key"), b"short").unwrap();
+        let fresh = ensure_device_key(dir.path()).unwrap();
+        assert_ne!(fresh, key);
+        assert_eq!(fs::read(dir.path().join("device_key")).unwrap().len(), 32);
+        assert_eq!(ensure_device_key(dir.path()).unwrap(), fresh);
+    }
+
+    #[test]
+    fn the_backup_copy_of_the_device_key_round_trips() {
+        let dir = tempfile::tempdir().unwrap();
+        let key = ensure_device_key(dir.path()).unwrap();
+        let b64 = device_key_b64(dir.path()).unwrap();
+        assert_eq!(
+            base64::engine::general_purpose::STANDARD
+                .decode(b64)
+                .unwrap(),
+            key
+        );
+    }
+
+    #[test]
+    fn an_unreadable_jwt_secret_is_an_error_not_a_silent_new_key() {
+        let dir = tempfile::tempdir().unwrap();
+        // A directory where the file should be: reading it fails. The caller must
+        // see that rather than quietly minting a key that signs everyone out.
+        fs::create_dir(dir.path().join("jwt_secret")).unwrap();
+        assert!(ensure_jwt_secret(dir.path(), &conn()).is_err());
+    }
+}

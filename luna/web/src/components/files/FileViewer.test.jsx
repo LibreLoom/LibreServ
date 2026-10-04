@@ -54,9 +54,6 @@ vi.mock("./diagram/DiagramEditor.jsx", () => ({
   },
 }));
 
-/** Fullscreen exit animation duration (fullscreen-overlay-out, 250ms) + slack. */
-const EXIT_WAIT_MS = 300;
-
 /** The mounted CodeMirror view — stashed on the editor host element. */
 function cmView() {
   const host = document.querySelector("[data-slot$='-editor-surface']");
@@ -77,10 +74,9 @@ async function cmReplace(text) {
   });
 }
 
+/** Waits for the fullscreen exit animation to finish, however long it takes. */
 async function waitForExitAnimation() {
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, EXIT_WAIT_MS));
-  });
+  await waitFor(() => expect(document.querySelector(".file-viewer-exit")).toBeNull());
 }
 
 /** @type {typeof Image | undefined} */

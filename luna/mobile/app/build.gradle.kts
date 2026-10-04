@@ -55,6 +55,12 @@ android {
     buildFeatures {
         buildConfig = true
     }
+    testOptions {
+        unitTests {
+            // Robolectric needs the merged manifest and resources.
+            isIncludeAndroidResources = true
+        }
+    }
 }
 
 dependencies {
@@ -67,4 +73,10 @@ dependencies {
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     testImplementation("junit:junit:4.13.2")
+    // Real org.json: the android.jar one is a stub on the JVM.
+    testImplementation("org.json:json:20240303")
+    testImplementation("org.robolectric:robolectric:4.13")
+    testImplementation("androidx.test:core:1.5.0")
+    testImplementation("androidx.work:work-testing:2.9.1")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
 }

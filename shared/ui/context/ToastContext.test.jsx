@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
-import { ToastProvider, useToast } from "./ToastContext.jsx";
+import { ToastProvider, useToast, useToastList } from "./ToastContext.jsx";
+
+/** The actions plus the list on screen, as one object the tests can read. */
+const useToastsWithList = () => ({ ...useToast(), toasts: useToastList() });
 
 describe("ToastContext", () => {
   beforeEach(() => {
@@ -19,7 +22,7 @@ describe("ToastContext", () => {
 
   it("adds a toast and returns its id", () => {
     const wrapper = ({ children }) => <ToastProvider>{children}</ToastProvider>;
-    const { result } = renderHook(() => useToast(), { wrapper });
+    const { result } = renderHook(() => useToastsWithList(), { wrapper });
 
     let id;
     act(() => {
@@ -33,7 +36,7 @@ describe("ToastContext", () => {
 
   it("adds a success toast with default duration", () => {
     const wrapper = ({ children }) => <ToastProvider>{children}</ToastProvider>;
-    const { result } = renderHook(() => useToast(), { wrapper });
+    const { result } = renderHook(() => useToastsWithList(), { wrapper });
 
     act(() => {
       result.current.addToast({ message: "Success!", type: "success" });
@@ -43,7 +46,7 @@ describe("ToastContext", () => {
 
   it("adds an error toast", () => {
     const wrapper = ({ children }) => <ToastProvider>{children}</ToastProvider>;
-    const { result } = renderHook(() => useToast(), { wrapper });
+    const { result } = renderHook(() => useToastsWithList(), { wrapper });
 
     act(() => {
       result.current.addToast({ message: "Error!", type: "error" });
@@ -53,7 +56,7 @@ describe("ToastContext", () => {
 
   it("dismisses a toast", () => {
     const wrapper = ({ children }) => <ToastProvider>{children}</ToastProvider>;
-    const { result } = renderHook(() => useToast(), { wrapper });
+    const { result } = renderHook(() => useToastsWithList(), { wrapper });
 
     let id;
     act(() => {
@@ -74,7 +77,7 @@ describe("ToastContext", () => {
 
   it("auto-dismisses after duration", () => {
     const wrapper = ({ children }) => <ToastProvider>{children}</ToastProvider>;
-    const { result } = renderHook(() => useToast(), { wrapper });
+    const { result } = renderHook(() => useToastsWithList(), { wrapper });
 
     act(() => {
       result.current.addToast({ message: "Auto dismiss", type: "info", duration: 1000 });
@@ -94,7 +97,7 @@ describe("ToastContext", () => {
 
   it("clears all toasts", () => {
     const wrapper = ({ children }) => <ToastProvider>{children}</ToastProvider>;
-    const { result } = renderHook(() => useToast(), { wrapper });
+    const { result } = renderHook(() => useToastsWithList(), { wrapper });
 
     act(() => {
       result.current.addToast({ message: "One" });
@@ -110,7 +113,7 @@ describe("ToastContext", () => {
 
   it("respects maxToasts limit", () => {
     const wrapper = ({ children }) => <ToastProvider maxToasts={2}>{children}</ToastProvider>;
-    const { result } = renderHook(() => useToast(), { wrapper });
+    const { result } = renderHook(() => useToastsWithList(), { wrapper });
 
     act(() => {
       result.current.addToast({ message: "First" });
@@ -133,7 +136,7 @@ describe("ToastContext", () => {
 
   it("supports toast with description", () => {
     const wrapper = ({ children }) => <ToastProvider>{children}</ToastProvider>;
-    const { result } = renderHook(() => useToast(), { wrapper });
+    const { result } = renderHook(() => useToastsWithList(), { wrapper });
 
     act(() => {
       result.current.addToast({ message: "Warning", description: "Something happened", type: "info" });
@@ -143,7 +146,7 @@ describe("ToastContext", () => {
 
   it("persists toast when duration is 0", () => {
     const wrapper = ({ children }) => <ToastProvider>{children}</ToastProvider>;
-    const { result } = renderHook(() => useToast(), { wrapper });
+    const { result } = renderHook(() => useToastsWithList(), { wrapper });
 
     act(() => {
       result.current.addToast({ message: "Sticky", duration: 0 });

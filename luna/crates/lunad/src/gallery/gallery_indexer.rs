@@ -599,17 +599,18 @@ mod tests {
         let indexer = GalleryIndexer::start();
         indexer.watch_mount("d1", root.path().to_path_buf());
         indexer.upsert("d1", "Photos/a.jpg");
-        for _ in 0..100 {
-            if !indexer.pending() {
-                let conn = gallery::open_drive_db(root.path()).unwrap();
-                let count: i64 = conn
-                    .query_row("SELECT COUNT(*) FROM photos", [], |r| r.get(0))
-                    .unwrap_or(0);
-                if count >= 1 {
-                    return;
-                }
-            }
-            thread::sleep(Duration::from_millis(100));
+        let indexed = crate::testutil::wait_until(Duration::from_secs(20), || {
+            !indexer.pending()
+                && gallery::open_drive_db(root.path())
+                    .map(|conn| {
+                        conn.query_row("SELECT COUNT(*) FROM photos", [], |r| r.get::<_, i64>(0))
+                            .unwrap_or(0)
+                    })
+                    .unwrap_or(0)
+                    >= 1
+        });
+        if indexed {
+            return;
         }
         // Final check with clear error context
         let _ = gallery::index_one_meta("d1", root.path(), "Photos/a.jpg");
@@ -649,21 +650,17 @@ mod tests {
             "remount must enqueue a catch-up rescan"
         );
 
-        for _ in 0..100 {
-            let st = indexer.status();
-            if !st.busy {
-                let conn = gallery::open_drive_db(root.path()).unwrap();
-                let count: i64 = conn
-                    .query_row("SELECT COUNT(*) FROM photos", [], |r| r.get(0))
-                    .unwrap_or(0);
-                if count >= 1 {
-                    assert!(st.found_count >= 1 || count >= 1);
-                    return;
-                }
-            }
-            thread::sleep(Duration::from_millis(100));
-        }
-        panic!("expected remount rescan to index Photos/a.jpg");
+        let indexed = crate::testutil::wait_until(Duration::from_secs(20), || {
+            !indexer.status().busy
+                && gallery::open_drive_db(root.path())
+                    .map(|conn| {
+                        conn.query_row("SELECT COUNT(*) FROM photos", [], |r| r.get::<_, i64>(0))
+                            .unwrap_or(0)
+                    })
+                    .unwrap_or(0)
+                    >= 1
+        });
+        assert!(indexed, "expected remount rescan to index Photos/a.jpg");
     }
 
     #[test]
