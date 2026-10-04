@@ -1630,6 +1630,7 @@ export default function FileBrowser({
                     className="shrink-0"
                     onClick={() => onDelete(selectedPaths)}
                   >
+                    <Trash2 size={14} aria-hidden="true" />
                     {trashView ? "Delete permanently" : "Trash"}
                   </Button>
                 ) : null}
