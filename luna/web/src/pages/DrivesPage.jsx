@@ -311,14 +311,9 @@ function DetectedContents({ peek }) {
   if (peek.isPending) {
     return <ValueDisplay label="On the drive" value="Looking inside…" mono={false} />;
   }
-  if (peek.isError || !peek.data) {
-    return (
-      <>
-        <ValueDisplay label="On the drive" value="Couldn't look inside" mono={false} />
-        <Callout tone="warning">Luna couldn&apos;t open this drive to see what&apos;s on it.</Callout>
-      </>
-    );
-  }
+  // A failed look says nothing about the drive itself (Add drive can still
+  // open it), so show nothing rather than guess; the query retries below.
+  if (peek.isError || !peek.data) return null;
   const info = describePeek(peek.data);
   return (
     <>
@@ -344,8 +339,11 @@ function DetectedCard({ drive, onOpen, dismissed = false, leaving = false, onTog
         ? Promise.resolve({ ...mockInspectResult(), sample: mockInspectResult().entries })
         : getJson(`/api/v1/drives/${encodeURIComponent(drive.name)}/peek`),
     enabled: !empty,
+    // A good answer is kept for as long as this media stays in; a failed one
+    // is tried again so one hiccup doesn't stick until the page reloads.
     staleTime: Infinity,
-    retry: false,
+    retry: 1,
+    refetchInterval: (query) => (query.state.status === "error" ? 15_000 : false),
     refetchOnWindowFocus: false,
   });
   return (

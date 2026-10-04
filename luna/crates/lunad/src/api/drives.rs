@@ -252,14 +252,18 @@ async fn peek(
             .cmp(&(b.kind != "folder"))
             .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
     });
+    // Counts are of what a person would see: hidden names (and Luna's own
+    // bookkeeping) are not "files on the drive" to them.
+    let folders = sample.iter().filter(|e| e.kind == "folder").count() as u64;
+    let files = sample.len() as u64 - folders;
     sample.truncate(5);
     Ok(Json(PeekJson {
         readable: peek.readable,
         fs_type: peek.fs_type,
         has_marker: peek.has_marker,
         needs_erase: peek.needs_erase,
-        folders: peek.summary.folders,
-        files: peek.summary.files,
+        folders,
+        files,
         sample,
     }))
 }

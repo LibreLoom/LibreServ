@@ -303,6 +303,27 @@ describe("DrivesPage", () => {
     expect(screen.getByText(/may be blank or need formatting/i)).toBeInTheDocument();
   });
 
+  it("says nothing about contents when the look inside fails, and keeps Add drive", async () => {
+    stubDrivesApi({
+      fetch: (u) => {
+        if (u.endsWith("/drives/detected")) {
+          return new Response(JSON.stringify([{
+            name: "sdb", model: "Lexar USB Flash Drive", size_bytes: 8000000000,
+            removable: true, usb: true, mount_point: null, fs_type: "vfat",
+          }]), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (u.endsWith("/peek")) return new Response("{}", { status: 500 });
+        return null;
+      },
+    });
+    renderPage();
+    expect(await screen.findByText("8.0 GB")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("Looking inside…")).not.toBeInTheDocument(), { timeout: 4000 });
+    expect(screen.queryByText(/couldn't/i)).not.toBeInTheDocument();
+    expect(screen.queryByText("On the drive")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Add drive$/i })).toBeEnabled();
+  });
+
   it("marks an empty card reader and lets the admin dismiss and restore it", async () => {
     window.localStorage.removeItem("luna.dismissedDrives");
     stubDrivesApi({
