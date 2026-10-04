@@ -938,12 +938,34 @@ select:focus:not(:focus-visible) {
   }
 }
 
-/* Scrollbar utility — hide scrollbars while preserving scrollability */
+/* Scrollbar utility — hide scrollbars while preserving scrollability.
+   Only for strips where a bar can't fit (horizontal pill rows); anything a
+   person scrolls through keeps a visible bar — use inner-scrollbar. */
 @utility no-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
   &::-webkit-scrollbar {
     display: none;
+  }
+}
+
+/* Scrollbar utility — thin pill thumb drawn inside the element's edge, for
+   scrollable menus and lists where the bar is the affordance. */
+@utility inner-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-accent) transparent;
+  &::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: var(--color-accent);
+    background-clip: padding-box;
+    border: 2px solid transparent;
+    border-radius: 9999px;
   }
 }
 

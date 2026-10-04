@@ -443,7 +443,7 @@ export default function PlacesMap({
         ) : !drawnBbox ? (
           <div
             key="draw"
-            className="pop-in flex flex-nowrap items-center gap-2 overflow-x-auto whitespace-nowrap px-3.5 py-2 text-xs font-mono [scrollbar-width:none]"
+            className="pop-in flex flex-nowrap items-center gap-2 overflow-x-auto whitespace-nowrap px-3.5 py-2 text-xs font-mono no-scrollbar"
           >
             <Crop size={15} className="shrink-0 animate-pulse" aria-hidden="true" />
             <span>Draw custom area</span>
@@ -468,7 +468,7 @@ export default function PlacesMap({
         ) : (
           <div
             key="drawn"
-            className="pop-in flex flex-nowrap items-center gap-2 overflow-x-auto whitespace-nowrap px-3.5 py-2 text-xs font-mono [scrollbar-width:none]"
+            className="pop-in flex flex-nowrap items-center gap-2 overflow-x-auto whitespace-nowrap px-3.5 py-2 text-xs font-mono no-scrollbar"
           >
             <span
               className="flex h-5 w-5 shrink-0 items-center justify-center rounded-pill surface-primary"

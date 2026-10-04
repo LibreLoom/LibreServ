@@ -357,7 +357,7 @@ export default function Dropdown({
                 // overflow-y-auto alone would compute overflow-x as auto too,
                 // so the 2px hover slide on options showed a horizontal
                 // scrollbar. Clip x; the slide stays, clipped at the menu edge.
-                "rounded-large-element py-0 max-h-64 overflow-y-auto overflow-x-hidden overscroll-contain min-w-[8rem] no-scrollbar",
+                "rounded-large-element py-0 max-h-64 overflow-y-auto overflow-x-hidden overscroll-contain min-w-[8rem] inner-scrollbar",
                 menu && "min-w-[12rem] max-h-72",
               )}
               tabIndex={-1}

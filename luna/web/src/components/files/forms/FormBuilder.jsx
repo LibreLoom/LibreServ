@@ -1838,7 +1838,7 @@ function PicturePicker({ driveId, formPath, startFolder, onPicked, onClose }) {
         ) : entries.length === 0 ? (
           <p className="text-sm text-primary">No pictures in this folder. Open another one or upload a picture.</p>
         ) : (
-          <div className="max-h-80 space-y-3 overflow-y-auto no-scrollbar">
+          <div className="max-h-80 space-y-3 overflow-y-auto inner-scrollbar">
             {folders.length > 0 && (
               <div className="flex flex-wrap gap-2">
                 {folders.map((entry) => (
