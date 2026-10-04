@@ -1,6 +1,5 @@
 import PropTypes from "prop-types";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   CalendarDays,
   Check,
@@ -13,6 +12,7 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@libreloom/ui/lib/utils.js";
+import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
@@ -161,11 +161,6 @@ export default function GalleryToolbar({
 }) {
   const isDesktopAuto = useIsDesktop();
   const isDesktop = isDesktopProp !== undefined ? isDesktopProp : isDesktopAuto;
-  const [moreOpen, setMoreOpen] = useState(false);
-  const [isClosing, setIsClosing] = useState(false);
-  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
-  const moreButtonRef = useRef(/** @type {HTMLButtonElement|null} */ (null));
-  const portalRef = useRef(/** @type {HTMLDivElement|null} */ (null));
   const [rescanState, setRescanState] = useState("idle");
   const rescanTimerRef = useRef(/** @type {ReturnType<typeof setTimeout>|null} */ (null));
 
@@ -187,70 +182,6 @@ export default function GalleryToolbar({
     },
     []
   );
-
-  const closeMore = useCallback(() => {
-    setIsClosing(true);
-    setTimeout(() => {
-      setMoreOpen(false);
-      setIsClosing(false);
-    }, 160);
-  }, []);
-
-  const updateMenuPosition = useCallback(() => {
-    if (moreButtonRef.current) {
-      const rect = moreButtonRef.current.getBoundingClientRect();
-      const menuWidth = 220;
-      let left = rect.right + window.scrollX - menuWidth;
-      if (left + menuWidth > window.innerWidth - 12) {
-        left = window.innerWidth - menuWidth - 12;
-      }
-      if (left < 12) left = 12;
-      const top = rect.bottom + window.scrollY + 6;
-      const next = { top, left };
-      setMenuPosition((prev) => (prev.top === next.top && prev.left === next.left ? prev : next));
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!moreOpen) return undefined;
-    function onDocClick(e) {
-      if (
-        moreButtonRef.current?.contains(e.target) ||
-        portalRef.current?.contains(e.target)
-      ) {
-        return;
-      }
-      closeMore();
-    }
-    function onKeyDown(e) {
-      if (e.key === "Escape") {
-        // A dialog opened from this menu (Jump to date, shortcuts) owns
-        // Escape while it is open — closing the menu here would also yank
-        // focus back to the trigger underneath the modal.
-        if (document.querySelector('[role="dialog"]')) return;
-        e.preventDefault();
-        haptic("light");
-        closeMore();
-        moreButtonRef.current?.focus();
-      }
-    }
-    document.addEventListener("mousedown", onDocClick);
-    document.addEventListener("keydown", onKeyDown);
-    window.addEventListener("scroll", updateMenuPosition, true);
-    window.addEventListener("resize", updateMenuPosition);
-    return () => {
-      document.removeEventListener("mousedown", onDocClick);
-      document.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("scroll", updateMenuPosition, true);
-      window.removeEventListener("resize", updateMenuPosition);
-    };
-  }, [moreOpen, closeMore, updateMenuPosition]);
-
-  useLayoutEffect(() => {
-    if (moreOpen) {
-      updateMenuPosition();
-    }
-  }, [moreOpen, updateMenuPosition]);
 
   const rescanPhase = rescanPending ? "pending" : rescanState;
   const [rescanLeaving, setRescanLeaving] = useState(/** @type {string|null} */ (null));
@@ -302,6 +233,107 @@ export default function GalleryToolbar({
     </div>
   );
 
+  const rescanContent = (/** @type {string} */ phase) => (
+    <>
+      {phase === "success" ? (
+        <Check size={15} className="shrink-0 text-success" aria-hidden="true" />
+      ) : phase === "error" ? (
+        <X size={15} className="shrink-0 text-error" aria-hidden="true" />
+      ) : (
+        <RefreshCw
+          size={15}
+          className={cn("shrink-0", phase === "pending" && "animate-spin")}
+          aria-hidden="true"
+        />
+      )}
+      <span>
+        {phase === "success"
+          ? "Started scan."
+          : phase === "error"
+            ? "Failed to start"
+            : phase === "pending"
+              ? "Rescanning drives…"
+              : "Rescan drives"}
+      </span>
+    </>
+  );
+
+  const densityControl = onColumnsChange ? (
+    <>
+      <div className="flex items-center gap-1.5 pb-1.5 text-xs font-mono text-primary">
+        <LayoutGrid size={13} className="shrink-0" aria-hidden="true" />
+        <span>Grid density</span>
+      </div>
+      <SegmentedControl
+        options={[3, 4, 5, 6].map((n) => ({
+          value: String(n),
+          label: String(n),
+          title: `${n} columns`,
+        }))}
+        value={String(columns)}
+        onChange={(value) => onColumnsChange(Number(value))}
+        surface="secondary"
+        aria-label="Grid density columns"
+        className="w-full"
+      />
+    </>
+  ) : null;
+
+  // Conveyor swap: the outgoing icon + label stay mounted for one animation
+  // and slide out through the row's clipped top edge while the incoming pair
+  // rises from the bottom; returning to "Rescan drives" rolls the other way.
+  // The enter animation only runs when a previous state is leaving, so
+  // opening the menu doesn't replay it.
+  const rescanRow = (
+    <span aria-live="polite" className="relative block w-full overflow-hidden">
+      <span
+        key={rescanPhase}
+        className={cn(
+          "flex items-center gap-2.5",
+          rescanLeaving &&
+            (rescanReturning ? "animate-rescan-swap-in-back" : "animate-rescan-swap-in")
+        )}
+      >
+        {rescanContent(rescanPhase)}
+      </span>
+      {rescanLeaving && (
+        <span
+          className="absolute inset-0 flex items-center pointer-events-none"
+          aria-hidden="true"
+        >
+          <span
+            className={cn(
+              "flex items-center gap-2.5",
+              rescanReturning ? "animate-rescan-swap-out-back" : "animate-rescan-swap-out"
+            )}
+          >
+            {rescanContent(rescanLeaving)}
+          </span>
+        </span>
+      )}
+    </span>
+  );
+
+  const moreOptions = [
+    onOpenDates && { value: "dates", label: "Jump to date", icon: CalendarDays },
+    onRescan && {
+      value: "rescan",
+      label: "Rescan drives",
+      disabled: rescanPhase !== "idle",
+      // The row shows its own progress, so the menu stays open for it.
+      keepOpen: true,
+      content: rescanRow,
+    },
+    onOpenShortcuts && { value: "shortcuts", label: "Keyboard shortcuts", icon: Keyboard },
+  ].filter(Boolean);
+
+  /** @param {string} choice */
+  const onMoreChoice = (choice) => {
+    if (choice === "dates") onOpenDates?.();
+    else if (choice === "rescan") handleRescan();
+    else if (choice === "shortcuts") onOpenShortcuts?.();
+  };
+
   const iconButtons = (
     <div className="flex items-center shrink-0 pr-0.5">
       {onOpenFilters && (
@@ -337,27 +369,31 @@ export default function GalleryToolbar({
       )}
       {selectButton}
       <div className="pl-0.5 shrink-0">
-        <Button
-          ref={moreButtonRef}
-          type="button"
-          size="iconSm"
-          variant={moreOpen ? "primary" : "ghost"}
-          className="shrink-0"
-          aria-label="More options"
-          aria-haspopup="menu"
-          aria-expanded={moreOpen}
-          onClick={() => {
-            haptic("light");
-            if (moreOpen) {
-              closeMore();
-            } else {
-              updateMenuPosition();
-              setMoreOpen(true);
-            }
-          }}
-        >
-          <MoreHorizontal size={16} />
-        </Button>
+        <Dropdown
+          menu
+          align="end"
+          menuLabel="More options"
+          options={moreOptions}
+          value=""
+          onChange={onMoreChoice}
+          menuHeader={densityControl}
+          renderTrigger={({ open, toggle, onKeyDown }) => (
+            <Button
+              type="button"
+              size="iconSm"
+              variant={open ? "primary" : "ghost"}
+              className="shrink-0"
+              haptic={false}
+              aria-label="More options"
+              aria-haspopup="menu"
+              aria-expanded={open}
+              onClick={toggle}
+              onKeyDown={onKeyDown}
+            >
+              <MoreHorizontal size={16} />
+            </Button>
+          )}
+        />
       </div>
     </div>
   );
@@ -365,161 +401,6 @@ export default function GalleryToolbar({
   const clearQuery = () => {
     onQueryChange({ target: { value: "" } });
   };
-
-  const rescanContent = (/** @type {string} */ phase) => (
-    <>
-      {phase === "success" ? (
-        <Check size={15} className="shrink-0 text-success" aria-hidden="true" />
-      ) : phase === "error" ? (
-        <X size={15} className="shrink-0 text-error" aria-hidden="true" />
-      ) : (
-        <RefreshCw
-          size={15}
-          className={cn("shrink-0", phase === "pending" && "animate-spin")}
-          aria-hidden="true"
-        />
-      )}
-      <span>
-        {phase === "success"
-          ? "Started scan."
-          : phase === "error"
-            ? "Failed to start"
-            : phase === "pending"
-              ? "Rescanning drives…"
-              : "Rescan drives"}
-      </span>
-    </>
-  );
-
-  const moreMenuPortal = moreOpen
-    ? createPortal(
-        <div
-          ref={portalRef}
-          role="menu"
-          aria-label="More options"
-          tabIndex={-1}
-          style={{
-            position: "absolute",
-            top: menuPosition.top,
-            left: menuPosition.left,
-          }}
-          className={cn(
-            "surface-secondary font-mono ring-2 ring-accent",
-            "rounded-large-element py-1.5 z-50 min-w-[14rem] shadow-xl",
-            isClosing ? "animate-dropdown-close" : "animate-dropdown-open"
-          )}
-        >
-          {onColumnsChange && (
-            <div className="px-2 pt-1 pb-1.5">
-              <div className="flex items-center gap-1.5 px-2 pb-1.5 text-xs font-mono text-primary">
-                <LayoutGrid size={13} className="shrink-0" aria-hidden="true" />
-                <span>Grid density</span>
-              </div>
-              <SegmentedControl
-                options={[3, 4, 5, 6].map((n) => ({
-                  value: String(n),
-                  label: String(n),
-                  title: `${n} columns`,
-                }))}
-                value={String(columns)}
-                onChange={(value) => onColumnsChange(Number(value))}
-                surface="secondary"
-                aria-label="Grid density columns"
-                className="w-full"
-              />
-            </div>
-          )}
-
-          {onColumnsChange && (onOpenDates || onRescan || onOpenShortcuts) && (
-            <div className="my-1 h-px bg-primary/10 mx-2" aria-hidden="true" />
-          )}
-
-          <div className="px-1 space-y-0.5">
-            {onOpenDates && (
-              <button
-                type="button"
-                role="menuitem"
-                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-pill text-xs font-mono text-left cursor-pointer transition-colors hover:bg-primary hover:text-secondary active:scale-[0.98]"
-                onClick={() => {
-                  haptic("light");
-                  setMoreOpen(false);
-                  setIsClosing(false);
-                  onOpenDates();
-                }}
-              >
-                <CalendarDays size={15} className="shrink-0" aria-hidden="true" />
-                <span>Jump to date</span>
-              </button>
-            )}
-
-            {onRescan && (
-              <button
-                type="button"
-                role="menuitem"
-                disabled={rescanPhase !== "idle"}
-                aria-live="polite"
-                className="relative overflow-hidden w-full flex items-center gap-2.5 px-3 py-2 rounded-pill text-xs font-mono text-left cursor-pointer transition-colors enabled:hover:bg-primary enabled:hover:text-secondary enabled:active:scale-[0.98] disabled:cursor-not-allowed"
-                onClick={handleRescan}
-              >
-                {/* Conveyor swap: the outgoing icon + label stay mounted for one
-                    animation and slide out through the row's clipped top edge
-                    while the incoming pair rises from the bottom; returning to
-                    "Rescan drives" rolls the other way. The enter animation only
-                    runs when a previous state is leaving, so opening the menu
-                    doesn't replay it. */}
-                <span
-                  key={rescanPhase}
-                  className={cn(
-                    "flex items-center gap-2.5",
-                    rescanLeaving &&
-                      (rescanReturning
-                        ? "animate-rescan-swap-in-back"
-                        : "animate-rescan-swap-in")
-                  )}
-                >
-                  {rescanContent(rescanPhase)}
-                </span>
-                {rescanLeaving && (
-                  <span
-                    className="absolute inset-x-3 inset-y-0 flex items-center pointer-events-none"
-                    aria-hidden="true"
-                  >
-                    <span
-                      className={cn(
-                        "flex items-center gap-2.5",
-                        rescanReturning
-                          ? "animate-rescan-swap-out-back"
-                          : "animate-rescan-swap-out"
-                      )}
-                    >
-                      {rescanContent(rescanLeaving)}
-                    </span>
-                  </span>
-                )}
-              </button>
-            )}
-
-            {onOpenShortcuts && (
-              <button
-                type="button"
-                role="menuitem"
-                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-pill text-xs font-mono text-left cursor-pointer transition-colors hover:bg-primary hover:text-secondary active:scale-[0.98]"
-                onClick={() => {
-                  haptic("light");
-                  setMoreOpen(false);
-                  setIsClosing(false);
-                  onOpenShortcuts();
-                }}
-              >
-                <Keyboard size={15} className="shrink-0" aria-hidden="true" />
-                <span>Keyboard shortcuts</span>
-              </button>
-            )}
-          </div>
-        </div>,
-        document.body
-      )
-    : null;
 
   if (isDesktop) {
     return (
@@ -542,7 +423,6 @@ export default function GalleryToolbar({
             />
           </div>
         </div>
-        {moreMenuPortal}
       </div>
     );
   }
@@ -571,7 +451,6 @@ export default function GalleryToolbar({
           className="w-full"
         />
       </div>
-      {moreMenuPortal}
     </div>
   );
 }

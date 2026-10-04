@@ -15,6 +15,12 @@ import { ICON_SIZE } from "../../lib/ui-tokens.js";
  * @property {boolean} [disabled] Greyed out and skipped by the arrow keys (menu mode).
  * @property {string} [sub] Second line under the label (menu mode).
  * @property {string} [note] Small text at the right edge (menu mode).
+ * @property {import("react").ReactNode} [content] Replaces the label, `sub` and
+ *   `note` inside the option's button (menu mode), for a row that animates.
+ *   Keep `label` set: it is the fallback and what tests find.
+ * @property {boolean} [keepOpen] Picking it runs `onChange` but leaves the menu
+ *   open (menu mode). The caller owns the haptic, since the row's own action
+ *   usually has a stronger one.
  */
 
 /**
@@ -47,6 +53,9 @@ import { ICON_SIZE } from "../../lib/ui-tokens.js";
  *   no selected state, and `onChange` fires with the picked option's value.
  *   Arrow keys on the trigger open it and move through it.
  * @property {string} [menuLabel] Accessible name of the menu list.
+ * @property {import("react").ReactNode} [menuHeader] Controls shown above the
+ *   options inside the menu (menu mode), such as a segmented control. Clicks in
+ *   it never close the menu.
  * @property {boolean} [open] Controlled open state (drag-hover opens, shortcuts).
  *   Changes follow the prop; `onOpenChange` reports the other direction.
  * @property {(open: boolean) => void} [onOpenChange]
@@ -76,6 +85,7 @@ export default function Dropdown({
   id,
   menu = false,
   menuLabel,
+  menuHeader,
   open: openProp,
   onOpenChange,
   optionProps,
@@ -205,6 +215,10 @@ export default function Dropdown({
   }, [isOpen, updatePosition]);
 
   const handleSelect = (optionValue) => {
+    if (menu && options.find((o) => o.value === optionValue)?.keepOpen) {
+      onChange(optionValue);
+      return;
+    }
     haptic("selection");
     onChange(optionValue);
     close();
@@ -348,6 +362,11 @@ export default function Dropdown({
               )}
               tabIndex={-1}
             >
+              {menu && menuHeader ? (
+                <li role="none" data-slot="dropdown-header" className={cn("px-4 pt-3", options.length ? "pb-2" : "pb-3")}>
+                  {menuHeader}
+                </li>
+              ) : null}
               {options.map((option, i) => {
                 const { className: extraClass, ...extraProps } = optionProps?.(option) || {};
                 const showGroup = menu && option.group && option.group !== options[i - 1]?.group;
@@ -387,7 +406,9 @@ export default function Dropdown({
                       )}
                     >
                       {option.icon ? <option.icon size={ICON_SIZE.sm} aria-hidden="true" className="shrink-0" /> : null}
-                      {menu && (option.sub || option.note) ? (
+                      {menu && option.content ? (
+                        option.content
+                      ) : menu && (option.sub || option.note) ? (
                         <>
                           <span className="min-w-0 flex-1">
                             <span className="block truncate">{option.label}</span>

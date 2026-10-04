@@ -159,7 +159,7 @@ describe("GalleryToolbar", () => {
 
     fireEvent.keyDown(document, { key: "Escape" });
     // Menu enters closing animation
-    expect(screen.getByRole("menu", { name: /More options/i })).toHaveClass("animate-dropdown-close");
+    expect(screen.getByRole("menu", { name: /More options/i }).closest("[data-slot=dropdown-menu]")).toHaveClass("animate-dropdown-close");
   });
 
   it("offers Rescan drives in the More menu and triggers rescan without closing the menu", async () => {
@@ -226,6 +226,6 @@ describe("GalleryToolbar", () => {
     expect(screen.getByRole("menu", { name: /More options/i })).toBeInTheDocument();
 
     fireEvent.mouseDown(document.body);
-    expect(screen.getByRole("menu", { name: /More options/i })).toHaveClass("animate-dropdown-close");
+    expect(screen.getByRole("menu", { name: /More options/i }).closest("[data-slot=dropdown-menu]")).toHaveClass("animate-dropdown-close");
   });
 });

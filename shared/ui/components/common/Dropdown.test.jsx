@@ -115,4 +115,35 @@ describe("Dropdown (menu mode)", () => {
     fireEvent.keyDown(trigger, { key: "Enter" });
     expect(onChange).toHaveBeenCalledWith("c");
   });
+
+  it("shows header controls and custom rows, and keepOpen rows leave the menu open", () => {
+    const onChange = vi.fn();
+    render(
+      <Dropdown
+        menu
+        menuLabel="Actions"
+        value=""
+        onChange={onChange}
+        aria-label="Open"
+        menuHeader={<button type="button">Density 4</button>}
+        options={[
+          { value: "scan", label: "Scan", keepOpen: true, content: <span>Scanning now</span> },
+          { value: "go", label: "Go" },
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+    const menu = screen.getByRole("menu", { name: "Actions" });
+    // A click in the header never closes the menu or counts as a pick.
+    fireEvent.click(within(menu).getByRole("button", { name: "Density 4" }));
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Scanning now" }));
+    expect(onChange).toHaveBeenCalledWith("scan");
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Go" }));
+    expect(onChange).toHaveBeenLastCalledWith("go");
+  });
 });
