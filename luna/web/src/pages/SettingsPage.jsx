@@ -12,6 +12,7 @@ import useSettingsSearch from "../components/settings/useSettingsSearch.jsx";
 import { visibleCategories } from "../components/settings/settingsCategories";
 import { useAuth } from "../context/AuthContext";
 import useConnectActive from "../hooks/useConnectActive";
+import usePageTitle from "../hooks/usePageTitle.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 /** Hash without `#`. In-app Links use history.push, so we read the router location. */
@@ -60,6 +61,8 @@ export default function SettingsPage() {
     ? selectedCategory
     : defaultCategory;
   const [showMobileContent, setShowMobileContent] = useState(() => Boolean(hashCategory));
+  const activeLabel = categories.find((c) => c.id === activeCategory)?.label;
+  usePageTitle(activeLabel ? `${activeLabel} settings` : "Settings");
 
   // React Router Link updates location.hash via pushState — no hashchange event —
   // and Settings stays mounted (same pathname). Follow the router hash.

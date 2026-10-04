@@ -23,6 +23,7 @@ import Card from "@libreloom/ui/components/cards/Card.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import ModalErrorNotice from "@libreloom/ui/components/common/ModalErrorNotice.jsx";
 import useStrandedErrorToast from "../hooks/useStrandedErrorToast";
+import usePageTitle from "../hooks/usePageTitle.js";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { showPageLevelError } from "../lib/modalScopedError";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
@@ -1268,6 +1269,9 @@ export default function GalleryPage() {
   }, []);
 
   const lightboxPhotos = photos;
+  const lightboxName = lightbox ? lightboxPhotos.find((p) => photoSelectionKey(p) === lightbox.key)?.name : null;
+  usePageTitle(lightboxName || albumView?.name || viewLabel || "Photos");
+
   const lightboxIndex = lightbox
     ? Math.max(0, lightboxPhotos.findIndex((p) => photoSelectionKey(p) === lightbox.key))
     : 0;

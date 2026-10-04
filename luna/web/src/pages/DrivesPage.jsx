@@ -27,6 +27,7 @@ import { InfoHint, TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import useStrandedErrorToast from "../hooks/useStrandedErrorToast";
+import usePageTitle from "../hooks/usePageTitle.js";
 import { apiErrorMessage, getDrives, getJson, postJson } from "../lib/api";
 import { withDevMockDetected, isMockUnknownDrive, mockInspectResult } from "../lib/devMockDrives.js";
 import { describeDriveHealth } from "../lib/driveHealth";
@@ -475,6 +476,7 @@ function driveStatusMessage(drive) {
 }
 
 export default function DrivesPage() {
+  usePageTitle("Files");
   const { addToast } = useToast();
   const queryClient = useQueryClient();
   const { user } = useAuth();

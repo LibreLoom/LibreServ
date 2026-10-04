@@ -18,9 +18,11 @@ import { useAuth } from "../context/AuthContext";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import CreateUserForm from "../components/common/forms/CreateUserForm";
 import useStrandedErrorToast from "../hooks/useStrandedErrorToast";
+import usePageTitle from "../hooks/usePageTitle.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 
 export default function UsersPage() {
+  usePageTitle("Users");
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { user } = useAuth();

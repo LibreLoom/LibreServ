@@ -25,6 +25,7 @@ import {
   sharedItemHref,
 } from "../lib/access.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
+import usePageTitle from "../hooks/usePageTitle.js";
 
 // Same carousel as the form builder's tabs: Manage sharing sits right of
 // Shared with you, so going there pushes the list left and the new one follows
@@ -55,6 +56,7 @@ function CapsPill({ caps, album, file }) {
 }
 
 export default function SharedPage() {
+  usePageTitle("Shared");
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const navigate = useNavigate();

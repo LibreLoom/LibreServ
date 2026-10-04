@@ -30,6 +30,7 @@ import {
   recentItemName,
 } from "../lib/recentItems.js";
 import useConnectActive from "../hooks/useConnectActive.js";
+import usePageTitle from "../hooks/usePageTitle.js";
 import InspectModal from "../components/files/InspectModal.jsx";
 import { releaseInspectedDrive } from "../lib/drives.js";
 import { isMockUnknownDrive, mockInspectResult, withDevMockDetected } from "../lib/devMockDrives.js";
@@ -626,6 +627,7 @@ export default function DashboardPage() {
   const { addToast } = useToast();
   const queryClient = useQueryClient();
   const greeting = useMemo(() => getGreeting(), []);
+  usePageTitle("Dashboard");
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const connectActive = useConnectActive();

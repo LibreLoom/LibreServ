@@ -24,6 +24,7 @@ import PhotoLightbox, {
   resolveDownloadSrc,
 } from "../components/gallery/PhotoLightbox.jsx";
 import useMultiSelect, { photoSelectionKey } from "../hooks/useMultiSelect.js";
+import usePageTitle from "../hooks/usePageTitle.js";
 
 
 const UPLOAD_PARALLEL = 2;
@@ -63,6 +64,7 @@ function PublicShareSession() {
   const [error, setError] = useState("");
   /** The link's meta payload: { kind, name?, size?, item_count?, caps }. */
   const [meta, setMeta] = useState(null);
+  usePageTitle(meta?.name || "Shared with you");
   /** Resolved `kind: "form"` payload — a respond link mounts the responder. */
   const [formDoc, setFormDoc] = useState(null);
   const [loading, setLoading] = useState(true);

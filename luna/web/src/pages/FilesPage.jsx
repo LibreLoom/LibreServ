@@ -22,6 +22,7 @@ import {
 import { folderHref, isTrashPath, pathBasename, TRASH_PATH, trashDisplayName } from "../lib/paths";
 import useFileNavigation from "../hooks/useFileNavigation.js";
 import useMovedLinkForwarding from "../hooks/useMovedLinkForwarding.js";
+import usePageTitle from "../hooks/usePageTitle.js";
 import { useAuth } from "../context/AuthContext";
 import { CAP, hasCapOnDrive, memberWritableRoots } from "../lib/shareTree.js";
 import { isPresentDrive } from "../lib/drives.js";
@@ -127,6 +128,13 @@ export default function FilesPage() {
     : (path ? pathBasename(path) : drive?.label);
 
   useStrandedErrorToast(actionError, false, () => setActionError(null));
+
+  // The most specific thing open: the file, else the folder, else the drive.
+  const openName = viewerPath ?? path;
+  const openLabel = inTrash
+    ? (openName === TRASH_PATH ? "Trash" : trashDisplayName(openName))
+    : pathBasename(openName);
+  usePageTitle(openLabel || drive?.label || "Files");
 
   return (
     <Page

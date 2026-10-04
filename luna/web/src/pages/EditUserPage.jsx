@@ -19,6 +19,7 @@ import { apiErrorMessage, deleteJson, getJson, patchJson } from "../lib/api";
 import { DISPLAY_NAME_MAX, USERNAME_POLICY_HINT, isValidUsername } from "../lib/usernamePolicy";
 import { useAuth } from "../context/AuthContext";
 import FormInput from "../components/common/forms/FormInput";
+import usePageTitle from "../hooks/usePageTitle.js";
 
 const ROLE_OPTIONS = [
   { value: "user", label: "Member" },
@@ -43,6 +44,9 @@ export default function EditUserPage() {
     queryKey: ["users"],
     queryFn: () => getJson("/api/v1/users"),
   });
+
+  const titled = (users.data || []).find((u) => u.id === id);
+  usePageTitle(titled ? `Edit ${titled.display_name || titled.username}` : "Edit user");
 
   if (id === me?.id) return <Navigate to="/settings#security" replace />;
 

@@ -7,6 +7,7 @@ import Card from "@libreloom/ui/components/cards/Card.jsx";
 import StepTransition from "@libreloom/ui/components/common/StepTransition.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import FormInput from "../components/common/forms/FormInput";
+import usePageTitle from "../hooks/usePageTitle.js";
 
 const LOGIN_STEPS = ["form"];
 
@@ -16,6 +17,7 @@ function getLoginQuip() {
 }
 
 export default function LoginPage() {
+  usePageTitle("Sign in");
   const { addToast } = useToast();
   const navigate = useNavigate();
   const location = useLocation();

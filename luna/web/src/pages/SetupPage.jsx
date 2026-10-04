@@ -37,6 +37,7 @@ import TextLink from "../components/ui/TextLink";
 import PasswordStrengthChecklist from "@libreloom/ui/components/common/PasswordStrengthChecklist.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
+import usePageTitle from "../hooks/usePageTitle.js";
 
 // ─── Step constants ───────────────────────────────────────────────────────────
 const STEP = {
@@ -874,6 +875,7 @@ const STEP_ORDER = [
 ];
 
 export default function SetupPage() {
+  usePageTitle("Set up");
   const navigate = useNavigate();
   const { user, refresh } = useAuth();
   // null until saved progress is loaded — avoids flashing Welcome over a resume.

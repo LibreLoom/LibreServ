@@ -45,6 +45,7 @@ import IconCircle from "@libreloom/ui/components/ui/IconCircle.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
+import usePageTitle from "../hooks/usePageTitle.js";
 
 /* ======================================================================
    Where people meant to go
@@ -341,6 +342,7 @@ function FindFile({ initialTerm, user, className }) {
    ====================================================================== */
 
 export default function NotFoundPage() {
+  usePageTitle("Page not found");
   const location = useLocation();
   const navigate = useNavigate();
   const { user, loading } = useAuth();
