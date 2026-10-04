@@ -48,7 +48,10 @@ impl JailedFs {
 
     fn rel(path: &DavPath) -> FsResult<String> {
         let p = path.as_rel_ospath();
-        p.to_str().map(str::to_string).ok_or(FsError::Forbidden)
+        let s = p.to_str().ok_or(FsError::Forbidden)?;
+        // The one spelling REST, grants and private rows agree on: `a//b`
+        // ≡ `a/b`, `.` folds away, `..` and `\` are refused outright.
+        crate::files::canonical_rel(s).map_err(|_| FsError::Forbidden)
     }
 
     fn map_err(err: PathError) -> FsError {
@@ -1558,5 +1561,51 @@ mod tests {
                 .modified()
                 .unwrap()
         );
+    }
+
+    /// A WebDAV path lands in the one canonical form REST, grants and
+    /// private rows agree on: `a//b` and `a/./b` are `a/b`, while `\` and
+    /// `..` are refused outright — never reinterpreted as separators.
+    #[tokio::test]
+    async fn dav_rel_uses_the_one_canonical_form() {
+        let fx = fixture();
+        std::fs::create_dir_all(fx.root.join("a")).unwrap();
+        std::fs::write(fx.root.join("a/b.txt"), b"b").unwrap();
+        let fs = GrantFs::new(&fx.root, admin(), fx.drive_id.clone(), fx.db.clone());
+
+        for (raw, want) in [
+            ("/a//b.txt", "a/b.txt"),
+            ("/a/./b.txt", "a/b.txt"),
+            ("/a/b.txt/", "a/b.txt"),
+        ] {
+            let p = DavPath::new(raw).unwrap();
+            assert_eq!(JailedFs::rel(&p).unwrap(), want, "{raw}");
+        }
+        fs.symlink_metadata(&davpath("a//b.txt")).await.unwrap();
+
+        // `\` stays refused outright — never a separator.
+        if let Ok(p) = DavPath::new("/a\\b.txt") {
+            assert!(JailedFs::rel(&p).is_err(), "a backslash must fail");
+        }
+        // DavPath resolves `..` when it parses, so `rel` only ever sees
+        // the already-folded path — the escape can never reach us.
+        for (raw, want) in [("/a/../b.txt", "b.txt"), ("/a//../b.txt", "b.txt")] {
+            let p = DavPath::new(raw).unwrap();
+            assert_eq!(JailedFs::rel(&p).unwrap(), want, "{raw}");
+        }
+
+        // The trash dir's real name is reserved over DAV, same as every
+        // `.luna-*` internal — the API alias is the only way into trash.
+        let prefix = crate::drives::drive_db::prefix_for(&fx.root).unwrap();
+        let err = fs
+            .symlink_metadata(&davpath(&format!("{prefix}-trash")))
+            .await
+            .unwrap_err();
+        assert_eq!(err, FsError::NotFound);
+        let err = fs
+            .create_dir(&davpath(&format!("{prefix}-trash/x")))
+            .await
+            .unwrap_err();
+        assert_eq!(err, FsError::Forbidden);
     }
 }

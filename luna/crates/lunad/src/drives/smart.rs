@@ -14,6 +14,9 @@ pub struct DriveHealth {
     pub serial: Option<String>,
     pub temperature_c: Option<i64>,
     pub reallocated_sectors: Option<u64>,
+    /// smartctl exit bits 2-7 — the drive findings (failing, past-fail,
+    /// error-log entries). Zero on a clean read; kept for diagnosis.
+    pub status_bits: u8,
 }
 
 /// True when this block device is a rotational hard drive worth a SMART read.
@@ -84,6 +87,7 @@ pub fn read(device: &str) -> DriveHealth {
             serial: None,
             temperature_c: None,
             reallocated_sectors: None,
+            status_bits: 0,
         };
     }
     let mut health = DriveHealth {
@@ -93,6 +97,7 @@ pub fn read(device: &str) -> DriveHealth {
         serial: None,
         temperature_c: None,
         reallocated_sectors: None,
+        status_bits: 0,
     };
     let Ok(output) = Command::new("smartctl")
         .args([
@@ -105,12 +110,30 @@ pub fn read(device: &str) -> DriveHealth {
     else {
         return health;
     };
-    if !output.status.success() {
+    // smartctl exits with a bitmask: bits 0-1 mean the command itself failed
+    // (bad args, device unreadable) — stdout is unusable. Bits 2-7 are drive
+    // findings (failing, past-fail, error logs) that still come with full
+    // output, so parse it and report the failing state instead of going
+    // silent.
+    let code = output.status.code().unwrap_or(-1);
+    if !smartctl_output_usable(code) {
         return health;
     }
     health.available = true;
+    health.status_bits = (code & 0b1111_1100) as u8;
     parse(&String::from_utf8_lossy(&output.stdout), &mut health);
+    // Bits 2-3 are live failing verdicts — surface them even when the -H
+    // line was missing or contradicted by the attribute table.
+    if code & 0b1100 != 0 {
+        health.overall = "failed".into();
+    }
     health
+}
+
+/// Exit-status bitmask per smartctl(8): only bits 0-1 (bad command line,
+/// device open/parse failure) mean the output can't be trusted.
+fn smartctl_output_usable(code: i32) -> bool {
+    code >= 0 && code & 0b11 == 0
 }
 
 fn parse(output: &str, health: &mut DriveHealth) {
@@ -214,6 +237,7 @@ ID# ATTRIBUTE_NAME          FLAG     VALUE WORST THRESH TYPE      UPDATED  WHEN_
             serial: None,
             temperature_c: None,
             reallocated_sectors: None,
+            status_bits: 0,
         };
         parse(output, &mut h);
         assert_eq!(h.overall, "passed");
@@ -221,5 +245,18 @@ ID# ATTRIBUTE_NAME          FLAG     VALUE WORST THRESH TYPE      UPDATED  WHEN_
         assert_eq!(h.serial.as_deref(), Some("ABC123"));
         assert_eq!(h.temperature_c, Some(31));
         assert_eq!(h.reallocated_sectors, Some(0));
+    }
+
+    #[test]
+    fn smartctl_drive_findings_keep_their_output() {
+        // Bits 0-1 = command failures → unusable. Bits 2-7 = drive findings
+        // (failing, past-fail, error logs) → stdout is still complete.
+        assert!(smartctl_output_usable(0));
+        for code in [0b100, 0b1000, 0b1_0000, 0b10_0000, 0b100_0000, 0b1111_1100] {
+            assert!(smartctl_output_usable(code), "{code:#09b}");
+        }
+        for code in [1, 2, 3, -1] {
+            assert!(!smartctl_output_usable(code), "{code}");
+        }
     }
 }

@@ -181,7 +181,10 @@ pub fn create_scoped(
         ))
         .into());
     }
-    let dir = files::dest_dir_create(conn, drive_id, dest_path)?;
+    // The stored path is the canonical one the jail resolves — an upload
+    // row and the directory it lands in must never disagree.
+    let dest_path = files::canonical_rel(dest_path).map_err(UploadError::Files)?;
+    let dir = files::dest_dir_create(conn, drive_id, &dest_path)?;
     let id = Uuid::new_v4().to_string();
     let temp = temp_for(conn, drive_id, &dir, &id)?;
 
@@ -196,7 +199,7 @@ pub fn create_scoped(
         &drive_conn,
         &id,
         drive_id,
-        dest_path,
+        &dest_path,
         &name,
         size,
         principal,
@@ -205,7 +208,7 @@ pub fn create_scoped(
     Ok(Upload {
         id,
         drive_id: drive_id.into(),
-        path: dest_path.into(),
+        path: dest_path,
         name,
         size,
         received: 0,

@@ -72,6 +72,17 @@ fn join(parent: &str, name: &str) -> String {
     }
 }
 
+/// The one spelling a private path may take: empty and `.` segments fold
+/// away, so `a//b`, `a/./b`, `a/b/` are all `a/b`. Rows are keyed on it —
+/// every lookup must ask in this form, or two spellings of one item could
+/// answer against different rows.
+fn canonical(path: &str) -> String {
+    path.split('/')
+        .filter(|s| !s.is_empty() && *s != ".")
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
 /// Is `path` equal to `base` or inside it?
 fn within(path: &str, base: &str) -> bool {
     base.is_empty()
@@ -103,7 +114,8 @@ fn load(root: &Path) -> Option<Rows> {
         by_path: HashMap::new(),
     };
     for item in items {
-        rows.by_path.insert(item.path.clone(), item);
+        let path = canonical(&item.path);
+        rows.by_path.insert(path.clone(), Item { path, ..item });
     }
     reconcile(&conn, &mut rows);
     Some(rows)
@@ -227,21 +239,23 @@ fn read<T>(root: &Path, f: impl FnOnce(&Rows) -> T) -> Option<T> {
 
 /// The row for a real path, if that exact path is private.
 pub fn item_at(root: &Path, path: &str) -> Option<Item> {
-    read(root, |r| r.by_path.get(path.trim_matches('/')).cloned()).flatten()
+    let path = canonical(path);
+    read(root, |r| r.by_path.get(&path).cloned()).flatten()
 }
 
 /// Translate a real path into its on-disk path by swapping every private
 /// segment for its `.luna-<uuid>-<id>` name. Paths with no private segment
 /// come back unchanged.
 pub fn disk_rel(root: &Path, rel: &str) -> String {
+    let rel = canonical(rel);
     read(root, |r| {
         if r.by_path.is_empty() {
-            rel.to_string()
+            rel.clone()
         } else {
-            disk_in(&r.by_path, &r.prefix, rel)
+            disk_in(&r.by_path, &r.prefix, &rel)
         }
     })
-    .unwrap_or_else(|| rel.to_string())
+    .unwrap_or(rel)
 }
 
 /// Owner of a boundary that nobody may cross: a path that spells out an
@@ -268,7 +282,8 @@ pub struct Boundary {
 /// The deepest private item at or above `rel` (a real path, trash paths
 /// included).
 pub fn boundary_for(root: &Path, rel: &str) -> Option<Boundary> {
-    read(root, |r| boundary_in(r, rel)).flatten()
+    let rel = canonical(rel);
+    read(root, |r| boundary_in(r, &rel)).flatten()
 }
 
 fn boundary_in(r: &Rows, rel: &str) -> Option<Boundary> {
@@ -278,7 +293,7 @@ fn boundary_in(r: &Rows, rel: &str) -> Option<Boundary> {
     let lead = format!("{}-", r.prefix);
     let mut logical = String::new();
     let mut found = None;
-    for seg in rel.split('/').filter(|s| !s.is_empty()) {
+    for seg in rel.split('/').filter(|s| !s.is_empty() && *s != ".") {
         // A path that names the disk entry itself is not how anyone reaches
         // a private item: it belongs to nobody.
         if seg.strip_prefix(&lead).is_some_and(is_disk_id) {
@@ -313,7 +328,7 @@ fn resolved_ok(root: &Path, rel: &str, resolved: &Path) -> bool {
             return false;
         };
         let target = logical_in(r, disk);
-        let a = boundary_in(r, rel).map(|b| b.path);
+        let a = boundary_in(r, &canonical(rel)).map(|b| b.path);
         let b = boundary_in(r, &target).map(|b| b.path);
         a == b
     })
@@ -348,7 +363,7 @@ pub fn sibling_clash(dest: &Path) -> bool {
 fn disk_in(by_path: &HashMap<String, Item>, prefix: &str, rel: &str) -> String {
     let mut logical = String::new();
     let mut disk = String::new();
-    for seg in rel.split('/').filter(|s| !s.is_empty()) {
+    for seg in rel.split('/').filter(|s| !s.is_empty() && *s != ".") {
         logical = join(&logical, seg);
         let on_disk = match by_path.get(&logical) {
             Some(item) => disk_name(prefix, &item.id),
@@ -412,7 +427,7 @@ fn logical_in(r: &Rows, disk: &str) -> String {
     let by_id: HashMap<&str, &Item> = r.by_path.values().map(|i| (i.id.as_str(), i)).collect();
     let lead = format!("{}-", r.prefix);
     let mut out = String::new();
-    for seg in disk.split('/').filter(|s| !s.is_empty()) {
+    for seg in disk.split('/').filter(|s| !s.is_empty() && *s != ".") {
         let item = seg.strip_prefix(&lead).and_then(|id| by_id.get(id));
         out = match item {
             Some(item) => item.path.clone(),
@@ -424,10 +439,9 @@ fn logical_in(r: &Rows, disk: &str) -> String {
 
 /// The on-disk name of the private item at exactly `path`.
 pub fn disk_leaf(root: &Path, path: &str) -> Option<String> {
+    let path = canonical(path);
     read(root, |r| {
-        r.by_path
-            .get(path.trim_matches('/'))
-            .map(|i| disk_name(&r.prefix, &i.id))
+        r.by_path.get(&path).map(|i| disk_name(&r.prefix, &i.id))
     })
     .flatten()
 }
@@ -449,7 +463,7 @@ pub fn prefix_of(root: &Path) -> Option<String> {
 /// Real names of the private entries sitting directly in directory
 /// `parent`, keyed by their on-disk name.
 pub fn children_of(root: &Path, parent: &str) -> HashMap<String, Item> {
-    let parent = parent.trim_matches('/');
+    let parent = canonical(parent);
     read(root, |r| {
         r.by_path
             .values()
@@ -462,11 +476,11 @@ pub fn children_of(root: &Path, parent: &str) -> HashMap<String, Item> {
 
 /// Every private item at or below `path` (a folder and what it holds).
 pub fn under(root: &Path, path: &str) -> Vec<Item> {
-    let path = path.trim_matches('/');
+    let path = canonical(path);
     read(root, |r| {
         r.by_path
             .values()
-            .filter(|i| within(&i.path, path))
+            .filter(|i| within(&i.path, &path))
             .cloned()
             .collect()
     })
@@ -738,7 +752,7 @@ pub fn purge_orphan(conn: &rusqlite::Connection, user_id: &str) -> anyhow::Resul
                 failed = true;
                 continue;
             }
-            crate::files::forget_trash_entry(conn, &drive.id, &path);
+            crate::files::forget_trash_entry(conn, &drive.id, &api_path(root, &path));
             crate::access::drop_subjects_under(conn, &drive.id, &api_path(root, &path))?;
         }
         crate::files::note_write(conn, &drive.id, "");
@@ -949,7 +963,7 @@ pub fn create(root: &Path, path: &str, owner: &str) -> anyhow::Result<Item> {
 /// [`create`] with the id chosen by the caller, who names the disk entry
 /// after it.
 pub fn create_with_id(root: &Path, path: &str, owner: &str, id: &str) -> anyhow::Result<Item> {
-    let path = path.trim_matches('/').to_string();
+    let path = canonical(path);
     let s = shared(root).ok_or_else(|| anyhow::anyhow!("drive has no Luna marker"))?;
     let item = Item {
         id: id.to_string(),
@@ -970,21 +984,21 @@ pub fn create_with_id(root: &Path, path: &str, owner: &str, id: &str) -> anyhow:
 
 /// Remove the row at `path` (after its disk entry is gone).
 pub fn remove(root: &Path, path: &str) -> anyhow::Result<()> {
-    let path = path.trim_matches('/');
+    let path = canonical(path);
     let Some(s) = shared(root) else { return Ok(()) };
     let conn = crate::drives::drive_db::open(root)?;
     let id = s
         .read()
         .map_err(|_| anyhow::anyhow!("private items lock poisoned"))?
         .by_path
-        .get(path)
+        .get(&path)
         .map(|i| i.id.clone());
     if let Some(id) = id {
         conn.execute("DELETE FROM private_items WHERE id = ?1", params![id])?;
         s.write()
             .map_err(|_| anyhow::anyhow!("private items lock poisoned"))?
             .by_path
-            .remove(path);
+            .remove(&path);
     }
     Ok(())
 }
@@ -999,14 +1013,14 @@ pub fn remove_under(root: &Path, path: &str) -> anyhow::Result<()> {
 
 /// Give an ownerless private item (or any, for an Admin) a new owner.
 pub fn set_owner(root: &Path, path: &str, owner: &str) -> anyhow::Result<bool> {
-    let path = path.trim_matches('/');
+    let path = canonical(path);
     let Some(s) = shared(root) else {
         return Ok(false);
     };
     let mut g = s
         .write()
         .map_err(|_| anyhow::anyhow!("private items lock poisoned"))?;
-    let Some(item) = g.by_path.get_mut(path) else {
+    let Some(item) = g.by_path.get_mut(&path) else {
         return Ok(false);
     };
     let conn = crate::drives::drive_db::open(root)?;
@@ -1021,7 +1035,7 @@ pub fn set_owner(root: &Path, path: &str, owner: &str) -> anyhow::Result<bool> {
 /// Re-key rows after `from` moved or was renamed to `to` (a folder carries
 /// everything inside it). Disk entries keep their ids; only paths change.
 pub fn repath(root: &Path, from: &str, to: &str) -> anyhow::Result<()> {
-    let (from, to) = (from.trim_matches('/'), to.trim_matches('/'));
+    let (from, to) = (canonical(from), canonical(to));
     if from == to {
         return Ok(());
     }
@@ -1033,7 +1047,7 @@ pub fn repath(root: &Path, from: &str, to: &str) -> anyhow::Result<()> {
     let moved: Vec<Item> = g
         .by_path
         .values()
-        .filter(|i| within(&i.path, from))
+        .filter(|i| within(&i.path, &from))
         .cloned()
         .collect();
     if moved.is_empty() {
@@ -1117,6 +1131,55 @@ mod tests {
         assert!(within("a/b", "a"));
         assert!(within("a", "a"));
         assert!(!within("ab", "a"));
+    }
+
+    #[test]
+    fn every_spelling_of_one_path_hits_the_same_row() {
+        let r = rows(".luna-x", &[("aaa", "Docs"), ("bbb", "Docs/Taxes")]);
+        // `//`, `.` and stray slashes name the same item — the row key, the
+        // boundary walk and the disk translation must all agree, or a check
+        // under one spelling would open a file under another.
+        for rel in ["Docs", "/Docs", "Docs/", "/Docs/", "Docs/./", "./Docs"] {
+            assert_eq!(translate(&r, rel), ".luna-x-aaa", "{rel:?}");
+        }
+        for rel in ["Docs/Taxes", "Docs//Taxes", "Docs/./Taxes", "Docs//Taxes/"] {
+            assert_eq!(translate(&r, rel), ".luna-x-aaa/.luna-x-bbb", "{rel:?}");
+            assert_eq!(boundary_in(&r, rel).unwrap().path, "Docs/Taxes", "{rel:?}");
+        }
+        // The reverse translation folds the same segments.
+        assert_eq!(logical_in(&r, ".luna-x-aaa//.luna-x-bbb"), "Docs/Taxes");
+        assert_eq!(logical_in(&r, ".luna-x-aaa/./leaf.txt"), "Docs/leaf.txt");
+    }
+
+    #[test]
+    fn private_rows_answer_alternate_spellings() {
+        // One canonical key: a row stored for `a` answers `a//`, `a/./`
+        // and `a/` identically — no spelling can see a different item, so
+        // authorization and the disk path can never disagree.
+        install();
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("d");
+        std::fs::create_dir(&root).unwrap();
+        let prefix = luna_core::marker::pick_prefix(&root).unwrap();
+        crate::drives::drive_db::create(&root, &luna_core::marker::Marker::new("d", "d"), &prefix)
+            .unwrap();
+        std::fs::create_dir(root.join("a")).unwrap();
+        privatize(&root, "a", "alice").unwrap();
+
+        for rel in ["a", "a/", "a//", "a/./", "/a"] {
+            assert!(item_at(&root, rel).is_some(), "item_at({rel:?})");
+            assert_eq!(disk_rel(&root, rel), disk_rel(&root, "a"), "{rel:?}");
+            assert!(boundary_for(&root, rel).is_some(), "boundary_for({rel:?})");
+            assert_eq!(under(&root, rel).len(), 1, "under({rel:?})");
+        }
+        assert_eq!(children_of(&root, "").len(), 1);
+        assert!(set_owner(&root, "a//", "bob").unwrap());
+        // A repath under a doubled-separator spelling re-keys the row too.
+        repath(&root, "a//", "b").unwrap();
+        assert!(item_at(&root, "a").is_none());
+        assert_eq!(item_at(&root, "b").unwrap().owner, "bob");
+        unprivatize(&root, "b").unwrap();
+        assert!(item_at(&root, "b").is_none());
     }
 
     fn fixture() -> (tempfile::TempDir, crate::AppState) {

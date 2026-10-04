@@ -190,17 +190,28 @@ fn mount_lunaassets() -> Result<AssetsMount, ()> {
         })
         .ok_or(())?;
 
+    // LABEL= is forgeable — only trust the magazine on the removable
+    // install media, never on the boot disk or a fixed drive.
+    if !crate::system::updates::device_is_factory_media(&dev) {
+        return Err(());
+    }
+
     let tmp = std::env::temp_dir().join(format!("luna-assets-{}", std::process::id()));
     std::fs::create_dir_all(&tmp).map_err(|_| ())?;
     let ok = Command::new("mount")
-        .args(["-t", "vfat", "-o", "rw,utf8,umask=000"])
+        .args([
+            "-t",
+            "vfat",
+            "-o",
+            "rw,utf8,fmask=0133,dmask=0022,noexec,nosuid,nodev",
+        ])
         .arg(&dev)
         .arg(&tmp)
         .status()
         .map(|s| s.success())
         .unwrap_or(false)
         || Command::new("mount")
-            .args(["-o", "rw,umask=000"])
+            .args(["-o", "rw,noexec,nosuid,nodev"])
             .arg(&dev)
             .arg(&tmp)
             .status()

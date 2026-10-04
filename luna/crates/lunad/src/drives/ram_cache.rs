@@ -753,6 +753,16 @@ impl RamCache {
             let _ = std::fs::remove_file(&temp);
             return Err(e);
         }
+        // A delete could have landed between the check above and the rename —
+        // a cancelled file must not survive on the drive.
+        let cancelled = {
+            let g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+            g.dirty.get(key).is_none_or(|d| d.cancelled)
+        };
+        if cancelled {
+            let _ = std::fs::remove_file(&dest);
+            return Ok(false);
+        }
         Ok(true)
     }
 

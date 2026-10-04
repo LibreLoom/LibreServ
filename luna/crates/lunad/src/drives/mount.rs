@@ -126,7 +126,10 @@ impl Mounter for CommandMounter {
 }
 
 /// Arguments for `mount`, one per element, never shell-interpreted.
+/// Every lunad-created mount gets noexec/nosuid/nodev — adopted drives
+/// only ever serve files through the daemon.
 fn mount_args(device: &str, target: &Path, read_only: bool, fs_type: Option<&str>) -> Vec<String> {
+    const HARDEN: &str = "noexec,nosuid,nodev";
     let mode = if read_only { "ro" } else { "rw" };
     let fs = fs_type.unwrap_or("").trim().to_ascii_lowercase();
     let mut args = Vec::new();
@@ -142,9 +145,11 @@ fn mount_args(device: &str, target: &Path, read_only: bool, fs_type: Option<&str
     }
     args.push("-o".to_string());
     if matches!(fs.as_str(), "vfat" | "fat" | "fat32" | "msdos") {
-        args.push(format!("{mode},utf8,umask=000"));
+        // vfat has no permission bits: map to the usual 644/755 so files
+        // are daemon-owned, not world-everything.
+        args.push(format!("{mode},utf8,fmask=0133,dmask=0022,{HARDEN}"));
     } else {
-        args.push(mode.to_string());
+        args.push(format!("{mode},{HARDEN}"));
     }
     args.push(device.to_string());
     args.push(target.to_string_lossy().into_owned());
@@ -153,9 +158,9 @@ fn mount_args(device: &str, target: &Path, read_only: bool, fs_type: Option<&str
 
 fn remount_args(target: &Path, read_only: bool) -> Vec<String> {
     let mode = if read_only {
-        "remount,ro"
+        "remount,ro,noexec,nosuid,nodev"
     } else {
-        "remount,rw"
+        "remount,rw,noexec,nosuid,nodev"
     };
     vec![
         "-o".to_string(),
@@ -272,11 +277,21 @@ mod tests {
     fn an_unknown_filesystem_lets_mount_detect_it() {
         assert_eq!(
             args("/dev/sdb1", false, None),
-            ["-o", "rw", "/dev/sdb1", "/run/luna/mnt/d1"]
+            [
+                "-o",
+                "rw,noexec,nosuid,nodev",
+                "/dev/sdb1",
+                "/run/luna/mnt/d1"
+            ]
         );
         assert_eq!(
             args("/dev/sdb1", true, Some("")),
-            ["-o", "ro", "/dev/sdb1", "/run/luna/mnt/d1"]
+            [
+                "-o",
+                "ro,noexec,nosuid,nodev",
+                "/dev/sdb1",
+                "/run/luna/mnt/d1"
+            ]
         );
     }
 
@@ -284,12 +299,17 @@ mod tests {
     fn fuseblk_is_left_for_mount_to_resolve() {
         assert_eq!(
             args("/dev/sdb1", false, Some("fuseblk")),
-            ["-o", "rw", "/dev/sdb1", "/run/luna/mnt/d1"]
+            [
+                "-o",
+                "rw,noexec,nosuid,nodev",
+                "/dev/sdb1",
+                "/run/luna/mnt/d1"
+            ]
         );
     }
 
     #[test]
-    fn fat_variants_become_vfat_with_utf8_names_and_open_permissions() {
+    fn fat_variants_become_vfat_with_utf8_names_and_daemon_owned_permissions() {
         for fs in ["vfat", "fat", "FAT32", "msdos", " vfat "] {
             assert_eq!(
                 args("/dev/sdb1", false, Some(fs)),
@@ -297,7 +317,7 @@ mod tests {
                     "-t",
                     "vfat",
                     "-o",
-                    "rw,utf8,umask=000",
+                    "rw,utf8,fmask=0133,dmask=0022,noexec,nosuid,nodev",
                     "/dev/sdb1",
                     "/run/luna/mnt/d1"
                 ],
@@ -306,7 +326,7 @@ mod tests {
         }
         assert_eq!(
             args("/dev/sdb1", true, Some("vfat"))[3],
-            "ro,utf8,umask=000"
+            "ro,utf8,fmask=0133,dmask=0022,noexec,nosuid,nodev"
         );
     }
 
@@ -314,7 +334,14 @@ mod tests {
     fn ntfs_uses_the_kernel_ntfs3_driver() {
         assert_eq!(
             args("/dev/sdb1", false, Some("NTFS")),
-            ["-t", "ntfs3", "-o", "rw", "/dev/sdb1", "/run/luna/mnt/d1"]
+            [
+                "-t",
+                "ntfs3",
+                "-o",
+                "rw,noexec,nosuid,nodev",
+                "/dev/sdb1",
+                "/run/luna/mnt/d1"
+            ]
         );
     }
 
@@ -322,7 +349,14 @@ mod tests {
     fn other_filesystems_pass_through_by_name() {
         assert_eq!(
             args("/dev/sdb1", true, Some("exfat")),
-            ["-t", "exfat", "-o", "ro", "/dev/sdb1", "/run/luna/mnt/d1"]
+            [
+                "-t",
+                "exfat",
+                "-o",
+                "ro,noexec,nosuid,nodev",
+                "/dev/sdb1",
+                "/run/luna/mnt/d1"
+            ]
         );
     }
 
@@ -343,11 +377,11 @@ mod tests {
     fn remount_picks_the_mode() {
         assert_eq!(
             remount_args(Path::new("/m"), true),
-            ["-o", "remount,ro", "/m"]
+            ["-o", "remount,ro,noexec,nosuid,nodev", "/m"]
         );
         assert_eq!(
             remount_args(Path::new("/m"), false),
-            ["-o", "remount,rw", "/m"]
+            ["-o", "remount,rw,noexec,nosuid,nodev", "/m"]
         );
     }
 

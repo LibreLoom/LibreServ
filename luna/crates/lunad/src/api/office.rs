@@ -127,10 +127,13 @@ async fn guest_session(
         let rel = body.path.clone();
         let token = request_token.clone();
         async move {
-            if !state
-                .share_limiter
-                .allow(&format!("office-session:{}", addr.ip()))
-            {
+            // Key on the resolved client, not the tunnel peer — behind Luna
+            // Connect every guest arrives from loopback, so a raw `addr.ip()`
+            // would let one remote user starve all others' sessions.
+            if !state.share_limiter.allow(&format!(
+                "office-session:{}",
+                crate::api::auth::client_ip(&addr, &headers)
+            )) {
                 return Err(json_error(
                     StatusCode::TOO_MANY_REQUESTS,
                     "Too many attempts. Wait a few minutes and try again.",
@@ -242,7 +245,20 @@ async fn prepare_session(
             Uuid::new_v4().simple()
         )
     };
-    state.office_docs.register_key(&key, &drive_id, &path).await;
+    // A new doc session allocates its broadcast ring, op log, and socket
+    // budget — the hub refuses past MAX_DOC_SESSIONS so a token holder
+    // minting view keys can't exhaust the daemon.
+    if state
+        .office_docs
+        .register_key(&key, &drive_id, &path)
+        .await
+        .is_err()
+    {
+        return Err(json_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Too many documents are open for editing right now. Try again in a minute.",
+        ));
+    }
 
     // The credential path carries a per-open bundle_id: a member and a guest
     // sharing one room key get different bundle URLs and cookie paths, so a
@@ -523,6 +539,28 @@ fn scoped_finish(res: Response) -> Response {
     h.insert(
         header::CONTENT_SECURITY_POLICY,
         HeaderValue::from_static("sandbox; default-src 'none'"),
+    );
+    res
+}
+
+/// Security headers for the self-hosted editor/diagram packs served outside
+/// `staticweb` (`/eurooffice`, `/sdkjs`, `/fonts`, `/drawio`). The web app
+/// iframes them into its own pages, so SAMEORIGIN — never DENY — plus
+/// nosniff so a stored text file can't be reinterpreted as script. The packs
+/// keep their own CSP; the sandbox policy above is for user bundles only.
+pub async fn pack_security_headers(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let mut res = next.run(req).await;
+    let h = res.headers_mut();
+    h.insert(
+        header::X_FRAME_OPTIONS,
+        HeaderValue::from_static("SAMEORIGIN"),
+    );
+    h.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
     );
     res
 }

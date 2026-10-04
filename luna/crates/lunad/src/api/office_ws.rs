@@ -799,10 +799,13 @@ async fn verify_token(state: &AppState, key: &str, token: &str) -> Option<(Offic
         }
         Some(_) => None,
         None => {
+            // At the session cap there is no room to recreate — refuse the
+            // reconnect like any unverifiable token.
             state
                 .office_docs
                 .resurrect_key(key, &claims.drive_id, &claims.path)
-                .await;
+                .await
+                .ok()?;
             Some((claims.clone(), claims.write && write_now))
         }
     }
@@ -1054,7 +1057,8 @@ mod tests {
         state
             .office_docs
             .register_key("key-a", "drive-a", "docs/Report.docx")
-            .await;
+            .await
+            .unwrap();
         let jwt = state
             .auth
             .issue_scoped_office_token(link_claims("l1", "key-a", "docs/Report.docx", false), 3600)

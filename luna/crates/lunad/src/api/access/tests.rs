@@ -32,6 +32,84 @@ fn child_under_link_stays_inside_the_shared_folder() {
 }
 
 #[test]
+fn child_under_link_collapses_but_never_escapes() {
+    // `//` folds to the one spelling the jail resolves, so a scope check
+    // that says `photos/a/b` is checked on exactly that path. `\`, `.`
+    // and `..` stay refused — a backslash is never a separator.
+    assert_eq!(
+        child_under_link("photos", "a//b").as_deref(),
+        Some("photos/a/b")
+    );
+    assert_eq!(
+        child_under_link("photos", "a///b//c").as_deref(),
+        Some("photos/a/b/c")
+    );
+    // `.` folds to the same canonical form REST lands on.
+    assert_eq!(
+        child_under_link("photos", "a/./b").as_deref(),
+        Some("photos/a/b")
+    );
+    assert!(child_under_link("photos", "a\\b").is_none());
+    assert!(child_under_link("photos", "a\\b\\c").is_none());
+    assert!(child_under_link("photos", "./a").is_none());
+    assert!(child_under_link("photos", "a//../b").is_none());
+}
+
+#[test]
+fn scoped_child_refuses_trash_reaching_spellings() {
+    // A link that is not itself trash-scoped must never reach trash —
+    // not by the `.luna-trash` alias and not by the real `{prefix}-trash`
+    // disk name, however it is spelled.
+    let err = || json_error(StatusCode::BAD_REQUEST, "nope");
+    let l = link("", CAP_ALL);
+    for rel in [
+        ".luna-trash",
+        ".luna-trash/x",
+        ".luna-trash//x",
+        ".luna-01234567-89ab-cdef-0123-456789abcdef-trash",
+        ".luna-01234567-89ab-cdef-0123-456789abcdef-trash/x",
+    ] {
+        assert!(scoped_child(&l, rel, err()).is_err(), "{rel} must fail");
+    }
+    // A trash-scoped link still reaches its own subject.
+    let trash_link = link(".luna-trash/entry", CAP_VIEW);
+    assert_eq!(
+        scoped_child(&trash_link, "", err()).unwrap(),
+        ".luna-trash/entry"
+    );
+}
+
+#[test]
+fn upload_scope_compares_canonical_spellings() {
+    // A session row that recorded a doubled-separator destination is the
+    // same folder — scope must compare the canonical form on both sides,
+    // and a `\`-spelled row is not a folder at all.
+    let (_dir, conn) = scope_conn();
+    let l = link("photos", CAP_ALL);
+    assert!(upload_in_link_scope(
+        &conn,
+        &l,
+        "d1",
+        "photos//summer",
+        "x.jpg"
+    ));
+    assert!(!upload_in_link_scope(
+        &conn,
+        &l,
+        "d1",
+        "photos\\summer",
+        "x.jpg"
+    ));
+    assert!(!upload_in_link_scope(
+        &conn,
+        &l,
+        "d1",
+        "photos/../x",
+        "x.jpg"
+    ));
+}
+
+#[test]
 fn prefers_html_follows_accept_order() {
     let mut headers = HeaderMap::new();
     headers.insert(

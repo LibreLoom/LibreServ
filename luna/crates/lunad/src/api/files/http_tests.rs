@@ -2709,6 +2709,70 @@ async fn two_restores_of_one_trash_item_have_one_winner() {
 }
 
 #[tokio::test]
+async fn request_paths_land_in_the_one_canonical_form() {
+    // `a//b` and `a/./b` are the same item REST, the listing index and
+    // grants all see; `..` and `\` are refused at the door rather than
+    // reinterpreted as separators.
+    let mount = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(mount.path().join("docs")).unwrap();
+    std::fs::write(mount.path().join("docs/note.txt"), b"hi").unwrap();
+    let (_dir, app) = test_app(mount.path());
+    let (cookie, csrf) = admin_cookie(&app).await;
+
+    for path in ["docs//note.txt", "docs/./note.txt"] {
+        let res = call(
+            &app,
+            json_req(
+                Method::GET,
+                &format!(
+                    "/api/v1/drives/photos/files/stat?path={}",
+                    urlencoding(path)
+                ),
+                "",
+                Some(&cookie),
+                Some(&csrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200, "{path}");
+    }
+    // `..` is refused, not walked.
+    for encoded in ["docs%2F..%2Fnote.txt", "docs%5Cnote.txt"] {
+        let res = call(
+            &app,
+            json_req(
+                Method::GET,
+                &format!("/api/v1/drives/photos/files/stat?path={encoded}"),
+                "",
+                Some(&cookie),
+                Some(&csrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 400, "{encoded} must be refused");
+    }
+    // The raw on-disk trash name is not a readable path — the
+    // `.luna-trash` alias is the only spelling that reaches trash.
+    let prefix = crate::drives::drive_db::prefix_for(mount.path()).unwrap();
+    let res = call(
+        &app,
+        json_req(
+            Method::GET,
+            &format!("/api/v1/drives/photos/files?path={prefix}-trash"),
+            "",
+            Some(&cookie),
+            Some(&csrf),
+        ),
+    )
+    .await;
+    assert!(
+        res.status() == 400 || res.status() == 404,
+        "raw trash root must not list, got {}",
+        res.status()
+    );
+}
+
+#[tokio::test]
 async fn a_purge_waits_for_the_drive_lock_while_reads_carry_on() {
     let mount = tempfile::tempdir().unwrap();
     std::fs::write(mount.path().join("a.txt"), b"x").unwrap();

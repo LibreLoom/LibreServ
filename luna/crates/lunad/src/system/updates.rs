@@ -97,13 +97,27 @@ pub trait HttpGet: Send + Sync {
         }
         let mut hasher = Sha256::new();
         hasher.update(&bytes);
-        let mut f = std::fs::File::create(dest).map_err(|e| UpdateError::Other(e.to_string()))?;
+        let mut f = open_staged(dest).map_err(|e| UpdateError::Other(e.to_string()))?;
         f.write_all(&bytes)
             .map_err(|e| UpdateError::Other(e.to_string()))?;
         f.sync_all()
             .map_err(|e| UpdateError::Other(e.to_string()))?;
         Ok((status, hex_lower(&hasher.finalize())))
     }
+}
+
+/// Open the pre-created staged file for writing. O_NOFOLLOW keeps a planted
+/// symlink from redirecting the download — `create_new` guards creation, this
+/// guards the reopen.
+fn open_staged(dest: &Path) -> std::io::Result<std::fs::File> {
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.custom_flags(libc::O_NOFOLLOW);
+    }
+    opts.open(dest)
 }
 
 pub trait Installer: Send + Sync {
@@ -127,6 +141,13 @@ pub trait Installer: Send + Sync {
     fn install_os_image_file(&self, path: &Path) -> Result<(), UpdateError> {
         let bytes = std::fs::read(path).map_err(|e| UpdateError::Other(e.to_string()))?;
         self.install_os_image(&bytes)
+    }
+
+    /// Where update downloads are staged. `/tmp` is a small tmpfs on the
+    /// appliance — nowhere near big enough for an OS slot image — so
+    /// production stages on the data partition.
+    fn staging_dir(&self) -> PathBuf {
+        std::env::temp_dir()
     }
 
     fn read_os_hash(&self) -> Option<String> {
@@ -194,8 +215,7 @@ impl HttpGet for UreqHttp {
             .map_err(|_| UpdateError::Unreachable)?;
         let status = resp.status().as_u16();
         let mut reader = resp.into_body().into_reader();
-        let mut file =
-            std::fs::File::create(dest).map_err(|e| UpdateError::Other(e.to_string()))?;
+        let mut file = open_staged(dest).map_err(|e| UpdateError::Other(e.to_string()))?;
         let mut hasher = Sha256::new();
         let mut buf = [0u8; 64 * 1024];
         let mut written: u64 = 0;
@@ -290,6 +310,10 @@ impl Installer for DataDirInstaller {
         let (part, inactive) = inactive_slot_device()?;
         copy_file_streaming(src, &part)?;
         finish_os_slot(&part, inactive)
+    }
+
+    fn staging_dir(&self) -> PathBuf {
+        self.data_dir.join("updates")
     }
 
     fn read_os_hash(&self) -> Option<String> {
@@ -431,37 +455,154 @@ fn finish_os_slot(part: &Path, inactive: char) -> Result<(), UpdateError> {
     set_tryboot_slot(inactive)
 }
 
-fn active_slot_letter() -> char {
+/// The A/B slot this boot came from. Missing `luna.slot=` is an error,
+/// never a guess: picking 'A' blind would overwrite the running system.
+fn active_slot_letter() -> Result<char, UpdateError> {
     let cmdline = std::fs::read_to_string("/proc/cmdline").unwrap_or_default();
-    if cmdline.split_whitespace().any(|t| t == "luna.slot=B") {
-        'B'
-    } else {
-        'A'
-    }
-}
-
-fn inactive_slot_device() -> Result<(PathBuf, char), UpdateError> {
-    let active = active_slot_letter();
-    let inactive = if active == 'A' { 'B' } else { 'A' };
-    let label = format!("LUNA_{inactive}");
-    let by_label = PathBuf::from(format!("/dev/disk/by-label/{label}"));
-    if by_label.exists() {
-        return Ok((by_label, inactive));
-    }
-    // findfs fallback
-    let out = Command::new("findfs")
-        .arg(format!("LABEL={label}"))
-        .output()
-        .map_err(|e| UpdateError::Other(e.to_string()))?;
-    if out.status.success() {
-        let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        if !path.is_empty() {
-            return Ok((PathBuf::from(path), inactive));
+    for token in cmdline.split_whitespace() {
+        if let Some(slot) = token.strip_prefix("luna.slot=") {
+            return match slot {
+                "A" => Ok('A'),
+                "B" => Ok('B'),
+                _ => Err(UpdateError::Other(
+                    "Luna can't tell which operating-system slot it booted from, so it won't touch the disks.".into(),
+                )),
+            };
         }
     }
     Err(UpdateError::Other(
-        "Luna couldn't find the spare OS slot to write the update.".into(),
+        "This Luna did not boot from an OS slot, so an operating-system update can't be written here.".into(),
     ))
+}
+
+fn inactive_slot_device() -> Result<(PathBuf, char), UpdateError> {
+    let active = active_slot_letter()?;
+    let inactive = if active == 'A' { 'B' } else { 'A' };
+    // GPT partition names, never filesystem LABELs — a removable drive can
+    // carry a forged label and win a LABEL= lookup.
+    let dev = resolve_partlabel(&format!("LUNA_{inactive}")).ok_or_else(|| {
+        UpdateError::Other("Luna couldn't find the spare OS slot to write the update.".into())
+    })?;
+    ensure_on_boot_disk(&dev)?;
+    Ok((dev, inactive))
+}
+
+/// Resolve a GPT partition name (PARTLABEL) to its device node.
+/// `/dev/disk/by-partlabel` only exists under udev; `findfs`/`blkid` cover
+/// the mdev-based Luna OS.
+fn resolve_partlabel(partlabel: &str) -> Option<PathBuf> {
+    let by = PathBuf::from(format!("/dev/disk/by-partlabel/{partlabel}"));
+    if by.exists() {
+        return Some(by);
+    }
+    let key = format!("PARTLABEL={partlabel}");
+    let outs = [
+        Command::new("findfs").arg(&key).output(),
+        Command::new("blkid")
+            .args(["-t", &key, "-o", "device"])
+            .output(),
+    ];
+    for out in outs.into_iter().flatten() {
+        if out.status.success() {
+            let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !path.is_empty() {
+                return Some(PathBuf::from(path));
+            }
+        }
+    }
+    None
+}
+
+/// True when `dev` is the GPT partition named `partlabel`.
+pub(crate) fn device_has_partlabel(dev: &str, partlabel: &str) -> bool {
+    let by = PathBuf::from(format!("/dev/disk/by-partlabel/{partlabel}"));
+    if by.exists()
+        && let (Ok(a), Ok(b)) = (std::fs::canonicalize(&by), std::fs::canonicalize(dev))
+        && a == b
+    {
+        return true;
+    }
+    Command::new("blkid")
+        .args(["-o", "value", "-s", "PARTLABEL", dev])
+        .output()
+        .map(|o| o.status.success() && String::from_utf8_lossy(&o.stdout).trim() == partlabel)
+        .unwrap_or(false)
+}
+
+/// The device backing `/`, canonicalized (mounts may name a by-uuid link).
+fn root_mount_device() -> Option<PathBuf> {
+    let mounts = std::fs::read_to_string("/proc/self/mounts").ok()?;
+    for line in mounts.lines() {
+        let mut fields = line.split_whitespace();
+        let (Some(dev), Some(point)) = (fields.next(), fields.next()) else {
+            continue;
+        };
+        if point == "/" {
+            return Some(std::fs::canonicalize(dev).unwrap_or_else(|_| PathBuf::from(dev)));
+        }
+    }
+    None
+}
+
+/// The disk a block device lives on: itself for a whole-disk device, else
+/// its parent (`sda3` → `sda`, `mmcblk0p3` → `mmcblk0`) via sysfs.
+pub(crate) fn parent_disk_of(dev: &Path) -> Option<String> {
+    let canon = std::fs::canonicalize(dev).ok()?;
+    let name = canon.file_name()?.to_str()?;
+    let sys = Path::new("/sys/class/block").join(name);
+    if !sys.join("partition").is_file() {
+        return Some(name.to_string());
+    }
+    let part = std::fs::canonicalize(&sys).ok()?;
+    part.parent()?.file_name()?.to_str().map(str::to_string)
+}
+
+/// Refuse to write a partition that is not on the disk backing `/` — and
+/// never the very partition that backs `/` — so the update can only land
+/// on the inactive slot of Luna's own boot disk.
+fn ensure_on_boot_disk(dev: &Path) -> Result<(), UpdateError> {
+    let Some(root) = root_mount_device() else {
+        return Err(UpdateError::Other(
+            "Luna can't tell which disk it runs from, so it won't write an operating-system update.".into(),
+        ));
+    };
+    if std::fs::canonicalize(dev).ok() == Some(root.clone()) {
+        return Err(UpdateError::Other(
+            "The update would overwrite the partition Luna is running from, so Luna stopped. Nothing was installed.".into(),
+        ));
+    }
+    match (parent_disk_of(dev), parent_disk_of(&root)) {
+        (Some(target), Some(boot)) if target == boot => Ok(()),
+        _ => Err(UpdateError::Other(
+            "The update would write a different disk than the one Luna runs from, so Luna stopped. Nothing was installed.".into(),
+        )),
+    }
+}
+
+/// True when `dev` resolves by filesystem LABEL=LUNAASSETS is safe to
+/// trust: the TOKENS magazine only ever lives on the removable install
+/// stick, so a same-named filesystem on the boot disk or any fixed disk is
+/// forged and must lose.
+pub(crate) fn device_is_factory_media(dev: &str) -> bool {
+    let Some(disk) = parent_disk_of(Path::new(dev)) else {
+        return false;
+    };
+    let same_as_boot = root_mount_device()
+        .and_then(|root| parent_disk_of(&root))
+        .is_some_and(|boot| boot == disk);
+    if same_as_boot {
+        return false;
+    }
+    if std::fs::read_to_string(format!("/sys/block/{disk}/removable"))
+        .map(|s| s.trim() == "1")
+        .unwrap_or(false)
+    {
+        return true;
+    }
+    // USB bridges can report removable=0; the sysfs device path tells it.
+    std::fs::canonicalize(format!("/sys/block/{disk}/device"))
+        .map(|p| p.components().any(|c| c.as_os_str() == "usb"))
+        .unwrap_or(false)
 }
 
 fn set_tryboot_slot(slot: char) -> Result<(), UpdateError> {
@@ -507,31 +648,56 @@ impl Drop for EspGuard {
     }
 }
 
+/// True when `point` is itself a mounted vfat filesystem on the GPT
+/// partition named `partlabel` — grub-looking files on any other
+/// filesystem must not arm tryboot.
+fn mounted_vfat_with_partlabel(point: &Path, partlabel: &str) -> bool {
+    let Ok(mounts) = std::fs::read_to_string("/proc/self/mounts") else {
+        return false;
+    };
+    let canon = std::fs::canonicalize(point).unwrap_or_else(|_| point.to_path_buf());
+    for line in mounts.lines() {
+        let mut fields = line.split_whitespace();
+        let (Some(dev), Some(target), Some(fs)) = (fields.next(), fields.next(), fields.next())
+        else {
+            continue;
+        };
+        if !matches!(fs, "vfat" | "fat" | "msdos") {
+            continue;
+        }
+        if Path::new(&target.replace("\\040", " ")) != canon {
+            continue;
+        }
+        return device_has_partlabel(dev, partlabel);
+    }
+    false
+}
+
 fn find_esp_mount_or_temp() -> Result<EspGuard, UpdateError> {
     for cand in ["/boot/efi", "/efi", "/boot"] {
         let grubenv = Path::new(cand).join("grub/grubenv");
         let grubcfg = Path::new(cand).join("grub/grub.cfg");
-        if grubenv.exists() || grubcfg.exists() {
+        if (grubenv.exists() || grubcfg.exists())
+            && mounted_vfat_with_partlabel(Path::new(cand), "LUNAESP")
+        {
             return Ok(EspGuard {
                 path: PathBuf::from(cand),
                 tmp: false,
             });
         }
     }
-    let out = Command::new("findfs")
-        .arg("LABEL=LUNAESP")
-        .output()
-        .map_err(|e| UpdateError::Other(e.to_string()))?;
-    if !out.status.success() {
-        return Err(UpdateError::Other(
-            "Luna couldn't find the boot partition for the update.".into(),
-        ));
-    }
-    let dev = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    // GPT partition name only — a filesystem LABEL=LUNAESP can be forged on
+    // any plugged-in drive.
+    let dev = resolve_partlabel("LUNAESP").ok_or_else(|| {
+        UpdateError::Other("Luna couldn't find the boot partition for the update.".into())
+    })?;
+    ensure_on_boot_disk(&dev)?;
     let tmp = std::env::temp_dir().join(format!("luna-esp-{}", std::process::id()));
     std::fs::create_dir_all(&tmp).map_err(|e| UpdateError::Other(e.to_string()))?;
     let status = Command::new("mount")
-        .args(["-o", "rw", &dev])
+        .arg("-o")
+        .arg("rw,nosuid,nodev,noexec")
+        .arg(&dev)
         .arg(&tmp)
         .status()
         .map_err(|e| UpdateError::Other(e.to_string()))?;
@@ -678,9 +844,6 @@ pub fn validate_settings(settings: &UpdateSettings) -> Result<Vec<String>, &'sta
             "The API address needs a value. Put in the old address if you want to keep it.",
         );
     }
-    if !api_base.starts_with("http://") && !api_base.starts_with("https://") {
-        return Err("The API address must start with http:// or https://.");
-    }
     crate::system::update_host::validate_api_base_host(api_base)?;
     if settings.owner.trim().is_empty() || settings.repo.trim().is_empty() {
         return Err(
@@ -820,6 +983,7 @@ impl UpdateService {
         repo: String,
         keys: Vec<String>,
     ) -> Self {
+        warn_on_custom_keys(&keys);
         Self {
             http,
             installer,
@@ -877,6 +1041,7 @@ impl UpdateService {
         } else {
             keys
         };
+        warn_on_custom_keys(&keys);
         *self.active.lock().unwrap() = active_from(api_base, owner, repo, keys);
         *self.cache.lock().unwrap() = None;
     }
@@ -1024,7 +1189,9 @@ impl UpdateService {
         Ok(info)
     }
 
-    /// Stream `name` from the release to a temp file, hashing while writing.
+    /// Stream `name` from the release into the staging dir, hashing while
+    /// writing. The file name is unguessable and created exclusively, so a
+    /// planted symlink can't redirect the download.
     fn download_verified(
         &self,
         tag: &str,
@@ -1034,11 +1201,26 @@ impl UpdateService {
     ) -> Result<PathBuf, UpdateError> {
         let src = self.source();
         let url = format!("{}/download/{tag}/{name}", src.download_base);
-        let tmp = std::env::temp_dir().join(format!(
-            "luna-update-{}-{}-{name}",
-            std::process::id(),
-            tag.replace(['/', '\\'], "_")
+        let dir = self.installer.staging_dir();
+        std::fs::create_dir_all(&dir).map_err(|e| UpdateError::Other(e.to_string()))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&dir)
+                .map_err(|e| UpdateError::Other(e.to_string()))?
+                .permissions();
+            perms.set_mode(0o700);
+            let _ = std::fs::set_permissions(&dir, perms);
+        }
+        let tmp = dir.join(format!(
+            "luna-update-{}-{name}",
+            uuid::Uuid::new_v4().simple()
         ));
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp)
+            .map_err(|e| UpdateError::Other(e.to_string()))?;
         let (status, actual) = match self.http.get_to_file(&url, &tmp, max_bytes) {
             Ok(v) => v,
             Err(e) => {
@@ -1055,6 +1237,17 @@ impl UpdateService {
             return Err(UpdateError::Checksum);
         }
         Ok(tmp)
+    }
+}
+
+/// Anything other than the compiled-in release key means updates come from
+/// a source Luna does not control — loud in the log, flagged in System
+/// check via `using_default_keys`.
+fn warn_on_custom_keys(keys: &[String]) {
+    if keys != parse_minisign_pub(PINNED_PUB) {
+        tracing::warn!(
+            "update source is signed with custom keys, not the built-in Luna release key"
+        );
     }
 }
 
@@ -1086,7 +1279,14 @@ fn checksum_for_name(sums: &[u8], name: &str) -> Result<String, UpdateError> {
         let mut parts = line.split_whitespace();
         let Some(sum) = parts.next() else { continue };
         let Some(file) = parts.next() else { continue };
-        if file == name || file.ends_with(name) || file.contains(name) {
+        // Exact basename only: a checksum for "lunad-linux-amd64" must not
+        // match "lunad-linux-amd64.sig" or a longer asset name.
+        let base = file
+            .trim_start_matches('*')
+            .rsplit(['/', '\\'])
+            .next()
+            .unwrap_or_default();
+        if base == name {
             return Ok(sum.to_string());
         }
     }
@@ -1591,11 +1791,22 @@ mod tests {
             ..base.clone()
         };
         assert!(validate_settings(&private_host).is_err());
+        // Plain http is allowed for a source on this machine/network only.
         let loopback_host = UpdateSettings {
             api_base: "http://127.0.0.1:3000/api/v1".into(),
             ..base.clone()
         };
-        assert!(validate_settings(&loopback_host).is_err());
+        assert!(validate_settings(&loopback_host).is_ok());
+        let lan_host = UpdateSettings {
+            api_base: "http://192.168.1.10/api/v1".into(),
+            ..base.clone()
+        };
+        assert!(validate_settings(&lan_host).is_ok());
+        let public_http = UpdateSettings {
+            api_base: "http://203.0.113.10/api/v1".into(),
+            ..base.clone()
+        };
+        assert!(validate_settings(&public_http).is_err());
         // A whole pub file (comment + key) is accepted, comment dropped.
         let real = ephemeral_sign(b"x").0;
         let file = UpdateSettings {
@@ -1819,5 +2030,25 @@ mod tests {
         let after = svc.check("0.1.0", false).unwrap();
         assert_eq!(after.latest_version, "luna-v9.9.9");
         assert_eq!(after.checksum, sum);
+    }
+
+    #[test]
+    fn checksum_matches_exact_basename_only() {
+        let sums = b"aaaa  luna-os-x86_64.img\nbbbb  luna-os-x86_64.img.minisig\ncccc  xlunad-linux-amd64\n";
+        assert_eq!(
+            checksum_for_name(sums, "luna-os-x86_64.img").unwrap(),
+            "aaaa"
+        );
+        // Names that merely contain the needle must not match.
+        assert!(matches!(
+            checksum_for_name(sums, "lunad-linux-amd64"),
+            Err(UpdateError::MissingChecksum)
+        ));
+        // Path prefixes and the sha256sum `*` binary marker still resolve.
+        let pathy = b"dddd  ./rel/lunad-linux-amd64\neeee *lunad-linux-amd64\n";
+        assert_eq!(
+            checksum_for_name(pathy, "lunad-linux-amd64").unwrap(),
+            "dddd"
+        );
     }
 }

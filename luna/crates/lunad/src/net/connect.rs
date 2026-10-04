@@ -27,6 +27,9 @@ pub const AGGRESSIVE_POLL_SECS: u64 = 10;
 const CONNECT_HTTP_TIMEOUT: Duration = Duration::from_secs(20);
 /// TCP/TLS connect budget inside the global timeout.
 const CONNECT_HTTP_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+/// Cap on Connect reply bodies — status JSON is small, and a hostile or
+/// broken peer must not fill memory.
+const MAX_REPLY_BYTES: u64 = 4 * 1024 * 1024;
 
 /// Permanent Luna Connect device token (`{data_dir}/device-token`).
 /// Connect is inactive until this file holds a valid token.
@@ -74,6 +77,13 @@ pub enum ConnectError {
     Unbound,
     #[error("{0}")]
     Other(String),
+}
+
+/// Outcome of asking Connect whether a device token is real.
+enum TokenCheck {
+    Recognized,
+    Rejected,
+    Unknown,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -145,6 +155,7 @@ impl ConnectService {
             legacy_token_path: data_dir.join(LEGACY_DEVICE_TOKEN_FILE),
             base_url: base_url
                 .filter(|u| !u.is_empty())
+                .map(sanitize_base_url)
                 .unwrap_or_else(|| DEFAULT_CONNECT_URL.to_string()),
             child: Arc::new(Mutex::new(None)),
             active_tunnel_token: Arc::new(Mutex::new(None)),
@@ -321,6 +332,44 @@ impl ConnectService {
         ConnectError::Other(
             "Luna Connect is not set up on this Luna. Add a device token in Settings → About → Advanced.".into(),
         )
+    }
+
+    /// `set_oss_code` for tokens entered through the API. `require_verified`
+    /// (anonymous setup callers) means Connect must recognize the token
+    /// before Luna stores it — otherwise a fabricated token would pass
+    /// first-user registration. A signed-in Admin may still save while
+    /// Connect can't be reached; an authentic rejection fails either way.
+    pub fn set_oss_code_checked(
+        &self,
+        code: &str,
+        require_verified: bool,
+    ) -> Result<(), ConnectError> {
+        let norm = normalize_setup_code(code);
+        if !is_device_token_format(&norm) {
+            return Err(ConnectError::Other(
+                "That device token should look like ****-****-****-****-**** from connect.luna.libreloom.org or the card that came with Luna.".into(),
+            ));
+        }
+        match self.check_device_token(&group_device_token(&norm)) {
+            TokenCheck::Recognized => {}
+            TokenCheck::Rejected => return Err(ConnectError::InvalidToken),
+            TokenCheck::Unknown if require_verified => {
+                return Err(ConnectError::Unreachable);
+            }
+            TokenCheck::Unknown => {}
+        }
+        self.set_oss_code(code)
+    }
+
+    /// Ask Connect whether it knows this device token. An unbound answer
+    /// counts — the token is genuine, no account has linked this Luna yet.
+    /// A challenge or dead connection proves nothing → `Unknown`.
+    fn check_device_token(&self, grouped: &str) -> TokenCheck {
+        match self.call_device_status(grouped) {
+            Ok(_) | Err(ConnectError::Unbound) => TokenCheck::Recognized,
+            Err(ConnectError::InvalidToken) => TokenCheck::Rejected,
+            Err(_) => TokenCheck::Unknown,
+        }
     }
 
     pub fn set_oss_code(&self, code: &str) -> Result<(), ConnectError> {
@@ -772,21 +821,28 @@ impl ConnectService {
         *self.tunnel_error.lock().unwrap_or_else(|e| e.into_inner()) = None;
     }
 
-    pub fn put_backup_object(&self, rel: &str, bytes: &[u8]) -> Result<(), ConnectError> {
+    /// Streams the body — pass `&[u8]` for small objects or `&File` for files
+    /// so multi-MiB backup objects never sit in RAM whole.
+    pub fn put_backup_object(
+        &self,
+        rel: &str,
+        body: impl ureq::AsSendBody,
+    ) -> Result<(), ConnectError> {
         let token = self.token()?;
         let url = format!(
             "{}/api/v1/backup/objects/{}",
             self.base_url.trim_end_matches('/'),
-            rel.trim_start_matches('/')
+            encode_object_key(rel.trim_start_matches('/'))
         );
-        let result = ureq::put(&url)
+        ureq::put(&url)
             .config()
             .timeout_global(Some(CONNECT_HTTP_TIMEOUT))
             .timeout_connect(Some(CONNECT_HTTP_CONNECT_TIMEOUT))
             .build()
             .header("Authorization", format!("Bearer {token}"))
-            .send(bytes);
-        result.map(|_| ()).map_err(map_transport_error)
+            .send(body)
+            .map(|_| ())
+            .map_err(map_transport_error)
     }
 
     pub fn delete_backup_object(&self, rel: &str) -> Result<(), ConnectError> {
@@ -794,7 +850,7 @@ impl ConnectService {
         let url = format!(
             "{}/api/v1/backup/objects/{}",
             self.base_url.trim_end_matches('/'),
-            rel.trim_start_matches('/')
+            encode_object_key(rel.trim_start_matches('/'))
         );
         ureq::delete(&url)
             .config()
@@ -868,9 +924,8 @@ impl ConnectService {
 
         let bin = self.resolve_or_install_cloudflared()?;
 
-        // Token mode: no config.yml and no OpenRC/systemd unit.
-        // Pass --token on argv for maximum cloudflared compatibility (older builds), and also
-        // TUNNEL_TOKEN / CLOUDFLARED_TUNNEL_TOKEN so we align with LibreServ and cover env-only paths.
+        // Token mode: no config.yml and no OpenRC/systemd unit. The token goes
+        // only in env — argv is world-readable through /proc/*/cmdline.
         tracing::info!(
             path = %bin.display(),
             port = self.local_port,
@@ -879,7 +934,7 @@ impl ConnectService {
         );
 
         let mut child = Command::new(&bin)
-            .args(["tunnel", "--no-autoupdate", "run", "--token", &token])
+            .args(["tunnel", "--no-autoupdate", "run"])
             .env("TUNNEL_TOKEN", &token)
             .env("CLOUDFLARED_TUNNEL_TOKEN", &token)
             .stdin(Stdio::null())
@@ -979,7 +1034,9 @@ impl ConnectService {
         false
     }
 
-    fn stop_tunnel(&self) {
+    /// Kill the managed cloudflared child (and reap orphans) — pairing off,
+    /// token revoke, and graceful shutdown all land here.
+    pub fn stop_tunnel(&self) {
         let _guard = self.tunnel_mu.lock().unwrap_or_else(|e| e.into_inner());
         self.stop_tunnel_unlocked();
     }
@@ -1036,7 +1093,12 @@ impl ConnectService {
             .get("cf-mitigated")
             .and_then(|v| v.to_str().ok())
             .map(str::to_string);
-        let body = response.body_mut().read_to_string().unwrap_or_default();
+        let body = response
+            .body_mut()
+            .with_config()
+            .limit(MAX_REPLY_BYTES)
+            .read_to_string()
+            .unwrap_or_default();
         if status == 401 {
             return Err(ConnectError::InvalidToken);
         }
@@ -1160,7 +1222,12 @@ impl ConnectService {
             .get("cf-mitigated")
             .and_then(|v| v.to_str().ok())
             .map(str::to_string);
-        let body_text = response.body_mut().read_to_string().unwrap_or_default();
+        let body_text = response
+            .body_mut()
+            .with_config()
+            .limit(MAX_REPLY_BYTES)
+            .read_to_string()
+            .unwrap_or_default();
         if status == 401 {
             return Err(ConnectError::InvalidToken);
         }
@@ -1215,6 +1282,81 @@ fn map_transport_error(err: ureq::Error) -> ConnectError {
         ureq::Error::StatusCode(409) => ConnectError::Conflict,
         _ => ConnectError::Unreachable,
     }
+}
+
+/// `LUNA_CONNECT_URL` requests carry the device Bearer token — outside debug
+/// builds the base must be https, or http to a host provably on this box or
+/// LAN (mock-connect, tests, a dev Connect on the same network). Anything
+/// else would ship the token unencrypted, so fall back to the default host.
+fn sanitize_base_url(url: String) -> String {
+    if cfg!(debug_assertions) || base_url_allowed(&url) {
+        return url;
+    }
+    tracing::warn!(
+        url,
+        "refusing insecure LUNA_CONNECT_URL; using the default Connect host"
+    );
+    DEFAULT_CONNECT_URL.to_string()
+}
+
+/// The release-build rule for a Connect base URL: https always; http only to
+/// loopback, a private/link-local literal, `localhost`, or a `.local` name.
+fn base_url_allowed(url: &str) -> bool {
+    let trimmed = url.trim_start();
+    let lower = trimmed.to_ascii_lowercase();
+    if lower.starts_with("https://") {
+        return true;
+    }
+    if !lower.starts_with("http://") {
+        return false;
+    }
+    let authority = trimmed["http://".len()..]
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or("")
+        .rsplit('@')
+        .next()
+        .unwrap_or("");
+    let host = if let Some(inner) = authority.strip_prefix('[') {
+        inner.split(']').next().unwrap_or("")
+    } else {
+        authority.split(':').next().unwrap_or("")
+    };
+    let host_lower = host.to_ascii_lowercase();
+    if host_lower == "localhost" || host_lower.ends_with(".local") {
+        return true;
+    }
+    match host.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(v4)) => {
+            v4.is_loopback() || v4.is_private() || v4.is_link_local() || v4.is_unspecified()
+        }
+        Ok(std::net::IpAddr::V6(v6)) => {
+            v6.is_loopback()
+                || v6.is_unique_local()
+                || v6.is_unicast_link_local()
+                || v6.is_unspecified()
+        }
+        Err(_) => false,
+    }
+}
+
+/// Percent-encode each object-key segment for the URL path — a `?`, `#`, or
+/// `%` in a file name must not corrupt the request URI.
+fn encode_object_key(rel: &str) -> String {
+    let mut out = String::with_capacity(rel.len());
+    for seg in rel.split('/') {
+        if !out.is_empty() {
+            out.push('/');
+        }
+        for &b in seg.as_bytes() {
+            if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
+                out.push(b as char);
+            } else {
+                out.push_str(&format!("%{b:02X}"));
+            }
+        }
+    }
+    out
 }
 
 fn cloudflared_candidate_paths(data_bin: &Path) -> Vec<PathBuf> {
@@ -1471,7 +1613,11 @@ pub fn detect_public_ip_fallback() -> Option<std::net::IpAddr> {
             .build()
             .call();
         if let Ok(mut r) = resp
-            && let Ok(text) = r.body_mut().read_to_string()
+            && let Ok(text) = r
+                .body_mut()
+                .with_config()
+                .limit(MAX_REPLY_BYTES)
+                .read_to_string()
             && let Ok(ip) = text.trim().parse::<std::net::IpAddr>()
         {
             return Some(ip);
@@ -2270,8 +2416,10 @@ mod tests {
         std::fs::create_dir_all(&bin_dir).unwrap();
         let log = dir.path().join("cloudflared-starts.log");
         let fake = bin_dir.join("cloudflared");
+        // Log argv and the env token separately: the token must ride
+        // TUNNEL_TOKEN, never argv (world-readable via /proc/*/cmdline).
         let mut body = format!(
-            "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo cloudflared version fake; exit 0; fi\necho \"$*\" >> {}\nsleep 3600\n",
+            "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo cloudflared version fake; exit 0; fi\necho \"$*|$TUNNEL_TOKEN\" >> {}\nsleep 3600\n",
             log.display()
         );
         while body.len() < MIN_CLOUDFLARED_BYTES as usize {
@@ -2306,7 +2454,16 @@ mod tests {
             Some("old.luna.servers.libreloom.org")
         );
         assert_eq!(starts().len(), 1);
-        assert!(starts()[0].ends_with("real-token-old"));
+        assert!(starts()[0].ends_with("|real-token-old"));
+        assert!(
+            !starts()[0]
+                .split('|')
+                .next()
+                .unwrap()
+                .contains("real-token"),
+            "tunnel token must not appear on cloudflared's argv: {:?}",
+            starts()[0]
+        );
 
         // The same address again leaves the running tunnel alone.
         assert!(service.poll_status());
@@ -2323,7 +2480,7 @@ mod tests {
         assert!(st.tunnel_active);
         let after = starts();
         assert_eq!(after.len(), 2, "the tunnel restarts once for a new address");
-        assert!(after[1].ends_with("real-token-new"), "{after:?}");
+        assert!(after[1].ends_with("|real-token-new"), "{after:?}");
         service.stop_tunnel();
     }
 
@@ -2391,6 +2548,49 @@ mod tests {
         assert!(service.status().device_token_error.is_some());
         service.set_oss_code("ZZZZ-YYYY-XXXX-WWWW-VVVV").unwrap();
         assert!(service.status().device_token_error.is_none());
+    }
+
+    #[test]
+    fn base_url_requires_https_or_a_local_http_host() {
+        for url in [
+            "https://connect.luna.libreloom.org",
+            "https://connect.example.com/path",
+            "http://127.0.0.1:18765",
+            "http://localhost:18765",
+            "http://[::1]:18765",
+            "http://10.0.0.5",
+            "http://192.168.1.10",
+            "http://169.254.1.1",
+            "http://luna.local",
+            "http://connect.lan.local:8080",
+        ] {
+            assert!(base_url_allowed(url), "{url}");
+        }
+        for url in [
+            "http://8.8.8.8",
+            "http://203.0.113.10",
+            "http://connect.example.com",
+            "http://evil.localhost.evil.com",
+            "ftp://127.0.0.1",
+            "127.0.0.1:18765",
+            "not a url",
+        ] {
+            assert!(!base_url_allowed(url), "{url}");
+        }
+    }
+
+    #[test]
+    fn object_key_segments_are_percent_encoded() {
+        assert_eq!(encode_object_key("a/b/c.txt"), "a/b/c.txt");
+        // `?`/`#`/`%` inside a segment encode; `/` stays a separator.
+        assert_eq!(
+            encode_object_key("dir/what?.txt#/frag%20"),
+            "dir/what%3F.txt%23/frag%2520"
+        );
+        assert_eq!(
+            encode_object_key("weiß öl/+.dat"),
+            "wei%C3%9F%20%C3%B6l/%2B.dat"
+        );
     }
 }
 

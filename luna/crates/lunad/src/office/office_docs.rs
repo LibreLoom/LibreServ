@@ -185,8 +185,16 @@ impl OfficeDocHub {
     }
 
     /// Session endpoint registers the key → file binding before any socket
-    /// may auth against it. Re-registering is idempotent.
-    pub async fn register_key(&self, key: &str, drive_id: &str, path: &str) {
+    /// may auth against it. Re-registering is idempotent. A *new* session is
+    /// refused past [`MAX_DOC_SESSIONS`] — view opens mint unique keys per
+    /// request, so the count is attacker-controlled and each session carries
+    /// a broadcast ring, an op log, and a 64 MiB socket budget.
+    pub async fn register_key(
+        &self,
+        key: &str,
+        drive_id: &str,
+        path: &str,
+    ) -> Result<(), HubError> {
         let mut hub = self.inner.lock().await;
         let binding = DocBinding {
             drive_id: drive_id.to_string(),
@@ -196,10 +204,14 @@ impl OfficeDocHub {
         match hub.sessions.get_mut(key) {
             Some(session) => session.binding = binding,
             None => {
+                if hub.sessions.len() >= MAX_DOC_SESSIONS {
+                    return Err(HubError::TooManySessions);
+                }
                 hub.sessions
                     .insert(key.to_string(), DocSession::new(binding));
             }
         }
+        Ok(())
     }
 
     /// Recreate a lost session record from a verified office token at CONNECT
@@ -207,9 +219,19 @@ impl OfficeDocHub {
     /// thing missing after a restart/eviction is the in-memory room itself.
     /// Marks the session `resurrected` so dead-era restores are refused. A
     /// live session keeps its state — resurrecting one would be wrong.
-    pub async fn resurrect_key(&self, key: &str, drive_id: &str, path: &str) {
+    /// Capped like [`register_key`]: a token holder reconnecting to fresh
+    /// keys must not recreate sessions without bound.
+    pub async fn resurrect_key(
+        &self,
+        key: &str,
+        drive_id: &str,
+        path: &str,
+    ) -> Result<(), HubError> {
         let mut hub = self.inner.lock().await;
         if !hub.sessions.contains_key(key) {
+            if hub.sessions.len() >= MAX_DOC_SESSIONS {
+                return Err(HubError::TooManySessions);
+            }
             let mut session = DocSession::new(DocBinding {
                 drive_id: drive_id.to_string(),
                 path: path.to_string(),
@@ -218,6 +240,7 @@ impl OfficeDocHub {
             session.resurrected = true;
             hub.sessions.insert(key.to_string(), session);
         }
+        Ok(())
     }
 
     /// Look up the file a key was registered for.
@@ -350,6 +373,19 @@ impl OfficeDocHub {
         let rejoin_known = rejoin
             .map(|old| session.participants.contains_key(&old))
             .unwrap_or(false);
+        // Sock ids are a bare sequence, so the echoed sessionId alone
+        // proves nothing — a peer could guess one, evict its owner, and
+        // steal the save election and lock table that ride with it. A
+        // socket may only replace a session belonging to its own verified
+        // identity (`id_original` comes from the token, never the payload).
+        if let Some(old) = rejoin
+            && session
+                .participants
+                .get(&old)
+                .is_some_and(|p| p.id_original != id_original)
+        {
+            return Err(HubError::Forbidden);
+        }
         // A resurrected session lost its op log and lock table with the dead
         // daemon — a client echoing a sessionId from that era holds a
         // document we can no longer prove current. Refuse the restore so it
@@ -539,6 +575,19 @@ impl OfficeDocHub {
         if !participant.write {
             return Err(HubError::Forbidden);
         }
+        let parsed = match msg.get("changes") {
+            Some(Value::String(s)) => serde_json::from_str::<Vec<Value>>(s).unwrap_or_default(),
+            Some(Value::Array(a)) => a.clone(),
+            _ => Vec::new(),
+        };
+        // Past the byte cap the replay log is closed to new ops — the room
+        // must land a bundle save (which compacts the log) before edits flow
+        // again. Refused like DS's lockSave drop — no ack, no relay — but
+        // answered with the warning so the user knows why. A frame carrying
+        // no changes still passes so a save in flight can close out.
+        if !parsed.is_empty() && session.op_bytes > MAX_OP_LOG_BYTES {
+            return Ok((vec![op_log_full_frame()], None));
+        }
         // DS runs `lockSave` at the top of saveChanges — the save mutex is
         // taken (or refreshed) by whoever is flushing. A flush arriving while
         // another participant's save lock is live is dropped, exactly like DS
@@ -562,11 +611,6 @@ impl OfficeDocHub {
             truncate_ops(session, delete_index);
         }
 
-        let parsed = match msg.get("changes") {
-            Some(Value::String(s)) => serde_json::from_str::<Vec<Value>>(s).unwrap_or_default(),
-            Some(Value::Array(a)) => a.clone(),
-            _ => Vec::new(),
-        };
         let start_index = session.change_index;
         let now = now_ms();
         let mut records = Vec::with_capacity(parsed.len());
@@ -648,13 +692,10 @@ impl OfficeDocHub {
                 "syncChangesIndex": session.change_index,
             }));
         }
-        let over_cap = session.op_bytes > MAX_OP_LOG_BYTES;
-        if over_cap {
-            replies.push(json!({
-                "type": "warning",
-                "code": "session.ops.overflow",
-                "message": "This editing session has many unsaved changes. Save the file, then close and reopen it.",
-            }));
+        // The flush that crosses the cap still lands — it carries the
+        // warning; the *next* append is refused above.
+        if session.op_bytes > MAX_OP_LOG_BYTES {
+            replies.push(op_log_full_frame());
         }
         Ok((replies, Some(broadcast)))
     }
@@ -910,43 +951,51 @@ impl OfficeDocHub {
     /// A refreshed `Editor.bin` landed on disk: every op the saver had been
     /// sent is baked into the new base — drop them from the replay log so
     /// joiners don't double-apply.
+    ///
+    /// Only the save election's holder may compact — otherwise any write
+    /// token holder could upload a stale bundle and erase live ops. The
+    /// election is sock-keyed while the PUT arrives by user token, so the
+    /// holder is matched on its participant's user. A free election (none,
+    /// expired past [`SAVE_ELECTION_TTL`], or held by a departed socket) is
+    /// taken by this PUT; a live foreign hold makes the compaction a no-op.
     pub async fn bundle_refreshed(&self, key: &str, saver_user_id: &str, coverage: Option<i64>) {
         let mut hub = self.inner.lock().await;
         let Some(session) = hub.sessions.get_mut(key) else {
             return;
         };
-        // `coverage` is the saver's self-reported op index — the exact bound
-        // of what its serialized Editor.bin contains. `delivered_index` is
-        // only a fallback: it's bumped optimistically for every participant
-        // on each broadcast, so a saver whose socket was dead mid-broadcast
-        // would claim ops its doc never had — compacting past them would
-        // drop live ops that were never saved.
-        let saver_index = coverage
-            .unwrap_or_else(|| {
-                session
-                    .participants
-                    .values()
-                    .filter(|p| p.id_original == saver_user_id)
-                    .map(|p| p.delivered_index)
-                    .max()
-                    .unwrap_or(session.change_index)
-            })
+        if let Some((holder, since)) = session.save_election
+            && since.elapsed() <= SAVE_ELECTION_TTL
+            && session
+                .participants
+                .get(&holder)
+                .is_some_and(|p| p.id_original.as_str() != saver_user_id)
+        {
+            return;
+        }
+        // The compaction bound is what the saver's live sockets were
+        // actually delivered — a doc serialized without them cannot prove
+        // it baked anything more, so an absent/dropped socket compacts
+        // nothing. `coverage` is the saver's self-report of how far its
+        // Editor.bin reached: it can only *narrow* the bound, never widen
+        // it — an inflated value must not drop ops the saver never saw.
+        let delivered = session
+            .participants
+            .values()
+            .filter(|p| p.id_original == saver_user_id)
+            .map(|p| p.delivered_index)
+            .max()
+            .unwrap_or(session.base_index);
+        let keep_from = coverage
+            .map(|c| c.min(delivered))
+            .unwrap_or(delivered)
             .clamp(session.base_index, session.change_index);
-        let keep_from = saver_index;
         session.ops.retain(|op| op.idx > keep_from);
         session.op_bytes = session.ops.iter().map(|o| o.change.len()).sum();
         session.base_index = keep_from;
         // The uploaded Editor.bin IS the elected save — release the election
-        // here so a lost `lunaSaveEnd` frame can't wedge the room.
-        if let Some((holder, _)) = session.save_election
-            && session
-                .participants
-                .get(&holder)
-                .map(|p| p.id_original.as_str() == saver_user_id)
-                .unwrap_or(false)
-        {
-            session.save_election = None;
-        }
+        // (this PUT's fresh claim, an expired hold, or the saver's own) so
+        // a lost `lunaSaveEnd` frame can't wedge the room.
+        session.save_election = None;
         session.last_event = Instant::now();
     }
 
@@ -1056,6 +1105,17 @@ pub fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
+/// Told to a client whose op flush crossed (or was refused past)
+/// [`MAX_OP_LOG_BYTES`]: the replay log is full, and only a bundle save —
+/// which compacts it — makes room.
+fn op_log_full_frame() -> Value {
+    json!({
+        "type": "warning",
+        "code": "session.ops.overflow",
+        "message": "This editing session has many unsaved changes. Save the file, then close and reopen it.",
+    })
+}
+
 fn op_json(op: &OpRecord) -> Value {
     json!({
         "change": op.change,
@@ -1161,7 +1221,9 @@ mod tests {
     use super::*;
 
     async fn make_session(hub: &OfficeDocHub, key: &str) {
-        hub.register_key(key, "drive-a", "docs/a.docx").await;
+        hub.register_key(key, "drive-a", "docs/a.docx")
+            .await
+            .unwrap();
     }
 
     fn auth_msg(user: &str, session_id: Option<&str>) -> Value {
@@ -1735,7 +1797,9 @@ mod tests {
         // editors still hold valid tokens. verify_token rebinds the key from
         // the token claims; the recreated session must refuse sessionId
         // restores (its op log is gone) while letting fresh joins through.
-        hub.resurrect_key("k", "drive-a", "docs/a.docx").await;
+        hub.resurrect_key("k", "drive-a", "docs/a.docx")
+            .await
+            .unwrap();
         assert_eq!(
             hub.binding("k").await,
             Some(("drive-a".to_string(), "docs/a.docx".to_string()))
@@ -1762,5 +1826,169 @@ mod tests {
                 .await
                 .is_ok()
         );
+    }
+
+    #[tokio::test]
+    async fn session_cap_refuses_new_rooms() {
+        let hub = OfficeDocHub::new();
+        for i in 0..MAX_DOC_SESSIONS {
+            hub.register_key(&format!("k{i}"), "drive-a", &format!("docs/{i}.docx"))
+                .await
+                .unwrap();
+        }
+        // View-key minting makes the session count attacker-controlled —
+        // both create paths must hard-stop at the cap.
+        assert_eq!(
+            hub.register_key("overflow", "drive-a", "docs/x.docx").await,
+            Err(HubError::TooManySessions)
+        );
+        assert_eq!(
+            hub.resurrect_key("overflow", "drive-a", "docs/x.docx")
+                .await,
+            Err(HubError::TooManySessions)
+        );
+        // Re-registering (or resurrecting) a live key is untouched — the
+        // cap gates only *new* sessions.
+        assert!(
+            hub.register_key("k0", "drive-a", "docs/0.docx")
+                .await
+                .is_ok()
+        );
+        assert!(
+            hub.resurrect_key("k0", "drive-a", "docs/0.docx")
+                .await
+                .is_ok()
+        );
+    }
+
+    #[tokio::test]
+    async fn rejoin_cannot_evict_another_users_session() {
+        let hub = OfficeDocHub::new();
+        make_session(&hub, "k").await;
+        hub.auth("k", 1, &auth_msg("alice", None), true)
+            .await
+            .unwrap();
+        hub.auth("k", 2, &auth_msg("bea", None), true)
+            .await
+            .unwrap();
+        let _ = hub.luna_save_lock("k", 1).await.unwrap();
+
+        // Sock ids are sequential, so bea's client can guess "1". Echoing a
+        // foreign sessionId is refused outright — it must not evict alice
+        // and steal the save election riding on her socket.
+        assert!(matches!(
+            hub.auth("k", 9, &auth_msg("bea", Some("1")), true).await,
+            Err(HubError::Forbidden)
+        ));
+        let parts = hub.participants_json("k").await;
+        assert_eq!(parts.as_array().unwrap().len(), 2);
+        assert_eq!(hub.luna_save_lock("k", 2).await.unwrap()["saveLock"], true);
+
+        // Alice's own reconnect still reclaims her zombie and carries the
+        // election to her new socket.
+        let mut rejoin = auth_msg("alice", Some("1"));
+        rejoin["user"]["indexUser"] = json!(1);
+        hub.auth("k", 10, &rejoin, true).await.unwrap();
+        assert_eq!(
+            hub.luna_save_lock("k", 10).await.unwrap()["saveLock"],
+            false
+        );
+        assert_eq!(hub.luna_save_lock("k", 2).await.unwrap()["saveLock"], true);
+    }
+
+    #[tokio::test]
+    async fn op_log_cap_refuses_new_appends() {
+        let hub = OfficeDocHub::new();
+        make_session(&hub, "k").await;
+        hub.auth("k", 1, &auth_msg("alice", None), true)
+            .await
+            .unwrap();
+        // One oversized flush lands and carries the crossing warning.
+        let big = "x".repeat(MAX_OP_LOG_BYTES);
+        let msg = json!({"type":"saveChanges","changes":format!("[\"{big}\"]")});
+        let (replies, _) = hub.save_changes("k", 1, &msg).await.unwrap();
+        assert!(replies.iter().any(|f| f["type"] == "warning"));
+        assert_eq!(hub.op_count("k").await, 1);
+
+        // The next append is refused: not appended, not relayed, but the
+        // sender is told the room must save and reopen.
+        let (replies, broadcast) = hub.save_changes("k", 1, &msg).await.unwrap();
+        assert_eq!(hub.op_count("k").await, 1);
+        assert!(broadcast.is_none(), "a refused flush must not relay");
+        assert!(replies.iter().any(|f| f["type"] == "warning"));
+
+        // A frame carrying no changes still passes — an in-flight save
+        // must be able to close out.
+        let end = json!({
+            "type":"saveChanges","changes":"[]",
+            "startSaveChanges":true,"endSaveChanges":true,
+        });
+        let (replies, _) = hub.save_changes("k", 1, &end).await.unwrap();
+        assert!(replies.iter().any(|f| f["type"] == "unSaveLock"));
+    }
+
+    #[tokio::test]
+    async fn bundle_put_respects_the_save_election() {
+        let hub = OfficeDocHub::new();
+        make_session(&hub, "k").await;
+        hub.auth("k", 1, &auth_msg("alice", None), true)
+            .await
+            .unwrap();
+        hub.auth("k", 2, &auth_msg("bea", None), true)
+            .await
+            .unwrap();
+        for i in 0..4 {
+            let msg = json!({"type":"saveChanges","changes":format!("[{{\"n\":{i}}}]")});
+            let _ = hub.save_changes("k", 1, &msg).await.unwrap();
+        }
+        // alice holds the save election: anyone else's bundle PUT must not
+        // compact ops her in-flight save may not contain.
+        let _ = hub.luna_save_lock("k", 1).await.unwrap();
+        hub.bundle_refreshed("k", "bea", None).await;
+        assert_eq!(hub.op_count("k").await, 4);
+        // The holder's own PUT compacts and releases the election.
+        hub.bundle_refreshed("k", "alice", None).await;
+        assert_eq!(hub.op_count("k").await, 0);
+        assert_eq!(hub.luna_save_lock("k", 2).await.unwrap()["saveLock"], false);
+    }
+
+    #[tokio::test]
+    async fn bundle_put_compacts_only_to_delivered_coverage() {
+        let hub = OfficeDocHub::new();
+        make_session(&hub, "k").await;
+        hub.auth("k", 1, &auth_msg("alice", None), true)
+            .await
+            .unwrap();
+        for i in 0..4 {
+            let msg = json!({"type":"saveChanges","changes":format!("[{{\"n\":{i}}}]")});
+            let _ = hub.save_changes("k", 1, &msg).await.unwrap();
+        }
+        // Election is free — the PUT claims it. A self-reported coverage
+        // below delivered is honored (the doc genuinely lacks the tail).
+        hub.bundle_refreshed("k", "alice", Some(2)).await;
+        assert_eq!(hub.op_count("k").await, 2);
+        // An inflated coverage can't widen the bound past what the saver
+        // was delivered (4).
+        hub.bundle_refreshed("k", "alice", Some(99)).await;
+        assert_eq!(hub.op_count("k").await, 0);
+    }
+
+    #[tokio::test]
+    async fn bundle_put_without_live_saver_compacts_nothing() {
+        let hub = OfficeDocHub::new();
+        make_session(&hub, "k").await;
+        hub.auth("k", 1, &auth_msg("alice", None), true)
+            .await
+            .unwrap();
+        hub.auth("k", 2, &auth_msg("bea", None), true)
+            .await
+            .unwrap();
+        let msg = json!({"type":"saveChanges","changes":"[{\"n\":1}]"});
+        let _ = hub.save_changes("k", 1, &msg).await.unwrap();
+        hub.disconnect("k", 1).await;
+        // alice's socket is gone — nothing proves her uploaded bundle saw
+        // the live ops, so her free-election PUT leaves the log alone.
+        hub.bundle_refreshed("k", "alice", None).await;
+        assert_eq!(hub.op_count("k").await, 1);
     }
 }

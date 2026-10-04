@@ -10,10 +10,10 @@
 //! verified at the destination, and even then it goes to the drive's
 //! `.luna-<uuid>-trash`, never straight to deletion.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use rusqlite::Connection;
@@ -25,10 +25,27 @@ use crate::gallery::gallery_indexer::GalleryIndexer;
 
 const COPY_BUF: usize = 1024 * 1024;
 
+/// Copy/move work is disk-bound — a couple of jobs already saturate a USB
+/// drive, and every extra one just thrashes it. At most this many run at
+/// once; the rest wait in a bounded queue rather than piling up as blocked
+/// worker threads.
+const MAX_RUNNING_JOBS: usize = 2;
+/// The whole queue's ceiling: enqueues past it fail fast instead of
+/// accumulating unbounded background work.
+const MAX_QUEUED_JOBS: usize = 64;
+/// Most queued work one person may hold at once — a single session must
+/// not fill the queue for everyone else.
+const MAX_QUEUED_PER_USER: usize = 4;
+/// How far back the queue-depth check reads — comfortably past the queue
+/// ceiling, so every still-"running" row is seen.
+const QUEUE_CHECK_LIMIT: i64 = 256;
+
 #[derive(Debug, thiserror::Error)]
 pub enum JobError {
     #[error("Luna only knows how to copy or move.")]
     UnknownKind,
+    #[error("Luna is already working on a lot of copies and moves. Try again when they finish.")]
+    QueueFull,
     #[error("{0}")]
     Files(FilesError),
     #[error("{0}")]
@@ -53,11 +70,17 @@ impl From<FilesError> for JobError {
     }
 }
 
+/// Prepared jobs waiting for a worker slot.
+type JobQueue = Arc<Mutex<VecDeque<(PreparedJob, Arc<AtomicBool>)>>>;
+
 #[derive(Clone)]
 pub struct JobManager {
     db: Arc<crate::Db>,
     cancels: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
     gallery: Arc<GalleryIndexer>,
+    queue: JobQueue,
+    /// How many workers are running right now.
+    running: Arc<AtomicUsize>,
 }
 
 #[derive(Debug, Clone)]
@@ -76,10 +99,23 @@ struct PreparedJob {
 
 impl JobManager {
     pub fn new(db: Arc<crate::Db>, gallery: Arc<GalleryIndexer>) -> Self {
+        // A restart strands every in-flight row in "running" — nothing will
+        // ever move them, and they would count against the queue ceiling
+        // forever. Mark them interrupted once, at boot.
+        if let Ok(conn) = db.lock() {
+            let _ = conn.execute(
+                "UPDATE jobs SET state = 'interrupted', error = ?1, \
+                 updated_at = CAST(strftime('%s', 'now') AS INTEGER) \
+                 WHERE state = 'running'",
+                rusqlite::params!["Luna restarted while this job was running."],
+            );
+        }
         Self {
             db,
             cancels: Arc::new(Mutex::new(HashMap::new())),
             gallery,
+            queue: Arc::new(Mutex::new(VecDeque::new())),
+            running: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -122,18 +158,21 @@ impl JobManager {
 
         let cancel = Arc::new(AtomicBool::new(false));
         lock_cancels(&self.cancels).insert(prepared.row.id.clone(), cancel.clone());
-
-        let db = self.db.clone();
-        let gallery = self.gallery.clone();
-        let job = prepared.clone();
-        let job_id = prepared.row.id.clone();
-        let cancels = self.cancels.clone();
-        tokio::task::spawn_blocking(move || {
-            run_job(db, gallery, job, cancel);
-            lock_cancels(&cancels).remove(&job_id);
-        });
+        lock_queue(&self.queue).push_back((prepared.clone(), cancel));
+        self.pump();
 
         Ok(prepared.row)
+    }
+
+    /// Start queued jobs while a worker slot is free.
+    fn pump(&self) {
+        pump_queue(
+            &self.queue,
+            &self.running,
+            &self.cancels,
+            &self.db,
+            &self.gallery,
+        );
     }
 
     pub fn cancel(&self, id: &str) -> Result<(), JobError> {
@@ -198,7 +237,30 @@ fn prepare(
     to_path: &str,
     user_id: &str,
 ) -> Result<PreparedJob, JobError> {
-    let (src, meta) = files::resolve_any_including_trash(conn, from_drive, from_path)?;
+    // Queue depth first — under the same lock the job row insert below
+    // takes, so two enqueues can't both slip past the ceiling. `list_jobs`
+    // is newest-first, so a short read covers every row still "running"
+    // (done rows push the old jobs out of view).
+    let mut queued_total = 0usize;
+    let mut queued_mine = 0usize;
+    for row in db::list_jobs(conn, QUEUE_CHECK_LIMIT)
+        .map_err(JobError::Db)?
+        .iter()
+        .filter(|row| row.state == "running")
+    {
+        queued_total += 1;
+        if row.user_id == user_id {
+            queued_mine += 1;
+        }
+    }
+    if queued_total >= MAX_QUEUED_JOBS || queued_mine >= MAX_QUEUED_PER_USER {
+        return Err(JobError::QueueFull);
+    }
+    // One spelling for the paths a job acts on: the row it stores, the caps
+    // it checks, and the bytes it moves all agree.
+    let from_path = files::canonical_rel(from_path)?;
+    let to_path = files::canonical_rel(to_path)?;
+    let (src, meta) = files::resolve_any_including_trash(conn, from_drive, &from_path)?;
     if meta.is_dir() && from_path.is_empty() {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -210,7 +272,7 @@ fn prepare(
     // raw `{prefix}-trash` dir) would hand every member's deletions to
     // anyone holding a drive-root grant, and moving it would relocate the whole trash store. Specific
     // entries still copy and move out through restore-style jobs.
-    let from_real = files::real_rel_path(conn, from_drive, from_path)?;
+    let from_real = files::real_rel_path(conn, from_drive, &from_path)?;
     if files::is_trash_root(&from_real) {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -222,7 +284,7 @@ fn prepare(
     // the `.luna-trash` alias, where the caps engine maps the entry to its
     // origin's grants. A raw `{prefix}-trash` name would execute on nothing
     // but an admin's drive-wide grant, leaking other people's deletions.
-    if files::is_trash_rel(&from_real) && !files::is_trash_api(from_path) {
+    if files::is_trash_rel(&from_real) && !files::is_trash_api(&from_path) {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             "trash entries move through the trash API only",
@@ -233,7 +295,7 @@ fn prepare(
     // prefix is storage noise that must not leak into the destination.
     let src_root = PathBuf::from(files::drive_root(conn, from_drive)?.mount_point);
     let src_item = crate::private::item_at(&src_root, &from_real);
-    let name = files::trash_api_leaf(conn, from_drive, from_path)?
+    let name = files::trash_api_leaf(conn, from_drive, &from_path)?
         .or_else(|| src_item.as_ref().map(|i| i.name().to_string()))
         .or_else(|| src.file_name().map(|s| s.to_string_lossy().into_owned()))
         .ok_or_else(|| {
@@ -246,7 +308,7 @@ fn prepare(
     // Nothing drops INTO trash — items get there by being deleted. Check
     // the resolved real path so the `.luna-trash` alias and a raw
     // `{prefix}-trash` name are refused alike, at the root or beneath it.
-    let to_real = files::real_rel_path(conn, to_drive, to_path)?;
+    let to_real = files::real_rel_path(conn, to_drive, &to_path)?;
     if files::is_trash_rel(&to_real) {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -258,8 +320,8 @@ fn prepare(
     // forever (the copy lands inside the tree being walked). Only possible
     // on the same drive — cross-drive destinations can't nest in the source.
     if from_drive == to_drive {
-        let from = crate::access::normalize_subject_path(from_path);
-        let to = crate::access::normalize_subject_path(to_path);
+        let from = crate::access::normalize_subject_path(&from_path);
+        let to = crate::access::normalize_subject_path(&to_path);
         if crate::access::path_contains(&from, &to) {
             return Err(FilesError::Io(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
@@ -268,7 +330,7 @@ fn prepare(
             .into());
         }
     }
-    let dest_dir = files::dest_dir(conn, to_drive, to_path)?;
+    let dest_dir = files::dest_dir(conn, to_drive, &to_path)?;
     let to_root = PathBuf::from(files::drive_root(conn, to_drive)?.mount_point);
     let dest_rel = crate::gallery::gallery_indexer::join_rel(
         crate::access::normalize_subject_path(&to_real).as_str(),
@@ -336,7 +398,7 @@ fn prepare(
 
     let id = Uuid::new_v4().to_string();
     db::insert_job(
-        conn, &id, kind, from_drive, from_path, to_drive, to_path, total, user_id,
+        conn, &id, kind, from_drive, &from_path, to_drive, &to_path, total, user_id,
     )
     .map_err(JobError::Db)?;
     let row = db::get_job(conn, &id)
@@ -487,6 +549,13 @@ fn run_job(
     prepared: PreparedJob,
     cancel: Arc<AtomicBool>,
 ) {
+    // A job cancelled while it waited in the queue never starts at all.
+    if cancel.load(Ordering::Relaxed) {
+        if let Ok(conn) = db.lock() {
+            let _ = db::set_job_state(&conn, &prepared.row.id, "cancelled", "");
+        }
+        return;
+    }
     if let Err(e) = recheck_job_caps(&db, &prepared.row) {
         if let Ok(conn) = db.lock() {
             let _ = db::set_job_state(&conn, &prepared.row.id, "error", &plain_job_error(&e));
@@ -1032,6 +1101,48 @@ fn copy_plain_tree(
         }
     }
     Ok(())
+}
+
+/// Move queued work onto free workers. Called from `enqueue` and again by
+/// each worker as it finishes — the running count is bumped under the
+/// queue lock, so two pumps can never oversubscribe `MAX_RUNNING_JOBS`.
+fn pump_queue(
+    queue: &JobQueue,
+    running: &Arc<AtomicUsize>,
+    cancels: &Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
+    db: &Arc<crate::Db>,
+    gallery: &Arc<GalleryIndexer>,
+) {
+    loop {
+        let Some((job, cancel)) = ({
+            let mut q = lock_queue(queue);
+            if running.load(Ordering::SeqCst) >= MAX_RUNNING_JOBS {
+                return;
+            }
+            let next = q.pop_front();
+            if next.is_some() {
+                running.fetch_add(1, Ordering::SeqCst);
+            }
+            next
+        }) else {
+            return;
+        };
+        let job_id = job.row.id.clone();
+        let (db2, gallery2) = (db.clone(), gallery.clone());
+        let (cancels2, queue2, running2) = (cancels.clone(), queue.clone(), running.clone());
+        tokio::task::spawn_blocking(move || {
+            run_job(db2.clone(), gallery2.clone(), job, cancel);
+            lock_cancels(&cancels2).remove(&job_id);
+            running2.fetch_sub(1, Ordering::SeqCst);
+            pump_queue(&queue2, &running2, &cancels2, &db2, &gallery2);
+        });
+    }
+}
+
+fn lock_queue(
+    queue: &Mutex<VecDeque<(PreparedJob, Arc<AtomicBool>)>>,
+) -> std::sync::MutexGuard<'_, VecDeque<(PreparedJob, Arc<AtomicBool>)>> {
+    queue.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 /// The cancel flags are plain bools; a panic elsewhere must not wedge them.

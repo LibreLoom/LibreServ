@@ -13,6 +13,8 @@ use crate::AppState;
 use crate::api::response::{json_error, json_error_code};
 use crate::files::{self, FileEntry, FilesError};
 
+type ApiError = (StatusCode, Json<Value>);
+
 // A destination folder path never needs to come close to this.
 const MAX_PATH_FIELD_BYTES: usize = 4 * 1024;
 
@@ -159,14 +161,21 @@ async fn list(
     blocking(move || list_sync(state, user, id, query)).await
 }
 
+/// Canonicalize a request path: `a//b` ≡ `a/b`, `.` folds away, `..` and
+/// `\` are refused outright. Grants, private rows and the path jail all
+/// answer on this one form, so nothing is checked under one spelling and
+/// opened under another.
+fn request_path(raw: &str) -> Result<String, (StatusCode, Json<Value>)> {
+    files::canonical_rel(raw).map_err(map_files_err)
+}
+
 fn list_sync(
     state: AppState,
     user: crate::auth::CurrentUser,
     id: String,
     query: ListQuery,
 ) -> Result<Json<Vec<FileEntry>>, (StatusCode, Json<Value>)> {
-    let rel = query.path.unwrap_or_default();
-    let rel = rel.trim().trim_matches('/').to_string();
+    let rel = request_path(&query.path.unwrap_or_default())?;
     if rel == files::TRASH_API_ALIAS || rel.starts_with(&format!("{}/", files::TRASH_API_ALIAS)) {
         return list_trash_view(&state, &user, &id, &rel);
     }
@@ -367,7 +376,7 @@ pub(crate) fn root_summary(
     state: &AppState,
     user: &crate::auth::CurrentUser,
     id: &str,
-) -> Result<(u64, u64, Vec<String>), (StatusCode, Json<Value>)> {
+) -> Result<(u64, u64, Vec<String>), ApiError> {
     let entries = visible_entries(state, user, id, "")?;
     let folders = entries.iter().filter(|e| e.kind == "dir").count() as u64;
     let files = entries.len() as u64 - folders;
@@ -488,7 +497,7 @@ fn resolve_entry_sync(
             "Luna can't find where this file went. It may have been deleted.",
         )
     };
-    let rel = query.path.unwrap_or_default();
+    let rel = request_path(&query.path.unwrap_or_default())?;
     let conn = state.db.lock().map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -710,8 +719,7 @@ async fn record_recent(
             "Luna's index is busy. Try again.",
         )
     })?;
-    let path = body.path.unwrap_or_default();
-    let path = path.trim().trim_matches('/').to_string();
+    let path = request_path(&body.path.unwrap_or_default())?;
     if path.is_empty() {
         if !matches!(crate::db::get_drive(&conn, &body.drive_id), Ok(Some(_))) {
             return Err(json_error(
@@ -754,6 +762,9 @@ async fn delete_recent(
         )
     })?;
     if let (Some(drive_id), Some(path)) = (query.drive_id, query.path) {
+        // Recents key on the canonical path — the removal must spell it
+        // the same way the record did, or it silently matches nothing.
+        let path = request_path(&path)?;
         files::recents::remove(&conn, &user.id, &drive_id, &path).map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -786,8 +797,7 @@ fn stat_entry_sync(
     id: String,
     query: ListQuery,
 ) -> Result<Json<files::FileStat>, (StatusCode, Json<Value>)> {
-    let rel = query.path.unwrap_or_default();
-    let rel = rel.trim().trim_matches('/').to_string();
+    let rel = request_path(&query.path.unwrap_or_default())?;
     let in_trash =
         rel == files::TRASH_API_ALIAS || rel.starts_with(&format!("{}/", files::TRASH_API_ALIAS));
 
@@ -959,8 +969,7 @@ async fn content(
     Query(query): Query<ContentQuery>,
     headers: HeaderMap,
 ) -> Result<Response, (StatusCode, Json<Value>)> {
-    let rel = query.path.unwrap_or_default();
-    let rel = rel.trim().trim_matches('/').to_string();
+    let rel = request_path(&query.path.unwrap_or_default())?;
     let in_trash = files::is_trash_api(&rel);
     // Trash is read-only, not unreadable: items open and download, gated by
     // edit rights on the path they were deleted from. The root uses the
@@ -1371,8 +1380,7 @@ async fn delete_entry(
     Path(id): Path<String>,
     Query(query): Query<ListQuery>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let rel = query.path.unwrap_or_default();
-    let rel = rel.trim().trim_matches('/').to_string();
+    let rel = request_path(&query.path.unwrap_or_default())?;
     check_access(&state, &user, &id, &rel, crate::access::CAP_EDIT)?;
     check_no_foreign_private(&state, &user, &id, &rel)?;
     let trash_path = {
@@ -1413,7 +1421,7 @@ async fn mkdir_entry(
     Path(id): Path<String>,
     Json(body): Json<MkdirBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let rel = body.path.trim().trim_matches('/').to_string();
+    let rel = request_path(&body.path)?;
     if rel.is_empty() {
         return Err(json_error(
             StatusCode::BAD_REQUEST,
@@ -1466,7 +1474,7 @@ async fn set_privacy(
     Path(id): Path<String>,
     Json(body): Json<PrivacyBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let rel = body.path.trim().trim_matches('/').to_string();
+    let rel = request_path(&body.path)?;
     if rel.is_empty() {
         return Err(json_error(
             StatusCode::BAD_REQUEST,
@@ -1580,7 +1588,7 @@ async fn create_entry(
     Path(id): Path<String>,
     Json(body): Json<CreateBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let rel = body.path.trim().trim_matches('/').to_string();
+    let rel = request_path(&body.path)?;
     if rel.is_empty() {
         return Err(json_error(
             StatusCode::BAD_REQUEST,
@@ -1628,12 +1636,13 @@ async fn rename_entry(
     Path(id): Path<String>,
     Json(body): Json<RenameBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    check_access(&state, &user, &id, &body.path, crate::access::CAP_EDIT)?;
-    let parent = body.path.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
+    let rel = request_path(&body.path)?;
+    check_access(&state, &user, &id, &rel, crate::access::CAP_EDIT)?;
+    let parent = rel.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
     let new_rel = crate::gallery::gallery_indexer::join_rel(parent, &body.new_name);
     let (drive, path, new_name, moved_to) = (
         id.clone(),
-        body.path.clone(),
+        rel.clone(),
         body.new_name.clone(),
         new_rel.clone(),
     );
@@ -1654,11 +1663,11 @@ async fn rename_entry(
     if renamed_dir {
         state.gallery.rescan(&id);
     } else {
-        state.gallery.rename(&id, &body.path, &new_rel);
+        state.gallery.rename(&id, &rel, &new_rel);
     }
-    invalidate_parent_listing(&state, &id, &body.path);
+    invalidate_parent_listing(&state, &id, &rel);
     invalidate_parent_listing(&state, &id, &new_rel);
-    state.ram_cache.invalidate_thumb(&id, &body.path);
+    state.ram_cache.invalidate_thumb(&id, &rel);
     state.touch_io_activity();
     Ok(Json(json!({ "ok": true })))
 }
@@ -1669,8 +1678,10 @@ async fn restore_entry(
     Path(id): Path<String>,
     Json(body): Json<RestoreBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    check_trash_item(&state, &user, &id, &body.path)?;
-    check_access(&state, &user, &id, &body.dest, crate::access::CAP_UPLOAD)?;
+    let path = request_path(&body.path)?;
+    let dest = request_path(&body.dest)?;
+    check_trash_item(&state, &user, &id, &path)?;
+    check_access(&state, &user, &id, &dest, crate::access::CAP_UPLOAD)?;
     if !body.confirm_broaden {
         let conn = state.db.lock().map_err(|_| {
             json_error(
@@ -1678,8 +1689,8 @@ async fn restore_entry(
                 "Luna's index is busy. Try again.",
             )
         })?;
-        let parent = body.dest.rsplit_once('/').map_or("", |(p, _)| p);
-        if crate::api::jobs::broadens_access(&conn, &id, &body.path, &id, parent) {
+        let parent = dest.rsplit_once('/').map_or("", |(p, _)| p);
+        if crate::api::jobs::broadens_access(&conn, &id, &path, &id, parent) {
             return Err(crate::api::response::json_error_code(
                 StatusCode::CONFLICT,
                 "broadens_access",
@@ -1687,9 +1698,9 @@ async fn restore_entry(
             ));
         }
     }
-    let (drive, path, dest) = (id.clone(), body.path.clone(), body.dest.clone());
+    let (drive, path2, dest2) = (id.clone(), path.clone(), dest.clone());
     changing(&state, &id, move |conn| {
-        files::restore_from_trash(conn, &drive, &path, &dest)
+        files::restore_from_trash(conn, &drive, &path2, &dest2)
     })
     .await
     .map_err(|e| match e {
@@ -1703,8 +1714,8 @@ async fn restore_entry(
         ),
         other => map_files_err(other),
     })?;
-    state.gallery.upsert(&id, &body.dest);
-    invalidate_parent_listing(&state, &id, &body.dest);
+    state.gallery.upsert(&id, &dest);
+    invalidate_parent_listing(&state, &id, &dest);
     state.touch_io_activity();
     Ok(Json(json!({ "ok": true })))
 }
@@ -1715,10 +1726,11 @@ async fn purge_entry(
     Path(id): Path<String>,
     Json(body): Json<PurgeBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    if body.path == files::TRASH_API_ALIAS {
+    let path = request_path(&body.path)?;
+    if path == files::TRASH_API_ALIAS {
         // Empty trash. Everyone purges only the entries they can see (their
         // own origins); admins see every entry.
-        let Json(entries) = list_trash_view(&state, &user, &id, &body.path)?;
+        let Json(entries) = list_trash_view(&state, &user, &id, &path)?;
         let mut rels = Vec::new();
         for entry in entries {
             let rel = format!("{}/{}", files::TRASH_API_ALIAS, entry.name);
@@ -1746,13 +1758,13 @@ async fn purge_entry(
         })
         .await
     } else {
-        check_trash_item(&state, &user, &id, &body.path)?;
-        check_no_foreign_private(&state, &user, &id, &body.path)?;
+        check_trash_item(&state, &user, &id, &path)?;
+        check_no_foreign_private(&state, &user, &id, &path)?;
         let guard = state.db.drive_lock(&id).lock_owned().await;
         let drive = drive_row(&state, &id).map_err(map_files_err)?;
         blocking(move || {
             let _guard = guard;
-            files::purge_trash_at(&drive, &id, &body.path).map_err(|e| match e {
+            files::purge_trash_at(&drive, &id, &path).map_err(|e| match e {
                 FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::InvalidInput => {
                     json_error(
                         StatusCode::BAD_REQUEST,
@@ -1774,7 +1786,7 @@ async fn upload(
     Query(query): Query<UploadQuery>,
     mut multipart: Multipart,
 ) -> Result<Json<FileEntry>, (StatusCode, Json<Value>)> {
-    let query_path = query.path.unwrap_or_default();
+    let query_path = request_path(&query.path.unwrap_or_default())?;
     let mut dest_rel = query_path.clone();
     check_access(&state, &user, &id, &dest_rel, crate::access::CAP_UPLOAD)?;
     let overwrite = query.overwrite.as_deref() == Some("1");
@@ -1786,7 +1798,8 @@ async fn upload(
     {
         match field.name() {
             Some("path") => {
-                dest_rel = read_bounded_text(&mut field, MAX_PATH_FIELD_BYTES).await?;
+                dest_rel =
+                    request_path(&read_bounded_text(&mut field, MAX_PATH_FIELD_BYTES).await?)?;
                 if !query_path.is_empty() && dest_rel != query_path {
                     return Err(json_error(
                         StatusCode::FORBIDDEN,
@@ -2123,7 +2136,8 @@ fn check_trash_item(
     drive_id: &str,
     trash_rel: &str,
 ) -> Result<(), (StatusCode, Json<Value>)> {
-    if !trash_rel.starts_with(".luna-trash/") || trash_rel == ".luna-trash" {
+    let trash_rel = files::canonical_rel(trash_rel).map_err(map_files_err)?;
+    if !trash_rel.starts_with(".luna-trash/") {
         return Err(json_error(
             StatusCode::BAD_REQUEST,
             "Luna only works with files that are already in the trash.",
@@ -2136,8 +2150,8 @@ fn check_trash_item(
         )
     })?;
     // A private item in the trash answers to its owner alone, Admin or not.
-    if crate::auth::inside_private(&conn, drive_id, trash_rel) {
-        return if crate::auth::has_cap(user, &conn, drive_id, trash_rel, crate::access::CAP_EDIT) {
+    if crate::auth::inside_private(&conn, drive_id, &trash_rel) {
+        return if crate::auth::has_cap(user, &conn, drive_id, &trash_rel, crate::access::CAP_EDIT) {
             Ok(())
         } else {
             Err(json_error(
@@ -2146,7 +2160,8 @@ fn check_trash_item(
             ))
         };
     }
-    let original = files::trash_original_path(&conn, drive_id, trash_rel).map_err(map_files_err)?;
+    let original =
+        files::trash_original_path(&conn, drive_id, &trash_rel).map_err(map_files_err)?;
     // Admins reach everything.
     if user.role == "admin" {
         return Ok(());

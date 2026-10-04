@@ -282,6 +282,64 @@ async fn setup_post_requires_admin_once_an_account_exists() {
 }
 
 #[tokio::test]
+async fn spoofed_https_headers_do_not_mark_cookies_secure() {
+    let (_dir, app) = test_app();
+    let res = call(
+        &app,
+        req(
+            Method::POST,
+            "/api/v1/auth/register",
+            Some(r#"{"username":"max","password":"hunter22hunter1"}"#),
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), 200);
+
+    // auth_cookies truncates at the first ';' — read the raw Set-Cookie to
+    // see the Secure flag.
+    let session_cookie = |res: &axum::response::Response| {
+        res.headers()
+            .get_all(axum::http::header::SET_COOKIE)
+            .iter()
+            .map(|v| v.to_str().unwrap_or("").to_string())
+            .find(|s| s.starts_with("luna_session="))
+            .expect("login sets a session cookie")
+    };
+
+    // A remote peer inventing `X-Forwarded-Proto` — the guard strips it, so
+    // the cookie must not be marked Secure. (Marking it would also make the
+    // browser drop the cookie on the plain-http page it really got.)
+    let mut r = req(
+        Method::POST,
+        "/api/v1/auth/login",
+        Some(r#"{"username":"max","password":"hunter22hunter1"}"#),
+        None,
+    );
+    r.headers_mut()
+        .insert("x-forwarded-proto", "https".parse().unwrap());
+    let res = call(&app, from_remote(r)).await;
+    assert_eq!(res.status(), 200);
+    let session = session_cookie(&res);
+    assert!(!session.contains("; Secure"), "{session}");
+
+    // From a loopback peer — the tunnel or an on-box proxy — the header is
+    // genuine and the cookie is marked Secure.
+    let mut r = req(
+        Method::POST,
+        "/api/v1/auth/login",
+        Some(r#"{"username":"max","password":"hunter22hunter1"}"#),
+        None,
+    );
+    r.headers_mut()
+        .insert("x-forwarded-proto", "https".parse().unwrap());
+    let res = call(&app, r).await;
+    assert_eq!(res.status(), 200);
+    let session = session_cookie(&res);
+    assert!(session.contains("; Secure"), "{session}");
+}
+
+#[tokio::test]
 async fn network_status_public_while_setup_incomplete_even_with_user() {
     let (_dir, app) = test_app();
 

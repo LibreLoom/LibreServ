@@ -160,35 +160,38 @@ async fn detected(
     let drives = crate::dev_mock::scan_all(std::path::Path::new("/sys/block"), &mounts);
     // Idempotent reconciliation on every poll: gone -> missing, returned -> as_is,
     // ejected stays ejected while still plugged in. Remounted Ready drives re-arm
-    // the gallery watcher (eject→replug / kernel remount).
-    let (known_devices, remounted) = with_db(&state.db, |conn| {
-        let remounted = state.drive_manager.reconcile(conn, &drives)?;
+    // the gallery watcher (eject→replug / kernel remount). The DB mutex only
+    // covers row reads/writes — marker probes, mounts, and the dirty flush
+    // run unlocked so a slow USB stick never stalls unrelated queries.
+    let snapshot = with_db(&state.db, crate::db::list_drives).unwrap_or_default();
+    let plan = state.drive_manager.reconcile_scan(&snapshot, &drives);
+    let (rows, remounted) = with_db(&state.db, |conn| {
+        let remounted = state.drive_manager.reconcile_apply(conn, plan)?;
         let rows = crate::db::list_drives(conn)?;
-        // Drop gallery watches for drives that are no longer Ready.
-        for row in &rows {
-            if row.state != "as_is" && row.state != "readonly" {
-                // Best-effort flush if the mount path is still reachable (e.g.
-                // ejected-but-plugged). Unplugged drives skip flush.
-                if !row.mount_point.is_empty() {
-                    let mount = std::path::Path::new(&row.mount_point);
-                    if mount.is_dir() {
-                        let _ = state.ram_cache.flush_drive_dirty(&row.id, mount);
-                    }
-                }
-                state.gallery.unwatch_mount(&row.id);
-                state.search_index.unwatch_mount(&row.id);
-                state.ram_cache.drop_drive(&row.id);
-            }
-        }
-        Ok((
-            rows.into_iter()
-                .filter(|d| d.state == "as_is" || d.state == "readonly")
-                .map(|d| d.device)
-                .collect::<std::collections::HashSet<_>>(),
-            remounted,
-        ))
+        Ok((rows, remounted))
     })
     .unwrap_or_default();
+    let known_devices: std::collections::HashSet<String> = rows
+        .iter()
+        .filter(|d| d.state == "as_is" || d.state == "readonly")
+        .map(|d| d.device.clone())
+        .collect();
+    // Drop gallery watches for drives that are no longer Ready.
+    for row in &rows {
+        if row.state != "as_is" && row.state != "readonly" {
+            // Best-effort flush if the mount path is still reachable (e.g.
+            // ejected-but-plugged). Unplugged drives skip flush.
+            if !row.mount_point.is_empty() {
+                let mount = std::path::Path::new(&row.mount_point);
+                if mount.is_dir() {
+                    let _ = state.ram_cache.flush_drive_dirty(&row.id, mount);
+                }
+            }
+            state.gallery.unwatch_mount(&row.id);
+            state.search_index.unwatch_mount(&row.id);
+            state.ram_cache.drop_drive(&row.id);
+        }
+    }
     for (id, mount) in remounted {
         state.search_index.watch_mount(&id, mount.clone());
         state.gallery.watch_mount(&id, mount);

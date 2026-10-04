@@ -190,9 +190,14 @@ impl AuthService {
             .db
             .lock()
             .map_err(|_| AuthError::Db(anyhow::anyhow!("db busy")))?;
-        let user = db::get_user_by_username(&conn, &username)
-            .map_err(AuthError::Db)?
-            .ok_or(AuthError::BadLogin)?;
+        let Some(user) = db::get_user_by_username(&conn, &username).map_err(AuthError::Db)? else {
+            // Unknown names still pay the Argon2 cost so a probe can't tell
+            // "no such user" from "wrong password" by timing alone.
+            if let Ok(parsed) = PasswordHash::new(UNKNOWN_USER_PASSWORD_HASH) {
+                let _ = verify_password_hash(password, &parsed);
+            }
+            return Err(AuthError::BadLogin);
+        };
         let parsed = PasswordHash::new(&user.password_hash).map_err(|_| AuthError::BadLogin)?;
         verify_password_hash(password, &parsed)?;
         let token = self.issue(&user)?;
@@ -325,39 +330,6 @@ impl AuthService {
         .map_err(|e| AuthError::Token(e.to_string()))
     }
 
-    /// Mint a short-lived token for Document Server to fetch/save a file.
-    pub fn issue_office_token(
-        &self,
-        user_id: &str,
-        drive_id: &str,
-        path: &str,
-        write: bool,
-        ttl_secs: i64,
-    ) -> Result<String, AuthError> {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0);
-        let claims = OfficeClaims {
-            typ: "luna_office".into(),
-            sub: user_id.to_string(),
-            drive_id: drive_id.to_string(),
-            path: path.to_string(),
-            write,
-            exp: now + ttl_secs.max(60),
-            key: None,
-            bundle_id: None,
-            link_id: None,
-            link_revision: None,
-        };
-        jsonwebtoken::encode(
-            &jsonwebtoken::Header::default(),
-            &claims,
-            &jsonwebtoken::EncodingKey::from_secret(&self.signing_key()),
-        )
-        .map_err(|e| AuthError::Token(e.to_string()))
-    }
-
     /// Mint an office token carrying its full scope (bundle key, link id,
     /// password revision). Used by the session endpoints so every bundle and
     /// socket check can re-validate against the *current* grant.
@@ -389,6 +361,11 @@ impl AuthService {
         }
         if data.claims.drive_id.trim().is_empty() || data.claims.path.trim().is_empty() {
             return Err(AuthError::Token("incomplete office token".into()));
+        }
+        // Every office token is scoped to a document key; an unscoped token
+        // could open any socket or bundle it names.
+        if data.claims.key.is_none() {
+            return Err(AuthError::Token("unscoped office token".into()));
         }
         Ok(data.claims)
     }
@@ -568,17 +545,6 @@ impl AuthService {
             .map_err(AuthError::Db)?
             .ok_or(AuthError::Db(anyhow::anyhow!("user missing")))
     }
-    pub fn rotate_session(&self, user: &UserRow) -> Result<String, AuthError> {
-        let conn = self
-            .db
-            .lock()
-            .map_err(|_| AuthError::Db(anyhow::anyhow!("db busy")))?;
-        db::bump_user_token_version(&conn, &user.id).map_err(AuthError::Db)?;
-        let refreshed = db::get_user(&conn, &user.id)
-            .map_err(AuthError::Db)?
-            .ok_or(AuthError::Unauthenticated)?;
-        self.issue(&refreshed)
-    }
 
     /// Local-console recovery only: set a new password for the first admin.
     /// Never exposed on the network.
@@ -609,7 +575,9 @@ impl AuthService {
 }
 
 /// `Secure` only when this request is HTTPS (or a proxy says so). LAN HTTP
-/// must keep working — never set Secure on every cookie.
+/// must keep working — never set Secure on every cookie. The guard already
+/// removes `x-forwarded-proto`/`forwarded` from non-loopback peers, so a
+/// remote caller can't claim HTTPS it isn't using.
 pub fn request_is_https(headers: &HeaderMap) -> bool {
     if let Some(proto) = headers
         .get("x-forwarded-proto")
@@ -790,9 +758,32 @@ pub(crate) fn setup_wizard_open(state: &AppState) -> bool {
 /// never report an existing session — it always reads an empty extension —
 /// and the web UI loses the sign-in state on every refresh of the auth
 /// context (after finishing setup, and after every login).
+/// Forwarding headers a client can invent. Trusted only from a loopback
+/// peer — the Connect tunnel or an on-box proxy — same rule `client_ip`
+/// applies. The guard strips them for every other peer so downstream code
+/// (`client_ip`, `request_is_https`, origin labels) can't be fooled.
+const FORWARDING_HEADERS: &[&str] = &[
+    "cf-connecting-ip",
+    "x-real-ip",
+    "x-forwarded-for",
+    "x-forwarded-proto",
+    "forwarded",
+];
+
 pub async fn guard(State(state): State<AppState>, req: Request, next: Next) -> Response {
     let path = req.uri().path().to_string();
     let method = req.method().clone();
+    let mut req = req;
+    let trusted_peer = req
+        .extensions()
+        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+        .is_some_and(|c| c.0.ip().is_loopback());
+    if !trusted_peer {
+        let h = req.headers_mut();
+        for name in FORWARDING_HEADERS {
+            h.remove(*name);
+        }
+    }
     let headers = req.headers().clone();
     let secure = request_is_https(&headers);
     let issue_csrf = matches!(method, axum::http::Method::GET | axum::http::Method::HEAD)
@@ -860,7 +851,6 @@ pub async fn guard(State(state): State<AppState>, req: Request, next: Next) -> R
 
     // Prefer the session JWT; fall back to a device token so the mobile and
     // desktop clients can authenticate with a revocable, long-lived token.
-    let mut req = req;
     if let Ok(Some((user, device_token_ctx))) = state.auth.resolve_auth_from_headers(req.headers())
     {
         req.extensions_mut().insert(user);
@@ -1718,6 +1708,11 @@ pub fn require_admin(req: &axum::extract::Request) -> Result<&CurrentUser, AuthE
     }
     Ok(user)
 }
+
+/// Canned Argon2 hash (of the throwaway password "luna-timing-dummy")
+/// verified on logins for unknown usernames so timing matches the
+/// known-user path.
+const UNKNOWN_USER_PASSWORD_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$nCs7Qrw7Rl0AUFYlk3qKIw$7yDxra3PKYXKkoL3HqX2aEWhmbCX9DqweucGz91oFxQ";
 
 pub(crate) fn verify_password_hash(
     password: &str,

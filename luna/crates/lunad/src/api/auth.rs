@@ -56,6 +56,60 @@ async fn update_me(
             "Sign in to Luna first.",
         ));
     };
+    if let Some(name) = body.display_name.as_deref() {
+        let name = name.trim();
+        if name.is_empty() || name.len() > 80 {
+            return Err(json_error(
+                StatusCode::BAD_REQUEST,
+                "Names are 1-80 characters.",
+            ));
+        }
+    }
+    // Password work happens BEFORE the db lock: the mutex is not reentrant
+    // (AuthService calls would deadlock) and neither argon2 nor the breach
+    // check's network call may run while it is held.
+    let mut new_hash = None;
+    if let Some(new_password) = body.new_password.as_deref() {
+        let current_password = body.current_password.as_deref().unwrap_or("");
+        let stored_hash = {
+            let conn = state.db.lock().map_err(|_| {
+                json_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Luna couldn't do that. Try again.",
+                )
+            })?;
+            crate::db::get_user(&conn, &user.id)
+                .map_err(|_| {
+                    json_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "Luna couldn't do that. Try again.",
+                    )
+                })?
+                .ok_or_else(|| json_error(StatusCode::UNAUTHORIZED, "Sign in to Luna first."))?
+                .password_hash
+        };
+        let parsed = argon2::password_hash::PasswordHash::new(&stored_hash).map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't do that. Try again.",
+            )
+        })?;
+        auth::verify_password_hash(current_password, &parsed)
+            .map_err(|_| json_error(StatusCode::FORBIDDEN, "That's not your current password."))?;
+        if let Err(e) = crate::password::validate_password(new_password) {
+            return Err(json_error(StatusCode::BAD_REQUEST, e.message()));
+        }
+        if let Err(e) = crate::hibp::ensure_password_not_breached(new_password) {
+            return Err(json_error(StatusCode::BAD_REQUEST, e.message()));
+        }
+        new_hash = Some(auth::hash_password(new_password).map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't save that. Try again.",
+            )
+        })?);
+    }
+
     let conn = state.db.lock().map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -65,14 +119,7 @@ async fn update_me(
     let mut changed_password = false;
 
     if let Some(name) = body.display_name.as_deref() {
-        let name = name.trim();
-        if name.is_empty() || name.len() > 80 {
-            return Err(json_error(
-                StatusCode::BAD_REQUEST,
-                "Names are 1-80 characters.",
-            ));
-        }
-        crate::db::set_user_display_name(&conn, &user.id, name).map_err(|_| {
+        crate::db::set_user_display_name(&conn, &user.id, name.trim()).map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Luna couldn't save that. Try again.",
@@ -80,24 +127,7 @@ async fn update_me(
         })?;
     }
 
-    if let Some(new_password) = body.new_password.as_deref() {
-        let current_password = body.current_password.as_deref().unwrap_or("");
-        state
-            .auth
-            .verify_password_for_user(&user.id, current_password)
-            .map_err(|_| json_error(StatusCode::FORBIDDEN, "That's not your current password."))?;
-        if let Err(e) = crate::password::validate_password(new_password) {
-            return Err(json_error(StatusCode::BAD_REQUEST, e.message()));
-        }
-        if let Err(e) = crate::hibp::ensure_password_not_breached(new_password) {
-            return Err(json_error(StatusCode::BAD_REQUEST, e.message()));
-        }
-        let hash = auth::hash_password(new_password).map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't save that. Try again.",
-            )
-        })?;
+    if let Some(hash) = new_hash {
         crate::db::set_user_password_hash(&conn, &user.id, &hash).map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -161,7 +191,7 @@ async fn register(
         // Setup is open on the LAN. Off it, the first login can only be
         // created by someone holding the full device token — the flow
         // Connect's onboarding finishes with.
-        if let Err(msg) = first_user_device_token(&state, &body) {
+        if let Err(msg) = first_user_device_token(&state, &body).await {
             return Err(json_error(StatusCode::FORBIDDEN, msg));
         }
     }
@@ -175,7 +205,9 @@ async fn register(
         )
         .map_err(map_auth_err)?;
     if !has_users {
-        let _ = state.connect.clear_first_user_secret();
+        // One-time cleanup does a Connect round-trip — off the async worker.
+        let connect = state.connect.clone();
+        let _ = tokio::task::spawn_blocking(move || connect.clear_first_user_secret()).await;
     }
     Ok(Json(json!({
         "id": user.id,
@@ -399,7 +431,7 @@ fn login_user_key(username: &str) -> String {
 /// token — either the one-time `first_user_secret` Connect hands out during
 /// onboarding or the permanent token on this Luna. Empty secret → a plain
 /// refusal that says where to set up instead.
-fn first_user_device_token(state: &AppState, body: &RegisterBody) -> Result<(), String> {
+async fn first_user_device_token(state: &AppState, body: &RegisterBody) -> Result<(), String> {
     let offered = body.setup_secret.as_deref().unwrap_or("").trim();
     if offered.is_empty() {
         return Err(
@@ -429,8 +461,10 @@ fn first_user_device_token(state: &AppState, body: &RegisterBody) -> Result<(), 
         }
     }
 
-    // 3. In case Connect just updated, attempt a refresh poll
-    let _ = state.connect.poll_status();
+    // 3. In case Connect just updated, attempt a refresh poll — a blocking
+    // HTTP call, so it runs on the blocking pool, not the async worker.
+    let connect = state.connect.clone();
+    let _ = tokio::task::spawn_blocking(move || connect.poll_status()).await;
     if let Some(want) = state.connect.first_user_secret() {
         let norm_want = crate::net::connect::normalize_setup_code(&want);
         if offered.eq_ignore_ascii_case(want.trim())
@@ -671,5 +705,55 @@ mod tests {
             .await,
             StatusCode::OK
         );
+    }
+
+    #[tokio::test]
+    async fn changing_own_password_finishes_and_rekeys_login() {
+        // Regression: update_me used to hold the db mutex across the
+        // AuthService password check — a guaranteed self-deadlock. The
+        // timeout is the assertion that matters.
+        let (_dir, state) = state();
+        let user = state
+            .auth
+            .register("max", "Max", "hunter22hunter1", "admin")
+            .unwrap();
+        let router = axum::Router::new()
+            .merge(super::router())
+            .with_state(state.clone());
+        let patch = |body: &str| {
+            let router = router.clone();
+            let u = user.clone();
+            let body = body.to_string();
+            async move {
+                let mut http = axum::http::Request::builder()
+                    .method(axum::http::Method::PATCH)
+                    .uri("/api/v1/auth/me")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(body))
+                    .unwrap();
+                // The guard inserts a bare CurrentUser — the
+                // `Option<Extension<CurrentUser>>` extractor reads that.
+                http.extensions_mut().insert(CurrentUser {
+                    id: u.id,
+                    username: u.username,
+                    role: u.role,
+                });
+                tokio::time::timeout(std::time::Duration::from_secs(20), router.oneshot(http))
+                    .await
+                    .expect("PATCH /api/v1/auth/me must not deadlock")
+                    .unwrap()
+            }
+        };
+        // A wrong current password is refused — without hanging.
+        let res =
+            patch(r#"{"current_password":"nope-not-it1","new_password":"hunter22hunter2"}"#).await;
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+        // The right one rotates the stored hash.
+        let res =
+            patch(r#"{"current_password":"hunter22hunter1","new_password":"hunter22hunter2"}"#)
+                .await;
+        assert_eq!(res.status(), StatusCode::OK);
+        assert!(state.auth.login("max", "hunter22hunter2").is_ok());
+        assert!(state.auth.login("max", "hunter22hunter1").is_err());
     }
 }

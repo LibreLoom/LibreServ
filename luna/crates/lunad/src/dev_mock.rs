@@ -26,26 +26,16 @@ pub struct MockDriveConfig {
     pub mount_readonly: Option<bool>,
 }
 
-/// Whether mock drives should appear in drive detection.
+/// Whether mock drives should appear in drive detection. Explicit opt-in
+/// only: `LUNA_MOCK_DRIVES=1`, or a debug build (where the Makefile dev flow
+/// still "just works"). Release builds must never fabricate drives on a
+/// heuristic like a data dir named `dev`.
 pub fn enabled() -> bool {
     match std::env::var("LUNA_MOCK_DRIVES").ok().as_deref() {
         Some("0") | Some("false") | Some("no") | Some("off") => false,
         Some("1") | Some("true") | Some("yes") | Some("on") => true,
-        _ => dev_data_dir(),
+        _ => cfg!(debug_assertions),
     }
-}
-
-/// True when `LUNA_DATA_DIR` points at the Makefile dev tree (`…/luna/dev`).
-fn dev_data_dir() -> bool {
-    std::env::var("LUNA_DATA_DIR")
-        .ok()
-        .map(|p| {
-            Path::new(&p)
-                .file_name()
-                .and_then(|n| n.to_str())
-                .is_some_and(|n| n == "dev")
-        })
-        .unwrap_or(false)
 }
 
 /// Path to dynamic mock drives directory.

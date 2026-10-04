@@ -10,6 +10,26 @@ fn service() -> (tempfile::TempDir, AuthService) {
 }
 
 #[test]
+fn unknown_username_still_runs_argon2_and_fails() {
+    let (_dir, auth) = service();
+    auth.register("Max", "Max", "hunter22hunter1", "user")
+        .unwrap();
+    let parsed = PasswordHash::new(UNKNOWN_USER_PASSWORD_HASH).expect("canned hash parses");
+    // The canned hash is a real argon2id digest of a password nobody uses —
+    // a wrong guess fails, and even its own plaintext must not authenticate.
+    assert!(verify_password_hash("anything", &parsed).is_err());
+    assert!(verify_password_hash("luna-timing-dummy", &parsed).is_ok());
+    assert!(matches!(
+        auth.login("nobody", "hunter22hunter1"),
+        Err(AuthError::BadLogin)
+    ));
+    assert!(matches!(
+        auth.login("nobody", "luna-timing-dummy"),
+        Err(AuthError::BadLogin)
+    ));
+}
+
+#[test]
 fn first_user_is_admin_and_login_round_trips() {
     let (_dir, auth) = service();
     let user = auth

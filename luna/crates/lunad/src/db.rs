@@ -15,6 +15,14 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
         std::fs::create_dir_all(parent)?;
     }
     let conn = Connection::open(path)?;
+    // luna.db holds password hashes, sessions, and tokens — owner-only.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Err(e) = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)) {
+            tracing::warn!(error = %e, path = %path.display(), "could not restrict database file permissions");
+        }
+    }
     conn.busy_timeout(Duration::from_secs(5))?;
     conn.pragma_update(None, "journal_mode", "WAL")?;
     conn.pragma_update(None, "synchronous", "NORMAL")?;
@@ -138,6 +146,14 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             count INTEGER NOT NULL,
             window_start INTEGER NOT NULL,
             locked_until INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS backup_manifest (
+            source TEXT NOT NULL,
+            path TEXT NOT NULL,
+            size INTEGER NOT NULL,
+            mtime INTEGER NOT NULL,
+            uploaded_at INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (source, path)
         );
         ",
     )?;
@@ -1055,6 +1071,43 @@ pub fn set_meta(conn: &Connection, key: &str, value: &str) -> anyhow::Result<()>
         "INSERT INTO meta (key, value) VALUES (?1, ?2)
          ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         params![key, value],
+    )?;
+    Ok(())
+}
+
+/// Change-detection map for one cloud backup source: object key → (size,
+/// mtime). Only files differing from their row are re-uploaded.
+pub fn backup_manifest(
+    conn: &Connection,
+    source: &str,
+) -> anyhow::Result<std::collections::HashMap<String, (u64, i64)>> {
+    let mut stmt =
+        conn.prepare_cached("SELECT path, size, mtime FROM backup_manifest WHERE source = ?1")?;
+    let rows = stmt.query_map(params![source], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            (row.get::<_, i64>(1)? as u64, row.get::<_, i64>(2)?),
+        ))
+    })?;
+    Ok(rows.collect::<Result<_, _>>()?)
+}
+
+/// Record a file's successful cloud backup upload.
+pub fn backup_manifest_put(
+    conn: &Connection,
+    source: &str,
+    path: &str,
+    size: u64,
+    mtime: i64,
+) -> anyhow::Result<()> {
+    conn.execute(
+        "INSERT INTO backup_manifest (source, path, size, mtime, uploaded_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(source, path) DO UPDATE SET
+           size = excluded.size,
+           mtime = excluded.mtime,
+           uploaded_at = excluded.uploaded_at",
+        params![source, path, size as i64, mtime, now_unix()],
     )?;
     Ok(())
 }

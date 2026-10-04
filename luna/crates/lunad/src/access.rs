@@ -138,10 +138,11 @@ pub fn caps_valid_for_link(caps: Caps, subject_kind: &str, is_file: bool, is_for
 }
 
 /// Normalize a subject path: trim, strip slashes, collapse empties to "".
-/// "" means the whole drive (every path is inside it).
+/// "" means the whole drive (every path is inside it). `\` is NOT a
+/// separator — the filesystems Luna serves treat `a\b` as one name, so a
+/// grant on `a/b` must never answer for it.
 pub fn normalize_subject_path(raw: &str) -> String {
-    let cleaned = raw.trim().replace('\\', "/");
-    let cleaned = cleaned.trim_matches('/');
+    let cleaned = raw.trim().trim_matches('/');
     if cleaned.is_empty() {
         return String::new();
     }
@@ -276,8 +277,13 @@ where
     false
 }
 
-/// Sanitize a subject path for storage; rejects `..` escapes.
+/// Sanitize a subject path for storage; rejects `..` escapes and `\`
+/// (not a separator anywhere Luna runs — a grant spelling it would never
+/// match a canonical path anyway).
 pub fn clean_subject_path(raw: &str) -> Option<String> {
+    if raw.contains('\\') {
+        return None;
+    }
     let norm = normalize_subject_path(raw);
     if Path::new(&norm)
         .components()
@@ -335,6 +341,10 @@ pub fn repath_subjects_move(
             })?
             .collect::<Result<Vec<_>, _>>()?;
         for (id, path) in rows {
+            // Rows are stored canonical, but an old or hand-edited row is
+            // compared normalized so one spelling can never drift out of
+            // a move's reach.
+            let path = normalize_subject_path(&path);
             if !path_contains(&old_path, &path) {
                 continue;
             }
@@ -370,6 +380,7 @@ pub fn drop_subjects_under(conn: &Connection, drive_id: &str, path: &str) -> any
             })?
             .collect::<Result<Vec<_>, _>>()?;
         for (id, row_path) in rows {
+            let row_path = normalize_subject_path(&row_path);
             if !path_contains(&path, &row_path) {
                 continue;
             }
@@ -434,12 +445,46 @@ mod tests {
     #[test]
     fn paths() {
         assert_eq!(normalize_subject_path("/a//b/"), "a/b");
+        assert_eq!(normalize_subject_path("a/./b"), "a/b");
         assert_eq!(normalize_subject_path(""), "");
         assert!(path_contains("", "anything"));
         assert!(path_contains("a", "a/b"));
         assert!(!path_contains("a", "ab"));
         assert_eq!(clean_subject_path("../escape"), None);
         assert_eq!(clean_subject_path("a/../b"), None);
+    }
+
+    #[test]
+    fn a_backslash_is_a_name_not_a_separator() {
+        // `\` must never collapse into `/` here: `a\b` is one file name on
+        // the filesystems Luna serves, so a grant on `a/b` answers nothing
+        // for it and nobody can mint a grant that would.
+        assert_eq!(normalize_subject_path("a\\b"), "a\\b");
+        assert!(!path_contains("a", "a\\b"));
+        assert_eq!(clean_subject_path("a\\b"), None);
+        assert_eq!(clean_subject_path("a\\b\\c"), None);
+        // `//` and `.` still fold to the one canonical spelling.
+        assert_eq!(clean_subject_path("a//b/./c").as_deref(), Some("a/b/c"));
+    }
+
+    #[test]
+    fn alternate_spellings_drop_and_repath_canonical_rows() {
+        // A non-canonical row (older data, hand edits) must still move and
+        // revoke with the canonical spelling — compare normalized, or one
+        // spelling could drift out of a move's reach.
+        let dir = tempfile::tempdir().unwrap();
+        let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+        create_member(&conn, &member("odd", "a//b", CAP_VIEW)).unwrap();
+        repath_subjects(&conn, "d", "a", "z").unwrap();
+        let rows = db::list_access_members_for_user(&conn, "u").unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].path, "z/b", "a//b row follows a's move");
+        drop_subjects_under(&conn, "d", "z").unwrap();
+        assert!(
+            db::list_access_members_for_user(&conn, "u")
+                .unwrap()
+                .is_empty()
+        );
     }
 
     fn member(id: &str, path: &str, caps: Caps) -> db::AccessMemberRow {

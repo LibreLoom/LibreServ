@@ -66,6 +66,45 @@ pub struct Peek {
     pub summary: luna_core::scan::TopLevelSummary,
 }
 
+/// A DB row update `reconcile_scan` decided on; applied later by
+/// `reconcile_apply` so scan-time I/O never needs the connection.
+pub enum ReconcileWrite {
+    State {
+        id: String,
+        state: String,
+    },
+    Placement {
+        id: String,
+        device: String,
+        state: String,
+    },
+}
+
+/// What a reconcile scan decided: row writes to apply and drives that came
+/// back mounted (ids resolved to fresh paths in `reconcile_apply`).
+#[derive(Default)]
+pub struct ReconcilePlan {
+    writes: Vec<ReconcileWrite>,
+    remount_ids: Vec<String>,
+}
+
+impl ReconcilePlan {
+    fn set_state(&mut self, id: &str, state: &str) {
+        self.writes.push(ReconcileWrite::State {
+            id: id.to_string(),
+            state: state.to_string(),
+        });
+    }
+
+    fn set_placement(&mut self, id: &str, device: &str, state: &str) {
+        self.writes.push(ReconcileWrite::Placement {
+            id: id.to_string(),
+            device: device.to_string(),
+            state: state.to_string(),
+        });
+    }
+}
+
 #[derive(Clone)]
 pub struct DriveManager {
     mounter: Arc<dyn Mounter>,
@@ -127,10 +166,19 @@ impl DriveManager {
         // failures (permission on individual entries) as still readable.
         let readable = true;
 
+        // Inspection never changes foreign mounts: a read-only mount that
+        // Luna didn't make is reported as not writable instead of being
+        // remounted RW under the owner. The RW remount only happens at
+        // adopt (remount_adopt_rw). Luna's own temp look-inside mount is
+        // fair game — it flips right back to RO.
         let writable = if choice.needs_erase {
             false
+        } else if mounted_by_luna {
+            self.probe_writability(&mount_point, true)
+        } else if device.mount_readonly {
+            false
         } else {
-            self.probe_writability(&mount_point, device.mount_readonly || mounted_by_luna)
+            probe_writable(&mount_point).is_ok()
         };
 
         Ok(Inspection {
@@ -165,7 +213,10 @@ impl DriveManager {
         let look = |root: &Path| {
             (
                 scan_top_level(root),
-                luna_core::marker::read_marker(root).ok().flatten().is_some(),
+                luna_core::marker::read_marker(root)
+                    .ok()
+                    .flatten()
+                    .is_some(),
             )
         };
         let seen = match &device.mount_point {
@@ -226,7 +277,14 @@ impl DriveManager {
         // Defense-in-depth: never adopt the live OS disk or anything mounted
         // at the system root. Detection normally filters these out, but this
         // guard makes it impossible to adopt them even if a caller bypasses it.
-        if device.mount_point.as_deref() == Some("/") {
+        // Every mounted partition of the disk counts — detection reports only
+        // one mount per drive, and a system path on any sibling partition
+        // means this is the OS's own disk.
+        if device.mount_point.as_deref() == Some("/")
+            || mounted_points_for_disk(&device.name)
+                .iter()
+                .any(|p| is_system_mountpoint(p))
+        {
             anyhow::bail!(
                 "That's the system disk Luna runs from — Luna won't touch the operating system's own drive."
             );
@@ -247,7 +305,7 @@ impl DriveManager {
         }
 
         if erase {
-            self.unmount_disk_mounts(&device.name);
+            self.unmount_disk_mounts(&device.name)?;
             self.probe
                 .format_data_usb(&device.name, label)
                 .map_err(|e| anyhow::anyhow!("Luna couldn't erase this USB. {e}"))?;
@@ -453,35 +511,28 @@ impl DriveManager {
         choice
     }
 
-    fn unmount_disk_mounts(&self, disk: &str) {
-        let mounts = std::fs::read_to_string("/proc/mounts").unwrap_or_default();
-        let mut points: Vec<String> = Vec::new();
-        for line in mounts.lines() {
-            let mut fields = line.split_whitespace();
-            let Some(device) = fields.next() else {
-                continue;
-            };
-            let Some(point) = fields.next() else { continue };
-            let name = Path::new(device)
-                .file_name()
-                .map(|s| s.to_string_lossy().into_owned())
-                .unwrap_or_else(|| device.to_string());
-            if detect::is_partition_of(disk, &name) {
-                points.push(point.to_string());
-            }
-        }
-        points.sort_by_key(|p| std::cmp::Reverse(p.len()));
-        for point in points {
-            let path = Path::new(&point);
-            if is_system_mountpoint(path) {
+    fn unmount_disk_mounts(&self, disk: &str) -> anyhow::Result<()> {
+        let mut points = mounted_points_for_disk(disk);
+        points.sort_by_key(|p| std::cmp::Reverse(p.as_os_str().len()));
+        for point in &points {
+            if is_system_mountpoint(point) {
                 continue;
             }
-            let _ = self.mounter.unmount(path);
+            let _ = self.mounter.unmount(point);
         }
         let foreign = self.foreign_mount_point(disk);
         if foreign.exists() {
             let _ = self.mounter.unmount(&foreign);
         }
+        // Whatever is still mounted (busy umount, a skipped system path)
+        // must stop the erase: repartitioning under a live mount can
+        // corrupt the running system, not just the stick.
+        if !mounted_points_for_disk(disk).is_empty() {
+            anyhow::bail!(
+                "Something is still using this drive, so Luna can't erase it. Close whatever has it open, then try again."
+            );
+        }
+        Ok(())
     }
 
     /// Eject a drive that Luna knows about. Only unmounts Luna-owned mounts.
@@ -682,27 +733,35 @@ impl DriveManager {
         probe_writable(root).is_ok()
     }
 
-    /// Reconcile the registry with reality.
-    ///
-    /// Adopted drives that disappeared become `missing`; drives that come back
-    /// become `as_is` again. Matching is by kernel name first, then by `.luna`
-    /// marker UUID when the stick returns under a new `/dev/sdX` name.
-    /// Ejected drives stay ejected while still plugged in (name or marker);
-    /// once unplugged they become `missing` so a re-plug can restore Ready.
-    /// If a Ready drive's Luna mount is already gone, mark it ejected.
-    ///
-    /// Returns drive ids + mount paths that need gallery `watch_mount` re-armed
-    /// (Ready restore / kernel remount). Callers must call `watch_mount` for each.
+    /// Reconcile the registry with reality: `reconcile_scan` on a snapshot,
+    /// then `reconcile_apply` for the row writes. The two-phase split lets
+    /// the `/drives/detected` handler run marker probes and mounts without
+    /// holding the global DB lock; this wrapper keeps the simple
+    /// one-connection form for boot and tests.
     pub fn reconcile(
         &self,
         conn: &Connection,
         detected: &[DetectedDrive],
     ) -> anyhow::Result<Vec<(String, PathBuf)>> {
+        let rows = db::list_drives(conn)?;
+        let plan = self.reconcile_scan(&rows, detected);
+        self.reconcile_apply(conn, plan)
+    }
+
+    /// The I/O half of reconcile. Walks the snapshot rows against `detected`,
+    /// probes markers and remounts what came back, and records the DB
+    /// changes to make afterwards. Takes no connection — a slow USB stick
+    /// must never stall unrelated queries.
+    pub fn reconcile_scan(
+        &self,
+        rows: &[db::DriveRow],
+        detected: &[DetectedDrive],
+    ) -> ReconcilePlan {
         // Cache marker ids per detected device for this pass so a missing-row
         // loop does not RO-mount the same stick once per registry entry.
         let mut marker_cache: HashMap<String, Vec<String>> = HashMap::new();
-        let mut remounted: Vec<(String, PathBuf)> = Vec::new();
-        for row in db::list_drives(conn)? {
+        let mut plan = ReconcilePlan::default();
+        for row in rows {
             let present_by_name = detected.iter().any(|d| d.name == row.device);
             let marker_match = if present_by_name {
                 None
@@ -713,52 +772,74 @@ impl DriveManager {
             let rematch_name = marker_match.map(|d| d.name.as_str());
             match row.state.as_str() {
                 "as_is" | "readonly" if !present => {
-                    db::set_drive_state(conn, &row.id, "missing")?;
+                    plan.set_state(&row.id, "missing");
                 }
                 "as_is" | "readonly" if rematch_name.is_some() => {
                     // Kernel rename while still Ready — retarget device, keep state.
                     let new_name = rematch_name.unwrap();
-                    db::update_drive_placement(conn, &row.id, new_name, None, &row.state)?;
+                    plan.set_placement(&row.id, new_name, &row.state);
                     let mut updated = row.clone();
                     updated.device = new_name.to_string();
                     let _ = self.dismiss_foreign(new_name);
-                    let did_mount = self.ensure_mounted(&updated).unwrap_or(false);
-                    if did_mount {
-                        push_remount(&mut remounted, conn, &updated.id);
+                    if self.ensure_mounted(&updated).unwrap_or(false) {
+                        plan.remount_ids.push(updated.id.clone());
                     }
                 }
-                "as_is" | "readonly" if present && self.luna_mount_missing(&row) => {
+                "as_is" | "readonly" if present && self.luna_mount_missing(row) => {
                     // Mount already gone (prior eject, crash, or forced umount)
                     // but DB still said Ready — keep UI in sync.
-                    db::set_drive_state(conn, &row.id, "ejected")?;
+                    plan.set_state(&row.id, "ejected");
                 }
                 "ejected" if !present => {
-                    db::set_drive_state(conn, &row.id, "missing")?;
+                    plan.set_state(&row.id, "missing");
                 }
                 "ejected" if rematch_name.is_some() => {
                     // Still plugged under a new kernel name — stay ejected, track name.
-                    let new_name = rematch_name.unwrap();
-                    db::update_drive_placement(conn, &row.id, new_name, None, "ejected")?;
-                    let _ = self.dismiss_foreign(new_name);
+                    plan.set_placement(&row.id, rematch_name.unwrap(), "ejected");
+                    let _ = self.dismiss_foreign(rematch_name.unwrap());
                 }
                 "missing" if present => {
                     let new_name = rematch_name.unwrap_or(row.device.as_str());
                     let mut updated = row.clone();
                     if new_name != row.device {
-                        db::update_drive_placement(conn, &row.id, new_name, None, "as_is")?;
+                        plan.set_placement(&row.id, new_name, "as_is");
                         updated.device = new_name.to_string();
                     } else {
-                        db::set_drive_state(conn, &row.id, "as_is")?;
+                        plan.set_state(&row.id, "as_is");
                     }
                     let _ = self.dismiss_foreign(new_name);
                     let _ = self.ensure_mounted(&updated);
                     // Always re-arm gallery on Ready restore (eject→replug /
                     // missing→as_is). Prior unwatch left the indexer cold.
-                    push_remount(&mut remounted, conn, &updated.id);
+                    plan.remount_ids.push(updated.id.clone());
                 }
                 // ejected + still plugged in (same name) → stay ejected
                 _ => {}
             }
+        }
+        plan
+    }
+
+    /// The DB half of reconcile: apply the writes the scan collected, then
+    /// resolve each re-mounted drive's fresh mount path for gallery re-arm.
+    pub fn reconcile_apply(
+        &self,
+        conn: &Connection,
+        plan: ReconcilePlan,
+    ) -> anyhow::Result<Vec<(String, PathBuf)>> {
+        for write in plan.writes {
+            match write {
+                ReconcileWrite::State { id, state } => {
+                    db::set_drive_state(conn, &id, &state)?;
+                }
+                ReconcileWrite::Placement { id, device, state } => {
+                    db::update_drive_placement(conn, &id, &device, None, &state)?;
+                }
+            }
+        }
+        let mut remounted = Vec::new();
+        for id in plan.remount_ids {
+            push_remount(&mut remounted, conn, &id);
         }
         Ok(remounted)
     }
@@ -931,6 +1012,32 @@ fn fs_opt(fs_type: &str) -> Option<&str> {
     }
 }
 
+/// Every mount point any partition of `disk` currently has (from
+/// `/proc/mounts`) — not just the one detection happened to report.
+fn mounted_points_for_disk(disk: &str) -> Vec<PathBuf> {
+    let mounts = std::fs::read_to_string("/proc/mounts").unwrap_or_default();
+    mounted_points_for_disk_in(&mounts, disk)
+}
+
+fn mounted_points_for_disk_in(mounts: &str, disk: &str) -> Vec<PathBuf> {
+    let mut points = Vec::new();
+    for line in mounts.lines() {
+        let mut fields = line.split_whitespace();
+        let Some(device) = fields.next() else {
+            continue;
+        };
+        let Some(point) = fields.next() else { continue };
+        let name = Path::new(device)
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| device.to_string());
+        if detect::is_partition_of(disk, &name) {
+            points.push(PathBuf::from(point.replace("\\040", " ")));
+        }
+    }
+    points
+}
+
 fn is_system_mountpoint(path: &Path) -> bool {
     let Some(s) = path.to_str() else {
         return true;
@@ -942,6 +1049,9 @@ fn is_system_mountpoint(path: &Path) -> bool {
             | "/efi"
             | "/usr"
             | "/etc"
+            | "/var"
+            | "/run"
+            | "/root"
             | "/sys"
             | "/proc"
             | "/dev"
@@ -950,6 +1060,10 @@ fn is_system_mountpoint(path: &Path) -> bool {
         || s.starts_with("/usr/")
         || s.starts_with("/sys/")
         || s.starts_with("/proc/")
+        || s.starts_with("/dev/")
+        || s.starts_with("/var/")
+        || s.starts_with("/run/")
+        || s.starts_with("/home/")
 }
 
 fn is_erofs(err: &impl std::fmt::Display) -> bool {
@@ -1050,15 +1164,28 @@ mod tests {
         std::fs::create_dir_all(stick.join("Holiday")).unwrap();
         std::fs::write(stick.join("notes.txt"), b"hi").unwrap();
         std::fs::write(stick.join(".secret"), b"x").unwrap();
-        let before: Vec<_> = std::fs::read_dir(&stick).unwrap().flatten().map(|e| e.file_name()).collect();
+        let before: Vec<_> = std::fs::read_dir(&stick)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name())
+            .collect();
 
         let peek = mgr.peek(&detected("sdz", stick.to_str()));
         assert!(peek.readable);
         assert!(!peek.has_marker);
         assert_eq!((peek.summary.folders, peek.summary.files), (1, 2));
-        assert!(peek.summary.entries.iter().all(|e| !e.name.starts_with('.')));
+        assert!(
+            peek.summary
+                .entries
+                .iter()
+                .all(|e| !e.name.starts_with('.'))
+        );
 
-        let after: Vec<_> = std::fs::read_dir(&stick).unwrap().flatten().map(|e| e.file_name()).collect();
+        let after: Vec<_> = std::fs::read_dir(&stick)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name())
+            .collect();
         assert_eq!(before.len(), after.len(), "peek must not add a probe file");
     }
 
@@ -1833,6 +1960,42 @@ mod tests {
         assert!(
             mounts.iter().any(|m| m.0.ends_with("sdz1") && !m.2),
             "erase must mount the new partition read-write, got {mounts:?}"
+        );
+    }
+
+    #[test]
+    fn inspect_never_remounts_a_foreign_read_only_mount() {
+        let mounter = shared_mock();
+        let root = tempfile::tempdir().unwrap();
+        let mgr = DriveManager::new(mounter.clone(), root.path());
+        let existing = root.path().join("ro-usb");
+        std::fs::create_dir_all(&existing).unwrap();
+        let mut dev = detected("sdz", existing.to_str());
+        dev.mount_readonly = true;
+        let inspection = mgr.inspect(&dev).unwrap();
+        assert!(inspection.readable);
+        assert!(!inspection.writable);
+        assert!(
+            mounter.remounts.lock().unwrap().is_empty(),
+            "a mount Luna didn't make must not be remounted during inspect"
+        );
+    }
+
+    #[test]
+    fn mounted_points_covers_every_partition_of_a_disk() {
+        let mounts = "/dev/sdz1 /mnt/one ext4 rw 0 0\n/dev/sdz2 /boot vfat rw 0 0\n/dev/sda1 / ext4 rw 0 0\n";
+        assert_eq!(
+            mounted_points_for_disk_in(mounts, "sdz"),
+            [PathBuf::from("/mnt/one"), PathBuf::from("/boot")]
+        );
+        assert_eq!(
+            mounted_points_for_disk_in(mounts, "nvme0n1"),
+            Vec::<PathBuf>::new()
+        );
+        let multi = "/dev/mmcblk0p1 /a vfat rw 0 0\n/dev/mmcblk0p2 /b ext4 rw 0 0\n";
+        assert_eq!(
+            mounted_points_for_disk_in(multi, "mmcblk0"),
+            [PathBuf::from("/a"), PathBuf::from("/b")]
         );
     }
 

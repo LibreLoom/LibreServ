@@ -36,13 +36,26 @@ impl DetectedDrive {
         if n.starts_with("sdmock") {
             return true;
         }
-        (n.starts_with("sd") || n.starts_with("hd") || n.starts_with("vd") || n.starts_with("nvme"))
+        if n.contains("loop") {
+            return false;
+        }
+        if n.starts_with("nvme") || n.starts_with("mmcblk") {
+            // eMMC boot/rpmb regions are never adoptable storage.
+            if n.contains("boot") || n.contains("rpmb") {
+                return false;
+            }
+            // Whole devices end in a digit (nvme0n1, mmcblk0); partitions
+            // add a `p` before the number (nvme0n1p2, mmcblk0p1).
+            let core = n.trim_end_matches(|c: char| c.is_ascii_digit());
+            return !(core.len() < n.len() && core.ends_with('p'));
+        }
+        // sd/hd/vd partitions are the disk name plus digits (sda1).
+        (n.starts_with("sd") || n.starts_with("hd") || n.starts_with("vd"))
             && !n
                 .chars()
                 .last()
                 .map(|c| c.is_ascii_digit())
                 .unwrap_or(false)
-            && !self.name.contains("loop")
     }
 }
 
@@ -71,7 +84,7 @@ pub fn scan(sys_block: &Path, proc_mounts: &str) -> Vec<DetectedDrive> {
         let size_bytes = size_sectors.saturating_mul(512);
         let model = read_model(&dir);
         let usb = device_path_is_usb(&dir);
-        let mounted = mounts.get(&name);
+        let mounted = mounts.get(&name).and_then(|m| m.first());
         let mount_point = mounted.map(|m| m.mount_point.clone());
         let fs_type = mounted.map(|m| m.fs_type.clone());
         let mount_readonly = mounted.map(|m| m.read_only).unwrap_or(false);
@@ -131,6 +144,7 @@ fn is_block_name(name: &str) -> bool {
         || name.starts_with("hd")
         || name.starts_with("vd")
         || name.starts_with("nvme")
+        || name.starts_with("mmcblk")
 }
 
 fn read_trimmed(path: &Path) -> Option<String> {
@@ -190,9 +204,11 @@ pub struct MountedFs {
     pub read_only: bool,
 }
 
-/// Parse `/proc/mounts` into `device -> MountedFs`.
-pub fn parse_mounts(proc_mounts: &str) -> HashMap<String, MountedFs> {
-    let mut map = HashMap::new();
+/// Parse `/proc/mounts` into `device -> all of its mounts`. A disk can
+/// show several partitions mounted at once; callers must see every one,
+/// not just the first the kernel happened to list.
+pub fn parse_mounts(proc_mounts: &str) -> HashMap<String, Vec<MountedFs>> {
+    let mut map: HashMap<String, Vec<MountedFs>> = HashMap::new();
     for line in proc_mounts.lines() {
         let mut fields = line.split_whitespace();
         let Some(device) = fields.next() else {
@@ -211,10 +227,16 @@ pub fn parse_mounts(proc_mounts: &str) -> HashMap<String, MountedFs> {
             .file_name()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| device.to_string());
-        map.insert(dev.clone(), info.clone());
+        map.entry(dev.clone()).or_default().push(info.clone());
         // A mount on `sda1` is a mount on drive `sda` for drive-level reporting.
         if let Some(parent) = parent_device(&dev).filter(|parent| *parent != dev) {
-            map.entry(parent).or_insert(info);
+            let parent_list = map.entry(parent).or_default();
+            if !parent_list
+                .iter()
+                .any(|m| m.mount_point == info.mount_point)
+            {
+                parent_list.push(info);
+            }
         }
     }
     map
@@ -275,20 +297,47 @@ mod tests {
             fs_type: None,
             mount_readonly: false,
         };
-        assert!(d.is_storage_candidate());
-        d.name = "sda1".into();
-        assert!(!d.is_storage_candidate());
-        d.name = "loop0".into();
-        assert!(!d.is_storage_candidate());
+        for whole in ["sda", "sdb", "vda", "nvme0n1", "nvme1n1", "mmcblk0"] {
+            d.name = whole.into();
+            assert!(d.is_storage_candidate(), "{whole}");
+        }
+        for part in [
+            "sda1",
+            "sdb12",
+            "nvme0n1p1",
+            "nvme1n1p15",
+            "mmcblk0p1",
+            "mmcblk0boot0",
+            "mmcblk0rpmb",
+            "loop0",
+        ] {
+            d.name = part.into();
+            assert!(!d.is_storage_candidate(), "{part}");
+        }
     }
 
     #[test]
     fn parse_mounts_maps_whole_devices() {
         let map = parse_mounts("/dev/sdb1 /mnt/one ext4 rw 0 0\n/dev/nvme0n1p2 / ext4 rw 0 0\n");
-        let info = map.get("sdb1").unwrap();
+        let info = &map.get("sdb1").unwrap()[0];
         assert_eq!(info.mount_point, "/mnt/one");
         assert_eq!(info.fs_type, "ext4");
         assert!(!info.read_only);
+    }
+
+    #[test]
+    fn parse_mounts_tracks_every_partition_of_a_disk() {
+        let map = parse_mounts(
+            "/dev/sdb1 /mnt/one ext4 rw 0 0\n/dev/sdb2 /mnt/two vfat ro 0 0\n/dev/sdc1 /x ext4 rw 0 0\n",
+        );
+        let points: Vec<&str> = map
+            .get("sdb")
+            .unwrap()
+            .iter()
+            .map(|m| m.mount_point.as_str())
+            .collect();
+        assert_eq!(points, ["/mnt/one", "/mnt/two"]);
+        assert_eq!(map.get("sdc").unwrap().len(), 1);
     }
 
     #[test]
@@ -296,8 +345,8 @@ mod tests {
         let map = parse_mounts(
             "/dev/sdb1 /mnt/iso iso9660 ro,relatime 0 0\n/dev/sdc1 /mnt/data ext4 rw,errors=remount-ro 0 0\n",
         );
-        assert!(map.get("sdb1").unwrap().read_only);
-        assert!(!map.get("sdc1").unwrap().read_only);
+        assert!(map.get("sdb1").unwrap()[0].read_only);
+        assert!(!map.get("sdc1").unwrap()[0].read_only);
     }
 
     #[test]

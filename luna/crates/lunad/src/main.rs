@@ -29,14 +29,31 @@ async fn async_main() -> anyhow::Result<()> {
 
     let mut cfg = Config::from_env().overlay_from_args();
     if let Err(e) = std::fs::create_dir_all(&cfg.data_dir) {
-        // The configured data dir isn't usable (e.g. a read-only $HOME in a
-        // container, or /var/lib/luna without root). Fall back to a scratch
-        // dir instead of dying — a dev box should just boot.
+        // Fail closed: a silent scratch dir under a shared /tmp would expose
+        // device tokens, session secrets, and the user database. Only a dev
+        // who opts in with LUNA_ALLOW_TMP_DATA=1 gets the fallback.
+        if std::env::var("LUNA_ALLOW_TMP_DATA").ok().as_deref() != Some("1") {
+            return Err(anyhow::anyhow!(
+                "could not create data dir {}: {e}",
+                cfg.data_dir.display()
+            ));
+        }
         let fallback = std::env::temp_dir().join("luna-data");
         std::fs::create_dir_all(&fallback)
             .map_err(|_| anyhow::anyhow!("could not create data dir: {e}"))?;
+        #[cfg(unix)]
+        verify_owned_scratch_dir(&fallback)?;
         tracing::warn!(data_dir = %cfg.data_dir.display(), fallback = %fallback.display(), "data dir unusable, using scratch dir");
         cfg.data_dir = fallback;
+    }
+    // The data dir holds device tokens, session secrets, and luna.db — keep
+    // it owner-only even when it already existed with looser permissions.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&cfg.data_dir, std::fs::Permissions::from_mode(0o700)).map_err(
+            |e| anyhow::anyhow!("could not secure data dir {}: {e}", cfg.data_dir.display()),
+        )?;
     }
     let conn = db::open(&cfg.db_path())?;
     let drive_manager = std::sync::Arc::new(DriveManager::new(
@@ -62,7 +79,7 @@ async fn async_main() -> anyhow::Result<()> {
         .with_local_port(cfg.port),
     );
     connect.restore_tunnel_from_disk();
-    let state = AppState::new(conn, drive_manager, &cfg.data_dir).with_connect(connect);
+    let state = AppState::new(conn, drive_manager, &cfg.data_dir).with_connect(connect.clone());
 
     // One-shot: pull pre-microdb index/hash/upload rows out of luna.db into
     // each mounted drive's marker database before gallery catch-up or search
@@ -107,6 +124,10 @@ async fn async_main() -> anyhow::Result<()> {
     }
 
     let connect_poll_wake = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    // Set at graceful shutdown so the detached supervisor loops stop instead
+    // of dying mid-work when the process exits.
+    let shutting_down = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let mut bg_tasks: Vec<tokio::task::JoinHandle<()>> = Vec::new();
 
     // DHCP link watcher: wake Connect poll on carrier rise *or* when IPv4 appears
     // (late DHCP/internet with cable already in — carrier edge alone misses that).
@@ -114,12 +135,10 @@ async fn async_main() -> anyhow::Result<()> {
         .name("luna-dhcp-link".into())
         .spawn({
             let wake = connect_poll_wake.clone();
+            let stop = shutting_down.clone();
             move || {
                 lunad::net::dhcp::request_on_wired(std::path::Path::new("/sys/class/net"));
-                lunad::net::dhcp::watch_link_up(
-                    std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
-                    Some(wake),
-                );
+                lunad::net::dhcp::watch_link_up(stop, Some(wake));
             }
         })
         .ok();
@@ -128,13 +147,14 @@ async fn async_main() -> anyhow::Result<()> {
         let connect = state.connect.clone();
         let db = state.db.clone();
         let wake = connect_poll_wake.clone();
+        let stop = shutting_down.clone();
         std::thread::Builder::new()
             .name("luna-connect-status".into())
             .spawn(move || {
                 use std::sync::atomic::Ordering;
                 use std::time::Duration;
 
-                loop {
+                while !stop.load(Ordering::Relaxed) {
                     let _ = connect.poll_status();
                     // Supervisor: if Connect poll failed/flapped but local tunnel credentials exist,
                     // keep (re)starting cloudflared so DNS does not stick on Error 1033.
@@ -146,7 +166,7 @@ async fn async_main() -> anyhow::Result<()> {
                     let interval = connect.poll_interval_secs(setup_open);
                     let mut waited = 0u64;
                     while waited < interval {
-                        if wake.swap(false, Ordering::Relaxed) {
+                        if stop.load(Ordering::Relaxed) || wake.swap(false, Ordering::Relaxed) {
                             break;
                         }
                         std::thread::sleep(Duration::from_secs(1));
@@ -166,10 +186,12 @@ async fn async_main() -> anyhow::Result<()> {
         let connect = state.connect.clone();
         let data_dir = cfg.data_dir.clone();
         let db = state.db.clone();
+        let stop = shutting_down.clone();
         std::thread::Builder::new()
             .name("luna-console-help".into())
             .spawn(move || {
-                loop {
+                use std::sync::atomic::Ordering;
+                while !stop.load(Ordering::Relaxed) {
                     let proc_route = std::fs::read_to_string("/proc/net/route").unwrap_or_default();
                     let net = lunad::net::read_status(
                         std::path::Path::new("/sys/class/net"),
@@ -251,7 +273,13 @@ async fn async_main() -> anyhow::Result<()> {
                     // honest when status text is unchanged (e.g. Connect hostname
                     // already shown). Every 10s is plenty for a small HDMI screen.
                     let _ = lunad::system::console::write_issue(&data_dir, &snap);
-                    std::thread::sleep(std::time::Duration::from_secs(10));
+                    // Second-sized slices so shutdown isn't a 10 s wait.
+                    for _ in 0..10 {
+                        if stop.load(Ordering::Relaxed) {
+                            break;
+                        }
+                        std::thread::sleep(std::time::Duration::from_secs(1));
+                    }
                 }
             })
             .ok();
@@ -260,7 +288,7 @@ async fn async_main() -> anyhow::Result<()> {
     // Catch changes made behind Luna's back (a drive plugged into another
     // computer): folders whose timestamp hasn't moved cost one stat each.
     let rescan_state = state.clone();
-    tokio::spawn(async move {
+    bg_tasks.push(tokio::spawn(async move {
         let mut ticker = tokio::time::interval(std::time::Duration::from_secs(15 * 60));
         ticker.tick().await;
         loop {
@@ -275,11 +303,11 @@ async fn async_main() -> anyhow::Result<()> {
                 rescan_state.search_index.rescan(drives, false);
             }
         }
-    });
+    }));
 
     let health_db = state.db.clone();
     let health_drives = state.drive_manager.clone();
-    tokio::spawn(async move {
+    bg_tasks.push(tokio::spawn(async move {
         let mut ticker = tokio::time::interval(std::time::Duration::from_secs(15 * 60));
         loop {
             ticker.tick().await;
@@ -287,12 +315,12 @@ async fn async_main() -> anyhow::Result<()> {
                 let _ = health_drives.health_check(&conn);
             }
         }
-    });
+    }));
 
     // Reclaimable RAM caches: shrink thumbs/listings under MemAvailable pressure;
     // flush dirty writes early rather than dropping them.
     let pressure_state = state.clone();
-    tokio::spawn(async move {
+    bg_tasks.push(tokio::spawn(async move {
         let mut ticker = tokio::time::interval(std::time::Duration::from_secs(5));
         loop {
             ticker.tick().await;
@@ -311,10 +339,10 @@ async fn async_main() -> anyhow::Result<()> {
             })
             .await;
         }
-    });
+    }));
 
     let updates_bg = state.updates.clone();
-    tokio::spawn(async move {
+    bg_tasks.push(tokio::spawn(async move {
         let mut ticker = tokio::time::interval(std::time::Duration::from_secs(3600));
         ticker.tick().await;
         loop {
@@ -326,10 +354,10 @@ async fn async_main() -> anyhow::Result<()> {
             .await;
             ticker.tick().await;
         }
-    });
+    }));
 
     let protect_db = state.db.clone();
-    tokio::spawn(async move {
+    bg_tasks.push(tokio::spawn(async move {
         let mut ticker = tokio::time::interval(std::time::Duration::from_secs(30 * 60));
         loop {
             ticker.tick().await;
@@ -339,10 +367,10 @@ async fn async_main() -> anyhow::Result<()> {
             })
             .await;
         }
-    });
+    }));
 
     let backup_state = state.clone();
-    tokio::spawn(async move {
+    bg_tasks.push(tokio::spawn(async move {
         let mut ticker = tokio::time::interval(std::time::Duration::from_secs(120));
         loop {
             ticker.tick().await;
@@ -357,10 +385,10 @@ async fn async_main() -> anyhow::Result<()> {
             })
             .await;
         }
-    });
+    }));
 
     let scrub_state = state.clone();
-    tokio::spawn(async move {
+    bg_tasks.push(tokio::spawn(async move {
         let mut ticker = tokio::time::interval(std::time::Duration::from_secs(10 * 60));
         loop {
             ticker.tick().await;
@@ -420,10 +448,10 @@ async fn async_main() -> anyhow::Result<()> {
             })
             .await;
         }
-    });
+    }));
 
     let trim_state = state.clone();
-    tokio::spawn(async move {
+    bg_tasks.push(tokio::spawn(async move {
         let mut ticker = tokio::time::interval(std::time::Duration::from_secs(30 * 60));
         loop {
             ticker.tick().await;
@@ -451,18 +479,18 @@ async fn async_main() -> anyhow::Result<()> {
             })
             .await;
         }
-    });
+    }));
 
     // Drop empty collab rooms after they go idle.
     {
         let hub = state.collab.clone();
-        tokio::spawn(async move {
+        bg_tasks.push(tokio::spawn(async move {
             let mut ticker = tokio::time::interval(std::time::Duration::from_secs(30));
             loop {
                 ticker.tick().await;
                 hub.evict_idle().await;
             }
-        });
+        }));
     }
 
     // Same for office docstorage sessions; plus a boot-time sweep for bundle
@@ -470,13 +498,13 @@ async fn async_main() -> anyhow::Result<()> {
     lunad::api::office::sweep_old_bundles(&cfg.data_dir);
     {
         let hub = state.office_docs.clone();
-        tokio::spawn(async move {
+        bg_tasks.push(tokio::spawn(async move {
             let mut ticker = tokio::time::interval(std::time::Duration::from_secs(60));
             loop {
                 ticker.tick().await;
                 hub.evict_idle().await;
             }
-        });
+        }));
     }
 
     let protected_api = api::router()
@@ -510,24 +538,32 @@ async fn async_main() -> anyhow::Result<()> {
         // the dispatcher. It stays outside protected_api — pack assets are
         // public and the socket authenticates on the office JWT in the
         // Socket.IO CONNECT payload, not the session cookie.
-        app = app
-            .route(
-                "/eurooffice/{*tail}",
-                axum::routing::any(lunad::api::office_ws::dispatch),
-            )
-            // The editor iframe resolves ../../sdkjs/ against the root —
-            // matches Document Server's nginx layout.
-            .route(
-                "/sdkjs/{*tail}",
-                axum::routing::any(lunad::api::office_ws::sdkjs_dispatch),
-            )
-            // sdkjs font metrics load from ../../../../fonts/ — site root in
-            // the DS nginx layout, so the pack's generated fonts dir is
-            // served here too.
-            .route(
-                "/fonts/{*tail}",
-                axum::routing::any(lunad::api::office_ws::fonts_dispatch),
-            );
+        // These routes bypass staticweb::handle, so the pack security headers
+        // (XFO SAMEORIGIN — the app iframes the editor — plus nosniff) are
+        // layered on here instead. No CSP: the pack keeps its own policy.
+        app = app.merge(
+            axum::Router::new()
+                .route(
+                    "/eurooffice/{*tail}",
+                    axum::routing::any(lunad::api::office_ws::dispatch),
+                )
+                // The editor iframe resolves ../../sdkjs/ against the root —
+                // matches Document Server's nginx layout.
+                .route(
+                    "/sdkjs/{*tail}",
+                    axum::routing::any(lunad::api::office_ws::sdkjs_dispatch),
+                )
+                // sdkjs font metrics load from ../../../../fonts/ — site root in
+                // the DS nginx layout, so the pack's generated fonts dir is
+                // served here too.
+                .route(
+                    "/fonts/{*tail}",
+                    axum::routing::any(lunad::api::office_ws::fonts_dispatch),
+                )
+                .layer(axum::middleware::from_fn(
+                    lunad::api::office::pack_security_headers,
+                )),
+        );
     }
     // Self-hosted diagrams.net webapp — a plain static pack, no dispatcher
     // tricks (unlike EuroOffice the pack's URLs are unversioned and there's
@@ -535,7 +571,13 @@ async fn async_main() -> anyhow::Result<()> {
     let drawio_dir = cfg.data_dir.join("drawio");
     if drawio_dir.is_dir() {
         tracing::info!(dir = %drawio_dir.display(), "serving draw.io assets");
-        app = app.route("/drawio/{*tail}", axum::routing::any(drawio_dispatch));
+        app = app.merge(
+            axum::Router::new()
+                .route("/drawio/{*tail}", axum::routing::any(drawio_dispatch))
+                .layer(axum::middleware::from_fn(
+                    lunad::api::office::pack_security_headers,
+                )),
+        );
     }
     let app =
         app.with_state(state)
@@ -552,6 +594,13 @@ async fn async_main() -> anyhow::Result<()> {
     )
     .with_graceful_shutdown(shutdown_signal())
     .await?;
+    // Deterministic teardown: a service stop must not leave the managed
+    // cloudflared running or the supervisors ticking behind a dead listener.
+    shutting_down.store(true, std::sync::atomic::Ordering::Relaxed);
+    connect.stop_tunnel();
+    for task in bg_tasks {
+        task.abort();
+    }
     Ok(())
 }
 
@@ -585,6 +634,22 @@ async fn touch_io_activity(
         state.touch_io_activity();
     }
     next.run(req).await
+}
+
+/// The LUNA_ALLOW_TMP_DATA fallback must belong to this process and stay
+/// owner-only — /tmp is shared, so a foreign or group-writable scratch dir
+/// would leak tokens just like the original bug did.
+#[cfg(unix)]
+fn verify_owned_scratch_dir(dir: &std::path::Path) -> anyhow::Result<()> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    if std::fs::metadata(dir)?.uid() != unsafe { libc::geteuid() } {
+        return Err(anyhow::anyhow!(
+            "scratch data dir {} is owned by a different user",
+            dir.display()
+        ));
+    }
+    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+    Ok(())
 }
 
 // OpenRC/systemd stop lunad with SIGTERM, not SIGINT — without terminate()

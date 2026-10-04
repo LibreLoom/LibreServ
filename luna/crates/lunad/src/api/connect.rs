@@ -1,5 +1,5 @@
-use axum::extract::{Extension, State};
-use axum::http::StatusCode;
+use axum::extract::{ConnectInfo, Extension, State};
+use axum::http::{HeaderMap, StatusCode};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
@@ -62,6 +62,8 @@ fn setup_or_admin(state: &AppState, current: Option<&Extension<crate::auth::Curr
 
 async fn save_device_token(
     State(state): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<std::net::SocketAddr>,
+    headers: HeaderMap,
     current: Option<Extension<crate::auth::CurrentUser>>,
     Json(body): Json<TokenBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
@@ -71,9 +73,45 @@ async fn save_device_token(
             "Only an Admin can enter a device token.",
         ));
     }
+    let admin = current.as_ref().is_some_and(|u| u.role == "admin");
     let token = body.value().to_string();
+    if !admin {
+        // No accounts yet — this stays anonymously reachable because Connect
+        // onboarding lands on /setup?token=. That also makes it the one place
+        // a stranger could hand Luna a credential, so it is rate-limited like
+        // login and can only ever set the first token: once Luna holds a
+        // valid device token, rotating it is an Admin's job. An anonymous
+        // repeat of the same token is a retry, not a change — let it through.
+        if !state.login_limiter.allow(&format!(
+            "device-token:{}",
+            crate::api::auth::client_ip(&addr, &headers)
+        )) {
+            return Err(json_error(
+                StatusCode::TOO_MANY_REQUESTS,
+                "Too many tries. Wait a few minutes and try again.",
+            ));
+        }
+        if let Ok(existing) = state.connect.device_code() {
+            let same = crate::net::connect::normalize_setup_code(&existing)
+                == crate::net::connect::normalize_setup_code(&token);
+            if same {
+                return Ok(Json(json!({
+                    "ok": true,
+                    "message": "Luna will use this device token to sign in to Luna Connect. Keep this page open."
+                })));
+            }
+            return Err(json_error(
+                StatusCode::FORBIDDEN,
+                "This Luna already has a device token. An Admin can change it after setup in Settings → About → Advanced.",
+            ));
+        }
+    }
     let service = state.connect.clone();
-    tokio::task::spawn_blocking(move || service.set_oss_code(&token))
+    // Anonymous saves must prove Connect recognizes the token before it is
+    // written — a fabricated token must never reach disk, where it would
+    // pass first-user registration. A signed-in Admin may still save while
+    // Connect can't be reached, but an authentic rejection fails for them too.
+    tokio::task::spawn_blocking(move || service.set_oss_code_checked(&token, !admin))
         .await
         .map_err(|_| {
             json_error(
@@ -189,6 +227,7 @@ mod tests {
     use std::sync::Arc;
 
     use axum::body::Body;
+    use axum::extract::ConnectInfo;
     use axum::http::{Method, Request, StatusCode};
     use serde_json::{Value, json};
     use tower::ServiceExt;
@@ -211,14 +250,15 @@ mod tests {
 
     /// `users`: register an Admin and a member (false = first-run, no users).
     fn harness(users: bool) -> Harness {
+        // Never reach the real Connect from a test.
+        harness_at(users, "http://127.0.0.1:1")
+    }
+
+    fn harness_at(users: bool, base_url: &str) -> Harness {
         let dir = tempfile::tempdir().unwrap();
         let conn = db::open(&dir.path().join("luna.db")).unwrap();
         let drive_manager = Arc::new(DriveManager::new(shared_mock(), dir.path()));
-        // Never reach the real Connect from a test.
-        let connect = Arc::new(ConnectService::new(
-            dir.path(),
-            Some("http://127.0.0.1:1".into()),
-        ));
+        let connect = Arc::new(ConnectService::new(dir.path(), Some(base_url.to_string())));
         let state = AppState::new(conn, drive_manager, dir.path()).with_connect(connect);
         let (admin, member) = if users {
             let a = state
@@ -271,12 +311,11 @@ mod tests {
             }
             None => Body::empty(),
         };
-        let res = h
-            .router
-            .clone()
-            .oneshot(req.body(body).unwrap())
-            .await
-            .unwrap();
+        let mut http = req.body(body).unwrap();
+        http.extensions_mut().insert(ConnectInfo(
+            "127.0.0.1:40000".parse::<std::net::SocketAddr>().unwrap(),
+        ));
+        let res = h.router.clone().oneshot(http).await.unwrap();
         let status = res.status();
         let bytes = axum::body::to_bytes(res.into_body(), 1 << 20)
             .await
@@ -381,9 +420,31 @@ mod tests {
         assert!(!h.state.connect.is_connect_active());
     }
 
+    /// Stub Connect: answers every connection with the same reply until the
+    /// test ends (each anonymous save makes exactly one status call).
+    fn serve_connect(status: u16, body: &str) -> String {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let body = body.to_string();
+        std::thread::spawn(move || {
+            while let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0u8; 2048];
+                let _ = stream.read(&mut buf);
+                let resp = format!(
+                    "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = stream.write_all(resp.as_bytes());
+            }
+        });
+        format!("http://{addr}")
+    }
+
     #[tokio::test]
     async fn first_run_setup_may_enter_a_token_without_signing_in() {
-        let h = harness(false);
+        let url = serve_connect(200, "{\"paired\": true}");
+        let h = harness_at(false, &url);
         let (status, _) = send(
             &h,
             Method::POST,
@@ -408,6 +469,86 @@ mod tests {
         )
         .await;
         assert_ne!(status, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn anonymous_setup_cannot_plant_a_token_connect_rejects() {
+        // Connect says no → nothing reaches disk, whatever was guessed.
+        let url = serve_connect(401, "{\"error\": \"unknown device\"}");
+        let h = harness_at(false, &url);
+        let (status, body) = send(
+            &h,
+            Method::POST,
+            "/api/v1/connect/device-token",
+            None,
+            Some(json!({ "token": TOKEN })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
+        assert!(!h.state.connect.is_connect_active());
+        assert!(!h.data_dir.join("device-token").exists());
+    }
+
+    #[tokio::test]
+    async fn anonymous_setup_cannot_save_while_connect_is_unreachable() {
+        // A token nobody verified must never reach disk — that's what used to
+        // let an off-LAN caller plant one and register the first login.
+        let h = harness(false);
+        let (status, body) = send(
+            &h,
+            Method::POST,
+            "/api/v1/connect/device-token",
+            None,
+            Some(json!({ "token": TOKEN })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_GATEWAY, "{body}");
+        assert!(!h.state.connect.is_connect_active());
+        assert!(!h.data_dir.join("device-token").exists());
+    }
+
+    #[tokio::test]
+    async fn anonymous_setup_cannot_replace_an_existing_token() {
+        let h = harness(false);
+        h.state.connect.set_oss_code(TOKEN).unwrap();
+        let (status, _) = send(
+            &h,
+            Method::POST,
+            "/api/v1/connect/device-token",
+            None,
+            Some(json!({ "token": "1234-5678-9ABC-DEFG-HJKM" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(h.state.connect.device_code().unwrap(), TOKEN);
+        // Repeating the same token is a retry, not a change — it goes through.
+        let (status, _) = send(
+            &h,
+            Method::POST,
+            "/api/v1/connect/device-token",
+            None,
+            Some(json!({ "token": TOKEN.to_lowercase() })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn an_unbound_but_genuine_token_is_accepted() {
+        // Authentic Connect 403: the token exists, no account has linked this
+        // Luna yet — that is still Connect vouching for it.
+        let url = serve_connect(403, "{\"error\": \"unbound\"}");
+        let h = harness_at(false, &url);
+        let (status, body) = send(
+            &h,
+            Method::POST,
+            "/api/v1/connect/device-token",
+            None,
+            Some(json!({ "token": TOKEN })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(h.state.connect.is_connect_active());
     }
 
     #[tokio::test]

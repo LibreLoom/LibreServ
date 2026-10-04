@@ -143,6 +143,9 @@ pub struct Probes {
     /// Present only while a device token is on disk — Connect is opt-in.
     pub connect: Option<ConnectStatus>,
     pub usable_update_keys: usize,
+    /// True while updates verify against the compiled-in LibreLoom release
+    /// key. A custom source swaps the keys — flagged as a warning check.
+    pub default_update_keys: bool,
     /// Booted from a Luna OS A/B slot — OS image updates apply here.
     pub on_luna_os: bool,
     /// Directories searched for helper programs (`$PATH`, same as `Command`).
@@ -171,6 +174,7 @@ impl Probes {
                 .is_connect_active()
                 .then(|| connect.status_for(false)),
             usable_update_keys: updates.usable_key_count(),
+            default_update_keys: updates.using_default_keys(),
             on_luna_os: cmdline
                 .split_whitespace()
                 .any(|t| t.starts_with("luna.slot=")),
@@ -470,6 +474,17 @@ fn add_update_checks(checks: &mut Checks, probes: &Probes) {
                 None,
             )
             .more("Luna checks every update with a signing key to prove it comes from LibreLoom, and it has no usable key. To fix this, go to Settings → About → Advanced → Update source → Edit update source, choose Use defaults, then Save changes.");
+    }
+
+    if !probes.default_update_keys {
+        checks.add(
+            "update_source",
+            "system",
+            WARNING,
+            "Luna checks updates with a different signing key than the built-in one.",
+            None,
+        )
+        .more("An Admin pointed updates at another project page in Settings → About → Advanced → Update source. Updates are only checked against the keys saved there — if that wasn't on purpose, choose Use defaults there, then Save changes.");
     }
 
     if probes.on_luna_os {
@@ -1235,6 +1250,7 @@ mod tests {
             }),
             connect: None,
             usable_update_keys: 1,
+            default_update_keys: true,
             on_luna_os: true,
             path_dirs: vec![path_dir],
             kernel_ntfs: true,
@@ -1409,6 +1425,16 @@ mod tests {
         probes.usable_update_keys = 0;
         let check = &run_preflight(dir.path(), &conn, &probes).checks["update_signing"];
         assert_eq!(check.status, WARNING);
+    }
+
+    #[test]
+    fn non_default_update_keys_warn() {
+        let (dir, conn) = setup();
+        let mut probes = healthy_probes(fake_bin(dir.path(), ALL_PROGRAMS));
+        probes.default_update_keys = false;
+        let check = &run_preflight(dir.path(), &conn, &probes).checks["update_source"];
+        assert_eq!(check.status, WARNING);
+        assert!(check.more.is_some());
     }
 
     #[test]

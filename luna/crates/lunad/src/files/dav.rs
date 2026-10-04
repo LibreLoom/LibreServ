@@ -107,7 +107,7 @@ fn require_dav_user(
         let ip = req
             .extensions()
             .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
-            .map(|ci| ci.0.ip().to_string())
+            .map(|ci| crate::api::auth::client_ip(&ci.0, req.headers()).to_string())
             .unwrap_or_else(|| "unknown".to_string());
         if !state.dav_limiter.allow(&ip) {
             return Err(json_error(
@@ -160,7 +160,9 @@ fn copy_endpoints(id: &str, req: &Request) -> Option<(String, String)> {
         let inside = path.strip_prefix(&prefix)?;
         let dav =
             dav_server::davpath::DavPath::new(if inside.is_empty() { "/" } else { inside }).ok()?;
-        Some(dav.as_rel_ospath().to_str()?.trim_matches('/').to_string())
+        // Same spelling the filesystem applies — a COPY that only lines up
+        // un-normalized is not a private-copy we track.
+        crate::files::canonical_rel(dav.as_rel_ospath().to_str()?).ok()
     };
     let src = rel(req.uri().path())?;
     let dst = rel(req.headers().get("destination")?.to_str().ok()?)?;

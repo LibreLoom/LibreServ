@@ -1,6 +1,7 @@
 //! Host checks for admin-configured update sources (SSRF hardening).
 
 const UPDATE_HOST_ERR: &str = "That API address points at a private or local network. Use a public Forgejo or Gitea address for updates.";
+const HTTP_SOURCE_ERR: &str = "That API address is not safe to open in plain http. Use https://, or point it at a server on your own network.";
 
 /// True when an update-source host IP must not be contacted (SSRF hardening).
 pub(crate) fn is_blocked_update_host_ip(ip: std::net::IpAddr) -> bool {
@@ -70,38 +71,58 @@ pub(crate) fn api_base_hostname(api_base: &str) -> Result<String, &'static str> 
     Ok(host.to_string())
 }
 
-/// Reject update sources whose host is localhost, a private/link-local IP, or
-/// (when DNS resolves) any address in those ranges.
+/// Scheme-aware update-source validation.
+///
+/// `https://` sources must resolve to public hosts (SSRF hardening).
+/// `http://` is accepted only for a host that is provably local —
+/// loopback or a private/link-local address — so a Forgejo on the same
+/// network works for development while plain http off-LAN is refused.
 pub(crate) fn validate_api_base_host(api_base: &str) -> Result<(), &'static str> {
+    let https = api_base.trim().starts_with("https://");
     let host = api_base_hostname(api_base)?;
-    if host.eq_ignore_ascii_case("localhost") {
-        return Err(UPDATE_HOST_ERR);
-    }
     if let Ok(ip) = host.parse::<std::net::IpAddr>() {
-        if is_blocked_update_host_ip(ip) {
-            return Err(UPDATE_HOST_ERR);
-        }
-        return Ok(());
+        return match (https, is_blocked_update_host_ip(ip)) {
+            (true, true) => Err(UPDATE_HOST_ERR),
+            (true, false) => Ok(()),
+            (false, true) => Ok(()), // LAN dev source
+            (false, false) => Err(HTTP_SOURCE_ERR),
+        };
+    }
+    if host.eq_ignore_ascii_case("localhost") {
+        return if https { Err(UPDATE_HOST_ERR) } else { Ok(()) };
     }
     // Resolve when possible. NXDOMAIN / temporary DNS failure is not a hard
-    // reject here — the later fetch will surface a reachability error.
+    // reject for https — the later fetch surfaces reachability — but http
+    // can only stay when the name provably maps to this network.
     // Tests skip the lookup: real DNS makes them depend on the network (a
     // split-horizon resolver maps the default host to a LAN IP).
     if cfg!(test) {
         return Ok(());
     }
     let lookup = format!("{host}:443");
-    if let Ok(addrs) = std::net::ToSocketAddrs::to_socket_addrs(&lookup) {
-        let mut saw_any = false;
-        for addr in addrs {
-            saw_any = true;
-            if is_blocked_update_host_ip(addr.ip()) {
-                return Err(UPDATE_HOST_ERR);
+    match std::net::ToSocketAddrs::to_socket_addrs(&lookup) {
+        Ok(addrs) => {
+            let mut saw_local = false;
+            let mut saw_public = false;
+            for addr in addrs {
+                if is_blocked_update_host_ip(addr.ip()) {
+                    saw_local = true;
+                } else {
+                    saw_public = true;
+                }
             }
+            if https {
+                if saw_local {
+                    return Err(UPDATE_HOST_ERR);
+                }
+            } else if !saw_local || saw_public {
+                return Err(HTTP_SOURCE_ERR);
+            }
+            Ok(())
         }
-        let _ = saw_any;
+        Err(_) if https => Ok(()),
+        Err(_) => Err(HTTP_SOURCE_ERR),
     }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -152,9 +173,18 @@ mod tests {
 
     #[test]
     fn validate_rejects_compatible_literal_in_api_base() {
-        assert!(validate_api_base_host("http://[::192.168.0.1]/api/v1").is_err());
+        // https to a private/mapped address is still an SSRF risk.
         assert!(validate_api_base_host("https://[::ffff:10.0.0.1]/api/v1").is_err());
-        assert!(validate_api_base_host("http://[::1]/api/v1").is_err());
+        assert!(validate_api_base_host("https://192.168.0.1/api/v1").is_err());
+        assert!(validate_api_base_host("https://[::1]/api/v1").is_err());
+        // http is fine on this network only (LAN dev Forgejo).
+        assert!(validate_api_base_host("http://[::192.168.0.1]/api/v1").is_ok());
+        assert!(validate_api_base_host("http://[::1]/api/v1").is_ok());
+        assert!(validate_api_base_host("http://10.0.0.5/api/v1").is_ok());
+        assert!(validate_api_base_host("http://localhost:3000/api/v1").is_ok());
+        // http to a public host is refused.
+        assert!(validate_api_base_host("http://8.8.8.8/api/v1").is_err());
+        assert!(validate_api_base_host("http://203.0.113.10/api/v1").is_err());
         assert!(validate_api_base_host("https://8.8.8.8/api/v1").is_ok());
     }
 }

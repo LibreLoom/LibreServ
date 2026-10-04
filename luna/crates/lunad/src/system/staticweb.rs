@@ -4,6 +4,12 @@ use include_dir::{Dir, include_dir};
 
 static DIST: Dir = include_dir!("$CARGO_MANIFEST_DIR/web/dist");
 
+/// The embedded SPA's content policy. `'unsafe-inline'` script/style covers
+/// the favicon theme script in index.html and Vite's injected styles;
+/// `blob:` covers foliate reader iframes and the x2t office workers; OSM
+/// tiles are the only remote images.
+const CSP: &str = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data: https://*.tile.openstreetmap.org; media-src 'self' blob:; font-src 'self' data:; connect-src 'self' ws: wss:; worker-src 'self' blob:; frame-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
+
 /// True when the embedded web build holds at least one file under `dir`.
 pub fn has_files_under(dir: &str) -> bool {
     fn any_file(d: &Dir<'_>) -> bool {
@@ -66,6 +72,7 @@ pub fn handle(path: &str) -> Response<Body> {
         .header(header::CACHE_CONTROL, cache)
         .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff")
         .header(header::X_FRAME_OPTIONS, "DENY")
+        .header(header::CONTENT_SECURITY_POLICY, CSP)
         .header(header::REFERRER_POLICY, "strict-origin-when-cross-origin")
         .body(Body::from(file.contents()))
         .unwrap()
@@ -78,6 +85,7 @@ fn html(file: &'static include_dir::File<'static>) -> Response<Body> {
         .header(header::CACHE_CONTROL, "no-cache")
         .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff")
         .header(header::X_FRAME_OPTIONS, "DENY")
+        .header(header::CONTENT_SECURITY_POLICY, CSP)
         .header(header::REFERRER_POLICY, "strict-origin-when-cross-origin")
         .body(Body::from(file.contents()))
         .unwrap()
@@ -105,5 +113,13 @@ mod tests {
                 .unwrap(),
             "strict-origin-when-cross-origin"
         );
+        let csp = res
+            .headers()
+            .get("content-security-policy")
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert!(csp.contains("default-src 'self'"));
+        assert!(csp.contains("frame-ancestors 'none'"));
     }
 }

@@ -1143,3 +1143,123 @@ fn hidden_part_names_are_blocked_everywhere_a_name_is_minted() {
     restore_from_trash(&conn, &id, &trash_rel, "docs/a.txt").unwrap();
     assert!(root.join("docs/a.txt").exists());
 }
+
+#[test]
+fn canonical_rel_gives_every_spelling_one_form() {
+    // `//`, `.` and stray slashes are all the same path; `..` and `\` are
+    // never accepted.
+    for (raw, want) in [
+        ("a//b", "a/b"),
+        ("a/./b", "a/b"),
+        ("a/b/", "a/b"),
+        ("//a//b//", "a/b"),
+        (" /a/b ", "a/b"),
+        ("a///b", "a/b"),
+        ("", ""),
+        ("/", ""),
+        (".", ""),
+        ("./", ""),
+    ] {
+        assert_eq!(canonical_rel(raw).unwrap(), want, "canonical_rel({raw:?})");
+    }
+    for raw in ["a/../b", "..", "../x", "a/b/../..", "a\\b", "a\\b\\c", "\\"] {
+        assert!(
+            canonical_rel(raw).is_err(),
+            "canonical_rel({raw:?}) must fail"
+        );
+    }
+}
+
+#[test]
+fn alternate_spellings_see_the_same_files_and_grants() {
+    // The filesystem, the listing index and capability checks must all
+    // answer `a//b` and `a/./b` the way `a/b` answers — a spelling that
+    // only one layer understands is a hole between them.
+    let (_dir, conn, id) = drive_dir();
+    let root = std::path::Path::new(&db::get_drive(&conn, &id).unwrap().unwrap().mount_point)
+        .to_path_buf();
+    std::fs::create_dir_all(root.join("a")).unwrap();
+    std::fs::write(root.join("a/b.txt"), b"b").unwrap();
+
+    for rel in ["a//b.txt", "a/./b.txt", "a/b.txt/"] {
+        assert_eq!(
+            stat(&conn, &id, rel).unwrap().name,
+            "b.txt",
+            "{rel} must stat a/b.txt"
+        );
+    }
+    assert_eq!(
+        list_dir(&conn, &id, "a//").unwrap().len(),
+        list_dir(&conn, &id, "a").unwrap().len(),
+        "a// lists a's entries"
+    );
+    // `..` and `\` are refused, not reinterpreted.
+    for rel in ["a/../a/b.txt", "a\\b.txt", "a//../x"] {
+        assert!(stat(&conn, &id, rel).is_err(), "{rel} must fail");
+        assert!(list_dir(&conn, &id, rel).is_err(), "{rel} must fail");
+    }
+    // A rename under a doubled-separator spelling lands where the plain
+    // spelling would.
+    rename(&conn, &id, "a//b.txt", "c.txt").unwrap();
+    assert!(root.join("a/c.txt").exists());
+    // Moves and mkdirs canonicalize the same way.
+    mkdir(&conn, &id, "a//deep").unwrap();
+    assert!(root.join("a/deep").is_dir());
+    move_rel(&conn, &id, "a/./c.txt", "a/deep/c.txt").unwrap();
+    assert!(root.join("a/deep/c.txt").exists());
+}
+
+#[test]
+fn raw_trash_names_cannot_be_read_listed_statted_or_restored() {
+    // `.luna-trash` is the only spelling that reaches trash: the caps
+    // engine maps it to each entry's origin. A raw `{prefix}-trash` name
+    // would open everyone's deletions to anyone able to resolve it.
+    let (_dir, conn, id) = drive_dir();
+    let root = std::path::Path::new(&db::get_drive(&conn, &id).unwrap().unwrap().mount_point)
+        .to_path_buf();
+    std::fs::write(root.join("gone.txt"), b"x").unwrap();
+    delete_to_trash(&conn, &id, "gone.txt").unwrap();
+    let prefix = crate::drives::drive_db::prefix_for(&root).unwrap();
+    let raw_root = format!("{prefix}-trash");
+    let entry = list_trash(&conn, &id).unwrap()[0].name.clone();
+    let raw_entry = format!("{raw_root}/{entry}");
+
+    assert!(list_dir(&conn, &id, &raw_root).is_err());
+    assert!(stat(&conn, &id, &raw_root).is_err());
+    assert!(stat(&conn, &id, &raw_entry).is_err());
+    assert!(list_dir(&conn, &id, &raw_entry).is_err());
+    // Provenance answers through the alias only — a raw name sees nothing.
+    assert!(
+        trash_original_path(&conn, &id, &raw_entry)
+            .unwrap()
+            .is_none()
+    );
+    assert!(restore_from_trash(&conn, &id, &raw_entry, "loot.txt").is_err());
+    assert!(purge_trash(&conn, &id, &raw_entry).is_err());
+    assert!(
+        !root.join("loot.txt").exists(),
+        "raw trash paths restore nothing"
+    );
+
+    // The alias still reaches the same entry.
+    let api_rel = format!(".luna-trash/{entry}");
+    assert!(stat(&conn, &id, &api_rel).is_ok());
+    restore_from_trash(&conn, &id, &api_rel, "back.txt").unwrap();
+    assert!(root.join("back.txt").exists());
+}
+
+#[test]
+fn zip_and_folder_totals_also_refuse_raw_trash_names() {
+    // Folder-level aggregations must not leak the trash dir's real name
+    // either — the alias rule applies to every read entry point.
+    let (_dir, conn, id) = drive_dir();
+    let root = std::path::Path::new(&db::get_drive(&conn, &id).unwrap().unwrap().mount_point)
+        .to_path_buf();
+    std::fs::write(root.join("gone.txt"), b"x").unwrap();
+    delete_to_trash(&conn, &id, "gone.txt").unwrap();
+    let prefix = crate::drives::drive_db::prefix_for(&root).unwrap();
+    let raw = format!("{prefix}-trash");
+
+    assert!(folder_totals(&conn, &id, &raw, &mut |_| true).is_err());
+    assert!(zip_plan(&conn, &id, &raw, false).is_err());
+}

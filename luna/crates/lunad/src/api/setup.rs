@@ -161,6 +161,13 @@ fn is_lan_request(addr: &std::net::SocketAddr, headers: &HeaderMap) -> bool {
     {
         return true;
     }
+    client_is_lan(addr, headers)
+}
+
+/// The strict LAN rule: resolved client IP only. Unlike `is_lan_request`
+/// there is no Host hint — the Host header is client-supplied, so a remote
+/// caller claiming `luna.local` must not win write access to setup state.
+fn client_is_lan(addr: &std::net::SocketAddr, headers: &HeaderMap) -> bool {
     // The shared resolver honors forwarding headers only from a loopback
     // peer — a remote caller's spoofed X-Forwarded-For can't fake LAN.
     let ip = crate::api::auth::client_ip(addr, headers);
@@ -247,6 +254,15 @@ async fn save_setup(
                 "Only an Admin can change setup.",
             ));
         }
+    } else if !client_is_lan(&addr, &headers) {
+        // Before the first login exists, setup state — including
+        // `setup_completed` — may only be written from Luna's own network.
+        // The remote onboarding flow registers first (device token), then
+        // saves setup as that signed-in Admin.
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "Save setup progress while you're on the same network as Luna — or create the first login, then sign in.",
+        ));
     }
 
     let conn = state.db.lock().map_err(|_| {
@@ -354,5 +370,85 @@ mod tests {
         for step in ["welcome", "network", "account", "name", "done"] {
             assert!(VALID_STEPS.contains(&step), "missing {step}");
         }
+    }
+
+    #[tokio::test]
+    async fn anonymous_setup_writes_are_lan_only() {
+        use axum::body::Body;
+        use axum::extract::ConnectInfo;
+        use axum::http::StatusCode;
+        use tower::ServiceExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+        let drive_manager = std::sync::Arc::new(crate::drives::DriveManager::new(
+            crate::drives::mount::shared_mock(),
+            dir.path(),
+        ));
+        let connect = std::sync::Arc::new(crate::net::connect::ConnectService::new(
+            dir.path(),
+            Some("http://127.0.0.1:1".into()),
+        ));
+        let state = crate::AppState::new(conn, drive_manager, dir.path()).with_connect(connect);
+        let router = axum::Router::new()
+            .merge(super::router())
+            .with_state(state.clone());
+
+        let send = |peer: &str, host: Option<&str>, xff: Option<&str>| {
+            let router = router.clone();
+            let peer = peer.to_string();
+            let host = host.map(str::to_string);
+            let xff = xff.map(str::to_string);
+            async move {
+                let mut req = axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/setup")
+                    .header("content-type", "application/json");
+                if let Some(h) = host {
+                    req = req.header("host", h);
+                }
+                if let Some(x) = xff {
+                    req = req.header("x-forwarded-for", x);
+                }
+                let mut http = req.body(Body::from(r#"{"setup_completed":true}"#)).unwrap();
+                http.extensions_mut().insert(ConnectInfo(
+                    format!("{peer}:40000")
+                        .parse::<std::net::SocketAddr>()
+                        .unwrap(),
+                ));
+                router.oneshot(http).await.unwrap().status()
+            }
+        };
+
+        // Before the first login exists, only Luna's own network may save
+        // setup — a remote caller can never finish setup for you.
+        assert_eq!(send("203.0.113.7", None, None).await, StatusCode::FORBIDDEN);
+        // A spoofed LAN-looking Host or forwarded header buys nothing.
+        assert_eq!(
+            send("203.0.113.7", Some("luna.local"), None).await,
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            send("203.0.113.7", None, Some("192.168.1.5")).await,
+            StatusCode::FORBIDDEN
+        );
+        // Through the tunnel (loopback peer) the forwarded remote client is
+        // still remote.
+        assert_eq!(
+            send("127.0.0.1", None, Some("203.0.113.7")).await,
+            StatusCode::FORBIDDEN
+        );
+        // A LAN client writes freely — setup on the LAN must keep working.
+        assert_eq!(send("192.168.1.40", None, None).await, StatusCode::OK);
+        // Once the first login exists the LAN window closes: anonymous is
+        // refused everywhere and an Admin signs in instead.
+        state
+            .auth
+            .register("max", "Max", "hunter22hunter1", "admin")
+            .unwrap();
+        assert_eq!(
+            send("192.168.1.40", None, None).await,
+            StatusCode::UNAUTHORIZED
+        );
     }
 }

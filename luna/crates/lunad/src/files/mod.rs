@@ -268,11 +268,12 @@ pub fn list_dir_with_cache_at(
     rel: &str,
     cache: Option<&crate::drives::ram_cache::RamCache>,
 ) -> Result<Vec<FileEntry>, FilesError> {
-    let mut entries = list_dir_unstamped(drive, rel, cache)?;
+    let rel = canonical_rel(rel)?;
+    let mut entries = list_dir_unstamped(drive, &rel, cache)?;
     // The index and RAM cache hold names only; which entries are private
     // comes from the drive's rows, so it is always current.
     let root = PathBuf::from(&drive.mount_point);
-    let parent = real_rel(&root, rel);
+    let parent = real_rel(&root, &rel);
     let private = crate::private::children_of(&root, &parent);
     let in_private = crate::private::boundary_for(&root, &parent).is_some();
     if !private.is_empty() || in_private {
@@ -446,7 +447,8 @@ pub fn note_write_at(drive: &DriveRow, drive_id: &str, api_rel: &str) {
         return;
     };
     let root = PathBuf::from(&drive.mount_point);
-    let rel = real_rel(&root, api_rel);
+    let api_rel = canonical_rel(api_rel).unwrap_or_else(|_| api_rel.to_string());
+    let rel = real_rel(&root, &api_rel);
     let parent = rel.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
     let _ = index::forget_dir(&dconn, drive_id, parent);
     let _ = index::forget_dir_tree(&dconn, drive_id, &rel);
@@ -502,14 +504,17 @@ pub fn resolve_any_at(
     allow_trash: bool,
 ) -> Result<(PathBuf, std::fs::Metadata), FilesError> {
     let root = PathBuf::from(&drive.mount_point);
-    let rel = real_rel(&root, rel).into_owned();
-    if is_internal_temp(&rel) && !(allow_trash && is_trash_rel(&rel)) {
+    let rel = canonical_rel(rel)?;
+    let real = real_rel(&root, &rel).into_owned();
+    // Trash resolves through the `.luna-trash` API alias only — a raw
+    // `{prefix}-trash` name would reach any entry with no origin check.
+    if is_internal_temp(&real) && !(allow_trash && is_trash_api(&rel)) {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::NotFound,
             "not found",
         )));
     }
-    let path = resolve_child(&root, rel.as_ref())?;
+    let path = resolve_child(&root, real.as_ref())?;
     let meta = std::fs::metadata(&path).map_err(FilesError::Io)?;
     Ok((path, meta))
 }
@@ -530,7 +535,17 @@ pub fn stat(
 /// [`stat`] for a drive row already in hand.
 pub fn stat_at(drive: &DriveRow, rel: &str) -> Result<FileStat, FilesError> {
     let root = PathBuf::from(&drive.mount_point);
-    let rel = real_rel(&root, rel).into_owned();
+    let rel = canonical_rel(rel)?;
+    let real = real_rel(&root, &rel).into_owned();
+    // Trash entries answer through the `.luna-trash` alias only — a raw
+    // `{prefix}-trash` name would stat any entry with no origin check.
+    if is_trash_rel(&real) && !is_trash_api(&rel) {
+        return Err(FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "not found",
+        )));
+    }
+    let rel = real;
     // The trash root is created on the first delete. Until then it is an
     // empty folder, the same answer `list_trash_dir` gives.
     if is_trash_root(&rel)
@@ -699,8 +714,15 @@ pub fn folder_totals(
 ) -> Result<Option<FolderTotals>, FilesError> {
     let drive = drive_root(conn, drive_id)?;
     let root = PathBuf::from(&drive.mount_point);
-    let rel = real_rel(&root, rel).into_owned();
-    let start = resolve_leaf(&root, rel.as_ref())?.0;
+    let rel = canonical_rel(rel)?;
+    let real = real_rel(&root, &rel).into_owned();
+    if is_trash_rel(&real) && !is_trash_api(&rel) {
+        return Err(FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "not found",
+        )));
+    }
+    let start = resolve_leaf(&root, real.as_ref())?.0;
     let meta = std::fs::symlink_metadata(&start).map_err(FilesError::Io)?;
     if !meta.file_type().is_dir() {
         return Ok(None);
@@ -708,7 +730,7 @@ pub fn folder_totals(
     Ok(Some(walk_totals(
         &root,
         start,
-        rel.trim_end_matches('/'),
+        real.trim_end_matches('/'),
         include,
         TOTALS_MAX_ENTRIES,
         std::time::Instant::now() + TOTALS_TIME_BUDGET,
@@ -847,7 +869,7 @@ pub fn real_rel_path(
 ) -> Result<String, FilesError> {
     let drive = drive_root(conn, drive_id)?;
     let root = PathBuf::from(&drive.mount_point);
-    Ok(real_rel(&root, rel).into_owned())
+    Ok(real_rel(&root, &canonical_rel(rel)?).into_owned())
 }
 
 /// Cap how many files a folder zip may include (walk DoS guard).
@@ -928,7 +950,8 @@ pub fn zip_plan(
     rel: &str,
     allow_trash: bool,
 ) -> Result<ZipPlan, FilesError> {
-    let (folder, meta) = resolve_any_ex(conn, drive_id, rel, allow_trash)?;
+    let rel = canonical_rel(rel)?;
+    let (folder, meta) = resolve_any_ex(conn, drive_id, &rel, allow_trash)?;
     if !meta.is_dir() {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -939,18 +962,15 @@ pub fn zip_plan(
 
     // A top-level trash entry's on-disk name carries a `{nonce}-` prefix —
     // the zip should be named after what the folder used to be called.
-    let archive_root = match rel
-        .trim_matches('/')
-        .strip_prefix(&format!("{TRASH_API_ALIAS}/"))
-    {
+    let archive_root = match rel.strip_prefix(&format!("{TRASH_API_ALIAS}/")) {
         Some(rest) if !rest.contains('/') => {
             content_disposition_filename(&original_name_from_trash(rest))
         }
-        _ => zip_archive_basename(rel),
+        _ => zip_archive_basename(&rel),
     };
     // Zipping the trash root itself gives each top-level entry its real
     // name inside the archive instead of `{nonce}-` storage noise.
-    let trash_names = if allow_trash && rel.trim_matches('/') == TRASH_API_ALIAS {
+    let trash_names = if allow_trash && rel == TRASH_API_ALIAS {
         trash_top_level_names(conn, drive_id)
     } else {
         std::collections::HashMap::new()
@@ -958,7 +978,7 @@ pub fn zip_plan(
     Ok(ZipPlan {
         folder,
         root,
-        rel: rel.to_string(),
+        rel,
         archive_root,
         trash_names,
     })
@@ -1062,7 +1082,7 @@ pub fn dest_dir(
 ) -> Result<PathBuf, FilesError> {
     let drive = drive_root(conn, drive_id)?;
     let root = PathBuf::from(&drive.mount_point);
-    let rel = real_rel(&root, rel).into_owned();
+    let rel = real_rel(&root, &canonical_rel(rel)?).into_owned();
     if is_internal_temp(&rel) {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::NotFound,
@@ -1094,7 +1114,7 @@ pub fn dest_dir_create(
 ) -> Result<PathBuf, FilesError> {
     let drive = drive_root(conn, drive_id)?;
     let root = PathBuf::from(&drive.mount_point);
-    let rel = real_rel(&root, rel).into_owned();
+    let rel = real_rel(&root, &canonical_rel(rel)?).into_owned();
     if is_internal_temp(&rel) {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::NotFound,
@@ -1280,6 +1300,32 @@ pub fn safe_name(name: &str) -> Result<String, FilesError> {
         )));
     }
     Ok(trimmed.to_string())
+}
+
+/// The one spelling every drive-relative path is reduced to: empty and `.`
+/// segments fold away (so `a//b`, `a/./b`, `/a/b/` are all `a/b`), while
+/// `..` and `\` are refused outright rather than reinterpreted. Grants,
+/// private rows, capability checks and the path jail must all answer on
+/// this same form — a path that only reaches a file un-normalized is a
+/// path checked under one spelling and opened under another.
+pub fn canonical_rel(rel: &str) -> Result<String, FilesError> {
+    if rel.contains('\\') {
+        return Err(FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "invalid path",
+        )));
+    }
+    let mut out: Vec<&str> = Vec::new();
+    for seg in rel.trim().trim_matches('/').split('/') {
+        match seg {
+            "" | "." => {}
+            ".." => {
+                return Err(FilesError::Path(luna_core::path::PathError::Escape));
+            }
+            s => out.push(s),
+        }
+    }
+    Ok(out.join("/"))
 }
 
 /// Atomically install `temp` as `dest`.
@@ -1472,7 +1518,7 @@ pub fn delete_to_trash(
 ) -> Result<String, FilesError> {
     let drive = drive_root(conn, drive_id)?;
     let root = PathBuf::from(&drive.mount_point);
-    let rel = real_rel(&root, rel).into_owned();
+    let rel = real_rel(&root, &canonical_rel(rel)?).into_owned();
     if is_internal_temp(&rel) {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::NotFound,
@@ -1681,11 +1727,10 @@ pub fn original_name_from_trash(trash_name: &str) -> String {
     rest.to_string()
 }
 
-/// List a directory inside the drive's trash — the `.luna-trash` API alias
-/// or the real `{prefix}-trash` name, at any depth. Trash is never indexed
-/// or listing-cached, so this is always a fresh `read_dir`. A drive with
-/// nothing deleted has no trash dir at all: the root then lists as empty
-/// rather than "not found".
+/// List a directory inside the drive's trash — the `.luna-trash` API
+/// alias, at any depth. Trash is never indexed or listing-cached, so this
+/// is always a fresh `read_dir`. A drive with nothing deleted has no
+/// trash dir at all: the root then lists as empty rather than "not found".
 pub fn list_trash_dir(
     conn: &rusqlite::Connection,
     drive_id: &str,
@@ -1697,7 +1742,16 @@ pub fn list_trash_dir(
 /// [`list_trash_dir`] for a drive row already in hand.
 pub fn list_trash_dir_at(drive: &DriveRow, rel: &str) -> Result<Vec<FileEntry>, FilesError> {
     let root = PathBuf::from(&drive.mount_point);
-    let rel = real_rel(&root, rel).into_owned();
+    let rel = canonical_rel(rel)?;
+    // The API alias only: a raw `{prefix}-trash` name would list entries
+    // with no origin-based filtering at all.
+    if !is_trash_api(&rel) {
+        return Err(FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "not found",
+        )));
+    }
+    let rel = real_rel(&root, &rel).into_owned();
     if !is_trash_rel(&rel) {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::NotFound,
@@ -1806,7 +1860,15 @@ pub fn trash_private_meta(
 ) -> Result<Option<TrashMeta>, FilesError> {
     let drive = drive_root(conn, drive_id)?;
     let root = PathBuf::from(&drive.mount_point);
-    let trash_rel = real_rel(&root, trash_rel);
+    // Provenance answers through the `.luna-trash` alias only — a raw
+    // `{prefix}-trash` name must not hand the API another spelling.
+    let Ok(trash_rel) = canonical_rel(trash_rel) else {
+        return Ok(None);
+    };
+    if !is_trash_api(&trash_rel) {
+        return Ok(None);
+    }
+    let trash_rel = real_rel(&root, &trash_rel);
     let Some((entry_name, _rest)) = trash_entry_parts(&trash_rel) else {
         return Ok(None);
     };
@@ -1827,7 +1889,13 @@ pub fn forget_trash_entry(conn: &rusqlite::Connection, drive_id: &str, api_rel: 
         return;
     };
     let root = PathBuf::from(&drive.mount_point);
-    let real = real_rel(&root, api_rel);
+    let Ok(api_rel) = canonical_rel(api_rel) else {
+        return;
+    };
+    if !is_trash_api(&api_rel) {
+        return;
+    }
+    let real = real_rel(&root, &api_rel);
     if let Some((entry, None)) = trash_entry_parts(&real) {
         remove_trash_meta(&root, entry);
     }
@@ -1842,15 +1910,21 @@ pub fn trash_api_leaf(
     drive_id: &str,
     api_rel: &str,
 ) -> Result<Option<String>, FilesError> {
+    let api_rel = canonical_rel(api_rel)?;
     // The origin metadata holds the true name — a rename in trash retitles
     // the meta while the on-disk name keeps its `{nonce}-` prefix.
-    if let Ok(Some(origin)) = trash_original_path(conn, drive_id, api_rel)
+    if let Ok(Some(origin)) = trash_original_path(conn, drive_id, &api_rel)
         && let Some(leaf) = origin.rsplit('/').next()
         && !leaf.is_empty()
     {
         return Ok(Some(leaf.to_string()));
     }
-    let real = real_rel_path(conn, drive_id, api_rel)?;
+    let real = real_rel_path(conn, drive_id, &api_rel)?;
+    // A raw `{prefix}-trash` name is never a leaf source: the API alias is
+    // the only spelling that maps an entry to its origin.
+    if is_trash_rel(&real) && !is_trash_api(&api_rel) {
+        return Ok(None);
+    }
     Ok(trash_display_name(&real))
 }
 
@@ -1906,10 +1980,10 @@ fn trash_entry_parts(trash_rel: &str) -> Option<(&str, Option<&str>)> {
 }
 
 /// Drive-relative path the trashed item came from, if metadata exists.
-/// `trash_rel` may use the `.luna-trash` API alias or the real
-/// `{prefix}-trash` name, and may point inside a trashed folder — a nested
-/// path inherits its top-level entry's origin (`docs` trashed →
-/// `docs/sub/file` is the origin of `.luna-trash/{entry}/sub/file`).
+/// `trash_rel` must use the `.luna-trash` API alias — a raw
+/// `{prefix}-trash` name never answers — and may point inside a trashed
+/// folder: a nested path inherits its top-level entry's origin (`docs`
+/// trashed → `docs/sub/file` is the origin of `.luna-trash/{entry}/sub/file`).
 pub fn trash_original_path(
     conn: &rusqlite::Connection,
     drive_id: &str,
@@ -1917,7 +1991,11 @@ pub fn trash_original_path(
 ) -> Result<Option<String>, FilesError> {
     let drive = drive_root(conn, drive_id)?;
     let root = PathBuf::from(&drive.mount_point);
-    let trash_rel = real_rel(&root, trash_rel);
+    let trash_rel = canonical_rel(trash_rel)?;
+    if !is_trash_api(&trash_rel) {
+        return Ok(None);
+    }
+    let trash_rel = real_rel(&root, &trash_rel);
     let Some((entry_name, rest)) = trash_entry_parts(&trash_rel) else {
         return Ok(None);
     };
@@ -1928,7 +2006,8 @@ pub fn trash_original_path(
 }
 
 /// Move an item out of trash onto the same drive (atomic rename).
-/// `trash_rel` accepts the `.luna-trash` API alias or the real name;
+/// `trash_rel` must use the `.luna-trash` API alias — a raw
+/// `{prefix}-trash` name would relocate any entry with no origin check.
 /// `dest_rel` is the destination path including the restored file name.
 pub fn restore_from_trash(
     conn: &rusqlite::Connection,
@@ -1938,18 +2017,22 @@ pub fn restore_from_trash(
 ) -> Result<(), FilesError> {
     let drive = drive_root(conn, drive_id)?;
     let root = PathBuf::from(&drive.mount_point);
-    let trash_rel = real_rel(&root, trash_rel);
+    let trash_api = canonical_rel(trash_rel)?;
+    let dest_rel = canonical_rel(dest_rel)?;
+    let trash_rel = real_rel(&root, &trash_api);
     // Only whole top-level entries restore — a nested move-out would orphan
     // the parent's trash_meta (its original path is still needed to put the
     // rest back).
-    if trash_entry_parts(&trash_rel).is_none_or(|(_, rest)| rest.is_some()) {
+    if !is_trash_api(&trash_api)
+        || trash_entry_parts(&trash_rel).is_none_or(|(_, rest)| rest.is_some())
+    {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             "not a trash item",
         )));
     }
-    if is_trash_rel(dest_rel)
-        || is_internal_temp(dest_rel)
+    if is_trash_rel(&dest_rel)
+        || is_internal_temp(&dest_rel)
         || dest_rel == TRASH_API_ALIAS
         || dest_rel.starts_with(&format!("{TRASH_API_ALIAS}/"))
     {
@@ -1961,7 +2044,7 @@ pub fn restore_from_trash(
     let src = resolve_child(&root, trash_rel.as_ref())?;
     // Destination does not exist yet, so jail the parent (which must) and join
     // a safe file name. resolve_child() requires an existing path.
-    let dest_path = Path::new(dest_rel);
+    let dest_path = Path::new(&dest_rel);
     let dest_name = dest_path
         .file_name()
         .and_then(|s| s.to_str())
@@ -1983,7 +2066,7 @@ pub fn restore_from_trash(
     };
     // A private item keeps its `.luna-` disk name; its real name must be
     // free of plain and private items alike.
-    let dest_real = dest_rel.trim_matches('/');
+    let dest_real = dest_rel.as_str();
     let private_leaf = crate::private::disk_leaf(&root, &trash_rel);
     if crate::private::item_at(&root, dest_real).is_some()
         || (private_leaf.is_some() && resolve_child(&root, dest_real).is_ok())
@@ -2014,13 +2097,14 @@ pub fn restore_from_trash(
     if let Some(entry_name) = trash_entry_name(&trash_rel) {
         remove_trash_meta(&root, entry_name);
     }
-    note_write(conn, drive_id, dest_rel);
+    note_write(conn, drive_id, &dest_rel);
     note_write(conn, drive_id, &trash_rel);
     Ok(())
 }
 
 /// Permanently remove one item that is already in the drive's trash dir.
-/// `trash_rel` accepts the `.luna-trash` API alias or the real name.
+/// `trash_rel` must use the `.luna-trash` API alias — a raw
+/// `{prefix}-trash` name would delete any entry with no origin check.
 pub fn purge_trash(
     conn: &rusqlite::Connection,
     drive_id: &str,
@@ -2034,7 +2118,14 @@ pub fn purge_trash(
 /// lock instead.
 pub fn purge_trash_at(drive: &DriveRow, drive_id: &str, trash_rel: &str) -> Result<(), FilesError> {
     let root = PathBuf::from(&drive.mount_point);
-    let trash_rel = real_rel(&root, trash_rel);
+    let trash_api = canonical_rel(trash_rel)?;
+    if !is_trash_api(&trash_api) {
+        return Err(FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "not a trash item",
+        )));
+    }
+    let trash_rel = real_rel(&root, &trash_api);
     let Some((entry_name, rest)) = trash_entry_parts(&trash_rel) else {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -2095,19 +2186,20 @@ pub fn mkdir_as(
 ) -> Result<(), FilesError> {
     let drive = drive_root(conn, drive_id)?;
     let root = PathBuf::from(&drive.mount_point);
-    if rel.is_empty() || rel == "." {
+    let rel = canonical_rel(rel)?;
+    if rel.is_empty() {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             "cannot create the drive root",
         )));
     }
-    if is_internal_temp(rel) || rel.split('/').next() == Some(TRASH_API_ALIAS) {
+    if is_internal_temp(&rel) || rel.split('/').next() == Some(TRASH_API_ALIAS) {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             "that name is reserved for Luna",
         )));
     }
-    let path = resolve_for_create_nofollow(&root, rel)?;
+    let path = resolve_for_create_nofollow(&root, &rel)?;
     // Reject creating more than one missing component (parent must exist).
     let parent = path.parent().ok_or_else(|| {
         FilesError::Io(std::io::Error::new(
@@ -2121,9 +2213,9 @@ pub fn mkdir_as(
             "parent folder does not exist",
         )));
     }
-    let private = begin_private(&root, rel, &path, private_owner)?;
+    let private = begin_private(&root, &rel, &path, private_owner)?;
     let path = if private {
-        resolve_for_create_nofollow(&root, rel)?
+        resolve_for_create_nofollow(&root, &rel)?
     } else {
         path.clone()
     };
@@ -2132,12 +2224,12 @@ pub fn mkdir_as(
             if let Ok(dir) = std::fs::File::open(parent) {
                 let _ = dir.sync_all();
             }
-            note_write(conn, drive_id, rel);
+            note_write(conn, drive_id, &rel);
             Ok(())
         }
         Err(e) => {
             if private {
-                let _ = crate::private::remove(&root, rel);
+                let _ = crate::private::remove(&root, &rel);
             }
             Err(FilesError::Io(e))
         }
@@ -2150,21 +2242,22 @@ pub fn mkdir_as(
 pub fn create(conn: &rusqlite::Connection, drive_id: &str, rel: &str) -> Result<(), FilesError> {
     let drive = drive_root(conn, drive_id)?;
     let root = PathBuf::from(&drive.mount_point);
-    if rel.is_empty() || rel == "." {
+    let rel = canonical_rel(rel)?;
+    if rel.is_empty() {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             "cannot create at the drive root without a name",
         )));
     }
-    let leaf = rel.rsplit_once('/').map(|(_, name)| name).unwrap_or(rel);
+    let leaf = rel.rsplit_once('/').map(|(_, name)| name).unwrap_or(&rel);
     let _ = safe_name(leaf)?;
-    if is_internal_temp(rel) {
+    if is_internal_temp(&rel) {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             "that name is reserved for Luna",
         )));
     }
-    let path = resolve_for_create_nofollow(&root, rel)?;
+    let path = resolve_for_create_nofollow(&root, &rel)?;
     // Reject creating more than one missing component (parent must exist).
     let parent = path.parent().ok_or_else(|| {
         FilesError::Io(std::io::Error::new(
@@ -2188,7 +2281,7 @@ pub fn create(conn: &rusqlite::Connection, drive_id: &str, rel: &str) -> Result<
             if let Ok(dir) = std::fs::File::open(parent) {
                 let _ = dir.sync_all();
             }
-            note_write(conn, drive_id, rel);
+            note_write(conn, drive_id, &rel);
             Ok(())
         }
         Err(e) => Err(FilesError::Io(e)),
@@ -2216,12 +2309,12 @@ pub fn rename(
     }
     let drive = drive_root(conn, drive_id)?;
     let root = PathBuf::from(&drive.mount_point);
-    let api_rel = rel.trim().trim_matches('/');
-    let rel = real_rel(&root, rel).into_owned();
+    let api_rel = canonical_rel(rel)?;
+    let rel = real_rel(&root, &api_rel).into_owned();
     // Trash items are only reachable through the `.luna-trash` alias, where
     // caps resolve the entry to its origin. A raw `{prefix}-trash` name
     // would retitle ANY user's trash entry with no origin check at all.
-    if is_trash_rel(&rel) && !is_trash_api(api_rel) {
+    if is_trash_rel(&rel) && !is_trash_api(&api_rel) {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::NotFound,
             "not found",
@@ -2301,7 +2394,7 @@ pub fn rename(
     // API paths, so repath with the `.luna-trash` form for trash items.
     let parent_rel = api_rel.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
     let new_rel = crate::gallery::gallery_indexer::join_rel(parent_rel, &dest_name);
-    crate::access::repath_subjects(conn, drive_id, api_rel, &new_rel).map_err(FilesError::Db)?;
+    crate::access::repath_subjects(conn, drive_id, &api_rel, &new_rel).map_err(FilesError::Db)?;
     // A top-level entry's origin retitles with it: `docs/old` trashed and
     // renamed to `new` restores as `docs/new`.
     if let Some(old_entry) = top_entry
@@ -2316,7 +2409,7 @@ pub fn rename(
         write_trash_meta(&root, &dest_name, &meta)?;
         remove_trash_meta(&root, &old_entry);
     }
-    note_write(conn, drive_id, api_rel);
+    note_write(conn, drive_id, &api_rel);
     Ok(())
 }
 
@@ -2331,15 +2424,15 @@ pub fn move_rel(
 ) -> Result<(), FilesError> {
     let drive = drive_root(conn, drive_id)?;
     let root = PathBuf::from(&drive.mount_point);
-    let api_from = from_rel.trim().trim_matches('/');
-    let api_to = to_rel.trim().trim_matches('/');
-    let from_rel = real_rel(&root, from_rel).into_owned();
-    let to_rel = real_rel(&root, to_rel).into_owned();
+    let api_from = canonical_rel(from_rel)?;
+    let api_to = canonical_rel(to_rel)?;
+    let from_rel = real_rel(&root, &api_from).into_owned();
+    let to_rel = real_rel(&root, &api_to).into_owned();
     // Trash items may move out — into trash stays impossible (a delete is
     // what puts things there). Trash sources only arrive through the `.luna-trash` alias, where caps map
     // the entry to its origin: a raw `{prefix}-trash` name would relocate
     // any user's entry with no origin check.
-    if is_trash_rel(&from_rel) && !is_trash_api(api_from) {
+    if is_trash_rel(&from_rel) && !is_trash_api(&api_from) {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::NotFound,
             "not found",
@@ -2409,10 +2502,10 @@ pub fn move_rel(
             }
             // Shares follow the file to its new location — API paths, so a
             // link on a trash item points at wherever it lands.
-            crate::access::repath_subjects(conn, drive_id, api_from, api_to)
+            crate::access::repath_subjects(conn, drive_id, &api_from, &api_to)
                 .map_err(FilesError::Db)?;
-            note_write(conn, drive_id, api_from);
-            note_write(conn, drive_id, api_to);
+            note_write(conn, drive_id, &api_from);
+            note_write(conn, drive_id, &api_to);
             Ok(())
         }
         false => Err(FilesError::Io(std::io::Error::new(

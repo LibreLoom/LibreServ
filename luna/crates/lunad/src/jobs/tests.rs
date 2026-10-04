@@ -872,3 +872,216 @@ fn raw_trash_paths_need_edit_not_view() {
         crate::access::CAP_EDIT
     );
 }
+
+#[tokio::test]
+async fn job_paths_land_in_the_canonical_form() {
+    // The stored row, the capability check and the bytes all see one
+    // spelling — `docs//x.txt` is the same source `docs/x.txt` is, and
+    // `..` / `\` never reach the executor.
+    let (dir, db, _a) = setup();
+    {
+        let conn = db.lock().unwrap();
+        let root_a = db::get_drive(&conn, "a").unwrap().unwrap().mount_point;
+        let root_b = db::get_drive(&conn, "b").unwrap().unwrap().mount_point;
+        std::fs::create_dir_all(format!("{root_a}/docs")).unwrap();
+        std::fs::write(format!("{root_a}/docs/x.txt"), b"x").unwrap();
+        std::fs::create_dir_all(format!("{root_b}/inbox")).unwrap();
+    }
+    let manager = JobManager::new(
+        db.clone(),
+        crate::gallery::gallery_indexer::GalleryIndexer::start(),
+    );
+    let job = manager
+        .enqueue("copy", "a", "docs//x.txt", "b", ".//inbox", "user-1")
+        .await
+        .unwrap();
+    assert_eq!(job.from_path, "docs/x.txt");
+    assert_eq!(job.to_path, "inbox");
+    wait_done(&manager, &job.id);
+    let done = manager.get(&job.id).unwrap().unwrap();
+    assert_eq!(done.state, "done", "{}", done.error);
+    assert_eq!(
+        std::fs::read(dir.path().join("b/inbox/x.txt")).unwrap(),
+        b"x"
+    );
+
+    for (from, to) in [
+        ("docs/../x.txt", ""),
+        ("docs\\x.txt", ""),
+        ("docs/x.txt", "..\\"),
+    ] {
+        assert!(
+            manager
+                .enqueue("copy", "a", from, "b", to, "user-1")
+                .await
+                .is_err(),
+            "{from} -> {to} must be refused"
+        );
+    }
+}
+
+#[tokio::test]
+async fn the_job_queue_is_bounded() {
+    // A full queue refuses new work instead of piling up unbounded
+    // background copies. Rows stuck at "running" count toward the cap,
+    // so jobs that never report back can't grow the queue forever.
+    let (_dir, db, _a) = setup();
+    {
+        let conn = db.lock().unwrap();
+        let root = db::get_drive(&conn, "a").unwrap().unwrap().mount_point;
+        std::fs::write(format!("{root}/x.txt"), b"x").unwrap();
+    }
+    let manager = JobManager::new(
+        db.clone(),
+        crate::gallery::gallery_indexer::GalleryIndexer::start(),
+    );
+    // Rows that wedge mid-run count toward the cap — a stuck job must not
+    // be able to grow the queue forever. (Rows already "running" at boot
+    // are marked interrupted by `JobManager::new`, so these are inserted
+    // after construction.)
+    {
+        let conn = db.lock().unwrap();
+        for i in 0..MAX_QUEUED_PER_USER {
+            db::insert_job(
+                &conn,
+                &format!("held-{i}"),
+                "copy",
+                "a",
+                "x.txt",
+                "b",
+                "",
+                0,
+                "user-1",
+            )
+            .unwrap();
+        }
+    }
+
+    // One person's queue slot is full.
+    assert!(matches!(
+        manager
+            .enqueue("copy", "a", "x.txt", "b", "", "user-1")
+            .await
+            .unwrap_err(),
+        JobError::QueueFull
+    ));
+    // Another person still enqueues — one busy queue must not freeze
+    // everyone else.
+    let job = manager
+        .enqueue("copy", "a", "x.txt", "b", "", "sam")
+        .await
+        .unwrap();
+    wait_done(&manager, &job.id);
+
+    // …until the whole queue hits its ceiling.
+    {
+        let conn = db.lock().unwrap();
+        for i in 0..MAX_QUEUED_JOBS {
+            db::insert_job(
+                &conn,
+                &format!("all-{i}"),
+                "copy",
+                "a",
+                "x.txt",
+                "b",
+                "",
+                0,
+                "mara",
+            )
+            .unwrap();
+        }
+    }
+    assert!(matches!(
+        manager
+            .enqueue("copy", "a", "x.txt", "b", "", "sam")
+            .await
+            .unwrap_err(),
+        JobError::QueueFull
+    ));
+}
+
+#[tokio::test]
+async fn queued_jobs_drain_through_the_worker_cap() {
+    // More enqueues than MAX_RUNNING_JOBS must still all run — the queue
+    // hands work to workers as they finish instead of spawning one
+    // blocked thread per job.
+    let (dir, db, _a) = setup();
+    {
+        let conn = db.lock().unwrap();
+        let root_a = db::get_drive(&conn, "a").unwrap().unwrap().mount_point;
+        let root_b = db::get_drive(&conn, "b").unwrap().unwrap().mount_point;
+        std::fs::create_dir_all(format!("{root_b}/inbox")).unwrap();
+        for i in 0..MAX_QUEUED_PER_USER {
+            std::fs::write(format!("{root_a}/x{i}.txt"), b"x").unwrap();
+        }
+    }
+    let manager = JobManager::new(
+        db.clone(),
+        crate::gallery::gallery_indexer::GalleryIndexer::start(),
+    );
+    let mut jobs = Vec::new();
+    for i in 0..MAX_QUEUED_PER_USER {
+        jobs.push(
+            manager
+                .enqueue("copy", "a", &format!("x{i}.txt"), "b", "inbox", "user-1")
+                .await
+                .unwrap(),
+        );
+    }
+    for job in &jobs {
+        wait_done(&manager, &job.id);
+        let done = manager.get(&job.id).unwrap().unwrap();
+        assert_eq!(done.state, "done", "{}", done.error);
+    }
+    for i in 0..MAX_QUEUED_PER_USER {
+        assert_eq!(
+            std::fs::read(dir.path().join(format!("b/inbox/x{i}.txt"))).unwrap(),
+            b"x"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_restart_marks_stranded_jobs_interrupted() {
+    // Rows left "running" by a crash or power cut must not count against
+    // the queue ceiling forever — the first JobManager after boot marks
+    // them interrupted and the freed slots take work again.
+    let (_dir, db, _a) = setup();
+    {
+        let conn = db.lock().unwrap();
+        let root = db::get_drive(&conn, "a").unwrap().unwrap().mount_point;
+        std::fs::write(format!("{root}/x.txt"), b"x").unwrap();
+        for i in 0..MAX_QUEUED_PER_USER {
+            db::insert_job(
+                &conn,
+                &format!("stuck-{i}"),
+                "copy",
+                "a",
+                "x.txt",
+                "b",
+                "",
+                0,
+                "user-1",
+            )
+            .unwrap();
+        }
+    }
+    let manager = JobManager::new(
+        db.clone(),
+        crate::gallery::gallery_indexer::GalleryIndexer::start(),
+    );
+    {
+        let conn = db.lock().unwrap();
+        for i in 0..MAX_QUEUED_PER_USER {
+            let row = db::get_job(&conn, &format!("stuck-{i}")).unwrap().unwrap();
+            assert_eq!(row.state, "interrupted");
+        }
+    }
+    let job = manager
+        .enqueue("copy", "a", "x.txt", "b", "", "user-1")
+        .await
+        .unwrap();
+    wait_done(&manager, &job.id);
+    let done = manager.get(&job.id).unwrap().unwrap();
+    assert_eq!(done.state, "done", "{}", done.error);
+}

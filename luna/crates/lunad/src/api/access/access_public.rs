@@ -188,7 +188,9 @@ pub(super) fn accept_json(headers: &HeaderMap) -> bool {
 /// public link cannot walk the rest of the drive.
 pub(super) fn child_under_link(link_path: &str, rel: &str) -> Option<String> {
     let extra = rel.trim();
-    if extra.starts_with('/') {
+    // `\` is not a separator Luna accepts — it must not become one
+    // anywhere, or a scope check that says `a/b` misses `a\b`.
+    if extra.starts_with('/') || extra.contains('\\') {
         return None;
     }
     if extra.is_empty() {
@@ -208,8 +210,10 @@ pub(super) fn child_under_link(link_path: &str, rel: &str) -> Option<String> {
             return None;
         }
     }
+    // One spelling for what was asked: `a//b` and `a/b` name the same item.
+    let extra = files::canonical_rel(extra).ok()?;
     if link_path.is_empty() {
-        Some(extra.to_string())
+        Some(extra)
     } else {
         Some(format!("{}/{}", link_path.trim_end_matches('/'), extra))
     }
@@ -235,7 +239,12 @@ pub(super) fn scoped_child(
     lexical_err: ApiError,
 ) -> Result<String, ApiError> {
     let joined = child_under_link(&link.path, rel).ok_or(lexical_err)?;
-    if files::is_trash_api(&joined) && !files::is_trash_api(&link.path) {
+    // A link whose own subject is not inside `.luna-trash` must never reach
+    // it — and a raw `{prefix}-trash` name counts as reaching it, since the
+    // read path resolves alias and real names alike.
+    if (files::is_trash_api(&joined) || files::is_trash_rel(&joined))
+        && !files::is_trash_api(&link.path)
+    {
         return Err(not_in_share());
     }
     Ok(joined)
@@ -647,6 +656,12 @@ pub(super) fn upload_in_link_scope(
     if link.drive_id != drive_id {
         return false;
     }
+    // The session row and the lexical scope test compare spellings —
+    // canonicalize so `a//b` can't smuggle past either side.
+    let Ok(dest_path) = files::canonical_rel(dest_path) else {
+        return false;
+    };
+    let dest_path = dest_path.as_str();
     if link.subject_kind == KIND_ALBUM {
         return album_for_link(conn, link)
             .map(|(_, album)| !album.contrib_path.is_empty() && dest_path == album.contrib_path)

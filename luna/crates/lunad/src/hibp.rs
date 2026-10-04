@@ -66,6 +66,8 @@ pub fn check_breached_password(pw: &str) -> Result<bool, String> {
 
     let body = response
         .body_mut()
+        .with_config()
+        .limit(1024 * 1024)
         .read_to_string()
         .map_err(|e| e.to_string())?;
 
