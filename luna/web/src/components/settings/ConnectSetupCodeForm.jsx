@@ -70,8 +70,8 @@ export default function ConnectSetupCodeForm({ surface = "secondary" }) {
       : "text-primary underline decoration-accent underline-offset-4 hover:decoration-current motion-safe:transition-colors";
   const inputClass =
     surface === "primary"
-      ? "w-full min-w-0 rounded-pill surface-secondary px-4 py-2 font-mono tracking-widest"
-      : "w-full min-w-0 rounded-pill surface-primary px-4 py-2 font-mono tracking-widest";
+      ? "w-full min-w-0 rounded-pill surface-secondary px-4 py-2 font-mono"
+      : "w-full min-w-0 rounded-pill surface-primary px-4 py-2 font-mono";
   const btnSurface = surface === "primary" ? "primary" : "secondary";
 
   return (

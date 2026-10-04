@@ -76,7 +76,7 @@ function Summary({ verdict, title, detail, categories, busy }) {
         <div className="min-w-0">
           <p
             key={title}
-            className="font-mono text-lg text-primary tracking-tight animate-in fade-in slide-in-from-bottom-1 duration-300"
+            className="font-mono text-lg text-primary animate-in fade-in slide-in-from-bottom-1 duration-300"
           >
             {title}
           </p>
@@ -289,7 +289,7 @@ export default function PreflightStep({ onPass }) {
   return (
     <>
       <div className="mb-6">
-        <h2 className="font-mono text-3xl font-normal text-primary tracking-tight">System check</h2>
+        <h2 className="font-mono text-3xl font-normal text-primary">System check</h2>
         <p className="text-sm text-primary mt-2">
           Luna checks its storage, network, and features before you continue setup.
         </p>
@@ -332,7 +332,7 @@ export default function PreflightStep({ onPass }) {
             variant="primary"
             fullWidth
             onClick={onPass}
-            className="group py-4 font-mono tracking-wide hover:scale-[1.02] animate-in fade-in slide-in-from-bottom-2 duration-300"
+            className="group py-4 font-mono hover:scale-[1.02] animate-in fade-in slide-in-from-bottom-2 duration-300"
           >
             Continue
             <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" aria-hidden="true" />

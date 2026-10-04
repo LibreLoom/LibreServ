@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import PropTypes from "prop-types";
 import { MoreHorizontal, Save, X } from "lucide-react";
 import ModalCard, { NESTED_OVERLAY_CLASS } from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
+import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import { apiErrorMessage } from "../../lib/api.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
@@ -101,14 +102,8 @@ export default function FullscreenEditorFrame({
   // state so the window capture-phase Escape handler can yield to the
   // menu's own document listener, same as the guard modal above.
   const [menuOpen, setMenuOpen] = useState(false);
-  const [menuClosing, setMenuClosing] = useState(false);
-  const [menuPos, setMenuPos] = useState({ top: 0, left: 0 });
-  const [menuIndex, setMenuIndex] = useState(0);
   const menuOpenRef = useRef(false);
   menuOpenRef.current = menuOpen;
-  const menuTriggerRef = useRef(/** @type {HTMLSpanElement|null} */ (null));
-  const menuPortalRef = useRef(/** @type {HTMLDivElement|null} */ (null));
-  const menuCloseTimerRef = useRef(/** @type {ReturnType<typeof setTimeout> | null} */ (null));
   // Desktop shows a left rail, mobile a thin bar + dropdown — jsdom has no
   // layout, so the branch is chosen by matchMedia (see useIsMdUp).
   const isMdUp = useIsMdUp();
@@ -135,7 +130,6 @@ export default function FullscreenEditorFrame({
     setSaveError("");
     setConfirmClose(false);
     setMenuOpen(false);
-    setMenuClosing(false);
   }
 
   // Unsaved-changes guard: every close path (X button, Escape) funnels
@@ -288,87 +282,6 @@ export default function FullscreenEditorFrame({
     onClose();
   }
 
-  // Mobile options menu — same portaled-dropdown pattern as NewItemMenu /
-  // DriveMenu: fixed position under the trigger, outside-mousedown and Escape
-  // on document, animate-dropdown-open/close.
-  const closeMenu = useCallback(() => {
-    setMenuClosing(true);
-    menuCloseTimerRef.current = setTimeout(() => {
-      setMenuOpen(false);
-      setMenuClosing(false);
-      setMenuIndex(0);
-      menuCloseTimerRef.current = null;
-    }, 160);
-  }, []);
-
-  const updateMenuPosition = useCallback(() => {
-    if (!menuTriggerRef.current) return;
-    const rect = menuTriggerRef.current.getBoundingClientRect();
-    const menuWidth = menuPortalRef.current?.offsetWidth || Math.max(rect.width, 176);
-    let left = rect.left + window.scrollX;
-    if (left + menuWidth > window.innerWidth - 8) left = window.innerWidth - menuWidth - 8;
-    if (left < 8) left = 8;
-    const next = { top: rect.bottom + window.scrollY + 4, left };
-    setMenuPos((prev) => (prev.top === next.top && prev.left === next.left ? prev : next));
-  }, []);
-
-  const openMenu = useCallback(() => {
-    // Reopening mid-close-animation cancels the pending close.
-    if (menuCloseTimerRef.current) {
-      clearTimeout(menuCloseTimerRef.current);
-      menuCloseTimerRef.current = null;
-    }
-    updateMenuPosition();
-    setMenuClosing(false);
-    setMenuOpen(true);
-  }, [updateMenuPosition]);
-
-  useEffect(() => () => {
-    if (menuCloseTimerRef.current) clearTimeout(menuCloseTimerRef.current);
-  }, []);
-
-  useEffect(() => {
-    if (!menuOpen) return undefined;
-    function handleClickOutside(event) {
-      if (menuTriggerRef.current?.contains(/** @type {Node|null} */ (event.target))
-        || menuPortalRef.current?.contains(/** @type {Node|null} */ (event.target))) return;
-      closeMenu();
-    }
-    function handleEscape(event) {
-      if (event.key === "Escape") {
-        closeMenu();
-        menuTriggerRef.current?.querySelector("button")?.focus();
-      }
-    }
-    function handleScroll() {
-      updateMenuPosition();
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    document.addEventListener("keydown", handleEscape);
-    window.addEventListener("scroll", handleScroll, true);
-    window.addEventListener("resize", handleScroll);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-      document.removeEventListener("keydown", handleEscape);
-      window.removeEventListener("scroll", handleScroll, true);
-      window.removeEventListener("resize", handleScroll);
-    };
-  }, [menuOpen, closeMenu, updateMenuPosition]);
-
-  useLayoutEffect(() => {
-    if (!menuOpen) return;
-    updateMenuPosition();
-  }, [menuOpen, updateMenuPosition]);
-
-  function toggleMenu() {
-    if (menuOpen) {
-      closeMenu();
-      return;
-    }
-    haptic("light");
-    openMenu();
-  }
-
   const saveLabel = saving
     ? "Saving…"
     : saveError
@@ -387,44 +300,19 @@ export default function FullscreenEditorFrame({
   const menuItems = [
     ...(canWrite
       ? [{
-          id: "save",
+          value: "save",
           label: "Save",
           icon: Save,
           disabled: !saveReady || !hasUnsaved,
           note: saveLabel,
-          run: () => void runSave(),
         }]
       : []),
-    {
-      id: "close",
-      label: "Close editor",
-      icon: X,
-      disabled: false,
-      note: "",
-      run: requestClose,
-    },
+    { value: "close", label: "Close editor", icon: X },
   ];
 
-  function pickMenuItem(item) {
-    if (item.disabled) return;
-    haptic("selection");
-    item.run();
-    closeMenu();
-  }
-
-  function handleMenuKeyDown(event) {
-    if (!menuItems.length) return;
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      setMenuIndex((prev) => (prev + 1) % menuItems.length);
-    } else if (event.key === "ArrowUp") {
-      event.preventDefault();
-      setMenuIndex((prev) => (prev - 1 + menuItems.length) % menuItems.length);
-    } else if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      const item = menuItems[menuIndex];
-      if (item) pickMenuItem(item);
-    }
+  function runMenuItem(value) {
+    if (value === "save") void runSave();
+    else if (value === "close") requestClose();
   }
 
   return (
@@ -527,22 +415,34 @@ export default function FullscreenEditorFrame({
                   >
                     {name}
                   </span>
-                  <span ref={menuTriggerRef} className="inline-flex">
-                    <Button
-                      ref={closeRef}
-                      variant="ghost"
-                      surface="secondary"
-                      size="iconSm"
-                      smoothResize={false}
-                      haptic="light"
-                      aria-haspopup="menu"
-                      aria-expanded={menuOpen}
-                      aria-label="Editor options"
-                      onClick={toggleMenu}
-                    >
-                      <MoreHorizontal size={ICON_SIZE.lg} aria-hidden="true" />
-                    </Button>
-                  </span>
+                  {/* z-[100] menu sits above the z-[80] editor overlay. */}
+                  <Dropdown
+                    menu
+                    menuLabel="Editor options"
+                    options={menuItems}
+                    value=""
+                    align="end"
+                    open={menuOpen}
+                    onOpenChange={setMenuOpen}
+                    onChange={runMenuItem}
+                    renderTrigger={({ open, toggle, onKeyDown }) => (
+                      <Button
+                        ref={closeRef}
+                        variant="ghost"
+                        surface="secondary"
+                        size="iconSm"
+                        smoothResize={false}
+                        haptic={false}
+                        aria-haspopup="menu"
+                        aria-expanded={open}
+                        aria-label="Editor options"
+                        onClick={toggle}
+                        onKeyDown={onKeyDown}
+                      >
+                        <MoreHorizontal size={ICON_SIZE.lg} aria-hidden="true" />
+                      </Button>
+                    )}
+                  />
                 </div>
               )}
               <div className="flex min-h-0 min-w-0 flex-1 flex-col surface-primary">
@@ -557,61 +457,6 @@ export default function FullscreenEditorFrame({
         </div>,
         document.body,
       )}
-      {/* Mobile options menu — z-[90] sits above the z-[80] editor overlay. */}
-      {menuOpen
-        ? createPortal(
-          <div
-            ref={menuPortalRef}
-            role="menu"
-            aria-label="Editor options"
-            tabIndex={-1}
-            onKeyDown={handleMenuKeyDown}
-            style={{ position: "absolute", top: menuPos.top, left: menuPos.left }}
-            className={cn(
-              "surface-secondary ring-inset ring-2 ring-accent",
-              "rounded-large-element z-[90] overflow-hidden min-w-[12rem]",
-              menuClosing ? "animate-dropdown-close" : "animate-dropdown-open",
-            )}
-          >
-            {menuItems.map((item, index) => {
-              const Icon = item.icon;
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  role="menuitem"
-                  disabled={item.disabled}
-                  className={cn(
-                    "w-full flex items-center gap-2 px-4 py-2 text-sm text-left",
-                    "text-primary font-mono motion-safe:transition-[background-color,translate,box-shadow] motion-safe:duration-150",
-                    item.disabled
-                      ? "cursor-not-allowed opacity-50"
-                      : cn(
-                          "cursor-pointer",
-                          index === menuIndex
-                            ? "bg-primary/10 motion-safe:translate-x-0.5"
-                            : "hover:bg-primary/10 hover:motion-safe:translate-x-0.5",
-                        ),
-                    menuClosing ? "" : "animate-dropdown-option",
-                  )}
-                  style={menuClosing ? undefined : { animationDelay: `${index * 45}ms` }}
-                  onMouseEnter={() => setMenuIndex(index)}
-                  onClick={() => pickMenuItem(item)}
-                >
-                  <Icon size={ICON_SIZE.sm} aria-hidden="true" className="shrink-0" />
-                  <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                  {item.note ? (
-                    <span className="max-w-[10rem] shrink-0 truncate font-mono text-xs">
-                      {item.note}
-                    </span>
-                  ) : null}
-                </button>
-              );
-            })}
-          </div>,
-          document.body,
-        )
-        : null}
       {/* Unsaved-changes guard — z-[90] sits above the z-[80] editor overlay. */}
       <ModalCard
         open={confirmClose}

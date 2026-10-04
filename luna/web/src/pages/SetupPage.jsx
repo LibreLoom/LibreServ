@@ -178,7 +178,7 @@ function StepDots({ current }) {
           aria-label={s.label}
         />
       ))}
-      <span className="ml-auto text-[11px] font-mono tracking-wider text-primary/30 animate-in fade-in duration-300">
+      <span className="ml-auto text-[11px] font-mono text-primary animate-in fade-in duration-300">
         {idx + 1} / {VISIBLE_STEPS.length}
       </span>
     </div>
@@ -218,18 +218,18 @@ function WelcomeStep({ onBegin }) {
         <LogoMark size={120} />
       </div>
 
-      <h1 className="font-mono text-5xl font-normal text-primary tracking-tight mb-4">
+      <h1 className="font-mono text-5xl font-normal text-primary mb-4">
         Welcome.
       </h1>
 
-      <p className="text-primary/68 text-xl leading-[1.65] mb-12 max-w-[22rem]">
+      <p className="text-primary text-xl leading-[1.65] mb-12 max-w-[22rem]">
         Let&rsquo;s get Luna set up for you.
       </p>
 
       <Button
         variant="primary"
         onClick={onBegin}
-        className="group px-9 py-4 font-mono tracking-wide hover:scale-[1.03]"
+        className="group px-9 py-4 font-mono hover:scale-[1.03]"
       >
         Begin setup
         <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
@@ -504,7 +504,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
           <div className="mb-7 w-16 h-16 rounded-full border border-primary/20 flex items-center justify-center animate-in fade-in duration-300">
             <Check className="w-7 h-7 text-primary" strokeWidth={1.5} />
           </div>
-          <h2 className="font-mono text-3xl font-normal text-primary tracking-tight mb-3 animate-in fade-in slide-in-from-bottom-2 duration-300 delay-100">
+          <h2 className="font-mono text-3xl font-normal text-primary mb-3 animate-in fade-in slide-in-from-bottom-2 duration-300 delay-100">
             You&rsquo;re signed in
           </h2>
           <p className="text-primary text-sm leading-relaxed animate-in fade-in slide-in-from-bottom-2 duration-300 delay-200">
@@ -520,7 +520,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
                 if (isAdmin) onContinue();
                 else navigate("/");
               }}
-              className="group px-9 py-4 font-mono tracking-wide hover:scale-[1.03]"
+              className="group px-9 py-4 font-mono hover:scale-[1.03]"
             >
               {isAdmin ? "Continue" : "Go to Home"}
               <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
@@ -534,7 +534,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
         <div className="mb-7 w-16 h-16 rounded-full border border-primary/20 flex items-center justify-center animate-in fade-in duration-300">
           <Lock className="w-7 h-7 text-primary" strokeWidth={1.5} />
         </div>
-        <h2 className="font-mono text-3xl font-normal text-primary tracking-tight mb-3 animate-in fade-in slide-in-from-bottom-2 duration-300 delay-100">Sign in to continue</h2>
+        <h2 className="font-mono text-3xl font-normal text-primary mb-3 animate-in fade-in slide-in-from-bottom-2 duration-300 delay-100">Sign in to continue</h2>
         <p className="text-primary text-sm leading-relaxed animate-in fade-in slide-in-from-bottom-2 duration-300 delay-200">
           This Luna already has an account. Sign in with it to finish setup.
         </p>
@@ -556,7 +556,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
     <>
       {/* Header */}
       <div className="mb-8">
-        <h2 className="font-mono text-3xl font-normal text-primary tracking-tight">Create your account</h2>
+        <h2 className="font-mono text-3xl font-normal text-primary">Create your account</h2>
         {authSubStep === 0 && (
           <div className="mt-2 space-y-2">
             <p className="text-primary text-sm leading-relaxed font-sans">
@@ -706,7 +706,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
             fullWidth
             loading={submitting && isLastAuthSubStep}
             disabled={!currentAuthField.valid || submitting}
-            className="group py-4 font-mono tracking-wide hover:scale-[1.02]"
+            className="group py-4 font-mono hover:scale-[1.02]"
           >
             {isLastAuthSubStep ? (
               submitting ? "Creating account…" : "Create account"
@@ -757,7 +757,7 @@ function NameStep({ initialName, onFinish }) {
     <>
       {/* Header */}
       <div className="mb-8">
-        <h2 className="font-mono text-3xl font-normal text-primary tracking-tight">Name your Luna</h2>
+        <h2 className="font-mono text-3xl font-normal text-primary">Name your Luna</h2>
         <p className="text-primary text-sm mt-2">
           This is the name you&rsquo;ll see when you open Luna. If you ever have two, each gets its own name.
         </p>
@@ -789,7 +789,7 @@ function NameStep({ initialName, onFinish }) {
           {error && (
             <div className="flex items-start gap-2.5 p-4 rounded-card border border-error/25 bg-error/10 animate-in fade-in slide-in-from-bottom-1 duration-200">
               <AlertCircle className="w-4 h-4 text-error flex-shrink-0 mt-0.5" />
-              <p className="text-sm text-primary/80">{error}</p>
+              <p className="text-sm text-primary">{error}</p>
             </div>
           )}
 
@@ -801,7 +801,7 @@ function NameStep({ initialName, onFinish }) {
               fullWidth
               loading={saving}
               disabled={!name.trim() || saving}
-              className="group py-4 font-mono tracking-wide hover:scale-[1.02]"
+              className="group py-4 font-mono hover:scale-[1.02]"
             >
               {saving ? (
                 "Finishing…"
@@ -843,7 +843,7 @@ function DoneStep({ name, onGoDrives }) {
         <Check className="w-7 h-7 text-primary" strokeWidth={1.5} />
       </div>
 
-      <h2 className="font-mono text-3xl font-normal text-primary tracking-tight mb-3 animate-in fade-in slide-in-from-bottom-2 duration-300 delay-100">
+      <h2 className="font-mono text-3xl font-normal text-primary mb-3 animate-in fade-in slide-in-from-bottom-2 duration-300 delay-100">
         {label} is ready.
       </h2>
       <p className="text-primary text-sm leading-relaxed animate-in fade-in slide-in-from-bottom-2 duration-300 delay-200">
@@ -862,7 +862,7 @@ function DoneStep({ name, onGoDrives }) {
             haptic("medium");
             onGoDrives();
           }}
-          className="group px-9 py-4 font-mono tracking-wide hover:scale-[1.03]"
+          className="group px-9 py-4 font-mono hover:scale-[1.03]"
         >
           Go to drives
           <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />

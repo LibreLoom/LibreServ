@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronDown, Folder, HardDrive } from "lucide-react";
 import PropTypes from "prop-types";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
+import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import { hasLunaPaths, LUNA_DRIVE_MIME, LUNA_PATHS_MIME, SPRING_LOAD_MS } from "../../lib/dnd.js";
 import { isPresentDrive, isWritableDrive } from "../../lib/drives.js";
@@ -25,8 +25,8 @@ export const DRIVE_SPRING_LOAD_MS = SPRING_LOAD_MS;
 const DEST_ICONS = { folder: Folder, drive: HardDrive };
 
 /**
- * Drive menu — Luna's destination picker in the Files page header, modeled
- * on the NewItemMenu dropdown. The trigger shows the place being browsed;
+ * Drive menu — Luna's destination picker in the Files page header, built on
+ * the shared Dropdown in menu mode. The trigger shows the place being browsed;
  * opening it lists every OTHER destination as a menu item that navigates
  * there. For admins the destinations are whole drives; for members they
  * are the shared folders they can write to, since members can't address a
@@ -79,29 +79,11 @@ export default function DriveMenu({ drives, destinations, currentDriveId, curren
   );
   const current = items.find((d) => d.driveId === currentDriveId && (d.path || "") === (currentPath || ""));
 
-  const [isOpen, setIsOpen] = useState(false);
-  const [isClosing, setIsClosing] = useState(false);
-  const [position, setPosition] = useState({ top: 0, left: 0 });
-  const [activeIndex, setActiveIndex] = useState(0);
+  const [open, setOpen] = useState(false);
   const [dragOverDriveId, setDragOverDriveId] = useState(/** @type {string|null} */ (null));
-  const containerRef = useRef(/** @type {HTMLDivElement|null} */ (null));
-  const portalRef = useRef(/** @type {HTMLDivElement|null} */ (null));
-  const buttonRef = useRef(/** @type {HTMLSpanElement|null} */ (null));
   const openTimerRef = useRef(/** @type {ReturnType<typeof setTimeout>|null} */ (null));
   const springTimerRef = useRef(/** @type {ReturnType<typeof setTimeout>|null} */ (null));
   const springTargetRef = useRef(/** @type {string|null} */ (null));
-  const closeTimerRef = useRef(/** @type {ReturnType<typeof setTimeout>|null} */ (null));
-
-  const updatePosition = useCallback(() => {
-    if (!buttonRef.current) return;
-    const rect = buttonRef.current.getBoundingClientRect();
-    const menuWidth = portalRef.current?.offsetWidth || Math.max(rect.width, 176);
-    let left = rect.left + window.scrollX;
-    if (left + menuWidth > window.innerWidth - 8) left = window.innerWidth - menuWidth - 8;
-    if (left < 8) left = 8;
-    const next = { top: rect.bottom + window.scrollY + 4, left };
-    setPosition((prev) => (prev.top === next.top && prev.left === next.left ? prev : next));
-  }, []);
 
   const clearDragTimers = useCallback(() => {
     if (openTimerRef.current) {
@@ -116,33 +98,18 @@ export default function DriveMenu({ drives, destinations, currentDriveId, curren
     setDragOverDriveId(null);
   }, []);
 
-  const close = useCallback(() => {
-    clearDragTimers();
-    setIsClosing(true);
-    closeTimerRef.current = setTimeout(() => {
-      setIsOpen(false);
-      setIsClosing(false);
-      setActiveIndex(0);
-      closeTimerRef.current = null;
-    }, 160);
-  }, [clearDragTimers]);
-
-  const openMenu = useCallback(() => {
-    // Reopening mid-close-animation cancels the pending close.
-    if (closeTimerRef.current) {
-      clearTimeout(closeTimerRef.current);
-      closeTimerRef.current = null;
-    }
-    updatePosition();
-    setIsClosing(false);
-    setIsOpen(true);
-  }, [updatePosition]);
+  const handleOpenChange = useCallback(
+    (next) => {
+      setOpen(next);
+      if (!next) clearDragTimers();
+    },
+    [clearDragTimers],
+  );
 
   // Timers must not outlive the component.
   useEffect(() => () => {
     if (openTimerRef.current) clearTimeout(openTimerRef.current);
     if (springTimerRef.current) clearTimeout(springTimerRef.current);
-    if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
   }, []);
 
   // A drop or dragend anywhere on the document ends the in-flight drag —
@@ -159,61 +126,18 @@ export default function DriveMenu({ drives, destinations, currentDriveId, curren
     };
   }, [clearDragTimers]);
 
-  useEffect(() => {
-    if (!isOpen) return undefined;
-    function handleClickOutside(event) {
-      if (containerRef.current?.contains(/** @type {Node|null} */ (event.target))
-        || portalRef.current?.contains(/** @type {Node|null} */ (event.target))) return;
-      close();
-    }
-    function handleEscape(event) {
-      if (event.key === "Escape") {
-        close();
-        containerRef.current?.querySelector("button")?.focus();
-      }
-    }
-    function handleScroll() {
-      updatePosition();
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    document.addEventListener("keydown", handleEscape);
-    window.addEventListener("scroll", handleScroll, true);
-    window.addEventListener("resize", handleScroll);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-      document.removeEventListener("keydown", handleEscape);
-      window.removeEventListener("scroll", handleScroll, true);
-      window.removeEventListener("resize", handleScroll);
-    };
-  }, [isOpen, close, updatePosition]);
-
-  useLayoutEffect(() => {
-    if (!isOpen) return;
-    updatePosition();
-  }, [isOpen, updatePosition]);
-
-  function pick(dest) {
-    haptic("selection");
-    navigate(folderHref(dest.driveId, dest.path || ""));
-    if (isOpen) close();
-  }
-
-  function handleTrigger() {
-    if (isOpen) {
-      close();
-      return;
-    }
-    openMenu();
+  function destKey(dest) {
+    return `${dest.driveId}:${dest.path || ""}`;
   }
 
   // Drag-over the trigger arms the auto-open delay. The trigger itself is
   // not a drop target — no preventDefault, so a drop here is rejected and
   // the drag moves on to a real target.
   function handleTriggerDragOver(event) {
-    if (!hasLunaPaths(event) || isOpen || openTimerRef.current) return;
+    if (!hasLunaPaths(event) || open || openTimerRef.current) return;
     openTimerRef.current = setTimeout(() => {
       openTimerRef.current = null;
-      openMenu();
+      setOpen(true);
     }, DRIVE_MENU_OPEN_MS);
   }
 
@@ -223,10 +147,6 @@ export default function DriveMenu({ drives, destinations, currentDriveId, curren
       clearTimeout(openTimerRef.current);
       openTimerRef.current = null;
     }
-  }
-
-  function destKey(dest) {
-    return `${dest.driveId}:${dest.path || ""}`;
   }
 
   function armSpringLoad(dest) {
@@ -242,7 +162,7 @@ export default function DriveMenu({ drives, destinations, currentDriveId, curren
       // inside this destination. The drag session survives the route change.
       haptic("medium");
       navigate(folderHref(dest.driveId, dest.path || ""));
-      close();
+      handleOpenChange(false);
     }, DRIVE_SPRING_LOAD_MS);
   }
 
@@ -285,111 +205,79 @@ export default function DriveMenu({ drives, destinations, currentDriveId, curren
         // Ignore malformed drag payload.
       }
     }
-    if (isOpen) close();
+    handleOpenChange(false);
   }
 
-  function handleMenuKeyDown(event) {
-    if (!otherItems.length) return;
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      setActiveIndex((prev) => (prev + 1) % otherItems.length);
-    } else if (event.key === "ArrowUp") {
-      event.preventDefault();
-      setActiveIndex((prev) => (prev - 1 + otherItems.length) % otherItems.length);
-    } else if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      const dest = otherItems[activeIndex];
-      if (dest) pick(dest);
-    }
-  }
+  const options = useMemo(
+    () =>
+      otherItems.map((d) => ({
+        value: destKey(d),
+        label: d.label,
+        sub: d.sub,
+        icon: DEST_ICONS[d.icon] || Folder,
+      })),
+    [otherItems],
+  );
 
   if (otherItems.length < 1) return null;
 
-  return (
-    <div className="relative inline-flex" ref={containerRef}>
-      <span
-        ref={buttonRef}
-        className="inline-flex"
-        onDragOver={handleTriggerDragOver}
-        onDragLeave={handleTriggerDragLeave}
-      >
-        <Button
-          variant="outline"
-          surface="secondary"
-          size="sm"
-          type="button"
-          aria-haspopup="menu"
-          aria-expanded={isOpen}
-          aria-label={currentLabel || current ? `Places: ${currentLabel || current?.label}` : "Places"}
-          onClick={handleTrigger}
-        >
-          <HardDrive size={ICON_SIZE.sm} aria-hidden="true" />
-          {currentLabel || current?.label || "Places"}
-          <ChevronDown
-            size={ICON_SIZE.sm}
-            aria-hidden="true"
-            className={cn(
-              "motion-safe:transition-transform motion-safe:duration-300",
-              isOpen && !isClosing ? "rotate-180" : "rotate-0",
-            )}
-          />
-        </Button>
-      </span>
+  const triggerLabel = currentLabel || current?.label;
 
-      {isOpen
-        ? createPortal(
-          <div
-            ref={portalRef}
-            role="menu"
-            aria-label="Places"
-            tabIndex={-1}
-            onKeyDown={handleMenuKeyDown}
-            style={{ position: "absolute", top: position.top, left: position.left }}
-            className={cn(
-              "surface-secondary ring-inset ring-2 ring-accent",
-              "rounded-large-element z-50 overflow-hidden min-w-[12rem] max-h-72 overflow-y-auto no-scrollbar",
-              isClosing ? "animate-dropdown-close" : "animate-dropdown-open",
-            )}
+  return (
+    <Dropdown
+      menu
+      menuLabel="Places"
+      options={options}
+      value=""
+      open={open}
+      onOpenChange={handleOpenChange}
+      onChange={(key) => {
+        const dest = otherItems.find((d) => destKey(d) === key);
+        if (dest) navigate(folderHref(dest.driveId, dest.path || ""));
+      }}
+      optionProps={(option) => {
+        const dest = otherItems.find((d) => destKey(d) === option.value);
+        if (!dest) return undefined;
+        const canDrop = dest.writable !== false;
+        return {
+          className: dragOverDriveId === option.value ? "ring-2 ring-inset ring-accent" : undefined,
+          onDragOver: (e) => handleItemDragOver(dest, canDrop, e),
+          onDragLeave: (e) => handleItemDragLeave(dest, e),
+          onDrop: (e) => handleItemDrop(dest, canDrop, e),
+        };
+      }}
+      renderTrigger={({ open: isOpen, toggle, onKeyDown }) => (
+        <span
+          className="inline-flex"
+          onDragOver={handleTriggerDragOver}
+          onDragLeave={handleTriggerDragLeave}
+        >
+          <Button
+            variant="outline"
+            surface="secondary"
+            size="sm"
+            type="button"
+            haptic={false}
+            aria-haspopup="menu"
+            aria-expanded={isOpen}
+            aria-label={triggerLabel ? `Places: ${triggerLabel}` : "Places"}
+            onClick={toggle}
+            onKeyDown={onKeyDown}
           >
-            {otherItems.map((d, index) => {
-              const canDrop = d.writable !== false;
-              const isDragTarget = dragOverDriveId === destKey(d);
-              const Icon = DEST_ICONS[d.icon] || Folder;
-              return (
-                <button
-                  key={destKey(d)}
-                  type="button"
-                  role="menuitem"
-                  className={cn(
-                    "w-full flex items-center gap-2 px-4 py-2 text-sm text-left cursor-pointer",
-                    "text-primary font-mono motion-safe:transition-[background-color,translate,box-shadow] motion-safe:duration-150",
-                    isDragTarget
-                      ? "ring-2 ring-inset ring-accent"
-                      : index === activeIndex
-                        ? "bg-primary/10 motion-safe:translate-x-0.5"
-                        : "hover:bg-primary/10 hover:motion-safe:translate-x-0.5",
-                    isClosing ? "" : "animate-dropdown-option",
-                  )}
-                  style={isClosing ? undefined : { animationDelay: `${index * 45}ms` }}
-                  onMouseEnter={() => setActiveIndex(index)}
-                  onClick={() => pick(d)}
-                  onDragOver={(e) => handleItemDragOver(d, canDrop, e)}
-                  onDragLeave={(e) => handleItemDragLeave(d, e)}
-                  onDrop={(e) => handleItemDrop(d, canDrop, e)}
-                >
-                  <Icon size={ICON_SIZE.sm} aria-hidden="true" className="shrink-0" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate">{d.label}</span>
-                    {d.sub ? <span className="block truncate text-xs font-sans">{d.sub}</span> : null}
-                  </span>
-                </button>
-              );
-            })}
-          </div>,
-          document.body,
-        )
-        : null}
-    </div>
+            <HardDrive size={ICON_SIZE.sm} aria-hidden="true" />
+            {triggerLabel || "Places"}
+            <ChevronDown
+              size={ICON_SIZE.sm}
+              aria-hidden="true"
+              className={cn(
+                "motion-safe:transition-transform motion-safe:duration-300",
+                isOpen ? "rotate-180" : "rotate-0",
+              )}
+            />
+          </Button>
+        </span>
+      )}
+    />
   );
 }
 

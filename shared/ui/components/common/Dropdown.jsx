@@ -7,8 +7,19 @@ import { haptic } from "../../utils/haptics.js";
 import { ICON_SIZE } from "../../lib/ui-tokens.js";
 
 /**
+ * @typedef {object} DropdownOption
+ * @property {string} value
+ * @property {string} label
+ * @property {import("react").ElementType} [icon]
+ * @property {string} [group] Heading shown above the first option of each group (menu mode).
+ * @property {boolean} [disabled] Greyed out and skipped by the arrow keys (menu mode).
+ * @property {string} [sub] Second line under the label (menu mode).
+ * @property {string} [note] Small text at the right edge (menu mode).
+ */
+
+/**
  * @typedef {object} DropdownProps
- * @property {Array<{value: string, label: string, icon?: import("react").ElementType}>} options
+ * @property {Array<DropdownOption>} options
  *   `icon` draws before the label in the menu.
  * @property {(trigger: { open: boolean, toggle: () => void, onKeyDown: (e: import("react").KeyboardEvent) => void }) => import("react").ReactNode} [renderTrigger]
  *   Replace the pill with your own control (an action button that opens a
@@ -32,6 +43,15 @@ import { ICON_SIZE } from "../../lib/ui-tokens.js";
  * @property {string} [triggerClassName]
  * @property {"default"|"form"} [size]
  * @property {string} [id]
+ * @property {boolean} [menu] Action menu instead of a value picker: `role="menu"`,
+ *   no selected state, and `onChange` fires with the picked option's value.
+ *   Arrow keys on the trigger open it and move through it.
+ * @property {string} [menuLabel] Accessible name of the menu list.
+ * @property {boolean} [open] Controlled open state (drag-hover opens, shortcuts).
+ *   Changes follow the prop; `onOpenChange` reports the other direction.
+ * @property {(open: boolean) => void} [onOpenChange]
+ * @property {(option: DropdownOption) => (import("react").ButtonHTMLAttributes<HTMLButtonElement> & { className?: string }) | undefined} [optionProps]
+ *   Extra props for one option's button (drag handlers, highlight classes).
  */
 
 /** @param {DropdownProps & { [key: string]: any }} props */
@@ -54,6 +74,11 @@ export default function Dropdown({
   size = "default",
   variant = "default",
   id,
+  menu = false,
+  menuLabel,
+  open: openProp,
+  onOpenChange,
+  optionProps,
   "aria-label": ariaLabel,
 }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -108,15 +133,43 @@ export default function Dropdown({
     };
   }, []);
 
+  const onOpenChangeRef = useRef(onOpenChange);
+  useEffect(() => {
+    onOpenChangeRef.current = onOpenChange;
+  }, [onOpenChange]);
+
   const close = useCallback(() => {
     setIsClosing(true);
     if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
     closeTimerRef.current = setTimeout(() => {
+      closeTimerRef.current = null;
       setIsOpen(false);
       setIsClosing(false);
       setActiveIndex(-1);
     }, 160);
+    onOpenChangeRef.current?.(false);
   }, []);
+
+  const openMenu = useCallback(() => {
+    // Reopening mid-close-animation cancels the pending close.
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+    updatePosition();
+    setIsClosing(false);
+    setIsOpen(true);
+    onOpenChangeRef.current?.(true);
+  }, [updatePosition]);
+
+  // A controlled `open` drives the menu; internal opens report back above.
+  useEffect(() => {
+    if (openProp === undefined) return;
+    if (openProp && (!isOpen || isClosing)) openMenu();
+    else if (!openProp && isOpen && !isClosing) close();
+    // Only a change of the prop should act; isOpen/isClosing are read, not triggers.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openProp]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -161,23 +214,41 @@ export default function Dropdown({
   const handleToggle = () => {
     if (disabled) return;
     haptic("light");
-    if (isOpen) {
+    if (isOpen && !isClosing) {
       close();
     } else {
-      updatePosition();
-      setIsOpen(true);
+      openMenu();
     }
   };
 
+  const enabledIndexes = options.flatMap((o, i) => (o.disabled ? [] : [i]));
+  const stepActive = (dir) => {
+    if (!enabledIndexes.length) return;
+    const at = enabledIndexes.indexOf(activeIndex);
+    const next = at === -1
+      ? (dir > 0 ? 0 : enabledIndexes.length - 1)
+      : (at + dir + enabledIndexes.length) % enabledIndexes.length;
+    setActiveIndex(enabledIndexes[next]);
+  };
+
   const handleKeyDown = (event) => {
-    if (!isOpen) return;
+    if (!isOpen || isClosing) {
+      // Menus open from the keyboard on the trigger itself.
+      if (menu && !disabled && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+        event.preventDefault();
+        haptic("light");
+        openMenu();
+        setActiveIndex(event.key === "ArrowDown" ? (enabledIndexes[0] ?? -1) : (enabledIndexes.at(-1) ?? -1));
+      }
+      return;
+    }
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      setActiveIndex((prev) => (prev + 1) % options.length);
+      stepActive(1);
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
-      setActiveIndex((prev) => (prev - 1 + options.length) % options.length);
-    } else if (event.key === "Enter" && activeIndex >= 0) {
+      stepActive(-1);
+    } else if ((event.key === "Enter" || (menu && event.key === " ")) && activeIndex >= 0 && !options[activeIndex]?.disabled) {
       event.preventDefault();
       handleSelect(options[activeIndex].value);
     }
@@ -217,7 +288,7 @@ export default function Dropdown({
           triggerClassName,
         )}
         aria-expanded={isOpen}
-        aria-haspopup="listbox"
+        aria-haspopup={menu ? "menu" : "listbox"}
         aria-label={ariaLabel || (label ? `${label}: ${selectedOption?.label || "select"}` : undefined)}
       >
         {Icon ? (
@@ -265,44 +336,74 @@ export default function Dropdown({
             )}
           >
             <ul
-              role="listbox"
+              role={menu ? "menu" : "listbox"}
+              aria-label={menu ? menuLabel : undefined}
               className={cn(
                 "surface-secondary font-mono",
                 // overflow-y-auto alone would compute overflow-x as auto too,
                 // so the 2px hover slide on options showed a horizontal
                 // scrollbar. Clip x; the slide stays, clipped at the menu edge.
                 "rounded-large-element py-0 max-h-64 overflow-y-auto overflow-x-hidden overscroll-contain min-w-[8rem] no-scrollbar",
+                menu && "min-w-[12rem] max-h-72",
               )}
               tabIndex={-1}
             >
-              {options.map((option, i) => (
-                <li
-                  key={option.value}
-                  data-slot="dropdown-option"
-                  className={isClosing ? "" : "animate-dropdown-option"}
-                  style={isClosing ? undefined : { animationDelay: `${Math.min(i * 30, 240)}ms` }}
-                >
-                  <button
-                    type="button"
-                    role="option"
-                    aria-selected={value === option.value}
-                    onClick={() => handleSelect(option.value)}
-                    className={cn(
-                      "w-full text-left px-4 py-2 text-xs motion-safe:transition-[background-color,color,translate] motion-safe:duration-150 motion-safe:ease-out",
-                      option.icon && "flex items-center gap-2",
-                      "cursor-pointer rounded-none",
-                      value === option.value
-                        ? "surface-primary font-medium"
-                        : i === activeIndex
-                          ? "bg-primary/10 motion-safe:translate-x-0.5"
-                          : "hover:bg-primary/10 hover:motion-safe:translate-x-0.5"
-                    )}
+              {options.map((option, i) => {
+                const { className: extraClass, ...extraProps } = optionProps?.(option) || {};
+                const showGroup = menu && option.group && option.group !== options[i - 1]?.group;
+                const selected = !menu && value === option.value;
+                return (
+                  <li
+                    key={option.value}
+                    role="none"
+                    data-slot="dropdown-option"
+                    className={isClosing ? "" : "animate-dropdown-option"}
+                    style={isClosing ? undefined : { animationDelay: `${Math.min(i * (menu ? 45 : 30), 240)}ms` }}
                   >
-                    {option.icon ? <option.icon size={ICON_SIZE.sm} aria-hidden="true" /> : null}
-                    {option.label}
-                  </button>
-                </li>
-              ))}
+                    {showGroup ? (
+                      <p className="px-4 pt-2.5 pb-1 font-mono text-xs text-primary">{option.group}</p>
+                    ) : null}
+                    <button
+                      type="button"
+                      role={menu ? "menuitem" : "option"}
+                      aria-selected={menu ? undefined : selected}
+                      disabled={option.disabled}
+                      onMouseEnter={menu && !option.disabled ? () => setActiveIndex(i) : undefined}
+                      onClick={() => handleSelect(option.value)}
+                      {...extraProps}
+                      className={cn(
+                        "w-full text-left px-4 py-2 motion-safe:transition-[background-color,color,translate] motion-safe:duration-150 motion-safe:ease-out",
+                        menu ? "text-sm" : "text-xs",
+                        (option.icon || menu) && "flex items-center gap-2",
+                        "cursor-pointer rounded-none",
+                        option.disabled
+                          ? "cursor-not-allowed opacity-50"
+                          : selected
+                            ? "surface-primary font-medium"
+                            : i === activeIndex
+                              ? "bg-primary/10 motion-safe:translate-x-0.5"
+                              : "hover:bg-primary/10 hover:motion-safe:translate-x-0.5",
+                        extraClass,
+                      )}
+                    >
+                      {option.icon ? <option.icon size={ICON_SIZE.sm} aria-hidden="true" className="shrink-0" /> : null}
+                      {menu && (option.sub || option.note) ? (
+                        <>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate">{option.label}</span>
+                            {option.sub ? <span className="block truncate text-xs font-sans">{option.sub}</span> : null}
+                          </span>
+                          {option.note ? (
+                            <span className="max-w-[10rem] shrink-0 truncate font-mono text-xs">{option.note}</span>
+                          ) : null}
+                        </>
+                      ) : (
+                        option.label
+                      )}
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
             <div
               aria-hidden="true"

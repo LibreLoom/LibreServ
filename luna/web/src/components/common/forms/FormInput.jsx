@@ -45,15 +45,17 @@ export default function FormInput({
   // On a primary panel (e.g. Login), field pills use secondary fill.
   const onPrimaryPanel = surface === "primary";
   const inputTone = onPrimaryPanel
-    ? "surface-secondary placeholder:text-primary/50"
-    : "surface-primary placeholder:text-secondary/50";
+    ? "surface-secondary placeholder:text-primary placeholder:italic"
+    : "surface-primary placeholder:text-secondary placeholder:italic";
   const idleBorder = onPrimaryPanel
     ? "border-primary/30 focus:border-accent"
     : "border-secondary/30 focus:border-accent";
-  const iconTone = onPrimaryPanel ? "text-primary/60" : "text-secondary/60";
+  // Icons and the eye sit over the field, so they take the field's own
+  // surface (and the text color that goes with it) rather than the panel behind.
+  const fieldSurface = onPrimaryPanel ? "surface-secondary" : "surface-primary";
   const eyeTone = onPrimaryPanel
-    ? "text-primary/60 hover:text-primary focus-visible:ring-offset-secondary"
-    : "text-secondary/60 hover:text-secondary focus-visible:ring-offset-primary";
+    ? "surface-secondary focus-visible:ring-offset-secondary"
+    : "surface-primary focus-visible:ring-offset-primary";
 
   const shakeOptions = loading !== undefined ? { loading } : undefined;
 
@@ -78,14 +80,15 @@ export default function FormInput({
       {isPassword ? (
         <div ref={fieldRef} className="relative">
           {Icon && (
-            <Icon
-              size={ICON_SIZE.md}
+            <span
               className={cn(
-                "absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none z-10",
-                iconTone,
+                "absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none z-10 inline-flex rounded-pill",
+                fieldSurface,
               )}
               aria-hidden="true"
-            />
+            >
+              <Icon size={ICON_SIZE.md} />
+            </span>
           )}
           <input
             data-slot="input"
@@ -127,14 +130,15 @@ export default function FormInput({
       ) : (
         <div className="relative">
           {Icon && (
-            <Icon
-              size={ICON_SIZE.md}
+            <span
               className={cn(
-                "absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none z-10",
-                iconTone,
+                "absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none z-10 inline-flex rounded-pill",
+                fieldSurface,
               )}
               aria-hidden="true"
-            />
+            >
+              <Icon size={ICON_SIZE.md} />
+            </span>
           )}
           <input
             ref={fieldRef}
