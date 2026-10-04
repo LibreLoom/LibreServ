@@ -10,11 +10,6 @@ use crate::api::response::json_error;
 use crate::net::connect::ConnectError;
 
 #[derive(Deserialize)]
-struct DomainBody {
-    subdomain: String,
-}
-
-#[derive(Deserialize)]
 struct SourcesBody {
     sources: Vec<Value>,
 }
@@ -33,40 +28,12 @@ impl TokenBody {
 
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/api/v1/connect/config", get(config))
         .route("/api/v1/connect/status", get(status))
-        .route("/api/v1/connect/domain", post(set_domain))
-        .route("/api/v1/connect/deactivate", post(deactivate))
-        .route("/api/v1/connect/setup-code", post(save_device_token))
-        .route("/api/v1/connect/sync", post(sync))
         .route(
             "/api/v1/connect/device-token",
             post(save_device_token).delete(remove_device_token),
         )
         .route("/api/v1/connect/backup-sources", post(set_sources))
-}
-
-async fn config(
-    State(state): State<AppState>,
-    Extension(user): Extension<crate::auth::CurrentUser>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    if user.role != "admin" {
-        return Err(json_error(
-            StatusCode::FORBIDDEN,
-            "Only an Admin can view Connect settings.",
-        ));
-    }
-    let active = state.connect.is_connect_active();
-    let st = state.connect.status();
-    Ok(Json(json!({
-        "connect_active": active,
-        "device_token": {
-            "present": active,
-        },
-        "cloud_bind": {
-            "state": if !active { "n/a" } else if st.enabled { "claimed" } else { "unclaimed" },
-        },
-    })))
 }
 
 async fn status(
@@ -117,26 +84,6 @@ async fn save_device_token(
     })))
 }
 
-async fn sync(
-    State(state): State<AppState>,
-    Extension(user): Extension<crate::auth::CurrentUser>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    if !state.connect.is_connect_active() {
-        return Err(connect_inactive_error());
-    }
-    require_admin(user)?;
-    let service = state.connect.clone();
-    let bound = tokio::task::spawn_blocking(move || service.poll_status())
-        .await
-        .map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't sync with Luna Connect.",
-            )
-        })?;
-    Ok(Json(json!({ "ok": true, "bound": bound })))
-}
-
 async fn remove_device_token(
     State(state): State<AppState>,
     Extension(user): Extension<crate::auth::CurrentUser>,
@@ -149,49 +96,6 @@ async fn remove_device_token(
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Luna couldn't remove the device token.",
-            )
-        })?
-        .map_err(map_connect_err)?;
-    Ok(Json(json!({ "ok": true })))
-}
-
-async fn set_domain(
-    State(state): State<AppState>,
-    Extension(user): Extension<crate::auth::CurrentUser>,
-    Json(body): Json<DomainBody>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    if !state.connect.is_connect_active() {
-        return Err(connect_inactive_error());
-    }
-    require_admin(user)?;
-    let service = state.connect.clone();
-    let result = tokio::task::spawn_blocking(move || service.set_domain(&body.subdomain))
-        .await
-        .map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't reach Connect.",
-            )
-        })?
-        .map_err(map_connect_err)?;
-    Ok(Json(result))
-}
-
-async fn deactivate(
-    State(state): State<AppState>,
-    Extension(user): Extension<crate::auth::CurrentUser>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    if !state.connect.is_connect_active() {
-        return Err(connect_inactive_error());
-    }
-    require_admin(user)?;
-    let service = state.connect.clone();
-    tokio::task::spawn_blocking(move || service.deactivate())
-        .await
-        .map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't turn Connect off.",
             )
         })?
         .map_err(map_connect_err)?;

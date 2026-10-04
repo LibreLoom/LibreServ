@@ -612,55 +612,28 @@ impl ConnectService {
         let _ = std::fs::remove_file(&self.state_path);
     }
 
-    pub fn set_domain(&self, subdomain: &str) -> Result<Value, ConnectError> {
-        if !self.has_valid_device_code() {
-            return Err(Self::connect_inactive_err());
+    /// Turn Connect off on this Luna and tell the cloud this Luna has left.
+    ///
+    /// Turning it off here always works, online or not: the tunnel stops and the
+    /// claim state clears first. The cloud notice comes last and is best effort,
+    /// so an unreachable or rejecting Connect never blocks it. The device token
+    /// stays on disk so this Luna can rejoin later.
+    pub fn deactivate(&self) {
+        let token = self.token().ok();
+        self.clear_claim_keep_code();
+        if let Some(token) = token {
+            let _ = self.call_json("POST", "/api/v1/unregister", Some(&token), None);
         }
-        let token = self.token()?;
-        let changed = self.call_json(
-            "POST",
-            "/api/v1/domain",
-            Some(&token),
-            Some(json!({ "subdomain": subdomain })),
-        )?;
-        let mut state = self.load();
-        if let Some(h) = changed.get("hostname") {
-            state["hostname"] = h.clone();
-        }
-        if let Some(s) = changed.get("subdomain") {
-            state["subdomain"] = s.clone();
-        }
-        if let Some(t) = changed.get("tunnel_token") {
-            state["tunnel_token"] = t.clone();
-        }
-        self.save(&state)?;
-        // Domain assignment publishes DNS immediately; start cloudflared now or visitors see 1033.
-        let _ = self.ensure_tunnel();
-        Ok(changed)
     }
 
-    /// Remove the device token and clear cloud bind state. Stops polling immediately.
+    /// Turn Connect off (see [`Self::deactivate`]), then forget the device token.
+    /// Stops polling immediately.
     pub fn remove_device_token(&self) -> Result<(), ConnectError> {
-        self.stop_tunnel();
-        let _ = std::fs::remove_file(&self.state_path);
+        self.deactivate();
         let _ = std::fs::remove_file(&self.token_path);
         let _ = std::fs::remove_file(&self.legacy_token_path);
         self.set_rejected_token(false);
         self.clear_connect_unreachable();
-        self.clear_tunnel_error();
-        Ok(())
-    }
-
-    pub fn deactivate(&self) -> Result<(), ConnectError> {
-        if !self.has_valid_device_code() {
-            return Err(Self::connect_inactive_err());
-        }
-        if let Ok(token) = self.token() {
-            let _ = self.call_json("POST", "/api/v1/unregister", Some(&token), None);
-        }
-        self.stop_tunnel();
-        let _ = std::fs::remove_file(&self.state_path);
-        // Keep device-token so factory reset / re-join works.
         Ok(())
     }
 
@@ -1615,7 +1588,7 @@ mod tests {
                 "tunnel_token": "mock-token",
             }))
             .unwrap();
-        service.deactivate().unwrap();
+        service.deactivate();
         assert!(
             !dir.path().join("connect.json").exists(),
             "claim state must clear"
@@ -1626,6 +1599,32 @@ mod tests {
                 .trim(),
             "ABCD-EFGH-JKMN-PQRS-TVWX"
         );
+    }
+
+    #[test]
+    fn deactivate_works_without_a_device_token() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
+        std::fs::write(dir.path().join("connect.json"), "{}").unwrap();
+        service.deactivate();
+        assert!(!dir.path().join("connect.json").exists());
+    }
+
+    #[test]
+    fn remove_device_token_clears_everything_when_connect_is_unreachable() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
+        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
+        service
+            .apply_claimed(&json!({
+                "hostname": "photos.luna.servers.libreloom.org",
+                "tunnel_token": "mock-token",
+            }))
+            .unwrap();
+        service.remove_device_token().unwrap();
+        assert!(!dir.path().join("connect.json").exists());
+        assert!(!dir.path().join(DEVICE_TOKEN_FILE).exists());
+        assert!(!service.is_connect_active());
     }
 
     #[test]

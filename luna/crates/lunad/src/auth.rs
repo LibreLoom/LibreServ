@@ -853,11 +853,7 @@ pub async fn guard(State(state): State<AppState>, req: Request, next: Next) -> R
         let wizard_open = state.auth.count_users().unwrap_or(1) == 0 || setup_wizard_open(&state);
         is_public = wizard_open;
     }
-    if !is_public
-        && (path == "/api/v1/connect/status"
-            || path == "/api/v1/connect/setup-code"
-            || path == "/api/v1/connect/device-token")
-    {
+    if !is_public && (path == "/api/v1/connect/status" || path == "/api/v1/connect/device-token") {
         let wizard_open = state.auth.count_users().unwrap_or(1) == 0 || setup_wizard_open(&state);
         is_public = wizard_open;
     }
@@ -1542,10 +1538,7 @@ pub fn can_browse_path_preloaded(
         return false;
     }
     // The way down to a private item you own stays open.
-    if owned
-        .iter()
-        .any(|p| crate::access::path_contains(&norm, p))
-    {
+    if owned.iter().any(|p| crate::access::path_contains(&norm, p)) {
         return true;
     }
     browse_rows_walk(drive_id, &norm, rows)
