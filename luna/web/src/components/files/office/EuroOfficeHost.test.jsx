@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, waitFor } from "@testing-library/react";
+import { act, render, waitFor } from "@testing-library/react";
 import EuroOfficeHost from "./EuroOfficeHost.jsx";
 import { FileSourceProvider, driveSource } from "../../../lib/fileSource.jsx";
 import {
@@ -7,6 +7,7 @@ import {
   ensureOfficeBundle,
   loadEuroOfficeDocsApi,
   EuroOfficeUnavailableError,
+  saveEuroOfficeDocument,
 } from "./euroOfficeApi.js";
 import { CollabSocket } from "./collabSocket.js";
 
@@ -171,5 +172,55 @@ describe("EuroOfficeHost source plumbing", () => {
       <EuroOfficeHost driveId="d1" path="docs/Report.docx" onUnavailable={onUnavailable} />,
     );
     await waitFor(() => expect(onUnavailable).toHaveBeenCalled());
+  });
+
+  it("stays unsaved when an edit lands while a save is uploading", async () => {
+    const onSaveStateChange = vi.fn();
+    const onRegisterSave = vi.fn();
+    render(
+      <EuroOfficeHost
+        driveId="d1"
+        path="docs/Report.docx"
+        canWrite
+        onSaveStateChange={onSaveStateChange}
+        onRegisterSave={onRegisterSave}
+      />,
+    );
+    await waitFor(() => expect(onRegisterSave).toHaveBeenCalledWith(expect.any(Function)));
+    const save = onRegisterSave.mock.calls.at(-1)[0];
+    const edit = () => lastEditor().events.onDocumentStateChange({ data: true });
+
+    /** @type {() => void} */
+    let finishUpload = () => {};
+    vi.mocked(saveEuroOfficeDocument).mockImplementationOnce(
+      () => new Promise((resolve) => { finishUpload = () => resolve({}); }),
+    );
+    act(edit);
+    let saving;
+    act(() => { saving = save(); });
+    await waitFor(() => expect(vi.mocked(saveEuroOfficeDocument)).toHaveBeenCalled());
+    act(edit); // typed after the document was serialized
+    onSaveStateChange.mockClear();
+    await act(async () => { finishUpload(); await saving; });
+    expect(onSaveStateChange).not.toHaveBeenCalledWith(false);
+  });
+
+  it("reports saved when nothing changed during the save", async () => {
+    const onSaveStateChange = vi.fn();
+    const onRegisterSave = vi.fn();
+    render(
+      <EuroOfficeHost
+        driveId="d1"
+        path="docs/Report.docx"
+        canWrite
+        onSaveStateChange={onSaveStateChange}
+        onRegisterSave={onRegisterSave}
+      />,
+    );
+    await waitFor(() => expect(onRegisterSave).toHaveBeenCalledWith(expect.any(Function)));
+    const save = onRegisterSave.mock.calls.at(-1)[0];
+    act(() => lastEditor().events.onDocumentStateChange({ data: true }));
+    await act(async () => { await save(); });
+    expect(onSaveStateChange).toHaveBeenLastCalledWith(false);
   });
 });

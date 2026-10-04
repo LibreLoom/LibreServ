@@ -89,6 +89,10 @@ export default function EuroOfficeHost({
   const editorRef = useRef(/** @type {{ destroyEditor?: () => void } | null} */ (null));
   const dirtyRef = useRef(false);
   const dirtySinceRef = useRef(0);
+  // Bumped on every edit (local or foreign). A save only clears the dirty
+  // flag if this hasn't moved since the document was serialized — edits that
+  // land during the convert + upload are not in the file being written.
+  const editSeqRef = useRef(0);
   const lastEditRef = useRef(0);
   // Highest op index known to be persisted (our own save or a peer's
   // lunaSaved). Ops at or below it can't dirty the doc.
@@ -296,6 +300,7 @@ export default function EuroOfficeHost({
             // autosaves the tail itself).
             const snapshotIndex =
               typeof co?.changesIndex === "number" ? co.changesIndex : null;
+            const snapshotSeq = editSeqRef.current;
             let timeout;
             const timedOut = new Promise((_, reject) => {
               timeout = setTimeout(
@@ -328,9 +333,15 @@ export default function EuroOfficeHost({
                 snapshotIndex,
               );
             }
-            peerSavedRef.current = undefined;
-            dirtyRef.current = false;
-            onSaveStateChangeRef.current?.(false);
+            if (editSeqRef.current === snapshotSeq) {
+              peerSavedRef.current = undefined;
+              dirtyRef.current = false;
+              onSaveStateChangeRef.current?.(false);
+            } else {
+              // Edited while saving: the file lacks those changes, so stay
+              // dirty and let the next autosave tick write them.
+              dirtySinceRef.current = Date.now();
+            }
             onSavedRef.current?.();
             return true;
           } finally {
@@ -531,6 +542,7 @@ export default function EuroOfficeHost({
                 const now = Date.now();
                 if (!dirtyRef.current) dirtySinceRef.current = now;
                 lastEditRef.current = now;
+                editSeqRef.current += 1;
                 dirtyRef.current = true;
                 onSaveStateChangeRef.current?.(true);
               }
@@ -633,6 +645,7 @@ export default function EuroOfficeHost({
             const now = Date.now();
             if (!dirtyRef.current) dirtySinceRef.current = now;
             lastEditRef.current = now;
+            editSeqRef.current += 1;
             dirtyRef.current = true;
             onSaveStateChangeRef.current?.(true);
           });
