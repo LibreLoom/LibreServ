@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, GitBranch } from "lucide-react";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
@@ -9,7 +9,7 @@ import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
-import ConnectSetupCodeForm from "../ConnectSetupCodeForm.jsx";
+import ConnectDeviceCodeForm from "../ConnectDeviceCodeForm.jsx";
 import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { getJson, putJson, postJson, apiErrorMessage } from "../../../lib/api";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
@@ -115,7 +115,7 @@ export default function UpdateSourceCard({ index = 3 }) {
         title="Device token"
         onClose={() => setConnectModalOpen(false)}
       >
-        <ConnectSetupCodeForm />
+        <ConnectDeviceCodeForm />
       </ModalCard>
 
       {source.data && (
@@ -139,7 +139,7 @@ export default function UpdateSourceCard({ index = 3 }) {
 
 function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
   const { addToast } = useToast();
-  const s = initial || {};
+  const s = useMemo(() => initial || {}, [initial]);
 
   const [baseUrl, setBaseUrl] = useState(s.api_base || "");
   const [owner, setOwner] = useState(s.owner || "");
@@ -155,7 +155,7 @@ function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
     setRepo(s.repo || "");
     setKeysText(signingKeysForDisplay(s).join("\n"));
     setSaveError(null);
-  }, [open, s.api_base, s.owner, s.repo, s.keys, s.effective_keys, s.default_keys, s.defaults]);
+  }, [open, s]);
 
   const keyLines = keysText
     .split("\n")

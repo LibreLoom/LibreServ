@@ -9,10 +9,12 @@ const FONT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../
 
 export default function sharedFonts() {
   let outDir = "dist";
+  let isBuild = false;
   return {
     name: "libreloom-shared-fonts",
     configResolved(config) {
       outDir = path.resolve(config.root, config.build.outDir);
+      isBuild = config.command === "build";
     },
     configureServer(server) {
       server.middlewares.use("/fonts", (req, res, next) => {
@@ -25,6 +27,9 @@ export default function sharedFonts() {
       });
     },
     closeBundle() {
+      // Vitest points build.outDir at a "dummy-non-existing-folder" placeholder
+      // on its internal server — copying there creates it, so build-only.
+      if (!isBuild) return;
       fs.cpSync(FONT_DIR, path.join(outDir, "fonts"), { recursive: true });
     },
   };

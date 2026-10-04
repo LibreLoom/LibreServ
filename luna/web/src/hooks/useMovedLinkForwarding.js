@@ -113,7 +113,7 @@ export default function useMovedLinkForwarding({ driveId, path, viewerPath, sele
       message: result.hit.kind === "dir" ? "This folder has moved." : "This file has moved.",
       description: "Luna opened it in its new place. Update any bookmarks to this page.",
     });
-  }, [forward.data, viewerPath, navigate, addToast]);
+  }, [forward.data, viewerPath, navigate, addToast, username, driveId]);
 
   return { forwarding: forward.isFetching };
 }

@@ -7,15 +7,19 @@ import EditorLoadingScreen, { EditorMountedSignal } from "./EditorLoadingScreen.
 
 let finishDownload;
 const LazyEditor = lazy(
-  () => new Promise((resolve) => {
-    finishDownload = () => resolve({
-      default: function Editor() {
-        const [ready, setReady] = useState(false);
-        globalThis.__readyEditor = () => setReady(true);
-        return ready ? <p>Editor body</p> : <EditorLoadingScreen label="Starting editor…" />;
+  () =>
+    new Promise(
+      /** @param {(value: { default: () => import("react").JSX.Element }) => void} resolve */
+      (resolve) => {
+        finishDownload = () => resolve({
+          default: function Editor() {
+            const [ready, setReady] = useState(false);
+            globalThis.__readyEditor = () => setReady(true);
+            return ready ? <p>Editor body</p> : <EditorLoadingScreen label="Starting editor…" />;
+          },
+        });
       },
-    });
-  }),
+    ),
 );
 
 describe("editor loading screen", () => {
@@ -48,7 +52,7 @@ describe("editor loading screen", () => {
 
     it("stops drawing once the loader is gone", async () => {
       // jsdom has no canvas; a stub context lets the loader start its loop.
-      const ctx = new Proxy({}, { get: () => () => {}, set: () => true });
+      const ctx = /** @type {any} */ (new Proxy({}, { get: () => () => {}, set: () => true }));
       vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(ctx);
       const raf = vi.spyOn(window, "requestAnimationFrame");
       const caf = vi.spyOn(window, "cancelAnimationFrame");
