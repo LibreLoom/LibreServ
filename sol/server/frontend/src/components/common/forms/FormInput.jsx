@@ -3,7 +3,7 @@ import { useRef, useState } from "react";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import useShakeOnError from "@libreloom/ui/hooks/useShakeOnError.js";
 import FieldLabel from "@libreloom/ui/components/common/forms/FieldLabel.jsx";
-import { ICON_SIZE, PLACEHOLDER_TEXT } from "@libreloom/ui/lib/ui-tokens.js";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 const ICONS = {
   username: User,
@@ -74,7 +74,6 @@ export default function FormInput({
             className={cn(
               "w-full py-2 border-2 rounded-pill outline-none",
               "surface-secondary disabled:opacity-50 disabled:cursor-not-allowed",
-              PLACEHOLDER_TEXT,
               Icon ? "pl-11" : "pl-5",
               "pr-11",
               error ? "border-error focus:border-error" : "border-primary/30 focus:border-accent",
@@ -114,7 +113,6 @@ export default function FormInput({
             className={cn(
               "w-full py-2 border-2 rounded-pill outline-none",
               "surface-secondary disabled:opacity-50 disabled:cursor-not-allowed",
-              PLACEHOLDER_TEXT,
               Icon ? "pl-11" : "pl-5",
               "pr-11",
               error ? "border-error focus:border-error" : "border-primary/30 focus:border-accent",

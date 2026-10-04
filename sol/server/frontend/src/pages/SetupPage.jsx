@@ -1,5 +1,4 @@
 import { cn } from "@libreloom/ui/lib/utils.js";
-import { PLACEHOLDER_TEXT } from "@libreloom/ui/lib/ui-tokens.js";
 import { useState, useEffect, useCallback, useMemo, useRef, useContext } from "react";
 import { useNavigate } from "react-router-dom";
 import { Check, X, AlertCircle, Loader2, ArrowRight, Eye, EyeOff, ShieldCheck } from "lucide-react";
@@ -42,10 +41,8 @@ const LOGIN_GATE_STEPS = new Set([STEP.MFA]);
 
 // Shared input style for the inverted (bg-secondary) setup card: a transparent
 // field with a primary-toned border; text is primary (inverted to match the card).
-const WIZARD_INPUT_CLASS = cn(
-  "w-full px-5 py-3.5 rounded-pill border border-primary/20 bg-transparent text-primary font-mono text-sm focus:outline-none focus:border-primary/50 motion-safe:transition-colors motion-safe:duration-150",
-  PLACEHOLDER_TEXT,
-);
+const WIZARD_INPUT_CLASS =
+  "w-full px-5 py-3.5 rounded-pill border border-primary/20 bg-transparent text-primary font-mono text-sm focus:outline-none focus:border-primary/50 motion-safe:transition-colors motion-safe:duration-150";
 
 // ─── Full-screen shell (bg-primary = page background) ────────────────────────
 function SetupShell({ children }) {

@@ -45,8 +45,8 @@ export default function FormInput({
   // On a primary panel (e.g. Login), field pills use secondary fill.
   const onPrimaryPanel = surface === "primary";
   const inputTone = onPrimaryPanel
-    ? "surface-secondary placeholder:text-primary"
-    : "surface-primary placeholder:text-secondary";
+    ? "surface-secondary"
+    : "surface-primary";
   const idleBorder = onPrimaryPanel
     ? "border-primary/30 focus:border-accent"
     : "border-secondary/30 focus:border-accent";

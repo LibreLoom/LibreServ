@@ -491,7 +491,7 @@ export default function FileSearch() {
                     <span className="flex-1 min-w-0">
                       <input
                         ref={inputRef}
-                        className="file-search-input w-full min-w-0 appearance-none bg-transparent text-secondary text-sm border-0 shadow-none outline-none no-focus-outline placeholder:font-mono placeholder:text-secondary"
+                        className="file-search-input w-full min-w-0 appearance-none bg-transparent text-secondary text-sm border-0 shadow-none outline-none no-focus-outline placeholder:font-mono"
                         placeholder="A filename, please."
                         value={typed}
                         onChange={(e) => setTyped(e.target.value)}

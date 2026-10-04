@@ -100,7 +100,7 @@ function UninstallConfirmModal({ app, onConfirm, onCancel, isUninstalling }) {
              value={typedName}
              onChange={(e) => setTypedName(e.target.value)}
              placeholder={`Type "${appName}"`}
-             className="w-full px-4 py-2 border-2 rounded-pill surface-primary placeholder:text-secondary outline-none border-primary/30 focus:border-accent"
+             className="w-full px-4 py-2 border-2 rounded-pill surface-primary outline-none border-primary/30 focus:border-accent"
              disabled={isUninstalling}
              autoFocus
            />

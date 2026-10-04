@@ -26,6 +26,3 @@ export const ICON_SIZE = {
   /** Large modal/banner header icons. */
   xxl: 24,
 };
-
-/** Placeholder text opacity for all text inputs. */
-export const PLACEHOLDER_TEXT = "placeholder:text-primary/50";

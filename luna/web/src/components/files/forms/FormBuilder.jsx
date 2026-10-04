@@ -791,7 +791,7 @@ function BuilderSession({
                         />
                         <AutoGrowTextarea
                           id="form-thank-you"
-                          className="w-full resize-none rounded-large-element border-2 border-primary/30 surface-secondary px-5 py-2 text-base outline-none no-focus-outline focus:border-accent focus-visible:border-accent placeholder:text-primary/50"
+                          className="w-full resize-none rounded-large-element border-2 border-primary/30 surface-secondary px-5 py-2 text-base outline-none no-focus-outline focus:border-accent focus-visible:border-accent"
                           value={settings.thankYou || ""}
                           onChange={(value) => setSetting("thankYou", value)}
                           placeholder={DEFAULT_THANK_YOU}

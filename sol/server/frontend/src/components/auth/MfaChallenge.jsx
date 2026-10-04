@@ -428,7 +428,7 @@ function EntryShell({ title, hint, onBack, onSubmit, loading, disabled, code, se
             value={code}
             onChange={(e) => setCode(e.target.value)}
             placeholder={placeholder}
-            className="w-full px-4 py-2 border-2 border-primary/30 rounded-pill surface-primary placeholder:text-secondary/50 outline-none focus:border-accent"
+            className="w-full px-4 py-2 border-2 border-primary/30 rounded-pill surface-primary outline-none focus:border-accent"
             autoFocus={autoFocus}
           />
         </ShakeTarget>

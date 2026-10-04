@@ -9,7 +9,7 @@ import {
   Terminal,
   X,
 } from "lucide-react";
-import { ICON_SIZE, PLACEHOLDER_TEXT } from "@libreloom/ui/lib/ui-tokens.js";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Toggle from "@libreloom/ui/components/common/Toggle.jsx";
@@ -240,7 +240,7 @@ export default function LogsViewer({
                 value={filter}
                 onChange={(event) => setFilter(event.target.value)}
                 placeholder="Filter logs"
-                className={cn("w-full bg-transparent pl-10 pr-10 py-2 text-primary focus:outline-none focus-visible:outline-none font-sans text-sm no-focus-outline", PLACEHOLDER_TEXT)}
+                className={cn("w-full bg-transparent pl-10 pr-10 py-2 text-primary focus:outline-none focus-visible:outline-none font-sans text-sm no-focus-outline")}
               />
               <button
                 type="button"
@@ -263,7 +263,7 @@ export default function LogsViewer({
               value={filter}
               onChange={(event) => setFilter(event.target.value)}
               placeholder="Filter logs"
-              className={cn("w-full bg-transparent pl-11 pr-4 py-2 text-primary focus:outline-none focus-visible:outline-none font-sans text-sm no-focus-outline", PLACEHOLDER_TEXT)}
+              className={cn("w-full bg-transparent pl-11 pr-4 py-2 text-primary focus:outline-none focus-visible:outline-none font-sans text-sm no-focus-outline")}
             />
           </div>
 

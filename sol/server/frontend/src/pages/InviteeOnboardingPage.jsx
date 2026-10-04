@@ -127,7 +127,7 @@ export default function InviteeOnboardingPage() {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               placeholder="Choose a username"
-              className="placeholder:text-secondary/60 border-2 border-secondary rounded-pill p-2 mb-4 outline-none focus:border-accent"
+              className=" border-2 border-secondary rounded-pill p-2 mb-4 outline-none focus:border-accent"
               autoComplete="username"
               required
             />
@@ -149,7 +149,7 @@ export default function InviteeOnboardingPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder={PASSWORD_POLICY_HINT}
-                className="placeholder:text-secondary/60 border-2 border-secondary rounded-pill p-2 outline-none focus:border-accent w-full"
+                className=" border-2 border-secondary rounded-pill p-2 outline-none focus:border-accent w-full"
                 autoComplete="new-password"
                 required
               />

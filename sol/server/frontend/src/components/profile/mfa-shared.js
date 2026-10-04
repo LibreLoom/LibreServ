@@ -24,4 +24,4 @@ export const ORDER = ["totp", "email", "passkey", "security_key"];
 // Shared styles for inputs inside the inverted (bg-secondary) Card.
 // Buttons use the canonical Button primitive (../ui/Button).
 export const inputClass =
-  "w-full px-5 py-3.5 rounded-pill border border-primary/20 bg-transparent text-primary placeholder:text-primary/50 font-mono text-sm focus:outline-none focus:border-primary/50 motion-safe:transition-colors motion-safe:duration-150";
+  "w-full px-5 py-3.5 rounded-pill border border-primary/20 bg-transparent text-primary font-mono text-sm focus:outline-none focus:border-primary/50 motion-safe:transition-colors motion-safe:duration-150";

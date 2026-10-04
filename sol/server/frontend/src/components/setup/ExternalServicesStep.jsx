@@ -204,7 +204,7 @@ export default function ExternalServicesStep({ onActivate, onSkip }) {
               "w-full px-4 py-3 rounded-pill font-mono text-sm",
               "surface-primary border-2 border-accent/30",
               "focus:border-accent focus:outline-none",
-              "motion-safe:transition-colors placeholder:text-secondary/40",
+              "motion-safe:transition-colors",
             )}
           />
         </ShakeTarget>

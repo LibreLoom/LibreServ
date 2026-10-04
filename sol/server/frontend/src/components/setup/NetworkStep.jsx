@@ -409,7 +409,7 @@ export default function NetworkStep({ name, onContinue }) {
                         "w-full pl-4 pr-11 py-3 rounded-pill font-mono text-sm",
                         "surface-primary border-2 border-accent/30",
                         "focus:border-accent focus:outline-none",
-                        "motion-safe:transition-colors placeholder:text-secondary/40"
+                        "motion-safe:transition-colors"
                       )}
                     />
                     <button
