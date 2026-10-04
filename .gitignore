@@ -52,9 +52,13 @@ sol/server/backend/.env.local
 dev/
 sol/server/backend/dev/
 sol/server/backend/bin/
-sol/server/backend/configs/libreserv.yaml
-configs/libreserv.yaml
-sol/connect/configs/connect.yaml
+# Generated dev configs hold secrets — never commit them. Each app writes one
+# into its own nested configs/ dir; matching the name at any depth also catches
+# a run from the wrong directory.
+**/configs/libreserv.yaml
+**/configs/connect.yaml
+**/configs/connect-deploy.yaml
+**/configs/luna-connect.yaml
 *.db
 *.db.bak-*
 *.db-wal
@@ -151,8 +155,6 @@ sol/connect/internal/api/customer/dist/assets/
 # OpenMP / omp artifacts
 .omp
 sol/connect/web/*/dist/
-sol/connect/configs/connect-deploy.yaml
-sol/connect/configs/connect.yaml
 .empryo
 
 .reasonix/

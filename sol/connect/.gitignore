@@ -1,0 +1,6 @@
+bin/
+dev/
+web/node_modules/
+web/dist/
+configs/connect.yaml
+configs/connect-deploy.yaml
