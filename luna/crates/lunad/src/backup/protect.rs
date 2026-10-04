@@ -127,9 +127,11 @@ pub fn sync_all(db: &crate::Db) -> anyhow::Result<u64> {
                 })?;
             (src_root, target_root)
         };
-        match sync_trees(&src_root, &target_root).inspect(|_| {
-            write_private_manifest(&row, &src_root, &target_root);
-        }) {
+        // The manifest goes down even when the copy stops partway: the
+        // `.luna-` entries that did arrive are useless without their names.
+        let result = sync_trees(&src_root, &target_root);
+        write_private_manifest(&row, &src_root, &target_root);
+        match result {
             Ok(n) => {
                 copied += n;
                 if let Ok(conn) = db.lock() {
@@ -440,5 +442,31 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dest);
         symlink(&outside, &dest).unwrap();
         assert!(sync(&conn, &row).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn manifest_is_written_when_the_copy_stops_partway() {
+        use std::os::unix::fs::PermissionsExt;
+        let (_dir, conn) = setup();
+        let src = db::get_drive(&conn, "a").unwrap().unwrap().mount_point;
+        std::fs::create_dir_all(format!("{src}/family/secret")).unwrap();
+        std::fs::write(format!("{src}/family/secret/note.txt"), b"x").unwrap();
+        crate::private::privatize(Path::new(&src), "family/secret", "alice").unwrap();
+        let blocked = format!("{src}/family/blocked.txt");
+        std::fs::write(&blocked, b"x").unwrap();
+        std::fs::set_permissions(&blocked, std::fs::Permissions::from_mode(0o000)).unwrap();
+        if std::fs::File::open(&blocked).is_ok() {
+            return; // root ignores file modes, so the copy can't be made to fail
+        }
+
+        let row = create(&conn, "a", "family", "b").unwrap();
+        assert!(sync(&conn, &row).is_err());
+
+        let dst = db::get_drive(&conn, "b").unwrap().unwrap().mount_point;
+        let name = crate::private::manifest_name(Path::new(&src)).unwrap();
+        let manifest = Path::new(&dst).join(&row.target_path).join(name);
+        let json = std::fs::read_to_string(manifest).expect("manifest written despite the failure");
+        assert!(json.contains("\"owner\": \"alice\""), "{json}");
     }
 }
