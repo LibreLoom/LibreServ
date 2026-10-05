@@ -159,8 +159,7 @@ export default function AboutCategory({ settings, onUpdateSourceSave }) {
       <SettingsCard icon={Heart} title="Sol" padding={false} index={0}>
         <div className="px-5 py-4">
           <p className="text-sm leading-relaxed">
-            Sol is a self-hosted application management platform that
-            allows you to easily deploy and manage self-hosted applications.
+            Sol runs your apps and files on your own home server.
           </p>
           <div className="mt-4">
             <Button asChild variant="outline" surface="secondary">
