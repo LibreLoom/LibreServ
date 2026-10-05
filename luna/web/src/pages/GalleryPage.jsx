@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components -- page exports helpers used by tests */
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, startTransition, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -2130,7 +2130,9 @@ export default function GalleryPage() {
           }}
           onIndexChange={(i) => {
             const next = lightboxPhotos[i];
-            if (next) setLightbox({ key: photoSelectionKey(next) });
+            // Low priority: the page behind re-renders after the slide's first
+            // frames instead of competing with them.
+            if (next) startTransition(() => setLightbox({ key: photoSelectionKey(next) }));
           }}
           onFavorite={(p) => favorite.mutate(p)}
           onShare={setSharePhoto}
