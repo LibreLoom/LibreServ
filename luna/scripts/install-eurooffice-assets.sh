@@ -64,6 +64,8 @@ echo "Generating font metrics + thumbnails (one-shot in the image, no daemon)…
 # silently emits zero font files (still exit 0) when pointed at the bind
 # mount or a missing --input dir, so it runs against the image's own paths
 # exactly like the stock script and the results are copied out.
+# It runs with --network=none: the tool is offline, and this skips rootless
+# networking (pasta needs /dev/net/tun, which some build hosts lack).
 # allthemesgen failures (mobile thumbnail sizes) are tolerated — the desktop
 # editor doesn't need them.
 #
@@ -76,7 +78,7 @@ if [[ "$(id -u)" != 0 ]] && \
    [[ "$($RUNTIME info --format '{{.Host.Security.Rootless}}' 2>/dev/null || echo false)" != true ]]; then
   CHOWN_TO="$(id -u):$(id -g)"
 fi
-$RUNTIME run --rm --user 0 --entrypoint /bin/sh \
+$RUNTIME run --rm --network=none --user 0 --entrypoint /bin/sh \
   -e CHOWN_TO="$CHOWN_TO" \
   -v "$DEST:/out" \
   "$IMAGE" -c '
