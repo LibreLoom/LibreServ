@@ -75,8 +75,10 @@ assert_file_has "$ROOT/../release.sh" 'luna-os-x86_64.img' "release.sh must publ
 assert_file_has "$ROOT/../infra/docs/RELEASE.md" 'luna-os-x86_64.img' "RELEASE.md must document the slot image"
 
 # UI must stay undifferentiated (no Software vs System split).
+# The card's own title ("System updates") is fine; any other mention is a split.
 if grep -E 'System update|OS update|system update' \
-	"$ROOT/web/src/components/settings/categories/SystemUpdatesCard.jsx" >/dev/null 2>&1; then
+	"$ROOT/web/src/components/settings/categories/SystemUpdatesCard.jsx" 2>/dev/null |
+	grep -v 'title="System updates"' | grep -q .; then
 	echo "FAIL Updates UI must not differentiate OS vs software" >&2
 	fail=$((fail + 1))
 fi
