@@ -67,6 +67,8 @@ Today `./release.sh --luna` always performs an OS cut.
 ./release.sh --dry-run --skip-ci --version v0.0.13
 ```
 
+Without `--sol` or `--luna` (and without `--yes`), the script asks which product to release. With `--yes` it defaults to Sol.
+
 Other flags: `--force`, `--pre-release`, `--keep-build`, `--notes-file`,
 `--skip-ci`, `--with-iso` (implied by `--luna`).
 

@@ -18,6 +18,7 @@ SKIP_CI=false
 WITH_ISO=false
 PUBLISH=false
 LUNA_RELEASE=false
+PRODUCT_CHOSEN=false
 SIGN_ONLY=false
 CI_PROFILE=""
 VERSION_TAG=""
@@ -62,7 +63,12 @@ while [ $# -gt 0 ]; do
             ;;
         --luna)
             LUNA_RELEASE=true
+            PRODUCT_CHOSEN=true
             WITH_ISO=true
+            shift
+            ;;
+        --sol)
+            PRODUCT_CHOSEN=true
             shift
             ;;
         --publish)
@@ -92,6 +98,7 @@ while [ $# -gt 0 ]; do
             echo "  --yes, -y      Non-interactive: no prompts (uses FORGEJO_TOKEN from the environment)"
             echo "  --version TAG  Version tag (e.g. v0.0.13); required with --yes"
             echo "  --notes-file   Release notes markdown file; with --yes, generated if omitted"
+            echo "  --sol          Release Sol (LibreServ, v* tag); without --sol or --luna you are asked"
             echo "  --luna         Luna release: tag luna-vX.Y.Z (stable by default), lunad + ISO + Flatpak + Windows + Android"
             echo "  --with-iso     Also build and upload luna-rapidinstall-x86_64.iso.xz (implied by --luna)"
             echo "  --publish      Publish immediately (with --yes, skip the publish prompt)"
@@ -367,6 +374,28 @@ prompt_token() {
         exit 1
     fi
     log_info "Token validated successfully"
+}
+
+# Ask which product to release when neither --sol nor --luna was passed.
+prompt_product() {
+    if [ "$PRODUCT_CHOSEN" = true ] || [ "$YES" = true ]; then
+        return
+    fi
+    echo ""
+    log_step "Product"
+    echo ""
+    echo "  1) Sol  (LibreServ home server, tag v*)"
+    echo "  2) Luna (file box, tag luna-v*)"
+    local choice
+    while true; do
+        read -p "Which product are you releasing? (1/2): " choice
+        case "$choice" in
+            1|[Ss]|[Ss]ol) break ;;
+            2|[Ll]|[Ll]una) LUNA_RELEASE=true; WITH_ISO=true; break ;;
+            *) log_error "Enter 1 for Sol or 2 for Luna." ;;
+        esac
+    done
+    PRODUCT_CHOSEN=true
 }
 
 # Prompt for version tag
@@ -1266,6 +1295,8 @@ main() {
         sign_existing_release
         exit 0
     fi
+
+    prompt_product
     
     # Clean up any stale build artifacts from previous runs
     if [ -d "./release-build" ]; then
