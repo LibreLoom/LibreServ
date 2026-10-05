@@ -308,12 +308,26 @@ print_banner() {
     echo ""
 }
 
+# Print the app token the fj CLI saved for this Forgejo host (nothing if absent).
+fj_saved_token() {
+    local keys host
+    keys="${XDG_DATA_HOME:-$HOME/.local/share}/forgejo-cli/keys.json"
+    host="${FORGEJO_INSTANCE#*://}"
+    host="${host%%/*}"
+    if [ -r "$keys" ] && command -v jq >/dev/null 2>&1; then
+        jq -r --arg h "$host" '.hosts[$h] | select(.type == "Application") | .token // empty' "$keys" 2>/dev/null
+    fi
+    return 0
+}
+
 # Prompt for Forgejo token
 prompt_token() {
     if [ -n "${FORGEJO_TOKEN:-}" ]; then
         log_info "Using FORGEJO_TOKEN from the environment"
+    elif FORGEJO_TOKEN="$(fj_saved_token)"; [ -n "$FORGEJO_TOKEN" ]; then
+        log_info "Using the token saved by the fj CLI (fj auth login)"
     elif [ "$YES" = true ]; then
-        log_error "FORGEJO_TOKEN must be set in the environment when using --yes"
+        log_error "FORGEJO_TOKEN must be set (or log in with 'fj auth add-token') when using --yes"
         exit 1
     else
     echo ""

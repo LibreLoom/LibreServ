@@ -82,7 +82,7 @@ tags. Luna's updater only consumes **stable `luna-v*`** tags.
 - Podman (CI; also required for Luna ISO builds)
 - `minisign` in PATH, and the **product** secret that matches the committed pub
   (see [`keys/README.md`](../../keys/README.md))
-- `FORGEJO_TOKEN` for non-interactive cuts
+- `FORGEJO_TOKEN` for non-interactive cuts, or an `fj auth login` / `fj auth add-token` login on this machine (`release.sh` reads the saved app token)
 
 ## Release script flow
 
