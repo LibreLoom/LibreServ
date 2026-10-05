@@ -48,7 +48,7 @@ podman run --rm --privileged -v "$ROOTFS:/rootfs:z" "$ALPINE_IMAGE" sh -euc '
     # grub is here for grub-editenv only: lunad sets the A/B tryboot slot in
     # the ESP grubenv, and luna-boot-ok clears it. The bootloader itself is
     # installed by the rapidinstall ISO.
-    # grub's post-install trigger runs grub-probe against whatever disk the
+    # The grub post-install trigger runs grub-probe against whatever disk the
     # build host boots from (it fails on LUKS/device-mapper roots) and is
     # useless here, so a trigger error is tolerated; the check below still
     # fails the build if any package did not actually install.
