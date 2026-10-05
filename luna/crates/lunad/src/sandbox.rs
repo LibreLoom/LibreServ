@@ -397,7 +397,7 @@ mod tests {
         let cp = which("cp").unwrap();
         let mut cmd = Command::new(cp);
         cmd.arg(&input).arg(&out);
-        let status = run(&mut cmd, &mut io, Duration::from_secs(10)).unwrap();
+        let status = run(&mut cmd, &io, Duration::from_secs(10)).unwrap();
         assert!(status.success());
 
         let mut f = io.open_out("copy.bin").unwrap();
