@@ -48,6 +48,10 @@ podman run --rm --privileged -v "$ROOTFS:/rootfs:z" "$ALPINE_IMAGE" sh -euc '
     # grub is here for grub-editenv only: lunad sets the A/B tryboot slot in
     # the ESP grubenv, and luna-boot-ok clears it. The bootloader itself is
     # installed by the rapidinstall ISO.
+    # grub's post-install trigger runs grub-probe against whatever disk the
+    # build host boots from (it fails on LUKS/device-mapper roots) and is
+    # useless here, so a trigger error is tolerated; the check below still
+    # fails the build if any package did not actually install.
     apk add --root /rootfs --initdb --keys-dir /etc/apk/keys --arch '"$ARCH"' \
         --repository "https://dl-cdn.alpinelinux.org/alpine/'"$ALPINE_VERSION"'/main" \
         --repository "https://dl-cdn.alpinelinux.org/alpine/'"$ALPINE_VERSION"'/community" \
@@ -60,7 +64,10 @@ podman run --rm --privileged -v "$ROOTFS:/rootfs:z" "$ALPINE_IMAGE" sh -euc '
         dhcpcd ca-certificates ssl_client pciutils curl \
         libheif libheif-tools ffmpeg \
         hdparm \
-        chrony logrotate
+        chrony logrotate || echo "apk reported errors; verifying installed packages" >&2
+    for _p in alpine-base openrc linux-lts grub chrony ffmpeg; do
+        apk info --root /rootfs -e "$_p" >/dev/null || { echo "package $_p did not install" >&2; exit 1; }
+    done
 
     mkdir -p /rootfs/proc /rootfs/sys /rootfs/dev
     # linux-lts apk trigger already ran mkinitfs. The extra chroot pass
