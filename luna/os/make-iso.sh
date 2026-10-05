@@ -66,6 +66,11 @@ if [ "$IN_CONTAINER" = 1 ]; then
 	PODMAN=podman
 	if sudo -n podman version >/dev/null 2>&1; then
 		PODMAN="sudo -n podman"
+	elif command -v distrobox-host-exec >/dev/null 2>&1 &&
+		distrobox-host-exec sudo -n podman version >/dev/null 2>&1; then
+		# Inside a distrobox, podman is the host's rootless one; reach the
+		# host's rootful podman instead.
+		PODMAN="distrobox-host-exec sudo -n podman"
 	fi
 	LB_IMAGE="${LUNA_LIVE_BUILD_IMAGE:-localhost/luna-live-build:bookworm}"
 	$PODMAN image exists "$LB_IMAGE" 2>/dev/null || \
