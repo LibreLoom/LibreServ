@@ -49,7 +49,7 @@ function useIsMdUp() {
 
 /**
  * One slim extra row after the data, in the data rows' surface and motion,
- * with only a centered icon (a plus by default). `label` is the accessible name, e.g. "Add user".
+ * with a centered label followed by an icon (a plus by default), e.g. "Add user +".
  * @typedef {{ label: string, onClick: () => void, icon?: import("react").ElementType, disabled?: boolean }} TableAddRow
  */
 
@@ -59,7 +59,6 @@ function AddRowButton({ addRow, className }) {
   return (
     <button
       type="button"
-      aria-label={addRow.label}
       disabled={addRow.disabled}
       onClick={() => {
         haptic("selection");
@@ -74,7 +73,10 @@ function AddRowButton({ addRow, className }) {
         className,
       )}
     >
-      <Icon size={16} aria-hidden="true" />
+      <span className="flex items-center gap-1.5 text-sm">
+        {addRow.label}
+        <Icon size={16} aria-hidden="true" />
+      </span>
     </button>
   );
 }

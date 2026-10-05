@@ -329,7 +329,7 @@ describe("UsersPage", () => {
 
     const list = await screen.findByRole("region", { name: /User list/i });
     const add = within(list).getByRole("button", { name: /^Add user$/i });
-    expect(add.textContent?.trim()).toBe("");
+    expect(add.textContent?.trim()).toBe("Add user");
     expect(add.className).toMatch(/surface-secondary/);
     expect(add.className).toMatch(/rounded-large-element/);
     expect(add.className).not.toMatch(/fixed/);
