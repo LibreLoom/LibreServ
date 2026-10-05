@@ -296,18 +296,15 @@ fn quarantine_local(local_root: &Path, path: &Path, rel: &str) -> Result<(), Str
         .map(|d| d.as_secs())
         .unwrap_or(0);
     let trash = local_root.join(TRASH_DIR_NAME).join(stamp.to_string());
-    let dest = crate::paths::join_under(&trash, rel).ok_or_else(|| {
-        "Couldn't move the removed file aside on this computer.".to_string()
-    })?;
+    let dest = crate::paths::join_under(&trash, rel)
+        .ok_or_else(|| "Couldn't move the removed file aside on this computer.".to_string())?;
     if let Some(parent) = dest.parent() {
-        std::fs::create_dir_all(parent).map_err(|_| {
-            "Couldn't move the removed file aside on this computer.".to_string()
-        })?;
+        std::fs::create_dir_all(parent)
+            .map_err(|_| "Couldn't move the removed file aside on this computer.".to_string())?;
     }
     let dest = free_trash_path(&dest);
-    std::fs::rename(path, &dest).map_err(|_| {
-        "Couldn't move the removed file aside on this computer.".to_string()
-    })
+    std::fs::rename(path, &dest)
+        .map_err(|_| "Couldn't move the removed file aside on this computer.".to_string())
 }
 
 /// `dest`, or a never-clobbering `name 2.ext` sibling when it already exists —
