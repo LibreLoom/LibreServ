@@ -98,7 +98,7 @@ while [ $# -gt 0 ]; do
             echo "  --yes, -y      Non-interactive: no prompts (uses FORGEJO_TOKEN from the environment)"
             echo "  --version TAG  Version tag (e.g. v0.0.13); required with --yes"
             echo "  --notes-file   Release notes markdown file; with --yes, generated if omitted"
-            echo "  --sol          Release Sol (LibreServ, v* tag); without --sol or --luna you are asked"
+            echo "  --sol          Release Sol (home server, v* tag); without --sol or --luna you are asked"
             echo "  --luna         Luna release: tag luna-vX.Y.Z (stable by default), lunad + ISO + Flatpak + Windows + Android"
             echo "  --with-iso     Also build and upload luna-rapidinstall-x86_64.iso.xz (implied by --luna)"
             echo "  --publish      Publish immediately (with --yes, skip the publish prompt)"
@@ -384,7 +384,7 @@ prompt_product() {
     echo ""
     log_step "Product"
     echo ""
-    echo "  1) Sol  (LibreServ home server, tag v*)"
+    echo "  1) Sol  (home server, tag v*)"
     echo "  2) Luna (file box, tag luna-v*)"
     local choice
     while true; do
