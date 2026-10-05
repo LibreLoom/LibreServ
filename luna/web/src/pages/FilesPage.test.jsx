@@ -845,7 +845,7 @@ describe("FilesPage", () => {
     // The editor mounts an async text fetch — under full-suite load this
     // clears the default 1s findByRole timeout, so give it headroom.
     expect(await screen.findByRole("dialog", { name: "note.md" }, { timeout: 5000 })).toBeInTheDocument();
-    expect(await screen.findByLabelText("Contents of note.md")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Contents of note.md", {}, { timeout: 15000 })).toBeInTheDocument();
   });
 
   it("lists people who already have access in the Sharing sheet", async () => {
