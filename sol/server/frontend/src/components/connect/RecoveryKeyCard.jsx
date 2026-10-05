@@ -48,7 +48,7 @@ export default function RecoveryKeyCard({ repo, repoId = "" }) {
     const key = recoveryKey || repo?.password;
     if (!key) return;
     const content = [
-      "# LibreServ Recovery Key",
+      "# Sol Recovery Key",
       `# Repository: ${repo?.repo_type || "s3"}://${repo?.repo_path || "unknown"}`,
       `# Saved: ${new Date().toLocaleString()}`,
       "# KEEP THIS FILE SAFE. Without it, you cannot restore your backups.",
@@ -156,7 +156,7 @@ export default function RecoveryKeyCard({ repo, repoId = "" }) {
             <p className="font-medium text-secondary">Without this key:</p>
             <ul className="list-disc list-inside space-y-0.5">
               <li>Your backup data is permanently unrecoverable</li>
-              <li>Even LibreServ Connect staff cannot decrypt your backups</li>
+              <li>Even Sol Connect staff cannot decrypt your backups</li>
               <li>Store this key in a password manager or offline safe</li>
             </ul>
           </div>

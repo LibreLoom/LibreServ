@@ -372,13 +372,13 @@ func composeError(action string, output []byte, err error) error {
 		// The daemon socket was down when compose ran. Try to start it now so
 		// the user's next attempt (or an immediate retry) succeeds.
 		EnsureSocketRunning()
-		return fmt.Errorf("the background service that runs apps (the container daemon) is not running. LibreServ tried to start it automatically — please try again in a few seconds. If the problem persists, restart your device")
+		return fmt.Errorf("the background service that runs apps (the container daemon) is not running. Sol tried to start it automatically — please try again in a few seconds. If the problem persists, restart your device")
 	}
 	if strings.Contains(outStr, "permission denied") {
-		return fmt.Errorf("LibreServ does not have permission to talk to the container daemon. This usually means the daemon socket file has the wrong owner. Try restarting your device, or ask your system administrator to check the Podman or Docker permissions for your user account")
+		return fmt.Errorf("Sol does not have permission to talk to the container daemon. This usually means the daemon socket file has the wrong owner. Try restarting your device, or ask your system administrator to check the Podman or Docker permissions for your user account")
 	}
 	if strings.Contains(outStr, "unknown command \"compose\"") || strings.Contains(outStr, "looking up compose provider failed") {
-		return fmt.Errorf("the app-running helper (compose) is not installed. LibreServ needs the 'docker-compose' or 'podman-compose' add-on to start apps. Install one of these and try again")
+		return fmt.Errorf("the app-running helper (compose) is not installed. Sol needs the 'docker-compose' or 'podman-compose' add-on to start apps. Install one of these and try again")
 	}
 	return fmt.Errorf("starting the app failed: %s", strings.TrimSpace(outStr))
 }

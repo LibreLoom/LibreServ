@@ -46,7 +46,7 @@ func (e *EntitlementChecker) Reason() string {
 		return "Not checked"
 	}
 	if !e.status.Connected {
-		return "Not connected to LibreServ Connect"
+		return "Not connected to Sol Connect"
 	}
 	return ""
 }

@@ -29,7 +29,7 @@ type PortManager struct {
 	db         *database.DB
 	catalog    *Catalog
 	usedPorts  map[int]string // port → instanceID
-	serverPort int            // LibreServ's own port (protected)
+	serverPort int            // Sol's own port (protected)
 	logger     *slog.Logger
 }
 

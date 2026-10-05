@@ -42,7 +42,7 @@ func newTestMFAHandler(t *testing.T, withVerifier bool) (*MFAHandler, *auth.Serv
 	if withVerifier {
 		v, err := webauthn.New(webauthn.Config{
 			RPID:          "example.org",
-			RPDisplayName: "LibreServ",
+			RPDisplayName: "Sol",
 			Origins:       []string{"https://example.org"},
 		})
 		if err != nil {

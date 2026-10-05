@@ -118,7 +118,7 @@ export default function Register() {
         <CardHeader className="text-center">
           <CardTitle className="text-3xl">Create account</CardTitle>
           <CardDescription>
-            Create a Connect account to manage your LibreServ devices and subscription.
+            Create a Connect account to manage your Sol devices and subscription.
           </CardDescription>
         </CardHeader>
         <CardContent>

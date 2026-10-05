@@ -165,25 +165,25 @@ export default function Login({ embedded = false, returnTo = "/", onLoginSuccess
       return (
         <p>
           Wait up! If you just rebooted, updated, or simply turned on your
-          LibreServ, it may still be starting up. <br />
+          Sol, it may still be starting up. <br />
           <br />
           If this issue has been happening repeatedly, try rebooting your
-          LibreServ (it's not super intuitive for this error, but trust us, it
+          Sol (it's not super intuitive for this error, but trust us, it
           can help). <br />
-          <br /> If you've rebooted your LibreServ and continue encountering
+          <br /> If you've rebooted your Sol and continue encountering
           this issue, try contacting support for assistance.
         </p>
       );
     } else if (errorStatus === "NetworkError") {
       return (
         <p>
-          Check your device's connection to the internet. (Not your LibreServ's,
+          Check your device's connection to the internet. (Not your Sol's,
           but this device's!) <br />
           <br />
           If you're absolutely sure that you are connected to the internet,
-          please try rebooting your LibreServ. <br />
+          please try rebooting your Sol. <br />
           <br />
-          If you've both rebooted your LibreServ and have ensured that your
+          If you've both rebooted your Sol and have ensured that your
           device is connected to the internet, please reach out to support for
           assistance.{" "}
         </p>
@@ -197,7 +197,7 @@ export default function Login({ embedded = false, returnTo = "/", onLoginSuccess
             <br />
             <br />
             If you're having this issue repeatedly, start by rebooting your
-            LibreServ. If that fails, feel free to contact support to help resolve
+            Sol. If that fails, feel free to contact support to help resolve
             this issue, we're always happy to help!
           </p>
         );
@@ -208,7 +208,7 @@ export default function Login({ embedded = false, returnTo = "/", onLoginSuccess
           <br />
           <br />
           If you're having this issue repeatedly, start by rebooting your
-          LibreServ. If that fails, feel free to contact support to help resolve
+          Sol. If that fails, feel free to contact support to help resolve
           this issue, we're always happy to help!
         </p>
       );
@@ -247,7 +247,7 @@ export default function Login({ embedded = false, returnTo = "/", onLoginSuccess
         <Card surface="secondary" padding={false}>
           <div className="p-8">
             <span className="text-primary font-mono text-2xl block text-center">
-              LibreServ
+              Sol
             </span>
             <div className="bg-accent p-px rounded-pill mt-6 mb-4"></div>
             <StepTransition step={mfa ? "mfa" : "form"} order={LOGIN_STEPS}>

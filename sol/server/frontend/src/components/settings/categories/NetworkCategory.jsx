@@ -135,7 +135,7 @@ function ReachabilityCard({ report, loading, onRetry, connectivity }) {
             </div>
 
             <p className="text-sm text-primary leading-relaxed">
-              Your apps need a protected connection out to the internet. The simple fix: LibreServ Connect gives this device an address on the internet — no router changes needed.
+              Your apps need a protected connection out to the internet. The simple fix: Sol Connect gives this device an address on the internet — no router changes needed.
             </p>
             <p className="text-xs text-primary leading-relaxed">
               In External services: activate <strong>Connect</strong> at the top, then open the <strong>Tunnel</strong> card and turn it on.
@@ -231,7 +231,7 @@ function ReachabilityCard({ report, loading, onRetry, connectivity }) {
             </div>
             <div className="border-t border-primary/10 pt-3 space-y-2">
               <p className="text-xs text-primary leading-relaxed">
-                Prefer to skip the router setup? Open the <strong>Tunnel</strong> card in External services and turn it on — no router changes needed. You'll need either a LibreServ Connect account or a Cloudflare Tunnel token.
+                Prefer to skip the router setup? Open the <strong>Tunnel</strong> card in External services and turn it on — no router changes needed. You'll need either a Sol Connect account or a Cloudflare Tunnel token.
               </p>
               <Button asChild variant="outline" size="sm" surface="secondary">
                 <a href="#external_services-tunnel">Open Tunnel setup →</a>

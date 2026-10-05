@@ -9,7 +9,7 @@ TEST_DIR="/tmp/libreserv-rollback-test-$$"
 BIN_DIR="$SCRIPT_DIR/bin"
 STATE_DIR="$TEST_DIR/state"
 
-echo "=== LibreServ Platform Update Rollback Test ==="
+echo "=== Sol Platform Update Rollback Test ==="
 echo ""
 
 cleanup() {

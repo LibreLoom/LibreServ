@@ -128,7 +128,7 @@ export default function NotificationsCategory({ settings, securitySettings, onSe
 
   return (
     <div className="space-y-4" data-slot="notifications-category">
-      <SettingsCard icon={Mail} title={<>Email <InfoHint content="LibreServ sends notifications through a mail provider (SMTP)." /></>} padding={false} index={0}>
+      <SettingsCard icon={Mail} title={<>Email <InfoHint content="Sol sends notifications through a mail provider (SMTP)." /></>} padding={false} index={0}>
         <SettingsRow
           label="Email provider configuration"
           description={smtpConfigured ? "Connected — change provider in External services" : "Not configured — set up in External services"}

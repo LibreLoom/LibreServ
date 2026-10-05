@@ -21,7 +21,7 @@ func TestParseScanResults(t *testing.T) {
 	}
 }
 
-func TestHostapdConfigIsOpenLibreServSetup(t *testing.T) {
+func TestHostapdConfigIsOpenSolSetup(t *testing.T) {
 	cfg := HostapdConfig("wlan0")
 	if !strings.Contains(cfg, "interface=wlan0") {
 		t.Fatalf("missing interface: %s", cfg)

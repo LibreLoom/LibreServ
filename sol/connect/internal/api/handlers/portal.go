@@ -430,7 +430,7 @@ func (h *PortalHandler) sendVerificationEmailSync(email, token, source string) e
 <body style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 20px;">
   <h2 style="color: #333;">Verify your email address</h2>
   <p style="color: #555; line-height: 1.6;">
-    Welcome to LibreServ Connect! Click the button below to verify your email address.
+    Welcome to Sol Connect! Click the button below to verify your email address.
     This confirms that you own this email and unlocks all Connect features.
   </p>
   <p style="text-align: center; margin: 30px 0;">
@@ -459,9 +459,9 @@ func (h *PortalHandler) sendVerificationEmailSync(email, token, source string) e
 	}
 	from := config.C.SMTP.From
 	if from == "" {
-		from = "LibreServ Connect <noreply@resend.libreloom.org>"
+		from = "Sol Connect <noreply@resend.libreloom.org>"
 	}
-	return h.resend.SendEmail(apiKey, from, email, "Verify your email — LibreServ Connect", htmlBody, "")
+	return h.resend.SendEmail(apiKey, from, email, "Verify your email — Sol Connect", htmlBody, "")
 }
 
 // Login authenticates a customer with email/password (and TOTP if enabled).
@@ -565,7 +565,7 @@ func (h *PortalHandler) Setup2FA(w http.ResponseWriter, r *http.Request) {
 	_ = h.db.QueryRowContext(r.Context(),
 		"SELECT email FROM customer_accounts WHERE id = $1", accountID).Scan(&email)
 
-	uri := auth.TOTPURI(secret, email, "LibreServ Connect")
+	uri := auth.TOTPURI(secret, email, "Sol Connect")
 
 	_, err = h.db.ExecContext(r.Context(),
 		"UPDATE customer_accounts SET totp_secret = $1 WHERE id = $2", secret, accountID)
@@ -825,7 +825,7 @@ func (h *PortalHandler) GenerateConnectKey(w http.ResponseWriter, r *http.Reques
 		"key_id":      connectKeyID,
 		"plan_id":     planID,
 		"plan_name":   catalog.PlanName(planID),
-		"message":     "Enter this key on your LibreServ device to activate Connect.",
+		"message":     "Enter this key on your Sol device to activate Connect.",
 	})
 }
 
@@ -2264,7 +2264,7 @@ func normalizeSubdomain(s string) string {
 
 func rejectBrandOwnedDomain(w http.ResponseWriter, domain string) bool {
 	if domainname.IsBrandOwned(domain) {
-		JSONError(w, http.StatusBadRequest, "You cannot register a LibreLoom or LibreServ address as a custom domain. Use your Connect subdomain, or bring a domain you own.")
+		JSONError(w, http.StatusBadRequest, "You cannot register a LibreLoom or Sol address as a custom domain. Use your Connect subdomain, or bring a domain you own.")
 		return true
 	}
 	return false

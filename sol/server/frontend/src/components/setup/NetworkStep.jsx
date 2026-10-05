@@ -258,7 +258,7 @@ export default function NetworkStep({ name, onContinue }) {
             Connect to Wi-Fi
           </Button>
           <p className="text-sm text-primary text-left leading-relaxed">
-            Using a phone with no cable? Join the Wi-Fi network named LibreServ Setup, then pick your home network here.
+            Using a phone with no cable? Join the Wi-Fi network named Sol Setup, then pick your home network here.
           </p>
         </div>
       )}

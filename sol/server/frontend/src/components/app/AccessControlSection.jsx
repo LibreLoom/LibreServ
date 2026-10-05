@@ -172,8 +172,8 @@ export default function AccessControlSection({ instanceId, accessModel, appName 
           {isInternal && (
             <div className="space-y-4">
               <p className="text-sm text-secondary">
-                {appName} signs in through LibreServ. Users sign in with their
-                LibreServ username and password.
+                {appName} signs in through Sol. Users sign in with their
+                Sol username and password.
               </p>
               {oidcLoading ? (
                 <div className="flex items-center justify-center py-4">
@@ -210,14 +210,14 @@ export default function AccessControlSection({ instanceId, accessModel, appName 
             <div className="space-y-4">
               <p className="text-sm text-secondary">
                 By default, anyone who can reach {appName}'s address can access
-                it. Enable restricted access to require a LibreServ login — only
+                it. Enable restricted access to require a Sol login — only
                 users on the list below will get through.
               </p>
               <Toggle
                 checked={restricted}
                 onChange={handleToggleRestricted}
                 disabled={restrictedLoading}
-                label="Require LibreServ login"
+                label="Require Sol login"
                 description="Only users on the access list can open this app."
                 iconOn={Lock}
               />

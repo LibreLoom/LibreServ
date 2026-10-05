@@ -156,10 +156,10 @@ export default function AboutCategory({ settings, onUpdateSourceSave }) {
 
   return (
     <div className="space-y-4" data-slot="about-category">
-      <SettingsCard icon={Heart} title="LibreServ" padding={false} index={0}>
+      <SettingsCard icon={Heart} title="Sol" padding={false} index={0}>
         <div className="px-5 py-4">
           <p className="text-sm leading-relaxed">
-            LibreServ is a self-hosted application management platform that
+            Sol is a self-hosted application management platform that
             allows you to easily deploy and manage self-hosted applications.
           </p>
           <div className="mt-4">
@@ -183,10 +183,10 @@ export default function AboutCategory({ settings, onUpdateSourceSave }) {
         </div>
       </SettingsCard>
 
-      <SettingsCard icon={Coffee} title="Support LibreServ" padding={false} index={1}>
+      <SettingsCard icon={Coffee} title="Support Sol" padding={false} index={1}>
         <div className="px-5 py-4">
           <p className="text-sm leading-relaxed">
-            LibreServ is free and open source. If it has made running your own
+            Sol is free and open source. If it has made running your own
             server a little easier, you can help keep it going with a small
             contribution — entirely optional, always appreciated.
           </p>
@@ -231,12 +231,12 @@ export default function AboutCategory({ settings, onUpdateSourceSave }) {
                     </p>
                     <p>
                       These are <strong>system</strong> update settings — they control
-                      where LibreServ itself gets its updates from. They have
+                      where Sol itself gets its updates from. They have
                       nothing to do with the apps you install (those come from
                       App Sources in Settings, not here). Changing them without
-                      knowing what you're doing can break or block LibreServ's
+                      knowing what you're doing can break or block Sol's
                       own updates. Leave them alone unless you're sure you need
-                      to point LibreServ at a different update source.
+                      to point Sol at a different update source.
                     </p>
                   </div>
                 </div>
@@ -261,7 +261,7 @@ export default function AboutCategory({ settings, onUpdateSourceSave }) {
         <ModalCard title="Update source" onClose={() => setModalOpen(false)}>
           <div className="space-y-4">
             <p className="text-sm">
-              Where LibreServ gets its own updates from. This is not for app
+              Where Sol gets its own updates from. This is not for app
               updates — those come from App Sources in Settings.
             </p>
             <div className="space-y-1">

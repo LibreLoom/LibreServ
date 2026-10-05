@@ -74,7 +74,7 @@ function FactoryResetCard({ index = 2, className = "" }) {
       >
         <div className="space-y-2 text-sm">
           <p>
-            This will permanently delete ALL data on this LibreServ device, including:
+            This will permanently delete ALL data on this Sol device, including:
           </p>
           <ul className="list-disc list-inside space-y-1 ml-2">
             <li>All installed apps and their data</li>

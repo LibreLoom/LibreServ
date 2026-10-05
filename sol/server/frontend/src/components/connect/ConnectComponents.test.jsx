@@ -304,7 +304,7 @@ describe("connect component coverage", () => {
        onClose={vi.fn()} onSaved={vi.fn()} />,
     );
 
-    expect(screen.getByText("Email handled by LibreServ Connect")).toBeVisible();
+    expect(screen.getByText("Email handled by Sol Connect")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByText("mail unavailable")).toBeVisible();
   });
@@ -369,7 +369,7 @@ describe("connect component coverage", () => {
 
     updateConnectServiceMock.mockResolvedValueOnce({});
     await user.click(
-      screen.getByRole("button", { name: "Use LibreServ Connect" }),
+      screen.getByRole("button", { name: "Use Sol Connect" }),
     );
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(updateConnectServiceMock).toHaveBeenLastCalledWith(

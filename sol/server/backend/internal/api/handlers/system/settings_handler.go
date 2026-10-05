@@ -357,7 +357,7 @@ func (h *SettingsHandler) TestNotification(w http.ResponseWriter, r *http.Reques
 		ActorUsername: user.Username,
 		IPAddress:     shared.GetClientIP(r),
 		UserAgent:     r.UserAgent(),
-		Details:       "This is a test notification from your LibreServ security settings",
+		Details:       "This is a test notification from your Sol security settings",
 	}
 
 	if err := h.securityService.RecordEvent(r.Context(), &testEvent); err != nil {

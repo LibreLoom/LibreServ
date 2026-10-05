@@ -69,20 +69,20 @@ function StatusChip({ state, children }) {
 
 const STEPS = [
   {
-    title: "Restart LibreServ",
+    title: "Restart Sol",
     body: "Restarting clears most temporary problems — it's the first thing to try. Your server restarts itself and comes back in about a minute.",
   },
   {
     title: "Check your internet connection",
-    body: "LibreServ needs the internet to reach your apps, send email, and download updates. If a check above says there's no connection: check that your Wi-Fi or router is on, restart your router if you can, and make sure other devices can get online. If your server is plugged into your router, check the cable.",
+    body: "Sol needs the internet to reach your apps, send email, and download updates. If a check above says there's no connection: check that your Wi-Fi or router is on, restart your router if you can, and make sure other devices can get online. If your server is plugged into your router, check the cable.",
   },
   {
-    title: "Make sure LibreServ is up to date",
+    title: "Make sure Sol is up to date",
     body: "Updates fix bugs. Go to Settings → System Updates and install any update that's available.",
   },
   {
     title: "Still stuck? Contact support",
-    body: "If you've worked through the steps above and things still aren't working, contact support and include: which version of LibreServ you're running, what stopped working, and which checks above failed. (A support contact page is coming soon.)",
+    body: "If you've worked through the steps above and things still aren't working, contact support and include: which version of Sol you're running, what stopped working, and which checks above failed. (A support contact page is coming soon.)",
   },
 ];
 
@@ -126,8 +126,8 @@ export default function TroubleshootPage() {
 
       return {
         server: serverOk
-          ? { state: PASS, detail: "The LibreServ software is running normally." }
-          : { state: FAIL, detail: "The LibreServ software isn't running properly. Try the restart step below." },
+          ? { state: PASS, detail: "The Sol software is running normally." }
+          : { state: FAIL, detail: "The Sol software isn't running properly. Try the restart step below." },
         internet: !net
           ? { state: INFO, detail: "Couldn't check your internet connection right now." }
           : tunnel || v4 || v6
@@ -149,10 +149,10 @@ export default function TroubleshootPage() {
           ? { state: PASS, detail: `Your server has a domain name: ${domain}` }
           : { state: INFO, detail: "No domain name set up yet — only needed if you want your apps at addresses like app.yourname.com." },
         connect: !connect
-          ? { state: INFO, detail: "Couldn't check LibreServ Connect." }
+          ? { state: INFO, detail: "Couldn't check Sol Connect." }
           : connect.connected
-            ? { state: PASS, detail: "LibreServ Connect is connected." }
-            : { state: INFO, detail: "Not connected. Only needed for email, a domain name, cloud backups, and remote access through LibreServ." },
+            ? { state: PASS, detail: "Sol Connect is connected." }
+            : { state: INFO, detail: "Not connected. Only needed for email, a domain name, cloud backups, and remote access through Sol." },
       };
     },
   });
@@ -209,7 +209,7 @@ export default function TroubleshootPage() {
     { id: "email", icon: Mail, title: "Email sending", ...displayChecks.email },
     { id: "storage", icon: HardDrive, title: "Storage space", ...displayChecks.storage },
     { id: "domain", icon: Globe, title: "Domain name", ...displayChecks.domain },
-    { id: "connect", icon: PlugZap, title: "LibreServ Connect", ...displayChecks.connect },
+    { id: "connect", icon: PlugZap, title: "Sol Connect", ...displayChecks.connect },
   ];
 
   return (
@@ -322,7 +322,7 @@ export default function TroubleshootPage() {
         onClose={() => setRestartModal(false)}
         onConfirm={handleRestart}
         icon={Power}
-        title="Restart LibreServ?"
+        title="Restart Sol?"
         message="Your server will restart itself and take about a minute to come back. You'll stay logged in — this page will come back on its own."
         confirmLabel="Restart"
         variant="warning"

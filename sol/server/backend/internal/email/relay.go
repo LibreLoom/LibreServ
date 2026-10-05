@@ -204,7 +204,7 @@ func (s *relaySession) handleData() {
 	}
 	upstream := s.relay.readUpstream()
 	if upstream.host == "" {
-		s.sendLine("421 email sending is not configured on this device. Connect to LibreServ Connect or configure SMTP in Settings.")
+		s.sendLine("421 email sending is not configured on this device. Connect to Sol Connect or configure SMTP in Settings.")
 		return
 	}
 
@@ -232,7 +232,7 @@ func (s *relaySession) handleData() {
 	if s.relay.isSelfForward(upstream) {
 		slog.Error("SMTP relay refusing to forward to itself (outgoing server points at this device)",
 			"upstream", upstream.host, "port", upstream.port)
-		s.sendLine("550 Email is set up to send back to this device instead of to your email provider, which would loop forever. Fix this in Settings → Email — use your email provider or LibreServ Connect as the outgoing server.")
+		s.sendLine("550 Email is set up to send back to this device instead of to your email provider, which would loop forever. Fix this in Settings → Email — use your email provider or Sol Connect as the outgoing server.")
 		s.from = ""
 		s.rcpts = nil
 		return

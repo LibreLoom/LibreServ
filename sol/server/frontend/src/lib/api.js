@@ -26,11 +26,11 @@ function isNetworkFailureMessage(raw) {
 }
 
 /** Plain-language message for opaque browser/network failures. */
-export function apiErrorMessage(err, fallback = "Couldn't reach LibreServ. Check this device's connection and try again.") {
+export function apiErrorMessage(err, fallback = "Couldn't reach Sol. Check this device's connection and try again.") {
   if (!err) return fallback;
   const raw = String(err.message || err).replace(/^Error:\s*/i, "");
   if (isNetworkFailureMessage(raw)) {
-    return "Couldn't reach LibreServ. Check this device's connection and try again.";
+    return "Couldn't reach Sol. Check this device's connection and try again.";
   }
   return raw || fallback;
 }
@@ -134,7 +134,7 @@ export default async function api(path, options = {}, retried = false) {
     // Prefer plain language for CSRF denials that callers might otherwise
     // surface as opaque failures.
     if (res.status === 403 && /csrf/i.test(message)) {
-      message = "This page expired. Refresh LibreServ and try again.";
+      message = "This page expired. Refresh Sol and try again.";
     }
     const err = /** @type {any} */ (new Error(message));
     err.cause = { status: res.status, response: res };

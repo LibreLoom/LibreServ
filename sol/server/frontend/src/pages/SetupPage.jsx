@@ -276,7 +276,7 @@ function WelcomeStep({ onBegin }) {
       </h1>
 
       <p className="text-primary/68 text-xl leading-[1.65] mb-12 max-w-[22rem]">
-        Let&rsquo;s get LibreServ set up for you.
+        Let&rsquo;s get Sol set up for you.
       </p>
 
       <Button
@@ -1232,7 +1232,7 @@ export default function SetupPage() {
   } else if (step === STEP.PREFLIGHT) {
     renderedStep = <PreflightStep onPass={handlePreflightPass} />;
   } else if (step === STEP.NETWORK) {
-    renderedStep = <NetworkStep name="LibreServ" onContinue={handleNetworkContinue} />;
+    renderedStep = <NetworkStep name="Sol" onContinue={handleNetworkContinue} />;
   } else if (step === STEP.EXTERNAL_SERVICES) {
     renderedStep = (
       <ExternalServicesStep

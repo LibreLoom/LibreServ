@@ -192,7 +192,7 @@ export default function ScheduleForm({ appId, appName, existingSchedule = null, 
     >
       <div className="space-y-4">
         <Callout tone="neutral" rounded="card">
-          LibreServ will save a copy of {appName || "this app"}'s data automatically, so you never have to remember.
+          Sol will save a copy of {appName || "this app"}'s data automatically, so you never have to remember.
           Old copies are cleaned up for you.
         </Callout>
 

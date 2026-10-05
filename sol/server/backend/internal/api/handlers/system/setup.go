@@ -312,18 +312,18 @@ func (h *SetupHandler) sendWelcome(to, username string) {
 	}
 	subject := cfg.Notify.WelcomeSubject
 	if subject == "" {
-		subject = "Welcome to LibreServ"
+		subject = "Welcome to Sol"
 	}
 	bodyTmpl := cfg.Notify.WelcomeBody
 	if bodyTmpl == "" {
-		bodyTmpl = "Your LibreServ admin account is ready.\n\nUsername: {{.Username}}\n"
+		bodyTmpl = "Your Sol admin account is ready.\n\nUsername: {{.Username}}\n"
 	}
 	body, err := email.RenderTemplate(bodyTmpl, map[string]string{
 		"Username": username,
 		"Email":    to,
 	})
 	if err != nil {
-		body = "Your LibreServ admin account is ready."
+		body = "Your Sol admin account is ready."
 	}
 	_ = m.Send([]string{to}, subject, body)
 }
@@ -880,7 +880,7 @@ func (h *SetupHandler) TestSMTP(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusInternalServerError, "We couldn't send the test email. Please check your email settings and try again.")
 		return
 	}
-	if err := mailer.Send([]string{body.To}, "LibreServ SMTP Test", "This is a test email from LibreServ."); err != nil {
+	if err := mailer.Send([]string{body.To}, "Sol SMTP Test", "This is a test email from Sol."); err != nil {
 		slog.Error("Failed to send test email", "error", err)
 		JSONError(w, http.StatusInternalServerError, "We couldn't send the test email. Please check your email settings and try again.")
 		return

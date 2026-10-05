@@ -55,7 +55,7 @@ func (s *Service) GetSetupStatus(ctx context.Context) (*SetupStatus, error) {
 	if count == 0 {
 		return &SetupStatus{
 			SetupComplete: false,
-			Message:       "Welcome to LibreServ! Please create your admin account to get started.",
+			Message:       "Welcome to Sol! Please create your admin account to get started.",
 		}, nil
 	}
 
@@ -70,7 +70,7 @@ func (s *Service) GetSetupStatus(ctx context.Context) (*SetupStatus, error) {
 		if errors.Is(err, sql.ErrNoRows) {
 			return &SetupStatus{
 				SetupComplete: false,
-				Message:       "Welcome to LibreServ! Please create your admin account to get started.",
+				Message:       "Welcome to Sol! Please create your admin account to get started.",
 			}, nil
 		}
 		return nil, fmt.Errorf("failed to look up admin user: %w", err)
@@ -88,7 +88,7 @@ func (s *Service) GetSetupStatus(ctx context.Context) (*SetupStatus, error) {
 
 	return &SetupStatus{
 		SetupComplete: true,
-		Message:       "LibreServ is configured and ready to use",
+		Message:       "Sol is configured and ready to use",
 	}, nil
 }
 

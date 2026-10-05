@@ -231,7 +231,7 @@ describe("api", () => {
     );
 
     await expect(api("/apps")).rejects.toThrow(
-      "Couldn't reach LibreServ. Check this device's connection and try again.",
+      "Couldn't reach Sol. Check this device's connection and try again.",
     );
   });
 
@@ -245,7 +245,7 @@ describe("api", () => {
     }));
 
     await expect(api("/settings", { method: "PUT" })).rejects.toThrow(
-      "This page expired. Refresh LibreServ and try again.",
+      "This page expired. Refresh Sol and try again.",
     );
   });
 });
@@ -253,7 +253,7 @@ describe("api", () => {
 describe("apiErrorMessage", () => {
   it("rewrites opaque browser network failures", () => {
     expect(apiErrorMessage(new TypeError("Failed to fetch"))).toBe(
-      "Couldn't reach LibreServ. Check this device's connection and try again.",
+      "Couldn't reach Sol. Check this device's connection and try again.",
     );
   });
 });

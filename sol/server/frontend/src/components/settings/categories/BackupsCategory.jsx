@@ -177,7 +177,7 @@ export default function BackupsCategory({ connectStatus = null }) {
       return {
         tone,
         icon: CalendarClock,
-        text: "Backups run only when you tap the button. Turn on automatic backups for an app below and LibreServ will protect it every night.",
+        text: "Backups run only when you tap the button. Turn on automatic backups for an app below and Sol will protect it every night.",
       };
     }
     if (stats.staleApps > 0) {
@@ -276,7 +276,7 @@ export default function BackupsCategory({ connectStatus = null }) {
       a.click();
       window.URL.revokeObjectURL(url);
       a.remove();
-      showSuccess("System backup downloaded", "Keep this file somewhere safe — it contains all your LibreServ settings and accounts.");
+      showSuccess("System backup downloaded", "Keep this file somewhere safe — it contains all your Sol settings and accounts.");
     } catch (err) {
       showError("Couldn't save system backup", err.message);
     } finally {
@@ -602,7 +602,7 @@ export default function BackupsCategory({ connectStatus = null }) {
             >
               <div className="space-y-3">
                 <Callout tone="info" rounded="card">
-                  This is a snapshot of LibreServ itself: your settings, user accounts, and the list of what's installed.
+                  This is a snapshot of Sol itself: your settings, user accounts, and the list of what's installed.
                   It doesn't contain your apps' files (those are covered above). Restoring it replaces everything on this device.
                 </Callout>
                 <div className="flex flex-col sm:flex-row gap-3">
@@ -702,7 +702,7 @@ export default function BackupsCategory({ connectStatus = null }) {
         onConfirm={handleConfirmDbRestore}
         icon={RotateCcw}
         title="Restore the whole system?"
-        message={pendingDbFile ? `This replaces every LibreServ setting, account, and record with what's inside "${pendingDbFile.name}". Everything currently here will be overwritten.` : ""}
+        message={pendingDbFile ? `This replaces every Sol setting, account, and record with what's inside "${pendingDbFile.name}". Everything currently here will be overwritten.` : ""}
         variant="danger"
         confirmLabel="Restore everything"
         confirmIcon={RotateCcw}

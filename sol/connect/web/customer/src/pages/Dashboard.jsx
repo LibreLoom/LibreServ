@@ -177,7 +177,7 @@ export default function Dashboard() {
                     <CardHeader><CardTitle className="text-base">Get started</CardTitle></CardHeader>
                     <CardContent>
                       <p className="text-sm text-muted-foreground mb-4">
-                        Generate a Connect key, then enter it on your LibreServ
+                        Generate a Connect key, then enter it on your Sol
                         device to link it to your account.
                       </p>
                       <Button onClick={() => generateKeyMut.mutate()} loading={generateKeyMut.isPending}>

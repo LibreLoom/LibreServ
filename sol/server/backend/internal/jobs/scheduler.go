@@ -145,7 +145,7 @@ func (s *Scheduler) checkAppUpdates() {
 		s.logger.Info("Starting automated update for app", "app", au.AppName, "instance_id", au.InstanceID)
 		if err := s.appManager.UpdateApp(ctx, au.InstanceID, false); err != nil {
 			s.logger.Error("Automated update failed", "app", au.AppName, "error", err)
-			subject := fmt.Sprintf("[LibreServ] Automated Update FAILED: %s", au.AppName)
+			subject := fmt.Sprintf("[Sol] Automated Update FAILED: %s", au.AppName)
 			body := fmt.Sprintf("The automated update for %s failed.\n\nError: %v\n\nThe system has attempted to rollback to the previous version.", au.AppName, err)
 			if nerr := s.notify.AdminNotify(ctx, subject, body); nerr != nil {
 				// The admin never learns about the failed update otherwise.
@@ -153,8 +153,8 @@ func (s *Scheduler) checkAppUpdates() {
 			}
 		} else {
 			s.logger.Info("Automated update successful", "app", au.AppName)
-			subject := fmt.Sprintf("[LibreServ] Automated Update Successful: %s", au.AppName)
-			body := fmt.Sprintf("LibreServ has successfully updated %s to version %s.", au.AppName, au.LatestVersion)
+			subject := fmt.Sprintf("[Sol] Automated Update Successful: %s", au.AppName)
+			body := fmt.Sprintf("Sol has successfully updated %s to version %s.", au.AppName, au.LatestVersion)
 			if nerr := s.notify.AdminNotify(ctx, subject, body); nerr != nil {
 				s.logger.Error("Failed to notify admin of successful automated update", "app", au.AppName, "error", nerr)
 			}
@@ -164,8 +164,8 @@ func (s *Scheduler) checkAppUpdates() {
 	// 2. Notify about manual updates
 	if len(updateList) > 0 {
 		s.logger.Info("Update check complete: manual updates available", "count", len(updateList))
-		subject := fmt.Sprintf("[LibreServ] %d App Updates Available", len(updateList))
-		body := "The following apps have updates available (manual update required):\n\n" + strings.Join(updateList, "\n") + "\n\nUpdate them via the LibreServ dashboard."
+		subject := fmt.Sprintf("[Sol] %d App Updates Available", len(updateList))
+		body := "The following apps have updates available (manual update required):\n\n" + strings.Join(updateList, "\n") + "\n\nUpdate them via the Sol dashboard."
 		if err := s.notify.AdminNotify(ctx, subject, body); err != nil {
 			s.logger.Error("Failed to send app update notification", "error", err)
 		}
@@ -186,8 +186,8 @@ func (s *Scheduler) checkSystemUpdates() {
 
 	if info.UpdateAvailable {
 		s.logger.Info("System update available!", "latest", info.LatestVersion, "url", info.URL)
-		subject := "[LibreServ] Platform Update Available: " + info.LatestVersion
-		body := fmt.Sprintf("**A new version of LibreServ is available: %s**\n\nCurrent version: %s\n\n%s\n\n[Update Now](/settings/general)",
+		subject := "[Sol] Platform Update Available: " + info.LatestVersion
+		body := fmt.Sprintf("**A new version of Sol is available: %s**\n\nCurrent version: %s\n\n%s\n\n[Update Now](/settings/general)",
 			info.LatestVersion, info.CurrentVersion, info.ReleaseNotes)
 		if err := s.notify.AdminNotifyWithData(ctx, subject, body, map[string]interface{}{"markdown": true}); err != nil {
 			s.logger.Error("Failed to send system update notification", "error", err)
@@ -264,7 +264,7 @@ func (s *Scheduler) runBackupSchedules() {
 			result, err := s.backupService.BackupApp(backupCtx, sc.AppID, sc.Options)
 			if err != nil {
 				s.logger.Error("Scheduled backup failed", "app_id", sc.AppID, "schedule_id", sc.ID, "error", err)
-				subject := fmt.Sprintf("[LibreServ] Scheduled Backup FAILED: %s", sc.AppID)
+				subject := fmt.Sprintf("[Sol] Scheduled Backup FAILED: %s", sc.AppID)
 				body := fmt.Sprintf("The scheduled backup for app %s failed.\n\nError: %v", sc.AppID, err)
 				if nerr := s.notify.AdminNotify(backupCtx, subject, body); nerr != nil {
 					s.logger.Error("Failed to notify admin of failed scheduled backup", "app_id", sc.AppID, "error", nerr)

@@ -13,7 +13,7 @@ import (
 // SetupSSID is the open network a phone joins when there is no cable and
 // setup isn't finished yet. After the box is on home Wi-Fi (or a cable is
 // plugged in), the hotspot is torn down.
-const SetupSSID = "LibreServ Setup"
+const SetupSSID = "Sol Setup"
 
 const hotspotCIDR = "10.42.0.1/24"
 const hotspotIP = "10.42.0.1"

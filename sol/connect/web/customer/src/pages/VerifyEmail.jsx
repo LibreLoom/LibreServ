@@ -50,7 +50,7 @@ export default function VerifyEmail() {
             <p className="text-muted-foreground text-sm leading-relaxed max-w-sm">
               {fromOnboarding
                 ? "Your email address has been confirmed. Head back to finish setting up your server — you'll pick a plan and a domain next."
-                : "Your email address has been confirmed. You can now generate a license key and connect your LibreServ device."}
+                : "Your email address has been confirmed. You can now generate a license key and connect your Sol device."}
             </p>
             <Button size="lg" className="mt-2" onClick={() => navigate(fromOnboarding ? "/onboarding" : "/")}>
               {fromOnboarding ? "Back to Setup" : "Go to Dashboard"}

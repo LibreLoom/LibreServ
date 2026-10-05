@@ -42,7 +42,7 @@ func (n *EmailNotifier) SendNotification(recipients []string, subject, body stri
 
 // SendSecurityAlert sends a formatted security alert email
 func (n *EmailNotifier) SendSecurityAlert(recipients []string, event *Event) error {
-	subject := fmt.Sprintf("[LibreServ Security] %s", getEventTitle(event))
+	subject := fmt.Sprintf("[Sol Security] %s", getEventTitle(event))
 	body := buildSecurityEmail(event)
 
 	return n.SendNotification(recipients, subject, body)
@@ -101,12 +101,12 @@ func buildSecurityEmail(event *Event) string {
 	// Event-specific message
 	switch event.EventType {
 	case EventLoginSuccess:
-		sb.WriteString("Someone successfully logged in to your LibreServ account.\n\n")
+		sb.WriteString("Someone successfully logged in to your Sol account.\n\n")
 		sb.WriteString(fmt.Sprintf("Time: %s\n", event.Timestamp.Format("Jan 2, 2006 at 3:04 PM")))
 		sb.WriteString(fmt.Sprintf("IP Address: %s\n", anonymizeIPForEmail(event.IPAddress)))
 
 	case EventLoginFailed:
-		sb.WriteString("Someone tried to log in to your LibreServ account with an incorrect password.\n\n")
+		sb.WriteString("Someone tried to log in to your Sol account with an incorrect password.\n\n")
 		sb.WriteString(fmt.Sprintf("Time: %s\n", event.Timestamp.Format("Jan 2, 2006 at 3:04 PM")))
 		sb.WriteString(fmt.Sprintf("IP Address: %s\n", anonymizeIPForEmail(event.IPAddress)))
 		if event.Details != "" {
@@ -114,25 +114,25 @@ func buildSecurityEmail(event *Event) string {
 		}
 
 	case EventAccountLocked:
-		sb.WriteString("Your LibreServ account has been temporarily locked due to multiple failed login attempts.\n\n")
+		sb.WriteString("Your Sol account has been temporarily locked due to multiple failed login attempts.\n\n")
 		sb.WriteString(fmt.Sprintf("Time: %s\n", event.Timestamp.Format("Jan 2, 2006 at 3:04 PM")))
 		sb.WriteString(fmt.Sprintf("IP Address: %s\n", anonymizeIPForEmail(event.IPAddress)))
 		sb.WriteString("\nYour account will automatically unlock in 15 minutes.\n")
 		sb.WriteString("If you didn't attempt to log in, someone may be trying to access your account.\n")
 
 	case EventPasswordChanged:
-		sb.WriteString("Your LibreServ password has been changed.\n\n")
+		sb.WriteString("Your Sol password has been changed.\n\n")
 		sb.WriteString(fmt.Sprintf("Time: %s\n", event.Timestamp.Format("Jan 2, 2006 at 3:04 PM")))
 		sb.WriteString(fmt.Sprintf("IP Address: %s\n", anonymizeIPForEmail(event.IPAddress)))
 		sb.WriteString("\nIf you didn't make this change, please contact support immediately.\n")
 
 	case EventSuspiciousActivity:
-		sb.WriteString("We've detected suspicious activity on your LibreServ server.\n\n")
+		sb.WriteString("We've detected suspicious activity on your Sol server.\n\n")
 		sb.WriteString(fmt.Sprintf("Time: %s\n", event.Timestamp.Format("Jan 2, 2006 at 3:04 PM")))
 		sb.WriteString(fmt.Sprintf("Details: %s\n", sanitizeEmailContent(event.Details)))
 
 	default:
-		sb.WriteString("A security event occurred on your LibreServ server:\n\n")
+		sb.WriteString("A security event occurred on your Sol server:\n\n")
 		sb.WriteString(fmt.Sprintf("Event: %s\n", getEventTitle(event)))
 		sb.WriteString(fmt.Sprintf("Time: %s\n", event.Timestamp.Format("Jan 2, 2006 at 3:04 PM")))
 		sb.WriteString(fmt.Sprintf("Severity: %s\n", strings.ToUpper(string(event.Severity))))
@@ -142,12 +142,12 @@ func buildSecurityEmail(event *Event) string {
 	}
 
 	sb.WriteString("\n---\n\n")
-	sb.WriteString("You can view your security activity in the LibreServ web interface:\n")
-	sb.WriteString("LibreServ → Settings → Security → Activity Log\n\n")
+	sb.WriteString("You can view your security activity in the Sol web interface:\n")
+	sb.WriteString("Sol → Settings → Security → Activity Log\n\n")
 
 	sb.WriteString("If you have any questions or concerns, please don't hesitate to reach out.\n\n")
 	sb.WriteString("Best regards,\n")
-	sb.WriteString("The LibreServ Team\n")
+	sb.WriteString("The Sol Team\n")
 
 	return sb.String()
 }

@@ -227,7 +227,7 @@ func (h *MonitoringHandlers) sendHealthAlert(failedChecks []string, result *Comp
 		"Timestamp":   result.Timestamp.Format(time.RFC1123),
 		"Body": fmt.Sprintf(`Hello,
 
-LibreServ has detected %d health issue(s):
+Sol has detected %d health issue(s):
 
 <strong>%s</strong>
 
@@ -237,13 +237,13 @@ Failed Checks: %d / %d
 
 Please check your system as soon as possible.
 
-— LibreServ`, len(failedChecks), failedChecksStr, result.Status, result.Timestamp.Format(time.RFC1123), result.Summary.Failed, result.Summary.TotalChecks),
+— Sol`, len(failedChecks), failedChecksStr, result.Status, result.Timestamp.Format(time.RFC1123), result.Summary.Failed, result.Summary.TotalChecks),
 	}
 
 	subject, body, err := email.RenderTemplateByKey("health_alert", templateData)
 	if err != nil {
 		slog.Error("Failed to render health alert template", "error", err)
-		subject = "⚠️ LibreServ Health Alert"
+		subject = "⚠️ Sol Health Alert"
 		body = fmt.Sprintf("Health check failed: %s", failedChecksStr)
 	}
 
@@ -824,7 +824,7 @@ func (h *MonitoringHandlers) SendTestEmail(w http.ResponseWriter, r *http.Reques
 		JSONError(w, http.StatusInternalServerError, "We couldn't send the test email. Please check your email settings and try again.")
 		return
 	}
-	if err := mailer.Send([]string{body.To}, "LibreServ SMTP Test", "This is a test email from LibreServ."); err != nil {
+	if err := mailer.Send([]string{body.To}, "Sol SMTP Test", "This is a test email from Sol."); err != nil {
 		slog.Error("Failed to send test email", "error", err)
 		JSONError(w, http.StatusInternalServerError, "We couldn't send the test email. Please check your email settings and try again.")
 		return

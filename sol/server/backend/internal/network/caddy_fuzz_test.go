@@ -49,7 +49,7 @@ func FuzzCaddyfileTemplate(f *testing.F) {
 		}
 
 		// Test template parsing and execution
-		tmpl := `# LibreServ Caddyfile
+		tmpl := `# Sol Caddyfile
 {
 	{{if .Email}}email {{.Email}}{{end}}
 	{{if not .AutoHTTPS}}auto_https off{{end}}

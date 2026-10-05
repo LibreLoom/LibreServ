@@ -147,7 +147,7 @@ func (h *ConnectHandler) Activate(w http.ResponseWriter, r *http.Request) {
 		// Network/DNS/TLS failure or an unexpected response — the key may be
 		// fine, we just couldn't ask.
 		JSONError(w, http.StatusBadGateway,
-			"We couldn't reach LibreServ Connect. Check that your server has internet access, then try again.")
+			"We couldn't reach Sol Connect. Check that your server has internet access, then try again.")
 		return
 	}
 
@@ -266,7 +266,7 @@ func planAllowsBackup(planID connect.PlanID) bool {
 func (h *ConnectHandler) Deactivate(w http.ResponseWriter, r *http.Request) {
 	if err := h.client.Deactivate(r.Context()); err != nil {
 		slog.Error("connect deactivation failed", "error", err)
-		JSONError(w, http.StatusBadGateway, "Could not disconnect from LibreServ Connect. Please try again.")
+		JSONError(w, http.StatusBadGateway, "Could not disconnect from Sol Connect. Please try again.")
 		return
 	}
 
@@ -313,7 +313,7 @@ func (h *ConnectHandler) Deactivate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	JSON(w, http.StatusOK, map[string]string{
-		"message": "Disconnected from LibreServ Connect. Your server will continue working using your own services.",
+		"message": "Disconnected from Sol Connect. Your server will continue working using your own services.",
 	})
 }
 
@@ -354,7 +354,7 @@ func (h *ConnectHandler) UpdateServices(w http.ResponseWriter, r *http.Request) 
 		// Enabling through Connect requires a live Connect session and successful provisioning.
 		status, err := h.client.Status(r.Context())
 		if err != nil || status == nil {
-			JSONError(w, http.StatusBadGateway, "Could not reach LibreServ Connect. Please make sure you are connected and try again.")
+			JSONError(w, http.StatusBadGateway, "Could not reach Sol Connect. Please make sure you are connected and try again.")
 			return
 		}
 		if _, ok := status.Services[svcID]; !ok {
@@ -411,7 +411,7 @@ func (h *ConnectHandler) UpdateServices(w http.ResponseWriter, r *http.Request) 
 func (h *ConnectHandler) Usage(w http.ResponseWriter, r *http.Request) {
 	usage, err := h.client.Usage(r.Context())
 	if err != nil {
-		JSONError(w, http.StatusBadGateway, "Could not load usage information from LibreServ Connect.")
+		JSONError(w, http.StatusBadGateway, "Could not load usage information from Sol Connect.")
 		return
 	}
 	JSON(w, http.StatusOK, usage)
@@ -420,7 +420,7 @@ func (h *ConnectHandler) Usage(w http.ResponseWriter, r *http.Request) {
 func (h *ConnectHandler) Info(w http.ResponseWriter, r *http.Request) {
 	info, err := h.client.Info(r.Context())
 	if err != nil {
-		JSONError(w, http.StatusBadGateway, "Could not load plan information from LibreServ Connect.")
+		JSONError(w, http.StatusBadGateway, "Could not load plan information from Sol Connect.")
 		return
 	}
 	JSON(w, http.StatusOK, info)
@@ -566,7 +566,7 @@ func defaultServiceStatuses() map[connect.ServiceID]connect.ServiceStatus {
 func serviceToggleMessage(svc connect.ServiceID, state connect.ServiceState) string {
 	switch state {
 	case connect.ServiceConnected:
-		return "This service is now handled by LibreServ Connect."
+		return "This service is now handled by Sol Connect."
 	case connect.ServiceBYO:
 		return "You can now configure your own provider for this service."
 	case connect.ServiceDisabled:

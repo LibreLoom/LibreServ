@@ -70,7 +70,7 @@ func (h *MappingHandler) CreateMapping(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Description == "" {
-		req.Description = "LibreServ"
+		req.Description = "Sol"
 	}
 
 	mapping, err := h.upnp.AddMapping(r.Context(), proto, uint16(req.ExternalPort), uint16(req.InternalPort), req.Description)
@@ -173,7 +173,7 @@ func buildFRPExport(req exportRequest) string {
 // hatch for users with their own mesh; the tunnel server side is out of scope).
 func buildWireGuardExport(req exportRequest) string {
 	var b strings.Builder
-	b.WriteString("# LibreServ WireGuard relay export\n")
+	b.WriteString("# Sol WireGuard relay export\n")
 	b.WriteString("# Complete the endpoint and keys from your relay server.\n")
 	b.WriteString("[Interface]\n")
 	b.WriteString("Address = 10.13.37.2/32\n")

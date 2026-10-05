@@ -50,12 +50,12 @@ BANNER
 }
 
 print_help() {
-    echo "LibreServ Installation Script"
+    echo "Sol Installation Script"
     echo ""
     echo "Usage: curl -fsSL https://gt.plainskill.net/LibreLoom/LibreServ/raw/branch/main/sol/install.sh -o install.sh && sudo bash install.sh && rm install.sh"
     echo ""
     echo "Options:"
-    echo "  --uninstall    Remove LibreServ (preserves data in ${DATA_DIR})"
+    echo "  --uninstall    Remove Sol (preserves data in ${DATA_DIR})"
     echo "  --upgrade      Upgrade existing installation (preserves data and config)"
     echo "  --no-systemd   Skip systemd setup (for TESTING only, not for production)"
     echo "  --help         Show this help message"
@@ -329,7 +329,7 @@ for r in json.load(sys.stdin):
     fi
 
     if [ -z "$LATEST_RELEASE" ]; then
-        log_error "Could not parse a LibreServ v* release from the API"
+        log_error "Could not parse a Sol v* release from the API"
         log_error "Response: $response"
         exit 1
     fi
@@ -395,7 +395,7 @@ download_binary() {
     pub_file="$(mktemp)"
     printf '%s\n' "${RELEASE_MINISIGN_PUB}" > "${pub_file}"
     if ! minisign -V -q -p "${pub_file}" -m "${tmp_sums}" -x "${tmp_sig}"; then
-        log_error "The checksum file was not signed by LibreServ. Nothing was installed."
+        log_error "The checksum file was not signed by Sol. Nothing was installed."
         cleanup_download_temps
         return 1
     fi
@@ -609,7 +609,7 @@ create_systemd_service() {
     log_info "Creating systemd service..."
     cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<EOF
 [Unit]
-Description=LibreServ Platform
+Description=Sol Platform
 After=network.target
 
 [Service]
@@ -638,13 +638,13 @@ EOF
 # Verify service starts successfully
 verify_service() {
     if [ "$NO_SYSTEMD" = true ]; then
-        log_info "LibreServ binary installed to ${BIN_DIR}/libreserv"
+        log_info "Sol binary installed to ${BIN_DIR}/libreserv"
         log_info "Run manually: sudo -u ${USER} ${BIN_DIR}/libreserv --config ${CONFIG_DIR}/libreserv.yaml"
         log_warn "--no-systemd mode is for TESTING ONLY. Production deployments require systemd."
         return 0
     fi
 
-    log_info "Starting LibreServ service..."
+    log_info "Starting Sol service..."
     run_systemctl enable "${SERVICE_NAME}"
     run_systemctl start "${SERVICE_NAME}"
 
@@ -741,7 +741,7 @@ print_post_install() {
 
     echo ""
     echo -e "${GREEN}========================================${NC}"
-    echo -e "${GREEN}  LibreServ Installation Complete!${NC}"
+    echo -e "${GREEN}  Sol Installation Complete!${NC}"
     echo -e "${GREEN}========================================${NC}"
     echo ""
     echo -e "Installed version: ${BLUE}${INSTALL_VERSION}${NC}"
@@ -802,10 +802,10 @@ print_post_install() {
 # Upgrade existing installation
 do_upgrade() {
     check_root
-    log_info "Upgrading LibreServ..."
+    log_info "Upgrading Sol..."
 
     if [ ! -f "${BIN_DIR}/libreserv" ]; then
-        log_error "LibreServ is not installed. Use regular installation instead."
+        log_error "Sol is not installed. Use regular installation instead."
         exit 1
     fi
 
@@ -857,7 +857,7 @@ do_upgrade() {
 # Uninstall LibreServ
 do_uninstall() {
     check_root
-    log_warn "Uninstalling LibreServ..."
+    log_warn "Uninstalling Sol..."
     log_info "Data in ${DATA_DIR} will be preserved"
 
     log_info "Stopping service..."
@@ -872,7 +872,7 @@ do_uninstall() {
     run_systemctl daemon-reload
 
     echo ""
-    log_info "LibreServ has been uninstalled"
+    log_info "Sol has been uninstalled"
     log_info "Data preserved in: ${DATA_DIR}"
     log_info "Config preserved in: ${CONFIG_DIR}"
     log_info "To completely remove, run: rm -rf ${DATA_DIR} ${CONFIG_DIR} ${LOG_DIR}"

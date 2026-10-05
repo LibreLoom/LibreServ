@@ -65,7 +65,7 @@ export default function InviteUserForm({ onSuccess } = {}) {
       <p className="text-sm px-5">
         We'll email them a link to set their own username and password. If you make
         them an admin, they'll be asked to set up two-factor authentication before
-        they can use LibreServ.
+        they can use Sol.
       </p>
 
       <FormInput

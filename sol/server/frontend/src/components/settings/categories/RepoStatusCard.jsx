@@ -73,7 +73,7 @@ function AddRepoModal({ onClose, onAdded }) {
       <div className="space-y-4">
         <p className="text-sm text-primary">
           An app source is a <GitLink /> repository that contains app
-          definitions. Add one and LibreServ will read it for apps you can
+          definitions. Add one and Sol will read it for apps you can
           install.
         </p>
 
@@ -113,7 +113,7 @@ function AddRepoModal({ onClose, onAdded }) {
               disabled={adding}
             />
             <p className="text-xs text-primary mt-1.5">
-              The <GitLink /> branch LibreServ tracks. Defaults to &quot;main&quot;.
+              The <GitLink /> branch Sol tracks. Defaults to &quot;main&quot;.
             </p>
           </div>
           <div>
@@ -240,7 +240,7 @@ export default function RepoStatusCard({ index = 0 }) {
         headers: { "X-CSRF-Token": csrfData.csrf_token },
       });
       if (res.ok) {
-        addToast({ type: "success", message: "App source removed", description: "Restart LibreServ to finish" });
+        addToast({ type: "success", message: "App source removed", description: "Restart Sol to finish" });
         setRepoToRemove(null);
         fetchStatus();
       } else {
@@ -278,7 +278,7 @@ export default function RepoStatusCard({ index = 0 }) {
       >
         <div className="px-5 py-4">
           <p className="text-sm text-primary mb-4">
-            These are the places LibreServ looks for apps you can install.
+            These are the places Sol looks for apps you can install.
           </p>
 
           <div className="flex items-center justify-between gap-4 mb-4 p-1.5 rounded-full bg-primary/10">

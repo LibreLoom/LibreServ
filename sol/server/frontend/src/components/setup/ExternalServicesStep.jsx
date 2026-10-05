@@ -12,7 +12,7 @@ const CONNECT_URL = "https://connect.serv.libreloom.org/onboarding";
 const SERVICES = [
   { icon: Globe, label: "Domain", desc: "Reach your apps by name instead of a number" },
   { icon: Mail, label: "Email", desc: "Notifications and password resets" },
-  { icon: Shield, label: "Remote access", desc: "Use LibreServ away from home" },
+  { icon: Shield, label: "Remote access", desc: "Use Sol away from home" },
   { icon: DatabaseBackup, label: "Backup", desc: "Protect your data in the cloud" },
   { icon: Sparkles, label: "AI support", desc: "A built-in assistant that answers questions and fixes things for you in real time" },
   { icon: LifeBuoy, label: "Human support", desc: "Talk to a real person at LibreLoom when you're stuck" },
@@ -47,7 +47,7 @@ export default function ExternalServicesStep({ onActivate, onSkip }) {
     try {
       await onActivate(connectKey.trim());
     } catch (err) {
-      setError(err.message || "Could not connect to LibreServ Connect. Check your key and try again.");
+      setError(err.message || "Could not connect to Sol Connect. Check your key and try again.");
       setActivating(false);
     }
   };
@@ -69,7 +69,7 @@ export default function ExternalServicesStep({ onActivate, onSkip }) {
         <Globe size={48} className="mx-auto mb-4" />
         <h1 className="font-mono text-3xl font-normal text-primary tracking-tight mb-3">Connect to the outside world</h1>
         <p className="text-sm leading-relaxed max-w-md mb-2">
-          LibreServ works on its own. But a few external services make it
+          Sol works on its own. But a few external services make it
           much more useful — and harder to accidentally lock yourself out.
         </p>
 
@@ -101,7 +101,7 @@ export default function ExternalServicesStep({ onActivate, onSkip }) {
               <ExternalLink size={ICON_SIZE.lg} />
             </div>
             <div className="flex-1 text-left">
-              <div className="font-mono text-sm text-primary">Use LibreServ Connect</div>
+              <div className="font-mono text-sm text-primary">Use Sol Connect</div>
               <div className="text-xs mt-0.5">
                 One signup handles all six services. Free plan available.
               </div>

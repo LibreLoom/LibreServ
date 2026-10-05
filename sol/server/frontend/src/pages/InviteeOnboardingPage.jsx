@@ -96,7 +96,7 @@ export default function InviteeOnboardingPage() {
   return (
     <main className="fixed inset-0 grid place-items-center surface-primary px-4 overflow-auto" id="main-content" tabIndex={-1} data-slot="invitee-onboarding">
       <div className="relative w-full max-w-lg overflow-auto surface-secondary rounded-large-element pop-in p-8 my-8">
-        <span className="text-primary font-mono text-2xl block text-center">LibreServ</span>
+        <span className="text-primary font-mono text-2xl block text-center">Sol</span>
         <div className="bg-accent p-px rounded-pill mt-6 mb-4"></div>
         <h1 className="text-primary font-mono text-xl font-normal block text-center">You're invited to join</h1>
         <p className="text-sm text-center mt-2">

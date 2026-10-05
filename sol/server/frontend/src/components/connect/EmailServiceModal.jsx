@@ -46,7 +46,7 @@ export default function EmailServiceModal({ open, onClose, onSaved, service, con
           : "Disabled";
 
   return (
-    <ModalCard title={<>Email <InfoHint content="LibreServ sends mail through a mail provider. Providers call this SMTP — the usual way servers send email." /></>} onClose={onClose} size="md" loading={loading} data-slot="email-service-modal">
+    <ModalCard title={<>Email <InfoHint content="Sol sends mail through a mail provider. Providers call this SMTP — the usual way servers send email." /></>} onClose={onClose} size="md" loading={loading} data-slot="email-service-modal">
       {({close}) => (
       <div className="p-5 space-y-5">
         <div className="flex items-start gap-3 pb-4 border-b border-primary/10">
@@ -68,7 +68,7 @@ export default function EmailServiceModal({ open, onClose, onSaved, service, con
         <Toggle
           checked={useConnect}
           onChange={setUseConnect}
-          label="Use LibreServ Connect"
+          label="Use Sol Connect"
           description={
             useConnect
               ? "Connect handles all email delivery. No configuration needed."
@@ -91,7 +91,7 @@ export default function EmailServiceModal({ open, onClose, onSaved, service, con
           <div className="bg-primary/5 rounded-large-element p-4 space-y-2">
             <div className="flex items-center gap-2 text-sm text-primary">
               <Check size={ICON_SIZE.md} />
-              Email handled by LibreServ Connect
+              Email handled by Sol Connect
             </div>
             <p className="text-xs">
               Emails are sent through Connect's trusted relay. See
@@ -206,7 +206,7 @@ export default function EmailServiceModal({ open, onClose, onSaved, service, con
               } else {
                 if (!form.host.trim()) {
                   setErrors({
-                    host: "Enter the mail server address (SMTP host), or turn on LibreServ Connect instead.",
+                    host: "Enter the mail server address (SMTP host), or turn on Sol Connect instead.",
                     port: "",
                     form: "",
                   });

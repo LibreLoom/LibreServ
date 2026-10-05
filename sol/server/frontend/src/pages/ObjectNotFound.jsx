@@ -72,7 +72,7 @@ export default function ObjectNotFound({
 
   useEffect(() => {
     const previousTitle = document.title;
-    document.title = `404 - ${titleLabel} Not Found | LibreServ`;
+    document.title = `404 - ${titleLabel} Not Found | Sol`;
     return () => {
       document.title = previousTitle;
     };

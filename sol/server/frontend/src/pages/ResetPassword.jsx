@@ -107,7 +107,7 @@ export default function ResetPassword() {
       <main data-slot="reset-password-page" className="fixed inset-0 grid place-items-center surface-primary px-4">
         <div className="relative w-full max-w-lg overflow-auto surface-secondary rounded-large-element pop-in p-8">
           <span className="text-primary font-mono text-2xl block text-center">
-            LibreServ
+            Sol
           </span>
           <div className="bg-accent p-px rounded-pill mt-6 mb-4"></div>
           <span className="text-primary font-mono text-xl font-normal block text-center">
@@ -127,7 +127,7 @@ export default function ResetPassword() {
       <main data-slot="reset-password-page" className="fixed inset-0 grid place-items-center surface-primary px-4">
         <div className="relative w-full max-w-lg overflow-auto surface-secondary rounded-large-element pop-in p-8">
           <span className="text-primary font-mono text-2xl block text-center">
-            LibreServ
+            Sol
           </span>
           <div className="bg-accent p-px rounded-pill mt-6 mb-4"></div>
           <span className="text-primary font-mono text-xl font-normal block text-center">
@@ -154,7 +154,7 @@ export default function ResetPassword() {
     <main data-slot="reset-password-page" className="fixed inset-0 grid place-items-center surface-primary px-4">
       <div className="relative w-full max-w-lg overflow-auto surface-secondary rounded-large-element pop-in p-8">
         <span className="text-primary font-mono text-2xl block text-center">
-          LibreServ
+          Sol
         </span>
         <div className="bg-accent p-px rounded-pill mt-6 mb-4"></div>
         <span className="text-primary font-mono text-xl font-normal block text-center">

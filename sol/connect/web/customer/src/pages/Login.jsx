@@ -46,7 +46,7 @@ export default function Login() {
 
       <Card className="w-full max-w-md animate-pop-in">
         <CardHeader className="text-center">
-          <CardTitle className="text-3xl">LibreServ Connect</CardTitle>
+          <CardTitle className="text-3xl">Sol Connect</CardTitle>
           <CardDescription>
             {needs2FA
               ? "Enter your authenticator code to continue."

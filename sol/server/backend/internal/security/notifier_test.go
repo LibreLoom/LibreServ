@@ -32,7 +32,7 @@ func TestNotificationBodyIsPlainLanguage(t *testing.T) {
 			}
 		}
 		// Every email must point to a concrete place in the UI.
-		if !strings.Contains(body, "LibreServ →") {
+		if !strings.Contains(body, "Sol →") {
 			t.Fatalf("notification for %s has no UI path to act on:\n%s", e.EventType, body)
 		}
 	}

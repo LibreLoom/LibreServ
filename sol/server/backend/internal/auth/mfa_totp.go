@@ -15,7 +15,7 @@ import (
 // Issuer/Account are fixed; the frontend shows the QR + secret for manual entry.
 func generateTOTPSecret(username string) (secret, otpauthURI string, err error) {
 	key, err := totp.Generate(totp.GenerateOpts{
-		Issuer:      "LibreServ",
+		Issuer:      "Sol",
 		AccountName: username,
 		Period:      30,
 		Digits:      otp.DigitsSix,

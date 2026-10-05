@@ -241,7 +241,7 @@ describe("app component coverage", () => {
 
     await screen.findByText("No users added yet");
     await user.click(
-      screen.getByRole("button", { name: "Require LibreServ login" }),
+      screen.getByRole("button", { name: "Require Sol login" }),
     );
     expect(toastMock.error).toHaveBeenCalledWith("access failed");
   });

@@ -83,5 +83,5 @@ func (h *SystemHandler) RestartNow(w http.ResponseWriter, r *http.Request) {
 		h.auditLog.Log(r.Context(), "system.restart", "", "libreserv", "started", "Restart requested from Troubleshooting", nil)
 	}
 	h.checker.RequestRestart()
-	JSON(w, http.StatusAccepted, map[string]string{"message": "LibreServ is restarting. It will be back in about a minute."})
+	JSON(w, http.StatusAccepted, map[string]string{"message": "Sol is restarting. It will be back in about a minute."})
 }

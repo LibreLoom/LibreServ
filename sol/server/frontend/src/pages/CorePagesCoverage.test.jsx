@@ -261,7 +261,7 @@ describe("NotFoundPage", () => {
 
     expect(screen.getByText("/appps?from=test#lost")).toBeVisible();
     expect(screen.getByText("Did you mean…")).toBeVisible();
-    expect(document.title).toBe("404 — Page not found · LibreServ");
+    expect(document.title).toBe("404 — Page not found · Sol");
     await user.click(
       screen.getByRole("button", {
         name: /Highly Scientific Investigation/,

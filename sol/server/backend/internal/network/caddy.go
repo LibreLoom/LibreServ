@@ -700,7 +700,7 @@ func hasRealDomain(routes []routeView) bool {
 // generateCaddyfileLocked generates the Caddyfile content without taking any locks.
 // The caller must hold cm.routesMu (read or write) when calling this method.
 func (cm *CaddyManager) generateCaddyfileLocked() (string, error) {
-	tmpl := `# LibreServ Caddyfile
+	tmpl := `# Sol Caddyfile
 # Auto-generated - Do not edit manually
 
 {

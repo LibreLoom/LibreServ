@@ -256,7 +256,7 @@ describe("Connect and settings APIs", () => {
     await getAISettings();
     expect(apiMock).toHaveBeenLastCalledWith("/settings/ai-support");
 
-    await updateSettings({ name: "LibreServ" }, "csrf");
+    await updateSettings({ name: "Sol" }, "csrf");
     expect(apiMock.mock.lastCall[1].headers["X-CSRF-Token"]).toBe("csrf");
     await updateSettings({}, undefined);
     expect(apiMock.mock.lastCall[1].headers).toEqual({

@@ -58,7 +58,7 @@ export default function TunnelServiceModal({ open, onClose, onSaved, service, co
         <Toggle
           checked={useConnect}
           onChange={setUseConnect}
-          label="Use LibreServ Connect"
+          label="Use Sol Connect"
           description={
             useConnect
               ? "Connect manages a tunnel endpoint for your server."
@@ -81,7 +81,7 @@ export default function TunnelServiceModal({ open, onClose, onSaved, service, co
           <div className="bg-primary/5 rounded-large-element p-4 space-y-2">
             <div className="flex items-center gap-2 text-sm text-primary">
               <Check size={ICON_SIZE.md} />
-              Tunnel handled by LibreServ Connect
+              Tunnel handled by Sol Connect
             </div>
             <p className="text-xs">
               Data transfer is unlimited on all plans.

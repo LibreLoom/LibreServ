@@ -106,7 +106,7 @@ export default function AIServiceModal({ open, onClose, onSaved, service, connec
           <Toggle
             checked={useConnect}
             onChange={setUseConnect}
-            label="Use LibreServ Connect"
+            label="Use Sol Connect"
             description={
               useConnect
                 ? "Use Connect's AI model routing."
@@ -130,7 +130,7 @@ export default function AIServiceModal({ open, onClose, onSaved, service, connec
               <div className="bg-primary/5 rounded-large-element p-4 space-y-2">
                 <div className="flex items-center gap-2 text-sm text-primary">
                   <Check size={ICON_SIZE.md} />
-                  AI handled by LibreServ Connect
+                  AI handled by Sol Connect
                 </div>
                 <p className="text-xs">
                   {planLimits?.ai_messages_per_day > 0

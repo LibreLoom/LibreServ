@@ -21,10 +21,10 @@ type EmailTemplate struct {
 var DefaultTemplates = map[string]EmailTemplate{
 	"password_reset": {
 		Key:     "password_reset",
-		Subject: "Reset Your LibreServ Password",
+		Subject: "Reset Your Sol Password",
 		Body: `Hello {{.Username}},
 
-A password reset was requested for your LibreServ account.
+A password reset was requested for your Sol account.
 
 Click the link below to reset your password:
 {{.ResetLink}}
@@ -33,25 +33,25 @@ This link expires in 1 hour.
 
 If you didn't request this, you can safely ignore this email.
 
-— LibreServ`,
+— Sol`,
 	},
 	"welcome": {
 		Key:     "welcome",
-		Subject: "Welcome to LibreServ!",
+		Subject: "Welcome to Sol!",
 		Body: `Hello {{.Username}},
 
-Welcome to LibreServ! Your account has been created.
+Welcome to Sol! Your account has been created.
 
 You can now log in and start managing your self-hosted applications.
 
-— LibreServ`,
+— Sol`,
 	},
 	"health_alert": {
 		Key:     "health_alert",
-		Subject: "⚠️ LibreServ Health Alert",
+		Subject: "⚠️ Sol Health Alert",
 		Body: `Hello,
 
-LibreServ has detected a health issue:
+Sol has detected a health issue:
 
 {{.HealthCheck}}
 
@@ -60,14 +60,14 @@ Time: {{.Timestamp}}
 
 Please check your system as soon as possible.
 
-— LibreServ`,
+— Sol`,
 	},
 	"security_alert": {
 		Key:     "security_alert",
-		Subject: "LibreServ Security Alert",
+		Subject: "Sol Security Alert",
 		Body: `Hello {{.Username}},
 
-A security event occurred on your LibreServ:
+A security event occurred on your Sol:
 
 Event: {{.EventType}}
 Time: {{.Timestamp}}
@@ -75,7 +75,7 @@ IP: {{.IPAddress}}
 
 If this wasn't you, please secure your account immediately.
 
-— LibreServ`,
+— Sol`,
 	},
 }
 
@@ -139,7 +139,7 @@ const UniversalEmailTemplate = `<!DOCTYPE html>
 				<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
 					<tr>
 						<td style="padding:40px 32px 8px 32px; font-family:'FreeMono','Courier New',Courier,monospace; font-size:24px; font-weight:400; color:#000000; text-align:center;">
-							LibreServ
+							Sol
 						</td>
 					</tr>
 					<tr>
@@ -167,9 +167,9 @@ const UniversalEmailTemplate = `<!DOCTYPE html>
 					</tr>
 					<tr>
 						<td style="padding:16px 32px 32px 32px; font-family:'FreeMono','Courier New',Courier,monospace; font-size:13px; line-height:1.5; color:#767676; text-align:center;">
-							LibreServ<br>
+							Sol<br>
 							<span style="font-family:'Noto Sans','Helvetica Neue',Arial,sans-serif; font-size:12px;">Self&#8209;hosted application management</span><br>
-							<span style="font-family:'Noto Sans','Helvetica Neue',Arial,sans-serif; font-size:11px; color:#767676;">This email was sent from your LibreServ instance.</span>
+							<span style="font-family:'Noto Sans','Helvetica Neue',Arial,sans-serif; font-size:11px; color:#767676;">This email was sent from your Sol instance.</span>
 						</td>
 					</tr>
 				</table>

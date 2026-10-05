@@ -710,10 +710,10 @@ export default function Onboarding() {
   // ===== Step Renderers =====
 
   const renderWelcome = () => (
-    <StepShell icon={Sparkles} title="Set up LibreServ Connect">
+    <StepShell icon={Sparkles} title="Set up Sol Connect">
       <div className="w-full max-w-md mx-auto space-y-4 mb-10">
         <p className="text-muted-foreground text-sm leading-relaxed text-pretty">
-          <span className="font-mono text-card-foreground">LibreServ</span> is the
+          <span className="font-mono text-card-foreground">Sol</span> is the
           server that runs on your own device at home. Your apps and data stay
           with you.
         </p>
@@ -976,7 +976,7 @@ export default function Onboarding() {
         <p className="text-muted-foreground text-sm leading-relaxed max-w-md mx-auto mb-8">
           We sent a verification link to{" "}
           <span className="font-mono text-card-foreground">{email}</span>. Open
-          the email from LibreServ Connect and click{" "}
+          the email from Sol Connect and click{" "}
           <span className="font-mono text-card-foreground">Verify my email</span>{" "}
           — this page unlocks by itself when you're done.
         </p>
@@ -1172,7 +1172,7 @@ export default function Onboarding() {
   const renderConnectKey = () => (
     <StepShell icon={Key} title="Your Connect key">
       <p className="text-muted-foreground text-sm leading-relaxed max-w-md mx-auto mb-8">
-        Almost done! Copy this key and paste it back into the LibreServ setup
+        Almost done! Copy this key and paste it back into the Sol setup
         page you came from.
       </p>
 
@@ -1209,7 +1209,7 @@ export default function Onboarding() {
               </li>
               <li className="flex gap-2.5">
                 <span className="font-mono text-card-foreground">2.</span>
-                Return to the LibreServ setup page on your device
+                Return to the Sol setup page on your device
               </li>
               <li className="flex gap-2.5">
                 <span className="font-mono text-card-foreground">3.</span>

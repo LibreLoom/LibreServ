@@ -43,7 +43,7 @@ func TestResolveConfigValueAllSections(t *testing.T) {
 		Logging:  config.LoggingConfig{Level: "debug", Path: "/logs/libreserv.log"},
 		SMTP: config.SMTPConfig{
 			Host: "smtp.test", Port: 2525, Username: "mailer", Password: "secret",
-			From: "LibreServ <server@example.test>", UseTLS: true, SkipVerify: true,
+			From: "Sol <server@example.test>", UseTLS: true, SkipVerify: true,
 		},
 		Notify: config.Notifications{
 			Enabled: true, SupportRecipients: []string{"one@example.test", "two@example.test"},
@@ -74,7 +74,7 @@ func TestResolveConfigValueAllSections(t *testing.T) {
 		"smtp.port":                    "2525",
 		"smtp.username":                "mailer",
 		"smtp.password":                "<redacted>",
-		"smtp.from":                    "LibreServ <server@example.test>",
+		"smtp.from":                    "Sol <server@example.test>",
 		"smtp.use_tls":                 "true",
 		"smtp.skip_verify":             "true",
 		"notify.enabled":               "true",

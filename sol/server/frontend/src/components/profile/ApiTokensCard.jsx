@@ -108,7 +108,7 @@ export default function ApiTokensCard() {
     <Card title="API tokens" icon={KeyRound} data-slot="api-tokens-card">
       <div className="space-y-4">
         <p className="text-sm">
-          API tokens let other apps and scripts talk to your LibreServ on your
+          API tokens let other apps and scripts talk to your Sol on your
           behalf, without using your password. Keep them as secret as a password.
         </p>
 

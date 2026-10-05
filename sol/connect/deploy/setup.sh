@@ -249,7 +249,7 @@ start_services() {
 print_caddy_instructions() {
     echo ""
     echo -e "${GREEN}═══════════════════════════════════════════════════════════════${NC}"
-    echo -e "${GREEN}  LibreServ Connect installed — blue/green ZDU ready${NC}"
+    echo -e "${GREEN}  Sol Connect installed — blue/green ZDU ready${NC}"
     echo -e "${GREEN}═══════════════════════════════════════════════════════════════${NC}"
     echo ""
     echo "  Two instances running:"

@@ -40,10 +40,10 @@ export default function ConnectStatusCard({
   if (!connected) {
     return (
       <>
-        <Card icon={Plug} title="LibreServ Connect" noHeightAnim noPopIn={noPopIn} data-slot="connect-status-card">
+        <Card icon={Plug} title="Sol Connect" noHeightAnim noPopIn={noPopIn} data-slot="connect-status-card">
           <div className="p-5 space-y-4">
           <p className="text-sm">
-            LibreServ Connect handles the external services your server needs —
+            Sol Connect handles the external services your server needs —
             email, a domain name, backups, and more. Everything in one place.
           </p>
           <Button onClick={() => setShowTokenInput(true)}>
@@ -127,7 +127,7 @@ export default function ConnectStatusCard({
   }
 
   return (
-    <Card icon={PlugZap} title="LibreServ Connect" noHeightAnim noPopIn={noPopIn} data-slot="connect-status-card">
+    <Card icon={PlugZap} title="Sol Connect" noHeightAnim noPopIn={noPopIn} data-slot="connect-status-card">
       <div className="p-5 space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">

@@ -755,7 +755,7 @@ func (h *AgentChatHandler) extractSSEAuth(r *http.Request) string {
 }
 
 func buildSystemPrompt() string {
-	return `You are the LibreServ Support Agent. You help non-technical users manage their self-hosted server running LibreServ (a platform for running apps like Nextcloud, SearXNG, Home Assistant, and others).
+	return `You are the Sol Support Agent. You help non-technical users manage their self-hosted server running Sol (a platform for running apps like Nextcloud, SearXNG, Home Assistant, and others).
 
 Key rules:
 - Use plain language. Never mention model names, tool names, error codes, or technical jargon in your responses.

@@ -18,7 +18,7 @@ export default function Navbar() {
   ];
   return (
     <SharedNavbar
-      brand="LibreServ"
+      brand="Sol"
       items={navItems}
       user={user}
       onLogout={logout}

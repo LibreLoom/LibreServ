@@ -46,7 +46,7 @@ type Route struct {
 	AppID            string    `json:"app_id"`    // Reference to the app
 	SSL              bool      `json:"ssl"`       // Enable HTTPS
 	Enabled          bool      `json:"enabled"`
-	RestrictedAccess bool      `json:"restricted_access"` // If true, Caddy forward_auth to LibreServ
+	RestrictedAccess bool      `json:"restricted_access"` // If true, Caddy forward_auth to Sol
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
 	Comment          string    `json:"comment,omitempty"`

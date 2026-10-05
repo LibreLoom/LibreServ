@@ -160,7 +160,7 @@ deploy_instance() {
 
 # Main
 main() {
-    log_step "LibreServ Connect — Zero-Downtime Deploy"
+    log_step "Sol Connect — Zero-Downtime Deploy"
 
     # Resolve which ref to deploy. The server is a deploy target, not a dev
     # machine — it should never carry local modifications. Default is the

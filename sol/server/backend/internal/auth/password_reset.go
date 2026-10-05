@@ -120,19 +120,19 @@ func (s *PasswordResetService) RequestReset(ctx context.Context, reqEmail string
 		"ResetLink": resetURL.String(),
 		"Body": fmt.Sprintf(`Hello %s,
 
-A password reset was requested for your LibreServ account.
+A password reset was requested for your Sol account.
 
 Click the link below to reset your password:
 %s
 
 This link expires in 1 hour.
 
-— LibreServ`, user.Username, resetURL.String()),
+— Sol`, user.Username, resetURL.String()),
 	}
 
 	subject, body, err := email.RenderTemplateByKey("password_reset", templateData)
 	if err != nil {
-		subject = "Reset Your LibreServ Password"
+		subject = "Reset Your Sol Password"
 		body = templateData["Body"].(string)
 	}
 

@@ -531,12 +531,12 @@ describe("TroubleshootPage", () => {
     renderWithQuery(<TroubleshootPage />);
 
     expect(
-      await screen.findByText("The LibreServ software is running normally."),
+      await screen.findByText("The Sol software is running normally."),
     ).toBeVisible();
     expect(screen.getByText("Internet access is working.")).toBeVisible();
     expect(screen.getByText("20 GB free")).toBeVisible();
     expect(screen.getByText(/home.example.test/)).toBeVisible();
-    expect(screen.getByText("LibreServ Connect is connected.")).toBeVisible();
+    expect(screen.getByText("Sol Connect is connected.")).toBeVisible();
     expect(screen.getByText(/Connect key didn't work/)).toBeVisible();
 
     await user.click(screen.getByRole("button", { name: /Re-run checks/ }));
@@ -544,10 +544,10 @@ describe("TroubleshootPage", () => {
       expect(testState.networkReport).toHaveBeenCalledTimes(2),
     );
     await user.click(screen.getByRole("button", { name: /Restart now/ }));
-    const dialog = screen.getByRole("dialog", { name: "Restart LibreServ?" });
+    const dialog = screen.getByRole("dialog", { name: "Restart Sol?" });
     await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
     expect(
-      screen.queryByRole("dialog", { name: "Restart LibreServ?" }),
+      screen.queryByRole("dialog", { name: "Restart Sol?" }),
     ).not.toBeInTheDocument();
   });
 
@@ -563,6 +563,6 @@ describe("TroubleshootPage", () => {
     ).toBeVisible();
     expect(screen.getByText("Couldn't check email sending.")).toBeVisible();
     expect(screen.getByText("Couldn't check storage space.")).toBeVisible();
-    expect(screen.getByText("Couldn't check LibreServ Connect.")).toBeVisible();
+    expect(screen.getByText("Couldn't check Sol Connect.")).toBeVisible();
   });
 });

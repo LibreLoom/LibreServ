@@ -85,7 +85,7 @@ export default function NotFoundPage({ includeMain = true }) {
 
   useEffect(() => {
     const previousTitle = document.title;
-    document.title = "404 — Page not found · LibreServ";
+    document.title = "404 — Page not found · Sol";
     return () => {
       document.title = previousTitle;
     };

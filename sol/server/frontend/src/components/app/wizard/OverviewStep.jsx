@@ -32,9 +32,9 @@ const ACCESS_MODEL_INFO = {
   },
   integrated_users: {
     icon: Info,
-    label: "LibreServ accounts",
+    label: "Sol accounts",
     message:
-      "Users can log in with their LibreServ accounts. Each person gets their own private space.",
+      "Users can log in with their Sol accounts. Each person gets their own private space.",
     variant: "info",
   },
 };
@@ -97,7 +97,7 @@ function OverviewStep({ app, features, onContinue, onBack }) {
           Install {app?.name || "App"}
         </h2>
         <p className="max-w-md mx-auto">
-          {app?.description || "Set up this application on your LibreServ device."}
+          {app?.description || "Set up this application on your Sol device."}
         </p>
       </div>
 

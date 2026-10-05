@@ -47,8 +47,8 @@ func TestTOTPGenerationAndVerification(t *testing.T) {
 }
 
 func TestTOTPURI(t *testing.T) {
-	uri := TOTPURI("SECRET", "user@example.com", "LibreServ Connect")
-	for _, part := range []string{"otpauth://totp/", "user@example.com", "secret=SECRET", "issuer=LibreServ Connect"} {
+	uri := TOTPURI("SECRET", "user@example.com", "Sol Connect")
+	for _, part := range []string{"otpauth://totp/", "user@example.com", "secret=SECRET", "issuer=Sol Connect"} {
 		if !strings.Contains(uri, part) {
 			t.Fatalf("URI %q missing %q", uri, part)
 		}

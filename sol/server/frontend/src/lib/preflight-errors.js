@@ -29,7 +29,7 @@ export const ERROR_REMEDIATIONS = [
   {
     id: 'runtime',
     match: (err) => /podman|container|daemon|runtime/i.test(err),
-    tip: 'The container engine (Podman) needs to be running. Try restarting your device, or ask the person who set up your LibreServ for help.',
+    tip: 'The container engine (Podman) needs to be running. Try restarting your device, or ask the person who set up your Sol for help.',
     severity: 'critical'
   },
   {

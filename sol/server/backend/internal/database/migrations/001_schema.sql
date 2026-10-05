@@ -619,9 +619,9 @@ CREATE INDEX IF NOT EXISTS idx_path_state_app ON path_state (app_id);
 
 -- Insert default email templates
 INSERT OR IGNORE INTO email_templates (template_key, subject, body, is_custom, updated_at, updated_by) VALUES
-('password_reset', 'Reset Your LibreServ Password', 'Hello {{.Username}},
+('password_reset', 'Reset Your Sol Password', 'Hello {{.Username}},
 
-A password reset was requested for your LibreServ account.
+A password reset was requested for your Sol account.
 
 Click the link below to reset your password:
 {{.ResetLink}}
@@ -630,17 +630,17 @@ This link expires in 1 hour.
 
 If you didn''t request this, you can safely ignore this email.
 
-— LibreServ', 0, CURRENT_TIMESTAMP, NULL),
-('welcome', 'Welcome to LibreServ!', 'Hello {{.Username}},
+— Sol', 0, CURRENT_TIMESTAMP, NULL),
+('welcome', 'Welcome to Sol!', 'Hello {{.Username}},
 
-Welcome to LibreServ! Your account has been created.
+Welcome to Sol! Your account has been created.
 
 You can now log in and start managing your self-hosted applications.
 
-— LibreServ', 0, CURRENT_TIMESTAMP, NULL),
-('health_alert', '⚠️ LibreServ Health Alert', 'Hello,
+— Sol', 0, CURRENT_TIMESTAMP, NULL),
+('health_alert', '⚠️ Sol Health Alert', 'Hello,
 
-LibreServ has detected a health issue:
+Sol has detected a health issue:
 
 {{.HealthCheck}}
 
@@ -649,10 +649,10 @@ Time: {{.Timestamp}}
 
 Please check your system as soon as possible.
 
-— LibreServ', 0, CURRENT_TIMESTAMP, NULL),
-('security_alert', 'LibreServ Security Alert', 'Hello {{.Username}},
+— Sol', 0, CURRENT_TIMESTAMP, NULL),
+('security_alert', 'Sol Security Alert', 'Hello {{.Username}},
 
-A security event occurred on your LibreServ:
+A security event occurred on your Sol:
 
 Event: {{.EventType}}
 Time: {{.Timestamp}}
@@ -660,4 +660,4 @@ IP: {{.IPAddress}}
 
 If this wasn''t you, please secure your account immediately.
 
-— LibreServ', 0, CURRENT_TIMESTAMP, NULL);
+— Sol', 0, CURRENT_TIMESTAMP, NULL);

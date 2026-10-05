@@ -160,7 +160,7 @@ func TestRenderHTMLEmailWithoutMarkdown(t *testing.T) {
 }
 
 func TestRenderOTPEmailPutsCodeInFocusedBox(t *testing.T) {
-	html, err := RenderOTPEmail("Your LibreServ sign-in code", "A1B2C3")
+	html, err := RenderOTPEmail("Your Sol sign-in code", "A1B2C3")
 	if err != nil {
 		t.Fatalf("RenderOTPEmail returned error: %v", err)
 	}

@@ -26,7 +26,7 @@ func newTestVerifier(t *testing.T) *Verifier {
 	t.Helper()
 	v, err := New(Config{
 		RPID:          "example.org",
-		RPDisplayName: "LibreServ",
+		RPDisplayName: "Sol",
 		Origins:       []string{"https://example.org"},
 	})
 	if err != nil {

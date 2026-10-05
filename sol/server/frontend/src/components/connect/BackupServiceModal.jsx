@@ -78,7 +78,7 @@ export default function BackupServiceModal({ open, onClose, onSaved, service, re
         <Toggle
           checked={useConnect}
           onChange={setUseConnect}
-          label="Use LibreServ Connect for backups"
+          label="Use Sol Connect for backups"
           description={
             useConnect
               ? "Your backups will be stored on Connect's S3-compatible storage."

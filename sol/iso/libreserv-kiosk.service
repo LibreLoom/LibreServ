@@ -1,5 +1,5 @@
 [Unit]
-Description=LibreServ Kiosk Browser
+Description=Sol Kiosk Browser
 Documentation=https://libreloom.org
 After=libreserv-server.service
 Requires=libreserv-server.service

@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-const summarySystemPrompt = `You summarize an in-progress support session on a LibreServ home server so a safety reviewer can judge an upcoming tool call.
+const summarySystemPrompt = `You summarize an in-progress support session on a Sol home server so a safety reviewer can judge an upcoming tool call.
 
 Produce a concise, factual summary covering:
 - What the user is trying to accomplish (their goal, in their own words).

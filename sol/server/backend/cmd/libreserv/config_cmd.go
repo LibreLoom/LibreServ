@@ -17,7 +17,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const configUsage = `LibreServ configuration management.
+const configUsage = `Sol configuration management.
 
 Usage:
   libreserv config defaults [--config PATH]   Print all default config values
