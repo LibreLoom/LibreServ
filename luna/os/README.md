@@ -87,39 +87,27 @@ client). Luna does not store map tiles on disk.
 
 ## Software updates
 
-Lunad looks at Forgejo tags that start with `luna-v` (for example `luna-v0.2.0`)
-on `LibreLoom/LibreServ`. LibreServ releases stay on `v*` (for example `v0.0.13`)
-and are ignored by the Luna updater. Release assets:
+Lunad reads a **signed release feed** for the `luna` unit at
+`https://gt.plainskill.net/LibreLoom/LibreServ/raw/branch/feeds/luna/<channel>.json`
+(stable or beta) plus a matching `.json.minisig`, verified against the minisign
+public key embedded at build time from `keys/lsluna.minisign.pub`. The feed
+lists the files in the Forgejo generic package registry; Luna checks each one's
+size and sha256 before use. A missing feed means nothing is published yet.
 
-- `lunad-linux-amd64` (or `lunad-linux-arm64`) — always
-- `luna-os-x86_64.img` — OS cuts only (raw A/B slot image; no Luna state)
-- `luna-rapidinstall-x86_64.iso.xz` — OS cuts only (xz-compressed factory / recovery ISO; decompress with `xz -dk` before `dd`)
-- `luna-desktop-x86_64.flatpak` — Luna Desktop
-- `Luna-Desktop-Setup-*-x86_64.exe` — Luna Desktop (Windows NSIS installer)
-- `luna-android.apk` — Luna Android photo backup
-- `SHA256SUMS.txt` (required)
-- `SHA256SUMS.txt.minisig` (required — minisign, public key in `keys/lsluna.minisign.pub`)
+- `lunad` — `lunad-linux-amd64-musl` (or arm64), the daemon
+- `os` — `luna-os-x86_64.img.xz`, only when the OS changed
 
-Before you `dd` an ISO, verify the checksums file:
+An admin taps **Install update** in Settings. Luna installs a newer `lunad`
+under `/var/lib/luna/bin/lunad` on the data partition, checking the signature
+then the checksum. When the feed's `os` part has a sha256 that differs from
+`/var/lib/luna/os-image.sha256`, the same tap writes that image to the inactive
+OS slot and reboots into it (GRUB tryboot; a bad boot falls back). Settings does
+not split “software” vs “system” — OS need and apply are automatic from the
+hash. A missing or wrong signature installs nothing.
 
-```sh
-minisign -Vm SHA256SUMS.txt -p keys/lsluna.minisign.pub
-sha256sum -c SHA256SUMS.txt
-```
-
-An admin taps **Install update** in Settings. That downloads the lunad binary
-(when newer), checks the signature then the checksum, and installs it under
-`/var/lib/luna/bin/lunad` on the data partition. If the release includes
-`luna-os-x86_64.img` and its SHA256 differs from the hash stored on data, the
-same tap also writes that image to the inactive OS slot and reboots into it
-(GRUB tryboot; a bad boot falls back). Settings does not split “software” vs
-“system” — OS need and apply are automatic from the hash. A missing or wrong
-signature installs nothing.
-
-Env overrides: `LUNA_UPDATES_API`, `LUNA_UPDATES_OWNER`, `LUNA_UPDATES_REPO`
-seed the defaults. An admin can instead point Luna at a different Forgejo
-instance/repo from Settings → About → Advanced, and that choice is
-stored in Luna's database, survives reboots, and wins over the env vars. The
-same panel swaps the minisign public keys the updater trusts. Changing those
-keys without a matching signer breaks updates — the updater refuses a release
-whose `SHA256SUMS.txt.minisig` no longer verifies against the configured keys.
+Env overrides `LUNA_UPDATES_FEED` and `LUNA_UPDATES_CHANNEL` seed the defaults.
+An admin can instead set the feed address, channel, and trusted minisign keys in
+Settings → About → Advanced; that choice is stored in Luna's database, survives
+reboots, and wins over the env vars. Changing the keys without a matching signer
+breaks updates — the updater refuses a feed that no longer verifies against the
+configured keys.
