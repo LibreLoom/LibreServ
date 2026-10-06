@@ -162,7 +162,9 @@ Hosted on the **Luna Connect server**, as its own Caddy site
 - Watcher runs as its own system user, the only one that can read the GPG key.
 - Cache rules: `summary`, `summary.sig`, `config`, `refs/` fresh (≤ 1 min);
   `objects/` and `deltas/` cached forever.
-- Same Cloudflare-only origin rule as the Connect site.
+- Traffic arrives through the server's `cloudflared` tunnel (dashboard-managed)
+  at `localhost:80`, so add a public hostname for it in the tunnel. Don't copy
+  the repo Caddyfile's Cloudflare-IP rule: tunnel traffic comes from loopback.
 
 Script + systemd timer. Every few minutes:
 
