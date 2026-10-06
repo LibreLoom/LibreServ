@@ -17,7 +17,7 @@ keys/     release minisign PUBLIC keys
 .claude/  Claude Code cloud setup script copy + SessionStart hook
 ```
 
-**Public paths that must not move:** `sol/install.sh` (fetched by raw URL) and `keys/*.minisign.pub` (lunad's updater fetches `raw/branch/main/keys/<name>`).
+**Public paths that must not move:** `sol/install.sh` (fetched by raw URL) and `keys/` (Sol and lunad embed their minisign keys at build time; the Connect deploy script and the Flatpak repo server read them from the checkout). Release process: `infra/docs/RELEASE-PLAN.md`.
 
 ## Plain language (non-negotiable)
 

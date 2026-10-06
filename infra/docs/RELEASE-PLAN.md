@@ -174,6 +174,10 @@ comparison orders it (bash receivers rely on that). Every part has `os` and
 - Update source settings → `{feed_url, channel, keys}`; drop
   `fetch_repo_signing_keys`. Rewrite `UpdateSourceCard.jsx` copy and tests.
 - `/api/v1/health` gains `api`.
+- The factory installer and flasher must write `os-image.sha256` as the
+  sha256 of the exact `luna-os-x86_64.img.xz` the feed lists (today
+  `flash-disk.sh` hashes the rootfs tarball), or a fresh box offers an OS
+  reflash on its first check. Fix with the release tool.
 - `luna-run`: run whichever of `/var/lib/luna/bin/lunad` and the baked lunad
   is newer (`lunad --version`), so a stale daemon-only update can't shadow a
   newer OS.
