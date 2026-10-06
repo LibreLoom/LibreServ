@@ -12,7 +12,7 @@ Two products plus shared glue live here:
 | `luna/connect/` | **Luna Connect** — cloud companion (independent Go module) | Go 1.26, SQLite, Stripe |
 | `shared/ui/` | `@libreloom/ui` — shared design-system components | React 19, consumed as a `file:` dependency by both web apps |
 | `infra/` | CI runner, release pipeline, repo automation bots | Go + shell |
-| `keys/` | Release minisign **public** keys (lunad fetches these over HTTP — do not move) | — |
+| `keys/` | Release signing keys — minisign public keys plus the Luna Desktop Flatpak repo key (do not move) | — |
 
 ```
 LibreServ/
@@ -22,7 +22,7 @@ LibreServ/
 ├── infra/          # ./ci runner source, bots, release docs
 ├── ci              # CI launcher (stays at repo root)
 ├── release.sh      # release pipeline (both products)
-└── keys/           # public minisign keys
+└── keys/           # release signing keys (do not move)
 ```
 
 Each area has its own `AGENTS.md` with the detailed rules; the
@@ -140,9 +140,11 @@ cd sol/server/backend && go test -v -tags=integration ./tests/integration/...
 ## Releases
 
 `./release.sh` is the shared release ritual. Tags are per product and **must not
-be mixed**: `v*` = LibreServ, `luna-v*` = Luna, and `connect-v*` /
-`luna-connect-v*` are used by the cloud services' own deploy flow. The full
-process is in [`infra/docs/RELEASE.md`](infra/docs/RELEASE.md).
+be mixed**: `v*` = LibreServ, `luna-v*` = Luna. The Connect servers deploy from
+the signed feeds, not tags — `connect-v*` / `luna-connect-v*` are retired. The
+release and update rework is planned in
+[`infra/docs/RELEASE-PLAN.md`](infra/docs/RELEASE-PLAN.md); the old flow is in
+[`infra/docs/RELEASE.md`](infra/docs/RELEASE.md).
 
 Git tags do not sync across forges via the mirror — push release tags to the
 forge the consumer actually fetches.
