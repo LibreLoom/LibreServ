@@ -1,7 +1,8 @@
 //! Host checks for admin-configured update sources (SSRF hardening).
 
-const UPDATE_HOST_ERR: &str = "That API address points at a private or local network. Use a public Forgejo or Gitea address for updates.";
-const HTTP_SOURCE_ERR: &str = "That API address is not safe to open in plain http. Use https://, or point it at a server on your own network.";
+const UPDATE_HOST_ERR: &str =
+    "That feed address points at a private or local network. Use a public address for updates.";
+const HTTP_SOURCE_ERR: &str = "That feed address is not safe to open in plain http. Use https://, or point it at a server on your own network.";
 
 /// True when an update-source host IP must not be contacted (SSRF hardening).
 pub(crate) fn is_blocked_update_host_ip(ip: std::net::IpAddr) -> bool {
@@ -43,13 +44,13 @@ pub(crate) fn is_cgnat_v4(v4: std::net::Ipv4Addr) -> bool {
     o[0] == 100 && (o[1] & 0xc0) == 64
 }
 
-/// Hostname (no port) from an http(s) api_base. Plain-language errors for the UI.
-pub(crate) fn api_base_hostname(api_base: &str) -> Result<String, &'static str> {
-    let trimmed = api_base.trim();
+/// Hostname (no port) from an http(s) feed_url. Plain-language errors for the UI.
+pub(crate) fn feed_url_hostname(feed_url: &str) -> Result<String, &'static str> {
+    let trimmed = feed_url.trim();
     let rest = trimmed
         .strip_prefix("https://")
         .or_else(|| trimmed.strip_prefix("http://"))
-        .ok_or("The API address must start with http:// or https://.")?;
+        .ok_or("The feed address must start with http:// or https://.")?;
     let authority = rest
         .split(['/', '?', '#'])
         .next()
@@ -60,13 +61,13 @@ pub(crate) fn api_base_hostname(api_base: &str) -> Result<String, &'static str> 
     let host = if let Some(inner) = authority.strip_prefix('[') {
         let end = inner
             .find(']')
-            .ok_or("That API address is missing a closing bracket around the host.")?;
+            .ok_or("That feed address is missing a closing bracket around the host.")?;
         &inner[..end]
     } else {
         authority.split(':').next().unwrap_or("")
     };
     if host.is_empty() {
-        return Err("The API address needs a host name.");
+        return Err("The feed address needs a host name.");
     }
     Ok(host.to_string())
 }
@@ -77,9 +78,9 @@ pub(crate) fn api_base_hostname(api_base: &str) -> Result<String, &'static str> 
 /// `http://` is accepted only for a host that is provably local —
 /// loopback or a private/link-local address — so a Forgejo on the same
 /// network works for development while plain http off-LAN is refused.
-pub(crate) fn validate_api_base_host(api_base: &str) -> Result<(), &'static str> {
-    let https = api_base.trim().starts_with("https://");
-    let host = api_base_hostname(api_base)?;
+pub(crate) fn validate_feed_url_host(feed_url: &str) -> Result<(), &'static str> {
+    let https = feed_url.trim().starts_with("https://");
+    let host = feed_url_hostname(feed_url)?;
     if let Ok(ip) = host.parse::<std::net::IpAddr>() {
         return match (https, is_blocked_update_host_ip(ip)) {
             (true, true) => Err(UPDATE_HOST_ERR),
@@ -172,19 +173,19 @@ mod tests {
     }
 
     #[test]
-    fn validate_rejects_compatible_literal_in_api_base() {
+    fn validate_rejects_compatible_literal_in_feed_url() {
         // https to a private/mapped address is still an SSRF risk.
-        assert!(validate_api_base_host("https://[::ffff:10.0.0.1]/api/v1").is_err());
-        assert!(validate_api_base_host("https://192.168.0.1/api/v1").is_err());
-        assert!(validate_api_base_host("https://[::1]/api/v1").is_err());
+        assert!(validate_feed_url_host("https://[::ffff:10.0.0.1]/api/v1").is_err());
+        assert!(validate_feed_url_host("https://192.168.0.1/api/v1").is_err());
+        assert!(validate_feed_url_host("https://[::1]/api/v1").is_err());
         // http is fine on this network only (LAN dev Forgejo).
-        assert!(validate_api_base_host("http://[::192.168.0.1]/api/v1").is_ok());
-        assert!(validate_api_base_host("http://[::1]/api/v1").is_ok());
-        assert!(validate_api_base_host("http://10.0.0.5/api/v1").is_ok());
-        assert!(validate_api_base_host("http://localhost:3000/api/v1").is_ok());
+        assert!(validate_feed_url_host("http://[::192.168.0.1]/api/v1").is_ok());
+        assert!(validate_feed_url_host("http://[::1]/api/v1").is_ok());
+        assert!(validate_feed_url_host("http://10.0.0.5/api/v1").is_ok());
+        assert!(validate_feed_url_host("http://localhost:3000/api/v1").is_ok());
         // http to a public host is refused.
-        assert!(validate_api_base_host("http://8.8.8.8/api/v1").is_err());
-        assert!(validate_api_base_host("http://203.0.113.10/api/v1").is_err());
-        assert!(validate_api_base_host("https://8.8.8.8/api/v1").is_ok());
+        assert!(validate_feed_url_host("http://8.8.8.8/api/v1").is_err());
+        assert!(validate_feed_url_host("http://203.0.113.10/api/v1").is_err());
+        assert!(validate_feed_url_host("https://8.8.8.8/api/v1").is_ok());
     }
 }

@@ -5,6 +5,15 @@ use lunad::{
 };
 
 fn main() -> anyhow::Result<()> {
+    // `luna-run` compares this against the daemon on the data partition, so it
+    // prints the bare semver and nothing else.
+    if std::env::args()
+        .skip(1)
+        .any(|a| a == "--version" || a == "-V")
+    {
+        println!("{}", lunad::VERSION);
+        return Ok(());
+    }
     // Capped runtime for 2 GiB targets: 2 async workers handle the HTTP
     // workload (disk work goes to spawn_blocking), and 16 blocking threads
     // cap the default pool of 512 thread stacks.
@@ -362,7 +371,7 @@ async fn async_main() -> anyhow::Result<()> {
         ticker.tick().await;
         loop {
             let svc = updates_bg.clone();
-            let version = env!("CARGO_PKG_VERSION").to_string();
+            let version = lunad::VERSION.to_string();
             let _ = tokio::task::spawn_blocking(move || {
                 let _ = svc.check(&version, false);
             })

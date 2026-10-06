@@ -1,14 +1,13 @@
-//! Software updates from Forgejo `luna-v*` releases.
+//! Software updates from the signed Luna feed (`luna/<channel>.json`).
 //!
-//! Tags look like `luna-v0.2.0`. LibreServ stays on `v*`. Assets:
-//! `lunad-linux-amd64`, optional `luna-os-x86_64.img` on OS cuts,
-//! `SHA256SUMS.txt`, and `SHA256SUMS.txt.minisig`.
+//! The feed format and its rules live in `luna_core::feed` (spec:
+//! `infra/docs/RELEASE-PLAN.md`). Two parts matter here: `lunad` (the daemon,
+//! installed under LUNA_DATA) and `os` (an `.img.xz` slot image). When the
+//! OS part's SHA256 differs from the hash stored on LUNA_DATA, that image is
+//! decompressed onto the inactive A/B slot in the same Install update
+//! (tryboot). The Settings UI does not differentiate OS vs software.
 //!
-//! Apply is tap-to-update only — never silent. When the release includes an
-//! OS slot image whose SHA256 differs from the hash stored on LUNA_DATA,
-//! that image is applied automatically in the same Install update (inactive
-//! A/B slot + tryboot). The Settings UI does not differentiate OS vs software.
-//! Draft and prerelease tags are ignored.
+//! Apply is tap-to-update only — never silent.
 
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -16,19 +15,22 @@ use std::process::Command;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use minisign_verify::{PublicKey, Signature};
+use luna_core::feed::{self, FeedError, Part};
+use minisign_verify::PublicKey;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
-const DEFAULT_API: &str = "https://gt.plainskill.net/api/v1";
-const DEFAULT_OWNER: &str = "LibreLoom";
-const DEFAULT_REPO: &str = "LibreServ";
-const TAG_PREFIX: &str = "luna-v";
-const OS_IMAGE_NAME: &str = "luna-os-x86_64.img";
+const DEFAULT_FEED_URL: &str = "https://gt.plainskill.net/LibreLoom/LibreServ/raw/branch/feeds";
+const DEFAULT_CHANNEL: &str = "stable";
+/// Release unit this updater follows (feed path `luna/<channel>.json`).
+const UNIT: &str = "luna";
+/// Channels the feed offers.
+pub const CHANNELS: [&str; 2] = ["stable", "beta"];
 const OS_HASH_FILE: &str = "os-image.sha256";
-/// OS slot images are streamed to disk, never held in RAM. Cap matches the
-/// 1280 MiB A/B slot plus a little headroom.
+/// Newest feed `published` seen per unit + channel (replay protection).
+const FEED_SEEN_FILE: &str = "update-feed-seen.json";
+/// OS slot images are streamed to disk, never held in RAM. Cap (on the
+/// decompressed image) matches the 1280 MiB A/B slot plus a little headroom.
 const OS_IMAGE_MAX_BYTES: u64 = 1536 * 1024 * 1024;
 
 /// Committed Luna minisign public key (`keys/lsluna.minisign.pub`).
@@ -51,15 +53,25 @@ pub enum UpdateError {
     #[error("That update file looks damaged. Nothing was installed.")]
     Checksum,
     #[error(
-        "That update is missing the file Luna uses to check it isn't damaged. Nothing was installed."
-    )]
-    MissingChecksum,
-    #[error(
         "That update is missing the signature Luna uses to confirm it's genuine. Nothing was installed."
     )]
     MissingSignature,
     #[error("That update could not be verified. Nothing was installed.")]
     BadSignature,
+    #[error(
+        "That update list is meant for a different product or channel, or is not readable. Nothing was installed."
+    )]
+    BadFeed,
+    #[error(
+        "That update list comes from newer software than this Luna understands. Nothing was installed."
+    )]
+    UnknownFormat,
+    #[error(
+        "That update list is older than one Luna has already seen, so it was ignored. Nothing was installed."
+    )]
+    Replayed,
+    #[error("That update has no software for this Luna. Nothing was installed.")]
+    MissingPart,
     #[error("{0}")]
     Other(String),
 }
@@ -70,7 +82,6 @@ pub struct UpdateInfo {
     pub latest_version: String,
     pub update_available: bool,
     pub release_notes: String,
-    pub url: String,
     pub checksum: String,
     pub binary_name: String,
     /// True when applying will (or did) write an OS slot and reboot the box.
@@ -81,43 +92,15 @@ pub struct UpdateInfo {
 pub trait HttpGet: Send + Sync {
     fn get(&self, url: &str) -> Result<(u16, Vec<u8>), UpdateError>;
 
-    /// Download into `dest`, hashing while writing. Refuses bodies over `max_bytes`
-    /// so an update can never fill RAM on a 2 GiB box.
-    fn get_to_file(
-        &self,
-        url: &str,
-        dest: &Path,
-        max_bytes: u64,
-    ) -> Result<(u16, String), UpdateError> {
-        let (status, bytes) = self.get(url)?;
-        if (bytes.len() as u64) > max_bytes {
-            return Err(UpdateError::Other(
-                "That update file is too large for the free memory on this Luna.".into(),
-            ));
+    /// Open a (possibly huge) body to stream from. Anything but a 200 is an
+    /// error. The default buffers `get`; production streams.
+    fn open(&self, url: &str) -> std::io::Result<Box<dyn Read>> {
+        let (status, bytes) = self.get(url).map_err(std::io::Error::other)?;
+        if status != 200 {
+            return Err(std::io::Error::other(format!("status {status}")));
         }
-        let mut hasher = Sha256::new();
-        hasher.update(&bytes);
-        let mut f = open_staged(dest).map_err(|e| UpdateError::Other(e.to_string()))?;
-        f.write_all(&bytes)
-            .map_err(|e| UpdateError::Other(e.to_string()))?;
-        f.sync_all()
-            .map_err(|e| UpdateError::Other(e.to_string()))?;
-        Ok((status, hex_lower(&hasher.finalize())))
+        Ok(Box::new(std::io::Cursor::new(bytes)))
     }
-}
-
-/// Open the pre-created staged file for writing. O_NOFOLLOW keeps a planted
-/// symlink from redirecting the download — `create_new` guards creation, this
-/// guards the reopen.
-fn open_staged(dest: &Path) -> std::io::Result<std::fs::File> {
-    let mut opts = std::fs::OpenOptions::new();
-    opts.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        opts.custom_flags(libc::O_NOFOLLOW);
-    }
-    opts.open(dest)
 }
 
 pub trait Installer: Send + Sync {
@@ -130,6 +113,7 @@ pub trait Installer: Send + Sync {
         self.install_lunad(&bytes)
     }
 
+    /// `bytes` is the whole `.img.xz` as published.
     fn install_os_image(&self, bytes: &[u8]) -> Result<(), UpdateError> {
         let _ = bytes;
         Err(UpdateError::Other(
@@ -137,7 +121,7 @@ pub trait Installer: Send + Sync {
         ))
     }
 
-    /// Stream an OS slot image from disk onto the inactive A/B partition.
+    /// Stream-decompress the `.img.xz` at `path` onto the inactive A/B partition.
     fn install_os_image_file(&self, path: &Path) -> Result<(), UpdateError> {
         let bytes = std::fs::read(path).map_err(|e| UpdateError::Other(e.to_string()))?;
         self.install_os_image(&bytes)
@@ -156,13 +140,26 @@ pub trait Installer: Send + Sync {
     fn write_os_hash(&self, _hash: &str) -> Result<(), UpdateError> {
         Ok(())
     }
+
+    /// Newest feed `published` already seen for this unit + channel.
+    fn read_feed_seen(&self, _unit: &str, _channel: &str) -> Option<String> {
+        None
+    }
+    fn write_feed_seen(
+        &self,
+        _unit: &str,
+        _channel: &str,
+        _published: &str,
+    ) -> Result<(), UpdateError> {
+        Ok(())
+    }
 }
 
 /// ureq 3 has no timeout by default; a wedged connection would hang the
-/// update thread for good. Release lists, checksums and keys are small.
+/// update thread for good. Feeds and signatures are small.
 const API_TIMEOUT: Duration = Duration::from_secs(30);
-/// An OS image is gigabytes: the clock covers the whole download, so it
-/// allows a slow home connection while still ending a stuck one.
+/// An OS image is hundreds of megabytes: the clock covers the whole download,
+/// so it allows a slow home connection while still ending a stuck one.
 const IMAGE_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(2 * 60 * 60);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -175,6 +172,7 @@ impl HttpGet for UreqHttp {
             .config()
             .timeout_global(Some(API_TIMEOUT))
             .timeout_connect(Some(CONNECT_TIMEOUT))
+            .http_status_as_error(false)
             .build()
             .call()
             .map_err(|_| UpdateError::Unreachable)?;
@@ -199,12 +197,7 @@ impl HttpGet for UreqHttp {
         Ok((status, body))
     }
 
-    fn get_to_file(
-        &self,
-        url: &str,
-        dest: &Path,
-        max_bytes: u64,
-    ) -> Result<(u16, String), UpdateError> {
+    fn open(&self, url: &str) -> std::io::Result<Box<dyn Read>> {
         let resp = ureq::get(url)
             .config()
             .timeout_global(Some(IMAGE_DOWNLOAD_TIMEOUT))
@@ -212,37 +205,8 @@ impl HttpGet for UreqHttp {
             .timeout_recv_response(Some(API_TIMEOUT))
             .build()
             .call()
-            .map_err(|_| UpdateError::Unreachable)?;
-        let status = resp.status().as_u16();
-        let mut reader = resp.into_body().into_reader();
-        let mut file = open_staged(dest).map_err(|e| UpdateError::Other(e.to_string()))?;
-        let mut hasher = Sha256::new();
-        let mut buf = [0u8; 64 * 1024];
-        let mut written: u64 = 0;
-        loop {
-            let n = reader
-                .read(&mut buf)
-                .map_err(|_| UpdateError::Unreachable)?;
-            if n == 0 {
-                break;
-            }
-            written = written
-                .checked_add(n as u64)
-                .filter(|w| *w <= max_bytes)
-                .ok_or_else(|| {
-                    let _ = std::fs::remove_file(dest);
-                    UpdateError::Other(
-                        "That update file is too large for the free memory on this Luna.".into(),
-                    )
-                })?;
-            hasher.update(&buf[..n]);
-            file.write_all(&buf[..n])
-                .map_err(|e| UpdateError::Other(e.to_string()))?;
-        }
-        file.sync_all()
-            .map_err(|e| UpdateError::Other(e.to_string()))?;
-        let _ = written;
-        Ok((status, hex_lower(&hasher.finalize())))
+            .map_err(|e| std::io::Error::other(e.to_string()))?;
+        Ok(Box::new(resp.into_body().into_reader()))
     }
 }
 
@@ -308,7 +272,9 @@ impl Installer for DataDirInstaller {
 
     fn install_os_image_file(&self, src: &Path) -> Result<(), UpdateError> {
         let (part, inactive) = inactive_slot_device()?;
-        copy_file_streaming(src, &part)?;
+        // The inactive slot is not booted from until `finish_os_slot` arms it,
+        // so a failed or cut-short write here leaves the running system alone.
+        decompress_xz_streaming(src, &part, OS_IMAGE_MAX_BYTES)?;
         finish_os_slot(&part, inactive)
     }
 
@@ -328,6 +294,32 @@ impl Installer for DataDirInstaller {
         let path = self.hash_path();
         let tmp = path.with_extension("sha256.tmp");
         std::fs::write(&tmp, format!("{hash}\n")).map_err(|e| UpdateError::Other(e.to_string()))?;
+        std::fs::rename(&tmp, &path).map_err(|e| UpdateError::Other(e.to_string()))?;
+        Ok(())
+    }
+
+    fn read_feed_seen(&self, unit: &str, channel: &str) -> Option<String> {
+        let raw = std::fs::read_to_string(self.data_dir.join(FEED_SEEN_FILE)).ok()?;
+        let map: std::collections::BTreeMap<String, String> = serde_json::from_str(&raw).ok()?;
+        map.get(&format!("{unit}/{channel}")).cloned()
+    }
+
+    fn write_feed_seen(
+        &self,
+        unit: &str,
+        channel: &str,
+        published: &str,
+    ) -> Result<(), UpdateError> {
+        let path = self.data_dir.join(FEED_SEEN_FILE);
+        let mut map: std::collections::BTreeMap<String, String> = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|raw| serde_json::from_str(&raw).ok())
+            .unwrap_or_default();
+        map.insert(format!("{unit}/{channel}"), published.to_string());
+        std::fs::create_dir_all(&self.data_dir).map_err(|e| UpdateError::Other(e.to_string()))?;
+        let tmp = path.with_extension("json.tmp");
+        std::fs::write(&tmp, serde_json::to_vec(&map).unwrap_or_default())
+            .map_err(|e| UpdateError::Other(e.to_string()))?;
         std::fs::rename(&tmp, &path).map_err(|e| UpdateError::Other(e.to_string()))?;
         Ok(())
     }
@@ -428,24 +420,37 @@ fn swap_exec(exec: &Path, tmp: &Path) -> Result<(), UpdateError> {
     Ok(())
 }
 
-fn copy_file_streaming(src: &Path, dest: &Path) -> Result<(), UpdateError> {
-    let mut input = std::fs::File::open(src).map_err(|e| UpdateError::Other(e.to_string()))?;
-    let mut output = std::fs::File::create(dest).map_err(|e| UpdateError::Other(e.to_string()))?;
-    let mut buf = [0u8; 64 * 1024];
+/// Decompress the `.img.xz` at `src` into `dest` (the inactive slot) as a
+/// stream: nothing but small buffers (plus the decoder's dictionary) sits in
+/// RAM. Refuses to write more than `max_bytes`, so a crafted file cannot
+/// balloon past the slot.
+fn decompress_xz_streaming(src: &Path, dest: &Path, max_bytes: u64) -> Result<(), UpdateError> {
+    let io = |e: std::io::Error| UpdateError::Other(e.to_string());
+    let input =
+        std::io::BufReader::with_capacity(256 * 1024, std::fs::File::open(src).map_err(io)?);
+    let mut reader = lzma_rust2::XzReader::new(input, false).take(max_bytes.saturating_add(1));
+    let mut output = std::fs::File::create(dest).map_err(io)?;
+    let mut buf = vec![0u8; 256 * 1024];
+    let mut written: u64 = 0;
     loop {
-        let n = input
-            .read(&mut buf)
-            .map_err(|e| UpdateError::Other(e.to_string()))?;
+        let n = reader.read(&mut buf).map_err(|_| {
+            UpdateError::Other(
+                "The operating-system update could not be unpacked. Nothing was installed.".into(),
+            )
+        })?;
         if n == 0 {
             break;
         }
-        output
-            .write_all(&buf[..n])
-            .map_err(|e| UpdateError::Other(e.to_string()))?;
+        written += n as u64;
+        if written > max_bytes {
+            return Err(UpdateError::Other(
+                "The operating-system update is larger than the space set aside for it. Nothing was installed."
+                    .into(),
+            ));
+        }
+        output.write_all(&buf[..n]).map_err(io)?;
     }
-    output
-        .sync_all()
-        .map_err(|e| UpdateError::Other(e.to_string()))?;
+    output.sync_all().map_err(io)?;
     Ok(())
 }
 
@@ -713,17 +718,17 @@ fn find_esp_mount_or_temp() -> Result<EspGuard, UpdateError> {
     })
 }
 
-/// Admin-visible update source: where Luna downloads releases from and which
-/// minisign public keys it trusts. Empty fields mean "use the built-in
-/// default" (env var if set, else the compiled-in value).
+/// Admin-visible update source: where Luna reads the signed update feed, which
+/// channel it follows, and which minisign public keys it trusts. Empty fields
+/// mean "use the built-in default" (env var if set, else the compiled-in value).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct UpdateSettings {
+    /// Folder that holds `luna/<channel>.json`, with no trailing slash.
     #[serde(default)]
-    pub api_base: String,
+    pub feed_url: String,
+    /// `stable` or `beta`.
     #[serde(default)]
-    pub owner: String,
-    #[serde(default)]
-    pub repo: String,
+    pub channel: String,
     /// Minisign public keys (base64 `RW…` lines). Empty means the compiled-in
     /// release key.
     #[serde(default)]
@@ -732,35 +737,22 @@ pub struct UpdateSettings {
 
 impl UpdateSettings {
     pub(crate) fn is_empty(&self) -> bool {
-        self.api_base.is_empty()
-            && self.owner.is_empty()
-            && self.repo.is_empty()
-            && self.keys.is_empty()
+        self.feed_url.is_empty() && self.channel.is_empty() && self.keys.is_empty()
     }
 }
 
 /// Resolved source the updater actually uses (no empty fields left).
 #[derive(Debug, Clone)]
 struct ActiveSource {
-    api_base: String,
-    download_base: String,
-    owner: String,
-    repo: String,
+    feed_url: String,
+    channel: String,
     keys: Vec<String>,
 }
 
-fn active_from(api_base: String, owner: String, repo: String, keys: Vec<String>) -> ActiveSource {
-    let api_base = api_base.trim().trim_end_matches('/').to_string();
-    let host = api_base
-        .trim_end_matches("/api/v1")
-        .trim_end_matches("/api")
-        .to_string();
-    let download_base = format!("{host}/{owner}/{repo}/releases");
+fn active_from(feed_url: String, channel: String, keys: Vec<String>) -> ActiveSource {
     ActiveSource {
-        api_base,
-        download_base,
-        owner,
-        repo,
+        feed_url: feed_url.trim().trim_end_matches('/').to_string(),
+        channel,
         keys,
     }
 }
@@ -777,9 +769,8 @@ fn first_nonempty(a: &str, b: &str) -> String {
 /// stay as the dev/automation override; stored settings win over them.
 pub fn default_settings() -> UpdateSettings {
     UpdateSettings {
-        api_base: std::env::var("LUNA_UPDATES_API").unwrap_or_else(|_| DEFAULT_API.into()),
-        owner: std::env::var("LUNA_UPDATES_OWNER").unwrap_or_else(|_| DEFAULT_OWNER.into()),
-        repo: std::env::var("LUNA_UPDATES_REPO").unwrap_or_else(|_| DEFAULT_REPO.into()),
+        feed_url: std::env::var("LUNA_UPDATES_FEED").unwrap_or_else(|_| DEFAULT_FEED_URL.into()),
+        channel: std::env::var("LUNA_UPDATES_CHANNEL").unwrap_or_else(|_| DEFAULT_CHANNEL.into()),
         keys: parse_minisign_pub(PINNED_PUB),
     }
 }
@@ -838,80 +829,30 @@ fn normalize_pub_keys(entries: &[String]) -> Result<Vec<String>, &'static str> {
 /// Validate an admin-supplied update source. Returns a plain-language reason
 /// the save was refused, ready to show in the UI.
 pub fn validate_settings(settings: &UpdateSettings) -> Result<Vec<String>, &'static str> {
-    let api_base = settings.api_base.trim();
-    if api_base.is_empty() {
+    let feed_url = settings.feed_url.trim();
+    if feed_url.is_empty() {
         return Err(
-            "The API address needs a value. Put in the old address if you want to keep it.",
+            "The feed address needs a value. Put in the old address if you want to keep it.",
         );
     }
-    crate::system::update_host::validate_api_base_host(api_base)?;
-    if settings.owner.trim().is_empty() || settings.repo.trim().is_empty() {
-        return Err(
-            "Both the owner and the repo need a value — they say which project page the updates come from.",
-        );
+    crate::system::update_host::validate_feed_url_host(feed_url)?;
+    if !CHANNELS.contains(&settings.channel.trim()) {
+        return Err("Pick Stable or Beta as the update channel.");
     }
     let total: usize = settings.keys.iter().map(|k| k.len()).sum();
     if total > MAX_PUB_TEXT_BYTES {
         return Err("That signing key list is too long. One key per line is enough.");
     }
-    let keys = normalize_pub_keys(&settings.keys)?;
-    Ok(keys)
+    normalize_pub_keys(&settings.keys)
 }
 
-const FETCH_KEYS_ERR: &str = "Luna couldn't get signing keys from that project page. Check the address, owner, and repo, then try again.";
-
-const REPO_KEY_FILES: &[&str] = &["lsluna.minisign.pub", "libreserv.minisign.pub"];
-
-/// Download minisign public keys from a Forgejo/Gitea project's raw files.
-///
-/// Uses the given `api_base` / owner / repo (the values on the form, not
-/// necessarily the saved source). Tries `main` then `master` for each known
-/// key file name.
-pub fn fetch_repo_signing_keys(
-    http: &dyn HttpGet,
-    api_base: &str,
-    owner: &str,
-    repo: &str,
-) -> Result<Vec<String>, &'static str> {
-    let probe = UpdateSettings {
-        api_base: api_base.to_string(),
-        owner: owner.to_string(),
-        repo: repo.to_string(),
-        keys: vec![],
-    };
-    validate_settings(&probe)?;
-
-    let host = api_base
-        .trim()
-        .trim_end_matches('/')
-        .trim_end_matches("/api/v1")
-        .trim_end_matches("/api");
-    let owner = owner.trim();
-    let repo = repo.trim();
-
-    let mut parsed = Vec::new();
-    for name in REPO_KEY_FILES {
-        let main = format!("{host}/{owner}/{repo}/raw/branch/main/keys/{name}");
-        if let Some(text) = raw_text_if_ok(http, &main) {
-            parsed.extend(parse_minisign_pub(&text));
-            continue;
-        }
-        let master = format!("{host}/{owner}/{repo}/raw/branch/master/keys/{name}");
-        if let Some(text) = raw_text_if_ok(http, &master) {
-            parsed.extend(parse_minisign_pub(&text));
-        }
-    }
-    if parsed.is_empty() {
-        return Err(FETCH_KEYS_ERR);
-    }
-    normalize_pub_keys(&parsed)
-}
-
-fn raw_text_if_ok(http: &dyn HttpGet, url: &str) -> Option<String> {
-    match http.get(url) {
-        Ok((200, body)) => String::from_utf8(body).ok(),
-        _ => None,
-    }
+/// What one successful feed read tells us.
+struct Resolved {
+    info: UpdateInfo,
+    lunad: Part,
+    os: Option<Part>,
+    lunad_newer: bool,
+    os_needed: bool,
 }
 
 pub struct UpdateService {
@@ -927,9 +868,8 @@ impl UpdateService {
         Self::new(
             Box::new(UreqHttp),
             Box::new(DataDirInstaller::new(data_dir)),
-            d.api_base,
-            d.owner,
-            d.repo,
+            d.feed_url,
+            d.channel,
         )
     }
 
@@ -938,56 +878,46 @@ impl UpdateService {
     pub fn from_db(conn: &Connection, data_dir: &Path) -> Self {
         let stored = load_settings(conn).unwrap_or_default();
         let d = default_settings();
-        let settings = UpdateSettings {
-            api_base: first_nonempty(&stored.api_base, &d.api_base),
-            owner: first_nonempty(&stored.owner, &d.owner),
-            repo: first_nonempty(&stored.repo, &d.repo),
-            keys: if stored.keys.is_empty() {
+        Self::with_keys(
+            Box::new(UreqHttp),
+            Box::new(DataDirInstaller::new(data_dir)),
+            first_nonempty(&stored.feed_url, &d.feed_url),
+            first_nonempty(&stored.channel, &d.channel),
+            if stored.keys.is_empty() {
                 d.keys
             } else {
                 stored.keys
             },
-        };
-        Self::with_keys(
-            Box::new(UreqHttp),
-            Box::new(DataDirInstaller::new(data_dir)),
-            settings.api_base,
-            settings.owner,
-            settings.repo,
-            settings.keys,
         )
     }
 
     pub fn new(
         http: Box<dyn HttpGet>,
         installer: Box<dyn Installer>,
-        api_base: String,
-        owner: String,
-        repo: String,
+        feed_url: String,
+        channel: String,
     ) -> Self {
         Self::with_keys(
             http,
             installer,
-            api_base,
-            owner,
-            repo,
+            feed_url,
+            channel,
             parse_minisign_pub(PINNED_PUB),
         )
     }
 
-    fn with_keys(
+    pub(crate) fn with_keys(
         http: Box<dyn HttpGet>,
         installer: Box<dyn Installer>,
-        api_base: String,
-        owner: String,
-        repo: String,
+        feed_url: String,
+        channel: String,
         keys: Vec<String>,
     ) -> Self {
         warn_on_custom_keys(&keys);
         Self {
             http,
             installer,
-            active: Mutex::new(active_from(api_base, owner, repo, keys)),
+            active: Mutex::new(active_from(feed_url, channel, keys)),
             cache: Mutex::new(None),
         }
     }
@@ -1000,15 +930,14 @@ impl UpdateService {
     pub fn settings(&self) -> UpdateSettings {
         let src = self.source();
         UpdateSettings {
-            api_base: src.api_base,
-            owner: src.owner,
-            repo: src.repo,
+            feed_url: src.feed_url,
+            channel: src.channel,
             keys: src.keys,
         }
     }
 
     /// How many trusted signing keys actually decode as minisign keys. Zero
-    /// means no release can pass `verify_sums_signature`.
+    /// means no feed can pass verification.
     pub fn usable_key_count(&self) -> usize {
         self.source()
             .keys
@@ -1022,27 +951,16 @@ impl UpdateService {
         self.source().keys == parse_minisign_pub(PINNED_PUB)
     }
 
-    /// Download signing keys from the given project page using the HTTP
-    /// client already wired for updates (form values, not the saved source).
-    pub fn fetch_source_keys(
-        &self,
-        api_base: &str,
-        owner: &str,
-        repo: &str,
-    ) -> Result<Vec<String>, &'static str> {
-        fetch_repo_signing_keys(self.http.as_ref(), api_base, owner, repo)
-    }
-
     /// Hot-swap the update source (admin saved new settings). Clears the
-    /// release cache so the next check goes to the new source.
-    pub fn reconfigure(&self, api_base: String, owner: String, repo: String, keys: Vec<String>) {
+    /// cache so the next check goes to the new source.
+    pub fn reconfigure(&self, feed_url: String, channel: String, keys: Vec<String>) {
         let keys = if keys.is_empty() {
             parse_minisign_pub(PINNED_PUB)
         } else {
             keys
         };
         warn_on_custom_keys(&keys);
-        *self.active.lock().unwrap() = active_from(api_base, owner, repo, keys);
+        *self.active.lock().unwrap() = active_from(feed_url, channel, keys);
         *self.cache.lock().unwrap() = None;
     }
 
@@ -1055,152 +973,131 @@ impl UpdateService {
         {
             return Ok(info.clone());
         }
+        let resolved = self.read_feed(current_version)?;
+        *self.cache.lock().unwrap() = Some((Instant::now(), resolved.info.clone()));
+        Ok(resolved.info)
+    }
 
+    /// Fetch, verify and read the feed for this source, then work out what
+    /// (if anything) would be installed.
+    fn read_feed(&self, current_version: &str) -> Result<Resolved, UpdateError> {
         let src = self.source();
-        let url = format!(
-            "{}/repos/{}/{}/releases?limit=50",
-            src.api_base, src.owner, src.repo
-        );
-        let (status, body) = self.http.get(&url)?;
+        let feed_path = format!("{}/{UNIT}/{}.json", src.feed_url, src.channel);
+        let (status, body) = self.http.get(&feed_path)?;
         if status != 200 {
             return Err(UpdateError::Unreachable);
         }
-        let releases: Vec<ForgejoRelease> =
-            serde_json::from_slice(&body).map_err(|_| UpdateError::Unreachable)?;
-        let latest = pick_latest_luna(&releases);
-        let binary = binary_name();
-        let Some(rel) = latest else {
-            let info = UpdateInfo {
-                current_version: current_version.to_string(),
-                latest_version: format!("{TAG_PREFIX}{current_version}"),
-                update_available: false,
-                release_notes: String::new(),
-                url: String::new(),
-                checksum: String::new(),
-                binary_name: binary,
-                reboot_required: false,
-            };
-            *self.cache.lock().unwrap() = Some((Instant::now(), info.clone()));
-            return Ok(info);
-        };
-
-        let sums = self.fetch_signed_sums(&rel.tag_name).ok();
-        let checksum = sums
-            .as_ref()
-            .and_then(|s| checksum_for_name(s, &binary).ok())
-            .unwrap_or_default();
-        let latest_ver = strip_tag(&rel.tag_name);
-        let lunad_newer = version_newer(&latest_ver, current_version);
-        let os_needed = sums
-            .as_ref()
-            .map(|s| self.os_update_needed(s))
-            .unwrap_or(false);
-        let info = UpdateInfo {
-            current_version: current_version.to_string(),
-            latest_version: rel.tag_name.clone(),
-            update_available: lunad_newer || os_needed,
-            release_notes: rel.body.clone(),
-            url: rel.html_url.clone(),
-            checksum,
-            binary_name: binary,
-            reboot_required: os_needed,
-        };
-        *self.cache.lock().unwrap() = Some((Instant::now(), info.clone()));
-        Ok(info)
-    }
-
-    fn os_update_needed(&self, sums: &[u8]) -> bool {
-        let Ok(remote) = checksum_for_name(sums, OS_IMAGE_NAME) else {
-            return false;
-        };
-        match self.installer.read_os_hash() {
-            Some(local) => local != remote,
-            // No recorded hash: treat presence of an OS asset as needing apply
-            // only when we have never stamped one — avoid surprising re-flash
-            // on daemon-only boxes without data hash by requiring a local hash
-            // file. Factory always writes the hash.
-            None => false,
-        }
-    }
-
-    fn fetch_signed_sums(&self, tag: &str) -> Result<Vec<u8>, UpdateError> {
-        let src = self.source();
-        let sums_url = format!("{}/download/{tag}/SHA256SUMS.txt", src.download_base);
-        let sig_url = format!(
-            "{}/download/{tag}/SHA256SUMS.txt.minisig",
-            src.download_base
-        );
-        let (sums_status, sums) = self.http.get(&sums_url)?;
-        if sums_status != 200 {
-            return Err(UpdateError::MissingChecksum);
-        }
-        let (sig_status, sig) = match self.http.get(&sig_url) {
-            Ok(v) => v,
-            Err(_) => return Err(UpdateError::MissingSignature),
-        };
+        let (sig_status, sig) = self
+            .http
+            .get(&format!("{feed_path}.minisig"))
+            .map_err(|_| UpdateError::MissingSignature)?;
         if sig_status != 200 {
             return Err(UpdateError::MissingSignature);
         }
-        verify_sums_signature(&src.keys, &sums, &sig)?;
-        Ok(sums)
+
+        let arch = feed_arch();
+        let seen = self
+            .installer
+            .read_feed_seen(UNIT, &src.channel)
+            .unwrap_or_default();
+        let verified = feed::check(
+            &body,
+            &sig,
+            &src.keys,
+            &feed::Request {
+                unit: UNIT,
+                channel: &src.channel,
+                part: "lunad",
+                os: FEED_OS,
+                arch,
+                installed_version: current_version,
+                newest_published_seen: &seen,
+            },
+        )
+        .map_err(map_feed_error)?;
+
+        if verified.feed.published.as_str() > seen.as_str()
+            && let Err(e) =
+                self.installer
+                    .write_feed_seen(UNIT, &src.channel, &verified.feed.published)
+        {
+            tracing::warn!(error = %e, "couldn't remember the newest update list");
+        }
+
+        let os = feed::select_part(&verified.feed.parts, "os", FEED_OS, arch).cloned();
+        // Never move to an older release: an OS image only counts when the
+        // feed is not behind what is running.
+        let os_needed = !verified.older
+            && match (&os, self.installer.read_os_hash()) {
+                (Some(part), Some(local)) => !local.eq_ignore_ascii_case(&part.sha256),
+                // No recorded hash: the factory install always writes one. A
+                // box without it must not be surprised by a re-flash.
+                _ => false,
+            };
+        let info = UpdateInfo {
+            current_version: current_version.to_string(),
+            latest_version: verified.feed.version.clone(),
+            update_available: verified.newer || os_needed,
+            release_notes: verified.feed.notes.clone(),
+            checksum: verified.part.sha256.clone(),
+            binary_name: verified.part.file.clone(),
+            reboot_required: os_needed,
+        };
+        Ok(Resolved {
+            info,
+            lunad: verified.part,
+            os,
+            lunad_newer: verified.newer,
+            os_needed,
+        })
     }
 
     pub fn apply(&self, current_version: &str) -> Result<UpdateInfo, UpdateError> {
-        let mut info = self.check(current_version, true)?;
+        let resolved = self.read_feed(current_version)?;
+        let mut info = resolved.info.clone();
         if !info.update_available {
             return Err(UpdateError::NoneAvailable);
         }
-        let sums = self.fetch_signed_sums(&info.latest_version)?;
-        let lunad_newer = version_newer(&strip_tag(&info.latest_version), current_version);
-        let os_needed = self.os_update_needed(&sums);
 
-        if lunad_newer {
-            let checksum = checksum_for_name(&sums, &info.binary_name)?;
+        if resolved.lunad_newer {
             let max = crate::budget::limits().update_download_bytes;
-            let tmp =
-                self.download_verified(&info.latest_version, &info.binary_name, &checksum, max)?;
+            let tmp = self.download_verified(&resolved.lunad, max)?;
             if let Err(e) = self.installer.install_lunad_file(&tmp) {
                 let _ = std::fs::remove_file(&tmp);
                 return Err(e);
             }
             let _ = std::fs::remove_file(&tmp);
-            info.checksum = checksum;
         }
 
-        if os_needed {
-            let checksum = checksum_for_name(&sums, OS_IMAGE_NAME)?;
-            let tmp = self.download_verified(
-                &info.latest_version,
-                OS_IMAGE_NAME,
-                &checksum,
-                OS_IMAGE_MAX_BYTES,
-            )?;
+        if resolved.os_needed
+            && let Some(os) = &resolved.os
+        {
+            let tmp = self.download_verified(os, OS_IMAGE_MAX_BYTES)?;
             if let Err(e) = self.installer.install_os_image_file(&tmp) {
                 let _ = std::fs::remove_file(&tmp);
                 return Err(e);
             }
             let _ = std::fs::remove_file(&tmp);
-            self.installer.write_os_hash(&checksum)?;
+            self.installer.write_os_hash(&os.sha256.to_lowercase())?;
             info.reboot_required = true;
         } else {
             info.reboot_required = false;
         }
 
+        *self.cache.lock().unwrap() = None;
         Ok(info)
     }
 
-    /// Stream `name` from the release into the staging dir, hashing while
-    /// writing. The file name is unguessable and created exclusively, so a
-    /// planted symlink can't redirect the download.
-    fn download_verified(
-        &self,
-        tag: &str,
-        name: &str,
-        checksum: &str,
-        max_bytes: u64,
-    ) -> Result<PathBuf, UpdateError> {
-        let src = self.source();
-        let url = format!("{}/download/{tag}/{name}", src.download_base);
+    /// Stream a feed part into the staging dir, checking size and SHA-256 as
+    /// it lands (`luna_core::feed::download_with`). The file name is
+    /// unguessable and created exclusively, so a planted symlink can't
+    /// redirect the download.
+    fn download_verified(&self, part: &Part, max_bytes: u64) -> Result<PathBuf, UpdateError> {
+        if part.size > max_bytes {
+            return Err(UpdateError::Other(
+                "That update file is too large for the free memory on this Luna.".into(),
+            ));
+        }
         let dir = self.installer.staging_dir();
         std::fs::create_dir_all(&dir).map_err(|e| UpdateError::Other(e.to_string()))?;
         #[cfg(unix)]
@@ -1212,31 +1109,52 @@ impl UpdateService {
             perms.set_mode(0o700);
             let _ = std::fs::set_permissions(&dir, perms);
         }
+        // `part.name` is what we asked the feed for ("lunad" or "os"), never
+        // text the feed chose, so it is safe in a file name.
         let tmp = dir.join(format!(
-            "luna-update-{}-{name}",
-            uuid::Uuid::new_v4().simple()
+            "luna-update-{}-{}",
+            uuid::Uuid::new_v4().simple(),
+            part.name
         ));
         std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
             .open(&tmp)
             .map_err(|e| UpdateError::Other(e.to_string()))?;
-        let (status, actual) = match self.http.get_to_file(&url, &tmp, max_bytes) {
-            Ok(v) => v,
-            Err(e) => {
-                let _ = std::fs::remove_file(&tmp);
-                return Err(e);
-            }
-        };
-        if status != 200 {
+        if let Err(e) = feed::download_with(part, &tmp, |url| self.http.open(url)) {
             let _ = std::fs::remove_file(&tmp);
-            return Err(UpdateError::Unreachable);
-        }
-        if actual != checksum {
-            let _ = std::fs::remove_file(&tmp);
-            return Err(UpdateError::Checksum);
+            return Err(match e {
+                FeedError::SizeMismatch | FeedError::ShaMismatch => UpdateError::Checksum,
+                FeedError::AllUrlsFailed => UpdateError::Unreachable,
+                other => UpdateError::Other(other.to_string()),
+            });
         }
         Ok(tmp)
+    }
+}
+
+/// OS the feed's `lunad` and `os` parts are published for.
+const FEED_OS: &str = "linux";
+
+fn feed_arch() -> &'static str {
+    match std::env::consts::ARCH {
+        "x86_64" => "amd64",
+        "aarch64" => "arm64",
+        other => other,
+    }
+}
+
+fn map_feed_error(e: FeedError) -> UpdateError {
+    match e {
+        FeedError::BadSignature => UpdateError::BadSignature,
+        FeedError::UnknownFormat(_) => UpdateError::UnknownFormat,
+        FeedError::Replayed => UpdateError::Replayed,
+        FeedError::MissingPart => UpdateError::MissingPart,
+        FeedError::WrongUnit
+        | FeedError::WrongChannel
+        | FeedError::Malformed(_)
+        | FeedError::BadVersion(_) => UpdateError::BadFeed,
+        other => UpdateError::Other(other.to_string()),
     }
 }
 
@@ -1260,108 +1178,16 @@ fn parse_minisign_pub(text: &str) -> Vec<String> {
         .collect()
 }
 
-fn verify_sums_signature(keys: &[String], sums: &[u8], sig: &[u8]) -> Result<(), UpdateError> {
-    let sig_text = std::str::from_utf8(sig).map_err(|_| UpdateError::BadSignature)?;
-    let signature = Signature::decode(sig_text).map_err(|_| UpdateError::BadSignature)?;
-    for k in keys {
-        if let Ok(pk) = PublicKey::from_base64(k)
-            && pk.verify(sums, &signature, false).is_ok()
-        {
-            return Ok(());
-        }
-    }
-    Err(UpdateError::BadSignature)
-}
-
-fn checksum_for_name(sums: &[u8], name: &str) -> Result<String, UpdateError> {
-    let text = String::from_utf8_lossy(sums);
-    for line in text.lines() {
-        let mut parts = line.split_whitespace();
-        let Some(sum) = parts.next() else { continue };
-        let Some(file) = parts.next() else { continue };
-        // Exact basename only: a checksum for "lunad-linux-amd64" must not
-        // match "lunad-linux-amd64.sig" or a longer asset name.
-        let base = file
-            .trim_start_matches('*')
-            .rsplit(['/', '\\'])
-            .next()
-            .unwrap_or_default();
-        if base == name {
-            return Ok(sum.to_string());
-        }
-    }
-    Err(UpdateError::MissingChecksum)
-}
-
-#[derive(Debug, Deserialize)]
-struct ForgejoRelease {
-    tag_name: String,
-    #[serde(default)]
-    body: String,
-    #[serde(default)]
-    html_url: String,
-    #[serde(default)]
-    prerelease: bool,
-    #[serde(default)]
-    draft: bool,
-}
-
-fn pick_latest_luna(releases: &[ForgejoRelease]) -> Option<&ForgejoRelease> {
-    releases
-        .iter()
-        .filter(|r| !r.draft && !r.prerelease && r.tag_name.starts_with(TAG_PREFIX))
-        .max_by(|a, b| cmp_version(&strip_tag(&a.tag_name), &strip_tag(&b.tag_name)))
-}
-
-fn strip_tag(tag: &str) -> String {
-    tag.trim()
-        .trim_start_matches(TAG_PREFIX)
-        .trim_start_matches('v')
-        .to_string()
-}
-
-fn version_newer(latest: &str, current: &str) -> bool {
-    if current == "dev" {
-        return false;
-    }
-    cmp_version(latest, current) == std::cmp::Ordering::Greater
-}
-
-fn cmp_version(a: &str, b: &str) -> std::cmp::Ordering {
-    let pa = parse_ver(a);
-    let pb = parse_ver(b);
-    pa.cmp(&pb)
-}
-
-fn parse_ver(s: &str) -> (u64, u64, u64) {
-    let mut it = s.split('.');
-    let maj = it.next().and_then(|x| x.parse().ok()).unwrap_or(0);
-    let min = it.next().and_then(|x| x.parse().ok()).unwrap_or(0);
-    let pat = it.next().and_then(|x| x.parse().ok()).unwrap_or(0);
-    (maj, min, pat)
-}
-
-fn binary_name() -> String {
-    let os = std::env::consts::OS;
-    let arch = match std::env::consts::ARCH {
-        "x86_64" => "amd64",
-        "aarch64" => "arm64",
-        other => other,
-    };
-    format!("lunad-{os}-{arch}")
-}
-
-fn hex_lower(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use minisign::KeyPair;
+    use sha2::{Digest, Sha256};
     use std::collections::HashMap;
     use std::io::Cursor;
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
+
+    const FEED: &str = "http://feeds.test";
 
     struct MapHttp {
         map: HashMap<String, (u16, Vec<u8>)>,
@@ -1373,19 +1199,22 @@ mod tests {
         }
     }
 
+    /// Records what the service installed and remembers state in memory.
+    #[derive(Default)]
     struct RecInstaller {
-        got: Mutex<Vec<u8>>,
-        os_got: Mutex<Vec<u8>>,
+        lunad: Mutex<Vec<u8>>,
+        os: Mutex<Vec<u8>>,
         os_hash: Mutex<Option<String>>,
+        seen: Mutex<HashMap<String, String>>,
     }
 
-    impl Installer for RecInstaller {
+    impl Installer for Arc<RecInstaller> {
         fn install_lunad(&self, bytes: &[u8]) -> Result<(), UpdateError> {
-            *self.got.lock().unwrap() = bytes.to_vec();
+            *self.lunad.lock().unwrap() = bytes.to_vec();
             Ok(())
         }
         fn install_os_image(&self, bytes: &[u8]) -> Result<(), UpdateError> {
-            *self.os_got.lock().unwrap() = bytes.to_vec();
+            *self.os.lock().unwrap() = bytes.to_vec();
             Ok(())
         }
         fn read_os_hash(&self) -> Option<String> {
@@ -1395,40 +1224,113 @@ mod tests {
             *self.os_hash.lock().unwrap() = Some(hash.to_string());
             Ok(())
         }
+        fn read_feed_seen(&self, unit: &str, channel: &str) -> Option<String> {
+            self.seen
+                .lock()
+                .unwrap()
+                .get(&format!("{unit}/{channel}"))
+                .cloned()
+        }
+        fn write_feed_seen(&self, unit: &str, channel: &str, p: &str) -> Result<(), UpdateError> {
+            self.seen
+                .lock()
+                .unwrap()
+                .insert(format!("{unit}/{channel}"), p.to_string());
+            Ok(())
+        }
     }
 
-    fn json_releases(tags: &[&str]) -> Vec<u8> {
-        let items: Vec<String> = tags
-            .iter()
-            .map(|t| {
-                format!(
-                    r#"{{"tag_name":"{t}","body":"notes for {t}","html_url":"https://example.test/{t}","prerelease":false,"draft":false}}"#
-                )
-            })
-            .collect();
-        format!("[{}]", items.join(",")).into_bytes()
+    fn sha(bytes: &[u8]) -> String {
+        feed::hex_lower(&Sha256::digest(bytes))
     }
 
-    fn ephemeral_sign(sums: &[u8]) -> (String, Vec<u8>) {
-        let KeyPair { pk, sk } = KeyPair::generate_unencrypted_keypair().unwrap();
-        let pk_line = pk.to_base64();
-        let sig = minisign::sign(None, &sk, Cursor::new(sums), None, None).unwrap();
-        (pk_line, sig.to_string().into_bytes())
+    fn sign(bytes: &[u8], sk: &minisign::SecretKey) -> Vec<u8> {
+        minisign::sign(None, sk, Cursor::new(bytes), None, None)
+            .unwrap()
+            .to_string()
+            .into_bytes()
     }
 
-    fn svc_with(
-        map: HashMap<String, (u16, Vec<u8>)>,
-        installer: Box<dyn Installer>,
-        pk: String,
-    ) -> UpdateService {
-        UpdateService::with_keys(
-            Box::new(MapHttp { map }),
-            installer,
-            "http://forgejo.test/api/v1".into(),
-            "LibreLoom".into(),
-            "LibreServ".into(),
-            vec![pk],
-        )
+    /// A feed with a lunad part and an optional os part, both downloadable
+    /// from `http://dl.test/<file>`.
+    struct Release<'a> {
+        version: &'a str,
+        published: &'a str,
+        channel: &'a str,
+        unit: &'a str,
+        lunad: &'a [u8],
+        os: Option<&'a [u8]>,
+    }
+
+    impl Default for Release<'_> {
+        fn default() -> Self {
+            Release {
+                version: "0.4.0",
+                published: "2026-10-12T14:03:00Z",
+                channel: "stable",
+                unit: "luna",
+                lunad: b"lunad-v0.4.0",
+                os: None,
+            }
+        }
+    }
+
+    impl Release<'_> {
+        fn feed_json(&self) -> String {
+            let arch = feed_arch();
+            let mut parts = vec![format!(
+                r#"{{"name":"lunad","os":"linux","arch":"{arch}","file":"lunad-linux-amd64-musl","size":{},"sha256":"{}","urls":["http://dl.test/lunad"]}}"#,
+                self.lunad.len(),
+                sha(self.lunad)
+            )];
+            if let Some(os) = self.os {
+                parts.push(format!(
+                    r#"{{"name":"os","os":"linux","arch":"{arch}","file":"luna-os-x86_64.img.xz","size":{},"sha256":"{}","urls":["http://dl.test/os"]}}"#,
+                    os.len(),
+                    sha(os)
+                ));
+            }
+            format!(
+                r#"{{"format":1,"unit":"{}","channel":"{}","version":"{}","published":"{}","notes":"notes for {}","parts":[{}]}}"#,
+                self.unit,
+                self.channel,
+                self.version,
+                self.published,
+                self.version,
+                parts.join(",")
+            )
+        }
+
+        /// The service, its trusted key, and the installer it records into.
+        fn service(&self) -> (UpdateService, Arc<RecInstaller>) {
+            let KeyPair { pk, sk } = KeyPair::generate_unencrypted_keypair().unwrap();
+            self.service_with(&sk, pk.to_base64())
+        }
+
+        fn service_with(
+            &self,
+            sk: &minisign::SecretKey,
+            trusted: String,
+        ) -> (UpdateService, Arc<RecInstaller>) {
+            let body = self.feed_json().into_bytes();
+            let sig = sign(&body, sk);
+            let mut map = HashMap::new();
+            map.insert(format!("{FEED}/luna/stable.json"), (200, body.clone()));
+            map.insert(format!("{FEED}/luna/stable.json.minisig"), (200, sig));
+            map.insert("http://dl.test/lunad".into(), (200, self.lunad.to_vec()));
+            if let Some(os) = self.os {
+                map.insert("http://dl.test/os".into(), (200, os.to_vec()));
+            }
+            let installer = Arc::new(RecInstaller::default());
+            let svc = UpdateService::with_keys(
+                Box::new(MapHttp { map }),
+                Box::new(installer.clone()),
+                FEED.into(),
+                "stable".into(),
+                vec![trusted],
+            );
+            (svc, installer)
+        }
     }
 
     #[test]
@@ -1445,278 +1347,271 @@ mod tests {
     }
 
     #[test]
-    fn discovers_newest_luna_tag_and_ignores_libreserv_tags() {
-        let api = "http://forgejo.test/api/v1";
-        let list = format!("{api}/repos/LibreLoom/LibreServ/releases?limit=50");
-        let sums_url =
-            "http://forgejo.test/LibreLoom/LibreServ/releases/download/luna-v0.2.0/SHA256SUMS.txt";
-        let sig_url = "http://forgejo.test/LibreLoom/LibreServ/releases/download/luna-v0.2.0/SHA256SUMS.txt.minisig";
-        let bin = binary_name();
-        let payload = b"fake-lunad-bytes";
-        let sum = {
-            let mut h = Sha256::new();
-            h.update(payload);
-            hex_lower(&h.finalize())
-        };
-        let sums = format!("{sum}  {bin}\n");
-        let (pk, sig) = ephemeral_sign(sums.as_bytes());
-        let mut map = HashMap::new();
-        map.insert(
-            list,
-            (
-                200,
-                json_releases(&["v1.9.0", "luna-v0.1.0", "luna-v0.2.0", "connect-2.0.0"]),
-            ),
-        );
-        map.insert(sums_url.to_string(), (200, sums.into_bytes()));
-        map.insert(sig_url.to_string(), (200, sig));
-        let svc = svc_with(
-            map,
-            Box::new(RecInstaller {
-                got: Mutex::new(Vec::new()),
-                os_got: Mutex::new(Vec::new()),
-                os_hash: Mutex::new(None),
-            }),
-            pk,
-        );
-        let info = svc.check("0.1.0", true).unwrap();
-        assert_eq!(info.latest_version, "luna-v0.2.0");
+    fn newer_feed_is_an_update() {
+        let (svc, _) = Release::default().service();
+        let info = svc.check("0.3.0", true).unwrap();
+        assert_eq!(info.latest_version, "0.4.0");
         assert!(info.update_available);
-        assert_eq!(info.checksum, sum);
+        assert!(!info.reboot_required);
+        assert_eq!(info.release_notes, "notes for 0.4.0");
+        assert_eq!(info.checksum, sha(b"lunad-v0.4.0"));
+        assert_eq!(info.binary_name, "lunad-linux-amd64-musl");
     }
 
     #[test]
-    fn apply_requires_matching_checksum() {
-        let bin = binary_name();
-        let payload = b"good-bytes";
-        let sum = {
-            let mut h = Sha256::new();
-            h.update(payload);
-            hex_lower(&h.finalize())
-        };
-        let sums = format!("{sum}  {bin}\n");
-        let (pk, sig) = ephemeral_sign(sums.as_bytes());
-        let got = std::sync::Arc::new(Mutex::new(Vec::new()));
-        struct ArcInst(std::sync::Arc<Mutex<Vec<u8>>>);
-        impl Installer for ArcInst {
-            fn install_lunad(&self, bytes: &[u8]) -> Result<(), UpdateError> {
-                *self.0.lock().unwrap() = bytes.to_vec();
-                Ok(())
-            }
+    fn same_or_lower_version_is_no_update_and_apply_refuses() {
+        let (svc, _) = Release::default().service();
+        for current in ["0.4.0", "0.5.0", "0.4.1"] {
+            assert!(
+                !svc.check(current, true).unwrap().update_available,
+                "{current}"
+            );
+            assert_eq!(svc.apply(current).unwrap_err(), UpdateError::NoneAvailable);
         }
-        let mut map = HashMap::new();
-        map.insert(
-            "http://forgejo.test/api/v1/repos/LibreLoom/LibreServ/releases?limit=50".into(),
-            (200, json_releases(&["luna-v0.2.0"])),
-        );
-        map.insert(
-            "http://forgejo.test/LibreLoom/LibreServ/releases/download/luna-v0.2.0/SHA256SUMS.txt"
-                .into(),
-            (200, sums.into_bytes()),
-        );
-        map.insert(
-            "http://forgejo.test/LibreLoom/LibreServ/releases/download/luna-v0.2.0/SHA256SUMS.txt.minisig"
-                .into(),
-            (200, sig),
-        );
-        map.insert(
-            format!("http://forgejo.test/LibreLoom/LibreServ/releases/download/luna-v0.2.0/{bin}"),
-            (200, payload.to_vec()),
-        );
-        let svc = svc_with(map, Box::new(ArcInst(got.clone())), pk);
-        svc.apply("0.1.0").unwrap();
-        assert_eq!(*got.lock().unwrap(), payload);
+        // A beta is below its release.
+        assert!(svc.check("0.4.0-beta.3", true).unwrap().update_available);
     }
 
     #[test]
-    fn apply_os_when_hash_differs() {
-        let bin = binary_name();
-        let lunad = b"lunad-v2";
-        let os_img = b"os-slot-image-bytes";
-        let lunad_sum = {
-            let mut h = Sha256::new();
-            h.update(lunad);
-            hex_lower(&h.finalize())
-        };
-        let os_sum = {
-            let mut h = Sha256::new();
-            h.update(os_img);
-            hex_lower(&h.finalize())
-        };
-        let sums = format!("{lunad_sum}  {bin}\n{os_sum}  {OS_IMAGE_NAME}\n");
-        let (pk, sig) = ephemeral_sign(sums.as_bytes());
-        let installer = RecInstaller {
-            got: Mutex::new(Vec::new()),
-            os_got: Mutex::new(Vec::new()),
-            os_hash: Mutex::new(Some("old-os-hash".into())),
-        };
-        let mut map = HashMap::new();
-        map.insert(
-            "http://forgejo.test/api/v1/repos/LibreLoom/LibreServ/releases?limit=50".into(),
-            (200, json_releases(&["luna-v0.2.0"])),
-        );
-        map.insert(
-            "http://forgejo.test/LibreLoom/LibreServ/releases/download/luna-v0.2.0/SHA256SUMS.txt"
-                .into(),
-            (200, sums.into_bytes()),
-        );
-        map.insert(
-            "http://forgejo.test/LibreLoom/LibreServ/releases/download/luna-v0.2.0/SHA256SUMS.txt.minisig"
-                .into(),
-            (200, sig),
-        );
-        map.insert(
-            format!("http://forgejo.test/LibreLoom/LibreServ/releases/download/luna-v0.2.0/{bin}"),
-            (200, lunad.to_vec()),
-        );
-        map.insert(
-            format!(
-                "http://forgejo.test/LibreLoom/LibreServ/releases/download/luna-v0.2.0/{OS_IMAGE_NAME}"
-            ),
-            (200, os_img.to_vec()),
-        );
-        let svc = svc_with(map, Box::new(installer), pk);
-        // Same lunad version but OS hash differs → still an update.
-        let info = svc.check("0.2.0", true).unwrap();
-        assert!(info.update_available);
-        assert!(info.reboot_required);
-        let applied = svc.apply("0.2.0").unwrap();
-        assert!(applied.reboot_required);
+    fn apply_installs_the_lunad_part() {
+        let (svc, inst) = Release::default().service();
+        let info = svc.apply("0.3.0").unwrap();
+        assert!(!info.reboot_required);
+        assert_eq!(*inst.lunad.lock().unwrap(), b"lunad-v0.4.0");
+        assert!(inst.os.lock().unwrap().is_empty());
     }
 
     #[test]
-    fn apply_rejects_bad_checksum() {
-        let bin = binary_name();
-        let sums = format!("deadbeef  {bin}\n");
-        let (pk, sig) = ephemeral_sign(sums.as_bytes());
+    fn apply_rejects_a_part_that_does_not_match_the_feed() {
+        let r = Release::default();
+        let KeyPair { pk, sk } = KeyPair::generate_unencrypted_keypair().unwrap();
+        // Same feed, but the server hands out different bytes of the same size.
+        let body = r.feed_json().into_bytes();
+        let sig = sign(&body, &sk);
         let mut map = HashMap::new();
+        map.insert(format!("{FEED}/luna/stable.json"), (200, body));
+        map.insert(format!("{FEED}/luna/stable.json.minisig"), (200, sig));
         map.insert(
-            "http://forgejo.test/api/v1/repos/LibreLoom/LibreServ/releases?limit=50".into(),
-            (200, json_releases(&["luna-v0.2.0"])),
+            "http://dl.test/lunad".into(),
+            (200, b"LUNAD-V0.4.0".to_vec()),
         );
-        map.insert(
-            "http://forgejo.test/LibreLoom/LibreServ/releases/download/luna-v0.2.0/SHA256SUMS.txt"
-                .into(),
-            (200, sums.into_bytes()),
+        let installer = Arc::new(RecInstaller::default());
+        let svc = UpdateService::with_keys(
+            Box::new(MapHttp { map }),
+            Box::new(installer.clone()),
+            FEED.into(),
+            "stable".into(),
+            vec![pk.to_base64()],
         );
-        map.insert(
-            "http://forgejo.test/LibreLoom/LibreServ/releases/download/luna-v0.2.0/SHA256SUMS.txt.minisig"
-                .into(),
-            (200, sig),
-        );
-        map.insert(
-            format!("http://forgejo.test/LibreLoom/LibreServ/releases/download/luna-v0.2.0/{bin}"),
-            (200, b"tampered".to_vec()),
-        );
-        let svc = svc_with(
-            map,
-            Box::new(RecInstaller {
-                got: Mutex::new(Vec::new()),
-                os_got: Mutex::new(Vec::new()),
-                os_hash: Mutex::new(None),
+        assert_eq!(svc.apply("0.3.0").unwrap_err(), UpdateError::Checksum);
+        assert!(installer.lunad.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn untrusted_or_missing_signature_installs_nothing() {
+        let r = Release::default();
+        let other = KeyPair::generate_unencrypted_keypair()
+            .unwrap()
+            .pk
+            .to_base64();
+        let KeyPair { sk, .. } = KeyPair::generate_unencrypted_keypair().unwrap();
+        let (svc, inst) = r.service_with(&sk, other);
+        assert_eq!(svc.apply("0.3.0").unwrap_err(), UpdateError::BadSignature);
+        assert!(inst.lunad.lock().unwrap().is_empty());
+
+        let svc = UpdateService::with_keys(
+            Box::new(MapHttp {
+                map: HashMap::from([(
+                    format!("{FEED}/luna/stable.json"),
+                    (200, r.feed_json().into_bytes()),
+                )]),
             }),
-            pk,
-        );
-        assert_eq!(svc.apply("0.1.0").unwrap_err(), UpdateError::Checksum);
-    }
-
-    #[test]
-    fn apply_rejects_missing_signature() {
-        let bin = binary_name();
-        let mut map = HashMap::new();
-        map.insert(
-            "http://forgejo.test/api/v1/repos/LibreLoom/LibreServ/releases?limit=50".into(),
-            (200, json_releases(&["luna-v0.2.0"])),
-        );
-        map.insert(
-            "http://forgejo.test/LibreLoom/LibreServ/releases/download/luna-v0.2.0/SHA256SUMS.txt"
-                .into(),
-            (200, format!("abc  {bin}\n").into_bytes()),
-        );
-        let svc = svc_with(
-            map,
-            Box::new(RecInstaller {
-                got: Mutex::new(Vec::new()),
-                os_got: Mutex::new(Vec::new()),
-                os_hash: Mutex::new(None),
-            }),
-            "RWnotarealkey".into(),
+            Box::new(Arc::new(RecInstaller::default())),
+            FEED.into(),
+            "stable".into(),
+            vec!["RWnotarealkey".into()],
         );
         assert_eq!(
-            svc.apply("0.1.0").unwrap_err(),
+            svc.apply("0.3.0").unwrap_err(),
             UpdateError::MissingSignature
         );
     }
 
     #[test]
-    fn apply_rejects_wrong_key() {
-        let bin = binary_name();
-        let sums = format!("deadbeef  {bin}\n");
-        let (_pk, sig) = ephemeral_sign(sums.as_bytes());
-        let other = ephemeral_sign(b"other").0;
-        let mut map = HashMap::new();
-        map.insert(
-            "http://forgejo.test/api/v1/repos/LibreLoom/LibreServ/releases?limit=50".into(),
-            (200, json_releases(&["luna-v0.2.0"])),
-        );
-        map.insert(
-            "http://forgejo.test/LibreLoom/LibreServ/releases/download/luna-v0.2.0/SHA256SUMS.txt"
-                .into(),
-            (200, sums.into_bytes()),
-        );
-        map.insert(
-            "http://forgejo.test/LibreLoom/LibreServ/releases/download/luna-v0.2.0/SHA256SUMS.txt.minisig"
-                .into(),
-            (200, sig),
-        );
-        let svc = svc_with(
-            map,
-            Box::new(RecInstaller {
-                got: Mutex::new(Vec::new()),
-                os_got: Mutex::new(Vec::new()),
-                os_hash: Mutex::new(None),
+    fn feed_for_another_unit_or_channel_is_refused() {
+        let (svc, _) = Release {
+            unit: "sol",
+            ..Release::default()
+        }
+        .service();
+        assert_eq!(svc.check("0.3.0", true).unwrap_err(), UpdateError::BadFeed);
+        let (svc, _) = Release {
+            channel: "beta",
+            ..Release::default()
+        }
+        .service();
+        assert_eq!(svc.check("0.3.0", true).unwrap_err(), UpdateError::BadFeed);
+    }
+
+    #[test]
+    fn unknown_format_is_refused_in_plain_words() {
+        let r = Release::default();
+        let body = r
+            .feed_json()
+            .replace(r#""format":1"#, r#""format":2"#)
+            .into_bytes();
+        let KeyPair { pk, sk } = KeyPair::generate_unencrypted_keypair().unwrap();
+        let sig = sign(&body, &sk);
+        let svc = UpdateService::with_keys(
+            Box::new(MapHttp {
+                map: HashMap::from([
+                    (format!("{FEED}/luna/stable.json"), (200, body)),
+                    (format!("{FEED}/luna/stable.json.minisig"), (200, sig)),
+                ]),
             }),
-            other,
+            Box::new(Arc::new(RecInstaller::default())),
+            FEED.into(),
+            "stable".into(),
+            vec![pk.to_base64()],
         );
-        assert_eq!(svc.apply("0.1.0").unwrap_err(), UpdateError::BadSignature);
+        assert_eq!(
+            svc.check("0.3.0", true).unwrap_err(),
+            UpdateError::UnknownFormat
+        );
     }
 
     #[test]
-    fn prerelease_luna_tags_are_skipped() {
-        let raw = br#"[{"tag_name":"luna-v9.0.0","body":"","html_url":"","prerelease":true,"draft":false},{"tag_name":"luna-v0.3.0","body":"ok","html_url":"u","prerelease":false,"draft":false},{"tag_name":"v0.4.0","body":"libreserv","html_url":"","prerelease":false,"draft":false},{"tag_name":"luna-0.9.0","body":"old prefix","html_url":"","prerelease":false,"draft":false}]"#;
-        let releases: Vec<ForgejoRelease> = serde_json::from_slice(raw).unwrap();
-        let latest = pick_latest_luna(&releases).unwrap();
-        assert_eq!(latest.tag_name, "luna-v0.3.0");
+    fn replayed_feed_is_refused_and_newest_published_is_remembered() {
+        let (svc, inst) = Release::default().service();
+        // Nothing seen yet: accepted, and the date is remembered per unit+channel.
+        svc.check("0.3.0", true).unwrap();
+        assert_eq!(
+            inst.read_feed_seen("luna", "stable").as_deref(),
+            Some("2026-10-12T14:03:00Z")
+        );
+        // Equal is fine.
+        svc.check("0.3.0", true).unwrap();
+        // A newer one seen elsewhere makes this feed a replay.
+        inst.write_feed_seen("luna", "stable", "2026-10-13T00:00:00Z")
+            .unwrap();
+        assert_eq!(svc.check("0.3.0", true).unwrap_err(), UpdateError::Replayed);
+        // The date never moves backwards.
+        assert_eq!(
+            inst.read_feed_seen("luna", "stable").as_deref(),
+            Some("2026-10-13T00:00:00Z")
+        );
+        // Another channel's state is separate.
+        assert_eq!(inst.read_feed_seen("luna", "beta"), None);
     }
 
     #[test]
-    fn data_dir_installer_writes_lunad_under_bin() {
+    fn os_part_with_a_different_hash_is_applied_and_hash_stored() {
+        let r = Release {
+            os: Some(b"os-image-v2"),
+            ..Release::default()
+        };
+        let (svc, inst) = r.service();
+        *inst.os_hash.lock().unwrap() = Some("old-os-hash".into());
+        // Same lunad version, different OS hash: still an update that reboots.
+        let info = svc.check("0.4.0", true).unwrap();
+        assert!(info.update_available);
+        assert!(info.reboot_required);
+        let applied = svc.apply("0.4.0").unwrap();
+        assert!(applied.reboot_required);
+        assert_eq!(*inst.os.lock().unwrap(), b"os-image-v2");
+        assert!(inst.lunad.lock().unwrap().is_empty(), "lunad is not newer");
+        assert_eq!(*inst.os_hash.lock().unwrap(), Some(sha(b"os-image-v2")));
+        // Applied: the next look finds nothing to do.
+        assert!(!svc.check("0.4.0", true).unwrap().update_available);
+    }
+
+    #[test]
+    fn os_part_is_skipped_when_hash_matches_unknown_or_feed_is_older() {
+        let r = Release {
+            os: Some(b"os-image-v2"),
+            ..Release::default()
+        };
+        let (svc, inst) = r.service();
+        // Matching hash.
+        *inst.os_hash.lock().unwrap() = Some(sha(b"os-image-v2"));
+        assert!(!svc.check("0.4.0", true).unwrap().update_available);
+        // No recorded hash: never surprise a box with a re-flash.
+        *inst.os_hash.lock().unwrap() = None;
+        assert!(!svc.check("0.4.0", true).unwrap().update_available);
+        // Feed older than what is running: never go backwards, OS included.
+        *inst.os_hash.lock().unwrap() = Some("different".into());
+        assert!(!svc.check("0.5.0", true).unwrap().update_available);
+    }
+
+    #[test]
+    fn xz_image_is_decompressed_as_a_stream() {
+        let dir = tempfile::tempdir().unwrap();
+        let image: Vec<u8> = (0..300_000u32).map(|i| (i % 251) as u8).collect();
+        let xz = dir.path().join("os.img.xz");
+        {
+            let mut w = lzma_rust2::XzWriter::new(
+                std::fs::File::create(&xz).unwrap(),
+                lzma_rust2::XzOptions::with_preset(1),
+            )
+            .unwrap();
+            w.write_all(&image).unwrap();
+            w.finish().unwrap();
+        }
+        let out = dir.path().join("slot");
+        decompress_xz_streaming(&xz, &out, 1 << 20).unwrap();
+        assert_eq!(std::fs::read(&out).unwrap(), image);
+
+        // Over the cap: refused rather than written past the slot.
+        let capped = dir.path().join("capped");
+        let err = decompress_xz_streaming(&xz, &capped, 1000).unwrap_err();
+        assert!(matches!(err, UpdateError::Other(m) if m.contains("larger")));
+
+        // Not xz at all.
+        let junk = dir.path().join("junk.xz");
+        std::fs::write(&junk, b"definitely not xz data").unwrap();
+        assert!(decompress_xz_streaming(&junk, &dir.path().join("o2"), 1 << 20).is_err());
+    }
+
+    #[test]
+    fn data_dir_installer_remembers_hash_and_feed_dates() {
         let dir = tempfile::tempdir().unwrap();
         let inst = DataDirInstaller::new(dir.path());
         inst.install_lunad(b"hello-lunad").unwrap();
-        let path = dir.path().join("bin/lunad");
-        assert_eq!(std::fs::read(&path).unwrap(), b"hello-lunad");
+        assert_eq!(
+            std::fs::read(dir.path().join("bin/lunad")).unwrap(),
+            b"hello-lunad"
+        );
         inst.write_os_hash("abc123").unwrap();
         assert_eq!(inst.read_os_hash().as_deref(), Some("abc123"));
+
+        assert_eq!(inst.read_feed_seen("luna", "stable"), None);
+        inst.write_feed_seen("luna", "stable", "2026-10-12T14:03:00Z")
+            .unwrap();
+        inst.write_feed_seen("luna", "beta", "2026-10-14T00:00:00Z")
+            .unwrap();
+        let again = DataDirInstaller::new(dir.path());
+        assert_eq!(
+            again.read_feed_seen("luna", "stable").as_deref(),
+            Some("2026-10-12T14:03:00Z")
+        );
+        assert_eq!(
+            again.read_feed_seen("luna", "beta").as_deref(),
+            Some("2026-10-14T00:00:00Z")
+        );
     }
 
     #[test]
     fn settings_round_trip_through_db() {
         let dir = tempfile::tempdir().unwrap();
         let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
-        // Nothing stored yet → defaults.
         assert!(load_settings(&conn).is_none());
-
         let settings = UpdateSettings {
-            api_base: "https://staging.forgejo.test/api/v1".into(),
-            owner: "MyOrg".into(),
-            repo: "LunaFork".into(),
+            feed_url: "https://staging.feeds.test/feeds".into(),
+            channel: "beta".into(),
             keys: vec!["RWnotarealkey".into()],
         };
         save_settings(&conn, &settings).unwrap();
         assert_eq!(load_settings(&conn).unwrap(), settings);
-
-        // Saving all-defaults clears the row again.
         save_settings(&conn, &UpdateSettings::default()).unwrap();
         assert!(load_settings(&conn).is_none());
     }
@@ -1734,81 +1629,95 @@ mod tests {
     fn from_db_uses_stored_source_and_falls_back_to_defaults() {
         let dir = tempfile::tempdir().unwrap();
         let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
-        let key = ephemeral_sign(b"x").0;
+        let key = KeyPair::generate_unencrypted_keypair()
+            .unwrap()
+            .pk
+            .to_base64();
         save_settings(
             &conn,
             &UpdateSettings {
-                api_base: "https://staging.forgejo.test/api/v1".into(),
-                owner: "MyOrg".into(),
-                repo: "LunaFork".into(),
+                feed_url: "https://staging.feeds.test/feeds/".into(),
+                channel: "beta".into(),
                 keys: vec![key.clone()],
             },
         )
         .unwrap();
         let svc = UpdateService::from_db(&conn, dir.path());
         let got = svc.settings();
-        assert_eq!(got.api_base, "https://staging.forgejo.test/api/v1");
-        assert_eq!(got.owner, "MyOrg");
-        assert_eq!(got.repo, "LunaFork");
+        assert_eq!(got.feed_url, "https://staging.feeds.test/feeds");
+        assert_eq!(got.channel, "beta");
         assert_eq!(got.keys, vec![key]);
         assert!(!svc.using_default_keys());
 
-        // No stored row → compiled-in defaults, default key.
         let conn2 = crate::db::open(&dir.path().join("luna2.db")).unwrap();
         let svc2 = UpdateService::from_db(&conn2, dir.path());
         let got2 = svc2.settings();
-        assert_eq!(got2.owner, DEFAULT_OWNER);
-        assert_eq!(got2.repo, DEFAULT_REPO);
+        assert_eq!(got2.feed_url, DEFAULT_FEED_URL);
+        assert_eq!(got2.channel, "stable");
         assert!(svc2.using_default_keys());
     }
 
     #[test]
     fn validate_settings_rejects_bad_input() {
         let base = UpdateSettings {
-            api_base: "https://forgejo.test/api/v1".into(),
-            owner: "MyOrg".into(),
-            repo: "LunaFork".into(),
+            feed_url: "https://feeds.test/feeds".into(),
+            channel: "stable".into(),
             keys: vec![],
         };
         assert!(validate_settings(&base).is_ok());
+        let beta = UpdateSettings {
+            channel: "beta".into(),
+            ..base.clone()
+        };
+        assert!(validate_settings(&beta).is_ok());
+        let nightly = UpdateSettings {
+            channel: "nightly".into(),
+            ..base.clone()
+        };
+        assert!(validate_settings(&nightly).is_err());
+        let empty_channel = UpdateSettings {
+            channel: "".into(),
+            ..base.clone()
+        };
+        assert!(validate_settings(&empty_channel).is_err());
+        let empty = UpdateSettings {
+            feed_url: "".into(),
+            ..base.clone()
+        };
+        assert!(validate_settings(&empty).is_err());
         let no_scheme = UpdateSettings {
-            api_base: "ftp://forgejo.test".into(),
+            feed_url: "ftp://feeds.test".into(),
             ..base.clone()
         };
         assert!(validate_settings(&no_scheme).is_err());
-        let no_owner = UpdateSettings {
-            owner: "".into(),
-            ..base.clone()
-        };
-        assert!(validate_settings(&no_owner).is_err());
         let bad_key = UpdateSettings {
             keys: vec!["not-a-key".into()],
             ..base.clone()
         };
         assert!(validate_settings(&bad_key).is_err());
         let private_host = UpdateSettings {
-            api_base: "https://192.168.1.10/api/v1".into(),
+            feed_url: "https://192.168.1.10/feeds".into(),
             ..base.clone()
         };
         assert!(validate_settings(&private_host).is_err());
         // Plain http is allowed for a source on this machine/network only.
-        let loopback_host = UpdateSettings {
-            api_base: "http://127.0.0.1:3000/api/v1".into(),
-            ..base.clone()
-        };
-        assert!(validate_settings(&loopback_host).is_ok());
-        let lan_host = UpdateSettings {
-            api_base: "http://192.168.1.10/api/v1".into(),
-            ..base.clone()
-        };
-        assert!(validate_settings(&lan_host).is_ok());
+        for ok in ["http://127.0.0.1:3000/feeds", "http://192.168.1.10/feeds"] {
+            let s = UpdateSettings {
+                feed_url: ok.into(),
+                ..base.clone()
+            };
+            assert!(validate_settings(&s).is_ok(), "{ok}");
+        }
         let public_http = UpdateSettings {
-            api_base: "http://203.0.113.10/api/v1".into(),
+            feed_url: "http://203.0.113.10/feeds".into(),
             ..base.clone()
         };
         assert!(validate_settings(&public_http).is_err());
         // A whole pub file (comment + key) is accepted, comment dropped.
-        let real = ephemeral_sign(b"x").0;
+        let real = KeyPair::generate_unencrypted_keypair()
+            .unwrap()
+            .pk
+            .to_base64();
         let file = UpdateSettings {
             keys: vec![format!("untrusted comment: x\n{real}\n")],
             ..base
@@ -1817,238 +1726,54 @@ mod tests {
     }
 
     #[test]
-    fn fetch_repo_signing_keys_reads_main_lsluna_pub() {
-        let pk = ephemeral_sign(b"x").0;
-        let pub_file = format!("untrusted comment: luna release key\n{pk}\n");
-        let mut map = HashMap::new();
-        map.insert(
-            "http://forgejo.test/LibreLoom/LibreServ/raw/branch/main/keys/lsluna.minisign.pub"
-                .into(),
-            (200, pub_file.into_bytes()),
-        );
-        let keys = fetch_repo_signing_keys(
-            &MapHttp { map },
-            "http://forgejo.test/api/v1",
-            "LibreLoom",
-            "LibreServ",
-        )
-        .unwrap();
-        assert_eq!(keys, vec![pk]);
-    }
-
-    #[test]
-    fn fetch_repo_signing_keys_falls_back_to_master_and_libreserv_file() {
-        let pk = ephemeral_sign(b"y").0;
-        let pub_file = format!("{pk}\n");
-        let mut map = HashMap::new();
-        map.insert(
-            "http://forgejo.test/MyOrg/LunaFork/raw/branch/main/keys/lsluna.minisign.pub".into(),
-            (404, b"not found".to_vec()),
-        );
-        map.insert(
-            "http://forgejo.test/MyOrg/LunaFork/raw/branch/main/keys/libreserv.minisign.pub".into(),
-            (404, b"not found".to_vec()),
-        );
-        map.insert(
-            "http://forgejo.test/MyOrg/LunaFork/raw/branch/master/keys/libreserv.minisign.pub"
-                .into(),
-            (200, pub_file.into_bytes()),
-        );
-        let keys = fetch_repo_signing_keys(
-            &MapHttp { map },
-            "http://forgejo.test/api/v1/",
-            " MyOrg ",
-            "LunaFork",
-        )
-        .unwrap();
-        assert_eq!(keys, vec![pk]);
-    }
-
-    #[test]
-    fn fetch_repo_signing_keys_merges_both_files() {
-        let a = ephemeral_sign(b"a").0;
-        let b = ephemeral_sign(b"b").0;
-        let mut map = HashMap::new();
-        map.insert(
-            "https://gt.plainskill.net/LibreLoom/LibreServ/raw/branch/main/keys/lsluna.minisign.pub"
-                .into(),
-            (200, format!("{a}\n").into_bytes()),
-        );
-        map.insert(
-            "https://gt.plainskill.net/LibreLoom/LibreServ/raw/branch/main/keys/libreserv.minisign.pub"
-                .into(),
-            (200, format!("{b}\n").into_bytes()),
-        );
-        let keys = fetch_repo_signing_keys(
-            &MapHttp { map },
-            "https://gt.plainskill.net/api/v1",
-            "LibreLoom",
-            "LibreServ",
-        )
-        .unwrap();
-        assert_eq!(keys, vec![a, b]);
-    }
-
-    #[test]
-    fn fetch_repo_signing_keys_errors_when_no_rw_keys() {
-        let mut map = HashMap::new();
-        map.insert(
-            "http://forgejo.test/LibreLoom/LibreServ/raw/branch/main/keys/lsluna.minisign.pub"
-                .into(),
-            (200, b"untrusted comment: empty\n".to_vec()),
-        );
-        let err = fetch_repo_signing_keys(
-            &MapHttp { map },
-            "http://forgejo.test/api/v1",
-            "LibreLoom",
-            "LibreServ",
-        )
-        .unwrap_err();
-        assert!(err.contains("couldn't get signing keys"));
-    }
-
-    #[test]
-    fn fetch_repo_signing_keys_validates_source_like_save() {
-        let http = MapHttp {
-            map: HashMap::new(),
-        };
-        assert!(fetch_repo_signing_keys(&http, "ftp://nope", "o", "r").is_err());
-        assert!(fetch_repo_signing_keys(&http, "", "o", "r").is_err());
-        assert!(fetch_repo_signing_keys(&http, "https://a.test/api/v1", "", "r").is_err());
-        assert!(fetch_repo_signing_keys(&http, "https://a.test/api/v1", "o", "").is_err());
-    }
-
-    #[test]
-    fn apply_verifies_release_signed_with_custom_key() {
-        // A release signed by a non-default key installs when that key is
-        // configured — the acceptance case for repointing at a staging Forgejo.
-        let bin = binary_name();
-        let payload = b"custom-keyed-lunad";
-        let sum = {
-            let mut h = Sha256::new();
-            h.update(payload);
-            hex_lower(&h.finalize())
-        };
-        let sums = format!("{sum}  {bin}\n");
-        let (custom_pk, sig) = ephemeral_sign(sums.as_bytes());
-        let mut map = HashMap::new();
-        map.insert(
-            "http://staging.forgejo.test/api/v1/repos/MyOrg/LunaFork/releases?limit=50".into(),
-            (200, json_releases(&["luna-v0.6.0"])),
-        );
-        map.insert(
-            "http://staging.forgejo.test/MyOrg/LunaFork/releases/download/luna-v0.6.0/SHA256SUMS.txt"
-                .into(),
-            (200, sums.into_bytes()),
-        );
-        map.insert(
-            "http://staging.forgejo.test/MyOrg/LunaFork/releases/download/luna-v0.6.0/SHA256SUMS.txt.minisig"
-                .into(),
-            (200, sig),
-        );
-        map.insert(
-            format!(
-                "http://staging.forgejo.test/MyOrg/LunaFork/releases/download/luna-v0.6.0/{bin}"
-            ),
-            (200, payload.to_vec()),
-        );
-        let svc = UpdateService::with_keys(
-            Box::new(MapHttp { map }),
-            Box::new(RecInstaller {
-                got: Mutex::new(Vec::new()),
-                os_got: Mutex::new(Vec::new()),
-                os_hash: Mutex::new(None),
-            }),
-            "http://staging.forgejo.test/api/v1".into(),
-            "MyOrg".into(),
-            "LunaFork".into(),
-            vec![custom_pk],
-        );
-        let info = svc.apply("0.1.0").unwrap();
-        assert_eq!(info.checksum, sum);
+    fn custom_source_with_custom_key_installs() {
+        // The acceptance case for pointing Luna at a staging feed.
+        let (svc, inst) = Release::default().service();
         assert!(!svc.using_default_keys());
+        svc.apply("0.1.0").unwrap();
+        assert_eq!(*inst.lunad.lock().unwrap(), b"lunad-v0.4.0");
     }
 
     #[test]
     fn reconfigure_swaps_source_and_clears_cache() {
-        let bin = binary_name();
-        let payload = b"staged-lunad";
-        let sum = {
-            let mut h = Sha256::new();
-            h.update(payload);
-            hex_lower(&h.finalize())
-        };
-        let sums = format!("{sum}  {bin}\n");
-        let (pk, sig) = ephemeral_sign(sums.as_bytes());
+        let r = Release::default();
+        let KeyPair { pk, sk } = KeyPair::generate_unencrypted_keypair().unwrap();
+        let body = r.feed_json().into_bytes();
+        let sig = sign(&body, &sk);
+        let beta_body = Release {
+            channel: "beta",
+            version: "0.5.0-beta.1",
+            ..Release::default()
+        }
+        .feed_json()
+        .into_bytes();
+        let beta_sig = sign(&beta_body, &sk);
         let mut map = HashMap::new();
-        // Both the default source and a staging source; the staging release
-        // list has a newer tag.
+        map.insert(format!("{FEED}/luna/stable.json"), (200, body));
+        map.insert(format!("{FEED}/luna/stable.json.minisig"), (200, sig));
+        map.insert("http://other.test/luna/beta.json".into(), (200, beta_body));
         map.insert(
-            "http://forgejo.test/api/v1/repos/LibreLoom/LibreServ/releases?limit=50".into(),
-            (200, json_releases(&["luna-v0.2.0"])),
-        );
-        map.insert(
-            "http://staging.forgejo.test/api/v1/repos/MyOrg/LunaFork/releases?limit=50".into(),
-            (200, json_releases(&["luna-v9.9.9"])),
-        );
-        map.insert(
-            "http://staging.forgejo.test/MyOrg/LunaFork/releases/download/luna-v9.9.9/SHA256SUMS.txt"
-                .into(),
-            (200, sums.into_bytes()),
-        );
-        map.insert(
-            "http://staging.forgejo.test/MyOrg/LunaFork/releases/download/luna-v9.9.9/SHA256SUMS.txt.minisig"
-                .into(),
-            (200, sig),
+            "http://other.test/luna/beta.json.minisig".into(),
+            (200, beta_sig),
         );
         let svc = UpdateService::with_keys(
             Box::new(MapHttp { map }),
-            Box::new(RecInstaller {
-                got: Mutex::new(Vec::new()),
-                os_got: Mutex::new(Vec::new()),
-                os_hash: Mutex::new(None),
-            }),
-            "http://forgejo.test/api/v1".into(),
-            "LibreLoom".into(),
-            "LibreServ".into(),
-            vec![pk.clone()],
+            Box::new(Arc::new(RecInstaller::default())),
+            FEED.into(),
+            "stable".into(),
+            vec![pk.to_base64()],
         );
-        let before = svc.check("0.1.0", false).unwrap();
-        assert_eq!(before.latest_version, "luna-v0.2.0");
+        assert_eq!(svc.check("0.3.0", false).unwrap().latest_version, "0.4.0");
         // The hour-long cache holds that result.
-        let cached = svc.check("0.1.0", false).unwrap();
-        assert_eq!(cached.latest_version, "luna-v0.2.0");
-
-        // Admin points Luna at staging → cache clears, next check hits the
-        // new source.
+        assert_eq!(svc.check("0.3.0", false).unwrap().latest_version, "0.4.0");
         svc.reconfigure(
-            "http://staging.forgejo.test/api/v1".into(),
-            "MyOrg".into(),
-            "LunaFork".into(),
-            vec![pk],
+            "http://other.test".into(),
+            "beta".into(),
+            vec![pk.to_base64()],
         );
-        let after = svc.check("0.1.0", false).unwrap();
-        assert_eq!(after.latest_version, "luna-v9.9.9");
-        assert_eq!(after.checksum, sum);
-    }
-
-    #[test]
-    fn checksum_matches_exact_basename_only() {
-        let sums = b"aaaa  luna-os-x86_64.img\nbbbb  luna-os-x86_64.img.minisig\ncccc  xlunad-linux-amd64\n";
         assert_eq!(
-            checksum_for_name(sums, "luna-os-x86_64.img").unwrap(),
-            "aaaa"
-        );
-        // Names that merely contain the needle must not match.
-        assert!(matches!(
-            checksum_for_name(sums, "lunad-linux-amd64"),
-            Err(UpdateError::MissingChecksum)
-        ));
-        // Path prefixes and the sha256sum `*` binary marker still resolve.
-        let pathy = b"dddd  ./rel/lunad-linux-amd64\neeee *lunad-linux-amd64\n";
-        assert_eq!(
-            checksum_for_name(pathy, "lunad-linux-amd64").unwrap(),
-            "dddd"
+            svc.check("0.3.0", false).unwrap().latest_version,
+            "0.5.0-beta.1"
         );
     }
 }

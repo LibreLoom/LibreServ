@@ -8,17 +8,16 @@ import AboutCategory from "./AboutCategory";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 
 const SHIPPED_KEY = "RWBUILTIN";
+const FEED_URL = "https://gt.plainskill.net/LibreLoom/LibreServ/raw/branch/feeds";
 const SOURCE_RESPONSE = {
-  api_base: "https://gt.plainskill.net/api/v1",
-  owner: "LibreLoom",
-  repo: "LibreServ",
+  feed_url: FEED_URL,
+  channel: "stable",
   keys: [],
   effective_keys: [SHIPPED_KEY],
   default_keys: true,
   defaults: {
-    api_base: "https://gt.plainskill.net/api/v1",
-    owner: "LibreLoom",
-    repo: "LibreServ",
+    feed_url: FEED_URL,
+    channel: "stable",
     keys: [SHIPPED_KEY],
   },
 };
@@ -77,12 +76,6 @@ function stubFetch(sourceBody) {
         { status: 200, headers: { "Content-Type": "application/json" } },
       );
     }
-    if (path.startsWith("/api/v1/system/updates/source/keys")) {
-      return new Response(JSON.stringify({ keys: ["RWFROMREPO"] }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
     if (path.startsWith("/api/v1/system/updates/source")) {
       return new Response(JSON.stringify(sourceBody ?? SOURCE_RESPONSE), {
         status: 200,
@@ -92,10 +85,9 @@ function stubFetch(sourceBody) {
     return new Response(
       JSON.stringify({
         current_version: "0.1.0",
-        latest_version: "luna-v0.1.0",
+        latest_version: "0.1.0",
         update_available: false,
         release_notes: "",
-        url: "",
         checksum: "",
         binary_name: "lunad-linux-amd64",
         reboot_required: false,
@@ -103,6 +95,16 @@ function stubFetch(sourceBody) {
       { status: 200, headers: { "Content-Type": "application/json" } },
     );
   });
+}
+
+async function openAdvanced(user) {
+  await user.click(await screen.findByRole("button", { name: /^Update source$/i }));
+  await user.click(await screen.findByRole("button", { name: /Feed address and signing keys/i }));
+}
+
+async function openEditor(user) {
+  await openAdvanced(user);
+  await user.click(await screen.findByRole("button", { name: /Edit update source/i }));
 }
 
 function renderPage(fetchImpl) {
@@ -140,7 +142,7 @@ describe("AboutCategory", () => {
     expect(await screen.findByRole("heading", { name: "System updates" })).toBeTruthy();
     expect(await screen.findByRole("button", { name: /Check for updates/i })).toBeTruthy();
     expect(screen.getByText("Default source")).toBeTruthy();
-    expect(screen.getByText("LibreLoom/LibreServ")).toBeTruthy();
+    expect(screen.getByText(FEED_URL)).toBeTruthy();
     expect(await screen.findByRole("heading", { name: "System checks" })).toBeTruthy();
   });
 
@@ -254,74 +256,44 @@ describe("AboutCategory", () => {
   });
 
   it("flags a custom source when keys differ from the built-in key", async () => {
+    const user = userEvent.setup();
     renderPage(stubFetch({
       ...SOURCE_RESPONSE,
-      api_base: "https://staging.forgejo.test/api/v1",
-      owner: "MyOrg",
-      repo: "LunaFork",
+      feed_url: "https://staging.feeds.test/feeds",
       keys: ["RWCUSTOM"],
       effective_keys: ["RWCUSTOM"],
       default_keys: false,
     }));
+    await openAdvanced(user);
     expect(await screen.findByText("Custom source")).toBeTruthy();
-    expect(screen.getByText("MyOrg/LunaFork")).toBeTruthy();
+    expect(screen.getByText("https://staging.feeds.test/feeds")).toBeTruthy();
   });
 
   it("opens the edit modal with the warning copy and prefilled fields", async () => {
     const user = userEvent.setup();
     renderPage(stubFetch());
-    await screen.findByText("Default source");
-    await user.click(screen.getByRole("button", { name: /^Update source$/i }));
-    await user.click(screen.getByRole("button", { name: /Edit update source/i }));
+    await openEditor(user);
 
     expect(
       await screen.findByText(/Only change these if your updates come from somewhere else/i),
     ).toBeTruthy();
     expect(screen.getByLabelText(/What these settings control/i)).toBeTruthy();
-    const apiInput = /** @type {HTMLInputElement} */ (
-      screen.getByPlaceholderText("https://gt.plainskill.net/api/v1")
-    );
-    expect(apiInput.value).toBe("https://gt.plainskill.net/api/v1");
-    expect(/** @type {HTMLInputElement} */ (screen.getByPlaceholderText("LibreLoom")).value).toBe(
-      "LibreLoom",
-    );
-    expect(/** @type {HTMLInputElement} */ (screen.getByPlaceholderText("LibreServ")).value).toBe(
-      "LibreServ",
-    );
+    const feedInput = /** @type {HTMLInputElement} */ (screen.getByPlaceholderText(FEED_URL));
+    expect(feedInput.value).toBe(FEED_URL);
     const keysField = /** @type {HTMLTextAreaElement} */ (
       screen.getByRole("textbox", { name: /Signing keys/i })
     );
     expect(keysField.value).toBe(SHIPPED_KEY);
   });
 
-  it("prefills the shipped key when stored keys are empty", async () => {
-    const user = userEvent.setup();
-    renderPage(stubFetch({
-      ...SOURCE_RESPONSE,
-      keys: [],
-      effective_keys: [SHIPPED_KEY],
-      default_keys: true,
-    }));
-    await screen.findByText("Default source");
-    await user.click(screen.getByRole("button", { name: /^Update source$/i }));
-    await user.click(screen.getByRole("button", { name: /Edit update source/i }));
-    const keysField = /** @type {HTMLTextAreaElement} */ (
-      screen.getByRole("textbox", { name: /Signing keys/i })
-    );
-    expect(keysField.value).toBe(SHIPPED_KEY);
-  });
-
-  it("saves the new source with a PUT and closes the modal", async () => {
+  it("saves the new feed address with a PUT and closes the modal", async () => {
     const user = userEvent.setup();
     const fetchImpl = stubFetch();
     renderPage(fetchImpl);
-    await screen.findByText("Default source");
-    await user.click(screen.getByRole("button", { name: /^Update source$/i }));
-    await user.click(screen.getByRole("button", { name: /Edit update source/i }));
-    await screen.findByText(/Only change these if your updates come from somewhere else/i);
+    await openEditor(user);
 
-    await user.clear(screen.getByPlaceholderText("LibreLoom"));
-    await user.type(screen.getByPlaceholderText("LibreLoom"), "MyOrg");
+    await user.clear(screen.getByPlaceholderText(FEED_URL));
+    await user.type(screen.getByPlaceholderText(FEED_URL), "https://staging.feeds.test/feeds");
     await user.click(screen.getByRole("button", { name: /Save changes/i }));
 
     const calls = /** @type {[string, any][]} */ (fetchImpl.mock.calls);
@@ -330,17 +302,17 @@ describe("AboutCategory", () => {
     );
     expect(put).toBeTruthy();
     const body = JSON.parse(put?.[1]?.body ?? "{}");
-    expect(body.owner).toBe("MyOrg");
-    expect(body.repo).toBe("LibreServ");
-    expect(body.keys).toEqual([]);
+    expect(body).toEqual({
+      feed_url: "https://staging.feeds.test/feeds",
+      channel: "stable",
+      keys: [],
+    });
   });
 
   it("blocks a save with an invalid signing key", async () => {
     const user = userEvent.setup();
     renderPage(stubFetch());
-    await screen.findByText("Default source");
-    await user.click(screen.getByRole("button", { name: /^Update source$/i }));
-    await user.click(screen.getByRole("button", { name: /Edit update source/i }));
+    await openEditor(user);
 
     const keysField = await screen.findByRole("textbox", { name: /Signing keys/i });
     await user.clear(keysField);
@@ -348,34 +320,5 @@ describe("AboutCategory", () => {
     await user.click(screen.getByRole("button", { name: /Save changes/i }));
 
     expect(await screen.findByText(/not a valid minisign public key/i)).toBeTruthy();
-  });
-
-  it("fetches signing keys from the current form values into the textarea", async () => {
-    const user = userEvent.setup();
-    const fetchImpl = stubFetch();
-    renderPage(fetchImpl);
-    await screen.findByText("Default source");
-    await user.click(screen.getByRole("button", { name: /^Update source$/i }));
-    await user.click(screen.getByRole("button", { name: /Edit update source/i }));
-
-    expect(screen.getByRole("button", { name: /Fetch from repo/i })).toBeTruthy();
-    await user.clear(screen.getByPlaceholderText("LibreLoom"));
-    await user.type(screen.getByPlaceholderText("LibreLoom"), "MyOrg");
-    await user.click(screen.getByRole("button", { name: /Fetch from repo/i }));
-
-    const keysField = /** @type {HTMLTextAreaElement} */ (
-      screen.getByRole("textbox", { name: /Signing keys/i })
-    );
-    await waitFor(() => expect(keysField.value).toBe("RWFROMREPO"));
-
-    const calls = /** @type {[string, any][]} */ (fetchImpl.mock.calls);
-    const post = calls.find(
-      ([path, options]) => path.endsWith("/updates/source/keys") && options?.method === "POST",
-    );
-    expect(post).toBeTruthy();
-    const body = JSON.parse(post?.[1]?.body ?? "{}");
-    expect(body.api_base).toBe("https://gt.plainskill.net/api/v1");
-    expect(body.owner).toBe("MyOrg");
-    expect(body.repo).toBe("LibreServ");
   });
 });

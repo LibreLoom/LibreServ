@@ -7,10 +7,9 @@ import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 
 const UP_TO_DATE = {
   current_version: "0.1.0",
-  latest_version: "luna-v0.1.0",
+  latest_version: "0.1.0",
   update_available: false,
   release_notes: "",
-  url: "",
   checksum: "",
   binary_name: "lunad-linux-amd64",
   reboot_required: false,

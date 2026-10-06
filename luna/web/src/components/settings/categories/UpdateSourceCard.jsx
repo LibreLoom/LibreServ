@@ -1,19 +1,23 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, GitBranch } from "lucide-react";
+import { AlertTriangle, Rss } from "lucide-react";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import CollapsibleSection from "@libreloom/ui/components/common/CollapsibleSection.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
+import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
 import ConnectDeviceCodeForm from "../ConnectDeviceCodeForm.jsx";
-import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
-import { getJson, putJson, postJson, apiErrorMessage } from "../../../lib/api";
+import { InfoHint, TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
+import { getJson, putJson, apiErrorMessage } from "../../../lib/api";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
+
+const DEFAULT_FEED_PLACEHOLDER =
+  "https://gt.plainskill.net/LibreLoom/LibreServ/raw/branch/feeds";
 
 const INPUT_CLASS =
   "w-full min-w-0 rounded-pill surface-primary px-4 py-2 font-mono";
@@ -40,8 +44,14 @@ function signingKeysForSave(keyLines, source) {
   return trimmed;
 }
 
+const CHANNEL_OPTIONS = [
+  { value: "stable", label: "Stable" },
+  { value: "beta", label: "Beta" },
+];
+
 export default function UpdateSourceCard({ index = 3 }) {
   const queryClient = useQueryClient();
+  const { addToast } = useToast();
   const [modalOpen, setModalOpen] = useState(false);
   const [connectModalOpen, setConnectModalOpen] = useState(false);
   const source = useQuery({
@@ -52,11 +62,29 @@ export default function UpdateSourceCard({ index = 3 }) {
   const s = source.data || {};
   const customized =
     source.data != null &&
-    (!s.default_keys ||
-      (s.defaults &&
-        (s.api_base !== s.defaults.api_base ||
-          s.owner !== s.defaults.owner ||
-          s.repo !== s.defaults.repo)));
+    (!s.default_keys || (s.defaults && s.feed_url !== s.defaults.feed_url));
+
+  const onSaved = (data) => {
+    queryClient.setQueryData(["updates-source"], (old) => {
+      const prev = /** @type {Record<string, unknown>} */ (old || {});
+      return { ...prev, ...data };
+    });
+    queryClient.invalidateQueries({ queryKey: ["updates-source"] });
+    queryClient.invalidateQueries({ queryKey: ["system-updates"] });
+  };
+
+  const changeChannel = useMutation({
+    mutationFn: (/** @type {string} */ channel) =>
+      putJson("/api/v1/system/updates/source", {
+        feed_url: s.feed_url,
+        channel,
+        keys: signingKeysForSave(signingKeysForDisplay(s), s),
+      }),
+    onSuccess: (data) => {
+      addToast({ type: "success", message: "Update channel saved." });
+      onSaved(data);
+    },
+  });
 
   return (
     <SettingsCard icon={AlertTriangle} title="Advanced" padding={false} index={index}>
@@ -78,35 +106,59 @@ export default function UpdateSourceCard({ index = 3 }) {
         </CollapsibleSection>
 
         <CollapsibleSection title="Update source" mono pill>
-          <div className="p-4 mb-3 rounded-large-element bg-warning/20 border-2 border-warning/30">
-            <div className="flex items-center gap-3">
-              <AlertTriangle size={ICON_SIZE.lg} className="text-warning flex-shrink-0" aria-hidden="true" />
-              <p className="text-sm text-primary font-semibold">
-                Only change these if your updates come from somewhere else.{" "}
+          <div className="space-y-4 mb-1">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="text-primary text-sm">
+                Update channel{" "}
                 <InfoHint
-                  label="What these settings control"
-                  content="They control where Luna itself gets its software updates — not your files, photos, or backups. A wrong value can stop Luna from updating, so leave these as-is unless you're pointing Luna at a different update source."
+                  label="What the update channel is"
+                  content="Stable gets releases once they are tested. Beta gets new versions sooner and may have bugs. You can switch back to Stable at any time; Luna never installs an older version."
                 />
-              </p>
+              </div>
+              <SegmentedControl
+                aria-label="Update channel"
+                surface="secondary"
+                value={s.channel || "stable"}
+                options={CHANNEL_OPTIONS}
+                onChange={(channel) => {
+                  if (source.data && channel !== s.channel) changeChannel.mutate(channel);
+                }}
+              />
             </div>
+            {changeChannel.isError && (
+              <PageNotice variant="error">{apiErrorMessage(changeChannel.error)}</PageNotice>
+            )}
+
+            <CollapsibleSection title="Feed address and signing keys" size="xs" pill>
+              <div className="p-4 mb-3 rounded-large-element bg-warning/20 border-2 border-warning/30">
+                <div className="flex items-center gap-3">
+                  <AlertTriangle size={ICON_SIZE.lg} className="text-warning flex-shrink-0" aria-hidden="true" />
+                  <p className="text-sm text-primary font-semibold">
+                    Only change these if your updates come from somewhere else.{" "}
+                    <InfoHint
+                      label="What these settings control"
+                      content="They control where Luna itself gets its software updates — not your files, photos, or backups. A wrong value can stop Luna from updating, so leave these as-is unless you're pointing Luna at a different update source."
+                    />
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 mb-3">
+                <Pill variant={customized ? "warning" : "success"}>
+                  {customized ? "Custom source" : "Default source"}
+                </Pill>
+                <InlinePill className="break-all">{s.feed_url || "…"}</InlinePill>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                surface="secondary"
+                onClick={() => setModalOpen(true)}
+              >
+                <Rss size={ICON_SIZE.sm} aria-hidden="true" />
+                Edit update source
+              </Button>
+            </CollapsibleSection>
           </div>
-          <div className="flex items-center gap-2 mb-3">
-            <Pill variant={customized ? "warning" : "success"}>
-              {customized ? "Custom source" : "Default source"}
-            </Pill>
-            <InlinePill className="break-all">
-              {s.owner ? `${s.owner}/${s.repo}` : "…"}
-            </InlinePill>
-          </div>
-          <Button
-            type="button"
-            variant="outline"
-            surface="secondary"
-            onClick={() => setModalOpen(true)}
-          >
-            <GitBranch size={ICON_SIZE.sm} aria-hidden="true" />
-            Edit update source
-          </Button>
         </CollapsibleSection>
       </div>
 
@@ -123,14 +175,7 @@ export default function UpdateSourceCard({ index = 3 }) {
           open={modalOpen}
           initial={source.data}
           onClose={() => setModalOpen(false)}
-          onSaved={(data) => {
-            queryClient.setQueryData(["updates-source"], (old) => {
-              const prev = /** @type {Record<string, unknown>} */ (old || {});
-              return { ...prev, ...data };
-            });
-            queryClient.invalidateQueries({ queryKey: ["updates-source"] });
-            queryClient.invalidateQueries({ queryKey: ["system-updates"] });
-          }}
+          onSaved={onSaved}
         />
       )}
     </SettingsCard>
@@ -141,18 +186,14 @@ function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
   const { addToast } = useToast();
   const s = useMemo(() => initial || {}, [initial]);
 
-  const [baseUrl, setBaseUrl] = useState(s.api_base || "");
-  const [owner, setOwner] = useState(s.owner || "");
-  const [repo, setRepo] = useState(s.repo || "");
+  const [feedUrl, setFeedUrl] = useState(s.feed_url || "");
   const [keysText, setKeysText] = useState(signingKeysForDisplay(s).join("\n"));
   const [saveError, setSaveError] = useState(null);
 
   useEffect(() => {
     if (!open) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- props/open seed draft UI state
-    setBaseUrl(s.api_base || "");
-    setOwner(s.owner || "");
-    setRepo(s.repo || "");
+    setFeedUrl(s.feed_url || "");
     setKeysText(signingKeysForDisplay(s).join("\n"));
     setSaveError(null);
   }, [open, s]);
@@ -164,17 +205,13 @@ function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
   const defaults = s.defaults || {};
   const initialKeyLines = signingKeysForDisplay(s);
   const dirty =
-    baseUrl !== (s.api_base || "") ||
-    owner !== (s.owner || "") ||
-    repo !== (s.repo || "") ||
-    keyLines.join("\n") !== initialKeyLines.join("\n");
+    feedUrl !== (s.feed_url || "") || keyLines.join("\n") !== initialKeyLines.join("\n");
 
   const save = useMutation({
     mutationFn: () =>
       putJson("/api/v1/system/updates/source", {
-        api_base: baseUrl.trim(),
-        owner: owner.trim(),
-        repo: repo.trim(),
+        feed_url: feedUrl.trim(),
+        channel: s.channel || "stable",
         keys: signingKeysForSave(keyLines, s),
       }),
     onSuccess: (data) => {
@@ -185,39 +222,14 @@ function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
     onError: (err) => setSaveError(apiErrorMessage(err)),
   });
 
-  const fetchKeys = useMutation({
-    mutationFn: () =>
-      postJson("/api/v1/system/updates/source/keys", {
-        api_base: baseUrl.trim(),
-        owner: owner.trim(),
-        repo: repo.trim(),
-      }),
-    onSuccess: (data) => {
-      const keys = Array.isArray(data?.keys) ? data.keys : [];
-      setKeysText(keys.join("\n"));
-      setSaveError(null);
-      addToast({ type: "success", message: "Signing keys loaded." });
-    },
-    onError: () =>
-      setSaveError(
-        "Luna couldn't get signing keys from that project page. Check the address, owner, and repo, then try again.",
-      ),
-  });
-
   const handleSave = () => {
-    const trimmed = baseUrl.trim();
+    const trimmed = feedUrl.trim();
     if (!trimmed) {
-      setSaveError("The API address needs a value. Put in the old address if you want to keep it.");
+      setSaveError("The feed address needs a value. Put in the old address if you want to keep it.");
       return;
     }
     if (!/^https?:\/\//i.test(trimmed)) {
-      setSaveError("The API address must start with http:// or https://.");
-      return;
-    }
-    if (!owner.trim() || !repo.trim()) {
-      setSaveError(
-        "Both the owner and the repo need a value — they say which project page the updates come from.",
-      );
+      setSaveError("The feed address must start with http:// or https://.");
       return;
     }
     const badKey = keyLines.find(
@@ -233,132 +245,57 @@ function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
     save.mutate();
   };
 
-  const handleFetchKeys = () => {
-    const trimmed = baseUrl.trim();
-    if (!trimmed) {
-      setSaveError("The API address needs a value. Put in the old address if you want to keep it.");
-      return;
-    }
-    if (!/^https?:\/\//i.test(trimmed)) {
-      setSaveError("The API address must start with http:// or https://.");
-      return;
-    }
-    if (!owner.trim() || !repo.trim()) {
-      setSaveError(
-        "Both the owner and the repo need a value — they say which project page the updates come from.",
-      );
-      return;
-    }
-    setSaveError(null);
-    fetchKeys.mutate();
-  };
-
   const restoreDefaults = () => {
-    setBaseUrl(defaults.api_base || "");
-    setOwner(defaults.owner || "");
-    setRepo(defaults.repo || "");
+    setFeedUrl(defaults.feed_url || "");
     setKeysText((defaults.keys || []).join("\n"));
     setSaveError(null);
   };
 
-  const apiBaseShake =
-    saveError && (saveError.includes("API address") || saveError.includes("http://"))
+  const feedShake =
+    saveError && (saveError.includes("feed address") || saveError.includes("http://"))
       ? saveError
       : null;
-  const ownerRepoShake =
-    saveError && saveError.includes("owner and the repo") ? saveError : null;
   const keysShake =
     saveError && saveError.includes("signing keys") ? saveError : null;
-  const generalSaveShake =
-    saveError && !apiBaseShake && !ownerRepoShake && !keysShake ? saveError : null;
+  const generalSaveShake = saveError && !feedShake && !keysShake ? saveError : null;
 
   return (
     <ModalCard open={open} title="Update source" onClose={onClose}>
       {({ close }) => (
         <div className="space-y-4">
           <p className="text-primary text-sm">
-            Where Luna gets its own updates from — the software running on this Luna, not your files
-            or backups.
+            Where Luna reads its list of updates — for the software on this Luna, not your files or
+            backups.
           </p>
 
           <div className="space-y-1">
-            <label className="block text-sm text-primary translate-x-5" htmlFor="us-base-url">
-              API address{" "}
+            <label className="block text-sm text-primary translate-x-5" htmlFor="us-feed-url">
+              Feed address{" "}
               <InfoHint
-                label="What the API address is"
-                content="The web address of the code-hosting server (a Forgejo server) that publishes Luna updates — usually ending in /api/v1. If you host Luna's releases on your own server, put that server's address here. Example: https://gt.plainskill.net/api/v1"
+                label="What the feed address is"
+                content="The web address of the folder that holds Luna's update lists. Luna adds luna/ and your channel (stable or beta) to find the right list."
               />
             </label>
-            <ShakeTarget shake={apiBaseShake || generalSaveShake}>
+            <ShakeTarget shake={feedShake || generalSaveShake}>
               <input
-                id="us-base-url"
+                id="us-feed-url"
                 type="text"
-                value={baseUrl}
-                onChange={(e) => setBaseUrl(e.target.value)}
-                placeholder={defaults.api_base || "https://gt.plainskill.net/api/v1"}
+                value={feedUrl}
+                onChange={(e) => setFeedUrl(e.target.value)}
+                placeholder={defaults.feed_url || DEFAULT_FEED_PLACEHOLDER}
                 className={INPUT_CLASS}
               />
             </ShakeTarget>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <label className="block text-sm text-primary translate-x-5" htmlFor="us-owner">
-                Owner
-              </label>
-              <ShakeTarget shake={ownerRepoShake || generalSaveShake}>
-                <input
-                  id="us-owner"
-                  type="text"
-                  value={owner}
-                  onChange={(e) => setOwner(e.target.value)}
-                  placeholder={defaults.owner || "LibreLoom"}
-                  className={INPUT_CLASS}
-                />
-              </ShakeTarget>
-            </div>
-            <div className="space-y-1">
-              <label className="block text-sm text-primary translate-x-5" htmlFor="us-repo">
-                Repo{" "}
-                <InfoHint
-                  label="What the repo is"
-                  content="The project page on that server where the releases live. Together with the owner it points at one page, like LibreLoom/LibreServ."
-                />
-              </label>
-              <ShakeTarget shake={ownerRepoShake || generalSaveShake}>
-                <input
-                  id="us-repo"
-                  type="text"
-                  value={repo}
-                  onChange={(e) => setRepo(e.target.value)}
-                  placeholder={defaults.repo || "LibreServ"}
-                  className={INPUT_CLASS}
-                />
-              </ShakeTarget>
-            </div>
-          </div>
-
           <div className="space-y-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <label className="block text-sm text-primary translate-x-5" htmlFor="us-keys">
-                Signing keys{" "}
-                <InfoHint
-                  label="What signing keys do"
-                  content="An update is only installed when it carries a signature made with the matching secret key. These public keys are how Luna knows an update really comes from the project and wasn't tampered with. Luna already ships with the LibreLoom release key filled in below — you only need to change this if your updates are signed by someone else."
-                />
-              </label>
-              <Button
-                type="button"
-                variant="outline"
-                surface="secondary"
-                size="sm"
-                loading={fetchKeys.isPending}
-                disabled={save.isPending}
-                onClick={handleFetchKeys}
-              >
-                Fetch from repo
-              </Button>
-            </div>
+            <label className="block text-sm text-primary translate-x-5" htmlFor="us-keys">
+              Signing keys{" "}
+              <InfoHint
+                label="What signing keys do"
+                content="Luna only installs an update whose signature matches one of these public keys. That is how it knows an update really comes from the project and wasn't changed on the way. The LibreLoom release key is already filled in — change it only if your updates are signed by someone else."
+              />
+            </label>
             <ShakeTarget shake={keysShake || generalSaveShake}>
               <textarea
                 id="us-keys"
@@ -370,9 +307,13 @@ function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
               />
             </ShakeTarget>
             <p className="text-primary text-sm">
-              One minisign public key per line (the line that starts with RW).
+              One{" "}
+              <TermHint content="A minisign public key is one line of text, starting with RW, that lets Luna check a signature. It is safe to share.">
+                signing key
+              </TermHint>{" "}
+              per line.
               {s.default_keys
-                ? " This is the key Luna shipped with — leave it as-is unless you know your updates use a different signer."
+                ? " This is the key Luna shipped with — leave it as-is unless your updates use a different signer."
                 : " Clear the field and save to go back to Luna's built-in release key."}
             </p>
           </div>
@@ -384,7 +325,7 @@ function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
               type="button"
               variant="primary"
               loading={save.isPending}
-              disabled={!dirty || fetchKeys.isPending}
+              disabled={!dirty}
               onClick={handleSave}
               className="flex-1"
             >

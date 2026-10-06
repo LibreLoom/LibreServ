@@ -34,6 +34,9 @@ cargo clippy --workspace --all-targets -- -D warnings
 echo "==> cargo test"
 cargo test --workspace
 
+echo "==> luna-run version picker"
+bash os/luna_run_test.sh
+
 # Coverage is a report, not a gate: it never fails the run. Needs cargo-llvm-cov.
 echo "==> coverage (report only)"
 if cargo llvm-cov --version >/dev/null 2>&1; then

@@ -13,13 +13,113 @@ mkdir -p "$ROOTFS/usr/local/bin" "$ROOTFS/usr/local/sbin"
 luna_cloudflared_download "$ROOTFS/usr/local/bin/cloudflared" \
     || { echo "error: pinned cloudflared download failed" >&2; exit 1; }
 
-# Prefer a daemon-only OTA binary on the data partition over the image bake.
+# Run whichever lunad is newer: the daemon-only OTA binary on the data
+# partition, or the one baked into this OS image. A stale daemon-only update
+# must never shadow a newer OS, so both report `--version` and the higher
+# strict-semver wins. If the data-dir one will not run or prints something
+# unparseable, the baked one runs. (os/luna_run_test.sh covers the comparison.)
 cat > "$ROOTFS/usr/local/sbin/luna-run" <<'RUN'
 #!/bin/sh
-if [ -x /var/lib/luna/bin/lunad ]; then
-    exec /var/lib/luna/bin/lunad "$@"
-fi
-exec /usr/local/bin/lunad "$@"
+DATA_LUNAD="${LUNA_RUN_DATA_LUNAD:-/var/lib/luna/bin/lunad}"
+BAKED_LUNAD="${LUNA_RUN_BAKED_LUNAD:-/usr/local/bin/lunad}"
+
+# Strict semver 2.0 (no leading v, no leading zeros), numbers of any length.
+LUNA_SEMVER_RE='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*))?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
+
+luna_semver_valid() {
+    printf '%s\n' "$1" | grep -Eq "$LUNA_SEMVER_RE"
+}
+
+# Compare two numbers or identifiers. Prints -1, 0 or 1. Always runs in a
+# command substitution, so its variables never leak into the caller.
+luna_cmp_ident() {
+    ci_a=$1
+    ci_b=$2
+    if [ "$ci_a" = "$ci_b" ]; then echo 0; return; fi
+    ci_an=0
+    ci_bn=0
+    case $ci_a in *[!0-9]*) ;; *) ci_an=1 ;; esac
+    case $ci_b in *[!0-9]*) ;; *) ci_bn=1 ;; esac
+    # Digits only: no leading zeros, so a longer number is a bigger one.
+    if [ "$ci_an" = 1 ] && [ "$ci_bn" = 1 ] && [ "${#ci_a}" -ne "${#ci_b}" ]; then
+        if [ "${#ci_a}" -lt "${#ci_b}" ]; then echo -1; else echo 1; fi
+        return
+    fi
+    # Numbers rank below words.
+    if [ "$ci_an" = 1 ] && [ "$ci_bn" = 0 ]; then echo -1; return; fi
+    if [ "$ci_an" = 0 ] && [ "$ci_bn" = 1 ]; then echo 1; return; fi
+    # Same length digits, or two words: plain ASCII order.
+    ci_first=$(printf '%s\n%s\n' "$ci_a" "$ci_b" | LC_ALL=C sort | head -n 1)
+    if [ "$ci_first" = "$ci_a" ]; then echo -1; else echo 1; fi
+}
+
+# Compare two pre-release strings (the part after "-"; may be empty).
+# A release ranks above its own pre-releases.
+luna_cmp_pre() {
+    cp_a=$1
+    cp_b=$2
+    if [ "$cp_a" = "$cp_b" ]; then echo 0; return; fi
+    if [ -z "$cp_a" ]; then echo 1; return; fi
+    if [ -z "$cp_b" ]; then echo -1; return; fi
+    while :; do
+        cp_r=$(luna_cmp_ident "${cp_a%%.*}" "${cp_b%%.*}")
+        if [ "$cp_r" != 0 ]; then echo "$cp_r"; return; fi
+        cp_ma=0
+        cp_mb=0
+        case $cp_a in *.*) cp_a=${cp_a#*.}; cp_ma=1 ;; esac
+        case $cp_b in *.*) cp_b=${cp_b#*.}; cp_mb=1 ;; esac
+        if [ "$cp_ma" = 0 ] && [ "$cp_mb" = 0 ]; then echo 0; return; fi
+        # The shorter list is the lower version.
+        if [ "$cp_ma" = 0 ]; then echo -1; return; fi
+        if [ "$cp_mb" = 0 ]; then echo 1; return; fi
+    done
+}
+
+# luna_semver_cmp A B: prints -1, 0 or 1 for A < B, A = B, A > B. Both must
+# pass luna_semver_valid. Build metadata (+...) is ignored, as semver says.
+luna_semver_cmp() {
+    sv_a=${1%%+*}
+    sv_b=${2%%+*}
+    for sv_side in a b; do
+        eval "sv_v=\$sv_$sv_side"
+        sv_core=${sv_v%%-*}
+        if [ "$sv_core" = "$sv_v" ]; then sv_pre=; else sv_pre=${sv_v#*-}; fi
+        sv_rest=${sv_core#*.}
+        eval "sv_${sv_side}_maj=\${sv_core%%.*} sv_${sv_side}_min=\${sv_rest%%.*} sv_${sv_side}_pat=\${sv_rest#*.} sv_${sv_side}_pre=\$sv_pre"
+    done
+    for sv_part in maj min pat; do
+        eval "sv_x=\$sv_a_$sv_part sv_y=\$sv_b_$sv_part"
+        sv_r=$(luna_cmp_ident "$sv_x" "$sv_y")
+        if [ "$sv_r" != 0 ]; then echo "$sv_r"; return; fi
+    done
+    luna_cmp_pre "$sv_a_pre" "$sv_b_pre"
+}
+
+# The version a lunad binary reports, or nothing. An older lunad ignores
+# --version and would start serving, so it only gets a few seconds.
+luna_binary_version() {
+    [ -x "$1" ] || return 1
+    command -v timeout >/dev/null 2>&1 || return 1
+    bv_line=$(timeout 5 "$1" --version 2>/dev/null | head -n 1) || return 1
+    bv_ver=${bv_line##* }
+    luna_semver_valid "$bv_ver" || return 1
+    printf '%s\n' "$bv_ver"
+}
+
+luna_pick_lunad() {
+    if [ ! -x "$DATA_LUNAD" ]; then echo "$BAKED_LUNAD"; return; fi
+    pick_data=$(luna_binary_version "$DATA_LUNAD") || { echo "$BAKED_LUNAD"; return; }
+    pick_baked=$(luna_binary_version "$BAKED_LUNAD") || { echo "$DATA_LUNAD"; return; }
+    # Ties go to the baked one: it matches this OS image exactly.
+    if [ "$(luna_semver_cmp "$pick_data" "$pick_baked")" = 1 ]; then
+        echo "$DATA_LUNAD"
+    else
+        echo "$BAKED_LUNAD"
+    fi
+}
+
+[ -n "${LUNA_RUN_SOURCE_ONLY:-}" ] && return 0 2>/dev/null
+exec "$(luna_pick_lunad)" "$@"
 RUN
 chmod +x "$ROOTFS/usr/local/sbin/luna-run"
 

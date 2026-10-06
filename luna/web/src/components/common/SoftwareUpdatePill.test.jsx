@@ -62,12 +62,12 @@ describe("SoftwareUpdatePill", () => {
 
   it("shows the update version when an update is available", () => {
     vi.mocked(useSoftwareUpdates).mockReturnValue(/** @type {any} */({
-      data: { update_available: true, latest_version: "luna-v0.2.0" },
+      data: { update_available: true, latest_version: "0.2.0" },
       isLoading: false,
       error: null,
     }));
     renderPill();
-    expect(screen.getByText("luna-v0.2.0 ready")).toBeInTheDocument();
+    expect(screen.getByText("0.2.0 ready")).toBeInTheDocument();
     expect(screen.getByRole("link")).toHaveAttribute("href", "/settings#about");
   });
 });

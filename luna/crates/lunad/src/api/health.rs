@@ -7,6 +7,16 @@ use serde_json::{Value, json};
 use crate::AppState;
 use crate::api::response::json_error;
 
+/// The API version this lunad speaks, and the oldest client API it still
+/// serves (`CLIENT_API` in Desktop and Android is compared against these; see
+/// `infra/docs/RELEASE-PLAN.md`, "Versions").
+///
+/// Bump `API_VERSION` when lunad adds API that a client may rely on. Raise
+/// `API_OLDEST_SUPPORTED` only when something is removed or broken for
+/// older clients. Never lower either.
+pub const API_VERSION: u32 = 1;
+pub const API_OLDEST_SUPPORTED: u32 = 1;
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/health", get(health))
@@ -22,7 +32,11 @@ async fn health() -> Json<Value> {
     Json(json!({
         "status": "ok",
         "product": "Luna",
-        "version": env!("CARGO_PKG_VERSION"),
+        "version": crate::VERSION,
+        "api": {
+            "version": API_VERSION,
+            "oldest_supported": API_OLDEST_SUPPORTED,
+        },
         "uptime_seconds": uptime(),
     }))
 }
@@ -142,6 +156,37 @@ mod tests {
         let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(v["status"], "ok");
         assert_eq!(v["product"], "Luna");
+    }
+
+    #[tokio::test]
+    async fn health_reports_api_compatibility() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
+        let router = super::router().with_state(AppState::new(conn, drive_manager, dir.path()));
+        let response = tower::ServiceExt::oneshot(
+            router,
+            axum::http::Request::builder()
+                .uri("/api/v1/health")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+        let bytes = axum::body::to_bytes(response.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["api"]["version"], 1);
+        assert_eq!(v["api"]["oldest_supported"], 1);
+        // Clients compare these as numbers, never as strings.
+        assert!(v["api"]["version"].is_u64() && v["api"]["oldest_supported"].is_u64());
+        const { assert!(super::API_OLDEST_SUPPORTED <= super::API_VERSION) };
+        // The reported version is luna/VERSION.
+        let file =
+            std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../VERSION")).unwrap();
+        assert_eq!(v["version"], file.trim());
+        assert_eq!(v["version"], crate::VERSION);
     }
 
     #[tokio::test]

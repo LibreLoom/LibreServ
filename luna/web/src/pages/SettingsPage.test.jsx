@@ -37,7 +37,7 @@ function stubFetch(role = "admin", connectActive = false) {
     if (u.includes("/system/updates")) {
       return new Response(JSON.stringify({
         current_version: "0.1.0",
-        latest_version: "luna-v0.1.0",
+        latest_version: "0.1.0",
         update_available: false,
       }), { status: 200, headers: { "Content-Type": "application/json" } });
     }

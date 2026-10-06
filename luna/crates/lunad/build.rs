@@ -2,10 +2,27 @@ use std::fs;
 use std::path::Path;
 
 fn main() {
+    // `luna/VERSION` is the single source of truth for lunad's version. It must
+    // be strict semver (no leading `v`, no leading zeros) or the build stops.
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR");
+    let version_file = Path::new(&manifest_dir)
+        .join("..")
+        .join("..")
+        .join("VERSION");
+    println!("cargo:rerun-if-changed={}", version_file.display());
+    let raw = fs::read_to_string(&version_file)
+        .unwrap_or_else(|e| panic!("cannot read {}: {e}", version_file.display()));
+    let version = raw.trim_end_matches(['\n', '\r']);
+    if version.len() != version.trim().len() || semver::Version::parse(version).is_err() {
+        panic!(
+            "luna/VERSION must hold one strict semver version (like 0.4.0 or 0.4.0-beta.1), got {raw:?}"
+        );
+    }
+    println!("cargo:rustc-env=LUNA_VERSION={version}");
+
     // Read at runtime, not env!(): the compile-time path is baked into the
     // cached binary and goes stale when the workspace is built under a
     // different root (e.g. distrobox mounts the tree at /repo).
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR");
     let out = Path::new(&manifest_dir).join("web").join("dist");
     if !out.exists() {
         fs::create_dir_all(&out).expect("create web dist dir");

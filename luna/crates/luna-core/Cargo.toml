@@ -12,6 +12,19 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
+minisign-verify.workspace = true
+semver.workspace = true
+sha2.workspace = true
+ureq = { workspace = true, optional = true }
+
+[features]
+# Blocking HTTP download helper for the update feed (lunad, Windows desktop).
+download = ["dep:ureq"]
+
+[dev-dependencies]
+# Self dev-dependency: the feed tests download through the HTTP helper.
+luna-core = { path = ".", features = ["download"] }
+tempfile = "3"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

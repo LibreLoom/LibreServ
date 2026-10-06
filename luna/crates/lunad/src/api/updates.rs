@@ -17,11 +17,9 @@ struct CheckQuery {
 #[derive(Deserialize, Default)]
 struct SourceBody {
     #[serde(default)]
-    api_base: Option<String>,
+    feed_url: Option<String>,
     #[serde(default)]
-    owner: Option<String>,
-    #[serde(default)]
-    repo: Option<String>,
+    channel: Option<String>,
     #[serde(default)]
     keys: Option<Vec<String>>,
 }
@@ -34,10 +32,6 @@ pub fn router() -> Router<AppState> {
             "/api/v1/system/updates/source",
             get(get_source).put(save_source),
         )
-        .route(
-            "/api/v1/system/updates/source/keys",
-            post(fetch_source_keys),
-        )
 }
 
 async fn check(
@@ -48,7 +42,7 @@ async fn check(
     require_admin(&user)?;
     let svc = state.updates.clone();
     let force = q.force.unwrap_or(false);
-    let info = tokio::task::spawn_blocking(move || svc.check(env!("CARGO_PKG_VERSION"), force))
+    let info = tokio::task::spawn_blocking(move || svc.check(crate::VERSION, force))
         .await
         .map_err(|_| {
             json_error(
@@ -66,7 +60,7 @@ async fn apply(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     require_admin(&user)?;
     let svc = state.updates.clone();
-    let info = tokio::task::spawn_blocking(move || svc.apply(env!("CARGO_PKG_VERSION")))
+    let info = tokio::task::spawn_blocking(move || svc.apply(crate::VERSION))
         .await
         .map_err(|_| {
             json_error(
@@ -107,19 +101,21 @@ async fn get_source(
     Extension(user): Extension<crate::auth::CurrentUser>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     require_admin(&user)?;
-    let svc = state.updates.clone();
-    let effective = svc.settings();
     let stored =
         crate::system::updates::load_settings(&state.db.lock().unwrap()).unwrap_or_default();
-    Ok(Json(json!({
-        "api_base": effective.api_base,
-        "owner": effective.owner,
-        "repo": effective.repo,
+    Ok(Json(source_json(&state, &stored)))
+}
+
+fn source_json(state: &AppState, stored: &UpdateSettings) -> Value {
+    let effective = state.updates.settings();
+    json!({
+        "feed_url": effective.feed_url,
+        "channel": effective.channel,
         "keys": stored.keys,
         "effective_keys": effective.keys,
-        "default_keys": svc.using_default_keys(),
+        "default_keys": state.updates.using_default_keys(),
         "defaults": crate::system::updates::default_settings(),
-    })))
+    })
 }
 
 /// Save a new update source. Persists to the DB, validates, and hot-swaps the
@@ -131,9 +127,8 @@ async fn save_source(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     require_admin(&user)?;
     let settings = UpdateSettings {
-        api_base: body.api_base.unwrap_or_default(),
-        owner: body.owner.unwrap_or_default(),
-        repo: body.repo.unwrap_or_default(),
+        feed_url: body.feed_url.unwrap_or_default(),
+        channel: body.channel.unwrap_or_default(),
         keys: body.keys.unwrap_or_default(),
     };
     let keys = match crate::system::updates::validate_settings(&settings) {
@@ -142,9 +137,8 @@ async fn save_source(
     };
 
     let stored = UpdateSettings {
-        api_base: settings.api_base.trim().to_string(),
-        owner: settings.owner.trim().to_string(),
-        repo: settings.repo.trim().to_string(),
+        feed_url: settings.feed_url.trim().trim_end_matches('/').to_string(),
+        channel: settings.channel.trim().to_string(),
         keys,
     };
     let defaults = crate::system::updates::default_settings();
@@ -157,9 +151,8 @@ async fn save_source(
     };
     // Saving exactly the defaults stores nothing, so a future change of the
     // compiled-in default still applies to this Luna.
-    let to_store = if stored.api_base == defaults.api_base
-        && stored.owner == defaults.owner
-        && stored.repo == defaults.repo
+    let to_store = if stored.feed_url == defaults.feed_url
+        && stored.channel == defaults.channel
         && effective_keys == defaults.keys
     {
         UpdateSettings::default()
@@ -169,78 +162,32 @@ async fn save_source(
 
     let db = state.db.clone();
     let to_save = to_store.clone();
+    let save_failed = || {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't save the update source. Try again.",
+        )
+    };
     tokio::task::spawn_blocking(move || {
         crate::system::updates::save_settings(&db.lock().unwrap(), &to_save)
     })
     .await
-    .map_err(|_| {
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't save the update source. Try again.",
-        )
-    })?
-    .map_err(|_| {
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't save the update source. Try again.",
-        )
-    })?;
+    .map_err(|_| save_failed())?
+    .map_err(|_| save_failed())?;
 
     let effective = if to_store.is_empty() {
         defaults
     } else {
         stored
     };
-    state.updates.reconfigure(
-        effective.api_base,
-        effective.owner,
-        effective.repo,
-        effective.keys,
-    );
-    let back = state.updates.settings();
+    state
+        .updates
+        .reconfigure(effective.feed_url, effective.channel, effective.keys);
     let stored =
         crate::system::updates::load_settings(&state.db.lock().unwrap()).unwrap_or_default();
-    Ok(Json(json!({
-        "ok": true,
-        "api_base": back.api_base,
-        "owner": back.owner,
-        "repo": back.repo,
-        "keys": stored.keys,
-        "effective_keys": back.keys,
-        "default_keys": state.updates.using_default_keys(),
-        "defaults": crate::system::updates::default_settings(),
-    })))
-}
-
-/// Download minisign public keys from the project page in the request body
-/// (current form values — not only the saved source).
-async fn fetch_source_keys(
-    State(state): State<AppState>,
-    Extension(user): Extension<crate::auth::CurrentUser>,
-    Json(body): Json<SourceBody>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    require_admin(&user)?;
-    let api_base = body.api_base.unwrap_or_default();
-    let owner = body.owner.unwrap_or_default();
-    let repo = body.repo.unwrap_or_default();
-    let svc = state.updates.clone();
-    let keys = tokio::task::spawn_blocking(move || svc.fetch_source_keys(&api_base, &owner, &repo))
-        .await
-        .map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't get signing keys from that project page. Check the address, owner, and repo, then try again.",
-            )
-        })?
-        .map_err(|message| {
-            let status = if message.contains("couldn't get signing keys") {
-                StatusCode::BAD_GATEWAY
-            } else {
-                StatusCode::BAD_REQUEST
-            };
-            json_error(status, message)
-        })?;
-    Ok(Json(json!({ "keys": keys })))
+    let mut out = source_json(&state, &stored);
+    out["ok"] = json!(true);
+    Ok(Json(out))
 }
 
 fn require_admin(user: &crate::auth::CurrentUser) -> Result<(), (StatusCode, Json<Value>)> {
@@ -257,9 +204,12 @@ fn map_err(err: UpdateError) -> (StatusCode, Json<Value>) {
     match err {
         UpdateError::NoneAvailable => json_error(StatusCode::BAD_REQUEST, err.to_string()),
         UpdateError::Checksum
-        | UpdateError::MissingChecksum
         | UpdateError::MissingSignature
-        | UpdateError::BadSignature => json_error(StatusCode::BAD_REQUEST, err.to_string()),
+        | UpdateError::BadSignature
+        | UpdateError::BadFeed
+        | UpdateError::UnknownFormat
+        | UpdateError::Replayed
+        | UpdateError::MissingPart => json_error(StatusCode::BAD_REQUEST, err.to_string()),
         UpdateError::Unreachable => json_error(StatusCode::BAD_GATEWAY, err.to_string()),
         UpdateError::Other(_) => json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -274,10 +224,11 @@ mod tests {
     use crate::db;
     use crate::drives::DriveManager;
     use crate::drives::mount::shared_mock;
-    use crate::system::updates::{HttpGet, Installer, UpdateError, UpdateService};
+    use crate::system::updates::{HttpGet, Installer, UpdateService};
     use axum::body::Body;
     use axum::http::Request;
     use std::collections::HashMap;
+    use std::io::Cursor;
     use std::sync::Arc;
     use tower::ServiceExt;
 
@@ -294,29 +245,35 @@ mod tests {
         }
     }
 
-    fn app(releases_json: &[u8]) -> (axum::Router, String, crate::AppState) {
-        app_with_http(releases_json, HashMap::new())
-    }
+    const FEED_JSON: &str = r#"{"format":1,"unit":"luna","channel":"stable","version":"0.9.0","published":"2026-10-12T14:03:00Z","notes":"hello luna","parts":[{"name":"lunad","os":"linux","arch":"ARCH","file":"lunad-linux-amd64-musl","size":3,"sha256":"3a2d1f1ad8a24b0e0cbd9f1fae1f8bbd0c4b3c6c1d4b6f6c8b1a1d1f1f1f1f1f","urls":["http://dl.test/lunad"]}]}"#;
 
-    fn app_with_http(
-        releases_json: &[u8],
-        extra: HashMap<String, (u16, Vec<u8>)>,
-    ) -> (axum::Router, String, crate::AppState) {
+    fn app() -> (axum::Router, String, crate::AppState) {
+        let arch = match std::env::consts::ARCH {
+            "x86_64" => "amd64",
+            "aarch64" => "arm64",
+            o => o,
+        };
+        let feed = FEED_JSON.replace("ARCH", arch).into_bytes();
+        let kp = minisign::KeyPair::generate_unencrypted_keypair().unwrap();
+        let sig = minisign::sign(None, &kp.sk, Cursor::new(&feed), None, None)
+            .unwrap()
+            .to_string()
+            .into_bytes();
         let dir = tempfile::tempdir().unwrap();
         let conn = db::open(&dir.path().join("luna.db")).unwrap();
         let dm = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
         let mut map = HashMap::new();
+        map.insert("http://feeds.test/luna/stable.json".into(), (200, feed));
         map.insert(
-            "http://forgejo.test/api/v1/repos/LibreLoom/LibreServ/releases?limit=50".into(),
-            (200, releases_json.to_vec()),
+            "http://feeds.test/luna/stable.json.minisig".into(),
+            (200, sig),
         );
-        map.extend(extra);
-        let updates = Arc::new(UpdateService::new(
+        let updates = Arc::new(UpdateService::with_keys(
             Box::new(MapHttp(map)),
             Box::new(NoopInstall),
-            "http://forgejo.test/api/v1".into(),
-            "LibreLoom".into(),
-            "LibreServ".into(),
+            "http://feeds.test".into(),
+            "stable".into(),
+            vec![kp.pk.to_base64()],
         ));
         let mut state = crate::AppState::new(conn, dm, dir.path());
         state.updates = updates;
@@ -335,10 +292,26 @@ mod tests {
         (router, token, state)
     }
 
+    async fn json_of(response: axum::response::Response) -> Value {
+        let bytes = axum::body::to_bytes(response.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        serde_json::from_slice(&bytes).unwrap()
+    }
+
+    fn put(token: &str, body: &str) -> Request<Body> {
+        Request::builder()
+            .method("PUT")
+            .uri("/api/v1/system/updates/source")
+            .header("Authorization", format!("Bearer {token}"))
+            .header("Content-Type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap()
+    }
+
     #[tokio::test]
-    async fn check_uses_fake_forgejo_and_filters_luna_tags() {
-        let body = br#"[{"tag_name":"v9.0.0","body":"libreserv","html_url":"x","prerelease":false,"draft":false},{"tag_name":"luna-v0.9.0","body":"hello luna","html_url":"https://example.test/luna-v0.9.0","prerelease":false,"draft":false}]"#;
-        let (router, token, _state) = app(body);
+    async fn check_reads_the_signed_feed() {
+        let (router, token, _state) = app();
         let response = router
             .oneshot(
                 Request::builder()
@@ -350,17 +323,16 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
-        let bytes = axum::body::to_bytes(response.into_body(), 64 * 1024)
-            .await
-            .unwrap();
-        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-        assert_eq!(v["latest_version"], "luna-v0.9.0");
+        let v = json_of(response).await;
+        assert_eq!(v["latest_version"], "0.9.0");
+        assert_eq!(v["release_notes"], "hello luna");
         assert_eq!(v["update_available"], true);
+        assert!(v.get("url").is_none(), "no release page link any more");
     }
 
     #[tokio::test]
     async fn source_get_shows_active_settings() {
-        let (router, token, _state) = app(b"[]");
+        let (router, token, _state) = app();
         let response = router
             .oneshot(
                 Request::builder()
@@ -372,87 +344,69 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
-        let bytes = axum::body::to_bytes(response.into_body(), 64 * 1024)
-            .await
-            .unwrap();
-        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-        assert_eq!(v["api_base"], "http://forgejo.test/api/v1");
-        assert_eq!(v["owner"], "LibreLoom");
-        assert_eq!(v["repo"], "LibreServ");
-        assert_eq!(v["default_keys"], true);
+        let v = json_of(response).await;
+        assert_eq!(v["feed_url"], "http://feeds.test");
+        assert_eq!(v["channel"], "stable");
+        // The test updater trusts its own key, not the built-in one.
+        assert_eq!(v["default_keys"], false);
         assert_eq!(v["keys"], json!([]));
         assert!(!v["effective_keys"].as_array().unwrap().is_empty());
-        assert_eq!(v["effective_keys"], v["defaults"]["keys"]);
-        assert!(v["defaults"]["api_base"].is_string());
+        assert!(v["defaults"]["feed_url"].is_string());
+        assert_eq!(v["defaults"]["channel"], "stable");
+        assert!(v.get("api_base").is_none());
+        assert!(v.get("owner").is_none());
+        assert!(v.get("repo").is_none());
     }
 
     #[tokio::test]
     async fn source_put_persists_and_reconfigures() {
-        let (router, token, state) = app(b"[]");
+        let (router, token, state) = app();
         // A key that is NOT the compiled-in release key.
-        let kp = minisign::KeyPair::generate_unencrypted_keypair().unwrap();
-        let key = kp.pk.to_base64();
+        let key = minisign::KeyPair::generate_unencrypted_keypair()
+            .unwrap()
+            .pk
+            .to_base64();
         let body = format!(
-            r#"{{"api_base":"https://staging.forgejo.test/api/v1","owner":"MyOrg","repo":"LunaFork","keys":["{key}"]}}"#
+            r#"{{"feed_url":"https://staging.feeds.test/feeds/","channel":"beta","keys":["{key}"]}}"#
         );
-        let response = router
-            .oneshot(
-                Request::builder()
-                    .method("PUT")
-                    .uri("/api/v1/system/updates/source")
-                    .header("Authorization", format!("Bearer {token}"))
-                    .header("Content-Type", "application/json")
-                    .body(Body::from(body))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let response = router.oneshot(put(&token, &body)).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
+        let v = json_of(response).await;
+        assert_eq!(v["ok"], true);
+        assert_eq!(v["channel"], "beta");
 
         // The running updater switched source without a restart.
         let got = state.updates.settings();
-        assert_eq!(got.api_base, "https://staging.forgejo.test/api/v1");
-        assert_eq!(got.owner, "MyOrg");
-        assert_eq!(got.repo, "LunaFork");
+        assert_eq!(got.feed_url, "https://staging.feeds.test/feeds");
+        assert_eq!(got.channel, "beta");
         assert_eq!(got.keys, vec![key.clone()]);
         assert!(!state.updates.using_default_keys());
 
-        // The settings are persisted in the DB (config round-trip), so a
-        // restart keeps them.
+        // Persisted in the DB, so a restart keeps it.
         let stored = crate::system::updates::load_settings(&state.db.lock().unwrap()).unwrap();
-        assert_eq!(stored.api_base, "https://staging.forgejo.test/api/v1");
+        assert_eq!(stored.feed_url, "https://staging.feeds.test/feeds");
+        assert_eq!(stored.channel, "beta");
         assert_eq!(stored.keys, vec![key]);
     }
 
     #[tokio::test]
     async fn source_put_rejects_bad_input() {
-        let (router, token, _state) = app(b"[]");
+        let (router, token, _state) = app();
         for bad in [
-            r#"{"api_base":"","owner":"o","repo":"r"}"#,
-            r#"{"api_base":"ftp://nope","owner":"o","repo":"r"}"#,
-            r#"{"api_base":"https://a.test/api/v1","owner":"","repo":"r"}"#,
-            r#"{"api_base":"https://a.test/api/v1","owner":"o","repo":"r","keys":["garbage"]}"#,
+            r#"{"feed_url":"","channel":"stable"}"#,
+            r#"{"feed_url":"ftp://nope","channel":"stable"}"#,
+            r#"{"feed_url":"https://a.test/feeds","channel":"nightly"}"#,
+            r#"{"feed_url":"https://a.test/feeds"}"#,
+            r#"{"feed_url":"https://a.test/feeds","channel":"stable","keys":["garbage"]}"#,
         ] {
-            let response = router
-                .clone()
-                .oneshot(
-                    Request::builder()
-                        .method("PUT")
-                        .uri("/api/v1/system/updates/source")
-                        .header("Authorization", format!("Bearer {token}"))
-                        .header("Content-Type", "application/json")
-                        .body(Body::from(bad))
-                        .unwrap(),
-                )
-                .await
-                .unwrap();
+            let response = router.clone().oneshot(put(&token, bad)).await.unwrap();
             assert_eq!(response.status(), StatusCode::BAD_REQUEST, "body: {bad}");
         }
     }
 
     #[tokio::test]
     async fn source_is_admin_only() {
-        let (router, token, state) = app(b"[]");
+        let (router, _token, state) = app();
         // Second registered user is a plain member.
         let member = state
             .auth
@@ -460,7 +414,6 @@ mod tests {
             .unwrap();
         assert_eq!(member.role, "user");
         let member_token = state.auth.issue(&member).unwrap();
-        let _ = token; // admin token unused here
 
         let response = router
             .clone()
@@ -476,17 +429,10 @@ mod tests {
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
         let response = router
-            .oneshot(
-                Request::builder()
-                    .method("PUT")
-                    .uri("/api/v1/system/updates/source")
-                    .header("Authorization", format!("Bearer {member_token}"))
-                    .header("Content-Type", "application/json")
-                    .body(Body::from(
-                        r#"{"api_base":"https://a.test/api/v1","owner":"o","repo":"r"}"#,
-                    ))
-                    .unwrap(),
-            )
+            .oneshot(put(
+                &member_token,
+                r#"{"feed_url":"https://a.test/feeds","channel":"stable"}"#,
+            ))
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
@@ -494,59 +440,26 @@ mod tests {
 
     #[tokio::test]
     async fn source_put_with_defaults_clears_stored_row() {
-        let (router, token, state) = app(b"[]");
-        // First point at staging…
-        let staging = r#"{"api_base":"https://staging.forgejo.test/api/v1","owner":"MyOrg","repo":"LunaFork"}"#;
-        let response = router
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .method("PUT")
-                    .uri("/api/v1/system/updates/source")
-                    .header("Authorization", format!("Bearer {token}"))
-                    .header("Content-Type", "application/json")
-                    .body(Body::from(staging))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let (router, token, state) = app();
+        let staging = r#"{"feed_url":"https://staging.feeds.test/feeds","channel":"beta"}"#;
+        let response = router.clone().oneshot(put(&token, staging)).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
         assert!(crate::system::updates::load_settings(&state.db.lock().unwrap()).is_some());
 
         // …then restore this binary's defaults: the stored row goes away.
         let d = crate::system::updates::default_settings();
         let body = format!(
-            r#"{{"api_base":"{}","owner":"{}","repo":"{}"}}"#,
-            d.api_base, d.owner, d.repo
+            r#"{{"feed_url":"{}","channel":"{}"}}"#,
+            d.feed_url, d.channel
         );
-        let response = router
-            .oneshot(
-                Request::builder()
-                    .method("PUT")
-                    .uri("/api/v1/system/updates/source")
-                    .header("Authorization", format!("Bearer {token}"))
-                    .header("Content-Type", "application/json")
-                    .body(Body::from(body))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let response = router.oneshot(put(&token, &body)).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
         assert!(crate::system::updates::load_settings(&state.db.lock().unwrap()).is_none());
     }
 
     #[tokio::test]
-    async fn source_keys_post_returns_repo_keys() {
-        let kp = minisign::KeyPair::generate_unencrypted_keypair().unwrap();
-        let key = kp.pk.to_base64();
-        let mut extra = HashMap::new();
-        extra.insert(
-            "http://staging.forgejo.test/MyOrg/LunaFork/raw/branch/main/keys/lsluna.minisign.pub"
-                .into(),
-            (200, format!("untrusted comment: x\n{key}\n").into_bytes()),
-        );
-        let (router, token, _state) = app_with_http(b"[]", extra);
-        let body = r#"{"api_base":"http://staging.forgejo.test/api/v1","owner":"MyOrg","repo":"LunaFork"}"#;
+    async fn the_repo_key_fetch_route_is_gone() {
+        let (router, token, _state) = app();
         let response = router
             .oneshot(
                 Request::builder()
@@ -554,41 +467,11 @@ mod tests {
                     .uri("/api/v1/system/updates/source/keys")
                     .header("Authorization", format!("Bearer {token}"))
                     .header("Content-Type", "application/json")
-                    .body(Body::from(body))
+                    .body(Body::from("{}"))
                     .unwrap(),
             )
             .await
             .unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        let bytes = axum::body::to_bytes(response.into_body(), 64 * 1024)
-            .await
-            .unwrap();
-        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-        assert_eq!(v["keys"], json!([key]));
-    }
-
-    #[tokio::test]
-    async fn source_keys_is_admin_only() {
-        let (router, _token, state) = app(b"[]");
-        let member = state
-            .auth
-            .register("Mia", "Mia", "hunter22hunter1", "user")
-            .unwrap();
-        let member_token = state.auth.issue(&member).unwrap();
-        let response = router
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/api/v1/system/updates/source/keys")
-                    .header("Authorization", format!("Bearer {member_token}"))
-                    .header("Content-Type", "application/json")
-                    .body(Body::from(
-                        r#"{"api_base":"https://a.test/api/v1","owner":"o","repo":"r"}"#,
-                    ))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert!(response.status().is_client_error());
     }
 }

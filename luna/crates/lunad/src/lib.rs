@@ -1,3 +1,6 @@
+/// lunad's version, from `luna/VERSION` (strict semver, checked by build.rs).
+pub const VERSION: &str = env!("LUNA_VERSION");
+
 pub mod access;
 pub mod api;
 pub mod auth;
