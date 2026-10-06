@@ -48,6 +48,8 @@ const MAX_KEYS: usize = 8;
 pub enum UpdateError {
     #[error("Luna couldn't reach the update server. Check that this Luna is online and try again.")]
     Unreachable,
+    #[error("No updates have been published on this channel yet.")]
+    NoFeed,
     #[error("No Luna software update is waiting.")]
     NoneAvailable,
     #[error("That update file looks damaged. Nothing was installed.")]
@@ -984,6 +986,9 @@ impl UpdateService {
         let src = self.source();
         let feed_path = format!("{}/{UNIT}/{}.json", src.feed_url, src.channel);
         let (status, body) = self.http.get(&feed_path)?;
+        if status == 404 {
+            return Err(UpdateError::NoFeed);
+        }
         if status != 200 {
             return Err(UpdateError::Unreachable);
         }
@@ -1344,6 +1349,20 @@ mod tests {
             UpdateService::from_env(dir.path()).usable_key_count() > 0,
             "the pinned key must decode, or the system check flags every Luna"
         );
+    }
+
+    #[test]
+    fn missing_feed_says_nothing_is_published_yet() {
+        let mut map = HashMap::new();
+        map.insert(format!("{FEED}/luna/stable.json"), (404, Vec::new()));
+        let svc = UpdateService::with_keys(
+            Box::new(MapHttp { map }),
+            Box::new(Arc::new(RecInstaller::default())),
+            FEED.into(),
+            "stable".into(),
+            vec![],
+        );
+        assert_eq!(svc.check("0.3.0", true).unwrap_err(), UpdateError::NoFeed);
     }
 
     #[test]

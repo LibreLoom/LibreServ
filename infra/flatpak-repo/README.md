@@ -36,7 +36,7 @@ With nothing new, a run changes nothing. A lock stops overlapping runs.
 |---|---|
 | `watch.sh` | the watcher (all paths overridable by env vars, see top of file) |
 | `luna-flatpak-watch.service` / `.timer` | systemd units (hardened, runs as `luna-flatpak`) |
-| `Caddyfile.conf` | Caddy site; `import` it from `/etc/caddy/Caddyfile` |
+| `Caddyfile.conf` | Caddy site; setup.sh copies it to `/etc/caddy/luna-flatpak.caddy` |
 | `setup.sh` | one-time server setup (idempotent) |
 | `test-semver.sh` | checks `watch.sh`'s semver compare against `feed-testdata/cases.json` |
 
@@ -51,7 +51,7 @@ in `/var/lib/luna-flatpak/{state,gnupg}`.
 sudo /opt/LibreServ/infra/flatpak-repo/setup.sh
 ```
 
-Then add `import /opt/LibreServ/infra/flatpak-repo/Caddyfile.conf` to
+Then add `import /etc/caddy/luna-flatpak.caddy` (setup.sh copies it there) to
 `/etc/caddy/Caddyfile`, reload Caddy, and add `flatpak.luna.libreloom.org` as a
 public hostname on the cloudflared tunnel (`http://localhost:80`). In
 Cloudflare add a Cache Rule for the hostname ("Eligible for cache", respect

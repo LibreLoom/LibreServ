@@ -3,6 +3,7 @@ package system
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
@@ -50,6 +51,21 @@ func TestSystemCheckUpdatesError(t *testing.T) {
 	h.CheckUpdates(rec, req)
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d", rec.Code)
+	}
+}
+
+func TestSystemCheckUpdatesNoFeedYet(t *testing.T) {
+	saved := Version
+	Version = "1.0.0"
+	t.Cleanup(func() { Version = saved })
+	srv := httptest.NewServer(http.NotFoundHandler())
+	t.Cleanup(srv.Close)
+	checker := system.NewUpdateChecker(config.UpdatesConfig{FeedURL: srv.URL + "/feeds/sol", Channel: "stable"})
+	h := NewSystemHandler(checker)
+	rec := httptest.NewRecorder()
+	h.CheckUpdates(rec, httptest.NewRequest(http.MethodGet, "/api/v1/system/updates/check?force=true", nil))
+	if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), "No updates have been published") {
+		t.Fatalf("got %d %s", rec.Code, rec.Body.String())
 	}
 }
 

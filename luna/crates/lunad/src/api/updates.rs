@@ -211,6 +211,7 @@ fn map_err(err: UpdateError) -> (StatusCode, Json<Value>) {
         | UpdateError::Replayed
         | UpdateError::MissingPart => json_error(StatusCode::BAD_REQUEST, err.to_string()),
         UpdateError::Unreachable => json_error(StatusCode::BAD_GATEWAY, err.to_string()),
+        UpdateError::NoFeed => json_error(StatusCode::NOT_FOUND, err.to_string()),
         UpdateError::Other(_) => json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Luna couldn't install the update. Try again.",

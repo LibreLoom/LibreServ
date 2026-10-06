@@ -32,6 +32,10 @@ func (h *SystemHandler) CheckUpdates(w http.ResponseWriter, r *http.Request) {
 	// We get the current version from the health package (where it is set at build time)
 	forceRefresh := r.URL.Query().Get("force") == "true"
 	info, err := h.checker.CheckForUpdates(Version, forceRefresh)
+	if errors.Is(err, system.ErrNoFeed) {
+		JSONError(w, http.StatusNotFound, "No updates have been published on this channel yet.")
+		return
+	}
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "We couldn't check for updates. Please try again.")
 		return

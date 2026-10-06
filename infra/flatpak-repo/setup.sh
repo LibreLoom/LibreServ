@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # One-time (and safe to re-run) setup of the Luna Desktop Flatpak repo server.
-# Run as root on the server, from the /opt/LibreServ checkout:
+# Run as root on the server, from the /opt/LibreServ checkout (re-run after
+# changing the units or Caddyfile.conf to install the new copies):
 #   sudo /opt/LibreServ/infra/flatpak-repo/setup.sh
 # Does not create keys.
 set -euo pipefail
@@ -38,16 +39,20 @@ if ! runuser -u "$USER_NAME" -- test -x "$HERE/watch.sh"; then
 	exit 1
 fi
 
+# Copies, not symlinks: deploys move /opt/LibreServ to other commits, and
+# Caddy and systemd must keep working if a checkout lacks these files.
 for f in luna-flatpak-watch.service luna-flatpak-watch.timer; do
-	ln -sfn "$HERE/$f" "/etc/systemd/system/$f"
+	rm -f "/etc/systemd/system/$f"
+	install -m 0644 "$HERE/$f" "/etc/systemd/system/$f"
 done
+install -m 0644 "$HERE/Caddyfile.conf" /etc/caddy/luna-flatpak.caddy
 systemctl daemon-reload
 systemctl enable --now luna-flatpak-watch.timer
 
 echo
 echo "Done. Next steps:"
 echo "  1. Add to /etc/caddy/Caddyfile (after the global block):"
-echo "       import $HERE/Caddyfile.conf"
+echo "       import /etc/caddy/luna-flatpak.caddy"
 echo "     then: caddy validate --config /etc/caddy/Caddyfile && systemctl reload caddy"
 echo "  2. Add flatpak.luna.libreloom.org as a public hostname on the cloudflared tunnel"
 echo "     (service http://localhost:80)."

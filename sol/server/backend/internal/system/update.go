@@ -200,6 +200,9 @@ func (c *UpdateChecker) getLimited(ctx context.Context, url string) ([]byte, err
 		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("%s: %w", url, ErrNoFeed)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("%s returned status %d", url, resp.StatusCode)
 	}
@@ -212,6 +215,9 @@ func (c *UpdateChecker) getLimited(ctx context.Context, url string) ([]byte, err
 	}
 	return body, nil
 }
+
+// ErrNoFeed means the update server has no feed for this channel yet.
+var ErrNoFeed = errors.New("no update feed published for this channel")
 
 // fetchFeed downloads, verifies and checks the feed for the running version.
 // It records the feed's "published" date once the feed has passed every rule.

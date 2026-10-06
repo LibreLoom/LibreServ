@@ -1,7 +1,8 @@
 # Release and update rework — plan
 
-Status: planning. Replaces `release.sh`, Forgejo Releases, and the current
-updaters once built. `RELEASE.md` describes the old flow until then.
+Status: receiving end built (Sol, lunad, Desktop, Android, Connect deploy,
+Flatpak repo server); release tool next. Replaces `release.sh` and Forgejo
+Releases. `RELEASE.md` describes the old flow until then.
 
 Order: **receiving end first** (everything that installs or updates), then the
 supplier (release tool).
@@ -247,6 +248,23 @@ Script + systemd timer. Every few minutes:
 6. Android compat check
 7. Connect deploy script
 8. Flatpak repo server
+
+## Release tool must (found while building the receivers)
+
+- Sign feeds and sums in minisign's prehashed `ED` form (lunad refuses `Ed`).
+- Have the factory installer and flasher write `os-image.sha256` as the hash
+  of the `.img.xz` the feed lists.
+- Build the CI Flatpak bundle with branch = channel and no `--repo-url` or
+  `--gpg-keys`: it is only the repo server's input.
+- Pack `web` bundles with `admin/` and `customer/` at the top for
+  `sol-connect`, and the site files (`index.html` …) at the top for
+  `luna-connect` (`infra/connect-deploy` checks this).
+- Bump `luna/desktop/VERSION` with the `luna-desktop` unit;
+  `packaging/windows/build-cross.sh` refuses a version mismatch.
+- Create `VERSION` for `sol`, `sol-connect`, `luna-android`, `luna-connect`
+  (only `luna/VERSION` and `luna/desktop/VERSION` exist so far) and stamp Sol
+  builds with it (an unstamped Sol reports `dev` and never updates).
+- Retire `release.sh`: nothing reads Forgejo Releases any more.
 
 ## Test fixtures
 
