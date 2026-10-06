@@ -1,0 +1,32 @@
+{
+  "format": 1,
+  "unit": "luna-desktop",
+  "channel": "stable",
+  "version": "0.4.0",
+  "published": "2026-10-12T14:03:00Z",
+  "notes": "Test release 0.4.0",
+  "parts": [
+    {
+      "name": "flatpak",
+      "os": "linux",
+      "arch": "amd64",
+      "file": "luna-desktop-x86_64.flatpak",
+      "size": 370,
+      "sha256": "023d0c0c33c2b8c53d529b7909a17abb041103ad3c4d383506a36baf69106c9d",
+      "urls": [
+        "http://feed-test.invalid/generic/luna-desktop/0.4.0/luna-desktop-x86_64.flatpak"
+      ]
+    },
+    {
+      "name": "windows",
+      "os": "windows",
+      "arch": "amd64",
+      "file": "Luna-Desktop-Setup-x86_64.exe",
+      "size": 380,
+      "sha256": "e5dce36484f915d67a85187e8b87b677bc1532042d33ac9572f2257fdf8164b9",
+      "urls": [
+        "http://feed-test.invalid/generic/luna-desktop/0.4.0/Luna-Desktop-Setup-x86_64.exe"
+      ]
+    }
+  ]
+}

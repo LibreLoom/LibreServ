@@ -1,0 +1,4 @@
+bdeb9ba22af8fa73e59fe7c4d3c48ae1165617dd76c720773cdf6cbc33a91dd7  lunad-linux-amd64-musl.sig
+bdeb9ba22af8fa73e59fe7c4d3c48ae1165617dd76c720773cdf6cbc33a91dd7  old-lunad-linux-amd64-musl
+ccdec8aebf499ab0df2c4ff0d4b864c8fd99aa543884215794c86693b2ecb8bc  lunad-linux-amd64-musl
+4c9f78b342c24ff86ea200f6bfd53803d4e158d08c6f4a5f653e8be17d44341f  luna-os-x86_64.img.xz

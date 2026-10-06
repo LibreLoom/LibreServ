@@ -1,0 +1,21 @@
+{
+  "format": 1,
+  "unit": "luna-android",
+  "channel": "stable",
+  "version": "0.4.0",
+  "published": "2026-10-12T14:03:00Z",
+  "notes": "Test release 0.4.0",
+  "parts": [
+    {
+      "name": "apk",
+      "os": "android",
+      "arch": "any",
+      "file": "luna-android.apk",
+      "size": 390,
+      "sha256": "65a1d4951e0cad1e601cf769411fa3453e00a6f3251809ff30f9e1af844a67c9",
+      "urls": [
+        "http://feed-test.invalid/generic/luna-android/0.4.0/luna-android.apk"
+      ]
+    }
+  ]
+}

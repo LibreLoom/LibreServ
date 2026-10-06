@@ -1,0 +1,560 @@
+{
+  "cases": [
+    {
+      "expect": "update",
+      "feed": "luna-stable.json",
+      "name": "update-newer",
+      "request": {
+        "arch": "amd64",
+        "channel": "stable",
+        "installed_version": "0.3.0",
+        "newest_published_seen": "",
+        "os": "linux",
+        "part": "lunad",
+        "unit": "luna"
+      },
+      "sig": "luna-stable.json.minisig"
+    },
+    {
+      "expect": "update",
+      "feed": "luna-stable.json",
+      "name": "update-os-part",
+      "request": {
+        "arch": "amd64",
+        "channel": "stable",
+        "installed_version": "0.3.0",
+        "newest_published_seen": "2026-10-01T00:00:00Z",
+        "os": "linux",
+        "part": "os",
+        "unit": "luna"
+      },
+      "sig": "luna-stable.json.minisig"
+    },
+    {
+      "expect": "no-update",
+      "feed": "luna-stable.json",
+      "name": "no-update-same-version",
+      "request": {
+        "arch": "amd64",
+        "channel": "stable",
+        "installed_version": "0.4.0",
+        "newest_published_seen": "",
+        "os": "linux",
+        "part": "lunad",
+        "unit": "luna"
+      },
+      "sig": "luna-stable.json.minisig"
+    },
+    {
+      "expect": "no-update",
+      "feed": "luna-stable.json",
+      "name": "no-update-lower-version",
+      "request": {
+        "arch": "amd64",
+        "channel": "stable",
+        "installed_version": "0.5.0",
+        "newest_published_seen": "",
+        "os": "linux",
+        "part": "lunad",
+        "unit": "luna"
+      },
+      "sig": "luna-stable.json.minisig"
+    },
+    {
+      "expect": "update",
+      "feed": "luna-stable.json",
+      "name": "accepted-published-newer-than-seen",
+      "request": {
+        "arch": "amd64",
+        "channel": "stable",
+        "installed_version": "0.3.0",
+        "newest_published_seen": "2026-10-01T00:00:00Z",
+        "os": "linux",
+        "part": "lunad",
+        "unit": "luna"
+      },
+      "sig": "luna-stable.json.minisig"
+    },
+    {
+      "expect": "update",
+      "feed": "luna-stable.json",
+      "name": "accepted-published-equal-to-seen",
+      "request": {
+        "arch": "amd64",
+        "channel": "stable",
+        "installed_version": "0.3.0",
+        "newest_published_seen": "2026-10-12T14:03:00Z",
+        "os": "linux",
+        "part": "lunad",
+        "unit": "luna"
+      },
+      "sig": "luna-stable.json.minisig"
+    },
+    {
+      "expect": "reject:replayed",
+      "feed": "luna-stable.json",
+      "name": "reject-replayed-older-published",
+      "request": {
+        "arch": "amd64",
+        "channel": "stable",
+        "installed_version": "0.3.0",
+        "newest_published_seen": "2026-10-13T00:00:00Z",
+        "os": "linux",
+        "part": "lunad",
+        "unit": "luna"
+      },
+      "sig": "luna-stable.json.minisig"
+    },
+    {
+      "expect": "reject:wrong-unit",
+      "feed": "luna-stable.json",
+      "name": "reject-wrong-unit",
+      "request": {
+        "arch": "amd64",
+        "channel": "stable",
+        "installed_version": "0.3.0",
+        "newest_published_seen": "",
+        "os": "linux",
+        "part": "flatpak",
+        "unit": "luna-desktop"
+      },
+      "sig": "luna-stable.json.minisig"
+    },
+    {
+      "expect": "reject:wrong-channel",
+      "feed": "luna-stable.json",
+      "name": "reject-wrong-channel",
+      "request": {
+        "arch": "amd64",
+        "channel": "beta",
+        "installed_version": "0.3.0",
+        "newest_published_seen": "",
+        "os": "linux",
+        "part": "lunad",
+        "unit": "luna"
+      },
+      "sig": "luna-stable.json.minisig"
+    },
+    {
+      "expect": "reject:missing-part",
+      "feed": "luna-stable.json",
+      "name": "reject-missing-arch",
+      "request": {
+        "arch": "arm64",
+        "channel": "stable",
+        "installed_version": "0.3.0",
+        "newest_published_seen": "",
+        "os": "linux",
+        "part": "lunad",
+        "unit": "luna"
+      },
+      "sig": "luna-stable.json.minisig"
+    },
+    {
+      "expect": "reject:missing-part",
+      "feed": "luna-stable.json",
+      "name": "reject-missing-part-name",
+      "request": {
+        "arch": "amd64",
+        "channel": "stable",
+        "installed_version": "0.3.0",
+        "newest_published_seen": "",
+        "os": "linux",
+        "part": "installer",
+        "unit": "luna"
+      },
+      "sig": "luna-stable.json.minisig"
+    },
+    {
+      "expect": "reject:missing-part",
+      "feed": "luna-stable.json",
+      "name": "reject-missing-os",
+      "request": {
+        "arch": "amd64",
+        "channel": "stable",
+        "installed_version": "0.3.0",
+        "newest_published_seen": "",
+        "os": "windows",
+        "part": "lunad",
+        "unit": "luna"
+      },
+      "sig": "luna-stable.json.minisig"
+    },
+    {
+      "expect": "download-ok",
+      "feed": "luna-stable.json",
+      "name": "download-ok",
+      "request": {
+        "arch": "amd64",
+        "channel": "stable",
+        "installed_version": "0.3.0",
+        "newest_published_seen": "",
+        "os": "linux",
+        "part": "lunad",
+        "unit": "luna"
+      },
+      "sig": "luna-stable.json.minisig"
+    },
+    {
+      "expect": "reject:bad-signature",
+      "feed": "luna-stable.json",
+      "name": "reject-signature-from-other-key",
+      "request": {
+        "arch": "amd64",
+        "channel": "stable",
+        "installed_version": "0.3.0",
+        "newest_published_seen": "",
+        "os": "linux",
+        "part": "lunad",
+        "unit": "luna"
+      },
+      "sig": "luna-stable.json.wrongkey.minisig"
+    },
+    {
+      "expect": "update",
+      "feed": "sol-stable.json",
+      "name": "sol-update-amd64",
+      "request": {
+        "arch": "amd64",
+        "channel": "stable",
+        "installed_version": "0.9.0",
+        "newest_published_seen": "",
+        "os": "linux",
+        "part": "sol",
+        "unit": "sol"
+      },
+      "sig": "sol-stable.json.minisig"
+    },
+    {
+      "expect": "update",
+      "feed": "sol-stable.json",
+      "name": "sol-update-arm64",
+      "request": {
+        "arch": "arm64",
+        "channel": "stable",
+        "installed_version": "0.9.0",
+        "newest_published_seen": "",
+        "os": "linux",
+        "part": "sol",
+        "unit": "sol"
+      },
+      "sig": "sol-stable.json.minisig"
+    },
+    {
+      "expect": "reject:bad-signature",
+      "feed": "luna-stable.json",
+      "name": "reject-signature-of-other-feed",
+      "request": {
+        "arch": "amd64",
+        "channel": "stable",
+        "installed_version": "0.3.0",
+        "newest_published_seen": "",
+        "os": "linux",
+        "part": "lunad",
+        "unit": "luna"
+      },
+      "sig": "sol-stable.json.minisig"
+    },
+    {
+      "expect": "reject:wrong-unit",
+      "feed": "sol-stable.json",
+      "name": "reject-wrong-unit-sol-feed-for-luna",
+      "request": {
+        "arch": "amd64",
+        "channel": "stable",
+        "installed_version": "0.3.0",
+        "newest_published_seen": "",
+        "os": "linux",
+        "part": "lunad",
+        "unit": "luna"
+      },
+      "sig": "sol-stable.json.minisig"
+    },
+    {
+      "expect": "reject:bad-signature",
+      "feed": "luna-stable.tampered.json",
+      "name": "reject-tampered-feed",
+      "request": {
+        "arch": "amd64",
+        "channel": "stable",
+        "installed_version": "0.3.0",
+        "newest_published_seen": "",
+        "os": "linux",
+        "part": "lunad",
+        "unit": "luna"
+      },
+      "sig": "luna-stable.tampered.json.minisig"
+    },
+    {
+      "expect": "reject:unknown-format",
+      "feed": "luna-format2.json",
+      "name": "reject-unknown-format",
+      "request": {
+        "arch": "amd64",
+        "channel": "stable",
+        "installed_version": "0.3.0",
+        "newest_published_seen": "",
+        "os": "linux",
+        "part": "lunad",
+        "unit": "luna"
+      },
+      "sig": "luna-format2.json.minisig"
+    },
+    {
+      "expect": "update",
+      "feed": "luna-extra-fields.json",
+      "name": "unknown-fields-ignored",
+      "request": {
+        "arch": "amd64",
+        "channel": "stable",
+        "installed_version": "0.3.0",
+        "newest_published_seen": "",
+        "os": "linux",
+        "part": "lunad",
+        "unit": "luna"
+      },
+      "sig": "luna-extra-fields.json.minisig"
+    },
+    {
+      "expect": "update",
+      "feed": "luna-beta.json",
+      "name": "beta-2-to-beta-10",
+      "request": {
+        "arch": "amd64",
+        "channel": "beta",
+        "installed_version": "0.3.0-beta.2",
+        "newest_published_seen": "",
+        "os": "linux",
+        "part": "lunad",
+        "unit": "luna"
+      },
+      "sig": "luna-beta.json.minisig"
+    },
+    {
+      "expect": "no-update",
+      "feed": "luna-beta.json",
+      "name": "beta-same",
+      "request": {
+        "arch": "amd64",
+        "channel": "beta",
+        "installed_version": "0.3.0-beta.10",
+        "newest_published_seen": "",
+        "os": "linux",
+        "part": "lunad",
+        "unit": "luna"
+      },
+      "sig": "luna-beta.json.minisig"
+    },
+    {
+      "expect": "no-update",
+      "feed": "luna-beta.json",
+      "name": "beta-feed-older-than-release",
+      "request": {
+        "arch": "amd64",
+        "channel": "beta",
+        "installed_version": "0.3.0",
+        "newest_published_seen": "",
+        "os": "linux",
+        "part": "lunad",
+        "unit": "luna"
+      },
+      "sig": "luna-beta.json.minisig"
+    },
+    {
+      "expect": "update",
+      "feed": "luna-beta.json",
+      "name": "beta-9-vs-10-not-string-order",
+      "request": {
+        "arch": "amd64",
+        "channel": "beta",
+        "installed_version": "0.3.0-beta.9",
+        "newest_published_seen": "",
+        "os": "linux",
+        "part": "lunad",
+        "unit": "luna"
+      },
+      "sig": "luna-beta.json.minisig"
+    },
+    {
+      "expect": "update",
+      "feed": "luna-stable-0.3.0.json",
+      "name": "beta-10-to-release",
+      "request": {
+        "arch": "amd64",
+        "channel": "stable",
+        "installed_version": "0.3.0-beta.10",
+        "newest_published_seen": "",
+        "os": "linux",
+        "part": "lunad",
+        "unit": "luna"
+      },
+      "sig": "luna-stable-0.3.0.json.minisig"
+    },
+    {
+      "expect": "update",
+      "feed": "sol-connect-stable.json",
+      "name": "any-any-part-matches",
+      "request": {
+        "arch": "amd64",
+        "channel": "stable",
+        "installed_version": "0.1.0",
+        "newest_published_seen": "",
+        "os": "linux",
+        "part": "web",
+        "unit": "sol-connect"
+      },
+      "sig": "sol-connect-stable.json.minisig"
+    },
+    {
+      "expect": "update",
+      "feed": "luna-desktop-stable.json",
+      "name": "desktop-windows-update",
+      "request": {
+        "arch": "amd64",
+        "channel": "stable",
+        "installed_version": "0.3.0",
+        "newest_published_seen": "",
+        "os": "windows",
+        "part": "windows",
+        "unit": "luna-desktop"
+      },
+      "sig": "luna-desktop-stable.json.minisig"
+    },
+    {
+      "expect": "update",
+      "feed": "luna-android-stable.json",
+      "name": "android-any-arch",
+      "request": {
+        "arch": "arm64",
+        "channel": "stable",
+        "installed_version": "0.3.0",
+        "newest_published_seen": "",
+        "os": "android",
+        "part": "apk",
+        "unit": "luna-android"
+      },
+      "sig": "luna-android-stable.json.minisig"
+    },
+    {
+      "expect": "download-fail:size-mismatch",
+      "feed": "luna-dl-size-mismatch.json",
+      "name": "download-size-mismatch",
+      "request": {
+        "arch": "amd64",
+        "channel": "stable",
+        "installed_version": "0.3.0",
+        "newest_published_seen": "",
+        "os": "linux",
+        "part": "lunad",
+        "unit": "luna"
+      },
+      "sig": "luna-dl-size-mismatch.json.minisig"
+    },
+    {
+      "expect": "download-fail:sha-mismatch",
+      "feed": "luna-dl-sha-mismatch.json",
+      "name": "download-sha-mismatch",
+      "request": {
+        "arch": "amd64",
+        "channel": "stable",
+        "installed_version": "0.3.0",
+        "newest_published_seen": "",
+        "os": "linux",
+        "part": "lunad",
+        "unit": "luna"
+      },
+      "sig": "luna-dl-sha-mismatch.json.minisig"
+    },
+    {
+      "expect": "download-ok",
+      "feed": "luna-dl-fallback.json",
+      "name": "download-first-url-404-second-ok",
+      "request": {
+        "arch": "amd64",
+        "channel": "stable",
+        "installed_version": "0.3.0",
+        "newest_published_seen": "",
+        "os": "linux",
+        "part": "lunad",
+        "unit": "luna"
+      },
+      "sig": "luna-dl-fallback.json.minisig"
+    },
+    {
+      "expect": "download-fail:all-urls-failed",
+      "feed": "luna-dl-all-missing.json",
+      "name": "download-all-urls-404",
+      "request": {
+        "arch": "amd64",
+        "channel": "stable",
+        "installed_version": "0.3.0",
+        "newest_published_seen": "",
+        "os": "linux",
+        "part": "lunad",
+        "unit": "luna"
+      },
+      "sig": "luna-dl-all-missing.json.minisig"
+    }
+  ],
+  "key": "test-key.pub",
+  "semver": {
+    "ascending": [
+      "0.3.0-alpha",
+      "0.3.0-beta.2",
+      "0.3.0-beta.10",
+      "0.3.0",
+      "0.3.1",
+      "0.10.0",
+      "1.0.0-rc.1",
+      "1.0.0",
+      "2.0.0"
+    ],
+    "invalid": [
+      "v1.0.0",
+      "0.3",
+      "1",
+      "01.0.0",
+      "1.02.0",
+      "1.0.03",
+      "1.0.0-",
+      "1.0.0-beta.01",
+      "1.0.0-beta..1",
+      "1.2.3.4",
+      " 1.0.0",
+      "1.0.0 ",
+      ""
+    ]
+  },
+  "sums": {
+    "cases": [
+      {
+        "expect": "ccdec8aebf499ab0df2c4ff0d4b864c8fd99aa543884215794c86693b2ecb8bc",
+        "file": "lunad-linux-amd64-musl",
+        "name": "exact-name-found"
+      },
+      {
+        "expect": "4c9f78b342c24ff86ea200f6bfd53803d4e158d08c6f4a5f653e8be17d44341f",
+        "file": "luna-os-x86_64.img.xz",
+        "name": "exact-name-other-file"
+      },
+      {
+        "expect": "not-found",
+        "file": "linux-amd64-musl",
+        "name": "substring-is-not-a-match"
+      },
+      {
+        "expect": "not-found",
+        "file": "lunad-linux-amd64",
+        "name": "prefix-is-not-a-match"
+      },
+      {
+        "expect": "not-found",
+        "file": "nope.bin",
+        "name": "unknown-file"
+      }
+    ],
+    "file": "files/generic/luna/0.4.0/SHA256SUMS.txt",
+    "sig": "files/generic/luna/0.4.0/SHA256SUMS.txt.minisig"
+  },
+  "url_base": "http://feed-test.invalid"
+}

@@ -1,0 +1,32 @@
+{
+  "format": 1,
+  "unit": "sol-connect",
+  "channel": "stable",
+  "version": "0.2.0",
+  "published": "2026-10-12T14:03:00Z",
+  "notes": "Test release 0.2.0",
+  "parts": [
+    {
+      "name": "server",
+      "os": "linux",
+      "arch": "amd64",
+      "file": "sol-connect-server-linux-amd64",
+      "size": 340,
+      "sha256": "c1ccc56db4fe5600998b4d0aacf2db8607dec9d47095e787dbff2adb63477936",
+      "urls": [
+        "http://feed-test.invalid/generic/sol-connect/0.2.0/sol-connect-server-linux-amd64"
+      ]
+    },
+    {
+      "name": "web",
+      "os": "any",
+      "arch": "any",
+      "file": "sol-connect-web.tar.gz",
+      "size": 330,
+      "sha256": "cd483e8b807bf5f9e4572d099786e4fe3112548b607f516604bc98f5335a01c6",
+      "urls": [
+        "http://feed-test.invalid/generic/sol-connect/0.2.0/sol-connect-web.tar.gz"
+      ]
+    }
+  ]
+}

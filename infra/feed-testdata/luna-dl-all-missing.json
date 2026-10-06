@@ -1,0 +1,22 @@
+{
+  "format": 1,
+  "unit": "luna",
+  "channel": "stable",
+  "version": "0.4.0",
+  "published": "2026-10-12T14:03:00Z",
+  "notes": "Test release 0.4.0",
+  "parts": [
+    {
+      "name": "lunad",
+      "os": "linux",
+      "arch": "amd64",
+      "file": "lunad-linux-amd64-musl",
+      "size": 320,
+      "sha256": "ccdec8aebf499ab0df2c4ff0d4b864c8fd99aa543884215794c86693b2ecb8bc",
+      "urls": [
+        "http://feed-test.invalid/missing/generic/luna/0.4.0/lunad-linux-amd64-musl",
+        "http://feed-test.invalid/missing/other/lunad"
+      ]
+    }
+  ]
+}

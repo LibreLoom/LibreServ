@@ -28,9 +28,20 @@ touches another.
   commits `chore(release): <unit> <version>`, and tags that commit.
 - Android `versionCode` is derived from the version (`major*10000 +
   minor*100 + patch`); exact beta handling decided when building it.
-- Compatibility between units is an **API version**, not a product version:
-  lunad reports `api.version` and `api.oldest_supported` on `/api/v1/health`;
-  Desktop and Android check it.
+- Versions are strict semver 2.0: no leading `v`, no leading zeros. Go uses
+  Masterminds `semver.StrictNewVersion` (or equivalent), Rust the `semver`
+  crate. `0.3.0-beta.2 < 0.3.0-beta.10 < 0.3.0`.
+- Compatibility between units is an **API version**, not a product version.
+  lunad returns `"api": {"version": N, "oldest_supported": M}` on
+  `/api/v1/health`, starting at version 1, oldest_supported 1. Each client
+  (Desktop, Android) has a built-in `CLIENT_API` it was written against:
+  - `CLIENT_API` > `api.version` (or `api` missing) → Luna is too old; tell the
+    person to update Luna.
+  - `CLIENT_API` < `api.oldest_supported` → this app is too old; tell them to
+    update the app.
+  - Otherwise compatible.
+  lunad bumps `version` when it adds API a client may rely on, and raises
+  `oldest_supported` only when it removes or breaks something.
 
 ## Tags
 
@@ -77,7 +88,7 @@ Channels: `stable`, `beta`. Publish `stable` first; the format supports both.
     { "name": "lunad", "os": "linux", "arch": "amd64",
       "file": "lunad-linux-amd64-musl", "size": 27778648, "sha256": "…",
       "urls": ["…/generic/luna/0.4.0/lunad-linux-amd64-musl"] },
-    { "name": "os", "arch": "amd64",
+    { "name": "os", "os": "linux", "arch": "amd64",
       "file": "luna-os-x86_64.img.xz", "size": 412000000, "sha256": "…",
       "urls": ["…/generic/luna/0.3.0/luna-os-x86_64.img.xz"] }
   ],
@@ -85,18 +96,43 @@ Channels: `stable`, `beta`. Publish `stable` first; the format supports both.
 }
 ```
 
+`published` is UTC, exactly `YYYY-MM-DDTHH:MM:SSZ`, so plain string
+comparison orders it (bash receivers rely on that). Every part has `os` and
+`arch`. File names carry no version; the version is in the URL path.
+`os` ∈ {`linux`, `windows`, `android`, `any`}; `arch` ∈ {`amd64`, `arm64`, `any`}.
+
+| Unit | Part | os | arch | File |
+|---|---|---|---|---|
+| `sol` | `sol` | linux | amd64, arm64 | `libreserv-linux-<arch>` |
+| `sol-connect`, `luna-connect` | `server` | linux | amd64 | `<unit>-server-linux-amd64` |
+| | `web` | any | any | `<unit>-web.tar.gz` |
+| `luna` | `lunad` | linux | amd64 (musl) | `lunad-linux-amd64-musl` |
+| | `os` | linux | amd64 | `luna-os-x86_64.img.xz` |
+| | `installer` | linux | amd64 | `luna-rapidinstall-x86_64.iso.xz` |
+| `luna-desktop` | `flatpak` | linux | amd64 | `luna-desktop-x86_64.flatpak` |
+| | `windows` | windows | amd64 | `Luna-Desktop-Setup-x86_64.exe` |
+| `luna-android` | `apk` | android | any | `luna-android.apk` |
+
 ### Rules for every receiver
 
 1. Verify the `.minisig` over the exact feed bytes with the pinned key before
-   parsing.
+   parsing. Signatures are minisign's prehashed `ED` form (the CLI default;
+   in Go, `aead.dev/minisign` `Reader.Sign`); receivers may refuse legacy `Ed`.
 2. `unit` and `channel` must match the request; unknown `format` → no update,
-   plain message.
+   plain message. Unknown JSON fields are ignored (format 1 can gain optional
+   fields).
 3. Never go backwards: reject a feed whose `published` is older than the newest
-   seen (stops replay of an old signed feed), and never install a lower
-   `version`. Bad releases are fixed forward with a higher version.
-4. Pick parts by `name` + `arch`; try `urls` in order; check `size` and
-   `sha256` before using anything.
-5. Compare versions as semver, including `-beta.N`.
+   seen (stops replay of an old signed feed; equal is fine). Receivers store
+   the newest `published` **per unit + channel**, so switching channel never
+   trips this. Never install a lower `version`; bad releases are fixed forward
+   with a higher version.
+4. Pick the part whose `name` equals the request, whose `os` is the request's
+   or `any`, and whose `arch` is the request's or `any`. Try `urls` in order;
+   check `size` and `sha256` before using anything.
+5. Compare versions as strict semver, including `-beta.N`. Same version as
+   installed → no update; lower → no update (never install it).
+6. In a package's `SHA256SUMS.txt`, match the file name field exactly, never as
+   a substring.
 
 ## Keys
 
@@ -150,7 +186,7 @@ Channels: `stable`, `beta`. Publish `stable` first; the format supports both.
   portal "update ready, restart" prompt.
 - **Windows:** feed check → download installer → verify → run.
 - Compatibility check against lunad `api`.
-- Runtime → current GNOME (manifest pins 47, end of life). Turn appstream
+- Runtime → GNOME 51 (decided; manifest pins 47, end of life). Turn appstream
   compose back on; add a `<release>` entry per release.
 
 ### Luna Desktop Flatpak repo server (`infra/flatpak-repo/`, new)
@@ -195,16 +231,24 @@ Script + systemd timer. Every few minutes:
 
 ## Build order (receiving end)
 
-1. This spec + signed test feeds
+1. Spec + signed test feeds
 2. Shared feed code (Go, Rust)
 3. Sol box + `install.sh`
 4. lunad + Luna web + `luna-run`
-5. Desktop (Windows check, compat check, Flatpak manifest) + Flatpak repo server
+5. Desktop (Windows check, compat check, Flatpak manifest on GNOME 51)
 6. Android compat check
-7. Connect deploy
+7. Connect deploy script
+8. Flatpak repo server
+
+## Test fixtures
+
+`infra/feed-testdata/` holds signed feeds, payloads, and `cases.json` that
+every receiver tests against; see its README. They are signed with a TEST-ONLY
+key that must never go in `keys/` or be trusted by production builds; tests
+inject it through the receiver's key-override hook. Regenerate (deterministic):
+`cd infra/ci-source && go run ./cmd/feedgen`.
 
 ## Open
 
-- GNOME runtime: 50 or 51 (51 is on Flathub; 50 ends around March 2027).
 - Android self-update for sideloaded installs: default is no.
 - Confirm slash tags work with Forgejo and F-Droid.

@@ -1,0 +1,21 @@
+{
+  "format": 1,
+  "unit": "luna",
+  "channel": "beta",
+  "version": "0.3.0-beta.10",
+  "published": "2026-10-12T14:03:00Z",
+  "notes": "Test release 0.3.0-beta.10",
+  "parts": [
+    {
+      "name": "lunad",
+      "os": "linux",
+      "arch": "amd64",
+      "file": "lunad-linux-amd64-musl",
+      "size": 310,
+      "sha256": "b910dbf35ccb34b3a83f5bc6a40eaf3e3a3b76830ab9c8cdb2a0b74a559826c3",
+      "urls": [
+        "http://feed-test.invalid/generic/luna/0.3.0-beta.10/lunad-linux-amd64-musl"
+      ]
+    }
+  ]
+}

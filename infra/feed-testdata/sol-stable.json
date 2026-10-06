@@ -1,0 +1,32 @@
+{
+  "format": 1,
+  "unit": "sol",
+  "channel": "stable",
+  "version": "0.9.1",
+  "published": "2026-10-12T14:03:00Z",
+  "notes": "Test release 0.9.1",
+  "parts": [
+    {
+      "name": "sol",
+      "os": "linux",
+      "arch": "amd64",
+      "file": "libreserv-linux-amd64",
+      "size": 350,
+      "sha256": "90c0c2890a8e662c802fd1c8f5f41a3a55aa3b55e408f3dd383f0926c8721ec2",
+      "urls": [
+        "http://feed-test.invalid/generic/sol/0.9.1/libreserv-linux-amd64"
+      ]
+    },
+    {
+      "name": "sol",
+      "os": "linux",
+      "arch": "arm64",
+      "file": "libreserv-linux-arm64",
+      "size": 360,
+      "sha256": "c4940bef16e9dcb03f40fe0464a96404a3da32c4e5508d88396a97ac76ef849a",
+      "urls": [
+        "http://feed-test.invalid/generic/sol/0.9.1/libreserv-linux-arm64"
+      ]
+    }
+  ]
+}

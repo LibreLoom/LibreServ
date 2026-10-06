@@ -1,0 +1,36 @@
+{
+  "format": 1,
+  "unit": "luna",
+  "channel": "stable",
+  "version": "0.4.0",
+  "published": "2026-10-12T14:03:00Z",
+  "notes": "Test release 0.4.0",
+  "parts": [
+    {
+      "name": "lunad",
+      "os": "linux",
+      "arch": "amd64",
+      "file": "lunad-linux-amd64-musl",
+      "size": 320,
+      "sha256": "ccdec8aebf499ab0df2c4ff0d4b864c8fd99aa543884215794c86693b2ecb8bc",
+      "urls": [
+        "http://feed-test.invalid/generic/luna/0.4.0/lunad-linux-amd64-musl"
+      ]
+    },
+    {
+      "name": "os",
+      "os": "linux",
+      "arch": "amd64",
+      "file": "luna-os-x86_64.img.xz",
+      "size": 400,
+      "sha256": "4c9f78b342c24ff86ea200f6bfd53803d4e158d08c6f4a5f653e8be17d44341f",
+      "urls": [
+        "http://feed-test.invalid/generic/luna/0.4.0/luna-os-x86_64.img.xz"
+      ]
+    }
+  ],
+  "api": {
+    "version": 3,
+    "oldest_supported": 2
+  }
+}
