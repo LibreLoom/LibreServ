@@ -104,7 +104,7 @@ Channels: `stable`, `beta`. Publish `stable` first; the format supports both.
 |---|---|---|
 | Sol minisign (`keys/libreserv.minisign.pub`) | `sol`, `sol-connect` feeds + sums | pscB |
 | Luna minisign (`keys/lsluna.minisign.pub`) | `luna*` feeds + sums | pscB |
-| Luna Desktop Flatpak GPG (`keys/luna-desktop-flatpak.gpg`) | Flatpak repo commits + summary | Flatpak repo server only; backup + revocation cert in Proton Pass |
+| Luna Desktop Flatpak GPG (`keys/luna-desktop-flatpak.gpg`) | Flatpak repo commits + summary | Generated on the Luna Connect server as the watcher's own user, readable only by it; backup + revocation cert in Proton Pass |
 
 ## Receiving end — changes
 
@@ -155,7 +155,16 @@ Channels: `stable`, `beta`. Publish `stable` first; the format supports both.
 
 ### Luna Desktop Flatpak repo server (`infra/flatpak-repo/`, new)
 
-Script + systemd timer + Caddy site. Every few minutes:
+Hosted on the **Luna Connect server**, as its own Caddy site
+(`flatpak.luna.libreloom.org`) behind Cloudflare:
+
+- Repo under `/srv/luna-flatpak/`, outside the checkout `deploy.sh` resets.
+- Watcher runs as its own system user, the only one that can read the GPG key.
+- Cache rules: `summary`, `summary.sig`, `config`, `refs/` fresh (≤ 1 min);
+  `objects/` and `deltas/` cached forever.
+- Same Cloudflare-only origin rule as the Connect site.
+
+Script + systemd timer. Every few minutes:
 
 1. Fetch `feeds/luna-desktop/{stable,beta}.json`, verify minisign.
 2. Newer than the repo's branch → download the bundle, check `sha256`.
@@ -194,8 +203,6 @@ Script + systemd timer + Caddy site. Every few minutes:
 
 ## Open
 
-- Flatpak repo server: which machine and address.
 - GNOME runtime: 50 or 51 (51 is on Flathub; 50 ends around March 2027).
-- Generate the Flatpak GPG key on pscB, or directly on the repo server.
 - Android self-update for sideloaded installs: default is no.
 - Confirm slash tags work with Forgejo and F-Droid.
