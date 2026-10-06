@@ -35,6 +35,11 @@ stripe:
 smtp:
   from: "noreply@connect.example.com"
   relay_addr: ":2525"    # local SMTP relay listen address
+  relay_public_host: "smtp.serv.libreloom.org"   # DNS-only record devices connect to
+  # Certificate for relay_public_host. With it, the relay requires STARTTLS
+  # before AUTH. Leave empty only in development.
+  relay_tls_cert: ""     # e.g. /etc/libreserv-connect/tls/relay.crt
+  relay_tls_key: ""      # e.g. /etc/libreserv-connect/tls/relay.key
 
 # Tunnel provider bootstrap (runtime config is in the service_providers DB table).
 # Set these to pre-seed the Cloudflare tunnel provider on first boot.

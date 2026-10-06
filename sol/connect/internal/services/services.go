@@ -234,7 +234,7 @@ func (s *ProvisioningService) generateSMTP(deviceID string) (map[string]any, err
 			"username": username,
 			"password": smtpPassword,
 			"from":     fromAddr,
-			"use_tls":  false, // Connect SMTP relay uses plaintext (device connects over TLS tunnel)
+			"use_tls":  true, // STARTTLS: the relay refuses AUTH before it
 		},
 	}, nil
 }

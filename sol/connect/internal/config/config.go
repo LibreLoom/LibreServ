@@ -78,6 +78,11 @@ type SMTPConfig struct {
 	// RelayPublicHost is the hostname devices are told to connect to for the
 	// SMTP relay (must be a DNS-only record, not Cloudflare-proxied).
 	RelayPublicHost string `mapstructure:"relay_public_host" yaml:"relay_public_host"`
+	// RelayTLSCert / RelayTLSKey are the certificate for RelayPublicHost.
+	// When set, the relay offers STARTTLS and refuses AUTH before it. Files
+	// are re-read when they change, so renewals need no restart.
+	RelayTLSCert string `mapstructure:"relay_tls_cert" yaml:"relay_tls_cert"`
+	RelayTLSKey  string `mapstructure:"relay_tls_key" yaml:"relay_tls_key"`
 }
 
 type DNSConfig struct {

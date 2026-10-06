@@ -2,6 +2,8 @@ package smtp
 
 import (
 	"bufio"
+	"crypto/subtle"
+	"crypto/tls"
 	"database/sql"
 	"fmt"
 	"io"
@@ -39,16 +41,27 @@ type Server struct {
 	listener  net.Listener
 	wg        sync.WaitGroup
 	resendKey func() string
+	// passwordFor returns the stored relay password for an active account.
+	// A seam so auth paths are testable without Postgres.
+	passwordFor func(username string) (string, error)
+	// tlsConfig is set when a certificate is configured. The relay is
+	// reachable from the internet, so with TLS available AUTH is refused
+	// until the client has issued STARTTLS.
+	tlsConfig *tls.Config
+	limiter   *authLimiter
 }
 
 // NewServer creates an SMTP relay server. resendKey returns the current
 // Resend API key (looked up from service_providers on each send).
 func NewServer(db *sql.DB, resend *providers.ResendClient, resendKey func() string) *Server {
-	return &Server{
+	s := &Server{
 		db:        db,
 		resend:    resend,
 		resendKey: resendKey,
+		limiter:   newAuthLimiter(maxAuthFailures, authFailureWindow),
 	}
+	s.passwordFor = s.dbPassword
+	return s
 }
 
 // Start begins listening for SMTP connections on the configured address.
@@ -57,12 +70,27 @@ func (s *Server) Start() error {
 	if addr == "" {
 		addr = ":2525"
 	}
-	ln, err := net.Listen("tcp", addr)
+	cert, key := config.C.SMTP.RelayTLSCert, config.C.SMTP.RelayTLSKey
+	if cert != "" || key != "" {
+		reloader, err := newCertReloader(cert, key)
+		if err != nil {
+			return fmt.Errorf("smtp: could not load the relay certificate: %w", err)
+		}
+		s.tlsConfig = &tls.Config{
+			GetCertificate: reloader.GetCertificate,
+			MinVersion:     tls.VersionTLS12,
+		}
+	} else {
+		slog.Warn("smtp relay has no certificate: devices send their password unencrypted. Set smtp.relay_tls_cert and smtp.relay_tls_key outside development")
+	}
+	// Both blue/green instances listen on the same port (SO_REUSEPORT), so
+	// the relay stays up while either one restarts.
+	ln, err := listenReusePort(addr)
 	if err != nil {
 		return fmt.Errorf("smtp: could not listen on %s: %w", addr, err)
 	}
 	s.listener = ln
-	slog.Info("smtp relay listening", "addr", addr)
+	slog.Info("smtp relay listening", "addr", addr, "tls", s.tlsConfig != nil)
 
 	s.wg.Add(1)
 	go s.acceptLoop()
@@ -95,7 +123,9 @@ type session struct {
 	conn     net.Conn
 	tp       *textproto.Reader
 	w        io.Writer
+	tls      bool
 	authed   bool
+	failures int
 	username string
 	from     string
 	rcpts    []string
@@ -117,6 +147,11 @@ func (s *Server) handleConn(conn net.Conn) {
 
 	sess.sendLine("220 connect.libreloom.org SMTP relay ready")
 
+	if s.limiter.blocked(remoteIP(conn)) {
+		sess.sendLine("421 too many failed sign-ins from your address, try again later")
+		return
+	}
+
 	for {
 		line, err := sess.tp.ReadLine()
 		if err != nil {
@@ -128,11 +163,29 @@ func (s *Server) handleConn(conn net.Conn) {
 		switch {
 		case strings.HasPrefix(cmd, "EHLO"), strings.HasPrefix(cmd, "HELO"):
 			sess.sendLine("250-connect.libreloom.org")
-			sess.sendLine("250-AUTH PLAIN LOGIN")
+			if s.tlsConfig != nil && !sess.tls {
+				sess.sendLine("250-STARTTLS")
+			}
+			if sess.authAllowed() {
+				sess.sendLine("250-AUTH PLAIN LOGIN")
+			}
 			sess.sendLine("250 OK")
 
+		case cmd == "STARTTLS":
+			if !sess.startTLS() {
+				return
+			}
+
 		case strings.HasPrefix(cmd, "AUTH"):
+			if !sess.authAllowed() {
+				sess.sendLine("530 5.7.0 Must issue a STARTTLS command first")
+				continue
+			}
 			sess.handleAuth(line)
+			if sess.failures >= maxSessionAuthFailures {
+				sess.sendLine("421 too many failed sign-ins, closing connection")
+				return
+			}
 
 		case strings.HasPrefix(cmd, "MAIL FROM"):
 			sess.handleMailFrom(line)
@@ -158,6 +211,41 @@ func (s *Server) handleConn(conn net.Conn) {
 			sess.sendLine("500 unrecognized command")
 		}
 	}
+}
+
+// authAllowed reports whether AUTH may run now: always without a
+// certificate (development), otherwise only inside TLS.
+func (sess *session) authAllowed() bool {
+	return sess.s.tlsConfig == nil || sess.tls
+}
+
+// startTLS upgrades the connection. Anything the client sent before the
+// handshake is discarded with the old reader (no plaintext command
+// injection), and the session starts over as RFC 3207 requires. Returns
+// false when the connection must close.
+func (sess *session) startTLS() bool {
+	if sess.s.tlsConfig == nil {
+		sess.sendLine("502 STARTTLS not available")
+		return true
+	}
+	if sess.tls {
+		sess.sendLine("503 already using TLS")
+		return true
+	}
+	sess.sendLine("220 ready to start TLS")
+	tlsConn := tls.Server(sess.conn, sess.s.tlsConfig)
+	if err := tlsConn.Handshake(); err != nil {
+		slog.Debug("smtp relay: TLS handshake failed", "error", err)
+		return false
+	}
+	sess.conn = tlsConn
+	sess.tp = textproto.NewReader(bufio.NewReader(tlsConn))
+	sess.w = tlsConn
+	sess.tls = true
+	sess.authed = false
+	sess.username = ""
+	sess.reset()
+	return true
 }
 
 func (sess *session) sendLine(line string) {
@@ -258,11 +346,11 @@ func (sess *session) authenticate(username, password string) {
 		username = strings.Split(username, "@")[0]
 	}
 
-	var storedPassword string
-	err := sess.s.db.QueryRow(
-		"SELECT smtp_password FROM customer_accounts WHERE username = $1 AND is_active = TRUE",
-		username).Scan(&storedPassword)
-	if err != nil || storedPassword == "" || storedPassword != password {
+	storedPassword, err := sess.s.passwordFor(username)
+	if err != nil || storedPassword == "" ||
+		subtle.ConstantTimeCompare([]byte(storedPassword), []byte(password)) != 1 {
+		sess.failures++
+		sess.s.limiter.fail(remoteIP(sess.conn))
 		sess.sendLine("535 authentication failed")
 		return
 	}
@@ -270,6 +358,15 @@ func (sess *session) authenticate(username, password string) {
 	sess.authed = true
 	sess.username = username
 	sess.sendLine("235 authenticated")
+}
+
+// dbPassword reads the relay password for an active account.
+func (s *Server) dbPassword(username string) (string, error) {
+	var stored string
+	err := s.db.QueryRow(
+		"SELECT smtp_password FROM customer_accounts WHERE username = $1 AND is_active = TRUE",
+		username).Scan(&stored)
+	return stored, err
 }
 
 // handleMailFrom processes MAIL FROM:<address>.
