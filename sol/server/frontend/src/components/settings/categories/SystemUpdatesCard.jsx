@@ -3,12 +3,19 @@ import ReactMarkdown from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import { useAuth } from "../../../hooks/useAuth";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
-import { Download, CheckCircle, AlertCircle, RefreshCw, Info, ExternalLink } from "lucide-react";
+import { Download, CheckCircle, AlertCircle, RefreshCw, Info, FileText } from "lucide-react";
 import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
+import SettingsRow from "@libreloom/ui/components/settings/SettingsRow.jsx";
+import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
+
+const CHANNEL_OPTIONS = [
+  { value: "stable", label: "Stable" },
+  { value: "beta", label: "Beta" },
+];
 
 export default function SystemUpdatesCard({ index = 0 }) {
   const { request } = useAuth();
@@ -19,6 +26,8 @@ export default function SystemUpdatesCard({ index = 0 }) {
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [showReleaseNotesModal, setShowReleaseNotesModal] = useState(false);
   const [error, setError] = useState(null);
+  const [channel, setChannel] = useState("stable");
+  const [savingChannel, setSavingChannel] = useState(false);
 
   const showSuccess = useCallback((message, description) => {
     addToast({ type: "success", message, description });
@@ -60,6 +69,46 @@ export default function SystemUpdatesCard({ index = 0 }) {
   useEffect(() => {
     checkForUpdates(false, false);
   }, [checkForUpdates]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await request("/settings");
+        if (!res.ok) return;
+        const data = await res.json();
+        const saved = data?.updates?.channel;
+        if (!cancelled && (saved === "stable" || saved === "beta")) setChannel(saved);
+      } catch {
+        // Keep the default; the picker still works.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [request]);
+
+  const handleChannelChange = useCallback(async (next) => {
+    if (next === channel || savingChannel) return;
+    const previous = channel;
+    setChannel(next);
+    setSavingChannel(true);
+    try {
+      const res = await request("/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ updates: { channel: next } }),
+      });
+      if (!res.ok) throw new Error("The server didn't accept the change.");
+      showSuccess("Update channel changed", next === "beta" ? "Sol now gets Beta versions." : "Sol now gets Stable versions.");
+      await checkForUpdates(true, false);
+    } catch (err) {
+      setChannel(previous);
+      showError("Couldn't change the update channel", err.message);
+    } finally {
+      setSavingChannel(false);
+    }
+  }, [channel, savingChannel, request, showSuccess, showError, checkForUpdates]);
 
   const handleApplyUpdate = useCallback(async () => {
     setUpdating(true);
@@ -107,6 +156,18 @@ export default function SystemUpdatesCard({ index = 0 }) {
         padding={false}
         index={index}
       >
+        <SettingsRow
+          label="Update channel"
+          description="Beta gets new versions first. They may have more bugs."
+          stack
+        >
+          <SegmentedControl
+            aria-label="Update channel"
+            options={CHANNEL_OPTIONS}
+            value={channel}
+            onChange={handleChannelChange}
+          />
+        </SettingsRow>
         <div className="px-5 py-5">
           <div className="flex items-start justify-between gap-4 mb-4">
             <div className="flex-1">
@@ -171,7 +232,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
                 onClick={() => setShowReleaseNotesModal(true)}
                 className="w-full justify-center font-sans"
               >
-                <ExternalLink size={ICON_SIZE.md} />
+                <FileText size={ICON_SIZE.md} />
                 See what's new in {updateInfo.latest_version}
               </Button>
 

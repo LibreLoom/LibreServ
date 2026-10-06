@@ -97,9 +97,9 @@ type AppsConfig struct {
 
 // UpdatesConfig defines platform update source settings.
 type UpdatesConfig struct {
-	BaseURL string `mapstructure:"base_url" yaml:"base_url"`
-	Owner   string `mapstructure:"owner" yaml:"owner"`
-	Repo    string `mapstructure:"repo" yaml:"repo"`
+	FeedURL string `mapstructure:"feed_url" yaml:"feed_url"`
+	// Channel is "stable" or "beta".
+	Channel string `mapstructure:"channel" yaml:"channel"`
 }
 
 // SupportConfig defines AI support agent settings.
@@ -308,9 +308,8 @@ func SetDefaults(v *viper.Viper) {
 			"enabled": true,
 		},
 	})
-	v.SetDefault("updates.base_url", "https://gt.plainskill.net/api/v1")
-	v.SetDefault("updates.owner", "libreloom")
-	v.SetDefault("updates.repo", "libreserv")
+	v.SetDefault("updates.feed_url", "https://gt.plainskill.net/LibreLoom/LibreServ/raw/branch/feeds/sol")
+	v.SetDefault("updates.channel", "stable")
 	v.SetDefault("runtime.method", "auto")
 	v.SetDefault("runtime.binary", "podman")
 	v.SetDefault("logging.level", "info")

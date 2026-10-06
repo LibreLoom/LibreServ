@@ -11,7 +11,8 @@ import (
 
 // Version information (set at build time)
 var (
-	Version   = "0.0.1-dev"
+	// "dev" is not semver, so unstamped builds are never offered updates.
+	Version   = "dev"
 	BuildTime = "unknown"
 	GitCommit = "unknown"
 )

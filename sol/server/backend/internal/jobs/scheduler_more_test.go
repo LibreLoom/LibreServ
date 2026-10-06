@@ -49,7 +49,7 @@ func TestSchedulerCheckSystemUpdates(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.URL.Path == "/repos/owner/repo/releases" {
+				if r.URL.Path == "/feeds/sol/stable.json" {
 					w.WriteHeader(tt.statusCode)
 					_, _ = w.Write([]byte(tt.response))
 					return
@@ -58,9 +58,8 @@ func TestSchedulerCheckSystemUpdates(t *testing.T) {
 			}))
 			defer server.Close()
 			checker := system.NewUpdateChecker(config.UpdatesConfig{
-				BaseURL: server.URL,
-				Owner:   "owner",
-				Repo:    "repo",
+				FeedURL: server.URL + "/feeds/sol",
+				Channel: "stable",
 			})
 			scheduler := NewScheduler(nil, checker, notify.NewService(nil, nil), "v1.0.0")
 			scheduler.checkSystemUpdates()

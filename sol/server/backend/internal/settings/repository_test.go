@@ -242,7 +242,7 @@ func TestRepository_LoadIntoConfig(t *testing.T) {
 		"network.caddy.mode":            "enabled",
 		"network.tunnel.provider":       "cloudflare",
 		"network.tunnel.enabled":        "true",
-		"updates.owner":                 "LibreLoom",
+		"updates.channel":               "beta",
 		"support.agent.max_turns":       "9",
 		"support.agent.turn_timeout":    "2m",
 		"support.self_healing":          "true",
@@ -267,8 +267,7 @@ func TestRepository_LoadIntoConfig(t *testing.T) {
 		"smtp.password":                 "pass",
 		"smtp.from":                     "no-reply@example.com",
 		"smtp.skip_verify":              "false",
-		"updates.base_url":              "https://updates.example.com",
-		"updates.repo":                  "LibreServ",
+		"updates.feed_url":              "https://updates.example.com/feeds/sol",
 		"support.inference_base_url":    "https://inference.example.com",
 		"support.user_base_url":         "https://user.example.com",
 		"support.user_api_key":          "sk-test",
@@ -468,7 +467,7 @@ func TestService_UpdateSettings_PersistsAppliesAndNotifies(t *testing.T) {
 			"ssl_email":      "ops@example.com",
 			"auto_https":     true,
 		},
-		"updates": map[string]interface{}{"owner": "LibreLoom", "repo": "LibreServ"},
+		"updates": map[string]interface{}{"channel": "beta"},
 		"ai_support": map[string]interface{}{
 			"byok_enabled":       true,
 			"user_api_key":       "sk-test",
@@ -513,7 +512,7 @@ func TestService_UpdateSettings_PersistsAppliesAndNotifies(t *testing.T) {
 		"smtp.port":                  "2525",
 		"notify.support_recipients":  "a@example.com,b@example.com",
 		"network.caddy.mode":         "enabled",
-		"updates.owner":              "LibreLoom",
+		"updates.channel":            "beta",
 		"support.agent.max_turns":    "9",
 		"connect.services.llm.state": "byo",
 	} {
@@ -623,7 +622,6 @@ func TestTypeFor(t *testing.T) {
 		"network.tunnel.enabled":    "bool",
 		"notify.support_recipients": "csv",
 		"cors.allowed_origins":      "csv",
-		"updates.base_url":          "string",
 		"anything.else":             "string",
 	}
 	for key, want := range tests {
@@ -709,5 +707,20 @@ func TestToStringSlice(t *testing.T) {
 	}
 	if got, ok := toStringSlice(42); ok || got != nil {
 		t.Errorf("toStringSlice(int) = %v, %v; want nil, false", got, ok)
+	}
+}
+
+func TestUpdateSettings_UpdateChannelValidated(t *testing.T) {
+	useTestConfig(t, &config.Config{})
+	svc := NewService(newTestDB(t))
+	if err := svc.UpdateSettings(context.Background(), map[string]interface{}{"updates": map[string]interface{}{"channel": "nightly"}}); err == nil {
+		t.Fatal("unknown channel accepted")
+	}
+	if err := svc.UpdateSettings(context.Background(), map[string]interface{}{"updates": map[string]interface{}{"channel": "beta"}}); err != nil {
+		t.Fatalf("beta rejected: %v", err)
+	}
+	got, _ := svc.GetSettings(context.Background())
+	if got["updates"].(map[string]interface{})["channel"] != "beta" {
+		t.Fatalf("settings = %v", got["updates"])
 	}
 }

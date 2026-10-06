@@ -2,24 +2,22 @@ package system
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/Masterminds/semver/v3"
 	"golang.org/x/sys/unix"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/feed"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/util"
 
 	"aead.dev/minisign"
@@ -73,42 +71,94 @@ type UpdateInfo struct {
 	UpdateAvailable bool      `json:"update_available"`
 	ReleaseNotes    string    `json:"release_notes,omitempty"`
 	PublishedAt     time.Time `json:"published_at,omitempty"`
-	URL             string    `json:"url,omitempty"`
 	Checksum        string    `json:"checksum,omitempty"`
 }
+
+const (
+	feedUnit = "sol"
+	feedPart = "sol"
+	feedOS   = "linux"
+	// maxFeedBytes caps the feed and signature downloads.
+	maxFeedBytes = 1 << 20
+)
+
+// StateStore keeps small values across restarts (settings.Repository
+// satisfies it).
+type StateStore interface {
+	Get(key string) (string, error)
+	Set(key, value, typ string) error
+}
+
+// ValidChannel reports whether name is an update channel Sol knows.
+func ValidChannel(name string) bool { return name == "stable" || name == "beta" }
 
 // UpdateChecker handles checking for platform updates
 type UpdateChecker struct {
 	cfg            config.UpdatesConfig
-	baseURL        string
 	client         *http.Client
+	downloadClient *http.Client
 	cacheMu        sync.RWMutex
 	cachedInfo     map[string]*UpdateInfo
 	cacheTimestamp map[string]time.Time
 	cacheDuration  time.Duration
 	restartCh      chan<- RestartSignal
 	pinnedKeys     []minisign.PublicKey
+	store          StateStore
+	arch           string // GOARCH of the running binary; tests override
+	exePath        string // installed binary; tests override
+	mu             sync.Mutex
 }
 
 const defaultCacheDuration = 1 * time.Hour
 
-// NewUpdateChecker creates a new update checker for Forgejo
+// NewUpdateChecker creates a new update checker for the signed feed.
 func NewUpdateChecker(cfg config.UpdatesConfig) *UpdateChecker {
+	if !ValidChannel(cfg.Channel) {
+		cfg.Channel = "stable"
+	}
 	return &UpdateChecker{
 		cfg:           cfg,
-		baseURL:       cfg.BaseURL,
 		cacheDuration: defaultCacheDuration,
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 		},
+		// No overall timeout: the binary is large. ApplyUpdate bounds it with a context.
+		downloadClient: &http.Client{},
 		cachedInfo:     make(map[string]*UpdateInfo),
 		cacheTimestamp: make(map[string]time.Time),
+		arch:           runtime.GOARCH,
 	}
 }
 
 // SetRestartChannel sets the channel to signal restarts
 func (c *UpdateChecker) SetRestartChannel(ch chan<- RestartSignal) {
 	c.restartCh = ch
+}
+
+// SetStateStore sets where the newest feed date seen per channel is kept.
+func (c *UpdateChecker) SetStateStore(s StateStore) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.store = s
+}
+
+// Channel returns the update channel in use.
+func (c *UpdateChecker) Channel() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.cfg.Channel
+}
+
+// SetChannel switches channel ("stable" or "beta") and drops cached results.
+func (c *UpdateChecker) SetChannel(channel string) error {
+	if !ValidChannel(channel) {
+		return fmt.Errorf("invalid update channel %q", channel)
+	}
+	c.mu.Lock()
+	c.cfg.Channel = channel
+	c.mu.Unlock()
+	c.ClearCache()
+	return nil
 }
 
 // RequestRestart asks the running process to restart itself (graceful
@@ -119,13 +169,6 @@ func (c *UpdateChecker) RequestRestart() {
 	if c.restartCh != nil {
 		c.restartCh <- RestartSignal{}
 	}
-}
-
-func (c *UpdateChecker) downloadBaseURL() string {
-	base := strings.TrimRight(c.baseURL, "/")
-	base = strings.TrimSuffix(base, "/api/v1")
-	base = strings.TrimSuffix(base, "/api")
-	return fmt.Sprintf("%s/%s/%s/releases", base, c.cfg.Owner, c.cfg.Repo)
 }
 
 // SetCacheDuration configures how long to cache update check results
@@ -143,10 +186,89 @@ func (c *UpdateChecker) ClearCache() {
 	c.cacheTimestamp = make(map[string]time.Time)
 }
 
-// CheckForUpdates checks the Forgejo API for the latest release
+func newestSeenKey(channel string) string {
+	return "updates.newest_published." + feedUnit + "." + channel
+}
+
+func (c *UpdateChecker) getLimited(ctx context.Context, url string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("%s returned status %d", url, resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxFeedBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(body) > maxFeedBytes {
+		return nil, fmt.Errorf("%s is too large", url)
+	}
+	return body, nil
+}
+
+// fetchFeed downloads, verifies and checks the feed for the running version.
+// It records the feed's "published" date once the feed has passed every rule.
+func (c *UpdateChecker) fetchFeed(ctx context.Context, currentVersion string) (*feed.Result, error) {
+	c.mu.Lock()
+	channel := c.cfg.Channel
+	feedURL := strings.TrimRight(c.cfg.FeedURL, "/")
+	store := c.store
+	c.mu.Unlock()
+
+	url := fmt.Sprintf("%s/%s.json", feedURL, channel)
+	body, err := c.getLimited(ctx, url)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch update feed: %w", err)
+	}
+	sig, err := c.getLimited(ctx, url+".minisig")
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch update feed signature: %w", err)
+	}
+
+	seen := ""
+	if store != nil {
+		if v, err := store.Get(newestSeenKey(channel)); err != nil {
+			slog.Warn("could not read newest update date seen", "error", err)
+		} else {
+			seen = v
+		}
+	}
+
+	res, err := feed.Check(c.pinned(), body, sig, feed.Request{
+		Unit:                feedUnit,
+		Channel:             channel,
+		OS:                  feedOS,
+		Arch:                c.arch,
+		Part:                feedPart,
+		InstalledVersion:    currentVersion,
+		NewestPublishedSeen: seen,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if store != nil && res.Feed.Published > seen {
+		if err := store.Set(newestSeenKey(channel), res.Feed.Published, "string"); err != nil {
+			slog.Warn("could not store newest update date seen", "error", err)
+		}
+	}
+	return res, nil
+}
+
+func noUpdate(currentVersion string) *UpdateInfo {
+	return &UpdateInfo{CurrentVersion: currentVersion, LatestVersion: currentVersion}
+}
+
+// CheckForUpdates reads the signed feed and reports whether a newer Sol exists.
 func (c *UpdateChecker) CheckForUpdates(currentVersion string, forceRefresh ...bool) (*UpdateInfo, error) {
 	shouldForce := len(forceRefresh) > 0 && forceRefresh[0]
-	cacheKey := currentVersion
+	cacheKey := c.Channel() + "|" + currentVersion
 
 	// Check cache first (skip if force refresh)
 	if !shouldForce {
@@ -158,29 +280,7 @@ func (c *UpdateChecker) CheckForUpdates(currentVersion string, forceRefresh ...b
 		c.cacheMu.RUnlock()
 	}
 
-	url := fmt.Sprintf("%s/repos/%s/%s/releases?limit=50", c.baseURL, c.cfg.Owner, c.cfg.Repo)
-
-	resp, err := c.client.Get(url)
-	if err != nil {
-		return nil, fmt.Errorf("failed to check Forgejo API: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("forgejo API returned status: %d", resp.StatusCode)
-	}
-
-	var releases []forgejoRelease
-	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
-		return nil, fmt.Errorf("failed to decode Forgejo response: %w", err)
-	}
-
-	if len(releases) == 0 {
-		info := &UpdateInfo{
-			CurrentVersion:  currentVersion,
-			LatestVersion:   currentVersion,
-			UpdateAvailable: false,
-		}
+	remember := func(info *UpdateInfo) (*UpdateInfo, error) {
 		c.cacheMu.Lock()
 		c.cachedInfo[cacheKey] = info
 		c.cacheTimestamp[cacheKey] = time.Now()
@@ -188,135 +288,89 @@ func (c *UpdateChecker) CheckForUpdates(currentVersion string, forceRefresh ...b
 		return info, nil
 	}
 
-	latest, ok := latestLibreServRelease(releases)
-	if !ok {
-		info := &UpdateInfo{
-			CurrentVersion:  currentVersion,
-			LatestVersion:   currentVersion,
-			UpdateAvailable: false,
-		}
-		c.cacheMu.Lock()
-		c.cachedInfo[cacheKey] = info
-		c.cacheTimestamp[cacheKey] = time.Now()
-		c.cacheMu.Unlock()
-		return info, nil
-	}
-	latestTag := strings.TrimPrefix(latest.TagName, "v")
-	currentTag := strings.TrimPrefix(currentVersion, "v")
-
-	// Use semver for proper version comparison
-	var updateAvailable bool
-	if currentTag == "dev" {
-		updateAvailable = false
-	} else {
-		currentSemver, errCurr := semver.NewVersion(currentTag)
-		latestSemver, errLat := semver.NewVersion(latestTag)
-		if errCurr == nil && errLat == nil {
-			updateAvailable = latestSemver.GreaterThan(currentSemver)
-		} else {
-			// Fallback to string comparison if semver parsing fails
-			updateAvailable = latestTag != currentTag
-		}
+	// Development builds carry a version that is not strict semver. They
+	// cannot be compared, so updates are simply unavailable.
+	if _, err := feed.ParseVersion(currentVersion); err != nil {
+		slog.Info("updates unavailable: this build's version is not a release version", "version", currentVersion)
+		return remember(noUpdate(currentVersion))
 	}
 
-	// Fetch signed checksum from SHA256SUMS.txt + .minisig (empty if unverified)
-	checksum, err := c.fetchSignedChecksum(latest.TagName)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	res, err := c.fetchFeed(ctx, currentVersion)
+	if errors.Is(err, feed.ErrUnknownFormat) {
+		slog.Warn("update feed is in a newer format than this version understands; no update offered")
+		return remember(noUpdate(currentVersion))
+	}
 	if err != nil {
-		slog.Debug("release checksums not verified", "error", err, "tag", latest.TagName)
-		checksum = ""
+		return nil, fmt.Errorf("failed to check for updates: %w", err)
 	}
 
 	info := &UpdateInfo{
 		CurrentVersion:  currentVersion,
-		LatestVersion:   latest.TagName,
-		UpdateAvailable: updateAvailable,
-		ReleaseNotes:    latest.Body,
-		PublishedAt:     latest.PublishedAt,
-		URL:             latest.HTMLURL,
-		Checksum:        checksum,
+		LatestVersion:   currentVersion,
+		UpdateAvailable: res.Update,
 	}
-
-	// Update cache
-	c.cacheMu.Lock()
-	c.cachedInfo[cacheKey] = info
-	c.cacheTimestamp[cacheKey] = time.Now()
-	c.cacheMu.Unlock()
-
-	return info, nil
+	if res.Update {
+		info.LatestVersion = res.Feed.Version
+		info.ReleaseNotes = res.Feed.Notes
+		info.Checksum = res.Part.SHA256
+		if t, err := time.Parse(time.RFC3339, res.Feed.Published); err == nil {
+			info.PublishedAt = t
+		}
+	}
+	return remember(info)
 }
 
 // ApplyUpdate downloads and replaces the current binary with the latest one
 func (c *UpdateChecker) ApplyUpdate(ctx context.Context, currentVersion string) error {
-	info, err := c.CheckForUpdates(currentVersion)
+	if _, err := feed.ParseVersion(currentVersion); err != nil {
+		return fmt.Errorf("no update available: this build's version is not a release version")
+	}
+	// Always re-read the feed: what gets installed is what was just verified.
+	res, err := c.fetchFeed(ctx, currentVersion)
 	if err != nil {
 		return err
 	}
-
-	if !info.UpdateAvailable {
+	if !res.Update {
 		return fmt.Errorf("no update available")
 	}
+	newVersion := res.Feed.Version
 
-	// 1. Determine download URL for current platform
-	binaryName := fmt.Sprintf("libreserv-%s-%s", runtime.GOOS, runtime.GOARCH)
-	downloadURL := fmt.Sprintf("%s/download/%s/%s", c.downloadBaseURL(), info.LatestVersion, binaryName)
-
-	expectedChecksum, err := c.fetchSignedChecksum(info.LatestVersion)
-	if err != nil {
-		return err
+	// Find current executable path
+	execPath := c.exePath
+	if execPath == "" {
+		execPath, err = os.Executable()
+		if err != nil {
+			return fmt.Errorf("failed to find current executable: %w", err)
+		}
 	}
 
-	// 2. Check available disk space
 	if err := checkDiskSpace(minDiskSpace); err != nil {
 		return fmt.Errorf("insufficient disk space: %w", err)
 	}
 
-	// 3. Download to temporary file
-	tmpFile, err := os.CreateTemp("", "libreserv-update-*")
+	// Stage beside the installed binary (same filesystem, so rename works).
+	tmpFile, err := os.CreateTemp(filepath.Dir(execPath), ".libreserv-update-*")
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %w", err)
 	}
 	tmpPath := tmpFile.Name()
-	defer func() {
-		_ = os.Remove(tmpPath)
-	}()
-
-	resp, err := c.client.Get(downloadURL)
-	if err != nil {
-		return fmt.Errorf("failed to download update: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to download update: Forgejo returned %d", resp.StatusCode)
-	}
-
-	// Download with checksum verification
-	hasher := sha256.New()
-	teeReader := io.TeeReader(resp.Body, hasher)
-
-	if _, err := io.Copy(tmpFile, teeReader); err != nil {
-		return fmt.Errorf("failed to save update: %w", err)
-	}
 	_ = tmpFile.Close()
+	defer func() { _ = os.Remove(tmpPath) }()
 
-	actualChecksum := hex.EncodeToString(hasher.Sum(nil))
-	if actualChecksum != expectedChecksum {
-		return ErrChecksumMismatch
+	dlCtx, cancel := context.WithTimeout(ctx, 20*time.Minute)
+	defer cancel()
+	if err := feed.Download(dlCtx, c.downloadClient, res.Part, tmpPath); err != nil {
+		return err
 	}
-	slog.Info("Checksum verification passed", "checksum", actualChecksum)
+	slog.Info("Update download verified", "sha256", res.Part.SHA256)
 
-	// 5. Make temporary file executable
 	if err := os.Chmod(tmpPath, 0755); err != nil {
 		return fmt.Errorf("failed to set permissions on update: %w", err)
 	}
 
-	// 6. Find current executable path
-	execPath, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("failed to find current executable: %w", err)
-	}
-
-	// 7. Replace current binary with timeout
+	// Replace current binary with timeout
 	oldPath := execPath + ".old"
 	if err := timedRename(execPath, oldPath, fileOpTimeout); err != nil {
 		return fmt.Errorf("failed to backup current binary: %w", err)
@@ -332,10 +386,10 @@ func (c *UpdateChecker) ApplyUpdate(ctx context.Context, currentVersion string) 
 		return fmt.Errorf("failed to replace binary: %w", err)
 	}
 
-	// 8. Save update state for post-restart verification
+	// Save update state for post-restart verification
 	state := &UpdateState{
 		OldVersion: currentVersion,
-		NewVersion: info.LatestVersion,
+		NewVersion: newVersion,
 		BackupPath: oldPath,
 		UpdatedAt:  time.Now(),
 		Verified:   false,
@@ -344,11 +398,11 @@ func (c *UpdateChecker) ApplyUpdate(ctx context.Context, currentVersion string) 
 		slog.Warn("Failed to save update state, rollback won't be available", "error", err)
 	}
 
-	// 9. Signal for restart (use channel instead of os.Exit)
+	// Signal for restart (use channel instead of os.Exit)
 	if c.restartCh != nil {
 		slog.Info("Update applied successfully, signaling restart",
 			"old_version", currentVersion,
-			"new_version", info.LatestVersion,
+			"new_version", newVersion,
 		)
 		c.restartCh <- RestartSignal{}
 	} else {
@@ -356,7 +410,7 @@ func (c *UpdateChecker) ApplyUpdate(ctx context.Context, currentVersion string) 
 		go func() {
 			slog.Info("Update applied successfully, restarting in 1 second",
 				"old_version", currentVersion,
-				"new_version", info.LatestVersion,
+				"new_version", newVersion,
 			)
 			time.Sleep(1 * time.Second)
 			os.Exit(0)
@@ -364,38 +418,6 @@ func (c *UpdateChecker) ApplyUpdate(ctx context.Context, currentVersion string) 
 	}
 
 	return nil
-}
-
-type forgejoRelease struct {
-	TagName     string    `json:"tag_name"`
-	Target      string    `json:"target"`
-	Name        string    `json:"name"`
-	Body        string    `json:"body"`
-	PublishedAt time.Time `json:"published_at"`
-	HTMLURL     string    `json:"html_url"`
-	Prerelease  bool      `json:"prerelease"`
-	Draft       bool      `json:"draft"`
-}
-
-// libreservTag matches LibreServ tags only: v1.2.3 (optional -prerelease suffix).
-// Luna uses luna-v*; Connect uses connect-v*. Those must never be treated as
-// LibreServ updates.
-var libreservTag = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$`)
-
-func isLibreServTag(tag string) bool {
-	return libreservTag.MatchString(tag)
-}
-
-func latestLibreServRelease(releases []forgejoRelease) (forgejoRelease, bool) {
-	for _, r := range releases {
-		if r.Draft || r.Prerelease {
-			continue
-		}
-		if isLibreServTag(r.TagName) {
-			return r, true
-		}
-	}
-	return forgejoRelease{}, false
 }
 
 // saveUpdateState persists update state to disk with secure permissions

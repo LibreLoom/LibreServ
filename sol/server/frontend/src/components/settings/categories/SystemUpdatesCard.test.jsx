@@ -66,4 +66,65 @@ describe("SystemUpdatesCard", () => {
       );
     });
   });
+
+  it("shows the saved update channel and saves a change", async () => {
+    const user = userEvent.setup();
+    mockRequest.mockImplementation((path, options) => {
+      if (path === "/settings" && !options) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ updates: { channel: "beta" } }) });
+      }
+      return Promise.resolve(upToDate);
+    });
+    renderWithProviders(<SystemUpdatesCard />);
+
+    expect(screen.getByText("Update channel")).toBeInTheDocument();
+    expect(screen.getByText(/Beta gets new versions first/)).toBeInTheDocument();
+    const beta = await screen.findByRole("radio", { name: "Beta" });
+    await waitFor(() => expect(beta).toBeChecked());
+
+    await user.click(screen.getByRole("radio", { name: "Stable" }));
+
+    await waitFor(() => {
+      expect(mockRequest).toHaveBeenCalledWith(
+        "/settings",
+        expect.objectContaining({
+          method: "PUT",
+          body: JSON.stringify({ updates: { channel: "stable" } }),
+        }),
+      );
+    });
+    expect(screen.getByRole("radio", { name: "Stable" })).toBeChecked();
+  });
+
+  it("goes back to the old channel when saving fails", async () => {
+    const user = userEvent.setup();
+    mockRequest.mockImplementation((path, options) => {
+      if (path === "/settings" && options?.method === "PUT") {
+        return Promise.resolve({ ok: false, json: () => Promise.resolve({}) });
+      }
+      return Promise.resolve(upToDate);
+    });
+    renderWithProviders(<SystemUpdatesCard />);
+
+    await user.click(await screen.findByRole("radio", { name: "Beta" }));
+
+    await waitFor(() => expect(screen.getByRole("radio", { name: "Stable" })).toBeChecked());
+  });
+
+  it("offers release notes in the app, not a link to a release page", async () => {
+    mockRequest.mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          current_version: "1.0.0",
+          latest_version: "2.0.0",
+          update_available: true,
+          release_notes: "Fixes",
+        }),
+    });
+    renderWithProviders(<SystemUpdatesCard />);
+
+    expect(await screen.findByRole("button", { name: /See what's new in 2.0.0/ })).toBeInTheDocument();
+    expect(document.querySelector("a[href]")).toBeNull();
+  });
 });

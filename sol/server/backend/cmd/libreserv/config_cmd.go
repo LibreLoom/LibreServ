@@ -32,7 +32,7 @@ DB-backed keys (change via 'config set' or Settings UI):
   server.mode, cors.allowed_origins,
   network.caddy.mode, network.caddy.default_domain,
   network.caddy.email, network.caddy.auto_https,
-  updates.base_url, updates.owner, updates.repo
+  updates.feed_url, updates.channel
 
 All other keys are YAML-only — edit the config file directly.
 `
@@ -62,9 +62,8 @@ var dbBackedKeys = map[string]string{
 	"network.caddy.default_domain": "string",
 	"network.caddy.email":          "string",
 	"network.caddy.auto_https":     "bool",
-	"updates.base_url":             "string",
-	"updates.owner":                "string",
-	"updates.repo":                 "string",
+	"updates.feed_url":             "string",
+	"updates.channel":              "string",
 }
 
 var validEnums = map[string][]string{
@@ -309,12 +308,10 @@ func resolveConfigValue(key string, cfg *config.Config) string {
 		}
 	case "updates":
 		switch parts[1] {
-		case "base_url":
-			return cfg.Updates.BaseURL
-		case "owner":
-			return cfg.Updates.Owner
-		case "repo":
-			return cfg.Updates.Repo
+		case "feed_url":
+			return cfg.Updates.FeedURL
+		case "channel":
+			return cfg.Updates.Channel
 		}
 	}
 	return ""

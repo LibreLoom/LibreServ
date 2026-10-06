@@ -185,7 +185,7 @@ func (s *Scheduler) checkSystemUpdates() {
 	}
 
 	if info.UpdateAvailable {
-		s.logger.Info("System update available!", "latest", info.LatestVersion, "url", info.URL)
+		s.logger.Info("System update available!", "latest", info.LatestVersion)
 		subject := "[Sol] Platform Update Available: " + info.LatestVersion
 		body := fmt.Sprintf("**A new version of Sol is available: %s**\n\nCurrent version: %s\n\n%s\n\n[Update Now](/settings/general)",
 			info.LatestVersion, info.CurrentVersion, info.ReleaseNotes)

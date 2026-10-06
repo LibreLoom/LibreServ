@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -398,6 +399,14 @@ func main() {
 	}
 
 	sysChecker := system.NewUpdateChecker(cfg.Updates)
+	sysChecker.SetStateStore(settingsRepo)
+	settingsService.OnChange(func(changedKeys []string) {
+		if slices.Contains(changedKeys, "updates.channel") {
+			if err := sysChecker.SetChannel(config.Get().Updates.Channel); err != nil {
+				slog.Warn("could not switch update channel", "error", err)
+			}
+		}
+	})
 	restartCh := make(chan system.RestartSignal, 1)
 	sysChecker.SetRestartChannel(restartCh)
 	scheduler := jobs.NewScheduler(appManager, sysChecker, notifyService, handlerssystem.Version)

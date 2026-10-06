@@ -7,10 +7,17 @@ set -euo pipefail
 # Options:
 #   --uninstall    Remove LibreServ (preserves data)
 #   --upgrade      Upgrade existing installation (preserves data and config)
+#   --version X.Y.Z  Install that exact version instead of the latest stable one
 #   --help         Show this help message
 
-GITHUB_REPO="LibreLoom/LibreServ"
-FORGEJO_URL="https://gt.plainskill.net"
+# Signed update feed (latest stable) and the package files it points at.
+FEED_BASE_URL="https://gt.plainskill.net/LibreLoom/LibreServ/raw/branch/feeds/sol"
+PACKAGE_BASE_URL="https://gt.plainskill.net/api/packages/LibreLoom/generic/sol"
+# curl options for every download from the feed host. Tests override this.
+CURL_SECURE=(--proto '=https' --tlsv1.2)
+# Strict semver, no leading "v": X.Y.Z or X.Y.Z-beta.N
+VERSION_RE='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-beta\.(0|[1-9][0-9]*))?$'
+REQUESTED_VERSION=""
 INSTALL_DIR="/opt/libreserv"
 BIN_DIR="/usr/local/bin"
 CONFIG_DIR="/etc/libreserv"
@@ -57,6 +64,7 @@ print_help() {
     echo "Options:"
     echo "  --uninstall    Remove Sol (preserves data in ${DATA_DIR})"
     echo "  --upgrade      Upgrade existing installation (preserves data and config)"
+    echo "  --version X.Y.Z  Install that exact version instead of the latest stable one"
     echo "  --no-systemd   Skip systemd setup (for TESTING only, not for production)"
     echo "  --help         Show this help message"
     echo ""
@@ -264,11 +272,17 @@ create_directories() {
 
 # Prompt for version
 prompt_version() {
+    if [ -n "$REQUESTED_VERSION" ]; then
+        INSTALL_VERSION="$REQUESTED_VERSION"
+        log_info "Installing version: ${INSTALL_VERSION}"
+        return
+    fi
+
     log_info "Version Selection"
     echo ""
     echo "Available options:"
     echo "  - latest: Install the latest stable release (recommended)"
-    echo "  - <version>: Install specific version (e.g., v0.0.0)"
+    echo "  - <version>: Install specific version (e.g., 0.1.0)"
     echo ""
 
     if [ -t 0 ] || [ -c /dev/tty ]; then
@@ -281,12 +295,12 @@ prompt_version() {
                 get_latest_release
                 INSTALL_VERSION="$LATEST_RELEASE"
                 return
-            elif [[ "$version_input" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+)?$ ]]; then
+            elif [[ "$version_input" =~ $VERSION_RE ]]; then
                 INSTALL_VERSION="$version_input"
                 log_info "Installing version: ${INSTALL_VERSION}"
                 return
             else
-                log_error "Invalid version format. Use 'latest' or a version like v0.0.0"
+                log_error "Invalid version format. Use 'latest' or a version like 0.1.0"
             fi
         done
     else
@@ -296,43 +310,77 @@ prompt_version() {
     fi
 }
 
-# Get latest LibreServ release (tag vX.Y.Z only -- skip luna-v* and connect-v*)
+require_minisign() {
+    if ! command -v minisign >/dev/null 2>&1; then
+        log_error "minisign is required to verify this download."
+        log_error "Install it, then run this installer again:"
+        log_error "  Arch:    pacman -S minisign"
+        log_error "  Fedora:  dnf install minisign"
+        log_error "  Debian:  apt install minisign"
+        log_error "  Alpine:  apk add minisign"
+        return 1
+    fi
+}
+
+# verify_signature FILE SIGNATURE_FILE: succeeds only if FILE was signed with
+# the baked-in LibreServ key.
+verify_signature() {
+    local file="$1" sig="$2" pub_file rc=0
+    pub_file="$(mktemp)"
+    printf '%s\n' "${RELEASE_MINISIGN_PUB}" > "${pub_file}"
+    minisign -V -q -p "${pub_file}" -m "${file}" -x "${sig}" || rc=$?
+    rm -f "${pub_file}"
+    return "$rc"
+}
+
+# sums_lookup SUMS_FILE NAME: print the hash on the line whose file name field
+# is exactly NAME (a leading "*" binary marker is allowed). Never a substring.
+sums_lookup() {
+    awk -v f="$2" 'NF == 2 { n = $2; sub(/^\*/, "", n); if (n == f) { print $1; exit } }' "$1"
+}
+
+# Latest stable version from the signed feed. Only "version" is read, and only
+# after the signature has been checked.
 get_latest_release() {
     log_info "Fetching latest release information..."
-    local response
-    response=$(curl -sf --proto '=https' --tlsv1.2 "${FORGEJO_URL}/api/v1/repos/${GITHUB_REPO}/releases?limit=50&sort=created&direction=desc") || {
-        log_error "Failed to fetch releases from Forgejo API"
-        exit 1
-    }
+    require_minisign || exit 1
 
-    if [ -z "$response" ] || [ "$response" = "[]" ]; then
-        log_error "No releases found"
-        exit 1
-    fi
+    local feed_file sig_file
+    feed_file="$(mktemp)"
+    sig_file="$(mktemp)"
 
-    if command -v jq >/dev/null 2>&1; then
-        LATEST_RELEASE=$(echo "$response" | jq -r '[.[] | select(.draft == false and .prerelease == false and (.tag_name | test("^v[0-9]+\\.[0-9]+\\.[0-9]+")))] | .[0].tag_name // empty')
-    elif command -v python3 >/dev/null 2>&1; then
-        LATEST_RELEASE=$(printf '%s' "$response" | python3 -c '
-import json, re, sys
-pat = re.compile(r"^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$")
-for r in json.load(sys.stdin):
-    if r.get("draft") or r.get("prerelease"):
-        continue
-    t = r.get("tag_name") or ""
-    if pat.match(t):
-        print(t)
-        break
-')
-    else
-        LATEST_RELEASE=$(echo "$response" | grep -o '"tag_name"[[:space:]]*:[[:space:]]*"v[0-9][^"]*"' | head -1 | cut -d'"' -f4)
-    fi
-
-    if [ -z "$LATEST_RELEASE" ]; then
-        log_error "Could not parse a Sol v* release from the API"
-        log_error "Response: $response"
+    if ! curl -fsSL "${CURL_SECURE[@]}" "${FEED_BASE_URL}/stable.json" -o "${feed_file}" ||
+       ! curl -fsSL "${CURL_SECURE[@]}" "${FEED_BASE_URL}/stable.json.minisig" -o "${sig_file}"; then
+        log_error "Could not download the list of Sol releases from ${FEED_BASE_URL}"
+        rm -f "${feed_file}" "${sig_file}"
         exit 1
     fi
+
+    if ! verify_signature "${feed_file}" "${sig_file}"; then
+        log_error "The list of Sol releases was not signed by Sol. Nothing was installed."
+        rm -f "${feed_file}" "${sig_file}"
+        exit 1
+    fi
+
+    local versions count
+    if ! grep -Eq '"format"[[:space:]]*:[[:space:]]*1[[:space:]]*[,}]' "${feed_file}"; then
+        log_error "The list of Sol releases is in a format this installer does not understand."
+        rm -f "${feed_file}" "${sig_file}"
+        exit 1
+    fi
+    if ! grep -Eq '"unit"[[:space:]]*:[[:space:]]*"sol"' "${feed_file}"; then
+        log_error "The list of Sol releases is for a different product. Nothing was installed."
+        rm -f "${feed_file}" "${sig_file}"
+        exit 1
+    fi
+    versions="$(grep -oE '"version"[[:space:]]*:[[:space:]]*"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-beta\.(0|[1-9][0-9]*))?"' "${feed_file}" || true)"
+    rm -f "${feed_file}" "${sig_file}"
+    count="$(printf '%s' "$versions" | grep -c . || true)"
+    if [ "$count" != "1" ]; then
+        log_error "Could not read one version from the list of Sol releases."
+        exit 1
+    fi
+    LATEST_RELEASE="$(printf '%s' "$versions" | cut -d'"' -f4)"
 
     log_info "Latest release: ${LATEST_RELEASE}"
 }
@@ -342,8 +390,8 @@ for r in json.load(sys.stdin):
 # installed binary. Failures return (do not exit) so --upgrade can restore.
 download_binary() {
     BINARY_NAME="libreserv-${OS}-${ARCH}"
-    DOWNLOAD_URL="${FORGEJO_URL}/${GITHUB_REPO}/releases/download/${INSTALL_VERSION}/${BINARY_NAME}"
-    CHECKSUM_URL="${FORGEJO_URL}/${GITHUB_REPO}/releases/download/${INSTALL_VERSION}/SHA256SUMS.txt"
+    DOWNLOAD_URL="${PACKAGE_BASE_URL}/${INSTALL_VERSION}/${BINARY_NAME}"
+    CHECKSUM_URL="${PACKAGE_BASE_URL}/${INSTALL_VERSION}/SHA256SUMS.txt"
     SIG_URL="${CHECKSUM_URL}.minisig"
 
     mkdir -p "${INSTALL_DIR}"
@@ -363,47 +411,37 @@ download_binary() {
     }
 
     log_info "Downloading ${BINARY_NAME}..."
-    if ! curl -fsSL --proto '=https' --tlsv1.2 "${DOWNLOAD_URL}" -o "${tmp_bin}"; then
+    if ! curl -fsSL "${CURL_SECURE[@]}" "${DOWNLOAD_URL}" -o "${tmp_bin}"; then
         log_error "Failed to download binary from ${DOWNLOAD_URL}"
         cleanup_download_temps
         return 1
     fi
 
     log_info "Downloading checksums..."
-    if ! curl -fsSL --proto '=https' --tlsv1.2 "${CHECKSUM_URL}" -o "${tmp_sums}"; then
+    if ! curl -fsSL "${CURL_SECURE[@]}" "${CHECKSUM_URL}" -o "${tmp_sums}"; then
         log_error "Could not download checksums. This install needs SHA256SUMS.txt from the release."
         cleanup_download_temps
         return 1
     fi
-    if ! curl -fsSL --proto '=https' --tlsv1.2 "${SIG_URL}" -o "${tmp_sig}"; then
+    if ! curl -fsSL "${CURL_SECURE[@]}" "${SIG_URL}" -o "${tmp_sig}"; then
         log_error "Could not download the checksum signature. That file proves the download is from us, not whoever owns the download host."
         cleanup_download_temps
         return 1
     fi
 
-    if ! command -v minisign >/dev/null 2>&1; then
-        log_error "minisign is required to verify this download."
-        log_error "Install it, then run this installer again:"
-        log_error "  Arch:    pacman -S minisign"
-        log_error "  Fedora:  dnf install minisign"
-        log_error "  Debian:  apt install minisign"
-        log_error "  Alpine:  apk add minisign"
+    if ! require_minisign; then
         cleanup_download_temps
         return 1
     fi
 
-    pub_file="$(mktemp)"
-    printf '%s\n' "${RELEASE_MINISIGN_PUB}" > "${pub_file}"
-    if ! minisign -V -q -p "${pub_file}" -m "${tmp_sums}" -x "${tmp_sig}"; then
+    if ! verify_signature "${tmp_sums}" "${tmp_sig}"; then
         log_error "The checksum file was not signed by Sol. Nothing was installed."
         cleanup_download_temps
         return 1
     fi
-    rm -f "${pub_file}"
-    pub_file=""
 
     log_info "Verifying checksum..."
-    EXPECTED_HASH=$(grep "  ${BINARY_NAME}$" "${tmp_sums}" | awk '{print $1}')
+    EXPECTED_HASH=$(sums_lookup "${tmp_sums}" "${BINARY_NAME}")
     if [ -z "$EXPECTED_HASH" ]; then
         log_error "Checksum not found for ${BINARY_NAME} in SHA256SUMS.txt"
         cleanup_download_temps
@@ -819,8 +857,12 @@ do_upgrade() {
     # verified. download_binary stops it only after checks pass, just before
     # replacing the installed file.
     create_directories
-    get_latest_release
-    INSTALL_VERSION="$LATEST_RELEASE"
+    if [ -n "$REQUESTED_VERSION" ]; then
+        INSTALL_VERSION="$REQUESTED_VERSION"
+    else
+        get_latest_release
+        INSTALL_VERSION="$LATEST_RELEASE"
+    fi
 
     if ! download_binary; then
         log_error "Download or verification failed. Leaving the previous binary in place."
@@ -922,24 +964,44 @@ do_install() {
 }
 
 # Parse arguments
-DO_HELP=false
-DO_UNINSTALL=false
-DO_UPGRADE=false
-for arg in "$@"; do
-    case "$arg" in
-        --no-systemd) NO_SYSTEMD=true ;;
-        --uninstall) DO_UNINSTALL=true ;;
-        --upgrade) DO_UPGRADE=true ;;
-        --help|-h) DO_HELP=true ;;
-    esac
-done
+main() {
+    local want_help=false want_uninstall=false want_upgrade=false
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --no-systemd) NO_SYSTEMD=true ;;
+            --uninstall) want_uninstall=true ;;
+            --upgrade) want_upgrade=true ;;
+            --version)
+                if [ $# -lt 2 ]; then
+                    log_error "--version needs a version, like --version 0.1.0"
+                    exit 1
+                fi
+                REQUESTED_VERSION="$2"
+                shift
+                ;;
+            --version=*) REQUESTED_VERSION="${1#--version=}" ;;
+            --help|-h) want_help=true ;;
+        esac
+        shift
+    done
 
-if [ "$DO_HELP" = true ]; then
-    print_help
-elif [ "$DO_UNINSTALL" = true ]; then
-    do_uninstall
-elif [ "$DO_UPGRADE" = true ]; then
-    do_upgrade
-else
-    do_install
+    if [ -n "$REQUESTED_VERSION" ] && ! [[ "$REQUESTED_VERSION" =~ $VERSION_RE ]]; then
+        log_error "Invalid version '${REQUESTED_VERSION}'. Use a version like 0.1.0 (no leading v)."
+        exit 1
+    fi
+
+    if [ "$want_help" = true ]; then
+        print_help
+    elif [ "$want_uninstall" = true ]; then
+        do_uninstall
+    elif [ "$want_upgrade" = true ]; then
+        do_upgrade
+    else
+        do_install
+    fi
+}
+
+# Run unless this file is being sourced (the installer's tests source it).
+if ! (return 0 2>/dev/null); then
+    main "$@"
 fi

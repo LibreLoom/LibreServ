@@ -1,7 +1,6 @@
 package system
 
 import (
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,15 +10,14 @@ import (
 )
 
 func TestSystemCheckUpdates(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode([]map[string]interface{}{})
-	}))
-	t.Cleanup(srv.Close)
+	// A development build has no release version, so no feed is read.
+	prev := Version
+	Version = "dev"
+	t.Cleanup(func() { Version = prev })
 
 	checker := system.NewUpdateChecker(config.UpdatesConfig{
-		BaseURL: srv.URL + "/api/v1",
-		Owner:   "LibreLoom",
-		Repo:    "LibreServ",
+		FeedURL: "http://127.0.0.1:1/feeds/sol",
+		Channel: "stable",
 	})
 	h := NewSystemHandler(checker)
 
@@ -39,10 +37,12 @@ func TestSystemCheckUpdates(t *testing.T) {
 }
 
 func TestSystemCheckUpdatesError(t *testing.T) {
+	saved := Version
+	Version = "1.0.0" // a release build; dev builds never fetch the feed
+	t.Cleanup(func() { Version = saved })
 	checker := system.NewUpdateChecker(config.UpdatesConfig{
-		BaseURL: "http://127.0.0.1:1/api/v1",
-		Owner:   "x",
-		Repo:    "y",
+		FeedURL: "http://127.0.0.1:1/feeds/sol",
+		Channel: "stable",
 	})
 	h := NewSystemHandler(checker)
 	rec := httptest.NewRecorder()

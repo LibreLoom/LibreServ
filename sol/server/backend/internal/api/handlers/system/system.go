@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/shared"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/feed"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/system"
 )
 
@@ -45,20 +46,16 @@ func (h *SystemHandler) ApplyUpdate(w http.ResponseWriter, r *http.Request) {
 		if h.auditLog != nil {
 			h.auditLog.Log(r.Context(), "system.update", "", "libreserv", "failure", err.Error(), nil)
 		}
-		if errors.Is(err, system.ErrMissingChecksum) {
-			JSONError(w, http.StatusBadRequest, "That update is missing a checksum file. Nothing was installed.")
-			return
-		}
-		if errors.Is(err, system.ErrMissingSignature) {
-			JSONError(w, http.StatusBadRequest, "That update is missing its signature. Nothing was installed.")
-			return
-		}
-		if errors.Is(err, system.ErrBadSignature) {
+		if errors.Is(err, feed.ErrBadSignature) {
 			JSONError(w, http.StatusBadRequest, "That update could not be verified. Nothing was installed.")
 			return
 		}
-		if errors.Is(err, system.ErrChecksumMismatch) {
+		if errors.Is(err, feed.ErrShaMismatch) || errors.Is(err, feed.ErrSizeMismatch) {
 			JSONError(w, http.StatusBadRequest, "That update file didn't match its checksum. Nothing was installed.")
+			return
+		}
+		if errors.Is(err, feed.ErrAllURLsFailed) {
+			JSONError(w, http.StatusBadGateway, "We couldn't download the update. Check your internet connection and try again.")
 			return
 		}
 		JSONError(w, http.StatusInternalServerError, "We couldn't apply the update. Please try again.")

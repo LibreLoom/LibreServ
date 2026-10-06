@@ -97,9 +97,8 @@ notify:
     welcome_subject: ""
     welcome_body: ""
 updates:
-    base_url: https://gt.plainskill.net/api/v1
-    owner: libreloom
-    repo: libreserv
+    feed_url: https://gt.plainskill.net/LibreLoom/LibreServ/raw/branch/feeds/sol
+    channel: stable
 support:
     inference_base_url: "https://api.routing.run/v1"
     agent:

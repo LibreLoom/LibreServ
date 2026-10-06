@@ -56,7 +56,7 @@ func TestResolveConfigValueAllSections(t *testing.T) {
 		}},
 		Auth: config.AuthConfig{JWTSecret: "jwt", CSRFSecret: "csrf"},
 		Updates: config.UpdatesConfig{
-			BaseURL: "https://forge.example.test/api/v1", Owner: "LibreLoom", Repo: "LibreServ",
+			FeedURL: "https://forge.example.test/feeds/sol", Channel: "beta",
 		},
 	}
 	cases := map[string]string{
@@ -93,9 +93,8 @@ func TestResolveConfigValueAllSections(t *testing.T) {
 		"network.caddy.auto_https":     "true",
 		"auth.jwt_secret":              "<redacted>",
 		"auth.csrf_secret":             "<redacted>",
-		"updates.base_url":             "https://forge.example.test/api/v1",
-		"updates.owner":                "LibreLoom",
-		"updates.repo":                 "LibreServ",
+		"updates.feed_url":             "https://forge.example.test/feeds/sol",
+		"updates.channel":              "beta",
 		"unknown.value":                "",
 		"invalid":                      "",
 	}

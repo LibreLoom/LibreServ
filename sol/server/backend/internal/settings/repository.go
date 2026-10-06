@@ -146,9 +146,8 @@ func (r *Repository) SeedFromConfig() error {
 		"network.tunnel.provider":      cfg.Network.Tunnel.Provider,
 		"network.tunnel.token":         cfg.Network.Tunnel.Token,
 		"network.tunnel.enabled":       strconv.FormatBool(cfg.Network.Tunnel.Enabled),
-		"updates.base_url":             cfg.Updates.BaseURL,
-		"updates.owner":                cfg.Updates.Owner,
-		"updates.repo":                 cfg.Updates.Repo,
+		"updates.feed_url":             cfg.Updates.FeedURL,
+		"updates.channel":              cfg.Updates.Channel,
 		"support.inference_base_url":   cfg.Support.InferenceBaseURL,
 		"support.byok_enabled":         strconv.FormatBool(cfg.Support.BYOKEnabled),
 		"support.user_base_url":        cfg.Support.UserBaseURL,
@@ -301,14 +300,11 @@ func (r *Repository) LoadIntoConfig() error {
 		cfg.Network.Tunnel.Enabled, _ = strconv.ParseBool(v)
 	}
 
-	if v, ok := changes["updates.base_url"]; ok {
-		cfg.Updates.BaseURL = v
+	if v, ok := changes["updates.feed_url"]; ok && v != "" {
+		cfg.Updates.FeedURL = v
 	}
-	if v, ok := changes["updates.owner"]; ok {
-		cfg.Updates.Owner = v
-	}
-	if v, ok := changes["updates.repo"]; ok {
-		cfg.Updates.Repo = v
+	if v, ok := changes["updates.channel"]; ok && (v == "stable" || v == "beta") {
+		cfg.Updates.Channel = v
 	}
 
 	if v, ok := changes["support.inference_base_url"]; ok {
@@ -464,9 +460,7 @@ func (s *Service) GetSettings(ctx context.Context) (map[string]interface{}, erro
 			"mode": cfg.Server.Mode,
 		},
 		"updates": map[string]interface{}{
-			"base_url": cfg.Updates.BaseURL,
-			"owner":    cfg.Updates.Owner,
-			"repo":     cfg.Updates.Repo,
+			"channel": cfg.Updates.Channel,
 		},
 	}
 
@@ -710,22 +704,13 @@ func (s *Service) UpdateSettings(ctx context.Context, updates map[string]interfa
 		if updatesCfg == nil {
 			return fmt.Errorf("invalid updates format")
 		}
-		if baseURL, ok := updatesCfg["base_url"].(string); ok {
-			addMutation("updates.base_url",
-				func() { cfg.Updates.BaseURL = baseURL },
-				func(tx *sql.Tx) error { return s.repo.SetTx(tx, "updates.base_url", baseURL, "string") },
-			)
-		}
-		if owner, ok := updatesCfg["owner"].(string); ok {
-			addMutation("updates.owner",
-				func() { cfg.Updates.Owner = owner },
-				func(tx *sql.Tx) error { return s.repo.SetTx(tx, "updates.owner", owner, "string") },
-			)
-		}
-		if repo, ok := updatesCfg["repo"].(string); ok {
-			addMutation("updates.repo",
-				func() { cfg.Updates.Repo = repo },
-				func(tx *sql.Tx) error { return s.repo.SetTx(tx, "updates.repo", repo, "string") },
+		if channel, ok := updatesCfg["channel"].(string); ok {
+			if channel != "stable" && channel != "beta" {
+				return fmt.Errorf("invalid update channel: must be stable or beta")
+			}
+			addMutation("updates.channel",
+				func() { cfg.Updates.Channel = channel },
+				func(tx *sql.Tx) error { return s.repo.SetTx(tx, "updates.channel", channel, "string") },
 			)
 		}
 	}
@@ -896,8 +881,6 @@ func typeFor(key string) string {
 		return "bool"
 	case "notify.support_recipients", "cors.allowed_origins":
 		return "csv"
-	case "updates.base_url", "updates.owner", "updates.repo":
-		return "string"
 	default:
 		return "string"
 	}
