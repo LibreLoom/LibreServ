@@ -180,6 +180,7 @@ class LoginActivity : AppCompatActivity() {
         status.text = "Signing in…"
         thread {
             try {
+                LunaApi.requireCompatible(url)
                 val user = LunaApi.authMe(url, accessToken)
                 BackupPrefs.saveSession(this, url, accessToken, user.username)
                 runOnUiThread {

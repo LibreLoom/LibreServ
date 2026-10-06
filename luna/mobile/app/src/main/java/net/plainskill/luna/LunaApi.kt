@@ -45,6 +45,26 @@ object LunaApi {
         val isDir: Boolean get() = kind == "dir"
     }
 
+    /** Thrown when Luna and this app can't work together; not worth retrying. */
+    class IncompatibleException(message: String) : Exception(message)
+
+    /** Asks Luna (no sign-in needed) which API it speaks and compares it with [CLIENT_API]. */
+    fun checkCompat(baseUrl: String): Compat {
+        val result = exchange(baseUrl, "/api/v1/health", "GET", null, null, null)
+        if (result.code !in 200..299) {
+            throw ApiException(
+                result.code,
+                "Luna didn't answer the version check. Check that this phone can reach Luna, then try again.",
+            )
+        }
+        return Compatibility.check(Compatibility.parseApi(String(result.body, Charsets.UTF_8)))
+    }
+
+    /** Throws [IncompatibleException] with a plain message unless Luna and this app match. */
+    fun requireCompatible(baseUrl: String) {
+        Compatibility.message(checkCompat(baseUrl))?.let { throw IncompatibleException(it) }
+    }
+
     fun authMe(baseUrl: String, token: String): UserInfo {
         val result = exchange(baseUrl, "/api/v1/auth/me", "GET", token, null, null)
         if (result.code == 401) {
@@ -219,6 +239,7 @@ object LunaApi {
 
     fun describeError(error: Exception): String = when (error) {
         is ApiException -> error.message ?: badTokenMessage()
+        is IncompatibleException -> error.message.orEmpty()
         is java.io.IOException ->
             if (error.message == "timed out") {
                 "Luna didn't finish answering in time. Check that this phone is on the same network as Luna, and that the drive is working in Luna's Drives page, then try again."

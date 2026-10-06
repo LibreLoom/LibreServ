@@ -11,6 +11,12 @@ internal object JsonFields {
         return raw.replace("\\\"", "\"").replace("\\\\", "\\")
     }
 
+    /** A whole-number field, or null if absent or not a plain integer. */
+    fun int(json: String, key: String): Int? {
+        val pattern = Regex("\"${Regex.escape(key)}\"\\s*:\\s*(\\d{1,9})\\s*(?:[,}]|$)")
+        return pattern.find(json)?.groupValues?.get(1)?.toIntOrNull()
+    }
+
     fun objects(arrayJson: String): List<String> {
         val out = ArrayList<String>()
         val s = arrayJson

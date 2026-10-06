@@ -40,6 +40,7 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : CoroutineW
         }
 
         return try {
+            LunaApi.requireCompatible(baseUrl)
             val driveId = LunaApi.resolveDriveId(baseUrl, token, BackupPrefs.driveId(context))
             val folder = BackupPrefs.folderPrefix(context)
             val since = BackupPrefs.lastBackupAt(context) / 1000
@@ -122,6 +123,13 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : CoroutineW
             notifier.clearProgress()
             BackupProgress.idle()
             Result.success()
+        } catch (e: LunaApi.IncompatibleException) {
+            // Retrying won't help; the person has to update Luna or this app.
+            val message = LunaApi.describeError(e)
+            BackupProgress.fail(message)
+            notifier.clearProgress()
+            notifier.showFailure(message)
+            Result.failure()
         } catch (e: LunaApi.ApiException) {
             val message = LunaApi.describeError(e)
             BackupProgress.fail(message)

@@ -31,6 +31,8 @@ class PhotoBackupWorkerTest {
     private lateinit var server: ServerSocket
     private val requests = CopyOnWriteArrayList<String>()
     private var driveReply: Pair<Int, String> = 200 to "[{\"id\":\"d1\",\"label\":\"Photos\"}]"
+    private var healthReply: Pair<Int, String> =
+        200 to "{\"status\":\"ok\",\"api\":{\"version\":1,\"oldest_supported\":1}}"
     private val base get() = "http://127.0.0.1:${server.localPort}"
 
     private fun readLine(input: InputStream): String? {
@@ -58,7 +60,11 @@ class PhotoBackupWorkerTest {
                     val request = readLine(input) ?: return@use
                     requests += request.substringBefore(" HTTP")
                     while (true) if (readLine(input).isNullOrEmpty()) break
-                    val (code, text) = if (request.startsWith("GET /api/v1/drives ")) driveReply else (404 to "{}")
+                    val (code, text) = when {
+                        request.startsWith("GET /api/v1/drives ") -> driveReply
+                        request.startsWith("GET /api/v1/health ") -> healthReply
+                        else -> 404 to "{}"
+                    }
                     val out = text.toByteArray()
                     val head = "HTTP/1.1 $code X\r\nContent-Type: application/json\r\n" +
                         "Content-Length: ${out.size}\r\nConnection: close\r\n\r\n"
@@ -163,5 +169,25 @@ class PhotoBackupWorkerTest {
         assertEquals(5_000L, BackupPrefs.lastBackupAt(context))
         assertFalse(BackupProgress.snapshot.running)
         assertEquals("Everything is up to date.", BackupProgress.snapshot.heading)
+    }
+
+    @Test
+    fun aLunaThatIsTooOldStopsBackupWithoutRetryOrSignOut() {
+        signInReady()
+        grantPhotos()
+        healthReply = 200 to "{\"status\":\"ok\"}"
+        assertEquals(ListenableWorker.Result.failure(), run())
+        assertTrue("still signed in", BackupPrefs.signedIn(context))
+        assertTrue(requests.none { it.startsWith("GET /api/v1/drives") })
+        assertEquals(Compatibility.message(Compat.LUNA_TOO_OLD), BackupProgress.snapshot.lastError)
+    }
+
+    @Test
+    fun anAppThatIsTooOldStopsBackup() {
+        signInReady()
+        grantPhotos()
+        healthReply = 200 to "{\"api\":{\"version\":4,\"oldest_supported\":3}}"
+        assertEquals(ListenableWorker.Result.failure(), run())
+        assertEquals(Compatibility.message(Compat.APP_TOO_OLD), BackupProgress.snapshot.lastError)
     }
 }

@@ -102,6 +102,7 @@ object BackupConfig {
 
     internal fun testBlocking(baseUrl: String, token: String, driveId: String, folder: String): Result {
         return try {
+            LunaApi.requireCompatible(baseUrl)
             LunaApi.authMe(baseUrl, token)
             val drives = LunaApi.listDrives(baseUrl, token)
             if (drives.isEmpty()) {
