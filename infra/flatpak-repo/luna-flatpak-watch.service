@@ -1,0 +1,39 @@
+[Unit]
+Description=Import new Luna Desktop releases into the Flatpak repo
+Documentation=file:///opt/LibreServ/infra/flatpak-repo/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=luna-flatpak
+Group=luna-flatpak
+Environment=GNUPGHOME=/var/lib/luna-flatpak/gnupg
+Environment=HOME=/var/lib/luna-flatpak
+ExecStart=/opt/LibreServ/infra/flatpak-repo/watch.sh
+TimeoutStartSec=30min
+Nice=10
+
+# Hardening. The checkout (/opt) and the rest of the system are read-only;
+# only the repo and the state/key directory are writable. gpg-agent keeps its
+# socket inside GNUPGHOME, so it needs nothing outside those paths.
+ProtectSystem=strict
+ReadWritePaths=/srv/luna-flatpak /var/lib/luna-flatpak
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+NoNewPrivileges=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+SystemCallArchitectures=native
+UMask=0022
