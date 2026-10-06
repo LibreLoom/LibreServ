@@ -3,6 +3,7 @@ mod auth_failed;
 mod backup_page;
 mod folder_browser;
 mod login;
+mod notices;
 mod settings_page;
 mod status_page;
 mod sync_page;
@@ -174,9 +175,15 @@ fn build_ui(app: &adw::Application, state: Arc<AppState>) -> adw::ApplicationWin
     let stack = gtk::Stack::new();
     stack.set_transition_type(gtk::StackTransitionType::Crossfade);
     toast.set_child(Some(&stack));
-    window.set_content(Some(&toast));
+    toast.set_vexpand(true);
 
     let toast_rc = Rc::new(toast);
+    let notices = notices::Notices::new(state.clone(), toast_rc.clone());
+    let column = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    column.append(notices.root());
+    column.append(&*toast_rc);
+    window.set_content(Some(&column));
+    notices.start();
     let stack_rc = Rc::new(stack);
 
     let show_shell = {

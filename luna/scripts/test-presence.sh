@@ -11,7 +11,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 missing_rust=0
-echo "==> Rust files without tests (crates/lunad, crates/luna-core)"
+echo "==> Rust files without tests (crates/lunad, crates/luna-core, crates/luna-feed)"
 for f in $(find crates -name '*.rs' -path '*/src/*' ! -path '*/bin/*' ! -name 'main.rs' ! -name 'tests.rs' ! -name '*_tests.rs' | sort); do
 	base="${f%.rs}"
 	if grep -q '#\[cfg(test)\]' "$f" 2>/dev/null; then continue; fi

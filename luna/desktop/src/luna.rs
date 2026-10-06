@@ -193,6 +193,27 @@ fn auth_get(
         .map_err(|e| plain_connect_error(&e))
 }
 
+/// What Luna says about its API (`GET /api/v1/health`, no sign-in needed).
+/// `Ok(None)` means Luna answered without a readable `api` block (or has no
+/// health page at all): it predates the compatibility check. `Err` means Luna
+/// could not be asked right now, which is not the same thing.
+pub fn health_api(base_url: &str) -> Result<Option<crate::compat::ApiInfo>, String> {
+    let url = format!("{}/api/v1/health", base_url.trim_end_matches('/'));
+    match agent().get(&url).call() {
+        Ok(mut resp) => {
+            let body = resp
+                .body_mut()
+                .with_config()
+                .limit(64 * 1024)
+                .read_to_string()
+                .unwrap_or_default();
+            Ok(crate::compat::parse_api(&body))
+        }
+        Err(ureq::Error::StatusCode(404)) => Ok(None),
+        Err(e) => Err(plain_connect_error(&e)),
+    }
+}
+
 /// Who this access token belongs to. Used when signing in with a pasted token.
 pub fn auth_me(base_url: &str, token: &str) -> Result<(String, String), String> {
     let mut resp = auth_get(base_url, token, "/api/v1/auth/me")?;

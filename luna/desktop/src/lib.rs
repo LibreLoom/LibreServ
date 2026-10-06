@@ -9,6 +9,7 @@ pub mod autostart;
 pub mod backup;
 #[cfg(target_os = "macos")]
 pub mod bundle;
+pub mod compat;
 pub mod dest;
 pub mod instance;
 pub mod luna;
@@ -19,6 +20,8 @@ pub mod sync;
 pub mod tray;
 #[cfg(windows)]
 pub mod tray_win;
+#[cfg_attr(not(windows), allow(dead_code))]
+pub mod update;
 
 /// Point the bundled GTK runtime at itself.
 ///
@@ -92,6 +95,9 @@ pub struct AppState {
     pub backup_progress: Arc<Mutex<HashMap<String, backup::BackupProgress>>>,
     pub sync_handles: Mutex<HashMap<String, sync::SyncHandle>>,
     pub sync_progress: Arc<Mutex<HashMap<String, sync::SyncProgress>>>,
+    /// Whether this app works with the signed-in Luna. `None` until Luna has
+    /// answered; backup and sync only run while this is `Some(Compat::Ok)`.
+    pub compat: Mutex<Option<compat::Compat>>,
 }
 
 impl Default for AppState {
@@ -102,6 +108,7 @@ impl Default for AppState {
             backup_progress: Arc::new(Mutex::new(HashMap::new())),
             sync_handles: Mutex::new(HashMap::new()),
             sync_progress: Arc::new(Mutex::new(HashMap::new())),
+            compat: Mutex::new(None),
         }
     }
 }
@@ -113,6 +120,76 @@ fn require_session(state: &AppState) -> Result<session::SessionData, String> {
         .map_err(|_| "Internal error.".to_string())?
         .clone()
         .ok_or_else(|| "Sign in first.".to_string())
+}
+
+/// Ask Luna whether this app and it work together. `Err` means Luna couldn't
+/// be asked right now (unreachable) — not the same as incompatible.
+fn ask_compat(base_url: &str) -> Result<compat::Compat, String> {
+    let api = luna::health_api(base_url)?;
+    Ok(compat::check(api, compat::CLIENT_API))
+}
+
+fn set_compat(state: &AppState, value: Option<compat::Compat>) {
+    if let Ok(mut slot) = state.compat.lock() {
+        *slot = value;
+    }
+}
+
+/// The last answer from [`refresh_compat`]; `None` while unchecked.
+pub fn current_compat(state: &AppState) -> Option<compat::Compat> {
+    state.compat.lock().ok().and_then(|c| *c)
+}
+
+/// Backup and sync only start once Luna has confirmed it works with this app.
+fn require_compatible(state: &AppState) -> Result<(), String> {
+    match current_compat(state) {
+        Some(compat::Compat::Ok) => Ok(()),
+        Some(bad) => Err(compat::message(bad).unwrap_or_default().to_string()),
+        None => Err(
+            "Couldn't check that this app works with your Luna. Check that Luna is on and try again."
+                .to_string(),
+        ),
+    }
+}
+
+/// Stop every running backup and sync without forgetting that they were on,
+/// so they start again by themselves once Luna is reachable and compatible.
+fn pause_all_jobs(state: &AppState) {
+    if let Ok(mut handles) = state.backup_handles.lock() {
+        for (_, h) in handles.drain() {
+            h.stop();
+        }
+    }
+    if let Ok(mut handles) = state.sync_handles.lock() {
+        for (_, h) in handles.drain() {
+            h.stop();
+        }
+    }
+}
+
+/// Ask the signed-in Luna again and act on the answer: incompatible pauses
+/// all backup and sync, becoming compatible starts them. An unreachable Luna
+/// keeps the last answer (jobs already report that themselves).
+pub fn refresh_compat(state: &AppState) -> Option<compat::Compat> {
+    let base_url = state.session.lock().ok()?.as_ref()?.base_url.clone();
+    let before = current_compat(state);
+    match ask_compat(&base_url) {
+        Ok(now) => {
+            set_compat(state, Some(now));
+            if now != compat::Compat::Ok {
+                pause_all_jobs(state);
+            } else if before != Some(compat::Compat::Ok) {
+                start_all_jobs(state);
+            }
+            Some(now)
+        }
+        Err(_) => before,
+    }
+}
+
+/// Stop all backup and sync before the app closes itself (for an update).
+pub fn stop_all_jobs(state: &AppState) {
+    pause_all_jobs(state);
 }
 
 fn existing_jobs(skip_backup_id: Option<&str>, skip_sync_id: Option<&str>) -> ExistingJobs {
@@ -162,6 +239,7 @@ pub fn restore_session(state: &AppState) -> RestoreOutcome {
     };
     match luna::auth_me(&saved.base_url, &saved.token) {
         Ok((username, _)) => {
+            set_compat(state, ask_compat(&saved.base_url).ok());
             let mut session_data = saved.clone();
             session_data.username = username.clone();
             if let Ok(mut slot) = state.session.lock() {
@@ -183,6 +261,7 @@ pub fn restore_session(state: &AppState) -> RestoreOutcome {
         Err(_) => {
             // Non-auth failure (e.g. offline, connection error, drive issue):
             // preserve the saved session so the user is NOT kicked back to the login page.
+            set_compat(state, ask_compat(&saved.base_url).ok());
             if let Ok(mut slot) = state.session.lock() {
                 *slot = Some(saved.clone());
             }
@@ -200,6 +279,10 @@ pub fn login(state: &AppState, base_url: &str, access_token: &str) -> Result<Ses
     if token.is_empty() {
         return Err("Paste an access token from Luna → Settings → Security.".into());
     }
+    let found = ask_compat(&base_url)?;
+    if let Some(msg) = compat::message(found) {
+        return Err(msg.to_string());
+    }
     let (username, _) = luna::auth_me(&base_url, &token)?;
     let data = session::SessionData {
         base_url: base_url.clone(),
@@ -211,6 +294,7 @@ pub fn login(state: &AppState, base_url: &str, access_token: &str) -> Result<Ses
         .session
         .lock()
         .map_err(|_| "Internal error.".to_string())? = Some(data.clone());
+    set_compat(state, Some(found));
     Ok(SessionInfo {
         base_url: data.base_url,
         username: data.username,
@@ -231,6 +315,7 @@ pub fn logout(state: &AppState) -> Result<(), String> {
     if let Ok(mut s) = state.session.lock() {
         *s = None;
     }
+    set_compat(state, None);
     session::clear();
     Ok(())
 }
@@ -310,6 +395,7 @@ pub fn delete_backup_job(state: &AppState, id: &str) -> Result<(), String> {
 
 pub fn start_backup_job(state: &AppState, id: &str) -> Result<(), String> {
     let s = require_session(state)?;
+    require_compatible(state)?;
     let mut jobs = backup::load_jobs();
     let job = jobs
         .iter_mut()
@@ -429,6 +515,7 @@ pub fn delete_sync_pair(state: &AppState, id: &str) -> Result<(), String> {
 
 pub fn start_sync_pair(state: &AppState, id: &str) -> Result<(), String> {
     let s = require_session(state)?;
+    require_compatible(state)?;
     let mut pairs = sync::load_pairs();
     let pair = pairs
         .iter_mut()
@@ -539,6 +626,87 @@ mod tests {
             }
         });
         (format!("http://127.0.0.1:{port}"), handle, stop)
+    }
+
+    /// A Luna that only answers `/api/v1/health` with `body` (status 200).
+    fn spawn_health_server(body: &'static str) -> (String, Arc<AtomicBool>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop2 = stop.clone();
+        thread::spawn(move || {
+            for mut s in listener.incoming().flatten() {
+                if stop2.load(Ordering::Relaxed) {
+                    break;
+                }
+                let mut buf = [0u8; 4096];
+                let _ = s.read(&mut buf);
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = s.write_all(resp.as_bytes());
+            }
+        });
+        (format!("http://127.0.0.1:{port}"), stop)
+    }
+
+    #[test]
+    fn health_api_reads_what_luna_says() {
+        let (base, stop) =
+            spawn_health_server(r#"{"status":"ok","api":{"version":2,"oldest_supported":1}}"#);
+        let api = luna::health_api(&base).unwrap().unwrap();
+        assert_eq!((api.version, api.oldest_supported), (2, 1));
+        stop.store(true, Ordering::Relaxed);
+        let _ = std::net::TcpStream::connect(base.trim_start_matches("http://"));
+    }
+
+    #[test]
+    fn login_refuses_a_luna_without_api_info() {
+        let _g = test_env::lock();
+        let dir = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var("LUNA_DESKTOP_DATA", dir.path()) };
+        let (base, stop) = spawn_health_server(r#"{"status":"ok"}"#);
+        let state = AppState::default();
+        let err = login(&state, &base, "token").unwrap_err();
+        assert_eq!(
+            err,
+            "This Luna is too old for this app. Update Luna in Settings \u{2192} About \u{2192} System updates."
+        );
+        assert!(session::load().is_none());
+        stop.store(true, Ordering::Relaxed);
+        let _ = std::net::TcpStream::connect(base.trim_start_matches("http://"));
+        unsafe { std::env::remove_var("LUNA_DESKTOP_DATA") };
+    }
+
+    #[test]
+    fn jobs_do_not_start_until_luna_is_confirmed_compatible() {
+        let state = AppState::default();
+        *state.session.lock().unwrap() = Some(session::SessionData {
+            base_url: "http://127.0.0.1:1".into(),
+            username: "max".into(),
+            token: "t".into(),
+        });
+        // Unchecked: refuse, with a plain reason.
+        assert!(
+            require_compatible(&state)
+                .unwrap_err()
+                .contains("Couldn't check")
+        );
+        for bad in [compat::Compat::LunaTooOld, compat::Compat::AppTooOld] {
+            set_compat(&state, Some(bad));
+            assert_eq!(
+                require_compatible(&state).unwrap_err(),
+                compat::message(bad).unwrap()
+            );
+            assert!(start_backup_job(&state, "x").is_err());
+            assert!(start_sync_pair(&state, "x").is_err());
+        }
+        set_compat(&state, Some(compat::Compat::Ok));
+        assert!(require_compatible(&state).is_ok());
+        // Unreachable Luna on refresh keeps the last answer.
+        assert_eq!(refresh_compat(&state), Some(compat::Compat::Ok));
     }
 
     #[test]

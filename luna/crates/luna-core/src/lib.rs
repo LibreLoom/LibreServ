@@ -5,7 +5,6 @@
 //! resolution, and read-only top-level inspection summaries.
 
 pub mod drive;
-pub mod feed;
 pub mod marker;
 pub mod path;
 pub mod scan;

@@ -26,6 +26,10 @@ notify = "6"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 ureq = { version = "3", features = ["json"] }
+# Signed update feed rules + checked download (Windows self-update; the
+# compatibility check is local). Path dependency; its Cargo.toml needs nothing
+# from the luna workspace, so the Flatpak only has to copy that one crate.
+luna-feed = { path = "../crates/luna-feed", features = ["download"] }
 
 # StatusNotifierItem tray — Linux/BSD only (no D-Bus SNI host on macOS/Windows).
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
@@ -44,6 +48,9 @@ windows-sys = { version = "0.59", features = [
     "Win32_UI_WindowsAndMessaging",
     "Win32_System_LibraryLoader",
 ] }
+
+[build-dependencies]
+semver = "1"
 
 [dev-dependencies]
 tempfile = "3"

@@ -1,6 +1,6 @@
 //! Software updates from the signed Luna feed (`luna/<channel>.json`).
 //!
-//! The feed format and its rules live in `luna_core::feed` (spec:
+//! The feed format and its rules live in `luna_feed` (spec:
 //! `infra/docs/RELEASE-PLAN.md`). Two parts matter here: `lunad` (the daemon,
 //! installed under LUNA_DATA) and `os` (an `.img.xz` slot image). When the
 //! OS part's SHA256 differs from the hash stored on LUNA_DATA, that image is
@@ -15,7 +15,7 @@ use std::process::Command;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use luna_core::feed::{self, FeedError, Part};
+use luna_feed::{self as feed, FeedError, Part};
 use minisign_verify::PublicKey;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
@@ -1089,7 +1089,7 @@ impl UpdateService {
     }
 
     /// Stream a feed part into the staging dir, checking size and SHA-256 as
-    /// it lands (`luna_core::feed::download_with`). The file name is
+    /// it lands (`luna_feed::download_with`). The file name is
     /// unguessable and created exclusively, so a planted symlink can't
     /// redirect the download.
     fn download_verified(&self, part: &Part, max_bytes: u64) -> Result<PathBuf, UpdateError> {

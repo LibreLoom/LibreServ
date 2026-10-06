@@ -1,0 +1,30 @@
+[package]
+name = "luna-feed"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+rust-version = "1.96"
+description = "Luna signed update feed rules (Format 1) and checked download"
+
+# No `workspace = true` inheritance on purpose: Luna Desktop (outside the luna
+# workspace) builds this crate from a source tree without luna/Cargo.toml.
+[dependencies]
+minisign-verify = "0.2"
+semver = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+thiserror = "2"
+ureq = { version = "3", features = ["json"], optional = true }
+
+[features]
+# Blocking HTTP download helper (lunad does not enable it; Windows desktop does).
+download = ["dep:ureq"]
+
+[dev-dependencies]
+# Self dev-dependency: the feed tests download through the HTTP helper.
+luna-feed = { path = ".", features = ["download"] }
+tempfile = "3"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

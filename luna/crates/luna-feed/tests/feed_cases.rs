@@ -1,4 +1,4 @@
-//! Runs every case in `infra/feed-testdata/cases.json` against `luna_core::feed`.
+//! Runs every case in `infra/feed-testdata/cases.json` against `luna_feed`.
 //! The key is the throwaway TEST-ONLY key from the fixtures, loaded here only.
 
 use std::io::{Read, Write};
@@ -6,7 +6,7 @@ use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use luna_core::feed::{self, FeedError, Request};
+use luna_feed::{self as feed, FeedError, Request};
 use serde_json::Value;
 
 fn testdata() -> PathBuf {

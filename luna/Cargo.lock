@@ -1235,9 +1235,21 @@ name = "luna-core"
 version = "0.1.0"
 dependencies = [
  "libc",
- "luna-core",
- "minisign-verify",
  "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "uuid",
+]
+
+[[package]]
+name = "luna-feed"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "luna-feed",
+ "minisign-verify",
  "semver",
  "serde",
  "serde_json",
@@ -1245,7 +1257,6 @@ dependencies = [
  "tempfile",
  "thiserror",
  "ureq",
- "uuid",
 ]
 
 [[package]]
@@ -1267,6 +1278,7 @@ dependencies = [
  "kamadak-exif",
  "libc",
  "luna-core",
+ "luna-feed",
  "lzma-rust2",
  "mime_guess",
  "minisign",

@@ -30,13 +30,33 @@ modules:
         - --share=network
       env:
         CARGO_HOME: /run/build/luna-desktop/cargo
+    # The build tree mirrors the repo layout (luna/desktop, luna/crates/luna-feed,
+    # keys/), because Cargo.toml and update.rs reach their neighbours by relative
+    # path. Only the three pieces the app needs are copied, never all of luna/.
     build-commands:
-      - cargo fetch --manifest-path Cargo.toml
-      - cargo build --release --manifest-path Cargo.toml
-      - install -Dm755 target/release/luna-desktop /app/bin/luna-desktop
-      - install -Dm644 resources/org.libreloom.LunaDesktop.desktop /app/share/applications/org.libreloom.LunaDesktop.desktop
-      - install -Dm644 resources/icon.png /app/share/icons/hicolor/256x256/apps/org.libreloom.LunaDesktop.png
-      - install -Dm644 packaging/flatpak/org.libreloom.LunaDesktop.metainfo.xml /app/share/metainfo/org.libreloom.LunaDesktop.metainfo.xml
+      - cargo fetch --manifest-path luna/desktop/Cargo.toml
+      - cargo build --release --manifest-path luna/desktop/Cargo.toml
+      - install -Dm755 luna/desktop/target/release/luna-desktop /app/bin/luna-desktop
+      - install -Dm644 luna/desktop/resources/org.libreloom.LunaDesktop.desktop /app/share/applications/org.libreloom.LunaDesktop.desktop
+      - install -Dm644 luna/desktop/resources/icon.png /app/share/icons/hicolor/256x256/apps/org.libreloom.LunaDesktop.png
+      - install -Dm644 luna/desktop/packaging/flatpak/org.libreloom.LunaDesktop.metainfo.xml /app/share/metainfo/org.libreloom.LunaDesktop.metainfo.xml
     sources:
       - type: dir
         path: ../..
+        dest: luna/desktop
+        skip:
+          - target
+          - release
+          - node_modules
+          - dist
+          - packaging/flatpak/build-dir
+          - packaging/flatpak/repo
+          - packaging/flatpak/.flatpak-builder
+      - type: dir
+        path: ../../../crates/luna-feed
+        dest: luna/crates/luna-feed
+        skip:
+          - target
+      - type: file
+        path: ../../../../keys/lsluna.minisign.pub
+        dest: keys

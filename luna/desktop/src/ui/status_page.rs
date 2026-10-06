@@ -79,9 +79,11 @@ impl StatusPage {
                         let jobs = luna_desktop::backup::load_jobs();
                         let pairs = luna_desktop::sync::load_pairs();
                         let drives = luna_desktop::list_drives(&state).unwrap_or_default();
-                        (backups, syncs, jobs, pairs, drives.is_empty())
+                        let mismatch = luna_desktop::current_compat(&state)
+                            .and_then(luna_desktop::compat::message);
+                        (backups, syncs, jobs, pairs, drives.is_empty(), mismatch)
                     },
-                    move |(backups, syncs, jobs, pairs, no_drives)| {
+                    move |(backups, syncs, jobs, pairs, no_drives, mismatch)| {
                         while let Some(row) = list.row_at_index(0) {
                             list.remove(&row);
                         }
@@ -213,7 +215,11 @@ impl StatusPage {
                         }
 
                         if !any {
-                            if no_drives {
+                            if let Some(text) = mismatch {
+                                empty.set_title("Backup and sync are paused");
+                                empty.set_description(Some(text));
+                                empty.set_icon_name(Some("dialog-warning-symbolic"));
+                            } else if no_drives {
                                 empty.set_title("No drives found");
                                 empty.set_description(Some(
                                     "No drives found on Luna. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.",

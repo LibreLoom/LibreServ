@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/luna-core", "crates/lunad"]
+members = ["crates/luna-core", "crates/luna-feed", "crates/lunad"]
 exclude = ["desktop"]
 
 [workspace.package]

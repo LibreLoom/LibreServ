@@ -18,6 +18,7 @@ kamadak-exif.workspace = true
 include_dir.workspace = true
 jsonwebtoken.workspace = true
 luna-core = { path = "../luna-core" }
+luna-feed = { path = "../luna-feed" }
 mime_guess.workspace = true
 notify.workspace = true
 rand_core.workspace = true

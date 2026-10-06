@@ -11,9 +11,17 @@ sudo apt install gcc-mingw-w64-x86-64 nsis pkg-config curl zstd
 rustup target add x86_64-pc-windows-gnu
 
 cd luna
-LUNA_DESKTOP_VERSION=0.0.21 ./desktop/packaging/windows/build-cross.sh
-# → desktop/release/Luna-Desktop-Setup-0.0.21-x86_64.exe
+./desktop/packaging/windows/build-cross.sh
+# → desktop/release/Luna-Desktop-Setup-<desktop/VERSION>-x86_64.exe
 ```
+
+The version comes from `desktop/VERSION` (strict semver, also baked into the
+app for its update check). `LUNA_DESKTOP_VERSION` may be set, but the script
+stops if it differs from that file.
+
+In-app updates (Windows only) download the feed's installer and run it with
+`/S /D=<install folder>`: silent, in place. A silent install waits for the old
+app to exit, then starts the new one.
 
 The script:
 

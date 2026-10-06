@@ -3,6 +3,7 @@ use std::rc::Rc;
 use adw::prelude::*;
 
 use luna_desktop::autostart;
+use luna_desktop::update;
 
 use super::toast_error;
 
@@ -45,6 +46,11 @@ impl SettingsPage {
         group.add(&row);
         page.add(&group);
 
+        // Linux updates come from the software center; only Windows updates itself.
+        if cfg!(windows) {
+            page.add(&update_group(&toast));
+        }
+
         // Hint about data location
         let data_group = adw::PreferencesGroup::new();
         data_group.set_title("Saved data");
@@ -85,4 +91,36 @@ impl SettingsPage {
     pub fn root(&self) -> &gtk::Widget {
         &self.root
     }
+}
+
+/// Which kind of Luna Desktop updates this computer gets.
+fn update_group(toast: &Rc<adw::ToastOverlay>) -> adw::PreferencesGroup {
+    let group = adw::PreferencesGroup::new();
+    group.set_title("Updates");
+    let row = adw::ComboRow::builder()
+        .title("Update channel")
+        .subtitle(
+            "Beta gets new versions sooner and may have rough edges. Applies at the next check.",
+        )
+        .model(&gtk::StringList::new(&["Stable", "Beta"]))
+        .build();
+    row.set_selected(match update::load().channel {
+        update::Channel::Stable => 0,
+        update::Channel::Beta => 1,
+    });
+    row.connect_selected_notify({
+        let toast = toast.clone();
+        move |r| {
+            let channel = if r.selected() == 1 {
+                update::Channel::Beta
+            } else {
+                update::Channel::Stable
+            };
+            if let Err(e) = update::set_channel(channel) {
+                toast_error(&toast, format!("Couldn't save the update channel. {e}"));
+            }
+        }
+    });
+    group.add(&row);
+    group
 }

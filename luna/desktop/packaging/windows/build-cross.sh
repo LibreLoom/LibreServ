@@ -11,7 +11,15 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"   # luna/
 DESKTOP="$ROOT/desktop"
 OUT_DIR="${OUT_DIR:-$DESKTOP/release}"
-VERSION="${LUNA_DESKTOP_VERSION:-0.0.21}"
+# The app's version is baked in from desktop/VERSION (build.rs). The installer
+# and the update feed must carry that same number, or an installed app would
+# offer the update it just installed, again and again.
+APP_VERSION="$(tr -d '\r\n' < "$DESKTOP/VERSION")"
+VERSION="${LUNA_DESKTOP_VERSION:-$APP_VERSION}"
+if [ "$VERSION" != "$APP_VERSION" ]; then
+  echo "ERROR: LUNA_DESKTOP_VERSION=$VERSION but desktop/VERSION says $APP_VERSION; set desktop/VERSION to $VERSION first" >&2
+  exit 1
+fi
 SYSROOT="${LUNA_MSYS2_SYSROOT:-/tmp/msys2-sysroot}"
 PKG_DIR="${LUNA_MSYS2_PKG_DIR:-/tmp/msys2-pkgs}"
 STAGE="$OUT_DIR/windows-stage"
@@ -280,6 +288,23 @@ SetCompressor /SOLID lzma
 !insertmacro MUI_LANGUAGE "English"
 
 Section "Install"
+  ; An in-app update starts this installer silently while the old app is still
+  ; closing. Its exe stays locked until then, so wait (up to 20 s) for it.
+  IfSilent 0 skip_wait
+  StrCpy \$0 0
+wait_loop:
+  IfFileExists "\$INSTDIR\\luna-desktop.exe" 0 skip_wait
+  ClearErrors
+  FileOpen \$1 "\$INSTDIR\\luna-desktop.exe" a
+  IfErrors still_busy
+  FileClose \$1
+  Goto skip_wait
+still_busy:
+  Sleep 500
+  IntOp \$0 \$0 + 1
+  IntCmp \$0 40 skip_wait wait_loop skip_wait
+skip_wait:
+
   SetOutPath "\$INSTDIR"
   File /r "${STAGE}/*.*"
 
@@ -296,6 +321,12 @@ Section "Install"
   WriteRegStr HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\LunaDesktop" "Publisher" "LibreLoom"
   WriteRegDWORD HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\LunaDesktop" "NoModify" 1
   WriteRegDWORD HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\LunaDesktop" "NoRepair" 1
+
+  ; A silent install is an in-app update: bring the app back up afterwards so
+  ; backup and sync carry on.
+  IfSilent 0 no_relaunch
+  Exec '"\$INSTDIR\\luna-desktop.exe"'
+no_relaunch:
 SectionEnd
 
 Section "Uninstall"

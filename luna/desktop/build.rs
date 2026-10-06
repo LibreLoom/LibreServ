@@ -1,8 +1,24 @@
 //! Build script: embeds the app icon as a Windows resource so the exe —
 //! and every shortcut/taskbar entry made from it — shows the Luna icon
-//! instead of the generic application icon.
+//! instead of the generic application icon. Also bakes in the app version.
 
 fn main() {
+    // `desktop/VERSION` is the single source of truth for the app's version
+    // (the update check compares it with the feed). Strict semver or the
+    // build stops. Cargo.toml's own version is not used for this.
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR");
+    let version_file = std::path::Path::new(&manifest_dir).join("VERSION");
+    println!("cargo:rerun-if-changed={}", version_file.display());
+    let raw = std::fs::read_to_string(&version_file)
+        .unwrap_or_else(|e| panic!("cannot read {}: {e}", version_file.display()));
+    let version = raw.trim_end_matches(['\n', '\r']);
+    if version.len() != version.trim().len() || semver::Version::parse(version).is_err() {
+        panic!(
+            "luna/desktop/VERSION must hold one strict semver version (like 0.4.0 or 0.4.0-beta.1), got {raw:?}"
+        );
+    }
+    println!("cargo:rustc-env=LUNA_DESKTOP_APP_VERSION={version}");
+
     println!("cargo:rerun-if-changed=resources/icon.png");
     if std::env::var("CARGO_CFG_TARGET_FAMILY").as_deref() != Ok("windows") {
         return;
