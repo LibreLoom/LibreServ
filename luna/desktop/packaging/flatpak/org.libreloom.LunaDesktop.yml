@@ -2,16 +2,13 @@
 
 id: org.libreloom.LunaDesktop
 runtime: org.gnome.Platform
-runtime-version: '47'
+runtime-version: '51'
 sdk: org.gnome.Sdk
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.rust-stable
 command: luna-desktop
-# Host flatpak-builder 1.2.x invokes `appstream-compose` (appstream 0.15/GLIB
-# CLI) inside `flatpak build`; the runtime ships appstream 1.x where the tool
-# is `appstreamcli-compose` with an incompatible CLI. The app still ships its
-# metainfo.xml — this only skips regenerating collection metadata for a repo.
-appstream-compose: false
+# GNOME 51 sits on freedesktop 26.08; flatpak-builder picks the matching 26.08
+# branch of the Rust extension on its own.
 finish-args:
   - --share=network
   - --share=ipc

@@ -180,10 +180,13 @@ comparison orders it (bash receivers rely on that). Every part has `os` and
 
 ### Luna Desktop
 
-- **Linux (Flatpak):** no in-app updater. Bundles are built with
-  `--repo-url`, `--gpg-keys`, `--default-branch=<channel>`; installing one adds
-  our repo as a source and the software center updates it. Optional: Flatpak
-  portal "update ready, restart" prompt.
+- **Linux (Flatpak):** no in-app updater. CI builds a plain bundle (branch
+  = channel) that is only the repo server's input. The server re-signs it into
+  its repo and builds the bundle people download from that repo with
+  `--repo-url` and `--gpg-keys`; installing it adds our repo (signature checks
+  on) and the software center updates from there. A bundle that carries
+  `--gpg-keys` but an unsigned commit fails to install, so the download must
+  come from the server. Optional: Flatpak portal "update ready, restart" prompt.
 - **Windows:** feed check → download installer → verify → run.
 - Compatibility check against lunad `api`.
 - Runtime → GNOME 51 (decided; manifest pins 47, end of life). Turn appstream
@@ -208,7 +211,8 @@ Script + systemd timer. Every few minutes:
 2. Newer than the repo's branch → download the bundle, check `sha256`.
 3. `flatpak build-import-bundle --gpg-sign=KEY` into the matching branch.
 4. `flatpak build-update-repo --gpg-sign=KEY --generate-static-deltas --prune`.
-5. Serve `repo/`, the bundle, and a `.flatpakref` over HTTPS.
+5. Build the download bundle from the signed repo (`--repo-url`,
+   `--gpg-keys`), and serve `repo/`, that bundle, and a `.flatpakref`.
 
 ### Luna Android
 

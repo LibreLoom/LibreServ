@@ -161,18 +161,25 @@ desktop:
 desktop-appimage: desktop
 	cd desktop && bash packaging/appimage/build.sh
 
-# Build + export a single-file Flatpak bundle for Forgejo releases.
+# Build + export a single-file Flatpak bundle: the input for the Flatpak repo
+# server (infra/flatpak-repo), which re-signs it into its repo and builds the
+# bundle people download from there (with the repo address and key inside).
+# This bundle carries neither: a bundle that names a key but has no signature
+# won't install. Branch is stable or beta; flatpak-builder commits to
+# app/<id>/<arch>/<branch> and build-bundle must take the same branch.
 ARCH ?= $(shell uname -m)
 FLATPAK_BUNDLE ?= $(CURDIR)/desktop/release/luna-desktop-$(ARCH).flatpak
+FLATPAK_BRANCH ?= stable
 desktop-flatpak:
 	mkdir -p desktop/release desktop/packaging/flatpak/repo
 	cd desktop/packaging/flatpak && flatpak-builder \
 		--user --force-clean --install-deps-from=flathub \
+		--default-branch=$(FLATPAK_BRANCH) \
 		--repo=repo build-dir org.libreloom.LunaDesktop.yml
 	flatpak build-bundle desktop/packaging/flatpak/repo "$(FLATPAK_BUNDLE)" \
-		org.libreloom.LunaDesktop \
+		org.libreloom.LunaDesktop $(FLATPAK_BRANCH) \
 		--runtime-repo=https://flathub.org/repo/flathub.flatpakrepo
-	@echo "Flatpak bundle: $(FLATPAK_BUNDLE) ($(ARCH))"
+	@echo "Flatpak bundle: $(FLATPAK_BUNDLE) ($(ARCH), $(FLATPAK_BRANCH))"
 
 desktop-bundle: desktop-flatpak
 	@echo "Preferred Linux ship: $(FLATPAK_BUNDLE)"

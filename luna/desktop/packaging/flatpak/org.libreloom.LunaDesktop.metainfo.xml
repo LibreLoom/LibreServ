@@ -5,7 +5,9 @@
   <summary>Back up and sync folders with Luna</summary>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>AGPL-3.0-or-later</project_license>
-  <developer_name>LibreLoom</developer_name>
+  <developer id="org.libreloom">
+    <name>LibreLoom</name>
+  </developer>
   <description>
     <p>
       Luna for Linux signs in to your Luna, copies folders onto it (Backup),
@@ -23,6 +25,8 @@
   </supports>
   <launchable type="desktop-id">org.libreloom.LunaDesktop.desktop</launchable>
   <url type="homepage">https://github.com/LibreLoom/LibreServ</url>
+  <!-- The release tool prepends a <release version=... date=.../> entry here for
+       every shipped version (newest first); do not edit by hand. -->
   <releases>
     <release version="0.1.0" date="2026-08-29"/>
   </releases>
