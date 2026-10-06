@@ -95,20 +95,26 @@ sudo bash luna/connect/deploy/setup.sh
 # merge deploy/Caddyfile.conf into /etc/caddy/Caddyfile (BOTH :8101 and :8102), then:
 sudo caddy reload --config /etc/caddy/Caddyfile
 
-# later (must be root — systemctl stop/start)
-# default: newest luna-connect-v* release tag (safe production default)
+# later (must be root — systemctl stop/start). `deploy.sh` is a thin wrapper around the
+# shared script infra/connect-deploy/deploy.sh (unit luna-connect). Needs `minisign` and `jq`.
+# default: newest signed release from the stable feed; nothing is built on the server.
+# The signing key (keys/lsluna.minisign.pub) is read from this checkout, so `git pull` first.
 sudo ./luna/connect/deploy/deploy.sh
-# same as no flags:
-# sudo ./luna/connect/deploy/deploy.sh --latest-tag
-# tip of origin/main when you intentionally want it:
+# beta channel:
+# sudo ./luna/connect/deploy/deploy.sh --channel beta
+# one exact release (its signed SHA256SUMS.txt); older than installed needs --allow-downgrade:
+# sudo ./luna/connect/deploy/deploy.sh --version 0.2.17
+# dev: reset to origin/main and build on the server:
 # sudo ./luna/connect/deploy/deploy.sh --head
 # sudo ./luna/connect/deploy/deploy.sh --head --force   # one instance already sick
-# build exactly this checkout (no pull):
+# dev: build exactly this checkout (no pull), or origin/NAME:
 # sudo ./luna/connect/deploy/deploy.sh --no-pull
-
-# pinned older release (when the latest tag has moved past it):
-# sudo ./luna/connect/deploy/deploy.sh --tag luna-connect-v0.2.17
+# sudo ./luna/connect/deploy/deploy.sh --branch NAME
+# fetch + verify + unpack only, no install, no root:
+# ./luna/connect/deploy/deploy.sh --stage-only
 ```
+
+Installed version and the newest feed time seen are remembered in `/var/lib/connect-deploy/luna-connect/`. The old `luna-connect-v*` tags and `--tag` / `--latest-tag` are retired. Settings live in `infra/connect-deploy/units/luna-connect.conf`; tests: `bash infra/connect-deploy/test.sh`.
 
 Instances: `luna-connect-a` `:8101`, `luna-connect-b` `:8102`. Shared DB: PostgreSQL in production (`database.driver` / `database.url` in `/etc/luna/connect/luna-connect-{a,b}.yaml`); SQLite for local dev. Host: `connect.luna.libreloom.org`. Paths: binary + web under `/opt/luna/connect`, configs under `/etc/luna/connect`, database + drain files under `/var/lib/luna/connect`, logs under `/var/log/luna/connect`.
 

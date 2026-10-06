@@ -1,10 +1,12 @@
 #!/bin/bash
-# Unit tests for deploy.sh ref resolution (no root / systemctl required).
+# Unit tests for the --head checkout handling in the shared deploy script
+# (infra/connect-deploy/deploy.sh); no root / systemctl required.
+# Feed/--version tests: infra/connect-deploy/test.sh.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-# shellcheck source=deploy.sh
-source "$SCRIPT_DIR/deploy.sh"
+# shellcheck source=../../../infra/connect-deploy/deploy.sh
+source "$SCRIPT_DIR/../../../infra/connect-deploy/deploy.sh"
 
 pass=0
 fail=0
@@ -79,31 +81,6 @@ run_tests() {
     # shellcheck disable=SC2164
     cd "$repo"
 
-    echo "resolve_deploy_mode on main (default → latest tag)"
-    assert_eq "main default" "tag:luna-connect-v0.2.17" "$(resolve_deploy_mode "" 0)"
-    assert_eq "--head" "head" "$(resolve_deploy_mode "HEAD" 0)"
-    assert_eq "--tag explicit" "tag:luna-connect-v0.2.15" "$(resolve_deploy_mode "luna-connect-v0.2.15" 0)"
-    assert_eq "--latest-tag" "tag:luna-connect-v0.2.17" "$(resolve_deploy_mode "" 1)"
-
-    git checkout -q luna-connect-v0.2.15
-    echo "resolve_deploy_mode on detached tag (no flags → latest tag)"
-    assert_eq "detached default" "tag:luna-connect-v0.2.17" "$(resolve_deploy_mode "" 0)"
-
-    git checkout -q -b feature
-    echo "resolve_deploy_mode on feature branch (no flags → latest tag)"
-    assert_eq "feature default" "tag:luna-connect-v0.2.17" "$(resolve_deploy_mode "" 0)"
-    assert_eq "feature --head" "head" "$(resolve_deploy_mode "HEAD" 0)"
-    assert_eq "feature --no-pull" "head" "$(resolve_deploy_mode "HEAD" 0)"
-
-    git checkout -q main
-    echo "v3" >>README.md
-    git add README.md
-    git commit -q -m "main ahead of latest tag"
-    echo "resolve_deploy_mode when main is ahead of latest tag"
-    # Warnings must not pollute the machine-readable stdout line.
-    assert_eq "main ahead default" "tag:luna-connect-v0.2.17" "$(resolve_deploy_mode "" 0 2>/dev/null)"
-    assert_eq "main ahead --latest-tag" "tag:luna-connect-v0.2.17" "$(resolve_deploy_mode "" 1 2>/dev/null)"
-
     echo "sync_head_checkout --head checks out main"
     git checkout -q -b other
     sync_head_checkout 0 1 ""
@@ -123,9 +100,9 @@ run_tests() {
     assert_true "untracked junk cleaned" test ! -e junk.txt
     assert_true "working tree clean" test -z "$(git status --porcelain)"
 
-    echo "checkout_deploy_ref --tag clobbers to tag"
+    echo "clobber_to_ref clobbers to a tag"
     echo "tag-dirt" >tag-dirt.txt
-    checkout_deploy_ref "tag" "luna-connect-v0.2.15"
+    clobber_to_ref "luna-connect-v0.2.15" >/dev/null 2>&1
     assert_eq "tag HEAD" "$(git rev-parse luna-connect-v0.2.15^{commit})" "$(git rev-parse HEAD)"
     assert_true "tag dirt cleaned" test ! -e tag-dirt.txt
 
