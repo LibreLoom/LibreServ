@@ -9,7 +9,10 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
+	"encoding/base64"
 	"encoding/binary"
+	"golang.org/x/crypto/blake2b"
+	"golang.org/x/crypto/scrypt"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -111,12 +114,59 @@ func (e *testEnv) writePub(file string, k testKey) {
 	e.write(filepath.Join(e.repo, "keys", file), text)
 }
 
+// encrypted is a minisign encrypted secret key with deliberately cheap scrypt
+// settings (the real tool's cost is about a second per try, far too slow for
+// tests under -race). The key file records its own settings, so DecryptKey
+// opens it like any other.
 func (e *testEnv) encrypted(k testKey, pw string) string {
-	b, err := minisign.EncryptKey(pw, k.priv)
+	e.t.Helper()
+	text, err := k.priv.MarshalText()
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	return string(b) + "\n"
+	line := strings.Split(strings.TrimSpace(string(text)), "\n")
+	raw, err := base64.StdEncoding.DecodeString(line[len(line)-1])
+	if err != nil || len(raw) != 158 {
+		e.t.Fatalf("unexpected key layout: %v %d", err, len(raw))
+	}
+	plain := raw[54:126] // key ID + ed25519 private key
+	const ops, mem = uint64(1 << 15), uint64(1 << 20)
+	var salt [32]byte
+	if _, err := rand.Read(salt[:]); err != nil {
+		e.t.Fatal(err)
+	}
+	// minisign's conversion of (ops, mem) to scrypt settings, for mem >= 32*ops.
+	r := 8
+	N := 1
+	for n := 1; n < 63; n++ {
+		if N = 1 << n; uint64(N) > mem/(256*uint64(r)) {
+			break
+		}
+	}
+	p := int((ops/4)/uint64(N)) / r
+	ks, err := scrypt.Key([]byte(pw), salt[:], N, r, p, 104)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	var msg [74]byte
+	binary.LittleEndian.PutUint16(msg[:2], 0x6445) // "Ed"
+	copy(msg[2:], plain)
+	sum := blake2b.Sum256(msg[:])
+	ct := make([]byte, 104)
+	copy(ct, plain)
+	copy(ct[72:], sum[:])
+	for i := range ct {
+		ct[i] ^= ks[i]
+	}
+	var out [158]byte
+	binary.LittleEndian.PutUint16(out[0:], 0x6445)
+	binary.LittleEndian.PutUint16(out[2:], 0x6353) // "Sc"
+	binary.LittleEndian.PutUint16(out[4:], 0x3242) // "B2"
+	copy(out[6:38], salt[:])
+	binary.LittleEndian.PutUint64(out[38:], ops)
+	binary.LittleEndian.PutUint64(out[46:], mem)
+	copy(out[54:], ct)
+	return "untrusted comment: minisign encrypted secret key\n" + base64.StdEncoding.EncodeToString(out[:]) + "\n"
 }
 
 func (e *testEnv) write(path, content string) {

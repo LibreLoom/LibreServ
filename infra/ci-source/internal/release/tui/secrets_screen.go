@@ -231,16 +231,16 @@ func (s *secretsScreen) view(w, h int) frame {
 		return s.detailView(w, h)
 	}
 	f := frame{title: "Secrets", info: s.storeInfo(),
-		help: "enter details · a add folder · t test all · r rescan · s store · p Proton Pass · esc"}
+		help: "enter details · a add folder · t test all · r rescan · s store · p Proton · esc"}
 	var lines []string
 	nameW := 30
-	lines = append(lines, dimStyle.Render("   "+pad("Secret", nameW)+pad("State", 17)+"Used by"))
+	lines = append(lines, dimStyle.Render("   "+pad("Secret", nameW)+pad("State", 18)+"Used by"))
 	for i, st := range s.sts {
 		name := pad(st.Label, nameW)
 		if i == s.cur {
 			name = selStyle.Render(name)
 		}
-		lines = append(lines, marker(i == s.cur)+name+pad(pill(st), 17)+usedBy[st.ID])
+		lines = append(lines, marker(i == s.cur)+name+pad(pill(st), 18)+usedBy[st.ID])
 		if src := from(st); src != "" {
 			lines = append(lines, "    "+dimStyle.Render(fitMid(src, w-6)))
 		}
@@ -249,7 +249,13 @@ func (s *secretsScreen) view(w, h int) frame {
 		lines = append(lines, "", dimStyle.Render("   Checking… (this proves each secret for real, so it can take a moment)"))
 	}
 	if len(s.sts) > 0 && s.cur < len(s.sts) {
-		lines = append(lines, "", "  "+dimStyle.Render(fit(s.sh.redact(s.sts[s.cur].Summary), w-4)))
+		lines = append(lines, "")
+		for i, l := range wrapText(s.sh.redact(s.sts[s.cur].Summary), w-4) {
+			if i == 2 {
+				break
+			}
+			lines = append(lines, "  "+dimStyle.Render(l))
+		}
 	}
 	if paths := s.sh.paths; len(paths) > 0 {
 		lines = append(lines, "", "  "+dimStyle.Render("Also searching: "+fit(strings.Join(paths, ", "), w-22)))
@@ -559,7 +565,7 @@ func (s *storeScreen) view(w, h int) frame {
 	if !sysOK {
 		sys = "not available here"
 	}
-	vault := "no vault yet; created with your passphrase"
+	vault := "no vault yet (made on switch)"
 	if sn.vaultExists {
 		vault = "locked"
 		if sn.unlocked && sn.mode == secrets.ModeVault {
@@ -572,7 +578,10 @@ func (s *storeScreen) view(w, h int) frame {
 		marker(s.cur == 1) + pad("Passphrase vault", 18) + pad(vault, 36) + active(secrets.ModeVault),
 		"    " + dimStyle.Render("One encrypted file, one passphrase, asked once per session."),
 		"    " + dimStyle.Render(fitMid(sn.vaultDir, w-8)),
-		"", "  " + dimStyle.Render("Switching copies every remembered value to the new place, checks it, then removes the old copy.")}
+		""}
+	for _, l := range wrapText("Switching copies every remembered value to the new place, checks it, then removes the old copy.", w-4) {
+		lines = append(lines, "  "+dimStyle.Render(l))
+	}
 	if sn.saved == "" {
 		lines = append(lines, "  "+dimStyle.Render("No choice saved yet: using the default (system keyring when there is one)."))
 	}

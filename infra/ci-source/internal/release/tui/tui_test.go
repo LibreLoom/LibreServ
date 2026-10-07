@@ -335,3 +335,36 @@ func TestTinyTerminal(t *testing.T) {
 	h.key("c")
 	h.view()
 }
+
+func TestFooterKeepsQuitAndStoreHintIsRight(t *testing.T) {
+	h := newHarness(t)
+	h.start()
+	v := h.wantView("q quit", "change: s, then s")
+	for _, l := range strings.Split(v, "\n") {
+		if lw(l) > 80 {
+			t.Fatalf("line wider than the screen: %q", l)
+		}
+	}
+}
+
+func TestWrapAndMiddleCut(t *testing.T) {
+	if got := fitMid("/home/me/very/long/folder/name/file.key", 20); lw(got) > 20 || !strings.HasSuffix(got, "file.key") || !strings.Contains(got, "…") {
+		t.Fatalf("fitMid = %q", got)
+	}
+	for _, l := range wrapText("Switching copies every remembered value to the new place, checks it, then removes the old copy.", 40) {
+		if lw(l) > 40 {
+			t.Fatalf("wrapped line too long: %q", l)
+		}
+	}
+}
+
+func TestStoppedBuildIsNotReportedAsBuilt(t *testing.T) {
+	h := newHarness(t)
+	h.start()
+	s := newBuild(h.sh(), "luna")
+	s.phase, s.err, s.started, s.ended = bpDone, fmt.Errorf("luna/lunad: %w", context.Canceled), h.sh().now(), h.sh().now()
+	out := strings.Join(s.resultLines(80), "\n")
+	if !strings.Contains(out, "Stopped") || strings.Contains(out, "Built") {
+		t.Fatalf("result: %s", out)
+	}
+}

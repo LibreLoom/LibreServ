@@ -238,7 +238,7 @@ func (h *home) secretsLine(w int) string {
 		if s.State == secrets.Proven {
 			ok++
 		} else {
-			bad = append(bad, strings.TrimSuffix(strings.ToLower(s.Label[:1])+s.Label[1:], " key"))
+			bad = append(bad, strings.TrimSuffix(s.Label, " key"))
 		}
 	}
 	text := fmt.Sprintf("%d/%d ready", ok, len(h.secrets))

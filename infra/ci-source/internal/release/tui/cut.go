@@ -525,7 +525,7 @@ func (s *cutScreen) setupView(f frame, w, h int) frame {
 	}
 	lines = append(lines, row(2, "Bump", strings.Join(kinds, "  ")))
 	lines = append(lines, row(3, "Dry run", checkbox(s.dry)+dimStyle.Render("  build and sign here, push and upload nothing")))
-	lines = append(lines, row(4, "Rebuild", checkbox(s.rebuild)+dimStyle.Render("  Luna: build the OS image and installer even if nothing changed")))
+	lines = append(lines, row(4, "Rebuild", checkbox(s.rebuild)+dimStyle.Render("  Luna: rebuild the OS image and installer")))
 	lines = append(lines, "")
 	p := s.previews[s.bumpIdx]
 	cur := "?"

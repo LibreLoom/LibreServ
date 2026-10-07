@@ -355,7 +355,7 @@ func (s *buildScreen) setupView(w, h int) frame {
 		case 3:
 			lines = append(lines, marker(i == s.cur)+checkbox(s.android)+" Sign the APK with the release keystore "+dimStyle.Render("(otherwise debug-signed)"))
 		case 5:
-			lines = append(lines, marker(i == s.cur)+checkbox(s.rebuild)+" Build the OS image and installer again "+dimStyle.Render("(otherwise reused when nothing changed)"))
+			lines = append(lines, marker(i == s.cur)+checkbox(s.rebuild)+" Rebuild the OS image and installer "+dimStyle.Render("(else reused if unchanged)"))
 		case 4:
 			if len(lines) > 0 && lines[len(lines)-1] != "" {
 				lines = append(lines, "")
