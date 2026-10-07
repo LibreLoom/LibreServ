@@ -254,8 +254,10 @@ Script + systemd timer. Every few minutes:
 One Go program, `./release`, replacing `release.sh`. **Podman is the only
 dependency**: the launcher builds the tool in a pinned Go container (like
 `./ci`), the tool runs on the host, and every build step runs in a container.
-Everything runs **rootless**. Interactive TUI by default, plain CLI for
-scripts and agents.
+Everything runs **rootless** and that is not negotiable: when a step fights
+it, work around the obstacle rather than falling back to sudo or rootful
+podman. Speed matters equally (caches, parallel jobs, nothing rebuilt that
+didn't change). Interactive TUI by default, plain CLI for scripts and agents.
 
 ### Outputs per release (unit + version)
 
@@ -344,9 +346,12 @@ last bump commit (debug APKs aren't published).
 - **OS image:** `mkfs.ext4 -d` writes into a plain file; drop `--privileged`.
   The rootfs lives in a podman volume so file ownership stays correct inside
   the user namespace.
-- **Flatpak:** flatpak-builder's bubblewrap needs nested user namespaces;
-  rootless podman with `--privileged` (which grants nothing beyond your own
-  user) — verify first.
+- **Flatpak:** flatpak-builder's bubblewrap needs nested user namespaces and a
+  fresh `/proc`. Verified (podman 5.8, rootless): plain `podman run` fails
+  (`devpts`/`proc` mount denied); `--security-opt seccomp=unconfined
+  --security-opt label=disable --security-opt unmask=ALL` works, no
+  `--privileged` needed. Use exactly those three options for the
+  `flatpak-builder` job and nothing else.
 - `.img.xz` is compressed once; the installer embeds those exact bytes and
   writes their hash as `os-image.sha256`.
 - The OS image is rebuilt only when the rootfs inputs change (not lunad, which
@@ -520,8 +525,8 @@ Code: `infra/ci-source/cmd/release` + `internal/release/…` (same module as
 `./ci`, to reuse `internal/feed`, the container client, and TUI styles);
 launcher `./release` at the repo root. Each step lands tested and committed.
 
-0. **Spikes** (answers change the plan): flatpak-builder inside rootless
-   podman; Proton Pass CLI non-interactive read; Forgejo generic package
+0. **Spikes** (answers change how, never whether, a step is rootless):
+   flatpak-builder inside rootless podman (done, see Rootless); Proton Pass CLI non-interactive read; Forgejo generic package
    upload/delete probe and slash tags (`luna/v0.4.0`) on Forgejo and F-Droid.
 1. **Versions in the repo:** create `sol/VERSION`, `sol/connect/VERSION`,
    `luna/mobile/VERSION` (starts at its current `0.1.6`),
@@ -543,7 +548,7 @@ launcher `./release` at the repo root. Each step lands tested and committed.
      `DisplayVersion` (no `VIProductVersion`), so pre-release strings are
      fine.
 2. **Engine:** toolchain images, rootless runner (named-volume caches, `git
-   worktree` of the ref, per-part output dirs), job graph with `--jobs` and
+   archive` export of the SHA, per-part output dirs), job graph with `--jobs` and
    memory caps, log streaming, redaction hook, dev version scheme.
 3. **Parts:** every part in the parts table as a containerised builder,
    ported from `release.sh`, the Makefiles and `luna/os`; Sol arches with
