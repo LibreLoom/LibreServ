@@ -193,8 +193,8 @@ type RunSpec struct {
 	Image string
 	// Cmd is the command and args run in the image.
 	Cmd []string
-	// Env is passed via the process environment, never argv, so secrets stay
-	// out of `ps`.
+	// Env is passed in a 0600 env file (--env-file), never argv, so secrets
+	// stay out of `ps`. Values must be single-line.
 	Env map[string]string
 	// Workdir inside the container (default /src when Source is set).
 	Workdir string
@@ -234,13 +234,16 @@ func (e *Engine) Run(ctx context.Context, spec RunSpec, log LogFunc) error {
 		return err
 	}
 	name := e.containerName(spec.Name)
-	args := e.RunArgs(img, spec, name)
+	envFile, err := e.writeEnvFile(spec.Env)
+	if err != nil {
+		return err
+	}
+	if envFile != "" {
+		defer os.Remove(envFile)
+	}
+	args := e.runArgs(img, spec, name, envFile)
 
 	cmd := exec.CommandContext(ctx, e.cfg.Podman, args...)
-	cmd.Env = os.Environ()
-	for k, v := range spec.Env {
-		cmd.Env = append(cmd.Env, k+"="+v)
-	}
 	cmd.Cancel = func() error {
 		kill := exec.Command(e.cfg.Podman, "kill", "--signal", "KILL", name)
 		kill.Run()
@@ -273,9 +276,52 @@ func (e *Engine) containerName(stem string) string {
 	return fmt.Sprintf("lsr-%s-%d-%d", clean, os.Getpid(), n)
 }
 
+// writeEnvFile writes spec env to a 0600 file under the cache dir for
+// `--env-file`. Values never go on argv, and unlike `-e NAME` (podman reading
+// its own environment) this survives podman wrappers such as distrobox's
+// host-spawn, which don't forward the caller's environment.
+func (e *Engine) writeEnvFile(env map[string]string) (string, error) {
+	if len(env) == 0 {
+		return "", nil
+	}
+	keys := make([]string, 0, len(env))
+	for k := range env {
+		if strings.ContainsAny(env[k], "\n\r") {
+			return "", fmt.Errorf("env %s: value has a line break; mount it as a file instead", k)
+		}
+		keys = append(keys, k)
+	}
+	sortStrings(keys)
+	dir := filepath.Join(e.cfg.CacheDir, "run")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	f, err := os.CreateTemp(dir, "env-*")
+	if err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	for _, k := range keys {
+		b.WriteString(k + "=" + env[k] + "\n")
+	}
+	_, werr := f.WriteString(b.String())
+	if cerr := f.Close(); werr == nil {
+		werr = cerr
+	}
+	if werr != nil {
+		os.Remove(f.Name())
+		return "", werr
+	}
+	return f.Name(), nil
+}
+
 // RunArgs builds the `podman run` argv (exported for tests). Env values are
-// not included: only their names, so podman reads them from its environment.
+// not included, only their names; Run passes them in an env file instead.
 func (e *Engine) RunArgs(img Image, spec RunSpec, name string) []string {
+	return e.runArgs(img, spec, name, "")
+}
+
+func (e *Engine) runArgs(img Image, spec RunSpec, name, envFile string) []string {
 	args := []string{"run", "--rm", "--name", name,
 		"--label", "libreserv-release=1",
 		// Mounts are plain bind mounts of user-owned dirs; relabelling a big
@@ -316,8 +362,12 @@ func (e *Engine) RunArgs(img Image, spec RunSpec, name string) []string {
 		keys = append(keys, k)
 	}
 	sortStrings(keys)
-	for _, k := range keys {
-		args = append(args, "-e", k)
+	if envFile != "" {
+		args = append(args, "--env-file", envFile)
+	} else {
+		for _, k := range keys {
+			args = append(args, "-e", k)
+		}
 	}
 	args = append(args, img.RunOpts...)
 	args = append(args, spec.ExtraOpts...)
