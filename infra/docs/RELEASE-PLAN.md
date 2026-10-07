@@ -263,7 +263,8 @@ scripts and agents.
    exactly as in the parts table (no version in the name).
 2. `SHA256SUMS.txt` + `ED` `.minisig` in that package version.
 3. `<unit>/<channel>.json` + `.minisig` on `feeds`. A stable release also
-   updates the beta feed (else beta users never leave `-beta.N`); for
+   updates the beta feed when its version is newer than beta's current one
+  (else beta users never leave `-beta.N`); for
    `luna-desktop` that means a second bundle built for the `beta` branch,
    `luna-desktop-beta-x86_64.flatpak`, listed only in the beta feed.
 4. `chore(release): <unit> <version>` commit bumping `VERSION` (+ the copies
@@ -272,9 +273,12 @@ scripts and agents.
    feed signed by the test key (`serve-dev`) so receivers update from a
    laptop.
 
-Dev/HEAD builds are versioned `<next patch>-0.dev.<commits since tag>+<sha>`
-(e.g. `0.4.1-0.dev.12+fe58182`): below every beta and release of that version,
-so a dev box always takes the next real release.
+Dev/HEAD builds are versioned `<next patch>-0.dev.<commits since tag>`
+(e.g. `0.4.1-0.dev.12`): below every beta and release of that version, so a
+dev box always takes the next real release. No `+build` metadata: the bash
+receivers' semver check (`watch.sh`) rejects it; the commit is stamped
+separately (`GitCommit`). Android dev builds keep the `versionCode` of the
+last bump commit (debug APKs aren't published).
 
 ### Commands (all also reachable from the TUI)
 
@@ -291,11 +295,21 @@ so a dev box always takes the next real release.
 
 - `build` never needs a release secret and never publishes. `cut` = build +
   sign + publish.
-- `cut` order: preflight (all secrets resolved and validated, clean tree,
-  `main`, tag free) → bump commit → build → sums + sign → upload → re-download
-  and check hashes → feed commit on `feeds` → tag → push → poll the Forgejo raw
-  feed URL until the mirror serves it. Each step is idempotent so a failed cut
-  resumes (`cut --resume`).
+- `cut` order (bots merge to `main` daily, and only the mirror may move
+  commits to Forgejo):
+  1. Preflight: secrets proven, clean tree, on `main`, tag free.
+  2. Bump commit, pushed to origin **immediately** (fetch + rebase + retry if
+     `main` moved; nothing is built yet). This SHA is the release.
+  3. Build that exact SHA → sums + sign → upload → re-download and check
+     hashes.
+  4. Feed commit on `feeds` → push to origin (fetch + retry; only the tool
+     writes there).
+  5. Poll Forgejo until the mirror has both the bump SHA and the feed commit
+     (raw feed URL serves the new `published`), then push the tag to Forgejo.
+     Never push the tag earlier: it would carry the commit to Forgejo ahead of
+     the mirror (dual-push race).
+  Each step is idempotent and keyed by the bump SHA, so `cut --resume`
+  continues a failed cut on the same commit.
 - Release notes: edited in the TUI, or `--notes-file`; default draft from
   conventional commits since the unit's last tag, scoped to its paths.
 
@@ -307,9 +321,15 @@ so a dev box always takes the next real release.
   The tool tags them by content hash, so they rebuild only when they change.
 - Caches as named podman volumes: cargo registry + git, per-target `target/`,
   Go modules + build cache, npm, gradle, flatpak-builder state + runtimes.
-- Source goes in read-only (a `git worktree` of the chosen ref under the cache
-  dir, so `--ref` never touches the checkout); outputs go to a per-part
-  output dir.
+- Source: a writable per-build export of the chosen SHA (`git archive <sha> |
+  tar x` into the cache dir), never a `git worktree` (npm in a worktree damages
+  the main checkout) and never the checkout itself (Sol writes `OS/dist`,
+  `OS/bin/restic`; Luna writes `os/dist`, `os/work`). `node_modules`,
+  `target/`, and other build dirs are volumes. Outputs go to a per-part dir.
+- Scripts that call podman themselves (`musl-link.sh` smoke tests,
+  `make-image.sh`, `make-iso.sh`) can't run inside a job container: the
+  engine runs those steps as their own jobs, and the scripts lose their podman
+  calls.
 - Parts form a graph (web → lunad → rootfs → OS image → installer; web
   shared by Sol arches) and run in parallel up to `--jobs` (default: CPU count,
   with memory-heavy jobs capped). Sol amd64/arm64 each get their own restic
@@ -468,14 +488,25 @@ data):
 
 Replace live-build (`os/make-iso.sh`, `os/iso/build-debian-live.sh`,
 `add-uefi-boot.sh`, `Containerfile.live-build`) with a rootless build that
-keeps today's behaviour and boot contract:
+keeps the boot contract:
 
 - `mmdebstrap` bookworm, `main contrib non-free non-free-firmware`, no
-  recommends, `linux-image-amd64` + `live-boot` + the packages in
-  `os/debian-live/config/package-lists/*.chroot`; copy `includes.chroot`; run
-  the `hooks/*.hook.chroot` in the chroot.
-- `mksquashfs` → `live/filesystem.squashfs`; kernel + initrd → `live/`;
-  `includes.binary` (the Luna payload) at the ISO root.
+  recommends, `linux-image-amd64` + the packages in
+  `package-lists/live.list.chroot` and `luna.list.chroot` (unchanged: the
+  live system installs GRUB onto the target, so its grub packages stay) +
+  `xz-utils`; copy `includes.chroot`; run `0100-luna-installer.hook.chroot`.
+- Dropped on purpose: `luna.list.binary` (syslinux-utils, genisoimage) and
+  `0110-isolinux-paths.hook.chroot` only served live-build's bootloader
+  stage.
+- `mksquashfs` → `live/filesystem.squashfs`; kernel + initrd → `live/`; the
+  Luna payload (staged as `stage-debian-live.sh` does today) at `/luna/`.
+- **Payload change:** the ISO carries the released `luna-os-x86_64.img.xz`
+  (exact bytes the feed lists), not the raw `.img` and not the rootfs
+  tarball. `rapidinstall.sh` / `flash-disk.sh` stream `xz -dc` onto both
+  slots and write `os-image.sha256` = sha256 of that `.img.xz` (staged beside
+  it as `luna-os-x86_64.img.xz.sha256`). The tarball install path is removed.
+  EuroOffice and draw.io packs unchanged. Update `flash-disk_test.sh`,
+  `factory-assets_test.sh`, `rootfs_test.sh` accordingly.
 - `grub-mkrescue` (BIOS + UEFI hybrid), volume ID `LUNAINST`, kernel line
   `boot=live text nomodeset console=tty0 net.ifnames=0 biosdevname=0
   init=/usr/lib/luna-installer/init.sh` (what `find-media.sh` and the
@@ -492,12 +523,25 @@ launcher `./release` at the repo root. Each step lands tested and committed.
 0. **Spikes** (answers change the plan): flatpak-builder inside rootless
    podman; Proton Pass CLI non-interactive read; Forgejo generic package
    upload/delete probe and slash tags (`luna/v0.4.0`) on Forgejo and F-Droid.
-1. **Versions in the repo:** `VERSION` for `sol`, `sol-connect`,
-   `luna-android` (starts at its current `0.1.6`), `luna-connect`. Sol and
-   both Connect servers stamp it via ldflags; Android derives `versionName`
-   and `versionCode` from it: `(major*10000 + minor*100 + patch) * 100 + n`,
-   `n` = beta number (1–98) or 99 for a final release, so betas sort below
-   their release and every code is above today's 7.
+1. **Versions in the repo:** create `sol/VERSION`, `sol/connect/VERSION`,
+   `luna/mobile/VERSION` (starts at its current `0.1.6`),
+   `luna/connect/VERSION`.
+   - Sol stamps `gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/system.Version`
+     (`release.sh` targets `…/handlers.Version`, which doesn't exist; Go
+     ignores `-X` on a missing symbol, so today's binaries report `dev`).
+     Connect servers stamp `main.version`. Every build then runs the binary
+     (`--version` or the health handler) and fails if it doesn't report the
+     expected version.
+   - Android: the bump commit writes literal `versionName` and `versionCode`
+     into `app/build.gradle.kts` (F-Droid's checkupdates reads literals at the
+     tag). `versionCode = (major*10000 + minor*100 + patch) * 100 + n`, `n` =
+     beta number (1–98) or 99 for a final, so betas sort below their release
+     and every code is above today's 7.
+   - `luna-desktop` bump also adds a `<release version date>` entry to the
+     metainfo.
+   - The Windows installer stamps only `PRODUCT_VERSION` /
+     `DisplayVersion` (no `VIProductVersion`), so pre-release strings are
+     fine.
 2. **Engine:** toolchain images, rootless runner (named-volume caches, `git
    worktree` of the ref, per-part output dirs), job graph with `--jobs` and
    memory caps, log streaming, redaction hook, dev version scheme.
@@ -517,7 +561,8 @@ launcher `./release` at the repo root. Each step lands tested and committed.
    git remote; optional preflight step runs `./ci` for the unit's profile.
 7. **TUI:** all screens above.
 8. **Cut over:** first real cuts on `beta` per unit; F-Droid metadata
-   (`UpdateCheckMode: Tags ^luna-android/v.*`, `Changelog:`); delete
+   (`luna/mobile/fdroid/net.plainskill.luna.yml`: `UpdateCheckMode: Tags
+   ^luna-android/v.*`, `Changelog:` off Forgejo Releases); delete
    `release.sh` and `RELEASE.md`, update `AGENTS.md` layout and agent docs.
 
 ## Release tool must (found while building the receivers)
