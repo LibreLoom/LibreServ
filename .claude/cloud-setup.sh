@@ -47,8 +47,9 @@ APT_PACKAGES=(
   libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libxdo-dev
   # Android unit tests
   openjdk-17-jdk-headless
-  # ./release.sh --luna: musl lunad, ISO, Flatpak, Windows installer, signing
-  musl-tools xorriso xz-utils live-build debootstrap flatpak flatpak-builder
+  # ./release.sh --luna: musl lunad, Flatpak, Windows installer, signing. The OS image
+  # and ISO build in podman containers (luna/os/build), so no ISO tools on the host.
+  musl-tools xz-utils flatpak flatpak-builder
   nsis gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 minisign
 )
 

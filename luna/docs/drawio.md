@@ -114,7 +114,7 @@ are excluded during extraction.
 `make drawio-pack` (or `scripts/build-drawio-pack.sh`) produces
 `os/dist/drawio-pack.tar.zst` — the whole pack as a self-describing `drawio/`
 dir. `build-iso.sh` builds it automatically when missing,
-`stage-debian-live.sh` stages it next to the rootfs tarball on the ISO, and
+`os/build/iso.sh` puts it next to the OS image on the ISO, and
 `rapidinstall.sh` verifies its sha256 and extracts it onto `LUNA_DATA` — so
 diagram editing works on first boot with no download. A device installed
 without the pack shows the normal "not installed" card on diagram files.

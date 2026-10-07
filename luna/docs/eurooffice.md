@@ -89,7 +89,7 @@ fonts-manifest.json                  TTF list the worker fetches
 (~500MB of offline-help PNGs; the Help menu is already hidden via
 `customization.help: false`). Everything else ships: every font, all 50
 dictionaries. `build-iso.sh` builds it automatically when missing,
-`stage-debian-live.sh` stages it next to the rootfs tarball on the ISO, and
+`os/build/iso.sh` puts it next to the OS image on the ISO, and
 `rapidinstall.sh` verifies its sha256 and extracts it onto `LUNA_DATA` — so
 office editing works on first boot with no download. Extraction needs `zstd`
 in the installer image (in `luna.list.chroot`). A device installed without

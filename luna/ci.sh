@@ -51,11 +51,11 @@ sh -n os/build-rootfs.sh os/flash.sh os/make-image.sh os/make-iso.sh os/build-is
 	os/lib/disk.sh os/lib/flash-disk.sh os/lib/console.sh os/lib/factory-assets.sh \
 	os/lib/disk_test.sh os/lib/factory-assets_test.sh os/lib/flash-disk_test.sh \
 	os/ab_update_rehearsal_test.sh \
-	os/lib/alpine-image.sh \
+	os/lib/alpine-image.sh os/lib/host-podman.sh \
 	os/lib/musl-link.sh os/lib/musl-binaries_test.sh \
-	os/iso/find-media.sh os/iso/find-media_test.sh \
-	os/iso/stage-debian-live.sh os/iso/build-debian-live.sh os/iso/wait-iso-build.sh \
-	os/iso/add-uefi-boot.sh \
+	os/build/rootfs.sh os/build/image.sh os/build/input-hash.sh \
+	os/build/live.sh os/build/iso-customize.sh os/build/iso.sh \
+	os/iso/find-media.sh os/iso/find-media_test.sh os/iso/boot-test.sh os/iso/install-test.sh \
 	os/debian-live/debian_live_test.sh os/rootfs_test.sh os/rapidinstall_wait_test.sh
 sh os/lib/disk_test.sh
 sh os/lib/factory-assets_test.sh
@@ -66,20 +66,37 @@ sh os/debian-live/debian_live_test.sh
 sh os/rapidinstall_wait_test.sh
 sh os/rootfs_test.sh
 sh os/lib/musl-binaries_test.sh
-# build-rootfs.sh is a thin concat wrapper; alpine-image lives in the frags.
-grep -q 'os/lib/alpine-image.sh' os/make-image.sh || {
-	echo "os/make-image.sh must source os/lib/alpine-image.sh" >&2
+# Build steps run in containers (os/build/*.sh); the os/*.sh wrappers only call
+# podman. The pinned Alpine image comes from lib/alpine-image.sh.
+for f in os/make-image.sh os/build-rootfs.sh os/build/input-hash.sh; do
+	grep -q 'lib/alpine-image.sh' "$f" || {
+		echo "$f must source lib/alpine-image.sh (pinned Alpine image)" >&2
+		exit 1
+	}
+done
+for f in os/build/rootfs.sh os/build/image.sh os/build/live.sh os/build/iso.sh; do
+	[ -s "$f" ] || {
+		echo "missing build step $f" >&2
+		exit 1
+	}
+done
+grep -q 'mmdebstrap' os/build/live.sh || {
+	echo "os/build/live.sh must build the live system with mmdebstrap" >&2
 	exit 1
 }
-grep -rq 'os/lib/alpine-image.sh' os/lib/build-rootfs.d/ || {
-	echo "os/lib/build-rootfs.d must source os/lib/alpine-image.sh" >&2
+grep -q 'grub-mkrescue' os/build/iso.sh || {
+	echo "os/build/iso.sh must make the ISO with grub-mkrescue" >&2
 	exit 1
 }
-grep -q 'live-build' os/make-iso.sh || {
-	echo "os/make-iso.sh must use host live-build" >&2
+# Rootless: no live-build (`lb ...`), no sudo command, no privileged containers
+# in the OS build. Prose mentions ("no sudo") and comments are fine.
+if grep -rEn '^[^#]*((^|[;&|(]|\$\()[[:space:]]*(sudo|lb)[[:space:]]|--privileged|apt-get install[^#]*live-build)' \
+	os/*.sh os/build os/lib/*.sh os/iso/*.sh 2>/dev/null |
+	grep -v '_test\.sh:'; then
+	echo "OS build must stay rootless: no live-build, sudo or --privileged" >&2
 	exit 1
-}
-if grep -rq 'alpine:latest' os/make-image.sh os/lib/alpine-image.sh os/lib/build-rootfs.d/; then
+fi
+if grep -rq 'alpine:latest' os/make-image.sh os/lib/alpine-image.sh os/build/Containerfile.os; then
 	echo "Alpine OS image scripts must not default to alpine:latest" >&2
 	exit 1
 fi

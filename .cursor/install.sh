@@ -286,12 +286,12 @@ cargo test
 cargo build --release
 
 # ── 11. Luna release build deps (ISO / Flatpak / Windows / signing) ───────────
-# ./release.sh --luna needs musl for lunad, xorriso/live-build for ISO,
+# ./release.sh --luna needs musl for lunad (the ISO builds in podman containers),
 # xz to compress the rapidinstall ISO for release (GitHub 2 GiB asset cap),
 # flatpak-builder for Desktop Linux, mingw+NSIS for Windows, minisign for checksums.
 install_luna_release_deps() {
   local missing=0
-  for cmd in x86_64-linux-musl-gcc xorriso xz flatpak-builder makensis x86_64-w64-mingw32-gcc minisign; do
+  for cmd in x86_64-linux-musl-gcc xz flatpak-builder makensis x86_64-w64-mingw32-gcc minisign; do
     command -v "$cmd" >/dev/null 2>&1 || missing=1
   done
   if [ "$missing" -eq 0 ]; then
@@ -304,10 +304,7 @@ install_luna_release_deps() {
     apt-get -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-confdef \
     install -y -qq \
       musl-tools \
-      xorriso \
       xz-utils \
-      live-build \
-      debootstrap \
       flatpak \
       flatpak-builder \
       nsis \
