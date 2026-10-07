@@ -44,7 +44,7 @@ func TestAPKSpec(t *testing.T) {
 	}
 	ks := filepath.Join(t.TempDir(), "k.jks")
 	os.WriteFile(ks, []byte("x"), 0o600)
-	b.AndroidSigning = &engine.AndroidSigning{Path: ks, Alias: "luna", StorePassword: "sekret-store", KeyPassword: "sekret-key"}
+	b.AndroidSigning = &engine.AndroidSigning{Path: ks, Alias: "luna", StorePassword: "sekret-store", KeyPassword: "sekret-key", CertSHA256: "AB12"}
 	s, err = p.spec(b)
 	if err != nil {
 		t.Fatal(err)
@@ -60,6 +60,9 @@ func TestAPKSpec(t *testing.T) {
 	}
 	if s.Env["LUNA_ANDROID_STORE_PASSWORD"] != "sekret-store" {
 		t.Error("password not in env")
+	}
+	if s.Env["EXPECT_CERT_SHA256"] != "ab12" {
+		t.Errorf("cert pin env = %q", s.Env["EXPECT_CERT_SHA256"])
 	}
 }
 

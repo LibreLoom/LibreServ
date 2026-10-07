@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/ci/internal/release/engine"
 	"gt.plainskill.net/LibreLoom/LibreServ/ci/internal/release/version"
@@ -84,6 +85,9 @@ func (a *APK) spec(b *engine.BuildContext) (engine.RunSpec, error) {
 		spec.Env["LUNA_ANDROID_KEY_PASSWORD"] = s.KeyPassword
 		if s.Alias != "" {
 			spec.Env["LUNA_ANDROID_KEY_ALIAS"] = s.Alias
+		}
+		if s.CertSHA256 != "" {
+			spec.Env["EXPECT_CERT_SHA256"] = strings.ToLower(s.CertSHA256)
 		}
 	}
 	return lunaShell(spec, "bash", "android.sh"), nil

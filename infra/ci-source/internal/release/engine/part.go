@@ -56,6 +56,9 @@ type AndroidSigning struct {
 	Alias         string
 	StorePassword string
 	KeyPassword   string
+	// CertSHA256 is the certificate the APK must be signed with (hex, lower
+	// case, no colons); "" skips the check.
+	CertSHA256 string
 }
 
 // PartOutDir is the per-part output dir: <OutRoot>/<unit>/<version>/<part>.

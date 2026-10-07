@@ -226,7 +226,45 @@ func (a *App) androidSigning(ctx context.Context) (*engine.AndroidSigning, func(
 		cleanup()
 		return nil, nil, err
 	}
-	return &engine.AndroidSigning{Path: path, Alias: ks.Alias, StorePassword: ks.StorePassword, KeyPassword: ks.KeyPassword}, cleanup, nil
+	// The APK job checks the finished APK against the keystore's certificate
+	// (which the secrets pin, when set, has already vouched for). A pin
+	// recorded in the repo must agree with it.
+	cert := strings.ToLower(ks.CertSHA256)
+	if pin, ok := repoAndroidPin(a.cfg.Repo); ok && cert != "" && pin != cert {
+		cleanup()
+		return nil, nil, fmt.Errorf("the Android keystore's certificate (%s) is not the one pinned in %s (%s)", cert, AndroidCertPinFile, pin)
+	} else if ok && cert == "" {
+		cert = pin
+	}
+	return &engine.AndroidSigning{Path: path, Alias: ks.Alias, StorePassword: ks.StorePassword, KeyPassword: ks.KeyPassword, CertSHA256: cert}, cleanup, nil
+}
+
+// AndroidCertPinFile is the public record of the release certificate's
+// SHA-256 fingerprint, relative to the repo.
+const AndroidCertPinFile = "keys/luna-android.cert.sha256"
+
+// repoAndroidPin reads the fingerprint recorded in the repo (hex, lower case).
+func repoAndroidPin(repo string) (string, bool) {
+	b, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(AndroidCertPinFile)))
+	if err != nil {
+		return "", false
+	}
+	var hex []byte
+	for _, line := range strings.Split(string(b), "\n") {
+		if line = strings.TrimSpace(line); line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		for _, c := range strings.ToLower(line) {
+			if c != ':' && c != ' ' {
+				hex = append(hex, byte(c))
+			}
+		}
+		break
+	}
+	if len(hex) != 64 {
+		return "", false
+	}
+	return string(hex), true
 }
 
 // runPlans builds every plan's graph (selected parts and their

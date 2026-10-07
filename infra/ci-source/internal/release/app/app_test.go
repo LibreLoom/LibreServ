@@ -626,3 +626,20 @@ func TestDevFeedsSignedWithDevKey(t *testing.T) {
 		t.Log("note: URLs point at dev.test, so VerifyFeed cannot fetch them here")
 	}
 }
+
+func TestRepoAndroidPin(t *testing.T) {
+	dir := t.TempDir()
+	if _, ok := repoAndroidPin(dir); ok {
+		t.Fatal("pin from an empty repo")
+	}
+	must(t, os.MkdirAll(filepath.Join(dir, "keys"), 0o755))
+	fp := strings.Repeat("ab", 32)
+	must(t, os.WriteFile(filepath.Join(dir, AndroidCertPinFile), []byte("# release cert\n"+strings.ToUpper(fp[:2])+":"+fp[2:]+"\n"), 0o644))
+	if got, ok := repoAndroidPin(dir); !ok || got != fp {
+		t.Fatalf("pin = %q %v", got, ok)
+	}
+	must(t, os.WriteFile(filepath.Join(dir, AndroidCertPinFile), []byte("abcd\n"), 0o644))
+	if _, ok := repoAndroidPin(dir); ok {
+		t.Fatal("short pin accepted")
+	}
+}
