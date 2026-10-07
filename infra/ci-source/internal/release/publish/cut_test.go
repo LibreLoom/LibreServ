@@ -78,13 +78,17 @@ func TestCutHappyPath(t *testing.T) {
 		}
 	}
 	// token never in the state file
-	b, _ := os.ReadFile(filepath.Join(w.cfg.StateDir, stateName("luna", "0.4.0", res.SHA)))
+	b, err := os.ReadFile(filepath.Join(w.cfg.StateDir, strings.TrimSuffix(stateName("luna", "0.4.0", res.SHA), ".json")+doneSuffix))
+	if err != nil {
+		t.Fatalf("finished cut is not marked: %v", err)
+	}
 	if strings.Contains(string(b), testToken) {
 		t.Fatal("token in state")
 	}
-	// a second fresh cut is refused, resume of a finished cut is a no-op
-	if _, err := Run(context.Background(), w.cfg); !errors.Is(err, ErrCutExists) {
-		t.Fatalf("want ErrCutExists, got %v", err)
+	// a second fresh cut is refused (the tag exists) but not with "resume it":
+	// the cut is finished. Resume of a finished cut is a no-op.
+	if _, err := Run(context.Background(), w.cfg); err == nil || errors.Is(err, ErrCutExists) || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("want a tag-exists refusal, got %v", err)
 	}
 	w.cfg.Resume = true
 	builds := w.builds

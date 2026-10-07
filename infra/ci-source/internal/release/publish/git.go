@@ -45,6 +45,77 @@ func (g Git) HasCommit(ctx context.Context, sha string) bool {
 	return err == nil
 }
 
+// TagExistsError is Preflight's error for a tag that is already there.
+// Remote is empty when the tag is in the local repository.
+type TagExistsError struct{ Tag, Remote string }
+
+func (e *TagExistsError) Error() string {
+	if e.Remote == "" {
+		return fmt.Sprintf("tag %s already exists locally", e.Tag)
+	}
+	return fmt.Sprintf("tag %s already exists on %s", e.Tag, e.Remote)
+}
+
+// TagPointsAt checks that every copy of the tag (local and on the remotes)
+// points at the commit sha; a missing copy is fine.
+func (g Git) TagPointsAt(ctx context.Context, tag, sha string, remotes ...string) error {
+	ref := "refs/tags/" + tag
+	if cur, err := g.Rev(ctx, ref); err == nil && cur != sha {
+		return fmt.Errorf("tag %s already exists locally at %.12s, not at the release commit %.12s", tag, cur, sha)
+	}
+	seen := map[string]bool{}
+	for _, r := range remotes {
+		if seen[r] {
+			continue
+		}
+		seen[r] = true
+		out, err := g.run(ctx, "ls-remote", r, ref, ref+"^{}")
+		if err != nil {
+			return err
+		}
+		for _, l := range strings.Split(out, "\n") {
+			if f := strings.Fields(l); len(f) > 0 && f[0] != sha {
+				return fmt.Errorf("tag %s already exists on %s at %.12s, not at the release commit %.12s", tag, r, f[0], sha)
+			}
+		}
+	}
+	return nil
+}
+
+// TagOnRemote reports whether the remote has the tag.
+func (g Git) TagOnRemote(ctx context.Context, remote, tag string) (bool, error) {
+	out, err := g.run(ctx, "ls-remote", "--tags", remote, "refs/tags/"+tag)
+	return out != "", err
+}
+
+// FindBump finds the newest release commit of unit ("chore(release): <unit>
+// <version>") that is committed here but not pushed yet, else the newest on
+// remote/branch. It returns "" when there is none. That is how a cut that
+// crashed before it saved its state is found again.
+func (g Git) FindBump(ctx context.Context, remote, branch, unit string) (version, sha string, err error) {
+	upstream := remote + "/" + branch
+	if _, err := g.run(ctx, "fetch", "--quiet", remote, "+refs/heads/"+branch+":refs/remotes/"+upstream); err != nil {
+		return "", "", err
+	}
+	prefix := "chore(release): " + unit + " "
+	for _, rng := range []string{upstream + "..HEAD", upstream} {
+		out, err := g.run(ctx, "log", "-n", "200", "--format=%H%x09%s", rng)
+		if err != nil {
+			return "", "", err
+		}
+		for _, l := range strings.Split(out, "\n") {
+			h, subj, ok := strings.Cut(l, "\t")
+			if !ok || !strings.HasPrefix(subj, prefix) {
+				continue
+			}
+			if v := strings.TrimPrefix(subj, prefix); ValidSemver(v) {
+				return v, h, nil
+			}
+		}
+	}
+	return "", "", nil
+}
+
 // Preflight checks the repository is ready for a cut: clean tree, on branch,
 // nothing unpushed, and the tag free locally and on every remote given.
 func (g Git) Preflight(ctx context.Context, branch, tag string, remotes ...string) error {
@@ -57,7 +128,7 @@ func (g Git) Preflight(ctx context.Context, branch, tag string, remotes ...strin
 		return fmt.Errorf("not on %s (on %q)", branch, cur)
 	}
 	if _, err := g.Rev(ctx, "refs/tags/"+tag); err == nil {
-		return fmt.Errorf("tag %s already exists locally", tag)
+		return &TagExistsError{Tag: tag}
 	}
 	seen := map[string]bool{}
 	for _, r := range remotes {
@@ -70,7 +141,7 @@ func (g Git) Preflight(ctx context.Context, branch, tag string, remotes ...strin
 			return err
 		}
 		if out != "" {
-			return fmt.Errorf("tag %s already exists on %s", tag, r)
+			return &TagExistsError{Tag: tag, Remote: r}
 		}
 	}
 	return nil
@@ -222,7 +293,21 @@ func (g Git) Bump(ctx context.Context, remote, branch, subject string, push bool
 	}
 	// Already made? Look at what is not on the upstream yet, then at upstream.
 	if sha, err := g.findSubject(ctx, upstream+"..HEAD", subject); err == nil && sha != "" {
-		return g.pushBump(ctx, remote, branch, push)
+		// Committed earlier, never pushed. Push exactly that commit, and only
+		// when nothing else sits on top of it or next to it.
+		head, err := g.Rev(ctx, "HEAD")
+		if err != nil {
+			return "", err
+		}
+		if head != sha {
+			return "", fmt.Errorf("the release commit %.12s is committed but not pushed, and %s has moved on to %.12s since; push or drop the later commits, or reset %s to the release commit, then resume", sha, branch, head, branch)
+		}
+		if n, err := g.run(ctx, "rev-list", "--count", upstream+"..HEAD"); err != nil {
+			return "", err
+		} else if n != "1" {
+			return "", fmt.Errorf("%s has %s unpushed commits besides the release commit %.12s; push or drop them, then resume", branch, strings.TrimSpace(n), sha)
+		}
+		return g.pushBump(ctx, remote, branch, sha, push)
 	}
 	if push {
 		if sha, err := g.findSubject(ctx, upstream, subject); err == nil && sha != "" {
@@ -257,7 +342,11 @@ func (g Git) Bump(ctx context.Context, remote, branch, subject string, push bool
 	if _, err := g.run(ctx, append(commit, paths...)...); err != nil {
 		return "", err
 	}
-	return g.pushBump(ctx, remote, branch, push)
+	sha, err := g.Rev(ctx, "HEAD")
+	if err != nil {
+		return "", err
+	}
+	return g.pushBump(ctx, remote, branch, sha, push)
 }
 
 func (g Git) findSubject(ctx context.Context, rng, subject string) (string, error) {
@@ -273,14 +362,16 @@ func (g Git) findSubject(ctx context.Context, rng, subject string) (string, erro
 	return "", nil
 }
 
-func (g Git) pushBump(ctx context.Context, remote, branch string, push bool) (string, error) {
+// pushBump pushes the release commit sha (which must be HEAD) and returns the
+// SHA that ended up on the remote: after a rebase that is a new commit.
+func (g Git) pushBump(ctx context.Context, remote, branch, sha string, push bool) (string, error) {
 	if !push {
-		return g.Rev(ctx, "HEAD")
+		return sha, nil
 	}
 	var lastErr error
 	for i := 0; i < pushAttempts; i++ {
-		if _, lastErr = g.run(ctx, "push", "--quiet", remote, "HEAD:refs/heads/"+branch); lastErr == nil {
-			return g.Rev(ctx, "HEAD")
+		if _, lastErr = g.run(ctx, "push", "--quiet", remote, sha+":refs/heads/"+branch); lastErr == nil {
+			return sha, nil
 		}
 		if _, err := g.run(ctx, "fetch", "--quiet", remote, "+refs/heads/"+branch+":refs/remotes/"+remote+"/"+branch); err != nil {
 			return "", err
@@ -289,6 +380,11 @@ func (g Git) pushBump(ctx context.Context, remote, branch string, push bool) (st
 			g.run(ctx, "rebase", "--abort")
 			return "", fmt.Errorf("main moved and the release commit does not rebase: %w", err)
 		}
+		head, err := g.Rev(ctx, "HEAD")
+		if err != nil {
+			return "", err
+		}
+		sha = head
 	}
 	return "", fmt.Errorf("push to %s kept failing: %w", remote, lastErr)
 }

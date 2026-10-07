@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -152,6 +153,7 @@ type cut struct {
 	statePath string
 	tmpDirs   []string
 	src       Source // where SHA can be read
+	tagSeen   bool   // stateless resume: the tag exists already; it must point at the release SHA
 }
 
 // Run performs the cut (or continues it). Every step is skipped when already
@@ -175,12 +177,19 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 		return nil, errors.New("registry and forgejo clients are required (unless dry run)")
 	}
 	tag := Tag(rel.Unit, rel.Version)
+	if c.Dry && c.Resume {
+		return nil, errors.New("a dry run cannot be resumed: it keeps no saved state")
+	}
 
-	if !c.Dry {
+	// A dry run resolves the remotes like a real cut (and fails the same way
+	// when none points at Forgejo); it just never pushes to them.
+	{
 		var err error
 		if c.Origin, c.Forgejo, err = c.g.ResolveRemotes(ctx, c.Branch, c.ForgeHost, c.Origin, c.Forgejo); err != nil {
 			return nil, err
 		}
+	}
+	if !c.Dry {
 		if c.Origin != c.Forgejo {
 			c.logf("pushing to %s; the tag goes to %s once the mirror has caught up", c.Origin, c.Forgejo)
 		} else {
@@ -198,18 +207,50 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 				return nil, err
 			}
 		} else if c.Resume {
-			// Nothing saved: the bump step recovers its own commit, so a
-			// resume without state is just a fresh run.
-			c.logf("no saved state for %s %s; starting the cut", rel.Unit, rel.Version)
+			done, err := c.findDone()
+			if err != nil {
+				return nil, err
+			}
+			if done != "" {
+				if err := c.loadState(done); err != nil {
+					return nil, err
+				}
+				onForge, err := c.g.TagOnRemote(ctx, c.Forgejo, tag)
+				if err != nil {
+					return nil, err
+				}
+				if onForge {
+					c.logf("%s %s was finished already", rel.Unit, rel.Version)
+					return c.result(tag), nil
+				}
+				// Finished once, but the tag is gone (deleted by hand): take
+				// the cut up again at the tag step.
+				c.logf("%s is missing on %s; pushing it again", tag, c.Forgejo)
+				open := strings.TrimSuffix(done, doneSuffix) + ".json"
+				if err := os.Rename(done, open); err != nil {
+					return nil, err
+				}
+				c.statePath = open
+				c.st.Done[StepTag] = false
+			} else {
+				// Nothing saved: the bump step recovers its own commit, so a
+				// resume without state is just a fresh run.
+				c.logf("no saved state for %s %s; starting the cut", rel.Unit, rel.Version)
+			}
 		}
 	}
 	if c.st == nil {
 		if !c.Dry {
 			// Fresh cut: the plan's preflight (state-free parts).
 			if err := c.g.Preflight(ctx, c.Branch, tag, c.Origin, c.Forgejo); err != nil {
-				if !c.Resume {
+				// A resume without saved state (the tool died between the
+				// bump push and the state save) may find its own tag already
+				// there if it died late; every other problem still stops it.
+				var te *TagExistsError
+				if !c.Resume || !errors.As(err, &te) {
 					return nil, fmt.Errorf("preflight: %w", err)
 				}
+				c.tagSeen = true
 			}
 		}
 		c.st = &State{Schema: 1, Unit: rel.Unit, Version: rel.Version, Channel: rel.Channel, Done: map[string]bool{}}
@@ -257,17 +298,19 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 		}
 		c.step(name, "done", nil)
 	}
+	c.markFinished()
+	return c.result(tag), nil
+}
+
+func (c *cut) result(tag string) *Result {
 	files, _ := c.uploadList()
 	return &Result{SHA: c.st.SHA, FeedSHA: c.st.FeedSHA, Tag: tag, OutDir: c.st.OutDir,
-		Files: files, Channels: c.st.Channels, Dry: c.Dry}, nil
+		Files: files, Channels: c.st.Channels, Dry: c.Dry}
 }
 
 func (c *cut) defaults() {
 	if c.Branch == "" {
 		c.Branch = "main"
-	}
-	if c.Origin == "" && c.Dry {
-		c.Origin = "origin" // never pushed to in a dry run
 	}
 	if c.PollEvery == 0 {
 		c.PollEvery = 5 * time.Second
@@ -313,20 +356,59 @@ func (c *cut) resolve(ctx context.Context, outDir string) error {
 
 // --- state
 
+// doneSuffix marks the state file of a cut that ran to the end.
+const doneSuffix = ".done.json"
+
+// StateFinished reports whether a state file belongs to a finished cut.
+func StateFinished(path string) bool { return strings.HasSuffix(path, doneSuffix) }
+
+// markFinished renames the state file so that it no longer counts as an
+// unfinished cut (ErrCutExists, resume) while still documenting the cut.
+func (c *cut) markFinished() {
+	if c.Dry || c.statePath == "" || StateFinished(c.statePath) {
+		return
+	}
+	done := strings.TrimSuffix(c.statePath, ".json") + doneSuffix
+	if err := os.Rename(c.statePath, done); err != nil {
+		c.logf("could not mark the cut finished: %v", err)
+		return
+	}
+	c.statePath = done
+}
+
 func stateName(unit, version, sha string) string {
 	return unit + "@" + version + "@" + sha[:12] + ".json"
 }
 
 // findState returns the path of an earlier cut of this unit and version.
 func (c *cut) findState() (string, error) {
-	m, err := filepath.Glob(filepath.Join(c.StateDir, c.Release.Unit+"@"+c.Release.Version+"@*.json"))
-	if err != nil || len(m) == 0 {
+	all, err := filepath.Glob(filepath.Join(c.StateDir, c.Release.Unit+"@"+c.Release.Version+"@*.json"))
+	if err != nil {
 		return "", err
+	}
+	var m []string
+	for _, p := range all {
+		if !strings.HasSuffix(p, doneSuffix) { // finished cuts do not block a new one
+			m = append(m, p)
+		}
+	}
+	if len(m) == 0 {
+		return "", nil
 	}
 	if len(m) > 1 {
 		return "", fmt.Errorf("several saved cuts of %s %s in %s; remove the stale ones", c.Release.Unit, c.Release.Version, c.StateDir)
 	}
 	return m[0], nil
+}
+
+// findDone returns the state file of a finished cut of this unit and version.
+func (c *cut) findDone() (string, error) {
+	m, err := filepath.Glob(filepath.Join(c.StateDir, c.Release.Unit+"@"+c.Release.Version+"@*"+doneSuffix))
+	if err != nil || len(m) == 0 {
+		return "", err
+	}
+	sort.Strings(m)
+	return m[len(m)-1], nil
 }
 
 func (c *cut) loadState(p string) error {
@@ -374,6 +456,7 @@ func (c *cut) save() error {
 func (c *cut) stepBump(ctx context.Context) error {
 	g := c.g
 	rel := c.Release
+	remote := c.Origin
 	if c.Dry {
 		tmp, err := os.MkdirTemp("", "libreserv-dry-")
 		if err != nil {
@@ -385,10 +468,16 @@ func (c *cut) stepBump(ctx context.Context) error {
 			return err
 		}
 		g = Git{Dir: clone}
+		remote = "origin" // the throwaway clone knows its source only as origin
 	}
-	sha, err := g.Bump(ctx, c.Origin, c.Branch, BumpSubject(rel.Unit, rel.Version), !c.Dry, c.Bump)
+	sha, err := g.Bump(ctx, remote, c.Branch, BumpSubject(rel.Unit, rel.Version), !c.Dry, c.Bump)
 	if err != nil {
 		return err
+	}
+	if c.tagSeen {
+		if err := c.g.TagPointsAt(ctx, Tag(rel.Unit, rel.Version), sha, c.Origin, c.Forgejo); err != nil {
+			return err
+		}
 	}
 	c.st.SHA = sha
 	if err := c.save(); err != nil { // the SHA names the state file
@@ -552,6 +641,7 @@ func (c *cut) stepFeed(ctx context.Context) error {
 	rel := c.Release
 
 	var channels []string
+	existing := map[string]*feed.Feed{}
 	plan := func(read func(string) ([]byte, error)) ([]FeedFile, error) {
 		outs, err := PlanFeeds(rel, files, c.urlFor, func(ch string) (*feed.Feed, error) {
 			b, err := read(FeedPath(rel.Unit, ch))
@@ -562,14 +652,23 @@ func (c *cut) stepFeed(ctx context.Context) error {
 			if err := json.Unmarshal(b, &f); err != nil {
 				return nil, fmt.Errorf("existing %s feed: %w", ch, err)
 			}
+			existing[ch] = &f
 			return &f, nil
 		})
 		if err != nil {
 			return nil, err
 		}
 		channels = channels[:0]
+		wrote := map[string]bool{}
 		for _, o := range outs {
-			channels = append(channels, o.Channel)
+			wrote[o.Channel] = true
+		}
+		// On a repeat (resume) nothing is left to write for the feeds this
+		// very cut already wrote; they still count as written.
+		for _, ch := range []string{Stable, Beta} {
+			if f := existing[ch]; wrote[ch] || (f != nil && f.Version == rel.Version && f.Published == rel.Published) {
+				channels = append(channels, ch)
+			}
 		}
 		return SignFeeds(outs, c.Signer)
 	}
