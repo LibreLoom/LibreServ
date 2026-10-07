@@ -319,7 +319,7 @@ last bump commit (debug APKs aren't published).
 
 - One Containerfile per toolchain in `infra/release/images/`, base images
   pinned by digest: `go`, `node`, `rust-musl`, `rust-gtk` (desktop tests),
-  `mingw-nsis`, `android`, `flatpak-builder`, `debian-live`, `alpine-os`.
+  `mingw-nsis`, `android`, `flatpak-builder`, `alpine-smoke`, `luna-os`, `luna-iso`.
   The tool tags them by content hash, so they rebuild only when they change.
 - Caches as named podman volumes: cargo registry + git, per-target `target/`,
   Go modules + build cache, npm, gradle, flatpak-builder state + runtimes.
@@ -441,10 +441,10 @@ data):
  ────────────────────────────────────────────────────────────────────────────
    ✓ web           node          0:41   dist/                     4.1 MB
    ✓ lunad         rust-musl     1:58   lunad-linux-amd64-musl   27.8 MB
- ▸ ● rootfs        alpine-os     0:33   apk add  212/340
-   ● live-system   debian-live   1:02   mmdebstrap: unpacking
-   ◌ os-image      alpine-os            waits for rootfs
-   ◌ installer     debian-live          waits for os-image, live-system
+ ▸ ● rootfs        luna-os       0:33   apk add  212/340
+   ● live-system   luna-iso      1:02   mmdebstrap: unpacking
+   ◌ os-image      luna-os              waits for rootfs
+   ◌ installer     luna-iso             waits for os-image, live-system
  ────────────────────────────────────────────────────────────────────────────
  rootfs
    (212/340) Installing chrony (4.7-r0)

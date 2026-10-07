@@ -30,8 +30,9 @@ func cmdCut(args []string) int {
 	heavy := fs.Int("heavy-jobs", 2, "parallel memory-heavy jobs")
 	asJSON := fs.Bool("json", false, "print the result as JSON on stdout (progress stays on stderr)")
 	quiet := fs.Bool("quiet", false, "no progress lines")
+	rebuild := fs.Bool("rebuild", false, "luna: build the OS image and installer again even if nothing they are made from changed")
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, "Usage: release cut <unit> --channel beta|stable [--bump patch|minor|major|beta | --version V] [--resume] [--dry-run]")
+		fmt.Fprintln(os.Stderr, "Usage: release cut <unit> --channel beta|stable [--bump patch|minor|major|beta | --version V] [--resume] [--rebuild] [--dry-run]")
 		fmt.Fprintln(os.Stderr, "Order: preflight, bump commit pushed to origin, build that SHA, sign, upload, verify, feed commit, wait for the mirror, tag.")
 		fs.PrintDefaults()
 	}
@@ -65,7 +66,7 @@ func cmdCut(args []string) int {
 	ctx, stop := signalContext()
 	defer stop()
 	res, err := a.Cut(ctx, app.CutRequest{Unit: pos[0], Channel: *channel, Bump: *bump, Version: *ver,
-		Notes: text, Resume: *resume, Dry: *dry, Jobs: *jobs, HeavyJobs: *heavy})
+		Notes: text, Resume: *resume, Dry: *dry, Jobs: *jobs, HeavyJobs: *heavy, Rebuild: *rebuild})
 
 	var pe *app.PreflightError
 	isPre := errors.As(err, &pe)

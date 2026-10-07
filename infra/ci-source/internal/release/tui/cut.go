@@ -46,6 +46,7 @@ type cutScreen struct {
 	bumpIdx  int
 	previews []app.BumpPreview
 	dry      bool
+	rebuild  bool
 	row      int
 	un       []publish.State // unfinished cuts of the chosen unit
 	resume   *publish.State  // set when resuming
@@ -211,7 +212,7 @@ func (s *cutScreen) setupKey(k tea.KeyMsg) (screen, tea.Cmd) {
 	case "up", "k":
 		s.row = max(s.row-1, 0)
 	case "down", "j", "tab":
-		s.row = min(s.row+1, 3)
+		s.row = min(s.row+1, 4)
 	case "left", "h", "right", "l":
 		d := 1
 		if k.String() == "left" || k.String() == "h" {
@@ -219,8 +220,11 @@ func (s *cutScreen) setupKey(k tea.KeyMsg) (screen, tea.Cmd) {
 		}
 		s.change(d)
 	case " ":
-		if s.row == 3 {
+		switch s.row {
+		case 3:
 			s.dry = !s.dry
+		case 4:
+			s.rebuild = !s.rebuild
 		}
 	case "d":
 		s.dry = !s.dry
@@ -228,7 +232,7 @@ func (s *cutScreen) setupKey(k tea.KeyMsg) (screen, tea.Cmd) {
 		if len(s.un) > 0 {
 			st := s.un[0]
 			s.resume = &st
-			s.req = app.CutRequest{Unit: st.Unit, Channel: st.Channel, Version: st.Version, Resume: true, Dry: s.dry}
+			s.req = app.CutRequest{Unit: st.Unit, Channel: st.Channel, Version: st.Version, Resume: true, Dry: s.dry, Rebuild: s.rebuild}
 			s.version = st.Version
 			s.phase = cpNotes
 			return s, s.loadNotes()
@@ -239,7 +243,7 @@ func (s *cutScreen) setupKey(k tea.KeyMsg) (screen, tea.Cmd) {
 			s.notice = "That bump is not possible: " + p.Err
 			return s, nil
 		}
-		s.req = app.CutRequest{Unit: s.unit(), Channel: s.channel, Bump: p.Kind, Dry: s.dry}
+		s.req = app.CutRequest{Unit: s.unit(), Channel: s.channel, Bump: p.Kind, Dry: s.dry, Rebuild: s.rebuild}
 		s.version = p.Version
 		s.phase = cpNotes
 		return s, s.loadNotes()
@@ -265,6 +269,8 @@ func (s *cutScreen) change(d int) {
 		s.bumpIdx = (s.bumpIdx + d + 4) % 4
 	case 3:
 		s.dry = !s.dry
+	case 4:
+		s.rebuild = !s.rebuild
 	}
 	s.refresh()
 }
@@ -515,6 +521,7 @@ func (s *cutScreen) setupView(f frame, w, h int) frame {
 	}
 	lines = append(lines, row(2, "Bump", strings.Join(kinds, "  ")))
 	lines = append(lines, row(3, "Dry run", checkbox(s.dry)+dimStyle.Render("  build and sign here, push and upload nothing")))
+	lines = append(lines, row(4, "Rebuild", checkbox(s.rebuild)+dimStyle.Render("  Luna: build the OS image and installer even if nothing changed")))
 	lines = append(lines, "")
 	p := s.previews[s.bumpIdx]
 	cur := "?"

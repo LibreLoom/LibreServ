@@ -49,7 +49,7 @@ func (p demoPart) Jobs(b *engine.BuildContext) ([]engine.Job, error) {
 		}}}
 		if os.Getenv("RELEASE_DEMO_CONTAINER") == "1" {
 			jobs = append(jobs, engine.Job{ID: id + ":container", Title: "Run in a container", Run: func(ctx context.Context, j *engine.JobRun) error {
-				return j.Container(ctx, engine.RunSpec{Image: "alpine-os", Source: b.SrcDir, Out: out, Memory: "256m",
+				return j.Container(ctx, engine.RunSpec{Image: "alpine-smoke", Source: b.SrcDir, Out: out, Memory: "256m",
 					Cmd: []string{"sh", "-c", "ls | head -n 3; ls | wc -l > /out/demo-container.txt"}})
 			}})
 		}

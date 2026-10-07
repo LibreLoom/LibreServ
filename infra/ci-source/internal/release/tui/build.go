@@ -23,7 +23,7 @@ const (
 )
 
 type buildItem struct {
-	kind  int // 0 unit, 1 ref, 2 part, 3 android, 4 start
+	kind  int // 0 unit, 1 ref, 2 part, 3 android, 4 start, 5 rebuild
 	label string
 }
 
@@ -36,6 +36,7 @@ type buildScreen struct {
 	parts    []string
 	partSel  map[string]bool
 	android  bool
+	rebuild  bool
 	cur      int
 	b        *board
 	cancel   context.CancelFunc
@@ -102,6 +103,12 @@ func (s *buildScreen) items() []buildItem {
 	it = append(it, buildItem{1, "ref"})
 	for _, p := range s.parts {
 		it = append(it, buildItem{2, p})
+	}
+	for _, c := range s.chosen() {
+		if c == "luna" {
+			it = append(it, buildItem{5, "rebuild"})
+			break
+		}
 	}
 	if c := s.chosen(); len(c) == 1 && c[0] == "luna-android" {
 		it = append(it, buildItem{3, "release"})
@@ -178,6 +185,10 @@ func (s *buildScreen) setupKey(k tea.KeyMsg) (screen, tea.Cmd) {
 		if k.String() == " " || k.String() == "x" {
 			s.android = !s.android
 		}
+	case 5:
+		if k.String() == " " || k.String() == "x" {
+			s.rebuild = !s.rebuild
+		}
 	}
 	return s, nil
 }
@@ -200,12 +211,12 @@ func (s *buildScreen) start() tea.Cmd {
 			parts = append(parts, p)
 		}
 	}
-	units, ref, android := s.reqUnits, s.reqRef, s.android
+	units, ref, android, rebuild := s.reqUnits, s.reqRef, s.android, s.rebuild
 	return func() tea.Msg {
 		defer cancel()
 		var out []*app.BuildResult
 		for _, u := range units {
-			res, err := be.Build(ctx, app.BuildRequest{Unit: u, Ref: ref, Parts: parts, AndroidRelease: android && u == "luna-android"})
+			res, err := be.Build(ctx, app.BuildRequest{Unit: u, Ref: ref, Parts: parts, AndroidRelease: android && u == "luna-android", Rebuild: rebuild && u == "luna"})
 			if res != nil {
 				out = append(out, res)
 			}
@@ -318,6 +329,8 @@ func (s *buildScreen) setupView(w, h int) frame {
 			lines = append(lines, marker(i == s.cur)+checkbox(s.partSel[x.label])+" "+x.label)
 		case 3:
 			lines = append(lines, marker(i == s.cur)+checkbox(s.android)+" Sign the APK with the release keystore "+dimStyle.Render("(otherwise debug-signed)"))
+		case 5:
+			lines = append(lines, marker(i == s.cur)+checkbox(s.rebuild)+" Build the OS image and installer again "+dimStyle.Render("(otherwise reused when nothing changed)"))
 		case 4:
 			if len(lines) > 0 && lines[len(lines)-1] != "" {
 				lines = append(lines, "")
