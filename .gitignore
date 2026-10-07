@@ -174,3 +174,6 @@ t3.json
 
 # local musl cross-build cache
 /target-musl/
+
+# ./release dev builds
+/dist/
