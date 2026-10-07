@@ -27,6 +27,11 @@ const UNIT: &str = "luna";
 /// Channels the feed offers.
 pub const CHANNELS: [&str; 2] = ["stable", "beta"];
 const OS_HASH_FILE: &str = "os-image.sha256";
+/// Written by `apply()` once an OS image is on the spare slot: `hash slot boot-id`.
+/// It becomes `os-image.sha256` only after the new slot has booted.
+const OS_PENDING_FILE: &str = "os-image.pending";
+/// Hash of an OS image whose slot did not boot; never re-flashed automatically.
+const OS_FAILED_FILE: &str = "os-image.failed";
 /// Newest feed `published` seen per unit + channel (replay protection).
 const FEED_SEEN_FILE: &str = "update-feed-seen.json";
 /// OS slot images are streamed to disk, never held in RAM. Cap (on the
@@ -142,6 +147,22 @@ pub trait Installer: Send + Sync {
     fn write_os_hash(&self, _hash: &str) -> Result<(), UpdateError> {
         Ok(())
     }
+
+    /// The OS image just written to the spare slot is waiting for its first
+    /// boot. Its hash becomes the installed hash only once that slot boots.
+    fn mark_os_pending(&self, _hash: &str) -> Result<(), UpdateError> {
+        Ok(())
+    }
+    /// Hash of the image waiting for its first boot, if any.
+    fn read_os_pending(&self) -> Option<String> {
+        None
+    }
+    /// Hash of an image that was flashed but did not boot (the box fell back).
+    fn read_os_failed(&self) -> Option<String> {
+        None
+    }
+    /// Called once at startup: settle a pending OS image as booted or failed.
+    fn settle_os_boot(&self) {}
 
     /// Newest feed `published` already seen for this unit + channel.
     fn read_feed_seen(&self, _unit: &str, _channel: &str) -> Option<String> {
@@ -261,23 +282,22 @@ impl Installer for DataDirInstaller {
 
     fn install_os_image(&self, bytes: &[u8]) -> Result<(), UpdateError> {
         let (part, inactive) = inactive_slot_device()?;
-        {
+        write_os_slot(&RealSlotOps, &part, inactive, || {
             let mut f =
                 std::fs::File::create(&part).map_err(|e| UpdateError::Other(e.to_string()))?;
             f.write_all(bytes)
                 .map_err(|e| UpdateError::Other(e.to_string()))?;
-            f.sync_all()
-                .map_err(|e| UpdateError::Other(e.to_string()))?;
-        }
-        finish_os_slot(&part, inactive)
+            f.sync_all().map_err(|e| UpdateError::Other(e.to_string()))
+        })
     }
 
     fn install_os_image_file(&self, src: &Path) -> Result<(), UpdateError> {
         let (part, inactive) = inactive_slot_device()?;
-        // The inactive slot is not booted from until `finish_os_slot` arms it,
+        // The inactive slot is not booted from until `write_os_slot` arms it,
         // so a failed or cut-short write here leaves the running system alone.
-        decompress_xz_streaming(src, &part, OS_IMAGE_MAX_BYTES)?;
-        finish_os_slot(&part, inactive)
+        write_os_slot(&RealSlotOps, &part, inactive, || {
+            decompress_xz_streaming(src, &part, OS_IMAGE_MAX_BYTES)
+        })
     }
 
     fn staging_dir(&self) -> PathBuf {
@@ -298,6 +318,33 @@ impl Installer for DataDirInstaller {
         std::fs::write(&tmp, format!("{hash}\n")).map_err(|e| UpdateError::Other(e.to_string()))?;
         std::fs::rename(&tmp, &path).map_err(|e| UpdateError::Other(e.to_string()))?;
         Ok(())
+    }
+
+    fn mark_os_pending(&self, hash: &str) -> Result<(), UpdateError> {
+        let active = active_slot_letter()?;
+        let slot = if active == 'A' { 'B' } else { 'A' };
+        let line = format!("{hash} {slot} {}\n", current_boot_id());
+        std::fs::create_dir_all(&self.data_dir).map_err(|e| UpdateError::Other(e.to_string()))?;
+        write_atomic(&self.data_dir.join(OS_PENDING_FILE), &line)
+    }
+
+    fn read_os_pending(&self) -> Option<String> {
+        read_pending(&self.data_dir).map(|p| p.hash)
+    }
+
+    fn read_os_failed(&self) -> Option<String> {
+        read_trimmed(&self.data_dir.join(OS_FAILED_FILE))
+    }
+
+    fn settle_os_boot(&self) {
+        let booted = active_slot_letter().ok();
+        match self.settle_pending(booted, &current_boot_id()) {
+            Settle::Booted => tracing::info!("the new operating system booted; update recorded"),
+            Settle::FellBack => tracing::warn!(
+                "the new operating system did not start and Luna went back; it won't retry that image on its own"
+            ),
+            Settle::Nothing | Settle::SameBoot => {}
+        }
     }
 
     fn read_feed_seen(&self, unit: &str, channel: &str) -> Option<String> {
@@ -422,6 +469,201 @@ fn swap_exec(exec: &Path, tmp: &Path) -> Result<(), UpdateError> {
     Ok(())
 }
 
+/// What `settle_pending` decided.
+#[derive(Debug, PartialEq, Eq)]
+enum Settle {
+    Nothing,
+    /// Still the boot that wrote the image: no verdict yet.
+    SameBoot,
+    Booted,
+    FellBack,
+}
+
+struct Pending {
+    hash: String,
+    slot: char,
+    boot_id: String,
+}
+
+fn read_trimmed(path: &Path) -> Option<String> {
+    std::fs::read_to_string(path)
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+fn read_pending(data_dir: &Path) -> Option<Pending> {
+    let text = read_trimmed(&data_dir.join(OS_PENDING_FILE))?;
+    let mut it = text.split_whitespace();
+    let hash = it.next()?.to_string();
+    let slot = match it.next()? {
+        "A" => 'A',
+        "B" => 'B',
+        _ => return None,
+    };
+    let boot_id = it.next()?.to_string();
+    Some(Pending {
+        hash,
+        slot,
+        boot_id,
+    })
+}
+
+fn write_atomic(path: &Path, text: &str) -> Result<(), UpdateError> {
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, text).map_err(|e| UpdateError::Other(e.to_string()))?;
+    std::fs::rename(&tmp, path).map_err(|e| UpdateError::Other(e.to_string()))
+}
+
+fn current_boot_id() -> String {
+    std::fs::read_to_string("/proc/sys/kernel/random/boot_id")
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default()
+}
+
+impl DataDirInstaller {
+    /// Decide what happened to an OS image written before the last reboot.
+    /// `booted` is the slot this boot came from (`None` when unknown, which
+    /// gives no verdict). A different boot on the new slot means the image
+    /// works: its hash becomes the installed one. A different boot on the old
+    /// slot means GRUB fell back: the hash is remembered as failed so the same
+    /// image is not flashed again and again.
+    fn settle_pending(&self, booted: Option<char>, boot_id: &str) -> Settle {
+        let Some(p) = read_pending(&self.data_dir) else {
+            return Settle::Nothing;
+        };
+        if p.boot_id == boot_id {
+            return Settle::SameBoot;
+        }
+        let Some(booted) = booted else {
+            return Settle::Nothing;
+        };
+        let pending = self.data_dir.join(OS_PENDING_FILE);
+        if booted == p.slot {
+            if self.write_os_hash(&p.hash).is_err() {
+                return Settle::Nothing;
+            }
+            let _ = std::fs::remove_file(self.data_dir.join(OS_FAILED_FILE));
+            let _ = std::fs::remove_file(&pending);
+            Settle::Booted
+        } else {
+            if write_atomic(
+                &self.data_dir.join(OS_FAILED_FILE),
+                &format!("{}\n", p.hash),
+            )
+            .is_err()
+            {
+                return Settle::Nothing;
+            }
+            let _ = std::fs::remove_file(&pending);
+            Settle::FellBack
+        }
+    }
+}
+
+/// The steps that touch a real disk or run a tool, so the order they run in
+/// can be tested without either.
+trait SlotOps {
+    fn read_uuid(&self, part: &Path) -> Result<String, UpdateError>;
+    fn check_fs(&self, part: &Path) -> Result<(), UpdateError>;
+    fn set_uuid(&self, part: &Path, uuid: &str) -> Result<(), UpdateError>;
+    fn set_label(&self, part: &Path, label: &str);
+    fn arm(&self, slot: char) -> Result<(), UpdateError>;
+}
+
+struct RealSlotOps;
+
+/// e2fsck exits 0 (clean) or 1 (fixed something) on success.
+fn fsck_succeeded(code: Option<i32>) -> bool {
+    matches!(code, Some(0 | 1))
+}
+
+impl SlotOps for RealSlotOps {
+    fn read_uuid(&self, part: &Path) -> Result<String, UpdateError> {
+        read_ext4_uuid(part)
+    }
+
+    fn check_fs(&self, part: &Path) -> Result<(), UpdateError> {
+        let status = Command::new("e2fsck").arg("-fy").arg(part).status();
+        match status {
+            Ok(s) if fsck_succeeded(s.code()) => Ok(()),
+            _ => Err(UpdateError::Other(
+                "The new operating system didn't pass its disk check, so Luna won't switch to it."
+                    .into(),
+            )),
+        }
+    }
+
+    fn set_uuid(&self, part: &Path, uuid: &str) -> Result<(), UpdateError> {
+        match Command::new("tune2fs").arg("-U").arg(uuid).arg(part).status() {
+            Ok(s) if s.success() => Ok(()),
+            _ => Err(UpdateError::Other(
+                "Luna couldn't prepare the new operating system for startup, so it won't switch to it."
+                    .into(),
+            )),
+        }
+    }
+
+    fn set_label(&self, part: &Path, label: &str) {
+        let _ = Command::new("e2label").arg(part).arg(label).status();
+    }
+
+    fn arm(&self, slot: char) -> Result<(), UpdateError> {
+        set_tryboot_slot(slot)
+    }
+}
+
+/// Read the filesystem UUID from an ext4 superblock (1024 bytes in; magic at
+/// +0x38, UUID at +0x68), formatted the way `tune2fs -U` takes it. Refuses
+/// anything that isn't ext2/3/4 so a blank or foreign slot is never guessed at.
+fn read_ext4_uuid(dev: &Path) -> Result<String, UpdateError> {
+    use std::io::{Seek, SeekFrom};
+    let fail = || {
+        UpdateError::Other(
+            "Luna couldn't read the spare OS slot's ID, so nothing was installed.".into(),
+        )
+    };
+    let mut f = std::fs::File::open(dev).map_err(|_| fail())?;
+    let mut sb = [0u8; 0x78];
+    f.seek(SeekFrom::Start(1024)).map_err(|_| fail())?;
+    f.read_exact(&mut sb).map_err(|_| fail())?;
+    if sb[0x38..0x3a] != [0x53, 0xEF] {
+        return Err(fail());
+    }
+    let u = &sb[0x68..0x78];
+    if u.iter().all(|b| *b == 0) {
+        return Err(fail());
+    }
+    let h: String = u.iter().map(|b| format!("{b:02x}")).collect();
+    Ok(format!(
+        "{}-{}-{}-{}-{}",
+        &h[0..8],
+        &h[8..12],
+        &h[12..16],
+        &h[16..20],
+        &h[20..32]
+    ))
+}
+
+/// Put a new OS image on the spare slot and arm the next boot into it.
+///
+/// Each image build has its own random filesystem UUID, but GRUB finds the
+/// slots by the UUIDs pinned at install time. So the slot's UUID is read
+/// before anything is written, and put back after the check.
+fn write_os_slot(
+    ops: &dyn SlotOps,
+    part: &Path,
+    inactive: char,
+    write: impl FnOnce() -> Result<(), UpdateError>,
+) -> Result<(), UpdateError> {
+    let uuid = ops.read_uuid(part)?;
+    write()?;
+    ops.check_fs(part)?;
+    ops.set_uuid(part, &uuid)?;
+    ops.set_label(part, &format!("LUNA_{inactive}"));
+    ops.arm(inactive)
+}
+
 /// Decompress the `.img.xz` at `src` into `dest` (the inactive slot) as a
 /// stream: nothing but small buffers (plus the decoder's dictionary) sits in
 /// RAM. Refuses to write more than `max_bytes`, so a crafted file cannot
@@ -454,12 +696,6 @@ fn decompress_xz_streaming(src: &Path, dest: &Path, max_bytes: u64) -> Result<()
     }
     output.sync_all().map_err(io)?;
     Ok(())
-}
-
-fn finish_os_slot(part: &Path, inactive: char) -> Result<(), UpdateError> {
-    let label = format!("LUNA_{inactive}");
-    let _ = Command::new("e2label").arg(part).arg(&label).status();
-    set_tryboot_slot(inactive)
 }
 
 /// The A/B slot this boot came from. Missing `luna.slot=` is an error,
@@ -916,6 +1152,7 @@ impl UpdateService {
         keys: Vec<String>,
     ) -> Self {
         warn_on_custom_keys(&keys);
+        installer.settle_os_boot();
         Self {
             http,
             installer,
@@ -1034,7 +1271,15 @@ impl UpdateService {
         // feed is not behind what is running.
         let os_needed = !verified.older
             && match (&os, self.installer.read_os_hash()) {
-                (Some(part), Some(local)) => !local.eq_ignore_ascii_case(&part.sha256),
+                (Some(part), Some(local)) => {
+                    let same =
+                        |h: Option<String>| h.is_some_and(|h| h.eq_ignore_ascii_case(&part.sha256));
+                    !local.eq_ignore_ascii_case(&part.sha256)
+                        // Already written and waiting for its reboot, or
+                        // written once and the box fell back: don't re-flash.
+                        && !same(self.installer.read_os_pending())
+                        && !same(self.installer.read_os_failed())
+                }
                 // No recorded hash: the factory install always writes one. A
                 // box without it must not be surprised by a re-flash.
                 _ => false,
@@ -1083,7 +1328,9 @@ impl UpdateService {
                 return Err(e);
             }
             let _ = std::fs::remove_file(&tmp);
-            self.installer.write_os_hash(&os.sha256.to_lowercase())?;
+            // Not the installed hash yet: that is recorded only once the new
+            // slot has booted (`Installer::settle_os_boot`).
+            self.installer.mark_os_pending(&os.sha256.to_lowercase())?;
             info.reboot_required = true;
         } else {
             info.reboot_required = false;
@@ -1210,6 +1457,8 @@ mod tests {
         lunad: Mutex<Vec<u8>>,
         os: Mutex<Vec<u8>>,
         os_hash: Mutex<Option<String>>,
+        os_pending: Mutex<Option<String>>,
+        os_failed: Mutex<Option<String>>,
         seen: Mutex<HashMap<String, String>>,
     }
 
@@ -1228,6 +1477,16 @@ mod tests {
         fn write_os_hash(&self, hash: &str) -> Result<(), UpdateError> {
             *self.os_hash.lock().unwrap() = Some(hash.to_string());
             Ok(())
+        }
+        fn mark_os_pending(&self, hash: &str) -> Result<(), UpdateError> {
+            *self.os_pending.lock().unwrap() = Some(hash.to_string());
+            Ok(())
+        }
+        fn read_os_pending(&self) -> Option<String> {
+            self.os_pending.lock().unwrap().clone()
+        }
+        fn read_os_failed(&self) -> Option<String> {
+            self.os_failed.lock().unwrap().clone()
         }
         fn read_feed_seen(&self, unit: &str, channel: &str) -> Option<String> {
             self.seen
@@ -1539,9 +1798,180 @@ mod tests {
         assert!(applied.reboot_required);
         assert_eq!(*inst.os.lock().unwrap(), b"os-image-v2");
         assert!(inst.lunad.lock().unwrap().is_empty(), "lunad is not newer");
-        assert_eq!(*inst.os_hash.lock().unwrap(), Some(sha(b"os-image-v2")));
-        // Applied: the next look finds nothing to do.
+        // Not recorded as installed until the new slot has booted.
+        assert_eq!(*inst.os_hash.lock().unwrap(), Some("old-os-hash".into()));
+        assert_eq!(*inst.os_pending.lock().unwrap(), Some(sha(b"os-image-v2")));
+        // Written and waiting for its reboot: the next look finds nothing to do.
         assert!(!svc.check("0.4.0", true).unwrap().update_available);
+    }
+
+    #[test]
+    fn an_image_that_already_failed_to_boot_is_not_offered_again() {
+        let r = Release {
+            os: Some(b"os-image-v2"),
+            ..Release::default()
+        };
+        let (svc, inst) = r.service();
+        *inst.os_hash.lock().unwrap() = Some("old-os-hash".into());
+        *inst.os_failed.lock().unwrap() = Some(sha(b"os-image-v2").to_uppercase());
+        assert!(!svc.check("0.4.0", true).unwrap().update_available);
+        // A different image is still offered.
+        *inst.os_failed.lock().unwrap() = Some("some-other-image".into());
+        assert!(svc.check("0.4.0", true).unwrap().update_available);
+    }
+
+    #[derive(Default)]
+    struct FakeSlot {
+        log: Mutex<Vec<String>>,
+        fail_at: Option<&'static str>,
+    }
+
+    impl FakeSlot {
+        fn step(&self, what: &str) -> Result<(), UpdateError> {
+            self.log.lock().unwrap().push(what.to_string());
+            if self.fail_at == Some(what) {
+                Err(UpdateError::Other(format!("{what} failed")))
+            } else {
+                Ok(())
+            }
+        }
+        fn log(&self) -> Vec<String> {
+            self.log.lock().unwrap().clone()
+        }
+    }
+
+    impl SlotOps for FakeSlot {
+        fn read_uuid(&self, _part: &Path) -> Result<String, UpdateError> {
+            self.step("read_uuid")?;
+            Ok("11111111-2222-3333-4444-555555555555".into())
+        }
+        fn check_fs(&self, _part: &Path) -> Result<(), UpdateError> {
+            self.step("fsck")
+        }
+        fn set_uuid(&self, _part: &Path, uuid: &str) -> Result<(), UpdateError> {
+            self.step(&format!("uuid {uuid}"))
+        }
+        fn set_label(&self, _part: &Path, label: &str) {
+            let _ = self.step(&format!("label {label}"));
+        }
+        fn arm(&self, slot: char) -> Result<(), UpdateError> {
+            self.step(&format!("arm {slot}"))
+        }
+    }
+
+    #[test]
+    fn slot_is_written_checked_given_its_old_uuid_then_armed() {
+        let ops = FakeSlot::default();
+        write_os_slot(&ops, Path::new("/dev/x"), 'B', || ops.step("write")).unwrap();
+        assert_eq!(
+            ops.log(),
+            [
+                "read_uuid",
+                "write",
+                "fsck",
+                "uuid 11111111-2222-3333-4444-555555555555",
+                "label LUNA_B",
+                "arm B"
+            ]
+        );
+    }
+
+    #[test]
+    fn slot_is_never_armed_when_a_step_fails() {
+        for bad in [
+            "read_uuid",
+            "write",
+            "fsck",
+            "uuid 11111111-2222-3333-4444-555555555555",
+        ] {
+            let ops = FakeSlot {
+                fail_at: Some(bad),
+                ..FakeSlot::default()
+            };
+            assert!(write_os_slot(&ops, Path::new("/dev/x"), 'A', || ops.step("write")).is_err());
+            assert!(!ops.log().iter().any(|l| l.starts_with("arm")), "{bad}");
+        }
+        // Nothing is written when the old UUID can't be read.
+        let ops = FakeSlot {
+            fail_at: Some("read_uuid"),
+            ..FakeSlot::default()
+        };
+        let _ = write_os_slot(&ops, Path::new("/dev/x"), 'A', || ops.step("write"));
+        assert_eq!(ops.log(), ["read_uuid"]);
+    }
+
+    #[test]
+    fn fsck_exit_codes_zero_and_one_are_success() {
+        assert!(fsck_succeeded(Some(0)));
+        assert!(fsck_succeeded(Some(1)));
+        assert!(!fsck_succeeded(Some(2)));
+        assert!(!fsck_succeeded(Some(4)));
+        assert!(!fsck_succeeded(None));
+    }
+
+    #[test]
+    fn ext4_uuid_is_read_from_the_superblock() {
+        let dir = tempfile::tempdir().unwrap();
+        let dev = dir.path().join("slot");
+        let mut img = vec![0u8; 4096];
+        img[1024 + 0x38] = 0x53;
+        img[1024 + 0x39] = 0xEF;
+        let raw: [u8; 16] = [
+            0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89, 0xab,
+            0xcd, 0xef,
+        ];
+        img[1024 + 0x68..1024 + 0x78].copy_from_slice(&raw);
+        std::fs::write(&dev, &img).unwrap();
+        assert_eq!(
+            read_ext4_uuid(&dev).unwrap(),
+            "01234567-89ab-cdef-0123-456789abcdef"
+        );
+        // Not ext4 (no magic): refused, never guessed.
+        img[1024 + 0x38] = 0;
+        std::fs::write(&dev, &img).unwrap();
+        assert!(read_ext4_uuid(&dev).is_err());
+        assert!(read_ext4_uuid(&dir.path().join("missing")).is_err());
+    }
+
+    fn pending_installer(dir: &Path) -> DataDirInstaller {
+        let inst = DataDirInstaller::new(dir);
+        inst.write_os_hash("old").unwrap();
+        std::fs::write(dir.join(OS_PENDING_FILE), "newhash B boot-1\n").unwrap();
+        inst
+    }
+
+    #[test]
+    fn pending_hash_is_recorded_only_after_the_new_slot_boots() {
+        let dir = tempfile::tempdir().unwrap();
+        let inst = pending_installer(dir.path());
+        // Same boot (e.g. lunad restarted before the reboot): no verdict.
+        assert_eq!(inst.settle_pending(Some('A'), "boot-1"), Settle::SameBoot);
+        assert_eq!(inst.read_os_hash().as_deref(), Some("old"));
+        assert_eq!(inst.read_os_pending().as_deref(), Some("newhash"));
+        // Unknown slot after a reboot: leave it for a boot that can tell.
+        assert_eq!(inst.settle_pending(None, "boot-2"), Settle::Nothing);
+        assert_eq!(inst.read_os_pending().as_deref(), Some("newhash"));
+        // Rebooted into the new slot: now it counts.
+        assert_eq!(inst.settle_pending(Some('B'), "boot-2"), Settle::Booted);
+        assert_eq!(inst.read_os_hash().as_deref(), Some("newhash"));
+        assert_eq!(inst.read_os_pending(), None);
+        assert_eq!(inst.read_os_failed(), None);
+        assert_eq!(inst.settle_pending(Some('B'), "boot-3"), Settle::Nothing);
+    }
+
+    #[test]
+    fn fallback_keeps_the_old_hash_and_remembers_the_failed_image() {
+        let dir = tempfile::tempdir().unwrap();
+        let inst = pending_installer(dir.path());
+        // Rebooted, but on the old slot: GRUB fell back.
+        assert_eq!(inst.settle_pending(Some('A'), "boot-2"), Settle::FellBack);
+        assert_eq!(inst.read_os_hash().as_deref(), Some("old"));
+        assert_eq!(inst.read_os_pending(), None);
+        assert_eq!(inst.read_os_failed().as_deref(), Some("newhash"));
+        // A later image that boots clears the failure.
+        std::fs::write(dir.path().join(OS_PENDING_FILE), "better A boot-2\n").unwrap();
+        assert_eq!(inst.settle_pending(Some('A'), "boot-3"), Settle::Booted);
+        assert_eq!(inst.read_os_failed(), None);
     }
 
     #[test]
