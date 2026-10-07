@@ -11,7 +11,7 @@ fn main() -> anyhow::Result<()> {
         .skip(1)
         .any(|a| a == "--version" || a == "-V")
     {
-        println!("{}", lunad::VERSION);
+        println!("{}", lunad::version());
         return Ok(());
     }
     // Capped runtime for 2 GiB targets: 2 async workers handle the HTTP
@@ -383,7 +383,7 @@ async fn async_main() -> anyhow::Result<()> {
         ticker.tick().await;
         loop {
             let svc = updates_bg.clone();
-            let version = lunad::VERSION.to_string();
+            let version = lunad::version().to_string();
             let _ = tokio::task::spawn_blocking(move || {
                 let _ = svc.check(&version, false);
             })

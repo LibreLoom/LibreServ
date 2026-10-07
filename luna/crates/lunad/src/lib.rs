@@ -1,5 +1,49 @@
-/// lunad's version, from `luna/VERSION` (strict semver, checked by build.rs).
-pub const VERSION: &str = env!("LUNA_VERSION");
+const SLOT_MARK: &[u8; 16] = b"LUNA-VERSION-V1:";
+const SLOT_VERSION_LEN: usize = 64;
+const SLOT_LEN: usize = SLOT_MARK.len() + SLOT_VERSION_LEN;
+
+/// The version lives in a fixed-size slot of the binary: a marker, then up to
+/// 64 bytes of version padded with NULs. A normal build fills it from
+/// `luna/VERSION` (strict semver, checked by build.rs). The release build
+/// (`LUNA_VERSION_PATCH` set) leaves it empty and the release tool writes the
+/// version into the finished binary, so a new version relinks nothing and
+/// recompiles nothing.
+#[used]
+static VERSION_SLOT: [u8; SLOT_LEN] = version_slot(env!("LUNA_VERSION"));
+
+const fn version_slot(version: &str) -> [u8; SLOT_LEN] {
+    let v = version.as_bytes();
+    assert!(v.len() <= SLOT_VERSION_LEN, "version longer than its slot");
+    let mut out = [0u8; SLOT_LEN];
+    let mut i = 0;
+    while i < SLOT_MARK.len() {
+        out[i] = SLOT_MARK[i];
+        i += 1;
+    }
+    let mut j = 0;
+    while j < v.len() {
+        out[SLOT_MARK.len() + j] = v[j];
+        j += 1;
+    }
+    out
+}
+
+/// lunad's version (see [`VERSION_SLOT`]).
+pub fn version() -> &'static str {
+    static V: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+    V.get_or_init(|| {
+        // Volatile: the compiler must not fold the slot's build-time bytes in,
+        // because a release build patches them after linking.
+        // SAFETY: the pointer is to a live static of exactly SLOT_LEN bytes.
+        let slot: [u8; SLOT_LEN] = unsafe { std::ptr::read_volatile(&raw const VERSION_SLOT) };
+        let v = &slot[SLOT_MARK.len()..];
+        let end = v.iter().position(|&b| b == 0).unwrap_or(v.len());
+        match std::str::from_utf8(&v[..end]) {
+            Ok(s) if !s.is_empty() => Box::leak(s.to_owned().into_boxed_str()),
+            _ => "unpatched",
+        }
+    })
+}
 
 pub mod access;
 pub mod api;

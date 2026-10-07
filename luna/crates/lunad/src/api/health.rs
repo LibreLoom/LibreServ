@@ -32,7 +32,7 @@ async fn health() -> Json<Value> {
     Json(json!({
         "status": "ok",
         "product": "Luna",
-        "version": crate::VERSION,
+        "version": crate::version(),
         "api": {
             "version": API_VERSION,
             "oldest_supported": API_OLDEST_SUPPORTED,
@@ -186,7 +186,7 @@ mod tests {
         let file =
             std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../VERSION")).unwrap();
         assert_eq!(v["version"], file.trim());
-        assert_eq!(v["version"], crate::VERSION);
+        assert_eq!(v["version"], crate::version());
     }
 
     #[tokio::test]

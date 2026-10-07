@@ -46,7 +46,7 @@ async fn check(
     require_admin(&user)?;
     let svc = state.updates.clone();
     let force = q.force.unwrap_or(false);
-    let info = tokio::task::spawn_blocking(move || svc.check(crate::VERSION, force))
+    let info = tokio::task::spawn_blocking(move || svc.check(crate::version(), force))
         .await
         .map_err(|_| {
             json_error(
@@ -97,7 +97,7 @@ async fn apply(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     require_admin(&user)?;
     let svc = state.updates.clone();
-    let info = tokio::task::spawn_blocking(move || svc.apply(crate::VERSION))
+    let info = tokio::task::spawn_blocking(move || svc.apply(crate::version()))
         .await
         .map_err(|_| {
             json_error(

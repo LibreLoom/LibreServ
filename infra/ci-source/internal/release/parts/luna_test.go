@@ -92,7 +92,7 @@ func TestLunadSpecs(t *testing.T) {
 	joined := strings.Join(args, " ")
 	for _, w := range []string{
 		b.SrcDir + ":/src:ro",
-		"/src/luna/VERSION:ro",
+		"-e PATCH_VERSION ",
 		"/src/luna/crates/lunad/web/dist:ro",
 		engine.VolumePrefix + "target-luna-musl:/src/luna/target",
 		"--memory 6g",
@@ -101,10 +101,9 @@ func TestLunadSpecs(t *testing.T) {
 			t.Errorf("build args lack %q:\n%s", w, joined)
 		}
 	}
-	// The version file the container sees is the build's version.
-	vf := filepath.Join(b.OutRoot, ".work", "luna", "version-state", "luna", "VERSION")
-	if got, _ := os.ReadFile(vf); string(got) != "0.4.1-0.dev.12\n" {
-		t.Errorf("VERSION mount holds %q", got)
+	// The version is patched into the binary, not mounted over VERSION.
+	if strings.Contains(joined, "/src/luna/VERSION") {
+		t.Errorf("build args mount luna/VERSION:\n%s", joined)
 	}
 	// Mount points exist in the export; nothing else was written there.
 	for _, d := range []string{"luna/target", "luna/crates/lunad/web/dist"} {

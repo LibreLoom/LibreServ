@@ -196,16 +196,15 @@ func lunadBuildSpec(b *engine.BuildContext) (engine.RunSpec, error) {
 	if err := lunaMountPoints(b, "luna/target", "luna/crates/lunad/web/dist"); err != nil {
 		return engine.RunSpec{}, err
 	}
-	ver, err := lunaVersionMount(b, "luna/VERSION")
-	if err != nil {
-		return engine.RunSpec{}, err
-	}
 	return lunaShell(engine.RunSpec{
 		Name:    "lunad",
 		Image:   "rust-musl",
 		Workdir: "/src/luna",
 		Out:     out,
-		Mounts: []engine.Mount{lunaSrcMount(b), ver,
+		// The version is written into the finished binary (lunad-build.sh),
+		// not compiled in, so luna/VERSION is not mounted.
+		Env:    map[string]string{"PATCH_VERSION": b.Version},
+		Mounts: []engine.Mount{lunaSrcMount(b),
 			{Host: web, Target: "/src/luna/crates/lunad/web/dist", ReadOnly: true},
 			{Host: extra, Target: "/extra"}},
 		Caches: engine.CargoCaches("luna-musl", "/src/luna/target"),
