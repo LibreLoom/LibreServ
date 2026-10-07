@@ -163,7 +163,7 @@ func New(cfg Config) (*App, error) {
 		}
 	}
 	cfg.CacheDir = eng.CacheDir()
-	a := &App{cfg: cfg, eng: eng, emit: &emitter{fn: cfg.OnEvent, now: cfg.Now}}
+	a := &App{cfg: cfg, eng: eng, emit: &emitter{fn: cfg.OnEvent, now: cfg.Now, redact: eng.Redactor.Redact}}
 	a.sec = cfg.Secrets
 	if a.sec == nil {
 		o := secrets.Options{

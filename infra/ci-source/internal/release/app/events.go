@@ -4,6 +4,7 @@
 package app
 
 import (
+	"errors"
 	"sync"
 	"time"
 
@@ -62,6 +63,28 @@ type emitter struct {
 	mu  sync.Mutex
 	fn  func(Event)
 	now func() time.Time
+	// redact scrubs secrets out of everything an event carries before the CLI
+	// or the TUI can print it.
+	redact func(string) string
+}
+
+func (e *emitter) scrub(ev Event) Event {
+	if e.redact == nil {
+		return ev
+	}
+	fix := func(err error) error {
+		if err == nil {
+			return nil
+		}
+		if m := err.Error(); e.redact(m) != m {
+			return errors.New(e.redact(m))
+		}
+		return err
+	}
+	ev.Err = fix(ev.Err)
+	ev.Build.Err = fix(ev.Build.Err)
+	ev.Message = e.redact(ev.Message)
+	return ev
 }
 
 func (e *emitter) emit(ev Event) {
@@ -71,6 +94,7 @@ func (e *emitter) emit(ev Event) {
 	if ev.Time.IsZero() {
 		ev.Time = e.now()
 	}
+	ev = e.scrub(ev)
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.fn(ev)

@@ -14,6 +14,7 @@ import (
 
 	"aead.dev/minisign"
 
+	"gt.plainskill.net/LibreLoom/LibreServ/ci/internal/release/engine"
 	"gt.plainskill.net/LibreLoom/LibreServ/ci/internal/release/publish"
 	"gt.plainskill.net/LibreLoom/LibreServ/ci/internal/release/secrets"
 )
@@ -193,5 +194,26 @@ func TestPreflightChecksLiveFeeds(t *testing.T) {
 	w.app.cfg.Now = func() time.Time { return time.Date(2026, 10, 13, 0, 0, 0, 0, time.UTC) }
 	if c := feedsCheck(CutRequest{Unit: "fake", Channel: "stable"}); c.State != CheckOK {
 		t.Fatalf("ok case: %+v", c)
+	}
+}
+
+func TestEventsAreRedacted(t *testing.T) {
+	var got []Event
+	a, err := New(Config{Repo: t.TempDir(), CacheDir: t.TempDir(), NoKeyring: true, OnEvent: func(ev Event) { got = append(got, ev) }})
+	must(t, err)
+	a.Engine().Redactor.Add("s3cr3t-token-value")
+	a.emit.emit(Event{Kind: EventCut, Step: "upload", Phase: PhaseFailed, Err: errors.New("PUT failed: token s3cr3t-token-value rejected")})
+	a.emit.emit(Event{Kind: EventBuild, Build: engine.Event{Err: errors.New("boom s3cr3t-token-value")}})
+	a.emit.note("luna", "using s3cr3t-token-value")
+	if len(got) != 3 {
+		t.Fatalf("%d events", len(got))
+	}
+	for _, text := range []string{got[0].Err.Error(), got[1].Build.Err.Error(), got[2].Message} {
+		if strings.Contains(text, "s3cr3t") {
+			t.Fatalf("secret leaked in %q", text)
+		}
+	}
+	if !strings.Contains(got[0].Err.Error(), "PUT failed") {
+		t.Fatalf("message lost: %v", got[0].Err)
 	}
 }
