@@ -208,21 +208,56 @@ func dedupe(s []string) []string {
 	return out
 }
 
-// released looks up an earlier release's file for a part, in the live feeds
-// (newest version wins). The feeds are fetched on the first lookup.
-func (a *App) released(ctx context.Context, unit string) func(name string) (engine.Released, bool) {
-	var once sync.Once
-	var feeds []*feed.Feed
-	return func(name string) (engine.Released, bool) {
-		once.Do(func() {
-			if pub, err := a.PublicKey(unit); err == nil {
-				for _, ch := range []string{publish.Stable, publish.Beta} {
-					if f, err := a.fetchFeed(ctx, a.feedURL(unit, ch), pub); err == nil && f != nil {
-						feeds = append(feeds, f)
-					}
-				}
+// feedLookup reads a unit's live feeds once and shares the answer between the
+// preflight, the build and the feed step of one cut. Only "no feed yet" (HTTP
+// 404) means there was no earlier release: any other failure (network, 5xx, a
+// bad signature, a missing public key) is an error, so a flaky connection can
+// never look like "nothing was released" and make a cut rebuild and reflash
+// everything.
+type feedLookup struct {
+	a    *App
+	unit string
+
+	once  sync.Once
+	feeds map[string]*feed.Feed // channel -> feed; absent when not published yet
+	err   error
+}
+
+func (a *App) newLookup(unit string) *feedLookup { return &feedLookup{a: a, unit: unit} }
+
+func (l *feedLookup) load(ctx context.Context) (map[string]*feed.Feed, error) {
+	l.once.Do(func() {
+		l.feeds = map[string]*feed.Feed{}
+		pub, err := l.a.PublicKey(l.unit)
+		if err != nil {
+			l.err = fmt.Errorf("cannot check what %s already released: %w", l.unit, err)
+			return
+		}
+		for _, ch := range []string{publish.Stable, publish.Beta} {
+			u := l.a.feedURL(l.unit, ch)
+			f, err := l.a.fetchFeed(ctx, u, pub)
+			if err != nil {
+				l.err = fmt.Errorf("cannot check what %s already released: the %s feed at %s did not load (%s). Nothing was built; check the connection to Forgejo and run the cut again", l.unit, ch, u, l.a.Redact(err.Error()))
+				return
 			}
-		})
+			if f != nil {
+				l.feeds[ch] = f
+			}
+		}
+	})
+	return l.feeds, l.err
+}
+
+// released looks up an earlier release's file for a part, in the live feeds
+// (newest version wins). Callers load the lookup first and stop on its error;
+// when it failed anyway nothing is reported as released.
+func (l *feedLookup) released(ctx context.Context) func(name string) (engine.Released, bool) {
+	return func(name string) (engine.Released, bool) {
+		feeds, err := l.load(ctx)
+		if err != nil {
+			return engine.Released{}, false
+		}
+		unit := l.unit
 		var best engine.Released
 		found := false
 		for _, f := range feeds {
@@ -247,8 +282,8 @@ func (a *App) released(ctx context.Context, unit string) func(name string) (engi
 }
 
 // priorPart is released as a PartSpec that points at the earlier file.
-func (a *App) priorPart(ctx context.Context, unit string) func(name string) (publish.PartSpec, bool) {
-	rel := a.released(ctx, unit)
+func (l *feedLookup) priorPart(ctx context.Context) func(name string) (publish.PartSpec, bool) {
+	rel := l.released(ctx)
 	return func(name string) (publish.PartSpec, bool) {
 		r, ok := rel(name)
 		return publish.PartSpec{Version: r.Version, Size: r.Size, SHA256: r.SHA256}, ok

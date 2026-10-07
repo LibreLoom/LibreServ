@@ -229,6 +229,10 @@ func (s *cutScreen) setupKey(k tea.KeyMsg) (screen, tea.Cmd) {
 	case "d":
 		s.dry = !s.dry
 	case "r":
+		if s.dry && len(s.un) > 0 {
+			s.notice = "A dry run cannot resume a cut: turn the dry run off first."
+			return s, nil
+		}
 		if len(s.un) > 0 {
 			st := s.un[0]
 			s.resume = &st

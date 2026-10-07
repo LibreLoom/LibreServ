@@ -81,7 +81,7 @@ func TestReleasedPicksNewestAcrossFeeds(t *testing.T) {
 
 	a, err := New(Config{Repo: repo, CacheDir: t.TempDir(), ForgejoURL: srv.URL, Signer: publish.MinisignSigner{Key: priv}})
 	must(t, err)
-	lookup := a.released(t.Context(), "luna")
+	lookup := a.newLookup("luna").released(t.Context())
 	r, ok := lookup("os")
 	if !ok || r.Version != "0.4.0-beta.2" || r.SHA256 != "ab0.4.0-beta.2" || r.Size != 7 ||
 		r.URL != srv.URL+"/api/packages/LibreLoom/generic/luna/0.4.0-beta.2/luna-os-x86_64.img.xz" {

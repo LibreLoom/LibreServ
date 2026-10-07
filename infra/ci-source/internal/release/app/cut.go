@@ -9,8 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 
+	"gt.plainskill.net/LibreLoom/LibreServ/ci/internal/feed"
 	"gt.plainskill.net/LibreLoom/LibreServ/ci/internal/release/engine"
 	"gt.plainskill.net/LibreLoom/LibreServ/ci/internal/release/publish"
 	"gt.plainskill.net/LibreLoom/LibreServ/ci/internal/release/secrets"
@@ -102,6 +102,8 @@ type CutResult struct {
 	FeedURLs []string `json:"feeds"`
 	OutDir   string   `json:"out_dir"`
 }
+
+var errDryResume = errors.New("a dry run cannot be resumed: it keeps no saved state; turn the dry run off to resume a real cut")
 
 func validChannel(ch string) bool { return ch == publish.Stable || ch == publish.Beta }
 
@@ -212,9 +214,17 @@ func (a *App) CutVersion(req CutRequest) (cur, next version.Version, err error) 
 // secrets (found and proven; missing ones are asked through the Prompter),
 // and parts. Nothing is built or pushed.
 func (a *App) Preflight(ctx context.Context, req CutRequest) *PreflightReport {
+	return a.preflight(ctx, req, a.newLookup(req.Unit))
+}
+
+func (a *App) preflight(ctx context.Context, req CutRequest, lk *feedLookup) *PreflightReport {
 	rep := &PreflightReport{Unit: req.Unit, Channel: req.Channel}
 	add := func(name, state, detail string) { rep.Checks = append(rep.Checks, Check{name, state, detail}) }
 
+	if req.Dry && req.Resume {
+		add("resume", CheckFail, errDryResume.Error())
+		return rep
+	}
 	cur, next, err := a.CutVersion(req)
 	if err != nil {
 		add("version", CheckFail, err.Error())
@@ -230,6 +240,9 @@ func (a *App) Preflight(ctx context.Context, req CutRequest) *PreflightReport {
 		add("parts", CheckFail, "no parts are registered for "+req.Unit)
 	} else {
 		add("parts", CheckOK, fmt.Sprintf("%d parts", len(a.cfg.Parts(req.Unit))))
+	}
+	if st, detail := a.checkFeeds(ctx, req, next, lk); st != "" {
+		add("feeds", st, detail)
 	}
 	tag := publish.Tag(req.Unit, next.String())
 	switch {
@@ -277,7 +290,11 @@ func (a *App) Preflight(ctx context.Context, req CutRequest) *PreflightReport {
 // Cut builds and publishes one release: preflight, then publish.Run with the
 // build, signer and forge clients wired in. Progress goes out as events.
 func (a *App) Cut(ctx context.Context, req CutRequest) (*CutResult, error) {
-	rep := a.Preflight(ctx, req)
+	if req.Dry && req.Resume {
+		return nil, errDryResume
+	}
+	lk := a.newLookup(req.Unit) // one lookup of the live feeds for preflight, build and feed step
+	rep := a.preflight(ctx, req, lk)
 	for _, c := range rep.Checks {
 		a.emit.emit(Event{Kind: EventNote, Unit: req.Unit, Message: fmt.Sprintf("preflight %s: %s %s", c.Name, c.State, c.Detail)})
 	}
@@ -322,8 +339,8 @@ func (a *App) Cut(ctx context.Context, req CutRequest) (*CutResult, error) {
 		}
 		cfg.Registry, cfg.Forge = a.registry(creds)
 	}
-	cfg.Build = a.cutBuild(req, next.String())
-	cfg.Resolve = a.cutResolve(req)
+	cfg.Build = a.cutBuild(req, next.String(), lk)
+	cfg.Resolve = a.cutResolve(req, lk)
 
 	res, err := publish.Run(ctx, cfg)
 	if err != nil {
@@ -342,20 +359,29 @@ func (a *App) Cut(ctx context.Context, req CutRequest) (*CutResult, error) {
 }
 
 // cutBuild is publish.Config.Build: build exactly the release SHA.
-func (a *App) cutBuild(req CutRequest, ver string) func(ctx context.Context, src publish.Source) (string, error) {
+func (a *App) cutBuild(req CutRequest, ver string, lk *feedLookup) func(ctx context.Context, src publish.Source) (string, error) {
 	return func(ctx context.Context, src publish.Source) (string, error) {
+		// What earlier releases hold decides what gets rebuilt: if the feeds
+		// cannot be read, stop before building anything.
+		if _, err := lk.load(ctx); err != nil {
+			return "", err
+		}
 		srcDir, sha, err := engine.ExportSource(ctx, src.Repo, src.SHA, a.cfg.CacheDir)
 		if err != nil {
 			return "", err
 		}
 		root := filepath.Join(a.cfg.CacheDir, "cut-dist")
+		if req.Dry {
+			// A dry run never shares (or wipes) the output of a real cut.
+			root = filepath.Join(root, "dry")
+		}
 		dir := versionDir(root, req.Unit, ver)
 		if err := os.RemoveAll(dir); err != nil { // nothing stale may be uploaded
 			return "", err
 		}
 		plan := unitPlan{unit: req.Unit, version: ver, parts: a.cfg.Parts(req.Unit),
 			bc: &engine.BuildContext{Engine: a.eng, Unit: req.Unit, Version: ver, Commit: sha, SrcDir: srcDir, OutRoot: root,
-				Rebuild: req.Rebuild, Released: a.released(ctx, req.Unit)}}
+				Rebuild: req.Rebuild, Released: lk.released(ctx)}}
 		if req.Unit == "luna-android" {
 			sg, cleanup, err := a.androidSigning(ctx)
 			if err != nil {
@@ -379,9 +405,7 @@ func (a *App) cutBuild(req CutRequest, ver string) func(ctx context.Context, src
 }
 
 // cutResolve is publish.Config.Resolve.
-func (a *App) cutResolve(req CutRequest) func(ctx context.Context, src publish.Source, outDir string) (publish.Resolved, error) {
-	var once sync.Once
-	var prior func(string) (publish.PartSpec, bool)
+func (a *App) cutResolve(req CutRequest, lk *feedLookup) func(ctx context.Context, src publish.Source, outDir string) (publish.Resolved, error) {
 	return func(ctx context.Context, src publish.Source, outDir string) (publish.Resolved, error) {
 		var r publish.Resolved
 		specs := a.cfg.FeedSpecs(req.Unit)
@@ -395,9 +419,11 @@ func (a *App) cutResolve(req CutRequest) func(ctx context.Context, src publish.S
 			}
 			return r, nil
 		}
-		once.Do(func() { prior = a.priorPart(ctx, req.Unit) })
+		if _, err := lk.load(ctx); err != nil {
+			return r, err
+		}
 		var err error
-		if r.Parts, err = resolveSpecs(req.Unit, req.Channel, outDir, specs, prior); err != nil {
+		if r.Parts, err = resolveSpecs(req.Unit, req.Channel, outDir, specs, lk.priorPart(ctx)); err != nil {
 			return r, err
 		}
 		if req.Unit == "luna" {
@@ -417,4 +443,46 @@ func (a *App) forgeHost() string {
 		return ""
 	}
 	return u.Hostname()
+}
+
+// checkFeeds compares the new version with what the live feeds say, so a cut
+// that the feed step would refuse fails before anything is pushed: the
+// version must be newer than the one published, and the clock must not be
+// behind the last `published`. A resume skips the comparison (its own feed may
+// be live already) but still needs the feeds to be readable.
+func (a *App) checkFeeds(ctx context.Context, req CutRequest, next version.Version, lk *feedLookup) (state, detail string) {
+	feeds, err := lk.load(ctx)
+	if err != nil {
+		return CheckFail, err.Error()
+	}
+	if req.Resume {
+		return CheckOK, "feeds readable; resuming"
+	}
+	now := a.cfg.Now().UTC().Format(feed.TimeLayout)
+	channels := []string{req.Channel}
+	if req.Channel == publish.Stable {
+		channels = append(channels, publish.Beta)
+	}
+	var seen []string
+	for i, ch := range channels {
+		f := feeds[ch]
+		if f == nil {
+			continue
+		}
+		seen = append(seen, ch+" "+f.Version)
+		c, err := publish.CompareSemver(f.Version, next.String())
+		if err != nil {
+			return CheckFail, fmt.Sprintf("the %s feed has an unreadable version %q", ch, f.Version)
+		}
+		if i == 0 && c >= 0 {
+			return CheckFail, fmt.Sprintf("the %s feed is already at %s; %s is not newer", ch, f.Version, next)
+		}
+		if c < 0 && f.Published > now {
+			return CheckFail, fmt.Sprintf("the %s feed was published %s, which is after this computer's clock (%s); check the date and time", ch, f.Published, now)
+		}
+	}
+	if len(seen) == 0 {
+		return CheckOK, "no feed published yet"
+	}
+	return CheckOK, "published: " + strings.Join(seen, ", ")
 }
