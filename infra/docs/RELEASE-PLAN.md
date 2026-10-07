@@ -1,7 +1,7 @@
 # Release and update rework — plan
 
 Status: receiving end built (Sol, lunad, Desktop, Android, Connect deploy,
-Flatpak repo server); release tool designed (below), not built. Replaces `release.sh` and Forgejo
+Flatpak repo server); release tool designed (below), ready to build. Replaces `release.sh` and Forgejo
 Releases. `RELEASE.md` describes the old flow until then.
 
 Order: **receiving end first** (everything that installs or updates), then the
@@ -27,8 +27,8 @@ touches another.
 - One `VERSION` file per unit is the source of truth. The release tool bumps
   it, writes it where toolchains need it (`Cargo.toml`, `build.gradle.kts`),
   commits `chore(release): <unit> <version>`, and tags that commit.
-- Android `versionCode` is derived from the version (`major*10000 +
-  minor*100 + patch`); exact beta handling decided when building it.
+- Android `versionCode` is derived from the version; see release tool build
+  order step 1.
 - Versions are strict semver 2.0: no leading `v`, no leading zeros. Go uses
   Masterminds `semver.StrictNewVersion` (or equivalent), Rust the `semver`
   crate. `0.3.0-beta.2 < 0.3.0-beta.10 < 0.3.0`.
@@ -335,40 +335,190 @@ so a dev box always takes the next real release.
 
 ### Secrets
 
-| Secret | Used by | Check before use |
-|---|---|---|
-| Sol minisign key + password | `sol`, `sol-connect` | decrypts; public key equals `keys/libreserv.minisign.pub` |
-| Luna minisign key + password | `luna*` | decrypts; equals `keys/lsluna.minisign.pub` |
-| Forgejo token | uploads, feeds, tags | `/api/v1/user` works; can write packages and the repo |
-| Android keystore + store/key passwords + alias | `luna-android` | opens; alias exists; certificate fingerprint matches the pinned one |
+Robust means **found and proven automatically**, not "configured with
+fallbacks". Rules:
 
-- **Sources**, tried in the configured order per secret (default order
-  shown): env `NAME`, `NAME_B64`, `NAME_FILE`, `NAME_CMD` (any password
-  manager CLI) → system keyring (Secret Service) → configured password-manager
-  item → file in `~/.config/libreserv/secrets/` (0600, refused otherwise) →
-  interactive prompt. Existing names keep working (`LSLUNA_RELEASE_MINISIG_*`,
-  `LIBRESERV_RELEASE_MINISIG_*`, `FORGEJO_TOKEN`, the `fj` token,
-  `LUNA_ANDROID_KEYSTORE(_B64)`).
-- **Robust fetching:** normalise every value (trim, CRLF, optional minisign
-  header, base64 detection); validate each candidate with the check above;
-  an invalid candidate is reported by source and the next source is tried;
-  `_CMD`s get a timeout and one retry; every secret a cut needs is resolved in
-  preflight, before any build runs; values live only in memory for the run.
-- **Never leaked:** resolved values are registered with an output filter that
-  redacts them from all logs and container output; they never enter a
-  container except the Android keystore (read-only mount, gradle job only);
-  signing happens in-process (`aead.dev/minisign` `Reader.Sign`, no CLI).
-- **Secrets menu:** each secret's state (found, from which source, valid /
-  invalid / missing, last checked), set or replace (choose where it is
-  stored), test, remove, show which public key / fingerprint it matches.
-  Values are never shown.
+1. **Identify by contents, never by name or place.** A file is the Luna
+   signing key only if its key ID matches `keys/lsluna.minisign.pub`; a token
+   is the Forgejo token only if the forge accepts it with the right rights; a
+   keystore only if it holds the pinned certificate. Swapped, renamed, or stale
+   files are caught.
+2. **Gather every candidate, test all, use the one that proves itself.** No
+   "first wins". Two different valid candidates for one secret is a conflict
+   the user resolves; rejected candidates stay visible with the reason.
+3. **Discover.**
+   - Signing keys: `~/.minisign/`, `$MINISIGN_CONFIG_DIR`,
+     `~/.config/minisign/`, user-added files and folders, and a depth-capped
+     home scan, recognising keys by their header (`untrusted comment: minisign
+     … secret key`), not their file name.
+   - Forgejo token: the `fj` CLI login
+     (`$XDG_DATA_HOME/forgejo-cli/keys.json`, this host, `Application` type),
+     `git credential fill` for the forge host (whatever helper is set up),
+     `tea` config, `~/.netrc`, env (`FORGEJO_TOKEN`), keyring.
+   - Android keystore: `~/.android/`, user-added files and folders, home scan
+     for `.jks` / `.keystore` / `.p12`, env (`LUNA_ANDROID_KEYSTORE(_B64)`).
+   - Env sources everywhere: `NAME`, `NAME_B64`, `NAME_FILE`, `NAME_CMD` (with
+     timeout and one retry). Existing names keep working
+     (`LSLUNA_RELEASE_MINISIG_PK/PW`, `LIBRESERV_RELEASE_MINISIG_PK/PW`).
+   - Proton Pass: optional source, if its CLI reads items without a prompt
+     (spike first).
+4. **Pair keys and passwords automatically; remember what worked.** Our keys
+   are scrypt-encrypted and a minisign key ID sits inside the encrypted part,
+   so a file can't be identified without its password. The tool tries known
+   passwords against candidate files (each try ~1 s, up to 1 GB RAM: run them
+   one at a time), then caches non-secret facts — path, file hash, key ID — in
+   `~/.cache/libreserv-release/`. Next run goes straight to the file, re-checks
+   it every time, and searches again if it changed or moved.
+5. **Ask only as a last resort, inline.** Passwords can't be discovered: they
+   come from the keyring, Proton Pass, env, or an inline TUI prompt with
+   "Remember in keyring". A missing secret is fixed on the preflight screen,
+   not a failed run. Without a TTY, missing secrets fail preflight with the
+   full candidate report.
+6. **Prove, don't check presence.** Signing key: sign a test message and
+   verify it against the public key in `keys/`. Forgejo token: `/api/v1/user`,
+   push permission on the repo, and upload + delete a probe file in a scratch
+   package. Keystore: opens, alias exists, certificate fingerprint matches.
+   All in preflight, before any build.
+
+**Storage** of pasted secrets: the system keyring (Secret Service: GNOME
+Keyring / KWallet). Without one (SSH, cloud sessions): a passphrase-encrypted
+file the tool owns. Library: `99designs/keyring` covers both.
+
+**Never leaked:** resolved values are registered with an output filter that
+redacts them from all logs and container output; they never enter a
+container except the Android keystore (read-only mount, gradle job only);
+signing happens in-process (`aead.dev/minisign` `Reader.Sign`, no CLI).
 
 ### TUI
 
-Bubble Tea, reusing `infra/ci-source` styles. Screens: home (units with
-current version, last tag, commits since, feed status per channel), build
-(pick units/parts, ref, then a live parallel job view with per-job logs),
-cut (wizard: version → notes → preflight → run → verify), secrets, doctor.
+Bubble Tea, reusing `infra/ci-source` styles and code; `./release` stays a
+separate tool from `./ci`. Every screen has a CLI equivalent. Mockups (example
+data):
+
+```
+ LibreServ release                                    main · fe58182 · clean
+ ────────────────────────────────────────────────────────────────────────────
+   Unit           Version   Since tag    Stable            Beta
+ ▸ sol            0.9.2     14 commits   0.9.2       3d    0.9.3-beta.1  1d
+   sol-connect    0.3.0      2 commits   0.3.0       9d    —
+   luna           0.4.0     31 commits   0.4.0       5d    0.4.1-beta.2  2d
+   …
+   Secrets   5/6 ready · Android keystore not found            s to fix
+   Podman    5.6 rootless · images 9/9 current · cache 38 GB
+ ────────────────────────────────────────────────────────────────────────────
+  b build  c cut  v verify  s secrets  d doctor  i images  ? help  q quit
+```
+
+```
+ Build luna · HEAD fe58182 → 0.4.1-0.dev.31+fe58182                   03:12
+ ────────────────────────────────────────────────────────────────────────────
+   ✓ web           node          0:41   dist/                     4.1 MB
+   ✓ lunad         rust-musl     1:58   lunad-linux-amd64-musl   27.8 MB
+ ▸ ● rootfs        alpine-os     0:33   apk add  212/340
+   ● live-system   debian-live   1:02   mmdebstrap: unpacking
+   ◌ os-image      alpine-os            waits for rootfs
+   ◌ installer     debian-live          waits for os-image, live-system
+ ────────────────────────────────────────────────────────────────────────────
+ rootfs
+   (212/340) Installing chrony (4.7-r0)
+ ────────────────────────────────────────────────────────────────────────────
+  ↑↓ job  enter full log  x cancel job  X cancel all  esc back
+```
+
+```
+ Cut luna 0.4.1         Version › Notes › Preflight › Run › Verify
+ ────────────────────────────────────────────────────────────────────────────
+   ✓ main, clean, up to date with origin
+   ✓ tag luna/v0.4.1 free on Forgejo
+   ✓ 0.4.1 is newer than stable 0.4.0 and beta 0.4.1-beta.2
+   ✓ OS unchanged since 0.4.0 → os and installer reuse 0.4.0's files
+   ✓ Forgejo token    from fj CLI · user plainskill · can push, can upload
+ ▸ ? Luna signing key ~/.minisign/lsluna.key · needs its password
+     Password  ••••••••••••     [x] Remember in keyring
+ ────────────────────────────────────────────────────────────────────────────
+  enter unlock  tab next  esc back
+```
+
+```
+ Secrets                                                     r rescan all
+ ────────────────────────────────────────────────────────────────────────────
+   Secret              State      From                         Used by
+ ▸ Sol signing key     ✓ ready    ~/.minisign/libreserv.key    sol, sol-connect
+   Luna signing key    ✓ ready    ~/.minisign/lsluna.key       luna*
+   Forgejo token       ✓ ready    fj CLI (plainskill)          every cut
+   Android keystore    ✗ missing  searched 7 places            luna-android
+ ────────────────────────────────────────────────────────────────────────────
+  enter details  a add file  t test all  p sources  esc back
+```
+
+```
+ Luna signing key                     must match keys/lsluna.minisign.pub
+ ────────────────────────────────────────────────────────────────────────────
+   ✓ ~/.minisign/lsluna.key         unlocked (keyring) · key ID matches   used
+   ✗ ~/.minisign/libreserv.key      this is the Sol signing key
+   ✗ ~/backup/old-luna.key          key ID 4C1F… matches no public key
+   · LSLUNA_RELEASE_MINISIG_PK      not set
+   · Proton Pass                    not set up
+ ────────────────────────────────────────────────────────────────────────────
+   Checked 2026-10-06 21:14 · signs and verifies against the public key
+  a add file  d add folder to search  P change password  f forget  esc
+```
+
+### ISO rewrite (approved)
+
+Replace live-build (`os/make-iso.sh`, `os/iso/build-debian-live.sh`,
+`add-uefi-boot.sh`, `Containerfile.live-build`) with a rootless build that
+keeps today's behaviour and boot contract:
+
+- `mmdebstrap` bookworm, `main contrib non-free non-free-firmware`, no
+  recommends, `linux-image-amd64` + `live-boot` + the packages in
+  `os/debian-live/config/package-lists/*.chroot`; copy `includes.chroot`; run
+  the `hooks/*.hook.chroot` in the chroot.
+- `mksquashfs` → `live/filesystem.squashfs`; kernel + initrd → `live/`;
+  `includes.binary` (the Luna payload) at the ISO root.
+- `grub-mkrescue` (BIOS + UEFI hybrid), volume ID `LUNAINST`, kernel line
+  `boot=live text nomodeset console=tty0 net.ifnames=0 biosdevname=0
+  init=/usr/lib/luna-installer/init.sh` (what `find-media.sh` and the
+  installer rely on today).
+- Must pass the existing ISO tests and a boot on real hardware (user) in both
+  BIOS and UEFI before `release.sh` is retired.
+
+## Release tool — build order
+
+Code: `infra/ci-source/cmd/release` + `internal/release/…` (same module as
+`./ci`, to reuse `internal/feed`, the container client, and TUI styles);
+launcher `./release` at the repo root. Each step lands tested and committed.
+
+0. **Spikes** (answers change the plan): flatpak-builder inside rootless
+   podman; Proton Pass CLI non-interactive read; Forgejo generic package
+   upload/delete probe and slash tags (`luna/v0.4.0`) on Forgejo and F-Droid.
+1. **Versions in the repo:** `VERSION` for `sol`, `sol-connect`,
+   `luna-android` (starts at its current `0.1.6`), `luna-connect`. Sol and
+   both Connect servers stamp it via ldflags; Android derives `versionName`
+   and `versionCode` from it: `(major*10000 + minor*100 + patch) * 100 + n`,
+   `n` = beta number (1–98) or 99 for a final release, so betas sort below
+   their release and every code is above today's 7.
+2. **Engine:** toolchain images, rootless runner (named-volume caches, `git
+   worktree` of the ref, per-part output dirs), job graph with `--jobs` and
+   memory caps, log streaming, redaction hook, dev version scheme.
+3. **Parts:** every part in the parts table as a containerised builder,
+   ported from `release.sh`, the Makefiles and `luna/os`; Sol arches with
+   separate restic paths; web bundle layouts for Connect; desktop bundle per
+   channel (branch = channel, no repo URL/keys); Windows installer; APK.
+   `./release build` works end to end into `dist/`.
+4. **Rootless OS:** `make-image.sh` without `--privileged`, rootfs in a
+   volume, ISO rewrite, `.img.xz` compressed once and embedded with its hash as
+   `os-image.sha256`, OS input hash for reuse.
+5. **Secrets:** discovery, proving, pairing cache, keyring / encrypted file,
+   `./release secrets` (CLI).
+6. **Publish:** sums + sign, upload, re-download check, feed commit on
+   `feeds` (stable also writes beta), tag, push, mirror poll, `--resume`;
+   `verify`, `serve-dev`. Tested against a fake registry (httptest) and a temp
+   git remote; optional preflight step runs `./ci` for the unit's profile.
+7. **TUI:** all screens above.
+8. **Cut over:** first real cuts on `beta` per unit; F-Droid metadata
+   (`UpdateCheckMode: Tags ^luna-android/v.*`, `Changelog:`); delete
+   `release.sh` and `RELEASE.md`, update `AGENTS.md` layout and agent docs.
 
 ## Release tool must (found while building the receivers)
 
