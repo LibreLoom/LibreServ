@@ -1,0 +1,4 @@
+# Plain Alpine (the OS Luna installs) for smoke-testing static musl binaries.
+# No toolchain on purpose: a binary that runs here has no hidden dependencies.
+FROM docker.io/library/alpine@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
+WORKDIR /w

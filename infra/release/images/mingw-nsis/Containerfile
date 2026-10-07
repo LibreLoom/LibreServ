@@ -1,8 +1,12 @@
 # Cross-compiles Luna Desktop for Windows (MinGW-w64) and packs the NSIS installer.
+# python3, zstd and glib-compile-schemas are what packaging/windows/build-cross.sh
+# needs besides the compilers (DLL collection, MSYS2 packages, GSettings schemas).
 FROM docker.io/library/debian@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
 ENV DEBIAN_FRONTEND=noninteractive RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo PATH=/usr/local/cargo/bin:$PATH
 RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
-      gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 nsis curl ca-certificates git xz-utils zip unzip pkg-config \
+      gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 binutils-mingw-w64-x86-64 nsis \
+      curl ca-certificates git xz-utils zip unzip zstd pkg-config file \
+      python3 libglib2.0-bin \
     && rm -rf /var/lib/apt/lists/*
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path --profile minimal --default-toolchain 1.96.0 --target x86_64-pc-windows-gnu \
     && chmod -R a+rwX /usr/local/rustup /usr/local/cargo

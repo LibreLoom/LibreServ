@@ -23,7 +23,8 @@ fi
 SYSROOT="${LUNA_MSYS2_SYSROOT:-/tmp/msys2-sysroot}"
 PKG_DIR="${LUNA_MSYS2_PKG_DIR:-/tmp/msys2-pkgs}"
 STAGE="$OUT_DIR/windows-stage"
-INSTALLER_NAME="Luna-Desktop-Setup-${VERSION}-x86_64.exe"
+# The release tool sets LUNA_DESKTOP_INSTALLER_NAME to a name without the version.
+INSTALLER_NAME="${LUNA_DESKTOP_INSTALLER_NAME:-Luna-Desktop-Setup-${VERSION}-x86_64.exe}"
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 
@@ -97,12 +98,10 @@ EOF
 build_exe() {
   echo "==> cargo build --release --target x86_64-pc-windows-gnu"
   cd "$DESKTOP"
-  mkdir -p .cargo
-  cat > .cargo/config.toml <<EOF
-[target.x86_64-pc-windows-gnu]
-linker = "x86_64-w64-mingw32-gcc"
-rustflags = ["-L", "native=$SYSROOT/mingw64/lib"]
-EOF
+  # Linker and search path go in through the environment, so nothing is written
+  # into the source tree (the release tool mounts it read-only).
+  export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc
+  export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS="-L native=$SYSROOT/mingw64/lib"
   export PKG_CONFIG=/tmp/luna-mingw64-pkg-config
   export PKG_CONFIG_ALLOW_CROSS=1
   export PKG_CONFIG_PATH="$SYSROOT/mingw64/lib/pkgconfig"
