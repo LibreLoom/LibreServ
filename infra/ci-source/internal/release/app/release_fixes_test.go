@@ -2,6 +2,7 @@ package app
 
 import (
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -215,5 +216,59 @@ func TestEventsAreRedacted(t *testing.T) {
 	}
 	if !strings.Contains(got[0].Err.Error(), "PUT failed") {
 		t.Fatalf("message lost: %v", got[0].Err)
+	}
+}
+
+func TestResumeFindsThePushedBumpWithoutState(t *testing.T) {
+	w := newWorld(t)
+	// the tool died right after pushing the release commit: no state saved
+	g := publish.Git{Dir: w.repo}
+	_, err := g.Bump(t.Context(), "origin", "main", publish.BumpSubject("fake", "0.3.1"), true, func(dir string) ([]string, error) {
+		return []string{"fake/VERSION"}, os.WriteFile(filepath.Join(dir, "fake", "VERSION"), []byte("0.3.1\n"), 0o644)
+	})
+	must(t, err)
+	git(t, w.repo, "reset", "-q", "--hard", "HEAD~1") // the checkout is behind, like a second machine
+	_, next, err := w.app.CutVersion(CutRequest{Unit: "fake", Channel: "stable", Resume: true})
+	must(t, err)
+	if next.String() != "0.3.1" {
+		t.Fatalf("resume version %s", next)
+	}
+	res, err := w.app.Cut(t.Context(), CutRequest{Unit: "fake", Channel: "stable", Resume: true})
+	must(t, err)
+	if res.Version != "0.3.1" || git(t, w.forgejo, "tag", "--list") != "fake/v0.3.1" {
+		t.Fatalf("resume result %+v", res)
+	}
+	// once tagged it is finished: nothing to resume any more
+	if _, _, err := w.app.CutVersion(CutRequest{Unit: "fake", Channel: "stable", Resume: true}); err == nil || !strings.Contains(err.Error(), "no unfinished cut") {
+		t.Fatalf("finished cut still resumable: %v", err)
+	}
+}
+
+func TestUnfinishedIsNewestFirstAndSkipsFinished(t *testing.T) {
+	w := newWorld(t)
+	dir := w.app.stateDir()
+	must(t, os.MkdirAll(dir, 0o755))
+	put := func(name, ver, updated string, done bool) {
+		d := map[string]bool{}
+		if done {
+			for _, s := range publish.Steps {
+				d[s] = true
+			}
+		}
+		b, _ := json.Marshal(publish.State{Unit: "fake", Version: ver, Updated: updated, Done: d})
+		must(t, os.WriteFile(filepath.Join(dir, name), b, 0o644))
+	}
+	put("fake@0.3.1@aaaaaaaaaaaa.json", "0.3.1", "2026-10-01T00:00:00Z", false)
+	put("fake@0.3.2@bbbbbbbbbbbb.json", "0.3.2", "2026-10-03T00:00:00Z", false)
+	put("fake@0.3.3@cccccccccccc.json", "0.3.3", "2026-10-02T00:00:00Z", false)
+	put("fake@0.3.0@dddddddddddd.done.json", "0.3.0", "2026-10-04T00:00:00Z", false)
+	un, err := w.app.Unfinished("fake")
+	must(t, err)
+	var got []string
+	for _, st := range un {
+		got = append(got, st.Version)
+	}
+	if strings.Join(got, ",") != "0.3.2,0.3.3,0.3.1" {
+		t.Fatalf("order %v", got)
 	}
 }

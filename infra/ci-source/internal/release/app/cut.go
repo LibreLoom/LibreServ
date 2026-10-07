@@ -8,7 +8,9 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/ci/internal/feed"
 	"gt.plainskill.net/LibreLoom/LibreServ/ci/internal/release/engine"
@@ -132,6 +134,9 @@ func (a *App) Unfinished(unit string) ([]publish.State, error) {
 	}
 	var out []publish.State
 	for _, p := range m {
+		if publish.StateFinished(p) {
+			continue
+		}
 		b, err := os.ReadFile(p)
 		if err != nil {
 			continue
@@ -148,6 +153,7 @@ func (a *App) Unfinished(unit string) ([]publish.State, error) {
 			out = append(out, st)
 		}
 	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Updated > out[j].Updated })
 	return out, nil
 }
 
@@ -176,13 +182,19 @@ func (a *App) CutVersion(req CutRequest) (cur, next version.Version, err error) 
 		if err != nil {
 			return cur, next, err
 		}
-		if len(un) == 0 {
-			return cur, next, fmt.Errorf("no unfinished cut of %s to resume", req.Unit)
-		}
 		if len(un) > 1 {
 			return cur, next, fmt.Errorf("several unfinished cuts of %s; name the version to resume", req.Unit)
 		}
-		next, err = version.Parse(un[0].Version)
+		v := ""
+		if len(un) == 1 {
+			v = un[0].Version
+		} else if v, err = a.pushedBumpVersion(req.Unit); err != nil {
+			return cur, next, err
+		}
+		if v == "" {
+			return cur, next, fmt.Errorf("no unfinished cut of %s to resume", req.Unit)
+		}
+		next, err = version.Parse(v)
 		if err != nil {
 			return cur, next, err
 		}
@@ -208,6 +220,29 @@ func (a *App) CutVersion(req CutRequest) (cur, next version.Version, err error) 
 		}
 	}
 	return cur, next, nil
+}
+
+// pushedBumpVersion finds the cut that died after its release commit was made
+// but before its state was saved: the newest "chore(release): <unit> <version>"
+// commit that has no tag yet. It returns "" when there is none.
+func (a *App) pushedBumpVersion(unit string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	g := publish.Git{Dir: a.cfg.Repo}
+	push, forge, err := g.ResolveRemotes(ctx, "main", a.forgeHost(), a.cfg.PushRemote, a.cfg.ForgeRemote)
+	if err != nil {
+		return "", err
+	}
+	v, _, err := g.FindBump(ctx, push, "main", unit)
+	if err != nil || v == "" {
+		return "", err
+	}
+	if tagged, err := g.TagOnRemote(ctx, forge, publish.Tag(unit, v)); err != nil {
+		return "", err
+	} else if tagged {
+		return "", nil // that release is finished
+	}
+	return v, nil
 }
 
 // Preflight checks everything a cut needs before it starts: version, git,
