@@ -57,6 +57,10 @@ assert_file_has "$BUILD" 'etc/init.d/luna-boot-ok' \
 	"rootfs must mark tryboot success via a dedicated OpenRC service"
 assert_file_has "$BUILD" 'timeout 2 mount' \
 	"tryboot marker must not block boot on a slow ESP mount"
+assert_file_has "$BUILD" '/run/luna/boot-ok' \
+	"boot-ok must tell lunad the boot is confirmed (it settles OS updates on it)"
+assert_file_has "$BUILD" '"$_saved" = 1' \
+	"boot-ok marker must only be written after GRUB's luna_boot_ok was saved"
 assert_file_has "$BUILD" 'ip link set lo up' "luna-network-up must ensure lo interface is up"
 assert_file_has "$BUILD" 'for svc in devfs dmesg mdev hwdrivers fsck root localmount;' \
 	"sysinit must enable Alpine hwdrivers coldplug and mount fstab before boot"

@@ -29,6 +29,10 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/system/updates", get(check))
         .route("/api/v1/system/updates/apply", post(apply))
         .route(
+            "/api/v1/system/updates/os-failed/clear",
+            post(clear_os_failed),
+        )
+        .route(
             "/api/v1/system/updates/source",
             get(get_source).put(save_source),
         )
@@ -51,7 +55,40 @@ async fn check(
             )
         })?
         .map_err(map_err)?;
-    Ok(Json(serde_json::to_value(info).unwrap_or(json!({}))))
+    let mut out = serde_json::to_value(info).unwrap_or(json!({}));
+    // Not part of the cached feed answer: it changes when the boot settles.
+    out["os_update_failed"] = os_update_failed_json(&state);
+    Ok(Json(out))
+}
+
+/// `{ "version": "…" }` when the last OS update didn't start and Luna went
+/// back to the previous system (`version` is empty when unknown), else null.
+fn os_update_failed_json(state: &AppState) -> Value {
+    match state.updates.failed_os_update() {
+        Some(version) => json!({ "version": version }),
+        None => Value::Null,
+    }
+}
+
+/// Forget the failed OS update so the same image is offered again.
+async fn clear_os_failed(
+    State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    require_admin(&user)?;
+    let svc = state.updates.clone();
+    tokio::task::spawn_blocking(move || svc.clear_failed_os_update())
+        .await
+        .map_err(|_| clear_failed())?
+        .map_err(|_| clear_failed())?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+fn clear_failed() -> (StatusCode, Json<Value>) {
+    json_error(
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "Luna couldn't reset the failed update. Try again.",
+    )
 }
 
 async fn apply(
@@ -329,6 +366,136 @@ mod tests {
         assert_eq!(v["release_notes"], "hello luna");
         assert_eq!(v["update_available"], true);
         assert!(v.get("url").is_none(), "no release page link any more");
+    }
+
+    struct FailedInstall(std::sync::Mutex<Option<String>>);
+    impl Installer for FailedInstall {
+        fn install_lunad(&self, _bytes: &[u8]) -> Result<(), UpdateError> {
+            Ok(())
+        }
+        fn read_os_failed(&self) -> Option<String> {
+            self.0.lock().unwrap().clone().map(|_| "deadbeef".into())
+        }
+        fn read_os_failed_version(&self) -> Option<String> {
+            self.0.lock().unwrap().clone()
+        }
+        fn clear_os_failed(&self) -> Result<(), UpdateError> {
+            *self.0.lock().unwrap() = None;
+            Ok(())
+        }
+    }
+
+    fn req(method: &str, uri: &str, token: &str) -> Request<Body> {
+        Request::builder()
+            .method(method)
+            .uri(uri)
+            .header("Authorization", format!("Bearer {token}"))
+            .body(Body::empty())
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_failed_os_update_is_reported_and_can_be_cleared_by_an_admin() {
+        let (_unused, token, mut state) = app();
+        // Swap in an updater that remembers a failed image (same feed).
+        let src = state.updates.settings();
+        let feed = FEED_JSON
+            .replace(
+                "ARCH",
+                match std::env::consts::ARCH {
+                    "x86_64" => "amd64",
+                    "aarch64" => "arm64",
+                    o => o,
+                },
+            )
+            .into_bytes();
+        let kp = minisign::KeyPair::generate_unencrypted_keypair().unwrap();
+        let sig = minisign::sign(None, &kp.sk, Cursor::new(&feed), None, None)
+            .unwrap()
+            .to_string()
+            .into_bytes();
+        let mut map = HashMap::new();
+        map.insert(format!("{}/luna/stable.json", src.feed_url), (200, feed));
+        map.insert(
+            format!("{}/luna/stable.json.minisig", src.feed_url),
+            (200, sig),
+        );
+        state.updates = Arc::new(UpdateService::with_keys(
+            Box::new(MapHttp(map)),
+            Box::new(FailedInstall(std::sync::Mutex::new(Some("0.8.0".into())))),
+            src.feed_url,
+            "stable".into(),
+            vec![kp.pk.to_base64()],
+        ));
+        let router = axum::Router::new()
+            .merge(super::router())
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                crate::auth::guard,
+            ))
+            .with_state(state.clone());
+
+        let v = json_of(
+            router
+                .clone()
+                .oneshot(req("GET", "/api/v1/system/updates?force=true", &token))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(v["os_update_failed"], json!({ "version": "0.8.0" }));
+
+        // A plain member can't clear it.
+        let member = state
+            .auth
+            .register("Mia", "Mia", "hunter22hunter1", "user")
+            .unwrap();
+        let member_token = state.auth.issue(&member).unwrap();
+        let response = router
+            .clone()
+            .oneshot(req(
+                "POST",
+                "/api/v1/system/updates/os-failed/clear",
+                &member_token,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert!(state.updates.failed_os_update().is_some());
+
+        let response = router
+            .clone()
+            .oneshot(req(
+                "POST",
+                "/api/v1/system/updates/os-failed/clear",
+                &token,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(json_of(response).await["ok"], true);
+
+        let v = json_of(
+            router
+                .oneshot(req("GET", "/api/v1/system/updates?force=true", &token))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert!(v["os_update_failed"].is_null());
+    }
+
+    #[tokio::test]
+    async fn no_failed_update_reports_null() {
+        let (router, token, _state) = app();
+        let v = json_of(
+            router
+                .oneshot(req("GET", "/api/v1/system/updates?force=true", &token))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert!(v["os_update_failed"].is_null());
     }
 
     #[tokio::test]

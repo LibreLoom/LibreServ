@@ -27,11 +27,16 @@ const UNIT: &str = "luna";
 /// Channels the feed offers.
 pub const CHANNELS: [&str; 2] = ["stable", "beta"];
 const OS_HASH_FILE: &str = "os-image.sha256";
-/// Written by `apply()` once an OS image is on the spare slot: `hash slot boot-id`.
-/// It becomes `os-image.sha256` only after the new slot has booted.
+/// Written by `apply()` once an OS image is on the spare slot:
+/// `hash slot boot-id version`. It becomes `os-image.sha256` only after the
+/// new slot has booted and `luna-boot-ok` has confirmed that boot.
 const OS_PENDING_FILE: &str = "os-image.pending";
-/// Hash of an OS image whose slot did not boot; never re-flashed automatically.
+/// `hash version` of an OS image whose slot did not boot; never re-flashed
+/// automatically (the Admin can clear it to try again).
 const OS_FAILED_FILE: &str = "os-image.failed";
+/// Written by `luna-boot-ok` (OS image) once GRUB has been told this boot is
+/// good: holds the kernel boot id. `/run` is empty again after every reboot.
+const BOOT_OK_MARKER: &str = "/run/luna/boot-ok";
 /// Newest feed `published` seen per unit + channel (replay protection).
 const FEED_SEEN_FILE: &str = "update-feed-seen.json";
 /// OS slot images are streamed to disk, never held in RAM. Cap (on the
@@ -150,7 +155,7 @@ pub trait Installer: Send + Sync {
 
     /// The OS image just written to the spare slot is waiting for its first
     /// boot. Its hash becomes the installed hash only once that slot boots.
-    fn mark_os_pending(&self, _hash: &str) -> Result<(), UpdateError> {
+    fn mark_os_pending(&self, _hash: &str, _version: &str) -> Result<(), UpdateError> {
         Ok(())
     }
     /// Hash of the image waiting for its first boot, if any.
@@ -161,7 +166,16 @@ pub trait Installer: Send + Sync {
     fn read_os_failed(&self) -> Option<String> {
         None
     }
-    /// Called once at startup: settle a pending OS image as booted or failed.
+    /// Version of the image that was flashed but did not boot, when known.
+    fn read_os_failed_version(&self) -> Option<String> {
+        None
+    }
+    /// Forget the failed image so it is offered again.
+    fn clear_os_failed(&self) -> Result<(), UpdateError> {
+        Ok(())
+    }
+    /// Settle a pending OS image as booted or failed. Safe to call often:
+    /// it does nothing until the boot has a verdict.
     fn settle_os_boot(&self) {}
 
     /// Newest feed `published` already seen for this unit + channel.
@@ -320,10 +334,10 @@ impl Installer for DataDirInstaller {
         Ok(())
     }
 
-    fn mark_os_pending(&self, hash: &str) -> Result<(), UpdateError> {
+    fn mark_os_pending(&self, hash: &str, version: &str) -> Result<(), UpdateError> {
         let active = active_slot_letter()?;
         let slot = if active == 'A' { 'B' } else { 'A' };
-        let line = format!("{hash} {slot} {}\n", current_boot_id());
+        let line = format!("{hash} {slot} {} {version}\n", current_boot_id());
         std::fs::create_dir_all(&self.data_dir).map_err(|e| UpdateError::Other(e.to_string()))?;
         write_atomic(&self.data_dir.join(OS_PENDING_FILE), &line)
     }
@@ -333,17 +347,31 @@ impl Installer for DataDirInstaller {
     }
 
     fn read_os_failed(&self) -> Option<String> {
-        read_trimmed(&self.data_dir.join(OS_FAILED_FILE))
+        read_failed(&self.data_dir).map(|f| f.0)
+    }
+
+    fn read_os_failed_version(&self) -> Option<String> {
+        read_failed(&self.data_dir).and_then(|f| f.1)
+    }
+
+    fn clear_os_failed(&self) -> Result<(), UpdateError> {
+        match std::fs::remove_file(self.data_dir.join(OS_FAILED_FILE)) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(UpdateError::Other(e.to_string())),
+        }
     }
 
     fn settle_os_boot(&self) {
+        let boot_id = current_boot_id();
         let booted = active_slot_letter().ok();
-        match self.settle_pending(booted, &current_boot_id()) {
+        let boot_ok = boot_ok_confirmed(Path::new(BOOT_OK_MARKER), &boot_id);
+        match self.settle_pending(booted, &boot_id, boot_ok) {
             Settle::Booted => tracing::info!("the new operating system booted; update recorded"),
             Settle::FellBack => tracing::warn!(
                 "the new operating system did not start and Luna went back; it won't retry that image on its own"
             ),
-            Settle::Nothing | Settle::SameBoot => {}
+            Settle::Nothing | Settle::SameBoot | Settle::Unconfirmed => {}
         }
     }
 
@@ -475,6 +503,8 @@ enum Settle {
     Nothing,
     /// Still the boot that wrote the image: no verdict yet.
     SameBoot,
+    /// On the new slot, but `luna-boot-ok` hasn't confirmed this boot yet.
+    Unconfirmed,
     Booted,
     FellBack,
 }
@@ -483,6 +513,22 @@ struct Pending {
     hash: String,
     slot: char,
     boot_id: String,
+    version: String,
+}
+
+/// `(hash, version)` of the image that did not boot.
+fn read_failed(data_dir: &Path) -> Option<(String, Option<String>)> {
+    let text = read_trimmed(&data_dir.join(OS_FAILED_FILE))?;
+    let mut it = text.split_whitespace();
+    let hash = it.next()?.to_string();
+    Some((hash, it.next().map(str::to_string)))
+}
+
+/// Has `luna-boot-ok` confirmed the boot with this id? The marker lives in
+/// `/run`, so an old one never survives a reboot; the id check is belt and
+/// braces.
+fn boot_ok_confirmed(marker: &Path, boot_id: &str) -> bool {
+    !boot_id.is_empty() && read_trimmed(marker).as_deref() == Some(boot_id)
 }
 
 fn read_trimmed(path: &Path) -> Option<String> {
@@ -502,10 +548,12 @@ fn read_pending(data_dir: &Path) -> Option<Pending> {
         _ => return None,
     };
     let boot_id = it.next()?.to_string();
+    let version = it.next().unwrap_or_default().to_string();
     Some(Pending {
         hash,
         slot,
         boot_id,
+        version,
     })
 }
 
@@ -525,10 +573,12 @@ impl DataDirInstaller {
     /// Decide what happened to an OS image written before the last reboot.
     /// `booted` is the slot this boot came from (`None` when unknown, which
     /// gives no verdict). A different boot on the new slot means the image
-    /// works: its hash becomes the installed one. A different boot on the old
+    /// works once `luna-boot-ok` has confirmed it (`boot_ok`; GRUB only keeps
+    /// a tryboot slot after that, so lunad must not outrun it): its hash
+    /// becomes the installed one. A different boot on the old
     /// slot means GRUB fell back: the hash is remembered as failed so the same
     /// image is not flashed again and again.
-    fn settle_pending(&self, booted: Option<char>, boot_id: &str) -> Settle {
+    fn settle_pending(&self, booted: Option<char>, boot_id: &str, boot_ok: bool) -> Settle {
         let Some(p) = read_pending(&self.data_dir) else {
             return Settle::Nothing;
         };
@@ -540,6 +590,9 @@ impl DataDirInstaller {
         };
         let pending = self.data_dir.join(OS_PENDING_FILE);
         if booted == p.slot {
+            if !boot_ok {
+                return Settle::Unconfirmed;
+            }
             if self.write_os_hash(&p.hash).is_err() {
                 return Settle::Nothing;
             }
@@ -549,7 +602,7 @@ impl DataDirInstaller {
         } else {
             if write_atomic(
                 &self.data_dir.join(OS_FAILED_FILE),
-                &format!("{}\n", p.hash),
+                &format!("{} {}\n", p.hash, p.version),
             )
             .is_err()
             {
@@ -1161,6 +1214,26 @@ impl UpdateService {
         }
     }
 
+    /// Settle a freshly booted OS image. Called at startup, on a timer and
+    /// before every feed read, because `luna-boot-ok` runs after lunad starts.
+    pub fn settle_os_boot(&self) {
+        self.installer.settle_os_boot();
+    }
+
+    /// Version of the OS update that didn't start (Luna went back to the
+    /// previous system), if the last one failed. The version may be empty.
+    pub fn failed_os_update(&self) -> Option<String> {
+        self.installer.read_os_failed()?;
+        Some(self.installer.read_os_failed_version().unwrap_or_default())
+    }
+
+    /// Forget a failed OS update so the same image is offered again.
+    pub fn clear_failed_os_update(&self) -> Result<(), UpdateError> {
+        self.installer.clear_os_failed()?;
+        *self.cache.lock().unwrap() = None;
+        Ok(())
+    }
+
     fn source(&self) -> ActiveSource {
         self.active.lock().unwrap().clone()
     }
@@ -1220,6 +1293,7 @@ impl UpdateService {
     /// Fetch, verify and read the feed for this source, then work out what
     /// (if anything) would be installed.
     fn read_feed(&self, current_version: &str) -> Result<Resolved, UpdateError> {
+        self.installer.settle_os_boot();
         let src = self.source();
         let feed_path = format!("{}/{UNIT}/{}.json", src.feed_url, src.channel);
         let (status, body) = self.http.get(&feed_path)?;
@@ -1330,7 +1404,8 @@ impl UpdateService {
             let _ = std::fs::remove_file(&tmp);
             // Not the installed hash yet: that is recorded only once the new
             // slot has booted (`Installer::settle_os_boot`).
-            self.installer.mark_os_pending(&os.sha256.to_lowercase())?;
+            self.installer
+                .mark_os_pending(&os.sha256.to_lowercase(), &info.latest_version)?;
             info.reboot_required = true;
         } else {
             info.reboot_required = false;
@@ -1478,7 +1553,7 @@ mod tests {
             *self.os_hash.lock().unwrap() = Some(hash.to_string());
             Ok(())
         }
-        fn mark_os_pending(&self, hash: &str) -> Result<(), UpdateError> {
+        fn mark_os_pending(&self, hash: &str, _version: &str) -> Result<(), UpdateError> {
             *self.os_pending.lock().unwrap() = Some(hash.to_string());
             Ok(())
         }
@@ -1945,18 +2020,34 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let inst = pending_installer(dir.path());
         // Same boot (e.g. lunad restarted before the reboot): no verdict.
-        assert_eq!(inst.settle_pending(Some('A'), "boot-1"), Settle::SameBoot);
+        assert_eq!(
+            inst.settle_pending(Some('A'), "boot-1", true),
+            Settle::SameBoot
+        );
         assert_eq!(inst.read_os_hash().as_deref(), Some("old"));
         assert_eq!(inst.read_os_pending().as_deref(), Some("newhash"));
         // Unknown slot after a reboot: leave it for a boot that can tell.
-        assert_eq!(inst.settle_pending(None, "boot-2"), Settle::Nothing);
+        assert_eq!(inst.settle_pending(None, "boot-2", true), Settle::Nothing);
         assert_eq!(inst.read_os_pending().as_deref(), Some("newhash"));
-        // Rebooted into the new slot: now it counts.
-        assert_eq!(inst.settle_pending(Some('B'), "boot-2"), Settle::Booted);
+        // Rebooted into the new slot, but boot-ok hasn't confirmed it: wait.
+        assert_eq!(
+            inst.settle_pending(Some('B'), "boot-2", false),
+            Settle::Unconfirmed
+        );
+        assert_eq!(inst.read_os_hash().as_deref(), Some("old"));
+        assert_eq!(inst.read_os_pending().as_deref(), Some("newhash"));
+        // boot-ok confirmed it: now it counts.
+        assert_eq!(
+            inst.settle_pending(Some('B'), "boot-2", true),
+            Settle::Booted
+        );
         assert_eq!(inst.read_os_hash().as_deref(), Some("newhash"));
         assert_eq!(inst.read_os_pending(), None);
         assert_eq!(inst.read_os_failed(), None);
-        assert_eq!(inst.settle_pending(Some('B'), "boot-3"), Settle::Nothing);
+        assert_eq!(
+            inst.settle_pending(Some('B'), "boot-3", true),
+            Settle::Nothing
+        );
     }
 
     #[test]
@@ -1964,14 +2055,51 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let inst = pending_installer(dir.path());
         // Rebooted, but on the old slot: GRUB fell back.
-        assert_eq!(inst.settle_pending(Some('A'), "boot-2"), Settle::FellBack);
+        assert_eq!(
+            inst.settle_pending(Some('A'), "boot-2", false),
+            Settle::FellBack
+        );
         assert_eq!(inst.read_os_hash().as_deref(), Some("old"));
         assert_eq!(inst.read_os_pending(), None);
         assert_eq!(inst.read_os_failed().as_deref(), Some("newhash"));
         // A later image that boots clears the failure.
-        std::fs::write(dir.path().join(OS_PENDING_FILE), "better A boot-2\n").unwrap();
-        assert_eq!(inst.settle_pending(Some('A'), "boot-3"), Settle::Booted);
+        std::fs::write(dir.path().join(OS_PENDING_FILE), "better A boot-2 1.2.3\n").unwrap();
+        assert_eq!(
+            inst.settle_pending(Some('A'), "boot-3", true),
+            Settle::Booted
+        );
         assert_eq!(inst.read_os_failed(), None);
+    }
+
+    #[test]
+    fn fallback_remembers_the_failed_version_and_it_can_be_cleared() {
+        let dir = tempfile::tempdir().unwrap();
+        let inst = DataDirInstaller::new(dir.path());
+        inst.write_os_hash("old").unwrap();
+        std::fs::write(dir.path().join(OS_PENDING_FILE), "newhash B boot-1 0.9.0\n").unwrap();
+        // Fallback needs no boot-ok: the old slot is simply what came up.
+        assert_eq!(
+            inst.settle_pending(Some('A'), "boot-2", false),
+            Settle::FellBack
+        );
+        assert_eq!(inst.read_os_failed().as_deref(), Some("newhash"));
+        assert_eq!(inst.read_os_failed_version().as_deref(), Some("0.9.0"));
+        inst.clear_os_failed().unwrap();
+        assert_eq!(inst.read_os_failed(), None);
+        // Clearing when nothing failed is fine.
+        inst.clear_os_failed().unwrap();
+    }
+
+    #[test]
+    fn boot_ok_counts_only_for_this_boot() {
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join("boot-ok");
+        assert!(!boot_ok_confirmed(&marker, "boot-2"));
+        std::fs::write(&marker, "boot-1\n").unwrap();
+        assert!(!boot_ok_confirmed(&marker, "boot-2"));
+        std::fs::write(&marker, "boot-2\n").unwrap();
+        assert!(boot_ok_confirmed(&marker, "boot-2"));
+        assert!(!boot_ok_confirmed(&marker, ""));
     }
 
     #[test]

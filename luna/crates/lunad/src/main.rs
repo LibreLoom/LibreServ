@@ -365,6 +365,18 @@ async fn async_main() -> anyhow::Result<()> {
         }
     }));
 
+    // luna-boot-ok confirms the boot after lunad is up, so look for it often
+    // until a freshly installed OS image has settled.
+    let updates_settle = state.updates.clone();
+    bg_tasks.push(tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(15));
+        loop {
+            ticker.tick().await;
+            let svc = updates_settle.clone();
+            let _ = tokio::task::spawn_blocking(move || svc.settle_os_boot()).await;
+        }
+    }));
+
     let updates_bg = state.updates.clone();
     bg_tasks.push(tokio::spawn(async move {
         let mut ticker = tokio::time::interval(std::time::Duration::from_secs(3600));
