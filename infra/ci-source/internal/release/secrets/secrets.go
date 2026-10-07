@@ -72,6 +72,9 @@ type Status struct {
 	State      State
 	Summary    string // one plain sentence
 	Candidates []Candidate
+	// NeedsPassword is set with State Failed when the only thing missing is a
+	// password: the file or keystore was found and just has not been opened.
+	NeedsPassword bool
 }
 
 // Redactor receives every secret value we load so output filters can hide it.
@@ -80,6 +83,7 @@ type Redactor interface{ Add(secret string) }
 // Question is asked through a Prompter when a secret cannot be discovered.
 type Question struct {
 	Slot   string // store slot the answer belongs to
+	Key    string // what is being asked about (a file path); a skipped answer is remembered per Slot and Key
 	Label  string // short, plain: "Password for ~/.minisign/lsluna.key"
 	Hint   string // where the value comes from
 	Secret bool   // hide typed characters
@@ -134,6 +138,7 @@ type Manager struct {
 	mu            sync.Mutex
 	memo          map[ID]*resolved
 	asked         map[string]Answer // prompts already answered this session
+	skipped       map[string]bool   // prompts the user skipped; kept until an explicit re-prove
 	envMemo       map[string][]found
 	session       map[string][]string // values typed this session and not remembered
 	protonSv      *Proton
@@ -178,7 +183,7 @@ func New(o Options) *Manager {
 	if o.ScanDepth == 0 {
 		o.ScanDepth = 5
 	}
-	m := &Manager{opt: o, memo: map[ID]*resolved{}, asked: map[string]Answer{}, envMemo: map[string][]found{}, session: map[string][]string{}}
+	m := &Manager{opt: o, memo: map[ID]*resolved{}, asked: map[string]Answer{}, skipped: map[string]bool{}, envMemo: map[string][]found{}, session: map[string][]string{}}
 	m.protonSv = NewProton(m.loadConfig().Proton, o.Run)
 	return m
 }
@@ -237,6 +242,7 @@ func (m *Manager) Reprove(ctx context.Context, id ID, full bool) Status {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.invalidateLocked(full)
+	m.skipped = map[string]bool{} // proving again on purpose: ask again
 	return m.resolveLocked(ctx, id).status
 }
 
@@ -406,7 +412,7 @@ func (m *Manager) resolveLocked(ctx context.Context, id ID) *resolved {
 	}
 	switch id {
 	case LibreServSigning, LunaSigning:
-		m.resolveSigning(ctx)
+		m.resolveSigning(ctx, id)
 	case ForgejoToken:
 		m.memo[id] = m.resolveForgejo(ctx)
 	case AndroidKeystore:
@@ -453,13 +459,19 @@ func (m *Manager) ask(ctx context.Context, q Question) string {
 	if m.opt.Prompter == nil {
 		return ""
 	}
-	key := q.Slot + "\x00" + q.Label
+	key := q.Slot + "\x00" + coalesce(q.Key, q.Label)
 	if a, ok := m.asked[key]; ok {
 		return a.Value
+	}
+	if m.skipped[key] {
+		return ""
 	}
 	a, err := m.opt.Prompter.Ask(ctx, q)
 	if err != nil || a.Skip || a.Value == "" {
 		m.asked[key] = Answer{}
+		if err == nil {
+			m.skipped[key] = true
+		}
 		return ""
 	}
 	m.asked[key] = a

@@ -164,6 +164,9 @@ func TestParentCancel(t *testing.T) {
 	if r, _ := res.Get("b"); r.Status != Skipped {
 		t.Errorf("b = %v", r.Status)
 	}
+	if err := res.FirstError(); !errors.Is(err, context.Canceled) {
+		t.Errorf("a stopped run must report an error wrapping context.Canceled, got %v", err)
+	}
 }
 
 func TestEventsAndRedaction(t *testing.T) {

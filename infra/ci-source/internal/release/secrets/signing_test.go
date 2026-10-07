@@ -185,3 +185,54 @@ func TestSigningSwappedPublicKeyRejected(t *testing.T) {
 		t.Fatalf("expected rejected candidate: %+v", st.Candidates)
 	}
 }
+
+func TestPromptSkipRememberedPerFileAndScopedToTheUnit(t *testing.T) {
+	e, _, _, _ := setupKeys(t)
+	// First run: passwords from the environment teach the pairing cache which
+	// file is which key.
+	e.env["LIBRESERV_RELEASE_MINISIG_PW"] = "pw-lib"
+	e.env["LSLUNA_RELEASE_MINISIG_PW"] = "pw-luna"
+	ctx := context.Background()
+	m := e.manager(func(o *Options) { o.NoHomeScan = true })
+	for _, id := range []ID{LibreServSigning, LunaSigning} {
+		if st := m.Status(ctx, id); st.State != Proven {
+			t.Fatalf("%s: %+v", id, st)
+		}
+	}
+	// Second run: no passwords at all; the user skips every question.
+	delete(e.env, "LIBRESERV_RELEASE_MINISIG_PW")
+	delete(e.env, "LSLUNA_RELEASE_MINISIG_PW")
+	e.pr = &fakePrompter{}
+	m = e.manager(func(o *Options) { o.NoHomeScan = true })
+	st := m.Status(ctx, LibreServSigning)
+	if st.State != Failed || !st.NeedsPassword {
+		t.Fatalf("want failed + needs password: %+v", st)
+	}
+	for _, q := range e.pr.asked {
+		if strings.HasSuffix(q.Key, "libreserv.key") {
+			t.Fatalf("a LibreServ check must not ask about the Luna key file: %+v", q)
+		}
+	}
+	if len(e.pr.asked) == 0 || !strings.Contains(e.pr.asked[0].Label, "LibreServ release signing key") ||
+		!strings.Contains(e.pr.asked[0].Label, ".minisign") {
+		t.Fatalf("the question must name the secret and the file: %+v", e.pr.asked)
+	}
+	n := len(e.pr.asked)
+	m.Refresh()
+	m.Status(ctx, LibreServSigning)
+	if len(e.pr.asked) != n {
+		t.Fatalf("a skipped file must not be asked again this run: %+v", e.pr.asked)
+	}
+	m.Status(ctx, LunaSigning) // asks about the Luna file once; the other files were skipped already
+	if len(e.pr.asked) != n+1 {
+		t.Fatalf("luna: want one more question, got %+v", e.pr.asked)
+	}
+	if !strings.Contains(st.Candidates[len(st.Candidates)-1].Reason, "No password entered yet") {
+		t.Fatalf("reason: %+v", st.Candidates)
+	}
+	// Proving again on purpose asks again.
+	m.Reprove(ctx, LibreServSigning, false)
+	if len(e.pr.asked) <= n+1 {
+		t.Fatalf("reprove should ask again: %d", len(e.pr.asked))
+	}
+}

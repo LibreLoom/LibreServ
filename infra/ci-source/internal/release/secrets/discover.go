@@ -3,6 +3,7 @@ package secrets
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"io"
 	"io/fs"
 	"os"
@@ -50,9 +51,16 @@ func readMinisignSecret(path string) ([]byte, bool) {
 // isMinisignSecretText accepts the file form (comment line naming a secret
 // key) and a bare 158-byte-decoded key line.
 func isMinisignSecretText(data []byte) bool {
-	line, _, _ := bytes.Cut(data, []byte("\n"))
+	line, rest, _ := bytes.Cut(data, []byte("\n"))
 	if bytes.HasPrefix(line, []byte("untrusted comment:")) {
-		return bytes.Contains(bytes.ToLower(line), []byte("secret key"))
+		l := bytes.ToLower(line)
+		// A .minisig signature made with a secret key says "signature from
+		// minisign secret key"; that is not a key.
+		if !bytes.Contains(l, []byte("secret key")) || bytes.Contains(l, []byte("signature from")) {
+			return false
+		}
+		second, _, _ := bytes.Cut(rest, []byte("\n"))
+		return looksLikeBareKey(second)
 	}
 	return looksLikeBareKey(data)
 }
@@ -61,7 +69,11 @@ func isMinisignSecretText(data []byte) bool {
 // 212 base64 characters for the 158-byte structure).
 func looksLikeBareKey(data []byte) bool {
 	s := strings.TrimSpace(string(data))
-	return len(s) == 212 && strings.HasPrefix(s, "RW") && !strings.ContainsAny(s, " \n")
+	if len(s) != 212 || !strings.HasPrefix(s, "RW") || strings.ContainsAny(s, " \n") {
+		return false
+	}
+	b, err := base64.StdEncoding.DecodeString(s)
+	return err == nil && len(b) == 158
 }
 
 func hasKeystoreExt(p string) bool { return keystoreExts[strings.ToLower(filepath.Ext(p))] }

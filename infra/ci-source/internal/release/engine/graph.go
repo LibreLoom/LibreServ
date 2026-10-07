@@ -137,11 +137,18 @@ func (r *Result) Get(id string) (JobResult, bool) {
 	return JobResult{}, false
 }
 
-// FirstError returns the first failed job's error, if any.
+// FirstError returns the first failed job's error, or context.Canceled when the
+// run was stopped before every job finished.
 func (r *Result) FirstError() error {
 	for _, j := range r.Jobs {
 		if j.Status == Failed {
 			return fmt.Errorf("%s: %w", j.ID, j.Err)
+		}
+	}
+	// Nothing failed, but a stop leaves jobs cancelled or never started.
+	for _, j := range r.Jobs {
+		if j.Status == Cancelled || j.Status == Skipped {
+			return fmt.Errorf("%s: %w", j.ID, context.Canceled)
 		}
 	}
 	return nil

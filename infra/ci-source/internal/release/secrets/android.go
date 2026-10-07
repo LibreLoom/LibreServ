@@ -167,8 +167,9 @@ func (m *Manager) resolveAndroid(ctx context.Context) *resolved {
 	if proven() == 0 && m.opt.Prompter != nil {
 		for _, c := range append([]*ksCand(nil), needPW...) {
 			pw := m.ask(ctx, Question{
-				Slot: SlotAndroidStorePW, Label: "Password for the Android keystore " + m.tilde(coalesce(c.Path, "from "+c.Where)), Secret: true,
-				Hint: "The store password you chose when running keytool -genkeypair.",
+				Slot: SlotAndroidStorePW, Key: coalesce(c.Path, c.Where),
+				Label: "Password for the Android release keystore (" + m.tilde(coalesce(c.Path, "from "+c.Where)) + ")", Secret: true,
+				Hint: "The password you chose when you created this keystore.",
 			})
 			if pw == "" {
 				continue
@@ -184,7 +185,7 @@ func (m *Manager) resolveAndroid(ctx context.Context) *resolved {
 	for _, c := range needPW {
 		if !tried[c.Hash] {
 			results = append(results, ksResult{c: Candidate{Where: c.Where, Ref: refOf(c.Hash), Outcome: Unusable,
-				Reason: fmt.Sprintf("none of the %d known passwords opens it", len(storePW))}})
+				Reason: noPasswordReason(len(storePW))}})
 		}
 	}
 
@@ -234,6 +235,7 @@ func (m *Manager) resolveAndroid(ctx context.Context) *resolved {
 	case len(results) > 0:
 		s.State = Failed
 		s.Summary = "Found keystores, but none opened with a known password, alias and certificate."
+		s.NeedsPassword = len(needPW) > 0 && len(results) == len(needPW)
 	default:
 		s.State = Missing
 		s.Summary = "No Android keystore found. Add the folder holding the .jks file, or paste it."
@@ -353,4 +355,12 @@ func tryP12(data []byte, storePW string, aliases []string) (*x509.Certificate, s
 	}
 	_ = key
 	return cert, aliases[0], storePW, nil
+}
+
+// noPasswordReason explains why a protected file stayed closed.
+func noPasswordReason(tried int) string {
+	if tried == 0 {
+		return "No password entered yet"
+	}
+	return fmt.Sprintf("none of the %d known passwords opens it", tried)
 }

@@ -68,7 +68,14 @@ type StoreOptions struct {
 type StoreManager struct {
 	o StoreOptions
 
+	// mu guards the fields below and is only ever held for an instant:
+	// never across a keyring call, a key derivation or a switch, so a
+	// screen asking for the state is not stuck behind slow work. opMu
+	// serializes the slow operations (unlock, switch, passphrase change),
+	// sysMu the keyring probe.
 	mu          sync.Mutex
+	opMu        sync.Mutex
+	sysMu       sync.Mutex
 	defaultMode StoreMode // decided once per process when nothing is saved
 	system      Store
 	sysErr      error
@@ -140,34 +147,53 @@ func (s *StoreManager) Mode() StoreMode {
 		return m
 	}
 	s.mu.Lock()
+	d := s.defaultMode
+	s.mu.Unlock()
+	if d != "" {
+		return d
+	}
+	d = ModeVault
+	if s.openSystem() == nil {
+		d = ModeSystem
+	}
+	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.defaultMode == "" {
-		if s.openSystemLocked() == nil {
-			s.defaultMode = ModeSystem
-		} else {
-			s.defaultMode = ModeVault
-		}
+		s.defaultMode = d
 	}
 	return s.defaultMode
 }
 
 // SystemAvailable reports whether a system keyring answers, and why not.
 func (s *StoreManager) SystemAvailable() (bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	err := s.openSystemLocked()
+	err := s.openSystem()
 	return err == nil, err
 }
 
-func (s *StoreManager) openSystemLocked() error {
+// systemState returns the probe result so far, and whether it was made.
+func (s *StoreManager) systemState() (error, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.system != nil {
-		return nil
+		return nil, true
 	}
-	if s.sysTried {
-		return s.sysErr
+	return s.sysErr, s.sysTried
+}
+
+// openSystem probes the system keyring once (it can take up to Timeout).
+func (s *StoreManager) openSystem() error {
+	if err, done := s.systemState(); done {
+		return err
 	}
-	s.sysTried = true
+	s.sysMu.Lock()
+	defer s.sysMu.Unlock()
+	if err, done := s.systemState(); done {
+		return err
+	}
 	st, err := boundedCall(s.o.Timeout, func() (Store, error) { return s.o.System() })
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sysTried = true
 	if err != nil {
 		s.sysErr = fmt.Errorf("%w: %v", ErrSystemUnavailable, err)
 		return s.sysErr
@@ -205,6 +231,18 @@ func (s *StoreManager) Unlocked() bool {
 	return s.system != nil
 }
 
+func (s *StoreManager) vaultStore() Store {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.vault
+}
+
+func (s *StoreManager) setVault(st Store, pass string) {
+	s.mu.Lock()
+	s.vault, s.pass = st, pass
+	s.mu.Unlock()
+}
+
 // NeedsUnlock is true when the vault is the active store and still locked.
 func (s *StoreManager) NeedsUnlock() bool {
 	return s.Mode() == ModeVault && !s.Unlocked()
@@ -221,13 +259,14 @@ func (s *StoreManager) newVaultStore(dir, pass string) (Store, error) {
 // Unlock opens the vault with its passphrase. When there is no vault yet, it
 // is created with this passphrase.
 func (s *StoreManager) Unlock(pass string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.unlockLocked(pass)
+	s.opMu.Lock()
+	defer s.opMu.Unlock()
+	return s.unlockOp(pass)
 }
 
-func (s *StoreManager) unlockLocked(pass string) error {
-	if s.vault != nil {
+// unlockOp does the unlock; the caller holds opMu.
+func (s *StoreManager) unlockOp(pass string) error {
+	if s.vaultStore() != nil {
 		return nil
 	}
 	if pass == "" {
@@ -246,7 +285,7 @@ func (s *StoreManager) unlockLocked(pass string) error {
 	if err := st.Set(vaultCheckSlot, vaultCheckValue); err != nil {
 		return err
 	}
-	s.vault, s.pass = st, pass
+	s.setVault(st, pass)
 	if s.o.OnSecret != nil {
 		s.o.OnSecret(pass)
 	}
@@ -281,35 +320,35 @@ func verifyVault(st Store) error {
 
 // Lock forgets the passphrase.
 func (s *StoreManager) Lock() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.vault, s.pass = nil, ""
+	s.setVault(nil, "")
 }
 
 // active returns the store values are read from and written to.
 func (s *StoreManager) active() (Store, error) {
 	mode := s.Mode()
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	if mode == ModeSystem {
-		if err := s.openSystemLocked(); err != nil {
+		if err := s.openSystem(); err != nil {
 			return nil, err
 		}
+		s.mu.Lock()
+		defer s.mu.Unlock()
 		return s.system, nil
 	}
-	if s.vault == nil {
-		s.askPassphraseLocked()
+	if s.vaultStore() == nil {
+		s.askPassphrase()
 	}
-	if s.vault == nil {
-		return nil, ErrLocked
+	if v := s.vaultStore(); v != nil {
+		return v, nil
 	}
-	return s.vault, nil
+	return nil, ErrLocked
 }
 
-// askPassphraseLocked is the CLI path: ask once per process (twice to
+// askPassphrase is the CLI path: ask once per process (twice to
 // confirm a new vault), and again only after a wrong passphrase.
-func (s *StoreManager) askPassphraseLocked() {
-	if s.o.Passphrase == nil || s.promptDone {
+func (s *StoreManager) askPassphrase() {
+	s.opMu.Lock()
+	defer s.opMu.Unlock()
+	if s.o.Passphrase == nil || s.promptDone || s.vaultStore() != nil {
 		return
 	}
 	s.promptDone = true
@@ -329,7 +368,7 @@ func (s *StoreManager) askPassphraseLocked() {
 				return
 			}
 		}
-		if err := s.unlockLocked(p); err == nil || !errors.Is(err, ErrWrongPassphrase) {
+		if err := s.unlockOp(p); err == nil || !errors.Is(err, ErrWrongPassphrase) {
 			return
 		}
 	}
@@ -388,16 +427,16 @@ func (s *StoreManager) Keys() ([]string, error) {
 // Backend names where values really live: "secret-service", "kwallet",
 // "file" (the vault), or "none".
 func (s *StoreManager) Backend() string {
-	mode := s.Mode()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if mode == ModeVault {
+	if s.Mode() == ModeVault {
 		return "file"
 	}
-	if s.openSystemLocked() != nil {
+	if s.openSystem() != nil {
 		return "none"
 	}
-	return s.system.Backend()
+	s.mu.Lock()
+	sys := s.system
+	s.mu.Unlock()
+	return sys.Backend()
 }
 
 // ---- switching and passphrase change
@@ -430,19 +469,19 @@ func (s *StoreManager) SwitchTo(to StoreMode, vaultPass string) (int, error) {
 		return 0, fmt.Errorf("unknown store %q (use system or vault)", to)
 	}
 	from := s.Mode()
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.opMu.Lock()
+	defer s.opMu.Unlock()
 	if to == ModeSystem {
-		if err := s.openSystemLocked(); err != nil {
+		if err := s.openSystem(); err != nil {
 			return 0, err
 		}
 	}
 	if from == ModeVault || to == ModeVault {
-		if s.vault == nil {
+		if s.vaultStore() == nil {
 			if vaultPass == "" {
 				return 0, ErrLocked
 			}
-			if err := s.unlockLocked(vaultPass); err != nil {
+			if err := s.unlockOp(vaultPass); err != nil {
 				return 0, err
 			}
 		}
@@ -450,14 +489,17 @@ func (s *StoreManager) SwitchTo(to StoreMode, vaultPass string) (int, error) {
 	if from == to {
 		return 0, s.saveChoiceLocked(to)
 	}
-	src, dst := s.system, s.vault
+	s.mu.Lock()
+	sysSt, vaultSt := s.system, s.vault
+	s.mu.Unlock()
+	src, dst := sysSt, vaultSt
 	if from == ModeVault {
-		src, dst = s.vault, s.system
+		src, dst = vaultSt, sysSt
 	}
 	if src == nil {
 		// The old store is the system keyring and it is not reachable:
 		// there is nothing to read, so only the choice changes.
-		if from == ModeSystem && s.openSystemLocked() != nil {
+		if from == ModeSystem && s.openSystem() != nil {
 			return 0, s.saveChoiceLocked(to)
 		}
 	}
@@ -489,10 +531,12 @@ func (s *StoreManager) SwitchTo(to StoreMode, vaultPass string) (int, error) {
 		}
 	}
 	if from == ModeVault {
-		_ = s.vault.Remove(vaultCheckSlot)
-		s.vault, s.pass = nil, ""
+		_ = vaultSt.Remove(vaultCheckSlot)
+		s.setVault(nil, "")
 	}
+	s.mu.Lock()
 	s.defaultMode = ""
+	s.mu.Unlock()
 	return moved, s.saveChoiceLocked(to)
 }
 
@@ -509,12 +553,15 @@ func (s *StoreManager) ChangePassphrase(oldPass, newPass string) error {
 	if newPass == "" {
 		return errors.New("the new passphrase is empty")
 	}
+	s.opMu.Lock()
+	defer s.opMu.Unlock()
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.vault == nil {
+	vault, curPass := s.vault, s.pass
+	s.mu.Unlock()
+	if vault == nil {
 		return ErrLocked
 	}
-	if subtle.ConstantTimeCompare([]byte(oldPass), []byte(s.pass)) != 1 {
+	if subtle.ConstantTimeCompare([]byte(oldPass), []byte(curPass)) != 1 {
 		return ErrWrongPassphrase
 	}
 	tmp := s.o.VaultDir + ".new"
@@ -527,8 +574,8 @@ func (s *StoreManager) ChangePassphrase(oldPass, newPass string) error {
 	}
 	cleanup := func() { _ = os.RemoveAll(tmp) }
 	vals := map[string]string{}
-	for _, slot := range allKnownSlots(s.vault) {
-		v, err := s.vault.Get(slot)
+	for _, slot := range allKnownSlots(vault) {
+		v, err := vault.Get(slot)
 		if errors.Is(err, ErrNotFound) {
 			continue
 		}
@@ -573,7 +620,7 @@ func (s *StoreManager) ChangePassphrase(oldPass, newPass string) error {
 	if err != nil {
 		return err
 	}
-	s.vault, s.pass = live, newPass
+	s.setVault(live, newPass)
 	if s.o.OnSecret != nil {
 		s.o.OnSecret(newPass)
 	}

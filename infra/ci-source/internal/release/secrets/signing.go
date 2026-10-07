@@ -86,13 +86,27 @@ type signState struct {
 	done    map[string]bool            // file hash -> examined
 	failed  []*keyFile                 // encrypted, no password worked
 	cache   cacheFile
+	want    ID // the one key a caller needs; "" means both
 }
 
 func (st *signState) allProven() bool { return len(st.signers) == len(products) }
 
-func (m *Manager) resolveSigning(ctx context.Context) {
+// satisfied is true when every key this resolve was asked for is proven.
+func (st *signState) satisfied() bool {
+	if st.want == "" {
+		return st.allProven()
+	}
+	_, ok := st.signers[st.want]
+	return ok
+}
+
+// resolveSigning proves the signing keys. want names the one a caller needs:
+// only that key's files are asked about and only its result is remembered, so
+// a Sol cut never stops to ask for the Luna key's password. "" proves both.
+func (m *Manager) resolveSigning(ctx context.Context, want ID) {
 	st := &signState{
-		m: m, pubs: map[ID]minisign.PublicKey{}, pubErr: map[ID]error{},
+		want: want,
+		m:    m, pubs: map[ID]minisign.PublicKey{}, pubErr: map[ID]error{},
 		cands: map[ID][]Candidate{}, signers: map[ID]*Signer{},
 		tried: map[string]map[string]bool{}, done: map[string]bool{},
 		cache: m.loadCache(),
@@ -112,7 +126,7 @@ func (m *Manager) resolveSigning(ctx context.Context) {
 	files = append(files, m.keyBlobs(ctx)...)
 	st.examineAll(ctx, mergeKeyFiles(files))
 
-	if !m.opt.NoHomeScan && (!st.allProven() || m.opt.ForceScan || m.forceScanOnce) {
+	if !m.opt.NoHomeScan && (!st.satisfied() || m.opt.ForceScan || m.forceScanOnce) {
 		before := len(disc.keys)
 		m.scanHome(ctx, disc)
 		if len(disc.keys) > before {
@@ -122,7 +136,13 @@ func (m *Manager) resolveSigning(ctx context.Context) {
 	st.promptLoop(ctx)
 
 	for _, p := range products {
-		m.memo[p.ID] = st.finish(p)
+		r := st.finish(p)
+		// Asking was limited to the wanted key: another key that is not
+		// proven is not settled, so a later lookup for it asks properly.
+		if want != "" && p.ID != want && r.status.State != Proven {
+			continue
+		}
+		m.memo[p.ID] = r
 	}
 }
 
@@ -306,9 +326,9 @@ func (st *signState) examine(ctx context.Context, f *keyFile) {
 		st.shared = append(st.shared, Candidate{Where: st.where(f), Ref: refOf(f.Hash), Outcome: Rejected, Reason: "belongs to a different key, not a release key (remembered from an earlier run)"})
 		return
 	}
-	if st.allProven() {
+	if st.satisfied() {
 		st.done[f.Hash] = true
-		st.shared = append(st.shared, Candidate{Where: st.where(f), Ref: refOf(f.Hash), Outcome: Unusable, Reason: "not tried: both release keys were already proven"})
+		st.shared = append(st.shared, Candidate{Where: st.where(f), Ref: refOf(f.Hash), Outcome: Unusable, Reason: "not tried: the release key was already proven"})
 		return
 	}
 	pws := append([]pwCand(nil), st.pws...)
@@ -444,13 +464,23 @@ func (st *signState) promptLoop(ctx context.Context) {
 		return
 	}
 	for _, f := range append([]*keyFile(nil), st.failed...) {
-		if st.allProven() || ctx.Err() != nil {
+		if st.satisfied() || ctx.Err() != nil {
 			return
 		}
-		label := "Password for " + st.where(f)
+		owner := st.knownOwner(f)
+		if owner == "other" || (st.want != "" && owner != "" && owner != string(st.want)) {
+			continue // remembered as another key: not needed here
+		}
+		label := "Password for the signing key in " + st.where(f)
+		hint := "The password you chose when you created the key in this file."
+		if p, ok := productOf(ID(owner)); ok {
+			label = "Password for the " + p.Label + " (" + st.where(f) + ")"
+		} else if p, ok := productOf(st.want); ok {
+			hint = "Needed to check whether this is the " + p.Label + ". The password you chose when you created it."
+		}
 		pw := m.ask(ctx, Question{
-			Slot: SlotMinisignPassword, Label: label, Secret: true,
-			Hint: "The password you chose when you created this signing key.",
+			Slot: SlotMinisignPassword, Key: coalesce(f.Path, st.where(f)),
+			Label: label, Secret: true, Hint: hint,
 		})
 		if pw == "" {
 			continue
@@ -471,7 +501,7 @@ func (st *signState) finish(p product) *resolved {
 	for _, f := range st.failed {
 		s.Candidates = append(s.Candidates, Candidate{
 			Where: st.where(f), Ref: refOf(f.Hash), Outcome: Unusable,
-			Reason: fmt.Sprintf("none of the %d known passwords opens it", len(st.pws)),
+			Reason: noPasswordReason(len(st.pws)),
 		})
 	}
 	if err := st.pubErr[p.ID]; err != nil {
@@ -486,10 +516,29 @@ func (st *signState) finish(p product) *resolved {
 	}
 	if len(st.failed) > 0 {
 		s.State = Failed
+		s.NeedsPassword = true
 		s.Summary = "Found signing key files, but no known password opens them. Enter the password."
 		return &resolved{status: s}
 	}
 	s.State = Missing
 	s.Summary = fmt.Sprintf("No file with key ID %s found. Add the folder holding it, or paste the key.", keyIDString(st.pubs[p.ID].ID()))
 	return &resolved{status: s}
+}
+
+// knownOwner says which release key a file is, from the pairing cache:
+// a product ID, "other" (not a release key) or "" (not known).
+func (st *signState) knownOwner(f *keyFile) string {
+	e, ok := lookupCache(st.cache, f.Path, f.Hash)
+	if !ok || e.KeyID == "" {
+		return ""
+	}
+	if e.KeyID == "other" {
+		return "other"
+	}
+	for _, p := range products {
+		if pk, ok := st.pubs[p.ID]; ok && keyIDString(pk.ID()) == e.KeyID {
+			return string(p.ID)
+		}
+	}
+	return ""
 }
