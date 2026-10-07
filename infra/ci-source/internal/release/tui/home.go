@@ -229,7 +229,7 @@ func orDash(s string) string {
 }
 
 func (h *home) secretsLine(w int) string {
-	label := pad("   Secrets", 12)
+	label := pad("   Secrets", 13)
 	if !h.secretsOK {
 		return label + dimStyle.Render("checking…")
 	}
@@ -251,7 +251,7 @@ func (h *home) secretsLine(w int) string {
 }
 
 func (h *home) podmanLine(w int) string {
-	label := pad("   Podman", 12)
+	label := pad("   Podman", 13)
 	r := h.health
 	if r == nil {
 		return label + dimStyle.Render("checking…")
@@ -267,7 +267,7 @@ func (h *home) podmanLine(w int) string {
 }
 
 func (h *home) storeLine(w int) string {
-	label := pad("   Stored in", 12)
+	label := pad("   Stored in", 13)
 	st := h.sh.be.Store()
 	if st == nil {
 		return label + dimStyle.Render("values cannot be remembered here")

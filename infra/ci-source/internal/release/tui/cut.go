@@ -612,11 +612,11 @@ func (s *cutScreen) checkLines(w, cur int) []string {
 	var lines []string
 	for i, c := range s.rep.Checks {
 		g := map[string]string{app.CheckOK: okStyle.Render("✓"), app.CheckWarn: warnStyle.Render("!"), app.CheckFail: failStyle.Render("✗")}[c.State]
-		name := pad(c.Name, 24)
+		name := pad(c.Name, 28)
 		if i == cur {
 			name = selStyle.Render(name)
 		}
-		lines = append(lines, marker(i == cur)+g+" "+name+fit(s.sh.redact(c.Detail), w-30))
+		lines = append(lines, marker(i == cur)+g+" "+name+fit(s.sh.redact(c.Detail), w-34))
 	}
 	return lines
 }
@@ -665,7 +665,10 @@ func (s *cutScreen) stepLines(w int) []string {
 
 func (s *cutScreen) runView(f frame, w, h int) frame {
 	f.help = "↑↓ job · enter full log · esc/ctrl-c stop (a stopped cut can be resumed)"
-	f.info = s.crumbs() + dimStyle.Render("  "+clock(s.sh.now().Sub(s.started)))
+	f.info = s.crumbs()
+	if !s.started.IsZero() {
+		f.info += dimStyle.Render("  " + clock(s.sh.now().Sub(s.started)))
+	}
 	if s.stopping {
 		f.info = "stopping…"
 	}

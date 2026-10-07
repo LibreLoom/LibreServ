@@ -253,6 +253,9 @@ func (m *Model) View() string {
 		for i := range panel {
 			panel[i] = "  " + panel[i]
 		}
+		for i := 1; i < len(panel); i++ {
+			panel[i] = "  " + panel[i]
+		}
 		panel[0] = "  " + warnStyle.Render("?") + " " + panelStyle.Render(strings.TrimSpace(panel[0]))
 		help = "y stop · n keep going"
 	}
