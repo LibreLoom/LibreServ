@@ -1,0 +1,5 @@
+# Rootless flatpak-builder needs exactly these three (verified on podman 5.8).
+# No --privileged.
+--security-opt seccomp=unconfined
+--security-opt label=disable
+--security-opt unmask=ALL

@@ -1,0 +1,7 @@
+# Rust + musl targets for lunad and the Connect servers (static binaries).
+FROM docker.io/library/rust@sha256:114c7a4425406451c2866b6aafe69fe29b1b298832db1277d411ac73c82d04d6
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
+      musl-tools pkg-config git xz-utils zip gcc-aarch64-linux-gnu \
+    && rm -rf /var/lib/apt/lists/*
+RUN rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl
+WORKDIR /src

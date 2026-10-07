@@ -1,0 +1,10 @@
+# Rust + GTK 4 / libadwaita headers for Luna Desktop builds and tests.
+FROM docker.io/library/ubuntu@sha256:534baea6a22c03a63003dbc8dbe78fe34bc0d7e595d9a9dc9834884ff530eb55
+ENV DEBIAN_FRONTEND=noninteractive RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo PATH=/usr/local/cargo/bin:$PATH
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
+      build-essential pkg-config curl ca-certificates git xz-utils \
+      libgtk-4-dev libadwaita-1-dev xvfb \
+    && rm -rf /var/lib/apt/lists/*
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path --profile minimal --default-toolchain 1.96.0 --component rustfmt \
+    && chmod -R a+rwX /usr/local/rustup /usr/local/cargo
+WORKDIR /src

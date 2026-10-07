@@ -1,0 +1,12 @@
+# Android SDK + JDK 17 for the Luna Android APK (Gradle wrapper does the rest).
+FROM docker.io/library/eclipse-temurin@sha256:43f4431cc895d37ceb115e2e1f160545ec45caee9c1cb4246fc6bb879d58aeda
+ENV ANDROID_HOME=/opt/android-sdk ANDROID_SDK_ROOT=/opt/android-sdk
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends curl unzip git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+RUN mkdir -p $ANDROID_HOME/cmdline-tools && cd /tmp \
+    && curl -fsSLo tools.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip \
+    && echo "2d2d50857e4eb553af5a6dc3ad507a17adf43d115264b1afc116f95c92e5e258  tools.zip" | sha256sum -c - \
+    && unzip -q tools.zip -d $ANDROID_HOME/cmdline-tools && mv $ANDROID_HOME/cmdline-tools/cmdline-tools $ANDROID_HOME/cmdline-tools/latest && rm tools.zip
+ENV PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$PATH
+RUN yes | sdkmanager --licenses >/dev/null && sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" >/dev/null
+WORKDIR /src

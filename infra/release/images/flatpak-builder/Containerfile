@@ -1,0 +1,7 @@
+# flatpak-builder for the Luna Desktop Flatpak bundle.
+# Jobs in this image need nested bubblewrap: see run-options.
+FROM registry.fedoraproject.org/fedora@sha256:e78cd1a688cd079c23864f289a89a49a3f4ad66d817864e325e1d058310ee95c
+RUN dnf -y install flatpak flatpak-builder bubblewrap git xz tar elfutils ca-certificates \
+    && dnf clean all
+RUN flatpak remote-add --system --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+WORKDIR /src

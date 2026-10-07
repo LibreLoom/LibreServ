@@ -1,0 +1,5 @@
+# Builds the Luna OS rootfs and slot image (mkfs.ext4 -d into a plain file, no root).
+FROM docker.io/library/alpine@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
+RUN apk add --no-cache bash coreutils e2fsprogs e2fsprogs-extra squashfs-tools xz tar curl ca-certificates \
+      git rsync findutils sfdisk dosfstools mtools
+WORKDIR /src

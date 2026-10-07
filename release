@@ -1,0 +1,56 @@
+#!/bin/sh
+# LibreServ release launcher. Podman is the only host dependency: the tool is
+# built in a pinned Go container (no host Go) and rebuilt whenever its Go
+# sources change, then runs on the host.
+set -eu
+
+SELF="$(cd "$(dirname "$0")" && pwd)"
+SOURCE_DIR="$SELF/infra/ci-source"
+BIN_DIR="$SOURCE_DIR/bin"
+
+# golang:1.26, pinned by digest. Keep in step with infra/release/images/go.
+GO_IMAGE="docker.io/library/golang@sha256:eb36c1664dd974cde625f736e02c204383deebe03977365caaec5bf49f794348"
+
+if [ "$(uname -s)" != "Linux" ]; then
+  echo "release: Linux only (podman rootless)." >&2
+  exit 1
+fi
+if ! command -v podman >/dev/null 2>&1; then
+  echo "release: podman is not installed. It is the only thing the release tool needs." >&2
+  exit 1
+fi
+if [ "$(id -u)" = "0" ]; then
+  echo "release: do not run as root; releases are built with rootless podman." >&2
+  exit 1
+fi
+
+case "$(uname -m)" in
+  x86_64|amd64)  GOARCH=amd64 ;;
+  aarch64|arm64) GOARCH=arm64 ;;
+  *) echo "release: unsupported CPU $(uname -m)" >&2; exit 1 ;;
+esac
+
+BIN="$BIN_DIR/release-linux-$GOARCH"
+
+needs_build() {
+  [ ! -f "$BIN" ] && return 0
+  [ -n "$(find "$SOURCE_DIR" \( -name bin -o -name node_modules \) -prune -o \
+      \( -name '*.go' -o -name go.mod -o -name go.sum \) -newer "$BIN" -print -quit)" ] && return 0
+  return 1
+}
+
+if needs_build; then
+  echo "release: building the release tool in a Go container..." >&2
+  mkdir -p "$BIN_DIR"
+  podman run --rm \
+    --security-opt label=disable \
+    -v "$SOURCE_DIR:/src" -w /src \
+    -v libreserv-release-gomod:/go/pkg/mod \
+    -v libreserv-release-gobuild:/root/.cache/go-build \
+    -e CGO_ENABLED=0 -e GOOS=linux -e GOARCH="$GOARCH" -e GOFLAGS=-trimpath \
+    "$GO_IMAGE" go build -o "bin/release-linux-$GOARCH.new" ./cmd/release
+  mv "$BIN_DIR/release-linux-$GOARCH.new" "$BIN"
+  echo "release: built." >&2
+fi
+
+exec "$BIN" "$@"
