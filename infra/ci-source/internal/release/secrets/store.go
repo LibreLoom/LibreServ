@@ -85,7 +85,10 @@ type KeyringConfig struct {
 	Backends []keyring.BackendType
 }
 
-type keyringStore struct{ ring keyring.Keyring }
+type keyringStore struct {
+	ring    keyring.Keyring
+	backend string
+}
 
 // NewKeyringStore opens the OS keyring (Secret Service / KWallet), falling
 // back to a passphrase-encrypted file when none is reachable.
@@ -103,7 +106,6 @@ func NewKeyringStore(c KeyringConfig) (Store, error) {
 	}
 	cfg := keyring.Config{
 		ServiceName:             c.Service,
-		AllowedBackends:         backends,
 		FileDir:                 c.FileDir,
 		KWalletAppID:            c.Service,
 		KWalletFolder:           c.Service,
@@ -116,11 +118,17 @@ func NewKeyringStore(c KeyringConfig) (Store, error) {
 			return "", errors.New("no passphrase available for the encrypted keyring file")
 		}
 	}
-	ring, err := keyring.Open(cfg)
-	if err != nil {
-		return nil, fmt.Errorf("open keyring: %w", err)
+	// One backend at a time, so the store knows which one it really got.
+	var lastErr error
+	for _, b := range backends {
+		cfg.AllowedBackends = []keyring.BackendType{b}
+		ring, err := keyring.Open(cfg)
+		if err == nil {
+			return &keyringStore{ring: ring, backend: string(b)}, nil
+		}
+		lastErr = err
 	}
-	return &keyringStore{ring}, nil
+	return nil, fmt.Errorf("open keyring: %w", lastErr)
 }
 
 func (s *keyringStore) Get(slot string) (string, error) {
@@ -148,4 +156,4 @@ func (s *keyringStore) Remove(slot string) error {
 
 func (s *keyringStore) Keys() ([]string, error) { return s.ring.Keys() }
 
-func (s *keyringStore) Backend() string { return "keyring" }
+func (s *keyringStore) Backend() string { return s.backend }

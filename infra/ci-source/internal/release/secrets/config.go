@@ -21,26 +21,39 @@ type Config struct {
 	AndroidAlias string `json:"android_alias,omitempty"`
 	// Proton configures the optional Proton Pass source.
 	Proton ProtonConfig `json:"proton"`
+	// Store is the user's explicit choice of where remembered values live:
+	// "system" or "vault" (see StoreManager). Empty: the default.
+	Store string `json:"store,omitempty"`
 }
 
 func (m *Manager) configPath() string { return filepath.Join(m.opt.ConfigDir, "secrets.json") }
 
-func (m *Manager) loadConfig() Config {
+func (m *Manager) loadConfig() Config { return loadConfigIn(m.opt.ConfigDir) }
+
+func (m *Manager) saveConfig(c Config) error { return saveConfigIn(m.opt.ConfigDir, c) }
+
+func loadConfigIn(dir string) Config {
 	var c Config
-	b, err := os.ReadFile(m.configPath())
+	b, err := os.ReadFile(filepath.Join(dir, "secrets.json"))
 	if err == nil {
 		_ = json.Unmarshal(b, &c)
 	}
 	return c
 }
 
-func (m *Manager) saveConfig(c Config) error {
+func saveConfigIn(dir string, c Config) error {
 	sort.Strings(c.Paths)
 	b, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return err
 	}
-	return writeFileAtomic(m.configPath(), append(b, '\n'), 0o600)
+	return writeFileAtomic(filepath.Join(dir, "secrets.json"), append(b, '\n'), 0o600)
+}
+
+// DefaultConfigDir is ~/.config/libreserv-release.
+func DefaultConfigDir() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".config", "libreserv-release")
 }
 
 // CacheEntry is a non-secret fact about a key file we already worked out.

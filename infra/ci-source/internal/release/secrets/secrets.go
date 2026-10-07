@@ -135,6 +135,7 @@ type Manager struct {
 	memo          map[ID]*resolved
 	asked         map[string]Answer // prompts already answered this session
 	envMemo       map[string][]found
+	session       map[string][]string // values typed this session and not remembered
 	protonSv      *Proton
 	forceScanOnce bool
 }
@@ -177,7 +178,7 @@ func New(o Options) *Manager {
 	if o.ScanDepth == 0 {
 		o.ScanDepth = 5
 	}
-	m := &Manager{opt: o, memo: map[ID]*resolved{}, asked: map[string]Answer{}, envMemo: map[string][]found{}}
+	m := &Manager{opt: o, memo: map[ID]*resolved{}, asked: map[string]Answer{}, envMemo: map[string][]found{}, session: map[string][]string{}}
 	m.protonSv = NewProton(m.loadConfig().Proton, o.Run)
 	return m
 }
@@ -455,8 +456,12 @@ func (m *Manager) ask(ctx context.Context, q Question) string {
 	}
 	m.asked[key] = a
 	m.redact(a.Value)
-	if a.Remember && m.opt.Store != nil && validSlot(q.Slot) {
-		_ = m.opt.Store.Set(q.Slot, a.Value)
+	if validSlot(q.Slot) {
+		if a.Remember && m.opt.Store != nil && m.opt.Store.Set(q.Slot, a.Value) == nil {
+			// remembered
+		} else {
+			m.session[q.Slot] = append(m.session[q.Slot], a.Value)
+		}
 	}
 	return a.Value
 }
