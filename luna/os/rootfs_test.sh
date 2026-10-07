@@ -3,7 +3,7 @@
 set -eu
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-ASSEMBLER="$ROOT/os/build-rootfs.sh"
+ASSEMBLER="$ROOT/os/build/rootfs.sh"
 FRAGS="$ROOT/os/lib/build-rootfs.d"
 CF_BAKE="$ROOT/os/lib/cloudflared-bake.sh"
 # Assemble frags into a temp script so static asserts scan the real body.
@@ -93,7 +93,7 @@ assert_file_has "$BUILD" 'luna-run' \
 assert_file_has "$BUILD" 'util-linux' \
 	"rootfs must include util-linux (provides fstrim)"
 assert_file_has "$ASSEMBLER" 'build-rootfs.d' \
-	"build-rootfs.sh must assemble lib/build-rootfs.d frags"
+	"build/rootfs.sh must assemble lib/build-rootfs.d frags"
 assert_file_has "$CF_BAKE" 'CLOUDFLARED_VERSION' \
 	"rootfs must ship pinned cloudflared-bake helper"
 assert_file_has "$CF_BAKE" 'keeping baked cloudflared' \
@@ -134,6 +134,19 @@ assert_file_lacks "$BUILD" 'for u in root luna pwreset' \
 	"build must not empty passwords for root/luna/pwreset in one loop"
 assert_file_lacks "$BUILD" 'openssh|dropbear' \
 	"rootfs must not package SSH (console accounts are local only)"
+
+# Rootless build: no podman, sudo, or privileged container inside the rootfs
+# frags (they run inside a container), and no tarball output.
+assert_file_lacks "$BUILD" '^[^#]*(podman|sudo|--privileged)' \
+	"rootfs frags run inside the build container and must not call podman or sudo"
+assert_file_lacks "$BUILD" 'luna-rootfs-.*tar' \
+	"the rootfs tarball is gone: the slot image is the only OS payload"
+assert_file_lacks "$ROOT/os/build/image.sh" '^[^#]*(podman|sudo|--privileged)' \
+	"image.sh runs inside the build container and must not call podman or sudo"
+assert_file_has "$ROOT/os/build/image.sh" 'mkfs.ext4 .* -d ' \
+	"image.sh must write the filesystem with mkfs.ext4 -d (no loop device, no mount)"
+assert_file_has "$ROOT/os/build/image.sh" 'xz -6' \
+	"image.sh must compress the slot image with xz"
 
 FLASH="$ROOT/os/lib/flash-disk.sh"
 assert_file_has "$FLASH" 'rootflags=ro,noatime' \

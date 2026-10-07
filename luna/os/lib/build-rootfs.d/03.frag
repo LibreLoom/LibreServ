@@ -82,19 +82,18 @@ ISSUE
 # Console accounts (HDMI/USB keyboard only; no SSH).
 # `root` keeps an empty password for local tty1 login.
 # `luna` stays locked (!). Rootfs is remounted read-only later.
-podman run --rm --privileged -v "$ROOTFS:/rootfs:z" "$ALPINE_IMAGE" sh -euc '
-    if grep -q "^root:" /rootfs/etc/passwd; then
-        sed -i -E "s|^root:([^:]*):([^:]*):([^:]*):([^:]*):([^:]*):[^:]*$|root:\1:\2:\3:\4:\5:/bin/ash|" /rootfs/etc/passwd
-    fi
-    if ! grep -q "^luna:" /rootfs/etc/passwd; then
-        echo "luna:x:1000:1000:Luna:/home/luna:/sbin/nologin" >> /rootfs/etc/passwd
-        echo "luna:x:1000:" >> /rootfs/etc/group
-        mkdir -p /rootfs/home/luna
-        chown 1000:1000 /rootfs/home/luna
-    else
-        sed -i -E "s|^luna:([^:]*):([^:]*):([^:]*):([^:]*):([^:]*):[^:]*$|luna:\1:\2:\3:\4:\5:/sbin/nologin|" /rootfs/etc/passwd
-    fi
-    # Empty hash for root (blank password login); lock luna.
-    if grep -q "^root:" /rootfs/etc/shadow; then
-        sed -i -E "s|^root:[^:]*:|root::|" /rootfs/etc/shadow
-    else
+if grep -q "^root:" "$ROOTFS"/etc/passwd; then
+    sed -i -E "s|^root:([^:]*):([^:]*):([^:]*):([^:]*):([^:]*):[^:]*$|root:\1:\2:\3:\4:\5:/bin/ash|" "$ROOTFS"/etc/passwd
+fi
+if ! grep -q "^luna:" "$ROOTFS"/etc/passwd; then
+    echo "luna:x:1000:1000:Luna:/home/luna:/sbin/nologin" >> "$ROOTFS"/etc/passwd
+    echo "luna:x:1000:" >> "$ROOTFS"/etc/group
+    mkdir -p "$ROOTFS"/home/luna
+    chown 1000:1000 "$ROOTFS"/home/luna
+else
+    sed -i -E "s|^luna:([^:]*):([^:]*):([^:]*):([^:]*):([^:]*):[^:]*$|luna:\1:\2:\3:\4:\5:/sbin/nologin|" "$ROOTFS"/etc/passwd
+fi
+# Empty hash for root (blank password login); lock luna.
+if grep -q "^root:" "$ROOTFS"/etc/shadow; then
+    sed -i -E "s|^root:[^:]*:|root::|" "$ROOTFS"/etc/shadow
+else

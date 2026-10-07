@@ -1,90 +1,77 @@
 #!/bin/sh
-# Build the Luna OS Alpine rootfs. Requires rootless Podman (pull of alpine).
-# Output: dist/luna-rootfs.tar.gz
+# Luna OS rootfs, assembled INSIDE the build container (build/Containerfile.os).
+# Never calls podman. Inputs: lunad + luna-console (LUNAD_BIN, LUNA_CONSOLE_BIN),
+# ROOT = the luna/ directory (only os/ is read). Output: the tree at ROOTFS,
+# a podman volume mounted at /rootfs, so file ownership stays correct in the
+# user namespace and nothing ever needs root on the host.
 set -eu
 
-ROOT="${ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
-cd "$ROOT"
-
-# shellcheck source=lib/alpine-image.sh
-. "$ROOT/os/lib/alpine-image.sh"
-# Pinned for reproducibility; override with digest in CI if needed (e.g. alpine:3.24@sha256:...).
-ALPINE_VERSION="${ALPINE_VERSION:-v3.24}"
+ROOT="${ROOT:-/luna}"
 ARCH="${ARCH:-x86_64}"
-WORK="$ROOT/os/work"
-ROOTFS="$WORK/rootfs"
-OUT="$ROOT/os/dist"
+ALPINE_VERSION="${ALPINE_VERSION:-v3.24}"
+ROOTFS="${ROOTFS:-/rootfs}"
 BIN="${LUNAD_BIN:-}"
-if [ -z "$BIN" ]; then
-    for candidate in         "$ROOT/target/${ARCH}-unknown-linux-musl/release/lunad"         "$ROOT/target/release/lunad"; do
-        if [ -x "$candidate" ]; then
-            BIN="$candidate"
-            break
-        fi
-    done
-fi
 
 if [ -z "$BIN" ] || [ ! -x "$BIN" ]; then
-    echo "missing lunad binary" >&2
-    echo "build it first: cargo build --release -p lunad (musl) or set LUNAD_BIN" >&2
+    echo "missing lunad binary (set LUNAD_BIN to its path inside the container)" >&2
     exit 1
 fi
 
-rm -rf "$WORK" 2>/dev/null || sudo rm -rf "$WORK" || {
-	echo "could not clean $WORK (leftover root-owned live-build files?)" >&2
-	exit 1
-}
-mkdir -p "$ROOTFS" "$OUT"
+# The volume itself is the mount point: empty it, keep the directory.
+mkdir -p "$ROOTFS"
+find "$ROOTFS" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 
-# Assemble the root filesystem inside Alpine's own apk.
-# --privileged is required so mkinitfs can mount proc/sys/dev in the chroot
-# (rootless Podman otherwise returns "mount: permission denied").
-podman run --rm --privileged -v "$ROOTFS:/rootfs:z" "$ALPINE_IMAGE" sh -euc '
-    # linux-lts depends on linux-firmware-any. The meta package
-    # linux-firmware pulls ~800 MiB of GPU/Wi-Fi blobs we never use
-    # (Luna is Ethernet-only). linux-firmware-none satisfies the dep;
-    # keep only common wired NIC firmware for mini PCs / thin clients.
-    # NTFS drives use the ntfs3 kernel driver from linux-lts, not ntfs-3g.
-    # grub is here for grub-editenv only: lunad sets the A/B tryboot slot in
-    # the ESP grubenv, and luna-boot-ok clears it. The bootloader itself is
-    # installed by the rapidinstall ISO.
-    # The grub post-install trigger runs grub-probe against whatever disk the
-    # build host boots from (it fails on LUKS/device-mapper roots) and is
-    # useless here, so a trigger error is tolerated; the check below still
-    # fails the build if any package did not actually install.
-    apk add --root /rootfs --initdb --keys-dir /etc/apk/keys --arch '"$ARCH"' \
-        --repository "https://dl-cdn.alpinelinux.org/alpine/'"$ALPINE_VERSION"'/main" \
-        --repository "https://dl-cdn.alpinelinux.org/alpine/'"$ALPINE_VERSION"'/community" \
-        alpine-base openrc linux-lts kmod \
-        linux-firmware-none linux-firmware-rtl_nic linux-firmware-e100 \
-        avahi \
-        e2fsprogs exfatprogs \
-        smartmontools syslinux util-linux \
-        grub \
-        dhcpcd ca-certificates ssl_client pciutils curl \
-        libheif libheif-tools ffmpeg \
-        hdparm \
-        chrony logrotate || echo "apk reported errors; verifying installed packages" >&2
-    for _p in alpine-base openrc linux-lts grub chrony ffmpeg; do
-        apk info --root /rootfs -e "$_p" >/dev/null || { echo "package $_p did not install" >&2; exit 1; }
-    done
+# Assemble the root filesystem with Alpine's own apk.
+# linux-lts depends on linux-firmware-any. The meta package linux-firmware
+# pulls ~800 MiB of GPU/Wi-Fi blobs we never use (Luna is Ethernet-only).
+# linux-firmware-none satisfies the dep; keep only common wired NIC firmware
+# for mini PCs / thin clients. NTFS drives use the ntfs3 kernel driver from
+# linux-lts, not ntfs-3g.
+# grub is here for grub-editenv only: lunad sets the A/B tryboot slot in the
+# ESP grubenv, and luna-boot-ok clears it. The bootloader itself is installed
+# by the rapidinstall ISO.
+# The grub post-install trigger runs grub-probe against whatever disk the
+# build host boots from and is useless here, so a trigger error is tolerated;
+# the check below still fails the build if any package did not install.
+# The linux-lts trigger builds /boot/initramfs-lts itself (no proc/sys mounts
+# needed), so there is no extra chroot mkinitfs pass.
+APK_CACHE=""
+if [ -d "${LUNA_CACHE_DIR:-/nonexistent}" ]; then
+    mkdir -p "$LUNA_CACHE_DIR/apk"
+    APK_CACHE="--cache-dir $LUNA_CACHE_DIR/apk"
+fi
+# shellcheck disable=SC2086
+apk add --root "$ROOTFS" --initdb --keys-dir /etc/apk/keys --arch "$ARCH" $APK_CACHE \
+    --repository "https://dl-cdn.alpinelinux.org/alpine/$ALPINE_VERSION/main" \
+    --repository "https://dl-cdn.alpinelinux.org/alpine/$ALPINE_VERSION/community" \
+    alpine-base openrc linux-lts kmod \
+    linux-firmware-none linux-firmware-rtl_nic linux-firmware-e100 \
+    avahi \
+    e2fsprogs exfatprogs \
+    smartmontools syslinux util-linux \
+    grub \
+    dhcpcd ca-certificates ssl_client pciutils curl \
+    libheif libheif-tools ffmpeg \
+    hdparm \
+    chrony logrotate || echo "apk reported errors; verifying installed packages" >&2
+for _p in alpine-base openrc linux-lts grub chrony ffmpeg; do
+    apk info --root "$ROOTFS" -e "$_p" >/dev/null || { echo "package $_p did not install" >&2; exit 1; }
+done
+# A slot without kernel + initramfs cannot boot: fail here, not on the device.
+for _f in boot/vmlinuz-lts boot/initramfs-lts; do
+    [ -s "$ROOTFS/$_f" ] || { echo "missing $_f in the rootfs (kernel trigger did not run)" >&2; exit 1; }
+done
 
-    mkdir -p /rootfs/proc /rootfs/sys /rootfs/dev
-    # linux-lts apk trigger already ran mkinitfs. The extra chroot pass
-    # needs proc/sys/dev mounts, which rootless Podman often cannot grant.
-    if mount -t proc proc /rootfs/proc 2>/dev/null; then
-        mount -t sysfs sys /rootfs/sys 2>/dev/null || true
-        mount --bind /dev /rootfs/dev 2>/dev/null || true
-        chroot /rootfs /sbin/mkinitfs || true
-        umount /rootfs/dev /rootfs/sys /rootfs/proc 2>/dev/null || true
-    fi
+mkdir -p "$ROOTFS/proc" "$ROOTFS/sys" "$ROOTFS/dev"
+# Rootless apk cannot mknod, so it leaves a plain empty file where /dev/null
+# goes. The kernel mounts devtmpfs over /dev at boot; drop the stray file.
+rm -f "$ROOTFS/dev/null"
 
-    # Luna keeps its own clock in sync (chrony) so TLS certificate validation
-    # and share expiry work even if the RTC drifts. It does not pull updates.
-    rm -f /rootfs/etc/apk/repositories
-    ln -s /bin/busybox /rootfs/usr/bin/logger 2>/dev/null || true
-    apk info --root /rootfs -v | sort > /rootfs/etc/apk-manifest.txt
-'
+# Luna keeps its own clock in sync (chrony) so TLS certificate validation
+# and share expiry work even if the RTC drifts. It does not pull updates.
+rm -f "$ROOTFS/etc/apk/repositories"
+ln -s /bin/busybox "$ROOTFS/usr/bin/logger" 2>/dev/null || true
+apk info --root "$ROOTFS" -v | sort > "$ROOTFS/etc/apk-manifest.txt"
 
 # Lay down Luna OS config (owned files, no secrets).
 printf 'Luna\n' > "$ROOTFS/etc/hostname"

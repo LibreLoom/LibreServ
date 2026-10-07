@@ -1,6 +1,6 @@
 #!/bin/sh
 # Pinned cloudflared bake/refresh helpers for Luna OS rootfs builds.
-# Sourced by build-rootfs.sh — never use GitHub floating latest tag.
+# Sourced by build/rootfs.sh — never use GitHub floating latest tag.
 # shellcheck shell=sh
 
 CLOUDFLARED_VERSION="${CLOUDFLARED_VERSION:-2026.8.3}"
@@ -17,7 +17,17 @@ luna_cloudflared_download() {
     _dest="$1"
     _arch="$(luna_cloudflared_arch "${ARCH:-x86_64}")"
     _url="https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/cloudflared-linux-${_arch}"
-    curl -fsSL --proto '=https' --tlsv1.2 -o "$_dest" "$_url" || return 1
+    # Build cache (a named volume): the pinned release never changes, so a
+    # copy from an earlier build is reused instead of downloaded again.
+    _cached=""
+    if [ -d "${LUNA_CACHE_DIR:-/nonexistent}" ]; then
+        _cached="$LUNA_CACHE_DIR/cloudflared-${CLOUDFLARED_VERSION}-${_arch}"
+    fi
+    if [ -n "$_cached" ] && [ -s "$_cached" ]; then
+        cp "$_cached" "$_dest" || return 1
+    else
+        curl -fsSL --proto '=https' --tlsv1.2 -o "$_dest" "$_url" || return 1
+    fi
     _magic=$(od -An -N4 -tx1 "$_dest" 2>/dev/null | tr -d ' \n')
     _bytes=$(wc -c < "$_dest" 2>/dev/null || echo 0)
     if [ "$_bytes" -le 1024 ] || [ "$_magic" != "7f454c46" ]; then
@@ -25,6 +35,9 @@ luna_cloudflared_download() {
         return 1
     fi
     chmod 755 "$_dest"
+    if [ -n "$_cached" ] && [ ! -s "$_cached" ]; then
+        cp "$_dest" "$_cached.tmp" && mv "$_cached.tmp" "$_cached" || true
+    fi
     return 0
 }
 

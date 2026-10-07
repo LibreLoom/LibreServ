@@ -1,37 +1,35 @@
 #!/bin/sh
-# Build the OTA / factory OS slot image: raw ext4 filesystem matching LUNA_A/B.
-# This is the release asset `luna-os-x86_64.img` — OS only (empty /var/lib/luna
-# mountpoint). It does not contain Luna state, media, or the rapidinstall ISO.
+# Dev wrapper: Luna OS slot image from the rootfs volume (see build-rootfs.sh).
+# Output in os/dist/: luna-os-x86_64.img.xz (compressed once; the OTA part and
+# the ISO payload are these exact bytes), its .sha256 and .inputs.
+# Skips the work when the inputs did not change; LUNA_OS_FORCE=1 rebuilds.
+# The work is build/image.sh, which runs inside build/Containerfile.os.
 set -eu
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-ROOTFS="$ROOT/os/work/rootfs"
-OUT="$ROOT/os/dist"
-IMAGE="$OUT/luna-os-x86_64.img"
+OSDIR="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
+OUT="${OUT:-$OSDIR/dist}"
+# shellcheck source=lib/host-podman.sh
+. "$OSDIR/lib/host-podman.sh"
 # shellcheck source=lib/alpine-image.sh
-. "$ROOT/os/lib/alpine-image.sh"
-# shellcheck source=lib/disk.sh
-. "$ROOT/os/lib/disk.sh"
-SIZE_MB="${SIZE_MB:-$LUNA_SLOT_SIZE_MIB}"
+. "$OSDIR/lib/alpine-image.sh"
+ARCH="${ARCH:-x86_64}"
 
-[ -d "$ROOTFS" ] || { echo "missing $ROOTFS — run os/build-rootfs.sh first" >&2; exit 2; }
+luna_need_podman
+if luna_os_image_current "$OUT"; then
+	echo "OS image is up to date for these inputs: $OUT/luna-os-$ARCH.img.xz"
+	exit 0
+fi
+podman volume exists "$LUNA_ROOTFS_VOLUME" || luna_die "no rootfs yet: run os/build-rootfs.sh first"
+
+IMAGE="$(luna_build_image os "$OSDIR/build/Containerfile.os" "ALPINE_IMAGE=$ALPINE_IMAGE")"
 mkdir -p "$OUT"
-rm -f "$IMAGE"
-
-# Ensure data mountpoint exists and is empty of state in the image.
-mkdir -p "$ROOTFS/var/lib/luna"
-# Drop any accidental state files from a dirty work tree.
-find "$ROOTFS/var/lib/luna" -mindepth 1 -maxdepth 1 ! -name chrony -exec rm -rf {} + 2>/dev/null || true
-mkdir -p "$ROOTFS/var/lib/luna/chrony"
-
-podman run --rm --privileged -v "$ROOTFS:/rootfs:z" -v "$OUT:/out:z" "$ALPINE_IMAGE" sh -euc "apk add --no-cache e2fsprogs >/dev/null &&
-    truncate -s ${SIZE_MB}M /out/luna-os-x86_64.img
-    # e2fsprogs ≥1.47.4 requires a UUID for hash_seed (bare integers are rejected).
-    mkfs.ext4 -F -L LUNA_A -E hash_seed=00000000-0000-4000-8000-000000000042 -d /rootfs /out/luna-os-x86_64.img
-    # e2fsck must match the e2fsprogs that created the image; host tools may be
-    # older and reject newer ext4 features (e.g. Ubuntu 22.04's 1.46.5).
-    e2fsck -fy /out/luna-os-x86_64.img >/dev/null
-"
-SHA="$(sha256sum "$IMAGE" | awk '{print $1}')"
-printf '%s\n' "$SHA" >"$OUT/luna-os-x86_64.img.sha256"
-printf 'built %s (%s MiB, ext4 slot image, sha256 %s)\n' "$IMAGE" "$SIZE_MB" "$SHA"
+echo "==> OS slot image (ext4 + xz)"
+podman run --rm --security-opt label=disable --memory "$LUNA_BUILD_MEMORY" \
+	-v "$OSDIR:/luna/os:ro" \
+	-v "$LUNA_ROOTFS_VOLUME:/rootfs:ro" \
+	-v "$OUT:/out" \
+	-e ARCH="$ARCH" -e OS_INPUT_HASH="$(luna_os_input_hash)" \
+	${SIZE_MB:+-e SIZE_MB="$SIZE_MB"} \
+	"$IMAGE" sh /luna/os/build/image.sh
+# The old flow's raw image and rootfs tarball no longer exist.
+rm -f "$OUT/luna-os-$ARCH.img" "$OUT/luna-os-$ARCH.img.sha256" "$OUT/luna-rootfs-$ARCH.tar.gz"
