@@ -228,7 +228,7 @@ func devParts(specs []FileSpec, channel string, files map[string]publish.FileInf
 	var order []string
 	for pass := 0; pass < 2; pass++ {
 		for _, s := range specs {
-			if _, ok := files[s.File]; !ok {
+			if _, ok := files[s.File]; !ok || s.Attach {
 				continue
 			}
 			own := s.Channel == "" || s.Channel == channel

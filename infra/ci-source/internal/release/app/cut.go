@@ -31,7 +31,10 @@ type CutRequest struct {
 	// Resume continues an unfinished cut of this unit.
 	Resume bool
 	// Dry does everything locally and skips every network write.
-	Dry             bool
+	Dry bool
+	// Rebuild builds luna's os image and installer even when nothing they are
+	// made from changed since the last release.
+	Rebuild         bool
 	Jobs, HeavyJobs int
 }
 
@@ -351,7 +354,8 @@ func (a *App) cutBuild(req CutRequest, ver string) func(ctx context.Context, src
 			return "", err
 		}
 		plan := unitPlan{unit: req.Unit, version: ver, parts: a.cfg.Parts(req.Unit),
-			bc: &engine.BuildContext{Engine: a.eng, Unit: req.Unit, Version: ver, Commit: sha, SrcDir: srcDir, OutRoot: root}}
+			bc: &engine.BuildContext{Engine: a.eng, Unit: req.Unit, Version: ver, Commit: sha, SrcDir: srcDir, OutRoot: root,
+				Rebuild: req.Rebuild, Released: a.released(ctx, req.Unit)}}
 		if req.Unit == "luna-android" {
 			sg, cleanup, err := a.androidSigning(ctx)
 			if err != nil {

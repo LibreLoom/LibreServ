@@ -18,6 +18,35 @@ type BuildContext struct {
 	// AndroidSigning is the release keystore for luna-android/apk; nil builds
 	// an unsigned (debug-signed) dev APK.
 	AndroidSigning *AndroidSigning
+	// Only lists the parts the caller named (--parts); empty means the whole
+	// unit. A part that can skip itself (luna's os and installer) never skips
+	// when it is named.
+	Only []string
+	// Rebuild forces parts that would otherwise be skipped or reused to build.
+	Rebuild bool
+	// Released looks up the newest released file of a part in the live feeds
+	// (set for cuts only; nil for dev builds, which never touch the network
+	// to decide what to build).
+	Released func(part string) (Released, bool)
+}
+
+// Released is a file an earlier release shipped, as the live feeds list it.
+type Released struct {
+	Version string
+	// URL is the file's public registry address.
+	URL    string
+	SHA256 string
+	Size   int64
+}
+
+// Named reports whether the caller asked for this part by name.
+func (b *BuildContext) Named(part string) bool {
+	for _, n := range b.Only {
+		if n == part {
+			return true
+		}
+	}
+	return false
 }
 
 // AndroidSigning is a release keystore for the gradle job. Path is mounted

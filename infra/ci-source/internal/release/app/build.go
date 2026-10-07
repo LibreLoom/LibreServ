@@ -44,6 +44,9 @@ type BuildRequest struct {
 	Version string
 	// Jobs and HeavyJobs cap parallelism (defaults: CPU count, 2).
 	Jobs, HeavyJobs int
+	// Rebuild builds parts that would otherwise be skipped because nothing they
+	// are made from changed (luna's os image and installer).
+	Rebuild bool
 	// NoFailFast keeps independent jobs running after a failure.
 	NoFailFast bool
 	// OutRoot overrides the configured dist/ root.
@@ -163,7 +166,8 @@ func (a *App) Build(ctx context.Context, req BuildRequest) (*BuildResult, error)
 			return nil, fmt.Errorf("version %q is not strict semver (no leading v)", ver)
 		}
 		p := unitPlan{unit: u, version: ver, parts: a.cfg.Parts(u), names: req.Parts,
-			bc: &engine.BuildContext{Engine: a.eng, Unit: u, Version: ver, Commit: sha, SrcDir: srcDir, OutRoot: out}}
+			bc: &engine.BuildContext{Engine: a.eng, Unit: u, Version: ver, Commit: sha, SrcDir: srcDir, OutRoot: out,
+				Only: req.Parts, Rebuild: req.Rebuild}}
 		plans = append(plans, p)
 	}
 	res := &BuildResult{Commit: sha}

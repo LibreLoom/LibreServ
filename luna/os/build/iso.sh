@@ -9,7 +9,8 @@
 #        CACHE   (/cache, optional volume) apt downloads + the finished live
 #                system, reused while its inputs are unchanged
 #   out: OUT/luna-rapidinstall-x86_64.iso   BIOS+UEFI hybrid, volume LUNAINST
-#   env: ARCH SUITE DEBIAN_MIRROR XZ_THREADS LUNA_LIVE_REFRESH (forces a rebuild
+#   env: LIVE_ONLY=1 builds (or finds) only the cached live system and needs
+#        no payload. ARCH SUITE DEBIAN_MIRROR XZ_THREADS LUNA_LIVE_REFRESH (forces a rebuild
 #        of the cached live system, e.g. to pick up Debian updates)
 set -eu
 
@@ -33,13 +34,6 @@ die() {
 	echo "ERROR: $*" >&2
 	exit 1
 }
-
-[ -s "$PAYLOAD/$IMG" ] || die "missing $PAYLOAD/$IMG: build the OS image first"
-[ -s "$PAYLOAD/$IMG.sha256" ] || die "missing $PAYLOAD/$IMG.sha256"
-# The installer trusts this file; make sure it describes exactly these bytes.
-_want="$(awk '{print $1; exit}' "$PAYLOAD/$IMG.sha256")"
-_have="$(sha256sum "$PAYLOAD/$IMG" | awk '{print $1}')"
-[ "$_want" = "$_have" ] || die "$IMG does not match its .sha256"
 
 mkdir -p "$OUT" "$WORK"
 rm -rf "$WORK/iso"
@@ -74,6 +68,17 @@ else
 		[ "$d" = "$LIVE_CACHE" ] || rm -rf "$d"
 	done
 fi
+
+# LIVE_ONLY=1 stops here: the release tool builds the live system as its own
+# job, in parallel with the OS image, and the ISO job then finds it cached.
+[ -z "${LIVE_ONLY:-}" ] || exit 0
+
+[ -s "$PAYLOAD/$IMG" ] || die "missing $PAYLOAD/$IMG: build the OS image first"
+[ -s "$PAYLOAD/$IMG.sha256" ] || die "missing $PAYLOAD/$IMG.sha256"
+# The installer trusts this file; make sure it describes exactly these bytes.
+_want="$(awk '{print $1; exit}' "$PAYLOAD/$IMG.sha256")"
+_have="$(sha256sum "$PAYLOAD/$IMG" | awk '{print $1}')"
+[ "$_want" = "$_have" ] || die "$IMG does not match its .sha256"
 
 # --- the Luna payload at /luna ----------------------------------------------
 echo "==> Luna payload"

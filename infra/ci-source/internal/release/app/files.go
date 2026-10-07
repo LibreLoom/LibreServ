@@ -12,10 +12,12 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"aead.dev/minisign"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/ci/internal/feed"
+	"gt.plainskill.net/LibreLoom/LibreServ/ci/internal/release/engine"
 	"gt.plainskill.net/LibreLoom/LibreServ/ci/internal/release/publish"
 )
 
@@ -27,6 +29,13 @@ type FileSpec struct {
 	// Reuse lets a cut point at the file of an earlier release (luna's os
 	// image and installer are not rebuilt every time).
 	Reuse bool
+	// Attach marks a file that is uploaded with the release (and signed in
+	// SHA256SUMS.txt) but is not a feed part. It is optional.
+	Attach bool
+}
+
+func attach(file string) FileSpec {
+	return FileSpec{PartSpec: publish.PartSpec{File: file}, Attach: true}
 }
 
 func spec(name, os, arch, file string) FileSpec {
@@ -43,7 +52,10 @@ func DefaultFileSpecs(unit string) []FileSpec {
 	case "luna":
 		os, inst := spec("os", "linux", "amd64", "luna-os-x86_64.img.xz"), spec("installer", "linux", "amd64", "luna-rapidinstall-x86_64.iso.xz")
 		os.Reuse, inst.Reuse = true, true
-		return []FileSpec{spec("lunad", "linux", "amd64", "lunad-linux-amd64-musl"), os, inst}
+		// The .inputs files say what each image was built from, so the next
+		// release can tell whether it must be built again.
+		return []FileSpec{spec("lunad", "linux", "amd64", "lunad-linux-amd64-musl"), os, inst,
+			attach("luna-os-x86_64.img.xz.inputs"), attach("luna-rapidinstall-x86_64.iso.xz.inputs")}
 	case "luna-desktop":
 		stable, beta := spec("flatpak", "linux", "amd64", "luna-desktop-x86_64.flatpak"), spec("flatpak", "linux", "amd64", "luna-desktop-beta-x86_64.flatpak")
 		stable.Channel, beta.Channel = publish.Stable, publish.Beta
@@ -115,7 +127,7 @@ func flatten(root string, specs []FileSpec) (missing []string, err error) {
 		if err != nil {
 			return nil, err
 		}
-		if !ok {
+		if !ok && !s.Attach {
 			missing = append(missing, s.File)
 		}
 	}
@@ -156,6 +168,9 @@ func resolveSpecs(unit, channel, outDir string, specs []FileSpec, prior func(nam
 	var out []publish.PartSpec
 	var missing []string
 	for _, s := range specs {
+		if s.Attach {
+			continue
+		}
 		needed := s.Channel == "" || s.Channel == channel || (channel == publish.Stable && s.Channel == publish.Beta)
 		if st, err := os.Stat(filepath.Join(outDir, s.File)); err == nil && st.Mode().IsRegular() {
 			if needed {
@@ -193,19 +208,22 @@ func dedupe(s []string) []string {
 	return out
 }
 
-// priorPart looks up an earlier release's file for a part, in the live feeds
-// (newest version wins) and returns a PartSpec that points at it.
-func (a *App) priorPart(ctx context.Context, unit string) func(name string) (publish.PartSpec, bool) {
+// released looks up an earlier release's file for a part, in the live feeds
+// (newest version wins). The feeds are fetched on the first lookup.
+func (a *App) released(ctx context.Context, unit string) func(name string) (engine.Released, bool) {
+	var once sync.Once
 	var feeds []*feed.Feed
-	if pub, err := a.PublicKey(unit); err == nil {
-		for _, ch := range []string{publish.Stable, publish.Beta} {
-			if f, err := a.fetchFeed(ctx, a.feedURL(unit, ch), pub); err == nil && f != nil {
-				feeds = append(feeds, f)
+	return func(name string) (engine.Released, bool) {
+		once.Do(func() {
+			if pub, err := a.PublicKey(unit); err == nil {
+				for _, ch := range []string{publish.Stable, publish.Beta} {
+					if f, err := a.fetchFeed(ctx, a.feedURL(unit, ch), pub); err == nil && f != nil {
+						feeds = append(feeds, f)
+					}
+				}
 			}
-		}
-	}
-	return func(name string) (publish.PartSpec, bool) {
-		var best publish.PartSpec
+		})
+		var best engine.Released
 		found := false
 		for _, f := range feeds {
 			for _, p := range f.Parts {
@@ -216,14 +234,24 @@ func (a *App) priorPart(ctx context.Context, unit string) func(name string) (pub
 				if v == "" {
 					continue
 				}
+				r := engine.Released{Version: v, URL: p.URLs[0], Size: p.Size, SHA256: p.SHA256}
 				if !found {
-					best, found = publish.PartSpec{Version: v, Size: p.Size, SHA256: p.SHA256}, true
+					best, found = r, true
 				} else if c, err := publish.CompareSemver(v, best.Version); err == nil && c > 0 {
-					best = publish.PartSpec{Version: v, Size: p.Size, SHA256: p.SHA256}
+					best = r
 				}
 			}
 		}
 		return best, found
+	}
+}
+
+// priorPart is released as a PartSpec that points at the earlier file.
+func (a *App) priorPart(ctx context.Context, unit string) func(name string) (publish.PartSpec, bool) {
+	rel := a.released(ctx, unit)
+	return func(name string) (publish.PartSpec, bool) {
+		r, ok := rel(name)
+		return publish.PartSpec{Version: r.Version, Size: r.Size, SHA256: r.SHA256}, ok
 	}
 }
 
