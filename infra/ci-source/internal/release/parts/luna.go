@@ -203,7 +203,7 @@ func lunadBuildSpec(b *engine.BuildContext) (engine.RunSpec, error) {
 		Out:     out,
 		// The version is written into the finished binary (lunad-build.sh),
 		// not compiled in, so luna/VERSION is not mounted.
-		Env:    map[string]string{"PATCH_VERSION": b.Version},
+		Env: map[string]string{"PATCH_VERSION": b.Version},
 		Mounts: []engine.Mount{lunaSrcMount(b),
 			{Host: web, Target: "/src/luna/crates/lunad/web/dist", ReadOnly: true},
 			{Host: extra, Target: "/extra"}},
