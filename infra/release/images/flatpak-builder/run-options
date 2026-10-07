@@ -3,3 +3,8 @@
 --security-opt seccomp=unconfined
 --security-opt label=disable
 --security-opt unmask=ALL
+# The icon check at export time starts bwrap with --unshare-net/-pid/-ipc but
+# no user namespace of its own, which needs these two inside the container's
+# user namespace (not host privileges). Verified on podman 5.8.
+--cap-add SYS_ADMIN
+--cap-add NET_ADMIN

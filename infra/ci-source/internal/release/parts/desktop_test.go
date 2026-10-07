@@ -80,12 +80,17 @@ func TestDesktopGraphAndSpecs(t *testing.T) {
 
 func TestIntegrationFlatpak(t *testing.T) {
 	slowOrSkip(t)
-	b := lunaRealCtx(t, "luna-desktop", "0.4.1-0.dev.12")
+	// A stable version: both the stable and the beta bundle.
+	b := lunaRealCtx(t, "luna-desktop", "0.4.1")
 	d := runGraph(t, b, &Flatpak{})
 	t.Logf("flatpak: %s", d.Round(time.Second))
-	if _, err := os.Stat(filepath.Join(b.PartOutDir("flatpak"), FlatpakFile)); err != nil {
-		t.Fatal(err)
+	for _, f := range []string{FlatpakFile, FlatpakBetaFile} {
+		if st, err := os.Stat(filepath.Join(b.PartOutDir("flatpak"), f)); err != nil || st.Size() < 1<<20 {
+			t.Fatalf("%s: %v", f, err)
+		}
 	}
+	d = runGraph(t, b, &Flatpak{})
+	t.Logf("flatpak, second run: %s", d.Round(time.Second))
 }
 
 func TestIntegrationWindows(t *testing.T) {

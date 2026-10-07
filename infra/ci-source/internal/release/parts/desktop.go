@@ -130,7 +130,6 @@ func (f *Flatpak) spec(b *engine.BuildContext) (engine.RunSpec, error) {
 	return lunaShell(engine.RunSpec{
 		Name:    "flatpak",
 		Image:   "flatpak-builder",
-		Workdir: "/work",
 		Out:     out,
 		Mounts:  []engine.Mount{lunaSrcMount(b), ver},
 		Caches: []engine.Cache{engine.CacheFlatpak,

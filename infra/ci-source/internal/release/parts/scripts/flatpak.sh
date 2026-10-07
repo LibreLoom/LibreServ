@@ -7,7 +7,12 @@ APP=org.libreloom.LunaDesktop
 ARCH=x86_64
 M=/src/luna/desktop/packaging/flatpak/$APP.yml
 STATE=/root/.local/share/flatpak-builder
-cd /work
+# flatpak-builder refuses a build dir on another filesystem than its state dir.
+W=$STATE/work
+rm -rf "$W"
+mkdir -p "$W"
+cd "$W"
+trap 'cd /; rm -rf "$W"' EXIT
 rm -rf build-dir repo
 flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
 for spec in $BRANCHES; do
