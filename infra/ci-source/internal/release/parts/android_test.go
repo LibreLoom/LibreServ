@@ -61,6 +61,9 @@ func TestAPKSpec(t *testing.T) {
 	if s.Env["LUNA_ANDROID_STORE_PASSWORD"] != "sekret-store" {
 		t.Error("password not in env")
 	}
+	if s.Env["EXPECT_VERSION_NAME"] != "0.4.0" || s.Env["EXPECT_VERSION_CODE"] != "40099" {
+		t.Errorf("version pins = %q / %q", s.Env["EXPECT_VERSION_NAME"], s.Env["EXPECT_VERSION_CODE"])
+	}
 	if s.Env["EXPECT_CERT_SHA256"] != "ab12" {
 		t.Errorf("cert pin env = %q", s.Env["EXPECT_CERT_SHA256"])
 	}

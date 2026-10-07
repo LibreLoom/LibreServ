@@ -141,6 +141,7 @@ func (solBinaries) Jobs(b *engine.BuildContext) ([]engine.Job, error) {
 						Out:    out,
 						Memory: "1g",
 						Caches: engine.GoCaches(),
+						Env:    map[string]string{"EXPECT_ARCH": arch},
 						Cmd: append([]string{"sh", "-c", checkStampScript, "sh", "/out/" + file,
 							st.Version, st.Commit, st.Time, workdir, solPkgSystem},
 							"Version", "GitCommit", "BuildTime"),

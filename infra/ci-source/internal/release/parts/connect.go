@@ -109,6 +109,7 @@ func (p connectServer) Jobs(b *engine.BuildContext) ([]engine.Job, error) {
 				Out:    out,
 				Memory: "1g",
 				Caches: engine.GoCaches(),
+				Env:    map[string]string{"EXPECT_ARCH": "amd64"},
 				Cmd: []string{"sh", "-c", checkStampScript, "sh", "/out/" + file,
 					st.Version, st.Commit, st.Time, workdir, u.Main, "version", "gitCommit", "buildTime"},
 			})

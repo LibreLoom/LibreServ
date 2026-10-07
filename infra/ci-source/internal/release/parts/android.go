@@ -75,6 +75,15 @@ func (a *APK) spec(b *engine.BuildContext) (engine.RunSpec, error) {
 		Env:    map[string]string{},
 		Memory: "5g",
 	}
+	// What the built APK must say about itself (release builds: the version's
+	// own values, which checkAndroidVersion has already compared; dev builds:
+	// the last bump commit's literals).
+	name, code, err := androidLiterals(b.SrcDir)
+	if err != nil {
+		return engine.RunSpec{}, err
+	}
+	spec.Env["EXPECT_VERSION_NAME"] = name
+	spec.Env["EXPECT_VERSION_CODE"] = strconv.Itoa(code)
 	if s := b.AndroidSigning; s != nil {
 		if s.Path == "" {
 			return engine.RunSpec{}, fmt.Errorf("android signing: no keystore file")
@@ -97,6 +106,23 @@ var (
 	reVersionCode = regexp.MustCompile(`(?m)^\s*versionCode\s*=\s*(\d+)\s*$`)
 	reVersionName = regexp.MustCompile(`(?m)^\s*versionName\s*=\s*"([^"]*)"\s*$`)
 )
+
+// androidLiterals reads the literal versionName and versionCode from
+// build.gradle.kts.
+func androidLiterals(src string) (string, int, error) {
+	gradle := filepath.Join(src, "luna/mobile/app/build.gradle.kts")
+	b, err := os.ReadFile(gradle)
+	if err != nil {
+		return "", 0, err
+	}
+	m := reVersionCode.FindSubmatch(b)
+	n := reVersionName.FindSubmatch(b)
+	if m == nil || n == nil {
+		return "", 0, fmt.Errorf("%s: versionCode and versionName must be plain literals", gradle)
+	}
+	code, _ := strconv.Atoi(string(m[1]))
+	return string(n[1]), code, nil
+}
 
 // checkAndroidVersion makes sure the literal versionName and versionCode in
 // build.gradle.kts match ver (F-Droid reads those literals at the tag). Dev

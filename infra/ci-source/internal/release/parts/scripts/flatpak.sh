@@ -51,6 +51,10 @@ for spec in $BRANCHES; do
 	flatpak-builder --user --force-clean --disable-rofiles-fuse \
 		--install-deps-from=flathub --state-dir="$STATE" \
 		--default-branch="$branch" --repo=repo build-dir "$M"
+	# The compiled app must carry this build's version (cargo's cache cannot see
+	# VERSION change; the manifest touches it, and this proves the rebuild ran).
+	want=$(tr -d '\r\n' < /src/luna/desktop/VERSION)
+	grep -aqF -- "$want" build-dir/files/bin/luna-desktop || { echo "the built luna-desktop does not contain version $want" >&2; exit 1; }
 	flatpak build-bundle repo "/out/$file" "$APP" "$branch" \
 		--runtime-repo=https://flathub.org/repo/flathub.flatpakrepo
 	# The bundle must carry exactly this branch.

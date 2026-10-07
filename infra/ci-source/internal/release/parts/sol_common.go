@@ -77,6 +77,13 @@ for sym in "$@"; do
   printf '%s\n' "$out" | grep -Eq "^[[:space:]]*(var[[:space:]]+)?$sym[[:space:]]+(string[[:space:]]+)?=" \
     || { echo "stamp check: $pkg.$sym is not a package-level var with a string value" >&2; exit 1; }
 done
+# EXPECT_ARCH: the ELF header's machine type (bytes 18-19) must be the target's.
+if [ -n "${EXPECT_ARCH:-}" ]; then
+  case "$EXPECT_ARCH" in amd64) want="3e 00" ;; arm64) want="b7 00" ;; *) echo "stamp check: unknown arch $EXPECT_ARCH" >&2; exit 1 ;; esac
+  got=$(od -An -tx1 -j18 -N2 "$bin" | tr -s ' ' | sed 's/^ //;s/ $//')
+  [ "$(head -c4 "$bin" | od -An -tx1 | tr -d ' \n')" = "7f454c46" ] && [ "$got" = "$want" ] \
+    || { echo "stamp check: $bin is not a linux/$EXPECT_ARCH executable (ELF machine $got)" >&2; exit 1; }
+fi
 for v in "$ver" "$commit" "$when"; do
   grep -aqF -- "$v" "$bin" || { echo "stamp check: $v is not compiled into $bin" >&2; exit 1; }
 done

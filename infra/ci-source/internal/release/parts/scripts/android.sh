@@ -18,6 +18,17 @@ fi
 rm -f "$out"
 ./gradlew "$task" --no-daemon --console=plain --warning-mode=summary -Dorg.gradle.jvmargs=-Xmx2g
 test -f "$out"
+# The APK must say it is the version this build is for (a stale build
+# directory or a mismatched gradle file would show up here).
+aapt2=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -1)
+badging=$("$aapt2" dump badging "$out" | sed -n 's/^package: //p')
+got_name=$(printf '%s\n' "$badging" | sed -n "s/.* versionName='\([^']*\)'.*/\1/p")
+got_code=$(printf '%s\n' "$badging" | sed -n "s/.* versionCode='\([0-9]*\)'.*/\1/p")
+if [ "$got_name" != "$EXPECT_VERSION_NAME" ] || [ "$got_code" != "$EXPECT_VERSION_CODE" ]; then
+	echo "APK says version $got_name (code $got_code), expected $EXPECT_VERSION_NAME (code $EXPECT_VERSION_CODE)" >&2
+	exit 1
+fi
+echo "APK version $got_name (code $got_code) matches"
 if [ "$task" = assembleRelease ]; then
 	apksigner=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
 	certs=$("$apksigner" verify --print-certs "$out")
