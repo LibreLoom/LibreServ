@@ -12,19 +12,22 @@ disk both boot in either firmware mode.
 #    cargo build --release -p lunad
 #    or set LUNAD_BIN=/path/to/lunad
 
-# 2. Rootfs (needs Podman)
-./os/build-rootfs.sh                  # → os/dist/luna-rootfs-x86_64.tar.gz
+# 2. OS image (rootless Podman, no sudo). The rootfs lives in a podman volume;
+#    ownership is right inside the user namespace and nothing runs as root.
+./os/build-rootfs.sh                  # rootfs → volume luna-os-rootfs
+./os/make-image.sh                    # → os/dist/luna-os-x86_64.img.xz (+ .sha256, .inputs)
+#    The .img.xz is compressed once. The OTA update part, the installer ISO and
+#    the box's os-image.sha256 all use these exact bytes. Skipped when the OS
+#    inputs did not change (os/build/input-hash.sh; lunad is not an input).
+#    LUNA_OS_FORCE=1 rebuilds anyway.
 
-# 3. Rapidinstall ISO (`dd` to a USB stick)
-#    Debian live boots the installer (keyboard, NVMe, firmware); it writes the
-#    Alpine Luna rootfs to built-in storage.
-#    One-shot (web UI + musl lunad + rootfs + ISO):
+# 3. Rapidinstall ISO (`dd` to a USB stick), rootless, no live-build
+#    Debian live (mmdebstrap + squashfs + grub-mkrescue) boots the installer
+#    (keyboard, NVMe, firmware); it streams the .img.xz to both OS slots.
+#    One-shot (web UI + musl lunad + rootfs + image + ISO):
 ./os/build-iso.sh                     # → os/dist/luna-rapidinstall-x86_64.iso
-#    Or after a rootfs already exists:
+#    Or after the image already exists:
 ./os/make-iso.sh                      # → os/dist/luna-rapidinstall-x86_64.iso
-#    If live-build fails with "umount: chroot/proc: target is busy" (common when
-#    an IDE indexer holds fds under the repo), rebuild with:
-#    LUNA_LIVE_WORK=/var/tmp/luna-debian-live ./os/make-iso.sh
 #    dd if=os/dist/luna-rapidinstall-x86_64.iso of=/dev/sdX bs=4M conv=fsync
 #    Boot the PC from that USB (BIOS or UEFI; turn Secure Boot off).
 #    GRUB should load Linux on its own. You should see "Luna rapidinstall"
@@ -42,9 +45,6 @@ disk both boot in either firmware mode.
 #    assets (device photos, etc.) also belong on LUNAASSETS. A one-shot
 #    device-token file next to the ISO payload still works for a single unit
 #    (the old setup-token name is still accepted as a legacy fallback).
-
-# Optional: raw ext4 image (workstation / VM)
-./os/make-image.sh                    # → os/dist/luna-os-x86_64.img
 
 # Optional: flash a whole disk attached to this machine
 ./os/flash.sh /dev/sdX                # also /dev/nvme0n1 /dev/mmcblk0

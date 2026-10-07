@@ -11,7 +11,7 @@ DRAWIO_VERSION ?= v31.5.2
 DRAWIO_SHA256 ?= abd58ad15baef57f43acb79a56350ba8900a8b6fabe94391d8906148fe64e264
 MAKEFLAGS += --no-print-directory
 
-.PHONY: web build test run dev dev-daemon daemon-dev dev-web lint clean iso desktop desktop-bundle desktop-dev desktop-dev-login desktop-appimage desktop-flatpak ensure-web-dist mock-drive mock-connect mobile-dev mobile-dev-repair companion-dev eurooffice eurooffice-assets eurooffice-pack drawio drawio-pack
+.PHONY: web build test run dev dev-daemon daemon-dev dev-web lint clean os-image iso desktop desktop-bundle desktop-dev desktop-dev-login desktop-appimage desktop-flatpak ensure-web-dist mock-drive mock-connect mobile-dev mobile-dev-repair companion-dev eurooffice eurooffice-assets eurooffice-pack drawio drawio-pack
 
 web:
 	cd ../shared/ui && npm install --no-audit --no-fund
@@ -111,6 +111,12 @@ lint:
 	cargo clippy --workspace -- -D warnings
 	cd web && npm run lint
 
+# Luna OS slot image (os/dist/luna-os-x86_64.img.xz); rootless Podman, needs a built lunad.
+os-image:
+	./os/build-rootfs.sh
+	./os/make-image.sh
+
+# Whole chain: web, lunad, OS image (skipped when unchanged), rapidinstall ISO.
 iso:
 	./os/build-iso.sh
 

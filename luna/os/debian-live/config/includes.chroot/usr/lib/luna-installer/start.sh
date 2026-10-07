@@ -91,8 +91,8 @@ if [ -r /proc/cmdline ]; then
 		LUNA_CONFIRM=*)
 			export LUNA_CONFIRM="${_tok#LUNA_CONFIRM=}"
 			;;
-		LUNA_ROOTFS=*)
-			export LUNA_ROOTFS="${_tok#LUNA_ROOTFS=}"
+		LUNA_OS_IMAGE=*)
+			export LUNA_OS_IMAGE="${_tok#LUNA_OS_IMAGE=}"
 			;;
 		esac
 	done
@@ -106,7 +106,6 @@ if ! _wait_medium; then
 fi
 
 DIR="$(_install_dir)"
-export LUNA_ROOTFS="${LUNA_ROOTFS:-$DIR/luna-rootfs-x86_64.tar.gz}"
 if DEV="$(_install_media_dev)"; then
 	export LUNA_INSTALL_MEDIA="$DEV"
 fi

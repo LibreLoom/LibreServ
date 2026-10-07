@@ -11,7 +11,7 @@ support call later.
 - Official device token (purchased from LibreLoom)
 
 ## 1. Flash
-- [ ] `os/build-rootfs.sh` produced `os/dist/luna-rootfs-x86_64.tar.gz`
+- [ ] `os/build-rootfs.sh` + `os/make-image.sh` produced `os/dist/luna-os-x86_64.img.xz`
 - [ ] `os/make-iso.sh` produced `os/dist/luna-rapidinstall-x86_64.iso`
 - [ ] ISO written to USB (`dd … of=/dev/sdX`); USB is **not** the target disk
 - [ ] Factory stick: mount `LUNAASSETS`, put official device tokens in `TOKENS` (one per line); each flash peels the first line

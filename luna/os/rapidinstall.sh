@@ -17,7 +17,8 @@ HERE="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
 . "$HERE/lib/factory-assets.sh"
 
 ARCH="${ARCH:-x86_64}"
-TARBALL="${LUNA_ROOTFS:-$HERE/luna-rootfs-$ARCH.tar.gz}"
+# The slot image the ISO carries: the exact bytes the update feed lists.
+OS_IMAGE="${LUNA_OS_IMAGE:-$HERE/luna-os-$ARCH.img.xz}"
 
 # QEMU / automation: allow overrides from the kernel command line.
 if [ -z "${LUNA_TARGET:-}" ] && [ -r /proc/cmdline ]; then
@@ -27,10 +28,10 @@ if [ -z "${LUNA_TARGET:-}" ] && [ -r /proc/cmdline ]; then
 		LUNA_INSTALL_MEDIA=*) LUNA_INSTALL_MEDIA="${_tok#LUNA_INSTALL_MEDIA=}" ;;
 		LUNA_OVERRIDE_WAIT=*) LUNA_OVERRIDE_WAIT="${_tok#LUNA_OVERRIDE_WAIT=}" ;;
 		LUNA_CONFIRM=*) LUNA_CONFIRM="${_tok#LUNA_CONFIRM=}" ;;
-		LUNA_ROOTFS=*) LUNA_ROOTFS="${_tok#LUNA_ROOTFS=}"; TARBALL="$LUNA_ROOTFS" ;;
+		LUNA_OS_IMAGE=*) LUNA_OS_IMAGE="${_tok#LUNA_OS_IMAGE=}"; OS_IMAGE="$LUNA_OS_IMAGE" ;;
 		esac
 	done
-	export LUNA_TARGET LUNA_INSTALL_MEDIA LUNA_OVERRIDE_WAIT LUNA_CONFIRM LUNA_ROOTFS
+	export LUNA_TARGET LUNA_INSTALL_MEDIA LUNA_OVERRIDE_WAIT LUNA_CONFIRM LUNA_OS_IMAGE
 fi
 
 _media_known=0
@@ -178,8 +179,8 @@ size_hint() {
 discover_install_disk
 attach_installer_console || true
 
-if [ ! -f "$TARBALL" ]; then
-	echo "This USB is missing the Luna OS archive. Rebuild the ISO with make-iso.sh." >&2
+if [ ! -f "$OS_IMAGE" ]; then
+	echo "Luna's system file is missing from this USB stick. Write a fresh Luna installer to the stick." >&2
 	exit 1
 fi
 
@@ -238,15 +239,7 @@ fi
 confirm_install "$TARGET"
 
 echo "Erasing $TARGET and installing Luna."
-# Prefer a slot image next to the tarball when the ISO staged one (OS cuts).
-_slot_img=""
-for _cand in "$HERE/luna-os-x86_64.img" "$HERE/../luna-os-x86_64.img"; do
-	if [ -f "$_cand" ]; then
-		_slot_img="$_cand"
-		break
-	fi
-done
-if ! flash_luna_disk "$TARGET" "$TARBALL" "${_slot_img:-}"; then
+if ! flash_luna_disk "$TARGET" "$OS_IMAGE"; then
 	echo
 	echo "Install failed. The disk may be half-written — do not reboot into it yet."
 	echo "Fix the error above, or re-run from the USB stick."
@@ -275,18 +268,14 @@ if ! factory_apply_device_token "$_data_mnt" "$HERE"; then
 	echo "Fix the TOKENS magazine on LUNAASSETS (or use device-token), then re-run."
 	exit 1
 fi
-if [ ! -f "$_data_mnt/os-image.sha256" ]; then
-	_hash="${_os_hash:-}"
-	if [ -z "$_hash" ]; then
-		_hash="$(_resolve_os_image_hash "" "${_slot_img:-}")" || _hash=""
-	fi
-	if [ -z "$_hash" ] || ! _record_os_image_hash "$_data_mnt" "$_hash"; then
-		umount "$_data_mnt" 2>/dev/null || true
-		echo
-		echo "Could not write the OS image checksum (os-image.sha256)."
-		echo "Without it, Luna cannot apply OS updates. This install did not finish."
-		exit 1
-	fi
+# os-image.sha256 = sha256 of the exact luna-os-*.img.xz written to both slots
+# (flash_luna_disk sets _os_hash). Missing hash = failed install.
+if [ -z "${_os_hash:-}" ] || ! _record_os_image_hash "$_data_mnt" "$_os_hash"; then
+	umount "$_data_mnt" 2>/dev/null || true
+	echo
+	echo "Could not write the OS image checksum (os-image.sha256)."
+	echo "Without it, Luna cannot apply OS updates. This install did not finish."
+	exit 1
 fi
 
 # EuroOffice pack: browser-side office editor assets on LUNA_DATA (~1 GB

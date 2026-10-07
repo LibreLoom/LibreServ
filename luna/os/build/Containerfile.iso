@@ -1,0 +1,13 @@
+# Toolchain for the rapidinstall ISO, no live-build and no root: mmdebstrap
+# builds the Debian live system, mksquashfs packs it, grub-mkrescue +
+# xorriso make the BIOS+UEFI hybrid image. Used by build/iso.sh, which never
+# calls podman.
+ARG DEBIAN_IMAGE=docker.io/library/debian:bookworm
+FROM ${DEBIAN_IMAGE}
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      mmdebstrap debian-archive-keyring ca-certificates \
+      squashfs-tools xorriso mtools dosfstools \
+      grub-common grub-pc-bin grub-efi-amd64-bin \
+      xz-utils zstd \
+ && rm -rf /var/lib/apt/lists/*

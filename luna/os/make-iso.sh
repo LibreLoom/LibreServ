@@ -1,113 +1,37 @@
 #!/bin/sh
-# Build a UEFI+BIOS hybrid rapidinstall ISO for ordinary x86_64 PCs.
-# Uses Debian live (full kernel, udev, firmware) for the install boot;
-# flashes the Alpine Luna rootfs tarball to built-in storage.
+# Dev wrapper: build the rapidinstall ISO (BIOS + UEFI hybrid, volume LUNAINST)
+# from os/dist/luna-os-x86_64.img.xz and the packs in os/dist/. Rootless
+# podman only; no sudo, no live-build. The work is build/iso.sh, which runs
+# inside build/Containerfile.iso.
 #
-# Needs: rootfs tarball, live-build on the host, sudo for debootstrap.
+# Needs first: ./os/make-image.sh (the .img.xz), and optionally the EuroOffice
+# and draw.io packs (make eurooffice-pack drawio-pack).
 set -eu
 
-ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
+OSDIR="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
+OUT="${OUT:-$OSDIR/dist}"
+# shellcheck source=lib/host-podman.sh
+. "$OSDIR/lib/host-podman.sh"
 ARCH="${ARCH:-x86_64}"
-OUT="$ROOT/os/dist"
+DEBIAN_IMAGE="${DEBIAN_IMAGE:-docker.io/library/debian:bookworm}"
 ISO="$OUT/luna-rapidinstall-$ARCH.iso"
-TARBALL="$OUT/luna-rootfs-$ARCH.tar.gz"
-# Prefer a path outside the git worktree when agents/IDEs hold open fds under
-# the repo (live-build then fails with "umount: chroot/proc: target is busy").
-WORK="${LUNA_LIVE_WORK:-$ROOT/os/work/debian-live}"
-BUILD="$ROOT/os/iso/build-debian-live.sh"
-STAMP="$OUT/.luna-rapidinstall-${ARCH}.stamp"
 
-die() {
-	echo "ERROR: $*" >&2
-	exit 1
-}
+luna_need_podman
+[ -s "$OUT/luna-os-$ARCH.img.xz" ] || luna_die "missing $OUT/luna-os-$ARCH.img.xz: run os/make-image.sh first"
 
-[ -f "$TARBALL" ] || die "missing $TARBALL — run os/build-rootfs.sh first"
+IMAGE="$(luna_build_image iso "$OSDIR/build/Containerfile.iso" "DEBIAN_IMAGE=$DEBIAN_IMAGE")"
+podman volume exists "$LUNA_ISO_CACHE_VOLUME" || podman volume create "$LUNA_ISO_CACHE_VOLUME" >/dev/null
 
-# Hosts without live-build (e.g. Arch/Fedora) run the Debian live step in a
-# privileged Podman container instead — see iso/Containerfile.live-build.
-IN_CONTAINER=0
-if ! command -v lb >/dev/null 2>&1; then
-	if command -v podman >/dev/null 2>&1; then
-		IN_CONTAINER=1
-	else
-		die "live-build required: sudo apt install live-build debootstrap debian-archive-keyring xorriso"
-	fi
-fi
+echo "==> rapidinstall ISO"
+podman run --rm --security-opt label=disable --memory "$LUNA_BUILD_MEMORY" \
+	-v "$OSDIR:/luna/os:ro" \
+	-v "$OUT:/payload:ro" \
+	-v "$OUT:/out" \
+	-v "$LUNA_ISO_CACHE_VOLUME:/cache" \
+	-e ARCH="$ARCH" -e LUNA_LIVE_REFRESH="${LUNA_LIVE_REFRESH:-}" \
+	"$IMAGE" sh /luna/os/build/iso.sh
 
-if [ "$IN_CONTAINER" = 0 ] && ! sudo -n true 2>/dev/null; then
-	if [ ! -t 0 ]; then
-		die "sudo credentials required for live-build (non-interactive)"
-	fi
-fi
-
-mkdir -p "$OUT"
-"$ROOT/os/iso/stage-debian-live.sh" || die "stage-debian-live.sh failed"
-
-echo "==> preparing live-build workspace"
-if [ -d "$WORK" ]; then
-	for _m in proc sys dev/pts dev run; do
-		sudo umount -lf "$WORK/chroot/$_m" 2>/dev/null || true
-	done
-	sudo rm -rf "$WORK" || die "could not clean $WORK (leftover root-owned live-build files?)"
-fi
-mkdir -p "$WORK"
-cp -a "$ROOT/os/debian-live/." "$WORK/"
-
-if [ -d "$ROOT/os/debian-live/config/includes.binary/luna" ]; then
-	mkdir -p "$WORK/config/includes.binary"
-	cp -a "$ROOT/os/debian-live/config/includes.binary/luna" "$WORK/config/includes.binary/"
-fi
-
-echo "==> Debian live ISO (bookworm)"
-if [ "$IN_CONTAINER" = 1 ]; then
-	# debootstrap needs mknod, which user namespaces can't grant — prefer
-	# rootful podman via sudo when available.
-	PODMAN=podman
-	if sudo -n podman version >/dev/null 2>&1; then
-		PODMAN="sudo -n podman"
-	elif command -v distrobox-host-exec >/dev/null 2>&1 &&
-		distrobox-host-exec sudo -n podman version >/dev/null 2>&1; then
-		# Inside a distrobox, podman is the host's rootless one; reach the
-		# host's rootful podman instead.
-		PODMAN="distrobox-host-exec sudo -n podman"
-	fi
-	LB_IMAGE="${LUNA_LIVE_BUILD_IMAGE:-localhost/luna-live-build:bookworm}"
-	$PODMAN image exists "$LB_IMAGE" 2>/dev/null || \
-		$PODMAN build --network host -t "$LB_IMAGE" -f "$ROOT/os/iso/Containerfile.live-build" "$ROOT/os/iso" || \
-		die "could not build $LB_IMAGE"
-	# The repo is mounted at the same absolute path so staged paths resolve
-	# unchanged; container root writes as root, so hand outputs back after.
-	# Host network: the rootful bridge has no DNS/NAT for apt on some hosts.
-	if ! $PODMAN run --rm --privileged --network host \
-		-e ARCH="$ARCH" -e OUT="$OUT" -e WORK="$WORK" \
-		-v "$ROOT:$ROOT:z" \
-		"$LB_IMAGE" bash "$BUILD"; then
-		echo "==> ISO build failed; see $WORK/build.log" >&2
-		if [ -f "$WORK/build.log" ]; then
-			tail -30 "$WORK/build.log" >&2
-		fi
-		exit 1
-	fi
-	sudo -n chown -R "$(id -u):$(id -g)" "$WORK" "$OUT" 2>/dev/null || true
-elif ! sudo env ARCH="$ARCH" OUT="$OUT" WORK="$WORK" bash "$BUILD"; then
-	echo "==> ISO build failed; see $WORK/build.log" >&2
-	if [ -f "$WORK/build.log" ]; then
-		tail -30 "$WORK/build.log" >&2
-	fi
-	exit 1
-fi
-
-[ -f "$ISO" ] || die "build reported success but $ISO is missing"
-
-# Fail if output is suspiciously small (empty/hybrid stub).
-_iso_bytes="$(wc -c <"$ISO" | tr -d ' ')"
-if [ "$_iso_bytes" -lt 500000000 ]; then
-	die "$ISO is only ${_iso_bytes} bytes — expected hundreds of MB+"
-fi
-
-date -u +%Y-%m-%dT%H:%M:%SZ >"$STAMP"
-
-printf 'built %s (%s bytes)\n' "$ISO" "$_iso_bytes"
+[ -f "$ISO" ] || luna_die "build reported success but $ISO is missing"
+date -u +%Y-%m-%dT%H:%M:%SZ >"$OUT/.luna-rapidinstall-$ARCH.stamp"
 printf 'Write to USB: dd if=%s of=/dev/sdX bs=4M status=progress conv=fsync\n' "$ISO"
 printf 'Boot any x86_64 PC from USB (BIOS or UEFI; Secure Boot off).\n'

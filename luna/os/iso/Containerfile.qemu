@@ -1,0 +1,8 @@
+# Dev-only: QEMU + firmware to boot-test the rapidinstall ISO without
+# installing QEMU on the host (iso/boot-test.sh). Not part of any release.
+ARG DEBIAN_IMAGE=docker.io/library/debian:bookworm
+FROM ${DEBIAN_IMAGE}
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      qemu-system-x86 qemu-utils ovmf seabios socat netpbm \
+ && rm -rf /var/lib/apt/lists/*

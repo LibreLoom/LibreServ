@@ -50,9 +50,9 @@ assert_file_has "$_ROOTFS_BODY" 'critical_mounts="/var/lib/luna"' "LUNA_DATA mus
 assert_file_lacks "$_ROOTFS_BODY" 'runlevels/default/local' "boot hooks must not use OpenRC local.d"
 rm -f "$_ROOTFS_BODY"
 
-assert_file_has "$OS/make-image.sh" 'luna-os-x86_64.img' "make-image must produce the OTA slot asset"
+assert_file_has "$OS/build/image.sh" "img.xz" "image build must produce the OTA slot asset (.img.xz)"
 assert_file_has "$OS/build-iso.sh" 'make-image.sh' "ISO build must produce the slot image"
-assert_file_has "$OS/iso/stage-debian-live.sh" 'luna-os-' "ISO stage must copy the slot image when present"
+assert_file_has "$OS/build/iso.sh" "img.xz" "ISO build must carry the .img.xz slot image"
 assert_file_has "$OS/rapidinstall.sh" 'partition_data' "factory must peel token onto LUNA_DATA"
 
 # The updater code may be split across domain modules — scan the crate.

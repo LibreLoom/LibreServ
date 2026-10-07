@@ -2,7 +2,8 @@
 # Write Luna OS onto a whole disk so it can start on ordinary x86_64 machines:
 # BIOS (mini PCs, older boxes) and UEFI (Wyse 3040, modern mini PCs).
 # GPT: bios_grub + ESP + LUNA_A + LUNA_B + LUNA_DATA.
-# Both OS slots get the same rootfs at factory. GRUB tryboot picks the slot;
+# Both OS slots get the same slot image (luna-os-*.img.xz, streamed through
+# `xz -dc`) at factory. GRUB tryboot picks the slot;
 # Luna state lives on LUNA_DATA mounted at /var/lib/luna.
 
 _wait_block() {
@@ -26,7 +27,7 @@ _find_boot_images() {
 		_i="$(basename "$(find "$_rootmnt/boot" -maxdepth 1 -name 'initramfs-*' | head -1)")"
 	fi
 	if [ -z "$_k" ] || [ "$_k" = "." ] || [ ! -e "$_rootmnt/boot/$_k" ]; then
-		echo "The Luna archive has no kernel in /boot. Refusing to write a bootloader that cannot start." >&2
+		echo "The Luna system image has no kernel in /boot. Refusing to write a bootloader that cannot start." >&2
 		return 1
 	fi
 	printf '%s\n' "$_k" "$_i"
@@ -228,7 +229,7 @@ _disk_is_mounted() {
 
 _flash_guards() {
 	_dev="$1"
-	_tarball="$2"
+	_img="$2"
 
 	if ! is_whole_disk "$_dev"; then
 		echo "Luna only flashes a whole disk (for example /dev/sda, /dev/nvme0n1, or /dev/mmcblk0), not a partition." >&2
@@ -250,31 +251,19 @@ _flash_guards() {
 		echo "Refusing: $_dev (or one of its partitions) is currently mounted." >&2
 		return 2
 	fi
-	if [ ! -f "$_tarball" ]; then
-		echo "missing Luna OS archive: $_tarball" >&2
+	if [ ! -f "$_img" ]; then
+		echo "Luna's system file is missing: $_img" >&2
 		return 2
+	fi
+	if ! command -v xz >/dev/null 2>&1; then
+		echo "This environment is missing xz, which unpacks Luna's system file." >&2
+		return 1
 	fi
 	if ! command -v grub-install >/dev/null 2>&1; then
 		echo "This environment is missing GRUB. Boot the rapidinstall ISO instead." >&2
 		return 1
 	fi
 	return 0
-}
-
-# Extract rootfs onto a mounted slot and stamp fstab for LUNA_DATA.
-_populate_slot() {
-	_slotmnt="$1"
-	_tarball="$2"
-	_label="$3"
-	tar -xzf "$_tarball" -C "$_slotmnt"
-	# Ensure data mountpoint exists; fstab is completed by build-rootfs, but
-	# older tarballs may lack the LUNA_DATA line — append if missing.
-	mkdir -p "$_slotmnt/var/lib/luna"
-	if [ -f "$_slotmnt/etc/fstab" ] && ! grep -q 'LABEL=LUNA_DATA' "$_slotmnt/etc/fstab" 2>/dev/null; then
-		printf 'LABEL=LUNA_DATA /var/lib/luna ext4 defaults,noatime 0 2\n' >>"$_slotmnt/etc/fstab"
-	fi
-	# Slot identity for operators (not a Settings split).
-	printf 'slot=%s\n' "$_label" >"$_slotmnt/etc/luna-slot"
 }
 
 # Write hex SHA256 to $1/os-image.sha256. First field only (GNU sha256sum line).
@@ -289,22 +278,27 @@ _record_os_image_hash() {
 	return 0
 }
 
-# Hash from an in-memory value, a .sha256 companion (first field), or sha256sum of $2.
-_resolve_os_image_hash() {
-	if [ -n "${1:-}" ]; then
-		printf '%s\n' "$1" | awk '{print $1}'
-		return 0
+# sha256 of the exact .img.xz at $1, which is what Luna records as
+# os-image.sha256 and compares against the update feed. When a
+# <image>.sha256 companion sits beside it (the ISO always stages one), the two
+# must agree: a damaged or swapped file stops the install before the disk is
+# erased. Prints the hash; returns 1 on a mismatch or unreadable file.
+_verify_os_image() {
+	_img="$1"
+	_got="$(sha256sum "$_img" 2>/dev/null | awk '{print $1}')"
+	[ -n "$_got" ] || return 1
+	if [ -f "$_img.sha256" ]; then
+		_want="$(awk '{print $1; exit}' "$_img.sha256")"
+		[ "$_want" = "$_got" ] || return 1
 	fi
-	_img="${2:-}"
-	if [ -n "$_img" ] && [ -f "${_img}.sha256" ]; then
-		awk '{print $1; exit}' "${_img}.sha256"
-		return 0
-	fi
-	if [ -n "$_img" ] && [ -f "$_img" ]; then
-		sha256sum "$_img" | awk '{print $1}'
-		return 0
-	fi
-	return 1
+	printf '%s\n' "$_got"
+}
+
+# Stream the .img.xz at $1 onto block device (or file) $2. dash has no
+# pipefail, so xz writes straight to the device and its own exit status counts.
+_write_slot() {
+	xz -dc "$1" >"$2" || return 1
+	sync
 }
 
 # Record the OS image SHA256 onto the data partition so OTA can compare.
@@ -312,12 +306,17 @@ _write_os_image_hash() {
 	_record_os_image_hash "$1" "$2"
 }
 
+# flash_luna_disk <whole disk> <luna-os-*.img.xz>
+# Sets _os_hash (sha256 of that .img.xz) for the caller to record.
 flash_luna_disk() {
 	_dev="$1"
-	_tarball="$2"
-	# Optional third arg: path to luna-os-*.img (or its .sha256 companion via env).
-	_slot_img="${3:-${LUNA_OS_IMAGE:-}}"
-	_flash_guards "$_dev" "$_tarball" || return
+	_slot_img="${2:-${LUNA_OS_IMAGE:-}}"
+	_flash_guards "$_dev" "$_slot_img" || return
+	# Check the file before anything is erased.
+	if ! _os_hash="$(_verify_os_image "$_slot_img")"; then
+		echo "Luna's system file is damaged (its checksum does not match). Nothing was erased." >&2
+		return 1
+	fi
 
 	_bios="$(partition_bios_grub "$_dev")"
 	_esp="$(partition_esp "$_dev")"
@@ -350,19 +349,28 @@ PART
 
 	echo "==> formatting EFI, OS slots, and data"
 	mkfs.vfat -F 32 -n LUNAESP "$_esp"
-	if [ -n "$_slot_img" ] && [ -f "$_slot_img" ]; then
-		echo "==> writing OS image to slot A and slot B"
-		dd if="$_slot_img" of="$_root_a" bs=4M status=none conv=fsync
-		dd if="$_slot_img" of="$_root_b" bs=4M status=none conv=fsync
-		# Relabel in case the image carried a generic label.
-		e2label "$_root_a" LUNA_A 2>/dev/null || true
-		e2label "$_root_b" LUNA_B 2>/dev/null || true
-		_os_hash="$(sha256sum "$_slot_img" | awk '{print $1}')"
-	else
-		mkfs.ext4 -F -L LUNA_A "$_root_a"
-		mkfs.ext4 -F -L LUNA_B "$_root_b"
-		_os_hash=""
-	fi
+	echo "==> writing OS image to slot A and slot B"
+	_write_slot "$_slot_img" "$_root_a" || {
+		echo "Writing Luna to slot A failed." >&2
+		return 1
+	}
+	_write_slot "$_slot_img" "$_root_b" || {
+		echo "Writing Luna to slot B failed." >&2
+		return 1
+	}
+	# Both slots come from one image, so they share a filesystem UUID; GRUB and
+	# the kernel pick a slot by UUID, so slot B needs its own.
+	e2fsck -fy "$_root_b" >/dev/null 2>&1 || [ $? -le 1 ] || {
+		echo "Slot B did not check clean after writing." >&2
+		return 1
+	}
+	tune2fs -U random "$_root_b" >/dev/null || {
+		echo "Could not give slot B its own identity." >&2
+		return 1
+	}
+	# Relabel in case the image carried a generic label.
+	e2label "$_root_a" LUNA_A 2>/dev/null || true
+	e2label "$_root_b" LUNA_B 2>/dev/null || true
 	mkfs.ext4 -F -L LUNA_DATA "$_data"
 	_uuid_a="$(blkid -s UUID -o value "$_root_a")"
 	_uuid_b="$(blkid -s UUID -o value "$_root_b")"
@@ -404,28 +412,10 @@ PART
 		return 1
 	fi
 
-	if [ -z "$_slot_img" ] || [ ! -f "$_slot_img" ]; then
-		echo "==> extracting Luna OS onto slot A and slot B"
-		_populate_slot "$_mnt_a" "$_tarball" A
-		_populate_slot "$_mnt_b" "$_tarball" B
-		# Hash of a deterministic stamp when no release image is present.
-		if [ -f "$_mnt_a/etc/apk-manifest.txt" ]; then
-			_os_hash="$(sha256sum "$_mnt_a/etc/apk-manifest.txt" | awk '{print $1}')"
-		fi
-	else
-		# Image already written; still ensure mountpoints/labels for GRUB probe.
-		mkdir -p "$_mnt_a/var/lib/luna" "$_mnt_b/var/lib/luna"
-		printf 'slot=A\n' >"$_mnt_a/etc/luna-slot"
-		printf 'slot=B\n' >"$_mnt_b/etc/luna-slot"
-	fi
-
-	if [ -z "$_os_hash" ] && [ -f "$_tarball" ]; then
-		_os_hash="$(sha256sum "$_tarball" | awk '{print $1}')"
-	fi
-	if [ -z "$_os_hash" ]; then
-		echo "Could not checksum the OS image. Stopped — updates need that hash on disk." >&2
-		return 1
-	fi
+	# Image already written; still ensure mountpoints/labels for GRUB probe.
+	mkdir -p "$_mnt_a/var/lib/luna" "$_mnt_b/var/lib/luna"
+	printf 'slot=A\n' >"$_mnt_a/etc/luna-slot"
+	printf 'slot=B\n' >"$_mnt_b/etc/luna-slot"
 	if ! _write_os_image_hash "$_datamnt" "$_os_hash"; then
 		echo "Could not write os-image.sha256 onto the data partition. Install failed." >&2
 		return 1

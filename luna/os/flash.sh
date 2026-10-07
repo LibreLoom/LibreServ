@@ -25,9 +25,9 @@ if ! is_whole_disk "$DEV"; then
 fi
 
 ARCH="${ARCH:-x86_64}"
-TARBALL="$ROOT/os/dist/luna-rootfs-$ARCH.tar.gz"
-[ -f "$TARBALL" ] || {
-	echo "missing $TARBALL — run os/build-rootfs.sh first" >&2
+SLOT_IMG="$ROOT/os/dist/luna-os-$ARCH.img.xz"
+[ -f "$SLOT_IMG" ] || {
+	echo "missing $SLOT_IMG — run os/build-rootfs.sh and os/make-image.sh first" >&2
 	exit 2
 }
 
@@ -39,10 +39,5 @@ if [ "$CONFIRM" != "$DEV" ]; then
 	exit 1
 fi
 
-SLOT_IMG="$ROOT/os/dist/luna-os-$ARCH.img"
-if [ -f "$SLOT_IMG" ]; then
-	flash_luna_disk "$DEV" "$TARBALL" "$SLOT_IMG"
-else
-	flash_luna_disk "$DEV" "$TARBALL"
-fi
+flash_luna_disk "$DEV" "$SLOT_IMG"
 echo "If this was a removable drive: power off, install it in the Luna, and boot."

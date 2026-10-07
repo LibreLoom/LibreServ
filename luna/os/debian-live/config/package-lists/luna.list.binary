@@ -1,5 +1,0 @@
-# Tools for the live-build binary stage (runs inside chroot during ISO creation).
-# bookworm moved isohybrid from syslinux → syslinux-utils; live-build 3.x still
-# expects it for iso-hybrid images.
-syslinux-utils
-genisoimage

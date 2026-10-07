@@ -124,31 +124,31 @@ LUNA_FAKE_BLOCK=1
 export LUNA_FAKE_BLOCK
 
 # Mounted disk: refused outright.
-assert_false _flash_guards /dev/sda "$_tmp/missing.tar"
+assert_false _flash_guards /dev/sda "$_tmp/missing.img.xz"
 
 # Same device unmounted: the chain keeps going and hits the next veto
-# (missing archive) — proving the -b probe and the mount guard are
+# (missing system file) — proving the -b probe and the mount guard are
 # independent checks, both ahead of anything destructive.
 cat >"$_mnt_dir/mounts3" <<'EOF'
 /dev/sr0 /src iso9660 ro 0 0
 EOF
 LUNA_PROC_MOUNTS="$_mnt_dir/mounts3"
 export LUNA_PROC_MOUNTS
-assert_false _flash_guards /dev/sda "$_tmp/missing.tar"
+assert_false _flash_guards /dev/sda "$_tmp/missing.img.xz"
 # A present archive gets past every data guard; whether _flash_guards then
 # succeeds depends only on whether this environment has grub-install
 # (same probe the guard itself uses — modules on disk are not enough).
-printf 'fake archive\n' >"$_tmp/archive.tar.gz"
+printf 'fake image\n' | xz -c >"$_tmp/archive.img.xz"
 if command -v grub-install >/dev/null 2>&1; then
-	assert_true _flash_guards /dev/sda "$_tmp/archive.tar.gz"
+	assert_true _flash_guards /dev/sda "$_tmp/archive.img.xz"
 else
 	# No GRUB in this environment: the last guard vetoes with 1.
-	assert_false _flash_guards /dev/sda "$_tmp/archive.tar.gz"
+	assert_false _flash_guards /dev/sda "$_tmp/archive.img.xz"
 fi
 
 # flash_luna_disk itself inherits every veto and returns before
 # partitioning.
-assert_false flash_luna_disk /dev/sda "$_tmp/missing.tar"
+assert_false flash_luna_disk /dev/sda "$_tmp/missing.img.xz"
 
 # The classifier fixtures above remain the exact input the in-function
 # mount guard acts on.
@@ -164,13 +164,32 @@ if ! _disk_is_mounted /dev/sda || ! _disk_is_mounted /dev/nvme1n1; then
 	fail=$((fail + 1))
 fi
 
-# Hex-only stamp: companion file may be a GNU sha256sum line; dest is one hash.
-printf 'deadbeefcafebabe  luna-os-x86_64.img\n' >"$_tmp/img.sha256"
-_got="$(_resolve_os_image_hash "" "$_tmp/img")"
-if [ "$_got" != "deadbeefcafebabe" ]; then
-	echo "FAIL _resolve_os_image_hash must take first field of companion: got '$_got'" >&2
+# The slot image is a .img.xz. _verify_os_image prints the sha256 of those
+# exact bytes (what os-image.sha256 must hold) and rejects a file that does not
+# match its .sha256 companion.
+printf 'pretend slot image\n' | xz -c >"$_tmp/luna-os-x86_64.img.xz"
+_want="$(sha256sum "$_tmp/luna-os-x86_64.img.xz" | awk '{print $1}')"
+_got="$(_verify_os_image "$_tmp/luna-os-x86_64.img.xz")"
+if [ "$_got" != "$_want" ]; then
+	echo "FAIL _verify_os_image must hash the .img.xz itself: got '$_got'" >&2
 	fail=$((fail + 1))
 fi
+printf '%s  luna-os-x86_64.img.xz\n' "$_want" >"$_tmp/luna-os-x86_64.img.xz.sha256"
+assert_true _verify_os_image "$_tmp/luna-os-x86_64.img.xz" >/dev/null
+printf 'deadbeefcafebabe  luna-os-x86_64.img.xz\n' >"$_tmp/luna-os-x86_64.img.xz.sha256"
+assert_false _verify_os_image "$_tmp/luna-os-x86_64.img.xz" >/dev/null
+assert_false _verify_os_image "$_tmp/nothing.img.xz" >/dev/null
+
+# Streaming onto a slot: decompressed bytes land on the target, and a corrupt
+# stream is reported (dash has no pipefail, so xz's own status must count).
+_write_slot "$_tmp/luna-os-x86_64.img.xz" "$_tmp/slot.out"
+if [ "$(cat "$_tmp/slot.out")" != "pretend slot image" ]; then
+	echo "FAIL _write_slot must stream the decompressed image" >&2
+	fail=$((fail + 1))
+fi
+head -c 20 "$_tmp/luna-os-x86_64.img.xz" >"$_tmp/cut.img.xz"
+assert_false _write_slot "$_tmp/cut.img.xz" "$_tmp/slot.out" 2>/dev/null
+
 _record_os_image_hash "$_tmp/data" "aabbccdd  extra"
 if [ "$(cat "$_tmp/data/os-image.sha256")" != "aabbccdd" ]; then
 	echo "FAIL _record_os_image_hash must write hex only" >&2
