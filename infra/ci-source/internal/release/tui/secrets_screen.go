@@ -30,8 +30,11 @@ var mustMatch = map[secrets.ID]string{
 	secrets.AndroidKeystore:  "must open and hold the pinned certificate",
 }
 
-func pill(s secrets.State) string {
-	switch s {
+func pill(st secrets.Status) string {
+	if st.State == secrets.Failed && st.NeedsPassword {
+		return warnStyle.Render("! needs password")
+	}
+	switch st.State {
 	case secrets.Proven:
 		return okStyle.Render("✓ ready")
 	case secrets.Failed:
@@ -67,8 +70,9 @@ func (s *secretsScreen) load(asking, full bool) tea.Cmd {
 	s.loading = true
 	sh := s.sh
 	return func() tea.Msg {
-		sh.br.SetAsk(asking)
-		defer sh.br.SetAsk(false)
+		if asking {
+			defer sh.br.AllowAsk()()
+		}
 		m := sh.be.Secrets()
 		if asking || full {
 			var out []secrets.Status
@@ -168,10 +172,14 @@ func (s *secretsScreen) detailKey(k tea.KeyMsg) (screen, tea.Cmd) {
 	case "up", "k":
 		s.dcur = max(s.dcur-1, 0)
 	case "down", "j":
-		s.dcur = min(s.dcur+1, max(len(st.Candidates)-1, 0))
+		vis, _ := visibleCands(st)
+		s.dcur = min(s.dcur+1, max(len(vis)-1, 0))
 	case "e":
 		s.fx = newFixer(s.sh, st)
 	case "a":
+		if !hasPaths(st.ID) {
+			return s, nil
+		}
 		s.fx = newFixer(s.sh, st)
 		for _, it := range s.fx.items {
 			if it.kind == "addpath" {
@@ -179,6 +187,9 @@ func (s *secretsScreen) detailKey(k tea.KeyMsg) (screen, tea.Cmd) {
 			}
 		}
 	case "d":
+		if !hasPaths(st.ID) || len(s.sh.paths) == 0 {
+			return s, nil
+		}
 		s.fx = newFixer(s.sh, st)
 		for _, it := range s.fx.items {
 			if it.kind == "removepath" {
@@ -193,8 +204,8 @@ func (s *secretsScreen) detailKey(k tea.KeyMsg) (screen, tea.Cmd) {
 			}
 		}
 	case "c":
-		if len(st.Candidates) > 0 {
-			c := st.Candidates[s.dcur]
+		if vis, _ := visibleCands(st); len(vis) > 0 {
+			c := vis[min(s.dcur, len(vis)-1)]
 			if c.Outcome == secrets.Valid || c.Outcome == secrets.Used {
 				sh, id, ref := s.sh, st.ID, c.Ref
 				return s, func() tea.Msg {
@@ -220,15 +231,19 @@ func (s *secretsScreen) view(w, h int) frame {
 		return s.detailView(w, h)
 	}
 	f := frame{title: "Secrets", info: s.storeInfo(),
-		help: "enter details · a add file/folder · t test all · r rescan · s store · p Proton Pass · esc"}
+		help: "enter details · a add folder · t test all · r rescan · s store · p Proton Pass · esc"}
 	var lines []string
-	lines = append(lines, dimStyle.Render("   "+pad("Secret", 26)+pad("State", 12)+pad("From", 28)+"Used by"))
+	nameW := 30
+	lines = append(lines, dimStyle.Render("   "+pad("Secret", nameW)+pad("State", 17)+"Used by"))
 	for i, st := range s.sts {
-		name := pad(st.Label, 24)
+		name := pad(st.Label, nameW)
 		if i == s.cur {
 			name = selStyle.Render(name)
 		}
-		lines = append(lines, marker(i == s.cur)+name+"  "+pad(pill(st.State), 12)+pad(from(st), 28)+usedBy[st.ID])
+		lines = append(lines, marker(i == s.cur)+name+pad(pill(st), 17)+usedBy[st.ID])
+		if src := from(st); src != "" {
+			lines = append(lines, "    "+dimStyle.Render(fitMid(src, w-6)))
+		}
 	}
 	if s.loading {
 		lines = append(lines, "", dimStyle.Render("   Checking… (this proves each secret for real, so it can take a moment)"))
@@ -236,7 +251,7 @@ func (s *secretsScreen) view(w, h int) frame {
 	if len(s.sts) > 0 && s.cur < len(s.sts) {
 		lines = append(lines, "", "  "+dimStyle.Render(fit(s.sh.redact(s.sts[s.cur].Summary), w-4)))
 	}
-	if paths := s.sh.be.Secrets().Paths(); len(paths) > 0 {
+	if paths := s.sh.paths; len(paths) > 0 {
 		lines = append(lines, "", "  "+dimStyle.Render("Also searching: "+fit(strings.Join(paths, ", "), w-22)))
 	}
 	if s.input != nil {
@@ -264,49 +279,101 @@ func from(st secrets.Status) string {
 }
 
 func (s *secretsScreen) storeInfo() string {
-	st := s.sh.be.Store()
-	if st == nil {
+	if s.sh.snap.loaded && !s.sh.snap.have {
 		return "nothing is remembered"
 	}
-	return "remembered in: " + storeSummary(st)
+	return "remembered in: " + storeSummary(s.sh.snap)
 }
+
+// visibleCands drops the files the home scan looked at and found uninteresting
+// (they are counted instead).
+func visibleCands(st secrets.Status) (vis []secrets.Candidate, hidden int) {
+	for _, c := range st.Candidates {
+		if c.Outcome == secrets.Rejected && strings.HasPrefix(c.Where, "home scan") {
+			hidden++
+			continue
+		}
+		vis = append(vis, c)
+	}
+	return vis, hidden
+}
+
+func candNote(c secrets.Candidate) string {
+	note := c.Reason
+	if c.Detail != "" {
+		if note != "" {
+			note = c.Detail + " · " + note
+		} else {
+			note = c.Detail
+		}
+	}
+	if c.Outcome == secrets.Used {
+		note += "  used"
+	}
+	return note
+}
+
+// hasPaths says whether adding or removing a searched folder means anything
+// for this secret (the Forgejo token is not a file).
+func hasPaths(id secrets.ID) bool { return id != secrets.ForgejoToken }
 
 func (s *secretsScreen) detailView(w, h int) frame {
 	st := s.sts[s.cur]
-	f := frame{title: st.Label, info: mustMatch[st.ID],
-		help: "e enter or paste · a add path · d remove path · c choose · f forget · r prove again · esc"}
+	f := frame{title: st.Label, info: mustMatch[st.ID]}
+	f.help = "e enter or paste · c choose · f forget · r prove again · esc"
+	if hasPaths(st.ID) {
+		f.help = "e enter or paste · a add path · c choose · f forget · r again · esc"
+		if len(s.sh.paths) > 0 {
+			f.help = "e enter or paste · a add path · d remove path · c choose · f forget · esc"
+		}
+	}
+	vis, hidden := visibleCands(st)
+	s.dcur = min(s.dcur, max(len(vis)-1, 0))
+
+	// What sits under the list is built first, so the list gets what is left.
+	var foot []string
+	if hidden > 0 {
+		foot = append(foot, dimStyle.Render(fmt.Sprintf("  %s found by the home scan weren't release keys", plural(hidden, "other file", "other files"))))
+	}
+	foot = append(foot, "")
+	for _, l := range wrapText(s.sh.redact(st.Summary), w-4) {
+		foot = append(foot, "  "+l)
+	}
+	if !s.at.IsZero() {
+		foot = append(foot, "  "+dimStyle.Render("Checked "+s.at.Format("2006-01-02 15:04")+" · proven by signing or logging in for real"))
+	}
+	if s.note != "" {
+		foot = append(foot, "  "+warnStyle.Render(fit(s.note, w-4)))
+	}
+
+	whereW := min(max(w*40/100, 24), 48)
 	var lines []string
-	for i, c := range st.Candidates {
+	for i, c := range vis {
 		g := map[secrets.Outcome]string{secrets.Used: okStyle.Render("✓"), secrets.Valid: okStyle.Render("✓"),
 			secrets.Rejected: failStyle.Render("✗"), secrets.Unusable: warnStyle.Render("?")}[c.Outcome]
-		note := c.Reason
-		if c.Detail != "" {
-			if note != "" {
-				note = c.Detail + " · " + note
-			} else {
-				note = c.Detail
-			}
-		}
-		if c.Outcome == secrets.Used {
-			note += "  used"
-		}
-		where := pad(c.Where, 36)
+		where := pad(fitMid(c.Where, whereW), whereW)
 		if i == s.dcur {
 			where = selStyle.Render(where)
 		}
-		lines = append(lines, marker(i == s.dcur)+g+" "+where+fit(note, w-42))
+		lines = append(lines, marker(i == s.dcur)+g+" "+where+" "+fit(candNote(c), w-whereW-5))
 	}
 	if len(lines) == 0 {
-		lines = append(lines, dimStyle.Render("   Nothing was found. Paste it with e, or add the place it lives with a."))
+		lines = append(lines, dimStyle.Render("   Nothing was found. Paste it with e"+map[bool]string{true: ", or add the place it lives with a.", false: "."}[hasPaths(st.ID)]))
 	}
-	lines = append(lines, "", "  "+fit(s.sh.redact(st.Summary), w-4))
-	if !s.at.IsZero() {
-		lines = append(lines, "  "+dimStyle.Render("Checked "+s.at.Format("2006-01-02 15:04")+" · proven by signing or logging in for real"))
+	// The selected row in full, since the columns cut long paths and reasons.
+	var sel []string
+	if len(vis) > 0 {
+		c := vis[s.dcur]
+		for i, l := range wrapText(c.Where+": "+candNote(c), w-6) {
+			if i == 3 {
+				break
+			}
+			sel = append(sel, dimStyle.Render("    "+l))
+		}
 	}
-	if s.note != "" {
-		lines = append(lines, "  "+warnStyle.Render(fit(s.note, w-4)))
-	}
-	f.body = lines
+	listH := max(h-len(foot)-len(sel)-1, 3)
+	body := window(lines, s.dcur, listH)
+	f.body = append(append(body, sel...), foot...)
 	return f
 }
 
@@ -367,11 +434,11 @@ func (s *storeScreen) update(msg tea.Msg) (screen, tea.Cmd) {
 		case "enter":
 			return s.beginSwitch(st)
 		case "u":
-			if st.NeedsUnlock() {
+			if s.sh.snap.needsUnlock {
 				return s, push(newUnlock(s.sh, nil))
 			}
 		case "p":
-			if st.Mode() != secrets.ModeVault || !st.Unlocked() {
+			if s.sh.snap.mode != secrets.ModeVault || !s.sh.snap.unlocked {
 				s.err = "Switch to the vault and unlock it first."
 				return s, nil
 			}
@@ -391,12 +458,13 @@ func (s *storeScreen) target() secrets.StoreMode {
 func (s *storeScreen) beginSwitch(st StoreAPI) (screen, tea.Cmd) {
 	to := s.target()
 	s.err = ""
-	if to == st.Mode() && st.Saved() == to {
+	sn := s.sh.snap
+	if to == sn.mode && sn.saved == to {
 		s.note = "Already using this."
 		return s, nil
 	}
-	vaultOpen := st.Mode() == secrets.ModeVault && st.Unlocked()
-	needPass := (to == secrets.ModeVault || st.Mode() == secrets.ModeVault) && !vaultOpen
+	vaultOpen := sn.mode == secrets.ModeVault && sn.unlocked
+	needPass := (to == secrets.ModeVault || sn.mode == secrets.ModeVault) && !vaultOpen
 	if needPass {
 		s.mode = "switch"
 		s.fa, s.fb, s.focus = newField("", true), newField("", true), 0
@@ -418,7 +486,7 @@ func (s *storeScreen) doSwitch(st StoreAPI, to secrets.StoreMode, pass string) t
 
 func (s *storeScreen) formKey(k tea.KeyMsg, st StoreAPI) (screen, tea.Cmd) {
 	fields := []*field{s.fa}
-	creating := s.mode == "switch" && !st.VaultExists() && s.target() == secrets.ModeVault
+	creating := s.mode == "switch" && !s.sh.snap.vaultExists && s.target() == secrets.ModeVault
 	switch {
 	case s.mode == "change":
 		fields = []*field{s.fa, s.fb, s.fc}
@@ -475,22 +543,26 @@ func (s *storeScreen) view(w, h int) frame {
 		f.body = []string{"", "  Remembering values is not available in this session."}
 		return f
 	}
-	sysOK, sysErr := st.SystemAvailable()
+	sn := s.sh.snap
+	if !sn.loaded {
+		f.body = []string{"", "  " + dimStyle.Render("Checking where values are kept…")}
+		return f
+	}
+	sysOK := sn.sysOK
 	active := func(m secrets.StoreMode) string {
-		if st.Mode() == m {
+		if sn.mode == m {
 			return okStyle.Render("  ← in use")
 		}
 		return ""
 	}
-	sys := "available (" + st.Backend() + ")"
+	sys := "available (" + sn.backend + ")"
 	if !sysOK {
 		sys = "not available here"
-		_ = sysErr
 	}
 	vault := "no vault yet; created with your passphrase"
-	if st.VaultExists() {
+	if sn.vaultExists {
 		vault = "locked"
-		if st.Unlocked() && st.Mode() == secrets.ModeVault {
+		if sn.unlocked && sn.mode == secrets.ModeVault {
 			vault = "unlocked"
 		}
 	}
@@ -499,15 +571,15 @@ func (s *storeScreen) view(w, h int) frame {
 		"    " + dimStyle.Render("Opens with your desktop login. Nothing to type."),
 		marker(s.cur == 1) + pad("Passphrase vault", 18) + pad(vault, 36) + active(secrets.ModeVault),
 		"    " + dimStyle.Render("One encrypted file, one passphrase, asked once per session."),
-		"    " + dimStyle.Render(fit(st.VaultDir(), w-8)),
+		"    " + dimStyle.Render(fitMid(sn.vaultDir, w-8)),
 		"", "  " + dimStyle.Render("Switching copies every remembered value to the new place, checks it, then removes the old copy.")}
-	if st.Saved() == "" {
+	if sn.saved == "" {
 		lines = append(lines, "  "+dimStyle.Render("No choice saved yet: using the default (system keyring when there is one)."))
 	}
 	switch s.mode {
 	case "switch":
 		lines = append(lines, "", "  "+panelStyle.Render("Vault passphrase")+"  "+s.fa.view(w-30, s.focus == 0))
-		if !st.VaultExists() && s.target() == secrets.ModeVault {
+		if !sn.vaultExists && s.target() == secrets.ModeVault {
 			lines = append(lines, "  "+panelStyle.Render("Once more       ")+"  "+s.fb.view(w-30, s.focus == 1))
 		}
 		f.help = "enter go on · tab next · esc cancel"
@@ -553,7 +625,7 @@ func (s *protonScreen) init() tea.Cmd { return nil }
 func (s *protonScreen) busy() string  { return "" }
 func (s *protonScreen) stop()         {}
 
-func (s *protonScreen) slots() []secrets.SlotInfo { return s.sh.be.Secrets().Slots() }
+func (s *protonScreen) slots() []secrets.SlotInfo { return s.sh.slots }
 
 func (s *protonScreen) save() {
 	if err := s.sh.be.Secrets().SetProton(s.cfg); err != nil {

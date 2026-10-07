@@ -206,8 +206,8 @@ func (f *fakeBackend) CutVersion(r app.CutRequest) (version.Version, version.Ver
 	n, err := cur.Next(r.Bump)
 	return cur, n, err
 }
-func (f *fakeBackend) DraftNotes(context.Context, string) (string, error) {
-	return "- feat(luna): faster uploads\n- fix(luna): drive names\n", nil
+func (f *fakeBackend) NotesDraft(context.Context, string) (app.NotesDraft, error) {
+	return app.NotesDraft{Text: "- feat(luna): faster uploads\n- fix(luna): drive names\n"}, nil
 }
 func (f *fakeBackend) Preflight(ctx context.Context, r app.CutRequest) *app.PreflightReport {
 	if f.preflightAsk {

@@ -29,7 +29,7 @@ type Bridge struct {
 	events  []app.Event
 	pending bool
 	send    func(tea.Msg)
-	allow   bool
+	allow   int // open AllowAsk requests
 }
 
 // NewBridge makes a bridge that does not ask anything until a screen allows it.
@@ -66,19 +66,29 @@ func (b *Bridge) drain() []app.Event {
 	return ev
 }
 
-// SetAsk allows or forbids asking the user. Background checks run with it off
-// (a missing password just counts as missing); preflight and re-proving turn
-// it on. The vault passphrase is never asked this way.
-func (b *Bridge) SetAsk(allow bool) {
+// AllowAsk lets questions through until the returned function is called.
+// Background checks run without it (a missing password just counts as
+// missing); preflight and re-proving ask for it. Requests count, so one
+// finishing never switches off another that is still running. The vault
+// passphrase is never asked this way.
+func (b *Bridge) AllowAsk() (done func()) {
 	b.mu.Lock()
-	b.allow = allow
+	b.allow++
 	b.mu.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			b.mu.Lock()
+			b.allow--
+			b.mu.Unlock()
+		})
+	}
 }
 
 func (b *Bridge) asking() (bool, func(tea.Msg)) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.allow && b.send != nil, b.send
+	return b.allow > 0 && b.send != nil, b.send
 }
 
 // Ask is secrets.Prompter: the question shows inline in the TUI and this

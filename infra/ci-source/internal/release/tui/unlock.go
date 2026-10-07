@@ -26,8 +26,8 @@ type unlockScreen struct {
 func newUnlock(sh *shared, onDone func() tea.Cmd) *unlockScreen {
 	s := &unlockScreen{sh: sh, onDone: onDone, a: newField("", true), b: newField("", true)}
 	s.onSkip = func() tea.Cmd { return send(storeReadyMsg{}) }
-	if st := sh.be.Store(); st != nil {
-		s.creating = !st.VaultExists()
+	if sh.snap.have {
+		s.creating = !sh.snap.vaultExists
 	}
 	return s
 }

@@ -71,7 +71,7 @@ func (a *App) UnitStatuses(ctx context.Context) []UnitStatus {
 		} else {
 			s.Version = v.String()
 		}
-		if tag, _, ok, err := version.LastTag(ctx, a.cfg.Repo, u, "HEAD"); err == nil {
+		if tag, _, ok, err := version.NotesBase(ctx, a.cfg.Repo, u, "HEAD"); err == nil {
 			s.LastTag = tag
 			if n, err := version.CommitsSince(ctx, a.cfg.Repo, tag, "HEAD"); err == nil {
 				s.Since = n

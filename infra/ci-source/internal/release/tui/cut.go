@@ -26,7 +26,7 @@ const (
 var cutPhaseNames = []string{"Version", "Notes", "Preflight", "Run", "Verify"}
 
 type (
-	notesMsg     struct{ text string }
+	notesMsg     struct{ text, hint string }
 	preflightMsg struct{ rep *app.PreflightReport }
 	preflightGo  struct{}
 	cutDoneMsg   struct {
@@ -40,17 +40,18 @@ type cutScreen struct {
 	phase int
 
 	// setup
-	units    []string
-	unitIdx  int
-	channel  string
-	bumpIdx  int
-	previews []app.BumpPreview
-	dry      bool
-	rebuild  bool
-	row      int
-	un       []publish.State // unfinished cuts of the chosen unit
-	resume   *publish.State  // set when resuming
-	notice   string
+	units     []string
+	unitIdx   int
+	channel   string
+	bumpIdx   int
+	previews  []app.BumpPreview
+	dry       bool
+	rebuild   bool
+	notesHint string
+	row       int
+	un        []publish.State // unfinished cuts of the chosen unit
+	resume    *publish.State  // set when resuming
+	notice    string
 
 	// notes
 	ed     *editor
@@ -136,21 +137,21 @@ func (s *cutScreen) loadNotes() tea.Cmd {
 	}
 	if s.resume != nil && s.resume.Notes != "" {
 		saved := s.resume.Notes
-		return func() tea.Msg { return notesMsg{saved} }
+		return func() tea.Msg { return notesMsg{text: saved} }
 	}
 	return func() tea.Msg {
-		t, err := sh.be.DraftNotes(sh.ctx, unit)
+		d, err := sh.be.NotesDraft(sh.ctx, unit)
 		if err != nil {
-			t = ""
+			return notesMsg{}
 		}
-		return notesMsg{t}
+		return notesMsg{d.Text, d.Hint()}
 	}
 }
 
 func (s *cutScreen) update(msg tea.Msg) (screen, tea.Cmd) {
 	switch m := msg.(type) {
 	case notesMsg:
-		s.ed, s.loaded = newEditor(m.text), true
+		s.ed, s.loaded, s.notesHint = newEditor(m.text), true, m.hint
 		return s, nil
 	case preflightGo:
 		return s, s.preflight()
@@ -307,7 +308,7 @@ func (s *cutScreen) notesKey(k tea.KeyMsg) (screen, tea.Cmd) {
 // is allowed here, never after the cut has started.
 func (s *cutScreen) toPreflight() tea.Cmd {
 	s.phase, s.rep, s.fixNote = cpPreflight, nil, ""
-	if st := s.sh.be.Store(); st != nil && st.NeedsUnlock() {
+	if s.sh.snap.have && s.sh.snap.needsUnlock {
 		return push(newUnlock(s.sh, func() tea.Cmd { return send(preflightGo{}) }))
 	}
 	return s.preflight()
@@ -320,9 +321,9 @@ func (s *cutScreen) preflight() tea.Cmd {
 	sh, req := s.sh, s.req
 	return func() tea.Msg {
 		sh.be.Secrets().Refresh()
-		sh.br.SetAsk(true)
+		done := sh.br.AllowAsk()
 		rep := sh.be.Preflight(sh.ctx, req)
-		sh.br.SetAsk(false)
+		done()
 		return preflightMsg{rep}
 	}
 }
@@ -418,7 +419,6 @@ func (s *cutScreen) start() tea.Cmd {
 	s.b = newBoard(s.sh)
 	s.sh.newRun()
 	// From here on a cut must never stop to ask: preflight proved everything.
-	s.sh.br.SetAsk(false)
 	ctx, cancel := context.WithCancel(s.sh.ctx)
 	s.cancel = cancel
 	sh, req := s.sh, s.req
@@ -561,8 +561,12 @@ func (s *cutScreen) notesView(f frame, w, h int) frame {
 		return f
 	}
 	lines := []string{"  " + dimStyle.Render("Release notes (shown to people in the update screen). Edit freely.")}
-	lines = append(lines, s.ed.view(w-4, h-1)...)
-	for i := 1; i < len(lines); i++ {
+	for _, l := range wrapText(s.notesHint, w-6) {
+		lines = append(lines, "  "+warnStyle.Render("! ")+l)
+	}
+	skip := len(lines)
+	lines = append(lines, s.ed.view(w-4, h-skip)...)
+	for i := skip; i < len(lines); i++ {
 		lines[i] = "  " + lines[i]
 	}
 	f.body = lines

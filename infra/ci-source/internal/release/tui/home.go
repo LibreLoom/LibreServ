@@ -62,7 +62,6 @@ func (h *home) init() tea.Cmd {
 func (h *home) checkSecrets() tea.Cmd {
 	sh := h.sh
 	return func() tea.Msg {
-		sh.br.SetAsk(false)
 		return secretsMsg{sh.be.Secrets().List(sh.ctx)}
 	}
 }
@@ -167,10 +166,10 @@ func (h *home) view(w, bodyH int) frame {
 	default:
 		f.info = "looking at the checkout…"
 	}
-	f.help = "b build · c cut · v verify · u serve-dev · s secrets · d doctor · ? help · q quit"
+	f.help = "b build · c cut · v verify · u serve · s secrets · d doctor · ? help · q quit"
 
 	var lines []string
-	lines = append(lines, dimStyle.Render("  "+pad("Unit", 13)+pad("Version", 14)+pad("Since tag", 12)+pad("Stable", 18)+"Beta"))
+	lines = append(lines, dimStyle.Render("  "+pad("Unit", 13)+pad("Version", 13)+pad("Since tag", 14)+pad("Stable", 18)+"Beta"))
 	for i, u := range h.units {
 		since := "no tag"
 		switch {
@@ -183,7 +182,7 @@ func (h *home) view(w, bodyH int) frame {
 		if i == h.cur {
 			name = selStyle.Render(name)
 		}
-		row := marker(i == h.cur) + name + pad(orDash(u.Version), 14) + pad(since, 12) +
+		row := marker(i == h.cur) + name + pad(orDash(u.Version), 13) + pad(since, 14) +
 			h.feedCell(u.Unit, "stable", 18) + h.feedCell(u.Unit, "beta", 18)
 		if u.Err != "" {
 			row = marker(i == h.cur) + name + errTxtStyle.Render(fit(u.Err, w-18))
@@ -244,8 +243,12 @@ func (h *home) secretsLine(w int) string {
 	}
 	text := fmt.Sprintf("%d/%d ready", ok, len(h.secrets))
 	if len(bad) > 0 {
-		text += " · not ready: " + strings.Join(bad, ", ") + "   " + dimStyle.Render("s to fix")
-		return label + warnStyle.Render("! ") + fit(text, w-16)
+		fix := "   " + dimStyle.Render("s to fix")
+		room := w - 16 - len(text) - lw(fix) - len(" · not ready: ")
+		if room >= 8 {
+			text += " · not ready: " + fit(strings.Join(bad, ", "), room)
+		}
+		return label + warnStyle.Render("! ") + text + fix
 	}
 	return label + okStyle.Render("✓ ") + text
 }
@@ -268,25 +271,11 @@ func (h *home) podmanLine(w int) string {
 
 func (h *home) storeLine(w int) string {
 	label := pad("   Stored in", 13)
-	st := h.sh.be.Store()
-	if st == nil {
+	snap := h.sh.snap
+	if snap.loaded && !snap.have {
 		return label + dimStyle.Render("values cannot be remembered here")
 	}
-	return label + fit(storeSummary(st), w-14) + "   " + dimStyle.Render("s › t to change")
-}
-
-// storeSummary says where remembered values live and whether they can be read.
-func storeSummary(st StoreAPI) string {
-	if st.Mode() == secrets.ModeVault {
-		if st.Unlocked() {
-			return "passphrase vault, unlocked"
-		}
-		return "passphrase vault, locked"
-	}
-	if ok, _ := st.SystemAvailable(); !ok {
-		return "system keyring not reachable"
-	}
-	return "system keyring (" + st.Backend() + ")"
+	return label + fit(storeSummary(snap), w-14) + "   " + dimStyle.Render("change: s, then s")
 }
 
 // ---- help

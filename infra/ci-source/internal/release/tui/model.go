@@ -33,16 +33,32 @@ type screen interface {
 
 // shared is what every screen can reach.
 type shared struct {
-	be     Backend
-	br     *Bridge
-	run    *runState
-	now    func() time.Time
-	w, h   int
-	ctx    context.Context
-	cancel context.CancelFunc
+	be   Backend
+	br   *Bridge
+	run  *runState
+	now  func() time.Time
+	w, h int
+	// snap, slots and paths are copies of what the store and keyring hold;
+	// View and Update read these, never the store (see cacheCmd).
+	snap     storeSnap
+	slots    []secrets.SlotInfo
+	paths    []string
+	cacheSeq int
+	cached   int
+	ctx      context.Context
+	cancel   context.CancelFunc
 }
 
 func (s *shared) redact(x string) string { return s.be.Redact(x) }
+
+// applyCache keeps the newest snapshot.
+func (s *shared) applyCache(c cacheMsg) {
+	if c.seq < s.cached {
+		return
+	}
+	s.cached = c.seq
+	s.snap, s.slots, s.paths = c.snap, c.slots, c.paths
+}
 
 func (s *shared) newRun() *runState {
 	s.run = newRunState(s.now())
@@ -55,7 +71,10 @@ type (
 	replaceMsg struct{ s screen }
 	tickMsg    time.Time
 	// storeStateMsg is the result of looking at the store when starting.
-	storeStateMsg struct{ needUnlock bool }
+	storeStateMsg struct {
+		needUnlock bool
+		cache      cacheMsg
+	}
 	// storeReadyMsg means remembered values can be read (or the user went on
 	// without them): background checks may start.
 	storeReadyMsg struct{}
@@ -105,19 +124,31 @@ func tickCmd() tea.Cmd {
 // storeCmd looks at the store: which one is active and whether it needs the
 // passphrase. It can take a moment (it probes the system keyring).
 func storeCmd(sh *shared) tea.Cmd {
+	cache := cacheCmd(sh)
 	return func() tea.Msg {
-		st := sh.be.Store()
-		if st == nil {
-			return storeStateMsg{}
-		}
-		return storeStateMsg{needUnlock: st.NeedsUnlock()}
+		c := cache().(cacheMsg)
+		return storeStateMsg{needUnlock: c.snap.needsUnlock, cache: c}
 	}
 }
 
 func (m *Model) top() screen { return m.stack[len(m.stack)-1] }
 
+// Update never blocks: anything slow runs as a command. After something that
+// can change the store or the remembered values, the cached copy is read again.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	mm, cmd := m.update(msg)
+	switch msg.(type) {
+	case fixResultMsg, storeResultMsg, unlockResultMsg, fixedMsg:
+		cmd = tea.Batch(cmd, cacheCmd(m.sh))
+	}
+	return mm, cmd
+}
+
+func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case cacheMsg:
+		m.sh.applyCache(msg)
+		return m, nil
 	case tea.WindowSizeMsg:
 		m.sh.w, m.sh.h = msg.Width, msg.Height
 		return m, nil
@@ -148,6 +179,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case storeStateMsg:
+		m.sh.applyCache(msg.cache)
 		if msg.needUnlock {
 			return m, push(newUnlock(m.sh, func() tea.Cmd { return send(storeReadyMsg{}) }))
 		}
@@ -296,7 +328,7 @@ type askState struct {
 func newAsk(sh *shared, m askMsg) *askState {
 	a := &askState{sh: sh, q: m.q, reply: m.reply}
 	a.f = newField("", m.q.Secret)
-	if st := sh.be.Store(); st != nil && st.Unlocked() {
+	if sh.snap.have && sh.snap.unlocked {
 		a.canStore = true
 		a.remember = true
 	}

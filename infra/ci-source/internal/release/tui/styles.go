@@ -138,3 +138,47 @@ func fitTail(s string, w int) string {
 	}
 	return "…" + string(r[len(r)-(w-1):])
 }
+
+// fitMid cuts the middle of s so both its start and its end stay readable
+// (paths).
+func fitMid(s string, w int) string {
+	r := []rune(s)
+	if len(r) <= w || w < 5 {
+		return fit(s, w)
+	}
+	head := (w - 1) / 3
+	tail := w - 1 - head
+	return string(r[:head]) + "…" + string(r[len(r)-tail:])
+}
+
+// wrapText breaks s into lines of at most w cells at spaces.
+func wrapText(s string, w int) []string {
+	if w < 8 {
+		return []string{fit(s, w)}
+	}
+	var out []string
+	line := ""
+	for _, word := range strings.Fields(s) {
+		for lw(word) > w {
+			if line != "" {
+				out = append(out, line)
+				line = ""
+			}
+			out = append(out, ansi.Truncate(word, w, ""))
+			word = ansi.TruncateLeft(word, w, "")
+		}
+		switch {
+		case line == "":
+			line = word
+		case lw(line)+1+lw(word) <= w:
+			line += " " + word
+		default:
+			out = append(out, line)
+			line = word
+		}
+	}
+	if line != "" {
+		out = append(out, line)
+	}
+	return out
+}

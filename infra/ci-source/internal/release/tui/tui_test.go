@@ -69,7 +69,7 @@ func TestVaultCreateAsksTwice(t *testing.T) {
 func TestPrompterInlineFlow(t *testing.T) {
 	h := newHarness(t)
 	h.start()
-	h.br.SetAsk(true)
+	allow := h.br.AllowAsk()
 	got := make(chan secrets.Answer, 1)
 	go func() {
 		a, _ := h.br.Ask(context.Background(), secrets.Question{Slot: secrets.SlotMinisignPassword, Label: "Password for ~/.minisign/lsluna.key", Secret: true, Hint: "The password you chose."})
@@ -123,7 +123,7 @@ func TestPrompterInlineFlow(t *testing.T) {
 	if _, err := h.br.Ask(context.Background(), secrets.Question{Slot: "keyring-passphrase"}); err == nil {
 		t.Fatal("passphrase question must fail")
 	}
-	h.br.SetAsk(false)
+	allow()
 	if a, _ := h.br.Ask(context.Background(), secrets.Question{Slot: secrets.SlotForgejoToken}); !a.Skip {
 		t.Fatal("must skip when asking is off")
 	}

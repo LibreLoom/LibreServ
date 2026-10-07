@@ -23,7 +23,6 @@ func (s *doctorScreen) stop()            {}
 func (s *doctorScreen) init() tea.Cmd {
 	sh := s.sh
 	return func() tea.Msg {
-		sh.br.SetAsk(false)
 		return doctorDoneMsg{sh.be.Doctor(context.Background(), true)}
 	}
 }

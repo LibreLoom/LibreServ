@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -50,10 +51,22 @@ type buildScreen struct {
 }
 
 func newBuild(sh *shared, unit string) *buildScreen {
-	s := &buildScreen{sh: sh, units: sh.be.Units(), selected: map[string]bool{}, partSel: map[string]bool{},
+	var units []string
+	for _, u := range sh.be.Units() {
+		if u != "demo" { // a self-test unit for the command line and tests
+			units = append(units, u)
+		}
+	}
+	s := &buildScreen{sh: sh, units: units, selected: map[string]bool{}, partSel: map[string]bool{},
 		ref: newField("HEAD", false), b: newBoard(sh)}
-	if unit == "" && len(s.units) > 0 {
-		unit = s.units[0]
+	found := false
+	for i, u := range units {
+		if u == unit {
+			s.cur, found = i, true
+		}
+	}
+	if !found && len(units) > 0 {
+		unit = units[0]
 	}
 	s.selected[unit] = true
 	s.loadParts()
@@ -264,9 +277,21 @@ func (s *buildScreen) view(w, h int) frame {
 
 func (s *buildScreen) resultLines(w int) []string {
 	var out []string
-	if s.err != nil {
-		out = append(out, "  "+failStyle.Render("✗ ")+fit(s.sh.redact(s.err.Error()), w-6))
-	} else {
+	switch {
+	case errors.Is(s.err, context.Canceled):
+		out = append(out, "  "+warnStyle.Render("■ ")+"Stopped after "+clock(s.ended.Sub(s.started))+". Nothing was published.")
+	case s.err != nil:
+		for i, l := range wrapText(s.sh.redact(s.err.Error()), w-6) {
+			if i == 0 {
+				out = append(out, "  "+failStyle.Render("✗ ")+l)
+			} else {
+				out = append(out, "    "+l)
+			}
+			if i == 2 {
+				break
+			}
+		}
+	default:
 		out = append(out, "  "+okStyle.Render("✓ ")+"Built "+fmt.Sprintf("in %s", clock(s.ended.Sub(s.started))))
 	}
 	for _, r := range s.res {

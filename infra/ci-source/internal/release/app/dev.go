@@ -19,10 +19,12 @@ import (
 
 // DevServeOptions configure the dev server.
 type DevServeOptions struct {
-	// Addr is the listen address (default ":8099").
+	// Addr is the port to listen on, written ":8099" (default ":8099").
 	Addr string
-	// Host is the host name or IP receivers use to reach this machine; it is
-	// written into the feed URLs (default: this machine's first LAN address).
+	// Host is the address the server listens on and the one written into the
+	// feed URLs. The default is 127.0.0.1, so nothing else on the network can
+	// reach it. Use this machine's LAN address to let another machine in, or
+	// 0.0.0.0 to listen everywhere (the LAN address is then shown).
 	Host string
 	// Dist is the build root to serve (default the app's OutRoot).
 	Dist string
@@ -32,6 +34,8 @@ type DevServeOptions struct {
 type DevServer struct {
 	// URL is what receivers use, e.g. http://192.168.1.20:8099.
 	URL string
+	// Listening is the address the server is bound to, e.g. 127.0.0.1:8099.
+	Listening string
 	// FeedBase is the update feed base URL for Luna (LUNA_UPDATES_FEED).
 	FeedBase string
 	Key      *DevKey
@@ -74,18 +78,26 @@ func (a *App) StartDev(opt DevServeOptions) (*DevServer, error) {
 	if err != nil {
 		return nil, err
 	}
-	ln, err := net.Listen("tcp", opt.Addr)
+	_, bindPort, err := net.SplitHostPort(opt.Addr)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("listen address %q: %w", opt.Addr, err)
 	}
 	host := opt.Host
 	if host == "" {
-		host = lanHost()
+		host = "127.0.0.1"
+	}
+	shown := host
+	if ip := net.ParseIP(host); ip != nil && ip.IsUnspecified() {
+		shown = lanHost()
+	}
+	ln, err := net.Listen("tcp", net.JoinHostPort(host, bindPort))
+	if err != nil {
+		return nil, err
 	}
 	_, port, _ := net.SplitHostPort(ln.Addr().String())
-	base := "http://" + net.JoinHostPort(host, port)
+	base := "http://" + net.JoinHostPort(shown, port)
 	h := a.DevHandler(opt.Dist, base, key)
-	return &DevServer{URL: base, FeedBase: base + "/feeds", Key: key, ln: ln,
+	return &DevServer{URL: base, Listening: ln.Addr().String(), FeedBase: base + "/feeds", Key: key, ln: ln,
 		srv: &http.Server{Handler: h, ReadHeaderTimeout: 10 * time.Second}}, nil
 }
 

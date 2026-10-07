@@ -22,7 +22,7 @@ type Backend interface {
 
 	BumpPreviews(unit, channel string) []app.BumpPreview
 	CutVersion(req app.CutRequest) (cur, next version.Version, err error)
-	DraftNotes(ctx context.Context, unit string) (string, error)
+	NotesDraft(ctx context.Context, unit string) (app.NotesDraft, error)
 	Preflight(ctx context.Context, req app.CutRequest) *app.PreflightReport
 	Cut(ctx context.Context, req app.CutRequest) (*app.CutResult, error)
 	Build(ctx context.Context, req app.BuildRequest) (*app.BuildResult, error)

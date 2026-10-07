@@ -55,7 +55,7 @@ type fixResultMsg struct {
 
 func newFixer(sh *shared, st secrets.Status) *fixer {
 	x := &fixer{sh: sh, st: st, f: newField("", true)}
-	if s := sh.be.Store(); s != nil && s.Unlocked() {
+	if sh.snap.have && sh.snap.unlocked {
 		x.canRemember = true
 	}
 	x.items = x.menu()
@@ -64,7 +64,6 @@ func newFixer(sh *shared, st secrets.Status) *fixer {
 
 // menu lists what applies to this secret.
 func (x *fixer) menu() []fixItem {
-	be := x.sh.be.Secrets()
 	var it []fixItem
 	switch x.st.ID {
 	case secrets.LibreServSigning, secrets.LunaSigning:
@@ -89,7 +88,7 @@ func (x *fixer) menu() []fixItem {
 				hint: "The name of the key inside the keystore (luna unless you chose another)."},
 			fixItem{label: "Add a file or folder to search", kind: "addpath"})
 	}
-	if len(be.Paths()) > 0 {
+	if len(x.sh.paths) > 0 {
 		it = append(it, fixItem{label: "Stop searching an added file or folder", kind: "removepath"})
 	}
 	for _, c := range x.st.Candidates {
@@ -123,7 +122,7 @@ func slotsFor(id secrets.ID) map[string]bool {
 func (x *fixer) rememberedSlots() []secrets.SlotInfo {
 	mine := slotsFor(x.st.ID)
 	var out []secrets.SlotInfo
-	for _, s := range x.sh.be.Secrets().Slots() {
+	for _, s := range x.sh.slots {
 		if s.Set && mine[s.Slot] {
 			out = append(out, s)
 		}
@@ -187,7 +186,7 @@ func (x *fixer) choose(it fixItem) (bool, tea.Cmd) {
 		}
 	case "removepath":
 		x.stage, x.cur, x.items = fxPick, 0, nil
-		for _, p := range x.sh.be.Secrets().Paths() {
+		for _, p := range x.sh.paths {
 			x.items = append(x.items, fixItem{label: p, kind: "removepath", ref: p})
 		}
 	case "choose":
@@ -277,9 +276,8 @@ func (x *fixer) save() tea.Cmd {
 // open a second prompt.
 func (x *fixer) run(f func() (string, error)) tea.Cmd {
 	x.busy = true
-	id, sh := x.st.ID, x.sh
+	id := x.st.ID
 	return func() tea.Msg {
-		sh.br.SetAsk(false)
 		note, err := f()
 		return fixResultMsg{id: id, err: err, note: note}
 	}

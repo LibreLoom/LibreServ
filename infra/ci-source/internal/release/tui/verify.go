@@ -103,19 +103,31 @@ func (s *verifyScreen) view(w, h int) frame {
 		lines = append(lines, "  "+failStyle.Render("✗ ")+fit(s.sh.redact(s.err.Error()), w-6))
 	}
 	for _, v := range s.res {
-		if v.OK() {
+		switch {
+		case v.OK():
 			ver, parts := "", 0
 			if v.Feed != nil {
 				ver, parts = v.Feed.Version, len(v.Feed.Parts)
 			}
 			lines = append(lines, fmt.Sprintf("  %s %-7s %s · %s match the feed", okStyle.Render("✓"), v.Channel, ver, plural(parts, "file", "files")))
-		} else {
-			lines = append(lines, fmt.Sprintf("  %s %-7s %s", failStyle.Render("✗"), v.Channel, errTxtStyle.Render(fit(s.sh.redact(firstLine(v.Err.Error())), w-16))))
-			for _, l := range strings.Split(v.Err.Error(), "\n")[1:] {
-				lines = append(lines, "      "+dimStyle.Render(fit(s.sh.redact(l), w-8)))
+		case v.Err.Error() == v.URL+": HTTP 404" || v.Err.Error() == v.URL+".minisig: HTTP 404":
+			lines = append(lines, fmt.Sprintf("  %s %-7s %s", dimStyle.Render("–"), v.Channel, "Not published yet"))
+		default:
+			errLines := strings.Split(s.sh.redact(strings.ReplaceAll(v.Err.Error(), v.URL, "the feed")), "\n")
+			for i, l := range wrapText(errLines[0], w-14) {
+				if i == 0 {
+					lines = append(lines, fmt.Sprintf("  %s %-7s %s", failStyle.Render("✗"), v.Channel, errTxtStyle.Render(l)))
+				} else {
+					lines = append(lines, "            "+errTxtStyle.Render(l))
+				}
+			}
+			for _, l := range errLines[1:] {
+				for _, x := range wrapText(l, w-12) {
+					lines = append(lines, "      "+dimStyle.Render(x))
+				}
 			}
 		}
-		lines = append(lines, "    "+dimStyle.Render(fit(v.URL, w-6)))
+		lines = append(lines, "    "+dimStyle.Render(fitMid(v.URL, w-6)))
 	}
 	f.body = lines
 	return f
@@ -198,10 +210,14 @@ func (s *serveScreen) view(w, h int) frame {
 		if s.ended {
 			state = dimStyle.Render("stopped")
 		}
+		listening := ""
+		if !strings.HasSuffix(s.srv.URL, "//"+s.srv.Listening) {
+			listening = "  " + dimStyle.Render("(listening on "+s.srv.Listening+")")
+		}
 		f.body = []string{
 			"  " + state + "  everything built into dist/",
 			"",
-			"  " + pad("Address", 12) + s.srv.URL,
+			"  " + pad("Address", 12) + s.srv.URL + listening,
 			"  " + pad("Feeds", 12) + s.srv.FeedBase + "/<unit>/<channel>.json",
 			"",
 			"  " + dimStyle.Render("Feeds are signed with a throw-away test key. Point a Luna or Sol at the"),

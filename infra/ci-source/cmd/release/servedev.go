@@ -10,7 +10,7 @@ import (
 func cmdServeDev(args []string) int {
 	fs := flag.NewFlagSet("serve-dev", flag.ContinueOnError)
 	port := fs.Int("port", 8099, "port to listen on")
-	host := fs.String("host", "", "address receivers use to reach this machine (default: first LAN address)")
+	host := fs.String("host", "", "address to listen on and put in the feed URLs (default 127.0.0.1, this machine only; use your LAN address, or 0.0.0.0, to let other machines in)")
 	dist := fs.String("dist", "", "build root to serve (default <repo>/dist)")
 	fs.Usage = func() {
 		fmt.Fprintln(os.Stderr, "Usage: release serve-dev [--port N] [--host ADDR] [--dist DIR]")
@@ -31,7 +31,7 @@ func cmdServeDev(args []string) int {
 	if err != nil {
 		return fail("serve-dev", err)
 	}
-	fmt.Printf("Serving %s on %s\n", a.OutRoot(), srv.URL)
+	fmt.Printf("Serving %s on %s (listening on %s)\n", a.OutRoot(), srv.URL, srv.Listening)
 	fmt.Printf("Feeds:      %s/feeds/<unit>/<stable|beta>.json  (signed with the test key %s)\n", srv.URL, srv.Key.ID)
 	fmt.Printf("Test key:   %s\n", srv.Key.PublicLine())
 	fmt.Printf("Index:      %s/index.json\n\n", srv.URL)
