@@ -133,7 +133,8 @@ func (f *Flatpak) spec(b *engine.BuildContext) (engine.RunSpec, error) {
 		Out:    out,
 		Mounts: []engine.Mount{lunaSrcMount(b), ver},
 		Caches: []engine.Cache{engine.CacheFlatpak,
-			{Volume: "flatpak-user", Target: "/root/.local/share/flatpak"}},
+			{Volume: "flatpak-user", Target: "/root/.local/share/flatpak"},
+			{Volume: "flatpak-cargo", Target: "/root/.cache/luna-cargo"}},
 		Env:    map[string]string{"BRANCHES": strings.Join(list, " ")},
 		Memory: "8g",
 	}, "bash", "flatpak.sh"), nil
