@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -37,15 +38,17 @@ func TestOSGraph(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string][]string{
-		"luna/os:hash":        nil,
-		"luna/os:rootfs":      {"luna/os:hash", "luna/lunad"},
-		"luna/os:image":       {"luna/os:rootfs"},
-		"luna/os":             {"luna/os:image"},
-		"luna/installer:live": {"luna/os:hash"},
-		"luna/installer:iso":  {"luna/installer:live", "luna/os"},
-		"luna/installer":      {"luna/installer:iso"},
+		"luna/os:hash":                   nil,
+		"luna/os:rootfs":                 {"luna/os:hash", "luna/lunad"},
+		"luna/os:image":                  {"luna/os:rootfs"},
+		"luna/os":                        {"luna/os:image"},
+		"luna/installer:live":            {"luna/os:hash"},
+		"luna/installer:iso":             {"luna/installer:live", "luna/os", "luna/installer:pack-eurooffice", "luna/installer:pack-drawio"},
+		"luna/installer:pack-eurooffice": {"luna/os:hash"},
+		"luna/installer:pack-drawio":     {"luna/os:hash"},
+		"luna/installer":                 {"luna/installer:iso"},
 	}
-	heavy := map[string]bool{"luna/os:rootfs": true, "luna/os:image": true, "luna/installer:live": true, "luna/installer:iso": true}
+	heavy := map[string]bool{"luna/os:rootfs": true, "luna/os:image": true, "luna/installer:live": true, "luna/installer:iso": true, "luna/installer:pack-eurooffice": true}
 	got := map[string][]string{}
 	for _, j := range g.Jobs() {
 		if !strings.HasPrefix(j.ID, "luna/os") && !strings.HasPrefix(j.ID, "luna/installer") {
@@ -138,13 +141,13 @@ func TestInstallerKey(t *testing.T) {
 	if k4, _ := installerKey(dir, "os1", nil); k4 == k3 {
 		t.Fatal("a new live package list must change the key")
 	}
-	// a pack changes the key through its sha256 file
-	pack := filepath.Join(t.TempDir(), "drawio-pack.tar.zst")
-	writeTree(t, filepath.Dir(pack), map[string]string{"drawio-pack.tar.zst": "z", "drawio-pack.tar.zst.sha256": "aa  drawio-pack.tar.zst"})
-	kp, _ := installerKey(dir, "os1", []string{pack, pack + ".sha256"})
-	writeTree(t, filepath.Dir(pack), map[string]string{"drawio-pack.tar.zst.sha256": "bb  drawio-pack.tar.zst"})
-	if kq, _ := installerKey(dir, "os1", []string{pack, pack + ".sha256"}); kq == kp {
+	// a pack changes the key through what it is made from
+	kp, _ := installerKey(dir, "os1", map[string]string{"drawio": "aa"})
+	if kq, _ := installerKey(dir, "os1", map[string]string{"drawio": "bb"}); kq == kp {
 		t.Fatal("a new pack must change the key")
+	}
+	if kq, _ := installerKey(dir, "os1", map[string]string{"drawio": "aa", "eurooffice": "cc"}); kq == kp {
+		t.Fatal("another pack must change the key")
 	}
 	// a file the ISO needs is missing: refuse, do not hash around it
 	os.Remove(filepath.Join(dir, "lib", "console.sh"))
@@ -334,5 +337,64 @@ func TestOSScriptsParse(t *testing.T) {
 		if lunaScript(f) == "" {
 			t.Fatal(f)
 		}
+	}
+}
+
+func packCtx(t *testing.T, released bool) *engine.BuildContext {
+	t.Helper()
+	eng, err := engine.New(engine.Config{Repo: t.TempDir(), CacheDir: t.TempDir(), ImagesDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := &engine.BuildContext{Engine: eng, Unit: "luna", Version: "1.0.0", SrcDir: t.TempDir(), OutRoot: t.TempDir()}
+	if released {
+		b.Released = func(string) (engine.Released, bool) { return engine.Released{}, false }
+	}
+	for _, d := range packDefs {
+		for _, rel := range d.inputs {
+			writeTree(t, b.SrcDir, map[string]string{rel: "x"})
+		}
+	}
+	return b
+}
+
+func TestPackKeyFollowsPins(t *testing.T) {
+	t.Setenv("LUNA_PACKS_DIR", "")
+	b := packCtx(t, false)
+	d := packDefs[1]
+	k1, err := packKey(b, d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeTree(t, b.SrcDir, map[string]string{"luna/scripts/install-drawio-assets.sh": "new pin"})
+	if k2, _ := packKey(b, d); k2 == k1 {
+		t.Fatal("a changed upstream pin must change the pack key")
+	}
+	if packCurrent(b, d, k1) {
+		t.Fatal("pack current before it exists")
+	}
+	dir := packsDir(b)
+	writeTree(t, dir, map[string]string{d.file: "z", d.file + ".sha256": "h  " + d.file, d.file + ".key": k1 + "\n"})
+	if !packCurrent(b, d, k1) || packCurrent(b, d, "other") {
+		t.Fatal("packCurrent does not follow the key file")
+	}
+}
+
+func TestMissingPacksFailCutsOnly(t *testing.T) {
+	t.Setenv("LUNA_PACKS_DIR", "")
+	var logs []string
+	logf := func(f string, a ...any) { logs = append(logs, fmt.Sprintf(f, a...)) }
+	if err := checkPacks(packCtx(t, false), logf); err != nil || len(logs) != 2 {
+		t.Fatalf("dev build: err %v, logs %v", err, logs)
+	}
+	b := packCtx(t, true)
+	if err := checkPacks(b, logf); err == nil || !strings.Contains(err.Error(), "eurooffice-pack.tar.zst") {
+		t.Fatalf("cut without packs: %v", err)
+	}
+	for _, d := range packDefs {
+		writeTree(t, packsDir(b), map[string]string{d.file: "z", d.file + ".sha256": "h"})
+	}
+	if err := checkPacks(b, logf); err != nil {
+		t.Fatal(err)
 	}
 }

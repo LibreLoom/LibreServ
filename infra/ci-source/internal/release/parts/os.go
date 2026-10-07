@@ -152,7 +152,7 @@ func (o *osBuilder) osJobs(b *engine.BuildContext) []engine.Job {
 func (o *osBuilder) installerJobs(b *engine.BuildContext) []engine.Job {
 	pl := o.plan(b)
 	action := func() osAction { pl.mu.Lock(); defer pl.mu.Unlock(); return pl.inst }
-	return []engine.Job{
+	jobs := []engine.Job{
 		{ID: instLiveJob, Title: "Installer live system", Heavy: true, Deps: []string{osHashJob},
 			Run: func(ctx context.Context, j *engine.JobRun) error {
 				if a := action(); a != osBuild {
@@ -161,7 +161,7 @@ func (o *osBuilder) installerJobs(b *engine.BuildContext) []engine.Job {
 				}
 				return j.Container(ctx, instLiveSpec(b))
 			}},
-		{ID: instISOJob, Title: "Installer ISO", Heavy: true, Deps: []string{instLiveJob, OSJob},
+		{ID: instISOJob, Title: "Installer ISO", Heavy: true, Deps: []string{instLiveJob, OSJob, packJobID("eurooffice"), packJobID("drawio")},
 			Run: func(ctx context.Context, j *engine.JobRun) error {
 				if action() != osBuild {
 					return nil
@@ -184,6 +184,17 @@ func (o *osBuilder) installerJobs(b *engine.BuildContext) []engine.Job {
 				return finishFile(b, j.Logf, "installer", InstallerFile, "luna-installer", key, act, osSidecars(InstallerFile))
 			}},
 	}
+	for _, d := range packDefs {
+		jobs = append(jobs, engine.Job{ID: packJobID(d.name), Title: d.title, Heavy: d.heavy, Deps: []string{osHashJob},
+			Run: func(ctx context.Context, j *engine.JobRun) error {
+				if a := action(); a != osBuild {
+					j.Logf("skipped: the installer is %s", a)
+					return nil
+				}
+				return buildPack(ctx, b, j, d)
+			}})
+	}
+	return jobs
 }
 
 // ---- the decision
@@ -194,17 +205,19 @@ func (o *osBuilder) decide(ctx context.Context, b *engine.BuildContext, j *engin
 	if err != nil {
 		return err
 	}
-	packs := osPacks(b)
-	key, err := installerKey(filepath.Join(b.SrcDir, "luna", "os"), hash, packs)
+	packKeys := map[string]string{}
+	for _, d := range packDefs {
+		k, err := packKey(b, d)
+		if err != nil {
+			return err
+		}
+		packKeys[d.name] = k
+	}
+	key, err := installerKey(filepath.Join(b.SrcDir, "luna", "os"), hash, packKeys)
 	if err != nil {
 		return err
 	}
 	j.Logf("OS inputs %s, installer inputs %s", hash[:12], key[:12])
-	for _, p := range []string{"eurooffice-pack.tar.zst", "drawio-pack.tar.zst"} {
-		if !containsBase(packs, p) {
-			j.Logf("warning: no %s in %s: devices installed from this ISO will lack that editor", p, packsDir(b))
-		}
-	}
 
 	osRel, haveOS := engine.Released{}, false
 	if b.Released != nil {
@@ -247,6 +260,13 @@ func (o *osBuilder) decide(ctx context.Context, b *engine.BuildContext, j *engin
 		cached: cacheHas(b, "luna-installer", key, InstallerFile),
 	})
 	j.Logf("installer: %s (%s)", instAct, why)
+	if instAct == osBuild && packsFromDir() {
+		// Packs given by hand are never built here, so check them before the
+		// long jobs start.
+		if err := checkPacks(b, j.Logf); err != nil {
+			return err
+		}
+	}
 
 	pl.mu.Lock()
 	defer pl.mu.Unlock()
@@ -337,8 +357,8 @@ func osEnv() map[string]string {
 }
 
 // installerKey hashes what the ISO is made from besides the OS image's own
-// inputs: the live system, the installer scripts and the packs.
-func installerKey(osDir, osHash string, packs []string) (string, error) {
+// inputs: the live system, the installer scripts and the packs (by their keys).
+func installerKey(osDir, osHash string, packKeys map[string]string) (string, error) {
 	var files []string
 	add := func(rel string) error {
 		st, err := os.Stat(filepath.Join(osDir, rel))
@@ -377,21 +397,50 @@ func installerKey(osDir, osHash string, packs []string) (string, error) {
 		}
 		fmt.Fprintf(h, "file=%s %x\n", f, sha256.Sum256(b))
 	}
-	for _, p := range packs {
-		fmt.Fprintf(h, "pack=%s\n", filepath.Base(p))
-		if strings.HasSuffix(p, ".sha256") {
-			b, err := os.ReadFile(p)
-			if err != nil {
-				return "", err
-			}
-			fmt.Fprintf(h, "%s\n", strings.TrimSpace(string(b)))
-		}
+	// The packs enter through what they are made from (their pinned upstream
+	// versions, see packKey), known before they are built, so the key does
+	// not change when a pack is built after the decision.
+	names := make([]string, 0, len(packKeys))
+	for n := range packKeys {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		fmt.Fprintf(h, "pack=%s %s\n", n, packKeys[n])
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// packsDir is where the EuroOffice and draw.io packs are looked for:
-// LUNA_PACKS_DIR, else <cache>/luna-packs.
+// packsFromDir is true when LUNA_PACKS_DIR hands over finished packs: they
+// are used as they are and never built.
+func packsFromDir() bool { return os.Getenv("LUNA_PACKS_DIR") != "" }
+
+// packDef is one pack the installer carries. Its job runs the repo's pack
+// script in a container (network allowed: it downloads the pinned upstream).
+type packDef struct {
+	name, file, title string
+	heavy             bool
+	// inputs are the repo files the pack is made from: the scripts that pin
+	// the upstream versions and checksums, and the image they run in.
+	inputs []string
+	env    map[string]string
+}
+
+var packDefs = []packDef{
+	{name: "eurooffice", file: "eurooffice-pack.tar.zst", title: "EuroOffice pack", heavy: true,
+		inputs: []string{"luna/scripts/install-eurooffice-assets.sh", "luna/scripts/build-eurooffice-pack.sh",
+			"luna/web/public/office-x2t-worker.js", "luna/web/public/licenses/agpl-3.0.txt",
+			"infra/release/images/luna-eurooffice/Containerfile"},
+		env: map[string]string{"EUROOFFICE_IN_IMAGE": "/var/www/euro-office/documentserver", "LUNA_DATA_DIR": "/work/none"}},
+	{name: "drawio", file: "drawio-pack.tar.zst", title: "draw.io pack",
+		inputs: []string{"luna/scripts/install-drawio-assets.sh", "luna/scripts/build-drawio-pack.sh",
+			"infra/release/images/luna-drawio/Containerfile"},
+		env: map[string]string{"LUNA_DATA_DIR": "/work/none"}},
+}
+
+func packJobID(name string) string { return "luna/installer:pack-" + name }
+
+// packsDir is where the packs are kept: LUNA_PACKS_DIR, else <cache>/luna-packs.
 func packsDir(b *engine.BuildContext) string {
 	if d := os.Getenv("LUNA_PACKS_DIR"); d != "" {
 		return d
@@ -399,16 +448,112 @@ func packsDir(b *engine.BuildContext) string {
 	return filepath.Join(b.Engine.CacheDir(), "luna-packs")
 }
 
+// packKey says what a pack is made from. Built here, it is a hash of the
+// scripts and image that pin the upstream versions (the scripts verify every
+// download by sha256, or by image digest), so a pack is fetched once and
+// rebuilt only when a pin or a script changes. A pack handed over in
+// LUNA_PACKS_DIR is keyed by its own .sha256 file.
+func packKey(b *engine.BuildContext, d packDef) (string, error) {
+	if packsFromDir() {
+		raw, err := os.ReadFile(filepath.Join(packsDir(b), d.file+".sha256"))
+		if err != nil {
+			return "absent", nil
+		}
+		return "given:" + strings.TrimSpace(string(raw)), nil
+	}
+	h := sha256.New()
+	for _, rel := range d.inputs {
+		raw, err := os.ReadFile(filepath.Join(b.SrcDir, filepath.FromSlash(rel)))
+		if err != nil {
+			return "", err
+		}
+		fmt.Fprintf(h, "file=%s %x\n", rel, sha256.Sum256(raw))
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// packCurrent reports whether the cached pack was made from key.
+func packCurrent(b *engine.BuildContext, d packDef, key string) bool {
+	p := filepath.Join(packsDir(b), d.file)
+	got, err := os.ReadFile(p + ".key")
+	return err == nil && strings.TrimSpace(string(got)) == key && fileOK(p) && fileOK(p+".sha256")
+}
+
+// buildPack makes sure the pack is in packsDir, building it when its key
+// changed. It writes only there and to its scratch volume.
+func buildPack(ctx context.Context, b *engine.BuildContext, j *engine.JobRun, d packDef) error {
+	if packsFromDir() {
+		j.Logf("using the pack from LUNA_PACKS_DIR (%s)", packsDir(b))
+		return nil
+	}
+	key, err := packKey(b, d)
+	if err != nil {
+		return err
+	}
+	if packCurrent(b, d, key) {
+		j.Logf("%s: up to date (inputs %s)", d.file, key[:12])
+		return nil
+	}
+	spec, err := packSpec(b, d, key)
+	if err != nil {
+		return err
+	}
+	return j.Container(ctx, spec)
+}
+
+func packSpec(b *engine.BuildContext, d packDef, key string) (engine.RunSpec, error) {
+	dir := packsDir(b)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return engine.RunSpec{}, err
+	}
+	env := map[string]string{"PACK": d.name, "PACK_FILE": d.file, "PACK_KEY": key}
+	for k, v := range d.env {
+		env[k] = v
+	}
+	return lunaShell(engine.RunSpec{
+		Name:  "luna-pack-" + d.name,
+		Image: "luna-" + d.name,
+		Mounts: []engine.Mount{{Host: filepath.Join(b.SrcDir, "luna"), Target: "/luna", ReadOnly: true},
+			{Host: dir, Target: "/packs"}},
+		Caches: []engine.Cache{{Volume: "luna-pack-" + d.name + "-work", Target: "/work"}},
+		Env:    env,
+		Memory: "4g",
+	}, "sh", "os-pack.sh"), nil
+}
+
 // osPacks lists the pack files (each tarball and its .sha256) found in packsDir.
 func osPacks(b *engine.BuildContext) []string {
 	var out []string
-	for _, n := range []string{"eurooffice-pack.tar.zst", "drawio-pack.tar.zst"} {
-		p := filepath.Join(packsDir(b), n)
+	for _, d := range packDefs {
+		p := filepath.Join(packsDir(b), d.file)
 		if fileOK(p) && fileOK(p+".sha256") {
 			out = append(out, p, p+".sha256")
 		}
 	}
 	return out
+}
+
+// checkPacks logs a missing pack. A release build (a cut) refuses to go on:
+// an ISO without an editor must never ship by accident. A dev build only
+// warns, because the packs are large downloads.
+func checkPacks(b *engine.BuildContext, logf logFunc) error {
+	have := osPacks(b)
+	var missing []string
+	for _, d := range packDefs {
+		if !containsBase(have, d.file) {
+			missing = append(missing, d.file)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	if b.Released != nil {
+		return fmt.Errorf("the installer must carry its packs, but %s is missing in %s", strings.Join(missing, ", "), packsDir(b))
+	}
+	for _, m := range missing {
+		logf("warning: no %s in %s: devices installed from this ISO will lack that editor", m, packsDir(b))
+	}
+	return nil
 }
 
 func containsBase(paths []string, base string) bool {
@@ -580,6 +725,9 @@ func (o *osBuilder) payload(ctx context.Context, b *engine.BuildContext, j *engi
 		}
 	}
 	if err := os.WriteFile(img+".sha256", []byte(sum+"  "+OSFile+"\n"), 0o644); err != nil {
+		return "", err
+	}
+	if err := checkPacks(b, j.Logf); err != nil {
 		return "", err
 	}
 	for _, p := range osPacks(b) {

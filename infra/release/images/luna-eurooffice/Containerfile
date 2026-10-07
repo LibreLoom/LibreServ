@@ -1,0 +1,11 @@
+# Builds the EuroOffice pack for the installer ISO. The upstream document server
+# image (pinned by digest, the same one luna/scripts/install-eurooffice-assets.sh
+# names) already holds the editor assets and the font generator; the pack job
+# runs that script inside it with EUROOFFICE_IN_IMAGE set. Network is needed for
+# the x2t converter download. Bump the digest in both places together.
+FROM ghcr.io/euro-office/documentserver@sha256:889e681923d2dcc8bdfb92fe128d10e185fcff880d302b6a0c0c7bf339499290
+ENTRYPOINT []
+CMD []
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends unzip \
+ && rm -rf /var/lib/apt/lists/*

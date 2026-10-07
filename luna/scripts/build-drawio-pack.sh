@@ -6,11 +6,13 @@
 # Source pack: $DRAWIO_DIR (default $LUNA_DATA_DIR/drawio → luna/dev).
 # When no pack exists, runs install-drawio-assets.sh into os/work first —
 # that path needs curl + network, same as the rootfs build.
+# PACK_OUT_DIR / PACK_WORK_DIR move the output and scratch dirs (the release
+# tool builds from a read-only source export and sets both).
 set -eu
 
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
-OUT="$ROOT/os/dist"
-WORK="$ROOT/os/work/drawio-pack"
+OUT="${PACK_OUT_DIR:-$ROOT/os/dist}"
+WORK="${PACK_WORK_DIR:-$ROOT/os/work/drawio-pack}"
 PACK_SRC="${DRAWIO_DIR:-${LUNA_DATA_DIR:-$ROOT/dev}/drawio}"
 TARBALL="$OUT/drawio-pack.tar.zst"
 STAMP="$TARBALL.sha256"

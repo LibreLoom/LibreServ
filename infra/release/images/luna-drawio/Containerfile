@@ -1,0 +1,5 @@
+# Builds the draw.io pack for the installer ISO: curl + unzip fetch and unpack the
+# pinned draw.war (checked by sha256 in luna/scripts/install-drawio-assets.sh),
+# zstd + tar make the pack.
+FROM docker.io/library/alpine@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
+RUN apk add --no-cache bash curl unzip zstd tar coreutils ca-certificates

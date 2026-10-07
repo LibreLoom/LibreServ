@@ -10,11 +10,13 @@
 # Excludes web-apps/*/resources/help: ~500MB of offline-help PNGs that barely
 # compress, and the Help menu is disabled anyway (customization.help=false
 # in EuroOfficeHost). Keeps every font and all dictionaries.
+# PACK_OUT_DIR / PACK_WORK_DIR move the output and scratch dirs (the release
+# tool builds from a read-only source export and sets both).
 set -eu
 
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
-OUT="$ROOT/os/dist"
-WORK="$ROOT/os/work/eurooffice-pack"
+OUT="${PACK_OUT_DIR:-$ROOT/os/dist}"
+WORK="${PACK_WORK_DIR:-$ROOT/os/work/eurooffice-pack}"
 PACK_SRC="${EUROOFFICE_DIR:-${LUNA_DATA_DIR:-$ROOT/dev}/eurooffice}"
 TARBALL="$OUT/eurooffice-pack.tar.zst"
 STAMP="$TARBALL.sha256"

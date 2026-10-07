@@ -3,6 +3,10 @@
 # metrics sdkjs needs (the image only produces them at first boot), and fetch
 # the x2t.wasm converter the browser uses instead of a Document Server.
 # Requires podman (or docker). LUNA_DATA_DIR defaults to luna/dev.
+#
+# EUROOFFICE_IN_IMAGE=<documentserver dir>: the script already runs INSIDE the
+# pinned image (the release tool's pack job), so it copies from that dir and
+# runs the font generator directly instead of driving podman.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DATA_DIR="${LUNA_DATA_DIR:-$ROOT/dev}"
@@ -13,12 +17,22 @@ DEST="$DATA_DIR/eurooffice"
 X2T_VERSION="${X2T_VERSION:-v9.3.0+0}"
 X2T_URL="https://github.com/cryptpad/onlyoffice-x2t-wasm/releases/download/${X2T_VERSION}/x2t.zip"
 RUNTIME="${OCI_RUNTIME:-podman}"
+IN_IMAGE="${EUROOFFICE_IN_IMAGE:-}"
+DS=/var/www/euro-office/documentserver
+[ -z "$IN_IMAGE" ] || DS="$IN_IMAGE"
 
-echo "Pulling $IMAGE …"
-$RUNTIME pull "$IMAGE"
-cid="$($RUNTIME create "$IMAGE")"
-cleanup() { $RUNTIME rm -f "$cid" >/dev/null 2>&1 || true; }
-trap cleanup EXIT
+if [[ -n "$IN_IMAGE" ]]; then
+  cleanup() { :; }
+  # cpout <path under documentserver> <destination>
+  cpout() { cp -a "$DS/$1" "$2"; }
+else
+  echo "Pulling $IMAGE …"
+  $RUNTIME pull "$IMAGE"
+  cid="$($RUNTIME create "$IMAGE")"
+  cleanup() { $RUNTIME rm -f "$cid" >/dev/null 2>&1 || true; }
+  trap cleanup EXIT
+  cpout() { $RUNTIME cp "$cid:$DS/$1" "$2"; }
+fi
 
 # The image ships some directories (core-fonts) read-only, and `cp` keeps that,
 # so a previous run's tree can't be deleted until it is made writable again.
@@ -26,11 +40,11 @@ trap cleanup EXIT
 rm -rf "$DEST"
 mkdir -p "$DEST"
 echo "Copying web-apps + sdkjs + fonts inputs into $DEST …"
-$RUNTIME cp "$cid:/var/www/euro-office/documentserver/web-apps" "$DEST/web-apps"
-$RUNTIME cp "$cid:/var/www/euro-office/documentserver/sdkjs" "$DEST/sdkjs"
-$RUNTIME cp "$cid:/var/www/euro-office/documentserver/dictionaries" "$DEST/dictionaries" 2>/dev/null || true
+cpout web-apps "$DEST/web-apps"
+cpout sdkjs "$DEST/sdkjs"
+cpout dictionaries "$DEST/dictionaries" 2>/dev/null || true
 # core-fonts are the TTFs the browser-side wasm converter needs — not optional.
-$RUNTIME cp "$cid:/var/www/euro-office/documentserver/core-fonts" "$DEST/core-fonts"
+cpout core-fonts "$DEST/core-fonts"
 
 # Make the copy writable so the next run (and `rm`) can replace it.
 chmod -R u+w "$DEST"
@@ -38,7 +52,7 @@ chmod -R u+w "$DEST"
 # Keep AGPL notices with the assets: copy any license/notice files the image
 # ships at the documentserver root (best effort — names vary by release).
 for f in LICENSE LICENSE.txt license.txt license.html AGPL-3.0.txt COPYING NOTICE 3rdPartyLicenses.txt ThirdPartyNotices.txt; do
-  $RUNTIME cp "$cid:/var/www/euro-office/documentserver/$f" "$DEST/$f" 2>/dev/null || true
+  cpout "$f" "$DEST/$f" 2>/dev/null || true
 done
 # The image ships no top-level license file, and we ship this pack in the
 # install ISO — always drop the AGPL text + attribution at the pack root.
@@ -78,12 +92,9 @@ if [[ "$(id -u)" != 0 ]] && \
    [[ "$($RUNTIME info --format '{{.Host.Security.Rootless}}' 2>/dev/null || echo false)" != true ]]; then
   CHOWN_TO="$(id -u):$(id -g)"
 fi
-$RUNTIME run --rm --network=none --user 0 --entrypoint /bin/sh \
-  -e CHOWN_TO="$CHOWN_TO" \
-  -v "$DEST:/out" \
-  "$IMAGE" -c '
+GEN='
 set -e
-DIR=/var/www/euro-office/documentserver
+DIR=${DS_DIR:-/var/www/euro-office/documentserver}
 export LD_LIBRARY_PATH=$DIR/server/FileConverter/bin:$LD_LIBRARY_PATH
 INPUTS="--input=$DIR/core-fonts"
 # custom-fonts exists in upstream DS images; a missing --input dir makes
@@ -99,23 +110,31 @@ INPUTS="--input=$DIR/core-fonts"
   --output-web="$DIR/fonts" \
   --use-system="true" \
   --use-system-user-fonts="false"
-cp "$DIR/sdkjs/common/AllFonts.js" /out/sdkjs/common/AllFonts.js
-cp "$DIR/server/FileConverter/bin/AllFonts.js" /out/AllFonts.bin.js
-cp "$DIR/server/FileConverter/bin/font_selection.bin" /out/font_selection.bin
-mkdir -p /out/fonts
-cp -r "$DIR"/fonts/. /out/fonts/
+cp "$DIR/sdkjs/common/AllFonts.js" "$OUT/sdkjs/common/AllFonts.js"
+cp "$DIR/server/FileConverter/bin/AllFonts.js" "$OUT/AllFonts.bin.js"
+cp "$DIR/server/FileConverter/bin/font_selection.bin" "$OUT/font_selection.bin"
+mkdir -p "$OUT/fonts"
+cp -r "$DIR"/fonts/. "$OUT/fonts/"
 # allfontsgen also writes the font-list sprite (fonts_thumbnail*.png +
 # .png.bin) into --images; the font dropdown fetches it and crashes hard on
 # a 404, so it must ship. Merge (not replace) — the stock sdkjs Images dir
 # holds cursors/icons the editor also needs.
-mkdir -p /out/sdkjs/common/Images
-cp -r "$DIR"/sdkjs/common/Images/. /out/sdkjs/common/Images/
+mkdir -p "$OUT/sdkjs/common/Images"
+cp -r "$DIR"/sdkjs/common/Images/. "$OUT/sdkjs/common/Images/"
 "$DIR/server/tools/allthemesgen" \
   --converter-dir="$DIR/server/FileConverter/bin" \
-  --src="/out/sdkjs/slide/themes" \
-  --output="/out/sdkjs/common/Images" || true
-[ -z "$CHOWN_TO" ] || chown -R "$CHOWN_TO" /out
+  --src="$OUT/sdkjs/slide/themes" \
+  --output="$OUT/sdkjs/common/Images" || true
+[ -z "$CHOWN_TO" ] || chown -R "$CHOWN_TO" "$OUT"
 '
+if [[ -n "$IN_IMAGE" ]]; then
+  DS_DIR="$DS" OUT="$DEST" CHOWN_TO="" sh -c "$GEN"
+else
+  $RUNTIME run --rm --network=none --user 0 --entrypoint /bin/sh \
+    -e CHOWN_TO="$CHOWN_TO" -e OUT=/out \
+    -v "$DEST:/out" \
+    "$IMAGE" -c "$GEN"
+fi
 rm -f "$DEST"/fonts/*.gz "$DEST"/sdkjs/common/AllFonts.js.gz 2>/dev/null || true
 
 if [[ ! -f "$DEST/sdkjs/common/AllFonts.js" ]]; then
