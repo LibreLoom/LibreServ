@@ -14,6 +14,6 @@ bash /src/luna/desktop/packaging/windows/build-cross.sh
 want=$(tr -d '\r\n' < /src/luna/desktop/VERSION)
 grep -qF "!define PRODUCT_VERSION \"$want\"" "$OUT_DIR/luna-desktop.nsi" \
 	|| { echo "the installer script does not name version $want" >&2; exit 1; }
-grep -aqF -- "$want" "$OUT_DIR/windows-stage/luna-desktop.exe" \
+grep -aqF -- "LUNA-DESKTOP-VERSION-V1:$want" "$OUT_DIR/windows-stage/luna-desktop.exe" \
 	|| { echo "the built luna-desktop.exe does not contain version $want" >&2; exit 1; }
 cp "$OUT_DIR/$INSTALLER" "/out/$INSTALLER"
