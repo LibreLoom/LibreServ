@@ -1,7 +1,7 @@
 # Release and update rework — plan
 
 Status: receiving end built (Sol, lunad, Desktop, Android, Connect deploy,
-Flatpak repo server); release tool next. Replaces `release.sh` and Forgejo
+Flatpak repo server); release tool designed (below), not built. Replaces `release.sh` and Forgejo
 Releases. `RELEASE.md` describes the old flow until then.
 
 Order: **receiving end first** (everything that installs or updates), then the
@@ -248,6 +248,127 @@ Script + systemd timer. Every few minutes:
 6. Android compat check
 7. Connect deploy script
 8. Flatpak repo server
+
+## Release tool — design
+
+One Go program, `./release`, replacing `release.sh`. **Podman is the only
+dependency**: the launcher builds the tool in a pinned Go container (like
+`./ci`), the tool runs on the host, and every build step runs in a container.
+Everything runs **rootless**. Interactive TUI by default, plain CLI for
+scripts and agents.
+
+### Outputs per release (unit + version)
+
+1. Registry files `generic/<unit>/<version>/<file>`, one per part, names
+   exactly as in the parts table (no version in the name).
+2. `SHA256SUMS.txt` + `ED` `.minisig` in that package version.
+3. `<unit>/<channel>.json` + `.minisig` on `feeds`. A stable release also
+   updates the beta feed (else beta users never leave `-beta.N`); for
+   `luna-desktop` that means a second bundle built for the `beta` branch,
+   `luna-desktop-beta-x86_64.flatpak`, listed only in the beta feed.
+4. `chore(release): <unit> <version>` commit bumping `VERSION` (+ the copies
+   toolchains need), then tag `<unit>/vX.Y.Z` pushed to Forgejo.
+5. Dev builds: the same layout in `dist/<unit>/<version>/`, optionally with a
+   feed signed by the test key (`serve-dev`) so receivers update from a
+   laptop.
+
+Dev/HEAD builds are versioned `<next patch>-0.dev.<commits since tag>+<sha>`
+(e.g. `0.4.1-0.dev.12+fe58182`): below every beta and release of that version,
+so a dev box always takes the next real release.
+
+### Commands (all also reachable from the TUI)
+
+```
+./release                                  # TUI
+./release build <unit>[:<part>…] [--head | --ref R] [--version V]
+./release cut <unit> <V | patch | minor | major | beta> [--channel] [--dry-run]
+./release verify <unit> <channel>          # feed sig, every URL, size, sha256
+./release serve-dev                        # dist/ + test-key feed over http
+./release secrets                          # secrets menu
+./release doctor                           # podman, images, caches, secrets
+./release images [--pull | --rebuild]
+```
+
+- `build` never needs a release secret and never publishes. `cut` = build +
+  sign + publish.
+- `cut` order: preflight (all secrets resolved and validated, clean tree,
+  `main`, tag free) → bump commit → build → sums + sign → upload → re-download
+  and check hashes → feed commit on `feeds` → tag → push → poll the Forgejo raw
+  feed URL until the mirror serves it. Each step is idempotent so a failed cut
+  resumes (`cut --resume`).
+- Release notes: edited in the TUI, or `--notes-file`; default draft from
+  conventional commits since the unit's last tag, scoped to its paths.
+
+### Containers
+
+- One Containerfile per toolchain in `infra/release/images/`, base images
+  pinned by digest: `go`, `node`, `rust-musl`, `rust-gtk` (desktop tests),
+  `mingw-nsis`, `android`, `flatpak-builder`, `debian-live`, `alpine-os`.
+  The tool tags them by content hash, so they rebuild only when they change.
+- Caches as named podman volumes: cargo registry + git, per-target `target/`,
+  Go modules + build cache, npm, gradle, flatpak-builder state + runtimes.
+- Source goes in read-only (a `git worktree` of the chosen ref under the cache
+  dir, so `--ref` never touches the checkout); outputs go to a per-part
+  output dir.
+- Parts form a graph (web → lunad → rootfs → OS image → installer; web
+  shared by Sol arches) and run in parallel up to `--jobs` (default: CPU count,
+  with memory-heavy jobs capped). Sol amd64/arm64 each get their own restic
+  path.
+
+### Rootless (no sudo anywhere)
+
+- **ISO:** drop live-build. Build the live system with `mmdebstrap` (verified
+  rootless in podman, bookworm minbase in ~15 s), `mksquashfs` it, and make a
+  BIOS+UEFI hybrid ISO with `grub-mkrescue`/`xorriso`. This also replaces the
+  `lb build` recovery path and the `add-uefi-boot.sh` remaster.
+- **OS image:** `mkfs.ext4 -d` writes into a plain file; drop `--privileged`.
+  The rootfs lives in a podman volume so file ownership stays correct inside
+  the user namespace.
+- **Flatpak:** flatpak-builder's bubblewrap needs nested user namespaces;
+  rootless podman with `--privileged` (which grants nothing beyond your own
+  user) — verify first.
+- `.img.xz` is compressed once; the installer embeds those exact bytes and
+  writes their hash as `os-image.sha256`.
+- The OS image is rebuilt only when the rootfs inputs change (not lunad, which
+  updates itself); otherwise the feed's `os`/`installer` parts point at the
+  version that last built them.
+
+### Secrets
+
+| Secret | Used by | Check before use |
+|---|---|---|
+| Sol minisign key + password | `sol`, `sol-connect` | decrypts; public key equals `keys/libreserv.minisign.pub` |
+| Luna minisign key + password | `luna*` | decrypts; equals `keys/lsluna.minisign.pub` |
+| Forgejo token | uploads, feeds, tags | `/api/v1/user` works; can write packages and the repo |
+| Android keystore + store/key passwords + alias | `luna-android` | opens; alias exists; certificate fingerprint matches the pinned one |
+
+- **Sources**, tried in the configured order per secret (default order
+  shown): env `NAME`, `NAME_B64`, `NAME_FILE`, `NAME_CMD` (any password
+  manager CLI) → system keyring (Secret Service) → configured password-manager
+  item → file in `~/.config/libreserv/secrets/` (0600, refused otherwise) →
+  interactive prompt. Existing names keep working (`LSLUNA_RELEASE_MINISIG_*`,
+  `LIBRESERV_RELEASE_MINISIG_*`, `FORGEJO_TOKEN`, the `fj` token,
+  `LUNA_ANDROID_KEYSTORE(_B64)`).
+- **Robust fetching:** normalise every value (trim, CRLF, optional minisign
+  header, base64 detection); validate each candidate with the check above;
+  an invalid candidate is reported by source and the next source is tried;
+  `_CMD`s get a timeout and one retry; every secret a cut needs is resolved in
+  preflight, before any build runs; values live only in memory for the run.
+- **Never leaked:** resolved values are registered with an output filter that
+  redacts them from all logs and container output; they never enter a
+  container except the Android keystore (read-only mount, gradle job only);
+  signing happens in-process (`aead.dev/minisign` `Reader.Sign`, no CLI).
+- **Secrets menu:** each secret's state (found, from which source, valid /
+  invalid / missing, last checked), set or replace (choose where it is
+  stored), test, remove, show which public key / fingerprint it matches.
+  Values are never shown.
+
+### TUI
+
+Bubble Tea, reusing `infra/ci-source` styles. Screens: home (units with
+current version, last tag, commits since, feed status per channel), build
+(pick units/parts, ref, then a live parallel job view with per-job logs),
+cut (wizard: version → notes → preflight → run → verify), secrets, doctor.
 
 ## Release tool must (found while building the receivers)
 
