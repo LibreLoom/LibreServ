@@ -367,3 +367,29 @@ func TestDryRunTouchesNothing(t *testing.T) {
 		t.Fatal("dry run wrote state")
 	}
 }
+
+func TestCutResumeKeepsSavedNotes(t *testing.T) {
+	w := newWorld(t)
+	boom := errors.New("injected failure")
+	cfg := w.cfg
+	cfg.Release.Notes = "Saved notes from the first run"
+	cfg.beforeStep = func(s string) error {
+		if s == StepFeed {
+			return boom
+		}
+		return nil
+	}
+	if _, err := Run(context.Background(), cfg); !errors.Is(err, boom) {
+		t.Fatalf("want injected failure, got %v", err)
+	}
+	// The resume doesn't know the notes; the saved ones must be published.
+	cfg = w.cfg
+	cfg.Release.Notes = ""
+	cfg.Resume = true
+	if _, err := Run(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	if got := sh(t, w.origin, "show", "feeds:luna/stable.json"); !strings.Contains(got, "Saved notes from the first run") {
+		t.Fatalf("feed lost the saved notes:\n%s", got)
+	}
+}

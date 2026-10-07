@@ -133,6 +133,10 @@ func (s *cutScreen) loadNotes() tea.Cmd {
 	if unit == "" {
 		unit = s.unit()
 	}
+	if s.resume != nil && s.resume.Notes != "" {
+		saved := s.resume.Notes
+		return func() tea.Msg { return notesMsg{saved} }
+	}
 	return func() tea.Msg {
 		t, err := sh.be.DraftNotes(sh.ctx, unit)
 		if err != nil {

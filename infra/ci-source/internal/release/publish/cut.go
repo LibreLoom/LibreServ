@@ -108,17 +108,19 @@ var ErrCutExists = errors.New("an unfinished cut of this version exists (resume 
 
 // State is the persisted progress of one cut, keyed by the release SHA.
 type State struct {
-	Schema    int             `json:"schema"`
-	Unit      string          `json:"unit"`
-	Version   string          `json:"version"`
-	Channel   string          `json:"channel"`
-	SHA       string          `json:"sha"`
-	Published string          `json:"published,omitempty"`
-	OutDir    string          `json:"out_dir,omitempty"`
-	FeedSHA   string          `json:"feed_sha,omitempty"`
-	Channels  []string        `json:"channels,omitempty"`
-	Done      map[string]bool `json:"done"`
-	Updated   string          `json:"updated"`
+	Schema    int    `json:"schema"`
+	Unit      string `json:"unit"`
+	Version   string `json:"version"`
+	Channel   string `json:"channel"`
+	SHA       string `json:"sha"`
+	Published string `json:"published,omitempty"`
+	// Notes are the release notes, kept so a resume publishes the same text.
+	Notes    string          `json:"notes,omitempty"`
+	OutDir   string          `json:"out_dir,omitempty"`
+	FeedSHA  string          `json:"feed_sha,omitempty"`
+	Channels []string        `json:"channels,omitempty"`
+	Done     map[string]bool `json:"done"`
+	Updated  string          `json:"updated"`
 }
 
 // DefaultStateDir is ~/.cache/libreserv-release/cuts (honouring XDG_CACHE_HOME).
@@ -202,6 +204,10 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 	if c.st.Published != "" {
 		c.Release.Published = c.st.Published
 	}
+	if c.Release.Notes == "" {
+		c.Release.Notes = c.st.Notes
+	}
+	c.st.Notes = c.Release.Notes
 
 	fns := map[string]func(context.Context) error{
 		StepBump: c.stepBump, StepBuild: c.stepBuild, StepSign: c.stepSign, StepUpload: c.stepUpload,

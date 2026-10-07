@@ -296,7 +296,8 @@ func (a *App) Cut(ctx context.Context, req CutRequest) (*CutResult, error) {
 			a.emit.emit(Event{Kind: EventCut, Unit: req.Unit, Step: step, Phase: phase, Err: err})
 		},
 	}
-	if cfg.Release.Notes == "" {
+	if cfg.Release.Notes == "" && !req.Resume {
+		// A resume keeps the notes saved with the cut (publish.State.Notes).
 		cfg.Release.Notes, _ = a.DraftNotes(ctx, req.Unit)
 	}
 	if !req.Dry {
