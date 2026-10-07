@@ -123,6 +123,9 @@ func srcPath(rel string) string { return "/src/" + rel }
 // app links it by symlink, so its imports resolve from its real path.
 const nodeBuildScript = `set -eu
 img=${4:-}
+src=${5:-/src}
+wc=${6:-/wc}
+test -d "$src" || { echo "source tree $src missing" >&2; exit 1; }
 install() {
   cd "$1"
   h=$( { cat package.json package-lock.json; printf 'node-image=%s\n' "$img"; } | sha256sum | cut -d' ' -f1)
@@ -138,22 +141,22 @@ dist=$1; app=$2; shared=$3
 # (infra, luna/crates, luna/desktop, luna/mobile, luna/os), plus the app path,
 # the node image and this script's version tag. The finished bundle sits in the
 # /wc volume next to the key; a hit copies it into place.
-key=$( { cd /src; find . \( -name node_modules -o -name dist -o -path ./infra -o -path ./luna/crates -o -path ./luna/desktop -o -path ./luna/mobile -o -path ./luna/os \) -prune -o -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum; printf 'web-cache-v1 app=%s dist=%s shared=%s node-image=%s\n' "$app" "$dist" "$shared" "$img"; } | sha256sum | cut -d' ' -f1)
-if [ "$(cat /wc/key 2>/dev/null || true)" = "$key" ] && [ -f /wc/dist/index.html ]; then
+key=$( { cd "$src" || exit 1; find . \( -name node_modules -o -name dist -o -path ./infra -o -path ./luna/crates -o -path ./luna/desktop -o -path ./luna/mobile -o -path ./luna/os \) -prune -o -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum; printf 'web-cache-v1 app=%s dist=%s shared=%s node-image=%s\n' "$app" "$dist" "$shared" "$img"; } | sha256sum | cut -d' ' -f1) || exit 1
+if [ "$(cat "$wc"/key 2>/dev/null || true)" = "$key" ] && [ -f "$wc"/dist/index.html ]; then
   echo "==> web bundle unchanged ($key), reusing it"
-  cp -a /wc/dist/. "$dist"/
+  cp -a "$wc"/dist/. "$dist"/
   exit 0
 fi
-rm -f /wc/key
+rm -f "$wc"/key
 if [ -n "$shared" ]; then install "$shared"; fi
 install "$app"
 cd "$app"
 npm run build
 test -f "$dist/index.html"
-rm -rf /wc/dist
-mkdir -p /wc/dist
-cp -a "$dist"/. /wc/dist/
-echo "$key" > /wc/key
+rm -rf "$wc"/dist
+mkdir -p "$wc"/dist
+cp -a "$dist"/. "$wc"/dist/
+echo "$key" > "$wc"/key
 `
 
 // viteBuild is a RunSpec that builds the Vite app at appRel (relative to the

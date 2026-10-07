@@ -189,7 +189,7 @@ func (*WindowsInstaller) spec(b *engine.BuildContext) (engine.RunSpec, error) {
 			"LUNA_DESKTOP_VERSION": b.Version,
 			// The version is written into the staged exe, not compiled in.
 			"LUNA_DESKTOP_VERSION_PATCH": "1",
-			"INSTALLER":            WindowsFile,
+			"INSTALLER":                  WindowsFile,
 		},
 		Memory: "6g",
 	}, "bash", "windows.sh"), nil

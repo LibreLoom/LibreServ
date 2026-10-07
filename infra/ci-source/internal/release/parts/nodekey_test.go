@@ -26,9 +26,13 @@ func TestNodeBuildScriptKeyedByImage(t *testing.T) {
 	os.WriteFile(filepath.Join(app, "package.json"), []byte("{}"), 0o644)
 	os.WriteFile(filepath.Join(app, "package-lock.json"), []byte("{}"), 0o644)
 	os.WriteFile(filepath.Join(bin, "npm"), []byte("#!/bin/sh\necho \"$1\" >> "+log+"\n[ \"$1 $2\" = \"run build\" ] && { mkdir -p dist; touch dist/index.html; }\nexit 0\n"), 0o755)
+	src := filepath.Join(tmp, "src")
+	os.MkdirAll(src, 0o755)
+	os.WriteFile(filepath.Join(src, "main.js"), []byte("x"), 0o644)
+	wc := filepath.Join(tmp, "wc")
 	run := func(img string) {
 		t.Helper()
-		cmd := exec.Command("sh", "-c", nodeBuildScript, "sh", filepath.Join(app, "dist"), app, "", img)
+		cmd := exec.Command("sh", "-c", nodeBuildScript, "sh", filepath.Join(app, "dist"), app, "", img, src, wc)
 		cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"))
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("%v: %s", err, out)
