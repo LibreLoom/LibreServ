@@ -133,11 +133,27 @@ install() {
   fi
 }
 dist=$1; app=$2; shared=$3
+# Skip the build when nothing it is made from changed. Key: every tracked file
+# of the export except node_modules, dist and the parts no web build can reach
+# (infra, luna/crates, luna/desktop, luna/mobile, luna/os), plus the app path,
+# the node image and this script's version tag. The finished bundle sits in the
+# /wc volume next to the key; a hit copies it into place.
+key=$( { cd /src; find . \( -name node_modules -o -name dist -o -path ./infra -o -path ./luna/crates -o -path ./luna/desktop -o -path ./luna/mobile -o -path ./luna/os \) -prune -o -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum; printf 'web-cache-v1 app=%s dist=%s shared=%s node-image=%s\n' "$app" "$dist" "$shared" "$img"; } | sha256sum | cut -d' ' -f1)
+if [ "$(cat /wc/key 2>/dev/null || true)" = "$key" ] && [ -f /wc/dist/index.html ]; then
+  echo "==> web bundle unchanged ($key), reusing it"
+  cp -a /wc/dist/. "$dist"/
+  exit 0
+fi
+rm -f /wc/key
 if [ -n "$shared" ]; then install "$shared"; fi
 install "$app"
 cd "$app"
 npm run build
 test -f "$dist/index.html"
+rm -rf /wc/dist
+mkdir -p /wc/dist
+cp -a "$dist"/. /wc/dist/
+echo "$key" > /wc/key
 `
 
 // viteBuild is a RunSpec that builds the Vite app at appRel (relative to the
@@ -149,6 +165,7 @@ func viteBuild(b *engine.BuildContext, key, appRel, distRel, hostDist string, sh
 	caches := []engine.Cache{
 		engine.CacheNpm,
 		{Volume: "node-modules-" + key, Target: srcPath(appRel + "/node_modules")},
+		{Volume: "web-out-" + key, Target: "/wc"},
 	}
 	shared := ""
 	if sharedUI {
