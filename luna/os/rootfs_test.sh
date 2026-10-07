@@ -180,4 +180,46 @@ if ! grep -q 'hwdrivers' "$BUILD"; then
 	exit 1
 fi
 
+# cloudflared must be checked against its pinned SHA-256, on download and on
+# every cache hit; a bad cache entry is deleted.
+(
+	T="$(mktemp -d)"
+	trap 'rm -rf "$T"' EXIT
+	mkdir "$T/bin" "$T/cache"
+	{ printf '\177ELF'; head -c 3000 /dev/zero; } > "$T/good"
+	{ printf '\177ELF'; head -c 3000 /dev/zero | tr '\0' 'x'; } > "$T/evil"
+	cat > "$T/bin/curl" <<STUB
+#!/bin/sh
+echo hit >> "$T/curl-calls"
+while [ \$# -gt 0 ]; do [ "\$1" = -o ] && out="\$2"; shift; done
+cp "$T/\$(cat "$T/serve")" "\$out"
+STUB
+	chmod +x "$T/bin/curl"
+	export PATH="$T/bin:$PATH" ARCH=x86_64 LUNA_CACHE_DIR="$T/cache"
+	CLOUDFLARED_SHA256_AMD64="$(sha256sum "$T/good" | cut -d' ' -f1)"
+	export CLOUDFLARED_SHA256_AMD64
+	# shellcheck source=lib/cloudflared-bake.sh
+	. "$CF_BAKE"
+	cached="$T/cache/cloudflared-${CLOUDFLARED_VERSION}-amd64"
+
+	echo evil > "$T/serve"
+	if luna_cloudflared_download "$T/out" 2>/dev/null; then
+		echo "FAIL: cloudflared download with a wrong SHA-256 must fail" >&2; exit 1
+	fi
+	{ [ ! -e "$T/out" ] && [ ! -e "$cached" ]; } || { echo "FAIL: a mismatching download must not be kept or cached" >&2; exit 1; }
+
+	echo good > "$T/serve"
+	luna_cloudflared_download "$T/out" 2>/dev/null || { echo "FAIL: matching cloudflared download must succeed" >&2; exit 1; }
+	[ -s "$cached" ] || { echo "FAIL: verified download must be cached" >&2; exit 1; }
+
+	: > "$T/curl-calls"
+	luna_cloudflared_download "$T/out2" 2>/dev/null || { echo "FAIL: good cache hit must succeed" >&2; exit 1; }
+	[ ! -s "$T/curl-calls" ] || { echo "FAIL: a good cache hit must not download" >&2; exit 1; }
+
+	cp "$T/evil" "$cached"
+	luna_cloudflared_download "$T/out3" 2>/dev/null || { echo "FAIL: a bad cache entry must fall back to a download" >&2; exit 1; }
+	cmp -s "$T/out3" "$T/good" || { echo "FAIL: output after a bad cache must be the verified binary" >&2; exit 1; }
+	cmp -s "$cached" "$T/good" || { echo "FAIL: a bad cache entry must be replaced" >&2; exit 1; }
+)
+
 echo "rootfs_test ok"

@@ -345,10 +345,10 @@ func osInputHash(ctx context.Context, b *engine.BuildContext, j *engine.JobRun) 
 }
 
 // osEnv passes through the knobs input-hash.sh and the build steps read, so a
-// forced refresh or a pinned Alpine behaves as with the dev wrappers.
+// forced refresh or a pinned Alpine release behaves as with the dev wrappers.
 func osEnv() map[string]string {
 	env := map[string]string{}
-	for _, k := range []string{"LUNA_OS_REFRESH", "ALPINE_VERSION", "CLOUDFLARED_VERSION", "ALPINE_IMAGE", "SIZE_MB"} {
+	for _, k := range []string{"LUNA_OS_REFRESH", "ALPINE_VERSION", "CLOUDFLARED_VERSION", "SIZE_MB"} {
 		if v := os.Getenv(k); v != "" {
 			env[k] = v
 		}

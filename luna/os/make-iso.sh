@@ -13,7 +13,7 @@ OUT="${OUT:-$OSDIR/dist}"
 # shellcheck source=lib/host-podman.sh
 . "$OSDIR/lib/host-podman.sh"
 ARCH="${ARCH:-x86_64}"
-DEBIAN_IMAGE="${DEBIAN_IMAGE:-docker.io/library/debian:bookworm}"
+DEBIAN_IMAGE="${DEBIAN_IMAGE:-docker.io/library/debian@sha256:2c037a04925515fdd6ea85ea14a682d0e79931f5e9f5d07b6dbfc6ba12f9e858}"
 ISO="$OUT/luna-rapidinstall-$ARCH.iso"
 
 luna_need_podman

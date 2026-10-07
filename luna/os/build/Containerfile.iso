@@ -2,7 +2,9 @@
 # builds the Debian live system, mksquashfs packs it, grub-mkrescue +
 # xorriso make the BIOS+UEFI hybrid image. Used by build/iso.sh, which never
 # calls podman.
-ARG DEBIAN_IMAGE=docker.io/library/debian:bookworm
+# debian:bookworm, pinned by digest (the release tool builds this image
+# without build arguments, so this default is the pin).
+ARG DEBIAN_IMAGE=docker.io/library/debian@sha256:2c037a04925515fdd6ea85ea14a682d0e79931f5e9f5d07b6dbfc6ba12f9e858
 FROM ${DEBIAN_IMAGE}
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
