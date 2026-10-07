@@ -156,8 +156,17 @@ type Cache struct {
 	Target string // path inside the container
 }
 
-// VolumePrefix is prepended to every cache volume name.
-const VolumePrefix = "libreserv-release-"
+// VolumePrefix is prepended to every cache volume name. The environment variable
+// LIBRESERV_RELEASE_VOLUME_PREFIX swaps in a separate set of caches (for example
+// to time a cold build without touching the real ones).
+var VolumePrefix = volumePrefix()
+
+func volumePrefix() string {
+	if p := os.Getenv("LIBRESERV_RELEASE_VOLUME_PREFIX"); p != "" {
+		return p
+	}
+	return "libreserv-release-"
+}
 
 // Well-known caches. Targets match the toolchain images' homes.
 var (
