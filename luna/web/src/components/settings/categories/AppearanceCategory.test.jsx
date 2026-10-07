@@ -72,4 +72,15 @@ describe("AppearanceCategory", () => {
     expect(screen.getByText("Color presets")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Apply Classic preset/i })).toBeTruthy();
   });
+
+  it("offers the Files nav grouping choice and remembers it", async () => {
+    const user = userEvent.setup();
+    renderAppearance();
+
+    const toggle = screen.getByRole("switch", { name: /Group Files pages/i });
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    await user.click(toggle);
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    expect(localStorage.getItem("lunaFilesNavGrouped")).toBe("1");
+  });
 });

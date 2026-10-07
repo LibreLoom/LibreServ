@@ -26,3 +26,16 @@ export const ICON_SIZE = {
   /** Large modal/banner header icons. */
   xxl: 24,
 };
+
+/**
+ * Hover intent for anything that opens while the pointer is over it (nav
+ * groups, hover cards). A quick sweep across shouldn't open it, and brushing
+ * its edge shouldn't snap it shut — both kept short so it still feels
+ * immediate. Used by `useHoverIntent`; pass overrides there, not here.
+ */
+export const HOVER_INTENT = {
+  /** Pointer must rest this long before it opens. */
+  openMs: 60,
+  /** Grace after the pointer leaves before it closes. */
+  closeMs: 40,
+};

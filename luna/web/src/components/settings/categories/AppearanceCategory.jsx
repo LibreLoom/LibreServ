@@ -1,6 +1,6 @@
 import { cn } from "@libreloom/ui/lib/utils.js";
 import { useState, useRef } from "react";
-import { Palette, Moon, Sun, Monitor, RotateCcw, Check, Lightbulb, Vibrate } from "lucide-react";
+import { Palette, Moon, Sun, Monitor, RotateCcw, Check, Lightbulb, Vibrate, FolderOpen } from "lucide-react";
 import Toggle from "@libreloom/ui/components/common/Toggle.jsx";
 import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
 import SettingsRow from "@libreloom/ui/components/settings/SettingsRow.jsx";
@@ -10,6 +10,7 @@ import { useTheme } from "@libreloom/ui/hooks/useTheme.jsx";
 import { useHapticsEnabled, setHapticsEnabled, haptic } from "@libreloom/ui/utils/haptics.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { restoreDismissedTips, setTipsEnabled, useTipState } from "../../../lib/tips.js";
+import { useFilesNavGrouped } from "../../../hooks/useFilesNavGrouped.js";
 
 const THEME_OPTIONS = [
   { value: "system", icon: Monitor, label: "System" },
@@ -234,6 +235,7 @@ export default function AppearanceCategory() {
   const [showCustomColors, setShowCustomColors] = useState(isCustomTheme);
   const hapticsEnabled = useHapticsEnabled();
   const tips = useTipState();
+  const [filesGrouped, setFilesGrouped] = useFilesNavGrouped();
 
   const darkMode = resolvedTheme === "dark";
 
@@ -401,8 +403,22 @@ export default function AppearanceCategory() {
         </div>
       </SettingsCard>
 
+      {/* Navigation layout — Toggle matches shared primitives */}
+      <SettingsCard icon={FolderOpen} title="Navigation" padding={false} index={2}>
+        <div className="px-4 py-4">
+          <Toggle
+            checked={filesGrouped}
+            onChange={setFilesGrouped}
+            label="Group Files pages"
+            description="Show Drives, Shared and Photos under one Files item. Off shows each as its own button."
+            iconOn={Check}
+            iconOff={FolderOpen}
+          />
+        </div>
+      </SettingsCard>
+
       {/* Existing Luna vibration preference — Toggle matches shared primitives */}
-      <SettingsCard icon={Vibrate} title="Haptics" padding={false} index={2}>
+      <SettingsCard icon={Vibrate} title="Haptics" padding={false} index={3}>
         <div className="px-4 py-4">
           <Toggle
             checked={hapticsEnabled}
@@ -415,7 +431,7 @@ export default function AppearanceCategory() {
         </div>
       </SettingsCard>
 
-      <SettingsCard icon={Lightbulb} title="Tips" padding={false} index={3}>
+      <SettingsCard icon={Lightbulb} title="Tips" padding={false} index={4}>
         <div className="px-4 py-4 space-y-4">
           <Toggle
             checked={tips.enabled}
