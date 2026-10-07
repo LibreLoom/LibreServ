@@ -436,8 +436,11 @@ PART
 
 	_bios_ok=0
 	_efi_ok=0
-	# Prefer ESP as boot-directory so slot rewrites do not erase GRUB modules.
-	if grub-install --target=i386-pc --boot-directory="$_espmnt/grub" "$_dev"; then
+	# --boot-directory is the directory that holds grub/: the ESP root, so GRUB reads
+	# ESP/grub/grub.cfg (the file written above). Using $_espmnt/grub here would put
+	# everything under ESP/grub/grub/ and BIOS boots would stop at a grub> prompt.
+	# The ESP (not a slot) keeps GRUB modules safe when a slot is rewritten.
+	if grub-install --target=i386-pc --boot-directory="$_espmnt" "$_dev"; then
 		_bios_ok=1
 	elif grub-install --target=i386-pc --boot-directory="$_mnt_a/boot" --root-directory="$_mnt_a" "$_dev"; then
 		_bios_ok=1
@@ -446,11 +449,11 @@ PART
 	# that search.fs_uuid's the ESP — that stub is what drops Wyse to a
 	# GRUB shell. Install the binary, then replace cfg + embed our core.
 	if grub-install --target=x86_64-efi --efi-directory="$_espmnt" \
-		--boot-directory="$_espmnt/grub" --removable --no-nvram "$_dev"; then
+		--boot-directory="$_espmnt" --removable --no-nvram "$_dev"; then
 		_efi_ok=1
 	fi
 	grub-install --target=i386-efi --efi-directory="$_espmnt" \
-		--boot-directory="$_espmnt/grub" --removable --no-nvram "$_dev" 2>/dev/null || true
+		--boot-directory="$_espmnt" --removable --no-nvram "$_dev" 2>/dev/null || true
 	if _embed_uefi_grub "$_espmnt"; then
 		_efi_ok=1
 	fi

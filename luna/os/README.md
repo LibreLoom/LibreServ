@@ -50,6 +50,27 @@ disk both boot in either firmware mode.
 ./os/flash.sh /dev/sdX                # also /dev/nvme0n1 /dev/mmcblk0
 ```
 
+## Build steps and the release tool
+
+Every build step is an in-container script under `build/` plus a Containerfile;
+none of them calls podman or sudo, so the release engine runs them directly in
+its own job containers. `os/*.sh` wrappers are for dev use only (rootless
+podman, named-volume caches, `--memory` limit via `LUNA_BUILD_MEMORY`).
+
+| Step | Script (inside) | Container | In | Out |
+|---|---|---|---|---|
+| rootfs | `build/rootfs.sh` | `build/Containerfile.os` | `/luna/os` (ro), `LUNAD_BIN`, `LUNA_CONSOLE_BIN`, optional `LUNA_CACHE_DIR` | tree at `/rootfs` (volume) |
+| image | `build/image.sh` | `build/Containerfile.os` | `/rootfs`, `/luna/os`, `OS_INPUT_HASH` | `/out/luna-os-x86_64.img.xz` + `.sha256` + `.inputs` |
+| ISO | `build/iso.sh` | `build/Containerfile.iso` | `/luna/os`, `/payload` (the `.img.xz` + packs), optional `/cache` | `/out/luna-rapidinstall-x86_64.iso` |
+
+`build/input-hash.sh` prints the OS input hash (rootfs scripts, pins, slot size;
+not lunad). A box records the sha256 of the exact `.img.xz` as
+`os-image.sha256`, which is what the update feed lists for the `os` part.
+
+Dev checks without installing QEMU: `iso/boot-test.sh bios|uefi` (boots the ISO
+as a USB stick and saves the screen) and `iso/install-test.sh` (runs the whole
+installer into a virtual disk, then boots the result).
+
 Installed layout (GPT): 1 MiB BIOS GRUB, EFI System partition (`LUNAESP`),
 OS slot A (`LUNA_A`), OS slot B (`LUNA_B`), and data (`LUNA_DATA` at
 `/var/lib/luna`). GRUB tryboot selects the slot; a failed boot rolls back.

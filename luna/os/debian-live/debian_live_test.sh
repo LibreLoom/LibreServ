@@ -105,6 +105,10 @@ assert_file_lacks "$OSROOT/rapidinstall.sh" 'LUNA_ROOTFS|luna-rootfs' "the rootf
 assert_file_lacks "$OSROOT/lib/flash-disk.sh" 'tar -x|_populate_slot' "the tarball install path is gone"
 assert_file_has "$OSROOT/lib/flash-disk.sh" 'xz -dc' "installer must stream the .img.xz onto both slots"
 assert_file_has "$OSROOT/lib/flash-disk.sh" '_verify_os_image' "installer must check the .img.xz against its .sha256 before erasing"
+assert_file_has "$OSROOT/lib/flash-disk.sh" 'i386-pc --boot-directory="$_espmnt" "$_dev"' \
+	"BIOS GRUB must use the ESP root as boot-directory so it finds ESP/grub/grub.cfg"
+assert_file_lacks "$OSROOT/lib/flash-disk.sh" 'boot-directory="$_espmnt/grub"' \
+	"boot-directory=ESP/grub nests GRUB under grub/grub and BIOS boots stop at a grub> prompt"
 
 if [ "$fail" -ne 0 ]; then
 	echo "$fail failed" >&2
