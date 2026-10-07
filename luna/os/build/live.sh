@@ -57,8 +57,11 @@ cp "$_i" "$LIVE_OUT/initrd.img"
 chroot "$CHROOT" lsinitramfs "/boot/$(basename "$_i")" | grep -q 'scripts/live' \
 	|| die "live-boot is missing from the initramfs"
 
+# zstd, not xz: about twice as fast to pack (50 s vs 108 s measured), the Debian
+# kernel has CONFIG_SQUASHFS_ZSTD, and it unpacks faster at boot. The squashfs is
+# ~11% bigger (200 vs 180 MB).
 echo "==> live system: squashfs"
 mksquashfs "$CHROOT" "$LIVE_OUT/filesystem.squashfs" \
-	-comp xz -b 1M -Xbcj x86 -processors "$THREADS" -no-progress -noappend \
+	-comp zstd -Xcompression-level 19 -b 1M -processors "$THREADS" -no-progress -noappend \
 	-wildcards -e 'boot/vmlinuz-*' -e 'boot/initrd.img-*' -e 'var/cache/apt/archives/*.deb' >/dev/null
 rm -rf "$CHROOT"

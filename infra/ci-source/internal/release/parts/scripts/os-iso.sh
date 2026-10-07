@@ -7,8 +7,9 @@ trap 'rm -f "$iso" "$tmp"' EXIT
 sh /luna/os/build/iso.sh
 echo "==> xz"
 # -T and the memory cap are explicit: xz sizes its defaults from the host's
-# RAM, not this container's limit.
-xz -6 -T"$(nproc)" --memlimit-compress=2GiB -c "$iso" >"$tmp"
+# RAM, not this container's limit. -0: the ISO is almost all compressed data
+# already (xz -6 saves 0.4% more and takes twice as long).
+xz -0 -T"$(nproc)" --memlimit-compress=2GiB -c "$iso" >"$tmp"
 xz -t "$tmp"
 rm -f "$iso"
 mv -f "$tmp" /out/luna-rapidinstall-x86_64.iso.xz
