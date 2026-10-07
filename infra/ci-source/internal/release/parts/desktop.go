@@ -128,10 +128,10 @@ func (f *Flatpak) spec(b *engine.BuildContext) (engine.RunSpec, error) {
 		list = append(list, bd.Branch+":"+bd.File)
 	}
 	return lunaShell(engine.RunSpec{
-		Name:    "flatpak",
-		Image:   "flatpak-builder",
-		Out:     out,
-		Mounts:  []engine.Mount{lunaSrcMount(b), ver},
+		Name:   "flatpak",
+		Image:  "flatpak-builder",
+		Out:    out,
+		Mounts: []engine.Mount{lunaSrcMount(b), ver},
 		Caches: []engine.Cache{engine.CacheFlatpak,
 			{Volume: "flatpak-user", Target: "/root/.local/share/flatpak"}},
 		Env:    map[string]string{"BRANCHES": strings.Join(list, " ")},
