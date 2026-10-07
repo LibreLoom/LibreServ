@@ -398,3 +398,36 @@ func TestMissingPacksFailCutsOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A cut must not reuse a cached image that carries a dev lunad.
+func TestCachedImageForCutNeedsReleaseLunad(t *testing.T) {
+	dev := lunaCtx(t, "luna", "0.4.1-0.dev.12")
+	out := dev.PartOutDir("os")
+	os.MkdirAll(out, 0o755)
+	os.WriteFile(filepath.Join(out, OSFile), []byte("img"), 0o644)
+	if err := finishFile(dev, t.Logf, "os", OSFile, "luna-os", "k", osBuild, osSidecars(OSFile)); err != nil {
+		t.Fatal(err)
+	}
+	if err := recordLunadVersion(dev, "luna-os", "k", dev.Version); err != nil {
+		t.Fatal(err)
+	}
+	cut := lunaCtx(t, "luna", "0.4.1")
+	cut.Engine = dev.Engine
+	cut.Released = func(string) (engine.Released, bool) { return engine.Released{}, false }
+	if !cacheUsable(dev, "luna-os", "k", OSFile) {
+		t.Error("a dev build must keep reusing its own cached image")
+	}
+	if cacheUsable(cut, "luna-os", "k", OSFile) {
+		t.Error("a cut reused an image built with a dev lunad")
+	}
+	if err := recordLunadVersion(cut, "luna-os", "k", "0.4.0"); err != nil {
+		t.Fatal(err)
+	}
+	if !cacheUsable(cut, "luna-os", "k", OSFile) {
+		t.Error("a cut must reuse an image built with a release lunad")
+	}
+	forgetLunadVersion(cut, "luna-os", "k")
+	if cacheUsable(cut, "luna-os", "k", OSFile) {
+		t.Error("a cut reused an image with no recorded lunad version")
+	}
+}

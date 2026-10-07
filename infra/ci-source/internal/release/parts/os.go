@@ -16,6 +16,7 @@ import (
 	"sync"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/ci/internal/release/engine"
+	"gt.plainskill.net/LibreLoom/LibreServ/ci/internal/release/version"
 )
 
 func init() {
@@ -144,7 +145,16 @@ func (o *osBuilder) osJobs(b *engine.BuildContext) []engine.Job {
 				pl.mu.Lock()
 				act, hash := pl.os, pl.osHash
 				pl.mu.Unlock()
-				return finishFile(b, j.Logf, "os", OSFile, "luna-os", hash, act, osSidecars(OSFile))
+				if act == osBuild {
+					forgetLunadVersion(b, "luna-os", hash) // never keep an older build's answer
+				}
+				if err := finishFile(b, j.Logf, "os", OSFile, "luna-os", hash, act, osSidecars(OSFile)); err != nil {
+					return err
+				}
+				if act == osBuild {
+					return recordLunadVersion(b, "luna-os", hash, b.Version)
+				}
+				return nil
 			}},
 	}
 }
@@ -181,7 +191,21 @@ func (o *osBuilder) installerJobs(b *engine.BuildContext) []engine.Job {
 				pl.mu.Lock()
 				act, key := pl.inst, pl.isoKey
 				pl.mu.Unlock()
-				return finishFile(b, j.Logf, "installer", InstallerFile, "luna-installer", key, act, osSidecars(InstallerFile))
+				if act == osBuild {
+					forgetLunadVersion(b, "luna-installer", key)
+				}
+				if err := finishFile(b, j.Logf, "installer", InstallerFile, "luna-installer", key, act, osSidecars(InstallerFile)); err != nil {
+					return err
+				}
+				if act == osBuild {
+					// The ISO carries the OS image: its lunad is the ISO's lunad.
+					lv := b.Version
+					if osAct, osHash := func() (osAction, string) { pl.mu.Lock(); defer pl.mu.Unlock(); return pl.os, pl.osHash }(); osAct == osCached {
+						lv = cachedLunadVersion(b, "luna-os", osHash)
+					}
+					return recordLunadVersion(b, "luna-installer", key, lv)
+				}
+				return nil
 			}},
 	}
 	for _, d := range packDefs {
@@ -233,7 +257,7 @@ func (o *osBuilder) decide(ctx context.Context, b *engine.BuildContext, j *engin
 			return fetchInputs(ctx, osRel.URL)
 		},
 		releasedVersion: osRel.Version,
-		cached:          cacheHas(b, "luna-os", hash, OSFile),
+		cached:          cacheUsable(b, "luna-os", hash, OSFile),
 	})
 	j.Logf("OS image: %s (%s)", osAct, why)
 
@@ -257,7 +281,7 @@ func (o *osBuilder) decide(ctx context.Context, b *engine.BuildContext, j *engin
 			r, _ := b.Released("installer")
 			return r.Version
 		}(),
-		cached: cacheHas(b, "luna-installer", key, InstallerFile),
+		cached: cacheUsable(b, "luna-installer", key, InstallerFile),
 	})
 	j.Logf("installer: %s (%s)", instAct, why)
 	if instAct == osBuild && packsFromDir() {
@@ -591,6 +615,41 @@ func cacheDirFor(b *engine.BuildContext, kind, key string) string {
 
 func cacheHas(b *engine.BuildContext, kind, key, file string) bool {
 	return fileOK(filepath.Join(cacheDirFor(b, kind, key), file))
+}
+
+// lunadVersionFile sits next to a cached file and names the lunad version
+// that is inside it (the image carries lunad; the ISO carries the image).
+const lunadVersionFile = "lunad-version"
+
+func recordLunadVersion(b *engine.BuildContext, kind, key, ver string) error {
+	return os.WriteFile(filepath.Join(cacheDirFor(b, kind, key), lunadVersionFile), []byte(ver+"\n"), 0o644)
+}
+
+func forgetLunadVersion(b *engine.BuildContext, kind, key string) {
+	os.Remove(filepath.Join(cacheDirFor(b, kind, key), lunadVersionFile))
+}
+
+func cachedLunadVersion(b *engine.BuildContext, kind, key string) string {
+	raw, err := os.ReadFile(filepath.Join(cacheDirFor(b, kind, key), lunadVersionFile))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(raw))
+}
+
+// cacheUsable is cacheHas, and for a cut also requires that the cached file
+// was built with a release lunad: a dev build's image carries a
+// "0.x-0.dev.N" lunad that must never ship in a release. A file with no
+// recorded lunad version is not trusted for a cut.
+func cacheUsable(b *engine.BuildContext, kind, key, file string) bool {
+	if !cacheHas(b, kind, key, file) {
+		return false
+	}
+	if b.Released == nil {
+		return true
+	}
+	v, err := version.Parse(cachedLunadVersion(b, kind, key))
+	return err == nil && !isDevVersion(v)
 }
 
 func fileOK(p string) bool {
