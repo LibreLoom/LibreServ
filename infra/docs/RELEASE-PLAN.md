@@ -598,4 +598,36 @@ inject it through the receiver's key-override hook. Regenerate (deterministic):
 ## Open
 
 - Android self-update for sideloaded installs: default is no.
-- Confirm slash tags work with Forgejo and F-Droid.
+- ~~Confirm slash tags work with Forgejo and F-Droid.~~ Done, see below.
+
+### Spike results (2026-10-06)
+
+- **Proton Pass CLI 2.4.2.** The login is stored in `~/.local/share/proton-pass-cli/.session`
+  (override `PROTON_PASS_SESSION_DIR`; key storage `PROTON_PASS_KEY_PROVIDER`:
+  keyring, filesystem or env) and persists. `pass-cli info` exits 0 when
+  logged in and 1 with "requires an authenticated client" when not. No TTY needed.
+  `pass-cli item view "pass://<vault name>/<item title>/<field>"` (or
+  `--vault-name/--item-title/--field`) prints the bare value plus a newline;
+  `--output json` is available. Missing item or field: exit 1 plus an `Error:` line; an
+  empty field counts as missing. Login needs a browser, `--interactive`, or a
+  personal access token (`--pat pst_…::…`, for headless). Optional source only.
+- **Forgejo generic registry** (Forgejo 16, owner LibreLoom, no packages existed).
+  `fj` token: `keys.json` → `hosts["gt.plainskill.net"].token`, user `plainskill`, admin,
+  push on LibreLoom/LibreServ. `PUT /api/packages/LibreLoom/generic/<name>/<version>/<file>`
+  → 201; same file again → 409; a second file under the same version → 201;
+  names with `-` `.`, versions like `0.0.0-probe.1` and `0.4.0-rc.1+build.5` → 201.
+  Download needs no auth (public) → 200. `DELETE` on a file → 204 (again → 404), on
+  `.../<name>/<version>` → 204 and the version then 404s; `DELETE /api/v1/packages/…`
+  works too. Uploads of 60 MB, 150 MB, 400 MB and 2.2 GB all returned 201 (about
+  20 MB/s), so no practical size limit through Caddy. A path needs exactly
+  name/version/file or it 404s. Re-publishing means delete then upload.
+- **Slash tags.** Forgejo handles them: `/tags/*`, web `/releases/tag/*`, `/archive/*` use
+  wildcards; `releases/tags/{tag}` and `releases/download/{vTag}/{file}` are single-segment,
+  so clients must send `%2F` (verified to reach the handler). We use generic
+  packages, not release attachments, so only the release API/URL needs `%2F`.
+  Existing tags are flat (`luna-v0.0.39`, `luna-connect-v0.2.39`); no slash tags
+  pushed. F-Droid `checkupdates` `Tags <regex>` runs `re.match` on the plain
+  GitPython tag name (slashes fine; anchored at the start, so `^luna-android/v.*`
+  works). Only the newest 5 matching tags (by commit date) are checked, and
+  versionName/versionCode come from the Gradle/manifest at the tag unless
+  `UpdateCheckData` is set.
