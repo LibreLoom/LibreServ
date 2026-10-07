@@ -86,7 +86,8 @@ type Config struct {
 	// whose URL points at ForgejoURL's host (they may be the same remote).
 	PushRemote  string
 	ForgeRemote string
-	HTTP        *http.Client
+	HTTP        *http.Client // feeds and Forgejo API calls: short timeout
+	Transfer    *http.Client // registry uploads and downloads: no overall timeout, aborts on a stall
 
 	// StateDir holds resumable cut state (default publish.DefaultStateDir).
 	StateDir    string
@@ -142,7 +143,13 @@ func New(cfg Config) (*App, error) {
 		cfg.RepoName = DefaultRepoName
 	}
 	if cfg.HTTP == nil {
-		cfg.HTTP = &http.Client{Timeout: 5 * time.Minute}
+		cfg.HTTP = &http.Client{Timeout: 30 * time.Second}
+		if cfg.Transfer == nil {
+			cfg.Transfer = publish.NewTransferClient(publish.TransferOptions{})
+		}
+	}
+	if cfg.Transfer == nil {
+		cfg.Transfer = cfg.HTTP // a caller that brought its own client uses it for both
 	}
 	if cfg.OutRoot == "" {
 		cfg.OutRoot = filepath.Join(cfg.Repo, "dist")
@@ -282,6 +289,6 @@ func (a *App) FeedURL(unit, channel string) string { return a.feedURL(unit, chan
 
 func (a *App) registry(c *secrets.ForgejoCreds) (*publish.Registry, *publish.Forgejo) {
 	tok := publish.StaticToken(c.Token)
-	return &publish.Registry{BaseURL: a.cfg.ForgejoURL, Owner: a.cfg.Owner, Token: tok, HTTP: a.cfg.HTTP, Retries: 3, Backoff: 5 * time.Second},
+	return &publish.Registry{BaseURL: a.cfg.ForgejoURL, Owner: a.cfg.Owner, Token: tok, HTTP: a.cfg.Transfer, Retries: 3, Backoff: 5 * time.Second},
 		&publish.Forgejo{BaseURL: a.cfg.ForgejoURL, Owner: a.cfg.Owner, Repo: a.cfg.RepoName, Token: tok, HTTP: a.cfg.HTTP}
 }

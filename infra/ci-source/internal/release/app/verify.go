@@ -42,7 +42,7 @@ func (a *App) Verify(ctx context.Context, unit, channel string) ([]Verification,
 	for _, ch := range chans {
 		v := Verification{Unit: unit, Channel: ch, URL: a.feedURL(unit, ch)}
 		a.emit.note(unit, "verifying %s", v.URL)
-		v.Feed, v.Err = publish.VerifyFeed(ctx, a.cfg.HTTP, v.URL, pub)
+		v.Feed, v.Err = publish.VerifyFeed(ctx, a.cfg.Transfer, v.URL, pub)
 		if v.Err != nil {
 			v.Error = v.Err.Error()
 		}
