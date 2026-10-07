@@ -45,6 +45,14 @@ func lunaWorkDir(b *engine.BuildContext, name string) (string, error) {
 	return d, os.MkdirAll(d, 0o755)
 }
 
+// lunaWebDistDir holds the built web bundle. It is the same dir for every
+// version: lunad embeds it and cargo goes by mtime, so a per-version dir would
+// look new every time and recompile lunad. luna-web.sh copies only changed files.
+func lunaWebDistDir(b *engine.BuildContext) (string, error) {
+	d := filepath.Join(b.OutRoot, ".work", b.Unit, "web-dist")
+	return d, os.MkdirAll(d, 0o755)
+}
+
 // LunaConsolePath is where the lunad build leaves luna-console (built with
 // lunad, needed by the OS image), for parts that depend on LunadJob.
 func LunaConsolePath(b *engine.BuildContext) string {
@@ -161,7 +169,7 @@ func (*Lunad) Jobs(b *engine.BuildContext) ([]engine.Job, error) {
 }
 
 func lunaWebSpec(b *engine.BuildContext) (engine.RunSpec, error) {
-	out, err := lunaWorkDir(b, "web-dist")
+	out, err := lunaWebDistDir(b)
 	if err != nil {
 		return engine.RunSpec{}, err
 	}
@@ -189,7 +197,7 @@ func lunadBuildSpec(b *engine.BuildContext) (engine.RunSpec, error) {
 			return engine.RunSpec{}, err
 		}
 	}
-	web, err := lunaWorkDir(b, "web-dist")
+	web, err := lunaWebDistDir(b)
 	if err != nil {
 		return engine.RunSpec{}, err
 	}
