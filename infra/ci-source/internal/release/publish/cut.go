@@ -39,12 +39,17 @@ type Source struct {
 type Config struct {
 	Release Release // Published may be left empty: the cut fixes it at the feed step
 
-	Repo     string // local checkout (clean, on Branch)
-	Branch   string // default "main"
-	Origin   string // default "origin"
-	Forgejo  string // default "forgejo"
-	Owner    string // Forgejo owner/organisation, for registry and API
-	RepoName string // Forgejo repository name
+	Repo   string // local checkout (clean, on Branch)
+	Branch string // default "main"
+	// Origin is the remote commits are pushed to (default: the branch's
+	// upstream remote, else "origin"). Forgejo is the remote that points at the
+	// Forgejo host and receives the tag (default: found by URL, see
+	// Git.ResolveRemotes). They may be the same remote.
+	Origin    string
+	Forgejo   string
+	ForgeHost string // host of the Forgejo remote, e.g. gt.plainskill.net; empty means a remote named "forgejo"
+	Owner     string // Forgejo owner/organisation, for registry and API
+	RepoName  string // Forgejo repository name
 
 	// Bump writes VERSION (+ the copies toolchains need) into dir and returns
 	// the changed paths relative to dir.
@@ -172,6 +177,17 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 	tag := Tag(rel.Unit, rel.Version)
 
 	if !c.Dry {
+		var err error
+		if c.Origin, c.Forgejo, err = c.g.ResolveRemotes(ctx, c.Branch, c.ForgeHost, c.Origin, c.Forgejo); err != nil {
+			return nil, err
+		}
+		if c.Origin != c.Forgejo {
+			c.logf("pushing to %s; the tag goes to %s once the mirror has caught up", c.Origin, c.Forgejo)
+		} else {
+			c.logf("%s is the Forgejo remote: no mirror to wait for", c.Origin)
+		}
+	}
+	if !c.Dry {
 		if existing, err := c.findState(); err != nil {
 			return nil, err
 		} else if existing != "" {
@@ -250,11 +266,8 @@ func (c *cut) defaults() {
 	if c.Branch == "" {
 		c.Branch = "main"
 	}
-	if c.Origin == "" {
-		c.Origin = "origin"
-	}
-	if c.Forgejo == "" {
-		c.Forgejo = "forgejo"
+	if c.Origin == "" && c.Dry {
+		c.Origin = "origin" // never pushed to in a dry run
 	}
 	if c.PollEvery == 0 {
 		c.PollEvery = 5 * time.Second
@@ -588,6 +601,18 @@ func (c *cut) stepMirror(ctx context.Context) error {
 	goal := MirrorGoal{Unit: c.Release.Unit, Commits: []string{c.st.SHA, c.st.FeedSHA}, Published: map[string]string{}}
 	for _, ch := range c.st.Channels {
 		goal.Published[ch] = c.st.Published
+	}
+	if c.Origin == c.Forgejo {
+		// Pushed straight to Forgejo: nothing to wait for, but confirm it
+		// really has the commits and the feeds.
+		missing, err := c.Forge.mirrorMissing(ctx, goal)
+		if err != nil {
+			return err
+		}
+		if missing != "" {
+			return fmt.Errorf("Forgejo does not have %s although it was pushed to %s", missing, c.Origin)
+		}
+		return nil
 	}
 	return c.Forge.WaitMirror(ctx, goal, c.PollEvery, c.PollTimeout)
 }

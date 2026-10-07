@@ -393,3 +393,82 @@ func TestCutResumeKeepsSavedNotes(t *testing.T) {
 		t.Fatalf("feed lost the saved notes:\n%s", got)
 	}
 }
+
+// pointAtForge gives a remote the URL https://gt.test/LibreLoom/LibreServ.git
+// while git still talks to the local bare repo through insteadOf.
+func (w *world) pointAtForge(remote, bare string) {
+	const u = "https://gt.test/LibreLoom/LibreServ.git"
+	sh(w.t, w.repo, "config", "remote."+remote+".url", u)
+	sh(w.t, w.repo, "config", "url."+bare+".insteadOf", u)
+	w.cfg.ForgeHost = "gt.test"
+}
+
+func TestCutOriginIsTheForge(t *testing.T) {
+	w := newWorld(t)
+	sh(t, w.repo, "remote", "remove", "forgejo")
+	w.pointAtForge("origin", w.origin)
+	w.forgejo = w.origin // the fake API reads the forge's repo
+	w.mirrorAt = 1 << 30 // there is no mirror: polling must not be needed
+	res, err := Run(context.Background(), w.cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := sh(t, w.origin, "rev-parse", "luna/v0.4.0^{commit}"); got != res.SHA {
+		t.Fatalf("tag at %s, want %s", got, res.SHA)
+	}
+	if w.polls != 2 { // one lookup per commit, nothing more
+		t.Fatalf("%d API lookups", w.polls)
+	}
+}
+
+func TestCutFindsForgeRemoteByURL(t *testing.T) {
+	w := newWorld(t)
+	sh(t, w.repo, "remote", "rename", "forgejo", "gt")
+	w.pointAtForge("gt", w.forgejo)
+	res, err := Run(context.Background(), w.cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.tags(w.origin) != "" || sh(t, w.forgejo, "rev-parse", "luna/v0.4.0^{commit}") != res.SHA {
+		t.Fatal("tag must land on the remote that points at the forge only")
+	}
+}
+
+func TestCutNoRemotePointsAtForge(t *testing.T) {
+	w := newWorld(t)
+	sh(t, w.repo, "remote", "remove", "forgejo")
+	w.cfg.ForgeHost = "gt.test"
+	_, err := Run(context.Background(), w.cfg)
+	if err == nil || !strings.Contains(err.Error(), "No git remote points at gt.test; add one with `git remote add forgejo https://gt.test/LibreLoom/LibreServ.git`") {
+		t.Fatalf("err = %v", err)
+	}
+	if sh(t, w.origin, "log", "--format=%s", "main") != "init" {
+		t.Fatal("something was pushed")
+	}
+}
+
+func TestCutExplicitForgeRemote(t *testing.T) {
+	w := newWorld(t)
+	sh(t, w.repo, "remote", "rename", "forgejo", "elsewhere")
+	w.cfg.ForgeHost = "gt.test"
+	w.cfg.Forgejo = "elsewhere"
+	if _, err := Run(context.Background(), w.cfg); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestURLHost(t *testing.T) {
+	for in, want := range map[string]string{
+		"https://gt.plainskill.net/LibreLoom/LibreServ.git":        "gt.plainskill.net",
+		"https://user:tok@GT.plainskill.net:443/a/b.git":           "gt.plainskill.net",
+		"ssh://git@gt.plainskill.net:2222/LibreLoom/LibreServ.git": "gt.plainskill.net",
+		"git@gt.plainskill.net:LibreLoom/LibreServ.git":            "gt.plainskill.net",
+		"git@github.com:LibreLoom/LibreServ.git":                   "github.com",
+		"/var/tmp/origin.git":                                      "",
+		"../origin.git":                                            "",
+	} {
+		if got := urlHost(in); got != want {
+			t.Errorf("urlHost(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

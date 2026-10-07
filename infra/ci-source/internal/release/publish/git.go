@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -58,7 +59,12 @@ func (g Git) Preflight(ctx context.Context, branch, tag string, remotes ...strin
 	if _, err := g.Rev(ctx, "refs/tags/"+tag); err == nil {
 		return fmt.Errorf("tag %s already exists locally", tag)
 	}
+	seen := map[string]bool{}
 	for _, r := range remotes {
+		if seen[r] {
+			continue
+		}
+		seen[r] = true
 		out, err := g.run(ctx, "ls-remote", "--tags", r, "refs/tags/"+tag)
 		if err != nil {
 			return err
@@ -68,6 +74,117 @@ func (g Git) Preflight(ctx context.Context, branch, tag string, remotes ...strin
 		}
 	}
 	return nil
+}
+
+// remoteURLs maps every remote to its configured URLs, as written in the
+// config (before any url.<base>.insteadOf rewrite).
+func (g Git) remoteURLs(ctx context.Context) (map[string][]string, error) {
+	out, err := g.run(ctx, "config", "--get-regexp", `^remote\..*\.(url|pushurl)$`)
+	if err != nil {
+		if strings.Contains(err.Error(), "exit status 1") { // no remotes at all
+			return nil, nil
+		}
+		return nil, err
+	}
+	m := map[string][]string{}
+	for _, l := range strings.Split(out, "\n") {
+		key, val, ok := strings.Cut(l, " ")
+		if !ok {
+			continue
+		}
+		key = strings.TrimPrefix(key, "remote.")
+		if i := strings.LastIndex(key, "."); i > 0 {
+			m[key[:i]] = append(m[key[:i]], strings.TrimSpace(val))
+		}
+	}
+	return m, nil
+}
+
+// urlHost returns the lower-case host of a git remote URL (https://, ssh://,
+// git@host:path), without user or port.
+func urlHost(raw string) string {
+	raw = strings.TrimSpace(raw)
+	var host string
+	if i := strings.Index(raw, "://"); i >= 0 {
+		host = raw[i+3:]
+		if j := strings.IndexAny(host, "/?#"); j >= 0 {
+			host = host[:j]
+		}
+		if j := strings.LastIndex(host, "@"); j >= 0 {
+			host = host[j+1:]
+		}
+		if strings.HasPrefix(host, "[") {
+			if j := strings.Index(host, "]"); j > 0 {
+				return strings.ToLower(host[1:j])
+			}
+		}
+		if j := strings.Index(host, ":"); j >= 0 {
+			host = host[:j]
+		}
+	} else if i := strings.Index(raw, ":"); i > 0 && !strings.Contains(raw[:i], "/") {
+		// scp-like: [user@]host:path
+		host = raw[:i]
+		if j := strings.LastIndex(host, "@"); j >= 0 {
+			host = host[j+1:]
+		}
+	}
+	return strings.ToLower(host)
+}
+
+// ResolveRemotes finds the two remotes a cut uses, by URL rather than name.
+// push is where commits go: the given name, else the branch's upstream remote,
+// else "origin". forge is the remote that points at forgeHost (https or ssh):
+// the given name, else the push remote if it points there, else the one named
+// "forgejo", else the first that does. They may be the same remote (origin IS
+// the forge). With no forgeHost the forge remote is "forgejo".
+func (g Git) ResolveRemotes(ctx context.Context, branch, forgeHost, push, forge string) (string, string, error) {
+	if push == "" {
+		push, _ = g.run(ctx, "config", "--get", "branch."+branch+".remote")
+		if push == "" || push == "." {
+			push = "origin"
+		}
+	}
+	if forge != "" {
+		return push, forge, nil
+	}
+	if forgeHost == "" {
+		return push, "forgejo", nil
+	}
+	want := strings.ToLower(forgeHost)
+	urls, err := g.remoteURLs(ctx)
+	if err != nil {
+		return "", "", err
+	}
+	points := func(name string) bool {
+		for _, u := range urls[name] {
+			if urlHost(u) == want {
+				return true
+			}
+		}
+		return false
+	}
+	switch {
+	case points(push):
+		return push, push, nil
+	case points("forgejo"):
+		return push, "forgejo", nil
+	}
+	var names []string
+	for n := range urls {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		if points(n) {
+			return push, n, nil
+		}
+	}
+	// A remote named forgejo is what the message below asks for; accept it
+	// even when its URL is a mirror or an alias we cannot match.
+	if _, ok := urls["forgejo"]; ok {
+		return push, "forgejo", nil
+	}
+	return "", "", fmt.Errorf("No git remote points at %s; add one with `git remote add forgejo https://%s/LibreLoom/LibreServ.git`", forgeHost, forgeHost)
 }
 
 func (g Git) identity(ctx context.Context) []string {

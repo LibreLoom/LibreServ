@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -234,10 +235,17 @@ func (a *App) Preflight(ctx context.Context, req CutRequest) *PreflightReport {
 	case req.Resume:
 		add("git", CheckOK, "resuming; the cut checks its own state")
 	default:
-		if err := (publish.Git{Dir: a.cfg.Repo}).Preflight(ctx, "main", tag, "origin", "forgejo"); err != nil {
+		g := publish.Git{Dir: a.cfg.Repo}
+		push, forge, err := g.ResolveRemotes(ctx, "main", a.forgeHost(), a.cfg.PushRemote, a.cfg.ForgeRemote)
+		if err == nil {
+			err = g.Preflight(ctx, "main", tag, push, forge)
+		}
+		if err != nil {
 			add("git", CheckFail, err.Error())
+		} else if push == forge {
+			add("git", CheckOK, "main, clean, tag "+tag+" free; "+push+" is the Forgejo remote")
 		} else {
-			add("git", CheckOK, "main, clean, tag "+tag+" free")
+			add("git", CheckOK, "main, clean, tag "+tag+" free; push to "+push+", tag to "+forge)
 		}
 	}
 
@@ -287,6 +295,7 @@ func (a *App) Cut(ctx context.Context, req CutRequest) (*CutResult, error) {
 		Release: publish.Release{Unit: req.Unit, Version: next.String(), Channel: req.Channel, Notes: req.Notes},
 		Repo:    a.cfg.Repo,
 		Owner:   a.cfg.Owner, RepoName: a.cfg.RepoName,
+		Origin: a.cfg.PushRemote, Forgejo: a.cfg.ForgeRemote, ForgeHost: a.forgeHost(),
 		Bump:     a.bumpFunc(req.Unit, next, a.cfg.Now()),
 		Signer:   signer,
 		StateDir: a.cfg.StateDir, Dry: req.Dry, Resume: req.Resume,
@@ -394,4 +403,14 @@ func (a *App) cutResolve(req CutRequest) func(ctx context.Context, src publish.S
 		}
 		return r, nil
 	}
+}
+
+// forgeHost is the host of the Forgejo base URL, which the git remote that
+// receives the tag must point at.
+func (a *App) forgeHost() string {
+	u, err := url.Parse(a.cfg.ForgejoURL)
+	if err != nil {
+		return ""
+	}
+	return u.Hostname()
 }

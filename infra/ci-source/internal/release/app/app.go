@@ -81,7 +81,12 @@ type Config struct {
 	ForgejoURL string
 	Owner      string
 	RepoName   string
-	HTTP       *http.Client
+	// PushRemote and ForgeRemote override the git remotes a cut uses. Normally
+	// the push remote is the branch's upstream and the forge remote is the one
+	// whose URL points at ForgejoURL's host (they may be the same remote).
+	PushRemote  string
+	ForgeRemote string
+	HTTP        *http.Client
 
 	// StateDir holds resumable cut state (default publish.DefaultStateDir).
 	StateDir    string

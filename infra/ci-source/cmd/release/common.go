@@ -88,6 +88,9 @@ func newApp(o appOpts) (*app.App, error) {
 			cfg.Prompter = p
 		}
 	}
+	// Override which git remotes a cut pushes to / tags on (normally found by URL).
+	cfg.PushRemote = os.Getenv("LIBRESERV_PUSH_REMOTE")
+	cfg.ForgeRemote = os.Getenv("LIBRESERV_FORGE_REMOTE")
 	cfg.DevVersion = devVersion
 	cfg.FeedSpecs = feedSpecs
 	cfg.VersionFiles = versionFiles()
