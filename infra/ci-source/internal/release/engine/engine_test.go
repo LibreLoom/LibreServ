@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestHashDir(t *testing.T) {
@@ -209,5 +210,46 @@ func TestRedactor(t *testing.T) {
 	var nilR *Redactor
 	if nilR.Redact("q") != "q" {
 		t.Fatal("nil redactor")
+	}
+}
+
+// A new export keeps the mtime of files whose bytes did not change since the
+// earlier export (so cargo does not rebuild them) and stamps changed files
+// later.
+func TestExportInheritsMtimes(t *testing.T) {
+	repo := gitRepo(t)
+	cache := t.TempDir()
+	ctx := context.Background()
+	run := func(args ...string) {
+		t.Helper()
+		if out, err := exec.Command("git", append([]string{"-C", repo, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"}, args...)...).CombinedOutput(); err != nil {
+			t.Fatal(err, string(out))
+		}
+	}
+	d1, _, err := ExportSource(ctx, repo, "HEAD", cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	past := time.Now().Add(-48 * time.Hour)
+	os.Chtimes(filepath.Join(d1, "a.txt"), past, past)
+	os.WriteFile(filepath.Join(repo, "b.txt"), []byte("new\n"), 0o644)
+	run("add", "b.txt")
+	run("commit", "-q", "-m", "two")
+	d2, _, err := ExportSource(ctx, repo, "HEAD", cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := os.Stat(filepath.Join(d2, "a.txt")); !st.ModTime().Equal(past) {
+		t.Errorf("unchanged a.txt has mtime %v, want %v", st.ModTime(), past)
+	}
+	if st, _ := os.Stat(filepath.Join(d2, "b.txt")); !st.ModTime().After(past.Add(time.Hour)) {
+		t.Errorf("new b.txt has old mtime %v", st.ModTime())
+	}
+	// Changed bytes get a fresh mtime.
+	os.WriteFile(filepath.Join(repo, "a.txt"), []byte("two\n"), 0o644)
+	run("commit", "-q", "-am", "three")
+	d3, _, _ := ExportSource(ctx, repo, "HEAD", cache)
+	if st, _ := os.Stat(filepath.Join(d3, "a.txt")); !st.ModTime().After(past.Add(time.Hour)) {
+		t.Errorf("changed a.txt kept old mtime %v", st.ModTime())
 	}
 }

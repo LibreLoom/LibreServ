@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -77,6 +78,9 @@ func ExportSource(ctx context.Context, repo, ref, cacheDir string) (dir, sha str
 	if exErr != nil {
 		return "", "", exErr
 	}
+	if err := inheritMtimes(root, sha, tmp); err != nil {
+		return "", "", err
+	}
 	if err := os.WriteFile(filepath.Join(tmp, ExportMarker), []byte(sha+"\n"), 0o644); err != nil {
 		return "", "", err
 	}
@@ -92,6 +96,61 @@ func ExportSource(ctx context.Context, repo, ref, cacheDir string) (dir, sha str
 		return "", "", err
 	}
 	return dir, sha, nil
+}
+
+// inheritMtimes gives every file of the new export whose bytes equal the same
+// path in the newest earlier export that earlier file's mtime. git archive and
+// extraction stamp everything with "now", and cargo (and make) compare mtimes,
+// so without this a build of the next commit would recompile every workspace
+// crate. A file whose bytes differ keeps its new, later mtime, so it is seen
+// as changed: this is exact, never a guess from timestamps.
+func inheritMtimes(root, sha, tmp string) error {
+	ents, err := os.ReadDir(root)
+	if err != nil {
+		return err
+	}
+	var prev string
+	var prevTime int64
+	for _, e := range ents {
+		if !e.IsDir() || e.Name() == sha || strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+		m, err := os.Stat(filepath.Join(root, e.Name(), ExportMarker))
+		if err != nil {
+			continue
+		}
+		if t := m.ModTime().UnixNano(); prev == "" || t > prevTime {
+			prev, prevTime = filepath.Join(root, e.Name()), t
+		}
+	}
+	if prev == "" {
+		return nil
+	}
+	return filepath.WalkDir(tmp, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || !d.Type().IsRegular() {
+			return err
+		}
+		rel, _ := filepath.Rel(tmp, p)
+		old := filepath.Join(prev, rel)
+		os1, err1 := os.Lstat(old)
+		ns, err2 := d.Info()
+		if err1 != nil || err2 != nil || !os1.Mode().IsRegular() || os1.Size() != ns.Size() {
+			return nil
+		}
+		if sameBytes(old, p) {
+			return os.Chtimes(p, os1.ModTime(), os1.ModTime())
+		}
+		return nil
+	})
+}
+
+func sameBytes(a, b string) bool {
+	x, err := os.ReadFile(a)
+	if err != nil {
+		return false
+	}
+	y, err := os.ReadFile(b)
+	return err == nil && bytes.Equal(x, y)
 }
 
 // extractTar unpacks a tar stream into dest, refusing paths that escape it.

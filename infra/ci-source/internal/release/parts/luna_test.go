@@ -102,7 +102,7 @@ func TestLunadSpecs(t *testing.T) {
 		}
 	}
 	// The version file the container sees is the build's version.
-	vf := filepath.Join(b.OutRoot, ".work", "luna", b.Version, "version", "luna", "VERSION")
+	vf := filepath.Join(b.OutRoot, ".work", "luna", "version-state", "luna", "VERSION")
 	if got, _ := os.ReadFile(vf); string(got) != "0.4.1-0.dev.12\n" {
 		t.Errorf("VERSION mount holds %q", got)
 	}
@@ -257,4 +257,40 @@ func TestIntegrationLunad(t *testing.T) {
 
 	warm := runGraph(t, b, &Lunad{})
 	t.Logf("second run (warm caches): %s", warm.Round(time.Second))
+}
+
+// The mounted VERSION file must get a newer mtime whenever the version
+// changes (cargo's persistent target/ volumes go by mtime), also when going
+// back to an older version, and keep it when nothing changed.
+func TestVersionMountMtime(t *testing.T) {
+	src, out := t.TempDir(), t.TempDir()
+	os.MkdirAll(filepath.Join(src, "luna"), 0o755)
+	os.WriteFile(filepath.Join(src, "luna", "VERSION"), []byte("0.4.0\n"), 0o644)
+	mk := func(v string) string {
+		b := &engine.BuildContext{Unit: "luna", Version: v, SrcDir: src, OutRoot: out}
+		m, err := lunaVersionMount(b, "luna/VERSION")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return m.Host
+	}
+	mtime := func(p string) time.Time { st, _ := os.Stat(p); return st.ModTime() }
+	p := mk("1.0.0")
+	t1 := mtime(p)
+	// Pretend time has passed so equal mtimes cannot hide a missing rewrite.
+	old := t1.Add(-time.Hour)
+	os.Chtimes(p, old, old)
+	if mk("1.0.0"); !mtime(p).Equal(old) {
+		t.Error("an unchanged version touched the file")
+	}
+	for _, v := range []string{"1.0.1", "1.0.0"} {
+		os.Chtimes(p, old, old)
+		mk(v)
+		if !mtime(p).After(old) {
+			t.Errorf("version %s did not move the mtime forward", v)
+		}
+		if got, _ := os.ReadFile(p); string(got) != v+"\n" {
+			t.Errorf("file holds %q, want %s", got, v)
+		}
+	}
 }

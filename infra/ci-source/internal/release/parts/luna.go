@@ -5,6 +5,7 @@ import (
 	"embed"
 	"os"
 	"path/filepath"
+	"time"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/ci/internal/release/engine"
 )
@@ -70,28 +71,36 @@ func lunaMountPoints(b *engine.BuildContext, rels ...string) error {
 // lunaVersionMount mounts b.Version read-only over a VERSION file of the
 // export, so toolchains that read it (build.rs, build-cross.sh) see the
 // build's version, a dev version included, without editing the shared tree.
+//
+// Cargo decides by mtime whether a build script's input changed, and the
+// target/ volumes outlive the builds. So the file is the same one for every
+// version of the unit: it is rewritten (new mtime, newer than anything the
+// volumes were built from) exactly when the version differs from what it holds,
+// and left alone otherwise (no pointless rebuild). A file per version would
+// miss going back to an older version.
 func lunaVersionMount(b *engine.BuildContext, rel string) (engine.Mount, error) {
-	orig, err := os.Stat(filepath.Join(b.SrcDir, rel))
-	if err != nil {
+	if _, err := os.Stat(filepath.Join(b.SrcDir, rel)); err != nil {
 		return engine.Mount{}, err
 	}
-	dir, err := lunaWorkDir(b, "version")
-	if err != nil {
-		return engine.Mount{}, err
-	}
+	dir := filepath.Join(b.OutRoot, ".work", b.Unit, "version-state")
 	f := filepath.Join(dir, filepath.FromSlash(rel))
 	if err := os.MkdirAll(filepath.Dir(f), 0o755); err != nil {
 		return engine.Mount{}, err
 	}
-	// Rewrite only on change, keeping the export's mtime: cargo compares
-	// mtimes, so a touched VERSION would rebuild (and re-link) lunad.
 	if old, err := os.ReadFile(f); err != nil || string(old) != b.Version+"\n" {
-		if err := os.WriteFile(f, []byte(b.Version+"\n"), 0o644); err != nil {
+		tmp := f + ".tmp"
+		if err := os.WriteFile(tmp, []byte(b.Version+"\n"), 0o644); err != nil {
 			return engine.Mount{}, err
 		}
-	}
-	if err := os.Chtimes(f, orig.ModTime(), orig.ModTime()); err != nil {
-		return engine.Mount{}, err
+		if err := os.Rename(tmp, f); err != nil {
+			return engine.Mount{}, err
+		}
+		// Stamp "now" explicitly so the mtime is later than any earlier
+		// build of the volumes, whatever the filesystem does on rename.
+		now := time.Now()
+		if err := os.Chtimes(f, now, now); err != nil {
+			return engine.Mount{}, err
+		}
 	}
 	return engine.Mount{Host: f, Target: "/src/" + rel, ReadOnly: true}, nil
 }

@@ -206,3 +206,43 @@ func checkWithDeployScript(t *testing.T, repo string, a Artifact) {
 		t.Errorf("deploy.sh rejects %s: %v\n%s", a.File, err, out)
 	}
 }
+
+// Builds lunad twice from the same export with different versions, in the
+// persistent cargo volume: the second binary must report the second version
+// (the lunad smoke job fails otherwise). Needs podman; reuses the tool's own
+// caches, and rebuilds lunad twice.
+func TestLunadVersionChangeRebuilds(t *testing.T) {
+	skipWithoutPodman(t)
+	if os.Getenv("LIBRESERV_RELEASE_SLOW_TESTS") == "" {
+		t.Skip("slow: set LIBRESERV_RELEASE_SLOW_TESTS=1")
+	}
+	repo := repoRoot(t)
+	eng, err := engine.New(engine.Config{Repo: repo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Minute)
+	defer cancel()
+	srcDir, sha, err := eng.Export(ctx, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range []string{"9.9.9-0.dev.1", "9.9.9-0.dev.2"} {
+		b := &engine.BuildContext{Engine: eng, Unit: "luna", Version: v, Commit: sha, SrcDir: srcDir, OutRoot: t.TempDir(), Only: []string{"lunad"}}
+		g, err := engine.BuildGraph(b, For("luna"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		res, err := g.Run(ctx, engine.Options{Jobs: 2, Engine: eng})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !res.OK() {
+			t.Fatalf("version %s: %v", v, res.FirstError())
+		}
+		body, _ := os.ReadFile(filepath.Join(b.PartOutDir("lunad"), LunadFile))
+		if !bytes.Contains(body, []byte(v)) {
+			t.Errorf("lunad built for %s does not contain it", v)
+		}
+	}
+}
