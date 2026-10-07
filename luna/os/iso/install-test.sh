@@ -40,21 +40,34 @@ if [ -z "${SKIP_INSTALL:-}" ]; then rm -f "$OUT"/*; else rm -f "$OUT"/installed*
 podman run --rm --security-opt label=disable --memory 3g $DEV \
 	-v "$(dirname "$ISO"):/iso:ro" -v "$OUT:/out" \
 	"$IMAGE" sh -euc "
-	apt-get update -qq >/dev/null 2>&1; DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xorriso >/dev/null 2>&1
+	apt-get update -qq >/dev/null 2>&1; DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xorriso mtools fdisk e2fsprogs >/dev/null 2>&1
 	cp /usr/share/OVMF/OVMF_VARS_4M.fd /tmp/ovmf-vars.fd 2>/dev/null || true
 	xorriso -osirrox on -indev /iso/$(basename "$ISO") -extract /live/vmlinuz /tmp/vmlinuz -extract /live/initrd.img /tmp/initrd.img >/dev/null 2>&1
 	if [ -z '${SKIP_INSTALL:-}' ]; then
 	truncate -s 6G /out/disk.raw
+	# Writable copy of the stick with a TOKENS magazine on LUNAASSETS (MBR
+	# partition 3, GPT "Appended3"), to prove the factory token path end to end.
+	cp /iso/$(basename "$ISO") /out/stick.iso
+	START=\$(sfdisk -d /out/stick.iso | awk '/Appended3/ { sub(/,/, \"\", \$4); print \$4 }')
+	printf 'ABCDEFGH23456789\\n' >/tmp/TOKENS
+	MTOOLS_SKIP_CHECK=1 mcopy -i /out/stick.iso@@\$((START * 512)) /tmp/TOKENS ::TOKENS
 	echo '==> installing'
 	# The installer asks for an optional device token at the end: send Enter
 	# presses on the serial console until it moves on and reboots.
 	( sleep 50; i=0; while [ \$i -lt 40 ]; do printf '\\n'; sleep 3; i=\$((i + 1)); done ) | qemu-system-x86_64 -machine q35 $KVM -m 2048 -smp 2 -nographic -no-reboot -net none \
-		-drive if=none,id=stick,format=raw,readonly=on,file=/iso/$(basename "$ISO") \
+		-drive if=none,id=stick,format=raw,file=/out/stick.iso \
 		-device qemu-xhci -device usb-storage,drive=stick \
 		-drive if=virtio,format=raw,file=/out/disk.raw \
 		-kernel /tmp/vmlinuz -initrd /tmp/initrd.img \
 		-append 'boot=live text nomodeset console=tty0 console=ttyS0 net.ifnames=0 biosdevname=0 init=/usr/lib/luna-installer/init.sh LUNA_TARGET=/dev/vda LUNA_CONFIRM=INSTALL LUNA_OVERRIDE_WAIT=1' \
 		>/out/install-serial.log 2>&1 || true
+	echo '==> checking the factory token'
+	grep -a 'Device token taken from LUNAASSETS' /out/install-serial.log || echo 'MISSING: token not taken from LUNAASSETS'
+	MTOOLS_SKIP_CHECK=1 mtype -i /out/stick.iso@@\$((START * 512)) ::TOKENS | wc -c | sed 's/^/TOKENS bytes left on the stick: /'
+	dd if=/out/disk.raw of=/tmp/d.img bs=1M skip=2690 count=3400 2>/dev/null
+	debugfs -R 'cat /device-token' /tmp/d.img 2>/dev/null | sed 's/^/device-token on LUNA_DATA: /'
+	debugfs -R 'cat /os-image.sha256' /tmp/d.img 2>/dev/null | sed 's/^/os-image.sha256: /'
+	rm -f /out/stick.iso
 	fi
 	echo '==> booting the installed disk'
 	qemu-system-x86_64 -machine q35 $KVM -m 1024 -smp 2 $FW \
