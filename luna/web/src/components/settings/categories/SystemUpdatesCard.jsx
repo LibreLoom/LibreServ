@@ -15,6 +15,9 @@ import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
+import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
+import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
+import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { getJson, postJson, apiErrorMessage } from "../../../lib/api";
 import { useOptionalAuth } from "../../../context/AuthContext";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
@@ -26,6 +29,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [showReleaseNotesModal, setShowReleaseNotesModal] = useState(false);
   const [checkMessage, setCheckMessage] = useState(null);
+  const [retrying, setRetrying] = useState(false);
 
   const updates = useQuery({
     queryKey: ["system-updates"],
@@ -49,15 +53,41 @@ export default function SystemUpdatesCard({ index = 0 }) {
     },
   });
 
+  const afterInstall = () => {
+    setShowUpdateModal(false);
+    setTimeout(() => {
+      // The restart ends the session; show sign-in in place so this tab
+      // stays on Settings and comes back to it after signing in.
+      endSession?.();
+    }, 3000);
+  };
+
   const apply = useMutation({
     mutationFn: () => postJson("/api/v1/system/updates/apply", {}),
+    onSuccess: afterInstall,
+  });
+
+  // Forget the failed system update so it is offered again, then install it.
+  const retry = useMutation({
+    mutationFn: async () => {
+      await postJson("/api/v1/system/updates/os-failed/clear", {});
+      return postJson("/api/v1/system/updates/apply", {});
+    },
     onSuccess: () => {
+      addToast({
+        type: "success",
+        message: "Installing the update. Luna will restart in a moment.",
+      });
+      afterInstall();
+    },
+    onError: (err) => {
       setShowUpdateModal(false);
-      setTimeout(() => {
-        // The restart ends the session; show sign-in in place so this tab
-        // stays on Settings and comes back to it after signing in.
-        endSession?.();
-      }, 3000);
+      queryClient.invalidateQueries({ queryKey: ["system-updates"] });
+      addToast({
+        type: "error",
+        message: "Luna couldn't install the update again.",
+        description: apiErrorMessage(err),
+      });
     },
   });
 
@@ -73,7 +103,8 @@ export default function SystemUpdatesCard({ index = 0 }) {
       ? apiErrorMessage(check.error)
       : null;
   const checking = check.isPending || (updates.isLoading && !updateInfo);
-  const updating = apply.isPending;
+  const updating = apply.isPending || retry.isPending;
+  const failedUpdate = updateInfo?.os_update_failed;
 
   const getVersionDisplay = () => {
     if (!updateInfo) return "…";
@@ -135,6 +166,40 @@ export default function SystemUpdatesCard({ index = 0 }) {
             )}
           </div>
 
+          {failedUpdate && (
+            <PageNotice variant="warning" className="mb-4">
+              <div className="space-y-3">
+                <p>
+                  The last system update didn&apos;t start, so Luna went back to the previous
+                  version.
+                  {failedUpdate.version && (
+                    <>
+                      {" "}
+                      Version <InlinePill>{failedUpdate.version}</InlinePill> wasn&apos;t installed.
+                    </>
+                  )}
+                </p>
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="primary"
+                    onClick={() => {
+                      setRetrying(true);
+                      setShowUpdateModal(true);
+                    }}
+                    disabled={updating}
+                  >
+                    Try again
+                  </Button>
+                  <InfoHint
+                    surface="primary"
+                    label="More about trying again"
+                    content="Installs the same update again and restarts Luna."
+                  />
+                </div>
+              </div>
+            </PageNotice>
+          )}
+
           {checkMessage && !error && (
             <p className="mb-4 text-sm" role="status">
               {checkMessage}
@@ -164,7 +229,10 @@ export default function SystemUpdatesCard({ index = 0 }) {
 
               <Button
                 variant="primary"
-                onClick={() => setShowUpdateModal(true)}
+                onClick={() => {
+                  setRetrying(false);
+                  setShowUpdateModal(true);
+                }}
                 loading={updating}
                 fullWidth
               >
@@ -199,17 +267,22 @@ export default function SystemUpdatesCard({ index = 0 }) {
 
       <ConfirmModal
         open={showUpdateModal}
-        onClose={() => setShowUpdateModal(false)}
-        onConfirm={() => apply.mutate()}
+        onClose={() => {
+          setShowUpdateModal(false);
+          setRetrying(false);
+        }}
+        onConfirm={() => (retrying ? retry.mutate() : apply.mutate())}
         icon={Download}
-        title="Install update"
+        title={retrying ? "Try the update again" : "Install update"}
         message={
-          updateInfo
+          retrying
+            ? "Luna will install the update again and restart. Your files stay put — you'll just need to sign in again."
+            : updateInfo
             ? `Luna will download version ${updateInfo.latest_version}, install it, and restart. Your files stay put — you'll just need to sign in again.`
             : "Install the available update?"
         }
         variant="warning"
-        confirmLabel="Update"
+        confirmLabel={retrying ? "Try again" : "Update"}
         confirmIcon={Download}
         loading={updating}
       />

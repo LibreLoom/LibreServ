@@ -71,4 +71,38 @@ describe("SystemUpdatesCard", () => {
     finishCheck();
     expect(await screen.findByRole("button", { name: /Check for updates/i })).toBeTruthy();
   });
+
+  const FAILED = { ...UP_TO_DATE, os_update_failed: { version: "0.9.0" } };
+
+  it("shows nothing about a failed update when there wasn't one", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ ...UP_TO_DATE, os_update_failed: null })));
+    renderCard();
+    await screen.findByRole("button", { name: /Check for updates/i });
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+  });
+
+  it("offers Try again after a system update that didn't start", async () => {
+    const user = userEvent.setup();
+    const calls = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (path, init) => {
+        calls.push(`${init?.method || "GET"} ${path}`);
+        return jsonResponse(String(path).includes("os-failed") || String(path).endsWith("/apply") ? { ok: true } : FAILED);
+      }),
+    );
+    renderCard();
+    expect(
+      await screen.findByText(/The last system update didn't start, so Luna went back to the previous version\./),
+    ).toBeTruthy();
+    expect(screen.getByText("0.9.0")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    // Confirm in the dialog (its button has the same label).
+    const buttons = await screen.findAllByRole("button", { name: "Try again" });
+    await user.click(buttons[buttons.length - 1]);
+    await vi.waitFor(() => {
+      expect(calls.some((c) => c.startsWith("POST") && c.endsWith("/os-failed/clear"))).toBe(true);
+      expect(calls.some((c) => c.startsWith("POST") && c.endsWith("/system/updates/apply"))).toBe(true);
+    });
+  });
 });
