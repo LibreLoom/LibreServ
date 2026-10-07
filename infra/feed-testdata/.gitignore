@@ -1,2 +1,0 @@
-# Fixture payloads are tiny fakes; the root .gitignore drops *.exe/*.tar.gz.
-!files/**

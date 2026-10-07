@@ -177,3 +177,6 @@ t3.json
 
 # ./release dev builds
 /dist/
+
+# Feed test fixtures are tiny fakes that must be committed (*.exe, *.tar.gz above)
+!/infra/feed-testdata/files/**
