@@ -22,7 +22,6 @@ SUITE="${SUITE:-bookworm}"
 MIRROR="${DEBIAN_MIRROR:-http://deb.debian.org/debian}"
 THREADS="${XZ_THREADS:-$(nproc)}"
 WORK="${WORK:-/build}"
-DL="$OSDIR/debian-live/config"
 ISO="$OUT/luna-rapidinstall-$ARCH.iso"
 IMG="luna-os-$ARCH.img.xz"
 
@@ -47,63 +46,25 @@ rm -rf "$WORK/iso"
 mkdir -p "$WORK/iso/live" "$WORK/iso/boot/grub" "$WORK/iso/luna/lib"
 
 # --- the live system (cached while its inputs are unchanged) ----------------
-pkglist() {
-	sed 's/#.*//' "$@" | awk 'NF { print $1 }' | sort -u
-}
-PKGS="$(pkglist "$DL"/package-lists/*.list.chroot | tr '\n' ',' | sed 's/,$//')"
-
+# build/live.sh builds filesystem.squashfs + vmlinuz + initrd.img. The cache key
+# covers everything that shapes them: that script, the customize hook, the
+# package lists / hooks / includes, find-media.sh, the toolchain Containerfile
+# and the base image name. grub.cfg and the payload are outside it on purpose.
 KEY="$(
 	{
-		printf 'suite=%s mirror=%s refresh=%s\n' "$SUITE" "$MIRROR" "${LUNA_LIVE_REFRESH:-}"
-		printf 'pkgs=%s\n' "$PKGS"
-		(cd "$OSDIR" && find debian-live/config iso/find-media.sh build/iso-customize.sh -type f | LC_ALL=C sort |
+		printf 'suite=%s mirror=%s refresh=%s base=%s\n' "$SUITE" "$MIRROR" "${LUNA_LIVE_REFRESH:-}" "${DEBIAN_IMAGE:-}"
+		(cd "$OSDIR" && find debian-live/config iso/find-media.sh build/live.sh build/iso-customize.sh \
+			build/Containerfile.iso -type f | LC_ALL=C sort |
 			while read -r f; do printf '%s %s\n' "$f" "$(sha256sum <"$f" | awk '{print $1}')"; done)
 	} | sha256sum | awk '{print substr($1, 1, 16)}'
 )"
 LIVE_CACHE="$CACHE/live-$KEY"
 if [ -s "$LIVE_CACHE/filesystem.squashfs" ] && [ -s "$LIVE_CACHE/vmlinuz" ] && [ -s "$LIVE_CACHE/initrd.img" ]; then
 	echo "==> live system: reusing cached build $KEY"
-	cp "$LIVE_CACHE/filesystem.squashfs" "$WORK/iso/live/filesystem.squashfs"
-	cp "$LIVE_CACHE/vmlinuz" "$WORK/iso/live/vmlinuz"
-	cp "$LIVE_CACHE/initrd.img" "$WORK/iso/live/initrd.img"
+	cp "$LIVE_CACHE/filesystem.squashfs" "$LIVE_CACHE/vmlinuz" "$LIVE_CACHE/initrd.img" "$WORK/iso/live/"
 else
-	echo "==> live system: mmdebstrap $SUITE"
-	CHROOT="$WORK/chroot"
-	rm -rf "$CHROOT"
-	APT_CACHE="$CACHE/apt"
-	mkdir -p "$APT_CACHE"
-	# --mode=root: this container is its own user namespace, so "root" here
-	# is the invoking user on the host. apt downloads are synced in and out
-	# of the cache volume so a rebuild does not fetch them again.
-	mmdebstrap --mode=root --variant=minbase \
-		--architectures=amd64 \
-		--components="main contrib non-free non-free-firmware" \
-		--aptopt='APT::Install-Recommends "false"' \
-		--aptopt='Acquire::Languages "none"' \
-		--include="linux-image-amd64,xz-utils,$PKGS" \
-		--setup-hook='mkdir -p "$1/var/cache/apt/archives"' \
-		--setup-hook="sync-in $APT_CACHE /var/cache/apt/archives" \
-		--customize-hook="$OSDIR/build/iso-customize.sh \"\$1\"" \
-		--customize-hook="sync-out /var/cache/apt/archives $APT_CACHE" \
-		"$SUITE" "$CHROOT" "$MIRROR"
-
-	_k="$(ls "$CHROOT"/boot/vmlinuz-* | sort | tail -n 1)"
-	_i="$(ls "$CHROOT"/boot/initrd.img-* | sort | tail -n 1)"
-	[ -f "$_k" ] && [ -f "$_i" ] || die "the live system has no kernel or initramfs"
-	cp "$_k" "$WORK/iso/live/vmlinuz"
-	cp "$_i" "$WORK/iso/live/initrd.img"
-	# Without live-boot inside the initramfs, boot=live finds nothing.
-	if command -v lsinitramfs >/dev/null 2>&1; then
-		lsinitramfs "$WORK/iso/live/initrd.img" | grep -q 'scripts/live' \
-			|| die "live-boot is missing from the initramfs"
-	fi
-
-	echo "==> live system: squashfs"
-	mksquashfs "$CHROOT" "$WORK/iso/live/filesystem.squashfs" \
-		-comp xz -b 1M -Xbcj x86 -processors "$THREADS" -no-progress -noappend \
-		-wildcards -e 'boot/vmlinuz-*' -e 'boot/initrd.img-*' -e 'var/cache/apt/archives/*.deb' >/dev/null
-	rm -rf "$CHROOT"
-
+	OSDIR="$OSDIR" CACHE="$CACHE" WORK="$WORK" LIVE_OUT="$WORK/iso/live" SUITE="$SUITE" \
+		DEBIAN_MIRROR="$MIRROR" XZ_THREADS="$THREADS" sh "$OSDIR/build/live.sh"
 	mkdir -p "$LIVE_CACHE"
 	for f in filesystem.squashfs vmlinuz initrd.img; do
 		cp "$WORK/iso/live/$f" "$LIVE_CACHE/$f.tmp" && mv "$LIVE_CACHE/$f.tmp" "$LIVE_CACHE/$f"

@@ -28,7 +28,7 @@ podman run --rm --security-opt label=disable --memory "$LUNA_BUILD_MEMORY" \
 	-v "$OUT:/payload:ro" \
 	-v "$OUT:/out" \
 	-v "$LUNA_ISO_CACHE_VOLUME:/cache" \
-	-e ARCH="$ARCH" -e LUNA_LIVE_REFRESH="${LUNA_LIVE_REFRESH:-}" \
+	-e ARCH="$ARCH" -e DEBIAN_IMAGE="$DEBIAN_IMAGE" -e LUNA_LIVE_REFRESH="${LUNA_LIVE_REFRESH:-}" \
 	"$IMAGE" sh /luna/os/build/iso.sh
 
 [ -f "$ISO" ] || luna_die "build reported success but $ISO is missing"
