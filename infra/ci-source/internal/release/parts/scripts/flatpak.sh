@@ -9,7 +9,10 @@ M=/src/luna/desktop/packaging/flatpak/$APP.yml
 STATE=/root/.local/share/flatpak-builder
 # Cargo's home and target dir live in a volume, outside the module cache, so a
 # changed version (or any source change) recompiles only the crates that
-# changed. The build sandbox sees the volume at $CACHE_IN.
+# changed. The build sandbox sees the volume at $CACHE_IN. The version file
+# keeps its export mtime (so lunad does not rebuild on every run), which cargo
+# cannot see change: the build touches it when the version differs from the
+# one last compiled.
 CACHE=/root/.cache/luna-cargo
 CACHE_IN=/run/luna-cargo
 mkdir -p "$CACHE/home" "$CACHE/target"
@@ -28,9 +31,11 @@ sed -e "s|path: ../../../../keys|path: /src/keys|" \
 	-e "s|path: ../\.\.\$|path: $D|" \
 	-e "s|CARGO_HOME: .*|CARGO_HOME: $CACHE_IN/home\n        CARGO_TARGET_DIR: $CACHE_IN/target|" \
 	-e "s|      build-args:|      build-args:\n        - --bind-mount=$CACHE_IN=$CACHE|" \
+	-e "s|^\( *\)- cargo build .*|&\n\1- cp luna/desktop/VERSION $CACHE_IN/version|" \
+	-e "s|^\( *\)- cargo build |\1- cmp -s luna/desktop/VERSION $CACHE_IN/version \|\| touch luna/desktop/VERSION\n&|" \
 	-e "s|luna/desktop/target/release/luna-desktop|$CACHE_IN/target/release/luna-desktop|" \
 	"$M" >manifest.yml
-for want in "path: $D\$" "path: /src/luna/crates/luna-feed" "path: /src/keys/" "CARGO_TARGET_DIR" "bind-mount" "install -Dm755 $CACHE_IN"; do
+for want in "path: $D\$" "path: /src/luna/crates/luna-feed" "path: /src/keys/" "CARGO_TARGET_DIR" "bind-mount" "cp luna/desktop/VERSION" "touch luna/desktop/VERSION" "install -Dm755 $CACHE_IN"; do
 	grep -q -- "$want" manifest.yml || { echo "manifest rewrite failed: no '$want'" >&2; exit 1; }
 done
 M=$PWD/manifest.yml
