@@ -23,8 +23,52 @@ pub const OS: &str = "windows";
 pub const ARCH: &str = "amd64";
 pub const FEED_BASE: &str =
     "https://gt.plainskill.net/LibreLoom/LibreServ/raw/branch/feeds/luna-desktop";
-/// Strict semver from `desktop/VERSION` (checked by build.rs).
-pub const APP_VERSION: &str = env!("LUNA_DESKTOP_APP_VERSION");
+const SLOT_MARK: &[u8; 24] = b"LUNA-DESKTOP-VERSION-V1:";
+const SLOT_VERSION_LEN: usize = 64;
+const SLOT_LEN: usize = SLOT_MARK.len() + SLOT_VERSION_LEN;
+
+/// The version lives in a fixed-size slot of the binary: a marker, then up to
+/// 64 bytes of version padded with NULs. A normal build fills it from
+/// `desktop/VERSION` (strict semver, checked by build.rs). The release build
+/// (`LUNA_DESKTOP_VERSION_PATCH` set) leaves it empty and the release tool
+/// writes the version into the finished binary (packaging/patch-version.py), so
+/// a new version recompiles and relinks nothing.
+#[used]
+static VERSION_SLOT: [u8; SLOT_LEN] = version_slot(env!("LUNA_DESKTOP_APP_VERSION"));
+
+const fn version_slot(version: &str) -> [u8; SLOT_LEN] {
+    let v = version.as_bytes();
+    assert!(v.len() <= SLOT_VERSION_LEN, "version longer than its slot");
+    let mut out = [0u8; SLOT_LEN];
+    let mut i = 0;
+    while i < SLOT_MARK.len() {
+        out[i] = SLOT_MARK[i];
+        i += 1;
+    }
+    let mut j = 0;
+    while j < v.len() {
+        out[SLOT_MARK.len() + j] = v[j];
+        j += 1;
+    }
+    out
+}
+
+/// The app's version (see [`VERSION_SLOT`]).
+pub fn app_version() -> &'static str {
+    static V: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+    V.get_or_init(|| {
+        // Volatile: the compiler must not fold the slot's build-time bytes in,
+        // because a release build patches them after linking.
+        // SAFETY: the pointer is to a live static of exactly SLOT_LEN bytes.
+        let slot: [u8; SLOT_LEN] = unsafe { std::ptr::read_volatile(&raw const VERSION_SLOT) };
+        let v = &slot[SLOT_MARK.len()..];
+        let end = v.iter().position(|&b| b == 0).unwrap_or(v.len());
+        match std::str::from_utf8(&v[..end]) {
+            Ok(s) if !s.is_empty() => Box::leak(s.to_owned().into_boxed_str()),
+            _ => "unpatched",
+        }
+    })
+}
 
 /// Luna's release key, pinned into the build. Windows only: the Linux Flatpak
 /// build never reads the feed, and the file sits outside `luna/desktop`.
@@ -169,7 +213,7 @@ pub fn check_latest() -> Result<Option<Available>, String> {
         FEED_BASE,
         &[FEED_KEY],
         channel,
-        APP_VERSION,
+        app_version(),
         &mut stored,
     )?;
     if stored != before {
@@ -465,6 +509,6 @@ mod tests {
 
     #[test]
     fn app_version_is_strict_semver() {
-        assert!(feed::parse_version(APP_VERSION).is_ok());
+        assert!(feed::parse_version(app_version()).is_ok());
     }
 }

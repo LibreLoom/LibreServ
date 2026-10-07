@@ -6,18 +6,26 @@ fn main() {
     // `desktop/VERSION` is the single source of truth for the app's version
     // (the update check compares it with the feed). Strict semver or the
     // build stops. Cargo.toml's own version is not used for this.
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR");
-    let version_file = std::path::Path::new(&manifest_dir).join("VERSION");
-    println!("cargo:rerun-if-changed={}", version_file.display());
-    let raw = std::fs::read_to_string(&version_file)
-        .unwrap_or_else(|e| panic!("cannot read {}: {e}", version_file.display()));
-    let version = raw.trim_end_matches(['\n', '\r']);
-    if version.len() != version.trim().len() || semver::Version::parse(version).is_err() {
-        panic!(
-            "luna/desktop/VERSION must hold one strict semver version (like 0.4.0 or 0.4.0-beta.1), got {raw:?}"
-        );
+    // The release build sets LUNA_DESKTOP_VERSION_PATCH: the version is then
+    // written into the finished binary (see update.rs), so this crate must not
+    // depend on the file, or every new version would recompile it.
+    println!("cargo:rerun-if-env-changed=LUNA_DESKTOP_VERSION_PATCH");
+    if std::env::var_os("LUNA_DESKTOP_VERSION_PATCH").is_some_and(|v| !v.is_empty()) {
+        println!("cargo:rustc-env=LUNA_DESKTOP_APP_VERSION=");
+    } else {
+        let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR");
+        let version_file = std::path::Path::new(&manifest_dir).join("VERSION");
+        println!("cargo:rerun-if-changed={}", version_file.display());
+        let raw = std::fs::read_to_string(&version_file)
+            .unwrap_or_else(|e| panic!("cannot read {}: {e}", version_file.display()));
+        let version = raw.trim_end_matches(['\n', '\r']);
+        if version.len() != version.trim().len() || semver::Version::parse(version).is_err() {
+            panic!(
+                "luna/desktop/VERSION must hold one strict semver version (like 0.4.0 or 0.4.0-beta.1), got {raw:?}"
+            );
+        }
+        println!("cargo:rustc-env=LUNA_DESKTOP_APP_VERSION={version}");
     }
-    println!("cargo:rustc-env=LUNA_DESKTOP_APP_VERSION={version}");
 
     println!("cargo:rerun-if-changed=resources/icon.png");
     if std::env::var("CARGO_CFG_TARGET_FAMILY").as_deref() != Ok("windows") {

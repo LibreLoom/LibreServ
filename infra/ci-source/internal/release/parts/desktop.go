@@ -187,6 +187,8 @@ func (*WindowsInstaller) spec(b *engine.BuildContext) (engine.RunSpec, error) {
 			{Volume: "msys2-" + hex.EncodeToString(h[:])[:12], Target: "/msys2"}},
 		Env: map[string]string{
 			"LUNA_DESKTOP_VERSION": b.Version,
+			// The version is written into the staged exe, not compiled in.
+			"LUNA_DESKTOP_VERSION_PATCH": "1",
 			"INSTALLER":            WindowsFile,
 		},
 		Memory: "6g",

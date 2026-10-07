@@ -5,6 +5,8 @@ import (
 	"embed"
 	"os"
 	"path/filepath"
+	"strconv"
+	"sync"
 	"time"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/ci/internal/release/engine"
@@ -76,6 +78,8 @@ func lunaMountPoints(b *engine.BuildContext, rels ...string) error {
 	return nil
 }
 
+var versionMountMu sync.Mutex
+
 // lunaVersionMount mounts b.Version read-only over a VERSION file of the
 // export, so toolchains that read it (build.rs, build-cross.sh) see the
 // build's version, a dev version included, without editing the shared tree.
@@ -87,6 +91,9 @@ func lunaMountPoints(b *engine.BuildContext, rels ...string) error {
 // and left alone otherwise (no pointless rebuild). A file per version would
 // miss going back to an older version.
 func lunaVersionMount(b *engine.BuildContext, rel string) (engine.Mount, error) {
+	// Two parts of a unit (Flatpak and Windows) ask for the same file at once.
+	versionMountMu.Lock()
+	defer versionMountMu.Unlock()
 	if _, err := os.Stat(filepath.Join(b.SrcDir, rel)); err != nil {
 		return engine.Mount{}, err
 	}
@@ -96,7 +103,7 @@ func lunaVersionMount(b *engine.BuildContext, rel string) (engine.Mount, error) 
 		return engine.Mount{}, err
 	}
 	if old, err := os.ReadFile(f); err != nil || string(old) != b.Version+"\n" {
-		tmp := f + ".tmp"
+		tmp := f + "." + strconv.Itoa(os.Getpid()) + ".tmp"
 		if err := os.WriteFile(tmp, []byte(b.Version+"\n"), 0o644); err != nil {
 			return engine.Mount{}, err
 		}

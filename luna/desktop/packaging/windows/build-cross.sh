@@ -441,6 +441,12 @@ write_pkg_config_wrapper
 /tmp/luna-mingw64-pkg-config --exists libadwaita-1 || die "libadwaita pkg-config failed in sysroot"
 build_exe
 collect_dlls
+# A release build leaves the version out of the compiled exe (the release tool
+# sets LUNA_DESKTOP_VERSION_PATCH) and writes it into the staged copy, so the
+# cached build output never depends on the version.
+if [ -n "${LUNA_DESKTOP_VERSION_PATCH:-}" ]; then
+  python3 "$DESKTOP/packaging/patch-version.py" "$STAGE/luna-desktop.exe" "$VERSION"
+fi
 copy_runtime_data
 write_launcher_and_nsi
 verify_stage
