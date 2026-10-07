@@ -142,6 +142,7 @@ func TestBuildSolAndConnect(t *testing.T) {
 			t.Error("sol binary has no embedded restic")
 		}
 		if strings.HasSuffix(a.File, ".tar.gz") {
+			checkWithDeployScript(t, repo, a)
 			got := readTar(t, a.Path)
 			required := []string{"admin/index.html", "customer/index.html"}
 			if a.Unit == "luna-connect" {
@@ -190,5 +191,18 @@ func checkStaticELF(t *testing.T, path, arch string) {
 	}
 	if f.Section(".interp") != nil {
 		t.Errorf("%s has an interpreter (dynamic)", path)
+	}
+}
+
+// checkWithDeployScript unpacks the web bundle with the real unpack_web of
+// infra/connect-deploy/deploy.sh, which refuses bundles missing the entries
+// the unit requires.
+func checkWithDeployScript(t *testing.T, repo string, a Artifact) {
+	t.Helper()
+	dest := filepath.Join(t.TempDir(), "web")
+	cmd := exec.Command("bash", "-c", `source "$1"; load_unit "$2"; unpack_web "$3" "$4"`,
+		"bash", filepath.Join(repo, "infra", "connect-deploy", "deploy.sh"), a.Unit, a.Path, dest)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Errorf("deploy.sh rejects %s: %v\n%s", a.File, err, out)
 	}
 }

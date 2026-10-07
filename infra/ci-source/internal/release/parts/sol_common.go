@@ -65,7 +65,7 @@ func (s stamp) ldflags(version, commit, when string) string {
 // binary version commit time workdir pkg symbol... A -X flag aimed at a
 // symbol that does not exist is silently ignored by Go (that is how Sol
 // shipped "dev" binaries), and the build info does not record ldflags, so it
-// checks that every stamped symbol exists and that the stamped strings are
+// checks that every stamped symbol is a package-level var and that the stamped strings are
 // in the binary. The commit and time are unique strings, so finding them
 // proves the -X flags took effect.
 const checkStampScript = `set -eu
@@ -73,6 +73,9 @@ bin=$1; ver=$2; commit=$3; when=$4; dir=$5; pkg=$6; shift 6
 cd "$dir"
 for sym in "$@"; do
   out=$(go doc -u -cmd "$pkg" "$sym" 2>&1) || { echo "stamp check: $pkg has no symbol $sym: $out" >&2; exit 1; }
+  # go doc also matches methods; -X needs a package-level string var.
+  printf '%s\n' "$out" | grep -Eq "^[[:space:]]*(var[[:space:]]+)?$sym[[:space:]]+(string[[:space:]]+)?=" \
+    || { echo "stamp check: $pkg.$sym is not a package-level var with a string value" >&2; exit 1; }
 done
 for v in "$ver" "$commit" "$when"; do
   grep -aqF -- "$v" "$bin" || { echo "stamp check: $v is not compiled into $bin" >&2; exit 1; }
