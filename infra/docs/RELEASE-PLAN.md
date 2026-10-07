@@ -567,7 +567,14 @@ launcher `./release` at the repo root. Each step lands tested and committed.
    `verify`, `serve-dev`. Tested against a fake registry (httptest) and a temp
    git remote; optional preflight step runs `./ci` for the unit's profile.
 7. **TUI:** all screens above.
-8. **Cut over:** first real cuts on `beta` per unit; F-Droid metadata
+8. **Cut over:** right before the first beta cut with the new tool, delete
+   every old tag and Forgejo release (190 tags in 11 old schemes — `v*`,
+   `luna-v*`, `connect-v*`, `luna-connect-v*`, `luna-rapidinstall-*`, … — and
+   45 releases); first save a `tag sha` list to
+   `~/.cache/libreserv-release/old-tags.txt` so any can be recreated, and check
+   whether the GitHub copy carries them too. Luna is not in F-Droid yet, so the
+   F-Droid metadata drops its `luna-v0.0.39` build entry and starts at the
+   first `luna-android/v…` tag. Then first real cuts on `beta` per unit; F-Droid metadata
    (`luna/mobile/fdroid/net.plainskill.luna.yml`: `UpdateCheckMode: Tags
    ^luna-android/v.*`, `Changelog:` off Forgejo Releases); delete
    `release.sh` and `RELEASE.md`, update `AGENTS.md` layout and agent docs.
