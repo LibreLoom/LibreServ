@@ -35,7 +35,7 @@ BIN="$BIN_DIR/release-linux-$GOARCH"
 needs_build() {
   [ ! -f "$BIN" ] && return 0
   [ -n "$(find "$SOURCE_DIR" \( -name bin -o -name node_modules \) -prune -o \
-      \( -name '*.go' -o -name go.mod -o -name go.sum \) -newer "$BIN" -print -quit)" ] && return 0
+      \( -name '*.go' -o -name '*.sh' -o -name go.mod -o -name go.sum \) -newer "$BIN" -print -quit)" ] && return 0
   return 1
 }
 
