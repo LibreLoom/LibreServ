@@ -1,6 +1,8 @@
 package parts
 
 import (
+	"context"
+	"os/exec"
 	"os"
 	"path/filepath"
 	"strings"
@@ -69,5 +71,30 @@ func TestIntegrationAPK(t *testing.T) {
 	st, err := os.Stat(filepath.Join(b.PartOutDir("apk"), APKFile))
 	if err != nil || st.Size() < 1<<20 {
 		t.Fatalf("apk: %v %v", st, err)
+	}
+}
+
+func TestIntegrationAPKSigned(t *testing.T) {
+	slowOrSkip(t)
+	b := lunaRealCtx(t, "luna-android", "0.1.6-0.dev.2")
+	img, err := b.Engine.EnsureImage(context.Background(), "android", engine.BuildOpts{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	os.Chmod(dir, 0o755)
+	out, err := exec.Command("podman", "run", "--rm", "--security-opt", "label=disable", "-v", dir+":/ks", img.Ref(),
+		"keytool", "-genkeypair", "-keystore", "/ks/t.jks", "-storepass", "teststorepw", "-keypass", "teststorepw",
+		"-alias", "luna", "-keyalg", "RSA", "-keysize", "2048", "-validity", "30", "-dname", "CN=test").CombinedOutput()
+	if err != nil {
+		t.Fatalf("keytool: %v\n%s", err, out)
+	}
+	b.AndroidSigning = &engine.AndroidSigning{Path: filepath.Join(dir, "t.jks"), Alias: "luna",
+		StorePassword: "teststorepw", KeyPassword: "teststorepw"}
+	b.Engine.Redactor.Add("teststorepw")
+	d := runGraph(t, b, &APK{})
+	t.Logf("signed apk: %s", d.Round(time.Second))
+	if _, err := os.Stat(filepath.Join(b.PartOutDir("apk"), APKFile)); err != nil {
+		t.Fatal(err)
 	}
 }
