@@ -51,7 +51,11 @@ func cmdDoctor(args []string) int {
 	fmt.Println("Images")
 	checkImages(ctx, e, c)
 	fmt.Println("Secrets")
-	c.warn("secrets", "not checked yet (secrets support is not implemented)")
+	if a, err := newApp(appOpts{keyring: true}); err != nil {
+		c.warn("secrets", err.Error())
+	} else {
+		secretsSummary(ctx, a, c)
+	}
 
 	switch {
 	case c.failed:

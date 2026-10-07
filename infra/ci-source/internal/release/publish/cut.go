@@ -53,6 +53,15 @@ type Config struct {
 	// returns it. It is called again on resume if the directory is gone.
 	Build func(ctx context.Context, src Source) (outDir string, err error)
 
+	// Resolve decides the feed parts once the build output exists (files that
+	// were not rebuilt point at an earlier version) and the API level. It must
+	// derive everything from src and outDir: it runs again on resume. When nil,
+	// Release.Parts and Release.API are used as given.
+	Resolve func(ctx context.Context, src Source, outDir string) (Resolved, error)
+	// OnStep reports progress: phase is "start", "done", "skipped" (done in an
+	// earlier run) or "failed" (err set).
+	OnStep func(step, phase string, err error)
+
 	Signer   Signer
 	Registry *Registry
 	Forge    *Forgejo
@@ -74,6 +83,12 @@ type Config struct {
 	// test seams
 	beforeStep  func(step string) error
 	afterEffect func(step string) error
+}
+
+// Resolved is what Config.Resolve returns.
+type Resolved struct {
+	Parts []PartSpec
+	API   *feed.API
 }
 
 // Result is what a finished cut reports.
@@ -195,6 +210,7 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 	for _, name := range Steps {
 		if c.st.Done[name] {
 			c.logf("%s: done earlier", name)
+			c.step(name, "skipped", nil)
 			continue
 		}
 		if c.beforeStep != nil {
@@ -203,7 +219,9 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 			}
 		}
 		c.logf("%s ...", name)
+		c.step(name, "start", nil)
 		if err := fns[name](ctx); err != nil {
+			c.step(name, "failed", err)
 			return nil, fmt.Errorf("%s: %w", name, err)
 		}
 		if c.afterEffect != nil {
@@ -215,6 +233,7 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 		if err := c.save(); err != nil {
 			return nil, err
 		}
+		c.step(name, "done", nil)
 	}
 	files, _ := c.uploadList()
 	return &Result{SHA: c.st.SHA, FeedSHA: c.st.FeedSHA, Tag: tag, OutDir: c.st.OutDir,
@@ -249,6 +268,29 @@ func (c *cut) defaults() {
 }
 
 func (c *cut) logf(f string, a ...any) { c.Log(f, a...) }
+
+func (c *cut) step(name, phase string, err error) {
+	if c.OnStep != nil {
+		c.OnStep(name, phase, err)
+	}
+}
+
+// resolve fills Release.Parts and API from Config.Resolve (if set).
+func (c *cut) resolve(ctx context.Context, outDir string) error {
+	if c.Resolve == nil {
+		return nil
+	}
+	src, err := c.source(ctx)
+	if err != nil {
+		return err
+	}
+	r, err := c.Resolve(ctx, src, outDir)
+	if err != nil {
+		return err
+	}
+	c.Release.Parts, c.Release.API = r.Parts, r.API
+	return nil
+}
 
 // --- state
 
@@ -360,6 +402,9 @@ func (c *cut) stepBuild(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if err := c.resolve(ctx, out); err != nil {
+		return err
+	}
 	for _, p := range c.Release.Parts {
 		if p.Version != "" {
 			continue
@@ -469,6 +514,9 @@ func (c *cut) urlFor(version, file string) string {
 func (c *cut) stepFeed(ctx context.Context) error {
 	dir, err := c.outDir(ctx)
 	if err != nil {
+		return err
+	}
+	if err := c.resolve(ctx, dir); err != nil {
 		return err
 	}
 	_, files, err := Sums(dir)

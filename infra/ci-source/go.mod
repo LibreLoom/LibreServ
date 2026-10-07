@@ -11,6 +11,7 @@ require (
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/docker/docker v27.5.1+incompatible
+	golang.org/x/term v0.12.0
 	software.sslmate.com/src/go-pkcs12 v0.7.3
 )
 
@@ -65,7 +66,6 @@ require (
 	go.opentelemetry.io/otel/trace v1.47.0 // indirect
 	golang.org/x/crypto v0.13.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
-	golang.org/x/term v0.12.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
 	gotest.tools/v3 v3.5.2 // indirect

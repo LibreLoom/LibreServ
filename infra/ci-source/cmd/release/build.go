@@ -1,131 +1,143 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/ci/internal/release/engine"
+	"gt.plainskill.net/LibreLoom/LibreServ/ci/internal/release/app"
 )
 
+type buildJSON struct {
+	OK       bool            `json:"ok"`
+	Error    string          `json:"error,omitempty"`
+	Commit   string          `json:"commit,omitempty"`
+	DevKeyID string          `json:"dev_key_id,omitempty"`
+	Units    []app.UnitBuild `json:"units"`
+	Jobs     []jobJSON       `json:"jobs"`
+	Seconds  float64         `json:"seconds"`
+}
+
+type jobJSON struct {
+	ID      string  `json:"id"`
+	Status  string  `json:"status"`
+	Error   string  `json:"error,omitempty"`
+	Seconds float64 `json:"seconds"`
+}
+
 func cmdBuild(args []string) int {
-	fs := flag.NewFlagSet("build", flag.ExitOnError)
-	head := fs.Bool("head", false, "build the checked-out HEAD (default)")
-	ref := fs.String("ref", "", "build this git ref instead of HEAD")
+	fs := flag.NewFlagSet("build", flag.ContinueOnError)
+	ref := fs.String("ref", "", "git ref to build (default HEAD)")
+	head := fs.Bool("head", false, "build the checked-out HEAD (the default)")
+	partsF := fs.String("parts", "", "comma-separated parts to build (and what they need)")
 	ver := fs.String("version", "", "version to stamp (default: dev version)")
 	jobs := fs.Int("jobs", runtime.NumCPU(), "parallel jobs")
 	heavy := fs.Int("heavy-jobs", 2, "parallel memory-heavy jobs")
+	out := fs.String("out", "", "output root (default <repo>/dist)")
 	noFailFast := fs.Bool("no-fail-fast", false, "keep running independent jobs after a failure")
+	asJSON := fs.Bool("json", false, "print the result as JSON on stdout (progress stays on stderr)")
+	quiet := fs.Bool("quiet", false, "no progress lines")
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, "Usage: release build [<unit>[:<part>...]] [--head | --ref R] [--version V] [--jobs N]")
-		fmt.Fprintln(os.Stderr, "With no unit, runs a demo job graph to exercise the engine.")
+		fmt.Fprintln(os.Stderr, "Usage: release build <unit|all>[:<part>,...] [--ref R] [--parts a,b] [--version V] [--jobs N] [--out dist] [--json]")
+		fmt.Fprintln(os.Stderr, "Builds from a git export of the ref (never your working tree) into <out>/<unit>/<version>/")
+		fmt.Fprintln(os.Stderr, "and signs SHA256SUMS.txt with a local TEST key. Try: release build demo")
 		fs.PrintDefaults()
 	}
-	fs.Parse(args)
-	_ = *head
-	_ = *ver
-
-	if fs.NArg() > 0 {
-		fmt.Fprintf(os.Stderr, "release build %s: no parts are registered yet (only the demo graph exists)\n", strings.Join(fs.Args(), " "))
+	pos, err := parseInterspersed(fs, args)
+	if err != nil {
+		if err == flag.ErrHelp {
+			return 0
+		}
 		return 2
 	}
-	e, err := newEngine()
+	if len(pos) != 1 {
+		fs.Usage()
+		return 2
+	}
+	_ = *head
+	unit, partSel, _ := strings.Cut(pos[0], ":")
+	var names []string
+	for _, p := range strings.Split(partSel+","+*partsF, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			names = append(names, p)
+		}
+	}
+
+	ev := eventPrinter(os.Stderr)
+	if *quiet {
+		ev = nil
+	}
+	a, err := newApp(appOpts{events: ev, outRoot: absOut(*out)})
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "release build:", err)
-		return 1
+		return fail("build", err)
 	}
 	ctx, stop := signalContext()
 	defer stop()
+	res, err := a.Build(ctx, app.BuildRequest{Unit: unit, Ref: *ref, Parts: names, Version: *ver,
+		Jobs: *jobs, HeavyJobs: *heavy, NoFailFast: *noFailFast})
 
-	r := *ref
-	if r == "" {
-		r = "HEAD"
+	if *asJSON {
+		j := buildJSON{OK: err == nil, Units: []app.UnitBuild{}, Jobs: []jobJSON{}}
+		if err != nil {
+			j.Error = a.Redact(err.Error())
+		}
+		if res != nil {
+			j.Commit, j.DevKeyID, j.Seconds = res.Commit, res.DevKeyID, res.Duration.Seconds()
+			j.Units = append(j.Units, res.Units...)
+			for _, r := range res.Jobs {
+				jj := jobJSON{ID: r.ID, Status: r.Status.String(), Seconds: r.Duration.Seconds()}
+				if r.Err != nil {
+					jj.Error = a.Redact(r.Err.Error())
+				}
+				j.Jobs = append(j.Jobs, jj)
+			}
+		}
+		printJSON(j)
+		if err != nil {
+			return 1
+		}
+		return 0
 	}
-	g, err := demoGraph(e, r)
+	if res != nil {
+		printBuild(res)
+	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "release build:", err)
-		return 1
-	}
-	res, err := g.Run(ctx, engine.Options{
-		Jobs:      *jobs,
-		HeavyJobs: *heavy,
-		FailFast:  !*noFailFast,
-		Engine:    e,
-		Redactor:  e.Redactor,
-		OnEvent:   printEvent,
-	})
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "release build:", err)
-		return 1
-	}
-	fmt.Printf("\n%-22s %-10s %s\n", "job", "status", "time")
-	for _, j := range res.Jobs {
-		fmt.Printf("%-22s %-10s %s\n", j.ID, j.Status, j.Duration.Round(10*time.Millisecond))
-	}
-	fmt.Printf("total %s\n", res.Duration.Round(10*time.Millisecond))
-	if !res.OK() {
-		fmt.Fprintln(os.Stderr, "release build:", res.FirstError())
-		return 1
+		return fail("build", fmt.Errorf("%s", a.Redact(err.Error())))
 	}
 	return 0
 }
 
-func printEvent(ev engine.Event) {
-	switch ev.Type {
-	case engine.EventStarted:
-		fmt.Printf("[%s] started\n", ev.Job)
-	case engine.EventLog:
-		fmt.Printf("[%s] %s\n", ev.Job, ev.Line)
-	case engine.EventFinished:
-		if ev.Err != nil {
-			fmt.Printf("[%s] %s: %v\n", ev.Job, ev.Status, ev.Err)
-		} else {
-			fmt.Printf("[%s] %s in %s\n", ev.Job, ev.Status, ev.Elapsed.Round(10*time.Millisecond))
-		}
+func absOut(p string) string {
+	if p == "" {
+		return ""
 	}
+	if r, err := repoRoot(); err == nil && !strings.HasPrefix(p, "/") {
+		return r + "/" + p
+	}
+	return p
 }
 
-// demoGraph exports the ref, then fans out into container jobs that join in
-// a final check. It exists to exercise the engine end to end.
-func demoGraph(e *engine.Engine, ref string) (*engine.Graph, error) {
-	var src, sha string
-	out := filepath.Join(e.CacheDir(), "demo-out")
-	g := engine.NewGraph()
-	err := g.Add(
-		engine.Job{ID: "demo/export", Title: "Export source", Run: func(ctx context.Context, j *engine.JobRun) error {
-			var err error
-			src, sha, err = e.Export(ctx, ref)
-			if err != nil {
-				return err
-			}
-			j.Logf("exported %s to %s", sha[:12], src)
-			return os.MkdirAll(out, 0o755)
-		}},
-		engine.Job{ID: "demo/go-version", Deps: []string{"demo/export"}, Run: func(ctx context.Context, j *engine.JobRun) error {
-			return j.Container(ctx, engine.RunSpec{Image: "go", Source: src, Caches: engine.GoCaches(), Memory: "1g",
-				Cmd: []string{"go", "version"}})
-		}},
-		engine.Job{ID: "demo/list-source", Deps: []string{"demo/export"}, Run: func(ctx context.Context, j *engine.JobRun) error {
-			return j.Container(ctx, engine.RunSpec{Image: "alpine-os", Source: src, Out: out, Memory: "256m",
-				Cmd: []string{"sh", "-c", "ls | head -n 5; ls | wc -l > /out/source-entries.txt"}})
-		}},
-		engine.Job{ID: "demo/heavy", Heavy: true, Deps: []string{"demo/export"}, Run: func(ctx context.Context, j *engine.JobRun) error {
-			return j.Container(ctx, engine.RunSpec{Image: "alpine-os", Source: src, Memory: "512m",
-				Cmd: []string{"sh", "-c", "echo pretending to link; sleep 2"}})
-		}},
-		engine.Job{ID: "demo/check", Deps: []string{"demo/go-version", "demo/list-source", "demo/heavy"}, Run: func(ctx context.Context, j *engine.JobRun) error {
-			b, err := os.ReadFile(filepath.Join(out, "source-entries.txt"))
-			if err != nil {
-				return err
-			}
-			j.Logf("source has %s top-level entries", strings.TrimSpace(string(b)))
-			return nil
-		}},
-	)
-	return g, err
+func printBuild(res *app.BuildResult) {
+	if len(res.Jobs) > 0 {
+		fmt.Printf("%-30s %-10s %s\n", "job", "status", "time")
+		for _, j := range res.Jobs {
+			fmt.Printf("%-30s %-10s %s\n", j.ID, j.Status, j.Duration.Round(10*time.Millisecond))
+		}
+		fmt.Printf("total %s\n", res.Duration.Round(10*time.Millisecond))
+	}
+	for _, u := range res.Units {
+		fmt.Printf("\n%s %s  (commit %.12s)\n  %s\n", u.Unit, u.Version, res.Commit, u.Dir)
+		for _, f := range u.Files {
+			fmt.Printf("  %-44s %10s  %.16s\n", f.Name, humanSize(f.Size), f.SHA256)
+		}
+		if len(u.Missing) > 0 {
+			fmt.Printf("  not produced: %s\n", strings.Join(u.Missing, ", "))
+		}
+	}
+	if res.DevKeyID != "" {
+		fmt.Printf("\nSHA256SUMS.txt is signed with the local TEST key %s (never trusted by production).\n", res.DevKeyID)
+	}
 }

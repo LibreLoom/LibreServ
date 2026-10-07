@@ -10,6 +10,7 @@ import (
 	"sort"
 
 	"aead.dev/minisign"
+	"gt.plainskill.net/LibreLoom/LibreServ/ci/internal/feed"
 )
 
 type product struct {
@@ -48,6 +49,12 @@ type Signer struct {
 
 // Sign returns a .minisig for msg (hashed minisign format).
 func (s *Signer) Sign(msg []byte) []byte { return minisign.Sign(s.key, msg) }
+
+// SignWithComment signs msg in the prehashed "ED" form with a signed trusted
+// comment, which is what feeds and SHA256SUMS.txt need (publish.Signer).
+func (s *Signer) SignWithComment(msg []byte, trustedComment string) ([]byte, error) {
+	return feed.Sign(s.key, msg, trustedComment)
+}
 
 // Verify checks a signature against the product's public key from keys/.
 func (s *Signer) Verify(msg, sig []byte) bool { return minisign.Verify(s.pub, msg, sig) }
