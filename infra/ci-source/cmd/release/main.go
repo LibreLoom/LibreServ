@@ -27,7 +27,7 @@ Units: sol, sol-connect, luna, luna-desktop, luna-android, luna-connect
 Global: --repo DIR  the LibreServ checkout (default: detected from the
         current directory, or $LIBRESERV_REPO)
 Run "release <command> -h" for a command's flags.
-With no command the interactive TUI starts (not implemented yet).
+With no command the interactive TUI starts (on a terminal).
 `
 
 func main() {
@@ -48,9 +48,7 @@ func run(args []string) int {
 		repoFlag, args = args[1], args[2:]
 	}
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "release: the interactive TUI is not implemented yet")
-		fmt.Fprint(os.Stderr, "\n"+usage)
-		return 2
+		return cmdTUI()
 	}
 	cmd, rest := args[0], args[1:]
 	switch cmd {

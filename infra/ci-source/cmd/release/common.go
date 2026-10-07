@@ -16,6 +16,7 @@ import (
 
 	"gt.plainskill.net/LibreLoom/LibreServ/ci/internal/release/app"
 	"gt.plainskill.net/LibreLoom/LibreServ/ci/internal/release/engine"
+	"gt.plainskill.net/LibreLoom/LibreServ/ci/internal/release/secrets"
 	"gt.plainskill.net/LibreLoom/LibreServ/ci/internal/release/version"
 )
 
@@ -68,6 +69,8 @@ type appOpts struct {
 	events  func(app.Event)
 	outRoot string
 	keyring bool // open the OS keyring
+	// prompter replaces the terminal prompter (the TUI's inline questions).
+	prompter secrets.Prompter
 }
 
 // newApp builds the orchestration layer for a command.
@@ -78,7 +81,9 @@ func newApp(o appOpts) (*app.App, error) {
 	}
 	registerDemo()
 	cfg := app.Config{Repo: repo, OnEvent: o.events, OutRoot: o.outRoot, NoKeyring: !o.keyring}
-	if o.prompt {
+	if o.prompter != nil {
+		cfg.Prompter = o.prompter
+	} else if o.prompt {
 		if p := terminalPrompter(); p != nil {
 			cfg.Prompter = p
 		}

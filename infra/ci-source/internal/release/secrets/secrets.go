@@ -222,6 +222,14 @@ func (m *Manager) Status(ctx context.Context, id ID) Status {
 	return m.resolveLocked(ctx, id).status
 }
 
+// Refresh forgets what was learned and answered this session (a skipped
+// question is asked again by the next lookup). Nothing is proven here.
+func (m *Manager) Refresh() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.invalidateLocked(false)
+}
+
 // Reprove drops what was learned this session and proves again from scratch.
 // The pairing cache is kept (it is re-checked against the file hash anyway);
 // pass full=true to also clear it and rescan the home folder.

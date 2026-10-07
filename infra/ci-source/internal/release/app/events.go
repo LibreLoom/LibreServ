@@ -20,7 +20,17 @@ const (
 	EventCut
 	// EventNote is a one-line message from the orchestration itself.
 	EventNote
+	// EventPlan lists every job of a build before it starts (Plan).
+	EventPlan
 )
+
+// JobInfo describes one job of a build graph.
+type JobInfo struct {
+	ID    string
+	Title string
+	Deps  []string
+	Heavy bool
+}
 
 // Cut phases (Event.Phase).
 const (
@@ -43,6 +53,8 @@ type Event struct {
 	Err   error  // EventCut with PhaseFailed
 
 	Message string // EventNote, and a short text for EventCut
+
+	Plan []JobInfo // EventPlan
 }
 
 // emitter serialises delivery to one callback.

@@ -20,6 +20,15 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/ci/internal/release/publish"
 )
 
+// PartNames lists a unit's parts, in the order the unit defines them.
+func (a *App) PartNames(unit string) []string {
+	var out []string
+	for _, p := range a.cfg.Parts(unit) {
+		out = append(out, p.Name())
+	}
+	return out
+}
+
 // AllUnits is the unit name that builds every unit with parts.
 const AllUnits = "all"
 
@@ -262,6 +271,15 @@ func (a *App) runPlans(ctx context.Context, plans []unitPlan, jobs, heavy int, f
 	if err := merged.Validate(); err != nil {
 		return nil, err
 	}
+	plan := make([]JobInfo, 0, len(merged.Jobs()))
+	for _, j := range merged.Jobs() {
+		title := j.Title
+		if title == "" {
+			title = j.ID
+		}
+		plan = append(plan, JobInfo{ID: j.ID, Title: title, Deps: append([]string(nil), j.Deps...), Heavy: j.Heavy})
+	}
+	a.emit.emit(Event{Kind: EventPlan, Plan: plan})
 	return merged.Run(ctx, engine.Options{
 		Jobs: jobs, HeavyJobs: heavy, FailFast: failFast,
 		Engine: a.eng, Redactor: a.eng.Redactor,
