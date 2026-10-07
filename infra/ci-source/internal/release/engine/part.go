@@ -15,6 +15,18 @@ type BuildContext struct {
 	SrcDir string
 	// OutRoot is the output root; use PartOutDir for a part's own dir.
 	OutRoot string
+	// AndroidSigning is the release keystore for luna-android/apk; nil builds
+	// an unsigned (debug-signed) dev APK.
+	AndroidSigning *AndroidSigning
+}
+
+// AndroidSigning is a release keystore for the gradle job. Path is mounted
+// read-only; the passwords travel in the job's environment, never argv.
+type AndroidSigning struct {
+	Path          string
+	Alias         string
+	StorePassword string
+	KeyPassword   string
 }
 
 // PartOutDir is the per-part output dir: <OutRoot>/<unit>/<version>/<part>.
