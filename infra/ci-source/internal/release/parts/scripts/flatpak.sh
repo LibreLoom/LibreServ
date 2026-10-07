@@ -51,10 +51,14 @@ for spec in $BRANCHES; do
 	flatpak-builder --user --force-clean --disable-rofiles-fuse \
 		--install-deps-from=flathub --state-dir="$STATE" \
 		--default-branch="$branch" --repo=repo build-dir "$M"
-	# The compiled app must carry this build's version (cargo's cache cannot see
-	# VERSION change; the manifest touches it, and this proves the rebuild ran).
+	# The app must have been compiled for this build's version. The Linux binary
+	# does not keep the version string (only the Windows update check reads
+	# it), so ask cargo what the build script last baked in: the newest
+	# build-script output of luna-desktop, in the volume.
 	want=$(tr -d '\r\n' < /src/luna/desktop/VERSION)
-	grep -aqF -- "$want" build-dir/files/bin/luna-desktop || { cat "$CACHE/version" >&2 || true; strings -n 5 build-dir/files/bin/luna-desktop | grep -c . >&2 || true; grep -ao "0\.[0-9]*\.[0-9]*[-0-9a-z.]*" build-dir/files/bin/luna-desktop | sort -u | head -20 >&2; echo "the built luna-desktop does not contain version $want" >&2; exit 1; }
+	out=$(ls -td "$CACHE"/target/release/build/luna-desktop-*/output 2>/dev/null | head -1)
+	[ -n "$out" ] && grep -qxF "cargo:rustc-env=LUNA_DESKTOP_APP_VERSION=$want" "$out" \
+		|| { echo "luna-desktop was not compiled for version $want (cargo last baked in: $(grep -h LUNA_DESKTOP_APP_VERSION "$out" 2>/dev/null || echo nothing))" >&2; exit 1; }
 	flatpak build-bundle repo "/out/$file" "$APP" "$branch" \
 		--runtime-repo=https://flathub.org/repo/flathub.flatpakrepo
 	# The bundle must carry exactly this branch.
