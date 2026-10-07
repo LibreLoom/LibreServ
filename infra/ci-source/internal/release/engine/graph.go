@@ -307,7 +307,6 @@ func (g *Graph) Run(ctx context.Context, opts Options) (*Result, error) {
 			return
 		}
 		res[i].Status = Skipped // reserve before recursing
-		final--
 		finish(i, Skipped, errors.New(cause), time.Time{}, time.Now())
 		for _, d := range dependents[i] {
 			skip(d, cause)

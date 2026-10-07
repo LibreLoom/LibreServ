@@ -253,3 +253,72 @@ func TestExportInheritsMtimes(t *testing.T) {
 		t.Errorf("changed a.txt kept old mtime %v", st.ModTime())
 	}
 }
+
+// A complete export that another process finished while ours was extracting
+// must not be deleted by ours.
+func TestExportDoesNotReplaceCompleteExport(t *testing.T) {
+	repo := gitRepo(t)
+	cache := t.TempDir()
+	ctx := context.Background()
+	sha, err := ResolveCommit(ctx, repo, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(cache, "src", sha)
+	beforeFinalize = func() {
+		beforeFinalize = nil
+		os.MkdirAll(dir, 0o755)
+		os.WriteFile(filepath.Join(dir, "theirs"), []byte("x"), 0o644)
+		os.WriteFile(filepath.Join(dir, ExportMarker), []byte(sha+"\n"), 0o644)
+	}
+	defer func() { beforeFinalize = nil }()
+	got, _, err := ExportSource(ctx, repo, sha, cache)
+	if err != nil || got != dir {
+		t.Fatal(got, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "theirs")); err != nil {
+		t.Fatal("a complete export finished by someone else was deleted")
+	}
+	ents, _ := os.ReadDir(filepath.Join(cache, "src"))
+	for _, e := range ents {
+		if strings.HasPrefix(e.Name(), ".tmp-") {
+			t.Fatal("temp dir left", e.Name())
+		}
+	}
+}
+
+// Old .tmp-* leftovers go; exports beyond the newest KeepExports are pruned
+// but the newest and the one just made stay.
+func TestExportCleansUp(t *testing.T) {
+	cache := t.TempDir()
+	root := filepath.Join(cache, "src")
+	os.MkdirAll(root, 0o755)
+	old := time.Now().Add(-48 * time.Hour)
+	stale := filepath.Join(root, ".tmp-abc-1")
+	fresh := filepath.Join(root, ".tmp-abc-2")
+	os.MkdirAll(stale, 0o755)
+	os.MkdirAll(fresh, 0o755)
+	os.Chtimes(stale, old, old)
+	var dirs []string
+	for i := 0; i < 5; i++ {
+		d := filepath.Join(root, strings.Repeat(string(rune('a'+i)), 40))
+		os.MkdirAll(d, 0o755)
+		m := filepath.Join(d, ExportMarker)
+		os.WriteFile(m, nil, 0o644)
+		mt := old.Add(time.Duration(i) * time.Hour) // e is newest
+		os.Chtimes(m, mt, mt)
+		dirs = append(dirs, d)
+	}
+	defer func(k int, a time.Duration) { KeepExports, exportMinAge = k, a }(KeepExports, exportMinAge)
+	KeepExports, exportMinAge = 2, time.Hour
+	cleanExports(root, dirs[0]) // dirs[0] is "just exported": stays despite its age
+	exists := func(p string) bool { _, err := os.Stat(p); return err == nil }
+	if exists(stale) || !exists(fresh) {
+		t.Errorf("tmp cleanup: stale=%v fresh=%v", exists(stale), exists(fresh))
+	}
+	for i, want := range []bool{true, false, false, true, true} {
+		if exists(dirs[i]) != want {
+			t.Errorf("export %d exists=%v, want %v", i, exists(dirs[i]), want)
+		}
+	}
+}

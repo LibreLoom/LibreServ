@@ -11,8 +11,28 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
+	"syscall"
+	"time"
 )
+
+// KeepExports is how many complete source exports stay in <cache>/src; older
+// ones are pruned after an export. The newest is always kept: the next export
+// compares file bytes against it to inherit mtimes.
+var KeepExports = 5
+
+// beforeFinalize is a test seam: it runs just before the finished tree is
+// moved in, where a second process could have finished the same export.
+var beforeFinalize func()
+
+// exportMinAge protects an export that was used lately from pruning, so a
+// long build of an older commit does not lose its source.
+var exportMinAge = time.Hour
+
+// staleTmpAge is how old an abandoned .tmp-* directory must be before it is
+// removed (a crashed export; a running one is far younger).
+const staleTmpAge = 24 * time.Hour
 
 // ExportMarker is written last into a complete export.
 const ExportMarker = ".libreserv-export-complete"
@@ -48,7 +68,7 @@ func ExportSource(ctx context.Context, repo, ref, cacheDir string) (dir, sha str
 	}
 	root := filepath.Join(cacheDir, "src")
 	dir = filepath.Join(root, sha)
-	if _, err := os.Stat(filepath.Join(dir, ExportMarker)); err == nil {
+	if reuseExport(dir) {
 		return dir, sha, nil
 	}
 	if err := os.MkdirAll(root, 0o755); err != nil {
@@ -84,18 +104,122 @@ func ExportSource(ctx context.Context, repo, ref, cacheDir string) (dir, sha str
 	if err := os.WriteFile(filepath.Join(tmp, ExportMarker), []byte(sha+"\n"), 0o644); err != nil {
 		return "", "", err
 	}
-	// Replace any partial/stale directory, then move the finished tree in.
-	if _, err := os.Stat(dir); err == nil {
-		os.RemoveAll(dir)
+	// Move the finished tree in under a lock, so two processes exporting the
+	// same commit never delete each other's tree: a complete export that
+	// appeared meanwhile wins, and only a partial one is replaced.
+	if beforeFinalize != nil {
+		beforeFinalize()
 	}
-	if err := os.Rename(tmp, dir); err != nil {
-		// A concurrent export may have won the race.
-		if _, serr := os.Stat(filepath.Join(dir, ExportMarker)); serr == nil {
-			return dir, sha, nil
-		}
+	unlock, err := lockFile(filepath.Join(root, ".lock-"+sha))
+	if err != nil {
 		return "", "", err
 	}
+	defer unlock()
+	if reuseExport(dir) {
+		return dir, sha, nil // tmp is removed by the deferred RemoveAll
+	}
+	if _, err := os.Stat(dir); err == nil {
+		// Partial or stale: set it aside atomically, then delete it.
+		old, err := os.MkdirTemp(root, ".tmp-old-")
+		if err != nil {
+			return "", "", err
+		}
+		if err := os.Rename(dir, filepath.Join(old, "x")); err != nil {
+			os.Remove(old)
+			return "", "", err
+		}
+		os.RemoveAll(old)
+	}
+	if err := os.Rename(tmp, dir); err != nil {
+		return "", "", err
+	}
+	cleanExports(root, dir)
 	return dir, sha, nil
+}
+
+// reuseExport reports whether dir is a complete export, and marks it as used
+// just now (so pruning leaves it alone and the next export compares against
+// it).
+func reuseExport(dir string) bool {
+	marker := filepath.Join(dir, ExportMarker)
+	if _, err := os.Stat(marker); err != nil {
+		return false
+	}
+	now := time.Now()
+	os.Chtimes(marker, now, now)
+	return true
+}
+
+// lockFile takes an exclusive advisory lock on path (created if needed).
+func lockFile(path string) (unlock func(), err error) {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		f.Close()
+		return nil, err
+	}
+	return func() { syscall.Flock(int(f.Fd()), syscall.LOCK_UN); f.Close() }, nil
+}
+
+// cleanExports removes abandoned .tmp-* directories and old lock files, and prunes
+// complete exports beyond the newest KeepExports (never keep, never one used
+// within exportMinAge). Best effort: failures are ignored.
+func cleanExports(root, keep string) {
+	ents, err := os.ReadDir(root)
+	if err != nil {
+		return
+	}
+	type exp struct {
+		path string
+		mod  time.Time
+	}
+	var complete []exp
+	now := time.Now()
+	for _, e := range ents {
+		p := filepath.Join(root, e.Name())
+		if !e.IsDir() {
+			if strings.HasPrefix(e.Name(), ".lock-") {
+				if fi, err := e.Info(); err == nil && now.Sub(fi.ModTime()) > staleTmpAge {
+					os.Remove(p)
+				}
+			}
+			continue
+		}
+		if strings.HasPrefix(e.Name(), ".tmp-") {
+			if fi, err := e.Info(); err == nil && now.Sub(fi.ModTime()) > staleTmpAge {
+				os.RemoveAll(p)
+			}
+			continue
+		}
+		if strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+		if m, err := os.Stat(filepath.Join(p, ExportMarker)); err == nil {
+			complete = append(complete, exp{p, m.ModTime()})
+		}
+	}
+	sort.Slice(complete, func(i, j int) bool { return complete[i].mod.After(complete[j].mod) })
+	n := KeepExports
+	if n < 1 {
+		n = 1
+	}
+	for i, c := range complete {
+		if i < n || c.path == keep || now.Sub(c.mod) < exportMinAge {
+			continue
+		}
+		// Rename first, so nobody sees a half-deleted export.
+		gone, err := os.MkdirTemp(root, ".tmp-prune-")
+		if err != nil {
+			return
+		}
+		if os.Rename(c.path, filepath.Join(gone, "x")) == nil {
+			os.RemoveAll(gone)
+		} else {
+			os.Remove(gone)
+		}
+	}
 }
 
 // inheritMtimes gives every file of the new export whose bytes equal the same

@@ -212,3 +212,38 @@ func TestPanicIsFailure(t *testing.T) {
 		t.Fatal(r.Status)
 	}
 }
+
+// Every job, skipped ones included, finishes exactly once, and the graph is
+// done only after the last of them.
+func TestSkippedJobsFinishOnce(t *testing.T) {
+	g := NewGraph()
+	g.Add(
+		Job{ID: "bad", Run: func(ctx context.Context, j *JobRun) error { return errors.New("boom") }},
+		job("child", "bad"),
+		job("grandchild", "child"),
+		job("sibling", "bad"),
+	)
+	finished := map[string]int{}
+	doneAfter := -1
+	var evs int
+	res, _ := g.Run(context.Background(), Options{Jobs: 2, OnEvent: func(e Event) {
+		evs++
+		switch e.Type {
+		case EventFinished:
+			finished[e.Job]++
+		case EventGraphDone:
+			doneAfter = len(finished)
+		}
+	}})
+	if len(finished) != 4 || doneAfter != 4 {
+		t.Fatalf("finished %v, done after %d jobs", finished, doneAfter)
+	}
+	for id, n := range finished {
+		if n != 1 {
+			t.Errorf("%s finished %d times", id, n)
+		}
+	}
+	if res.OK() {
+		t.Error("a failed graph reported OK")
+	}
+}
