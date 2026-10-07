@@ -34,28 +34,36 @@ const EXCALIDRAW_PACK = path.resolve(
   "node_modules/@excalidraw/excalidraw/dist/prod",
 );
 
-const excalidrawAssets = () => ({
-  name: "luna-excalidraw-assets",
-  configureServer(server) {
-    server.middlewares.use("/excalidraw", (req, res, next) => {
-      const rel = decodeURIComponent((req.url || "").split("?")[0]);
-      const file = path.join(EXCALIDRAW_PACK, rel);
-      const stat =
-        file.startsWith(EXCALIDRAW_PACK + path.sep) &&
-        fs.statSync(file, { throwIfNoEntry: false });
-      if (!stat || !stat.isFile()) return next();
-      if (file.endsWith(".woff2")) res.setHeader("content-type", "font/woff2");
-      fs.createReadStream(file).pipe(res);
-    });
-  },
-  closeBundle() {
-    fs.cpSync(
-      path.join(EXCALIDRAW_PACK, "fonts"),
-      path.resolve(__dirname, "../crates/lunad/web/dist/excalidraw/fonts"),
-      { recursive: true },
-    );
-  },
-});
+const excalidrawAssets = () => {
+  // The build's real output dir, so `vite build --outDir X` (the release tool
+  // builds into a scratch dir) gets the fonts too.
+  let outDir = path.resolve(__dirname, "../crates/lunad/web/dist");
+  return {
+    name: "luna-excalidraw-assets",
+    configResolved(config) {
+      outDir = path.resolve(config.root, config.build.outDir);
+    },
+    configureServer(server) {
+      server.middlewares.use("/excalidraw", (req, res, next) => {
+        const rel = decodeURIComponent((req.url || "").split("?")[0]);
+        const file = path.join(EXCALIDRAW_PACK, rel);
+        const stat =
+          file.startsWith(EXCALIDRAW_PACK + path.sep) &&
+          fs.statSync(file, { throwIfNoEntry: false });
+        if (!stat || !stat.isFile()) return next();
+        if (file.endsWith(".woff2")) res.setHeader("content-type", "font/woff2");
+        fs.createReadStream(file).pipe(res);
+      });
+    },
+    closeBundle() {
+      fs.cpSync(
+        path.join(EXCALIDRAW_PACK, "fonts"),
+        path.join(outDir, "excalidraw/fonts"),
+        { recursive: true },
+      );
+    },
+  };
+};
 
 export default defineConfig({
   plugins: [react(), tailwindcss(), excalidrawAssets(), sharedFonts()],
