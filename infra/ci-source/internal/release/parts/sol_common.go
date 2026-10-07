@@ -117,12 +117,15 @@ func srcPath(rel string) string { return "/src/" + rel }
 // nodeBuildScript installs an app's dependencies (skipped while package.json
 // and the lockfile are unchanged, so a warm node_modules volume is reused),
 // optionally the shared UI's too, then runs `npm run build`.
-// Arguments: dist app shared. The shared UI needs its own node_modules: the
+// Arguments: dist app shared node-image. The node image's reference is part of
+// the "installed" key, so a new Node (or npm) reinstalls instead of reusing
+// modules built by the old one. The shared UI needs its own node_modules: the
 // app links it by symlink, so its imports resolve from its real path.
 const nodeBuildScript = `set -eu
+img=${4:-}
 install() {
   cd "$1"
-  h=$(cat package.json package-lock.json | sha256sum | cut -d' ' -f1)
+  h=$( { cat package.json package-lock.json; printf 'node-image=%s\n' "$img"; } | sha256sum | cut -d' ' -f1)
   if [ "$(cat node_modules/.release-hash 2>/dev/null)" != "$h" ]; then
     rm -f node_modules/.release-hash
     npm ci --no-audit --no-fund
@@ -159,8 +162,21 @@ func viteBuild(b *engine.BuildContext, key, appRel, distRel, hostDist string, sh
 		Memory: buildMemory,
 		Caches: caches,
 		Mounts: []engine.Mount{{Host: hostDist, Target: dist}},
-		Cmd:    []string{"sh", "-c", nodeBuildScript, "sh", dist, srcPath(appRel), shared},
+		Cmd:    []string{"sh", "-c", nodeBuildScript, "sh", dist, srcPath(appRel), shared, nodeImageRef(b)},
 	}
+}
+
+// nodeImageRef is the local reference of the node toolchain image (its name
+// carries a hash of its Containerfile), or "" when no engine is attached.
+func nodeImageRef(b *engine.BuildContext) string {
+	if b.Engine == nil {
+		return ""
+	}
+	img, err := b.Engine.LoadImage("node")
+	if err != nil {
+		return ""
+	}
+	return img.Ref()
 }
 
 // goTarget selects a static linux build for arch. Plain values go on the

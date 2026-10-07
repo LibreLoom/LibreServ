@@ -2,7 +2,8 @@
 # the bundle goes to /web-out. Reinstalls only when a lock file changed.
 set -eu
 cd /src
-want=$(cat shared/ui/package-lock.json luna/web/package-lock.json | sha256sum | cut -d' ' -f1)
+# The node image is part of the key: a new Node reinstalls the modules.
+want=$({ cat shared/ui/package-lock.json luna/web/package-lock.json; printf 'node-image=%s\n' "${NODE_IMAGE:-}"; } | sha256sum | cut -d' ' -f1)
 for d in shared/ui luna/web; do
 	if [ "$(cat "$d/node_modules/.libreserv-lock" 2>/dev/null || true)" != "$want" ]; then
 		echo "==> npm ci ($d)"

@@ -176,7 +176,7 @@ func lunaWebSpec(b *engine.BuildContext) (engine.RunSpec, error) {
 		Caches: []engine.Cache{engine.CacheNpm,
 			{Volume: "luna-web-node-modules", Target: "/src/luna/web/node_modules"},
 			{Volume: "luna-shared-ui-node-modules", Target: "/src/shared/ui/node_modules"}},
-		Env:    map[string]string{"NODE_OPTIONS": "--max-old-space-size=3072"},
+		Env:    map[string]string{"NODE_OPTIONS": "--max-old-space-size=3072", "NODE_IMAGE": nodeImageRef(b)},
 		Memory: "4g",
 	}, "bash", "luna-web.sh"), nil
 }
