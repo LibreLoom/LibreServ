@@ -10,6 +10,7 @@ import (
 
 	"golang.org/x/term"
 
+	"gt.plainskill.net/LibreLoom/LibreServ/ci/internal/release/app"
 	"gt.plainskill.net/LibreLoom/LibreServ/ci/internal/release/secrets"
 )
 
@@ -52,8 +53,44 @@ func (p *ttyPrompter) Ask(ctx context.Context, q secrets.Question) (secrets.Answ
 		return secrets.Answer{Skip: true}, nil
 	}
 	ans := secrets.Answer{Value: val}
+	if q.Slot == app.KeyringPassphraseSlot {
+		return ans, nil // never offered for storing
+	}
 	fmt.Fprint(p.out, "  Remember in the keyring? [y/N] ")
 	line, _ := p.in.ReadString('\n')
 	ans.Remember = strings.HasPrefix(strings.ToLower(strings.TrimSpace(line)), "y")
 	return ans, nil
+}
+
+// readPassphrase asks for a passphrase on the terminal (never from a pipe).
+func readPassphrase(prompt string) (string, error) {
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
+		return "", fmt.Errorf("%s: this needs a terminal", prompt)
+	}
+	fmt.Fprintf(os.Stderr, "%s: ", prompt)
+	b, err := term.ReadPassword(int(os.Stdin.Fd()))
+	fmt.Fprintln(os.Stderr)
+	if err != nil {
+		return "", err
+	}
+	if len(b) == 0 {
+		return "", fmt.Errorf("no passphrase given")
+	}
+	return string(b), nil
+}
+
+// readNewPassphrase asks twice.
+func readNewPassphrase(prompt string) (string, error) {
+	a, err := readPassphrase(prompt)
+	if err != nil {
+		return "", err
+	}
+	b, err := readPassphrase("Type it again to confirm")
+	if err != nil {
+		return "", err
+	}
+	if a != b {
+		return "", fmt.Errorf("the two passphrases differ")
+	}
+	return a, nil
 }

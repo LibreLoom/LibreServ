@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"aead.dev/minisign"
@@ -51,6 +50,10 @@ type Config struct {
 	Secrets *secrets.Manager
 	// Prompter asks for missing secrets; nil means non-interactive.
 	Prompter secrets.Prompter
+	// ConfigDir is ~/.config/libreserv-release (secrets.json, the vault).
+	ConfigDir string
+	// Store replaces the store manager (tests).
+	Store *secrets.StoreManager
 	// NoKeyring never opens the OS keyring (pasted values cannot be remembered).
 	NoKeyring bool
 
@@ -93,8 +96,13 @@ type App struct {
 	eng  *engine.Engine
 	sec  *secrets.Manager
 	emit *emitter
-	// stateFor records which Redactor feeds which secrets.
+
+	store *secrets.StoreManager
 }
+
+// KeyringPassphraseSlot is the Question.Slot used to ask for the vault
+// passphrase. Prompters must never offer to remember it.
+const KeyringPassphraseSlot = "keyring-passphrase"
 
 // New fills in defaults.
 func New(cfg Config) (*App, error) {
@@ -152,8 +160,30 @@ func New(cfg Config) (*App, error) {
 			Redactor: redactAdapter{eng.Redactor},
 			CacheDir: cfg.CacheDir,
 		}
-		if !cfg.NoKeyring {
-			o.Store = newLazyStore(cfg.Prompter)
+		o.ConfigDir = cfg.ConfigDir
+		sm := cfg.Store
+		if sm == nil && !cfg.NoKeyring {
+			so := secrets.StoreOptions{ConfigDir: cfg.ConfigDir, OnSecret: func(v string) { eng.Redactor.Add(v) }}
+			if p := cfg.Prompter; p != nil {
+				// A locked vault is unlocked through the prompter (the CLI
+				// asks on the terminal; the TUI unlocks up front and refuses).
+				so.Passphrase = func(prompt string) (string, error) {
+					ans, err := p.Ask(context.Background(), secrets.Question{
+						Slot: KeyringPassphraseSlot, Label: prompt, Secret: true})
+					if err != nil {
+						return "", err
+					}
+					if ans.Skip || ans.Value == "" {
+						return "", errors.New("no passphrase given")
+					}
+					return ans.Value, nil
+				}
+			}
+			sm = secrets.NewStoreManager(so)
+		}
+		if sm != nil {
+			a.store = sm
+			o.Store = sm
 		}
 		a.sec = secrets.New(o)
 	}
@@ -162,6 +192,10 @@ func New(cfg Config) (*App, error) {
 
 // Engine returns the build engine.
 func (a *App) Engine() *engine.Engine { return a.eng }
+
+// Store returns the secrets store manager (nil with NoKeyring or a custom
+// Secrets manager): which store is active, unlock, switch, change passphrase.
+func (a *App) Store() *secrets.StoreManager { return a.store }
 
 // Secrets returns the secrets manager.
 func (a *App) Secrets() *secrets.Manager { return a.sec }
@@ -182,116 +216,6 @@ func (a *App) Redact(s string) string { return a.eng.Redactor.Redact(s) }
 type redactAdapter struct{ r *engine.Redactor }
 
 func (a redactAdapter) Add(s string) { a.r.Add(s) }
-
-// lazyStore opens the OS keyring on first use, so commands that never need
-// it (and machines with a locked or missing keyring) don't pay for it. When
-// it cannot open, every slot reads as unset and writes fail with the reason.
-type lazyStore struct {
-	prompter secrets.Prompter
-	once     sync.Once
-	store    secrets.Store
-	err      error
-}
-
-func newLazyStore(p secrets.Prompter) *lazyStore { return &lazyStore{prompter: p} }
-
-// keyringTimeout bounds every keyring call: a locked keyring waiting on an
-// unlock dialog must not hang the tool.
-const keyringTimeout = 15 * time.Second
-
-func (l *lazyStore) open() (secrets.Store, error) {
-	l.once.Do(func() {
-		cfg := secrets.KeyringConfig{}
-		if l.prompter != nil {
-			cfg.Passphrase = func(prompt string) (string, error) {
-				a, err := l.prompter.Ask(context.Background(), secrets.Question{
-					Slot: "keyring-passphrase", Label: "Passphrase for the encrypted keyring file", Hint: prompt, Secret: true})
-				if err != nil {
-					return "", err
-				}
-				if a.Skip || a.Value == "" {
-					return "", errors.New("no passphrase given")
-				}
-				return a.Value, nil
-			}
-		}
-		type opened struct {
-			s   secrets.Store
-			err error
-		}
-		ch := make(chan opened, 1)
-		go func() {
-			s, err := secrets.NewKeyringStore(cfg)
-			ch <- opened{s, err}
-		}()
-		select {
-		case o := <-ch:
-			l.store, l.err = o.s, o.err
-		case <-time.After(keyringTimeout):
-			l.err = errors.New("the keyring did not answer in time (is it locked?)")
-		}
-	})
-	return l.store, l.err
-}
-
-// bounded runs f, giving up after keyringTimeout.
-func bounded[T any](f func() (T, error)) (T, error) {
-	type r struct {
-		v   T
-		err error
-	}
-	ch := make(chan r, 1)
-	go func() { v, err := f(); ch <- r{v, err} }()
-	select {
-	case x := <-ch:
-		return x.v, x.err
-	case <-time.After(keyringTimeout):
-		var zero T
-		return zero, errors.New("the keyring did not answer in time (is it locked?)")
-	}
-}
-
-func (l *lazyStore) Get(slot string) (string, error) {
-	s, err := l.open()
-	if err != nil {
-		return "", secrets.ErrNotFound
-	}
-	v, err := bounded(func() (string, error) { return s.Get(slot) })
-	if err != nil && !errors.Is(err, secrets.ErrNotFound) {
-		return "", secrets.ErrNotFound
-	}
-	return v, err
-}
-func (l *lazyStore) Set(slot, value string) error {
-	s, err := l.open()
-	if err != nil {
-		return err
-	}
-	_, err = bounded(func() (struct{}, error) { return struct{}{}, s.Set(slot, value) })
-	return err
-}
-func (l *lazyStore) Remove(slot string) error {
-	s, err := l.open()
-	if err != nil {
-		return nil
-	}
-	_, err = bounded(func() (struct{}, error) { return struct{}{}, s.Remove(slot) })
-	return err
-}
-func (l *lazyStore) Keys() ([]string, error) {
-	s, err := l.open()
-	if err != nil {
-		return nil, err
-	}
-	return bounded(func() ([]string, error) { return s.Keys() })
-}
-func (l *lazyStore) Backend() string {
-	s, err := l.open()
-	if err != nil {
-		return "none"
-	}
-	return s.Backend()
-}
 
 // ---- helpers shared by build, cut, verify
 

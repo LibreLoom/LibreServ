@@ -39,6 +39,9 @@ type BuildRequest struct {
 	NoFailFast bool
 	// OutRoot overrides the configured dist/ root.
 	OutRoot string
+	// AndroidRelease signs luna-android's APK with the proven release
+	// keystore (needs the keystore secret); otherwise it is debug-signed.
+	AndroidRelease bool
 }
 
 // FileOut is one output file.
@@ -155,6 +158,19 @@ func (a *App) Build(ctx context.Context, req BuildRequest) (*BuildResult, error)
 		plans = append(plans, p)
 	}
 	res := &BuildResult{Commit: sha}
+	if req.AndroidRelease {
+		for i := range plans {
+			if plans[i].unit != "luna-android" {
+				continue
+			}
+			sg, cleanup, err := a.androidSigning(ctx)
+			if err != nil {
+				return res, err
+			}
+			defer cleanup()
+			plans[i].bc.AndroidSigning = sg
+		}
+	}
 	runRes, err := a.runPlans(ctx, plans, req.Jobs, req.HeavyJobs, !req.NoFailFast)
 	if runRes != nil {
 		res.Jobs, res.Duration = runRes.Jobs, runRes.Duration
@@ -178,6 +194,26 @@ func (a *App) Build(ctx context.Context, req BuildRequest) (*BuildResult, error)
 		res.Units = append(res.Units, ub)
 	}
 	return res, nil
+}
+
+// androidSigning proves the release keystore and puts it in a private (0700)
+// temp folder for the gradle job; cleanup removes it.
+func (a *App) androidSigning(ctx context.Context) (*engine.AndroidSigning, func(), error) {
+	ks, st := a.sec.Android(ctx)
+	if ks == nil {
+		return nil, nil, fmt.Errorf("the Android keystore is not available: %s", st.Summary)
+	}
+	dir, err := os.MkdirTemp("", "release-android-")
+	if err != nil {
+		return nil, nil, err
+	}
+	cleanup := func() { _ = os.RemoveAll(dir) }
+	path, err := ks.Materialize(dir)
+	if err != nil {
+		cleanup()
+		return nil, nil, err
+	}
+	return &engine.AndroidSigning{Path: path, Alias: ks.Alias, StorePassword: ks.StorePassword, KeyPassword: ks.KeyPassword}, cleanup, nil
 }
 
 // runPlans builds every plan's graph (selected parts and their

@@ -40,6 +40,7 @@ func cmdBuild(args []string) int {
 	noFailFast := fs.Bool("no-fail-fast", false, "keep running independent jobs after a failure")
 	asJSON := fs.Bool("json", false, "print the result as JSON on stdout (progress stays on stderr)")
 	quiet := fs.Bool("quiet", false, "no progress lines")
+	androidRelease := fs.Bool("android-release", false, "luna-android: sign the APK with the release keystore (needs that secret)")
 	fs.Usage = func() {
 		fmt.Fprintln(os.Stderr, "Usage: release build <unit|all>[:<part>,...] [--ref R] [--parts a,b] [--version V] [--jobs N] [--out dist] [--json]")
 		fmt.Fprintln(os.Stderr, "Builds from a git export of the ref (never your working tree) into <out>/<unit>/<version>/")
@@ -70,14 +71,14 @@ func cmdBuild(args []string) int {
 	if *quiet {
 		ev = nil
 	}
-	a, err := newApp(appOpts{events: ev, outRoot: absOut(*out)})
+	a, err := newApp(appOpts{events: ev, outRoot: absOut(*out), keyring: *androidRelease, prompt: *androidRelease && !*asJSON})
 	if err != nil {
 		return fail("build", err)
 	}
 	ctx, stop := signalContext()
 	defer stop()
 	res, err := a.Build(ctx, app.BuildRequest{Unit: unit, Ref: *ref, Parts: names, Version: *ver,
-		Jobs: *jobs, HeavyJobs: *heavy, NoFailFast: *noFailFast})
+		Jobs: *jobs, HeavyJobs: *heavy, NoFailFast: *noFailFast, AndroidRelease: *androidRelease})
 
 	if *asJSON {
 		j := buildJSON{OK: err == nil, Units: []app.UnitBuild{}, Jobs: []jobJSON{}}

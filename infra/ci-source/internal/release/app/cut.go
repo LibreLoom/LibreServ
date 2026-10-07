@@ -342,6 +342,14 @@ func (a *App) cutBuild(req CutRequest, ver string) func(ctx context.Context, src
 		}
 		plan := unitPlan{unit: req.Unit, version: ver, parts: a.cfg.Parts(req.Unit),
 			bc: &engine.BuildContext{Engine: a.eng, Unit: req.Unit, Version: ver, Commit: sha, SrcDir: srcDir, OutRoot: root}}
+		if req.Unit == "luna-android" {
+			sg, cleanup, err := a.androidSigning(ctx)
+			if err != nil {
+				return "", err
+			}
+			defer cleanup()
+			plan.bc.AndroidSigning = sg
+		}
 		res, err := a.runPlans(ctx, []unitPlan{plan}, req.Jobs, req.HeavyJobs, true)
 		if err != nil {
 			return "", err

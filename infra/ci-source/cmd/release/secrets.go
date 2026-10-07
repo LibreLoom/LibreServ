@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"context"
 	"flag"
 	"fmt"
 	"io"
@@ -26,6 +25,8 @@ const secretsUsage = `Usage: release secrets [subcommand]
   forget <slot>                 Remove a remembered value
   slots                         Show what can be remembered
   choose <id> <ref>|--clear     Settle a conflict between two valid candidates
+  store [system|vault]          Show, or switch, where remembered values live (the values move too)
+  store passphrase              Change the vault passphrase
 
 ids: libreserv-signing (sol), lsluna-signing (luna), forgejo-token (forgejo), android-keystore (android)
 Secret values are never printed.
@@ -95,7 +96,7 @@ func cmdSecrets(args []string) int {
 		}
 		return 2
 	}
-	a, err := newApp(appOpts{keyring: true, prompt: sub == "prove" || sub == "set"})
+	a, err := newApp(appOpts{keyring: true, prompt: sub == "prove" || sub == "set" || sub == "list" || sub == "choose"})
 	if err != nil {
 		return fail("secrets", err)
 	}
@@ -185,6 +186,8 @@ func cmdSecrets(args []string) int {
 		}
 		fmt.Printf("remembered %s\n", pos[0])
 		return 0
+	case "store":
+		return cmdSecretsStore(a, pos, *asJSON)
 	case "forget":
 		if len(pos) != 1 {
 			return usageErr("secrets", "forget needs a slot name")
@@ -279,13 +282,90 @@ func printCandidates(w io.Writer, s secrets.Status) {
 	}
 }
 
-// secretsSummary is the doctor's view of secrets: one line per secret.
-func secretsSummary(ctx context.Context, a *app.App, c *checker) {
-	for _, s := range a.Secrets().List(ctx) {
-		if s.State == secrets.Proven {
-			c.ok(s.Label, s.Summary)
-		} else {
-			c.warn(s.Label, string(s.State)+": "+s.Summary)
-		}
+// cmdSecretsStore shows or changes where remembered values live.
+func cmdSecretsStore(a *app.App, pos []string, asJSON bool) int {
+	sm := a.Store()
+	if sm == nil {
+		return fail("secrets", fmt.Errorf("the keyring is not available in this mode"))
 	}
+	if len(pos) == 0 {
+		sysOK, sysErr := sm.SystemAvailable()
+		mode := sm.Mode()
+		state := "unlocked"
+		if sm.NeedsUnlock() {
+			state = "locked"
+		}
+		if mode == secrets.ModeSystem && !sm.Unlocked() {
+			state = "not reachable"
+		}
+		if asJSON {
+			j := map[string]any{"store": string(mode), "chosen": sm.Saved() != "", "state": state,
+				"system_available": sysOK, "vault_exists": sm.VaultExists(), "vault_dir": sm.VaultDir()}
+			printJSON(j)
+			return 0
+		}
+		fmt.Printf("Store: %s (%s), %s", mode, storeWhere(sm, mode), state)
+		if sm.Saved() == "" {
+			fmt.Print("  [default; nothing chosen yet]")
+		}
+		fmt.Println()
+		if sysOK {
+			fmt.Println("System keyring: available")
+		} else {
+			fmt.Printf("System keyring: not available (%s)\n", a.Redact(fmt.Sprint(sysErr)))
+		}
+		fmt.Printf("Vault: %s\n", map[bool]string{true: "exists at " + sm.VaultDir(), false: "not created yet"}[sm.VaultExists()])
+		return 0
+	}
+	switch pos[0] {
+	case "passphrase":
+		if sm.Mode() != secrets.ModeVault {
+			return fail("secrets", fmt.Errorf("the vault is not the active store; run `release secrets store vault` first"))
+		}
+		old, err := readPassphrase("Current vault passphrase")
+		if err != nil {
+			return fail("secrets", err)
+		}
+		if err := sm.Unlock(old); err != nil {
+			return fail("secrets", err)
+		}
+		a.Engine().Redactor.Add(old)
+		pw, err := readNewPassphrase("New vault passphrase")
+		if err != nil {
+			return fail("secrets", err)
+		}
+		if err := sm.ChangePassphrase(old, pw); err != nil {
+			return fail("secrets", err)
+		}
+		fmt.Println("Vault passphrase changed.")
+		return 0
+	case "system", "vault":
+		to := secrets.StoreMode(pos[0])
+		pass := ""
+		if (to == secrets.ModeVault || sm.Mode() == secrets.ModeVault) && !sm.Unlocked() {
+			var err error
+			if sm.VaultExists() {
+				pass, err = readPassphrase("Vault passphrase")
+			} else {
+				pass, err = readNewPassphrase("Choose a vault passphrase")
+			}
+			if err != nil {
+				return fail("secrets", err)
+			}
+		}
+		n, err := sm.SwitchTo(to, pass)
+		if err != nil {
+			return fail("secrets", err)
+		}
+		fmt.Printf("Remembered values now live in the %s (%s). Moved %d value(s).\n", to, storeWhere(sm, to), n)
+		return 0
+	}
+	return usageErr("secrets", "store takes system, vault or passphrase")
+}
+
+func storeWhere(sm *secrets.StoreManager, mode secrets.StoreMode) string {
+	if mode == secrets.ModeVault {
+		return "passphrase-protected file, " + sm.VaultDir()
+	}
+	return "desktop keyring: " + sm.Backend()
 }
