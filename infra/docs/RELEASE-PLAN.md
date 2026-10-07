@@ -350,8 +350,10 @@ last bump commit (debug APKs aren't published).
   fresh `/proc`. Verified (podman 5.8, rootless): plain `podman run` fails
   (`devpts`/`proc` mount denied); `--security-opt seccomp=unconfined
   --security-opt label=disable --security-opt unmask=ALL` works, no
-  `--privileged` needed. Use exactly those three options for the
-  `flatpak-builder` job and nothing else.
+  `--privileged` needed. The export step (icon validation spawns its own
+  sandbox) also needs `--cap-add SYS_ADMIN --cap-add NET_ADMIN`; those caps
+  live in the container's user namespace only, so the job stays rootless.
+  The options are in `infra/release/images/flatpak-builder/run-options`.
 - `.img.xz` is compressed once; the installer embeds those exact bytes and
   writes their hash as `os-image.sha256`.
 - The OS image is rebuilt only when the rootfs inputs change (not lunad, which
