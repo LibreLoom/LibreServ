@@ -1,4 +1,4 @@
-import { useId, useRef } from "react";
+import { useRef } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 import { cn } from "../../lib/utils.js";
 import { ICON_SIZE } from "../../lib/ui-tokens.js";
@@ -95,44 +95,6 @@ export function DesktopNavGroup({ group, closedClassName, keyShortcut }) {
           </div>
         </div>
       </Unfold>
-    </div>
-  );
-}
-
-/**
- * Mobile menu: the group's name as a mono heading, its sub-pages indented on
- * an accent rail beneath it — every sub-page stays one tap away.
- *
- * @param {{ group: NavGroupItem, itemClassName: string, onNavigate: () => void }} props
- */
-export function MobileNavGroup({ group, itemClassName, onNavigate }) {
-  const headingId = useId();
-  const GroupIcon = group.icon;
-  return (
-    <div role="group" aria-labelledby={headingId} data-slot="nav-group">
-      <p
-        id={headingId}
-        className="flex items-center gap-2 px-5 pt-2.5 pb-1 font-mono text-[13px]"
-      >
-        <GroupIcon size={ICON_SIZE.md} aria-hidden="true" />
-        {group.label}
-      </p>
-      <div className="ml-7 pl-2 border-l-2 border-accent flex flex-col gap-1">
-        {group.children.map((child) => (
-          <NavLink
-            key={child.to}
-            to={child.to}
-            className={cn(itemClassName, "px-4 py-2.5")}
-            onClick={() => {
-              haptic("selection");
-              onNavigate();
-            }}
-          >
-            <child.icon size={ICON_SIZE.lg} aria-hidden="true" />
-            <span>{child.label}</span>
-          </NavLink>
-        ))}
-      </div>
     </div>
   );
 }

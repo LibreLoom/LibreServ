@@ -38,10 +38,9 @@ function renderAt(path) {
       </AuthProvider>
     </MemoryRouter>,
   );
-  // Desktop pill renders first, the mobile dialog second.
-  const [desktop, mobile] = /** @type {HTMLElement[]} */ ([
-    ...view.container.querySelectorAll('[data-slot="nav-group"]'),
-  ]);
+  // Only the desktop pill is a group; the phone menu is a plain list.
+  const desktop = /** @type {HTMLElement} */ (view.container.querySelector('[data-slot="nav-group"]'));
+  const mobile = screen.getAllByRole("navigation", { name: "Primary" })[1];
   return { ...view, desktop, mobile };
 }
 
@@ -133,13 +132,16 @@ describe("Files nav group", () => {
     expect(files).toHaveFocus();
   });
 
-  it("lists every sub-page under a Files heading in the mobile menu", () => {
+  it("keeps the phone menu a plain list, with the sub-pages as ordinary rows", () => {
     const { mobile } = renderAt("/shared");
-    const group = mobile;
-    expect(group).toHaveAttribute("role", "group");
-    expect(group).toHaveAccessibleName("Files");
-    const links = within(group).getAllByRole("link");
-    expect(links.map((a) => a.textContent)).toEqual(["Drives", "Shared", "Photos"]);
-    expect(within(group).getByRole("link", { name: "Shared" })).toHaveAttribute("aria-current", "page");
+    expect(within(mobile).queryByRole("group")).toBeNull();
+    expect(mobile.querySelector('[data-slot="nav-group"]')).toBeNull();
+    const links = within(mobile).getAllByRole("link");
+    expect(links.map((a) => a.textContent)).toEqual(["Home", "Drives", "Shared", "Photos", "Settings"]);
+    expect(within(mobile).getByRole("link", { name: "Shared" })).toHaveAttribute("aria-current", "page");
+    // Same row styling as Home (the router adds "active" to the current one).
+    const rowClasses = (/** @type {string} */ name) =>
+      within(mobile).getByRole("link", { name }).className.replace(/\bactive\b/, "").trim();
+    expect(rowClasses("Shared")).toBe(rowClasses("Home"));
   });
 });

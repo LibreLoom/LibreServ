@@ -5,7 +5,7 @@ import { cn } from "../../lib/utils.js";
 import { ICON_SIZE } from "../../lib/ui-tokens.js";
 import { haptic } from "../../utils/haptics.js";
 import { useShortcut, useShortcutsSheet } from "../../context/ShortcutsContext.jsx";
-import { DesktopNavGroup, MobileNavGroup } from "./NavGroup.jsx";
+import { DesktopNavGroup } from "./NavGroup.jsx";
 import { useGroupTarget } from "../../hooks/useNavGroup.js";
 
 const TRANSITION = {
@@ -105,7 +105,8 @@ const navKey = (item) => item.to ?? `group:${item.key}`;
  * @param {object} props
  * @param {string} props.brand Name shown at the left of the desktop pill.
  * @param {Array<{ to?: string, key?: string, icon: React.ElementType, label: string, end?: boolean, adminOnly?: boolean, children?: import("../../hooks/useNavGroup.js").NavGroupChild[] }>} props.items
- *   An item with `children` is a group (see NavGroup.jsx): one pill that unfolds its sub-pages on hover.
+ *   An item with `children` is a group (see NavGroup.jsx): on desktop one pill that unfolds its
+ *   sub-pages on hover; in the phone menu its sub-pages are listed as ordinary rows.
  *   Navigation entries in order. `Alt+Shift+<position>` jumps to each visible one.
  * @param {{ username?: string, display_name?: string, role?: string } | null | undefined} props.user The signed-in person.
  * @param {() => unknown} props.onLogout Called from "Sign out".
@@ -481,6 +482,21 @@ export default function Navbar({ brand, items, user, onLogout, menuItems = [], s
     [items, isAdmin],
   );
 
+  // The phone menu stays a plain list: a group's sub-pages become ordinary
+  // rows in its place. Only top-level items carry an Alt+Shift shortcut.
+  const mobileNav = useMemo(
+    () =>
+      visibleNav.flatMap(
+        (item, index) =>
+          /** @type {Array<{ to: string, icon: React.ElementType, label: string, end?: boolean, shortcut?: string }>} */ (
+            item.children
+              ? item.children.map((child) => ({ ...child, end: false, shortcut: undefined }))
+              : [{ ...item, to: item.to ?? "", shortcut: `Alt+Shift+${index + 1}` }]
+          ),
+      ),
+    [visibleNav],
+  );
+
   const navButtonsElements = useMemo(
     () =>
       visibleNav.map((item, index) => (
@@ -683,31 +699,22 @@ export default function Navbar({ brand, items, user, onLogout, menuItems = [], s
           aria-label="Primary"
         >
           <div className="p-2.5 gap-1 flex flex-col">
-            {visibleNav.map((item, index) => (
-              <React.Fragment key={`mobileNav-${navKey(item)}`}>
-                {item.children ? (
-                  <MobileNavGroup
-                    group={/** @type {import("../../hooks/useNavGroup.js").NavGroupItem} */ (item)}
-                    itemClassName={mobileMenuItemClasses}
-                    onNavigate={closeMobileMenu}
-                  />
-                ) : (
-                <NavLink
-                  to={item.to}
-                  end={item.end}
-                  aria-keyshortcuts={`Alt+Shift+${index + 1}`}
-                  className={mobileMenuItemClasses}
-                  onClick={() => {
-                    haptic("selection");
-                    closeMobileMenu();
-                  }}
-                  ref={index === 0 ? firstNavLinkRef : null}
-                >
-                  <item.icon size={ICON_SIZE.lg} aria-hidden="true" />
-                  <span>{item.label}</span>
-                </NavLink>
-                )}
-              </React.Fragment>
+            {mobileNav.map((item, index) => (
+              <NavLink
+                key={`mobileNav-${item.to}`}
+                to={item.to}
+                end={item.end}
+                aria-keyshortcuts={item.shortcut}
+                className={mobileMenuItemClasses}
+                onClick={() => {
+                  haptic("selection");
+                  closeMobileMenu();
+                }}
+                ref={index === 0 ? firstNavLinkRef : null}
+              >
+                <item.icon size={ICON_SIZE.lg} aria-hidden="true" />
+                <span>{item.label}</span>
+              </NavLink>
             ))}
             <div className="mx-4 my-1 h-px bg-accent" aria-hidden="true" />
             <button
