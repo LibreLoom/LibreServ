@@ -1671,6 +1671,48 @@ def stage_recovery():
     vm.quit()
 
 
+def set_grubenv(disk, **kv):
+    """Write ESP/grub/grubenv offline (a fixed 1024-byte block, as grub-editenv would)."""
+    body = "# GRUB Environment Block\n" + "".join(f"{k}={v}\n" for k, v in kv.items())
+    body += "#" * (1024 - len(body))
+    esp_put(disk, "/grub/grubenv", body)
+
+
+def stage_grub_fallback():
+    """GRUB must not stop at an error when the chosen system cannot be started."""
+    say("-- GRUB fallback")
+    start_mock_connect()
+    cases = {
+        "filesystem not found": lambda d: sh(f"tune2fs -U random '{d}?offset={parts(d)[4][0]}' >/dev/null 2>&1"),
+        "kernel missing": lambda d: sh(f"debugfs -w -R 'rm /boot/vmlinuz-lts' '{d}?offset={parts(d)[4][0]}' >/dev/null 2>&1"),
+    }
+    for name, breakit in cases.items():
+        T = f"[{name}] "
+        disk = f"{WORK}/gf.raw"
+        sh(f"rm -f {disk}; cp --sparse=always --reflink=auto {WORK}/golden-sata.raw {disk}")
+        serial_console_for_tests(disk)
+        point_at_mock_connect(disk)
+        breakit(disk)
+        set_grubenv(disk, luna_slot="B", luna_boot_ok="1", luna_tries="3")
+        vm = VM("gf", [{"file": disk, "bus": "sata", "bootindex": 0}], http_port=18080)
+        vm.start()
+        lu = Luna(18080)
+        up = lu.wait_up(180)
+        check(T + "slot B cannot start, yet Luna comes up by itself", up)
+        if not up:
+            say("    screen: " + vm.ocr("gf-screen").strip()[-400:])
+            vm.quit()
+            continue
+        time.sleep(10)
+        check(T + "it is running from slot A", slot_of(vm) == "A", str(slot_of(vm)))
+        vm.sh("sync; sync")
+        vm.quit()
+        vm.wait_exit(30)
+        env = esp_grubenv(disk)
+        check(T + "the next start will go straight to slot A", env.get("luna_slot") == "A" and env.get("luna_boot_ok") == "1", str(env))
+        os.unlink(disk)
+
+
 def stage_flow():
     vm = golden_vm("flow", "sata", xhci=True)
     lu = Luna(18080)
@@ -1752,6 +1794,9 @@ def os_image_variant(name, edits):
     sh(f"debugfs -w -f {WORK}/variant.cmds {raw} >/dev/null 2>&1")
     r = sh(f"e2fsck -fn {raw}; echo rc=$?", check_rc=False)
     assert "rc=0" in r, r[-300:]
+    # Every real build has its own random filesystem UUID. Variants made from one image
+    # must too, or the spare slot briefly shares the running slot's UUID during a write.
+    sh(f"e2fsck -fy {raw} >/dev/null 2>&1; tune2fs -U random {raw} >/dev/null")
     sh(f"xz -T0 -3 -c {raw} > {out}")
     os.unlink(raw)
     return out
@@ -2048,14 +2093,19 @@ def stage_update_powercut():
             vm.quit()
             continue
         time.sleep(10)
-        check(T + "it is on the old system (slot A)", slot_of(vm) == "A", str(slot_of(vm)))
+        slot = slot_of(vm)
         check(T + "accounts are intact", login_admin(lu))
-        c, b = api_check(lu)
-        check(T + "the update is offered again", c == 200 and b.get("reboot_required") is True, f"{c} {b}")
-        c, b = apply_update(lu)
-        check(T + "and installs on the next try", c == 200 and b.get("ok"), f"{c} {b}")
-        check(T + "Luna restarts into the new system", wait_reboot_up(vm, lu, 300))
-        time.sleep(10)
+        if slot == "A":
+            # cut before the new system was armed: nothing changed, the update can be done again
+            c, b = api_check(lu)
+            check(T + "the update is offered again", c == 200 and b.get("reboot_required") is True, f"{c} {b}")
+            c, b = apply_update(lu)
+            check(T + "and installs on the next try", c == 200 and b.get("ok"), f"{c} {b}")
+            check(T + "Luna restarts into the new system", wait_reboot_up(vm, lu, 300))
+            time.sleep(10)
+        else:
+            # the write had finished and the new system was armed before the cut: it must be whole
+            say(f"    (the update had already been armed when the power went; Luna came up on slot {slot})")
         check(T + "it runs from slot B", slot_of(vm) == "B", str(slot_of(vm)))
         rc, o = vm.sh("cat /etc/luna-os-release")
         check(T + "with the new image", "e2e-v4" in o, o)
@@ -2114,6 +2164,7 @@ STAGES["explore"] = stage_explore
 STAGES["boot"] = stage_boot
 STAGES["lab"] = stage_lab
 STAGES["update"] = stage_update
+STAGES["grub-fallback"] = stage_grub_fallback
 STAGES["update-powercut"] = stage_update_powercut
 STAGES["recovery"] = stage_recovery
 STAGES["reset"] = stage_reset

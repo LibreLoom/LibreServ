@@ -618,6 +618,13 @@ impl DataDirInstaller {
 /// can be tested without either.
 trait SlotOps {
     fn read_uuid(&self, part: &Path) -> Result<String, UpdateError>;
+    /// The filesystem ID GRUB looks the slot up by. Normally what the slot
+    /// carries now, but after an interrupted update the slot holds half of a new
+    /// image with a different ID, so the boot menu's own record is the truth.
+    fn pinned_uuid(&self, slot: char, part: &Path) -> Result<String, UpdateError> {
+        let _ = slot;
+        self.read_uuid(part)
+    }
     fn check_fs(&self, part: &Path) -> Result<(), UpdateError>;
     fn set_uuid(&self, part: &Path, uuid: &str) -> Result<(), UpdateError>;
     fn set_label(&self, part: &Path, label: &str);
@@ -634,6 +641,16 @@ fn fsck_succeeded(code: Option<i32>) -> bool {
 impl SlotOps for RealSlotOps {
     fn read_uuid(&self, part: &Path) -> Result<String, UpdateError> {
         read_ext4_uuid(part)
+    }
+
+    fn pinned_uuid(&self, slot: char, part: &Path) -> Result<String, UpdateError> {
+        if let Ok(esp) = find_esp_mount_or_temp()
+            && let Ok(cfg) = std::fs::read_to_string(esp.path.join("grub/grub.cfg"))
+            && let Some(uuid) = pinned_uuid_from_grub_cfg(&cfg, slot)
+        {
+            return Ok(uuid);
+        }
+        self.read_uuid(part)
     }
 
     fn check_fs(&self, part: &Path) -> Result<(), UpdateError> {
@@ -664,6 +681,21 @@ impl SlotOps for RealSlotOps {
     fn arm(&self, slot: char) -> Result<(), UpdateError> {
         set_tryboot_slot(slot)
     }
+}
+
+/// The `root=UUID=` the boot menu uses for `slot` (its `luna.slot=` line).
+fn pinned_uuid_from_grub_cfg(cfg: &str, slot: char) -> Option<String> {
+    let marker = format!("luna.slot={slot}");
+    cfg.lines()
+        .filter(|l| l.contains(&marker))
+        .find_map(|l| {
+            let rest = l.split("root=UUID=").nth(1)?;
+            let id: String = rest
+                .chars()
+                .take_while(|c| c.is_ascii_hexdigit() || *c == '-')
+                .collect();
+            (id.len() == 36).then_some(id)
+        })
 }
 
 /// Read the filesystem UUID from an ext4 superblock (1024 bytes in; magic at
@@ -709,7 +741,7 @@ fn write_os_slot(
     inactive: char,
     write: impl FnOnce() -> Result<(), UpdateError>,
 ) -> Result<(), UpdateError> {
-    let uuid = ops.read_uuid(part)?;
+    let uuid = ops.pinned_uuid(inactive, part)?;
     write()?;
     ops.check_fs(part)?;
     ops.set_uuid(part, &uuid)?;
@@ -1976,6 +2008,28 @@ mod tests {
         };
         let _ = write_os_slot(&ops, Path::new("/dev/x"), 'A', || ops.step("write"));
         assert_eq!(ops.log(), ["read_uuid"]);
+    }
+
+    #[test]
+    fn the_slot_id_comes_from_the_boot_menu_not_from_a_half_written_slot() {
+        let cfg = r#"menuentry "Luna" {
+    if [ "$luna_slot" = "B" ]; then
+      search --no-floppy --fs-uuid --set=root bbbbbbbb-2222-3333-4444-555555555555
+      linux /boot/vmlinuz-lts root=UUID=bbbbbbbb-2222-3333-4444-555555555555 luna.slot=B modules=ext4 quiet
+    else
+      search --no-floppy --fs-uuid --set=root aaaaaaaa-2222-3333-4444-555555555555
+      linux /boot/vmlinuz-lts root=UUID=aaaaaaaa-2222-3333-4444-555555555555 luna.slot=A modules=ext4 quiet
+    fi
+}"#;
+        assert_eq!(
+            pinned_uuid_from_grub_cfg(cfg, 'B').as_deref(),
+            Some("bbbbbbbb-2222-3333-4444-555555555555")
+        );
+        assert_eq!(
+            pinned_uuid_from_grub_cfg(cfg, 'A').as_deref(),
+            Some("aaaaaaaa-2222-3333-4444-555555555555")
+        );
+        assert_eq!(pinned_uuid_from_grub_cfg("nothing here", 'A'), None);
     }
 
     #[test]

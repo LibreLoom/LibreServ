@@ -57,6 +57,10 @@ for _esp in /dev/disk/by-label/LUNAESP; do
             _pending=1
         fi
         if [ "$_up" = 1 ]; then
+            # Record the slot this boot is really running from: if GRUB had to fall
+            # back to the other system, the next boot should start there too.
+            _running="$(sed -n 's/.*luna\.slot=\([AB]\).*/\1/p' /proc/cmdline)"
+            [ -z "$_running" ] || grub-editenv "$_m/grub/grubenv" set "luna_slot=$_running" 2>/dev/null || true
             if grub-editenv "$_m/grub/grubenv" set luna_boot_ok=1 2>/dev/null; then
                 _saved=1
             fi

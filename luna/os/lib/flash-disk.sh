@@ -47,6 +47,7 @@ _write_grub_cfg() {
 	{
 		echo 'set timeout=2'
 		echo 'set default=0'
+		echo 'set fallback=1'
 		echo 'insmod part_gpt'
 		echo 'insmod ext2'
 		echo 'insmod fat'
@@ -81,6 +82,10 @@ _write_grub_cfg() {
 		echo '    save_env -f $envfile luna_tries'
 		echo '  fi'
 		echo 'fi'
+		# Two entries: the slot GRUB picked, and the other one as a fallback. If the
+		# first cannot start at all (its filesystem is not found, or the kernel
+		# will not load), GRUB moves on by itself instead of waiting at an error
+		# for a key nobody is there to press.
 		echo 'menuentry "Luna" {'
 		echo '    if [ "$luna_slot" = "B" ]; then'
 		echo "      search --no-floppy --fs-uuid --set=root ${_uuid_b}"
@@ -88,6 +93,16 @@ _write_grub_cfg() {
 		echo '    else'
 		echo "      search --no-floppy --fs-uuid --set=root ${_uuid_a}"
 		echo "      linux /boot/${_k} root=UUID=${_uuid_a} luna.slot=A modules=ext4 rootfstype=ext4 rootflags=ro,noatime panic=10 quiet"
+		echo '    fi'
+		echo "    initrd /boot/${_i}"
+		echo '}'
+		echo 'menuentry "Luna (other system)" {'
+		echo '    if [ "$luna_slot" = "B" ]; then'
+		echo "      search --no-floppy --fs-uuid --set=root ${_uuid_a}"
+		echo "      linux /boot/${_k} root=UUID=${_uuid_a} luna.slot=A modules=ext4 rootfstype=ext4 rootflags=ro,noatime panic=10 quiet"
+		echo '    else'
+		echo "      search --no-floppy --fs-uuid --set=root ${_uuid_b}"
+		echo "      linux /boot/${_k} root=UUID=${_uuid_b} luna.slot=B modules=ext4 rootfstype=ext4 rootflags=ro,noatime panic=10 quiet"
 		echo '    fi'
 		echo "    initrd /boot/${_i}"
 		echo '}'
