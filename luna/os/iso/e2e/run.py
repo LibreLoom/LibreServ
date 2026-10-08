@@ -364,6 +364,17 @@ def stage_boot():
         check("guest clock readable", False, out)
     scr = vm.ocr("boot-tty1")
     check("tty1 console shows Luna's address", "luna" in scr.lower(), scr[-300:])
+    check("tty1 console shows the web address to open", "10.0.2.15" in scr.replace(" ", "") or "luna.local" in scr, scr[-400:])
+    check("tty1 console shows the device token", "ABCDEFGH" in scr.replace(" ", "").upper(), scr[-400:])
+    check("tty1 console does not tell anyone to use a terminal for normal use", "Login below is only for recovery" in scr or "recovery" in scr.lower(), scr[-400:])
+    vm.type("root\n", 0.15)
+    time.sleep(3)
+    vm.key("ret")
+    time.sleep(3)
+    vm.type("echo console-works\n", 0.12)
+    time.sleep(2)
+    scr2 = vm.ocr("boot-tty1-shell")
+    check("the recovery login on the screen works with an empty password", "console-works" in scr2, scr2[-300:])
     vm.quit()
 
 
@@ -952,7 +963,7 @@ def stage_resilience():
     # -- power cut in the middle of an upload
     import threading
     srcfile = f"{WORK}/cut-src.bin"
-    sh(f"head -c 300000000 /dev/urandom > {srcfile}")
+    sh(f"head -c 120000000 /dev/urandom > {srcfile}")
     state = {"chunks": 0}
 
     def go():
@@ -1172,7 +1183,6 @@ def stage_matrix():
 def make_media():
     """A JPEG with date and GPS, a PNG, a HEIC from a phone, a short video, and a text file."""
     from PIL import Image, ImageDraw
-    import piexif
     import pillow_heif
     pillow_heif.register_heif_opener()
     d = f"{WORK}/media"
@@ -1185,13 +1195,18 @@ def make_media():
         return im
 
     def exif(dt, lat=None, lon=None):
-        zeroth = {piexif.ImageIFD.Make: b"E2E", piexif.ImageIFD.Model: b"TestCam 1"}
-        ex = {piexif.ExifIFD.DateTimeOriginal: dt.encode()}
-        gps = {}
+        # Pillow's own writer: a hand-dumped block trips strict readers ("Unexpected next IFD").
+        ex = Image.Exif()
+        ex[0x010F] = "E2E"
+        ex[0x0110] = "TestCam 1"
+        ex.get_ifd(0x8769)[0x9003] = dt
         if lat is not None:
-            gps = {piexif.GPSIFD.GPSLatitudeRef: b"N", piexif.GPSIFD.GPSLatitude: ((int(lat), 1), (int((lat % 1) * 60), 1), (0, 1)),
-                   piexif.GPSIFD.GPSLongitudeRef: b"E", piexif.GPSIFD.GPSLongitude: ((int(lon), 1), (int((lon % 1) * 60), 1), (0, 1))}
-        return piexif.dump({"0th": zeroth, "Exif": ex, "GPS": gps})
+            g = ex.get_ifd(0x8825)
+            g[1] = "N"
+            g[2] = (int(lat), int((lat % 1) * 60), 0.0)
+            g[3] = "E"
+            g[4] = (int(lon), int((lon % 1) * 60), 0.0)
+        return ex.tobytes()
 
     pic((200, 60, 60), "beach").save(f"{d}/beach.jpg", exif=exif("2020:07:04 12:30:00", 52.52, 13.40))
     pic((60, 200, 60), "forest").save(f"{d}/forest.png")

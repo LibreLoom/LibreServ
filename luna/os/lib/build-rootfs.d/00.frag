@@ -47,7 +47,7 @@ apk add --root "$ROOTFS" --initdb --keys-dir /etc/apk/keys --arch "$ARCH" $APK_C
     alpine-base openrc linux-lts kmod \
     linux-firmware-none linux-firmware-rtl_nic linux-firmware-e100 \
     avahi \
-    e2fsprogs exfatprogs \
+    e2fsprogs e2fsprogs-extra exfatprogs \
     smartmontools syslinux util-linux \
     grub \
     dhcpcd ca-certificates ssl_client pciutils curl \
@@ -56,6 +56,16 @@ apk add --root "$ROOTFS" --initdb --keys-dir /etc/apk/keys --arch "$ARCH" $APK_C
     chrony logrotate || echo "apk reported errors; verifying installed packages" >&2
 for _p in alpine-base openrc linux-lts grub chrony ffmpeg; do
     apk info --root "$ROOTFS" -e "$_p" >/dev/null || { echo "package $_p did not install" >&2; exit 1; }
+done
+# Every helper program lunad shells out to must be in the image. An OS update
+# needs tune2fs and e2label (Alpine ships them in e2fsprogs-extra); without them
+# the update fails after the new system is already written.
+for _b in tune2fs e2label e2fsck grub-editenv mkfs.exfat wipefs sfdisk partprobe blkid blockdev smartctl ffmpeg ffprobe heif-dec curl timeout logrotate findmnt; do
+    _have=0
+    for _d in sbin usr/sbin bin usr/bin; do
+        if [ -e "$ROOTFS/$_d/$_b" ] || [ -L "$ROOTFS/$_d/$_b" ]; then _have=1; break; fi
+    done
+    [ "$_have" = 1 ] || { echo "the OS image is missing the program $_b that Luna needs" >&2; exit 1; }
 done
 # A slot without kernel + initramfs cannot boot: fail here, not on the device.
 for _f in boot/vmlinuz-lts boot/initramfs-lts; do
