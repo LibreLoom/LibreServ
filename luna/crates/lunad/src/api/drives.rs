@@ -449,15 +449,49 @@ async fn remove(
 async fn closed_drive(
     state: &AppState,
     id: &str,
-    unmount: impl FnOnce() -> Result<(), (StatusCode, Json<serde_json::Value>)> + Send + 'static,
+    unmount: impl Fn() -> Result<(), (StatusCode, Json<serde_json::Value>)> + Send + 'static,
 ) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
     state.ram_cache.begin_close(id);
     let (st, drive) = (state.clone(), id.to_string());
     let result = tokio::task::spawn_blocking(move || {
         flush_dirty_before_unmount(&st, &drive)?;
-        unmount()?;
+        // Luna's own photo and search scans keep folders of the drive open while
+        // they run, which makes the unmount fail as "busy" — and the message then
+        // blames the person. Tell them to stop first.
+        let mount = crate::db::with_db(
+            &st.db,
+            || anyhow::anyhow!("db lock poisoned"),
+            |conn| {
+                Ok(crate::db::get_drive(conn, &drive)?
+                    .filter(|d| !d.mount_point.is_empty())
+                    .map(|d| PathBuf::from(d.mount_point)))
+            },
+        )
+        .ok()
+        .flatten();
         st.gallery.unwatch_mount(&drive);
         st.search_index.unwatch_mount(&drive);
+        let busy = |r: &Result<(), (StatusCode, Json<serde_json::Value>)>| {
+            matches!(r, Err((_, body))
+                if body.0["error"].as_str().is_some_and(|e| e.contains("still using")))
+        };
+        let mut out = unmount();
+        // A scan in the middle of a folder lets go within a moment.
+        for _ in 0..30 {
+            if !busy(&out) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            out = unmount();
+        }
+        if out.is_err()
+            && let Some(mount) = mount
+        {
+            // Still mounted: keep the drive's photos and search up to date.
+            st.search_index.watch_mount(&drive, mount.clone());
+            st.gallery.watch_mount(&drive, mount);
+        }
+        out?;
         st.ram_cache.drop_drive(&drive);
         Ok(())
     })

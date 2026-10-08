@@ -2323,7 +2323,7 @@ pub(crate) fn map_files_err(err: FilesError) -> (StatusCode, Json<Value>) {
         FilesError::UnknownDrive => json_error_code(
             StatusCode::NOT_FOUND,
             "unknown_drive",
-            "Luna doesn't know this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in.",
+            "Luna can't find this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in.",
         ),
         // The drive is adopted and mounted. Only its on-drive database is gone.
         FilesError::MissingDriveDb => json_error_code(

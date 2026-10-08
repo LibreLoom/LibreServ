@@ -22,6 +22,7 @@ import {
 } from "./api.js";
 import { capsBits, CAP } from "./access.js";
 import { contentHref, downloadHref, joinPath, parentPath, pathBasename } from "./paths.js";
+import { sendChunkWithRetry } from "./uploadRetry.js";
 
 const CHUNK_SIZE = 8 * 1024 * 1024;
 const MULTIPART_LIMIT = 32 * 1024 * 1024;
@@ -182,15 +183,15 @@ export const driveSource = {
       for (let start = 0; start < file.size; start += CHUNK_SIZE) {
         if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
         const end = Math.min(start + CHUNK_SIZE, file.size) - 1;
-        const progress = await putBinaryProgress(
-          `/api/v1/uploads/${session.upload_id}`,
-          file.slice(start, end + 1),
-          {
-            signal,
-            headers: { "Content-Range": `bytes ${start}-${end}/${file.size}` },
-            onProgress: (loaded) =>
-              onProgress?.(Math.min(file.size, start + loaded), file.size),
-          },
+        const progress = await sendChunkWithRetry(
+          () =>
+            putBinaryProgress(`/api/v1/uploads/${session.upload_id}`, file.slice(start, end + 1), {
+              signal,
+              headers: { "Content-Range": `bytes ${start}-${end}/${file.size}` },
+              onProgress: (loaded) =>
+                onProgress?.(Math.min(file.size, start + loaded), file.size),
+            }),
+          { signal },
         );
         onProgress?.(Number(progress.received) || end + 1, file.size);
       }
@@ -285,14 +286,14 @@ export function shareSource({ token, password = "", kind = "folder", fileName = 
       for (let start = 0; start < blob.size; start += CHUNK_SIZE) {
         if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
         const end = Math.min(start + CHUNK_SIZE, blob.size) - 1;
-        await putBinaryProgress(
-          `/s/${token}/upload/${session.upload_id}`,
-          blob.slice(start, end + 1),
-          {
-            signal,
-            headers: { ...reqHeaders(), "Content-Range": `bytes ${start}-${end}/${blob.size}` },
-            onProgress: (loaded) => onProgress?.(Math.min(blob.size, start + loaded), blob.size),
-          },
+        await sendChunkWithRetry(
+          () =>
+            putBinaryProgress(`/s/${token}/upload/${session.upload_id}`, blob.slice(start, end + 1), {
+              signal,
+              headers: { ...reqHeaders(), "Content-Range": `bytes ${start}-${end}/${blob.size}` },
+              onProgress: (loaded) => onProgress?.(Math.min(blob.size, start + loaded), blob.size),
+            }),
+          { signal },
         );
       }
       const complete = new URLSearchParams();

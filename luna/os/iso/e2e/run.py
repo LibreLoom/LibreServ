@@ -1565,6 +1565,49 @@ def stage_app():
     vm.quit()
 
 
+def stage_eject_busy():
+    """A drive full of files and photos, ejected right after it was added, while Luna is still indexing it."""
+    say("-- eject while Luna is still indexing")
+    from PIL import Image
+    tree = f"{WORK}/fx/busy-tree"
+    shutil.rmtree(tree, ignore_errors=True)
+    os.makedirs(tree)
+    jpg = f"{WORK}/fx/busy.jpg"
+    Image.new("RGB", (800, 600), (30, 120, 200)).save(jpg, quality=70)
+    for d in range(200):
+        os.makedirs(f"{tree}/Folder {d:03d}/Sub")
+        for i in range(60):
+            open(f"{tree}/Folder {d:03d}/note-{i}.txt", "w").write(f"file {d}/{i}\n" * 20)
+        for i in range(40):
+            shutil.copy(jpg, f"{tree}/Folder {d:03d}/Sub/photo-{i}.jpg")
+    img = f"{WORK}/fx/busy.img"
+    sh(f"rm -f {img}; truncate -s 1500M {img}; mke2fs -q -t ext4 -m 0 -L BUSY -d {tree} {img}")
+    shutil.rmtree(tree, ignore_errors=True)
+    vm, lu = bring_up("busy", usb=img)
+    check("web UI answers", lu.wait_up(240))
+    lu.post("/api/v1/auth/register", ADMIN)
+    check("admin signs in", login_admin(lu))
+    lu.post("/api/v1/setup", {"setup_completed": True, "current_step": "done"})
+    d = detected(lu, lambda x: True, 60)
+    c, b = lu.post(f"/api/v1/drives/{d[0]['name']}/adopt", {"label": "Lots of files", "erase": False})
+    D = b.get("id")
+    check("the drive with 20,000 files is added", c == 200 and D, f"{c} {b}")
+    t0 = time.time()
+    c, b = lu.post(f"/api/v1/drives/{D}/eject")
+    took = time.time() - t0
+    say(f"    eject answered after {took:.1f}s with {c}")
+    c2 = c
+    while c != 200 and time.time() - t0 < 90:
+        time.sleep(3)
+        c, b = lu.post(f"/api/v1/drives/{D}/eject")
+    check("eject right after adding works, without the person having to try again", c2 == 200, f"first answer {c2}; {b}")
+    check("and it did work in the end", c == 200, f"{c} {b}")
+    rc, o = vm.sh("cat /proc/mounts | grep -c mounts/drives")
+    check("nothing of the drive is still mounted", o.strip().endswith("0"), o)
+    vm.sh("sync")
+    vm.quit()
+
+
 def stage_reset():
     """Factory reset: accounts, shares and settings go; the files on the drives stay."""
     say("-- factory reset")
@@ -2184,6 +2227,7 @@ STAGES["explore"] = stage_explore
 STAGES["boot"] = stage_boot
 STAGES["lab"] = stage_lab
 STAGES["update"] = stage_update
+STAGES["eject-busy"] = stage_eject_busy
 STAGES["grub-fallback"] = stage_grub_fallback
 STAGES["update-powercut"] = stage_update_powercut
 STAGES["recovery"] = stage_recovery
@@ -2212,7 +2256,7 @@ def main():
             return 2
     # lab/explore are for poking around; the install-<bus> stages run inside matrix.
     default = ["install-sata", "installer-safety", "installer-prompts", "installer-prod-bios", "installer-prod-uefi",
-               "boot", "flow", "app", "reset", "recovery", "resilience", "grub-fallback", "update", "update-powercut",
+               "boot", "flow", "app", "eject-busy", "reset", "recovery", "resilience", "grub-fallback", "update", "update-powercut",
                "matrix", "bigfiles"]
     names = args or default
     for n in names:

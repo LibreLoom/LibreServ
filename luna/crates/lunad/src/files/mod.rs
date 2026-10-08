@@ -154,7 +154,7 @@ pub const MISSING_DRIVE_DB_MSG: &str = "Luna's database for this drive is missin
 #[derive(Debug, thiserror::Error)]
 pub enum FilesError {
     #[error(
-        "Luna doesn't know this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in."
+        "Luna can't find this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in."
     )]
     UnknownDrive,
     #[error("{}", MISSING_DRIVE_DB_MSG)]
