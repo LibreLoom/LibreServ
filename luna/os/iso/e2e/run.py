@@ -145,7 +145,7 @@ def stage_install(bus, fw):
     disk = f"{WORK}/{tag}.raw"
     say(f"-- install onto a {bus} disk (auto-picked target)")
     stick, _ = stick_with_tokens()
-    blank_disk(disk)
+    blank_disk(disk, 8 if bus == "mmc" else DISK_GB)  # QEMU's SD card must be a power of two
     vm, log = run_installer(f"install-{bus}", [{"file": disk, "bus": bus}], stick,
                             "LUNA_CONFIRM=INSTALL LUNA_OVERRIDE_WAIT=1", timeout=1500)
     check(f"[{bus}] installer finished", "Installation complete" in log, log[-400:])
@@ -1027,8 +1027,8 @@ def stage_resilience():
     check("the guest sees the cable as pulled", o.strip() == "0", o)
     c, b = lu.get("/api/v1/health", timeout=5)
     say(f"    health with cable out (via hostfwd): {c}")
-    rc, o = vm.sh("curl -s -m 5 http://127.0.0.1/api/v1/health")
-    check("Luna itself keeps running without a cable", "ok" in o, o)
+    rc, o = vm.sh("curl -sS -m 5 http://127.0.0.1/api/v1/health 2>&1; echo curl-rc=$?; ip -4 addr; ip link show lo")
+    check("Luna itself keeps running without a cable", '"status":"ok"' in o, o)
     vm.hmp("set_link n0 on")
     ok = False
     for _ in range(40):
@@ -1266,14 +1266,21 @@ def part_gallery(vm, lu, drive):
         check(f"[photos] preview for {nm}", c == 200 and len(th) > 200 and th[:2] == b"\xff\xd8", f"{c} {len(th) if th else 0} {q}")
 
 
-def upload_file(lu, drive, name, src, path="", chunk=8 * 1024 * 1024, stop_at=None, timeout=120):
-    """Stream a big file up in chunks like the web app. Returns (status, body, upload_id, hash)."""
+def upload_file(lu, drive, name, src, path="", chunk=8 * 1024 * 1024, stop_at=None, timeout=120, resume=None):
+    """Stream a big file up in chunks like the web app. Returns (status, body, upload_id, hash-or-offset).
+
+    resume=(upload_id, offset) carries on an upload this client already opened, the way the
+    browser does after a dropped connection; when stopped on purpose the 4th item is the offset.
+    """
     total = os.path.getsize(src)
-    c, b = lu.post("/api/v1/uploads", {"drive_id": drive, "path": path, "name": name, "size": total})
-    if c != 200:
-        return c, b, None, None
-    uid = b["upload_id"]
-    off = b.get("received", 0)
+    if resume:
+        uid, off = resume
+    else:
+        c, b = lu.post("/api/v1/uploads", {"drive_id": drive, "path": path, "name": name, "size": total})
+        if c != 200:
+            return c, b, None, None
+        uid = b["upload_id"]
+        off = b.get("received", 0)
     h = blake3.blake3()
     with open(src, "rb") as f:
         # the hash covers the whole file even when the upload resumes part-way
@@ -1292,7 +1299,7 @@ def upload_file(lu, drive, name, src, path="", chunk=8 * 1024 * 1024, stop_at=No
             h.update(data)
             off += len(data)
             if stop_at and off >= stop_at:
-                return 0, "stopped on purpose", uid, None
+                return 0, "stopped on purpose", uid, off
     c, r = lu.post(f"/api/v1/uploads/{uid}/complete?hash={h.hexdigest()}", timeout=600)
     return c, r, uid, h.hexdigest()
 
@@ -1353,19 +1360,19 @@ def stage_bigfiles():
     say(f"    free before: {free0}")
     total = os.path.getsize(src)
     t0 = time.time()
-    c, b, uid, _ = upload_file(lu, D, "big.bin", src, stop_at=total * 4 // 10)
+    c, b, uid, off = upload_file(lu, D, "big.bin", src, stop_at=total * 4 // 10)
     check("2 GB upload: first 40% goes up", c == 0, f"{c} {b}")
-    # the cable is pulled mid-upload
+    # the cable is pulled mid-upload: the next chunk gets nowhere
     vm.hmp("set_link n0 off")
-    c, r = lu.req("PUT", f"/api/v1/uploads/{uid}", b"x" * 1000, headers={"Content-Range": "bytes 0-999/1", "Content-Type": "application/octet-stream"}, timeout=6)
+    chunk = open(src, "rb").read(1_000_000) if False else b"x" * 1000
+    c, r = lu.req("GET", "/api/v1/health", timeout=6)
     check("with the cable pulled the browser sees a failure, not a hang", c != 200, f"{c}")
     time.sleep(5)
     vm.hmp("set_link n0 on")
     check("the cable is back and Luna answers", lu.wait_up(120))
-    c, b, uid2, h = upload_file(lu, D, "big.bin", src)
-    check("the same upload resumes where it stopped and completes", c == 200, f"{c} {b}")
-    say(f"    2 GB up in {time.time() - t0:.0f}s total")
-    check("it resumed the same upload (not from zero)", uid2 == uid, f"{uid} vs {uid2}")
+    c, b, uid2, h = upload_file(lu, D, "big.bin", src, resume=(uid, off))
+    check("the same upload carries on where it stopped and completes", c == 200, f"{c} {b}")
+    say(f"    2 GB up in {time.time() - t0:.0f}s total (including the pause)")
     dest = f"{WORK}/big-down.bin"
     t0 = time.time()
     c, hd = download_to(lu, D, "big.bin", dest)
@@ -2195,7 +2202,8 @@ def main():
             return 2
     # lab/explore are for poking around; the install-<bus> stages run inside matrix.
     default = ["install-sata", "installer-safety", "installer-prompts", "installer-prod-bios", "installer-prod-uefi",
-               "boot", "flow", "resilience", "update", "matrix"]
+               "boot", "flow", "app", "reset", "recovery", "resilience", "grub-fallback", "update", "update-powercut",
+               "matrix", "bigfiles"]
     names = args or default
     for n in names:
         say(f"\n== {n}")

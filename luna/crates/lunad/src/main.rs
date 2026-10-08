@@ -137,6 +137,21 @@ async fn async_main() -> anyhow::Result<()> {
     // resumable state behind. Runs after the migration above so rows that
     // just moved into drive microdbs are swept too.
     lunad::files::uploads::sweep_orphans(&state.db);
+    // Luna is left on for weeks: an upload someone abandoned must not hold a
+    // drive's space until the next restart.
+    {
+        let db = state.db.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(60 * 60)).await;
+                let db = db.clone();
+                let _ = tokio::task::spawn_blocking(move || {
+                    lunad::files::uploads::sweep_orphans(&db)
+                })
+                .await;
+            }
+        });
+    }
 
     // Catch-up gallery index for every adopted mount already on disk.
     {

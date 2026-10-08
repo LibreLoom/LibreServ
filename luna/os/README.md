@@ -77,7 +77,7 @@ in one podman container; nothing is installed on the host and nothing needs root
 
 ```sh
 ./os/iso/e2e.sh --list               # stages
-./os/iso/e2e.sh                      # the default set (about two hours)
+./os/iso/e2e.sh                      # the default set (a few hours)
 ./os/iso/e2e.sh boot flow            # just these
 ./os/iso/e2e.sh lab                  # boot, set up, and wait so you can poke at it
 ```
