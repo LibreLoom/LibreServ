@@ -30,7 +30,10 @@ fn drive_db_for(central: &Connection, drive_id: &str) -> Result<Connection, Uplo
 /// Locate an upload session by scanning mounted drive microdbs.
 fn find_upload(central: &Connection, id: &str) -> Result<(UploadRow, Connection), UploadError> {
     for drive in db::list_drives(central).map_err(UploadError::Db)? {
-        if drive.mount_point.is_empty() || drive.state != "as_is" {
+        // A drive that filled up is marked "readonly" until it is free again; its
+        // uploads must stay findable, or the browser is told the upload does not
+        // exist instead of being told the drive is full.
+        if drive.mount_point.is_empty() || !matches!(drive.state.as_str(), "as_is" | "readonly") {
             continue;
         }
         let Ok(dconn) = crate::drives::drive_db::open_migrating(
@@ -888,6 +891,17 @@ mod tests {
         // layer must refuse anyone but an admin driving such a session.
         let legacy = create(&conn, &drive, "", "y.bin", 10).unwrap();
         assert_eq!(get_row(&conn, &legacy.id).unwrap().principal, "");
+    }
+
+    #[test]
+    fn an_upload_is_still_found_while_its_drive_is_marked_full() {
+        let (_dir, db, drive) = setup();
+        let conn = db.lock().unwrap();
+        let up = create_scoped(&conn, &drive, "", "big.bin", 10, "user:u1").unwrap();
+        crate::db::set_drive_state(&conn, &drive, "readonly").unwrap();
+        assert!(get_row(&conn, &up.id).is_ok(), "a full drive must not hide its uploads");
+        crate::db::set_drive_state(&conn, &drive, "ejected").unwrap();
+        assert!(get_row(&conn, &up.id).is_err());
     }
 
     #[test]

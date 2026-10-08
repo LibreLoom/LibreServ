@@ -262,13 +262,14 @@ class VM:
             t = self.serial_text()[start:]
             m = re.search(rf"^{mark}_(\d+)_\r?$", t, re.M)
             if m:
-                body = t[:m.start()].replace("\r", "")
-                # the terminal echoes what was typed, and prints a prompt after each command
+                # Output starts after the line where the terminal echoed what was typed (the
+                # last thing typed is the marker command); long lines wrap, so find it by the marker.
+                first = t.find(mark)
+                nl = t.find("\n", first) if 0 <= first < m.start() else -1
+                body = t[nl + 1:m.start()] if nl >= 0 else ""
+                body = body.replace("\r", "")
                 body = re.sub(r"(~ # )+(\x1b\[6n)?", "", body)
-                echoed = {l for l in cmd.split("\n")}
-                lines = [l for l in body.split("\n")
-                         if l not in echoed and not l.startswith("__rc=$?") and mark not in l]
-                return int(m.group(1)), "\n".join(lines).strip()
+                return int(m.group(1)), body.strip()
             time.sleep(0.3)
         return -1, "(timeout) " + self.serial_text()[start:][-300:]
 

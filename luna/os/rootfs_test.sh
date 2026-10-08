@@ -43,6 +43,10 @@ fi
 assert_file_has "$BUILD" 'for svc in luna-root-ro hwclock modules sysctl hostname bootmisc syslog loopback luna-input luna-network;' \
 	"boot runlevel must remount root read-only before network bring-up"
 assert_file_has "$BUILD" 'loopback' "boot runlevel must enable loopback service"
+# Without acpid the machine's power button does nothing, and people fall back to a
+# hard power-off with drives still mounted.
+assert_file_has "$BUILD" 'avahi acpid' "the image needs acpid so the power button shuts Luna down"
+assert_file_has "$BUILD" 'avahi-daemon acpid luna' "acpid must run at boot"
 # OTA slot writes call tune2fs/e2label (e2fsprogs-extra on Alpine).
 assert_file_has "$BUILD" 'e2fsprogs-extra' "the image needs tune2fs and e2label for OS updates"
 # lunad must be supervised (crash/update restart) and must have a log file.

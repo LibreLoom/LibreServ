@@ -46,7 +46,7 @@ apk add --root "$ROOTFS" --initdb --keys-dir /etc/apk/keys --arch "$ARCH" $APK_C
     --repository "https://dl-cdn.alpinelinux.org/alpine/$ALPINE_VERSION/community" \
     alpine-base openrc linux-lts kmod \
     linux-firmware-none linux-firmware-rtl_nic linux-firmware-e100 \
-    avahi \
+    avahi acpid \
     e2fsprogs e2fsprogs-extra exfatprogs \
     smartmontools syslinux util-linux \
     grub \
@@ -60,7 +60,7 @@ done
 # Every helper program lunad shells out to must be in the image. An OS update
 # needs tune2fs and e2label (Alpine ships them in e2fsprogs-extra); without them
 # the update fails after the new system is already written.
-for _b in tune2fs e2label e2fsck grub-editenv mkfs.exfat wipefs sfdisk partprobe blkid blockdev smartctl ffmpeg ffprobe heif-dec curl timeout logrotate findmnt; do
+for _b in acpid tune2fs e2label e2fsck grub-editenv mkfs.exfat wipefs sfdisk partprobe blkid blockdev smartctl ffmpeg ffprobe heif-dec curl timeout logrotate findmnt; do
     _have=0
     for _d in sbin usr/sbin bin usr/bin; do
         if [ -e "$ROOTFS/$_d/$_b" ] || [ -L "$ROOTFS/$_d/$_b" ]; then _have=1; break; fi

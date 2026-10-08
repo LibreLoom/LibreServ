@@ -94,7 +94,7 @@ done
 for svc in luna-root-ro hwclock modules sysctl hostname bootmisc syslog loopback luna-input luna-network; do
     ln -sf "/etc/init.d/$svc" "$ROOTFS/etc/runlevels/boot/$svc" 2>/dev/null || true
 done
-for svc in avahi-daemon luna luna-boot-ok crond chronyd; do
+for svc in avahi-daemon acpid luna luna-boot-ok crond chronyd; do
     ln -sf "/etc/init.d/$svc" "$ROOTFS/etc/runlevels/default/$svc" 2>/dev/null || true
 done
 
