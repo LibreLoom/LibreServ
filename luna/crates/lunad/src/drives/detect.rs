@@ -190,12 +190,16 @@ fn device_path_is_usb(dir: &Path) -> bool {
     };
     // The kernel names each USB bus `usb1`, `usb2`, ... in the device path
     // (`.../0000:00:14.0/usb2/2-1/2-1:1.0/host6/...`), never plain `usb`.
-    target.components().any(|c| {
-        c.as_os_str()
-            .to_str()
-            .and_then(|s| s.strip_prefix("usb"))
-            .is_some_and(|rest| !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()))
-    })
+    target
+        .components()
+        .any(|c| is_usb_bus_component(c.as_os_str()))
+}
+
+/// `usb1`, `usb2`, ... — one path component per USB bus in a sysfs device path.
+pub(crate) fn is_usb_bus_component(name: &std::ffi::OsStr) -> bool {
+    name.to_str()
+        .and_then(|s| s.strip_prefix("usb"))
+        .is_some_and(|rest| !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()))
 }
 
 /// Strip partition suffixes to the parent disk name: `sda1` -> `sda`,

@@ -155,7 +155,8 @@ def stage_install(bus, fw):
     p = parts(disk)
     check(f"[{bus}] GPT has the 5 expected partitions", sorted(p) == [1, 2, 3, 4, 5], str(p))
     names = [p[n][2] for n in sorted(p)] if sorted(p) == [1, 2, 3, 4, 5] else []
-    check(f"[{bus}] partition names", names[2:] == ["LUNA_A", "LUNA_B", "LUNA_DATA"], str(names))
+    # lunad finds the slots and the boot partition by these exact GPT names when it applies an OS update
+    check(f"[{bus}] partition names", names == ["BIOSGRUB", "LUNAESP", "LUNA_A", "LUNA_B", "LUNA_DATA"], str(names))
     check(f"[{bus}] device token on LUNA_DATA", TOKEN in ext_cat(disk, 5, "/device-token"))
     want = open(f"{DIST}/luna-os-x86_64.img.xz.sha256").read().split()[0]
     check(f"[{bus}] os-image.sha256 matches the image", want in ext_cat(disk, 5, "/os-image.sha256"))

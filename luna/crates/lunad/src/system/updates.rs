@@ -897,7 +897,10 @@ pub(crate) fn device_is_factory_media(dev: &str) -> bool {
     }
     // USB bridges can report removable=0; the sysfs device path tells it.
     std::fs::canonicalize(format!("/sys/block/{disk}/device"))
-        .map(|p| p.components().any(|c| c.as_os_str() == "usb"))
+        .map(|p| {
+            p.components()
+                .any(|c| crate::drives::detect::is_usb_bus_component(c.as_os_str()))
+        })
         .unwrap_or(false)
 }
 

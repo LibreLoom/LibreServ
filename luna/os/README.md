@@ -67,6 +67,31 @@ podman, named-volume caches, `--memory` limit via `LUNA_BUILD_MEMORY`).
 not lunad). A box records the sha256 of the exact `.img.xz` as
 `os-image.sha256`, which is what the update feed lists for the `os` part.
 
+## End-to-end test (QEMU, rootless)
+
+`iso/e2e.sh` installs the ISO onto virtual disks and drives the installed Luna
+like a person would: real BIOS/UEFI firmware, SATA / NVMe / eMMC / virtio disks,
+USB sticks plugged and pulled, the setup wizard, files, sharing, WebDAV, photos,
+signed OS updates with rollbacks, power cuts and a missing cable. Everything runs
+in one podman container; nothing is installed on the host and nothing needs root.
+
+```sh
+./os/iso/e2e.sh --list               # stages
+./os/iso/e2e.sh                      # the default set (about two hours)
+./os/iso/e2e.sh boot flow            # just these
+./os/iso/e2e.sh lab                  # boot, set up, and wait so you can poke at it
+```
+
+It needs a current ISO and slot image. `lunad` is not an input of the slot image,
+so after changing it rebuild with `LUNA_OS_FORCE=1 ./os/make-image.sh` (the
+install stage fails loudly if the lunad inside the image is not the one just built).
+Work files and logs go to `os/dist/e2e/` (several GiB, sparse); the guest's serial
+log is `<name>.serial.log`. For the checks only, the harness gives the installed
+disk a serial console and a root shell on it and points Connect at the mock in
+`scripts/mocks/`; the shipped image is not changed. What it cannot cover: mDNS
+(`luna.local`) over QEMU's user network, real Luna Connect and tunnels, SMART on
+real disks, a real keyboard and HDMI screen, Secure Boot, and hardware quirks.
+
 Dev checks without installing QEMU: `iso/boot-test.sh bios|uefi` (boots the ISO
 as a USB stick and saves the screen) and `iso/install-test.sh` (runs the whole
 installer into a virtual disk, then boots the result).
