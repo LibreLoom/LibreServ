@@ -1,8 +1,9 @@
 # Release and update rework — plan
 
 Status: receiving end built (Sol, lunad, Desktop, Android, Connect deploy,
-Flatpak repo server); release tool designed (below), ready to build. Replaces `release.sh` and Forgejo
-Releases. `RELEASE.md` describes the old flow until then.
+Flatpak repo server); release tool built (below), replacing `release.sh` and
+Forgejo Releases at the first beta cut (step 8). `RELEASE.md` describes the old
+flow until then.
 
 Order: **receiving end first** (everything that installs or updates), then the
 supplier (release tool).
@@ -170,15 +171,16 @@ comparison orders it (bash receivers rely on that). Every part has `os` and
 - Feed code in `luna-core` (shared with Desktop). Remove `ForgejoRelease`,
   `pick_latest_luna`, release listing, `fetch_signed_sums`.
 - `lunad` part: newer `version` → install (musl build). `os` part: `sha256` ≠
-  `os-image.sha256` → stream-decompress `.img.xz` onto the inactive slot, then
-  store the hash.
+  `os-image.sha256` → stream-decompress `.img.xz` onto the inactive slot;
+  record the hash only once that slot boots and `luna-boot-ok` confirms it. A
+  slot that fails to boot is reported in Settings and only reflashed on an
+  Admin retry.
 - Update source settings → `{feed_url, channel, keys}`; drop
   `fetch_repo_signing_keys`. Rewrite `UpdateSourceCard.jsx` copy and tests.
 - `/api/v1/health` gains `api`.
-- The factory installer and flasher must write `os-image.sha256` as the
-  sha256 of the exact `luna-os-x86_64.img.xz` the feed lists (today
-  `flash-disk.sh` hashes the rootfs tarball), or a fresh box offers an OS
-  reflash on its first check. Fix with the release tool.
+- The factory installer and flasher write `os-image.sha256` as the sha256 of
+  the exact `luna-os-x86_64.img.xz` the feed lists, or a fresh box offers an OS
+  reflash on its first check.
 - `luna-run`: run whichever of `/var/lib/luna/bin/lunad` and the baked lunad
   is newer (`lunad --version`), so a stale daemon-only update can't shadow a
   newer OS.
@@ -506,7 +508,7 @@ keeps the boot contract:
   `0110-isolinux-paths.hook.chroot` only served live-build's bootloader
   stage.
 - `mksquashfs` → `live/filesystem.squashfs`; kernel + initrd → `live/`; the
-  Luna payload (staged as `stage-debian-live.sh` does today) at `/luna/`.
+  Luna payload (staged the way the old `stage-debian-live.sh` did) at `/luna/`.
 - **Payload change:** the ISO carries the released `luna-os-x86_64.img.xz`
   (exact bytes the feed lists), not the raw `.img` and not the rootfs
   tarball. `rapidinstall.sh` / `flash-disk.sh` stream `xz -dc` onto both
@@ -534,8 +536,7 @@ launcher `./release` at the repo root. Each step lands tested and committed.
    `luna/mobile/VERSION` (starts at its current `0.1.6`),
    `luna/connect/VERSION`.
    - Sol stamps `gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/system.Version`
-     (`release.sh` targets `…/handlers.Version`, which doesn't exist; Go
-     ignores `-X` on a missing symbol, so today's binaries report `dev`).
+     (an unstamped binary reports `dev`; Go ignores `-X` on a missing symbol).
      Connect servers stamp `main.version`. Every build then runs the binary
      (`--version` or the health handler) and fails if it doesn't report the
      expected version.
@@ -591,9 +592,8 @@ launcher `./release` at the repo root. Each step lands tested and committed.
   `luna-connect` (`infra/connect-deploy` checks this).
 - Bump `luna/desktop/VERSION` with the `luna-desktop` unit;
   `packaging/windows/build-cross.sh` refuses a version mismatch.
-- Create `VERSION` for `sol`, `sol-connect`, `luna-android`, `luna-connect`
-  (only `luna/VERSION` and `luna/desktop/VERSION` exist so far) and stamp Sol
-  builds with it (an unstamped Sol reports `dev` and never updates).
+- Create `VERSION` for `sol`, `sol-connect`, `luna-android`, `luna-connect` and
+  stamp Sol builds with it (an unstamped Sol reports `dev` and never updates).
 - Retire `release.sh`: nothing reads Forgejo Releases any more.
 
 ## Test fixtures
