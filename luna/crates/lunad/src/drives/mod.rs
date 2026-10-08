@@ -944,7 +944,9 @@ impl DriveManager {
         if let Some(mp) = device.mount_point.as_deref() {
             return ids_at(Path::new(mp));
         }
-        // Unmounted stick: brief RO foreign mount, read marker, tear down.
+        // Unmounted stick: brief RO foreign mount, read marker, tear down. Peek and
+        // inspect use the same mount point, so take turns with them.
+        let _look = self.look_lock.lock().unwrap_or_else(|e| e.into_inner());
         let choice = self.choice_for(device);
         let target = self.foreign_mount_point(&device.name);
         if self
