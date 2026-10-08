@@ -49,6 +49,10 @@ struct ListingEntry {
     entries: Vec<FileEntry>,
     dir_mtime: i64,
     filled_at: Instant,
+    /// Writes Luna had made to this drive when the listing was read; any
+    /// later write (see [`note_drive_write`]) makes the listing stale even when
+    /// the folder's timestamp did not move (FAT keeps two-second timestamps).
+    write_gen: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -120,6 +124,24 @@ impl Default for Inner {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// How many writes Luna has made to each drive in this process. Folder
+/// timestamps cannot be trusted to show a change made within the same second
+/// (two on FAT), and background work (copy/move jobs, WebDAV, uploads) does not
+/// go through the web handlers that drop cached listings by hand.
+static DRIVE_WRITE_GEN: std::sync::LazyLock<Mutex<HashMap<String, u64>>> =
+    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Record that Luna just changed something on this drive.
+pub fn note_drive_write(drive_id: &str) {
+    let mut g = DRIVE_WRITE_GEN.lock().unwrap_or_else(|e| e.into_inner());
+    *g.entry(drive_id.to_string()).or_insert(0) += 1;
+}
+
+fn drive_write_gen(drive_id: &str) -> u64 {
+    let g = DRIVE_WRITE_GEN.lock().unwrap_or_else(|e| e.into_inner());
+    g.get(drive_id).copied().unwrap_or(0)
 }
 
 fn thumb_key(drive_id: &str, rel: &str) -> String {
@@ -244,6 +266,7 @@ impl RamCache {
                 entries,
                 dir_mtime,
                 filled_at: Instant::now(),
+                write_gen: drive_write_gen(drive_id),
             },
         );
         g.listing_order.push_back(key);
@@ -259,6 +282,11 @@ impl RamCache {
         let key = listing_key(drive_id, rel);
         let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let entry = g.listings.get(&key)?;
+        if entry.write_gen != drive_write_gen(drive_id) {
+            g.listings.remove(&key);
+            g.listing_order.retain(|k| k != &key);
+            return None;
+        }
         let fresh_ttl = entry.filled_at.elapsed() <= LISTING_TRUST_TTL;
         let mtime_ok = dir_mtime.map(|m| m == entry.dir_mtime).unwrap_or(false);
         if !fresh_ttl && !mtime_ok {
@@ -858,6 +886,36 @@ mod tests {
         assert_eq!(hit.etag, thumb_etag(6, 10));
         cache.invalidate_thumb("d1", "a.jpg");
         assert!(cache.get_thumb("d1", "a.jpg").is_none());
+    }
+
+    #[test]
+    fn a_write_to_the_drive_makes_cached_listings_stale_even_with_the_same_folder_time() {
+        let cache = RamCache::new();
+        let entry = FileEntry {
+            name: "Sub One".into(),
+            kind: "dir".into(),
+            size: 0,
+            modified: 1,
+            hidden: false,
+            saving: false,
+            save_failed: false,
+            original_name: None,
+            original_path: None,
+            link_target: None,
+            caps: String::new(),
+            private: false,
+            in_private: false,
+        };
+        cache.put_listing("gen-drive", "Docs", 100, vec![entry]);
+        assert!(cache.get_listing("gen-drive", "Docs", Some(100)).is_some());
+        // A move job, a WebDAV change or an upload landed: FAT's two-second
+        // folder time did not change, but the listing is no longer true.
+        note_drive_write("gen-drive");
+        assert!(cache.get_listing("gen-drive", "Docs", Some(100)).is_none());
+        // Other drives are unaffected.
+        cache.put_listing("other-drive", "Docs", 100, Vec::new());
+        note_drive_write("gen-drive");
+        assert!(cache.get_listing("other-drive", "Docs", Some(100)).is_some());
     }
 
     #[test]

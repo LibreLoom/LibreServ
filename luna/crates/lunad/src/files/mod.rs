@@ -438,6 +438,7 @@ pub fn read_dir_entries_in(
 /// common, two on FAT32 — so every Luna write that lands must call this.
 /// Best-effort: an unreadable microdb leaves the mtime guard as backstop.
 pub fn note_write(conn: &rusqlite::Connection, drive_id: &str, api_rel: &str) {
+    crate::drives::ram_cache::note_drive_write(drive_id);
     let Ok(drive) = drive_root(conn, drive_id) else {
         return;
     };
@@ -446,6 +447,7 @@ pub fn note_write(conn: &rusqlite::Connection, drive_id: &str, api_rel: &str) {
 
 /// [`note_write`] for a drive row already in hand.
 pub fn note_write_at(drive: &DriveRow, drive_id: &str, api_rel: &str) {
+    crate::drives::ram_cache::note_drive_write(drive_id);
     let Ok(dconn) = open_drive_db(drive) else {
         return;
     };

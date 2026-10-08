@@ -26,6 +26,20 @@ fn main() -> anyhow::Result<()> {
         .block_on(async_main())
 }
 
+/// Sleep until the system has been up for `seconds`, if it has not been yet.
+fn wait_for_usb_to_settle(seconds: f64) {
+    let up = std::fs::read_to_string("/proc/uptime")
+        .ok()
+        .and_then(|t| t.split_whitespace().next().and_then(|v| v.parse::<f64>().ok()));
+    if let Some(up) = up
+        && up < seconds
+    {
+        let wait = std::time::Duration::from_secs_f64((seconds - up).min(seconds));
+        tracing::info!(seconds = wait.as_secs_f32(), "waiting for USB drives to show up");
+        std::thread::sleep(wait);
+    }
+}
+
 async fn async_main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -69,6 +83,11 @@ async fn async_main() -> anyhow::Result<()> {
         std::sync::Arc::new(CommandMounter),
         &cfg.data_dir,
     ));
+    // USB sticks need a couple of seconds after power-on to show up, and this
+    // is the only look at them before the password-recovery stick scan below
+    // (it runs once, before the network is up). Starting this early on a fast
+    // boot would miss them, so give them until 8 seconds of uptime.
+    wait_for_usb_to_settle(8.0);
     let detected = {
         let mounts = std::fs::read_to_string("/proc/mounts").unwrap_or_default();
         lunad::drives::detect::scan_with_dev_mocks(std::path::Path::new("/sys/block"), &mounts)

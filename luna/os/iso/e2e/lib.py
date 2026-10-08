@@ -262,13 +262,13 @@ class VM:
             t = self.serial_text()[start:]
             m = re.search(rf"^{mark}_(\d+)_\r?$", t, re.M)
             if m:
-                body = t[:m.start()]
-                # drop the echoed command lines
-                lines = [l for l in body.replace("\r", "").split("\n")]
-                out = "\n".join(l for l in lines if mark not in l)
-                if lines and cmd.split("\n")[0] in lines[0]:
-                    out = "\n".join(l for l in lines[1:] if mark not in l)
-                return int(m.group(1)), out.strip()
+                body = t[:m.start()].replace("\r", "")
+                # the terminal echoes what was typed, and prints a prompt after each command
+                body = re.sub(r"(~ # )+(\x1b\[6n)?", "", body)
+                echoed = {l for l in cmd.split("\n")}
+                lines = [l for l in body.split("\n")
+                         if l not in echoed and not l.startswith("__rc=$?") and mark not in l]
+                return int(m.group(1)), "\n".join(lines).strip()
             time.sleep(0.3)
         return -1, "(timeout) " + self.serial_text()[start:][-300:]
 

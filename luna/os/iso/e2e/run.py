@@ -1542,7 +1542,7 @@ def stage_app():
     check("[app] the admin can change their password", c == 200, f"{c} {b}")
     c, b = Luna(18080).post("/api/v1/auth/login", {"username": "admin", "password": ADMIN["password"]})
     check("[app] the old password stops working", c in (400, 401), f"{c} {b}")
-    c, b = Luna(18080).post("/api/v1/auth/login", {"username": "admin", "new_password": "a-new-long-password-5"})
+    c, b = Luna(18080).post("/api/v1/auth/login", {"username": "admin", "password": "a-new-long-password-5"})
     check("[app] the new password works", c == 200, f"{c} {b}")
     vm.sh("sync")
     vm.quit()
@@ -1654,6 +1654,9 @@ def stage_recovery():
     img = recovery_stick("rec-ok", {f"luna-recover-{TOKEN}.luna": payload})
     check("[recovery] Luna restarts with the stick in", reboot_with(img))
     c, b = Luna(18080).post("/api/v1/auth/login", {"username": "admin", "password": new_pw})
+    if c != 200:
+        rc, o = vm.sh("grep -i -E 'recover|stick' /var/lib/luna/logs/luna.log | tail -n 12 | cut -c1-300; cat /var/lib/luna/device-token; echo; grep -c . /var/lib/luna/logs/luna.log")
+        say("    log:\n" + o)
     check("[recovery] the admin can sign in with the new password", c == 200 and b.get("role") == "admin", f"{c} {b}")
     c, b = Luna(18080).post("/api/v1/auth/login", {"username": "admin", "password": ADMIN["password"]})
     check("[recovery] the old password no longer works", c in (400, 401), f"{c} {b}")
