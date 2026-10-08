@@ -837,9 +837,20 @@ impl DriveManager {
                     }
                 }
                 "as_is" | "readonly" if present && self.luna_mount_missing(row) => {
-                    // Mount already gone (prior eject, crash, or forced umount)
-                    // but DB still said Ready — keep UI in sync.
-                    plan.set_state(&row.id, "ejected");
+                    // Ready in the registry but nothing is mounted: a fresh boot
+                    // (the stick was plugged in before power-on), a crash, or a
+                    // forced unmount. A person who ejected it would have left it
+                    // "ejected", so bring it back; only a drive that cannot be
+                    // mounted is shown as ejected.
+                    match self.remount_verified(row, detected, &mut marker_cache) {
+                        Some(device) => {
+                            if device != row.device {
+                                plan.set_placement(&row.id, &device, &row.state);
+                            }
+                            plan.remount_ids.push(row.id.clone());
+                        }
+                        None => plan.set_state(&row.id, "ejected"),
+                    }
                 }
                 "ejected" if !present => {
                     plan.set_state(&row.id, "missing");
@@ -954,6 +965,43 @@ impl DriveManager {
         let _ = self.mounter.unmount(&target);
         let _ = std::fs::remove_dir(&target);
         ids
+    }
+
+    /// Mount a registered drive again where it was, and make sure the stick
+    /// that answered to its kernel name really is this drive (names are handed
+    /// out in plug-in order, so after a reboot two sticks can swap them). Returns
+    /// the kernel name it was found under, or `None` when it cannot be mounted.
+    fn remount_verified(
+        &self,
+        row: &db::DriveRow,
+        detected: &[DetectedDrive],
+        marker_cache: &mut HashMap<String, Vec<String>>,
+    ) -> Option<String> {
+        let path = Path::new(&row.mount_point);
+        let is_this_drive = |p: &Path| {
+            luna_core::marker::read_marker(p)
+                .ok()
+                .flatten()
+                .is_some_and(|m| m.id == row.id)
+        };
+        if self.ensure_mounted(row).unwrap_or(false) {
+            if is_this_drive(path) {
+                return Some(row.device.clone());
+            }
+            // Someone else's stick under the old name.
+            let _ = self.mounter.unmount(path);
+        }
+        let found = self.find_detected_by_marker(&row.id, detected, marker_cache)?;
+        if found.name == row.device {
+            return None;
+        }
+        let mut moved = row.clone();
+        moved.device = found.name.clone();
+        let _ = self.dismiss_foreign(&found.name);
+        if self.ensure_mounted(&moved).unwrap_or(false) && is_this_drive(path) {
+            return Some(found.name.clone());
+        }
+        None
     }
 
     /// Let go of the mount a pulled drive left behind (see `Mounter::detach_stale`).
@@ -1645,7 +1693,7 @@ mod tests {
     }
 
     #[test]
-    fn reconcile_marks_ready_as_ejected_when_mount_already_gone() {
+    fn a_ready_drive_with_no_mount_after_a_reboot_is_mounted_again() {
         let mounter = shared_mock();
         let root = tempfile::tempdir().unwrap();
         let dir = root.path();
@@ -1654,19 +1702,31 @@ mod tests {
         let row = mgr
             .adopt(&conn, &detected("sdz", None), "Backup Drive", false)
             .unwrap();
-        // Simulate a successful umount that left DB state as Ready.
+        // A reboot: the stick is plugged in, Luna's mount is gone, the registry still says Ready.
         mounter.unmount(Path::new(&row.mount_point)).unwrap();
-        let _ = std::fs::remove_dir(Path::new(&row.mount_point));
-        assert_eq!(
-            db::get_drive(&conn, &row.id).unwrap().unwrap().state,
-            "as_is"
-        );
+        assert!(!mounter.is_mounted(Path::new(&row.mount_point)));
+
+        let remounted = mgr.reconcile(&conn, &[detected("sdz", None)]).unwrap();
+        assert_eq!(db::get_drive(&conn, &row.id).unwrap().unwrap().state, "as_is");
+        assert!(mounter.is_mounted(Path::new(&row.mount_point)));
+        assert!(remounted.iter().any(|(id, _)| id == &row.id), "gallery must be re-armed");
+    }
+
+    #[test]
+    fn a_ready_drive_that_cannot_be_mounted_again_shows_as_ejected() {
+        let mounter = shared_mock();
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path();
+        let conn = db::open(&dir.join("luna.db")).unwrap();
+        let mgr = DriveManager::new(mounter.clone(), dir);
+        let row = mgr
+            .adopt(&conn, &detected("sdz", None), "Backup Drive", false)
+            .unwrap();
+        mounter.unmount(Path::new(&row.mount_point)).unwrap();
+        *mounter.fail_mount.lock().unwrap() = true;
 
         mgr.reconcile(&conn, &[detected("sdz", None)]).unwrap();
-        assert_eq!(
-            db::get_drive(&conn, &row.id).unwrap().unwrap().state,
-            "ejected"
-        );
+        assert_eq!(db::get_drive(&conn, &row.id).unwrap().unwrap().state, "ejected");
     }
 
     #[test]

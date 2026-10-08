@@ -165,6 +165,15 @@ def stage_install(bus, fw):
         r = ext_fsck(disk, n)
         check(f"[{bus}] slot {'AB'[n - 3]} filesystem is clean", "rc=0" in r, r[-300:])
     check(f"[{bus}] data filesystem is clean", "rc=0" in ext_fsck(disk, 5))
+    # The slot image is only rebuilt when OS inputs change, and lunad is not an
+    # input: a newer lunad binary is easily left out of the image by accident.
+    off = parts(disk)[3][0]
+    baked = f"{WORK}/baked-lunad"
+    sh(f"debugfs -R 'dump /usr/local/bin/lunad {baked}' '{disk}?offset={off}' >/dev/null 2>&1", check_rc=False)
+    same = os.path.exists(baked) and sha256_file(baked) == sha256_file(LUNAD_BIN)
+    check(f"[{bus}] the lunad inside the OS image is the one just built (else rebuild with LUNA_OS_FORCE=1)", same)
+    if os.path.exists(baked):
+        os.unlink(baked)
     serial_console_for_tests(disk)
     return disk
 
@@ -902,6 +911,12 @@ def stage_resilience():
     c, got = download(lu, did, "keep.bin")
     check("the stored file is still fine after the crash", c == 200 and got == data)
 
+    # -- a crash loop must not make the supervisor give up
+    for i in range(12):
+        vm.sh("kill -9 $(pidof lunad) 2>/dev/null; true")
+        time.sleep(3)
+    check("lunad keeps being restarted after a dozen crashes in a minute", lu.wait_up(60))
+
     # -- clean reboot from the guest
     vm.sh("sync")
     vm.serial_send("reboot\n")
@@ -913,6 +928,24 @@ def stage_resilience():
     check("the file survived the reboot", c == 200 and got == data)
     rc, o = vm.sh("cat /proc/cmdline")
     check("reboot kept the same slot", "luna.slot=A" in o, o)
+    # the stick stays plugged in across several restarts, together with a second one
+    img2 = copy_fixture(fx, "fat32", "resil2")
+    d2 = plug(vm, lu, "u-resil2", img2)
+    c, b = lu.post(f"/api/v1/drives/{d2['name']}/adopt", {"label": "Second", "erase": False}) if d2 else (0, {})
+    did2 = b.get("id")
+    check("a second stick is added", c == 200 and did2, f"{c} {b}")
+    for n in (1, 2, 3):
+        vm.serial_send("sync; reboot\n")
+        check(f"[restart {n}] Luna comes back", wait_reboot_up(vm, lu, 240))
+        check(f"[restart {n}] admin can sign in", login_admin(lu))
+        ok1 = wait_state(lu, did, "as_is", 60)
+        ok2 = wait_state(lu, did2, "as_is", 60)
+        if not (ok1 and ok2):
+            rc, o = vm.sh("tail -n 25 /var/lib/luna/logs/luna.log | cut -c1-250")
+            say("    log:\n" + o)
+        check(f"[restart {n}] both sticks are ready again with no one touching anything", ok1 and ok2)
+    c, got = download(lu, did, "keep.bin")
+    check("the file is still right after three restarts", c == 200 and got == data)
 
     # -- power cut in the middle of an upload
     import threading

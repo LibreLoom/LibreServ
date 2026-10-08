@@ -874,8 +874,34 @@ mod tests {
     }
     /// Real sockets, not `oneshot`: the body arrives after the headers (as it
     /// does from Finder, Explorer and davfs2, which also wait for `100 Continue`).
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn dav_put_larger_than_the_first_read_does_not_hang() {
+    ///
+    /// Runs on its own thread and runtime and is judged from outside: when the
+    /// handler deadlocks, a blocked runtime cannot report its own timeout, and
+    /// dropping it would hang the whole test run.
+    #[test]
+    fn dav_put_larger_than_the_first_read_does_not_hang() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(2)
+                .enable_all()
+                .build()
+                .unwrap();
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                rt.block_on(dav_put_scenario());
+            }));
+            let _ = tx.send(outcome.is_ok());
+            // A hung runtime must not be dropped (it would block here forever).
+            std::mem::forget(rt);
+        });
+        match rx.recv_timeout(std::time::Duration::from_secs(30)) {
+            Ok(true) => {}
+            Ok(false) => panic!("the upload scenario failed"),
+            Err(_) => panic!("the upload hung: the WebDAV handler is blocking the connection task"),
+        }
+    }
+
+    async fn dav_put_scenario() {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let mount = tempfile::tempdir().unwrap();
         let (_dir, app, _state) = test_app(mount.path());
@@ -898,25 +924,24 @@ mod tests {
             body.len()
         );
         sock.write_all(head.as_bytes()).await.unwrap();
-        let result = tokio::time::timeout(std::time::Duration::from_secs(10), async {
-            let mut buf = vec![0u8; 4096];
-            let mut seen = String::new();
-            while !seen.contains("100 Continue") {
-                let n = sock.read(&mut buf).await.unwrap();
-                assert!(n > 0, "connection closed before 100 Continue: {seen}");
-                seen.push_str(&String::from_utf8_lossy(&buf[..n]));
-            }
-            sock.write_all(&body).await.unwrap();
-            let mut tail = String::new();
-            while !tail.contains("201") {
-                let n = sock.read(&mut buf).await.unwrap();
-                assert!(n > 0, "connection closed before the final answer: {tail}");
-                tail.push_str(&String::from_utf8_lossy(&buf[..n]));
-            }
-        })
-        .await;
-        assert!(result.is_ok(), "the upload hung");
-        assert_eq!(std::fs::metadata(mount.path().join("big.bin")).unwrap().len(), 300_000);
+        let mut buf = vec![0u8; 4096];
+        let mut seen = String::new();
+        while !seen.contains("100 Continue") {
+            let n = sock.read(&mut buf).await.unwrap();
+            assert!(n > 0, "connection closed before 100 Continue: {seen}");
+            seen.push_str(&String::from_utf8_lossy(&buf[..n]));
+        }
+        sock.write_all(&body).await.unwrap();
+        let mut tail = String::new();
+        while !tail.contains("201") {
+            let n = sock.read(&mut buf).await.unwrap();
+            assert!(n > 0, "connection closed before the final answer: {tail}");
+            tail.push_str(&String::from_utf8_lossy(&buf[..n]));
+        }
+        assert_eq!(
+            std::fs::metadata(mount.path().join("big.bin")).unwrap().len(),
+            300_000
+        );
     }
 
 }

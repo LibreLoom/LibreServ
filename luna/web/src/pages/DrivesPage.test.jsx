@@ -976,7 +976,7 @@ describe("DrivesPage", () => {
       readable: false, needs_erase: true, has_marker: false, folders: 0, files: 0, sample: [],
     });
     expect(info.value).toBe("Blank, or a format Luna can't read");
-    expect(info.note).toMatch(/erase it and set it up/i);
+    expect(info.note).toMatch(/erases what/i);
   });
 
 });

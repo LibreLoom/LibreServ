@@ -277,7 +277,7 @@ export function describePeek(peek) {
       value: "Blank, or a format Luna can't read",
       includes: "",
       history: "",
-      note: "Luna can erase it and set it up. Using it with Luna erases what's on it.",
+      note: "Using it with Luna erases what's on it.",
     };
   }
   if (!peek.readable) {

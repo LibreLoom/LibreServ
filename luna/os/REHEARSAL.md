@@ -34,7 +34,7 @@ support call later.
 
 ## 4. Storage safety
 - [ ] Unrecognized FAT32 drive → "Add drive" preview is read-only, contents listed
-- [ ] Adoption writes exactly one `.luna` file; nothing else changed (diff the drive before/after)
+- [ ] Adoption adds only Luna's own hidden `.luna-…` items (one `.luna-….sqlite3` database and its `-thumbs` folder); nothing else changed (diff the drive before/after)
 - [ ] Eject says safe to remove; replug returns the drive
 
 ## 5. Files & links
