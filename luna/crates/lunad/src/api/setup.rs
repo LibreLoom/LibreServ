@@ -10,6 +10,8 @@ use crate::api::response::json_error;
 
 const SETUP_KEY: &str = "setup";
 
+/// Cap on wizard draft data accepted from an anonymous off-LAN client.
+const MAX_ANON_STEP_DATA: usize = 4096;
 const VALID_STEPS: &[&str] = &["welcome", "preflight", "network", "account", "name", "done"];
 
 fn default_step() -> String {
@@ -255,14 +257,24 @@ async fn save_setup(
             ));
         }
     } else if !client_is_lan(&addr, &headers) {
-        // Before the first login exists, setup state — including
-        // `setup_completed` — may only be written from Luna's own network.
-        // The remote onboarding flow registers first (device token), then
-        // saves setup as that signed-in Admin.
-        return Err(json_error(
-            StatusCode::FORBIDDEN,
-            "Save setup progress while you're on the same network as Luna — or create the first login, then sign in.",
-        ));
+        // Before the first login exists, anyone may save wizard *progress*
+        // (step + draft data) so a refresh resumes. Finishing setup or
+        // naming Luna is LAN-only: a remote caller can never close the
+        // wizard for you. The remote flow does those as the signed-in Admin.
+        if body.setup_completed.is_some() || body.name.is_some() {
+            return Err(json_error(
+                StatusCode::FORBIDDEN,
+                "Finish setup while you're on the same network as Luna — or create the first login, then sign in.",
+            ));
+        }
+        if body.step_data.as_ref().is_some_and(|d| {
+            serde_json::to_string(d).map_or(true, |s| s.len() > MAX_ANON_STEP_DATA)
+        }) {
+            return Err(json_error(
+                StatusCode::BAD_REQUEST,
+                "Setup progress is too large to save.",
+            ));
+        }
     }
 
     let conn = state.db.lock().map_err(|_| {
@@ -394,7 +406,7 @@ mod tests {
             .merge(super::router())
             .with_state(state.clone());
 
-        let send = |peer: &str, host: Option<&str>, xff: Option<&str>| {
+        let send_body = |peer: &str, host: Option<&str>, xff: Option<&str>, body: &'static str| {
             let router = router.clone();
             let peer = peer.to_string();
             let host = host.map(str::to_string);
@@ -410,7 +422,7 @@ mod tests {
                 if let Some(x) = xff {
                     req = req.header("x-forwarded-for", x);
                 }
-                let mut http = req.body(Body::from(r#"{"setup_completed":true}"#)).unwrap();
+                let mut http = req.body(Body::from(body)).unwrap();
                 http.extensions_mut().insert(ConnectInfo(
                     format!("{peer}:40000")
                         .parse::<std::net::SocketAddr>()
@@ -420,7 +432,21 @@ mod tests {
             }
         };
 
-        // Before the first login exists, only Luna's own network may save
+        let send = |peer: &str, host: Option<&str>, xff: Option<&str>| {
+            send_body(peer, host, xff, r#"{"setup_completed":true}"#)
+        };
+        // Wizard progress alone saves from anywhere, before any login.
+        assert_eq!(
+            send_body(
+                "203.0.113.7",
+                None,
+                None,
+                r#"{"current_step":"preflight","step_data":{"network_connected":true}}"#
+            )
+            .await,
+            StatusCode::OK
+        );
+        // Before the first login exists, only Luna's own network may finish
         // setup — a remote caller can never finish setup for you.
         assert_eq!(send("203.0.113.7", None, None).await, StatusCode::FORBIDDEN);
         // A spoofed LAN-looking Host or forwarded header buys nothing.
