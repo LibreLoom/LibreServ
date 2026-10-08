@@ -19,26 +19,14 @@ Cloud backups are an off-site copy of chosen folders or whole drives — not ver
 
 Backup to the cloud is planned as the only paid product. The address never requires a card.
 
-## Cloudflare / Bot Fight Mode (ops — required for device API)
+## Bot challenges in front of the device API
 
-Luna devices call `https://connect.luna.libreloom.org/api/v1/*` with a Bearer
-device token. They cannot solve browser JavaScript challenges.
-
-**Bot Fight Mode cannot be skipped** via WAF custom rules (Cloudflare docs). If
-Bot Fight Mode (or Super Bot Fight Mode treating automated clients as challenges)
-is on for this zone, status pulls get HTML `403` with `cf-mitigated: challenge`
-("Just a moment...") instead of JSON. Luna will no longer wipe local bind state
-for that, but **tunnel tokens still will not refresh** until the challenge stops.
-
-Production must do one of:
-
-1. **Turn off Bot Fight Mode** on the zone that fronts `connect.luna.libreloom.org`, or
-2. Use **Super Bot Fight Mode** with **Definitely Automated = Allow** (especially
-   for the API), and/or
-3. Add **Skip** rules for `/api/v1/*` under Super Bot Fight Mode (not classic Bot Fight Mode).
-
-Without that Cloudflare dashboard change, devices cannot pull tunnel tokens even
-with a correct Luna code fix. Reproduce locally with
+Luna devices call `/api/v1/*` on the public hostname with a Bearer device token.
+They cannot solve browser JavaScript challenges, so a CDN or firewall bot
+challenge on that path (HTML `403` with `cf-mitigated: challenge`) breaks
+status pulls: Luna keeps its local bind state, but **tunnel tokens stop
+refreshing** until the challenge stops. Exempt `/api/v1/*` from bot challenges
+in production. Reproduce locally with
 `luna/scripts/mocks/mock-connect-cf-challenge.py` and
 `luna/scripts/mocks/repro-cf-challenge-403.sh`.
 
@@ -116,11 +104,11 @@ sudo ./luna/connect/deploy/deploy.sh
 
 Installed version and the newest feed time seen are remembered in `/var/lib/connect-deploy/luna-connect/`. The old `luna-connect-v*` tags and `--tag` / `--latest-tag` are retired. Settings live in `infra/connect-deploy/units/luna-connect.conf`; tests: `bash infra/connect-deploy/test.sh`.
 
-Instances: `luna-connect-a` `:8101`, `luna-connect-b` `:8102`. Shared DB: PostgreSQL in production (`database.driver` / `database.url` in `/etc/luna/connect/luna-connect-{a,b}.yaml`); SQLite for local dev. Host: `connect.luna.libreloom.org`. Paths: binary + web under `/opt/luna/connect`, configs under `/etc/luna/connect`, database + drain files under `/var/lib/luna/connect`, logs under `/var/log/luna/connect`.
+Two instances run side by side so a deploy can update them one at a time. They share a database: PostgreSQL in production (`database.driver` / `database.url` in each instance's config), SQLite for local dev. Instance names, ports and install paths are in `infra/connect-deploy/units/luna-connect.conf`.
 
-**Inbound must be Cloudflare-only.** The app trusts `CF-Connecting-IP`/`X-Forwarded-For` for client IPs (rate limits, admin gating) because `deploy/Caddyfile.conf` aborts any request that did not arrive from a Cloudflare edge IP. Do not remove that matcher, and keep the host firewall restricted to Cloudflare ranges as well — a direct-origin request could otherwise forge client IPs.
+**Inbound must be Cloudflare-only.** The app trusts `CF-Connecting-IP`/`X-Forwarded-For` for client IPs (rate limits, admin gating) because `deploy/Caddyfile.conf` aborts any request that did not arrive from a Cloudflare edge IP. Do not remove that matcher, and keep the host firewall restricted to the proxy's address ranges as well — a direct-origin request could otherwise forge client IPs.
 
-Fill Cloudflare (tunnel + DNS for `*.luna.servers.libreloom.org`) and Stripe in both `/etc/luna/connect/luna-connect-{a,b}.yaml` (same `admin_token` and `at_rest_key` on both), or set them in Admin → Connections (shared SQLite). Cloudflare and Stripe yaml values are the fallback when nothing is enabled in the database.
+Fill Cloudflare (tunnel + DNS for the device domain) and Stripe in both instances' config files (same `admin_token` and `at_rest_key` on both), or set them in Admin → Connections (shared SQLite). Cloudflare and Stripe yaml values are the fallback when nothing is enabled in the database.
 
 ## Tests
 

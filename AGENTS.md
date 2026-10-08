@@ -100,7 +100,7 @@ Sync with the animation. Never buzz on hover, scroll, or typing. Never double-bu
 
 - **`origin` (GitHub) and `forgejo` (gt.plainskill.net) are ONE repository, kept identical by a mirror.** Fetch, merge, and diff against the branch's upstream (usually `origin`) only; never treat them as divergent or remark that they match.
 - **Push once** to the upstream remote; the mirror copies it. Never dual-push commits or branches — it races the mirror. If a forge looks behind, wait.
-- **Tags don't sync.** Push release tags to the forge the consumer fetches (Luna Connect at `/opt/LibreServ` pulls Forgejo), or deploy with `deploy.sh --head` / an explicit SHA.
+- **Tags don't sync.** Push release tags to the forge the consumer fetches (Connect servers pull Forgejo), or deploy with `deploy.sh --head` / an explicit SHA.
 - Conventional commits (`feat(scope): …`, `fix(scope): …`); branches `feat/`, `fix/`, `docs/`, `chore/`.
 
 ## Claude Code cloud environment

@@ -7,7 +7,7 @@
 // re-decompressing the ENTIRE file every 2s and re-parsing every line,
 // retaining every event key in an unbounded `seen` Set. For long CI jobs
 // (100+ steps, 4000+ events) this ballooned to 5.7GB+ RSS and was a
-// major contributor to the 2026-08-28 pscA OOM. This version reads only the
+// major contributor to the earlier host out-of-memory kill. This version reads only the
 // NEW bytes appended since the last tick (zstd flush frames are appended
 // monotonically by the persistence layer), so memory stays flat regardless
 // of session size.

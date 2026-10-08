@@ -2,7 +2,7 @@
  * dsh-memory-guard: prune tool-result content at append time to bound session
  * memory growth.
  *
- * Root cause of the 2026-08-28 pscA outage: dsh's session event log is an
+ * Root cause of an earlier host outage: dsh's session event log is an
  * append-only array that never shrinks. Compaction replaces the model-visible
  * surface but the underlying event objects stay in memory. 3 concurrent 36+
  * step CI jobs at reasoningEffort: high grew node heaps to 6-10GB each until

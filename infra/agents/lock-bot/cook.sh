@@ -243,7 +243,7 @@ export DSH_HOME="${COMMON}/dsh-home"
 export DSH_PERMISSION_MODE=danger-full-access
 export PYTHONUNBUFFERED=1
 
-# --- memory defense (2026-08-28 pscA OOM; stock thresholds, user mandate) ---
+# --- memory defense (guards against an out-of-memory kill; stock thresholds, user mandate) ---
 # dsh-memory-guard is installed in the toolchain image inside the global dsh
 # package, where its @deepseek-ai/cordis and @deepseek-ai/schemastery peers
 # resolve. The live profile lives in the force-pulled clone, so link the plugin

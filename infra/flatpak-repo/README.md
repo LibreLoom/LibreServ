@@ -1,7 +1,7 @@
 # Luna Desktop Flatpak repo server
 
-Hosted on the Luna Connect server at `https://flatpak.luna.libreloom.org`
-(Caddy site behind the cloudflared tunnel). Spec: `../ci-source/internal/feed/README.md`.
+Serves the Luna Desktop Flatpak repo at `https://flatpak.luna.libreloom.org`
+(a Caddy site on a server we run). Spec: `../ci-source/internal/feed/README.md`.
 
 ## What it does
 
@@ -51,11 +51,10 @@ in `/var/lib/luna-flatpak/{state,gnupg}`.
 sudo /opt/LibreServ/infra/flatpak-repo/setup.sh
 ```
 
-Then add `import /etc/caddy/luna-flatpak.caddy` (setup.sh copies it there) to
-`/etc/caddy/Caddyfile`, reload Caddy, and add `flatpak.luna.libreloom.org` as a
-public hostname on the cloudflared tunnel (`http://localhost:80`). In
-Cloudflare add a Cache Rule for the hostname ("Eligible for cache", respect
-origin Cache-Control), or the repo files are not cached at the edge.
+Then import the Caddy site that setup.sh installs (see `Caddyfile.conf`),
+reload Caddy, and route `flatpak.luna.libreloom.org` to it. If a CDN fronts the
+hostname, add a cache rule that respects the origin's `Cache-Control`, or the
+repo files are not cached at the edge.
 
 ## Operating
 
@@ -69,7 +68,7 @@ To re-import a version: delete `/var/lib/luna-flatpak/state/<channel>.version`
 (and `.published` if you need to go older), then run the service.
 
 The GPG signing key lives in `/var/lib/luna-flatpak/gnupg` (only `luna-flatpak`
-can read it). The backup is in Proton Pass. The public key is
+can read it). Keep an offline backup. The public key is
 `keys/luna-desktop-flatpak.gpg`.
 
 ## How people get it
