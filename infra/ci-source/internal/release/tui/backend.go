@@ -54,6 +54,7 @@ type SecretsAPI interface {
 	Slots() []secrets.SlotInfo
 	ProtonConfig() secrets.ProtonConfig
 	SetProton(pc secrets.ProtonConfig) error
+	ProtonCheck(ctx context.Context) []secrets.ProtonCheck
 }
 
 // StoreAPI is what the TUI needs from *secrets.StoreManager.

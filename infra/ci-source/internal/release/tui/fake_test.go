@@ -82,6 +82,7 @@ type fakeSecrets struct {
 	values []string // slots set
 	paths  []string
 	proton secrets.ProtonConfig
+	checks []secrets.ProtonCheck
 }
 
 func (f *fakeSecrets) List(context.Context) []secrets.Status {
@@ -122,8 +123,17 @@ func (f *fakeSecrets) Forget(string) error                                   { r
 func (f *fakeSecrets) Slots() []secrets.SlotInfo {
 	return []secrets.SlotInfo{{Slot: secrets.SlotForgejoToken, Label: "Forgejo token", Set: true}}
 }
-func (f *fakeSecrets) ProtonConfig() secrets.ProtonConfig      { return f.proton }
-func (f *fakeSecrets) SetProton(pc secrets.ProtonConfig) error { f.proton = pc; return nil }
+func (f *fakeSecrets) ProtonConfig() secrets.ProtonConfig { return f.proton }
+func (f *fakeSecrets) SetProton(pc secrets.ProtonConfig) error {
+	for _, ref := range pc.Refs {
+		if !secrets.IsPassRef(ref) {
+			return fmt.Errorf("the reference must look like pass://Vault/Item/field")
+		}
+	}
+	f.proton = pc
+	return nil
+}
+func (f *fakeSecrets) ProtonCheck(context.Context) []secrets.ProtonCheck { return f.checks }
 
 type fakeBackend struct {
 	sec   *fakeSecrets

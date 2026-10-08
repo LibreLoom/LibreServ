@@ -81,6 +81,7 @@ func (m *Manager) stored(ctx context.Context, slot string) []found {
 		}
 		vals, err := s.Lookup(ctx, slot)
 		if err != nil {
+			m.srcNotes = append(m.srcNotes, Candidate{Where: s.Name() + " " + slot, Outcome: Unusable, Reason: err.Error()})
 			continue
 		}
 		for _, v := range vals {
@@ -178,10 +179,32 @@ func (m *Manager) ProtonConfig() ProtonConfig { return m.loadConfig().Proton }
 
 // SetProton saves the Proton Pass settings and uses them from now on.
 func (m *Manager) SetProton(pc ProtonConfig) error {
+	if err := pc.validate(); err != nil {
+		return err
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	c := m.loadConfig()
 	c.Proton = pc
+	if err := m.saveConfig(c); err != nil {
+		return err
+	}
+	// After saving: the new source is built from the saved settings.
 	m.invalidateLocked(false)
-	return m.saveConfig(c)
+	return nil
+}
+
+// ProtonCheck tests every saved Proton Pass reference now and says which ones
+// work. It reads values to prove they exist and keeps none of them.
+func (m *Manager) ProtonCheck(ctx context.Context) []ProtonCheck {
+	cfg := m.ProtonConfig()
+	p := NewProton(cfg, m.opt.Run)
+	res := p.Check(ctx)
+	for _, c := range res {
+		if c.Err == "" {
+			vals, _ := p.Lookup(ctx, c.Slot)
+			m.redact(vals...)
+		}
+	}
+	return res
 }

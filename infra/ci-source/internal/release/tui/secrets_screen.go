@@ -620,14 +620,24 @@ type protonScreen struct {
 	cur  int
 	edit *field
 	err  string
+
+	testing bool
+	checks  map[string]secrets.ProtonCheck // by slot, from the last test
 }
 
+type protonCheckedMsg struct{ res []secrets.ProtonCheck }
+
 func newProtonScreen(sh *shared) *protonScreen {
-	s := &protonScreen{sh: sh, cfg: sh.be.Secrets().ProtonConfig()}
+	s := &protonScreen{sh: sh}
+	s.reload()
+	return s
+}
+
+func (s *protonScreen) reload() {
+	s.cfg = s.sh.be.Secrets().ProtonConfig()
 	if s.cfg.Refs == nil {
 		s.cfg.Refs = map[string]string{}
 	}
-	return s
 }
 
 func (s *protonScreen) init() tea.Cmd { return nil }
@@ -637,14 +647,34 @@ func (s *protonScreen) stop()         {}
 func (s *protonScreen) slots() []secrets.SlotInfo { return s.sh.slots }
 
 func (s *protonScreen) save() {
+	s.checks = nil
 	if err := s.sh.be.Secrets().SetProton(s.cfg); err != nil {
 		s.err = s.sh.redact(err.Error())
+		s.reload() // show what is really saved
 	} else {
 		s.err = ""
 	}
 }
 
+func (s *protonScreen) test() tea.Cmd {
+	s.testing, s.err = true, ""
+	sh := s.sh
+	return func() tea.Msg {
+		return protonCheckedMsg{sh.be.Secrets().ProtonCheck(context.Background())}
+	}
+}
+
 func (s *protonScreen) update(msg tea.Msg) (screen, tea.Cmd) {
+	if m, ok := msg.(protonCheckedMsg); ok {
+		s.testing, s.checks = false, map[string]secrets.ProtonCheck{}
+		for _, c := range m.res {
+			s.checks[c.Slot] = c
+		}
+		if len(m.res) == 0 {
+			s.err = "No references to test yet. Set at least one below."
+		}
+		return s, nil
+	}
 	k, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return s, nil
@@ -672,6 +702,10 @@ func (s *protonScreen) update(msg tea.Msg) (screen, tea.Cmd) {
 	switch k.String() {
 	case "esc", "q":
 		return s, pop()
+	case "t":
+		if !s.testing {
+			return s, s.test()
+		}
 	case "up", "k":
 		s.cur = max(s.cur-1, 0)
 	case "down", "j":
@@ -689,19 +723,29 @@ func (s *protonScreen) update(msg tea.Msg) (screen, tea.Cmd) {
 }
 
 func (s *protonScreen) view(w, h int) frame {
-	f := frame{title: "Proton Pass", help: "↑↓ move · space/enter change · esc back"}
+	f := frame{title: "Proton Pass", help: "↑↓ move · space/enter change · t test · esc back"}
 	lines := []string{"", marker(s.cur == 0) + checkbox(s.cfg.Enabled) + " Read secrets from Proton Pass " +
-		dimStyle.Render("(needs pass-cli signed in)"), "", "  " + dimStyle.Render("Where each value lives (a pass:// reference); empty means not used")}
+		dimStyle.Render("(needs pass-cli signed in: run pass-cli login)"), "", "  " + dimStyle.Render("Where each value lives (a pass:// reference); empty means not used")}
 	for i, sl := range s.slots() {
 		ref := s.cfg.Refs[sl.Slot]
 		val := dimStyle.Render("not set")
 		if ref != "" {
 			val = ref
 		}
+		if c, ok := s.checks[sl.Slot]; ok {
+			if c.Err == "" {
+				val += " " + okStyle.Render("✓ works")
+			} else {
+				val += " " + errTxtStyle.Render("✗ "+fit(firstLine(s.sh.redact(c.Err)), 40))
+			}
+		}
 		if s.edit != nil && s.cur == i+1 {
 			val = s.edit.view(w-40, true)
 		}
 		lines = append(lines, marker(s.cur == i+1)+pad(sl.Label, 36)+val)
+	}
+	if s.testing {
+		lines = append(lines, "", "  "+dimStyle.Render("testing…"))
 	}
 	if s.err != "" {
 		lines = append(lines, "", "  "+errTxtStyle.Render(fit(s.err, w-4)))

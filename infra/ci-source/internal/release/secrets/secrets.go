@@ -142,6 +142,7 @@ type Manager struct {
 	envMemo       map[string][]found
 	session       map[string][]string // values typed this session and not remembered
 	protonSv      *Proton
+	srcNotes      []Candidate // lookup failures seen while resolving one secret
 	forceScanOnce bool
 }
 
@@ -410,6 +411,8 @@ func (m *Manager) resolveLocked(ctx context.Context, id ID) *resolved {
 	if r, ok := m.memo[id]; ok {
 		return r
 	}
+	m.srcNotes = nil
+	defer func() { m.attachSourceNotes(id) }()
 	switch id {
 	case SolSigning, LunaSigning:
 		m.resolveSigning(ctx, id)
@@ -421,6 +424,26 @@ func (m *Manager) resolveLocked(ctx context.Context, id ID) *resolved {
 		m.memo[id] = &resolved{status: Status{ID: id, Label: string(id), State: Missing, Summary: "Unknown secret."}}
 	}
 	return m.memo[id]
+}
+
+// attachSourceNotes lists value sources that failed while resolving id (for
+// example Proton Pass signed out), so a "not found" says why. Proven secrets
+// are left alone.
+func (m *Manager) attachSourceNotes(id ID) {
+	r := m.memo[id]
+	if r == nil || r.status.State == Proven || len(m.srcNotes) == 0 {
+		return
+	}
+	seen := map[string]bool{}
+	for _, c := range r.status.Candidates {
+		seen[c.Where] = true
+	}
+	for _, c := range m.srcNotes {
+		if !seen[c.Where] {
+			seen[c.Where] = true
+			r.status.Candidates = append(r.status.Candidates, c)
+		}
+	}
 }
 
 func (m *Manager) redact(vals ...string) {

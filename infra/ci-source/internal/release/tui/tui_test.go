@@ -317,6 +317,33 @@ func TestProtonScreen(t *testing.T) {
 	}
 }
 
+func TestProtonScreenRejectsPastedValue(t *testing.T) {
+	h := newHarness(t)
+	h.start()
+	h.key("s")
+	h.key("p")
+	h.key("down")
+	h.key("enter")
+	h.typ("hunter2hunter2")
+	h.key("enter")
+	if len(h.be.sec.proton.Refs) != 0 {
+		t.Fatalf("saved a non-reference: %+v", h.be.sec.proton)
+	}
+	if v := h.wantView("must look like pass://"); strings.Contains(v, "hunter2hunter2") {
+		t.Fatal("the pasted value is still on screen")
+	}
+}
+
+func TestProtonScreenTest(t *testing.T) {
+	h := newHarness(t)
+	h.be.sec.checks = []secrets.ProtonCheck{{Slot: secrets.SlotForgejoToken, Ref: "pass://V/I/f", Err: "proton pass: not signed in"}}
+	h.start()
+	h.key("s")
+	h.key("p")
+	h.key("t")
+	h.wantView("✗ proton pass: not signed in")
+}
+
 func TestDoctorAndHelp(t *testing.T) {
 	h := newHarness(t)
 	h.start()
