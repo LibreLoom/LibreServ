@@ -188,7 +188,14 @@ fn device_path_is_usb(dir: &Path) -> bool {
     let Ok(target) = std::fs::canonicalize(dir.join("device")) else {
         return false;
     };
-    target.components().any(|c| c.as_os_str() == "usb")
+    // The kernel names each USB bus `usb1`, `usb2`, ... in the device path
+    // (`.../0000:00:14.0/usb2/2-1/2-1:1.0/host6/...`), never plain `usb`.
+    target.components().any(|c| {
+        c.as_os_str()
+            .to_str()
+            .and_then(|s| s.strip_prefix("usb"))
+            .is_some_and(|rest| !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()))
+    })
 }
 
 /// Strip partition suffixes to the parent disk name: `sda1` -> `sda`,
@@ -282,6 +289,32 @@ mod tests {
         fs::write(sys.join("sdb/size"), "123456\n").unwrap();
         fs::write(sys.join("sdb/removable"), "0\n").unwrap();
         sys
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_drive_behind_a_usb_bus_is_usb_even_when_it_says_it_is_not_removable() {
+        let root = tempfile::tempdir().unwrap();
+        let sys = root.path().join("sys/block");
+        // Real layout: the device link points through a `usbN` bus directory.
+        let dev = root
+            .path()
+            .join("sys/devices/pci0000:00/0000:00:14.0/usb2/2-1/2-1:1.0/host6/target6:0:0/6:0:0:0");
+        fs::create_dir_all(&dev).unwrap();
+        fs::create_dir_all(sys.join("sdb")).unwrap();
+        std::os::unix::fs::symlink(&dev, sys.join("sdb/device")).unwrap();
+        fs::write(sys.join("sdb/size"), "524288\n").unwrap();
+        fs::write(sys.join("sdb/removable"), "0\n").unwrap();
+        // An internal SATA disk and a path that only has "usb" inside a name.
+        let sata = root.path().join("sys/devices/pci0000:00/0000:00:1f.2/ata1/host0/target0:0:0/0:0:0:0");
+        fs::create_dir_all(&sata).unwrap();
+        fs::create_dir_all(sys.join("sdc")).unwrap();
+        std::os::unix::fs::symlink(&sata, sys.join("sdc/device")).unwrap();
+        fs::write(sys.join("sdc/size"), "1000\n").unwrap();
+        fs::write(sys.join("sdc/removable"), "0\n").unwrap();
+        let drives = scan(&sys, "");
+        assert!(drives.iter().find(|d| d.name == "sdb").unwrap().usb);
+        assert!(!drives.iter().find(|d| d.name == "sdc").unwrap().usb);
     }
 
     #[test]
