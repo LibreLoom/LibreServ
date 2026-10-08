@@ -33,6 +33,14 @@ use crate::drives::mount::Mounter;
 
 pub const INSTALLER_USB_MESSAGE: &str = "If you have moved any files you want to keep off this drive, choose Erase and add this drive. That deletes everything on it so Luna can use it for your photos and files.";
 pub const WRITE_REJECTED_MESSAGE: &str = "This drive will not accept new files right now. If it has a lock switch, slide it to unlock, then try again.";
+/// A removable drive with no filesystem Luna recognises (blank, damaged, or
+/// another system's format) that nothing has mounted.
+fn is_unrecognized(device: &DetectedDrive, choice: &MountChoice) -> bool {
+    choice.fs_type.is_empty()
+        && device.mount_point.is_none()
+        && (device.removable || device.usb)
+}
+
 /// Adopt failed because the stick stayed read-only after a remount attempt.
 pub const NEEDS_FORMAT_MESSAGE: &str =
     "This drive is read-only. Format it before using it with Luna.";
@@ -165,6 +173,23 @@ impl DriveManager {
                     error = %e,
                     "could not mount drive to look inside"
                 );
+                if is_unrecognized(device, &choice) {
+                    // No filesystem Luna knows: a new stick, a damaged one, or
+                    // another system's format. The only way forward is to
+                    // erase it, which the caller must confirm.
+                    return Ok(Inspection {
+                        device: device.name.clone(),
+                        model: device.model.clone(),
+                        fs_type: None,
+                        mount_point: PathBuf::new(),
+                        mounted_by_luna: false,
+                        summary: Default::default(),
+                        has_marker: false,
+                        needs_erase: true,
+                        readable: true,
+                        writable: false,
+                    });
+                }
                 return Err(anyhow::anyhow!("Could not look at this drive safely. {e}"));
             }
             (target, true)
@@ -246,7 +271,7 @@ impl DriveManager {
                 fs_type,
                 readable: false,
                 has_marker: false,
-                needs_erase: choice.needs_erase,
+                needs_erase: choice.needs_erase || is_unrecognized(device, &choice),
                 summary: Default::default(),
             },
         }
@@ -302,7 +327,7 @@ impl DriveManager {
         }
 
         let mut choice = self.choice_for(device);
-        if choice.needs_erase && !erase {
+        if (choice.needs_erase || is_unrecognized(device, &choice)) && !erase {
             anyhow::bail!("{INSTALLER_USB_MESSAGE}");
         }
         if erase && !(device.removable || device.usb) {
@@ -1956,6 +1981,49 @@ mod tests {
         let inspection = mgr.inspect(&dev).unwrap();
         assert!(inspection.needs_erase);
         assert!(!inspection.writable);
+    }
+
+    #[test]
+    fn a_blank_usb_stick_can_be_erased_and_added() {
+        let mounter = shared_mock();
+        *mounter.fail_mount.lock().unwrap() = true;
+        let root = tempfile::tempdir().unwrap();
+        let conn = db::open(&root.path().join("luna.db")).unwrap();
+        let mgr = DriveManager::new_with_probe(
+            mounter.clone(),
+            root.path(),
+            Arc::new(crate::drives::fsprobe::MockFsProbe::default()),
+        );
+        let mut dev = detected("sdz", None);
+        dev.fs_type = None;
+        // Nothing Luna can mount: looking inside offers an erase, not a dead end.
+        let inspection = mgr.inspect(&dev).unwrap();
+        assert!(inspection.needs_erase);
+        assert!(inspection.readable);
+        assert!(inspection.fs_type.is_none());
+        assert!(mgr.peek(&dev).needs_erase);
+        // Adding it without the erase says so in words a person can act on.
+        let err = mgr.adopt(&conn, &dev, "New stick", false).unwrap_err();
+        assert!(err.to_string().contains("Erase and add this drive"), "{err}");
+        assert!(db::list_drives(&conn).unwrap().is_empty());
+    }
+
+    #[test]
+    fn an_internal_disk_with_no_known_format_is_never_offered_for_erase() {
+        let mounter = shared_mock();
+        *mounter.fail_mount.lock().unwrap() = true;
+        let root = tempfile::tempdir().unwrap();
+        let mgr = DriveManager::new_with_probe(
+            mounter,
+            root.path(),
+            Arc::new(crate::drives::fsprobe::MockFsProbe::default()),
+        );
+        let mut dev = detected("sdz", None);
+        dev.fs_type = None;
+        dev.usb = false;
+        dev.removable = false;
+        assert!(mgr.inspect(&dev).is_err());
+        assert!(!mgr.peek(&dev).needs_erase);
     }
 
     #[test]

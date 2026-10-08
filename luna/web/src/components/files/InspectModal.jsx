@@ -141,9 +141,9 @@ export default function InspectModal({ open = true, drive, result, error, onClos
                 <div className="mt-4 flex items-center gap-3">
                   <TriangleAlert size={18} className="text-warning shrink-0" />
                   <p className="text-primary text-xs">
-                    If you have moved any files you want to keep off this drive,
-                    choose Erase and add this drive. That deletes everything on it
-                    so Luna can use it for your photos and files.
+                    {result.fs_type
+                      ? "If you have moved any files you want to keep off this drive, choose Erase and add this drive. That deletes everything on it so Luna can use it for your photos and files."
+                      : "Luna can't read what's on this drive. It may be new, damaged, or in a format Luna doesn't use. If you don't need anything on it, choose Erase and add this drive. That deletes everything on it so Luna can use it for your photos and files."}
                   </p>
                 </div>
               ) : blockedReason ? (

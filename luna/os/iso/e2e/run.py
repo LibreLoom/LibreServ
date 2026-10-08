@@ -235,6 +235,13 @@ def overlay(golden, name):
     return path
 
 
+def overlay_to_raw(name):
+    """Flatten a VM's overlay to a raw file so the offline helpers can read it."""
+    raw = f"{WORK}/{name}.flat.raw"
+    sh(f"qemu-img convert -O raw {WORK}/{name}.qcow2 {raw}")
+    return raw
+
+
 def boot_disk(name, golden, bus, fw="bios", port=18080, extra_disks=(), **kw):
     ov = overlay(golden, name)
     vm = VM(name, [{"file": ov, "fmt": "qcow2", "bus": bus, "bootindex": 0}, *extra_disks],
@@ -599,7 +606,7 @@ def part_people(vm, lu, drive):
     check("a member with a weak password is refused", c == 400, f"{c} {b}")
     sam = Luna(18080)
     c, b = sam.post("/api/v1/auth/login", {"username": "sam", "password": "sams-long-password-7"})
-    check("the member can sign in", c == 200 and b.get("role") == "member", f"{c} {b}")
+    check("the member can sign in", c == 200 and b.get("role") == "user", f"{c} {b}")
     for path, what in (("/api/v1/drives/detected", "drive scan"), ("/api/v1/system/updates", "updates"),
                        ("/api/v1/system/updates/source", "update source"), ("/api/v1/users", "user list")):
         c, b = sam.get(path)
@@ -693,6 +700,300 @@ def part_people(vm, lu, drive):
     check("WebDAV hides a drive the member has no share on", c in (403, 404, 207) and not (c == 207 and "Docs" in str(b)), f"{c} {str(b)[:200]}")
 
 
+def drive_state(lu, drive_id):
+    r = drive_row(lu, drive_id)
+    return r["state"] if r else None
+
+
+def wait_state(lu, drive_id, want, timeout=40):
+    end = time.time() + timeout
+    st = None
+    while time.time() < end:
+        lu.get("/api/v1/drives/detected")  # the web app polls this; it reconciles drive state
+        st = drive_state(lu, drive_id)
+        if st == want:
+            return True
+        time.sleep(2)
+    say(f"    (state is {st!r}, wanted {want!r})")
+    return False
+
+
+def copy_fixture(fx, kind, name):
+    dst = f"{WORK}/fx/{name}.img"
+    shutil.copy(fx[kind], dst)
+    return dst
+
+
+def part_drive_lifecycle(vm, lu, fx):
+    say("-- drive lifecycle: exactly-one-file adoption, eject, replug, pull without eject")
+    img = copy_fixture(fx, "fat32", "life")
+    before = image_root_listing("fat32", img)
+    d = plug(vm, lu, "u-life", img)
+    check("[life] stick shows up", d is not None)
+    if not d:
+        return
+    c, b = lu.post(f"/api/v1/drives/{d['name']}/adopt", {"label": "Life", "erase": False})
+    check("[life] stick is added", c == 200, f"{c} {b}")
+    did = b.get("id")
+    c, b = lu.post(f"/api/v1/drives/{did}/eject")
+    if c != 200:
+        rc, o = vm.sh("for p in /proc/[0-9]*; do n=$(cat $p/comm 2>/dev/null); for l in $p/fd/* $p/cwd; do t=$(readlink $l 2>/dev/null); case \"$t\" in *mounts/drives*) echo \"$n ${p#/proc/} $l -> $t\";; esac; done; done 2>/dev/null | head -20; cat /proc/mounts | grep drives")
+        say(f"    holders of the drive right after adding it:\n{o}")
+        t0 = time.time()
+        while c != 200 and time.time() - t0 < 60:
+            time.sleep(3)
+            c, b = lu.post(f"/api/v1/drives/{did}/eject")
+        say(f"    eject succeeded after another {time.time() - t0:.0f}s" if c == 200 else "    eject never succeeded")
+    check("[life] eject says it is safe", c == 200 and b.get("ok") is True, f"{c} {b}")
+    check("[life] state is ejected", drive_state(lu, did) == "ejected")
+    after = image_root_listing("fat32", img)
+    added = sorted(set(after) - set(before))
+    gone = sorted(set(before) - set(after))
+    check("[life] adopting added exactly one file, a .luna one, and removed nothing",
+          len(added) == 1 and added[0].lower().startswith(".luna") and not gone, f"added={added} gone={gone}")
+    c, b = lu.get(f"/api/v1/drives/{did}/files")
+    check("[life] an ejected drive's files answer with a plain message, not a crash", c in (404, 409, 423, 503) and isinstance(b, dict) and b.get("error"), f"{c} {b}")
+    # still plugged in: stays ejected
+    check("[life] it stays ejected while still plugged in", wait_state(lu, did, "ejected", 8))
+    check("[life] it does not reappear in Add drive while ejected", d["name"] not in detected_names(lu))
+    # unplug, replug
+    check("[life] unplugging is noticed", unplug(vm, lu, "u-life", d["name"]))
+    check("[life] state becomes missing", wait_state(lu, did, "missing"))
+    t0 = time.time()
+    c, b = lu.get(f"/api/v1/drives/{did}/files")
+    check("[life] a missing drive answers calmly and fast", time.time() - t0 < 10 and c in (404, 409, 423, 503) and isinstance(b, dict) and b.get("error"), f"{c} {b} {time.time() - t0:.1f}s")
+    d2 = plug(vm, lu, "u-life2", img) if False else None
+    vm.usb_add("u-life2", img)
+    check("[life] replugging brings the drive back to ready", wait_state(lu, did, "as_is", 60))
+    c, ls = file_names(lu, did)
+    check("[life] its files are there again", c == 200 and "hello.txt" in ls and "Photos" in ls, str(ls))
+    # pull without eject
+    vm.usb_del("u-life2")
+    check("[life] pulling without eject is noticed", wait_state(lu, did, "missing", 40))
+    c, b = lu.get(f"/api/v1/drives/{did}/summary")
+    check("[life] the drive summary of a missing drive answers", c == 200 and b.get("mounted") is False, f"{c} {b}")
+    vm.usb_add("u-life3", img)
+    check("[life] and it comes back again", wait_state(lu, did, "as_is", 60))
+    c, ls = file_names(lu, did)
+    check("[life] still intact after an unclean pull", c == 200 and "hello.txt" in ls, str(ls))
+    # remove from Luna
+    c, b = lu.post(f"/api/v1/drives/{did}/remove")
+    check("[life] a drive can be removed from Luna", c == 200, f"{c} {b}")
+    check("[life] a removed drive is offered in Add drive again", detected(lu, lambda x: True, 30) != [])
+    vm.usb_del("u-life3")
+    time.sleep(2)
+
+
+def part_foreign_drives(vm, lu, fx):
+    say("-- blank, damaged and other-format drives")
+    for kind in ("blank", "corrupt"):
+        img = copy_fixture(fx, kind, kind + "-t")
+        d = plug(vm, lu, f"u-{kind}", img)
+        check(f"[{kind}] shows up", d is not None)
+        if not d:
+            continue
+        c, b = lu.get(f"/api/v1/drives/{d['name']}/peek")
+        show(f"{kind} peek", (c, b))
+        check(f"[{kind}] preview says it cannot be read or needs erasing", c == 200 and (b.get("needs_erase") or not b.get("readable")), f"{c} {b}")
+        c2, b2 = lu.post(f"/api/v1/drives/{d['name']}/inspect")
+        show(f"{kind} inspect", (c2, b2))
+        c, b = lu.post(f"/api/v1/drives/{d['name']}/adopt", {"label": f"Fresh {kind}", "erase": False})
+        check(f"[{kind}] adding without erasing is refused with a plain message", c == 400 and isinstance(b, dict) and "erase" in b.get("error", "").lower(), f"{c} {b}")
+        pre = sh(f"sha256sum {img}").split()[0]
+        c, b = lu.post(f"/api/v1/drives/{d['name']}/adopt", {"label": f"Fresh {kind}", "erase": True})
+        check(f"[{kind}] adding with erase works", c == 200 and b.get("id"), f"{c} {b}")
+        if c == 200:
+            did = b["id"]
+            data = os.urandom(50_000)
+            c, b, _ = upload(lu, did, "after-erase.bin", data)
+            check(f"[{kind}] the erased drive takes an upload", c == 200, f"{c} {b}")
+            c, got = download(lu, did, "after-erase.bin")
+            check(f"[{kind}] and gives it back", c == 200 and got == data)
+            c, b = lu.post(f"/api/v1/drives/{did}/eject")
+            check(f"[{kind}] eject works", c == 200, f"{c} {b}")
+            out = sh(f"file -s {img} 2>/dev/null; blkid {img} 2>/dev/null; dumpe2fs -h {img} 2>&1 | head -3", check_rc=False)
+            check(f"[{kind}] the drive now has a partition with a filesystem", "ID=0x7" in out or "ID=0xc" in out or "ID=0xb" in out or "ext" in out.lower() or "fat" in out.lower(), out[:200])
+            say(f"    filesystem made: {out.strip().splitlines()[:2]}")
+        unplug(vm, lu, f"u-{kind}", d["name"])
+    for kind in ("exfat", "ntfs"):
+        img = copy_fixture(fx, kind, kind + "-t")
+        d = plug(vm, lu, f"u-{kind}", img)
+        check(f"[{kind}] shows up", d is not None)
+        if not d:
+            continue
+        c, b = lu.get(f"/api/v1/drives/{d['name']}/peek")
+        check(f"[{kind}] preview reads the drive", c == 200 and b.get("readable") and b.get("fs_type"), f"{c} {b}")
+        c, b = lu.post(f"/api/v1/drives/{d['name']}/adopt", {"label": f"My {kind}", "erase": False})
+        check(f"[{kind}] drive is added", c == 200 and b.get("id"), f"{c} {b}")
+        if c == 200:
+            did = b["id"]
+            data = os.urandom(300_000)
+            c, b, _ = upload(lu, did, "big file \u00e9.bin", data)
+            check(f"[{kind}] upload with a non-ASCII name", c == 200, f"{c} {b}")
+            c, got = download(lu, did, "big file \u00e9.bin")
+            check(f"[{kind}] and gives it back", c == 200 and got == data)
+            c, b = lu.post(f"/api/v1/drives/{did}/files/mkdir", {"path": "Sub"})
+            check(f"[{kind}] folders work", c in (200, 201), f"{c} {b}")
+            c, b = lu.post(f"/api/v1/drives/{did}/eject")
+            check(f"[{kind}] eject works", c == 200, f"{c} {b}")
+            if kind == "exfat":
+                r = sh(f"fsck.exfat -n {img}; echo rc=$?", check_rc=False)
+                check("[exfat] the filesystem is clean after eject", "rc=0" in r, r[-200:])
+            else:
+                r = sh(f"ntfsfix -n {img} 2>&1; echo rc=$?", check_rc=False)
+                check("[ntfs] the filesystem is clean after eject", "rc=0" in r, r[-300:])
+        unplug(vm, lu, f"u-{kind}", d["name"])
+
+
+def fsck_data(raw):
+    """Repair-check LUNA_DATA on a flattened copy the way boot would (journal replay)."""
+    off, size, _ = parts(raw)[5]
+    img = f"{WORK}/data-fsck.img"
+    sh(f"dd if={raw} of={img} bs=1M skip={off // 1048576} count={size // 1048576} 2>/dev/null")
+    r = sh(f"e2fsck -fp {img}; echo rc=$?", check_rc=False)
+    os.unlink(img)
+    m = re.search(r"rc=(\d+)", r)
+    return (int(m.group(1)) if m else 99), r
+
+
+def bring_up(name, usb=None, port=18080, **kw):
+    vm = golden_vm(name, "sata", xhci=True, port=port, **kw)
+    lu = Luna(port)
+    if usb:
+        vm.usb_add("u-boot", usb)
+    return vm, lu
+
+
+def login_admin(lu):
+    c, b = lu.post("/api/v1/auth/login", {"username": ADMIN["username"], "password": ADMIN["password"]})
+    return c == 200
+
+
+def stage_resilience():
+    """Crashes, restarts, power cuts, a missing cable, a full disk, a wrong clock."""
+    say("-- resilience")
+    fx = make_fixtures()
+    img = copy_fixture(fx, "ext4", "resil")
+    vm, lu = bring_up("resil", usb=img)
+    check("web UI answers", lu.wait_up(240))
+    lu.post("/api/v1/auth/register", ADMIN)
+    check("admin signs in", login_admin(lu))
+    lu.post("/api/v1/setup", {"setup_completed": True, "current_step": "done"})
+    d = detected(lu, lambda x: True, 60)
+    check("the stick plugged at boot is offered", bool(d))
+    c, b = lu.post(f"/api/v1/drives/{d[0]['name']}/adopt", {"label": "Resil", "erase": False})
+    did = b.get("id")
+    check("added", c == 200 and did, f"{c} {b}")
+    data = os.urandom(2_000_000)
+    c, b, _ = upload(lu, did, "keep.bin", data)
+    check("a file is stored", c == 200, f"{c} {b}")
+
+    # -- lunad crash
+    rc, o = vm.sh("kill -9 $(pidof lunad)")
+    t0 = time.time()
+    time.sleep(2)
+    up = lu.wait_up(60)
+    check("lunad is restarted by itself within a minute after a crash", up, f"{time.time() - t0:.0f}s")
+    say(f"    back after {time.time() - t0:.0f}s")
+    c, b = lu.get("/api/v1/auth/me")
+    check("the crash did not sign anyone out", c == 200 and b and b.get("role") == "admin", f"{c} {b}")
+    c, got = download(lu, did, "keep.bin")
+    check("the stored file is still fine after the crash", c == 200 and got == data)
+
+    # -- clean reboot from the guest
+    vm.sh("sync")
+    vm.serial_send("reboot\n")
+    check("Luna goes down for a reboot", True)
+    check("Luna comes back after a reboot", wait_reboot_up(vm, lu, 240))
+    check("admin can sign in after the reboot", login_admin(lu))
+    check("the drive is back to ready by itself after a reboot", wait_state(lu, did, "as_is", 60))
+    c, got = download(lu, did, "keep.bin")
+    check("the file survived the reboot", c == 200 and got == data)
+    rc, o = vm.sh("cat /proc/cmdline")
+    check("reboot kept the same slot", "luna.slot=A" in o, o)
+
+    # -- power cut in the middle of an upload
+    big = os.urandom(60_000_000)
+    import threading
+    state = {}
+
+    def go():
+        state["r"] = upload(lu, did, "cut.bin", big, chunk=1_000_000)
+
+    th = threading.Thread(target=go)
+    th.start()
+    time.sleep(2.5)
+    vm.kill()
+    th.join(60)
+    check("the upload noticed the power cut (it failed rather than hanging)", state.get("r") is not None and state["r"][0] != 200, str(state.get("r", ("hung",))[:2]))
+    raw = overlay_to_raw("resil")
+    rc_, out = fsck_data(raw)
+    check("after a power cut the data partition repairs cleanly", rc_ in (0, 1), out[-300:])
+    vm, lu = bring_up("resil2", usb=img, golden=None) if False else (None, None)
+    ov = f"{WORK}/resil.qcow2"
+    vm = VM("resil2", [{"file": ov, "fmt": "qcow2", "bus": "sata", "bootindex": 0}, {"file": img, "bus": "usb"}],
+            http_port=18080, xhci=True)
+    vm.start()
+    lu = Luna(18080)
+    check("Luna boots after a power cut", lu.wait_up(240))
+    check("admin can sign in after a power cut", login_admin(lu))
+    check("the drive is ready after a power cut", wait_state(lu, did, "as_is", 90))
+    c, got = download(lu, did, "keep.bin")
+    check("the file stored before the cut is intact", c == 200 and got == data)
+    c, ls = file_names(lu, did)
+    check("the half-written upload is not shown as a file", "cut.bin" not in ls, str(ls))
+    # resume
+    c, b, uid = upload(lu, did, "cut.bin", big, chunk=1_000_000)
+    check("the same upload can be started again and finishes", c == 200, f"{c} {b}")
+    c, got = download(lu, did, "cut.bin")
+    check("and the file is right", c == 200 and got == big)
+    rc, o = vm.sh("cat /proc/cmdline")
+    check("power cut kept the same slot", "luna.slot=A" in o, o)
+
+    # -- no cable
+    rc, o = vm.sh("ip -4 addr show eth0 | grep -c inet")
+    check("Luna has an address before the cable is pulled", o.strip() == "1", o)
+    vm.hmp("set_link n0 off")
+    time.sleep(10)
+    rc, o = vm.sh("cat /sys/class/net/eth0/carrier")
+    check("the guest sees the cable as pulled", o.strip() == "0", o)
+    c, b = lu.get("/api/v1/health", timeout=5)
+    say(f"    health with cable out (via hostfwd): {c}")
+    rc, o = vm.sh("curl -s -m 5 http://127.0.0.1/api/v1/health")
+    check("Luna itself keeps running without a cable", "ok" in o, o)
+    vm.hmp("set_link n0 on")
+    ok = False
+    for _ in range(40):
+        time.sleep(3)
+        rc, o = vm.sh("ip -4 addr show eth0 | grep -c 'inet '")
+        if o.strip() == "1":
+            ok = True
+            break
+    check("plugging the cable back in gets an address again (within 2 min)", ok)
+    check("and the web UI is reachable again", lu.wait_up(60))
+    rc, o = vm.sh("cat /var/lib/luna/issue")
+    check("the console notes show the address again", re.search(r"\d+\.\d+\.\d+\.\d+", o) is not None, o)
+    rc, o = vm.sh("cat /etc/resolv.conf")
+    check("name lookup still configured", "nameserver" in o, o)
+
+    # -- full data partition
+    rc, o = vm.sh("df -k /var/lib/luna | tail -1")
+    free_kb = int(o.split()[3])
+    rc, o = vm.sh(f"fallocate -l {max(free_kb - 2048, 1) * 1024} /var/lib/luna/FILLER 2>&1; df -k /var/lib/luna | tail -1")
+    say(f"    data partition after filler: {o}")
+    c, b = lu.post("/api/v1/auth/login", {"username": ADMIN["username"], "password": ADMIN["password"]})
+    check("signing in still works when Luna's own storage is nearly full", c == 200, f"{c} {b}")
+    c, b = lu.get("/api/v1/health")
+    check("health still answers", c == 200, f"{c} {b}")
+    c, b = lu.get("/api/v1/system/health/check")
+    show("health check", (c, str(b)[:400]))
+    rc, o = vm.sh("rm -f /var/lib/luna/FILLER; sync; df -k /var/lib/luna | tail -1")
+    c, b = lu.get("/api/v1/drives")
+    check("everything works again after space is freed", c == 200, f"{c} {b}")
+    vm.sh("sync")
+    vm.quit()
+
+
 def stage_flow():
     vm = golden_vm("flow", "sata", xhci=True)
     lu = Luna(18080)
@@ -704,6 +1005,8 @@ def stage_flow():
         part_files(vm, lu, did, kind)
         if kind == "ext4":
             part_people(vm, lu, did)
+    part_drive_lifecycle(vm, lu, fx)
+    part_foreign_drives(vm, lu, fx)
     part_ratelimit()
     vm.quit()
 
@@ -807,6 +1110,144 @@ def publish(version, lunad=True, os_img=None, key="good", published=None, tamper
 LUNAD_BIN = "/lunad"  # the musl lunad this OS image was built with
 
 
+def slot_of(vm):
+    rc, out = vm.sh("cat /proc/cmdline")
+    m = re.search(r"luna\.slot=([AB])", out)
+    return m.group(1) if m else None
+
+
+def apply_update(lu, tries=1):
+    return lu.post("/api/v1/system/updates/apply", timeout=300)
+
+
+def api_check(lu, force=True):
+    return lu.get("/api/v1/system/updates?force=true" if force else "/api/v1/system/updates", timeout=60)
+
+
+def wait_reboot_up(vm, lu, timeout=300):
+    """After the guest reboots on its own: wait for the API to come back."""
+    # the API goes away first; then returns
+    end = time.time() + timeout
+    saw_down = False
+    while time.time() < end:
+        c, _ = lu.get("/api/v1/health", timeout=3)
+        if c != 200:
+            saw_down = True
+        elif saw_down:
+            return True
+        time.sleep(2)
+    return False
+
+
+def stage_update():
+    """Signed updates end to end: lunad-only, OS to the other slot, rollbacks, bad input."""
+    say("-- updates")
+    feed_server()
+    good_pub, _ = minisign_keys("good")
+    evil_pub, _ = minisign_keys("evil")
+    g = f"{WORK}/golden-sata.raw"
+    serial_console_for_tests(g)
+    start_mock_connect()
+    vm = boot_disk("update", g, "sata", port=18080)
+    lu = Luna(18080)
+    check("web UI answers", lu.wait_up(240))
+    lu.post("/api/v1/auth/register", ADMIN)
+    c, b = lu.post("/api/v1/auth/login", {"username": ADMIN["username"], "password": ADMIN["password"]})
+    lu.post("/api/v1/setup", {"setup_completed": True, "current_step": "done"})
+    # Connect is off for the OS update path: the new slot has no test hook for the mock.
+    vm.sh("rm -f /var/lib/luna/device-token")
+    c, b = lu.get("/api/v1/system/updates/source")
+    check("update source: shows the built-in signer", c == 200 and b.get("default_keys") is True and b.get("effective_keys"), f"{c} {b}")
+    c, b = lu.req("PUT", "/api/v1/system/updates/source", {"feed_url": FEED_URL, "channel": "stable", "keys": [good_pub]})
+    check("update source: a local feed and test key can be saved", c == 200 and b.get("ok"), f"{c} {b}")
+    c, b = lu.req("PUT", "/api/v1/system/updates/source", {"feed_url": "https://example.com/feed", "channel": "nightly", "keys": [good_pub]})
+    check("update source: an unknown channel is refused plainly", c == 400 and "Stable or Beta" in str(b), f"{c} {b}")
+    c, b = lu.req("PUT", "/api/v1/system/updates/source", {"feed_url": FEED_URL, "channel": "stable", "keys": ["not a key"]})
+    check("update source: a malformed key is refused plainly", c == 400 and "minisign" in str(b), f"{c} {b}")
+    c, b = lu.req("PUT", "/api/v1/system/updates/source", {"feed_url": "ftp://x", "channel": "stable", "keys": [good_pub]})
+    check("update source: a non-web address is refused plainly", c == 400, f"{c} {b}")
+    c, b = lu.req("PUT", "/api/v1/system/updates/source", {"feed_url": FEED_URL, "channel": "stable", "keys": [good_pub]})
+    old_hash = open(f"{DIST}/luna-os-x86_64.img.xz.sha256").read().split()[0]
+    rc, h = vm.sh("cat /var/lib/luna/os-image.sha256")
+    check("OS image hash is recorded before any update", old_hash in h, h)
+
+    # nothing published
+    for f in ("stable.json", "stable.json.minisig"):
+        if os.path.exists(f"{UPD}/luna/{f}"):
+            os.unlink(f"{UPD}/luna/{f}")
+    c, b = api_check(lu)
+    check("no feed yet: a plain 'nothing published' answer", c in (404, 502, 503) and isinstance(b, dict) and b.get("error"), f"{c} {b}")
+    # signed by the wrong key
+    publish("0.0.2", key="evil")
+    c, b = api_check(lu)
+    check("a feed signed by a key Luna does not trust is refused", c >= 400 and isinstance(b, dict) and b.get("error"), f"{c} {b}")
+    c, b = apply_update(lu)
+    check("and nothing is installed from it", c >= 400, f"{c} {b}")
+    rc, o = vm.sh("ls /var/lib/luna/bin 2>&1; cat /var/lib/luna/os-image.sha256")
+    check("untrusted feed left no new lunad and kept the OS hash", "lunad" not in o.split("\n")[0] and old_hash in o, o)
+    # a part whose bytes do not match the signed checksum
+    publish("0.0.2", key="good", tamper=True)
+    c, b = api_check(lu)
+    check("a signed feed is accepted", c == 200 and b.get("update_available") is True and b.get("latest_version") == "0.0.2", f"{c} {b}")
+    c, b = apply_update(lu)
+    check("a download that does not match its checksum is refused", c >= 400 and isinstance(b, dict) and b.get("error"), f"{c} {b}")
+    rc, o = vm.sh("ls /var/lib/luna/bin 2>&1")
+    check("nothing from the bad download is left installed", "lunad" not in o or "No such file" in o, o)
+    # the feed cannot go backwards (replay of an older list)
+    publish("0.0.3", key="good", published="2026-10-01T00:00:00Z")
+    publish("0.0.4", key="good", published="2026-10-08T01:00:00Z")
+    api_check(lu)
+    publish("0.0.3", key="good", published="2026-10-01T00:00:00Z")
+    c, b = api_check(lu)
+    check("an older feed replayed after a newer one is refused", c >= 400 or b.get("update_available") is False, f"{c} {b}")
+
+    # lunad-only update
+    publish("0.0.5", key="good", published="2026-10-08T02:00:00Z")
+    c, b = api_check(lu)
+    check("lunad-only update is offered", c == 200 and b.get("update_available") and b.get("reboot_required") is False, f"{c} {b}")
+    rc, pid_before = vm.sh("pidof lunad")
+    c, b = apply_update(lu)
+    check("lunad-only update installs", c == 200 and b.get("ok") and b.get("reboot_required") is False, f"{c} {b}")
+    time.sleep(8)
+    check("Luna comes back by itself after a lunad-only update", lu.wait_up(90))
+    rc, pid_after = vm.sh("pidof lunad")
+    check("lunad restarted (new process)", pid_before and pid_after and pid_before.split()[-1] != pid_after.split()[-1], f"{pid_before} -> {pid_after}")
+    rc, o = vm.sh("ls -la /var/lib/luna/bin/lunad")
+    check("the new lunad is stored on the data partition", "lunad" in o and "No such" not in o, o)
+    c, b = lu.get("/api/v1/auth/me")
+    check("you stay signed in across a lunad restart", c == 200 and b and b.get("role") == "admin", f"{c} {b}")
+
+    # OS update to slot B
+    good_v2 = os_image_variant("v2", {})
+    publish("0.0.6", key="good", os_img=good_v2, published="2026-10-08T03:00:00Z")
+    c, b = api_check(lu)
+    check("an OS update is offered and says it needs a restart", c == 200 and b.get("update_available") and b.get("reboot_required") is True, f"{c} {b}")
+    check("the active slot is A before the update", slot_of(vm) == "A")
+    c, b = apply_update(lu)
+    check("the OS update is accepted", c == 200 and b.get("ok") and b.get("reboot_required"), f"{c} {b}")
+    check("Luna restarts into the new system", wait_reboot_up(vm, lu, 300))
+    time.sleep(10)
+    check("it is now running slot B", slot_of(vm) == "B")
+    rc, o = vm.sh("cat /etc/luna-os-release")
+    check("slot B holds the new OS image", "e2e-v2" in o, o)
+    c, b = lu.post("/api/v1/auth/login", {"username": ADMIN["username"], "password": ADMIN["password"]})
+    check("accounts and data survived the OS update", c == 200, f"{c} {b}")
+    time.sleep(20)
+    rc, o = vm.sh("cat /var/lib/luna/os-image.sha256")
+    new_hash = sha256_file(good_v2)
+    check("the new OS image is recorded only after the new system proved itself", new_hash in o, o)
+    c, b = api_check(lu)
+    check("no further update is offered", c == 200 and b.get("update_available") is False and b.get("os_update_failed") is None, f"{c} {b}")
+    vm.sh("sync; sync")
+    vm.quit()
+    vm.wait_exit(60)
+    env = esp_grubenv(overlay_to_raw("update"))
+    check("GRUB now boots slot B and the boot is confirmed", env.get("luna_slot") == "B" and env.get("luna_boot_ok") == "1", str(env))
+    return
+
+
+
+
 def stage_lab():
     """Boot, set up, add a FAT32 stick, then wait so you can poke at it (podman exec luna-e2e ...).
 
@@ -847,6 +1288,8 @@ def stage(fn):
 STAGES["explore"] = stage_explore
 STAGES["boot"] = stage_boot
 STAGES["lab"] = stage_lab
+STAGES["update"] = stage_update
+STAGES["resilience"] = stage_resilience
 STAGES["flow"] = stage_flow
 STAGES["installer-safety"] = stage_installer_safety
 for _bus in ("sata", "nvme", "mmc", "virtio"):

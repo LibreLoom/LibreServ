@@ -272,6 +272,14 @@ function AdoptedDriveDetails({ drive }) {
  * @returns {{ value: string, includes: string, history: string, note: string }}
  */
 export function describePeek(peek) {
+  if (!peek.readable && peek.needs_erase) {
+    return {
+      value: "Blank, or a format Luna can't read",
+      includes: "",
+      history: "",
+      note: "Luna can erase it and set it up. Using it with Luna erases what's on it.",
+    };
+  }
   if (!peek.readable) {
     return {
       value: "Can't read it",

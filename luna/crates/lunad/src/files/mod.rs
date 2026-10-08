@@ -217,7 +217,10 @@ pub fn drive_root(conn: &rusqlite::Connection, drive_id: &str) -> Result<DriveRo
     crate::private::install();
     db::get_drive(conn, drive_id)
         .map_err(FilesError::Db)?
-        .filter(|d| !d.mount_point.is_empty())
+        // An unplugged or ejected drive keeps its old mount path in the row;
+        // reading it would only find an empty folder and blame the drive's
+        // database. Say it is not connected instead.
+        .filter(|d| !d.mount_point.is_empty() && d.state != "missing" && d.state != "ejected")
         .ok_or(FilesError::UnknownDrive)
 }
 

@@ -2314,6 +2314,11 @@ async fn changing<T: Send + 'static>(
 }
 
 pub(crate) fn map_files_err(err: FilesError) -> (StatusCode, Json<Value>) {
+    // A path error that is really the drive refusing a name reads the same.
+    let err = match err {
+        FilesError::Path(luna_core::path::PathError::Io(e)) => FilesError::Io(e),
+        other => other,
+    };
     match err {
         FilesError::UnknownDrive => json_error_code(
             StatusCode::NOT_FOUND,

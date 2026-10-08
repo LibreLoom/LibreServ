@@ -3,7 +3,7 @@ import { render, screen, within, fireEvent, waitFor } from "@testing-library/rea
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
-import DrivesPage, { inspectCountLine } from "./DrivesPage";
+import DrivesPage, { describePeek, inspectCountLine } from "./DrivesPage";
 import FileSearch from "../components/files/FileSearch";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 
@@ -970,4 +970,13 @@ describe("DrivesPage", () => {
     expect(within(hint).getByRole("button", { name: /^root$/i })).toBeInTheDocument();
     expect(screen.queryByText(/at the top of the drive/i)).not.toBeInTheDocument();
   });
+
+  it("says a blank or unreadable drive can be erased and set up", () => {
+    const info = describePeek({
+      readable: false, needs_erase: true, has_marker: false, folders: 0, files: 0, sample: [],
+    });
+    expect(info.value).toBe("Blank, or a format Luna can't read");
+    expect(info.note).toMatch(/erase it and set it up/i);
+  });
+
 });
