@@ -1,5 +1,9 @@
 description="Luna keyboard / HID bring-up"
-command="/usr/local/bin/luna-input-up"
+start() {
+    ebegin "Starting Luna keyboard bring-up"
+    /usr/local/bin/luna-input-up
+    eend $?
+}
 depend() {
     need localmount
     after modules mdev hwdrivers bootmisc
@@ -57,7 +61,11 @@ chmod +x "$ROOTFS/usr/local/bin/luna-network-up"
 cat > "$ROOTFS/etc/init.d/luna-network" <<'INIT'
 #!/sbin/openrc-run
 description="Luna wired network bring-up"
-command="/usr/local/bin/luna-network-up"
+start() {
+    ebegin "Starting Luna wired network"
+    /usr/local/bin/luna-network-up
+    eend $?
+}
 depend() {
     need localmount
     after modules bootmisc

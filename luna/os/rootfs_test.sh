@@ -43,6 +43,11 @@ fi
 assert_file_has "$BUILD" 'for svc in luna-root-ro hwclock modules sysctl hostname bootmisc syslog loopback luna-input luna-network;' \
 	"boot runlevel must remount root read-only before network bring-up"
 assert_file_has "$BUILD" 'loopback' "boot runlevel must enable loopback service"
+# One-shot boot scripts must define start(): with command= OpenRC watches for a
+# daemon that already exited, lists the service as "crashed", and starts it again
+# for every service that depends on it.
+assert_file_lacks "$BUILD" 'command="/usr/local/[a-z]*/luna-\(network-up\|input-up\|root-ro\|boot-ok\)"' \
+	"one-shot boot scripts must use start(), not command="
 assert_file_has "$BUILD" 'critical_mounts="/var/lib/luna"' \
 	"localmount must treat LUNA_DATA as critical"
 assert_file_has "$BUILD" 'for svc in devfs dmesg mdev hwdrivers fsck root localmount;' \

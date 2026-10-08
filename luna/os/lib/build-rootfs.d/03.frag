@@ -8,9 +8,15 @@ chmod +x "$ROOTFS/usr/local/sbin/luna-root-ro"
 cat > "$ROOTFS/etc/init.d/luna-root-ro" <<'INIT'
 #!/sbin/openrc-run
 description="Remount Luna OS root read-only"
-command="/usr/local/sbin/luna-root-ro"
+start() {
+    ebegin "Remounting the Luna OS root read-only"
+    /usr/local/sbin/luna-root-ro
+    eend $?
+}
 depend() {
     need localmount
+    # bootmisc cleans /run and /tmp; it must finish before / goes read-only.
+    after bootmisc
     before luna-input luna-network luna avahi-daemon
 }
 INIT
@@ -62,7 +68,11 @@ chmod +x "$ROOTFS/usr/local/sbin/luna-boot-ok"
 cat > "$ROOTFS/etc/init.d/luna-boot-ok" <<'INIT'
 #!/sbin/openrc-run
 description="Mark Luna GRUB tryboot successful"
-command="/usr/local/sbin/luna-boot-ok"
+start() {
+    ebegin "Marking this boot successful"
+    /usr/local/sbin/luna-boot-ok
+    eend $?
+}
 depend() {
     need luna
     keyword -timeout -noparallel
