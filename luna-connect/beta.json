@@ -1,0 +1,32 @@
+{
+  "format": 1,
+  "unit": "luna-connect",
+  "channel": "beta",
+  "version": "0.0.1",
+  "published": "2026-10-08T03:30:35Z",
+  "notes": "- chore: bump toolchains to Go 1.27.1 and Rust 1.99.0\n- docs: remove deployment-specific details from docs and comments; fix stale release bullets\n- chore: finish the Sol rename, drop the remaining LibreServ names\n- feat(release): per-unit VERSION files and fix Sol version stamping\n- feat(connect): one deploy script for both Connect servers, fed by signed feeds\n- fix(connect): keep Caddy on loopback behind the Cloudflare tunnel\n- feat(brand): update Luna logo to the softened-tip version\n- refactor(luna): call device codes device codes, not setup codes\n- fix(connect): reveal-only device token in admin device detail\n- refactor(luna): cleanup and executor-blocking pass\n- fix(connect): seal provider creds, guard billing, unify deploy paths\n- feat(brand): Luna uses the Luna logo, Sol uses the Sol logo\n- chore(luna): shared tooling and housekeeping\n- feat(connect): let customers change their Luna's address\n- fix(ui): ban all-caps text and standardize headings to sentence case\n- feat(ui): enforce reserved accent rules, contrast compliance, and live form improvements\n- feat(luna): private home folders for members\n- fix(connect): refuse HTTP redirects on provider and mail clients\n- feat(luna): replace grants/shares with access model, add drawio, forms, epub reader\n- fix(security): refuse redirects on connect HIBP range clients (#352)\n- ci: cover the connect web frontends and luna-connect deploy test\n- refactor(repo): reorganize monorepo into sol/, luna/, infra/ areas\n",
+  "parts": [
+    {
+      "name": "server",
+      "os": "linux",
+      "arch": "amd64",
+      "file": "luna-connect-server-linux-amd64",
+      "size": 17842336,
+      "sha256": "ee8450a2bb9fcc709e84e746369c58d515eea766a2c5481509373ee4e6f69680",
+      "urls": [
+        "https://gt.plainskill.net/api/packages/LibreLoom/generic/luna-connect/0.0.1/luna-connect-server-linux-amd64"
+      ]
+    },
+    {
+      "name": "web",
+      "os": "any",
+      "arch": "any",
+      "file": "luna-connect-web.tar.gz",
+      "size": 1027917,
+      "sha256": "d431eac9f1c851a76d591c42aaa167a8782fb296269841dd3add531644536efe",
+      "urls": [
+        "https://gt.plainskill.net/api/packages/LibreLoom/generic/luna-connect/0.0.1/luna-connect-web.tar.gz"
+      ]
+    }
+  ]
+}
