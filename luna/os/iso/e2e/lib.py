@@ -265,13 +265,14 @@ class VM:
                 # What came back: the echo of the typed command (wrapped at the terminal width),
                 # its output, the prompt, then the echo of the marker line. Keep only the output.
                 body = t[:m.start()].replace("\r", "")
-                cut = body.find("__rc=$?")
-                if cut >= 0:
-                    body = body[:cut]
                 body = re.sub(r"(~ # )+(\x1b\[6n)?", "", body)
-                if "\n" not in cmd:
-                    pat = "\n?".join(re.escape(ch) for ch in cmd)
-                    body = re.sub(pat, "", body, count=1)
+                # Remove the echoes of both typed lines wherever they landed (a slow command
+                # prints its output after the second line has already been echoed).
+                line2 = f"__rc=$?; echo; echo {mark}_${{__rc}}_"
+                for typed in (cmd, line2):
+                    if "\n" not in typed:
+                        pat = "\n?".join(re.escape(ch) for ch in typed)
+                        body = re.sub(pat, "", body, count=1)
                 return int(m.group(1)), body.strip()
             time.sleep(0.3)
         return -1, "(timeout) " + self.serial_text()[start:][-300:]

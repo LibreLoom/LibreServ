@@ -1132,8 +1132,11 @@ def stage_installer_prompts():
     check("two internal disks: the installer picks the smaller one", vm.wait_screen(r"Installing to /dev/sd[bc] \(", 180))
     txt = vm.ocr("prompts-1")
     say("    " + txt.strip().replace("\n", "\n    ")[-500:])
-    # press a key during the countdown to choose another disk
-    vm.key("spc")
+    # press a key during the five-second countdown to choose another disk (reading the screen
+    # takes longer than the countdown, so press repeatedly from the moment the line appears)
+    for _ in range(10):
+        vm.key("spc")
+        time.sleep(0.5)
     check("pressing a key opens the numbered disk list", vm.wait_screen(r"Press a number|Number:", 60))
     txt = vm.ocr("prompts-2")
     check("the list names both internal disks and not the stick", "/dev/sdb" in txt and "/dev/sdc" in txt and "/dev/sda" not in txt.split("Number")[0].split("1)")[-1] or True, txt[-500:])
