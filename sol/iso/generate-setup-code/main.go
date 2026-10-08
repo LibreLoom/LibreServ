@@ -21,7 +21,7 @@ func main() {
 		code[i] = noAmbigChars[n.Int64()]
 	}
 
-	outputPath := "/etc/libreserv/setup-code"
+	outputPath := "/etc/sol/setup-code"
 	if len(os.Args) > 1 {
 		outputPath = os.Args[1]
 	}

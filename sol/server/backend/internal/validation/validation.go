@@ -3,7 +3,7 @@ package validation
 
 import (
 	"fmt"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/constants"
+	"gt.plainskill.net/LibreLoom/Sol/internal/constants"
 	"net/mail"
 	"regexp"
 	"strings"

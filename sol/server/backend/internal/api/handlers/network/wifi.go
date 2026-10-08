@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/wifi"
+	"gt.plainskill.net/LibreLoom/Sol/internal/wifi"
 )
 
 // WifiHandler serves the wireless setup API. It delegates to a wifi.Provider

@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/connect"
+	"gt.plainskill.net/LibreLoom/Sol/internal/config"
+	"gt.plainskill.net/LibreLoom/Sol/internal/connect"
 )
 
 type Provider struct {

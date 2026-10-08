@@ -37,25 +37,25 @@ RUN apk add --no-cache ca-certificates docker-cli docker-compose restic
 ENV GOGC=50
 
 # Create non-root user
-RUN adduser -D -u 1000 libreserv
+RUN adduser -D -u 1000 sol
 
 WORKDIR /app
 # Copy backend binary
-COPY --from=backend-builder /app/backend/bin/libreserv /app/libreserv
+COPY --from=backend-builder /app/backend/bin/sol /app/sol
 # Copy frontend assets (vite outputs to /repo/sol/server/backend/OS/dist due to outDir: "../backend/OS/dist")
 COPY --from=frontend-builder /repo/sol/server/backend/OS/dist /app/OS/dist
 # Copy default configs
 COPY sol/server/backend/configs /app/configs
 # Use example config as default (env vars override specific settings at runtime)
-RUN cp /app/configs/libreserv.yaml.example /app/configs/libreserv.yaml
+RUN cp /app/configs/sol.yaml.example /app/configs/sol.yaml
 
-# Ensure data directories are writable by libreserv user
-RUN mkdir -p /app/data /app/configs && chown -R libreserv:libreserv /app
+# Ensure data directories are writable by sol user
+RUN mkdir -p /app/data /app/configs && chown -R sol:sol /app
 
-USER libreserv
+USER sol
 
 COPY sol/entrypoint.sh /app/entrypoint.sh
 
 EXPOSE 8080
 ENTRYPOINT ["/app/entrypoint.sh"]
-CMD ["--config", "/app/configs/libreserv.yaml"]
+CMD ["--config", "/app/configs/sol.yaml"]

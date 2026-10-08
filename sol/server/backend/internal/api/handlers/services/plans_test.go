@@ -3,7 +3,7 @@ package services
 import (
 	"testing"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
+	"gt.plainskill.net/LibreLoom/Sol/internal/network"
 )
 
 func TestDetectPortCollisions(t *testing.T) {

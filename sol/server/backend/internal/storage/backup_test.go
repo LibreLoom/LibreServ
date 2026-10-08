@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/podman"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/storage/restic"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/podman"
+	"gt.plainskill.net/LibreLoom/Sol/internal/storage/restic"
 )
 
 func hasResticBinary(t *testing.T) {

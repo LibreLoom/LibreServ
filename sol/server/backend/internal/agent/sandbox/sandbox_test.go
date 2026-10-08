@@ -73,7 +73,7 @@ func TestBuildBwrapArgs_CoreShape(t *testing.T) {
 	tmp := t.TempDir()
 	cfg := Config{
 		Mode:     "bwrap",
-		Workdirs: []string{tmp, "/var/lib/libreserv"},
+		Workdirs: []string{tmp, "/var/lib/sol"},
 		Network:  true,
 	}
 	args, err := buildBwrapArgs(cfg, CommandSpec{Command: "echo hi", Workdir: tmp})

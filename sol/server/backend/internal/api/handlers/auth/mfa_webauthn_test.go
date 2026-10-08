@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth/webauthn"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/api/middleware"
+	"gt.plainskill.net/LibreLoom/Sol/internal/auth"
+	"gt.plainskill.net/LibreLoom/Sol/internal/auth/webauthn"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
 )
 
 // newTestMFAHandler builds a real auth.Service (temp DB, fully migrated) with

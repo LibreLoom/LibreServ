@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/apps"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
+	"gt.plainskill.net/LibreLoom/Sol/internal/apps"
+	"gt.plainskill.net/LibreLoom/Sol/internal/config"
 )
 
 type ReposHandler struct {

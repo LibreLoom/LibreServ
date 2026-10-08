@@ -61,7 +61,7 @@ export default function RecoveryKeyCard({ repo, repoId = "" }) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `libreserv-recovery-key-${repo?.id || repoId || "backup"}.txt`;
+    a.download = `sol-recovery-key-${repo?.id || repoId || "backup"}.txt`;
     a.click();
     URL.revokeObjectURL(url);
   };

@@ -12,11 +12,11 @@ import (
 	"testing"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database/models"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/email"
+	"gt.plainskill.net/LibreLoom/Sol/internal/auth"
+	"gt.plainskill.net/LibreLoom/Sol/internal/config"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database/models"
+	"gt.plainskill.net/LibreLoom/Sol/internal/email"
 )
 
 // smtpRecorder is a minimal SMTP server that accepts one message and records
@@ -163,7 +163,7 @@ func useTestConfig(t *testing.T, notifyEnabled bool) {
 	orig := config.Get()
 	cfg := &config.Config{}
 	cfg.Notify.Enabled = notifyEnabled
-	cfg.Logging.Path = filepath.Join(t.TempDir(), "libreserv.log")
+	cfg.Logging.Path = filepath.Join(t.TempDir(), "sol.log")
 	config.SetTestConfig(cfg)
 	t.Cleanup(func() { config.SetTestConfig(orig) })
 }

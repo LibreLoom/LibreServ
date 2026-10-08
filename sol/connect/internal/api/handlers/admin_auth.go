@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/api/middleware"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/auth"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/config"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/security"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/api/middleware"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/auth"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/config"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/security"
 )
 
 // AdminAuthHandler handles admin authentication.

@@ -54,7 +54,7 @@ pinned tag), and keep this file with your distribution.
 
 ## Luna’s own code
 
-Luna’s collab relay, file openers, and OOXML create stubs are part of LibreServ /
+Luna’s collab relay, file openers, and OOXML create stubs are part of Sol /
 Luna under this repository’s license — they are not AGPL solely because
 EuroOffice can be loaded beside them. The AGPL obligations attach to the
 EuroOffice asset pack you install and redistribute.

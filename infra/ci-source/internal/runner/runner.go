@@ -107,7 +107,7 @@ func (r *Runner) cleanupOrphanedContainers() {
 	}
 
 	for _, c := range containers {
-		if c.Labels["libreserv.ci"] == "true" {
+		if c.Labels["sol.ci"] == "true" {
 			r.cli.ContainerStop(ctx, c.ID, container.StopOptions{Timeout: intPtr(1)})
 			r.cli.ContainerRemove(ctx, c.ID, container.RemoveOptions{Force: true})
 		}
@@ -600,7 +600,7 @@ func (r *Runner) createContainer(ctx context.Context, t *tests.Test, fuzzDuratio
 		WorkingDir: t.WorkDir,
 		Env:        env,
 		Tty:        false,
-		Labels:     map[string]string{"libreserv.ci": "true"},
+		Labels:     map[string]string{"sol.ci": "true"},
 	}
 
 	hostConfig := &container.HostConfig{

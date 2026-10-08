@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/shared"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
+	"gt.plainskill.net/LibreLoom/Sol/internal/api/handlers/shared"
+	"gt.plainskill.net/LibreLoom/Sol/internal/api/middleware"
+	"gt.plainskill.net/LibreLoom/Sol/internal/auth"
 )
 
 // MFAHandler handles MFA enrollment (session-authed + CSRF) and the login-flow

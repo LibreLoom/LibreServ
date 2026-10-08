@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/testutil"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
+	"gt.plainskill.net/LibreLoom/Sol/internal/api/handlers/testutil"
+	"gt.plainskill.net/LibreLoom/Sol/internal/auth"
 )
 
 func TestOIDCHandlerCoverage(t *testing.T) {
@@ -81,7 +81,7 @@ func TestOIDCHandlerCoverage(t *testing.T) {
 		t.Fatalf("forward no cookie: %d", rec.Code)
 	}
 	req := httptest.NewRequest(http.MethodGet, "/forward", nil)
-	req.AddCookie(&http.Cookie{Name: "libreserv_access", Value: "bad-token"})
+	req.AddCookie(&http.Cookie{Name: "sol_access", Value: "bad-token"})
 	rec = httptest.NewRecorder()
 	h.ForwardAuth(rec, req)
 	if rec.Code != http.StatusFound {

@@ -1,6 +1,6 @@
 package network
 
-import "gt.plainskill.net/LibreLoom/LibreServ/internal/network"
+import "gt.plainskill.net/LibreLoom/Sol/internal/network"
 
 func (h *ACMEHandler) backendForApp(appID string) string {
 	if appID == "" {

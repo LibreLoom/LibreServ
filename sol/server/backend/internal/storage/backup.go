@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/podman"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/storage/restic"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/podman"
+	"gt.plainskill.net/LibreLoom/Sol/internal/storage/restic"
 )
 
 type BackupService struct {
@@ -168,7 +168,7 @@ func (s *BackupService) backupWithRestic(ctx context.Context, appID, appPath, ba
 		return nil, fmt.Errorf("restic repo init: %w", err)
 	}
 
-	summary, err := s.resticEngine.Backup(ctx, *repo, []string{appPath}, []string{appID, "libreserv"}, nil)
+	summary, err := s.resticEngine.Backup(ctx, *repo, []string{appPath}, []string{appID, "sol"}, nil)
 	if err != nil {
 		return nil, fmt.Errorf("restic backup: %w", err)
 	}
@@ -334,7 +334,7 @@ func (s *BackupService) BackupDatabase(ctx context.Context) (*DatabaseBackup, er
 
 	backupID := uuid.New().String()
 	timestamp := time.Now().Format("20060102-150405")
-	backupPath := filepath.Join(backupDir, fmt.Sprintf("libreserv-%s.db.gz", timestamp))
+	backupPath := filepath.Join(backupDir, fmt.Sprintf("sol-%s.db.gz", timestamp))
 
 	tempPath := backupPath + ".tmp"
 

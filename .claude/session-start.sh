@@ -15,8 +15,8 @@ set -uo pipefail
 [ "${CLAUDE_CODE_REMOTE:-}" = "true" ] || exit 0
 
 REPO="${CLAUDE_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-LOG=/tmp/libreserv-session-setup.log
-STATE=/tmp/libreserv-session-setup.state
+LOG=/tmp/sol-session-setup.log
+STATE=/tmp/sol-session-setup.state
 
 # ── Environment for every command Claude runs ────────────────────────────────
 export XDG_RUNTIME_DIR=/run/user/$(id -u)
@@ -55,7 +55,7 @@ if [ -x /usr/local/libexec/fj ]; then
 fi
 
 # ── Backend config ───────────────────────────────────────────────────────────
-cfg="${REPO}/sol/server/backend/configs/libreserv.yaml"
+cfg="${REPO}/sol/server/backend/configs/sol.yaml"
 [ -f "${cfg}" ] || cp "${cfg}.example" "${cfg}"
 
 # ── Luna mock drives + mock Connect ──────────────────────────────────────────

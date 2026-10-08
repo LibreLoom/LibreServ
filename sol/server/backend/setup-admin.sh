@@ -1,9 +1,9 @@
 #!/bin/bash
-# Complete initial setup for LibreServ
-# Requires LIBRESERV_INSECURE_DEV=true for development use only
+# Complete initial setup for Sol
+# Requires SOL_INSECURE_DEV=true for development use only
 
-if [ "${LIBRESERV_INSECURE_DEV:-}" != "true" ]; then
-  echo "ERROR: This script requires LIBRESERV_INSECURE_DEV=true"
+if [ "${SOL_INSECURE_DEV:-}" != "true" ]; then
+  echo "ERROR: This script requires SOL_INSECURE_DEV=true"
   echo "This script is for development only and must not be used in production."
   exit 1
 fi
@@ -11,11 +11,11 @@ fi
 cd /workspaces/LibreServ/sol/server/backend
 
 # Kill any existing server
-pkill -f "libreserv serve" 2>/dev/null || true
+pkill -f "sol serve" 2>/dev/null || true
 sleep 2
 
 # Start server in background
-LIBRESERV_INSECURE_DEV=true ./bin/libreserv --config ./configs/libreserv.yaml serve &
+SOL_INSECURE_DEV=true ./bin/sol --config ./configs/sol.yaml serve &
 SERVER_PID=$!
 echo "Server started (PID: $SERVER_PID)"
 sleep 4

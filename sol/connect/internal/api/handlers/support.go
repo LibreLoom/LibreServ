@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/api/middleware"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/security"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/api/middleware"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/security"
 )
 
 // SupportHandler handles device-facing support case operations.

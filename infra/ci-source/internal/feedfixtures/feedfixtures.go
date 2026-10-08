@@ -53,12 +53,12 @@ func genKey(seed string) (minisign.PublicKey, minisign.PrivateKey, error) {
 
 // TestKey returns the TEST-ONLY signing key.
 func TestKey() (minisign.PublicKey, minisign.PrivateKey, error) {
-	return genKey("libreserv-feed-testdata")
+	return genKey("sol-feed-testdata")
 }
 
 // OtherKey returns a second TEST-ONLY key, used for wrong-key signatures.
 func OtherKey() (minisign.PublicKey, minisign.PrivateKey, error) {
-	return genKey("libreserv-feed-testdata-other")
+	return genKey("sol-feed-testdata-other")
 }
 
 func payload(path string, size int) []byte {
@@ -179,8 +179,8 @@ func Generate(dir string) error {
 	g.add("reject-signature-from-other-key", "luna-stable.json", "luna-stable.json.wrongkey.minisig", lr("0.3.0", ""), "reject:bad-signature")
 
 	// --- sol 0.9.1 stable ---
-	solA := g.part("sol", "0.9.1", "sol", "linux", "amd64", "libreserv-linux-amd64", 350)
-	solR := g.part("sol", "0.9.1", "sol", "linux", "arm64", "libreserv-linux-arm64", 360)
+	solA := g.part("sol", "0.9.1", "sol", "linux", "amd64", "sol-linux-amd64", 350)
+	solR := g.part("sol", "0.9.1", "sol", "linux", "arm64", "sol-linux-arm64", 360)
 	g.feedFile("sol-stable.json", base("sol", "stable", "0.9.1", solA, solR))
 	sr := func(arch string) req { return req{"sol", "stable", "linux", arch, "sol", "0.9.0", ""} }
 	g.add("sol-update-amd64", "sol-stable.json", "", sr("amd64"), "update")

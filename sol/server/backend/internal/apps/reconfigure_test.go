@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/runtime"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/runtime"
 )
 
 type mockRuntime struct {
@@ -101,7 +101,7 @@ func setupReconfigureTest(t *testing.T) (*Manager, *mockRuntime, string, func())
 
 	mrt := &mockRuntime{
 		containers: []runtime.ContainerInfo{
-			{ID: "c1", Names: []string{"inst-reconf-1"}, State: "running", Status: "Up", Labels: map[string]string{"com.libreserv.instance": "inst-reconf"}},
+			{ID: "c1", Names: []string{"inst-reconf-1"}, State: "running", Status: "Up", Labels: map[string]string{"com.sol.instance": "inst-reconf"}},
 		},
 	}
 

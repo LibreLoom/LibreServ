@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/runtime"
+	"gt.plainskill.net/LibreLoom/Sol/internal/runtime"
 )
 
 // HTTPCheck performs HTTP health checks
@@ -233,7 +233,7 @@ func matchesContainerByLabels(cont runtime.ContainerInfo, query string) bool {
 	if cont.Labels["com.docker.compose.service"] == query {
 		return true
 	}
-	if cont.Labels["libreserv.app"] == query {
+	if cont.Labels["sol.app"] == query {
 		return true
 	}
 	return false

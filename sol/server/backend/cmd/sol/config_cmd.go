@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"strings"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/settings"
+	"gt.plainskill.net/LibreLoom/Sol/internal/config"
+	"gt.plainskill.net/LibreLoom/Sol/internal/settings"
 
 	_ "modernc.org/sqlite"
 
@@ -20,9 +20,9 @@ import (
 const configUsage = `Sol configuration management.
 
 Usage:
-  libreserv config defaults [--config PATH]   Print all default config values
-  libreserv config get <key> [--config PATH]  Print resolved value for a key
-  libreserv config set <key> <value>          Set a DB-backed setting
+  sol config defaults [--config PATH]   Print all default config values
+  sol config get <key> [--config PATH]  Print resolved value for a key
+  sol config set <key> <value>          Set a DB-backed setting
 
 DB-backed keys (change via 'config set' or Settings UI):
   logging.level, logging.path, smtp.host, smtp.port, smtp.username,
@@ -38,7 +38,7 @@ All other keys are YAML-only — edit the config file directly.
 `
 
 // dbBackedKeys lists all settings that are stored in the database (app_settings table).
-// These keys can be changed via 'libreserv config set' or the Settings UI.
+// These keys can be changed via 'sol config set' or the Settings UI.
 // When adding a new DB-backed key, also update SeedFromConfig() in internal/settings/repository.go.
 var dbBackedKeys = map[string]string{
 	"logging.level":                "string",
@@ -83,13 +83,13 @@ func handleConfigCommand(args []string, cfgPath string) {
 		cmdConfigDefaults(cfgPath)
 	case "get":
 		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "Usage: libreserv config get <key>")
+			fmt.Fprintln(os.Stderr, "Usage: sol config get <key>")
 			os.Exit(2)
 		}
 		cmdConfigGet(args[1], cfgPath)
 	case "set":
 		if len(args) < 3 {
-			fmt.Fprintln(os.Stderr, "Usage: libreserv config set <key> <value>")
+			fmt.Fprintln(os.Stderr, "Usage: sol config set <key> <value>")
 			os.Exit(2)
 		}
 		cmdConfigSet(args[1], args[2], cfgPath)
@@ -113,7 +113,7 @@ func cmdConfigGet(key string, cfgPath string) {
 
 	dbPath := cfg.Database.Path
 	if dbPath == "" {
-		dbPath = "/var/lib/libreserv/libreserv.db"
+		dbPath = "/var/lib/sol/sol.db"
 	}
 
 	db, err := sql.Open("sqlite", dbPath)
@@ -160,7 +160,7 @@ func cmdConfigSet(key, value, cfgPath string) {
 
 	dbPath := cfg.Database.Path
 	if dbPath == "" {
-		dbPath = "/var/lib/libreserv/libreserv.db"
+		dbPath = "/var/lib/sol/sol.db"
 	}
 
 	db, err := sql.Open("sqlite", dbPath)

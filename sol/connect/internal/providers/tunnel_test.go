@@ -23,7 +23,7 @@ func TestTunnelCreateTunnel(t *testing.T) {
 		if err := json.Unmarshal(body, &requestBody); err != nil {
 			t.Fatalf("decode body: %v", err)
 		}
-		if requestBody["name"] != "libreserv-abc123" {
+		if requestBody["name"] != "sol-abc123" {
 			t.Fatalf("name = %v", requestBody["name"])
 		}
 		if requestBody["config_src"] != "cloudflare" {
@@ -33,7 +33,7 @@ func TestTunnelCreateTunnel(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"result": map[string]any{
 				"id":     "tunnel-abc-123",
-				"name":   "libreserv-abc123",
+				"name":   "sol-abc123",
 				"status": "inactive",
 				"token":  "eyJhIjoiNWFiNGU5Z...",
 			},
@@ -46,7 +46,7 @@ func TestTunnelCreateTunnel(t *testing.T) {
 	client := NewTunnelClient(ts.Client())
 	client.baseURL = ts.URL
 
-	creds, err := client.CreateTunnel("acct-123", "cf-token-123", "libreserv-abc123")
+	creds, err := client.CreateTunnel("acct-123", "cf-token-123", "sol-abc123")
 	if err != nil {
 		t.Fatalf("create tunnel: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestTunnelGetStatus(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"result": map[string]any{
 				"id":     "tunnel-123",
-				"name":   "libreserv-test",
+				"name":   "sol-test",
 				"status": "healthy",
 			},
 			"success": true,

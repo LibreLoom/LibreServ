@@ -37,7 +37,7 @@ export default function MfaBlocker() {
       >
         <div ref={innerRef} className="p-8">
           <span className="text-primary font-mono text-2xl block text-center">
-            LibreServ
+            Sol
           </span>
           <div className="bg-accent p-px rounded-pill mt-6 mb-8"></div>
 
@@ -52,7 +52,7 @@ export default function MfaBlocker() {
           <h1 className="text-xl font-normal font-mono text-center text-balance">Turn on two-factor authentication</h1>
           <p className="text-sm text-center text-balance max-w-sm mx-auto mt-3 mb-8">
             As an admin, your account is a target. Add a second sign-in check to
-            start using LibreServ — it takes about a minute, and you can change
+            start using Sol — it takes about a minute, and you can change
             it later in My Account.
           </p>
 

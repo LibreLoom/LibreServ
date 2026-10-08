@@ -5,12 +5,12 @@ import (
 	"log/slog"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/agent/conversation"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/agent/tools"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/connect"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/podman"
+	"gt.plainskill.net/LibreLoom/Sol/internal/agent/conversation"
+	"gt.plainskill.net/LibreLoom/Sol/internal/agent/tools"
+	"gt.plainskill.net/LibreLoom/Sol/internal/config"
+	"gt.plainskill.net/LibreLoom/Sol/internal/connect"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/podman"
 )
 
 // SelfHealingMonitor watches for unhealthy containers and dispatches

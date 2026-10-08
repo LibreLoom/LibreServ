@@ -11,7 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/moby/moby/api/pkg/stdcopy"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/runtime"
+	"gt.plainskill.net/LibreLoom/Sol/internal/runtime"
 )
 
 type LogsHandler struct {

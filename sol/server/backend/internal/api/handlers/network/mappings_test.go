@@ -19,7 +19,7 @@ func TestBuildFRPExport(t *testing.T) {
 		`serverAddr = "relay.example.com"`,
 		`serverPort = 7000`,
 		`auth.token = "secret"`,
-		`name = "libreserv-25565"`,
+		`name = "sol-25565"`,
 		`localPort = 25565`,
 		`remotePort = 8080`,
 	} {

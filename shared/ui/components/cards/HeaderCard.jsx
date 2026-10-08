@@ -18,7 +18,7 @@ const UNSPLIT_SLACK = 24;
  *
  * Tries a single one-line pill first. When left/right chrome cannot fit beside
  * the title without overflowing, splits into stacked cards (title, then left,
- * then right) — the LibreServ behavior introduced in 4b1df5b0 / e921d81a and
+ * then right) — the Sol behavior introduced in 4b1df5b0 / e921d81a and
  * removed by a3228d23's "always one line" rewrite.
  *
  * - Do NOT put navigation here. Use the bottom Navbar.

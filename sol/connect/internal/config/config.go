@@ -144,7 +144,7 @@ func Load(path string) error {
 func SetDefaults(v *viper.Viper) {
 	v.SetDefault("server.address", "")
 	v.SetDefault("server.port", 8080)
-	v.SetDefault("database.url", "postgres://localhost:5432/libreserv_connect?sslmode=disable")
+	v.SetDefault("database.url", "postgres://localhost:5432/sol_connect?sslmode=disable")
 	v.SetDefault("auth.session_ttl_hours", 168)
 	v.SetDefault("auth.admin_seed_token", "")
 	v.SetDefault("web.customer_dir", "web/customer/dist")

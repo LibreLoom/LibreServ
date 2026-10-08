@@ -11,9 +11,9 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/shared"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/api/handlers/shared"
+	"gt.plainskill.net/LibreLoom/Sol/internal/auth"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
 )
 
 func newTestUsersHandler(t *testing.T) (*UsersHandler, context.Context) {

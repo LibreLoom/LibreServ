@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/constants"
+	"gt.plainskill.net/LibreLoom/Sol/internal/constants"
 	_ "modernc.org/sqlite" // Pure Go SQLite driver
 )
 

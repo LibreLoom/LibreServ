@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/jobqueue"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
+	"gt.plainskill.net/LibreLoom/Sol/internal/jobqueue"
+	"gt.plainskill.net/LibreLoom/Sol/internal/monitoring"
 )
 
 func TestACMEJobLifecycleCoverage(t *testing.T) {

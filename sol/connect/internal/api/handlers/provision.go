@@ -7,9 +7,9 @@ import (
 	"net"
 	"net/http"
 
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/api/middleware"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/catalog"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/services"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/api/middleware"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/catalog"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/services"
 )
 
 // ProvisionHandler handles service provisioning and plan info.
@@ -143,7 +143,7 @@ func (h *ProvisionHandler) UnregisterRoute(w http.ResponseWriter, r *http.Reques
 }
 
 // DeleteTunnel removes the device's Cloudflare tunnel and its credentials.
-// POST /api/v1/tunnel/delete (device auth). Called by LibreServ when an admin
+// POST /api/v1/tunnel/delete (device auth). Called by Sol when an admin
 // disables or deletes the tunnel.
 func (h *ProvisionHandler) DeleteTunnel(w http.ResponseWriter, r *http.Request) {
 	deviceID := middleware.GetDeviceID(r.Context())

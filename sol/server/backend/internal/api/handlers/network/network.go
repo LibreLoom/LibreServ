@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/apps"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
+	"gt.plainskill.net/LibreLoom/Sol/internal/api/middleware"
+	"gt.plainskill.net/LibreLoom/Sol/internal/apps"
+	"gt.plainskill.net/LibreLoom/Sol/internal/network"
 )
 
 // NetworkHandlers handles network-related API endpoints

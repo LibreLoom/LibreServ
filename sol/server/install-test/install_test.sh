@@ -52,7 +52,7 @@ GENKEY="${WORK}/gen"
 mkdir -p "$GENKEY"
 minisign -G -W -f -p "${GENKEY}/pub" -s "${GENKEY}/sec" >/dev/null 2>&1 || { echo "minisign -G failed"; exit 2; }
 PKG="${SERVE}/generic/sol/0.9.1"
-(cd "$PKG" && sha256sum libreserv-linux-amd64 libreserv-linux-arm64 > SHA256SUMS.txt)
+(cd "$PKG" && sha256sum sol-linux-amd64 sol-linux-arm64 > SHA256SUMS.txt)
 minisign -S -s "${GENKEY}/sec" -m "${PKG}/SHA256SUMS.txt" -x "${PKG}/SHA256SUMS.txt.minisig" >/dev/null 2>&1 || { echo "minisign -S failed"; exit 2; }
 
 PORT="$(python3 -I -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])')"
@@ -77,12 +77,12 @@ FEED_BASE_URL="http://127.0.0.1:${PORT}/feeds/sol"
 PACKAGE_BASE_URL="http://127.0.0.1:${PORT}/generic/sol"
 RELEASE_MINISIGN_PUB="$TEST_KEY"
 
-# The baked-in key must be the repo's libreserv key.
-want="$(sed -n '2p' "${ROOT}/keys/libreserv.minisign.pub")"
+# The baked-in key must be the repo's sol key.
+want="$(sed -n '2p' "${ROOT}/keys/sol.minisign.pub")"
 if [[ "$RELEASE_MINISIGN_PUB" == "$TEST_KEY" ]]; then
     # compare against the pristine value from the script text
     baked="$(grep -A1 "^RELEASE_MINISIGN_PUB=" "$INSTALLER" | sed -n '2p' | tr -d "'")"
-    [ "$baked" = "$want" ] && pass "installer bakes in keys/libreserv.minisign.pub" || fail "installer bakes in keys/libreserv.minisign.pub"
+    [ "$baked" = "$want" ] && pass "installer bakes in keys/sol.minisign.pub" || fail "installer bakes in keys/sol.minisign.pub"
 fi
 
 # --- latest: feed ---------------------------------------------------------------
@@ -143,9 +143,9 @@ run_install() { # run_install ARCH
 }
 for a in amd64 arm64; do
     if (run_install "$a") >/dev/null 2>&1; then
-        want_sum="$(sha256sum "${FIX}/files/generic/sol/0.9.1/libreserv-linux-${a}" | cut -d' ' -f1)"
-        got_sum="$(sha256sum "${WORK}/opt-${a}/libreserv" | cut -d' ' -f1)"
-        [ "$want_sum" = "$got_sum" ] && [ -x "${WORK}/opt-${a}/libreserv" ] && pass "exact version installs ${a} binary" || fail "exact version installs ${a} binary"
+        want_sum="$(sha256sum "${FIX}/files/generic/sol/0.9.1/sol-linux-${a}" | cut -d' ' -f1)"
+        got_sum="$(sha256sum "${WORK}/opt-${a}/sol" | cut -d' ' -f1)"
+        [ "$want_sum" = "$got_sum" ] && [ -x "${WORK}/opt-${a}/sol" ] && pass "exact version installs ${a} binary" || fail "exact version installs ${a} binary"
     else
         fail "exact version installs ${a} binary"
     fi
@@ -154,11 +154,11 @@ done
 # tampered binary: wrong checksum must install nothing
 cp -r "${SERVE}/generic/sol" "${WORK}/sol-orig"
 RELEASE_MINISIGN_PUB="$GEN_KEY"
-printf 'tampered' >> "${PKG}/libreserv-linux-amd64"
+printf 'tampered' >> "${PKG}/sol-linux-amd64"
 ARCH=amd64
 INSTALL_DIR="${WORK}/opt-t"; BIN_DIR="${WORK}/bin-t"; mkdir -p "$BIN_DIR"
 if (download_binary) >/dev/null 2>&1; then fail "tampered binary rejected (amd64)"; else
-    [ ! -e "${INSTALL_DIR}/libreserv" ] && pass "tampered binary rejected (amd64), nothing installed" || fail "tampered binary left installed"
+    [ ! -e "${INSTALL_DIR}/sol" ] && pass "tampered binary rejected (amd64), nothing installed" || fail "tampered binary left installed"
 fi
 rm -rf "${PKG}"; cp -r "${WORK}/sol-orig/0.9.1" "${PKG}"
 
@@ -166,7 +166,7 @@ rm -rf "${PKG}"; cp -r "${WORK}/sol-orig/0.9.1" "${PKG}"
 RELEASE_MINISIGN_PUB="$TEST_KEY"
 INSTALL_DIR="${WORK}/opt-k"; BIN_DIR="${WORK}/bin-k"; mkdir -p "$BIN_DIR"
 if (download_binary) >/dev/null 2>&1; then fail "sums with wrong key rejected"; else
-    [ ! -e "${INSTALL_DIR}/libreserv" ] && pass "sums with wrong key rejected" || fail "sums with wrong key left a binary"
+    [ ! -e "${INSTALL_DIR}/sol" ] && pass "sums with wrong key rejected" || fail "sums with wrong key left a binary"
 fi
 
 # argument parsing

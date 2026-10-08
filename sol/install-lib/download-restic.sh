@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Verified restic downloader for LibreServ.
+# Verified restic downloader for Sol.
 # Pins RESTIC_VERSION and refuses to install if the .bz2 SHA256 mismatches.
 #
 # Usage:
@@ -7,7 +7,7 @@
 #   RESTIC_PATH=/path/to/restic install-lib/download-restic.sh
 #
 # Optional env:
-#   RESTIC_OWNER  -- if set, chown DEST to this user:group (e.g. libreserv:libreserv)
+#   RESTIC_OWNER  -- if set, chown DEST to this user:group (e.g. sol:sol)
 #   RESTIC_ARCH   -- override arch (amd64|arm64); default from uname -m
 #   RESTIC_VERSION -- override pin (also requires matching SHA constants below)
 #

@@ -21,7 +21,7 @@ const SERVICE_FIELDS = {
       { key: "application_key", label: "B2 application key", placeholder: "K0xxxxxxxxxxxxxxxxxxxx", type: "password" },
     ],
     settings: [
-      { key: "bucket_prefix", label: "Bucket prefix", placeholder: "libreserv-backup" },
+      { key: "bucket_prefix", label: "Bucket prefix", placeholder: "sol-backup" },
     ],
   },
   smtp: {

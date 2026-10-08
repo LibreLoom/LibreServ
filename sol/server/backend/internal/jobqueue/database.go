@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
 )
 
 // ensureJobsTable creates the jobs table if it doesn't exist

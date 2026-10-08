@@ -63,8 +63,8 @@ func TestEngine_WritePasswordFile(t *testing.T) {
 	if string(content) != "s3cr3t" {
 		t.Errorf("password file content = %q, want s3cr3t", content)
 	}
-	if dir := filepath.Base(filepath.Dir(name)); dir != "libreserv-restic-pw" {
-		t.Errorf("password file parent dir = %q, want libreserv-restic-pw", dir)
+	if dir := filepath.Base(filepath.Dir(name)); dir != "sol-restic-pw" {
+		t.Errorf("password file parent dir = %q, want sol-restic-pw", dir)
 	}
 
 	info, err := os.Stat(name)
@@ -136,7 +136,7 @@ func containsEnv(env []string, want string) bool {
 }
 
 func TestCleanupLeakedPasswordFiles(t *testing.T) {
-	pwDir := filepath.Join(os.TempDir(), "libreserv-restic-pw")
+	pwDir := filepath.Join(os.TempDir(), "sol-restic-pw")
 	if err := os.MkdirAll(pwDir, 0700); err != nil {
 		t.Fatalf("create password dir: %v", err)
 	}
@@ -249,7 +249,7 @@ not-json
 
 func passwordFileNames(t *testing.T) map[string]bool {
 	t.Helper()
-	entries, err := os.ReadDir(filepath.Join(os.TempDir(), "libreserv-restic-pw"))
+	entries, err := os.ReadDir(filepath.Join(os.TempDir(), "sol-restic-pw"))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return map[string]bool{}
@@ -474,8 +474,8 @@ func TestEngine_Stats(t *testing.T) {
 func TestDecompressBz2(t *testing.T) {
 	dir := t.TempDir()
 	bz2Path := filepath.Join(dir, "restic.bz2")
-	// A bzip2 stream produced by the reference implementation for "libreserv".
-	if err := os.WriteFile(bz2Path, bzipFixture(t, "libreserv"), 0600); err != nil {
+	// A bzip2 stream produced by the reference implementation for "sol".
+	if err := os.WriteFile(bz2Path, bzipFixture(t, "sol"), 0600); err != nil {
 		t.Fatalf("write fixture: %v", err)
 	}
 
@@ -488,8 +488,8 @@ func TestDecompressBz2(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read decompressed file: %v", err)
 	}
-	if string(data) != "libreserv" {
-		t.Errorf("decompressed content = %q, want libreserv", data)
+	if string(data) != "sol" {
+		t.Errorf("decompressed content = %q, want sol", data)
 	}
 	if _, err := os.Stat(bz2Path); !os.IsNotExist(err) {
 		t.Errorf("compressed file still exists (err %v), want it removed", err)
@@ -518,12 +518,12 @@ func TestDecompressBz2_Errors(t *testing.T) {
 // checked by decompressing it here before use.
 func bzipFixture(t *testing.T, want string) []byte {
 	t.Helper()
-	// bzip2 -9 stream for "libreserv".
+	// bzip2 -9 stream for "sol".
 	stream := []byte{
-		0x42, 0x5a, 0x68, 0x39, 0x31, 0x41, 0x59, 0x26, 0x53, 0x59, 0x5b, 0xe3,
-		0x2d, 0x0c, 0x00, 0x00, 0x02, 0x01, 0x80, 0x12, 0x24, 0x19, 0x00, 0x20,
-		0x00, 0x31, 0x0c, 0x01, 0x06, 0x9b, 0x42, 0x02, 0x13, 0x1d, 0x17, 0x72,
-		0x45, 0x38, 0x50, 0x90, 0x5b, 0xe3, 0x2d, 0x0c,
+		0x42, 0x5a, 0x68, 0x39, 0x31, 0x41, 0x59, 0x26, 0x53, 0x59, 0x5f, 0x8d,
+		0x34, 0x97, 0x00, 0x00, 0x01, 0x01, 0x80, 0x00, 0x04, 0x88, 0x00, 0x20,
+		0x00, 0x21, 0x98, 0x19, 0x81, 0x61, 0x77, 0x24, 0x53, 0x85, 0x09, 0x05,
+		0xf8, 0xd3, 0x49, 0x70,
 	}
 	got, err := readAllBzip2(stream)
 	if err != nil || got != want {

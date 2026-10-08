@@ -239,7 +239,7 @@ func TestPasteKeyAndKeystoreAndSession(t *testing.T) {
 	m := e.manager()
 	k := genKey(t)
 	e.writePub("lsluna.minisign.pub", k)
-	e.writePub("libreserv.minisign.pub", genKey(t))
+	e.writePub("sol.minisign.pub", genKey(t))
 	text := e.encrypted(k, "pw")
 	// Pasted as one line (a terminal paste may drop the newlines) with the comment: still works.
 	oneLine := strings.ReplaceAll(text, "\n", " ")

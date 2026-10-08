@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/testutil"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
+	"gt.plainskill.net/LibreLoom/Sol/internal/api/handlers/testutil"
+	"gt.plainskill.net/LibreLoom/Sol/internal/config"
 )
 
 func TestAppsHandlerCoverage(t *testing.T) {

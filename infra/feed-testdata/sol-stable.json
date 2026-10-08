@@ -10,22 +10,22 @@
       "name": "sol",
       "os": "linux",
       "arch": "amd64",
-      "file": "libreserv-linux-amd64",
+      "file": "sol-linux-amd64",
       "size": 350,
-      "sha256": "90c0c2890a8e662c802fd1c8f5f41a3a55aa3b55e408f3dd383f0926c8721ec2",
+      "sha256": "9c66febe2af282415e80d7496f3a3bc0460b67f35355bf672529db36a581647a",
       "urls": [
-        "http://feed-test.invalid/generic/sol/0.9.1/libreserv-linux-amd64"
+        "http://feed-test.invalid/generic/sol/0.9.1/sol-linux-amd64"
       ]
     },
     {
       "name": "sol",
       "os": "linux",
       "arch": "arm64",
-      "file": "libreserv-linux-arm64",
+      "file": "sol-linux-arm64",
       "size": 360,
-      "sha256": "c4940bef16e9dcb03f40fe0464a96404a3da32c4e5508d88396a97ac76ef849a",
+      "sha256": "25759902baf634ae76a8e8e703c8576227bdf5e43c678c79a206f9b41c596cc8",
       "urls": [
-        "http://feed-test.invalid/generic/sol/0.9.1/libreserv-linux-arm64"
+        "http://feed-test.invalid/generic/sol/0.9.1/sol-linux-arm64"
       ]
     }
   ]

@@ -16,9 +16,9 @@ import (
 	"time"
 
 	"golang.org/x/sys/unix"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/feed"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/util"
+	"gt.plainskill.net/LibreLoom/Sol/internal/config"
+	"gt.plainskill.net/LibreLoom/Sol/internal/feed"
+	"gt.plainskill.net/LibreLoom/Sol/internal/util"
 
 	"aead.dev/minisign"
 )
@@ -34,7 +34,7 @@ type UpdateState struct {
 
 var (
 	updateStateFile              = "update_state.json"
-	updateStateDir               = "/var/lib/libreserv"
+	updateStateDir               = "/var/lib/sol"
 	updateStateDirFallback       = ""
 	verificationTimeout          = 5 * time.Minute
 	cleanupDelay                 = 24 * time.Hour
@@ -357,7 +357,7 @@ func (c *UpdateChecker) ApplyUpdate(ctx context.Context, currentVersion string) 
 	}
 
 	// Stage beside the installed binary (same filesystem, so rename works).
-	tmpFile, err := os.CreateTemp(filepath.Dir(execPath), ".libreserv-update-*")
+	tmpFile, err := os.CreateTemp(filepath.Dir(execPath), ".sol-update-*")
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %w", err)
 	}

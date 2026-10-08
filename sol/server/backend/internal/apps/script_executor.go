@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/podman"
+	"gt.plainskill.net/LibreLoom/Sol/internal/podman"
 )
 
 // instanceIDPattern validates that instance IDs contain only safe characters
@@ -122,7 +122,7 @@ func (e *ScriptExecutor) prepareScriptConfig(instanceID, validatedPath, installP
 		ConfigDir:   filepath.Join(installPath, "config"),
 		Runtime: RuntimeInfo{
 			ComposeFile: filepath.Join(installPath, "docker-compose.yml"),
-			ProjectName: fmt.Sprintf("libreserv-%s", instanceID),
+			ProjectName: fmt.Sprintf("sol-%s", instanceID),
 		},
 		Server:  e.serverCtx,
 		Options: options,

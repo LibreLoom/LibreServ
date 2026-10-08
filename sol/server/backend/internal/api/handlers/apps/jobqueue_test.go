@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/jobqueue"
+	"gt.plainskill.net/LibreLoom/Sol/internal/jobqueue"
 )
 
 type fakeQueueManager struct {

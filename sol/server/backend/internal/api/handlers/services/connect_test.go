@@ -12,12 +12,12 @@ import (
 	"strings"
 	"testing"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/connect"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/settings"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/storage"
+	"gt.plainskill.net/LibreLoom/Sol/internal/config"
+	"gt.plainskill.net/LibreLoom/Sol/internal/connect"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/network"
+	"gt.plainskill.net/LibreLoom/Sol/internal/settings"
+	"gt.plainskill.net/LibreLoom/Sol/internal/storage"
 )
 
 func setupConnectTest(t *testing.T) (*ConnectHandler, *settings.Service, *network.CaddyManager, *storage.BackupService, *database.DB) {
@@ -64,7 +64,7 @@ func setupConnectTest(t *testing.T) (*ConnectHandler, *settings.Service, *networ
 	// Give the backup service a fake restic binary so ProvisionRestic succeeds
 	// without downloading anything from the network.
 	homeDir := filepath.Join(tmpDir, "home")
-	resticBin := filepath.Join(homeDir, ".libreserv", "bin", "restic")
+	resticBin := filepath.Join(homeDir, ".sol", "bin", "restic")
 	if err := os.MkdirAll(filepath.Dir(resticBin), 0o750); err != nil {
 		t.Fatalf("failed to create fake restic dir: %v", err)
 	}

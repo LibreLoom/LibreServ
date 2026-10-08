@@ -38,7 +38,7 @@ func (m *MDNSService) Start() error {
 	}
 
 	svc, err := mdns.NewMDNSService(
-		"LibreServ",
+		"Sol",
 		"_http._tcp",
 		"local.",
 		"",
@@ -50,7 +50,7 @@ func (m *MDNSService) Start() error {
 		return fmt.Errorf("create mdns service: %w", err)
 	}
 
-	zone := &libreservZone{MDNSService: svc, ips: ips}
+	zone := &solZone{MDNSService: svc, ips: ips}
 
 	server, err := mdns.NewServer(&mdns.Config{
 		Zone:              zone,
@@ -63,7 +63,7 @@ func (m *MDNSService) Start() error {
 
 	m.server = server
 	m.logger.Info("mDNS advertisement started",
-		"hostname", "libreserv.local",
+		"hostname", "sol.local",
 		"port", m.port,
 		"ips", ips,
 	)
@@ -122,21 +122,21 @@ func (m *MDNSService) stdLog() *log.Logger {
 	return slog.NewLogLogger(m.logger.Handler(), slog.LevelDebug)
 }
 
-// libreservZone wraps mdns.MDNSService and adds A record responses for
-// libreserv.local so that http://libreserv.local resolves in the browser.
-type libreservZone struct {
+// solZone wraps mdns.MDNSService and adds A record responses for
+// sol.local so that http://sol.local resolves in the browser.
+type solZone struct {
 	*mdns.MDNSService
 	ips []net.IP
 }
 
-func (z *libreservZone) Records(q dns.Question) []dns.RR {
-	if q.Name == "libreserv.local." && (q.Qtype == dns.TypeA || q.Qtype == dns.TypeANY) {
+func (z *solZone) Records(q dns.Question) []dns.RR {
+	if q.Name == "sol.local." && (q.Qtype == dns.TypeA || q.Qtype == dns.TypeANY) {
 		var rrs []dns.RR
 		for _, ip := range z.ips {
 			if ip4 := ip.To4(); ip4 != nil {
 				rrs = append(rrs, &dns.A{
 					Hdr: dns.RR_Header{
-						Name:   "libreserv.local.",
+						Name:   "sol.local.",
 						Rrtype: dns.TypeA,
 						Class:  dns.ClassINET,
 						Ttl:    mdnsTTL,
@@ -155,4 +155,4 @@ func (z *libreservZone) Records(q dns.Question) []dns.RR {
 }
 
 // Ensure Zone interface is satisfied at compile time.
-var _ mdns.Zone = (*libreservZone)(nil)
+var _ mdns.Zone = (*solZone)(nil)

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/email"
+	"gt.plainskill.net/LibreLoom/Sol/internal/email"
 )
 
 // EmailNotifier implements the Notifier interface using SMTP

@@ -6,13 +6,13 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/shared"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/pagination"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database/models"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/security"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/validation"
+	"gt.plainskill.net/LibreLoom/Sol/internal/api/handlers/shared"
+	"gt.plainskill.net/LibreLoom/Sol/internal/api/middleware"
+	"gt.plainskill.net/LibreLoom/Sol/internal/api/pagination"
+	"gt.plainskill.net/LibreLoom/Sol/internal/auth"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database/models"
+	"gt.plainskill.net/LibreLoom/Sol/internal/security"
+	"gt.plainskill.net/LibreLoom/Sol/internal/validation"
 )
 
 // UsersHandler manages user CRUD endpoints

@@ -2,7 +2,7 @@ import { Info, Laptop, Palette, Plug, Shield } from "lucide-react";
 
 // adminOnly categories change this Luna itself (external services, updates),
 // so they stay hidden from members who cannot change them.
-// Labels match LibreServ's clean category style (Appearance, External services,
+// Labels match Sol's clean category style (Appearance, External services,
 // Security, About) rather than euphemistic phrasing.
 const CATEGORIES = [
   { id: "external_services", label: "External services", icon: Plug, adminOnly: true },

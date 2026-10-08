@@ -1,4 +1,4 @@
-module gt.plainskill.net/LibreLoom/LibreServ
+module gt.plainskill.net/LibreLoom/Sol
 
 go 1.26.0
 

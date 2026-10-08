@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	rt "gt.plainskill.net/LibreLoom/LibreServ/internal/runtime"
+	rt "gt.plainskill.net/LibreLoom/Sol/internal/runtime"
 )
 
 func TestPickContainer_PrefersComposeProjectLabelAndRunning(t *testing.T) {

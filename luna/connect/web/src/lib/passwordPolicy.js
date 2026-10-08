@@ -1,6 +1,6 @@
 /**
  * Account password policy — mirrors luna/connect/internal/auth/password.go
- * and LibreServ/Luna: at least 12 characters, one letter, and one number.
+ * and Sol/Luna: at least 12 characters, one letter, and one number.
  * Symbols are encouraged for strength UI but are not required.
  */
 

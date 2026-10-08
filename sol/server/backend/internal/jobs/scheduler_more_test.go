@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/notify"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/system"
+	"gt.plainskill.net/LibreLoom/Sol/internal/config"
+	"gt.plainskill.net/LibreLoom/Sol/internal/notify"
+	"gt.plainskill.net/LibreLoom/Sol/internal/system"
 )
 
 func TestSchedulerRunPeriodicStopsBeforeInitialRun(t *testing.T) {

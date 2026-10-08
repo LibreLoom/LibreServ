@@ -10,14 +10,14 @@ import (
 	"sync"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/response"
+	"gt.plainskill.net/LibreLoom/Sol/internal/api/response"
 	"log/slog"
 )
 
 var trustedProxyNets []*net.IPNet
 
 func init() {
-	trustedEnv := os.Getenv("LIBRESERV_TRUSTED_PROXIES")
+	trustedEnv := os.Getenv("SOL_TRUSTED_PROXIES")
 	if trustedEnv != "" {
 		for _, entry := range strings.Split(trustedEnv, ",") {
 			entry = strings.TrimSpace(entry)
@@ -45,7 +45,7 @@ func init() {
 		// Previously RFC1918 (10/8, 172.16/12, 192.168/16, fc00::/7) were trusted, so any
 		// container on the Podman bridge (10.0.2.x) could spoof X-Forwarded-For
 		// and bypass per-IP lockouts / rate-limits. Operators who run behind a
-		// real reverse proxy must set LIBRESERV_TRUSTED_PROXIES explicitly.
+		// real reverse proxy must set SOL_TRUSTED_PROXIES explicitly.
 		for _, cidr := range []string{
 			"127.0.0.0/8",
 			"::1/128",

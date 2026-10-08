@@ -1,5 +1,5 @@
 // Package webauthn implements the WebAuthn (passkey + security key) ceremonies
-// for LibreServ's multi-factor authentication. It is a pure-ceremony package:
+// for Sol's multi-factor authentication. It is a pure-ceremony package:
 // it holds only the ephemeral challenge/session state in memory and performs
 // the register/login round-trips against github.com/go-webauthn/webauthn. All
 // credential persistence (the mfa_methods rows) is owned by the parent
@@ -27,7 +27,7 @@ import (
 	"sync"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
+	"gt.plainskill.net/LibreLoom/Sol/internal/auth"
 
 	"github.com/go-webauthn/webauthn/protocol"
 	wapi "github.com/go-webauthn/webauthn/webauthn"
@@ -41,8 +41,8 @@ var _ auth.WebAuthnVerifier = (*Verifier)(nil)
 const DefaultTimeout = 60 * time.Second
 
 // Config configures the Relying Party. RPID is the effective domain (e.g.
-// "libreserv.example.com"); Origins are the fully-qualified origins permitted to
-// perform ceremonies (e.g. ["https://libreserv.example.com"]). WebAuthn
+// "sol.example.com"); Origins are the fully-qualified origins permitted to
+// perform ceremonies (e.g. ["https://sol.example.com"]). WebAuthn
 // requires https origins (browsers also treat http://localhost as secure), so
 // in a non-https dev setup leave Origins empty and do not wire the verifier.
 type Config struct {
@@ -260,7 +260,7 @@ func toWACredentials(creds []auth.WebAuthnCredential) ([]wapi.Credential, error)
 	return out, nil
 }
 
-// webAuthnUser adapts LibreServ user data to the go-webauthn User interface.
+// webAuthnUser adapts Sol user data to the go-webauthn User interface.
 // WebAuthnID is the opaque user handle; we use the user's account ID bytes
 // (stable, unique). For MFA (not passwordless) this is acceptable.
 type webAuthnUser struct {

@@ -8,7 +8,7 @@ import (
 	"github.com/stripe/stripe-go/v76/checkout/session"
 	"github.com/stripe/stripe-go/v76/subscription"
 
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/config"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/config"
 )
 
 // InitStripe initializes the Stripe SDK with the configured secret key.

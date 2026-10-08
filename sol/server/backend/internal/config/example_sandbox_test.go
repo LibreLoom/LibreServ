@@ -10,7 +10,7 @@ func TestExampleYAMLParsesSandbox(t *testing.T) {
 	v := viper.New()
 	SetDefaults(v)
 	v.SetConfigType("yaml")
-	v.SetConfigFile("../../configs/libreserv.yaml.example")
+	v.SetConfigFile("../../configs/sol.yaml.example")
 	if err := v.ReadInConfig(); err != nil {
 		t.Fatalf("read example: %v", err)
 	}

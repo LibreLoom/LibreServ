@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/jobqueue"
+	"gt.plainskill.net/LibreLoom/Sol/internal/jobqueue"
 )
 
 // RenewalScheduler periodically checks for expiring certificates and queues renewal jobs

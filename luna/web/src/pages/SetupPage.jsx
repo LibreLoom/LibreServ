@@ -50,7 +50,7 @@ const STEP = {
 
 // Shared input style for the inverted (bg-secondary) setup card: a transparent
 // field with a primary-toned border; text is primary (inverted to match the card).
-// Same constant as LibreServ's SetupPage so the two wizards read identically.
+// Same constant as Sol's SetupPage so the two wizards read identically.
 const WIZARD_INPUT_CLASS =
   "w-full px-5 py-3.5 rounded-pill border border-primary/20 bg-transparent text-primary font-mono text-sm focus:outline-none focus:border-primary/50 motion-safe:transition-colors motion-safe:duration-150";
 
@@ -148,7 +148,7 @@ SetupCard.propTypes = {
 // ─── Step progress dots (on the card, so use primary colors) ─────────────────
 // The shared indicator across both products: a plain row of dots — active is
 // a wider pill (smoothly stretched via transition-all, no entrance cascade,
-// no breathe) — plus LibreServ's "N / M" step counter on the right.
+// no breathe) — plus Sol's "N / M" step counter on the right.
 // Shown on every step, including Welcome.
 const VISIBLE_STEPS = [
   { id: STEP.WELCOME,    label: "Welcome" },
@@ -229,7 +229,7 @@ WelcomeStep.propTypes = {
 
 
 
-// ─── Password strength (same policy as LibreServ + lunad) ─────────────────────
+// ─── Password strength (same policy as Sol + lunad) ─────────────────────
 // Acceptable = 12+ chars, a letter, and a digit. Symbols strengthen the bar but
 // are NOT required — gating on them would reject passwords the backend accepts.
 function strengthInfo(pw) {
@@ -908,7 +908,7 @@ export default function SetupPage() {
   }, [user]);
 
   // Restore wizard position from the device so a refresh mid-setup continues
-  // where the user left off (same behavior as LibreServ).
+  // where the user left off (same behavior as Sol).
   useEffect(() => {
     let alive = true;
     (async () => {

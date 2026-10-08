@@ -30,7 +30,7 @@ const signalLabel = (dbm) => {
  *
  * MIRROR COMPONENT — keep in lockstep with
  * luna/web/src/components/setup/NetworkStep.jsx. The two files differ only in
- * how they reach their backends (LibreServ polls /setup/wifi/* with plain
+ * how they reach their backends (Sol polls /setup/wifi/* with plain
  * api() calls; Luna uses react-query against /api/v1/network/*). Everything
  * the user sees — layout, copy (with the product name), behavior — is
  * identical. Change one, change the other in the same commit.

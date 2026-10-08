@@ -7,7 +7,7 @@ import (
 	"net"
 	"sync"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
 )
 
 const (

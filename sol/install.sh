@@ -1,11 +1,11 @@
 #!/bin/bash
 set -euo pipefail
 
-# LibreServ Installation Script
+# Sol Installation Script
 # Usage: curl -fsSL https://gt.plainskill.net/LibreLoom/LibreServ/raw/branch/main/sol/install.sh -o install.sh && sudo bash install.sh && rm install.sh
 #
 # Options:
-#   --uninstall    Remove LibreServ (preserves data)
+#   --uninstall    Remove Sol (preserves data)
 #   --upgrade      Upgrade existing installation (preserves data and config)
 #   --version X.Y.Z  Install that exact version instead of the latest stable one
 #   --help         Show this help message
@@ -18,20 +18,20 @@ CURL_SECURE=(--proto '=https' --tlsv1.2)
 # Strict semver, no leading "v": X.Y.Z or X.Y.Z-beta.N
 VERSION_RE='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-beta\.(0|[1-9][0-9]*))?$'
 REQUESTED_VERSION=""
-INSTALL_DIR="/opt/libreserv"
+INSTALL_DIR="/opt/sol"
 BIN_DIR="/usr/local/bin"
-CONFIG_DIR="/etc/libreserv"
-DATA_DIR="/var/lib/libreserv"
-LOG_DIR="/var/log/libreserv"
-USER="libreserv"
-SERVICE_NAME="libreserv"
+CONFIG_DIR="/etc/sol"
+DATA_DIR="/var/lib/sol"
+LOG_DIR="/var/log/sol"
+USER="sol"
+SERVICE_NAME="sol"
 NO_SYSTEMD=false
 RESTIC_VERSION="0.19.1"
 # Upstream SHA256 of restic_${RESTIC_VERSION}_linux_{amd64,arm64}.bz2 (from restic SHA256SUMS).
 RESTIC_SHA256_LINUX_AMD64="f415415624dcc452f2a02b8c33641791a8c6d6d3b65bbb3543fcf9a25151585c"
 RESTIC_SHA256_LINUX_ARM64="a5f64aaab53d51e311fa3829124c5b703f2d14cf187d8640b6be3b2b49376465"
 
-# Baked-in LibreServ minisign public key (keys/libreserv.minisign.pub). Do not fetch this from Forgejo.
+# Baked-in Sol minisign public key (keys/sol.minisign.pub). Do not fetch this from Forgejo.
 RELEASE_MINISIGN_PUB='untrusted comment: minisign public key 48EB64CB69EA36CD
 RWTNNuppy2TrSN0svaVDgtJ4spfWLS9ZMvu6r103YVewyX4HAKfq3Rkt'
 
@@ -323,7 +323,7 @@ require_minisign() {
 }
 
 # verify_signature FILE SIGNATURE_FILE: succeeds only if FILE was signed with
-# the baked-in LibreServ key.
+# the baked-in Sol key.
 verify_signature() {
     local file="$1" sig="$2" pub_file rc=0
     pub_file="$(mktemp)"
@@ -389,7 +389,7 @@ get_latest_release() {
 # Verify signature + checksum on a temp file first; only then replace the
 # installed binary. Failures return (do not exit) so --upgrade can restore.
 download_binary() {
-    BINARY_NAME="libreserv-${OS}-${ARCH}"
+    BINARY_NAME="sol-${OS}-${ARCH}"
     DOWNLOAD_URL="${PACKAGE_BASE_URL}/${INSTALL_VERSION}/${BINARY_NAME}"
     CHECKSUM_URL="${PACKAGE_BASE_URL}/${INSTALL_VERSION}/SHA256SUMS.txt"
     SIG_URL="${CHECKSUM_URL}.minisig"
@@ -397,7 +397,7 @@ download_binary() {
     mkdir -p "${INSTALL_DIR}"
 
     local tmp_bin tmp_sums tmp_sig pub_file
-    tmp_bin="$(mktemp "${INSTALL_DIR}/.libreserv.download.XXXXXX")"
+    tmp_bin="$(mktemp "${INSTALL_DIR}/.sol.download.XXXXXX")"
     tmp_sums="$(mktemp)"
     tmp_sig="$(mktemp)"
     pub_file=""
@@ -464,9 +464,9 @@ download_binary() {
     fi
 
     chmod +x "${tmp_bin}"
-    mv -f "${tmp_bin}" "${INSTALL_DIR}/libreserv"
+    mv -f "${tmp_bin}" "${INSTALL_DIR}/sol"
     tmp_bin=""
-    ln -sf "${INSTALL_DIR}/libreserv" "${BIN_DIR}/libreserv"
+    ln -sf "${INSTALL_DIR}/sol" "${BIN_DIR}/sol"
     cleanup_download_temps
 }
 
@@ -474,7 +474,7 @@ download_binary() {
 # Prefer install-lib/download-restic.sh when present (full checkout).
 # Curl-onefile installs use the inline verified path below — no install-parts required.
 # Verify the .bz2 against baked-in upstream SHA256SUMS before decompressing --
-# same trust bar as the LibreServ binary (checksum before overwrite).
+# same trust bar as the Sol binary (checksum before overwrite).
 download_restic() {
     local restic_dir="${DATA_DIR}/bin"
     local restic_path="${restic_dir}/restic"
@@ -593,11 +593,11 @@ generate_setup_code() {
 
 # Create default config
 create_config() {
-    if [ -f "${CONFIG_DIR}/libreserv.yaml" ]; then
+    if [ -f "${CONFIG_DIR}/sol.yaml" ]; then
         log_info "Configuration file already exists, preserving"
         # Ensure correct ownership even if file existed
-        chown "${USER}:${USER}" "${CONFIG_DIR}/libreserv.yaml"
-        chmod 640 "${CONFIG_DIR}/libreserv.yaml"
+        chown "${USER}:${USER}" "${CONFIG_DIR}/sol.yaml"
+        chmod 640 "${CONFIG_DIR}/sol.yaml"
         return
     fi
 
@@ -605,8 +605,8 @@ create_config() {
     JWT_SECRET="$(openssl rand -hex 32)"
     CSRF_SECRET="$(openssl rand -hex 32)"
 
-    cat > "${CONFIG_DIR}/libreserv.yaml" <<EOF
-# LibreServ Configuration
+    cat > "${CONFIG_DIR}/sol.yaml" <<EOF
+# Sol Configuration
 # All paths and settings have code defaults -- this file only contains secrets.
 # DB-backed settings (logging.level, smtp.*, server.mode, etc.) must be
 # changed via the Settings UI -- editing this file has no effect after first boot.
@@ -620,8 +620,8 @@ auth:
 EOF
 
     # Explicitly set ownership and permissions on config file
-    chown "${USER}:${USER}" "${CONFIG_DIR}/libreserv.yaml"
-    chmod 640 "${CONFIG_DIR}/libreserv.yaml"
+    chown "${USER}:${USER}" "${CONFIG_DIR}/sol.yaml"
+    chmod 640 "${CONFIG_DIR}/sol.yaml"
 
     # Generate setup code for the included card/documentation
     SETUP_CODE="$(generate_setup_code)"
@@ -655,7 +655,7 @@ Type=simple
 User=${USER}
 Group=${USER}
 WorkingDirectory=${INSTALL_DIR}
-ExecStart=${BIN_DIR}/libreserv --config ${CONFIG_DIR}/libreserv.yaml
+ExecStart=${BIN_DIR}/sol --config ${CONFIG_DIR}/sol.yaml
 Restart=always
 RestartSec=10
 
@@ -676,8 +676,8 @@ EOF
 # Verify service starts successfully
 verify_service() {
     if [ "$NO_SYSTEMD" = true ]; then
-        log_info "Sol binary installed to ${BIN_DIR}/libreserv"
-        log_info "Run manually: sudo -u ${USER} ${BIN_DIR}/libreserv --config ${CONFIG_DIR}/libreserv.yaml"
+        log_info "Sol binary installed to ${BIN_DIR}/sol"
+        log_info "Run manually: sudo -u ${USER} ${BIN_DIR}/sol --config ${CONFIG_DIR}/sol.yaml"
         log_warn "--no-systemd mode is for TESTING ONLY. Production deployments require systemd."
         return 0
     fi
@@ -721,9 +721,9 @@ verify_permissions() {
     done
     
     # Check config file
-    if [ -f "${CONFIG_DIR}/libreserv.yaml" ]; then
+    if [ -f "${CONFIG_DIR}/sol.yaml" ]; then
         local cfg_owner
-        cfg_owner=$(stat -c '%U:%G' "${CONFIG_DIR}/libreserv.yaml" 2>/dev/null || stat -f '%Su:%Sg' "${CONFIG_DIR}/libreserv.yaml" 2>/dev/null)
+        cfg_owner=$(stat -c '%U:%G' "${CONFIG_DIR}/sol.yaml" 2>/dev/null || stat -f '%Su:%Sg' "${CONFIG_DIR}/sol.yaml" 2>/dev/null)
         if [ "$cfg_owner" != "${USER}:${USER}" ]; then
             log_error "Config file owned by $cfg_owner (expected ${USER}:${USER})"
             failed=true
@@ -731,14 +731,14 @@ verify_permissions() {
     fi
     
     # Check binary
-    if [ -x "${INSTALL_DIR}/libreserv" ]; then
+    if [ -x "${INSTALL_DIR}/sol" ]; then
         local bin_owner
-        bin_owner=$(stat -c '%U:%G' "${INSTALL_DIR}/libreserv" 2>/dev/null || stat -f '%Su:%Sg' "${INSTALL_DIR}/libreserv" 2>/dev/null)
+        bin_owner=$(stat -c '%U:%G' "${INSTALL_DIR}/sol" 2>/dev/null || stat -f '%Su:%Sg' "${INSTALL_DIR}/sol" 2>/dev/null)
         if [ "$bin_owner" != "root:root" ]; then
             log_warn "Binary owned by $bin_owner (expected root:root)"
         fi
     else
-        log_error "Binary not found or not executable: ${INSTALL_DIR}/libreserv"
+        log_error "Binary not found or not executable: ${INSTALL_DIR}/sol"
         failed=true
     fi
     
@@ -817,8 +817,8 @@ print_post_install() {
     echo ""
     echo -e "Service commands:"
     if [ "$NO_SYSTEMD" = true ]; then
-        echo -e "   Run:    ${YELLOW}sudo -u ${USER} ${BIN_DIR}/libreserv --config ${CONFIG_DIR}/libreserv.yaml${NC}"
-        echo -e "   Logs:   ${YELLOW}tail -f ${LOG_DIR}/libreserv.log${NC}"
+        echo -e "   Run:    ${YELLOW}sudo -u ${USER} ${BIN_DIR}/sol --config ${CONFIG_DIR}/sol.yaml${NC}"
+        echo -e "   Logs:   ${YELLOW}tail -f ${LOG_DIR}/sol.log${NC}"
         echo ""
         echo -e "   ${YELLOW}--no-systemd is for TESTING only. Use systemctl in production.${NC}"
     else
@@ -828,7 +828,7 @@ print_post_install() {
         echo -e "   Logs:    ${YELLOW}journalctl -u ${SERVICE_NAME} -f${NC}"
     fi
     echo ""
-    echo -e "Configuration: ${CONFIG_DIR}/libreserv.yaml"
+    echo -e "Configuration: ${CONFIG_DIR}/sol.yaml"
     echo -e "Data directory: ${DATA_DIR}"
     echo -e "Logs: ${LOG_DIR}"
     echo ""
@@ -842,15 +842,15 @@ do_upgrade() {
     check_root
     log_info "Upgrading Sol..."
 
-    if [ ! -f "${BIN_DIR}/libreserv" ]; then
+    if [ ! -f "${BIN_DIR}/sol" ]; then
         log_error "Sol is not installed. Use regular installation instead."
         exit 1
     fi
 
-    BACKUP_BINARY="${INSTALL_DIR}/libreserv.bak"
-    if [ -f "${INSTALL_DIR}/libreserv" ]; then
+    BACKUP_BINARY="${INSTALL_DIR}/sol.bak"
+    if [ -f "${INSTALL_DIR}/sol" ]; then
         log_info "Backing up current binary..."
-        cp "${INSTALL_DIR}/libreserv" "${BACKUP_BINARY}"
+        cp "${INSTALL_DIR}/sol" "${BACKUP_BINARY}"
     fi
 
     # Keep the running service up while the new binary is downloaded and
@@ -868,9 +868,9 @@ do_upgrade() {
         log_error "Download or verification failed. Leaving the previous binary in place."
         if [ -f "${BACKUP_BINARY}" ]; then
             # Re-link / restore in case a partial install moved anything.
-            cp "${BACKUP_BINARY}" "${INSTALL_DIR}/libreserv"
-            chmod +x "${INSTALL_DIR}/libreserv"
-            ln -sf "${INSTALL_DIR}/libreserv" "${BIN_DIR}/libreserv"
+            cp "${BACKUP_BINARY}" "${INSTALL_DIR}/sol"
+            chmod +x "${INSTALL_DIR}/sol"
+            ln -sf "${INSTALL_DIR}/sol" "${BIN_DIR}/sol"
             log_info "Previous binary restored"
             run_systemctl start "${SERVICE_NAME}" 2>/dev/null || true
         fi
@@ -896,7 +896,7 @@ do_upgrade() {
     fi
 }
 
-# Uninstall LibreServ
+# Uninstall Sol
 do_uninstall() {
     check_root
     log_warn "Uninstalling Sol..."
@@ -908,7 +908,7 @@ do_uninstall() {
 
     log_info "Removing files..."
     rm -f "/etc/systemd/system/${SERVICE_NAME}.service"
-    rm -f "${BIN_DIR}/libreserv"
+    rm -f "${BIN_DIR}/sol"
     rm -rf "${INSTALL_DIR}"
 
     run_systemctl daemon-reload
@@ -946,7 +946,7 @@ do_install() {
         else
             log_error "Installation completed but service failed to start"
             if [ "$NO_SYSTEMD" = true ]; then
-                log_error "Run manually: sudo -u ${USER} ${BIN_DIR}/libreserv --config ${CONFIG_DIR}/libreserv.yaml"
+                log_error "Run manually: sudo -u ${USER} ${BIN_DIR}/sol --config ${CONFIG_DIR}/sol.yaml"
             else
                 log_error "Check logs with: journalctl -u ${SERVICE_NAME} -n 50"
             fi
@@ -955,7 +955,7 @@ do_install() {
     else
         log_error "Permission verification failed. Not starting service."
         if [ "$NO_SYSTEMD" = true ]; then
-            log_error "Fix permissions and run: sudo -u ${USER} ${BIN_DIR}/libreserv --config ${CONFIG_DIR}/libreserv.yaml"
+            log_error "Fix permissions and run: sudo -u ${USER} ${BIN_DIR}/sol --config ${CONFIG_DIR}/sol.yaml"
         else
             log_error "Fix permissions and run: systemctl start ${SERVICE_NAME}"
         fi

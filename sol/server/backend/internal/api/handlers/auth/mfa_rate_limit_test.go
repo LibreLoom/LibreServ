@@ -14,9 +14,9 @@ import (
 
 	"github.com/pquerna/otp/totp"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database/models"
+	"gt.plainskill.net/LibreLoom/Sol/internal/auth"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database/models"
 )
 
 // newRateLimitMFAHandler builds a real auth.Service with an MFA-enabled user

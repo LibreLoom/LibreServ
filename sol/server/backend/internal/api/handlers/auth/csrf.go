@@ -3,7 +3,7 @@ package auth
 import (
 	"net/http"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
+	"gt.plainskill.net/LibreLoom/Sol/internal/api/middleware"
 )
 
 // CSRFHandler issues a CSRF token for authenticated users.

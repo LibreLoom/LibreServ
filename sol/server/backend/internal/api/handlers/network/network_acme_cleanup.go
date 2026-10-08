@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
+	"gt.plainskill.net/LibreLoom/Sol/internal/network"
 )
 
 // ACMECleanupHandler handles post-issuance cleanup for ACME routes.

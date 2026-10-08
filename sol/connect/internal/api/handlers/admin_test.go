@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/database"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/database"
 )
 
 func setAdminToken(t *testing.T) {

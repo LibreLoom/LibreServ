@@ -1,4 +1,4 @@
-APP_NAME := libreserv
+APP_NAME := sol
 BIN_DIR := bin
 RESTIC_VERSION ?= 0.19.1
 RESTIC_DIR := OS/bin
@@ -10,10 +10,10 @@ BUILD_TAGS ?=
 GOOS ?= $(shell go env GOOS)
 GOARCH ?= $(shell go env GOARCH)
 
-LDVARS := -X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/system.Version=$(VERSION) \
-          -X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/system.GitCommit=$(GIT_COMMIT)
+LDVARS := -X gt.plainskill.net/LibreLoom/Sol/internal/api/handlers/system.Version=$(VERSION) \
+          -X gt.plainskill.net/LibreLoom/Sol/internal/api/handlers/system.GitCommit=$(GIT_COMMIT)
 ifneq ($(strip $(BUILD_TIME)),)
-LDVARS += -X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/system.BuildTime=$(BUILD_TIME)
+LDVARS += -X gt.plainskill.net/LibreLoom/Sol/internal/api/handlers/system.BuildTime=$(BUILD_TIME)
 endif
 LDFLAGS := -ldflags "$(LDVARS) -s -w"
 # CODE QUALITY FIX: correctly handle empty BUILD_TAGS (was -tags "" causing vet to see empty tag)
@@ -24,16 +24,16 @@ default: build
 build:
 	@echo ">> Building backend $(VERSION)"
 	@mkdir -p $(BIN_DIR)
-	@GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(TAGS_FLAG) $(LDFLAGS) -o $(BIN_DIR)/$(APP_NAME) ./cmd/libreserv
+	@GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(TAGS_FLAG) $(LDFLAGS) -o $(BIN_DIR)/$(APP_NAME) ./cmd/sol
 
 run: build
-	@if [ ! -f ./configs/libreserv.yaml ]; then \
-		echo "Error: ./configs/libreserv.yaml not found. Copy it from the example:"; \
-		echo "  cp configs/libreserv.yaml.example configs/libreserv.yaml"; \
+	@if [ ! -f ./configs/sol.yaml ]; then \
+		echo "Error: ./configs/sol.yaml not found. Copy it from the example:"; \
+		echo "  cp configs/sol.yaml.example configs/sol.yaml"; \
 		exit 1; \
 	fi
 	@echo ">> Running $(APP_NAME)"
-	@LIBRESERV_INSECURE_DEV=true ./$(BIN_DIR)/$(APP_NAME) --config ./configs/libreserv.yaml serve
+	@SOL_INSECURE_DEV=true ./$(BIN_DIR)/$(APP_NAME) --config ./configs/sol.yaml serve
 
 frontend:
 	@echo ">> Installing frontend deps"
@@ -132,11 +132,11 @@ ci-local:
 
 ci-all:
 	@echo ">> Running all CI tests"
-	@../../../ci run -profile libreserv
+	@../../../ci run -profile sol
 
 ci-docker:
 	@echo ">> Testing Docker build"
-	@docker build -t libreserv:local-test -f ../../Dockerfile ../../..
+	@docker build -t sol:local-test -f ../../Dockerfile ../../..
 
 # Clean
 clean:

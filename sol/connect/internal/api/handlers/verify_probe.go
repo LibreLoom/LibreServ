@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/api/middleware"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/api/middleware"
 )
 
-// VerifyProbeHandler answers reachability probes from LibreServ devices.
+// VerifyProbeHandler answers reachability probes from Sol devices.
 // It is the "verify from outside" source of truth for the device's network
 // report: the device cannot grade its own homework, so Connect probes
 // host:port from here (Hetzner edge).

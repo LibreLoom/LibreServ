@@ -817,7 +817,7 @@ describe("settings category coverage", () => {
             updates: {
               base_url: "https://old.example/api",
               owner: "old",
-              repo: "libreserv",
+              repo: "sol",
             },
           }}
           onUpdateSourceSave={onUpdateSourceSave}
@@ -846,7 +846,7 @@ describe("settings category coverage", () => {
     expect(onUpdateSourceSave).toHaveBeenCalledWith({
       base_url: "https://new.example/api",
       owner: "old",
-      repo: "libreserv",
+      repo: "sol",
     });
   });
 

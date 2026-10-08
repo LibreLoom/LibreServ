@@ -39,7 +39,7 @@ func TestParseInterspersed(t *testing.T) {
 }
 
 func TestParseSecretID(t *testing.T) {
-	for in, want := range map[string]string{"sol": "libreserv-signing", "Luna": "lsluna-signing", "forgejo": "forgejo-token", "android": "android-keystore"} {
+	for in, want := range map[string]string{"sol": "sol-signing", "Luna": "lsluna-signing", "forgejo": "forgejo-token", "android": "android-keystore"} {
 		got, err := parseID(in)
 		if err != nil || string(got) != want {
 			t.Errorf("%s -> %s, %v", in, got, err)

@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/response"
+	"gt.plainskill.net/LibreLoom/Sol/internal/api/response"
 )
 
 // SetupStateProvider supplies setup completion state and access tokens.

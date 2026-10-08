@@ -9,7 +9,7 @@ import (
 
 func DeriveRepoPassword(serverSecret, appID string) string {
 	mac := hmac.New(sha256.New, []byte(serverSecret))
-	mac.Write([]byte("libreserv-backup-repo-key"))
+	mac.Write([]byte("sol-backup-repo-key"))
 	mac.Write([]byte(appID))
 	return hex.EncodeToString(mac.Sum(nil))
 }

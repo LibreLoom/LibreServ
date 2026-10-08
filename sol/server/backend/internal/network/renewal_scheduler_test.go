@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/jobqueue"
+	"gt.plainskill.net/LibreLoom/Sol/internal/jobqueue"
 )
 
 type mockRenewalQueue struct {

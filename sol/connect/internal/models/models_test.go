@@ -3,7 +3,7 @@ package models
 import (
 	"testing"
 
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/database"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/database"
 )
 
 func TestProviderAndModelLifecycle(t *testing.T) {

@@ -3,8 +3,8 @@ package services
 import (
 	"net/http"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/apps"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
+	"gt.plainskill.net/LibreLoom/Sol/internal/apps"
+	"gt.plainskill.net/LibreLoom/Sol/internal/network"
 )
 
 // PlansHandler computes per-app exposure plans from the latest report.

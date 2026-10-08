@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
 )
 
 type testSecurityLogger struct{}

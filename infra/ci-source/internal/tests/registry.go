@@ -539,7 +539,7 @@ func addIntegrationTests() {
 		Container:   "host",
 		// Do not raise nofile above the host hard limit — crun setrlimit fails
 		// with EPERM on restricted environments (e.g. Cloud Agent VMs at 524288).
-		Command: "podman build -t libreserv:test -f sol/Dockerfile .",
+		Command: "podman build -t sol:test -f sol/Dockerfile .",
 		WorkDir: "/repo",
 		Timeout: 20 * time.Minute,
 	})

@@ -45,7 +45,7 @@ type resendAPIKeyResponse struct {
 // CreateAPIKey creates a new Resend API key with sending access only.
 func (c *ResendClient) CreateAPIKey(apiKey, name string) (*ResendSMTP, error) {
 	if name == "" {
-		name = "libreserv-device"
+		name = "sol-device"
 	}
 	url := c.baseURL
 	if url == "" {

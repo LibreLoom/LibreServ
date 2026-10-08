@@ -3,7 +3,7 @@ package providers
 import (
 	"testing"
 
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/database"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/database"
 )
 
 func TestProviderCRUD(t *testing.T) {
@@ -14,7 +14,7 @@ func TestProviderCRUD(t *testing.T) {
 		"account_id":      "acc123",
 		"application_key": "key456",
 	}, map[string]string{
-		"bucket_prefix": "libreserv-backup",
+		"bucket_prefix": "sol-backup",
 	}, true)
 	if err != nil {
 		t.Fatalf("create provider: %v", err)

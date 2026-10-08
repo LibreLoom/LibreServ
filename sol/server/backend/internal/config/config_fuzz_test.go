@@ -16,7 +16,7 @@ server:
   port: 8080
   mode: production
 database:
-  path: /data/libreserv.db
+  path: /data/sol.db
 auth:
   jwt_secret: super-secret-key
 apps:
@@ -27,7 +27,7 @@ runtime:
   socket_path: /var/run/docker.sock
 logging:
   level: info
-  path: /var/log/libreserv.log
+  path: /var/log/sol.log
 network:
   caddy:
     mode: enabled
@@ -40,7 +40,7 @@ network:
 server:
   port: 3000
 auth:
-  secret_file: /etc/libreserv/secret
+  secret_file: /etc/sol/secret
 runtime:
   method: tcp
   tcp:

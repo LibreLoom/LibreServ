@@ -15,13 +15,13 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/apps"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/jobqueue"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
-	containerruntime "gt.plainskill.net/LibreLoom/LibreServ/internal/runtime"
+	"gt.plainskill.net/LibreLoom/Sol/internal/api/middleware"
+	"gt.plainskill.net/LibreLoom/Sol/internal/apps"
+	"gt.plainskill.net/LibreLoom/Sol/internal/config"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/jobqueue"
+	"gt.plainskill.net/LibreLoom/Sol/internal/network"
+	containerruntime "gt.plainskill.net/LibreLoom/Sol/internal/runtime"
 )
 
 // Runtime is a stub container runtime for tests.

@@ -14,9 +14,9 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/podman"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/storage"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/podman"
+	"gt.plainskill.net/LibreLoom/Sol/internal/storage"
 )
 
 func newBackupHandlerTest(t *testing.T) (*BackupHandlers, *storage.BackupService, *database.DB, string) {

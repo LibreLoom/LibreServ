@@ -9,7 +9,7 @@ import (
 	"strings"
 	"text/template"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
+	"gt.plainskill.net/LibreLoom/Sol/internal/config"
 )
 
 // Sender provides a minimal SMTP sender.
@@ -158,9 +158,9 @@ func resolveSkipVerify(skipVerify bool) bool {
 	// gated for insecure development. In all other cases it is forced false,
 	// even outside production mode, because it enables MITM for password-reset
 	// and MFA email links (full account takeover). Operators needing it for
-	// local testing must set LIBRESERV_INSECURE_DEV=true (dev-only env).
-	if os.Getenv("LIBRESERV_INSECURE_DEV") != "true" {
-		slog.Warn("InsecureSkipVerify overridden to false — set LIBRESERV_INSECURE_DEV=true to allow skip_verify (dev-only)")
+	// local testing must set SOL_INSECURE_DEV=true (dev-only env).
+	if os.Getenv("SOL_INSECURE_DEV") != "true" {
+		slog.Warn("InsecureSkipVerify overridden to false — set SOL_INSECURE_DEV=true to allow skip_verify (dev-only)")
 		return false
 	}
 	if c := config.Get(); c != nil && c.Server.Mode == "production" {

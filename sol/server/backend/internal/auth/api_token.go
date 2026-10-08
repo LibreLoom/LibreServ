@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database/models"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database/models"
 )
 
 var (
@@ -30,7 +30,7 @@ var (
 // scripting token creation). It is a package var so tests can lower it.
 var MaxAPITokensPerUser = 50
 
-// apiTokenPrefix tags LibreServ API tokens so they are visually distinct from
+// apiTokenPrefix tags Sol API tokens so they are visually distinct from
 // JWTs and easy to grep for in logs. JWTs contain '.'; API tokens do not.
 const apiTokenPrefix = "lsat_"
 

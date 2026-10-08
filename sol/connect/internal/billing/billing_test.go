@@ -3,7 +3,7 @@ package billing
 import (
 	"testing"
 
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/catalog"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/catalog"
 )
 
 // TestAICheckQuotaLogic verifies the catalog plan configurations match

@@ -44,7 +44,7 @@ const FEED_SEEN_FILE: &str = "update-feed-seen.json";
 const OS_IMAGE_MAX_BYTES: u64 = 1536 * 1024 * 1024;
 
 /// Committed Luna minisign public key (`keys/lsluna.minisign.pub`).
-/// This is Luna’s production trust root (separate from LibreServ).
+/// This is Luna’s production trust root (separate from Sol).
 const PINNED_PUB: &str = include_str!("../../../../../keys/lsluna.minisign.pub");
 
 /// Meta-table key for the persisted update-source settings.

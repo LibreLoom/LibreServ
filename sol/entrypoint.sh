@@ -8,11 +8,11 @@ if [ ! -f "$CADDYFILE" ]; then
     echo ">> Bootstrapping minimal Caddyfile (none found in ${CADDY_DIR})"
     mkdir -p "$CADDY_DIR" 2>/dev/null || {
         echo ">> Cannot create ${CADDY_DIR} (running as non-root), skipping Caddyfile bootstrap"
-        exec /app/libreserv "$@"
+        exec /app/sol "$@"
     }
     cat > "$CADDYFILE" <<'CADDYEOF'
-# LibreServ bootstrap Caddyfile
-# Auto-generated on first start — replaced by LibreServ after initialization
+# Sol bootstrap Caddyfile
+# Auto-generated on first start — replaced by Sol after initialization
 
 :80 {
 	respond 502
@@ -20,4 +20,4 @@ if [ ! -f "$CADDYFILE" ]; then
 CADDYEOF
 fi
 
-exec /app/libreserv "$@"
+exec /app/sol "$@"

@@ -11,9 +11,9 @@ import (
 	"net/url"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database/models"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/email"
+	"gt.plainskill.net/LibreLoom/Sol/internal/config"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database/models"
+	"gt.plainskill.net/LibreLoom/Sol/internal/email"
 )
 
 // PasswordResetService handles password reset functionality

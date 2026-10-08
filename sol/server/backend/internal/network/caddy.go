@@ -22,8 +22,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/monitoring"
 )
 
 type CaddyManager struct {
@@ -726,7 +726,7 @@ http:// {
 {{if .Enabled}}
 {{.FullDomain}} {
 	{{if .RestrictedAccess}}
-	# Access control — LibreServ checks the user's session before allowing access
+	# Access control — Sol checks the user's session before allowing access
 	forward_auth 127.0.0.1:{{$.AuthPort}} {
 		uri /api/v1/auth/forward-auth
 		copy_headers Remote-User Remote-Email Remote-Groups

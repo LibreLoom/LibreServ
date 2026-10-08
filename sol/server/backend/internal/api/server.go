@@ -16,24 +16,24 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/agent"
-	handlersauth "gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/auth"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/apps"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/audit"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/connect"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/jobqueue"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/podman"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/security"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/settings"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/setup"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/storage"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/system"
+	"gt.plainskill.net/LibreLoom/Sol/internal/agent"
+	handlersauth "gt.plainskill.net/LibreLoom/Sol/internal/api/handlers/auth"
+	"gt.plainskill.net/LibreLoom/Sol/internal/api/middleware"
+	"gt.plainskill.net/LibreLoom/Sol/internal/apps"
+	"gt.plainskill.net/LibreLoom/Sol/internal/audit"
+	"gt.plainskill.net/LibreLoom/Sol/internal/auth"
+	"gt.plainskill.net/LibreLoom/Sol/internal/config"
+	"gt.plainskill.net/LibreLoom/Sol/internal/connect"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/jobqueue"
+	"gt.plainskill.net/LibreLoom/Sol/internal/monitoring"
+	"gt.plainskill.net/LibreLoom/Sol/internal/network"
+	"gt.plainskill.net/LibreLoom/Sol/internal/podman"
+	"gt.plainskill.net/LibreLoom/Sol/internal/security"
+	"gt.plainskill.net/LibreLoom/Sol/internal/settings"
+	"gt.plainskill.net/LibreLoom/Sol/internal/setup"
+	"gt.plainskill.net/LibreLoom/Sol/internal/storage"
+	"gt.plainskill.net/LibreLoom/Sol/internal/system"
 )
 
 // Server represents the HTTP API server
@@ -170,7 +170,7 @@ func NewServer(cfg ServerConfig) *Server {
 	r.Use(middleware.Logger(logger))
 	r.Use(chimiddleware.Recoverer)
 	corsOrigins := config.Get().CORS.AllowedOrigins
-	corsDevMode := cfg.DevMode || os.Getenv("LIBRESERV_INSECURE_DEV") == "true"
+	corsDevMode := cfg.DevMode || os.Getenv("SOL_INSECURE_DEV") == "true"
 	if corsDevMode && len(corsOrigins) == 0 {
 		corsOrigins = []string{"http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000", "http://127.0.0.1:5173"}
 	}

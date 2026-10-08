@@ -8,7 +8,7 @@ import (
 var reserved = map[string]struct{}{
 	// Cross-product / zone / brand
 	"luna": {}, "free": {}, "serv": {}, "servers": {},
-	"libreserv": {}, "libreloom": {}, "connect": {},
+	"sol": {}, "libreloom": {}, "connect": {},
 	// Infra
 	"www": {}, "api": {}, "admin": {}, "mail": {}, "smtp": {}, "mx": {},
 	"ns": {}, "dns": {}, "cdn": {}, "status": {}, "tunnel": {},

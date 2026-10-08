@@ -1,7 +1,7 @@
 import api from "./api.js";
 
 /**
- * Security API client for the LibreServ security monitoring system.
+ * Security API client for the Sol security monitoring system.
  * Provides methods for fetching security events, stats, and managing settings.
  */
 

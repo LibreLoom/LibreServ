@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
 )
 
 func TestCaddyManagerReloadAdminAPIRetriesThenSucceeds(t *testing.T) {
@@ -28,7 +28,7 @@ func TestCaddyManagerReloadAdminAPIRetriesThenSucceeds(t *testing.T) {
 
 	// Use an in-memory-ish sqlite path (temp) since CaddyManager wants a DB,
 	// but reloadCaddy itself doesn't touch the DB.
-	dbFile, err := os.CreateTemp("", "libreserv-test-*.db")
+	dbFile, err := os.CreateTemp("", "sol-test-*.db")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestCaddyManagerReloadAdminAPIRetriesThenSucceeds(t *testing.T) {
 func TestCaddyManagerReloadNoopModeNoError(t *testing.T) {
 	t.Parallel()
 
-	dbFile, err := os.CreateTemp("", "libreserv-test-*.db")
+	dbFile, err := os.CreateTemp("", "sol-test-*.db")
 	if err != nil {
 		t.Fatal(err)
 	}

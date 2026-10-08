@@ -115,14 +115,14 @@ func TestBuildSolAndConnect(t *testing.T) {
 	t.Logf("graph took %s", res.Duration.Round(time.Second))
 
 	want := map[string]bool{
-		"libreserv-linux-amd64": true, "sol-connect-server-linux-amd64": true, "sol-connect-web.tar.gz": true,
+		"sol-linux-amd64": true, "sol-connect-server-linux-amd64": true, "sol-connect-web.tar.gz": true,
 		"luna-connect-server-linux-amd64": true, "luna-connect-web.tar.gz": true,
 	}
 	for _, a := range arts {
 		if os.Getenv("LIBRESERV_PARTS_ARM64") == "" && a.Arch == "arm64" {
 			continue
 		}
-		if !want[a.File] && a.File != "libreserv-linux-arm64" {
+		if !want[a.File] && a.File != "sol-linux-arm64" {
 			t.Errorf("unexpected artifact %s", a.File)
 		}
 		delete(want, a.File)
@@ -138,7 +138,7 @@ func TestBuildSolAndConnect(t *testing.T) {
 				t.Errorf("%s does not contain version %s", a.File, itestVersion)
 			}
 		}
-		if a.File == "libreserv-linux-amd64" && !bytes.Contains(mustRead(t, a.Path), []byte("restic")) {
+		if a.File == "sol-linux-amd64" && !bytes.Contains(mustRead(t, a.Path), []byte("restic")) {
 			t.Error("sol binary has no embedded restic")
 		}
 		if strings.HasSuffix(a.File, ".tar.gz") {

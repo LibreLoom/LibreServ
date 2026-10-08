@@ -58,7 +58,7 @@ func (ws *WebhookService) sendWebhook(delivery *WebhookDelivery) error {
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "LibreServ-Webhook/1.0")
+	req.Header.Set("User-Agent", "Sol-Webhook/1.0")
 
 	resp, err := ws.client.Do(req)
 	if err != nil {

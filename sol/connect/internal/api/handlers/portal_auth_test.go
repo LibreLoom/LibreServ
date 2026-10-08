@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/api/middleware"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/auth"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/database"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/providers"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/api/middleware"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/auth"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/database"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/providers"
 )
 
 func portalRequest(t *testing.T, h *PortalHandler, accountID, method, path, body string, fn func(http.ResponseWriter, *http.Request)) *httptest.ResponseRecorder {

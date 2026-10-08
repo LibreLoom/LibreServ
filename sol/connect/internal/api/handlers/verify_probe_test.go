@@ -9,8 +9,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/api/middleware"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/database"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/api/middleware"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/database"
 )
 
 // probeWithDevice runs a verify-probe request as the given device.

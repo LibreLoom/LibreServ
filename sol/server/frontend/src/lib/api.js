@@ -50,7 +50,7 @@ export default async function api(path, options = {}, retried = false) {
   const headers = { .../** @type {{ [key: string]: any }} */ (fetchOptions.headers || {}) };
   if (path.startsWith("/setup")) {
     const setupToken = typeof window !== "undefined"
-      ? localStorage.getItem("libreserv_setup_token")
+      ? localStorage.getItem("sol_setup_token")
       : "";
     if (setupToken) {
       headers["X-Setup-Token"] = setupToken;

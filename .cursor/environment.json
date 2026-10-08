@@ -6,7 +6,7 @@
     {
       "name": "backend",
       "command": "cd sol/server/backend && make run",
-      "description": "LibreServ Go API server on http://localhost:8080 (LIBRESERV_INSECURE_DEV=true). Serves the REST API and, when built, the web UI."
+      "description": "LibreServ Go API server on http://localhost:8080 (SOL_INSECURE_DEV=true). Serves the REST API and, when built, the web UI."
     },
     {
       "name": "frontend",

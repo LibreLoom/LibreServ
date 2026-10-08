@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/config"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
 )
 
 func newTestDB(t *testing.T) *sql.DB {
@@ -30,7 +30,7 @@ func newTestDB(t *testing.T) *sql.DB {
 func useTestConfig(t *testing.T, cfg *config.Config) *config.Config {
 	t.Helper()
 	if cfg.Logging.Path == "" {
-		cfg.Logging.Path = filepath.Join(t.TempDir(), "libreserv.log")
+		cfg.Logging.Path = filepath.Join(t.TempDir(), "sol.log")
 	}
 	orig := config.Get()
 	config.SetTestConfig(cfg)
@@ -567,7 +567,7 @@ func TestService_UpdateSettings_Validation(t *testing.T) {
 
 func TestService_UpdateSettings_SkipVerifyAllowedInInsecureDev(t *testing.T) {
 	useTestConfig(t, &config.Config{})
-	t.Setenv("LIBRESERV_INSECURE_DEV", "true")
+	t.Setenv("SOL_INSECURE_DEV", "true")
 	svc := NewService(newTestDB(t))
 
 	updates := map[string]interface{}{"smtp": map[string]interface{}{"skip_verify": true}}

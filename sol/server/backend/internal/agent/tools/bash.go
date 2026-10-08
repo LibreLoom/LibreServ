@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/agent/sandbox"
+	"gt.plainskill.net/LibreLoom/Sol/internal/agent/sandbox"
 )
 
 // BashTool returns a Tool that executes shell commands inside an OS sandbox.

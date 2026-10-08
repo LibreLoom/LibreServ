@@ -3,8 +3,8 @@ package network
 import (
 	"net/http"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/apps"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
+	"gt.plainskill.net/LibreLoom/Sol/internal/apps"
+	"gt.plainskill.net/LibreLoom/Sol/internal/network"
 )
 
 type ConnectivityHandler struct {

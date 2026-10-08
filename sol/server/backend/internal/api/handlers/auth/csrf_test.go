@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
+	"gt.plainskill.net/LibreLoom/Sol/internal/api/middleware"
 )
 
 func TestCSRFGetToken(t *testing.T) {

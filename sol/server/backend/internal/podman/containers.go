@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/runtime"
+	"gt.plainskill.net/LibreLoom/Sol/internal/runtime"
 )
 
 // podmanContainer matches the JSON output of `podman ps --format json`.

@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
+	"gt.plainskill.net/LibreLoom/Sol/internal/network"
 )
 
 // NetworkProbeHandler exposes DNS and TCP probes.

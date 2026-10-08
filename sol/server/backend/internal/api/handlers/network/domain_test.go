@@ -7,8 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/network"
 )
 
 func newTestDomainHandler(t *testing.T) *DomainHandler {

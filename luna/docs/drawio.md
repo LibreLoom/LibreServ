@@ -84,7 +84,7 @@ it's plain XML, loaded into the editor and written back on save.
 
 ## Installing the pack (required to edit)
 
-draw.io is Apache-2.0. LibreServ does **not** ship the webapp in git.
+draw.io is Apache-2.0. Sol does **not** ship the webapp in git.
 
 ```bash
 cd luna

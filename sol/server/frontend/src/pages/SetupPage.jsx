@@ -36,7 +36,7 @@ const STEP = {
   ERROR:       "error",
 };
 
-const SETUP_TOKEN_KEY = "libreserv_setup_token";
+const SETUP_TOKEN_KEY = "sol_setup_token";
 const LOGIN_GATE_STEPS = new Set([STEP.MFA]);
 
 // Shared input style for the inverted (bg-secondary) setup card: a transparent

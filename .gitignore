@@ -55,7 +55,7 @@ sol/server/backend/bin/
 # Generated dev configs hold secrets — never commit them. Each app writes one
 # into its own nested configs/ dir; matching the name at any depth also catches
 # a run from the wrong directory.
-**/configs/libreserv.yaml
+**/configs/sol.yaml
 **/configs/connect.yaml
 **/configs/connect-deploy.yaml
 **/configs/luna-connect.yaml
@@ -96,8 +96,7 @@ tmp/
 *.kate-swp
 *.tar.gz
 # Build output
-/libreserv
-sol/server/backend/libreserv
+sol/server/backend/sol
 *.pid
 
 # SQLite runtime sidecars (main *.db already ignored above)
@@ -113,7 +112,7 @@ release-build/
 # @trafficcone's gosh darned stuffs :)
 sol/server/backend/backend.pid
 sol/server/frontend/frontend.pid
-libreserv.sh
+sol.sh
 .aider*
 
 # Build artifacts

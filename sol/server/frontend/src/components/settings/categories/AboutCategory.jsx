@@ -298,7 +298,7 @@ export default function AboutCategory({ settings, onUpdateSourceSave }) {
                 type="text"
                 value={repo}
                 onChange={(e) => setRepo(e.target.value)}
-                placeholder="libreserv"
+                placeholder="sol"
                 className={inputClass}
               />
             </div>

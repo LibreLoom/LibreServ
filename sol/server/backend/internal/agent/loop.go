@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/agent/tools"
+	"gt.plainskill.net/LibreLoom/Sol/internal/agent/tools"
 )
 
 // MessageRole classifies a message in the agent conversation.

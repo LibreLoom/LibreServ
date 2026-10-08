@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/agent/sandbox"
+	"gt.plainskill.net/LibreLoom/Sol/internal/agent/sandbox"
 )
 
 // Tool is a callable function exposed to the agent.

@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
+	"gt.plainskill.net/LibreLoom/Sol/internal/config"
 )
 
 type errorRoundTripper struct{ err error }
@@ -302,9 +302,9 @@ func TestFakeClientLifecycleProvisioningAndInfo(t *testing.T) {
 func TestNewClientFromEnvFakeAndConfig(t *testing.T) {
 	original := config.Get()
 	t.Cleanup(func() { config.SetTestConfig(original) })
-	t.Setenv("LIBRESERV_CONNECT_FAKE", "true")
-	t.Setenv("LIBRESERV_CONNECT_KEY", "")
-	t.Setenv("LIBRESERV_CONNECT_API_URL", "")
+	t.Setenv("SOL_CONNECT_FAKE", "true")
+	t.Setenv("SOL_CONNECT_KEY", "")
+	t.Setenv("SOL_CONNECT_API_URL", "")
 	config.SetTestConfig(&config.Config{Connect: config.ConnectConfig{
 		Token: "config-key-one-123456", APIURL: "https://connect.example.com/",
 	}})
@@ -318,9 +318,9 @@ func TestNewClientFromEnvFakeAndConfig(t *testing.T) {
 		t.Fatalf("fake client status = %+v, key=%q, err=%v", status, fake.ConnectKey(), err)
 	}
 
-	t.Setenv("LIBRESERV_CONNECT_FAKE", "false")
-	t.Setenv("LIBRESERV_CONNECT_KEY", "env-key")
-	t.Setenv("LIBRESERV_CONNECT_API_URL", "https://env.example.com/")
+	t.Setenv("SOL_CONNECT_FAKE", "false")
+	t.Setenv("SOL_CONNECT_KEY", "env-key")
+	t.Setenv("SOL_CONNECT_API_URL", "https://env.example.com/")
 	real, ok := NewClientFromEnv().(*RealClient)
 	if !ok || real.ConnectKey() != "env-key" || real.baseURL != "https://env.example.com" {
 		t.Fatalf("real client = %+v", real)

@@ -23,7 +23,7 @@ const SERVICES = [
  * Card surface is bg-secondary text-primary. Accent is only used for outlines.
  *
  * Two paths:
- * 1. "Use LibreServ Connect" — immediately opens Connect onboarding in a new
+ * 1. "Use Sol Connect" — immediately opens Connect onboarding in a new
  *    tab, then shows a focused paste-your-key view. If the popup was blocked,
  *    a fallback link is shown.
  * 2. "Set up on your own" — skips to MFA. The user configures each service

@@ -12,9 +12,9 @@ import (
 	"github.com/go-chi/chi/v5"
 	"golang.org/x/crypto/bcrypt"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/apps"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/apps"
+	"gt.plainskill.net/LibreLoom/Sol/internal/auth"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
 )
 
 type OIDCHandler struct {
@@ -244,7 +244,7 @@ func (h *OIDCHandler) ForwardAuth(w http.ResponseWriter, r *http.Request) {
 	// Extract the access token from cookie (same as middleware.Auth but
 	// we don't use the middleware because forward_auth needs to run
 	// outside the authenticated route group).
-	cookie, err := r.Cookie("libreserv_access")
+	cookie, err := r.Cookie("sol_access")
 	if err != nil || cookie.Value == "" {
 		http.Redirect(w, r, "/login", http.StatusFound)
 		return

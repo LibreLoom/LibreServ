@@ -16,13 +16,13 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/apps"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/email"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/podman"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/util"
+	"gt.plainskill.net/LibreLoom/Sol/internal/apps"
+	"gt.plainskill.net/LibreLoom/Sol/internal/config"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/email"
+	"gt.plainskill.net/LibreLoom/Sol/internal/monitoring"
+	"gt.plainskill.net/LibreLoom/Sol/internal/podman"
+	"gt.plainskill.net/LibreLoom/Sol/internal/util"
 )
 
 // HealthCheckResult represents the result of a single health check

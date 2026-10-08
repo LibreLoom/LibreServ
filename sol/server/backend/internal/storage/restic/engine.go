@@ -19,7 +19,7 @@ import (
 	"sync"
 	"time"
 
-	osdist "gt.plainskill.net/LibreLoom/LibreServ/OS"
+	osdist "gt.plainskill.net/LibreLoom/Sol/OS"
 )
 
 const DefaultResticVersion = "0.19.1"
@@ -53,7 +53,7 @@ func FindBinary() (string, error) {
 		homeDir = "/root"
 	}
 	candidatePaths := []string{
-		filepath.Join(homeDir, ".libreserv", "bin", "restic"),
+		filepath.Join(homeDir, ".sol", "bin", "restic"),
 		"/usr/local/bin/restic",
 		"/usr/bin/restic",
 	}
@@ -88,7 +88,7 @@ func extractEmbeddedBinary(homeDir string) string {
 		return ""
 	}
 
-	targetDir := filepath.Join(homeDir, ".libreserv", "bin")
+	targetDir := filepath.Join(homeDir, ".sol", "bin")
 	targetPath := filepath.Join(targetDir, "restic")
 
 	// Fast path: binary already exists — no extraction needed.
@@ -149,7 +149,7 @@ func extractEmbeddedBinary(homeDir string) string {
 	return targetPath
 }
 
-// AutoProvision downloads the restic binary to ~/.libreserv/bin/restic if not found.
+// AutoProvision downloads the restic binary to ~/.sol/bin/restic if not found.
 func AutoProvision() (string, error) {
 	if _, err := FindBinary(); err == nil {
 		return "", nil
@@ -160,7 +160,7 @@ func AutoProvision() (string, error) {
 		return "", fmt.Errorf("cannot determine home dir: %w", err)
 	}
 
-	targetDir := filepath.Join(homeDir, ".libreserv", "bin")
+	targetDir := filepath.Join(homeDir, ".sol", "bin")
 	targetPath := filepath.Join(targetDir, "restic")
 
 	if err := os.MkdirAll(targetDir, 0750); err != nil {
@@ -479,7 +479,7 @@ func (e *Engine) buildCmdNoJSON(ctx context.Context, repo RepoConfig, args ...st
 func (e *Engine) writePasswordFile(password string) (string, error) {
 	// Use a well-known temp subdirectory so we can find and clean up leaked
 	// password files from previous crashes on startup.
-	pwDir := filepath.Join(os.TempDir(), "libreserv-restic-pw")
+	pwDir := filepath.Join(os.TempDir(), "sol-restic-pw")
 	if err := os.MkdirAll(pwDir, 0700); err != nil {
 		return "", fmt.Errorf("create password temp dir: %w", err)
 	}
@@ -506,9 +506,9 @@ func (e *Engine) writePasswordFile(password string) (string, error) {
 // operations.
 //
 // Only removes files older than 24 hours to avoid deleting active password
-// files from another LibreServ instance sharing the same temp directory.
+// files from another Sol instance sharing the same temp directory.
 func CleanupLeakedPasswordFiles() {
-	pwDir := filepath.Join(os.TempDir(), "libreserv-restic-pw")
+	pwDir := filepath.Join(os.TempDir(), "sol-restic-pw")
 	entries, err := os.ReadDir(pwDir)
 	if err != nil {
 		if !os.IsNotExist(err) {

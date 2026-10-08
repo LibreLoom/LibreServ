@@ -221,7 +221,7 @@ function DriveStorageBar({ summary }) {
 /**
  * Collapsible tech details for a ready/read-only adopted drive.
  * Card-style CollapsibleSection (pill) + ValueDisplay rows — same pattern as
- * LibreServ settings disclosures / UserDetailPage profile table.
+ * Sol settings disclosures / UserDetailPage profile table.
  * Storage lives outside (DriveStorageBar); this covers fs / partitions / connection.
  */
 function AdoptedDriveDetails({ drive }) {

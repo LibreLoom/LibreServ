@@ -4,9 +4,9 @@ import (
 	"errors"
 	"net/http"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/shared"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/feed"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/system"
+	"gt.plainskill.net/LibreLoom/Sol/internal/api/handlers/shared"
+	"gt.plainskill.net/LibreLoom/Sol/internal/feed"
+	"gt.plainskill.net/LibreLoom/Sol/internal/system"
 )
 
 // SystemHandler handles platform-level operations
@@ -48,7 +48,7 @@ func (h *SystemHandler) CheckUpdates(w http.ResponseWriter, r *http.Request) {
 func (h *SystemHandler) ApplyUpdate(w http.ResponseWriter, r *http.Request) {
 	if err := h.checker.ApplyUpdate(r.Context(), Version); err != nil {
 		if h.auditLog != nil {
-			h.auditLog.Log(r.Context(), "system.update", "", "libreserv", "failure", err.Error(), nil)
+			h.auditLog.Log(r.Context(), "system.update", "", "sol", "failure", err.Error(), nil)
 		}
 		if errors.Is(err, feed.ErrBadSignature) {
 			JSONError(w, http.StatusBadRequest, "That update could not be verified. Nothing was installed.")
@@ -67,7 +67,7 @@ func (h *SystemHandler) ApplyUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.auditLog != nil {
-		h.auditLog.Log(r.Context(), "system.update", "", "libreserv", "success", "System update applied", nil)
+		h.auditLog.Log(r.Context(), "system.update", "", "sol", "success", "System update applied", nil)
 	}
 
 	JSON(w, http.StatusOK, map[string]string{"message": "update applied, restarting..."})
@@ -81,7 +81,7 @@ func (h *SystemHandler) ApplyUpdate(w http.ResponseWriter, r *http.Request) {
 // polls /health until the server is back.
 func (h *SystemHandler) RestartNow(w http.ResponseWriter, r *http.Request) {
 	if h.auditLog != nil {
-		h.auditLog.Log(r.Context(), "system.restart", "", "libreserv", "started", "Restart requested from Troubleshooting", nil)
+		h.auditLog.Log(r.Context(), "system.restart", "", "sol", "started", "Restart requested from Troubleshooting", nil)
 	}
 	h.checker.RequestRestart()
 	JSON(w, http.StatusAccepted, map[string]string{"message": "Sol is restarting. It will be back in about a minute."})

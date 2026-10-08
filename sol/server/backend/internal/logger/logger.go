@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
+	"gt.plainskill.net/LibreLoom/Sol/internal/config"
 )
 
 var logFile *os.File
@@ -94,9 +94,9 @@ func Init(cfg config.LoggingConfig) {
 	if cfg.Path != "" {
 		path := strings.TrimSpace(cfg.Path)
 		filePath := path
-		// If cfg.Path looks like a directory (no extension), place libreserv.log inside it.
+		// If cfg.Path looks like a directory (no extension), place sol.log inside it.
 		if filepath.Ext(path) == "" {
-			filePath = filepath.Join(path, "libreserv.log")
+			filePath = filepath.Join(path, "sol.log")
 		}
 
 		if err := os.MkdirAll(filepath.Dir(filePath), 0o750); err != nil {

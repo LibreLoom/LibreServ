@@ -62,7 +62,7 @@ func CSRF(next http.Handler) http.Handler {
 			return
 		}
 		// Cookie-authenticated browser calls: require Origin to match BaseURL
-		// (same defense as LibreServ Connect PortalOriginCheck). originAllowed
+		// (same defense as Sol Connect PortalOriginCheck). originAllowed
 		// was already unit-tested but never wired into the request path.
 		if !originAllowed(r) {
 			JSONError(w, http.StatusForbidden, "This page expired. Refresh and try again.")

@@ -4,7 +4,7 @@ import (
 	"context"
 )
 
-// ConnectVerifier adapts the LibreServ Connect client to the Verifier
+// ConnectVerifier adapts the Sol Connect client to the Verifier
 // interface: it asks Connect's edge (Hetzner) to probe host:port from
 // outside, because the device cannot grade its own homework.
 type ConnectVerifier struct {

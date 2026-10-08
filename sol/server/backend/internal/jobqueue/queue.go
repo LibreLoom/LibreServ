@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
 )
 
 // Queue manages all job worker pools and job lifecycle

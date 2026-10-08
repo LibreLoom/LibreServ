@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
+	"gt.plainskill.net/LibreLoom/Sol/internal/config"
 )
 
 type EntitlementChecker struct {

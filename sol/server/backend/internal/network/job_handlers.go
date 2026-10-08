@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/jobqueue"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/jobqueue"
 )
 
 // IssuanceHandler handles certificate issuance jobs

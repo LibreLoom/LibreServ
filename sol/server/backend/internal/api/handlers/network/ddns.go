@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
+	"gt.plainskill.net/LibreLoom/Sol/internal/network"
 )
 
 type SetIntervalRequest struct {

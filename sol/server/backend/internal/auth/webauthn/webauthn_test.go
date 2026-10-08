@@ -18,7 +18,7 @@ import (
 	"github.com/go-webauthn/webauthn/protocol/webauthncbor"
 	wapi "github.com/go-webauthn/webauthn/webauthn"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
+	"gt.plainskill.net/LibreLoom/Sol/internal/auth"
 )
 
 // newTestVerifier builds a Verifier against a fixed test Relying Party.

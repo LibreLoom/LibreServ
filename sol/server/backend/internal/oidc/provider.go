@@ -7,7 +7,7 @@ import (
 
 	"github.com/zitadel/oidc/v3/pkg/op"
 
-	config "gt.plainskill.net/LibreLoom/LibreServ/internal/config"
+	config "gt.plainskill.net/LibreLoom/Sol/internal/config"
 )
 
 // NewProvider constructs a complete OIDC provider and returns its http.Handler.

@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
+	"gt.plainskill.net/LibreLoom/Sol/internal/config"
 )
 
 type testSMTPServer struct {
@@ -215,11 +215,11 @@ func TestSMTPAuthAndSkipVerifyHelpers(t *testing.T) {
 	if resolveSkipVerify(false) {
 		t.Fatal("false skip verify changed")
 	}
-	t.Setenv("LIBRESERV_INSECURE_DEV", "")
+	t.Setenv("SOL_INSECURE_DEV", "")
 	if resolveSkipVerify(true) {
 		t.Fatal("skip verify should require development opt-in")
 	}
-	t.Setenv("LIBRESERV_INSECURE_DEV", "true")
+	t.Setenv("SOL_INSECURE_DEV", "true")
 	config.SetTestConfig(&config.Config{Server: config.ServerConfig{Mode: "production"}})
 	if resolveSkipVerify(true) {
 		t.Fatal("production skip verify should be rejected")

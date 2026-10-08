@@ -7,7 +7,7 @@ import (
 )
 
 // RealIP rewrites r.RemoteAddr to the client's IP address when the direct
-// connection comes from a trusted proxy (the LIBRESERV_TRUSTED_PROXIES list,
+// connection comes from a trusted proxy (the SOL_TRUSTED_PROXIES list,
 // or private networks by default). Unlike the deprecated chi middleware, it
 // only honors X-Forwarded-For / X-Real-IP from peers we actually trust, so a
 // remote client cannot spoof its address by setting those headers directly.

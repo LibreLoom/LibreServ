@@ -10,12 +10,12 @@ import (
 	"strconv"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/api"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/billing"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/config"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/database"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/providers"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/scheduler"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/api"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/billing"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/config"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/database"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/providers"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/scheduler"
 )
 
 // Version info injected via ldflags at build time.

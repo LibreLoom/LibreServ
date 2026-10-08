@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/storage/restic"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/storage/restic"
 )
 
 func newStorageService(t *testing.T) (*BackupService, string) {
@@ -468,7 +468,7 @@ func TestFileMoveRewriteAndRestoredDirectoryHelpers(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(appPath, "app-compose"), 0o750); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{".libreserv.yaml", "docker-compose.yml", filepath.Join("app-compose", "extra.yaml")} {
+	for _, name := range []string{".sol.yaml", "docker-compose.yml", filepath.Join("app-compose", "extra.yaml")} {
 		path := filepath.Join(appPath, name)
 		if err := os.WriteFile(path, []byte("name: old-id\npath: apps/old-id/data\n"), 0o600); err != nil {
 			t.Fatal(err)
@@ -477,7 +477,7 @@ func TestFileMoveRewriteAndRestoredDirectoryHelpers(t *testing.T) {
 	if err := rewriteInstanceID(appPath, "old-id", "new-id"); err != nil {
 		t.Fatalf("rewrite instance: %v", err)
 	}
-	for _, name := range []string{".libreserv.yaml", "docker-compose.yml", filepath.Join("app-compose", "extra.yaml")} {
+	for _, name := range []string{".sol.yaml", "docker-compose.yml", filepath.Join("app-compose", "extra.yaml")} {
 		raw, _ := os.ReadFile(filepath.Join(appPath, name))
 		if strings.Contains(string(raw), "old-id") || !strings.Contains(string(raw), "new-id") {
 			t.Errorf("rewrite %s = %q", name, raw)
@@ -523,7 +523,7 @@ func TestPreBackupHook(t *testing.T) {
 		t.Fatalf("missing hook should be ignored: %v", err)
 	}
 	hook := filepath.Join(scriptDir, "system-backup")
-	if err := os.WriteFile(hook, []byte("#!/bin/sh\ntest \"$LIBRESERV_APP_ID\" = app\n"), 0o755); err != nil {
+	if err := os.WriteFile(hook, []byte("#!/bin/sh\ntest \"$SOL_APP_ID\" = app\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := svc.runPreBackupHook(context.Background(), "app", appPath); err != nil {

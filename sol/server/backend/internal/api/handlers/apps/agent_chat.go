@@ -11,15 +11,15 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/agent"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/agent/conversation"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/agent/tools"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/response"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/connect"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/agent"
+	"gt.plainskill.net/LibreLoom/Sol/internal/agent/conversation"
+	"gt.plainskill.net/LibreLoom/Sol/internal/agent/tools"
+	"gt.plainskill.net/LibreLoom/Sol/internal/api/middleware"
+	"gt.plainskill.net/LibreLoom/Sol/internal/api/response"
+	"gt.plainskill.net/LibreLoom/Sol/internal/auth"
+	"gt.plainskill.net/LibreLoom/Sol/internal/config"
+	"gt.plainskill.net/LibreLoom/Sol/internal/connect"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
 )
 
 // AgentChatHandler handles all agent conversation API endpoints.
@@ -290,7 +290,7 @@ func (h *AgentChatHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create the agent.
-	ag := agent.NewAgent("libreserv-agent", agentModel, "diamond", "#FF6B35", systemPrompt, provider)
+	ag := agent.NewAgent("sol-agent", agentModel, "diamond", "#FF6B35", systemPrompt, provider)
 
 	// Create the review model (if enabled).
 	var reviewModel *agent.ReviewModel
@@ -311,7 +311,7 @@ func (h *AgentChatHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 
 	dataDirs := cfg.Support.Agent.DataDirs
 	if len(dataDirs) == 0 {
-		dataDirs = []string{"/var/lib/libreserv", "/etc/libreserv"}
+		dataDirs = []string{"/var/lib/sol", "/etc/sol"}
 	}
 
 	loopConfig := agent.LoopConfig{
@@ -745,7 +745,7 @@ func (h *AgentChatHandler) validateSSEToken(token string) (*auth.Claims, error) 
 }
 
 func (h *AgentChatHandler) extractSSEAuth(r *http.Request) string {
-	if cookie, err := r.Cookie("libreserv_access"); err == nil && cookie.Value != "" {
+	if cookie, err := r.Cookie("sol_access"); err == nil && cookie.Value != "" {
 		claims, err := h.validateSSEToken(cookie.Value)
 		if err == nil && claims != nil {
 			return claims.UserID

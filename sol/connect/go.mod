@@ -1,4 +1,4 @@
-module gt.plainskill.net/LibreLoom/LibreServConnect
+module gt.plainskill.net/LibreLoom/SolConnect
 
 go 1.26.0
 

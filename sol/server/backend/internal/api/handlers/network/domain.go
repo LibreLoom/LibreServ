@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
+	"gt.plainskill.net/LibreLoom/Sol/internal/network"
 )
 
 // DomainHandler owns the BYO-domain flow (extracted from the setup wizard so

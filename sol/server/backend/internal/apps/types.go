@@ -6,7 +6,7 @@ import (
 	"slices"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
+	"gt.plainskill.net/LibreLoom/Sol/internal/network"
 )
 
 // AppType represents the type of app in the catalog
@@ -102,8 +102,8 @@ type AppDefinition struct {
 	// Script configuration
 	Scripts ScriptConfig `yaml:"scripts,omitempty" json:"scripts,omitempty"`
 
-	// AccessModel defines how LibreServ handles authentication for this app
-	// ("internal" = LibreServ OIDC SSO, "external" = app manages its own auth).
+	// AccessModel defines how Sol handles authentication for this app
+	// ("internal" = Sol OIDC SSO, "external" = app manages its own auth).
 	AccessModel AccessModel `yaml:"access_model,omitempty" json:"access_model,omitempty"`
 
 	// Internal metadata (not from YAML)
@@ -605,14 +605,14 @@ type RuntimeInfo struct {
 	ProjectName string `json:"project_name"`
 }
 
-// AccessModel defines how LibreServ handles authentication for an app.
+// AccessModel defines how Sol handles authentication for an app.
 //
-// "internal" — LibreServ is the OIDC Identity Provider. The app authenticates
-// users via OIDC against LibreServ's user store. Access is controlled by
-// LibreServ user permissions. App must support OIDC (e.g. Nextcloud).
+// "internal" — Sol is the OIDC Identity Provider. The app authenticates
+// users via OIDC against Sol's user store. Access is controlled by
+// Sol user permissions. App must support OIDC (e.g. Nextcloud).
 //
-// "external" — LibreServ just reverse-proxies. The app manages its own auth
-// entirely. LibreServ does not gate access or propagate identity.
+// "external" — Sol just reverse-proxies. The app manages its own auth
+// entirely. Sol does not gate access or propagate identity.
 type AccessModel string
 
 const (

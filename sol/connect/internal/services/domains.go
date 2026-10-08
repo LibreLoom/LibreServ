@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/catalog"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/providers"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/security"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/catalog"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/providers"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/security"
 )
 
 // DomainCoordinator is the single owner of custom-domain ↔ device state.

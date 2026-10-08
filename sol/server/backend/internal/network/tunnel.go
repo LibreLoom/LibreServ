@@ -23,7 +23,7 @@ const (
 	TunnelProviderCloudflare TunnelProviderType = "cloudflare"
 
 	// cloudflaredRelease pins on-demand installs (avoid mutable latest tags).
-	// Bump deliberately when Cloudflare publishes a release LibreServ should take.
+	// Bump deliberately when Cloudflare publishes a release Sol should take.
 	cloudflaredRelease  = "2026.8.3"
 	minCloudflaredBytes = 1024
 )

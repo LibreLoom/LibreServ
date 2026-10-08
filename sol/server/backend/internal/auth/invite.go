@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database/models"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database/models"
 )
 
 var (

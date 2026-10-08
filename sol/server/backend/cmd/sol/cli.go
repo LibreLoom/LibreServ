@@ -6,13 +6,13 @@ import (
 	"strings"
 )
 
-const defaultConfigPath = "./configs/libreserv.yaml"
+const defaultConfigPath = "./configs/sol.yaml"
 
-// cliArgs is the result of parsing libreserv command-line arguments.
+// cliArgs is the result of parsing sol command-line arguments.
 //
 // The standard library flag package stops at the first non-flag argument, so
-// documented forms like `libreserv serve --config PATH` and
-// `libreserv config get KEY --config PATH` silently ignored --config. This
+// documented forms like `sol serve --config PATH` and
+// `sol config get KEY --config PATH` silently ignored --config. This
 // parser accepts --config anywhere among the args.
 type cliArgs struct {
 	ConfigPath  string
@@ -79,8 +79,8 @@ func parseCLIArgs(args []string) (cliArgs, error) {
 
 func printCLIUsage() {
 	fmt.Fprintf(os.Stderr, `Usage:
-  libreserv [--config PATH] [serve]
-  libreserv config defaults|get|set ... [--config PATH]
+  sol [--config PATH] [serve]
+  sol config defaults|get|set ... [--config PATH]
 
 Options:
   --config PATH   Path to configuration file (default %s)

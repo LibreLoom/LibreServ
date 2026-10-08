@@ -18,8 +18,8 @@ import (
 	"time"
 
 	"aead.dev/minisign"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/feed"
+	"gt.plainskill.net/LibreLoom/Sol/internal/config"
+	"gt.plainskill.net/LibreLoom/Sol/internal/feed"
 )
 
 // memStore is an in-memory StateStore.
@@ -65,7 +65,7 @@ func newFeedServer(t *testing.T) *feedServer {
 	}
 	fs := &feedServer{
 		pub: pub, priv: priv,
-		payload:   []byte("libreserv-new-binary"),
+		payload:   []byte("sol-new-binary"),
 		version:   "2.0.0",
 		published: "2026-10-12T14:03:00Z",
 		unit:      "sol",
@@ -80,9 +80,9 @@ func newFeedServer(t *testing.T) *feedServer {
 			"future_field": true,
 			"parts": []map[string]any{{
 				"name": "sol", "os": "linux", "arch": fs.arch,
-				"file": "libreserv-linux-" + fs.arch, "size": len(fs.payload),
+				"file": "sol-linux-" + fs.arch, "size": len(fs.payload),
 				"sha256": hex.EncodeToString(sum[:]),
-				"urls":   []string{fs.Server.URL + "/generic/sol/" + fs.version + "/libreserv-linux-" + fs.arch},
+				"urls":   []string{fs.Server.URL + "/generic/sol/" + fs.version + "/sol-linux-" + fs.arch},
 			}},
 		}
 		b, _ := json.Marshal(doc)
@@ -334,7 +334,7 @@ func TestApplyUpdate_StagesBesideBinaryAndReplaces(t *testing.T) {
 	fs := newFeedServer(t)
 	c := fs.checker()
 	dir := t.TempDir()
-	c.exePath = filepath.Join(dir, "libreserv")
+	c.exePath = filepath.Join(dir, "sol")
 	if err := os.WriteFile(c.exePath, []byte("old-binary"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -353,7 +353,7 @@ func TestApplyUpdate_StagesBesideBinaryAndReplaces(t *testing.T) {
 	}
 	entries, _ := os.ReadDir(dir)
 	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), ".libreserv-update-") {
+		if strings.HasPrefix(e.Name(), ".sol-update-") {
 			t.Errorf("staging file left behind: %s", e.Name())
 		}
 	}
@@ -368,7 +368,7 @@ func TestApplyUpdate_ChecksumMismatchLeavesBinaryAlone(t *testing.T) {
 	fs := newFeedServer(t)
 	c := fs.checker()
 	dir := t.TempDir()
-	c.exePath = filepath.Join(dir, "libreserv")
+	c.exePath = filepath.Join(dir, "sol")
 	_ = os.WriteFile(c.exePath, []byte("old-binary"), 0o755)
 
 	// Serve different bytes than the feed's sha256 promises (same length).

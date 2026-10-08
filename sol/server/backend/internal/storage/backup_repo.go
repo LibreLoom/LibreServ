@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/storage/restic"
+	"gt.plainskill.net/LibreLoom/Sol/internal/storage/restic"
 )
 
 func (s *BackupService) GetRepository(ctx context.Context, repoID string) (*BackupRepository, error) {
@@ -249,9 +249,9 @@ func (s *BackupService) runPreBackupHook(ctx context.Context, appID, appPath str
 	cmd := exec.CommandContext(ctx, hookPath)
 	cmd.Dir = appPath
 	cmd.Env = append(os.Environ(),
-		"LIBRESERV_APP_ID="+appID,
-		"LIBRESERV_APP_PATH="+appPath,
-		"LIBRESERV_BACKUP_HOOK=true",
+		"SOL_APP_ID="+appID,
+		"SOL_APP_PATH="+appPath,
+		"SOL_BACKUP_HOOK=true",
 	)
 	output, err := cmd.CombinedOutput()
 	if err != nil {

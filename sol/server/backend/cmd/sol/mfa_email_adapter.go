@@ -1,6 +1,6 @@
 package main
 
-import "gt.plainskill.net/LibreLoom/LibreServ/internal/email"
+import "gt.plainskill.net/LibreLoom/Sol/internal/email"
 
 // mfaOTPSender adapts *email.Sender to the api.EmailSender (SendOTP) interface
 // for the MFA email-OTP flow. main.go only constructs it when NewSender() returns

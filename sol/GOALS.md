@@ -1,4 +1,4 @@
-# LibreServ Sol Goals
+# Sol Goals
 
 > **Not actively updated.** Focus is on Luna right now; this file is kept for
 > reference and may be stale — check `git log`, not this list, for current state.
@@ -70,10 +70,10 @@ Every goal below exists to keep this path smooth and safe for a non-technical us
 
 - [x] User can check system health and resource usage
 - [x] User can add and manage multiple users
-- [x] User can update LibreServ from the web UI
+- [x] User can update Sol from the web UI
 
-## Setup hotspot (no cable) — LibreServ only
-*Reach the LibreServ setup wizard from a phone by joining the box's own Wi-Fi network. Luna does not do this (Ethernet-only).*
+## Setup hotspot (no cable) — Sol only
+*Reach the Sol setup wizard from a phone by joining the box's own Wi-Fi network. Luna does not do this (Ethernet-only).*
 
 - [x] Open "Sol Setup" access point when setup is incomplete and the box is offline
 - [x] Stop the access point once a cable or home Wi-Fi is up (or setup finishes)

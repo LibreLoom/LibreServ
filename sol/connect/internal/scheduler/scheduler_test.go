@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/billing"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/database"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/providers"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/security"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/billing"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/database"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/providers"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/security"
 )
 
 // newTestRegistrarServer returns a test HTTP server that mocks the Cloudflare

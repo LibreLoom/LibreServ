@@ -7,8 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/config"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/database"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/config"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/database"
 )
 
 func seedRequest(t *testing.T, remoteAddr, seedToken string) *httptest.ResponseRecorder {

@@ -12,13 +12,13 @@ import (
 	"sync"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/podman"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/runtime"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/storage"
+	"gt.plainskill.net/LibreLoom/Sol/internal/config"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/monitoring"
+	"gt.plainskill.net/LibreLoom/Sol/internal/network"
+	"gt.plainskill.net/LibreLoom/Sol/internal/podman"
+	"gt.plainskill.net/LibreLoom/Sol/internal/runtime"
+	"gt.plainskill.net/LibreLoom/Sol/internal/storage"
 )
 
 // Manager handles the lifecycle of installed apps
@@ -419,7 +419,7 @@ func (m *Manager) RebuildBackends(ctx context.Context) {
 	}
 }
 
-// connectDomainSuffix is the LibreServ Connect-managed subdomain zone. App
+// connectDomainSuffix is the Sol Connect-managed subdomain zone. App
 // domains ending with this suffix are Connect-provided subdomains (e.g.
 // "convertx.3a2b01ec.free.servers.libreloom.org") and follow the device's
 // default domain when it changes. Custom-domain apps never match this.
@@ -517,7 +517,7 @@ func (m *Manager) ReconcileConnectDomains(ctx context.Context, currentDefaultDom
 // without reinstalling. For each affected app it:
 //
 //  1. unregisters the old public hostname from Connect's tunnel,
-//  2. rewrites the persisted config (DB metadata + .libreserv.yaml),
+//  2. rewrites the persisted config (DB metadata + .sol.yaml),
 //  3. registers the new public hostname with Connect's tunnel.
 //
 // Non-blocking per app: failures are logged, never fatal — the routes have
@@ -599,7 +599,7 @@ func (m *Manager) MigrateAppDomains(ctx context.Context, oldDomain, newDomain st
 				"instance_id", a.ID, "error", err)
 			continue
 		}
-		// Also update the on-disk .libreserv.yaml metadata file (best-effort).
+		// Also update the on-disk .sol.yaml metadata file (best-effort).
 		m.updateMetadataFile(ctx, a.ID, a.AppID, a.Path, cfg)
 
 		// 3. Register the new hostname with Connect's tunnel.
@@ -620,7 +620,7 @@ func (m *Manager) MigrateAppDomains(ctx context.Context, oldDomain, newDomain st
 	return nil
 }
 
-// updateMetadataFile rewrites an app's on-disk .libreserv.yaml metadata file
+// updateMetadataFile rewrites an app's on-disk .sol.yaml metadata file
 // with the given config. Best-effort: failures are logged, never fatal.
 func (m *Manager) updateMetadataFile(ctx context.Context, instanceID, appID, path string, cfg map[string]interface{}) {
 	if m.installer == nil {
@@ -743,7 +743,7 @@ func (m *Manager) SetOIDCProvisioner(fn func(instanceID, appName, redirectPath s
 }
 
 // SetRouteRegistrar wires a callback to register a public hostname with
-// LibreServ Connect's tunnel. Called when an app gets a domain route.
+// Sol Connect's tunnel. Called when an app gets a domain route.
 // The callback makes a POST /api/v1/routes call to Connect, which creates
 // a DNS CNAME and tunnel ingress rule. If no callback is set (Connect not
 // connected), route registration is silently skipped.
@@ -752,7 +752,7 @@ func (m *Manager) SetRouteRegistrar(fn func(hostname string) error) {
 }
 
 // SetRouteUnregistrar wires a callback to unregister a public hostname from
-// LibreServ Connect's tunnel. Called when an app is uninstalled.
+// Sol Connect's tunnel. Called when an app is uninstalled.
 func (m *Manager) SetRouteUnregistrar(fn func(hostname string) error) {
 	m.routeUnregistrar = fn
 }
@@ -861,7 +861,7 @@ func (m *Manager) GetAppStatus(ctx context.Context, instanceID string) (*AppStat
 		}, nil
 	}
 
-	label := "libreserv.app=" + instanceID
+	label := "sol.app=" + instanceID
 	containers, err := m.runtime.ListContainersByLabel(ctx, label)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list containers: %w", err)
@@ -1307,7 +1307,7 @@ func (m *Manager) waitForHealthy(ctx context.Context, instanceID string, timeout
 //   - Re-validates the merged config against the catalog schema
 //   - Re-renders docker-compose.yml from the updated config
 //   - Recreates containers (ComposeDown + ComposeUp)
-//   - Persists the updated config to DB + .libreserv.yaml metadata file
+//   - Persists the updated config to DB + .sol.yaml metadata file
 func (m *Manager) Reconfigure(ctx context.Context, instanceID string, userConfig map[string]interface{}) error {
 	m.updateMu.Lock()
 	if m.updating[instanceID] {
@@ -1404,7 +1404,7 @@ func (m *Manager) Reconfigure(ctx context.Context, instanceID string, userConfig
 	configJSON, _ := json.Marshal(safeConfig)
 	_, _ = m.db.Exec(`UPDATE apps SET metadata = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, string(configJSON), instanceID)
 
-	// Also update the on-disk .libreserv.yaml metadata file.
+	// Also update the on-disk .sol.yaml metadata file.
 	if err := m.installer.createMetadataFile(app.Path, catalogApp, merged); err != nil {
 		m.logger.Warn("Failed to update metadata file after reconfigure", "error", err)
 	}

@@ -54,7 +54,7 @@ func TestBuildRepoPath(t *testing.T) {
 		appID    string
 		want     string
 	}{
-		{"local", "/var/lib/libreserv/backups", "app-1", "/var/lib/libreserv/backups/repos/app-1"},
+		{"local", "/var/lib/sol/backups", "app-1", "/var/lib/sol/backups/repos/app-1"},
 		{"b2", "my-bucket", "app-1", "b2:app-1"},
 		{"s3", "https://s3.amazonaws.com/my-bucket", "app-1", "s3:app-1"},
 		{"sftp", "user@host", "app-1", "sftp:app-1"},

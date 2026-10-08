@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
+	"gt.plainskill.net/LibreLoom/Sol/internal/monitoring"
 )
 
 func TestACMEJobLifecycle(t *testing.T) {

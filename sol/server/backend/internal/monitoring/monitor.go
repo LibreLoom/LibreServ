@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
-	rt "gt.plainskill.net/LibreLoom/LibreServ/internal/runtime"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
+	rt "gt.plainskill.net/LibreLoom/Sol/internal/runtime"
 )
 
 // Monitor manages health checks and metrics collection for all apps

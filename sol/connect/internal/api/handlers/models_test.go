@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/database"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/models"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/database"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/models"
 )
 
 func httptestResponseRecorder(fn func(http.ResponseWriter, *http.Request), req *http.Request) *httptest.ResponseRecorder {

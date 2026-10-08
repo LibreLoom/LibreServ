@@ -1,4 +1,4 @@
-//! Password policy aligned with LibreServ (12+ chars, letter + digit).
+//! Password policy aligned with Sol (12+ chars, letter + digit).
 
 use thiserror::Error;
 
@@ -47,7 +47,7 @@ mod tests {
     }
 
     #[test]
-    fn accepts_libreserv_style_password() {
+    fn accepts_sol_style_password() {
         assert!(validate_password("hunter22hunter1").is_ok());
     }
 }

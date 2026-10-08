@@ -12,12 +12,12 @@ import (
 	"strings"
 	"testing"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/shared"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/security"
+	"gt.plainskill.net/LibreLoom/Sol/internal/api/handlers/shared"
+	"gt.plainskill.net/LibreLoom/Sol/internal/api/middleware"
+	"gt.plainskill.net/LibreLoom/Sol/internal/auth"
+	"gt.plainskill.net/LibreLoom/Sol/internal/config"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/security"
 )
 
 func newTestAuthHandler(t *testing.T) (*AuthHandler, context.Context) {
@@ -82,7 +82,7 @@ func TestAuthRegisterLogin(t *testing.T) {
 	cookies := res.Cookies()
 	var hasAccessCookie bool
 	for _, c := range cookies {
-		if c.Name == "libreserv_access" && c.Value != "" {
+		if c.Name == "sol_access" && c.Value != "" {
 			hasAccessCookie = true
 			break
 		}

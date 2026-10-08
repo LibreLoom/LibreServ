@@ -1,4 +1,4 @@
-// Package domainname validates LibreServ Connect subdomain prefixes and
+// Package domainname validates Sol Connect subdomain prefixes and
 // blocks claims that would collide with LibreLoom infrastructure.
 //
 // Paid Connect hosts are {name}.servers.libreloom.org. Luna Connect’s entire
@@ -17,7 +17,7 @@ var reserved = map[string]struct{}{
 	// Cross-product / zone apexes
 	"luna": {}, "free": {},
 	// Brand / product
-	"libreserv": {}, "libreloom": {}, "connect": {}, "serv": {}, "servers": {},
+	"sol": {}, "libreloom": {}, "connect": {}, "serv": {}, "servers": {},
 	// Infra that must not become a customer hostname
 	"www": {}, "api": {}, "admin": {}, "mail": {}, "smtp": {}, "mx": {},
 	"ns": {}, "dns": {}, "cdn": {}, "status": {}, "tunnel": {},

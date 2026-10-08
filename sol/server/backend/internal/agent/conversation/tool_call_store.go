@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
 )
 
 type ToolCallRecord struct {

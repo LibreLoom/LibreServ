@@ -19,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/config"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/config"
 )
 
 const (

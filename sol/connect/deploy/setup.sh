@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# LibreServ Connect — Initial Server Setup
+# Sol Connect — Initial Server Setup
 #
 # Sets up two Connect instances (A + B) for blue/green ZDU behind Caddy.
 # Run once on the server. Idempotent — safe to re-run.
@@ -17,18 +17,18 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 export PATH="/usr/local/go/bin:${PATH:-/usr/bin:/bin}"
 
-INSTALL_DIR="/opt/libreserv-connect"
-CONFIG_DIR="/etc/libreserv-connect"
-DATA_DIR="/var/lib/libreserv-connect"
-LOG_DIR="/var/log/libreserv-connect"
-USER="libreserv-connect"
+INSTALL_DIR="/opt/sol-connect"
+CONFIG_DIR="/etc/sol-connect"
+DATA_DIR="/var/lib/sol-connect"
+LOG_DIR="/var/log/sol-connect"
+USER="sol-connect"
 
 # Instance config: name:port
 INSTANCES=("a:8091" "b:8092")
 
 # Postgres
-PG_DB="libreserv_connect"
-PG_USER="libreserv_connect"
+PG_DB="sol_connect"
+PG_USER="sol_connect"
 PG_HOST="localhost"
 PG_PORT="5432"
 BASE_URL="${BASE_URL:-}"

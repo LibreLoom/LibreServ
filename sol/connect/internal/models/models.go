@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/security"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/security"
 )
 
 // Service provides AI provider and model configuration operations.

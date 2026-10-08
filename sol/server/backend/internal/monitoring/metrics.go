@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	rt "gt.plainskill.net/LibreLoom/LibreServ/internal/runtime"
+	rt "gt.plainskill.net/LibreLoom/Sol/internal/runtime"
 )
 
 // MetricsCollector collects resource usage metrics from containers

@@ -556,7 +556,7 @@ func TestResolveSpecs(t *testing.T) {
 		t.Fatalf("no prior: %v", err)
 	}
 	// a missing non-reusable file is an error
-	if _, err := resolveSpecs("sol", "stable", dir, DefaultFileSpecs("sol"), nil); err == nil || !strings.Contains(err.Error(), "libreserv-linux-amd64") {
+	if _, err := resolveSpecs("sol", "stable", dir, DefaultFileSpecs("sol"), nil); err == nil || !strings.Contains(err.Error(), "sol-linux-amd64") {
 		t.Fatalf("missing: %v", err)
 	}
 	// desktop: a beta cut needs only the beta flatpak and the installer

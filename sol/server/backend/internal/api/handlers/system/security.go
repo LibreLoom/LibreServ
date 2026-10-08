@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/security"
+	"gt.plainskill.net/LibreLoom/Sol/internal/api/middleware"
+	"gt.plainskill.net/LibreLoom/Sol/internal/security"
 )
 
 // recordSecurityEvent persists an audit event without failing the request it

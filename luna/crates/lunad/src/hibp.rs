@@ -1,6 +1,6 @@
 //! Have I Been Pwned (k-anonymity) check for account passwords.
 //!
-//! Mirrors LibreServ `rejectBreachedPassword`: only the first 5 hex chars of
+//! Mirrors Sol `rejectBreachedPassword`: only the first 5 hex chars of
 //! the SHA-1 hash leave the device; fails open on any API/network error so
 //! password changes are never blocked by an outage.
 
@@ -11,7 +11,7 @@ use sha1::{Digest, Sha1};
 
 use crate::password::PasswordValidationError;
 
-/// Same plain-language copy as LibreServ.
+/// Same plain-language copy as Sol.
 pub const BREACHED_PASSWORD_MESSAGE: &str = "That password has appeared in known data breaches, so it isn't safe to use. Please choose a different password.";
 
 const DEFAULT_HIBP_RANGE_URL: &str = "https://api.pwnedpasswords.com/range/";
@@ -201,7 +201,7 @@ mod tests {
     }
 
     #[test]
-    fn reject_message_matches_libreserv() {
+    fn reject_message_matches_sol() {
         let _guard = TEST_LOCK.lock().unwrap();
         let mut hasher = Sha1::new();
         hasher.update(b"password123");
@@ -215,7 +215,7 @@ mod tests {
     }
 
     #[test]
-    fn breached_copy_matches_libreserv_constant() {
+    fn breached_copy_matches_sol_constant() {
         assert_eq!(
             BREACHED_PASSWORD_MESSAGE,
             "That password has appeared in known data breaches, so it isn't safe to use. Please choose a different password."

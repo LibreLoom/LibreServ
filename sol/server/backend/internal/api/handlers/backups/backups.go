@@ -13,8 +13,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/storage"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/storage/restic"
+	"gt.plainskill.net/LibreLoom/Sol/internal/storage"
+	"gt.plainskill.net/LibreLoom/Sol/internal/storage/restic"
 )
 
 type BackupHandlers struct {
@@ -193,7 +193,7 @@ func (h *BackupHandlers) DownloadBackup(w http.ResponseWriter, r *http.Request) 
 			safeID = append(safeID, '_')
 		}
 	}
-	filename := fmt.Sprintf("libreserv-backup-%s.tar.gz", safeID)
+	filename := fmt.Sprintf("sol-backup-%s.tar.gz", safeID)
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
 	w.Header().Set("Content-Type", "application/gzip")
 	w.Header().Set("Content-Length", strconv.FormatInt(info.Size(), 10))

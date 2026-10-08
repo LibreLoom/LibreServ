@@ -5,10 +5,10 @@ import (
 	"log/slog"
 	"net/http"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/connect"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/settings"
+	"gt.plainskill.net/LibreLoom/Sol/internal/config"
+	"gt.plainskill.net/LibreLoom/Sol/internal/connect"
+	"gt.plainskill.net/LibreLoom/Sol/internal/network"
+	"gt.plainskill.net/LibreLoom/Sol/internal/settings"
 )
 
 type TunnelHandler struct {

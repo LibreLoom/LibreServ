@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
 )
 
 func openAppsCoverageDB(t *testing.T) *database.DB {
@@ -177,7 +177,7 @@ func TestScriptExecutorSchemaConfigAndPathHelpers(t *testing.T) {
 	if err := json.Unmarshal(data, &config); err != nil {
 		t.Fatalf("decode script config: %v", err)
 	}
-	if config.InstanceID != "instance" || config.Runtime.ProjectName != "libreserv-instance" || config.Options["flag"] != true {
+	if config.InstanceID != "instance" || config.Runtime.ProjectName != "sol-instance" || config.Options["flag"] != true {
 		t.Fatalf("unexpected script config: %+v", config)
 	}
 
@@ -298,7 +298,7 @@ func TestInstallerPersistenceAndFilesystemHelpers(t *testing.T) {
 	if err := installer.createMetadataFile(installPath, appDef, secretConfig); err != nil {
 		t.Fatalf("create metadata: %v", err)
 	}
-	metadataFile, err := os.ReadFile(filepath.Join(installPath, ".libreserv.yaml"))
+	metadataFile, err := os.ReadFile(filepath.Join(installPath, ".sol.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}

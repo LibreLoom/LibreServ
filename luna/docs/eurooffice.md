@@ -55,7 +55,7 @@ client-side; lunad is a thin storage + collaboration relay.
 
 ## Installing the pack (required to edit)
 
-EuroOffice is AGPL-3.0. LibreServ does **not** ship the binaries in git.
+EuroOffice is AGPL-3.0. Sol does **not** ship the binaries in git.
 
 ```bash
 cd luna

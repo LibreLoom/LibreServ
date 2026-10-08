@@ -8,9 +8,9 @@ import (
 	"strconv"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/billing"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/providers"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/services"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/billing"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/providers"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/services"
 )
 
 // Scheduler periodically syncs custom domain state with Cloudflare Registrar.
@@ -202,7 +202,7 @@ func (s *Scheduler) refreshRenewalCost(ctx context.Context, domain, apiToken, cf
 
 // handleAutoRenewal deducts the renewal cost from the device's account credit
 // when Cloudflare has auto-renewed the domain. CF charges its own payment method;
-// LibreServ recovers the cost by charging the user's credit at the exact at-cost price.
+// Sol recovers the cost by charging the user's credit at the exact at-cost price.
 // If no device is linked, the domain is skipped (no credit to deduct from).
 func (s *Scheduler) handleAutoRenewal(ctx context.Context, d domainRow, apiToken, cfAccountID string) {
 	if !d.DeviceID.Valid {

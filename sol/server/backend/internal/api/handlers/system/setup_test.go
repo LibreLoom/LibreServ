@@ -15,12 +15,12 @@ import (
 
 	"github.com/pquerna/otp/totp"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/shared"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/podman"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/setup"
+	"gt.plainskill.net/LibreLoom/Sol/internal/api/handlers/shared"
+	"gt.plainskill.net/LibreLoom/Sol/internal/auth"
+	"gt.plainskill.net/LibreLoom/Sol/internal/config"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/podman"
+	"gt.plainskill.net/LibreLoom/Sol/internal/setup"
 )
 
 type testSetupDeps struct {
@@ -168,7 +168,7 @@ func TestPreflightAllowsMissingRuntime(t *testing.T) {
 
 func TestPreflightResolvesRelativeDiskSpacePathFromConfigLocation(t *testing.T) {
 	dir := t.TempDir()
-	configPath := filepath.Join(dir, "configs", "libreserv.yaml")
+	configPath := filepath.Join(dir, "configs", "sol.yaml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		t.Fatalf("mkdir config dir: %v", err)
 	}
@@ -342,7 +342,7 @@ func TestGetStatusDoesNotRepairMidWizard(t *testing.T) {
 
 func TestCheckPathWritableResolvesRelativePathsFromConfigLocation(t *testing.T) {
 	dir := t.TempDir()
-	configPath := filepath.Join(dir, "configs", "libreserv.yaml")
+	configPath := filepath.Join(dir, "configs", "sol.yaml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		t.Fatalf("mkdir config dir: %v", err)
 	}

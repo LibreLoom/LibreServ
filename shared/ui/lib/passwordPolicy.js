@@ -1,6 +1,6 @@
 /**
  * Account password policy — mirrors lunad (`crates/lunad/src/password.rs`)
- * and LibreServ auth: at least 12 characters, one letter, and one number.
+ * and Sol auth: at least 12 characters, one letter, and one number.
  * Symbols are encouraged for strength UI but are not required.
  */
 

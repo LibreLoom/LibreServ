@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
 )
 
 // PathStateStore persists per-app×path verify history (the path_state table,

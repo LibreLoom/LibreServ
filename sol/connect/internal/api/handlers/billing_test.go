@@ -12,9 +12,9 @@ import (
 	stripego "github.com/stripe/stripe-go/v76"
 	"github.com/stripe/stripe-go/v76/webhook"
 
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/billing"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/config"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/database"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/billing"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/config"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/database"
 )
 
 func signedStripeRequest(t *testing.T, eventType string, object any) *http.Request {

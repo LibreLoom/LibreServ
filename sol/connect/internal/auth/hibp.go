@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// BreachedPasswordMessage matches LibreServ's rejectBreachedPassword copy.
+// BreachedPasswordMessage matches Sol's rejectBreachedPassword copy.
 const BreachedPasswordMessage = "That password has appeared in known data breaches, so it isn't safe to use. Please choose a different password."
 
 // errHIBPRedirect refuses HTTP redirects on the HIBP range client. Following a
@@ -60,7 +60,7 @@ func CheckBreachedPassword(pw string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	req.Header.Set("User-Agent", "LibreServConnect")
+	req.Header.Set("User-Agent", "SolConnect")
 
 	resp, err := hibpHTTPClient.Do(req)
 	if err != nil {

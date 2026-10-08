@@ -14,7 +14,7 @@ import (
 	"github.com/zitadel/oidc/v3/pkg/op"
 	"golang.org/x/crypto/bcrypt"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
 )
 
 const testEncryptionKey = "0123456789abcdef0123456789abcdef"

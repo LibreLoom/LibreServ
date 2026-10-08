@@ -235,7 +235,7 @@ func TestDNSProviderManagerNewProviderRFC2136(t *testing.T) {
 		Provider:      ProviderRFC2136,
 		Domain:        "example.com",
 		Nameserver:    "ns1.example.com:53",
-		TSIGKeyName:   "libreserv-key",
+		TSIGKeyName:   "sol-key",
 		TSIGSecret:    "c2VjcmV0",
 		HMACAlgorithm: "hmac-sha256",
 	})
@@ -249,8 +249,8 @@ func TestDNSProviderManagerNewProviderRFC2136(t *testing.T) {
 	if rp.provider.Server != "ns1.example.com:53" {
 		t.Errorf("Server = %q, want ns1.example.com:53", rp.provider.Server)
 	}
-	if rp.provider.KeyName != "libreserv-key" {
-		t.Errorf("KeyName = %q, want libreserv-key", rp.provider.KeyName)
+	if rp.provider.KeyName != "sol-key" {
+		t.Errorf("KeyName = %q, want sol-key", rp.provider.KeyName)
 	}
 	if rp.provider.KeyAlg != "hmac-sha256" {
 		t.Errorf("KeyAlg = %q, want hmac-sha256", rp.provider.KeyAlg)
@@ -267,7 +267,7 @@ func TestDNSProviderManagerRFC2136RoundTrip(t *testing.T) {
 		APIToken:      "", // unused for rfc2136
 		Enabled:       true,
 		Nameserver:    "ns1.example.com:53",
-		TSIGKeyName:   "libreserv-key",
+		TSIGKeyName:   "sol-key",
 		TSIGSecret:    "c2VjcmV0",
 		HMACAlgorithm: "hmac-sha256",
 	}
@@ -287,7 +287,7 @@ func TestDNSProviderManagerRFC2136RoundTrip(t *testing.T) {
 	if got.Nameserver != "ns1.example.com:53" {
 		t.Errorf("Nameserver = %q", got.Nameserver)
 	}
-	if got.TSIGKeyName != "libreserv-key" {
+	if got.TSIGKeyName != "sol-key" {
 		t.Errorf("TSIGKeyName = %q", got.TSIGKeyName)
 	}
 	if got.TSIGSecret != "c2VjcmV0" {

@@ -19,7 +19,7 @@ import (
 // NOTE: This assumes the host OS uses '/' as its path separator (Linux/macOS).
 // Tar archives always store paths with forward slashes per the POSIX spec, and
 // filepath.IsAbs / filepath.Separator are OS-dependent. On a Windows host the
-// '/'-separated tar entry would need normalisation first. LibreServ targets
+// '/'-separated tar entry would need normalisation first. Sol targets
 // Linux only, so this is not an issue in practice.
 func isSafeTarPath(parent, relPath string) bool {
 	// Reject absolute paths

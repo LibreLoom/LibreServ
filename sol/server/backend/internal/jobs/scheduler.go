@@ -9,10 +9,10 @@ import (
 	"time"
 
 	cron "github.com/robfig/cron/v3"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/apps"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/notify"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/storage"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/system"
+	"gt.plainskill.net/LibreLoom/Sol/internal/apps"
+	"gt.plainskill.net/LibreLoom/Sol/internal/notify"
+	"gt.plainskill.net/LibreLoom/Sol/internal/storage"
+	"gt.plainskill.net/LibreLoom/Sol/internal/system"
 )
 
 // Shared cron parser: rebuilding it on every backup-schedule tick (every

@@ -66,7 +66,7 @@ func newFixer(sh *shared, st secrets.Status) *fixer {
 func (x *fixer) menu() []fixItem {
 	var it []fixItem
 	switch x.st.ID {
-	case secrets.LibreServSigning, secrets.LunaSigning:
+	case secrets.SolSigning, secrets.LunaSigning:
 		it = append(it,
 			fixItem{label: "Enter the key's password", kind: "password", slot: secrets.SlotPassword(x.st.ID),
 				hint: "The password you chose when you created this signing key."},
@@ -107,7 +107,7 @@ func (x *fixer) menu() []fixItem {
 func slotsFor(id secrets.ID) map[string]bool {
 	m := map[string]bool{}
 	switch id {
-	case secrets.LibreServSigning, secrets.LunaSigning:
+	case secrets.SolSigning, secrets.LunaSigning:
 		m[secrets.SlotKey(id)], m[secrets.SlotPassword(id)], m[secrets.SlotMinisignPassword] = true, true, true
 	case secrets.ForgejoToken:
 		m[secrets.SlotForgejoToken] = true

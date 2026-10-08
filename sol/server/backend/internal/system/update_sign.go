@@ -7,8 +7,8 @@ import (
 	"aead.dev/minisign"
 )
 
-// pinnedPubFile is the LibreServ release trust root. Keep identical to
-// keys/libreserv.minisign.pub (enforced by TestPinnedKeyMatchesRepoFile).
+// pinnedPubFile is the Sol release trust root. Keep identical to
+// keys/sol.minisign.pub (enforced by TestPinnedKeyMatchesRepoFile).
 //
 //go:embed releases.minisign.pub
 var pinnedPubFile string

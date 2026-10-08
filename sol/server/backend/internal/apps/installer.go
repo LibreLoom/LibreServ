@@ -18,10 +18,10 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/podman"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/runtime"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/monitoring"
+	"gt.plainskill.net/LibreLoom/Sol/internal/podman"
+	"gt.plainskill.net/LibreLoom/Sol/internal/runtime"
 )
 
 // Installer handles app installation and configuration
@@ -782,7 +782,7 @@ func (i *Installer) processComposeTemplate(appDef *AppDefinition, installPath st
 	return destPath, nil
 }
 
-// createMetadataFile creates the .libreserv.yaml metadata file.
+// createMetadataFile creates the .sol.yaml metadata file.
 // ServerContext secrets are stripped from the config before writing to disk.
 func (i *Installer) createMetadataFile(installPath string, appDef *AppDefinition, config map[string]interface{}) error {
 	safeConfig := stripServerContext(config)
@@ -800,7 +800,7 @@ func (i *Installer) createMetadataFile(installPath string, appDef *AppDefinition
 		return err
 	}
 
-	return os.WriteFile(filepath.Join(installPath, ".libreserv.yaml"), data, 0600)
+	return os.WriteFile(filepath.Join(installPath, ".sol.yaml"), data, 0600)
 }
 
 // secretConfigKeys are top-level config keys that hold server-side secrets.
@@ -1267,7 +1267,7 @@ func (i *Installer) RunSystemSetup(ctx context.Context, appDef *AppDefinition, i
 }
 
 func (i *Installer) waitForContainers(ctx context.Context, instanceID string) error {
-	label := "libreserv.app=" + instanceID
+	label := "sol.app=" + instanceID
 	maxWait := 5 * time.Minute
 	interval := 2 * time.Second
 	start := time.Now()

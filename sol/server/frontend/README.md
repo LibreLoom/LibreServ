@@ -1,6 +1,6 @@
-# LibreServ Frontend (React + Vite)
+# Sol Frontend (React + Vite)
 
-This is the web UI for LibreServ. It is a Vite/React app with ESLint enabled. The backend serves static assets from `sol/server/backend/OS/dist/` (ignored in git).
+This is the web UI for Sol. It is a Vite/React app with ESLint enabled. The backend serves static assets from `sol/server/backend/OS/dist/` (ignored in git).
 
 ## Quick start
 ```bash

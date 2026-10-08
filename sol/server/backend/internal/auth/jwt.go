@@ -83,7 +83,7 @@ func (j *JWTManager) generateToken(userID, username, role, tokenType string, exp
 			ExpiresAt: jwt.NewNumericDate(expiresAt),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			NotBefore: jwt.NewNumericDate(time.Now()),
-			Issuer:    "libreserv",
+			Issuer:    "sol",
 			ID:        uuid.New().String(),
 		},
 	}

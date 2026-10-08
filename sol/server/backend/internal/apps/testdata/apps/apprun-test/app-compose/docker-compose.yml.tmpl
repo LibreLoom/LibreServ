@@ -64,15 +64,15 @@ services:
       - "{{ dataPath }}/app-logs:/logs:z"
     {{if .boolean_field}}
     labels:
-      - "libreserv.app={{.instance_id}}"
-      - "libreserv.app.name={{.app_name}}"
+      - "sol.app={{.instance_id}}"
+      - "sol.app.name={{.app_name}}"
       - "test.label.one=value-one"
       - "test.label.two=value-two"
       - "test.boolean.enabled=true"
     {{else}}
     labels:
-      - "libreserv.app={{.instance_id}}"
-      - "libreserv.app.name={{.app_name}}"
+      - "sol.app={{.instance_id}}"
+      - "sol.app.name={{.app_name}}"
       - "test.label.one=value-one"
       - "test.label.two=value-two"
       - "test.boolean.enabled=false"
@@ -99,8 +99,8 @@ services:
       - "HELLO=helper"
       - "MODE={{.select_field}}"
     labels:
-      - "libreserv.app={{.instance_id}}"
-      - "libreserv.app.component=helper"
+      - "sol.app={{.instance_id}}"
+      - "sol.app.component=helper"
     cap_drop:
       - ALL
     cap_add:

@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/wifi"
+	"gt.plainskill.net/LibreLoom/Sol/internal/wifi"
 )
 
 // fakeWifi implements wifi.Provider for handler tests without touching any

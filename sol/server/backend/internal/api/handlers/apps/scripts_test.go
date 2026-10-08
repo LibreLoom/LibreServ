@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/apps"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/apps"
+	"gt.plainskill.net/LibreLoom/Sol/internal/config"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
 )
 
 func TestExecuteActionReturnsScriptResult(t *testing.T) {
@@ -26,7 +26,7 @@ func TestExecuteActionReturnsScriptResult(t *testing.T) {
 		t.Fatalf("migrate: %v", err)
 	}
 
-	configPath := filepath.Join(dir, "libreserv.yaml")
+	configPath := filepath.Join(dir, "sol.yaml")
 	configYAML := []byte("server:\n  port: 8080\n")
 	if err := os.WriteFile(configPath, configYAML, 0o644); err != nil {
 		t.Fatalf("write config: %v", err)

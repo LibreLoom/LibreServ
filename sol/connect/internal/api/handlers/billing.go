@@ -13,11 +13,11 @@ import (
 	stripego "github.com/stripe/stripe-go/v76"
 	"github.com/stripe/stripe-go/v76/webhook"
 
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/billing"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/config"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/providers"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/security"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/services"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/billing"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/config"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/providers"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/security"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/services"
 )
 
 // BillingHandler handles Stripe webhook events.
@@ -235,7 +235,7 @@ func (h *BillingHandler) handleDomainPurchase(w http.ResponseWriter, r *http.Req
 	}
 
 	// Record the domain purchase in custom_domains with expiry and renewal cost.
-	// Cloudflare auto-renews (charged to the CF account); LibreServ recovers the
+	// Cloudflare auto-renews (charged to the CF account); Sol recovers the
 	// cost by deducting from the device's account credit on each renewal (scheduler).
 	amountCents := session.AmountTotal
 	_, err = h.billing.DB().Exec(

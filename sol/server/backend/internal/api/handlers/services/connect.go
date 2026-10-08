@@ -11,13 +11,13 @@ import (
 
 	"github.com/google/uuid"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/shared"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/connect"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/email"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/settings"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/storage"
+	"gt.plainskill.net/LibreLoom/Sol/internal/api/handlers/shared"
+	"gt.plainskill.net/LibreLoom/Sol/internal/config"
+	"gt.plainskill.net/LibreLoom/Sol/internal/connect"
+	"gt.plainskill.net/LibreLoom/Sol/internal/email"
+	"gt.plainskill.net/LibreLoom/Sol/internal/network"
+	"gt.plainskill.net/LibreLoom/Sol/internal/settings"
+	"gt.plainskill.net/LibreLoom/Sol/internal/storage"
 )
 
 type ConnectHandler struct {
@@ -530,7 +530,7 @@ func (h *ConnectHandler) applyCredentials(ctx context.Context, svcID connect.Ser
 			return fmt.Errorf("could not configure the tunnel service")
 		}
 		// Persist to the database (never the config file) so the tunnel
-		// survives a restart without touching libreserv.yaml.
+		// survives a restart without touching sol.yaml.
 		if h.settingsService != nil {
 			if err := h.settingsService.PersistTunnel(string(network.TunnelProviderCloudflare), creds.Tunnel.TunnelToken, true); err != nil {
 				slog.Warn("failed to persist tunnel config to database", "error", err)

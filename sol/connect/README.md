@@ -1,6 +1,6 @@
-# LibreServ Connect
+# Sol Connect
 
-Cloud SaaS companion for LibreServ home servers. Provides external services:
+Cloud SaaS companion for Sol home servers. Provides external services:
 email relay, domain & DNS, cloud backup storage, tunnel access, AI inference,
 and human support.
 

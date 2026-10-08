@@ -1,12 +1,12 @@
 [Unit]
 Description=Sol Kiosk Browser
 Documentation=https://libreloom.org
-After=libreserv-server.service
-Requires=libreserv-server.service
+After=sol-server.service
+Requires=sol-server.service
 
 [Service]
 Type=simple
-User=libreserv
+User=sol
 Environment=DISPLAY=:0
 Environment=XDG_SESSION_TYPE=x11
 ExecStartPre=/usr/bin/bash -c 'while ! curl -sf http://localhost:8080/api/v1/setup/status >/dev/null 2>&1; do sleep 1; done'

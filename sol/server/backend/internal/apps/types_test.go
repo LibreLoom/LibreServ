@@ -15,7 +15,7 @@ func TestRedactForAPI_StripsOIDCClientSecret(t *testing.T) {
 			"app_name":           "nextcloud",
 			"oidc_client_id":     "nextcloud-abc",
 			"oidc_client_secret": "super-secret-value",
-			"oidc_issuer":        "https://libreserv.example.com",
+			"oidc_issuer":        "https://sol.example.com",
 			"port":               8080,
 		},
 	}

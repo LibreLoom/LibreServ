@@ -263,7 +263,7 @@ describe("UsersPage", () => {
     const user = userEvent.setup();
     renderPage();
 
-    // Floating trigger is icon-only (LibreServ-style big plus) with aria-label.
+    // Floating trigger is icon-only (Sol-style big plus) with aria-label.
     await user.click(await screen.findByRole("button", { name: /^Add user$/i }));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByRole("heading", { name: /Add a user/i })).toBeTruthy();

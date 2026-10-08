@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/email"
+	"gt.plainskill.net/LibreLoom/Sol/internal/config"
+	"gt.plainskill.net/LibreLoom/Sol/internal/email"
 )
 
 type coverageWebAuthnVerifier struct{}
@@ -202,7 +202,7 @@ func TestPasswordResetServicePaths(t *testing.T) {
 
 	previous := config.Get()
 	config.SetTestConfig(&config.Config{Network: config.NetworkConfig{
-		Caddy: config.CaddyConfig{DefaultDomain: "libreserv.test"},
+		Caddy: config.CaddyConfig{DefaultDomain: "sol.test"},
 	}})
 	t.Cleanup(func() { config.SetTestConfig(previous) })
 

@@ -98,7 +98,7 @@ func (p *SetupPortal) Start() error {
 	if err := os.MkdirAll(p.runDir, 0o755); err != nil {
 		return fmt.Errorf("could not prepare the setup network: %w", err)
 	}
-	conf := filepath.Join(p.runDir, "libreserv-setup-hostapd.conf")
+	conf := filepath.Join(p.runDir, "sol-setup-hostapd.conf")
 	if err := os.WriteFile(conf, []byte(HostapdConfig(p.iface)), 0o600); err != nil {
 		return fmt.Errorf("could not write the setup network settings: %w", err)
 	}
@@ -150,11 +150,11 @@ func (p *SetupPortal) stopLocked() error {
 }
 
 func (p *SetupPortal) hostapdPIDPath() string {
-	return filepath.Join(p.runDir, "libreserv-setup-hostapd.pid")
+	return filepath.Join(p.runDir, "sol-setup-hostapd.pid")
 }
 
 func (p *SetupPortal) dnsmasqPIDPath() string {
-	return filepath.Join(p.runDir, "libreserv-setup-dnsmasq.pid")
+	return filepath.Join(p.runDir, "sol-setup-dnsmasq.pid")
 }
 
 func (p *SetupPortal) killPIDFile(path string) error {

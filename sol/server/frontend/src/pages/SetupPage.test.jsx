@@ -18,7 +18,7 @@ import api from "../lib/api";
 
 const apiMock = /** @type {any} */ (api);
 
-const SETUP_TOKEN_KEY = "libreserv_setup_token";
+const SETUP_TOKEN_KEY = "sol_setup_token";
 
 const mockStorage = {};
 const mockLocalStorage = {

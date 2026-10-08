@@ -3,7 +3,7 @@ package tools
 import (
 	"testing"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/agent/sandbox"
+	"gt.plainskill.net/LibreLoom/Sol/internal/agent/sandbox"
 )
 
 func testRegistry() *Registry {
@@ -103,9 +103,9 @@ func TestReadToolPathExtractor(t *testing.T) {
 		t.Fatal("read tool not found")
 	}
 
-	path := readTool.PathExtractor([]byte(`{"path": "/var/lib/libreserv/test.txt"}`))
-	if path != "/var/lib/libreserv/test.txt" {
-		t.Errorf("PathExtractor = %q, want %q", path, "/var/lib/libreserv/test.txt")
+	path := readTool.PathExtractor([]byte(`{"path": "/var/lib/sol/test.txt"}`))
+	if path != "/var/lib/sol/test.txt" {
+		t.Errorf("PathExtractor = %q, want %q", path, "/var/lib/sol/test.txt")
 	}
 
 	empty := readTool.PathExtractor([]byte(`{}`))

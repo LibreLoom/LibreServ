@@ -4,12 +4,12 @@ import (
 	"context"
 	"os"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
+	"gt.plainskill.net/LibreLoom/Sol/internal/config"
 )
 
 func NewClientFromEnv() Client {
-	key := os.Getenv("LIBRESERV_CONNECT_KEY")
-	baseURL := os.Getenv("LIBRESERV_CONNECT_API_URL")
+	key := os.Getenv("SOL_CONNECT_KEY")
+	baseURL := os.Getenv("SOL_CONNECT_API_URL")
 
 	if cfg := config.Get(); cfg != nil {
 		if key == "" {
@@ -20,7 +20,7 @@ func NewClientFromEnv() Client {
 		}
 	}
 
-	if os.Getenv("LIBRESERV_CONNECT_FAKE") == "true" {
+	if os.Getenv("SOL_CONNECT_FAKE") == "true" {
 		fake := NewFakeClient()
 		if key != "" {
 			fake.Activate(context.Background(), key)

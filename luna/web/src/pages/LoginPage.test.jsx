@@ -55,7 +55,7 @@ function renderLogin() {
 }
 
 describe("LoginPage", () => {
-  it("shows the LibreServ-style greeting", () => {
+  it("shows the Sol-style greeting", () => {
     stubFetch();
     renderLogin();
     expect(screen.getByText("Luna")).toBeInTheDocument();

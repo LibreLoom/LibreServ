@@ -1,10 +1,10 @@
-// Package config manages LibreServ application configuration.
+// Package config manages Sol application configuration.
 //
 // Configuration values are resolved in this order (later wins):
 //
 //  1. Code defaults    — viper.SetDefault() in LoadConfig()
-//  2. Config file     — /etc/libreserv/libreserv.yaml (or --config path)
-//  3. Environment     — LIBRESERV_<KEY> (e.g. LIBRESERV_SERVER_PORT)
+//  2. Config file     — /etc/sol/sol.yaml (or --config path)
+//  3. Environment     — SOL_<KEY> (e.g. SOL_SERVER_PORT)
 //  4. Database         — app_settings table overrides for DB-backed keys
 //
 // DB-backed keys (logging.level, smtp.*, server.mode, cors.allowed_origins,
@@ -297,9 +297,9 @@ func SetDefaults(v *viper.Viper) {
 	v.SetDefault("server.host", "127.0.0.1")
 	v.SetDefault("server.port", 8080)
 	v.SetDefault("server.mode", "production")
-	v.SetDefault("database.path", "/var/lib/libreserv/libreserv.db")
-	v.SetDefault("apps.data_path", "/var/lib/libreserv/apps")
-	v.SetDefault("apps.catalog_path", "/opt/libreserv/catalog")
+	v.SetDefault("database.path", "/var/lib/sol/sol.db")
+	v.SetDefault("apps.data_path", "/var/lib/sol/apps")
+	v.SetDefault("apps.catalog_path", "/opt/sol/catalog")
 	v.SetDefault("apps.repo_pull_interval", "6h")
 	v.SetDefault("apps.repos", []map[string]interface{}{
 		{
@@ -313,12 +313,12 @@ func SetDefaults(v *viper.Viper) {
 	v.SetDefault("runtime.method", "auto")
 	v.SetDefault("runtime.binary", "podman")
 	v.SetDefault("logging.level", "info")
-	v.SetDefault("logging.path", "/var/log/libreserv/libreserv.log")
+	v.SetDefault("logging.path", "/var/log/sol/sol.log")
 	v.SetDefault("smtp.port", 587)
 	v.SetDefault("network.caddy.mode", "disabled")
 	v.SetDefault("network.caddy.admin_api", "127.0.0.1:2019")
-	v.SetDefault("network.caddy.config_path", "/etc/libreserv/caddy/Caddyfile")
-	v.SetDefault("network.caddy.certs_path", "/etc/libreserv/caddy/certs")
+	v.SetDefault("network.caddy.config_path", "/etc/sol/caddy/Caddyfile")
+	v.SetDefault("network.caddy.certs_path", "/etc/sol/caddy/certs")
 	v.SetDefault("network.caddy.auto_https", false)
 	v.SetDefault("network.caddy.reload.retries", 5)
 	v.SetDefault("network.caddy.reload.backoff_min", "1s")
@@ -335,15 +335,15 @@ func SetDefaults(v *viper.Viper) {
 	v.SetDefault("support.agent.turn_timeout", "5m")
 	v.SetDefault("support.agent.review_enabled", true)
 	v.SetDefault("support.agent.system_plan_id", "basic")
-	v.SetDefault("support.agent.data_dirs", []string{"/var/lib/libreserv", "/etc/libreserv"})
+	v.SetDefault("support.agent.data_dirs", []string{"/var/lib/sol", "/etc/sol"})
 	// summary_model: optional model that summarizes the session so the review
 	// model can judge tool calls with real context. Empty = use a truncated
 	// transcript fallback (no extra LLM call).
 	v.SetDefault("support.agent.summary_model", "")
-	// Sandbox: bubblewrap when available, a writable set covering LibreServ data
+	// Sandbox: bubblewrap when available, a writable set covering Sol data
 	// and logs, and network enabled (needed for the Podman socket + packages).
 	v.SetDefault("support.agent.sandbox.mode", "auto")
-	v.SetDefault("support.agent.sandbox.workdirs", []string{"/var/lib/libreserv", "/var/log/libreserv"})
+	v.SetDefault("support.agent.sandbox.workdirs", []string{"/var/lib/sol", "/var/log/sol"})
 	v.SetDefault("support.agent.sandbox.network", true)
 
 	v.SetDefault("connect.api_url", "https://connect.serv.libreloom.org")
@@ -365,14 +365,14 @@ func LoadConfig(path string) error {
 	if path != "" {
 		v.SetConfigFile(path)
 	} else {
-		v.SetConfigName("libreserv")
+		v.SetConfigName("sol")
 		v.SetConfigType("yaml")
 		v.AddConfigPath("./configs")
-		v.AddConfigPath("/etc/libreserv")
+		v.AddConfigPath("/etc/sol")
 		v.AddConfigPath(".")
 	}
 
-	v.SetEnvPrefix("LIBRESERV")
+	v.SetEnvPrefix("SOL")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
 
@@ -385,7 +385,7 @@ func LoadConfig(path string) error {
 	}
 
 	if v.ConfigFileUsed() == "" {
-		return fmt.Errorf("no config file found; copy configs/libreserv.yaml.example to configs/libreserv.yaml and adjust values")
+		return fmt.Errorf("no config file found; copy configs/sol.yaml.example to configs/sol.yaml and adjust values")
 	}
 
 	var c Config
@@ -475,7 +475,7 @@ func IsWritableFilePath(path string) (bool, error) {
 		}
 		return false, err
 	}
-	tmp, err := os.CreateTemp(dir, ".libreserv-writecheck-*")
+	tmp, err := os.CreateTemp(dir, ".sol-writecheck-*")
 	if err != nil {
 		if errors.Is(err, os.ErrPermission) {
 			return false, nil

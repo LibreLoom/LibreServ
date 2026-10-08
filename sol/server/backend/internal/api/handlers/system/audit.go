@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/audit"
+	"gt.plainskill.net/LibreLoom/Sol/internal/audit"
 )
 
 // AuditHandler handles audit log API endpoints

@@ -17,7 +17,7 @@ import (
 	jose "github.com/go-jose/go-jose/v4"
 	"github.com/google/uuid"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
 )
 
 func isNotFound(err error) bool {

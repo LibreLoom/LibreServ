@@ -25,15 +25,15 @@ import (
 type ID string
 
 const (
-	LibreServSigning ID = "libreserv-signing" // keys/libreserv.minisign.pub
-	LunaSigning      ID = "lsluna-signing"    // keys/lsluna.minisign.pub
-	ForgejoToken     ID = "forgejo-token"
-	AndroidKeystore  ID = "android-keystore"
+	SolSigning      ID = "sol-signing"    // keys/sol.minisign.pub
+	LunaSigning     ID = "lsluna-signing" // keys/lsluna.minisign.pub
+	ForgejoToken    ID = "forgejo-token"
+	AndroidKeystore ID = "android-keystore"
 )
 
 // AllIDs lists every secret in display order.
 func AllIDs() []ID {
-	return []ID{LibreServSigning, LunaSigning, ForgejoToken, AndroidKeystore}
+	return []ID{SolSigning, LunaSigning, ForgejoToken, AndroidKeystore}
 }
 
 // State is the outcome for one secret.
@@ -411,7 +411,7 @@ func (m *Manager) resolveLocked(ctx context.Context, id ID) *resolved {
 		return r
 	}
 	switch id {
-	case LibreServSigning, LunaSigning:
+	case SolSigning, LunaSigning:
 		m.resolveSigning(ctx, id)
 	case ForgejoToken:
 		m.memo[id] = m.resolveForgejo(ctx)

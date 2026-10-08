@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
 )
 
 func TestAppPinning(t *testing.T) {

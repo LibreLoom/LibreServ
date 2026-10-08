@@ -34,7 +34,7 @@ describe("passwordPolicy", () => {
     );
   });
 
-  it("accepts LibreServ-style passwords (12+ with letter and digit)", () => {
+  it("accepts Sol-style passwords (12+ with letter and digit)", () => {
     expect(meetsPasswordPolicy("hunter22hunter1")).toBe(true);
     expect(passwordPolicyError("hunter22hunter1")).toBeNull();
     expect(passwordChecks("hunter22hunter1").ok).toBe(true);

@@ -143,7 +143,7 @@ func (s *keyringStore) Get(slot string) (string, error) {
 }
 
 func (s *keyringStore) Set(slot, value string) error {
-	return s.ring.Set(keyring.Item{Key: slot, Data: []byte(value), Label: "LibreServ release: " + slot})
+	return s.ring.Set(keyring.Item{Key: slot, Data: []byte(value), Label: "Sol release: " + slot})
 }
 
 func (s *keyringStore) Remove(slot string) error {

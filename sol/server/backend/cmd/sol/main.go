@@ -14,33 +14,33 @@ import (
 	"syscall"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/api"
-	handlersapps "gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/apps"
-	handlersauth "gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/auth"
-	handlerssystem "gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/system"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/apps"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/audit"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth/webauthn"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/connect"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/email"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/jobqueue"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/jobs"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/logger"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/notify"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/oidc"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/podman"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/security"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/settings"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/setup"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/storage"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/storage/restic"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/system"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/wifi"
+	"gt.plainskill.net/LibreLoom/Sol/internal/api"
+	handlersapps "gt.plainskill.net/LibreLoom/Sol/internal/api/handlers/apps"
+	handlersauth "gt.plainskill.net/LibreLoom/Sol/internal/api/handlers/auth"
+	handlerssystem "gt.plainskill.net/LibreLoom/Sol/internal/api/handlers/system"
+	"gt.plainskill.net/LibreLoom/Sol/internal/apps"
+	"gt.plainskill.net/LibreLoom/Sol/internal/audit"
+	"gt.plainskill.net/LibreLoom/Sol/internal/auth"
+	"gt.plainskill.net/LibreLoom/Sol/internal/auth/webauthn"
+	"gt.plainskill.net/LibreLoom/Sol/internal/config"
+	"gt.plainskill.net/LibreLoom/Sol/internal/connect"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/email"
+	"gt.plainskill.net/LibreLoom/Sol/internal/jobqueue"
+	"gt.plainskill.net/LibreLoom/Sol/internal/jobs"
+	"gt.plainskill.net/LibreLoom/Sol/internal/logger"
+	"gt.plainskill.net/LibreLoom/Sol/internal/monitoring"
+	"gt.plainskill.net/LibreLoom/Sol/internal/network"
+	"gt.plainskill.net/LibreLoom/Sol/internal/notify"
+	"gt.plainskill.net/LibreLoom/Sol/internal/oidc"
+	"gt.plainskill.net/LibreLoom/Sol/internal/podman"
+	"gt.plainskill.net/LibreLoom/Sol/internal/security"
+	"gt.plainskill.net/LibreLoom/Sol/internal/settings"
+	"gt.plainskill.net/LibreLoom/Sol/internal/setup"
+	"gt.plainskill.net/LibreLoom/Sol/internal/storage"
+	"gt.plainskill.net/LibreLoom/Sol/internal/storage/restic"
+	"gt.plainskill.net/LibreLoom/Sol/internal/system"
+	"gt.plainskill.net/LibreLoom/Sol/internal/wifi"
 )
 
 func main() {
@@ -75,7 +75,7 @@ func main() {
 
 	if err := security.ValidateProductionReadiness(); err != nil {
 		slog.Error("security validation failed", "error", err)
-		fmt.Fprintf(os.Stderr, "\nFor local development, run with: LIBRESERV_INSECURE_DEV=true ./bin/libreserv serve --config ./configs/libreserv.yaml\n")
+		fmt.Fprintf(os.Stderr, "\nFor local development, run with: SOL_INSECURE_DEV=true ./bin/sol serve --config ./configs/sol.yaml\n")
 		os.Exit(1)
 	}
 
@@ -150,7 +150,7 @@ func main() {
 	backupService.SetServerSecret(cfg.Auth.JWTSecret)
 
 	if cfg.Auth.CloudEncryptionKey == "" {
-		slog.Error("auth.cloud_encryption_key is not set — cloud backup credentials cannot be encrypted. Set LIBRESERV_AUTH_CLOUD_ENCRYPTION_KEY or auth.cloud_encryption_key in config")
+		slog.Error("auth.cloud_encryption_key is not set — cloud backup credentials cannot be encrypted. Set SOL_AUTH_CLOUD_ENCRYPTION_KEY or auth.cloud_encryption_key in config")
 		os.Exit(1)
 	}
 	if cfg.Auth.CloudEncryptionKey == cfg.Auth.CSRFSecret {
@@ -418,7 +418,7 @@ func main() {
 	connectChecker := connect.NewEntitlementChecker(connectClient)
 	connectChecker.Refresh()
 
-	// OIDC Provider: LibreServ acts as an OIDC Identity Provider for apps
+	// OIDC Provider: Sol acts as an OIDC Identity Provider for apps
 	// with access_model = "internal". The issuer URL is derived from the
 	// Caddy default domain (or localhost in dev).
 	issuerURL := fmt.Sprintf("http://%s:%d", cfg.Server.Host, cfg.Server.Port)
@@ -501,7 +501,7 @@ func main() {
 	server := api.NewServer(api.ServerConfig{
 		Host:             cfg.Server.Host,
 		Port:             cfg.Server.Port,
-		DevMode:          cfg.Server.Mode == "development" || os.Getenv("LIBRESERV_INSECURE_DEV") == "true",
+		DevMode:          cfg.Server.Mode == "development" || os.Getenv("SOL_INSECURE_DEV") == "true",
 		DB:               db,
 		AppManager:       appManager,
 		AuthService:      authService,
@@ -660,7 +660,7 @@ func ensureSecrets(cfgPath string) error {
 	// - If the config path is not writable, fail fast with a clear remediation.
 	if cfgPath == "" {
 		return fmt.Errorf(
-			"missing required secrets and no config path was provided to persist generated secrets; set env vars LIBRESERV_AUTH_JWT_SECRET, LIBRESERV_AUTH_CSRF_SECRET, and LIBRESERV_AUTH_CLOUD_ENCRYPTION_KEY (recommended for read-only configs) or run with a writable --config path",
+			"missing required secrets and no config path was provided to persist generated secrets; set env vars SOL_AUTH_JWT_SECRET, SOL_AUTH_CSRF_SECRET, and SOL_AUTH_CLOUD_ENCRYPTION_KEY (recommended for read-only configs) or run with a writable --config path",
 		)
 	}
 	writable, err := config.IsWritableFilePath(cfgPath)
@@ -669,7 +669,7 @@ func ensureSecrets(cfgPath string) error {
 	}
 	if !writable {
 		return fmt.Errorf(
-			"missing required secrets but config file is not writable (%q). Provide secrets via env (LIBRESERV_AUTH_JWT_SECRET, LIBRESERV_AUTH_CSRF_SECRET, LIBRESERV_AUTH_CLOUD_ENCRYPTION_KEY) or make the config path writable",
+			"missing required secrets but config file is not writable (%q). Provide secrets via env (SOL_AUTH_JWT_SECRET, SOL_AUTH_CSRF_SECRET, SOL_AUTH_CLOUD_ENCRYPTION_KEY) or make the config path writable",
 			cfgPath,
 		)
 	}

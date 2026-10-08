@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/moby/moby/client"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
+	"gt.plainskill.net/LibreLoom/Sol/internal/config"
 )
 
 // Client wraps the container runtime API client and context.
@@ -189,7 +189,7 @@ func daemonReachable(binary string) error {
 // probes the socket with a real connection attempt — a stale socket file
 // exists but refuses connections, so we must detect that and restart.
 //
-// LibreServ's goal is that users never need a terminal. The Podman rootless
+// Sol's goal is that users never need a terminal. The Podman rootless
 // socket is a systemd user unit that is NOT enabled by default on most distros,
 // so on a fresh boot `podman compose` fails with "Cannot connect to the Docker
 // daemon". Auto-starting it removes that footgun.

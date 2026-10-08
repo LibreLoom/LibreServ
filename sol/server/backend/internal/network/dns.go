@@ -132,7 +132,7 @@ func DetectPublicIP(ctx context.Context) (netip.Addr, error) {
 		if err != nil {
 			continue
 		}
-		req.Header.Set("User-Agent", "LibreServ/1.0")
+		req.Header.Set("User-Agent", "Sol/1.0")
 		resp, err := publicIPClient.Do(req)
 		if err != nil {
 			continue

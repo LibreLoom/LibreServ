@@ -8,20 +8,20 @@ import (
 	"github.com/miekg/dns"
 )
 
-func TestLibreservZoneRespondsToLibreservLocal(t *testing.T) {
-	svc, err := mdns.NewMDNSService("LibreServ", "_http._tcp", "local.", "", 8080, []net.IP{net.ParseIP("192.168.1.3")}, nil)
+func TestSolZoneRespondsToSolLocal(t *testing.T) {
+	svc, err := mdns.NewMDNSService("Sol", "_http._tcp", "local.", "", 8080, []net.IP{net.ParseIP("192.168.1.3")}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	zone := &libreservZone{MDNSService: svc, ips: []net.IP{net.ParseIP("192.168.1.3")}}
+	zone := &solZone{MDNSService: svc, ips: []net.IP{net.ParseIP("192.168.1.3")}}
 
 	rr := zone.Records(dns.Question{
-		Name:  "libreserv.local.",
+		Name:  "sol.local.",
 		Qtype: dns.TypeA,
 	})
 
 	if len(rr) == 0 {
-		t.Fatal("expected A records for libreserv.local., got none")
+		t.Fatal("expected A records for sol.local., got none")
 	}
 
 	a, ok := rr[0].(*dns.A)
@@ -33,12 +33,12 @@ func TestLibreservZoneRespondsToLibreservLocal(t *testing.T) {
 	}
 }
 
-func TestLibreservZoneStillServesServiceRecords(t *testing.T) {
-	svc, err := mdns.NewMDNSService("LibreServ", "_http._tcp", "local.", "", 8080, []net.IP{net.ParseIP("192.168.1.3")}, nil)
+func TestSolZoneStillServesServiceRecords(t *testing.T) {
+	svc, err := mdns.NewMDNSService("Sol", "_http._tcp", "local.", "", 8080, []net.IP{net.ParseIP("192.168.1.3")}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	zone := &libreservZone{MDNSService: svc, ips: []net.IP{net.ParseIP("192.168.1.3")}}
+	zone := &solZone{MDNSService: svc, ips: []net.IP{net.ParseIP("192.168.1.3")}}
 
 	rr := zone.Records(dns.Question{
 		Name:  "_http._tcp.local.",
@@ -50,12 +50,12 @@ func TestLibreservZoneStillServesServiceRecords(t *testing.T) {
 	}
 }
 
-func TestLibreservZoneIgnoresUnrelatedQueries(t *testing.T) {
-	svc, err := mdns.NewMDNSService("LibreServ", "_http._tcp", "local.", "", 8080, []net.IP{net.ParseIP("192.168.1.3")}, nil)
+func TestSolZoneIgnoresUnrelatedQueries(t *testing.T) {
+	svc, err := mdns.NewMDNSService("Sol", "_http._tcp", "local.", "", 8080, []net.IP{net.ParseIP("192.168.1.3")}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	zone := &libreservZone{MDNSService: svc, ips: []net.IP{net.ParseIP("192.168.1.3")}}
+	zone := &solZone{MDNSService: svc, ips: []net.IP{net.ParseIP("192.168.1.3")}}
 
 	rr := zone.Records(dns.Question{
 		Name:  "some-other-device.local.",

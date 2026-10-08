@@ -1,4 +1,4 @@
--- Complete LibreServ Database Schema
+-- Complete Sol Database Schema
 -- All migrations consolidated into a single file (formerly 001–009).
 
 -- =====================

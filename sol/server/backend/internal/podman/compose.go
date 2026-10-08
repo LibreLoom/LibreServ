@@ -86,7 +86,7 @@ func isSafeBindMountPath(hostPath string) bool {
 		return false
 	}
 	if strings.HasPrefix(clean, "/var/lib") {
-		if strings.HasPrefix(clean, "/var/lib/libreserv") || strings.HasPrefix(clean, "/var/lib/docker") {
+		if strings.HasPrefix(clean, "/var/lib/sol") || strings.HasPrefix(clean, "/var/lib/docker") {
 			return true
 		}
 		return false
@@ -363,7 +363,7 @@ func ChownBindMounts(ctx context.Context, composePath string, uid, gid int) erro
 }
 
 // composeError translates raw compose-command output into actionable,
-// plain-language errors. Per LibreServ's PLAIN LANGUAGE convention, every
+// plain-language errors. Per Sol's PLAIN LANGUAGE convention, every
 // message explains what went wrong and what the user should do — never just a
 // bare technical term.
 func composeError(action string, output []byte, err error) error {

@@ -5,7 +5,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TEST_DIR="/tmp/libreserv-rollback-test-$$"
+TEST_DIR="/tmp/sol-rollback-test-$$"
 BIN_DIR="$SCRIPT_DIR/bin"
 STATE_DIR="$TEST_DIR/state"
 
@@ -16,7 +16,7 @@ cleanup() {
     echo ""
     echo "Cleaning up..."
     rm -rf "$TEST_DIR"
-    pkill -f "libreserv-test" 2>/dev/null || true
+    pkill -f "sol-test" 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -61,11 +61,11 @@ EOF
 # Build "old" version (v1.0.0)
 echo "   Building v1.0.0 (old version)..."
 cd "$TEST_DIR"
-go build -o "$TEST_DIR/libreserv-v1" fake-server.go
+go build -o "$TEST_DIR/sol-v1" fake-server.go
 
 # Build "new" version (v2.0.0)
 echo "   Building v2.0.0 (new version)..."
-go build -o "$TEST_DIR/libreserv-v2" fake-server.go
+go build -o "$TEST_DIR/sol-v2" fake-server.go
 
 # Test 1: Successful update (health check passes)
 echo ""
@@ -77,14 +77,14 @@ cat > "$STATE_DIR/update_state.json" << EOF
 {
     "old_version": "1.0.0",
     "new_version": "2.0.0",
-    "backup_path": "$TEST_DIR/libreserv-v1",
+    "backup_path": "$TEST_DIR/sol-v1",
     "updated_at": "$(date -Iseconds)",
     "verified": false
 }
 EOF
 
 echo "4. Starting v2.0.0 server (should pass health check)..."
-TEST_PORT=9992 "$TEST_DIR/libreserv-v2" &
+TEST_PORT=9992 "$TEST_DIR/sol-v2" &
 V2_PID=$!
 sleep 2
 
@@ -118,14 +118,14 @@ cat > "$STATE_DIR/update_state.json" << EOF
 {
     "old_version": "1.0.0",
     "new_version": "2.0.0",
-    "backup_path": "$TEST_DIR/libreserv-v1",
+    "backup_path": "$TEST_DIR/sol-v1",
     "updated_at": "$(date -Iseconds)",
     "verified": false
 }
 EOF
 
 echo "5. Starting v2.0.0 server (should fail health check)..."
-TEST_PORT=9992 "$TEST_DIR/libreserv-v2" &
+TEST_PORT=9992 "$TEST_DIR/sol-v2" &
 V2_PID=$!
 sleep 2
 
@@ -144,7 +144,7 @@ rm -f /tmp/rollback-test-fail
 
 echo "6. Testing rollback to v1.0.0..."
 # Start v1 (simulating rollback)
-TEST_PORT=9991 "$TEST_DIR/libreserv-v1" &
+TEST_PORT=9991 "$TEST_DIR/sol-v1" &
 V1_PID=$!
 sleep 2
 
@@ -172,7 +172,7 @@ cat > "$STATE_DIR/update_state.json" << EOF
 {
     "old_version": "1.0.0",
     "new_version": "2.0.0",
-    "backup_path": "$TEST_DIR/libreserv-v1",
+    "backup_path": "$TEST_DIR/sol-v1",
     "updated_at": "$(date -d '10 minutes ago' -Iseconds 2>/dev/null || date -Iseconds)",
     "verified": false
 }

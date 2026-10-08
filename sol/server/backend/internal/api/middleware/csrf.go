@@ -6,14 +6,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/constants"
+	"gt.plainskill.net/LibreLoom/Sol/internal/constants"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/response"
+	"gt.plainskill.net/LibreLoom/Sol/internal/api/response"
 )
 
 // CSRF protects state-changing requests using a stateless HMAC token.

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/jobqueue"
+	"gt.plainskill.net/LibreLoom/Sol/internal/jobqueue"
 )
 
 func TestRevocationHandler_Process_NoHardError(t *testing.T) {

@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/api/middleware"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/auth"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/database"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/security"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/api/middleware"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/auth"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/database"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/security"
 )
 
 func insertAdminAccount(t *testing.T, db *sql.DB, email, password string) string {

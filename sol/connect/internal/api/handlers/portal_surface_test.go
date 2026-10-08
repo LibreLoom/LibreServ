@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/api/middleware"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/config"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/database"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/security"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/api/middleware"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/config"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/database"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/security"
 )
 
 func accountForDevice(t *testing.T, db *sql.DB, deviceID string) string {
@@ -167,7 +167,7 @@ func TestPortalMockDomainLifecycle(t *testing.T) {
 
 	for body, want := range map[string]int{
 		`{}`:                       http.StatusBadRequest,
-		`{"query":"libreserv"}`:    http.StatusOK,
+		`{"query":"sol"}`:          http.StatusOK,
 		`{"query":"my home site"}`: http.StatusOK,
 	} {
 		got := portalRequest(t, h, accountID, http.MethodPost, "/portal/domains/search", body, h.SearchDomains)

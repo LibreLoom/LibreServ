@@ -3,14 +3,14 @@ server:
     port: 8080
     mode: production
 database:
-    path: ./dev/data/libreserv.db
+    path: ./dev/data/sol.db
 auth:
     jwt_secret: ""
     csrf_secret: ""
     mfa:
         # AES-GCM key wrapping TOTP secrets at rest. Empty -> auto-generated +
         # persisted on first run (must stay stable or enrolled TOTP methods
-        # can't be decrypted). Set via LIBRESERV_AUTH_MFA_TOTP_ENCRYPTION_KEY
+        # can't be decrypted). Set via SOL_AUTH_MFA_TOTP_ENCRYPTION_KEY
         # for read-only configs.
         totp_encryption_key: ""
         # WebAuthn (passkeys + security keys). Leave rp_id/origins unset to
@@ -40,7 +40,7 @@ network:
     caddy:
         mode: enabled
         admin_api: 127.0.0.1:2019
-        # If you run LibreServ behind a reverse proxy, set LIBRESERV_TRUSTED_PROXIES
+        # If you run Sol behind a reverse proxy, set SOL_TRUSTED_PROXIES
         # (environment variable, comma-separated CIDRs or IPs, e.g. "127.0.0.1,::1")
         # so X-Forwarded-For is honored only from those sources. The default trusts
         # loopback only — anything else lets clients spoof their IP for rate limits.
@@ -103,7 +103,7 @@ support:
     inference_base_url: "https://api.routing.run/v1"
     agent:
         # main_model: the AI model used for agent conversations.
-        # When using LibreServ Connect, available models are fetched live.
+        # When using Sol Connect, available models are fetched live.
         # When using BYOK, enter the model ID your provider offers.
         main_model: ""
         # review_model: the AI model that reviews tool calls for safety.
@@ -133,8 +133,8 @@ support:
         sandbox:
             mode: "auto"
             workdirs:
-                - /var/lib/libreserv
-                - /var/log/libreserv
+                - /var/lib/sol
+                - /var/log/sol
             network: true
     # pricing: per-1M-token costs for models. Only models with entries here will
     # have accurate cost tracking. Models without pricing entries are tracked at $0 cost.

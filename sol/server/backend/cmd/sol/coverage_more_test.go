@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/config"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
 )
 
 func captureStdout(t *testing.T, fn func()) string {
@@ -37,10 +37,10 @@ func captureStdout(t *testing.T, fn func()) string {
 func TestResolveConfigValueAllSections(t *testing.T) {
 	cfg := &config.Config{
 		Server:   config.ServerConfig{Host: "server.test", Port: 9090, Mode: "development"},
-		Database: config.DatabaseConfig{Path: "/data/libreserv.db"},
+		Database: config.DatabaseConfig{Path: "/data/sol.db"},
 		Apps:     config.AppsConfig{DataPath: "/data/apps", CatalogPath: "/catalog"},
 		Runtime:  config.RuntimeConfig{Method: "socket", SocketPath: "/run/podman.sock"},
-		Logging:  config.LoggingConfig{Level: "debug", Path: "/logs/libreserv.log"},
+		Logging:  config.LoggingConfig{Level: "debug", Path: "/logs/sol.log"},
 		SMTP: config.SMTPConfig{
 			Host: "smtp.test", Port: 2525, Username: "mailer", Password: "secret",
 			From: "Sol <server@example.test>", UseTLS: true, SkipVerify: true,
@@ -63,13 +63,13 @@ func TestResolveConfigValueAllSections(t *testing.T) {
 		"server.host":                  "server.test",
 		"server.port":                  "9090",
 		"server.mode":                  "development",
-		"database.path":                "/data/libreserv.db",
+		"database.path":                "/data/sol.db",
 		"apps.data_path":               "/data/apps",
 		"apps.catalog_path":            "/catalog",
 		"runtime.method":               "socket",
 		"runtime.socket_path":          "/run/podman.sock",
 		"logging.level":                "debug",
-		"logging.path":                 "/logs/libreserv.log",
+		"logging.path":                 "/logs/sol.log",
 		"smtp.host":                    "smtp.test",
 		"smtp.port":                    "2525",
 		"smtp.username":                "mailer",
@@ -107,7 +107,7 @@ func TestResolveConfigValueAllSections(t *testing.T) {
 
 func TestConfigCommandsSetGetAndDefaults(t *testing.T) {
 	root := t.TempDir()
-	dbPath := filepath.Join(root, "libreserv.db")
+	dbPath := filepath.Join(root, "sol.db")
 	db, err := database.Open(dbPath)
 	if err != nil {
 		t.Fatal(err)
@@ -119,7 +119,7 @@ func TestConfigCommandsSetGetAndDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfgPath := filepath.Join(root, "libreserv.yaml")
+	cfgPath := filepath.Join(root, "sol.yaml")
 	cfgYAML := fmt.Sprintf("server:\n  host: config.example.test\n  port: 8088\ndatabase:\n  path: %q\n", dbPath)
 	if err := os.WriteFile(cfgPath, []byte(cfgYAML), 0o600); err != nil {
 		t.Fatal(err)
@@ -182,7 +182,7 @@ func TestEnsureSecretsCompleteAndGenerated(t *testing.T) {
 		t.Fatal("missing secrets with directory config path succeeded")
 	}
 
-	cfgPath := filepath.Join(t.TempDir(), "libreserv.yaml")
+	cfgPath := filepath.Join(t.TempDir(), "sol.yaml")
 	if err := os.WriteFile(cfgPath, []byte("{}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}

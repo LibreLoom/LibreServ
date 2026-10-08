@@ -133,7 +133,7 @@ factory_prompt_device_token() {
 		"" \
 		"Type your device token from Luna Connect and press enter now for the best experience." \
 		"Go to https://connect.luna.libreloom.org to get started." \
-		"LibreServ Luna is offline-first, though, so all functionality is available without our service, which is open-source and exists to make remote access & cloud backup configuration easy." \
+		"Luna is offline-first, though, so all functionality is available without our service, which is open-source and exists to make remote access & cloud backup configuration easy." \
 		"If you would like to opt-out for now, you can just press enter, leaving the field empty."
 	while :; do
 		printf '%s' ">>> "

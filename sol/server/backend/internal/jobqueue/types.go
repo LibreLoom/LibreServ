@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
 )
 
 // JobType represents the type of ACME job

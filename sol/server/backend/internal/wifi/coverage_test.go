@@ -196,7 +196,7 @@ func TestSetupPortalStateAndLifecycle(t *testing.T) {
 	if err := portal.Start(); err != nil {
 		t.Fatalf("idempotent Start: %v", err)
 	}
-	conf, err := os.ReadFile(filepath.Join(runDir, "libreserv-setup-hostapd.conf"))
+	conf, err := os.ReadFile(filepath.Join(runDir, "sol-setup-hostapd.conf"))
 	if err != nil || string(conf) != HostapdConfig("wlan0") {
 		t.Fatalf("hostapd config = %q, %v", conf, err)
 	}

@@ -4,7 +4,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CONNECT_URL="${LUNACONNECT_E2E_URL:-http://127.0.0.1:8092}"
-LUNA_DATA="${LUNA_DATA_DIR:-/agent/repos/libreserv/luna/dev}"
+LUNA_DATA="${LUNA_DATA_DIR:-/agent/repos/sol/luna/dev}"
 ADMIN_TOKEN="${LUNACONNECT_ADMIN_TOKEN:-e2e-live-admin}"
 SUBDOMAIN="live$(date +%s | tail -c 5)"
 

@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-// Agent is a single AI agent that helps users manage their LibreServ server.
+// Agent is a single AI agent that helps users manage their Sol server.
 type Agent struct {
 	ID           string
 	Model        string

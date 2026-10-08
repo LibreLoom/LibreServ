@@ -16,8 +16,8 @@ import (
 	"github.com/zitadel/oidc/v3/pkg/op"
 
 	"golang.org/x/crypto/bcrypt"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/auth"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
 )
 
 // UserGetter is the minimal interface for retrieving users.

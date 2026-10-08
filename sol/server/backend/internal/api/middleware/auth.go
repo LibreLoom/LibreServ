@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"strings"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/response"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
+	"gt.plainskill.net/LibreLoom/Sol/internal/api/response"
+	"gt.plainskill.net/LibreLoom/Sol/internal/auth"
 )
 
 type ContextKey string
@@ -137,7 +137,7 @@ func extractAccessToken(r *http.Request) (string, error) {
 		}
 	}
 
-	cookie, err := r.Cookie("libreserv_access")
+	cookie, err := r.Cookie("sol_access")
 	if err == nil && cookie.Value != "" {
 		return cookie.Value, nil
 	}

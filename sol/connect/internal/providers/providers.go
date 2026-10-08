@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/security"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/security"
 )
 
 // Service provides service provider configuration operations.

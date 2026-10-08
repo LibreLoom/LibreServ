@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/constants"
+	"gt.plainskill.net/LibreLoom/Sol/internal/constants"
 )
 
 const csrfTestSecret = "csrf-test-secret"

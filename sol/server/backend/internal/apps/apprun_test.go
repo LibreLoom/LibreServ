@@ -598,14 +598,14 @@ func TestAppRunTest_ComposeTemplate(t *testing.T) {
 		t.Error("compose template missing conditional block for boolean_field")
 	}
 
-	if !strings.Contains(content, "libreserv.app=") {
-		t.Error("compose template missing libreserv.app label")
+	if !strings.Contains(content, "sol.app=") {
+		t.Error("compose template missing sol.app label")
 	}
-	if !strings.Contains(content, "libreserv.app.name=") {
-		t.Error("compose template missing libreserv.app.name label")
+	if !strings.Contains(content, "sol.app.name=") {
+		t.Error("compose template missing sol.app.name label")
 	}
-	if !strings.Contains(content, "libreserv.app.component=") {
-		t.Error("compose template missing libreserv.app.component label for auxiliary container")
+	if !strings.Contains(content, "sol.app.component=") {
+		t.Error("compose template missing sol.app.component label for auxiliary container")
 	}
 }
 
@@ -1041,9 +1041,9 @@ func TestAppRunTest_TemplateRendering(t *testing.T) {
 		{"deployment env var", "DEPLOY_ENV=deployed-value"},
 		{"deployment template ref env", "DEPLOY_TEMPLATE_REF=test-value"},
 		{"boolean conditional true", "test.boolean.enabled=true"},
-		{"libreserv.app label", "libreserv.app=test1234"},
-		{"libreserv.app.name label", "libreserv.app.name=AppRun Test"},
-		{"libreserv.app.component label", "libreserv.app.component=helper"},
+		{"sol.app label", "sol.app=test1234"},
+		{"sol.app.name label", "sol.app.name=AppRun Test"},
+		{"sol.app.component label", "sol.app.component=helper"},
 		{"read-only volume mount", ":ro,z"},
 	}
 
@@ -1156,13 +1156,13 @@ func TestAppRunTest_ScriptExecutionConfig(t *testing.T) {
 	config := ScriptExecutionConfig{
 		InstanceID:  "abc12345",
 		AppID:       "apprun-test",
-		InstallPath: "/opt/libreserv/apps/abc12345",
-		AppDataPath: "/opt/libreserv/apps/abc12345/data",
-		ConfigPath:  "/opt/libreserv/apps/abc12345/config.json",
-		ConfigDir:   "/opt/libreserv/apps/abc12345/config",
+		InstallPath: "/opt/sol/apps/abc12345",
+		AppDataPath: "/opt/sol/apps/abc12345/data",
+		ConfigPath:  "/opt/sol/apps/abc12345/config.json",
+		ConfigDir:   "/opt/sol/apps/abc12345/config",
 		Runtime: RuntimeInfo{
-			ComposeFile: "/opt/libreserv/apps/abc12345/docker-compose.yml",
-			ProjectName: "libreserv-abc12345",
+			ComposeFile: "/opt/sol/apps/abc12345/docker-compose.yml",
+			ProjectName: "sol-abc12345",
 		},
 		Server: ServerContext{
 			ServerPort:     8080,

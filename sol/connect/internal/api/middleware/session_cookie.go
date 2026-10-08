@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/config"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/config"
 )
 
 const portalSessionCookie = "connect_portal_session"

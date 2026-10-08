@@ -6,18 +6,18 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	handlersapps "gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/apps"
-	handlersauth "gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/auth"
-	handlersbackups "gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/backups"
-	handlersnetwork "gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/network"
-	handlersservices "gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/services"
-	handlerssystem "gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/system"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/podman"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/wifi"
+	handlersapps "gt.plainskill.net/LibreLoom/Sol/internal/api/handlers/apps"
+	handlersauth "gt.plainskill.net/LibreLoom/Sol/internal/api/handlers/auth"
+	handlersbackups "gt.plainskill.net/LibreLoom/Sol/internal/api/handlers/backups"
+	handlersnetwork "gt.plainskill.net/LibreLoom/Sol/internal/api/handlers/network"
+	handlersservices "gt.plainskill.net/LibreLoom/Sol/internal/api/handlers/services"
+	handlerssystem "gt.plainskill.net/LibreLoom/Sol/internal/api/handlers/system"
+	"gt.plainskill.net/LibreLoom/Sol/internal/api/middleware"
+	"gt.plainskill.net/LibreLoom/Sol/internal/config"
+	"gt.plainskill.net/LibreLoom/Sol/internal/monitoring"
+	"gt.plainskill.net/LibreLoom/Sol/internal/network"
+	"gt.plainskill.net/LibreLoom/Sol/internal/podman"
+	"gt.plainskill.net/LibreLoom/Sol/internal/wifi"
 )
 
 // setupRoutes configures all API routes
@@ -57,7 +57,7 @@ func (s *Server) setupRoutes() {
 	csrfHandler := handlersauth.NewCSRFHandler(csrfSecret)
 	networkProbeHandler := handlersnetwork.NewNetworkProbeHandler()
 
-	// ACME manager is supplied by the application bootstrap (cmd/libreserv/main.go)
+	// ACME manager is supplied by the application bootstrap (cmd/sol/main.go)
 	// as a single shared instance so background jobs and HTTP handlers never drift
 	// on Auto/External settings. Only metrics wiring happens here.
 
@@ -475,8 +475,8 @@ func (s *Server) setupRoutes() {
 				r.Delete("/{userID}", usersHandler.DeleteUser)
 			})
 
-			// AI agent chat support (enabled in dev mode, or via LIBRESERV_AGENT_SUPPORT_ENABLED)
-			if s.devMode || os.Getenv("LIBRESERV_INSECURE_DEV") == "true" || os.Getenv("LIBRESERV_AGENT_SUPPORT_ENABLED") == "true" {
+			// AI agent chat support (enabled in dev mode, or via SOL_AGENT_SUPPORT_ENABLED)
+			if s.devMode || os.Getenv("SOL_INSECURE_DEV") == "true" || os.Getenv("SOL_AGENT_SUPPORT_ENABLED") == "true" {
 				r.Route("/support/agent", func(r chi.Router) {
 					r.Use(middleware.RequireRole("admin"))
 					r.Use(middleware.RateLimit([]middleware.RateRule{
@@ -582,7 +582,7 @@ func (s *Server) setupRoutes() {
 				r.Get("/", domainHandler.Status)
 			})
 
-			// Connect — LibreServ Connect integration
+			// Connect — Sol Connect integration
 			r.Route("/connect", func(r chi.Router) {
 				r.Use(middleware.RequireRole("admin"))
 				r.Get("/status", connectHandler.Status)
@@ -636,7 +636,7 @@ func (s *Server) setupRoutes() {
 	// SSE stream endpoint for agent chat — must be outside auth middleware because
 	// EventSource cannot send Authorization headers. Auth is handled internally
 	// via cookie (withCredentials) or ?token= query param.
-	if s.devMode || os.Getenv("LIBRESERV_INSECURE_DEV") == "true" || os.Getenv("LIBRESERV_AGENT_SUPPORT_ENABLED") == "true" {
+	if s.devMode || os.Getenv("SOL_INSECURE_DEV") == "true" || os.Getenv("SOL_AGENT_SUPPORT_ENABLED") == "true" {
 		s.router.With(
 			middleware.RateLimit([]middleware.RateRule{
 				{Prefix: "/api/v1/support/agent", Limit: 30, Window: time.Minute},

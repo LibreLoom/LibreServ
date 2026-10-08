@@ -8,13 +8,13 @@ import (
 	"strings"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/billing"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/catalog"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/config"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/models"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/providers"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/security"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/smtp"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/billing"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/catalog"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/config"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/models"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/providers"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/security"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/smtp"
 )
 
 // ProvisioningService handles service credential provisioning.
@@ -253,7 +253,7 @@ func (s *ProvisioningService) generateBackup(sub string) (map[string]any, error)
 
 	// Prefer a configured Backblaze B2 provider; fall back to legacy S3 config.
 	if prov != nil && prov.Credential("account_id", "") != "" && prov.Credential("application_key", "") != "" {
-		bucketPrefix := prov.Setting("bucket_prefix", "libreserv-backup")
+		bucketPrefix := prov.Setting("bucket_prefix", "sol-backup")
 		bucketName := fmt.Sprintf("%s-%s", bucketPrefix, sub)
 		creds, err := s.b2.ProvisionBucket(prov.Credential("account_id", ""), prov.Credential("application_key", ""), bucketName)
 		if err != nil {
@@ -406,7 +406,7 @@ func (s *ProvisioningService) generateTunnel(deviceID, sub string) (map[string]a
 
 	accountID := prov.Credential("account_id", "")
 	apiToken := prov.Credential("api_token", "")
-	tunnelName := fmt.Sprintf("libreserv-%s", sub)
+	tunnelName := fmt.Sprintf("sol-%s", sub)
 
 	creds, err := s.tunnel.CreateTunnel(accountID, apiToken, tunnelName)
 	if err != nil {

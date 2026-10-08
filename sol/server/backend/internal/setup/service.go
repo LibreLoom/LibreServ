@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
 )
 
 const (
@@ -44,8 +44,8 @@ func NewService(db *database.DB) *Service {
 	return &Service{db: db}
 }
 
-// DefaultSetupCodePath is the well-known path on LibreServ ISOs.
-const DefaultSetupCodePath = "/etc/libreserv/setup-code"
+// DefaultSetupCodePath is the well-known path on Sol ISOs.
+const DefaultSetupCodePath = "/etc/sol/setup-code"
 
 func (s *Service) Ensure(ctx context.Context) (*State, error) {
 	s.mu.Lock()

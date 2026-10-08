@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/logger"
+	"gt.plainskill.net/LibreLoom/Sol/internal/config"
+	"gt.plainskill.net/LibreLoom/Sol/internal/logger"
 )
 
 type Repository struct {
@@ -599,8 +599,8 @@ func (s *Service) UpdateSettings(ctx context.Context, updates map[string]interfa
 			// SECURITY FIX (audit #10): reject skip_verify=true via settings API unless
 			// insecure dev is enabled. Auth emails (password-reset/MFA) would otherwise
 			// be MITM-able to full account takeover.
-			if skipVerify && os.Getenv("LIBRESERV_INSECURE_DEV") != "true" {
-				return fmt.Errorf("smtp.skip_verify=true is only allowed with LIBRESERV_INSECURE_DEV=true (dev-only)")
+			if skipVerify && os.Getenv("SOL_INSECURE_DEV") != "true" {
+				return fmt.Errorf("smtp.skip_verify=true is only allowed with SOL_INSECURE_DEV=true (dev-only)")
 			}
 			addMutation("smtp.skip_verify",
 				func() { cfg.SMTP.SkipVerify = skipVerify },

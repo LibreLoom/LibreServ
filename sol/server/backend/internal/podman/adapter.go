@@ -5,7 +5,7 @@ import (
 	"io"
 	"strings"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/runtime"
+	"gt.plainskill.net/LibreLoom/Sol/internal/runtime"
 )
 
 // Ensure RuntimeAdapter implements runtime.ContainerRuntime
@@ -67,7 +67,7 @@ func (r *RuntimeAdapter) ContainerLogs(ctx context.Context, containerID string, 
 }
 
 // FindContainersByInstanceID finds all containers matching an instance ID via multiple label strategies.
-// Tries: libreserv.app label, com.docker.compose.project label, com.docker.compose.project=libreserv-{id} label, name prefix.
+// Tries: sol.app label, com.docker.compose.project label, com.docker.compose.project=sol-{id} label, name prefix.
 func (r *RuntimeAdapter) FindContainersByInstanceID(ctx context.Context, instanceID string) ([]runtime.ContainerInfo, error) {
 	containers, err := r.client.ListContainersAll(ctx)
 	if err != nil {
@@ -87,13 +87,13 @@ func (r *RuntimeAdapter) FindContainersByInstanceID(ctx context.Context, instanc
 // matchesInstance returns true if the container matches the given instance ID.
 func matchesInstance(ci runtime.ContainerInfo, instanceID string) bool {
 	if ci.Labels != nil {
-		if ci.Labels["libreserv.app"] == instanceID {
+		if ci.Labels["sol.app"] == instanceID {
 			return true
 		}
 		if ci.Labels["com.docker.compose.project"] == instanceID {
 			return true
 		}
-		if ci.Labels["com.docker.compose.project"] == "libreserv-"+instanceID {
+		if ci.Labels["com.docker.compose.project"] == "sol-"+instanceID {
 			return true
 		}
 	}

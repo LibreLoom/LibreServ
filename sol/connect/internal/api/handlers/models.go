@@ -6,7 +6,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/models"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/models"
 )
 
 // ModelsHandler handles admin AI provider/model configuration.

@@ -9,7 +9,7 @@ const EXIT_MS = 260;
 const TRACK = { primary: "bg-secondary/10", secondary: "bg-primary/10" };
 
 /**
- * Material 3 indeterminate linear progress, the same bar as the LibreServ
+ * Material 3 indeterminate linear progress, the same bar as the Sol
  * Sol loading screen: a 4px pill track with two accent bars sweeping across
  * it (`animate-md-bar-1` / `animate-md-bar-2` in the app stylesheet).
  *

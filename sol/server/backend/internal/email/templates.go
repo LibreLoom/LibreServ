@@ -122,7 +122,7 @@ func RenderTemplateByKey(key string, data map[string]interface{}) (string, strin
 	return subject, bodyBuf.String(), nil
 }
 
-// UniversalEmailTemplate is the single HTML template for ALL LibreServ emails
+// UniversalEmailTemplate is the single HTML template for ALL Sol emails
 // Follows the Simplex Mono design language: flat, monospace headings, sans-serif body,
 // white/black/grey palette, pill buttons, rounded cards, no shadows, no gradients.
 const UniversalEmailTemplate = `<!DOCTYPE html>
@@ -179,7 +179,7 @@ const UniversalEmailTemplate = `<!DOCTYPE html>
 </body>
 </html>`
 
-// RenderHTMLEmail renders ANY email using the universal LibreServ template.
+// RenderHTMLEmail renders ANY email using the universal Sol template.
 // When data["markdown"] is true, the body is rendered as Markdown; otherwise plain text.
 func RenderHTMLEmail(subject, plainTextBody string, data map[string]interface{}) (string, error) {
 	bodyStr := plainTextBody
@@ -214,7 +214,7 @@ func RenderOTPEmail(subject, code string) (string, error) {
 	return renderUniversal(subject, template.HTML(content))
 }
 
-// renderUniversal executes the shared LibreServ email shell (header, divider,
+// renderUniversal executes the shared Sol email shell (header, divider,
 // content, footer) with a prepared HTML content block.
 func renderUniversal(subject string, content template.HTML) (string, error) {
 	tmpl, err := template.New("universal_email").Parse(UniversalEmailTemplate)

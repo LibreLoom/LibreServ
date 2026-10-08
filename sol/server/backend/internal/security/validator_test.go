@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
+	"gt.plainskill.net/LibreLoom/Sol/internal/config"
 )
 
 func withConfig(cfg *config.Config, fn func()) {
@@ -235,7 +235,7 @@ func TestValidateConfig_DevModeDevTokenImplicit(t *testing.T) {
 	cfg := secureConfig()
 	cfg.Server.Mode = "development"
 	withConfig(cfg, func() {
-		t.Setenv("LIBRESERV_DEV_TOKEN_ENABLED", "")
+		t.Setenv("SOL_DEV_TOKEN_ENABLED", "")
 		result := ValidateConfig()
 		var found bool
 		for _, issue := range result.Issues {
@@ -253,7 +253,7 @@ func TestValidateConfig_DevModeDevTokenExplicit(t *testing.T) {
 	cfg := secureConfig()
 	cfg.Server.Mode = "development"
 	withConfig(cfg, func() {
-		t.Setenv("LIBRESERV_DEV_TOKEN_ENABLED", "true")
+		t.Setenv("SOL_DEV_TOKEN_ENABLED", "true")
 		result := ValidateConfig()
 		var found bool
 		for _, issue := range result.Issues {

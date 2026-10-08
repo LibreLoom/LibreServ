@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
+	"gt.plainskill.net/LibreLoom/Sol/internal/config"
 )
 
 // Relay is a local SMTP server that apps send mail to. It accepts

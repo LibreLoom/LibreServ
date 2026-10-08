@@ -14,8 +14,8 @@ func TestValidate(t *testing.T) {
 	if Validate("www") == "" {
 		t.Fatal("www should be reserved")
 	}
-	if Validate("libreserv") == "" {
-		t.Fatal("libreserv should be reserved")
+	if Validate("sol") == "" {
+		t.Fatal("sol should be reserved")
 	}
 	if Validate("libreloom") == "" {
 		t.Fatal("libreloom should be reserved")

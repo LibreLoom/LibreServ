@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/storage/restic"
+	"gt.plainskill.net/LibreLoom/Sol/internal/storage/restic"
 )
 
 func (s *BackupService) backupDatabaseWithRestic(ctx context.Context, dbFilePath string) error {
@@ -23,7 +23,7 @@ func (s *BackupService) backupDatabaseWithRestic(ctx context.Context, dbFilePath
 	}
 
 	dbDir := filepath.Dir(dbFilePath)
-	summary, err := s.resticEngine.Backup(ctx, *repo, []string{dbDir}, []string{"libreserv-database", "libreserv"}, nil)
+	summary, err := s.resticEngine.Backup(ctx, *repo, []string{dbDir}, []string{"sol-database", "sol"}, nil)
 	if err != nil {
 		return fmt.Errorf("restic database backup: %w", err)
 	}
@@ -98,7 +98,7 @@ func (s *BackupService) CreateDownloadArchive(ctx context.Context, backupID stri
 		return "", nil, fmt.Errorf("repo lookup: %w", err)
 	}
 
-	tmpRestoreDir, err := os.MkdirTemp("", "libreserv-download-restore-")
+	tmpRestoreDir, err := os.MkdirTemp("", "sol-download-restore-")
 	if err != nil {
 		return "", nil, fmt.Errorf("create temp dir: %w", err)
 	}
@@ -115,7 +115,7 @@ func (s *BackupService) CreateDownloadArchive(ctx context.Context, backupID stri
 		return "", nil, fmt.Errorf("restored tree validation failed: %w", err)
 	}
 
-	archiveFile, err := os.CreateTemp("", "libreserv-download-*.tar.gz")
+	archiveFile, err := os.CreateTemp("", "sol-download-*.tar.gz")
 	if err != nil {
 		os.RemoveAll(tmpRestoreDir)
 		return "", nil, fmt.Errorf("create temp archive: %w", err)

@@ -5,7 +5,7 @@ package api
 import (
 	"io/fs"
 
-	osdist "gt.plainskill.net/LibreLoom/LibreServ/OS"
+	osdist "gt.plainskill.net/LibreLoom/Sol/OS"
 )
 
 func loadStaticFS() (fs.FS, string, error) {

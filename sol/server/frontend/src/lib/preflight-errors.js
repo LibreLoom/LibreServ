@@ -17,7 +17,7 @@ export const ERROR_REMEDIATIONS = [
   {
     id: 'permission',
     match: (err) => /cannot|permission|read-only|denied|forbidden/i.test(err),
-    tip: 'Storage permission errors often mean the directory is owned by root. Try restarting your device, or check that directories are writable by the libreserv user.',
+    tip: 'Storage permission errors often mean the directory is owned by root. Try restarting your device, or check that directories are writable by the sol user.',
     severity: 'warning'
   },
   {

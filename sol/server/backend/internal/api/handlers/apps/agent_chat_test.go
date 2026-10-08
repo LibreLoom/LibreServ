@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/agent"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/agent/conversation"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/agent"
+	"gt.plainskill.net/LibreLoom/Sol/internal/agent/conversation"
+	"gt.plainskill.net/LibreLoom/Sol/internal/api/middleware"
+	"gt.plainskill.net/LibreLoom/Sol/internal/config"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
 )
 
 func setupAgentChatTest(t *testing.T) (*AgentChatHandler, *database.DB, func()) {

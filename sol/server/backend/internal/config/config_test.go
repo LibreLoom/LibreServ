@@ -10,7 +10,7 @@ func TestSaveConfig_CreatesParentDirsAndWritesFile(t *testing.T) {
 	t.Parallel()
 
 	tmp := t.TempDir()
-	target := filepath.Join(tmp, "nested", "configs", "libreserv.yaml")
+	target := filepath.Join(tmp, "nested", "configs", "sol.yaml")
 
 	origCfg := globalConfig
 	origPath := configFilePath
@@ -22,7 +22,7 @@ func TestSaveConfig_CreatesParentDirsAndWritesFile(t *testing.T) {
 	globalConfig = &Config{
 		Server: ServerConfig{Host: "127.0.0.1", Port: 8080, Mode: "development"},
 		Database: DatabaseConfig{
-			Path: "./dev/data/libreserv.db",
+			Path: "./dev/data/sol.db",
 		},
 	}
 	configFilePath = target
@@ -46,7 +46,7 @@ func TestIsWritableFilePath_ExistingReadOnlyFile(t *testing.T) {
 	t.Parallel()
 
 	tmp := t.TempDir()
-	p := filepath.Join(tmp, "libreserv.yaml")
+	p := filepath.Join(tmp, "sol.yaml")
 	if err := os.WriteFile(p, []byte("server:\n  host: 127.0.0.1\n"), 0o600); err != nil {
 		t.Fatalf("write temp file: %v", err)
 	}
@@ -67,7 +67,7 @@ func TestIsWritableFilePath_NewFileInWritableDir(t *testing.T) {
 	t.Parallel()
 
 	tmp := t.TempDir()
-	p := filepath.Join(tmp, "new", "libreserv.yaml")
+	p := filepath.Join(tmp, "new", "sol.yaml")
 	ok, err := IsWritableFilePath(p)
 	if err != nil {
 		t.Fatalf("IsWritableFilePath: %v", err)

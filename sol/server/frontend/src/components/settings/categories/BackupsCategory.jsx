@@ -271,7 +271,7 @@ export default function BackupsCategory({ connectStatus = null }) {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `libreserv-system-${new Date().toISOString().slice(0, 10)}.db.gz`;
+      a.download = `sol-system-${new Date().toISOString().slice(0, 10)}.db.gz`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);

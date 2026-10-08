@@ -46,7 +46,7 @@ func spec(name, os, arch, file string) FileSpec {
 func DefaultFileSpecs(unit string) []FileSpec {
 	switch unit {
 	case "sol":
-		return []FileSpec{spec("sol", "linux", "amd64", "libreserv-linux-amd64"), spec("sol", "linux", "arm64", "libreserv-linux-arm64")}
+		return []FileSpec{spec("sol", "linux", "amd64", "sol-linux-amd64"), spec("sol", "linux", "arm64", "sol-linux-arm64")}
 	case "sol-connect", "luna-connect":
 		return []FileSpec{spec("server", "linux", "amd64", unit+"-server-linux-amd64"), spec("web", "any", "any", unit+"-web.tar.gz")}
 	case "luna":

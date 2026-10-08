@@ -139,8 +139,8 @@ type fakeBackend struct {
 func newFake(br *Bridge) *fakeBackend {
 	f := &fakeBackend{br: br, store: &fakeStore{mode: secrets.ModeSystem, sysOK: true}}
 	f.sec = &fakeSecrets{status: map[secrets.ID]secrets.Status{
-		secrets.LibreServSigning: {ID: secrets.LibreServSigning, Label: "LibreServ release signing key", State: secrets.Proven, Summary: "Signs as key AB12.",
-			Candidates: []secrets.Candidate{{Where: "file ~/.minisign/libreserv.key", Outcome: secrets.Used, Detail: "key ID matches"}}},
+		secrets.SolSigning: {ID: secrets.SolSigning, Label: "LibreServ release signing key", State: secrets.Proven, Summary: "Signs as key AB12.",
+			Candidates: []secrets.Candidate{{Where: "file ~/.minisign/sol.key", Outcome: secrets.Used, Detail: "key ID matches"}}},
 		secrets.LunaSigning: {ID: secrets.LunaSigning, Label: "Luna release signing key", State: secrets.Failed, Summary: "Found signing key files, but no known password opens them.",
 			Candidates: []secrets.Candidate{{Where: "file ~/.minisign/lsluna.key", Outcome: secrets.Unusable, Reason: "none of the 3 known passwords opens it"},
 				{Where: "file ~/backup/old-luna.key", Outcome: secrets.Rejected, Reason: "key ID 4C1F matches no public key"}}},

@@ -37,7 +37,7 @@ func TestValidateTokenRejectsHS512(t *testing.T) {
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(15 * time.Minute)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			NotBefore: jwt.NewNumericDate(time.Now()),
-			Issuer:    "libreserv",
+			Issuer:    "sol",
 		},
 	}
 	hs512, err := jwt.NewWithClaims(jwt.SigningMethodHS512, claims).SignedString([]byte(secret))

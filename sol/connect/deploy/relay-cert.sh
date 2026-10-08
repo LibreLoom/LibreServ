@@ -17,13 +17,13 @@ set -euo pipefail
 #   ./sol/connect/deploy/relay-cert.sh [public-ip]
 # Then set in each instance config (connect-a.yaml, connect-b.yaml):
 #   smtp:
-#     relay_tls_cert: /etc/libreserv-connect/tls/relay.crt
-#     relay_tls_key:  /etc/libreserv-connect/tls/relay.key
+#     relay_tls_cert: /etc/sol-connect/tls/relay.crt
+#     relay_tls_key:  /etc/sol-connect/tls/relay.key
 
 DOMAIN="${RELAY_DOMAIN:-smtp.serv.libreloom.org}"
-SERVICE_USER="libreserv-connect"
-TLS_DIR="/etc/libreserv-connect/tls"
-HOOK="/etc/letsencrypt/renewal-hooks/deploy/libreserv-connect-relay.sh"
+SERVICE_USER="sol-connect"
+TLS_DIR="/etc/sol-connect/tls"
+HOOK="/etc/letsencrypt/renewal-hooks/deploy/sol-connect-relay.sh"
 
 if [ "$(id -u)" -ne 0 ]; then
     echo "Run as root." >&2

@@ -11,11 +11,11 @@ import (
 	"strconv"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/api/middleware"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/billing"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/catalog"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/security"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/services"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/api/middleware"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/billing"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/catalog"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/security"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/services"
 )
 
 // DeviceHandler handles device activation, status, and lifecycle.

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/constants"
+	"gt.plainskill.net/LibreLoom/Sol/internal/constants"
 )
 
 func TestLeakyBucketRefillAndExhaustion(t *testing.T) {

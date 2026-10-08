@@ -19,7 +19,7 @@ import (
 const (
 	solFrontendDir = "sol/server/frontend"
 	solBackendDir  = "sol/server/backend"
-	solPkgSystem   = "gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/system"
+	solPkgSystem   = "gt.plainskill.net/LibreLoom/Sol/internal/api/handlers/system"
 
 	resticVersion = "0.19.1"
 )
@@ -66,14 +66,14 @@ func (solWeb) Jobs(b *engine.BuildContext) ([]engine.Job, error) {
 	}}, nil
 }
 
-// solBinaries builds libreserv-linux-<arch> for every arch: static, with the
+// solBinaries builds sol-linux-<arch> for every arch: static, with the
 // web UI and that arch's restic embedded and the version stamped in.
 type solBinaries struct{}
 
 func (solBinaries) Name() string { return "sol" }
 func (solBinaries) Unit() string { return "sol" }
 
-func solBinaryFile(arch string) string { return "libreserv-linux-" + arch }
+func solBinaryFile(arch string) string { return "sol-linux-" + arch }
 
 func (solBinaries) Artifacts(b *engine.BuildContext) []Artifact {
 	var out []Artifact
@@ -129,7 +129,7 @@ func (solBinaries) Jobs(b *engine.BuildContext) ([]engine.Job, error) {
 						ExtraOpts: goTarget(arch),
 						Cmd: []string{"go", "build", "-tags", "embedfront embedrestic",
 							"-ldflags", st.ldflags(solPkgSystem+".Version", solPkgSystem+".GitCommit", solPkgSystem+".BuildTime"),
-							"-o", "/out/" + file, "./cmd/libreserv"},
+							"-o", "/out/" + file, "./cmd/sol"},
 					})
 					if err != nil {
 						return err

@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
 )
 
 // TestIsValidMainStep_IncludesMfa guards against the regression where the

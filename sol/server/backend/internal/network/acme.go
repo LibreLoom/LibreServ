@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
+	"gt.plainskill.net/LibreLoom/Sol/internal/monitoring"
 )
 
 // legoProviderConfig maps a DNSProviderConfig to lego's DNS provider name and required environment variables.

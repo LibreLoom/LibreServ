@@ -5,13 +5,13 @@ import (
 	"path/filepath"
 	"testing"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/podman"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/podman"
 )
 
 func TestRestoreDatabase_RestoresSnapshot(t *testing.T) {
 	dir := t.TempDir()
-	dbPath := filepath.Join(dir, "libreserv.db")
+	dbPath := filepath.Join(dir, "sol.db")
 
 	db, err := database.Open(dbPath)
 	if err != nil {
@@ -63,7 +63,7 @@ func TestRestoreDatabase_RestoresSnapshot(t *testing.T) {
 
 func TestRestoreDatabase_RequiresChecksumWhenEnabled(t *testing.T) {
 	dir := t.TempDir()
-	dbPath := filepath.Join(dir, "libreserv.db")
+	dbPath := filepath.Join(dir, "sol.db")
 
 	db, err := database.Open(dbPath)
 	if err != nil {

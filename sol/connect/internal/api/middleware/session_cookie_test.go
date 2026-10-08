@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/config"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/config"
 )
 
 func TestSetPortalSessionCookieFlags(t *testing.T) {

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/runtime"
+	"gt.plainskill.net/LibreLoom/Sol/internal/runtime"
 )
 
 type fakeRuntime struct {

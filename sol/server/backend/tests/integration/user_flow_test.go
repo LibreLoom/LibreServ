@@ -15,15 +15,15 @@ import (
 
 	"github.com/pquerna/otp/totp"
 
-	handlersauth "gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/auth"
-	handlershared "gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/shared"
-	handlerssystem "gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/system"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/podman"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/security"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/setup"
+	handlersauth "gt.plainskill.net/LibreLoom/Sol/internal/api/handlers/auth"
+	handlershared "gt.plainskill.net/LibreLoom/Sol/internal/api/handlers/shared"
+	handlerssystem "gt.plainskill.net/LibreLoom/Sol/internal/api/handlers/system"
+	"gt.plainskill.net/LibreLoom/Sol/internal/auth"
+	"gt.plainskill.net/LibreLoom/Sol/internal/config"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/podman"
+	"gt.plainskill.net/LibreLoom/Sol/internal/security"
+	"gt.plainskill.net/LibreLoom/Sol/internal/setup"
 )
 
 type testEnv struct {
@@ -281,13 +281,13 @@ func TestFullUserFlow(t *testing.T) {
 		cookies := vrec.Result().Cookies()
 		var hasAccessCookie bool
 		for _, c := range cookies {
-			if c.Name == "libreserv_access" && c.Value != "" {
+			if c.Name == "sol_access" && c.Value != "" {
 				hasAccessCookie = true
 				break
 			}
 		}
 		if !hasAccessCookie {
-			t.Error("expected libreserv_access cookie")
+			t.Error("expected sol_access cookie")
 		}
 	})
 

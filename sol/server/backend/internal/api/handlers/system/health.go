@@ -5,8 +5,8 @@ import (
 	"runtime"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/response"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/api/response"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
 )
 
 // Version information (set at build time)

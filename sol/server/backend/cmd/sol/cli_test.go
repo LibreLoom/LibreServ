@@ -38,8 +38,8 @@ func TestParseCLIArgsServeConfigForms(t *testing.T) {
 		},
 		{
 			name:    "config get with trailing --config",
-			args:    []string{"config", "get", "logging.level", "--config", "/etc/libreserv.yaml"},
-			wantCfg: "/etc/libreserv.yaml",
+			args:    []string{"config", "get", "logging.level", "--config", "/etc/sol.yaml"},
+			wantCfg: "/etc/sol.yaml",
 			wantCmd: "config",
 		},
 		{
@@ -100,11 +100,11 @@ func TestParseCLIArgsErrorsAndHelp(t *testing.T) {
 }
 
 func TestParseCLIArgsStripsConfigFromConfigSubcommand(t *testing.T) {
-	got, err := parseCLIArgs([]string{"config", "get", "logging.level", "--config", "/etc/libreserv.yaml"})
+	got, err := parseCLIArgs([]string{"config", "get", "logging.level", "--config", "/etc/sol.yaml"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.ConfigPath != "/etc/libreserv.yaml" {
+	if got.ConfigPath != "/etc/sol.yaml" {
 		t.Fatalf("ConfigPath = %q", got.ConfigPath)
 	}
 	if got.Command != "config" {

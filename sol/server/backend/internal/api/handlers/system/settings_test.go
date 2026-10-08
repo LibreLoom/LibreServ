@@ -12,9 +12,9 @@ import (
 	"strings"
 	"testing"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/settings"
+	"gt.plainskill.net/LibreLoom/Sol/internal/api/middleware"
+	"gt.plainskill.net/LibreLoom/Sol/internal/config"
+	"gt.plainskill.net/LibreLoom/Sol/internal/settings"
 )
 
 func TestSettingsGet(t *testing.T) {
@@ -386,7 +386,7 @@ func TestSettingsGetProxy(t *testing.T) {
 				Mode:          "enabled",
 				AdminAPI:      "localhost:2019",
 				ConfigPath:    "/etc/caddy/Caddyfile",
-				DefaultDomain: "libreserv.local",
+				DefaultDomain: "sol.local",
 				AutoHTTPS:     false,
 			},
 		},
@@ -415,8 +415,8 @@ func TestSettingsGetProxy(t *testing.T) {
 	if proxy["type"] != "caddy" {
 		t.Errorf("expected proxy type caddy, got %v", proxy["type"])
 	}
-	if proxy["default_domain"] != "libreserv.local" {
-		t.Errorf("expected default_domain libreserv.local, got %v", proxy["default_domain"])
+	if proxy["default_domain"] != "sol.local" {
+		t.Errorf("expected default_domain sol.local, got %v", proxy["default_domain"])
 	}
 	if proxy["auto_https"] != false {
 		t.Errorf("expected auto_https false, got %v", proxy["auto_https"])

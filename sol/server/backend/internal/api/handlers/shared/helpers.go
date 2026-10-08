@@ -12,16 +12,16 @@ import (
 	"strings"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
-	. "gt.plainskill.net/LibreLoom/LibreServ/internal/api/response"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/security"
+	"gt.plainskill.net/LibreLoom/Sol/internal/api/middleware"
+	. "gt.plainskill.net/LibreLoom/Sol/internal/api/response"
+	"gt.plainskill.net/LibreLoom/Sol/internal/security"
 )
 
 // Session cookie names — shared by auth login/logout and the setup wizard,
 // which both complete sign-in by writing these cookies.
 const (
-	AccessCookieName  = "libreserv_access"
-	RefreshCookieName = "libreserv_refresh"
+	AccessCookieName  = "sol_access"
+	RefreshCookieName = "sol_refresh"
 )
 
 // DefaultHIBPRangeURL is the Have I Been Pwned k-anonymity range endpoint.
@@ -141,7 +141,7 @@ func CheckBreachedPassword(pw string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	req.Header.Set("User-Agent", "LibreServ")
+	req.Header.Set("User-Agent", "Sol")
 
 	resp, err := hibpHTTPClient.Do(req)
 	if err != nil {

@@ -12,7 +12,7 @@ import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 /**
  * SystemHealthPill — failed and warning health checks as a compact dashboard
- * header pill, mirroring LibreServ's CriticalIssues pattern. Failures use the
+ * header pill, mirroring Sol's CriticalIssues pattern. Failures use the
  * error pill; warnings alone (a feature that won't work) use the warning pill.
  */
 export default function SystemHealthPill() {

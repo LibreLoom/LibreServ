@@ -1,8 +1,8 @@
 package agent
 
 import (
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/agent/sandbox"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
+	"gt.plainskill.net/LibreLoom/Sol/internal/agent/sandbox"
+	"gt.plainskill.net/LibreLoom/Sol/internal/config"
 )
 
 // NewSandbox builds the OS-level execution boundary for agent shell commands

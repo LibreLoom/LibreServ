@@ -538,12 +538,12 @@ func rewriteInstanceID(appPath, oldInstanceID, newInstanceID string) error {
 
 	slog.Info("rewriteInstanceID: replacing instance ID", "from", oldInstanceID, "to", newInstanceID, "path", appPath)
 
-	libreservPath := filepath.Join(appPath, ".libreserv.yaml")
-	if _, err := os.Stat(libreservPath); err == nil {
-		if err := rewriteFileInstanceID(libreservPath, oldInstanceID, newInstanceID); err != nil {
-			return fmt.Errorf("failed to rewrite .libreserv.yaml: %w", err)
+	solPath := filepath.Join(appPath, ".sol.yaml")
+	if _, err := os.Stat(solPath); err == nil {
+		if err := rewriteFileInstanceID(solPath, oldInstanceID, newInstanceID); err != nil {
+			return fmt.Errorf("failed to rewrite .sol.yaml: %w", err)
 		}
-		slog.Info("rewriteInstanceID: rewritten .libreserv.yaml")
+		slog.Info("rewriteInstanceID: rewritten .sol.yaml")
 	}
 
 	composePath := filepath.Join(appPath, "docker-compose.yml")

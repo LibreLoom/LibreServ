@@ -234,15 +234,15 @@ func (a redactAdapter) Add(s string) { a.r.Add(s) }
 // signingID is the signing key a unit's releases use.
 func signingID(unit string) secrets.ID {
 	if unit == "sol" || unit == "sol-connect" {
-		return secrets.LibreServSigning
+		return secrets.SolSigning
 	}
 	return secrets.LunaSigning
 }
 
 // PublicKeyFile is the keys/ file whose key pins a unit's signatures.
 func PublicKeyFile(unit string) string {
-	if signingID(unit) == secrets.LibreServSigning {
-		return "libreserv.minisign.pub"
+	if signingID(unit) == secrets.SolSigning {
+		return "sol.minisign.pub"
 	}
 	return "lsluna.minisign.pub"
 }

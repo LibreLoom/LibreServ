@@ -44,7 +44,7 @@ func TestB2ProvisionBucket(t *testing.T) {
 			if req["accountId"] != "acc123" {
 				t.Fatalf("accountId=%s", req["accountId"])
 			}
-			if req["bucketName"] != "libreserv-backup-abc123" {
+			if req["bucketName"] != "sol-backup-abc123" {
 				t.Fatalf("bucketName=%s", req["bucketName"])
 			}
 			if req["bucketType"] != "allPrivate" {
@@ -70,7 +70,7 @@ func TestB2ProvisionBucket(t *testing.T) {
 			if req["accountId"] != "acc123" {
 				t.Fatalf("key accountId=%v", req["accountId"])
 			}
-			if req["keyName"] != "libreserv-backup-abc123-key" {
+			if req["keyName"] != "sol-backup-abc123-key" {
 				t.Fatalf("keyName=%v", req["keyName"])
 			}
 			w.Header().Set("Content-Type", "application/json")
@@ -86,7 +86,7 @@ func TestB2ProvisionBucket(t *testing.T) {
 
 	client := NewB2Client(ts.Client())
 	client.authorizeURL = ts.URL + "/b2api/v2/b2_authorize_account"
-	creds, err := client.ProvisionBucket("acc123", "key456", "libreserv-backup-abc123")
+	creds, err := client.ProvisionBucket("acc123", "key456", "sol-backup-abc123")
 	if err != nil {
 		t.Fatalf("provision bucket: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestB2ProvisionBucket(t *testing.T) {
 	if creds.Key != "appkey456" {
 		t.Fatalf("key=%s", creds.Key)
 	}
-	if creds.BucketName != "libreserv-backup-abc123" {
+	if creds.BucketName != "sol-backup-abc123" {
 		t.Fatalf("bucketName=%s", creds.BucketName)
 	}
 }

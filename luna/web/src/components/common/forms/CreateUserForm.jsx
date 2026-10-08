@@ -20,7 +20,7 @@ import {
 } from "../../../lib/usernamePolicy";
 
 /**
- * Map Luna API error copy onto the field that needs fixing (LibreServ AddUserForm pattern).
+ * Map Luna API error copy onto the field that needs fixing (Sol AddUserForm pattern).
  * @param {string} message
  * @returns {Record<string, string>}
  */
@@ -41,7 +41,7 @@ export function mapCreateUserApiError(message) {
 }
 
 /**
- * LibreServ AddUserForm UX adapted for Luna (display name + Member/Admin, modal submit).
+ * Sol AddUserForm UX adapted for Luna (display name + Member/Admin, modal submit).
  *
  * @param {{
  *   onSubmit: (body: { username: string, display_name: string, password: string, role: string }) => void,

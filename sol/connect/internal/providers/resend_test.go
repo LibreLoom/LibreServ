@@ -22,7 +22,7 @@ func TestResendCreateAPIKey(t *testing.T) {
 		if err := json.Unmarshal(body, &requestBody); err != nil {
 			t.Fatalf("decode body: %v", err)
 		}
-		if requestBody["name"] != "libreserv-test" {
+		if requestBody["name"] != "sol-test" {
 			t.Fatalf("name=%s", requestBody["name"])
 		}
 		if requestBody["permission"] != "sending_access" {
@@ -32,7 +32,7 @@ func TestResendCreateAPIKey(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]string{
 			"id":    "key-id-1",
 			"token": "re_generated",
-			"name":  "libreserv-test",
+			"name":  "sol-test",
 		})
 	}))
 	defer ts.Close()
@@ -40,7 +40,7 @@ func TestResendCreateAPIKey(t *testing.T) {
 	client := NewResendClient(ts.Client())
 	client.baseURL = ts.URL + "/api-keys"
 
-	smtp, err := client.CreateAPIKey("re_123", "libreserv-test")
+	smtp, err := client.CreateAPIKey("re_123", "sol-test")
 	if err != nil {
 		t.Fatalf("create api key: %v", err)
 	}

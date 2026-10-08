@@ -10,12 +10,12 @@ import (
 	"strings"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/shared"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/email"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/security"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/validation"
+	"gt.plainskill.net/LibreLoom/Sol/internal/api/handlers/shared"
+	"gt.plainskill.net/LibreLoom/Sol/internal/api/middleware"
+	"gt.plainskill.net/LibreLoom/Sol/internal/auth"
+	"gt.plainskill.net/LibreLoom/Sol/internal/email"
+	"gt.plainskill.net/LibreLoom/Sol/internal/security"
+	"gt.plainskill.net/LibreLoom/Sol/internal/validation"
 )
 
 func clearAuthCookies(w http.ResponseWriter, r *http.Request) {

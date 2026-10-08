@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/audit"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/audit"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
 )
 
 type DDNSService struct {

@@ -39,7 +39,7 @@ func cmdServeDev(args []string) int {
 	fmt.Printf("  Luna (lunad): set LUNA_UPDATES_FEED=%s  (and LUNA_UPDATES_CHANNEL=stable|beta),\n", srv.FeedBase)
 	fmt.Println("                or in Luna: Settings -> Updates -> Update source -> Edit update source:")
 	fmt.Printf("                feed address %s, and add the test key above under signing keys.\n", srv.FeedBase)
-	fmt.Printf("  Sol:          LIBRESERV_UPDATES_FEED_URL=%s/sol sets the feed, but Sol only trusts its built-in\n", srv.FeedBase)
+	fmt.Printf("  Sol:          SOL_UPDATES_FEED_URL=%s/sol sets the feed, but Sol only trusts its built-in\n", srv.FeedBase)
 	fmt.Println("                key (no runtime override), so a dev Sol must be built with the test key.")
 	fmt.Println("  Desktop, Android: feed address and key are compiled in; they cannot be pointed at it.")
 	fmt.Println("\nCtrl-C to stop.")

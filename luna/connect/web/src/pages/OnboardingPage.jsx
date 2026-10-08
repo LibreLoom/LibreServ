@@ -139,7 +139,7 @@ function ReqChip({ ok, label }) {
   );
 }
 
-/** Live checklist + strength bar — mirrors LibreServ / Luna setup. */
+/** Live checklist + strength bar — mirrors Sol / Luna setup. */
 /** @param {{ password: string }} props */
 function PasswordRequirements({ password }) {
   const strength = passwordChecks(password);

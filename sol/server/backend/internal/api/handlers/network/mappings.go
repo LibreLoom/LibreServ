@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
+	"gt.plainskill.net/LibreLoom/Sol/internal/network"
 )
 
 // MappingHandler exposes UPnP port-mapping CRUD and tunnel config export.
@@ -161,7 +161,7 @@ func buildFRPExport(req exportRequest) string {
 	}
 	for _, port := range req.Ports {
 		fmt.Fprintf(&b, "\n[[proxies]]\n")
-		fmt.Fprintf(&b, "name = %q\n", fmt.Sprintf("libreserv-%d", port))
+		fmt.Fprintf(&b, "name = %q\n", fmt.Sprintf("sol-%d", port))
 		fmt.Fprintf(&b, "type = %q\n", proto)
 		fmt.Fprintf(&b, "localPort = %d\n", port)
 		fmt.Fprintf(&b, "remotePort = %d\n", port)

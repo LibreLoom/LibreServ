@@ -28,7 +28,7 @@ const secretsUsage = `Usage: release secrets [subcommand]
   store [system|vault]          Show, or switch, where remembered values live (the values move too)
   store passphrase              Change the vault passphrase
 
-ids: libreserv-signing (sol), lsluna-signing (luna), forgejo-token (forgejo), android-keystore (android)
+ids: sol-signing (sol), lsluna-signing (luna), forgejo-token (forgejo), android-keystore (android)
 Secret values are never printed.
 `
 
@@ -61,7 +61,7 @@ func toStatusJSON(sts []secrets.Status) []statusJSON {
 }
 
 var idAliases = map[string]secrets.ID{
-	"sol": secrets.LibreServSigning, "libreserv": secrets.LibreServSigning, "libreserv-signing": secrets.LibreServSigning,
+	"sol": secrets.SolSigning, "sol-signing": secrets.SolSigning,
 	"luna": secrets.LunaSigning, "lsluna": secrets.LunaSigning, "lsluna-signing": secrets.LunaSigning,
 	"forgejo": secrets.ForgejoToken, "forgejo-token": secrets.ForgejoToken, "token": secrets.ForgejoToken,
 	"android": secrets.AndroidKeystore, "android-keystore": secrets.AndroidKeystore, "keystore": secrets.AndroidKeystore,
@@ -71,7 +71,7 @@ func parseID(s string) (secrets.ID, error) {
 	if id, ok := idAliases[strings.ToLower(s)]; ok {
 		return id, nil
 	}
-	return "", fmt.Errorf("unknown secret %q (try: libreserv-signing, lsluna-signing, forgejo-token, android-keystore)", s)
+	return "", fmt.Errorf("unknown secret %q (try: sol-signing, lsluna-signing, forgejo-token, android-keystore)", s)
 }
 
 func cmdSecrets(args []string) int {

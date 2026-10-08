@@ -26,7 +26,7 @@ func (c *OIDCClient) RedirectURIs() []string {
 }
 
 // PostLogoutRedirectURIs returns registered post-logout redirect URIs.
-// For v1, LibreServ handles logout via the main app; no dedicated URIs.
+// For v1, Sol handles logout via the main app; no dedicated URIs.
 func (c *OIDCClient) PostLogoutRedirectURIs() []string {
 	return nil
 }
@@ -59,7 +59,7 @@ func (c *OIDCClient) GrantTypes() []oidc.GrantType {
 	}
 }
 
-// LoginURL redirects the user agent to LibreServ's login page with the
+// LoginURL redirects the user agent to Sol's login page with the
 // auth request ID. The existing login UI at /login will handle the
 // authentication flow.
 func (c *OIDCClient) LoginURL(id string) string {

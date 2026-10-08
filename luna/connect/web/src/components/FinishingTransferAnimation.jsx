@@ -53,16 +53,16 @@ function CloudflareLogo({ className = "w-20 h-10" }) {
 }
 
 /**
- * Official LibreServ / Luna brand emblem.
+ * Luna brand emblem.
  */
-function LibreServLogo({ className = "w-16 h-16" }) {
+function LunaLogo({ className = "w-16 h-16" }) {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
       viewBox="0 0 240 240"
       className={className}
       fill="none"
-      aria-label="LibreServ"
+      aria-label="Luna"
     >
       {/* Outer subtle border */}
       <rect x="0" y="0" width="240" height="240" rx="32" className="fill-muted-foreground" />
@@ -75,10 +75,10 @@ function LibreServLogo({ className = "w-16 h-16" }) {
 }
 
 /**
- * Cinematic data transfer animation between LibreServ and Cloudflare.
+ * Cinematic data transfer animation between Luna and Cloudflare.
  *
  * Spans the full width of the outer card (ignoring inner padding):
- * - LibreServ logo is partially clipped by the left outer edge of the card
+ * - Luna logo is partially clipped by the left outer edge of the card
  * - Official Cloudflare logo is partially clipped by the right outer edge of the card
  * - Cryptic data packets stream continuously between the two nodes
  */
@@ -98,12 +98,12 @@ export function FinishingTransferAnimation() {
       role="region"
       aria-label="Connecting Luna to Cloudflare domain"
     >
-      {/* Left Node: LibreServ logo */}
+      {/* Left Node: Luna logo */}
       <div
         className="relative z-20 flex items-center shrink-0 pl-1 pointer-events-none"
         aria-hidden="true"
       >
-        <LibreServLogo className="w-14 h-14 sm:w-16 sm:h-16 drop-shadow-md" />
+        <LunaLogo className="w-14 h-14 sm:w-16 sm:h-16 drop-shadow-md" />
       </div>
 
       {/* Center: Travelling cryptic data strings running between logos.

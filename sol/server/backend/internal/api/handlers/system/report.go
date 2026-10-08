@@ -3,7 +3,7 @@ package system
 import (
 	"net/http"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
+	"gt.plainskill.net/LibreLoom/Sol/internal/network"
 )
 
 // ReportHandler serves the cached NetworkReport.

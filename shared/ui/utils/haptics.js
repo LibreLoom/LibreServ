@@ -20,7 +20,7 @@
 import { useSyncExternalStore } from "react";
 
 const STORAGE_KEY = "haptics-enabled";
-const CHANGE_EVENT = "libreserv:haptics-changed";
+const CHANGE_EVENT = "sol:haptics-changed";
 
 const PWM_CYCLE = 20; // ms per intensity modulation cycle
 

@@ -3,7 +3,7 @@ import { postJson } from "../lib/api";
 
 /**
  * Persist Luna setup wizard progress to the device (POST /api/v1/setup).
- * Same idea as LibreServ's useSetupProgress: advance saves automatically so a
+ * Same idea as Sol's useSetupProgress: advance saves automatically so a
  * refresh resumes mid-wizard instead of starting over.
  */
 export default function useSetupProgress() {

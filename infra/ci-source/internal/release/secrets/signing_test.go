@@ -11,10 +11,10 @@ import (
 func setupKeys(t *testing.T) (*testEnv, testKey, testKey, testKey) {
 	e := newTestEnv(t)
 	lib, luna, other := genKey(t), genKey(t), genKey(t)
-	e.writePub("libreserv.minisign.pub", lib)
+	e.writePub("sol.minisign.pub", lib)
 	e.writePub("lsluna.minisign.pub", luna)
 	// Names deliberately swapped: contents decide, not names.
-	e.write(filepath.Join(e.home, ".minisign", "libreserv.key"), e.encrypted(luna, "pw-luna"))
+	e.write(filepath.Join(e.home, ".minisign", "sol.key"), e.encrypted(luna, "pw-luna"))
 	e.write(filepath.Join(e.home, ".minisign", "lsluna.key"), e.encrypted(lib, "pw-lib"))
 	e.write(filepath.Join(e.home, ".minisign", "old.key"), e.encrypted(other, "pw-old"))
 	return e, lib, luna, other
@@ -27,9 +27,9 @@ func TestSigningPairsByContentsAndCaches(t *testing.T) {
 	m := e.manager(func(o *Options) { o.NoHomeScan = true })
 	ctx := context.Background()
 
-	sg, st := m.Signing(ctx, LibreServSigning)
+	sg, st := m.Signing(ctx, SolSigning)
 	if st.State != Proven || sg == nil || sg.KeyID != keyIDString(lib.pub.ID()) {
-		t.Fatalf("libreserv: %+v", st)
+		t.Fatalf("sol: %+v", st)
 	}
 	sl, st := m.Signing(ctx, LunaSigning)
 	if st.State != Proven || sl.KeyID != keyIDString(luna.pub.ID()) {
@@ -73,14 +73,14 @@ func TestSigningFailedThenPrompted(t *testing.T) {
 	e, lib, luna, _ := setupKeys(t)
 	m := e.manager(func(o *Options) { o.NoHomeScan = true })
 	ctx := context.Background()
-	st := m.Status(ctx, LibreServSigning)
+	st := m.Status(ctx, SolSigning)
 	if st.State != Failed {
 		t.Fatalf("want failed without passwords, got %+v", st)
 	}
 	// Interactive: user types both passwords; "remember" stores them.
 	e.pr = &fakePrompter{answers: map[string]Answer{SlotMinisignPassword: {Value: "pw-lib", Remember: true}}}
 	m = e.manager(func(o *Options) { o.NoHomeScan = true })
-	st = m.Status(ctx, LibreServSigning)
+	st = m.Status(ctx, SolSigning)
 	if st.State != Proven {
 		t.Fatalf("prompted: %+v", st)
 	}
@@ -101,17 +101,17 @@ func TestSigningFailedThenPrompted(t *testing.T) {
 func TestSigningMissingAndScan(t *testing.T) {
 	e := newTestEnv(t)
 	lib, luna := genKey(t), genKey(t)
-	e.writePub("libreserv.minisign.pub", lib)
+	e.writePub("sol.minisign.pub", lib)
 	e.writePub("lsluna.minisign.pub", luna)
 	e.write(filepath.Join(e.home, "Documents", "stuff", "backup.txt"), e.encrypted(lib, "pw"))
 	e.env["MINISIGN_PASSPHRASE"] = "pw"
 
 	m := e.manager(func(o *Options) { o.NoHomeScan = true })
-	if st := m.Status(context.Background(), LibreServSigning); st.State != Missing {
+	if st := m.Status(context.Background(), SolSigning); st.State != Missing {
 		t.Fatalf("without scan: %+v", st)
 	}
 	m = e.manager()
-	if st := m.Status(context.Background(), LibreServSigning); st.State != Proven {
+	if st := m.Status(context.Background(), SolSigning); st.State != Proven {
 		t.Fatalf("home scan should find it by header: %+v", st)
 	}
 	if st := m.Status(context.Background(), LunaSigning); st.State != Missing {
@@ -122,9 +122,9 @@ func TestSigningMissingAndScan(t *testing.T) {
 func TestSigningEnvFormsAndAddPath(t *testing.T) {
 	e := newTestEnv(t)
 	lib, luna := genKey(t), genKey(t)
-	e.writePub("libreserv.minisign.pub", lib)
+	e.writePub("sol.minisign.pub", lib)
 	e.writePub("lsluna.minisign.pub", luna)
-	// Luna key as pasted text; libreserv key in a user-added folder.
+	// Luna key as pasted text; sol key in a user-added folder.
 	e.env["LSLUNA_RELEASE_MINISIG_PK"] = e.encrypted(luna, "p1")
 	e.env["LSLUNA_RELEASE_MINISIG_PW_CMD"] = "echo p1"
 	e.run = func(_ context.Context, _ string, _ []string, name string, args ...string) ([]byte, error) {
@@ -142,13 +142,13 @@ func TestSigningEnvFormsAndAddPath(t *testing.T) {
 	if st := m.Status(ctx, LunaSigning); st.State != Proven {
 		t.Fatalf("luna from env: %+v", st)
 	}
-	if st := m.Status(ctx, LibreServSigning); st.State != Missing {
+	if st := m.Status(ctx, SolSigning); st.State != Missing {
 		t.Fatalf("before AddPath: %+v", st)
 	}
 	if err := m.AddPath(extra); err != nil {
 		t.Fatal(err)
 	}
-	if st := m.Status(ctx, LibreServSigning); st.State != Proven {
+	if st := m.Status(ctx, SolSigning); st.State != Proven {
 		t.Fatalf("after AddPath: %+v", st)
 	}
 	if got := m.Paths(); len(got) != 1 || got[0] != extra {
@@ -166,12 +166,12 @@ func TestSigningEnvFormsAndAddPath(t *testing.T) {
 func TestSigningSwappedPublicKeyRejected(t *testing.T) {
 	e := newTestEnv(t)
 	lib, other := genKey(t), genKey(t)
-	e.writePub("libreserv.minisign.pub", lib)
+	e.writePub("sol.minisign.pub", lib)
 	e.writePub("lsluna.minisign.pub", genKey(t))
-	e.write(filepath.Join(e.home, ".minisign", "libreserv.key"), e.encrypted(other, "pw"))
+	e.write(filepath.Join(e.home, ".minisign", "sol.key"), e.encrypted(other, "pw"))
 	e.env["MINISIGN_PASSPHRASE"] = "pw"
 	m := e.manager(func(o *Options) { o.NoHomeScan = true })
-	st := m.Status(context.Background(), LibreServSigning)
+	st := m.Status(context.Background(), SolSigning)
 	if st.State == Proven {
 		t.Fatal("a stale key must not prove")
 	}
@@ -190,36 +190,36 @@ func TestPromptSkipRememberedPerFileAndScopedToTheUnit(t *testing.T) {
 	e, _, _, _ := setupKeys(t)
 	// First run: passwords from the environment teach the pairing cache which
 	// file is which key.
-	e.env["LIBRESERV_RELEASE_MINISIG_PW"] = "pw-lib"
+	e.env["SOL_RELEASE_MINISIG_PW"] = "pw-lib"
 	e.env["LSLUNA_RELEASE_MINISIG_PW"] = "pw-luna"
 	ctx := context.Background()
 	m := e.manager(func(o *Options) { o.NoHomeScan = true })
-	for _, id := range []ID{LibreServSigning, LunaSigning} {
+	for _, id := range []ID{SolSigning, LunaSigning} {
 		if st := m.Status(ctx, id); st.State != Proven {
 			t.Fatalf("%s: %+v", id, st)
 		}
 	}
 	// Second run: no passwords at all; the user skips every question.
-	delete(e.env, "LIBRESERV_RELEASE_MINISIG_PW")
+	delete(e.env, "SOL_RELEASE_MINISIG_PW")
 	delete(e.env, "LSLUNA_RELEASE_MINISIG_PW")
 	e.pr = &fakePrompter{}
 	m = e.manager(func(o *Options) { o.NoHomeScan = true })
-	st := m.Status(ctx, LibreServSigning)
+	st := m.Status(ctx, SolSigning)
 	if st.State != Failed || !st.NeedsPassword {
 		t.Fatalf("want failed + needs password: %+v", st)
 	}
 	for _, q := range e.pr.asked {
-		if strings.HasSuffix(q.Key, "libreserv.key") {
-			t.Fatalf("a LibreServ check must not ask about the Luna key file: %+v", q)
+		if strings.HasSuffix(q.Key, "sol.key") {
+			t.Fatalf("a Sol check must not ask about the Luna key file: %+v", q)
 		}
 	}
-	if len(e.pr.asked) == 0 || !strings.Contains(e.pr.asked[0].Label, "LibreServ release signing key") ||
+	if len(e.pr.asked) == 0 || !strings.Contains(e.pr.asked[0].Label, "Sol release signing key") ||
 		!strings.Contains(e.pr.asked[0].Label, ".minisign") {
 		t.Fatalf("the question must name the secret and the file: %+v", e.pr.asked)
 	}
 	n := len(e.pr.asked)
 	m.Refresh()
-	m.Status(ctx, LibreServSigning)
+	m.Status(ctx, SolSigning)
 	if len(e.pr.asked) != n {
 		t.Fatalf("a skipped file must not be asked again this run: %+v", e.pr.asked)
 	}
@@ -231,7 +231,7 @@ func TestPromptSkipRememberedPerFileAndScopedToTheUnit(t *testing.T) {
 		t.Fatalf("reason: %+v", st.Candidates)
 	}
 	// Proving again on purpose asks again.
-	m.Reprove(ctx, LibreServSigning, false)
+	m.Reprove(ctx, SolSigning, false)
 	if len(e.pr.asked) <= n+1 {
 		t.Fatalf("reprove should ask again: %d", len(e.pr.asked))
 	}

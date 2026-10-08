@@ -68,7 +68,7 @@ func TestSolArtifacts(t *testing.T) {
 			t.Errorf("path %s", a.Path)
 		}
 	}
-	want := []string{"libreserv-linux-amd64|sol|linux|amd64", "libreserv-linux-arm64|sol|linux|arm64"}
+	want := []string{"sol-linux-amd64|sol|linux|amd64", "sol-linux-arm64|sol|linux|arm64"}
 	if !reflect.DeepEqual(files, want) {
 		t.Fatalf("got %v want %v", files, want)
 	}

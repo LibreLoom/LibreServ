@@ -6,8 +6,8 @@ import (
 	"os"
 	"testing"
 
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/auth"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/config"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/auth"
+	"gt.plainskill.net/LibreLoom/SolConnect/internal/config"
 )
 
 // TestMain loads config defaults so handlers that read config.C work in tests.
@@ -18,7 +18,7 @@ func TestMain(m *testing.M) {
 	config.C.SMTP.UseTLS = true
 	config.C.SMTP.RelayPublicHost = "smtp.libreloom.org"
 	config.C.Backup.Endpoint = "s3.libreloom.org"
-	config.C.Backup.BucketPrefix = "libreserv-backup"
+	config.C.Backup.BucketPrefix = "sol-backup"
 	config.C.Inference.BaseURL = "https://inference.neuralwatt.dev/v1"
 	config.C.Auth.AdminTokenSecret = "admin-test-token"
 

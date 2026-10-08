@@ -85,7 +85,7 @@ type CaddyConfig struct {
 	Reload CaddyReloadConfig `yaml:"reload" json:"reload"`
 	// Logging controls per-site access logging in the generated Caddyfile.
 	Logging CaddyLoggingConfig `yaml:"logging" json:"logging"`
-	// AuthPort is the LibreServ API port, used for forward_auth in Caddy.
+	// AuthPort is the Sol API port, used for forward_auth in Caddy.
 	AuthPort int `yaml:"auth_port" json:"auth_port"`
 }
 

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
 )
 
 func TestCaddyfileUsesManualTLSWhenCertExists(t *testing.T) {

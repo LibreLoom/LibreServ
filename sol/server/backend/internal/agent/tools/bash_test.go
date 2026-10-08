@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/agent/sandbox"
+	"gt.plainskill.net/LibreLoom/Sol/internal/agent/sandbox"
 )
 
 // runBash invokes the bash tool with the given sandbox and JSON args, returning
@@ -98,7 +98,7 @@ func TestBashTool_BwrapReadOnlyRoot(t *testing.T) {
 	if !sb.Available() {
 		t.Skip("bwrap not installed; skipping live bash-tool sandbox test")
 	}
-	res := runBash(t, sb, `{"command":"echo x > /etc/libreserv_bwrap_escape; echo done"}`, false)
+	res := runBash(t, sb, `{"command":"echo x > /etc/sol_bwrap_escape; echo done"}`, false)
 	// The redirect fails on the read-only filesystem; the echo still runs.
 	stderr, _ := res["stderr"].(string)
 	if !strings.Contains(stderr, "Read-only file system") {

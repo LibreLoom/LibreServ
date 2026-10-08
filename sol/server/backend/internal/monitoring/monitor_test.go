@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
-	rt "gt.plainskill.net/LibreLoom/LibreServ/internal/runtime"
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
+	rt "gt.plainskill.net/LibreLoom/Sol/internal/runtime"
 )
 
 // fakeRuntime is a scripted rt.ContainerRuntime for monitoring tests.

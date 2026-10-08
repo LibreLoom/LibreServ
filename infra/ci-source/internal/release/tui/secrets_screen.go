@@ -17,17 +17,17 @@ type secretsListMsg struct {
 }
 
 var usedBy = map[secrets.ID]string{
-	secrets.LibreServSigning: "sol, sol-connect",
-	secrets.LunaSigning:      "luna*",
-	secrets.ForgejoToken:     "every cut",
-	secrets.AndroidKeystore:  "luna-android",
+	secrets.SolSigning:      "sol, sol-connect",
+	secrets.LunaSigning:     "luna*",
+	secrets.ForgejoToken:    "every cut",
+	secrets.AndroidKeystore: "luna-android",
 }
 
 var mustMatch = map[secrets.ID]string{
-	secrets.LibreServSigning: "must match keys/libreserv.minisign.pub",
-	secrets.LunaSigning:      "must match keys/lsluna.minisign.pub",
-	secrets.ForgejoToken:     "the forge must accept it",
-	secrets.AndroidKeystore:  "must open and hold the pinned certificate",
+	secrets.SolSigning:      "must match keys/sol.minisign.pub",
+	secrets.LunaSigning:     "must match keys/lsluna.minisign.pub",
+	secrets.ForgejoToken:    "the forge must accept it",
+	secrets.AndroidKeystore: "must open and hold the pinned certificate",
 }
 
 func pill(st secrets.Status) string {

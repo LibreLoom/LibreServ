@@ -1,6 +1,6 @@
-# AGENTS.md - sol (LibreServ)
+# AGENTS.md - sol (Sol)
 
-LibreServ is the home-server product: Go backend + React frontend + LibreServ
+Sol is the home-server product: Go backend + React frontend + Sol
 Connect cloud companion + installer/ISO bits. Global rules (plain language,
 design system, frontend conventions, git/forge rules) live in the repo-root
 `AGENTS.md` — they apply here too.
@@ -10,7 +10,7 @@ design system, frontend conventions, git/forge rules) live in the repo-root
 ```
 sol/
 ├── server/backend/           # Go 1.26 backend (chi/v5 router)
-│   ├── cmd/libreserv/        # Entry point
+│   ├── cmd/sol/        # Entry point
 │   ├── internal/
 │   │   ├── api/              # HTTP handlers + middleware + router
 │   │   │   ├── handlers/     # Endpoint handlers, grouped by domain:
@@ -32,7 +32,7 @@ sol/
 │   │   ├── network/          # Caddy, ACME, DNS providers, DDNS
 │   │   ├── storage/          # Backup service (restic + tar fallback)
 │   │   ├── jobqueue/         # Background jobs
-│   │   ├── wifi/             # LibreServ setup hotspot (hostapd+dnsmasq)
+│   │   ├── wifi/             # Sol setup hotspot (hostapd+dnsmasq)
 │   │   └── jobs/             # Simple time-based scheduler
 │   ├── configs/              # YAML config (must copy .example → .yaml before run)
 │   ├── apps/                 # App catalog (repo apps loaded from disk; currently empty — curated catalog will be a separate repo)
@@ -47,9 +47,9 @@ sol/
 │       ├── components/       # UI components
 │       └── index.css         # Theme variables + Tailwind config
 │
-├── connect/                  # LibreServ Connect — cloud SaaS (independent Go 1.26
+├── connect/                  # Sol Connect — cloud SaaS (independent Go 1.26
 │                             # module, chi/v5 API, SQLite, Stripe billing). Provides
-│                             # external services to LibreServ devices: email relay,
+│                             # external services to Sol devices: email relay,
 │                             # DNS/domain, cloud backups, tunnel access, AI inference,
 │                             # human support. Own configs, admin API, device API.
 │
@@ -65,9 +65,9 @@ sol/
 ### Backend
 ```bash
 cd sol/server/backend
-cp configs/libreserv.yaml.example configs/libreserv.yaml   # Required first time
-make build                                    # → bin/libreserv
-make run                                      # Build + run with LIBRESERV_INSECURE_DEV=true
+cp configs/sol.yaml.example configs/sol.yaml   # Required first time
+make build                                    # → bin/sol
+make run                                      # Build + run with SOL_INSECURE_DEV=true
 make test                                     # All unit tests
 make lint                                     # gofmt check + go vet
 make security                                 # govulncheck + gosec + staticcheck
@@ -88,7 +88,7 @@ npm test                                      # Vitest (not Jest)
 npm run scan:colors                           # Detect hardcoded colors in UI code
 ```
 
-### LibreServ Connect (cloud SaaS module)
+### Sol Connect (cloud SaaS module)
 ```bash
 cd sol/connect
 cp configs/connect.yaml.example configs/connect.yaml   # Required first time
@@ -101,11 +101,11 @@ Env prefix: `CONNECT_` (viper), e.g. `CONNECT_SERVER_PORT`, `CONNECT_AUTH_ADMIN_
 
 ## Go
 
-- Module path: `gt.plainskill.net/LibreLoom/LibreServ`
+- Module path: `gt.plainskill.net/LibreLoom/Sol`
 - Router: `github.com/go-chi/chi/v5` (not gin)
 - Error response: `JSONError(w, statusCode, message)` — dot-imported from `internal/api/response`
 - Auth context: `middleware.GetUser(ctx)` returns `*middleware.User`, `middleware.GetUserID(ctx)` returns `(string, bool)`
-- Env var prefix: `LIBRESERV_` (viper), e.g. `LIBRESERV_SERVER_PORT`, `LIBRESERV_AUTH_JWT_SECRET`
+- Env var prefix: `SOL_` (viper), e.g. `SOL_SERVER_PORT`, `SOL_AUTH_JWT_SECRET`
 - Run `go fmt` before commit; `go vet` must pass
 - Integration tests: build tag `integration`, require Podman:
   ```bash
@@ -153,16 +153,16 @@ rm -rf sol/server/backend/dev/data sol/server/backend/dev/apps sol/server/backen
 
 - **Database:** SQLite. Migrations in `internal/database/migrations/` are squashed into one `001_schema.sql`; `migrate.go` reconciles old numbered migrations on existing DBs
 - **Container Runtime:** Required for app runtime (`podman compose`). Integration tests also need Podman.
-- **Config:** `server/backend/configs/libreserv.yaml` — must be created from `.example` before first run
-- **Secrets:** If `jwt_secret`/`csrf_secret` are empty at startup, LibreServ generates and persists them to the config file. If config is read-only, set `LIBRESERV_AUTH_JWT_SECRET` / `LIBRESERV_AUTH_CSRF_SECRET` env vars instead.
+- **Config:** `server/backend/configs/sol.yaml` — must be created from `.example` before first run
+- **Secrets:** If `jwt_secret`/`csrf_secret` are empty at startup, Sol generates and persists them to the config file. If config is read-only, set `SOL_AUTH_JWT_SECRET` / `SOL_AUTH_CSRF_SECRET` env vars instead.
 - **Frontend build output:** `server/backend/OS/dist/` (gitignored). Production binaries with embedded frontend: `BUILD_TAGS=embedfront make build`
 - **Restic:** Backup system requires restic binary. `make restic-fetch` downloads it; `embedrestic` build tag bundles it in the binary.
 - **Caddy:** Reverse proxy for HTTPS. Mode can be `enabled`/`noop`/`disabled` in config. ACME certs via DNS-01 challenge.
-- **No `libreserv.sh`** in repo — use `make run` from `server/backend/` for development instead
-- **Connect module:** `gt.plainskill.net/LibreLoom/LibreServConnect` — independent Go module in `sol/connect/`. It has its own chi/v5 router, SQLite database, config (env prefix `CONNECT_`), and admin/device APIs. Not part of the main backend binary.
+- **No `sol.sh`** in repo — use `make run` from `server/backend/` for development instead
+- **Connect module:** `gt.plainskill.net/LibreLoom/SolConnect` — independent Go module in `sol/connect/`. It has its own chi/v5 router, SQLite database, config (env prefix `CONNECT_`), and admin/device APIs. Not part of the main backend binary.
 - **AI support agent config:** the model fields are `main_model` (agent model), `review_model` (safety review model), `summary_model` (optional model that summarizes the session so the reviewer has context), and `review_enabled` (whether tool-call review runs) — `AgentConfig` in `internal/config/config.go`.
-- **Setup hotspot (LibreServ only):** If setup isn't finished and there's no cable or home Wi-Fi, LibreServ briefly broadcasts an open network named "Sol Setup" (`internal/wifi` hostapd+dnsmasq). A phone joins that network, opens the wizard, and the hotspot stops once the box is online. **Luna has no setup AP** — Ethernet cable only.
-- **LibreServ is WAN-accessible by design** once a domain is configured — the auth endpoints (`/auth/login`, `/auth/password-reset/*`, `/auth/invite/{token}`) are internet-exposed, not LAN-only. There is no public `/auth/register`. Center this in every auth/security decision: the primary defenses are strong passwords + rate limiting + 2FA, **not captchas** (captcha is decided against for v1). Prefer admin-invited users over open public registration.
+- **Setup hotspot (Sol only):** If setup isn't finished and there's no cable or home Wi-Fi, Sol briefly broadcasts an open network named "Sol Setup" (`internal/wifi` hostapd+dnsmasq). A phone joins that network, opens the wizard, and the hotspot stops once the box is online. **Luna has no setup AP** — Ethernet cable only.
+- **Sol is WAN-accessible by design** once a domain is configured — the auth endpoints (`/auth/login`, `/auth/password-reset/*`, `/auth/invite/{token}`) are internet-exposed, not LAN-only. There is no public `/auth/register`. Center this in every auth/security decision: the primary defenses are strong passwords + rate limiting + 2FA, **not captchas** (captcha is decided against for v1). Prefer admin-invited users over open public registration.
 
 ## Frontend Components
 
@@ -170,7 +170,7 @@ rm -rf sol/server/backend/dev/data sol/server/backend/dev/apps sol/server/backen
   - **Button** (`@libreloom/ui` → `shared/ui/components/ui/Button.jsx`) — the canonical button. Read its doc comment before use: variants `primary` (main action on cards), `secondary` (main action on page bg), `accent` (form/modal submit), `danger` (destructive), `outline` (cancel/back), `ghost` (icon-only). The `surface` prop names the BACKDROP the button sits on (`"primary"` = page bg, `"secondary"` = card, the default); outline/ghost chrome contrasts automatically. Use `loading` for pending states, `fullWidth` instead of `w-full`, and `asChild` to style a `Link`/`<a>` as a button. Never hand-roll pill buttons or pill-styled links.
   - **Page** (`@libreloom/ui` → `shared/ui/components/ui/Page.jsx`) — the standard page shell (`surface-primary`, skip-link target, optional HeaderCard title). Every routed content page uses it (full-screen flows like Login/Setup are the exception).
   - **Card / ModalCard / HeaderCard** (`shared/ui/components/cards/`) — surfaces. `surface-secondary` by default; `surface="primary"` inverts.
-  - **HeaderCard auto-splits when chrome does not fit.** It prefers a single one-line pill; when `leftContent`/`rightContent` cannot fit beside the title, it measures overflow and stacks separate cards (title, then sides). Do not put navigation or back links in the header — use the bottom navbar (`Navbar` — desktop pill + mobile FAB/dialog; Luna mirrors LibreServ). Put taglines in Page `bottomContent` (renders below the header, not inside it). `HeaderCard`/`Page` are shared — edit them in `shared/ui`, not here.
+  - **HeaderCard auto-splits when chrome does not fit.** It prefers a single one-line pill; when `leftContent`/`rightContent` cannot fit beside the title, it measures overflow and stacks separate cards (title, then sides). Do not put navigation or back links in the header — use the bottom navbar (`Navbar` — desktop pill + mobile FAB/dialog; Luna mirrors Sol). Put taglines in Page `bottomContent` (renders below the header, not inside it). `HeaderCard`/`Page` are shared — edit them in `shared/ui`, not here.
   - **Tooltip** (`@libreloom/ui` → `shared/ui/components/ui/Tooltip.jsx`) — `InfoHint` (ⓘ, longer aside) and `TermHint` (dotted underline on a word). Hover, focus, and tap. Do not use native `title=` for new glosses.
 - **Dropdown** — Always use the project's `Dropdown` component (`@libreloom/ui` → `shared/ui/components/common/Dropdown.jsx`) instead of a raw `<select>`. It accepts `options` as `Array<{value: string, label: string}>`, supports `fullWidth`, `bg` ( `"primary"` | `"secondary"`), and `onChange(value: string)`.
 - **Haptics** — `@libreloom/ui` `utils/haptics.js` (`haptic()` with presets `selection`, `light`, `medium`, `heavy`, `rigid`, `soft`, `success`, `warning`, `error`, `nudge`) is wired into Button/Toggle/SegmentedControl/Dropdown — do not sprinkle it through pages. The user toggle lives in Settings → Appearance.

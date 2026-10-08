@@ -29,8 +29,8 @@ func SlotPassword(id ID) string { return "minisign-password:" + string(id) }
 func allSlots() []SlotInfo {
 	return []SlotInfo{
 		{Slot: SlotForgejoToken, Label: "Forgejo token"},
-		{Slot: SlotKey(LibreServSigning), Label: "LibreServ signing key (pasted text)"},
-		{Slot: SlotPassword(LibreServSigning), Label: "LibreServ signing key password"},
+		{Slot: SlotKey(SolSigning), Label: "Sol signing key (pasted text)"},
+		{Slot: SlotPassword(SolSigning), Label: "Sol signing key password"},
 		{Slot: SlotKey(LunaSigning), Label: "Luna signing key (pasted text)"},
 		{Slot: SlotPassword(LunaSigning), Label: "Luna signing key password"},
 		{Slot: SlotMinisignPassword, Label: "Signing key password (any key)"},

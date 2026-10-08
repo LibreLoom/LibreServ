@@ -1,6 +1,6 @@
 package auth
 
-import "gt.plainskill.net/LibreLoom/LibreServ/internal/api/response"
+import "gt.plainskill.net/LibreLoom/Sol/internal/api/response"
 
 // JSON and JSONError are aliases to the canonical helpers in internal/api/response
 // to avoid duplication. Deprecated: import response directly.

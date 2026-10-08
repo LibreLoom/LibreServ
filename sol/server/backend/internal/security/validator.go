@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strings"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
+	"gt.plainskill.net/LibreLoom/Sol/internal/config"
 )
 
 var (
@@ -39,7 +39,7 @@ const (
 ║  • The server is not exposed to the public internet                  ║
 ║  • You have reviewed and accepted the risks                          ║
 ║                                                                      ║
-║  TO ENABLE DEV MODE: Set LIBRESERV_INSECURE_DEV=true                ║
+║  TO ENABLE DEV MODE: Set SOL_INSECURE_DEV=true                ║
 ║  TO SECURE: Set server.mode to "production" in configuration.        ║
 ╚══════════════════════════════════════════════════════════════════════╝`
 )
@@ -98,13 +98,13 @@ func validateDevModeSettings(cfg *config.Config, result *ValidationResult) {
 		return
 	}
 
-	devTokenEnabled := os.Getenv("LIBRESERV_DEV_TOKEN_ENABLED")
+	devTokenEnabled := os.Getenv("SOL_DEV_TOKEN_ENABLED")
 	if devTokenEnabled == "" {
 		result.Issues = append(result.Issues, SecurityIssue{
 			Severity:       "CRITICAL",
 			Category:       "Dev Mode",
 			Message:        "Dev token authentication bypass is implicitly enabled",
-			Recommendation: "Set LIBRESERV_DEV_TOKEN_ENABLED=false to explicitly disable, or run in production mode",
+			Recommendation: "Set SOL_DEV_TOKEN_ENABLED=false to explicitly disable, or run in production mode",
 		})
 		result.Passed = false
 	} else if devTokenEnabled == "true" {
@@ -112,7 +112,7 @@ func validateDevModeSettings(cfg *config.Config, result *ValidationResult) {
 			Severity:       "CRITICAL",
 			Category:       "Dev Mode",
 			Message:        "Dev token authentication bypass is explicitly enabled via environment variable",
-			Recommendation: "Set LIBRESERV_DEV_TOKEN_ENABLED=false or run in production mode",
+			Recommendation: "Set SOL_DEV_TOKEN_ENABLED=false or run in production mode",
 		})
 		result.Passed = false
 	}
@@ -155,7 +155,7 @@ func validateSecrets(cfg *config.Config, result *ValidationResult) {
 			Severity:       "HIGH",
 			Category:       "Authentication",
 			Message:        "JWT secret is not configured",
-			Recommendation: "Set auth.jwt_secret in config or LIBRESERV_AUTH_JWT_SECRET environment variable",
+			Recommendation: "Set auth.jwt_secret in config or SOL_AUTH_JWT_SECRET environment variable",
 		})
 		result.Passed = false
 	} else if isLikelyHardcoded(cfg.Auth.JWTSecret) {
@@ -163,7 +163,7 @@ func validateSecrets(cfg *config.Config, result *ValidationResult) {
 			Severity:       "MEDIUM",
 			Category:       "Authentication",
 			Message:        "JWT secret appears to be hardcoded in config file",
-			Recommendation: "Use LIBRESERV_AUTH_JWT_SECRET environment variable for secrets",
+			Recommendation: "Use SOL_AUTH_JWT_SECRET environment variable for secrets",
 		})
 	}
 
@@ -172,7 +172,7 @@ func validateSecrets(cfg *config.Config, result *ValidationResult) {
 			Severity:       "HIGH",
 			Category:       "CSRF",
 			Message:        "CSRF secret is not configured",
-			Recommendation: "Set auth.csrf_secret in config or LIBRESERV_AUTH_CSRF_SECRET environment variable",
+			Recommendation: "Set auth.csrf_secret in config or SOL_AUTH_CSRF_SECRET environment variable",
 		})
 		result.Passed = false
 	} else if isLikelyHardcoded(cfg.Auth.CSRFSecret) {
@@ -180,7 +180,7 @@ func validateSecrets(cfg *config.Config, result *ValidationResult) {
 			Severity:       "MEDIUM",
 			Category:       "CSRF",
 			Message:        "CSRF secret appears to be hardcoded in config file",
-			Recommendation: "Use LIBRESERV_AUTH_CSRF_SECRET environment variable for secrets",
+			Recommendation: "Use SOL_AUTH_CSRF_SECRET environment variable for secrets",
 		})
 	}
 
@@ -189,7 +189,7 @@ func validateSecrets(cfg *config.Config, result *ValidationResult) {
 			Severity:       "HIGH",
 			Category:       "Encryption",
 			Message:        "Cloud backup encryption key is not configured",
-			Recommendation: "Set auth.cloud_encryption_key in config or LIBRESERV_AUTH_CLOUD_ENCRYPTION_KEY environment variable",
+			Recommendation: "Set auth.cloud_encryption_key in config or SOL_AUTH_CLOUD_ENCRYPTION_KEY environment variable",
 		})
 		result.Passed = false
 	} else if cfg.Auth.CloudEncryptionKey == cfg.Auth.CSRFSecret {
@@ -319,8 +319,8 @@ func ValidateProductionReadiness() error {
 	if result.IsDevMode {
 		cfg := config.Get()
 
-		if os.Getenv("LIBRESERV_INSECURE_DEV") == "true" {
-			warningLogger.Warn("Insecure development mode explicitly enabled via LIBRESERV_INSECURE_DEV=true")
+		if os.Getenv("SOL_INSECURE_DEV") == "true" {
+			warningLogger.Warn("Insecure development mode explicitly enabled via SOL_INSECURE_DEV=true")
 			return nil
 		}
 
@@ -329,13 +329,13 @@ func ValidateProductionReadiness() error {
 			return nil
 		}
 
-		allowProductionDevMode := os.Getenv("LIBRESERV_ALLOW_DEV_MODE_IN_PRODUCTION")
+		allowProductionDevMode := os.Getenv("SOL_ALLOW_DEV_MODE_IN_PRODUCTION")
 		if allowProductionDevMode == "true" {
 			warningLogger.Warn("Development mode explicitly enabled in non-local environment")
 			return nil
 		}
 
-		return fmt.Errorf("server is in development mode which is not suitable for production use. Set server.mode to 'production' or:\n  - For local development: Set LIBRESERV_INSECURE_DEV=true (acknowledge risks)\n  - For isolated networks: Set LIBRESERV_ALLOW_DEV_MODE_IN_PRODUCTION=true")
+		return fmt.Errorf("server is in development mode which is not suitable for production use. Set server.mode to 'production' or:\n  - For local development: Set SOL_INSECURE_DEV=true (acknowledge risks)\n  - For isolated networks: Set SOL_ALLOW_DEV_MODE_IN_PRODUCTION=true")
 	}
 
 	failedCritical := false

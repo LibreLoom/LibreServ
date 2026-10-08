@@ -4,8 +4,8 @@ import (
 	"context"
 	"net/http"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/response"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/setup"
+	"gt.plainskill.net/LibreLoom/Sol/internal/api/response"
+	"gt.plainskill.net/LibreLoom/Sol/internal/setup"
 )
 
 // SetupCompletionChecker reports whether the initial admin account already exists.

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/agent/tools"
+	"gt.plainskill.net/LibreLoom/Sol/internal/agent/tools"
 )
 
 func TestNewLoop(t *testing.T) {
@@ -147,21 +147,21 @@ func TestIsDataDir(t *testing.T) {
 	agent := NewAgent("test", "test-model", "diamond", "#FF6B35", "help", nil)
 	loop := NewLoop(agent, nil, nil, LoopConfig{
 		MaxTurns: 5,
-		DataDirs: []string{"/var/lib/libreserv", "/etc/libreserv"},
+		DataDirs: []string{"/var/lib/sol", "/etc/sol"},
 	}, "user1", "conv1")
 
 	tests := []struct {
 		path     string
 		expected bool
 	}{
-		{"/var/lib/libreserv/apps/nextcloud/config.php", true},
-		{"/var/lib/libreserv", true},
-		{"/etc/libreserv/libreserv.yaml", true},
-		{"/etc/libreserv", true},
+		{"/var/lib/sol/apps/nextcloud/config.php", true},
+		{"/var/lib/sol", true},
+		{"/etc/sol/sol.yaml", true},
+		{"/etc/sol", true},
 		{"/tmp/test.txt", false},
 		{"/var/log/syslog", false},
 		{"/home/user/data.txt", false},
-		{"/var/lib/libreservx", false}, // different dir
+		{"/var/lib/solx", false}, // different dir
 	}
 
 	for _, tt := range tests {
@@ -368,15 +368,15 @@ func TestExecuteWithReview_UserDataBlockedWhenUnattended(t *testing.T) {
 	loop := NewLoop(agent, nil, nil, LoopConfig{
 		MaxTurns:       5,
 		PermissionMode: "auto",
-		DataDirs:       []string{"/var/lib/libreserv"},
+		DataDirs:       []string{"/var/lib/sol"},
 	}, "user1", "conv1")
 	go func() {
 		for range loop.Events() {
 		}
 	}()
 
-	tool := writeToolWithDataDir(t, "/var/lib/libreserv/secret.txt", false)
-	tc := AgentToolCall{ID: "tc-ud", Name: "write", Arguments: json.RawMessage(`{"path":"/var/lib/libreserv/secret.txt","content":"x"}`)}
+	tool := writeToolWithDataDir(t, "/var/lib/sol/secret.txt", false)
+	tc := AgentToolCall{ID: "tc-ud", Name: "write", Arguments: json.RawMessage(`{"path":"/var/lib/sol/secret.txt","content":"x"}`)}
 
 	executed, denied := loop.executeWithReview(context.Background(), tool, tc)
 	if executed || !denied {
@@ -402,12 +402,12 @@ func TestExecuteWithReview_UserDataEscalatesAndApproves(t *testing.T) {
 	loop := NewLoop(agent, nil, nil, LoopConfig{
 		MaxTurns:    5,
 		TurnTimeout: 30 * time.Second,
-		DataDirs:    []string{"/var/lib/libreserv"},
+		DataDirs:    []string{"/var/lib/sol"},
 		// standard mode (not "auto") so a human can confirm.
 	}, "user1", "conv1")
 
-	tool := writeToolWithDataDir(t, "/var/lib/libreserv/notes.txt", true)
-	tc := AgentToolCall{ID: "tc-esc", Name: "write", Arguments: json.RawMessage(`{"path":"/var/lib/libreserv/notes.txt","content":"x"}`)}
+	tool := writeToolWithDataDir(t, "/var/lib/sol/notes.txt", true)
+	tc := AgentToolCall{ID: "tc-esc", Name: "write", Arguments: json.RawMessage(`{"path":"/var/lib/sol/notes.txt","content":"x"}`)}
 
 	type result struct{ exec, denied bool }
 	resCh := make(chan result, 1)
@@ -438,7 +438,7 @@ func TestExecuteWithReview_SafeWriteGoesToReview(t *testing.T) {
 	loop := NewLoop(agent, nil, NewReviewModel(nil, "rm"), LoopConfig{
 		MaxTurns:       5,
 		PermissionMode: "auto",
-		DataDirs:       []string{"/var/lib/libreserv"},
+		DataDirs:       []string{"/var/lib/sol"},
 	}, "user1", "conv1")
 	go func() {
 		for range loop.Events() {

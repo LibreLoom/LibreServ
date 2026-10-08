@@ -23,7 +23,7 @@ func TestAgentConfigFields(t *testing.T) {
 		SystemPrompt:  "Be helpful.",
 		MaxTurns:      10,
 		TurnTimeout:   5 * time.Minute,
-		DataDirs:      []string{"/var/lib/libreserv", "/etc/libreserv"},
+		DataDirs:      []string{"/var/lib/sol", "/etc/sol"},
 		SystemPlanID:  "basic",
 	}
 
@@ -117,7 +117,7 @@ func TestAgentSandboxConfig(t *testing.T) {
 	cfg := AgentConfig{
 		Sandbox: SandboxConfig{
 			Mode:     "bwrap",
-			Workdirs: []string{"/var/lib/libreserv"},
+			Workdirs: []string{"/var/lib/sol"},
 			Network:  true,
 		},
 	}

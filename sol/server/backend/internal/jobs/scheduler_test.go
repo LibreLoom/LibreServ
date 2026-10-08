@@ -4,9 +4,9 @@ import (
 	"testing"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/apps"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/notify"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/system"
+	"gt.plainskill.net/LibreLoom/Sol/internal/apps"
+	"gt.plainskill.net/LibreLoom/Sol/internal/notify"
+	"gt.plainskill.net/LibreLoom/Sol/internal/system"
 )
 
 func TestScheduler_NewScheduler(t *testing.T) {

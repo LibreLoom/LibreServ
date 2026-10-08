@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	rt "gt.plainskill.net/LibreLoom/LibreServ/internal/runtime"
+	rt "gt.plainskill.net/LibreLoom/Sol/internal/runtime"
 )
 
 func TestHTTPCheck_Run_Healthy(t *testing.T) {
@@ -283,7 +283,7 @@ func TestPickContainer_Preference(t *testing.T) {
 			"running label match wins over running name match",
 			[]rt.ContainerInfo{
 				{ID: "byname", State: "running", Names: []string{"/myapp_web_1"}},
-				{ID: "bylabel", State: "running", Labels: map[string]string{"libreserv.app": "myapp"}},
+				{ID: "bylabel", State: "running", Labels: map[string]string{"sol.app": "myapp"}},
 			},
 			"bylabel",
 		},
@@ -291,7 +291,7 @@ func TestPickContainer_Preference(t *testing.T) {
 			"running name match wins over stopped label match",
 			[]rt.ContainerInfo{
 				{ID: "byname", State: "running", Names: []string{"/myapp_web_1"}},
-				{ID: "bylabel", State: "exited", Labels: map[string]string{"libreserv.app": "myapp"}},
+				{ID: "bylabel", State: "exited", Labels: map[string]string{"sol.app": "myapp"}},
 			},
 			"byname",
 		},
@@ -299,7 +299,7 @@ func TestPickContainer_Preference(t *testing.T) {
 			"stopped label match wins over stopped name match",
 			[]rt.ContainerInfo{
 				{ID: "byname", State: "exited", Names: []string{"/myapp_web_1"}},
-				{ID: "bylabel", State: "exited", Labels: map[string]string{"libreserv.app": "myapp"}},
+				{ID: "bylabel", State: "exited", Labels: map[string]string{"sol.app": "myapp"}},
 			},
 			"bylabel",
 		},
@@ -333,10 +333,10 @@ func TestMatchesContainerByLabels(t *testing.T) {
 		want  bool
 	}{
 		{"nil labels", rt.ContainerInfo{}, "myapp", false},
-		{"empty query", rt.ContainerInfo{Labels: map[string]string{"libreserv.app": "myapp"}}, "", false},
+		{"empty query", rt.ContainerInfo{Labels: map[string]string{"sol.app": "myapp"}}, "", false},
 		{"compose service", rt.ContainerInfo{Labels: map[string]string{"com.docker.compose.service": "myapp"}}, "myapp", true},
-		{"libreserv app", rt.ContainerInfo{Labels: map[string]string{"libreserv.app": "myapp"}}, "myapp", true},
-		{"unrelated label", rt.ContainerInfo{Labels: map[string]string{"libreserv.app": "other"}}, "myapp", false},
+		{"sol app", rt.ContainerInfo{Labels: map[string]string{"sol.app": "myapp"}}, "myapp", true},
+		{"unrelated label", rt.ContainerInfo{Labels: map[string]string{"sol.app": "other"}}, "myapp", false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

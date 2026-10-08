@@ -1,6 +1,6 @@
 # Luna
 
-Luna is the $49 LibreServ file box. Local-first, no subscription, drives served as-is.
+Luna is the $49 file box. Local-first, no subscription, drives served as-is.
 
 Setup is Ethernet-only: plug the included RJ45 (ethernet) cable into a router or modem. There is no setup Wi-Fi access point.
 

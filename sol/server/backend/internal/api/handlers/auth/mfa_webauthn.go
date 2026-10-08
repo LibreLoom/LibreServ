@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"strings"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth/webauthn"
+	"gt.plainskill.net/LibreLoom/Sol/internal/api/middleware"
+	"gt.plainskill.net/LibreLoom/Sol/internal/auth"
+	"gt.plainskill.net/LibreLoom/Sol/internal/auth/webauthn"
 )
 
 // These handlers cover WebAuthn (passkey + security key) ENROLLMENT only:
