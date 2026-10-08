@@ -85,12 +85,12 @@ as Luna.
 | Variable | Meaning |
 |----------|---------|
 | `LUNA_ANDROID_KEYSTORE` | Path to the `.jks` file |
-| `LUNA_ANDROID_KEYSTORE_B64` | Alternative for CI: `base64 -w0 luna-release.jks` output; `release.sh` decodes it to a temp file |
+| `LUNA_ANDROID_KEYSTORE_B64` | Alternative for CI: `base64 -w0 luna-release.jks` output; `./release` decodes it to a temp file |
 | `LUNA_ANDROID_STORE_PASSWORD` | Keystore password |
 | `LUNA_ANDROID_KEY_ALIAS` | Key alias (default `luna`) |
 | `LUNA_ANDROID_KEY_PASSWORD` | Key password |
 
-`release.sh` picks this up automatically and runs `apksigner verify` on the
+`./release` picks this up automatically and runs `apksigner verify` on the
 result.
 
 ## Distribution (F-Droid + direct APK)
@@ -112,7 +112,7 @@ Versioning rules:
   literals on purpose** — F-Droid's update checker parses the file at each
   tag. Bump both before every release that ships the app (`versionCode` must
   strictly increase).
-- `release.sh` warns if `versionCode` hasn't moved since the last `luna-v*`
+- `./release` warns if `versionCode` hasn't moved since the last `luna-v*`
   tag — that's the bump reminder.
 
 Google Play is intentionally not used; Google's developer-verification

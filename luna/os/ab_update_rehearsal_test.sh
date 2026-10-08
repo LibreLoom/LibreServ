@@ -71,8 +71,7 @@ assert_tree_has 'DataDirInstaller' "daemon OTA must target LUNA_DATA"
 assert_tree_has 'install_os_image' "updater must apply OS slot images"
 assert_tree_has 'reboot_required' "apply must signal reboot when OS changes"
 
-assert_file_has "$ROOT/../release.sh" 'luna-os-x86_64.img' "release.sh must publish the slot image on OS cuts"
-assert_file_has "$ROOT/../infra/docs/RELEASE.md" 'luna-os-x86_64.img' "RELEASE.md must document the slot image"
+assert_file_has "$ROOT/../infra/ci-source/internal/release/parts/os.go" 'luna-os-x86_64.img' "./release must publish the slot image on OS cuts"
 
 # UI must stay undifferentiated (no Software vs System split).
 # The card's own title ("System updates") is fine; any other mention is a split.

@@ -38,8 +38,6 @@ assert_file_has "$OS/build-iso.sh" 'luna_musl_smoke_lunad' "ISO build must smoke
 assert_file_has "$OS/build-iso.sh" 'luna_musl_smoke_console' "ISO build must smoke-test musl luna-console"
 assert_file_lacks "$OS/build-iso.sh" 'CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc' \
 	"ISO build must not set musl-gcc as linker without static-pie helpers"
-assert_file_lacks "$ROOT/../release.sh" 'segfaults on generic' \
-	"release.sh must not claim musl lunad only crashes on glibc hosts"
 
 if [ "$fail" -ne 0 ]; then
 	echo "$fail failed" >&2

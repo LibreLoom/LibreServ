@@ -6,9 +6,9 @@ Two products plus shared glue live here:
 
 | Path | What it is | Stack |
 |------|------------|-------|
-| `sol/` | **LibreServ Sol** — the home server (development currently stalled) | Go 1.26 (chi/v5) API, React 19 + Vite 7 + Tailwind 4, SQLite, Podman |
-| `sol/connect/` | **LibreServ Connect** — cloud companion (independent Go module) | Go 1.26, chi/v5, SQLite, Stripe |
-| `luna/` | **LibreServ Luna** — the file box | Rust `lunad` + `luna-core`, React/Vite web, GTK 4 desktop, native Android app, Debian OS image |
+| `sol/` | **Sol** — the home server (development currently stalled) | Go 1.26 (chi/v5) API, React 19 + Vite 7 + Tailwind 4, SQLite, Podman |
+| `sol/connect/` | **Sol Connect** — cloud companion (independent Go module) | Go 1.26, chi/v5, SQLite, Stripe |
+| `luna/` | **Luna** — the file box | Rust `lunad` + `luna-core`, React/Vite web, GTK 4 desktop, native Android app, Debian OS image |
 | `luna/connect/` | **Luna Connect** — cloud companion (independent Go module) | Go 1.26, SQLite, Stripe |
 | `shared/ui/` | `@libreloom/ui` — shared design-system components | React 19, consumed as a `file:` dependency by both web apps |
 | `infra/` | CI runner, release pipeline, repo automation bots | Go + shell |
@@ -16,12 +16,12 @@ Two products plus shared glue live here:
 
 ```
 LibreServ/
-├── sol/            # LibreServ Sol + LibreServ Connect + installer/ISO bits
+├── sol/            # Sol + Sol Connect + installer/ISO bits
 ├── luna/           # Luna daemon, web, desktop, mobile, OS, Luna Connect
 ├── shared/ui/      # @libreloom/ui — edit shared components HERE, never fork them back
 ├── infra/          # ./ci runner source, bots, release docs
 ├── ci              # CI launcher (stays at repo root)
-├── release.sh      # release pipeline (both products)
+├── release         # release tool launcher (both products)
 └── keys/           # release signing keys (do not move)
 ```
 
@@ -40,13 +40,13 @@ area you are touching before you touch it.
 
 ## Run the stack
 
-### LibreServ Sol
+### Sol
 
 ```bash
 # Terminal 1 — API on :8080
 cd sol/server/backend
-cp configs/libreserv.yaml.example configs/libreserv.yaml   # required first time
-make run                                                    # sets LIBRESERV_INSECURE_DEV=true
+cp configs/sol.yaml.example configs/sol.yaml   # required first time
+make run                                                    # sets SOL_INSECURE_DEV=true
 
 # Terminal 2 — UI on :3000
 cd sol/server/frontend
@@ -57,7 +57,7 @@ npm run dev                                                 # proxies /api and /
 First run: open <http://localhost:3000> and complete the setup wizard to create
 the admin user. Empty `jwt_secret`/`csrf_secret` values are generated and
 written back to the config file; if the config is read-only, set
-`LIBRESERV_AUTH_JWT_SECRET` / `LIBRESERV_AUTH_CSRF_SECRET` instead.
+`SOL_AUTH_JWT_SECRET` / `SOL_AUTH_CSRF_SECRET` instead.
 
 To reset dev data: `rm -rf sol/server/backend/dev/{data,apps,logs}`.
 
@@ -66,10 +66,10 @@ Embedded release-style binary (frontend baked in):
 ```bash
 cd sol/server/backend
 make frontend-build
-BUILD_TAGS=embedfront make build     # → bin/libreserv
+BUILD_TAGS=embedfront make build     # → bin/sol
 ```
 
-### LibreServ Luna
+### Luna
 
 ```bash
 # Terminal 1 — lunad on :8090, rebuilds on save
@@ -92,7 +92,7 @@ features locally, the mock cluster lives in `luna/scripts/mocks/`:
 ### Cloud companions (Connect)
 
 ```bash
-# LibreServ Connect
+# Sol Connect
 cd sol/connect
 cp configs/connect.yaml.example configs/connect.yaml
 make test
@@ -105,7 +105,7 @@ make test
 make run
 ```
 
-Config env prefixes: `CONNECT_` for LibreServ Connect, `LUNACONNECT_` for Luna
+Config env prefixes: `CONNECT_` for Sol Connect, `LUNACONNECT_` for Luna
 Connect. Neither module is part of the Sol or Luna binaries.
 
 ## Tests and lint
@@ -115,7 +115,7 @@ excuses.
 
 ```bash
 ./ci                              # interactive TUI; picks tests for your changes
-./ci run -profile libreserv       # Sol release gate: backend + frontend, no Luna
+./ci run -profile sol       # Sol release gate: backend + frontend, no Luna
 ./ci run -profile luna            # Luna only (Rust, web, desktop, mobile)
 ./ci run -profile full            # everything
 ```
@@ -139,12 +139,12 @@ cd sol/server/backend && go test -v -tags=integration ./tests/integration/...
 
 ## Releases
 
-`./release.sh` is the shared release ritual. Tags are per product and **must not
-be mixed**: `v*` = LibreServ, `luna-v*` = Luna. The Connect servers deploy from
+`./release` is the shared release tool. Tags are per product and **must not
+be mixed**: `v*` = Sol, `luna-v*` = Luna. The Connect servers deploy from
 the signed feeds, not tags — `connect-v*` / `luna-connect-v*` are retired. The
-release and update rework is planned in
-[`infra/docs/RELEASE-PLAN.md`](infra/docs/RELEASE-PLAN.md); the old flow is in
-[`infra/docs/RELEASE.md`](infra/docs/RELEASE.md).
+release and update design is in
+[`infra/docs/RELEASE-PLAN.md`](infra/docs/RELEASE-PLAN.md). Run `./release help`
+for the commands.
 
 Git tags do not sync across forges via the mirror — push release tags to the
 forge the consumer actually fetches.

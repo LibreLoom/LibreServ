@@ -5,7 +5,7 @@ plugins {
 
 // Release signing is opt-in via environment so F-Droid's source builds and
 // local dev produce an unsigned APK (F-Droid signs with its own key).
-// release.sh sets these when cutting a release; see luna/mobile/README.md.
+// the release tool sets these when cutting a release; see luna/mobile/README.md.
 val releaseKeystore = System.getenv("LUNA_ANDROID_KEYSTORE")?.takeIf { it.isNotBlank() }
 
 android {

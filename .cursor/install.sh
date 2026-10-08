@@ -95,13 +95,13 @@ install_podman() {
   fi
 
   # So later shells (and ./ci) find the Docker-compatible API socket.
-  as_root tee /etc/profile.d/libreserv-podman.sh >/dev/null <<'EOF'
+  as_root tee /etc/profile.d/sol-podman.sh >/dev/null <<'EOF'
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 export DOCKER_HOST="unix://${XDG_RUNTIME_DIR}/podman/podman.sock"
 EOF
-  as_root chmod 0644 /etc/profile.d/libreserv-podman.sh
+  as_root chmod 0644 /etc/profile.d/sol-podman.sh
   # shellcheck disable=SC1091
-  . /etc/profile.d/libreserv-podman.sh
+  . /etc/profile.d/sol-podman.sh
 
   podman --version
   podman compose version 2>/dev/null || podman-compose --version 2>/dev/null || true
@@ -152,9 +152,9 @@ echo ">> Preparing backend"
 cd "${REPO_ROOT}/sol/server/backend"
 # The server refuses to run without a config file; seed it from the example on
 # first setup and leave any existing local config untouched.
-if [ ! -f configs/libreserv.yaml ]; then
-  cp configs/libreserv.yaml.example configs/libreserv.yaml
-  echo ">> Created configs/libreserv.yaml from example"
+if [ ! -f configs/sol.yaml ]; then
+  cp configs/sol.yaml.example configs/sol.yaml
+  echo ">> Created configs/sol.yaml from example"
 fi
 go mod download
 # Fetch the restic binary used by the backup subsystem. Best-effort: the backend
@@ -286,7 +286,7 @@ cargo test
 cargo build --release
 
 # ── 11. Luna release build deps (ISO / Flatpak / Windows / signing) ───────────
-# ./release.sh --luna needs musl for lunad (the ISO builds in podman containers),
+# ./release (Luna units) needs musl for lunad (the ISO builds in podman containers),
 # xz to compress the rapidinstall ISO for release (GitHub 2 GiB asset cap),
 # flatpak-builder for Desktop Linux, mingw+NSIS for Windows, minisign for checksums.
 install_luna_release_deps() {

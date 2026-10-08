@@ -100,7 +100,7 @@ The body is how we forgive you six months from now.
 ### Code style
 
 **Go:** `go fmt` before commit. `go vet ./...` clean. Module path
-`gt.plainskill.net/LibreLoom/LibreServ`. Router is `chi/v5`. The compiler is
+`gt.plainskill.net/LibreLoom/Sol`. Router is `chi/v5`. The compiler is
 already sarcastic enough; do not give it extra material.
 
 **React/Vite:** `.jsx` files, not `.tsx`. `npm run lint` and `npm run typecheck`
@@ -118,7 +118,7 @@ style treatise: there isn't one. Do what the neighboring files do and leave.
 
 - [GOALS.md](sol/GOALS.md) — what we are building and what is still unchecked.
 - [AGENTS.md](AGENTS.md) — architecture, conventions, how the stack runs.
-- [infra/docs/RELEASE.md](infra/docs/RELEASE.md) — how we cut signed `v*` / `luna-v*` releases.
+- [infra/docs/RELEASE-PLAN.md](infra/docs/RELEASE-PLAN.md) — how we cut signed releases with `./release`.
 - [SECURITY.md](SECURITY.md) — how to report a hole instead of casually opening one.
 - [Issues](https://gt.plainskill.net/LibreLoom/LibreServ/issues) on Forgejo —
   bugs, features, questions, and the occasional "is this on purpose."

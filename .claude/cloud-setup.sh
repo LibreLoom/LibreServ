@@ -20,7 +20,7 @@ GO_VERSION=1.26.6
 RUST_VERSION=1.96.0
 FJ_VERSION=0.6.0
 ANDROID_SDK=/usr/local/android-sdk
-LOG_DIR=/var/log/libreserv-setup
+LOG_DIR=/var/log/sol-setup
 mkdir -p "$LOG_DIR"
 rm -f "$LOG_DIR/failed"
 
@@ -47,7 +47,7 @@ APT_PACKAGES=(
   libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libxdo-dev
   # Android unit tests
   openjdk-17-jdk-headless
-  # ./release.sh --luna: musl lunad, Flatpak, Windows installer, signing. The OS image
+  # ./release cut luna: musl lunad, Flatpak, Windows installer, signing. The OS image
   # and ISO build in podman containers (luna/os/build), so no ISO tools on the host.
   musl-tools xz-utils flatpak flatpak-builder
   nsis gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 minisign
@@ -120,7 +120,7 @@ step android install_android_sdk &
 step flathub add_flathub &
 wait
 
-cat >/etc/profile.d/libreserv.sh <<EOF
+cat >/etc/profile.d/sol.sh <<EOF
 export ANDROID_HOME=$ANDROID_SDK
 export ANDROID_SDK_ROOT=$ANDROID_SDK
 export XDG_RUNTIME_DIR=/run/user/0

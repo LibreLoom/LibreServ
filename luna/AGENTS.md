@@ -81,7 +81,7 @@ live in `connect/deploy/` — note `deploy.sh` resolves repo root three levels u
   `_KEY_PASSWORD`). Unset → unsigned release APK (what F-Droid needs).
 - **Versioning:** `versionCode`/`versionName` are plain literals — F-Droid's
   checker parses them at each `luna-v*` tag. Bump `versionCode` for every
-  release that ships the app; `release.sh` warns when it hasn't moved.
+  release that ships the app; `./release` warns when it hasn't moved.
 - Details: `mobile/README.md`.
 
 ## Key Notes
