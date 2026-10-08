@@ -278,11 +278,11 @@ class VM:
         return False
 
     # -- hotplug -----------------------------------------------------------
-    def usb_add(self, ident, file, fmt="raw"):
+    def usb_add(self, ident, file, fmt="raw", removable=True):
         if not self.xhci:
             raise RuntimeError("VM was started without a USB controller (give it a usb disk or -device qemu-xhci,id=xhci)")
         self.hmp(f"drive_add 0 if=none,id={ident},file={file},format={fmt}")
-        return self.hmp(f"device_add usb-storage,id=dev-{ident},drive={ident},bus=xhci.0")
+        return self.hmp(f"device_add usb-storage,id=dev-{ident},drive={ident},bus=xhci.0,removable={'on' if removable else 'off'}")
 
     def usb_del(self, ident):
         r = self.hmp(f"device_del dev-{ident}")

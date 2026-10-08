@@ -127,11 +127,19 @@ chmod +x "$ROOTFS/usr/local/sbin/luna-run"
 cat > "$ROOTFS/etc/init.d/luna" <<'INIT'
 #!/sbin/openrc-run
 description="Luna file server"
+# supervise-daemon restarts lunad if it crashes, and after an update that makes
+# it exit so the new binary starts (a lunad-only update just exits).
+supervisor="supervise-daemon"
 command="/usr/local/sbin/luna-run"
-command_args=""
-command_background="yes"
 pidfile="/run/luna.pid"
-start_stop_daemon_args="--env LUNA_DATA_DIR=/var/lib/luna --env LUNA_PORT=80 --env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+respawn_delay=2
+respawn_max=0
+respawn_period=60
+# lunad logs to stdout; without this the log goes nowhere. /var/log is tmpfs
+# (see fstab), so it is gone after a reboot and rotated while running.
+output_log="/var/log/luna.log"
+error_log="/var/log/luna.log"
+supervise_daemon_args="--env LUNA_DATA_DIR=/var/lib/luna --env LUNA_PORT=80 --env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 depend() {
     need localmount luna-root-ro
     # HTTP must not wait on mDNS — avahi can start in parallel.
@@ -146,6 +154,23 @@ start_pre() {
 }
 INIT
 chmod +x "$ROOTFS/etc/init.d/luna"
+
+# Keep Luna's log from filling the 32 MB /var/log tmpfs: rotate hourly by size.
+mkdir -p "$ROOTFS/etc/logrotate.d" "$ROOTFS/etc/periodic/hourly"
+cat > "$ROOTFS/etc/logrotate.d/luna" <<'LOGROTATE'
+/var/log/luna.log {
+    size 2M
+    rotate 2
+    copytruncate
+    missingok
+    notifempty
+}
+LOGROTATE
+cat > "$ROOTFS/etc/periodic/hourly/luna-logrotate" <<'HOURLY'
+#!/bin/sh
+exec /usr/sbin/logrotate /etc/logrotate.conf
+HOURLY
+chmod +x "$ROOTFS/etc/periodic/hourly/luna-logrotate"
 
 # Parallel OpenRC so luna-input / luna-network / chronyd / avahi / luna overlap.
 printf 'rc_parallel="YES"\n' > "$ROOTFS/etc/rc.conf"

@@ -417,34 +417,169 @@ def detected(lu, pred=lambda d: True, timeout=40):
     return []
 
 
-def part_drives(vm, lu, fx):
-    say("-- drives")
+def detected_names(lu):
     c, b = lu.get("/api/v1/drives/detected")
-    show("detected at start", (c, b))
-    lu_member_blocked = None
+    return {d["name"]: d for d in b} if c == 200 and isinstance(b, list) else {}
+
+
+def plug(vm, lu, ident, img, **kw):
+    """Plug a fixture in; returns the new detected-drive dict (or None)."""
+    before = set(detected_names(lu))
+    vm.usb_add(ident, img, **kw)
+    end = time.time() + 45
+    while time.time() < end:
+        now = detected_names(lu)
+        new = [d for n, d in now.items() if n not in before]
+        if new:
+            return new[0]
+        time.sleep(2)
+    return None
+
+
+def unplug(vm, lu, ident, name, timeout=30):
+    vm.usb_del(ident)
+    end = time.time() + timeout
+    while time.time() < end:
+        c, b = lu.get("/api/v1/drives/detected")
+        if name not in detected_names(lu):
+            return True
+        time.sleep(2)
+    return False
+
+
+def image_root_listing(kind, path):
+    if kind == "fat32":
+        out = sh(f"MTOOLS_SKIP_CHECK=1 mdir -/ -b -a -i {path} ::", check_rc=False)
+        return sorted(l.strip().lstrip(":/") for l in out.split("\n") if l.strip())
+    out = sh(f"debugfs -R 'ls -p /' {path} 2>/dev/null", check_rc=False)
+    return sorted(l.split("/")[5] for l in out.split("\n") if l.count("/") >= 6 and l.split("/")[5] not in (".", "..", "lost+found"))
+
+
+def drive_row(lu, drive_id):
+    c, b = lu.get("/api/v1/drives")
+    return next((d for d in b if d["id"] == drive_id), None) if c == 200 else None
+
+
+def part_drives(vm, lu, fx):
+    say("-- drives: preview, add, eject, unplug, replug")
+    adopted = {}
     for kind in ("fat32", "ext4"):
         ident = f"u-{kind}"
-        vm.usb_add(ident, fx[kind])
-        found = detected(lu, lambda d: d.get("usb") and d["name"] not in seen_names(lu, kind))
-        show(f"detected {kind}", (200, found))
-        check(f"{kind} stick shows up as a USB drive", bool(found))
-        if not found:
+        d = plug(vm, lu, ident, fx[kind])
+        check(f"[{kind}] stick shows up in Add drive", d is not None)
+        if not d:
             continue
-        d = found[0]
-        check(f"{kind}: size is about 256 MB", 200e6 < d["size_bytes"] < 300e6, str(d))
+        check(f"[{kind}] size and removable flag are right", 200e6 < d["size_bytes"] < 300e6 and d["removable"], str(d))
+        before = image_root_listing(kind, fx[kind])
         c, b = lu.get(f"/api/v1/drives/{d['name']}/peek")
-        show(f"peek {kind}", (c, b))
-        check(f"{kind}: preview lists the stick's contents without changing it", c == 200 and b.get("readable") and b.get("files", 0) >= 1, str(b))
-        check(f"{kind}: preview knows it is not a Luna drive yet", c == 200 and b.get("has_marker") is False, str(b))
-        vm.usb_del(ident)
-        time.sleep(3)
+        check(f"[{kind}] preview shows the stick's own files", c == 200 and b.get("readable") and b.get("files", 0) == 1 and b.get("folders") == 1, str(b))
+        check(f"[{kind}] preview says it is not a Luna drive yet", c == 200 and b.get("has_marker") is False, str(b))
+        check(f"[{kind}] preview wrote nothing to the stick", image_root_listing(kind, fx[kind]) == before, str(image_root_listing(kind, fx[kind])))
+        c, b = lu.post(f"/api/v1/drives/{d['name']}/inspect")
+        check(f"[{kind}] inspect reads the stick", c == 200 and b.get("readable") and b.get("fs_type"), str(b))
+        c, b = lu.post(f"/api/v1/drives/{d['name']}/adopt", {"label": "", "erase": False})
+        check(f"[{kind}] an empty drive name is refused", c == 400, f"{c} {b}")
+        c, b = lu.post(f"/api/v1/drives/{d['name']}/adopt", {"label": f"My {kind}", "erase": False})
+        check(f"[{kind}] stick is added", c == 200 and b.get("id"), f"{c} {b}")
+        if c != 200:
+            continue
+        adopted[kind] = b["id"]
+        check(f"[{kind}] drive is ready and mounted", b.get("state") in ("as_is", "ready") and b.get("mount_point"), str(b))
+        check(f"[{kind}] it left the Add drive list", d["name"] not in detected_names(lu))
+        c, ls = lu.get(f"/api/v1/drives/{b['id']}/files")
+        names = sorted(e["name"] for e in ls if not e.get("hidden")) if isinstance(ls, list) else []
+        check(f"[{kind}] its own files are listed, Luna's bookkeeping file is hidden",
+              c == 200 and "hello.txt" in names and "Photos" in names and not any(n.startswith(".luna") for n in names), str(ls)[:300])
+        check(f"[{kind}] no 'lost+found' folder is shown to the person", "lost+found" not in names, str(names))
+    return adopted
 
 
-_seen = {}
+import blake3
+import hashlib
+from urllib.parse import quote
 
 
-def seen_names(lu, kind):
-    return _seen.setdefault(kind, set())
+def file_names(lu, drive, path=""):
+    c, ls = lu.get(f"/api/v1/drives/{drive}/files?path={quote(path)}")
+    return (c, sorted(e["name"] for e in ls) if isinstance(ls, list) else ls)
+
+
+def upload(lu, drive, name, data, path="", chunk=4 * 1024 * 1024, stop_after=None, upload_id=None, hash_ok=True):
+    """Chunked upload as the web app does it. Returns (status, body, upload_id)."""
+    total = len(data)
+    c, b = lu.post("/api/v1/uploads", {"drive_id": drive, "path": path, "name": name, "size": total})
+    if c != 200:
+        return c, b, None
+    uid = b["upload_id"]
+    off = b.get("received", 0)
+    sent = 0
+    while off < total:
+        end = min(off + chunk, total)
+        c, r = lu.req("PUT", f"/api/v1/uploads/{uid}", data[off:end],
+                      headers={"Content-Range": f"bytes {off}-{end - 1}/{total}", "Content-Type": "application/octet-stream"}, timeout=120)
+        if c != 200:
+            return c, r, uid
+        off = end
+        sent += 1
+        if stop_after and sent >= stop_after:
+            return 0, "stopped on purpose", uid
+    c, r = lu.post(f"/api/v1/uploads/{uid}/complete?hash={blake3.blake3(data).hexdigest() if hash_ok else '0' * 64}")
+    return c, r, uid
+
+
+def download(lu, drive, path, rng=None):
+    h = {"Range": rng} if rng else None
+    return lu.get(f"/api/v1/drives/{drive}/files/content?path={quote(path)}&download=1", raw=True, headers=h, timeout=120)
+
+
+def part_files(vm, lu, drive, kind):
+    say(f"-- files on the {kind} drive")
+    D = drive
+    T = f"[{kind}] "
+    c, b = lu.post(f"/api/v1/drives/{D}/files/mkdir", {"path": "Docs"})
+    check(T + "make a folder", c in (200, 201), f"{c} {b}")
+    c, b = lu.post(f"/api/v1/drives/{D}/files/mkdir", {"path": "Docs"})
+    check(T + "making the same folder again is refused plainly", c in (400, 409) and isinstance(b, dict) and b.get("error"), f"{c} {b}")
+    c, b = lu.post(f"/api/v1/drives/{D}/files/mkdir", {"path": "Docs/Deep/Er"})
+    check(T + "making a folder under a missing parent is refused", c in (400, 404), f"{c} {b}")
+    for bad in ("../escape", "/etc/evil", "Docs/../../x", "a\\x", "bad\x00name"):
+        c, b = lu.post(f"/api/v1/drives/{D}/files/mkdir", {"path": bad})
+        check(T + f"unsafe folder path {bad!r} is refused", c in (400, 403, 404, 422), f"{c} {b}")
+    c, b = lu.post(f"/api/v1/drives/{D}/files/mkdir", {"path": "Docs/Fotos \u00e4\u00f6\u00fc \u2603 caf\u00e9"})
+    check(T + "unicode folder name works", c in (200, 201), f"{c} {b}")
+    c, b = lu.post(f"/api/v1/drives/{D}/files/mkdir", {"path": "x" * 300})
+    check(T + "a 300-character name is refused, not a crash", c in (400, 413, 422), f"{c} {b}")
+    c, b = lu.post(f"/api/v1/drives/{D}/files/create", {"path": "Docs/empty.txt"})
+    check(T + "create an empty file", c in (200, 201), f"{c} {b}")
+    # small upload round trip
+    data = os.urandom(3 * 1024 * 1024 + 17)
+    c, b, uid = upload(lu, D, "photo.bin", data, path="Docs", chunk=1024 * 1024)
+    check(T + "3 MB upload in chunks, hash checked", c == 200, f"{c} {b}")
+    if c != 200:
+        say("    lunad log tail:\n" + vm.sh("ls /var/lib/luna/logs; tail -n 25 /var/lib/luna/logs/* 2>&1 | cut -c1-300")[1])
+    c, got = download(lu, D, "Docs/photo.bin")
+    check(T + "download matches the upload byte for byte", c == 200 and got == data, f"{c} {len(got) if isinstance(got, bytes) else got}")
+    c, got = download(lu, D, "Docs/photo.bin", "bytes=1000-1999")
+    check(T + "ranged download returns exactly that slice", c == 206 and got == data[1000:2000], f"{c} {len(got) if isinstance(got, bytes) else got}")
+    c, b, _ = upload(lu, D, "photo.bin", os.urandom(1000), path="Docs")
+    check(T + "uploading a name that exists does not overwrite silently", c in (400, 409), f"{c} {b}")
+    c, ls = file_names(lu, D, "Docs")
+    check(T + "listing shows the new files", "photo.bin" in ls and "empty.txt" in ls, str(ls))
+    c, b = lu.post(f"/api/v1/drives/{D}/files/rename", {"path": "Docs/photo.bin", "new_name": "holiday.bin"})
+    check(T + "rename a file", c == 200, f"{c} {b}")
+    c, got = download(lu, D, "Docs/holiday.bin")
+    check(T + "renamed file keeps its content", c == 200 and got == data)
+    c, b = lu.post(f"/api/v1/drives/{D}/files/rename", {"path": "Docs/holiday.bin", "new_name": "empty.txt"})
+    check(T + "renaming onto an existing name is refused", c in (400, 409), f"{c} {b}")
+    c, b = lu.post(f"/api/v1/drives/{D}/files/rename", {"path": "Docs/holiday.bin", "new_name": "a/b"})
+    check(T + "a name with a slash is refused", c in (400, 422), f"{c} {b}")
+    c, b = lu.req("DELETE", f"/api/v1/drives/{D}/files?path={quote('Docs/holiday.bin')}")
+    check(T + "delete moves the file to the trash", c == 200, f"{c} {b}")
+    c, ls = file_names(lu, D, "Docs")
+    check(T + "deleted file is gone from the folder", c == 200 and "holiday.bin" not in ls, str(ls))
+    c, tr = lu.get(f"/api/v1/drives/{D}/files?path=.trash")
+    show("trash", (c, str(tr)[:200]))
+    return data
 
 
 def stage_flow():
@@ -453,7 +588,10 @@ def stage_flow():
     check("web UI answers", lu.wait_up(240))
     part_setup(vm, lu)
     fx = make_fixtures()
-    part_drives(vm, lu, fx)
+    adopted = part_drives(vm, lu, fx)
+    for kind, did in adopted.items():
+        part_files(vm, lu, did, kind)
+        break
     vm.quit()
 
 

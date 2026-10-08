@@ -2345,6 +2345,27 @@ pub(crate) fn map_files_err(err: FilesError) -> (StatusCode, Json<Value>) {
         FilesError::Io(e) if e.kind() == std::io::ErrorKind::InvalidInput => {
             json_error(StatusCode::BAD_REQUEST, "Luna can't open that path.")
         }
+        // A name the drive itself refuses (too long, or characters its
+        // format can't hold) is the name's fault, not the drive's.
+        FilesError::Io(e) if e.kind() == std::io::ErrorKind::InvalidFilename => json_error(
+            StatusCode::BAD_REQUEST,
+            "This drive can't use that name. Try a shorter name without special characters.",
+        ),
+        FilesError::Io(e)
+            if matches!(
+                e.kind(),
+                std::io::ErrorKind::StorageFull | std::io::ErrorKind::QuotaExceeded
+            ) =>
+        {
+            json_error(
+                StatusCode::INSUFFICIENT_STORAGE,
+                "This drive is full. Free up some space and try again.",
+            )
+        }
+        FilesError::Io(e) if e.kind() == std::io::ErrorKind::ReadOnlyFilesystem => json_error(
+            StatusCode::CONFLICT,
+            "This drive is read-only right now, so Luna can't change it.",
+        ),
         _ => json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Luna couldn't read this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in.",

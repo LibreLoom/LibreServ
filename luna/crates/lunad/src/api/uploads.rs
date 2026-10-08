@@ -299,6 +299,30 @@ fn map_upload_err(err: UploadError) -> (StatusCode, Json<Value>) {
             StatusCode::FORBIDDEN,
             "You don't have permission to upload here.",
         ),
+        // Bytes arrived but don't match the checksum the browser sent.
+        UploadError::Io(e) if e.kind() == std::io::ErrorKind::InvalidData => json_error(
+            StatusCode::BAD_REQUEST,
+            "The file arrived damaged. Upload it again.",
+        ),
+        UploadError::Io(e) | UploadError::Files(crate::files::FilesError::Io(e))
+            if matches!(
+                e.kind(),
+                std::io::ErrorKind::StorageFull | std::io::ErrorKind::QuotaExceeded
+            ) =>
+        {
+            json_error(
+                StatusCode::INSUFFICIENT_STORAGE,
+                "This drive is full. Free up some space and try again.",
+            )
+        }
+        UploadError::Io(e) | UploadError::Files(crate::files::FilesError::Io(e))
+            if e.kind() == std::io::ErrorKind::InvalidFilename =>
+        {
+            json_error(
+                StatusCode::BAD_REQUEST,
+                "This drive can't use that name. Try a shorter name without special characters.",
+            )
+        }
         _ => json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Luna couldn't finish this upload. Check the drive and try again.",

@@ -406,7 +406,7 @@ pub fn read_dir_entries_in(
             None
         };
         entries.push(FileEntry {
-            hidden: shown.starts_with('.'),
+            hidden: luna_core::scan::is_hidden_name(shown),
             name: shown.to_string(),
             kind: kind.to_string(),
             size: meta.len(),

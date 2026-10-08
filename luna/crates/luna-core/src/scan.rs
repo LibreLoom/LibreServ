@@ -26,10 +26,16 @@ pub struct TopLevelSummary {
     pub entries: Vec<TopLevelEntry>,
 }
 
+/// Names a person never meant to see: dotfiles, and `lost+found`, the
+/// recovery folder every ext4 drive carries.
+pub fn is_hidden_name(name: &str) -> bool {
+    name.starts_with('.') || name == "lost+found"
+}
+
 /// Scan only the immediate children of `root` (no recursion).
 ///
 /// Any entry that cannot be stat'ed is counted as `unreadable` and reported,
-/// never skipped silently. Hidden names (leading `.`) are counted but omitted
+/// never skipped silently. Hidden names (see [`is_hidden_name`]) are counted but omitted
 /// from [`TopLevelSummary::entries`] so the preview matches what people expect.
 pub fn scan_top_level(root: &Path) -> TopLevelSummary {
     let mut summary = TopLevelSummary::default();
@@ -48,7 +54,7 @@ pub fn scan_top_level(root: &Path) -> TopLevelSummary {
                 continue;
             }
         };
-        let hidden = name.starts_with('.');
+        let hidden = is_hidden_name(&name);
         match entry.file_type() {
             Ok(ft) if ft.is_dir() => {
                 summary.folders += 1;
@@ -160,6 +166,17 @@ mod tests {
                 },
             ]
         );
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn preview_hides_the_ext4_recovery_folder() {
+        let root = temp_dir();
+        fs::create_dir(root.join("lost+found")).unwrap();
+        fs::create_dir(root.join("Photos")).unwrap();
+        let s = scan_top_level(&root);
+        assert_eq!(s.entries.len(), 1);
+        assert_eq!(s.entries[0].name, "Photos");
         fs::remove_dir_all(&root).unwrap();
     }
 
