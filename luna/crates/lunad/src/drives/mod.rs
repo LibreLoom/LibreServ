@@ -1042,6 +1042,11 @@ fn is_system_mountpoint(path: &Path) -> bool {
     let Some(s) = path.to_str() else {
         return true;
     };
+    // Desktop automounters put removable media under /run/media and /media.
+    // Those are USB sticks, not the OS, even though /run is a system path.
+    if s.starts_with("/run/media/") || s.starts_with("/media/") {
+        return false;
+    }
     matches!(
         s,
         "/" | "/boot"
@@ -1116,6 +1121,15 @@ mod tests {
     use super::*;
     use crate::drives::fsprobe::MockFsProbe;
     use crate::drives::mount::shared_mock;
+
+    #[test]
+    fn desktop_automount_paths_are_not_system_mountpoints() {
+        assert!(!is_system_mountpoint(Path::new("/run/media/max/GENERAL UDISK")));
+        assert!(!is_system_mountpoint(Path::new("/media/max/stick")));
+        assert!(is_system_mountpoint(Path::new("/run")));
+        assert!(is_system_mountpoint(Path::new("/run/user/1000")));
+        assert!(is_system_mountpoint(Path::new("/")));
+    }
 
     fn detected(name: &str, mount: Option<&str>) -> DetectedDrive {
         DetectedDrive {
