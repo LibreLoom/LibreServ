@@ -459,16 +459,15 @@ pub fn note_write_at(drive: &DriveRow, drive_id: &str, api_rel: &str) {
     let _ = index::forget_dir_tree(&dconn, drive_id, &rel);
 }
 
-/// If a write failed because the drive is full or read-only, transition the
-/// drive to `readonly` so every later attempt fails fast and the UI can say
-/// what happened in plain language.
+/// If a write failed because the drive is read-only, transition the drive to
+/// `readonly` so every later attempt fails fast and the UI can say what
+/// happened in plain language. A merely full drive stays as it is: it is not
+/// read-only, the request already says "This drive is full", and the drive
+/// is fine again the moment something is deleted (the periodic check would
+/// otherwise keep calling it read-only for up to a quarter of an hour).
 pub fn note_write_failure(conn: &rusqlite::Connection, drive_id: &str, error: &str) {
     let lower = error.to_ascii_lowercase();
-    if lower.contains("no space")
-        || lower.contains("read-only")
-        || lower.contains("readonly")
-        || lower.contains("disk full")
-    {
+    if lower.contains("read-only") || lower.contains("readonly") {
         let _ = crate::db::set_drive_state(conn, drive_id, "readonly");
     }
 }
