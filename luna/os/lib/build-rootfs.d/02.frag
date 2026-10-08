@@ -42,6 +42,15 @@ for iface_path in /sys/class/net/*; do
         udhcpc -i "$iface" -q -n -t 3 2>/dev/null || true
     fi
 done
+
+# /etc/resolv.conf points at /run/resolv.conf, which is empty at every boot.
+# udhcpc fills it only when the lease lists DNS servers, so without one
+# (unplugged cable, router with no DNS) Luna could not resolve any name. The
+# fallback is replaced by the next lease that carries servers.
+resolv="${LUNA_RESOLV_CONF:-/run/resolv.conf}"
+if ! grep -q '^nameserver ' "$resolv" 2>/dev/null; then
+    printf 'nameserver 1.1.1.1\nnameserver 9.9.9.9\n' > "$resolv" 2>/dev/null || true
+fi
 INIT
 chmod +x "$ROOTFS/usr/local/bin/luna-network-up"
 

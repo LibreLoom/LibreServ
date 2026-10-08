@@ -78,4 +78,12 @@ printf 'Luna\n' > "$ROOTFS/etc/hostname"
 printf '127.0.0.1 luna localhost\n::1 luna localhost\n' > "$ROOTFS/etc/hosts"
 printf 'hostname="luna"\n' > "$ROOTFS/etc/conf.d/hostname"
 
+# The root is read-only, so DNS lives in /run (tmpfs): udhcpc's script writes
+# RESOLV_CONF, and /etc/resolv.conf is the path every resolver reads.
+# luna-network-up seeds /run/resolv.conf when DHCP leaves it without servers.
+mkdir -p "$ROOTFS/etc/udhcpc"
+printf 'RESOLV_CONF=/run/resolv.conf\n' >> "$ROOTFS/etc/udhcpc/udhcpc.conf"
+rm -f "$ROOTFS/etc/resolv.conf"
+ln -s /run/resolv.conf "$ROOTFS/etc/resolv.conf"
+
 # tty1 luna-console for status + shell login (root / luna). Device token + IP help is

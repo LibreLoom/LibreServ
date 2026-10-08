@@ -222,4 +222,39 @@ STUB
 	cmp -s "$cached" "$T/good" || { echo "FAIL: a bad cache entry must be replaced" >&2; exit 1; }
 )
 
+# DNS on a read-only root: udhcpc writes /run/resolv.conf (tmpfs), /etc/resolv.conf
+# is a symlink to it, and luna-network-up seeds a fallback when DHCP gave no servers.
+assert_file_has "$BUILD" "RESOLV_CONF=/run/resolv.conf" \
+	"udhcpc must write resolv.conf to tmpfs; the root is read-only"
+assert_file_has "$BUILD" 'ln -s /run/resolv.conf "$ROOTFS/etc/resolv.conf"' \
+	"/etc/resolv.conf must point at the writable /run/resolv.conf"
+assert_file_has "$BUILD" 'nameserver 1.1.1.1' \
+	"luna-network-up must seed a fallback DNS server"
+
+(
+	T="$(mktemp -d)"
+	trap 'rm -rf "$T"' EXIT INT
+	# luna-network-up as shipped, with every command it calls stubbed out.
+	sed -n "/luna-network-up\" <<'INIT'\$/,/^INIT\$/p" "$FRAGS/02.frag" | sed '1d;$d' >"$T/up"
+	[ -s "$T/up" ] || { echo "FAIL: cannot find luna-network-up in 02.frag" >&2; exit 1; }
+	mkdir "$T/bin"
+	for c in modprobe ip udhcpc; do printf '#!/bin/sh\nexit 0\n' >"$T/bin/$c"; chmod +x "$T/bin/$c"; done
+	run_up() { PATH="$T/bin:$PATH" LUNA_RESOLV_CONF="$T/resolv.conf" sh "$T/up"; }
+
+	rm -f "$T/resolv.conf"
+	run_up
+	grep -qx 'nameserver 1.1.1.1' "$T/resolv.conf" && grep -qx 'nameserver 9.9.9.9' "$T/resolv.conf" || {
+		echo "FAIL: a missing resolv.conf must be seeded with the fallback servers" >&2; exit 1; }
+
+	: >"$T/resolv.conf"
+	run_up
+	grep -qx 'nameserver 1.1.1.1' "$T/resolv.conf" || {
+		echo "FAIL: an empty resolv.conf must be seeded with the fallback servers" >&2; exit 1; }
+
+	printf 'search lan\nnameserver 192.168.1.1\n' >"$T/resolv.conf"
+	run_up
+	[ "$(cat "$T/resolv.conf")" = "$(printf 'search lan\nnameserver 192.168.1.1')" ] || {
+		echo "FAIL: DNS servers from DHCP must not be overwritten by the fallback" >&2; exit 1; }
+)
+
 echo "rootfs_test ok"

@@ -24,6 +24,7 @@ support call later.
 ## 2. First boot
 - [ ] Power on from eMMC; front LED is lit; no smoke
 - [ ] `ping luna.local` answers from the LAN
+- [ ] On the console, `cat /etc/resolv.conf` lists a `nameserver` and `ping -c1 example.com` answers (root is read-only; the file is a link to `/run/resolv.conf`)
 - [ ] `http://luna.local` opens the setup wizard (maybe)
 - [ ] HDMI shows the current IPv4 (or waiting-for-address) and device token (including after setup / Connect claim)
 
