@@ -1129,17 +1129,17 @@ def stage_installer_prompts():
                         {"file": b, "bus": "sata"}, {"file": a, "bus": "sata"}],
             firmware="bios", mem=2048, extra=["-no-reboot"])
     vm.start()
-    check("two internal disks: the installer picks the smaller one", vm.wait_screen(r"Installing to /dev/sd[bc] \(", 180))
-    txt = vm.ocr("prompts-1")
-    say("    " + txt.strip().replace("\n", "\n    ")[-500:])
-    # press a key during the five-second countdown to choose another disk (reading the screen
-    # takes longer than the countdown, so press repeatedly from the moment the line appears)
-    for _ in range(10):
+    # The countdown is five seconds and reading the screen takes about three, so press
+    # right away, repeatedly, and only then look at what the screen says.
+    seen = vm.wait_screen(r"Installing to /dev/sd[a-d] \(7168", 180, interval=1)
+    for _ in range(12):
         vm.key("spc")
-        time.sleep(0.5)
+        time.sleep(0.4)
+    check("two internal disks: the installer picks the smaller one", seen)
     check("pressing a key opens the numbered disk list", vm.wait_screen(r"Press a number|Number:", 60))
     txt = vm.ocr("prompts-2")
-    check("the list names both internal disks and not the stick", "/dev/sdb" in txt and "/dev/sdc" in txt and "/dev/sda" not in txt.split("Number")[0].split("1)")[-1] or True, txt[-500:])
+    # (kernel names depend on probe order; the sizes tell the two built-in disks apart)
+    check("the list names both internal disks", "7168" in txt and "9216" in txt, txt[-500:])
     vm.key("1")
     check("after choosing, it asks for confirmation", vm.wait_screen(r"Type INSTALL|Confirm", 60))
     vm.type("install\n")
