@@ -70,7 +70,7 @@ class VM:
     """One QEMU machine. disks: dicts with file, fmt, bus (virtio|sata|nvme|mmc|usb)."""
 
     def __init__(self, name, disks, firmware="bios", http_port=None, mem=1536, kernel=None,
-                 initrd=None, append=None, net=True, extra=(), xhci=False):
+                 initrd=None, append=None, net=True, extra=(), xhci=False, smp=2, cpus=None):
         self.name = name
         self.http_port = http_port
         self.mon_path = f"{WORK}/{name}.mon"
@@ -79,7 +79,8 @@ class VM:
         self.proc = None
         self.mon = None
         self.n = 0
-        a = ["qemu-system-x86_64", "-machine", "q35", "-m", str(mem), "-smp", "2",
+        a = (["taskset", "-c", cpus] if cpus else []) + [
+             "qemu-system-x86_64", "-machine", "q35", "-m", str(mem), "-smp", str(smp),
              "-display", "none", "-vga", "std", "-name", name]
         if KVM:
             a += ["-enable-kvm", "-cpu", "host"]
@@ -113,6 +114,9 @@ class VM:
         i = f"d{self.n}"
         fmt = d.get("fmt", "raw")
         ro = ",readonly=on" if d.get("readonly") else ""
+        if d.get("throttle"):  # bytes/s read,write: a slow eMMC chip
+            r_, w_ = d["throttle"]
+            ro += f",throttling.bps-read={r_},throttling.bps-write={w_}"
         a = ["-drive", f"if=none,id={i},file={d['file']},format={fmt}{ro}"]
         bus = d.get("bus", "virtio")
         bi = f",bootindex={d['bootindex']}" if "bootindex" in d else ""

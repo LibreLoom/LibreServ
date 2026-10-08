@@ -1186,6 +1186,153 @@ def stage_matrix():
         vm.quit()
 
 
+def make_library(path, folders=200, per=100, photos=300):
+    """A big, messy drive: tens of thousands of small files and a few hundred photos, like a
+    real family hard drive. Built with mke2fs -d so no mount is needed."""
+    from PIL import Image, ImageDraw
+    tree = f"{WORK}/fx/library-tree"
+    shutil.rmtree(tree, ignore_errors=True)
+    os.makedirs(f"{tree}/Photos")
+    for f in range(folders):
+        d = f"{tree}/Documents/folder {f:03d}"
+        os.makedirs(d)
+        for i in range(per):
+            open(f"{d}/note-{i:03d} \u00e9\u00fc.txt", "w").write(f"file {f}/{i}\n" * 20)
+    for i in range(photos):
+        im = Image.new("RGB", (2400, 1600), (i % 255, (i * 7) % 255, (i * 13) % 255))
+        ImageDraw.Draw(im).text((50, 50), f"photo {i}", fill=(255, 255, 255))
+        im.save(f"{tree}/Photos/IMG_{i:04d}.jpg", quality=88)
+    sh(f"rm -f {path}; truncate -s 3G {path}; mke2fs -q -t ext4 -m 0 -L FAMILY -d {tree} {path}")
+    shutil.rmtree(tree, ignore_errors=True)
+
+
+def mem_of(vm):
+    rc, o = vm.sh("grep -E 'MemAvailable|SwapFree' /proc/meminfo; p=$(pidof lunad | cut -d' ' -f1); grep -E 'VmRSS|VmHWM' /proc/$p/status")
+    g = {k: int(v) for k, v in re.findall(r"(\w+):\s+(\d+) kB", o)}
+    return g
+
+
+def stage_wyse():
+    """A Dell Wyse 3040 in miniature: 2 GB of RAM, four slow cores, an 8 GB eMMC with a slow chip,
+    and a big family drive on USB. Looks for out-of-memory, slow starts and false rollbacks."""
+    say("-- Wyse 3040 profile")
+    if not os.path.exists(f"{WORK}/golden-mmc.raw"):
+        stage_install("mmc", "bios")
+    lib = f"{WORK}/fx/library.img"
+    if not os.path.exists(lib):
+        say("    building the family drive (about 20 000 files and 300 photos)")
+        os.makedirs(f"{WORK}/fx", exist_ok=True)
+        make_library(lib)
+    g = f"{WORK}/golden-mmc.raw"
+    serial_console_for_tests(g)
+    point_at_mock_connect(g)
+    start_mock_connect()
+    ov = overlay(g, "wyse")
+    vm = VM("wyse", [{"file": ov, "fmt": "qcow2", "bus": "mmc", "bootindex": 0, "throttle": (90_000_000, 30_000_000)}],
+            http_port=18080, mem=1900, smp=4, cpus="0,1", xhci=True)
+    vm.start()
+    lu = Luna(18080)
+    t0 = time.time()
+    check("[wyse] web UI answers after power-on", lu.wait_up(300))
+    boot_s = time.time() - t0
+    say(f"    time to first answer: {boot_s:.0f}s")
+    check("[wyse] boot takes under 2 minutes on the slow chip", boot_s < 120, f"{boot_s:.0f}s")
+    time.sleep(10)
+    rc, o = vm.sh("cat /run/luna/boot-ok >/dev/null && echo yes")
+    check("[wyse] the boot was confirmed", "yes" in o, o)
+    rc, o = vm.sh("df -k / /var/lib/luna | tail -2")
+    say(f"    disk: {o}")
+    rc, o = vm.sh("df -k /var/lib/luna | tail -1")
+    free_data = int(o.split()[3]) * 1024 if o.split()[3:4] else 0
+    check("[wyse] the data partition has room for an OS update download (> 1 GB free)", free_data > 1e9, o)
+    m0 = mem_of(vm)
+    say(f"    idle memory: {m0}")
+    check("[wyse] idle: more than 1 GB of memory is free", m0.get("MemAvailable", 0) > 1_000_000, str(m0))
+    lu.post("/api/v1/auth/register", ADMIN)
+    check("[wyse] admin signs in", login_admin(lu))
+    lu.post("/api/v1/setup", {"setup_completed": True, "current_step": "done"})
+    img = f"{WORK}/library.run.img"
+    sh(f"cp --sparse=always {lib} {img}")
+    vm.usb_add("u-lib", img)
+    d = detected(lu, lambda x: True, 90)
+    check("[wyse] the family drive is detected", bool(d))
+    if not d:
+        vm.quit()
+        return
+    t1 = time.time()
+    c, b = lu.post(f"/api/v1/drives/{d[0]['name']}/adopt", {"label": "Family", "erase": False}, timeout=120)
+    D = b.get("id") if isinstance(b, dict) else None
+    check("[wyse] the family drive is added", c == 200 and D, f"{c} {b}")
+    say(f"    adopting took {time.time() - t1:.0f}s")
+    peak_rss = 0
+    min_avail = 10**9
+    end = time.time() + 900
+    last = None
+    while time.time() < end:
+        mm = mem_of(vm)
+        peak_rss = max(peak_rss, mm.get("VmHWM", 0))
+        min_avail = min(min_avail, mm.get("MemAvailable", 10**9))
+        c, st = lu.get("/api/v1/gallery/status", timeout=60)
+        last = st
+        if isinstance(st, dict) and not st.get("busy") and st.get("pending", 0) == 0:
+            break
+        time.sleep(10)
+    say(f"    the scan took {time.time() - t1:.0f}s; last status {last}")
+    say(f"    lunad peak {peak_rss // 1024} MB; least free memory {min_avail // 1024} MB")
+    check("[wyse] the photo scan finishes on its own", isinstance(last, dict) and not last.get("busy"), str(last))
+    check("[wyse] lunad stays under 600 MB while scanning", peak_rss < 600_000, f"{peak_rss} kB")
+    check("[wyse] the box never runs short of memory (> 150 MB free at the low point)", min_avail > 150_000, f"{min_avail} kB")
+    rc, o = vm.sh("dmesg | grep -i -E 'out of memory|oom-kill|Killed process' | head -3")
+    check("[wyse] the kernel never killed anything for memory", o.strip() == "", o)
+    check("[wyse] the scan found all 300 photos", isinstance(last, dict) and last.get("found_count") == 300, str(last))
+    c, gal = lu.get("/api/v1/gallery?limit=500", timeout=60)
+    items = gal.get("items") if isinstance(gal, dict) else gal
+    check("[wyse] the gallery lists all 300 photos", isinstance(items, list) and len(items) == 300, str(len(items or [])))
+    # big folders and search must answer quickly enough for a person
+    t = time.time()
+    c, ls = lu.get(f"/api/v1/drives/{D}/files?path=Documents", timeout=60)
+    check("[wyse] a folder of 200 subfolders lists", c == 200 and isinstance(ls, list) and len(ls) == 200, f"{c} {str(ls)[:100]}")
+    say(f"    listing took {time.time() - t:.1f}s")
+    t = time.time()
+    c, ls = lu.get(f"/api/v1/drives/{D}/files?path={quote('Documents/folder 007')}", timeout=60)
+    check("[wyse] a folder of 100 files lists in under 3 s", c == 200 and isinstance(ls, list) and len(ls) == 100 and time.time() - t < 3, f"{c} {time.time() - t:.1f}s")
+    t = time.time()
+    c, sr = lu.get("/api/v1/search?q=note-042", timeout=60)
+    check("[wyse] search finds files among 20 000 in under 5 s", c == 200 and time.time() - t < 5, f"{c} {time.time() - t:.1f}s {str(sr)[:150]}")
+    say(f"    search took {time.time() - t:.1f}s")
+    # an upload while the box is busy, on the slow eMMC cache path
+    data = os.urandom(300 * 1024 * 1024)
+    t = time.time()
+    c, b, _ = upload(lu, D, "big-ish.bin", data, chunk=8 * 1024 * 1024)
+    check("[wyse] a 300 MB upload works with a full library on board", c == 200, f"{c} {b}")
+    say(f"    300 MB up in {time.time() - t:.0f}s")
+    mm = mem_of(vm)
+    check("[wyse] memory is back to calm after the upload (> 800 MB free)", mm.get("MemAvailable", 0) > 800_000, str(mm))
+    rc, o = vm.sh("rc-status -a | grep -c crashed")
+    check("[wyse] no service crashed", o.strip().endswith("0"), o)
+    # restart (QEMU's SD card cannot warm-reboot; real firmware re-inits it; hard power cuts live in `resilience`, on a raw disk):
+    # how long until healthy, and no false rollback
+    vm.hmp("system_powerdown")
+    check("[wyse] the power button shuts it down cleanly", vm.wait_exit(90))
+    vm.quit()
+    vm = VM("wyse", [{"file": ov, "fmt": "qcow2", "bus": "mmc", "bootindex": 0, "throttle": (90_000_000, 30_000_000)}],
+            http_port=18080, mem=1900, smp=4, cpus="0,1", xhci=True)
+    vm.start()
+    t = time.time()
+    check("[wyse] Luna comes back after a power cut", lu.wait_up(360))
+    say(f"    back after {time.time() - t:.0f}s")
+    # (QEMU's SD card ignores the boot order, so the drive is plugged in right after power-on)
+    vm.usb_add("u-lib", img)
+    time.sleep(10)
+    c, b = lu.post("/api/v1/auth/login", {"username": ADMIN["username"], "password": ADMIN["password"]})
+    check("[wyse] the admin can sign in", c == 200, f"{c} {b}")
+    check("[wyse] the drive is ready again by itself", wait_state(lu, D, "as_is", 120))
+    rc, o = vm.sh("cat /run/luna/boot-ok >/dev/null && echo yes")
+    check("[wyse] the boot was confirmed healthy", "yes" in o, o)
+    check("[wyse] it is still on slot A", slot_of(vm) == "A")
+    vm.quit()
+
+
 def make_media():
     """A JPEG with date and GPS, a PNG, a HEIC from a phone, a short video, and a text file."""
     from PIL import Image, ImageDraw
@@ -2223,6 +2370,7 @@ def stage(fn):
     return fn
 
 
+STAGES["wyse"] = stage_wyse
 STAGES["explore"] = stage_explore
 STAGES["boot"] = stage_boot
 STAGES["lab"] = stage_lab
@@ -2257,7 +2405,7 @@ def main():
     # lab/explore are for poking around; the install-<bus> stages run inside matrix.
     default = ["install-sata", "installer-safety", "installer-prompts", "installer-prod-bios", "installer-prod-uefi",
                "boot", "flow", "app", "eject-busy", "reset", "recovery", "resilience", "grub-fallback", "update", "update-powercut",
-               "matrix", "bigfiles"]
+               "matrix", "bigfiles", "wyse"]
     names = args or default
     for n in names:
         say(f"\n== {n}")
