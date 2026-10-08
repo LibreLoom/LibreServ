@@ -100,7 +100,7 @@ uninstalling first:
 
 - **F-Droid** (primary): F-Droid builds from source at our git tags and signs
   with their key. Their update checker reads `versionCode` from
-  `app/build.gradle.kts` at each `luna-v*` release tag and publishes a new
+  `app/build.gradle.kts` at each `luna-android/v*` release tag and publishes a new
   build automatically whenever it increases. Metadata for the fdroiddata
   merge request lives in `fdroid/net.plainskill.luna.yml`; the store listing
   text lives in `fastlane/metadata/android/`.
@@ -112,7 +112,7 @@ Versioning rules:
   literals on purpose** — F-Droid's update checker parses the file at each
   tag. Bump both before every release that ships the app (`versionCode` must
   strictly increase).
-- `./release` warns if `versionCode` hasn't moved since the last `luna-v*`
+- `./release` warns if `versionCode` hasn't moved since the last `luna-android/v*`
   tag — that's the bump reminder.
 
 Google Play is intentionally not used; Google's developer-verification

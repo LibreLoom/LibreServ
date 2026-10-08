@@ -73,14 +73,14 @@ live in `connect/deploy/` — note `deploy.sh` resolves repo root three levels u
 
 ## Mobile release & distribution
 
-- **Channels:** F-Droid (primary, they build+sign from `luna-v*` tags) and a
+- **Channels:** F-Droid (primary, they build+sign from `luna-android/v*` tags) and a
   self-signed APK on Forgejo releases. Two signatures — users can't switch
   channels without reinstalling.
 - **Signing:** env-gated `signingConfigs.release` in `app/build.gradle.kts`
   (`LUNA_ANDROID_KEYSTORE` / `_B64`, `_STORE_PASSWORD`, `_KEY_ALIAS`,
   `_KEY_PASSWORD`). Unset → unsigned release APK (what F-Droid needs).
 - **Versioning:** `versionCode`/`versionName` are plain literals — F-Droid's
-  checker parses them at each `luna-v*` tag. Bump `versionCode` for every
+  checker parses them at each `luna-android/v*` tag. Bump `versionCode` for every
   release that ships the app; `./release` warns when it hasn't moved.
 - Details: `mobile/README.md`.
 

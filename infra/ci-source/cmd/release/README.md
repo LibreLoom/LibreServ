@@ -14,7 +14,7 @@ Units, versions, tags, feed format and receiver rules:
 ```
 ./release                                  # TUI
 ./release build <unit>[:<part>…] [--head | --ref R] [--version V]
-./release cut <unit> <V | patch | minor | major | beta> [--channel] [--dry-run]
+./release cut <unit> --channel beta|stable [--bump patch|minor|major|beta | --version V] [--resume] [--rebuild] [--dry-run]
 ./release verify <unit> <channel>          # feed sig, every URL, size, sha256
 ./release serve-dev                        # dist/ + test-key feed over http
 ./release secrets                          # secrets menu
