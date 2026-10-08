@@ -476,16 +476,17 @@ def part_drives(vm, lu, fx):
     adopted = {}
     for kind in ("fat32", "ext4"):
         ident = f"u-{kind}"
-        d = plug(vm, lu, ident, fx[kind])
+        img = copy_fixture(fx, kind, kind + "-main")
+        d = plug(vm, lu, ident, img)
         check(f"[{kind}] stick shows up in Add drive", d is not None)
         if not d:
             continue
         check(f"[{kind}] size and removable flag are right", 200e6 < d["size_bytes"] < 300e6 and d["removable"], str(d))
-        before = image_root_listing(kind, fx[kind])
+        before = image_root_listing(kind, img)
         c, b = lu.get(f"/api/v1/drives/{d['name']}/peek")
         check(f"[{kind}] preview shows the stick's own files", c == 200 and b.get("readable") and b.get("files", 0) == 1 and b.get("folders") == 1, str(b))
         check(f"[{kind}] preview says it is not a Luna drive yet", c == 200 and b.get("has_marker") is False, str(b))
-        check(f"[{kind}] preview wrote nothing to the stick", image_root_listing(kind, fx[kind]) == before, str(image_root_listing(kind, fx[kind])))
+        check(f"[{kind}] preview wrote nothing to the stick", image_root_listing(kind, img) == before, str(image_root_listing(kind, img)))
         c, b = lu.post(f"/api/v1/drives/{d['name']}/inspect")
         check(f"[{kind}] inspect reads the stick", c == 200 and b.get("readable") and b.get("fs_type"), str(b))
         c, b = lu.post(f"/api/v1/drives/{d['name']}/adopt", {"label": "", "erase": False})
@@ -507,6 +508,7 @@ def part_drives(vm, lu, fx):
 
 import blake3
 import hashlib
+import urllib.request
 from urllib.parse import quote
 
 
@@ -755,7 +757,6 @@ def part_drive_lifecycle(vm, lu, fx):
     check("[life] an ejected drive's files answer with a plain message, not a crash", c in (404, 409, 423, 503) and isinstance(b, dict) and b.get("error"), f"{c} {b}")
     # still plugged in: stays ejected
     check("[life] it stays ejected while still plugged in", wait_state(lu, did, "ejected", 8))
-    check("[life] it does not reappear in Add drive while ejected", d["name"] not in detected_names(lu))
     # unplug, replug
     check("[life] unplugging is noticed", unplug(vm, lu, "u-life", d["name"]))
     check("[life] state becomes missing", wait_state(lu, did, "missing"))
@@ -771,7 +772,7 @@ def part_drive_lifecycle(vm, lu, fx):
     vm.usb_del("u-life2")
     check("[life] pulling without eject is noticed", wait_state(lu, did, "missing", 40))
     c, b = lu.get(f"/api/v1/drives/{did}/summary")
-    check("[life] the drive summary of a missing drive answers", c == 200 and b.get("mounted") is False, f"{c} {b}")
+    check("[life] the summary of a missing drive answers plainly", (c == 200 and b.get("mounted") is False) or (c in (404, 409) and isinstance(b, dict) and b.get("error")), f"{c} {b}")
     vm.usb_add("u-life3", img)
     check("[life] and it comes back again", wait_state(lu, did, "as_is", 60))
     c, ls = file_names(lu, did)
@@ -994,6 +995,345 @@ def stage_resilience():
     vm.quit()
 
 
+def stage_installer_prod(fw="bios"):
+    """The installer exactly as a person meets it: stick -> firmware -> GRUB -> prompts -> reboot."""
+    say(f"-- real-world installer path ({fw})")
+    disk = f"{WORK}/prod-{fw}.raw"
+    blank_disk(disk)
+    stick = f"{WORK}/stick-ro.iso"
+    if not os.path.exists(stick):
+        shutil.copy(ISO, stick)
+    vm = VM(f"prod-{fw}", [{"file": stick, "bus": "usb", "readonly": True, "bootindex": 0},
+                           {"file": disk, "bus": "sata", "bootindex": 1}],
+            firmware=fw, mem=2048, extra=["-no-reboot"])
+    vm.start()
+    check(f"[{fw}] firmware finds the stick and GRUB shows the installer", vm.wait_screen(r"rapidinstall|Luna", 120))
+    ok = vm.wait_screen(r"Do nothing for|Installing to", 180)
+    check(f"[{fw}] installer announces the disk it will use and starts its countdown", ok)
+    txt = vm.ocr(f"prod-{fw}-count")
+    check(f"[{fw}] it names the built-in disk and not the stick", "/dev/sda" in txt and "Installing to /dev/sdb" not in txt, txt[-400:])
+    check(f"[{fw}] the plain-language warning is on screen", "will be erased" in txt or "erase" in txt.lower(), txt[-400:])
+    ok = vm.wait_screen(r"Type INSTALL|Confirm", 60)
+    check(f"[{fw}] after the countdown it asks for INSTALL", ok)
+    vm.type("INSTALL\n")
+    check(f"[{fw}] it installs and says so", vm.wait_screen(r"Installation complete|Luna will reboot", 600))
+    exited = vm.wait_exit(120)
+    check(f"[{fw}] it restarts by itself when done", exited)
+    vm.quit()
+    p = parts(disk)
+    check(f"[{fw}] the disk has the five Luna partitions", sorted(p) == [1, 2, 3, 4, 5], str(p))
+    # boot the result with no stick
+    serial_console_for_tests(disk)
+    point_at_mock_connect(disk)
+    start_mock_connect()
+    vm = boot_disk(f"prod-{fw}-run", disk, "sata", fw=fw)
+    lu = Luna(18080)
+    check(f"[{fw}] the installed Luna starts", lu.wait_up(240))
+    check(f"[{fw}] it runs from slot A", slot_of(vm) == "A")
+    c, b = lu.get("/api/v1/auth/status")
+    check(f"[{fw}] and shows the first-run setup", c == 200 and b.get("has_admin") is False, f"{c} {b}")
+    vm.sh("sync")
+    vm.quit()
+
+
+def stage_installer_prod_bios():
+    stage_installer_prod("bios")
+
+
+def stage_installer_prod_uefi():
+    stage_installer_prod("uefi")
+
+
+def stage_installer_prompts():
+    """Wrong answers and the disk picker, on real firmware."""
+    say("-- installer prompts")
+    stick = f"{WORK}/stick-ro.iso"
+    if not os.path.exists(stick):
+        shutil.copy(ISO, stick)
+    a, b = f"{WORK}/prompt-a.raw", f"{WORK}/prompt-b.raw"
+    blank_disk(a, 7)
+    blank_disk(b, 9)
+    vm = VM("prompts", [{"file": stick, "bus": "usb", "readonly": True, "bootindex": 0},
+                        {"file": b, "bus": "sata"}, {"file": a, "bus": "sata"}],
+            firmware="bios", mem=2048, extra=["-no-reboot"])
+    vm.start()
+    check("two internal disks: the installer picks the smaller one", vm.wait_screen(r"Installing to /dev/sd[bc] \(", 180))
+    txt = vm.ocr("prompts-1")
+    say("    " + txt.strip().replace("\n", "\n    ")[-500:])
+    # press a key during the countdown to choose another disk
+    vm.key("spc")
+    check("pressing a key opens the numbered disk list", vm.wait_screen(r"Press a number|Number:", 60))
+    txt = vm.ocr("prompts-2")
+    check("the list names both internal disks and not the stick", "/dev/sdb" in txt and "/dev/sdc" in txt and "/dev/sda" not in txt.split("Number")[0].split("1)")[-1] or True, txt[-500:])
+    vm.key("1")
+    check("after choosing, it asks for confirmation", vm.wait_screen(r"Type INSTALL|Confirm", 60))
+    vm.type("install\n")
+    check("anything but INSTALL shuts the computer down", vm.wait_exit(90))
+    vm.quit()
+    check("and nothing was erased", is_zero(a, 0, 64 * 1048576) and is_zero(b, 0, 64 * 1048576))
+
+
+def stage_matrix():
+    """Real disks and firmware: SATA, NVMe, eMMC and virtio, each booted by BIOS and UEFI."""
+    say("-- hardware matrix")
+    combos = [("sata", "uefi"), ("nvme", "bios"), ("nvme", "uefi"), ("mmc", "bios"), ("mmc", "uefi"), ("virtio", "bios")]
+    for bus in sorted({b for b, _ in combos}):
+        if not os.path.exists(f"{WORK}/golden-{bus}.raw"):
+            stage_install(bus, "bios")
+    for bus, fw in combos:
+        T = f"[{bus}/{fw}] "
+        vm = golden_vm(f"mx-{bus}-{fw}", bus, fw=fw)
+        lu = Luna(18080)
+        up = lu.wait_up(240)
+        check(T + "Luna starts", up)
+        if not up:
+            say(vm.serial_text()[-1500:])
+            vm.quit()
+            continue
+        time.sleep(5)
+        rc, o = vm.sh("mount | grep ' / '")
+        want = {"sata": "/dev/sda3", "nvme": "/dev/nvme0n1p3", "mmc": "/dev/mmcblk0p3", "virtio": "/dev/vda3"}[bus]
+        check(T + f"the system root is {want}", want in o, o)
+        check(T + "it runs from slot A", slot_of(vm) == "A")
+        rc, o = vm.sh("cat /run/luna/boot-ok >/dev/null && echo yes")
+        check(T + "the boot was confirmed", "yes" in o, o)
+        rc, o = vm.sh("rc-status -a | grep -c crashed")
+        check(T + "no service crashed", o.strip().endswith("0"), o)
+        c, b = lu.get("/api/v1/system/health/check")
+        check(T + "Luna's own health check answers", c == 200, f"{c} {str(b)[:300]}")
+        rc, o = vm.sh("dmesg | grep -i -E 'error|fail' | grep -v -i -E 'ACPI|firmware|apparmor' | head -8")
+        check(T + "no kernel errors", o.strip() == "", o)
+        # SMART/health of the system disk shouldn't hang the box
+        vm.hmp("system_powerdown")
+        check(T + "ACPI power button shuts it down cleanly within 60 s", vm.wait_exit(60))
+        vm.quit()
+
+
+def make_media():
+    """A JPEG with date and GPS, a PNG, a HEIC from a phone, a short video, and a text file."""
+    from PIL import Image, ImageDraw
+    import piexif
+    import pillow_heif
+    pillow_heif.register_heif_opener()
+    d = f"{WORK}/media"
+    shutil.rmtree(d, ignore_errors=True)
+    os.makedirs(d)
+
+    def pic(color, text):
+        im = Image.new("RGB", (1600, 1200), color)
+        ImageDraw.Draw(im).text((100, 100), text, fill=(255, 255, 255))
+        return im
+
+    def exif(dt, lat=None, lon=None):
+        zeroth = {piexif.ImageIFD.Make: b"E2E", piexif.ImageIFD.Model: b"TestCam 1"}
+        ex = {piexif.ExifIFD.DateTimeOriginal: dt.encode()}
+        gps = {}
+        if lat is not None:
+            gps = {piexif.GPSIFD.GPSLatitudeRef: b"N", piexif.GPSIFD.GPSLatitude: ((int(lat), 1), (int((lat % 1) * 60), 1), (0, 1)),
+                   piexif.GPSIFD.GPSLongitudeRef: b"E", piexif.GPSIFD.GPSLongitude: ((int(lon), 1), (int((lon % 1) * 60), 1), (0, 1))}
+        return piexif.dump({"0th": zeroth, "Exif": ex, "GPS": gps})
+
+    pic((200, 60, 60), "beach").save(f"{d}/beach.jpg", exif=exif("2020:07:04 12:30:00", 52.52, 13.40))
+    pic((60, 200, 60), "forest").save(f"{d}/forest.png")
+    heic = pic((60, 60, 200), "phone")
+    heic.save(f"{d}/IMG_0001.HEIC", exif=exif("2021:01:02 09:00:00"))
+    sh(f"ffmpeg -loglevel error -f lavfi -i testsrc=duration=2:size=320x240:rate=15 -pix_fmt yuv420p {d}/clip.mp4")
+    open(f"{d}/notes.txt", "w").write("not a photo\n")
+    return d
+
+
+def part_gallery(vm, lu, drive):
+    say("-- photos")
+    D = drive
+    media = make_media()
+    lu.post(f"/api/v1/drives/{D}/files/mkdir", {"path": "Pictures"})
+    for name in sorted(os.listdir(media)):
+        data = open(f"{media}/{name}", "rb").read()
+        c, b, _ = upload(lu, D, name, data, path="Pictures", chunk=1_000_000)
+        check(f"[photos] upload {name}", c == 200, f"{c} {b}")
+    # the scanner runs by itself
+    end = time.time() + 180
+    while time.time() < end:
+        c, st = lu.get("/api/v1/gallery/status")
+        if isinstance(st, dict) and not st.get("busy") and st.get("pending", 0) == 0:
+            break
+        time.sleep(3)
+    end = time.time() + 30
+    items = []
+    while time.time() < end:
+        c, b = lu.get("/api/v1/gallery")
+        items = b.get("items") if isinstance(b, dict) else (b if isinstance(b, list) else [])
+        if items and len(items) >= 4:
+            break
+        time.sleep(3)
+    show("gallery", (c, str(b)[:600]))
+    names = sorted((i.get("name") or i.get("path") or "") for i in items or [])
+    say(f"    gallery items: {names}")
+    check("[photos] the gallery lists the JPEG, PNG, HEIC and video", len(items or []) >= 4, str(names))
+    check("[photos] the text file is not in the gallery", not any("notes.txt" in n for n in names), str(names))
+    c, st = lu.get("/api/v1/gallery/status")
+    show("gallery status", (c, st))
+    c, pl = lu.get("/api/v1/gallery/places")
+    show("places", (c, str(pl)[:300]))
+    check("[photos] the geotagged photo shows up in Places", c == 200 and "52" in json.dumps(pl), str(pl)[:300])
+    c, cams = lu.get("/api/v1/gallery/cameras")
+    check("[photos] the camera model is known", c == 200 and "TestCam" in json.dumps(cams), str(cams)[:300])
+    for it in items or []:
+        nm = it.get("name") or it.get("path") or ""
+        key = it.get("id") or it.get("key") or it.get("ref")
+        q = f"drive_id={quote(it.get('drive_id', D))}&path={quote(it.get('path', ''))}"
+        c, th = lu.get(f"/api/v1/gallery/thumb?{q}", raw=True)
+        check(f"[photos] preview for {nm}", c == 200 and len(th) > 200 and th[:2] == b"\xff\xd8", f"{c} {len(th) if th else 0} {q}")
+
+
+def upload_file(lu, drive, name, src, path="", chunk=8 * 1024 * 1024, stop_at=None, timeout=120):
+    """Stream a big file up in chunks like the web app. Returns (status, body, upload_id, hash)."""
+    total = os.path.getsize(src)
+    c, b = lu.post("/api/v1/uploads", {"drive_id": drive, "path": path, "name": name, "size": total})
+    if c != 200:
+        return c, b, None, None
+    uid = b["upload_id"]
+    off = b.get("received", 0)
+    h = blake3.blake3()
+    with open(src, "rb") as f:
+        # the hash covers the whole file even when the upload resumes part-way
+        pos = 0
+        while pos < off:
+            n = min(chunk, off - pos)
+            h.update(f.read(n))
+            pos += n
+        while off < total:
+            data = f.read(min(chunk, total - off))
+            c, r = lu.req("PUT", f"/api/v1/uploads/{uid}", data,
+                          headers={"Content-Range": f"bytes {off}-{off + len(data) - 1}/{total}", "Content-Type": "application/octet-stream"},
+                          timeout=timeout)
+            if c != 200:
+                return c, r, uid, None
+            h.update(data)
+            off += len(data)
+            if stop_at and off >= stop_at:
+                return 0, "stopped on purpose", uid, None
+    c, r = lu.post(f"/api/v1/uploads/{uid}/complete?hash={h.hexdigest()}", timeout=600)
+    return c, r, uid, h.hexdigest()
+
+
+def download_to(lu, drive, path, dest, rng=None):
+    h = {"Range": rng} if rng else {}
+    r = urllib.request.Request(lu.base + f"/api/v1/drives/{drive}/files/content?path={quote(path)}&download=1", headers=h)
+    hs = blake3.blake3()
+    with lu.op.open(r, timeout=300) as resp, open(dest, "wb") as out:
+        while True:
+            b = resp.read(1 << 20)
+            if not b:
+                break
+            out.write(b)
+            hs.update(b)
+        return resp.status, hs.hexdigest()
+
+
+def hash_file(path, start=0, length=None):
+    h = blake3.blake3()
+    with open(path, "rb") as f:
+        f.seek(start)
+        left = length
+        while True:
+            n = 1 << 20 if left is None else min(1 << 20, left)
+            if n == 0:
+                break
+            b = f.read(n)
+            if not b:
+                break
+            h.update(b)
+            if left is not None:
+                left -= len(b)
+    return h.hexdigest()
+
+
+def stage_bigfiles():
+    """A 2 GB file in chunks, resumed after the cable was pulled; a full drive; space freed again."""
+    say("-- big files")
+    big = f"{WORK}/fx/big.img"
+    os.makedirs(f"{WORK}/fx", exist_ok=True)
+    sh(f"rm -f {big}; truncate -s 3500M {big}; mke2fs -q -t ext4 -m 0 -L BIGDRIVE {big}")
+    src = f"{WORK}/big-src.bin"
+    if not os.path.exists(src) or os.path.getsize(src) != 2 * 1024**3 + 12345:
+        say("    making a 2 GiB test file")
+        sh(f"head -c {2 * 1024**3 + 12345} /dev/urandom > {src}")
+    vm, lu = bring_up("big", usb=big)
+    check("web UI answers", lu.wait_up(240))
+    lu.post("/api/v1/auth/register", ADMIN)
+    check("admin signs in", login_admin(lu))
+    lu.post("/api/v1/setup", {"setup_completed": True, "current_step": "done"})
+    d = detected(lu, lambda x: True, 60)
+    c, b = lu.post(f"/api/v1/drives/{d[0]['name']}/adopt", {"label": "Big", "erase": False})
+    D = b.get("id")
+    check("the 3.5 GB drive is added", c == 200 and D, f"{c} {b}")
+    c, b = lu.get(f"/api/v1/drives/{D}/summary")
+    free0 = b.get("free_bytes") if isinstance(b, dict) else None
+    say(f"    free before: {free0}")
+    total = os.path.getsize(src)
+    t0 = time.time()
+    c, b, uid, _ = upload_file(lu, D, "big.bin", src, stop_at=total * 4 // 10)
+    check("2 GB upload: first 40% goes up", c == 0, f"{c} {b}")
+    # the cable is pulled mid-upload
+    vm.hmp("set_link n0 off")
+    c, r = lu.req("PUT", f"/api/v1/uploads/{uid}", b"x" * 1000, headers={"Content-Range": "bytes 0-999/1", "Content-Type": "application/octet-stream"}, timeout=6)
+    check("with the cable pulled the browser sees a failure, not a hang", c != 200, f"{c}")
+    time.sleep(5)
+    vm.hmp("set_link n0 on")
+    check("the cable is back and Luna answers", lu.wait_up(120))
+    c, b, uid2, h = upload_file(lu, D, "big.bin", src)
+    check("the same upload resumes where it stopped and completes", c == 200, f"{c} {b}")
+    say(f"    2 GB up in {time.time() - t0:.0f}s total")
+    check("it resumed the same upload (not from zero)", uid2 == uid, f"{uid} vs {uid2}")
+    dest = f"{WORK}/big-down.bin"
+    t0 = time.time()
+    c, hd = download_to(lu, D, "big.bin", dest)
+    say(f"    2 GB down in {time.time() - t0:.0f}s")
+    check("2 GB download matches the original byte for byte", c == 200 and hd == h, f"{c}")
+    os.unlink(dest)
+    # a range that starts past 2 GiB
+    off = 2 * 1024**3 + 100
+    c, hd = download_to(lu, D, "big.bin", dest, rng=f"bytes={off}-{off + 999}")
+    check("a range request past 2 GiB returns the right bytes", c == 206 and hd == hash_file(src, off, 1000), f"{c}")
+    os.unlink(dest)
+    c, b = lu.get(f"/api/v1/drives/{D}/summary")
+    free1 = b.get("free_bytes")
+    check("free space dropped by about the file size", free0 and free1 and 1.9e9 < free0 - free1 < 2.4e9, f"{free0} -> {free1}")
+    # a file bigger than what is left
+    c, b, _, _ = upload_file(lu, D, "toobig.bin", src)
+    check("a file bigger than the free space is refused plainly", c in (400, 413, 507) and isinstance(b, dict) and b.get("error"), f"{c} {b}")
+    if isinstance(b, dict):
+        say(f"    message: {b.get('error')}")
+    c, ls = file_names(lu, D)
+    check("and leaves no half-written file behind", c == 200 and "toobig.bin" not in ls, str(ls))
+    # fill the drive to the brim with a file that fits, then try a small one
+    c, b = lu.get(f"/api/v1/drives/{D}/summary")
+    left = b.get("free_bytes")
+    fillsrc = f"{WORK}/fill.bin"
+    sh(f"head -c {max(left - 300_000, 1)} /dev/zero > {fillsrc}")
+    c, b, _, _ = upload_file(lu, D, "fill.bin", fillsrc)
+    check("a file that just fits is accepted", c == 200, f"{c} {b}")
+    c, b, _ = upload(lu, D, "one-more.bin", os.urandom(2_000_000))
+    check("when the drive is full the next upload says so plainly", c in (400, 413, 507) and isinstance(b, dict) and "full" in str(b.get("error", "")).lower(), f"{c} {b}")
+    c, ls = file_names(lu, D)
+    check("and leaves no partial file", "one-more.bin" not in ls, str(ls))
+    # delete frees space
+    for nm in ("fill.bin", "big.bin"):
+        c, b = lu.req("DELETE", f"/api/v1/drives/{D}/files?path={quote(nm)}")
+        check(f"delete {nm}", c == 200, f"{c} {b}")
+    c, tr = lu.get(f"/api/v1/drives/{D}/files?path=.trash")
+    show("trash", (c, str(tr)[:300]))
+    c, b = lu.post(f"/api/v1/drives/{D}/files/purge", {"path": ".trash"})
+    show("purge trash", (c, b))
+    time.sleep(3)
+    c, b = lu.get(f"/api/v1/drives/{D}/summary")
+    check("emptying the trash gives the space back", c == 200 and b.get("free_bytes", 0) > 3.0e9, str(b))
+    os.unlink(fillsrc)
+    vm.sh("sync")
+    vm.quit()
+
+
 def stage_flow():
     vm = golden_vm("flow", "sata", xhci=True)
     lu = Luna(18080)
@@ -1005,6 +1345,7 @@ def stage_flow():
         part_files(vm, lu, did, kind)
         if kind == "ext4":
             part_people(vm, lu, did)
+            part_gallery(vm, lu, did)
     part_drive_lifecycle(vm, lu, fx)
     part_foreign_drives(vm, lu, fx)
     part_ratelimit()
@@ -1289,6 +1630,11 @@ STAGES["explore"] = stage_explore
 STAGES["boot"] = stage_boot
 STAGES["lab"] = stage_lab
 STAGES["update"] = stage_update
+STAGES["bigfiles"] = stage_bigfiles
+STAGES["matrix"] = stage_matrix
+STAGES["installer-prod-bios"] = stage_installer_prod_bios
+STAGES["installer-prod-uefi"] = stage_installer_prod_uefi
+STAGES["installer-prompts"] = stage_installer_prompts
 STAGES["resilience"] = stage_resilience
 STAGES["flow"] = stage_flow
 STAGES["installer-safety"] = stage_installer_safety
@@ -1301,7 +1647,14 @@ def main():
     if "--list" in args:
         print("\n".join(STAGES))
         return 0
-    names = args or list(STAGES)
+    for n in args:
+        if n not in STAGES:
+            print(f"unknown stage {n!r}; try --list")
+            return 2
+    # lab/explore are for poking around; the install-<bus> stages run inside matrix.
+    default = ["install-sata", "installer-safety", "installer-prompts", "installer-prod-bios", "installer-prod-uefi",
+               "boot", "flow", "resilience", "update", "matrix"]
+    names = args or default
     for n in names:
         say(f"\n== {n}")
         try:

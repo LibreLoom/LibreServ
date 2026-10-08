@@ -798,7 +798,19 @@ impl DriveManager {
         let mut marker_cache: HashMap<String, Vec<String>> = HashMap::new();
         let mut plan = ReconcilePlan::default();
         for row in rows {
-            let present_by_name = detected.iter().any(|d| d.name == row.device);
+            let mut present_by_name = detected.iter().any(|d| d.name == row.device);
+            // Kernel names are reused: after a stick is pulled, the next stick
+            // plugged in is `sdb` again. A missing drive only counts as back
+            // when what carries its name really has its sticker file.
+            if present_by_name
+                && row.state == "missing"
+                && let Some(d) = detected.iter().find(|d| d.name == row.device)
+            {
+                let ids = marker_cache
+                    .entry(d.name.clone())
+                    .or_insert_with(|| self.marker_ids_on_detected(d));
+                present_by_name = ids.iter().any(|id| id == &row.id);
+            }
             let marker_match = if present_by_name {
                 None
             } else {
@@ -809,6 +821,9 @@ impl DriveManager {
             match row.state.as_str() {
                 "as_is" | "readonly" if !present => {
                     plan.set_state(&row.id, "missing");
+                    // Pulled without ejecting: the mount outlives the drive and
+                    // would shadow the fresh mount when it comes back.
+                    self.detach_stale_mount(row);
                 }
                 "as_is" | "readonly" if rematch_name.is_some() => {
                     // Kernel rename while still Ready — retarget device, keep state.
@@ -828,6 +843,7 @@ impl DriveManager {
                 }
                 "ejected" if !present => {
                     plan.set_state(&row.id, "missing");
+                    self.detach_stale_mount(row);
                 }
                 "ejected" if rematch_name.is_some() => {
                     // Still plugged under a new kernel name — stay ejected, track name.
@@ -844,6 +860,9 @@ impl DriveManager {
                         plan.set_state(&row.id, "as_is");
                     }
                     let _ = self.dismiss_foreign(new_name);
+                    // A mount left over from before the drive was pulled points
+                    // at a device that no longer exists.
+                    self.detach_stale_mount(row);
                     let _ = self.ensure_mounted(&updated);
                     // Always re-arm gallery on Ready restore (eject→replug /
                     // missing→as_is). Prior unwatch left the indexer cold.
@@ -936,6 +955,18 @@ impl DriveManager {
     }
 
     /// True when this row claims a Luna-owned mount that is not live.
+    fn detach_stale_mount(&self, row: &db::DriveRow) {
+        if row.mount_point.is_empty() {
+            return;
+        }
+        let path = Path::new(&row.mount_point);
+        if self.is_ours(path)
+            && let Err(e) = self.mounter.detach_stale(path)
+        {
+            tracing::warn!(drive = %row.id, error = %e, "could not let go of the mount of a drive that was pulled out");
+        }
+    }
+
     fn luna_mount_missing(&self, row: &db::DriveRow) -> bool {
         if row.mount_point.is_empty() {
             return false;
@@ -1195,6 +1226,16 @@ mod tests {
             fs_type: Some("ext4".into()),
             mount_readonly: false,
         }
+    }
+
+    /// A stick coming back: the OS mounts it where it was before, so Luna can
+    /// read its sticker file and tell it from a different stick with the same
+    /// kernel name.
+    fn replugged(mounter: &crate::drives::mount::MockMounter, row: &db::DriveRow, name: &str) -> DetectedDrive {
+        mounter
+            .mount(&format!("/dev/{name}"), Path::new(&row.mount_point), false)
+            .unwrap();
+        detected(name, Some(&row.mount_point))
     }
 
     #[test]
@@ -1631,7 +1672,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let dir = root.path();
         let conn = db::open(&dir.join("luna.db")).unwrap();
-        let mgr = DriveManager::new(mounter, dir);
+        let mgr = DriveManager::new(mounter.clone(), dir);
         let row = mgr
             .adopt(&conn, &detected("sdz", None), "Backup Drive", false)
             .unwrap();
@@ -1644,7 +1685,7 @@ mod tests {
         );
 
         // Drive back — must report gallery remount so callers re-arm watch_mount.
-        let remounted = mgr.reconcile(&conn, &[detected("sdz", None)]).unwrap();
+        let remounted = mgr.reconcile(&conn, &[replugged(&mounter, &row, "sdz")]).unwrap();
         assert_eq!(
             db::get_drive(&conn, &row.id).unwrap().unwrap().state,
             "as_is"
@@ -1658,24 +1699,68 @@ mod tests {
     }
 
     #[test]
-    fn reconcile_ready_restore_lists_gallery_rearm() {
+    fn a_drive_pulled_without_ejecting_gives_up_its_mount() {
+        let mounter = shared_mock();
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path();
+        let conn = db::open(&dir.join("luna.db")).unwrap();
+        let mgr = DriveManager::new(mounter.clone(), dir);
+        let row = mgr
+            .adopt(&conn, &detected("sdz", None), "Pulled Drive", false)
+            .unwrap();
+        let mount = PathBuf::from(&row.mount_point);
+        assert!(mounter.is_mounted(&mount));
+        // Unplugged with no eject: the old mount must not outlive the drive,
+        // or the fresh mount on replug never happens and the files look gone.
+        mgr.reconcile(&conn, &[]).unwrap();
+        assert!(!mounter.is_mounted(&mount), "stale mount left behind");
+        mgr.reconcile(&conn, &[replugged(&mounter, &row, "sdz")]).unwrap();
+        assert!(mounter.is_mounted(&mount), "replug did not mount again");
+    }
+
+    #[test]
+    fn a_different_stick_with_a_reused_name_is_not_the_missing_drive() {
         let mounter = shared_mock();
         let root = tempfile::tempdir().unwrap();
         let dir = root.path();
         let conn = db::open(&dir.join("luna.db")).unwrap();
         let mgr = DriveManager::new(mounter, dir);
         let row = mgr
+            .adopt(&conn, &detected("sdz", None), "First stick", false)
+            .unwrap();
+        mgr.reconcile(&conn, &[]).unwrap();
+        assert_eq!(db::get_drive(&conn, &row.id).unwrap().unwrap().state, "missing");
+        // Another stick takes the name `sdz`. Its own mount has no sticker file.
+        let other_mount = dir.join("other-stick");
+        std::fs::create_dir_all(&other_mount).unwrap();
+        let other = detected("sdz", other_mount.to_str());
+        mgr.reconcile(&conn, &[other]).unwrap();
+        assert_eq!(
+            db::get_drive(&conn, &row.id).unwrap().unwrap().state,
+            "missing",
+            "a stranger on the same name must not revive the missing drive"
+        );
+    }
+
+    #[test]
+    fn reconcile_ready_restore_lists_gallery_rearm() {
+        let mounter = shared_mock();
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path();
+        let conn = db::open(&dir.join("luna.db")).unwrap();
+        let mgr = DriveManager::new(mounter.clone(), dir);
+        let row = mgr
             .adopt(&conn, &detected("sdz", None), "Photos", false)
             .unwrap();
 
-        let first = mgr.reconcile(&conn, &[detected("sdz", None)]).unwrap();
+        let first = mgr.reconcile(&conn, &[replugged(&mounter, &row, "sdz")]).unwrap();
         assert!(
             first.is_empty(),
             "already-Ready drive must not re-arm every poll"
         );
 
         mgr.reconcile(&conn, &[]).unwrap();
-        let remounted = mgr.reconcile(&conn, &[detected("sdz", None)]).unwrap();
+        let remounted = mgr.reconcile(&conn, &[replugged(&mounter, &row, "sdz")]).unwrap();
         assert_eq!(remounted.len(), 1);
         assert_eq!(remounted[0].0, row.id);
         assert_eq!(remounted[0].1, PathBuf::from(&row.mount_point));
@@ -1687,6 +1772,7 @@ mod tests {
     #[test]
     fn reconcile_rematches_by_marker_when_kernel_name_changes() {
         let mounter = shared_mock();
+        let mounter_handle = mounter.clone();
         let root = tempfile::tempdir().unwrap();
         let dir = root.path();
         let conn = db::open(&dir.join("luna.db")).unwrap();
@@ -1709,9 +1795,11 @@ mod tests {
         assert_eq!(after_unplug.state, "missing");
         assert_eq!(after_unplug.device, "sdc");
 
-        // Replug: same filesystem (marker still at old mount path), new kernel name sdd.
-        // Real USB would remount at a new path; here we expose the existing
-        // marker-bearing root under the new detected name.
+        // Replug: same filesystem, new kernel name sdd, mounted again at the
+        // old path (the OS or Luna mounts it; the pulled mount was released).
+        mounter_handle
+            .mount("/dev/sdd", Path::new(&row.mount_point), false)
+            .unwrap();
         let replugged = DetectedDrive {
             name: "sdd".into(),
             model: "General UDisk".into(),
@@ -1855,7 +1943,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let dir = root.path();
         let conn = db::open(&dir.join("luna.db")).unwrap();
-        let mgr = DriveManager::new(mounter, dir);
+        let mgr = DriveManager::new(mounter.clone(), dir);
         let row = mgr
             .adopt(&conn, &detected("sdz", None), "Backup Drive", false)
             .unwrap();
@@ -1867,7 +1955,7 @@ mod tests {
             "missing"
         );
 
-        mgr.reconcile(&conn, &[detected("sdz", None)]).unwrap();
+        mgr.reconcile(&conn, &[replugged(&mounter, &row, "sdz")]).unwrap();
         assert_eq!(
             db::get_drive(&conn, &row.id).unwrap().unwrap().state,
             "as_is"
@@ -1939,8 +2027,9 @@ mod tests {
         );
         mgr.remove(&conn, &row.id).unwrap();
         assert!(db::get_drive(&conn, &row.id).unwrap().is_none());
-        // Sticker would remain on a real unplugged stick; mock still has the dir.
-        assert!(marker.is_file());
+        // The sticker stays on the real stick; here it is only hidden along
+        // with the released mount.
+        assert!(!marker.is_file());
     }
 
     #[test]

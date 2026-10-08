@@ -7,6 +7,6 @@ RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       qemu-system-x86 qemu-utils ovmf seabios socat netpbm \
       python3 curl jq minisign xorriso mtools fdisk gdisk e2fsprogs dosfstools exfatprogs ntfs-3g \
-      python3-pip file xz-utils zstd procps tesseract-ocr tesseract-ocr-eng imagemagick \
- && pip install --no-cache-dir --break-system-packages blake3 \
+      python3-pip file ffmpeg xz-utils zstd procps tesseract-ocr tesseract-ocr-eng imagemagick \
+ && pip install --no-cache-dir --break-system-packages blake3 pillow piexif pillow-heif \
  && rm -rf /var/lib/apt/lists/*

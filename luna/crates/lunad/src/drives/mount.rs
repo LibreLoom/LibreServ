@@ -14,6 +14,12 @@ pub trait Mounter: Send + Sync {
     fn mount(&self, device: &str, target: &Path, read_only: bool) -> anyhow::Result<()>;
     /// Unmount `target` if mounted. Already-unmounted paths are success (idempotent).
     fn unmount(&self, target: &Path) -> anyhow::Result<()>;
+    /// Let go of a mount whose drive was pulled out without ejecting. The
+    /// device is gone, so a normal unmount can fail or hang on open files;
+    /// this detaches the mount point now and cleans up when nothing uses it.
+    fn detach_stale(&self, target: &Path) -> anyhow::Result<()> {
+        self.unmount(target)
+    }
     /// True when `target` is currently a live mount.
     fn is_mounted(&self, target: &Path) -> bool {
         path_is_mount_point(target)
@@ -86,6 +92,21 @@ impl Mounter for CommandMounter {
                 return Ok(());
             }
             return Err(anyhow::anyhow!("unmount failed: {}", stderr.trim()));
+        }
+        Ok(())
+    }
+
+    fn detach_stale(&self, target: &Path) -> anyhow::Result<()> {
+        if !self.is_mounted(target) {
+            return Ok(());
+        }
+        let out = Command::new("umount").arg("-l").arg(target).output()?;
+        if !out.status.success() {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            if already_unmounted_stderr(&stderr) {
+                return Ok(());
+            }
+            return Err(anyhow::anyhow!("detach failed: {}", stderr.trim()));
         }
         Ok(())
     }
