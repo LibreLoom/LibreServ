@@ -235,16 +235,43 @@ fn read_size_bytes(path: &Path) -> Option<u64> {
     Some(sectors.saturating_mul(512))
 }
 
+/// Enough of a device's start for blkid to find any common filesystem
+/// (ext 1 KiB, iso9660 32 KiB, btrfs 64 KiB, UDF anchors at 128 KiB).
+const PROBE_HEAD_BYTES: u64 = 2 * 1024 * 1024;
+
+fn read_device_head(dev: &Path, len: u64) -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
+    let mut buf = Vec::new();
+    std::fs::File::open(dev)?.take(len).read_to_end(&mut buf)?;
+    Ok(buf)
+}
+
+/// Write `bytes` so the sandbox user can read them: the staging dir is
+/// owned by `nobody` and closed to everyone else, so a readable file inside
+/// it is reachable only by our own sandboxed children.
+fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::write(path, bytes)?;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o644))
+}
+
 fn blkid_export(dev: &str) -> Option<(String, String)> {
     // blkid parses filesystem superblocks from whatever USB stick somebody
     // plugs in — it runs sandboxed as `nobody`, reading the device through an
     // inherited read-only fd so a parser exploit can't reach the rest of the
     // disk or the daemon's files.
     let mut io = crate::sandbox::SandboxIo::new().ok()?;
-    let arg = io.input_path(Path::new(dev)).ok()?;
+    // The sandboxed child runs as `nobody`, and reopening a block device
+    // through an inherited /proc/self/fd/N re-checks the device's own
+    // permissions (root:disk 0660), so it would see nothing. Root copies the
+    // start of the device — where every filesystem keeps its superblock — into
+    // the sandbox's staging dir, and blkid reads that plain file instead.
+    let head = read_device_head(Path::new(dev), PROBE_HEAD_BYTES).ok()?;
+    let staged = io.out_path("probe.img").ok()?;
+    write_private(&staged, &head).ok()?;
     let blkid = crate::sandbox::which("blkid")?;
     let mut cmd = Command::new(blkid);
-    cmd.args(["-o", "export"]).arg(&arg).stderr(Stdio::null());
+    cmd.args(["-o", "export"]).arg(&staged).stderr(Stdio::null());
     let out = crate::sandbox::output(&mut cmd, &io, std::time::Duration::from_secs(15)).ok()?;
     if !out.status.success() {
         return None;
@@ -507,5 +534,23 @@ mod tests {
         let choice = pick_mount_source("sdb", &infos);
         assert_eq!(choice.name, "sdb1");
         assert!(!choice.needs_erase);
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod head_tests {
+    use super::*;
+
+    #[test]
+    fn device_head_is_capped_and_stageable() {
+        let dir = tempfile::tempdir().unwrap();
+        let big = dir.path().join("dev");
+        std::fs::write(&big, vec![7u8; 4096]).unwrap();
+        assert_eq!(read_device_head(&big, 1024).unwrap().len(), 1024);
+        assert_eq!(read_device_head(&big, 1 << 20).unwrap().len(), 4096);
+        let out = dir.path().join("probe.img");
+        write_private(&out, b"x").unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(std::fs::metadata(&out).unwrap().permissions().mode() & 0o777, 0o644);
     }
 }
