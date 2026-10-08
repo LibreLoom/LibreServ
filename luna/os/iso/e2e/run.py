@@ -201,7 +201,9 @@ def stage_installer_safety():
     check("two disks: installer finished", "Installation complete" in log, log[-300:])
     check("two disks: smaller disk got Luna", len(parts(small)) == 5 if sh(f"sfdisk -J {small}", check_rc=False).strip() else False)
     check("two disks: bigger disk is untouched", is_zero(big, 0, 64 * 1048576))
-    check("the install stick is unchanged", sh(f"sha256sum {ro_stick}").split()[0] == before)
+    # Only the small LUNAASSETS partition at the end may change (the factory token is used up).
+    same = sh(f"cmp -n 800000000 {ISO} {ro_stick} && echo same", check_rc=False).strip().endswith("same")
+    check("the install stick's installer image is unchanged", same)
     os.unlink(ro_stick)
     for f in (d, small, big):
         os.unlink(f)
@@ -1070,8 +1072,13 @@ def stage_installer_prod(fw="bios"):
     check(f"[{fw}] after the countdown it asks for INSTALL", ok)
     vm.type("INSTALL\n")
     check(f"[{fw}] it installs and says so", vm.wait_screen(r"Installation complete|Luna will reboot", 600))
-    exited = vm.wait_exit(120)
-    check(f"[{fw}] it restarts by itself when done", exited)
+    # The installer offers to take a Luna Connect device token; Enter on an empty field skips it.
+    check(f"[{fw}] after unpacking it offers the optional device token step", vm.wait_screen(r"opt-out for now|device token", 600))
+    vm.key("ret")
+    exited = vm.wait_exit(300)
+    if not exited:
+        say("    screen when it should have restarted:\n" + vm.ocr(f"prod-{fw}-end").strip()[-700:])
+    check(f"[{fw}] it restarts by itself when done (after unpacking the office editor)", exited)
     vm.quit()
     p = parts(disk)
     check(f"[{fw}] the disk has the five Luna partitions", sorted(p) == [1, 2, 3, 4, 5], str(p))
@@ -1773,11 +1780,110 @@ def stage_update():
     check("the new OS image is recorded only after the new system proved itself", new_hash in o, o)
     c, b = api_check(lu)
     check("no further update is offered", c == 200 and b.get("update_available") is False and b.get("os_update_failed") is None, f"{c} {b}")
+
+    # -- and back to slot A with a second update
+    good_v3 = os_image_variant("v3", {})
+    publish("0.0.7", key="good", os_img=good_v3)
+    c, b = api_check(lu)
+    check("a second OS update is offered", c == 200 and b.get("update_available") and b.get("reboot_required"), f"{c} {b}")
+    c, b = apply_update(lu)
+    check("the second OS update is accepted", c == 200 and b.get("ok"), f"{c} {b}")
+    check("Luna restarts into the other slot", wait_reboot_up(vm, lu, 300))
+    time.sleep(10)
+    check("it runs from slot A again", slot_of(vm) == "A")
+    rc, o = vm.sh("cat /etc/luna-os-release")
+    check("slot A holds the newest image", "e2e-v3" in o, o)
+    time.sleep(20)
+    rc, o = vm.sh("cat /var/lib/luna/os-image.sha256")
+    check("the newest image is recorded", sha256_file(good_v3) in o, o)
+    login_admin(lu)
+
+    def rollback_case(tag, variant_edits, version, note, expect_slot, expect_panic=False, wait=900):
+        T = f"[{tag}] "
+        img = os_image_variant(tag, variant_edits)
+        publish(version, key="good", os_img=img)
+        c, b = api_check(lu)
+        check(T + "the update is offered", c == 200 and b.get("update_available"), f"{c} {b}")
+        before_hash = vm.sh("cat /var/lib/luna/os-image.sha256")[1]
+        c, b = apply_update(lu)
+        check(T + "the update is accepted", c == 200 and b.get("ok"), f"{c} {b}")
+        t0 = time.time()
+        # the new system fails to come up; Luna must end up back on the old one by itself
+        end = time.time() + wait
+        back = False
+        saw_new = False
+        while time.time() < end:
+            c, _ = lu.get("/api/v1/health", timeout=3)
+            txt = vm.serial_text()
+            if "e2e-" + tag in txt or f"luna.slot={'B' if expect_slot == 'A' else 'A'}" in txt:
+                saw_new = True
+            if c == 200 and time.time() - t0 > 40:
+                back = True
+                break
+            time.sleep(5)
+        say(f"    back on a working system after {time.time() - t0:.0f}s")
+        check(T + "Luna comes back by itself on a working system", back)
+        time.sleep(15)
+        check(T + f"it is back on slot {expect_slot}", slot_of(vm) == expect_slot, str(slot_of(vm)))
+        if expect_panic:
+            check(T + "the broken system was seen to panic and restart", "panic" in vm.serial_text().lower() or "Kernel panic" in vm.serial_text())
+        rc, o = vm.sh("cat /var/lib/luna/os-image.sha256")
+        check(T + "the image hash still names the working system", o.strip() == before_hash.strip(), f"{o} vs {before_hash}")
+        login_admin(lu)
+        time.sleep(15)
+        c, b = api_check(lu)
+        failed = b.get("os_update_failed") if isinstance(b, dict) else None
+        check(T + "Luna reports that the update did not start, with its version", c == 200 and failed and failed.get("version") == version, f"{c} {failed}")
+        check(T + "and it does not keep re-installing the broken image", b.get("update_available") is False, f"{b}")
+        c, b = lu.post("/api/v1/system/updates/os-failed/clear")
+        check(T + "an admin can clear the failure", c == 200, f"{c} {b}")
+        c, b = api_check(lu)
+        check(T + "after clearing, the same image is offered again", c == 200 and b.get("update_available") is True and b.get("os_update_failed") is None, f"{c} {b}")
+
+    cur = slot_of(vm)
+    rollback_case("badlunad", {"/usr/local/bin/lunad": (b"#!/bin/sh\nexit 1\n",)}, "0.0.8", "lunad cannot start", cur)
+    cur = slot_of(vm)
+    rollback_case("badboot", {"/boot/initramfs-lts": b"this is not an initramfs\n" * 100}, "0.0.9", "kernel cannot find its root", cur, expect_panic=True)
+
+    # -- power cut while the new system is being written
+    cur = slot_of(vm)
+    good_v4 = os_image_variant("v4", {})
+    publish("0.1.0", key="good", os_img=good_v4)
+    api_check(lu)
+    import threading
+    th = threading.Thread(target=lambda: apply_update(lu))
+    th.start()
+    time.sleep(4)
+    vm.kill()
+    th.join(30)
+    ov = f"{WORK}/update.qcow2"
+    vm = VM("update2", [{"file": ov, "fmt": "qcow2", "bus": "sata", "bootindex": 0}], http_port=18080)
+    vm.start()
+    lu = Luna(18080)
+    check("a power cut while writing the update still boots", lu.wait_up(240))
+    time.sleep(10)
+    check("it stayed on the old system", slot_of(vm) == cur, f"{slot_of(vm)} vs {cur}")
+    check("accounts survived", login_admin(lu))
+    rc, o = vm.sh("cat /var/lib/luna/os-image.sha256")
+    check("the recorded image is still the old one", sha256_file(good_v4) not in o, o)
+    c, b = api_check(lu)
+    check("the update is offered again after the interruption", c == 200 and b.get("update_available") is True, f"{c} {b}")
+    c, b = apply_update(lu)
+    check("and it installs on the second try", c == 200 and b.get("ok"), f"{c} {b}")
+    check("Luna restarts into it", wait_reboot_up(vm, lu, 300))
+    time.sleep(10)
+    check("the new system is running", slot_of(vm) != cur, f"{slot_of(vm)} vs {cur}")
+    rc, o = vm.sh("cat /etc/luna-os-release")
+    check("with the right image", "e2e-v4" in o, o)
     vm.sh("sync; sync")
     vm.quit()
     vm.wait_exit(60)
-    env = esp_grubenv(overlay_to_raw("update"))
-    check("GRUB now boots slot B and the boot is confirmed", env.get("luna_slot") == "B" and env.get("luna_boot_ok") == "1", str(env))
+    raw = overlay_to_raw("update")
+    rc_, out = fsck_data(raw)
+    check("the data partition is clean at the end", rc_ in (0, 1), out[-200:])
+    for n, name in ((3, "A"), (4, "B")):
+        r = ext_fsck(raw, n)
+        check(f"slot {name} is a clean filesystem at the end", "rc=0" in r, r[-200:])
     return
 
 

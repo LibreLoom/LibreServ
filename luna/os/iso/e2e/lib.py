@@ -120,7 +120,8 @@ class VM:
         if bus == "virtio":
             a += ["-device", f"virtio-blk-pci,drive={i}{serial}{bi}"]
         elif bus == "sata":
-            a += ["-device", f"ide-hd,drive={i}{serial}{bi}"]
+            self.sata_n = getattr(self, "sata_n", -1) + 1
+            a += ["-device", f"ide-hd,drive={i},bus=ide.{self.sata_n}{serial}{bi}"]
         elif bus == "nvme":
             a += ["-device", f"nvme,drive={i}{serial}{bi}"]
         elif bus == "mmc":
@@ -150,8 +151,16 @@ class VM:
             if os.path.exists(self.ser_path):
                 break
             time.sleep(0.1)
-        self._ser = socket.socket(socket.AF_UNIX)
-        self._ser.connect(self.ser_path)
+        for _ in range(100):
+            self._ser = socket.socket(socket.AF_UNIX)
+            try:
+                self._ser.connect(self.ser_path)
+                break
+            except (ConnectionRefusedError, FileNotFoundError):
+                self._ser.close()
+                time.sleep(0.2)
+        else:
+            raise RuntimeError(f"{self.name}: QEMU never opened its serial console; see {WORK}/{self.name}.qemu.err")
         threading.Thread(target=self._drain, daemon=True).start()
         self.mon = socket.socket(socket.AF_UNIX)
         self.mon.connect(self.mon_path)
