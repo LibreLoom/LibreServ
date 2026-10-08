@@ -6,8 +6,8 @@ to ship a trusted Sol update, and vice versa.
 
 | Product | Public key (committed) | Secret (never in git) | Cursor / Cloud Agent secrets |
 |---------|------------------------|------------------------|------------------------------|
-| Sol (`v*`) | `keys/sol.minisign.pub` (`48EB64CB69EA36CD`) | `~/.minisign/sol.key` | `SOL_RELEASE_MINISIG_PK` + `SOL_RELEASE_MINISIG_PW` |
-| Luna (`luna-v*`) | `keys/lsluna.minisign.pub` (`7AA9417DBF891F5E`) | `~/.minisign/lsluna.key` | `LSLUNA_RELEASE_MINISIG_PK` + `LSLUNA_RELEASE_MINISIG_PW` |
+| Sol | `keys/sol.minisign.pub` (`48EB64CB69EA36CD`) | `~/.minisign/sol.key` | `SOL_RELEASE_MINISIG_PK` + `SOL_RELEASE_MINISIG_PW` |
+| Luna | `keys/lsluna.minisign.pub` (`7AA9417DBF891F5E`) | `~/.minisign/lsluna.key` | `LSLUNA_RELEASE_MINISIG_PK` + `LSLUNA_RELEASE_MINISIG_PW` |
 
 Also used for non-interactive cuts: `FORGEJO_TOKEN`.
 

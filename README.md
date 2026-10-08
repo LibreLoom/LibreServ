@@ -139,9 +139,11 @@ cd sol/server/backend && go test -v -tags=integration ./tests/integration/...
 
 ## Releases
 
-`./release` is the shared release tool. Tags are per product and **must not
-be mixed**: `v*` = Sol, `luna-v*` = Luna. The Connect servers deploy from
-the signed feeds, not tags — `connect-v*` / `luna-connect-v*` are retired. The
+`./release` is the shared release tool. Six units (`sol`, `sol-connect`,
+`luna`, `luna-desktop`, `luna-android`, `luna-connect`) each have their own
+version, `<unit>/vX.Y.Z` tag and signed feed, so releasing one never touches
+another. Connect servers deploy from the signed feeds, not tags — the old
+`v*`, `luna-v*`, `connect-v*` and `luna-connect-v*` tags are retired. The
 release tool is documented in
 [`infra/ci-source/cmd/release/README.md`](infra/ci-source/cmd/release/README.md); the feed format is in
 [`infra/ci-source/internal/feed/README.md`](infra/ci-source/internal/feed/README.md). Run `./release help` for the commands.
