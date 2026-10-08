@@ -25,7 +25,7 @@ luna/
 ├── mobile/               # companion app — native Android (Kotlin/Gradle)
 │   ├── fdroid/           # fdroiddata metadata draft for F-Droid submission
 │   └── fastlane/         # store listing text (F-Droid reads this)
-├── connect/              # Luna Connect cloud companion (independent Go 1.26
+├── connect/              # Luna Connect cloud companion (independent Go 1.27
 │                         # module). Host: connect.luna.libreloom.org.
 │                         # Device names: *.luna.servers.libreloom.org.
 │                         # Stripe $8/TB/month backups.

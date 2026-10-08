@@ -1,8 +1,8 @@
 module gt.plainskill.net/LibreLoom/LunaConnect
 
-go 1.26.0
+go 1.27.0
 
-toolchain go1.26.6
+toolchain go1.27.1
 
 require (
 	github.com/go-chi/chi/v5 v5.3.2

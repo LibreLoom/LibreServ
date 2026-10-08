@@ -1,9 +1,9 @@
 [package]
 name = "luna-feed"
-version = "0.0.0"
+version = "0.1.0"
 edition = "2024"
 license = "MIT"
-rust-version = "1.96"
+rust-version = "1.99"
 description = "Luna signed update feed rules (Format 1) and checked download"
 
 # No `workspace = true` inheritance on purpose: Luna Desktop (outside the luna

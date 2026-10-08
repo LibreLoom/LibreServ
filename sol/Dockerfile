@@ -18,7 +18,7 @@ COPY .lore /repo/.lore
 RUN mkdir -p /repo/sol/server/backend/OS/dist && npm run build
 
 # Stage 2: Build Backend
-FROM golang:1.26-alpine AS backend-builder
+FROM golang:1.27-alpine AS backend-builder
 RUN apk add --no-cache git make
 WORKDIR /app/backend
 COPY sol/server/backend/go.mod sol/server/backend/go.sum ./

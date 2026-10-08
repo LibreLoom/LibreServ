@@ -18,5 +18,5 @@ GO-2026-4883
 GO-2026-4479
 
 # The Go stdlib advisories previously listed here (GO-2026-4986, 4982, 4980,
-# 4977, 4971, 4918) are resolved by the pinned toolchain go1.26.6 in go.mod and
+# 4977, 4971, 4918) are resolved by the pinned toolchain go1.27.1 in go.mod and
 # no longer need exemptions.

@@ -9,7 +9,7 @@ design system, frontend conventions, git/forge rules) live in the repo-root
 
 ```
 sol/
-├── server/backend/           # Go 1.26 backend (chi/v5 router)
+├── server/backend/           # Go 1.27 backend (chi/v5 router)
 │   ├── cmd/sol/        # Entry point
 │   ├── internal/
 │   │   ├── api/              # HTTP handlers + middleware + router
@@ -47,7 +47,7 @@ sol/
 │       ├── components/       # UI components
 │       └── index.css         # Theme variables + Tailwind config
 │
-├── connect/                  # Sol Connect — cloud SaaS (independent Go 1.26
+├── connect/                  # Sol Connect — cloud SaaS (independent Go 1.27
 │                             # module, chi/v5 API, SQLite, Stripe billing). Provides
 │                             # external services to Sol devices: email relay,
 │                             # DNS/domain, cloud backups, tunnel access, AI inference,

@@ -5,7 +5,7 @@ This repo holds multiple products. Each area has its own AGENTS.md — read it b
 ## Layout
 
 ```
-sol/      Sol, the home server: server/backend (Go 1.26, chi), server/frontend
+sol/      Sol, the home server: server/backend (Go 1.27, chi), server/frontend
           (React 19, Vite, Tailwind 4), connect/ (cloud SaaS), iso/, install.sh, Dockerfile
 luna/     Luna, the file box: crates/lunad (Rust daemon), crates/luna-core, web/,
           desktop/ (GTK 4), mobile/ (Android), connect/ (cloud companion), os/
@@ -105,11 +105,11 @@ Sync with the animation. Never buzz on hover, scroll, or typing. Never double-bu
 
 ## Claude Code cloud environment
 
-- The environment's **Setup script** box holds a copy of `.claude/cloud-setup.sh` — keep them in sync. It installs toolchains only (apt packages, Go 1.26, Rust 1.96, Android SDK, `fj`) to stay under the ~5 min cache limit; needs network access **Full**.
+- The environment's **Setup script** box holds a copy of `.claude/cloud-setup.sh` — keep them in sync. It installs toolchains only (apt packages, Go 1.27, Rust 1.99, Android SDK, `fj`) to stay under the ~5 min cache limit; needs network access **Full**.
 - `.claude/session-start.sh` (cloud only) starts Podman, seeds mock drives and mock Connect (`:18765`), then builds in the background. Wait until `/tmp/sol-session-setup.state` reads `done` before building or testing (log: `/tmp/sol-session-setup.log`).
 - Forgejo auth is an environment **API credential** for `gt.plainskill.net` that the agent proxy attaches; the token is never in the session.
 
 ## Notes for agents
 
-- **Go 1.26 is real** and every Go 1.26 image exists. Don't question it.
+- **Go 1.27 is real** and every Go 1.27 image exists. Don't question it.
 - **Early development, no existing users.** No backwards compatibility or migrations unless asked; tear obsolete concepts down completely.

@@ -8,8 +8,8 @@ SELF="$(cd "$(dirname "$0")" && pwd)"
 SOURCE_DIR="$SELF/infra/ci-source"
 BIN_DIR="$SOURCE_DIR/bin"
 
-# golang:1.26, pinned by digest. Keep in step with infra/release/images/go.
-GO_IMAGE="docker.io/library/golang@sha256:eb36c1664dd974cde625f736e02c204383deebe03977365caaec5bf49f794348"
+# golang:1.27, pinned by digest. Keep in step with infra/release/images/go.
+GO_IMAGE="docker.io/library/golang@sha256:162be5298a40ed317005c8339c6de4d10d3eef336d66dc8e9259b03ab9d3a6d2"
 
 if [ "$(uname -s)" != "Linux" ]; then
   echo "release: Linux only (podman rootless)." >&2

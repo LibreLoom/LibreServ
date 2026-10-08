@@ -2,16 +2,16 @@
 # Cloud Agent install step for LibreServ + Luna.
 #
 # Idempotent: safe to run repeatedly and against a cached/partially prepared
-# checkout. Prepares the backend (Go 1.26 + config + modules), LibreServ
-# frontend (Node deps + build), Luna (Rust 1.96 + lunad build + web deps),
+# checkout. Prepares the backend (Go 1.27 + config + modules), LibreServ
+# frontend (Node deps + build), Luna (Rust 1.99 + lunad build + web deps),
 # and Podman (CI + app-runtime tests; the API socket is started in start.sh).
 # No long-running processes are started here — the dev servers live in the
 # environment's `terminals` (LibreServ :8080/:3000, Luna :8090/:3001).
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-GO_VERSION="1.26.6"
-RUST_VERSION="1.96.0"
+GO_VERSION="1.27.1"
+RUST_VERSION="1.99.0"
 
 # Run a command with root privileges whether or not we already are root.
 as_root() {
@@ -23,8 +23,8 @@ as_root() {
 }
 
 # ── 1. Go toolchain ──────────────────────────────────────────────────────────
-# The repo requires Go 1.26 (see sol/server/backend/go.mod). The default image ships
-# an older Go, so install 1.26 to /usr/local/go and expose it on PATH via
+# The repo requires Go 1.27 (see sol/server/backend/go.mod). The default image ships
+# an older Go, so install 1.27 to /usr/local/go and expose it on PATH via
 # /usr/local/bin (which precedes /usr/bin) so every future shell picks it up.
 install_go() {
   local want="go${GO_VERSION}"
@@ -109,8 +109,8 @@ EOF
 install_podman
 
 # ── 4. Rust toolchain (Luna) ─────────────────────────────────────────────────
-# Luna requires Rust 1.96 with edition 2024 (see luna/Cargo.toml). The default
-# Cloud Agent image ships an older toolchain, so install 1.96 via rustup and
+# Luna requires Rust 1.99 with edition 2024 (see luna/Cargo.toml). The default
+# Cloud Agent image ships an older toolchain, so install 1.99 via rustup and
 # expose cargo/rustc on PATH for every future shell.
 install_rust() {
   # Reuse an existing rustup install (and its homes) when the image ships one;

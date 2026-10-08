@@ -938,7 +938,7 @@ func (r *Runner) warmGoModuleCaches(ctx context.Context, testList []*tests.Test)
 		warmTest := &tests.Test{
 			ID:          warmID,
 			Name:        "Warm " + root,
-			Container:   "golang:1.26-alpine",
+			Container:   "golang:1.27-alpine",
 			Command:     "go mod download",
 			WorkDir:     root,
 			Timeout:     5 * time.Minute,

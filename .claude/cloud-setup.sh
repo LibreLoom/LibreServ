@@ -16,8 +16,8 @@
 set -uo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
-GO_VERSION=1.26.6
-RUST_VERSION=1.96.0
+GO_VERSION=1.27.1
+RUST_VERSION=1.99.0
 FJ_VERSION=0.6.0
 ANDROID_SDK=/usr/local/android-sdk
 LOG_DIR=/var/log/sol-setup
@@ -76,7 +76,7 @@ install_go() {
 }
 
 install_rust() {
-  # The image ships rustup under /root/.cargo; luna/ needs 1.96 (edition 2024),
+  # The image ships rustup under /root/.cargo; luna/ needs 1.99 (edition 2024),
   # clippy + rustfmt for luna/ci.sh, and the musl target for the ISO lunad.
   rustup toolchain install "$RUST_VERSION" --profile minimal \
     --component clippy,rustfmt --target x86_64-unknown-linux-musl

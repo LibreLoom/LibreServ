@@ -1,5 +1,5 @@
 # Go toolchain for Sol / Connect backends, the release tool itself, and ./ci.
-FROM docker.io/library/golang@sha256:eb36c1664dd974cde625f736e02c204383deebe03977365caaec5bf49f794348
+FROM docker.io/library/golang@sha256:162be5298a40ed317005c8339c6de4d10d3eef336d66dc8e9259b03ab9d3a6d2
 ENV CGO_ENABLED=0 GOFLAGS=-trimpath
 RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends git zip xz-utils \
     && rm -rf /var/lib/apt/lists/*

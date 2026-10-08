@@ -1,8 +1,8 @@
 module gt.plainskill.net/LibreLoom/LibreServ/ci
 
-go 1.26.0
+go 1.27.0
 
-toolchain go1.26.6
+toolchain go1.27.1
 
 require (
 	aead.dev/minisign v0.3.0
@@ -13,6 +13,7 @@ require (
 	github.com/charmbracelet/x/ansi v0.10.1
 	github.com/docker/docker v27.5.1+incompatible
 	github.com/muesli/termenv v0.16.0
+	golang.org/x/crypto v0.13.0
 	golang.org/x/term v0.12.0
 	software.sslmate.com/src/go-pkcs12 v0.7.3
 )
@@ -64,7 +65,6 @@ require (
 	go.opentelemetry.io/otel/sdk v1.47.0 // indirect
 	go.opentelemetry.io/otel/sdk/metric v1.47.0 // indirect
 	go.opentelemetry.io/otel/trace v1.47.0 // indirect
-	golang.org/x/crypto v0.13.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
