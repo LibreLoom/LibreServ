@@ -158,23 +158,13 @@ impl DriveManager {
                 )
                 .map(|_| ());
             if let Err(e) = mounted {
-                // A stick Luna can't open (blank, or a filesystem it can't
-                // read) can still be erased and set up, so say that instead
-                // of failing the look.
-                if device.removable || device.usb {
-                    return Ok(Inspection {
-                        device: device.name.clone(),
-                        model: device.model.clone(),
-                        fs_type: None,
-                        mount_point: PathBuf::new(),
-                        mounted_by_luna: false,
-                        summary: Default::default(),
-                        has_marker: false,
-                        needs_erase: true,
-                        readable: true,
-                        writable: false,
-                    });
-                }
+                tracing::warn!(
+                    device = %device.name,
+                    fs = %choice.fs_type,
+                    source = %choice.name,
+                    error = %e,
+                    "could not mount drive to look inside"
+                );
                 return Err(anyhow::anyhow!("Could not look at this drive safely. {e}"));
             }
             (target, true)
@@ -1167,22 +1157,6 @@ mod tests {
         assert!(!mgr.is_system_mount(Path::new("/var/lib/luna/mounts/drives/abc")));
         assert!(mgr.is_system_mount(Path::new("/var/lib/other")));
         assert!(mgr.is_system_mount(Path::new("/")));
-    }
-
-    #[test]
-    fn inspect_of_a_usb_luna_cannot_mount_offers_erase() {
-        let mounter = shared_mock();
-        *mounter.fail_mount.lock().unwrap() = true;
-        let root = tempfile::tempdir().unwrap();
-        let mgr = DriveManager::new(mounter, root.path());
-
-        let inspection = mgr.inspect(&detected("sdz", None)).unwrap();
-        assert!(inspection.needs_erase && inspection.readable && !inspection.writable);
-
-        let mut internal = detected("nvme0n1", None);
-        internal.removable = false;
-        internal.usb = false;
-        assert!(mgr.inspect(&internal).is_err());
     }
 
     fn detected(name: &str, mount: Option<&str>) -> DetectedDrive {
