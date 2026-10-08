@@ -1,6 +1,6 @@
 [package]
 name = "luna-desktop"
-version = "0.1.0"
+version = "0.0.0"
 edition = "2024"
 description = "Luna Desktop — backup and sync with GTK 4 + libadwaita"
 license = "AGPL-3.0-or-later"

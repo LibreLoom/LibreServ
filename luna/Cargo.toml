@@ -4,7 +4,7 @@ members = ["crates/luna-core", "crates/luna-feed", "crates/lunad"]
 exclude = ["desktop"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.0.0"
 edition = "2024"
 license = "MIT"
 rust-version = "1.96"

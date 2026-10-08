@@ -1232,7 +1232,7 @@ dependencies = [
 
 [[package]]
 name = "luna-core"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "libc",
  "rusqlite",
@@ -1245,7 +1245,7 @@ dependencies = [
 
 [[package]]
 name = "luna-feed"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "libc",
  "luna-feed",
@@ -1261,7 +1261,7 @@ dependencies = [
 
 [[package]]
 name = "lunad"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "anyhow",
  "argon2",

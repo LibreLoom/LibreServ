@@ -28,8 +28,6 @@
   <!-- The release tool prepends a <release version=... date=.../> entry here for
        every shipped version (newest first); do not edit by hand. -->
   <releases>
-    <release version="0.4.0" date="2026-10-05"/>
-    <release version="0.1.0" date="2026-08-29"/>
   </releases>
   <content_rating type="oars-1.1"/>
 </component>
