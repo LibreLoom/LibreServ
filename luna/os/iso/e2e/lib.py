@@ -32,7 +32,7 @@ def check(name, ok, detail=""):
     say(("  PASS  " if ok else "  FAIL  ") + name + (f"  [{detail}]" if detail and not ok else ""))
     if not ok and CURRENT_VM is not None and re.match(r"\s*(500|502|503)\b", str(detail)):
         try:
-            rc, out = CURRENT_VM.sh("tail -n 6 /var/log/luna.log | cut -c1-300", timeout=15)
+            rc, out = CURRENT_VM.sh("tail -n 6 /var/lib/luna/logs/luna.log | cut -c1-300", timeout=15)
             say("      lunad log: " + out.replace("\n", "\n      "))
         except Exception:
             pass
@@ -246,7 +246,8 @@ class VM:
         self.n_sh = getattr(self, "n_sh", 0) + 1
         mark = f"E2E{self.n_sh}X{int(time.time()) % 100000}"
         start = len(self.serial_text())
-        self.serial_send(f"{cmd}\necho {mark}_$?_\n")
+        # `echo` first: output without a final newline (curl) must not swallow the marker line.
+        self.serial_send(f"{cmd}\n__rc=$?; echo; echo {mark}_${{__rc}}_\n")
         end = time.time() + timeout
         while time.time() < end:
             t = self.serial_text()[start:]

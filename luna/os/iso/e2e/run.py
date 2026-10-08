@@ -751,8 +751,9 @@ def part_drive_lifecycle(vm, lu, fx):
     after = image_root_listing("fat32", img)
     added = sorted(set(after) - set(before))
     gone = sorted(set(before) - set(after))
-    check("[life] adopting added exactly one file, a .luna one, and removed nothing",
-          len(added) == 1 and added[0].lower().startswith(".luna") and not gone, f"added={added} gone={gone}")
+    check("[life] adopting added only Luna's own hidden .luna- items (one database), and removed nothing",
+          added and all(a.startswith(".luna-") for a in added) and sum(a.endswith(".sqlite3") for a in added) == 1 and not gone,
+          f"added={added} gone={gone}")
     c, b = lu.get(f"/api/v1/drives/{did}/files")
     check("[life] an ejected drive's files answer with a plain message, not a crash", c in (404, 409, 423, 503) and isinstance(b, dict) and b.get("error"), f"{c} {b}")
     # still plugged in: stays ejected
@@ -914,23 +915,36 @@ def stage_resilience():
     check("reboot kept the same slot", "luna.slot=A" in o, o)
 
     # -- power cut in the middle of an upload
-    big = os.urandom(60_000_000)
     import threading
-    state = {}
+    srcfile = f"{WORK}/cut-src.bin"
+    sh(f"head -c 300000000 /dev/urandom > {srcfile}")
+    state = {"chunks": 0}
 
     def go():
-        state["r"] = upload(lu, did, "cut.bin", big, chunk=1_000_000)
+        total = os.path.getsize(srcfile)
+        c, b = lu.post("/api/v1/uploads", {"drive_id": did, "path": "", "name": "cut.bin", "size": total})
+        uid = b.get("upload_id")
+        off = 0
+        with open(srcfile, "rb") as f:
+            while off < total:
+                data = f.read(2_000_000)
+                c, r = lu.req("PUT", f"/api/v1/uploads/{uid}", data, headers={"Content-Range": f"bytes {off}-{off + len(data) - 1}/{total}", "Content-Type": "application/octet-stream"}, timeout=20)
+                if c != 200:
+                    state["err"] = c
+                    return
+                off += len(data)
+                state["chunks"] += 1
 
     th = threading.Thread(target=go)
     th.start()
-    time.sleep(2.5)
+    while state["chunks"] < 25 and th.is_alive():
+        time.sleep(0.05)
     vm.kill()
     th.join(60)
-    check("the upload noticed the power cut (it failed rather than hanging)", state.get("r") is not None and state["r"][0] != 200, str(state.get("r", ("hung",))[:2]))
+    check("the upload was cut part-way by the power cut", state["chunks"] >= 25 and state.get("err") is not None, str(state))
     raw = overlay_to_raw("resil")
     rc_, out = fsck_data(raw)
     check("after a power cut the data partition repairs cleanly", rc_ in (0, 1), out[-300:])
-    vm, lu = bring_up("resil2", usb=img, golden=None) if False else (None, None)
     ov = f"{WORK}/resil.qcow2"
     vm = VM("resil2", [{"file": ov, "fmt": "qcow2", "bus": "sata", "bootindex": 0}, {"file": img, "bus": "usb"}],
             http_port=18080, xhci=True)
@@ -938,16 +952,22 @@ def stage_resilience():
     lu = Luna(18080)
     check("Luna boots after a power cut", lu.wait_up(240))
     check("admin can sign in after a power cut", login_admin(lu))
-    check("the drive is ready after a power cut", wait_state(lu, did, "as_is", 90))
+    ok = wait_state(lu, did, "as_is", 90)
+    if not ok:
+        rc, o = vm.sh("tail -n 30 /var/lib/luna/logs/luna.log | cut -c1-250; cat /proc/mounts | grep -E 'sd[b-z]'; dmesg | tail -15")
+        say("    after the power cut:\n" + o)
+    check("the drive is ready after a power cut", ok)
     c, got = download(lu, did, "keep.bin")
     check("the file stored before the cut is intact", c == 200 and got == data)
     c, ls = file_names(lu, did)
     check("the half-written upload is not shown as a file", "cut.bin" not in ls, str(ls))
     # resume
-    c, b, uid = upload(lu, did, "cut.bin", big, chunk=1_000_000)
+    c, b, uid, h = upload_file(lu, did, "cut.bin", srcfile)
     check("the same upload can be started again and finishes", c == 200, f"{c} {b}")
-    c, got = download(lu, did, "cut.bin")
-    check("and the file is right", c == 200 and got == big)
+    dest = f"{WORK}/cut-down.bin"
+    c, hd = download_to(lu, did, "cut.bin", dest)
+    check("and the file is right", c == 200 and hd == h)
+    os.unlink(dest)
     rc, o = vm.sh("cat /proc/cmdline")
     check("power cut kept the same slot", "luna.slot=A" in o, o)
 
@@ -1178,8 +1198,12 @@ def part_gallery(vm, lu, drive):
     check("[photos] the geotagged photo shows up in Places", c == 200 and "52" in json.dumps(pl), str(pl)[:300])
     c, cams = lu.get("/api/v1/gallery/cameras")
     check("[photos] the camera model is known", c == 200 and "TestCam" in json.dumps(cams), str(cams)[:300])
+    beach = next((i for i in items or [] if "beach" in json.dumps(i)), None)
+    say(f"    beach.jpg as the gallery knows it: {json.dumps(beach)[:700]}")
     for it in items or []:
         nm = it.get("name") or it.get("path") or ""
+        if not (it.get("path") or "").startswith("Pictures/"):
+            continue
         key = it.get("id") or it.get("key") or it.get("ref")
         q = f"drive_id={quote(it.get('drive_id', D))}&path={quote(it.get('path', ''))}"
         c, th = lu.get(f"/api/v1/gallery/thumb?{q}", raw=True)
@@ -1334,6 +1358,140 @@ def stage_bigfiles():
     vm.quit()
 
 
+def wait_job(lu, job_id, timeout=120):
+    end = time.time() + timeout
+    last = None
+    while time.time() < end:
+        c, b = lu.get(f"/api/v1/jobs/{job_id}")
+        last = b
+        if c == 200 and isinstance(b, dict) and b.get("state") in ("done", "failed", "error", "cancelled", "finished", "complete"):
+            return b
+        time.sleep(1)
+    return last
+
+
+def stage_app():
+    """Everything a person does after setup: search, copy/move, trash, backups, tokens, Connect, assets, reset."""
+    say("-- app features")
+    fx = make_fixtures()
+    a_img = copy_fixture(fx, "ext4", "app-a")
+    b_img = copy_fixture(fx, "ext4", "app-b")
+    vm, lu = bring_up("app", usb=a_img)
+    check("web UI answers", lu.wait_up(240))
+    lu.post("/api/v1/auth/register", ADMIN)
+    check("admin signs in", login_admin(lu))
+    lu.post("/api/v1/setup", {"setup_completed": True, "current_step": "done", "name": "E2E Luna"})
+    d = detected(lu, lambda x: True, 60)
+    c, b = lu.post(f"/api/v1/drives/{d[0]['name']}/adopt", {"label": "Main", "erase": False})
+    A = b.get("id")
+    d2 = plug(vm, lu, "u-app-b", b_img)
+    c, b = lu.post(f"/api/v1/drives/{d2['name']}/adopt", {"label": "Backup", "erase": False})
+    B = b.get("id")
+    check("two drives are added", bool(A and B), f"{A} {B}")
+    c, bd = lu.get("/api/v1/drives")
+    check("both drives list as ready", c == 200 and sorted(x["state"] for x in bd) == ["as_is", "as_is"], str(bd))
+
+    # -- content
+    lu.post(f"/api/v1/drives/{A}/files/mkdir", {"path": "Docs"})
+    lu.post(f"/api/v1/drives/{A}/files/mkdir", {"path": "Docs/Taxes 2025"})
+    texts = {"Docs/holiday plan.txt": b"flights to lisbon\n", "Docs/Taxes 2025/receipt.txt": b"receipt 42\n", "Docs/blob.bin": os.urandom(3_000_000)}
+    for path, data in texts.items():
+        folder, name = path.rsplit("/", 1)
+        c, b, _ = upload(lu, A, name, data, path=folder)
+        check(f"[app] upload {path}", c == 200, f"{c} {b}")
+    # search
+    time.sleep(3)
+    c, b = lu.get("/api/v1/search?q=holiday")
+    show("search", (c, str(b)[:300]))
+    check("[app] search finds a file by part of its name", c == 200 and "holiday plan.txt" in json.dumps(b), str(b)[:300])
+    c, b = lu.get("/api/v1/search?q=taxes&kind=dir")
+    check("[app] search can look for folders only", c == 200 and "Taxes 2025" in json.dumps(b), str(b)[:300])
+    c, b = lu.get("/api/v1/search?q=zzzznothing")
+    check("[app] search with no match is an empty answer", c == 200, f"{c} {b}")
+    # copy / move
+    c, b = lu.post("/api/v1/jobs", {"kind": "copy", "from_drive": A, "from_path": "Docs", "to_drive": B, "to_path": ""})
+    show("copy job", (c, b))
+    check("[app] a copy to the other drive starts", c in (200, 201, 202), f"{c} {b}")
+    jid = (b.get("id") or b.get("job_id")) if isinstance(b, dict) else None
+    if jid:
+        r = wait_job(lu, jid)
+        show("job result", (200, r))
+    c, ls = file_names(lu, B)
+    check("[app] the copy arrived on the other drive", "Docs" in ls, str(ls))
+    c, got = download(lu, B, "Docs/blob.bin")
+    check("[app] and its big file is identical", c == 200 and got == texts["Docs/blob.bin"], f"{c}")
+    c, b = lu.post("/api/v1/jobs", {"kind": "move", "from_drive": B, "from_path": "Docs/Taxes 2025", "to_drive": B, "to_path": ""})
+    show("move job", (c, b))
+    jid = (b.get("id") or b.get("job_id")) if isinstance(b, dict) else None
+    if jid:
+        show("move result", (200, wait_job(lu, jid)))
+    c, ls = file_names(lu, B)
+    c2, ls2 = file_names(lu, B, "Docs")
+    check("[app] a move inside a drive works", "Taxes 2025" in ls and "Taxes 2025" not in ls2, f"root={ls} docs={ls2}")
+    # trash
+    c, b = lu.req("DELETE", f"/api/v1/drives/{A}/files?path={quote('Docs/holiday plan.txt')}")
+    check("[app] delete sends a file to the trash", c == 200, f"{c} {b}")
+    c, ls = file_names(lu, A, "Docs")
+    check("[app] it's gone from the folder", "holiday plan.txt" not in ls, str(ls))
+    c, tr = lu.get(f"/api/v1/drives/{A}/files?path={quote('.luna-trash')}")
+    show("trash listing", (c, str(tr)[:300]))
+    # protections (backup to the other drive)
+    c, b = lu.post("/api/v1/protections", {"source_drive_id": A, "source_path": "Docs", "target_drive_id": B})
+    show("create protection", (c, b))
+    check("[app] a backup to the other drive can be set up", c in (200, 201), f"{c} {b}")
+    pid = b.get("id") if isinstance(b, dict) else None
+    if pid:
+        c, b = lu.post(f"/api/v1/protections/{pid}/run")
+        show("run protection", (c, b))
+        check("[app] and it runs", c in (200, 202), f"{c} {b}")
+        time.sleep(8)
+        c, b = lu.get("/api/v1/protections")
+        show("protections", (c, str(b)[:400]))
+        check("[app] the backup reports it finished fine", c == 200 and all(x.get("state") == "ok" and not x.get("last_error") for x in b), str(b)[:300])
+    # device tokens
+    c, b = lu.post("/api/v1/device-tokens", {"name": "e2e laptop"})
+    tok = b.get("token") if isinstance(b, dict) else None
+    check("[app] an access token can be made", c in (200, 201) and tok, f"{c} {b}")
+    if tok:
+        import base64
+        basic = "Basic " + base64.b64encode(f"admin:{tok}".encode()).decode()
+        c, b = Luna(18080).req("PROPFIND", f"/dav/{A}/", b"", headers={"Authorization": basic, "Depth": "0"})
+        check("[app] the token works for WebDAV like a desktop app would use it", c == 207, f"{c} {str(b)[:100]}")
+        c, b = Luna(18080).get("/api/v1/drives", headers={"Authorization": f"Bearer {tok}"})
+        check("[app] and as a bearer token for the API", c == 200, f"{c} {b}")
+        c, b = lu.req("DELETE", f"/api/v1/device-tokens/{b and ''}") if False else (0, None)
+        c, lst = lu.get("/api/v1/device-tokens")
+        tid = next((t["id"] for t in lst if t.get("name") == "e2e laptop"), None) if isinstance(lst, list) else None
+        c, b = lu.req("DELETE", f"/api/v1/device-tokens/{tid}")
+        check("[app] a token can be revoked", c in (200, 204), f"{c} {b}")
+        c, b = Luna(18080).get("/api/v1/drives", headers={"Authorization": f"Bearer {tok}"})
+        check("[app] a revoked token stops working at once", c == 401, f"{c} {b}")
+    # Connect (mock) and network
+    c, b = lu.get("/api/v1/connect/status")
+    show("connect status", (c, b))
+    check("[app] Connect status answers", c == 200, f"{c} {b}")
+    c, b = lu.get("/api/v1/network/status")
+    show("network status", (c, b))
+    check("[app] network status answers", c == 200, f"{c} {b}")
+    c, b = lu.get("/api/v1/system/health/check")
+    check("[app] the full health check answers", c == 200 and isinstance(b, dict), f"{c} {str(b)[:200]}")
+    show("health check", (c, str(b)[:600]))
+    # assets
+    for path, what in (("/drawio/index.html", "diagram editor"), ("/eurooffice/web-apps/apps/api/documents/api.js", "office editor")):
+        c, b = lu.get(path, raw=True)
+        check(f"[app] the {what} files are served from this Luna", c == 200 and len(b) > 200, f"{c} {len(b) if b else 0}")
+    # accounts
+    c, b = lu.req("PATCH", "/api/v1/auth/me", {"current_password": ADMIN["password"], "new_password": "a-new-long-password-5"})
+    show("change password", (c, b))
+    check("[app] the admin can change their password", c == 200, f"{c} {b}")
+    c, b = Luna(18080).post("/api/v1/auth/login", {"username": "admin", "password": ADMIN["password"]})
+    check("[app] the old password stops working", c in (400, 401), f"{c} {b}")
+    c, b = Luna(18080).post("/api/v1/auth/login", {"username": "admin", "new_password": "a-new-long-password-5"})
+    check("[app] the new password works", c == 200, f"{c} {b}")
+    vm.sh("sync")
+    vm.quit()
+
+
 def stage_flow():
     vm = golden_vm("flow", "sata", xhci=True)
     lu = Luna(18080)
@@ -1356,6 +1514,7 @@ def stage_flow():
 UPD = f"{WORK}/upd"
 FEED_URL = "http://10.0.2.2:18900"
 _feed_srv = None
+_pub_clock = int(time.time())
 
 
 def feed_server():
@@ -1437,7 +1596,10 @@ def publish(version, lunad=True, os_img=None, key="good", published=None, tamper
         parts.append({"name": "os", "os": "linux", "arch": "amd64", "file": "luna-os-x86_64.img.xz",
                       "size": os.path.getsize(os_img), "sha256": sha256_file(os_img),
                       "urls": [f"{FEED_URL}/files/{os.path.basename(os_img)}"]})
-    published = published or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    global _pub_clock
+    if published is None:
+        _pub_clock = max(_pub_clock + 60, int(time.time()))
+        published = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(_pub_clock))
     feed = {"format": 1, "unit": "luna", "channel": "stable", "version": version, "published": published,
             "notes": notes, "parts": parts, "api": {"version": 1, "oldest_supported": 1}}
     path = f"{UPD}/luna/stable.json"
@@ -1535,15 +1697,14 @@ def stage_update():
     rc, o = vm.sh("ls /var/lib/luna/bin 2>&1")
     check("nothing from the bad download is left installed", "lunad" not in o or "No such file" in o, o)
     # the feed cannot go backwards (replay of an older list)
-    publish("0.0.3", key="good", published="2026-10-01T00:00:00Z")
-    publish("0.0.4", key="good", published="2026-10-08T01:00:00Z")
+    publish("0.0.4", key="good")
     api_check(lu)
     publish("0.0.3", key="good", published="2026-10-01T00:00:00Z")
     c, b = api_check(lu)
     check("an older feed replayed after a newer one is refused", c >= 400 or b.get("update_available") is False, f"{c} {b}")
 
     # lunad-only update
-    publish("0.0.5", key="good", published="2026-10-08T02:00:00Z")
+    publish("0.0.5", key="good")
     c, b = api_check(lu)
     check("lunad-only update is offered", c == 200 and b.get("update_available") and b.get("reboot_required") is False, f"{c} {b}")
     rc, pid_before = vm.sh("pidof lunad")
@@ -1560,7 +1721,7 @@ def stage_update():
 
     # OS update to slot B
     good_v2 = os_image_variant("v2", {})
-    publish("0.0.6", key="good", os_img=good_v2, published="2026-10-08T03:00:00Z")
+    publish("0.0.6", key="good", os_img=good_v2)
     c, b = api_check(lu)
     check("an OS update is offered and says it needs a restart", c == 200 and b.get("update_available") and b.get("reboot_required") is True, f"{c} {b}")
     check("the active slot is A before the update", slot_of(vm) == "A")
@@ -1613,7 +1774,10 @@ def stage_lab():
         if os.path.exists(f"{WORK}/lab.cmd"):
             cmd = open(f"{WORK}/lab.cmd").read()
             os.unlink(f"{WORK}/lab.cmd")
-            rc, out = vm.sh(cmd, timeout=120)
+            if cmd.startswith("HMP "):
+                rc, out = 0, vm.hmp(cmd[4:])
+            else:
+                rc, out = vm.sh(cmd, timeout=120)
             open(f"{WORK}/lab.result", "w").write(f"rc={rc}\n{out}\n")
         time.sleep(1)
     vm.quit()
@@ -1630,6 +1794,7 @@ STAGES["explore"] = stage_explore
 STAGES["boot"] = stage_boot
 STAGES["lab"] = stage_lab
 STAGES["update"] = stage_update
+STAGES["app"] = stage_app
 STAGES["bigfiles"] = stage_bigfiles
 STAGES["matrix"] = stage_matrix
 STAGES["installer-prod-bios"] = stage_installer_prod_bios

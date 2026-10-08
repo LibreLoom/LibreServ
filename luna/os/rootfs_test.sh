@@ -45,7 +45,7 @@ assert_file_has "$BUILD" 'for svc in luna-root-ro hwclock modules sysctl hostnam
 assert_file_has "$BUILD" 'loopback' "boot runlevel must enable loopback service"
 # lunad must be supervised (crash/update restart) and must have a log file.
 assert_file_has "$BUILD" 'supervisor="supervise-daemon"' "lunad must run under supervise-daemon"
-assert_file_has "$BUILD" 'output_log="/var/log/luna.log"' "lunad stdout must go to a log file"
+assert_file_has "$BUILD" 'output_log="/var/lib/luna/logs/luna.log"' "lunad stdout must go to a log file"
 # One-shot boot scripts must define start(): with command= OpenRC watches for a
 # daemon that already exited, lists the service as "crashed", and starts it again
 # for every service that depends on it.

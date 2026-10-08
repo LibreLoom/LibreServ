@@ -33,6 +33,10 @@ use crate::drives::mount::Mounter;
 
 pub const INSTALLER_USB_MESSAGE: &str = "If you have moved any files you want to keep off this drive, choose Erase and add this drive. That deletes everything on it so Luna can use it for your photos and files.";
 pub const WRITE_REJECTED_MESSAGE: &str = "This drive will not accept new files right now. If it has a lock switch, slide it to unlock, then try again.";
+/// Adopt failed because the stick stayed read-only after a remount attempt.
+pub const NEEDS_FORMAT_MESSAGE: &str =
+    "This drive is read-only. Format it before using it with Luna.";
+
 /// A removable drive with no filesystem Luna recognises (blank, damaged, or
 /// another system's format) that nothing has mounted.
 fn is_unrecognized(device: &DetectedDrive, choice: &MountChoice) -> bool {
@@ -40,10 +44,6 @@ fn is_unrecognized(device: &DetectedDrive, choice: &MountChoice) -> bool {
         && device.mount_point.is_none()
         && (device.removable || device.usb)
 }
-
-/// Adopt failed because the stick stayed read-only after a remount attempt.
-pub const NEEDS_FORMAT_MESSAGE: &str =
-    "This drive is read-only. Format it before using it with Luna.";
 
 #[derive(Debug, Clone)]
 pub struct Inspection {
@@ -885,9 +885,11 @@ impl DriveManager {
         for write in plan.writes {
             match write {
                 ReconcileWrite::State { id, state } => {
+                    tracing::info!(drive = %id, state = %state, "drive state changed");
                     db::set_drive_state(conn, &id, &state)?;
                 }
                 ReconcileWrite::Placement { id, device, state } => {
+                    tracing::info!(drive = %id, device = %device, state = %state, "drive moved to another device name");
                     db::update_drive_placement(conn, &id, &device, None, &state)?;
                 }
             }
@@ -954,7 +956,7 @@ impl DriveManager {
         ids
     }
 
-    /// True when this row claims a Luna-owned mount that is not live.
+    /// Let go of the mount a pulled drive left behind (see `Mounter::detach_stale`).
     fn detach_stale_mount(&self, row: &db::DriveRow) {
         if row.mount_point.is_empty() {
             return;
@@ -967,6 +969,7 @@ impl DriveManager {
         }
     }
 
+    /// True when this row claims a Luna-owned mount that is not live.
     fn luna_mount_missing(&self, row: &db::DriveRow) -> bool {
         if row.mount_point.is_empty() {
             return false;

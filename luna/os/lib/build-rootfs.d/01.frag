@@ -135,10 +135,11 @@ pidfile="/run/luna.pid"
 respawn_delay=2
 respawn_max=0
 respawn_period=60
-# lunad logs to stdout; without this the log goes nowhere. /var/log is tmpfs
-# (see fstab), so it is gone after a reboot and rotated while running.
-output_log="/var/log/luna.log"
-error_log="/var/log/luna.log"
+# lunad logs to stdout; without this the log goes nowhere. It lives on the data
+# partition, not the tmpfs /var/log, so what happened before a power cut or a
+# crash-and-reboot is still there afterwards. Lunad logs a few lines an hour.
+output_log="/var/lib/luna/logs/luna.log"
+error_log="/var/lib/luna/logs/luna.log"
 supervise_daemon_args="--env LUNA_DATA_DIR=/var/lib/luna --env LUNA_PORT=80 --env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 depend() {
     need localmount luna-root-ro
@@ -151,6 +152,7 @@ start_pre() {
         eerror "Check that the data partition exists and is labelled LUNA_DATA"
         return 1
     fi
+    mkdir -p /var/lib/luna/logs
 }
 INIT
 chmod +x "$ROOTFS/etc/init.d/luna"
@@ -158,7 +160,7 @@ chmod +x "$ROOTFS/etc/init.d/luna"
 # Keep Luna's log from filling the 32 MB /var/log tmpfs: rotate hourly by size.
 mkdir -p "$ROOTFS/etc/logrotate.d" "$ROOTFS/etc/periodic/hourly"
 cat > "$ROOTFS/etc/logrotate.d/luna" <<'LOGROTATE'
-/var/log/luna.log {
+/var/lib/luna/logs/luna.log {
     size 2M
     rotate 2
     copytruncate

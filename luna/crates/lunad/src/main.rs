@@ -73,6 +73,10 @@ async fn async_main() -> anyhow::Result<()> {
         let mounts = std::fs::read_to_string("/proc/mounts").unwrap_or_default();
         lunad::drives::detect::scan_with_dev_mocks(std::path::Path::new("/sys/block"), &mounts)
     };
+    tracing::info!(
+        drives = ?detected.iter().map(|d| d.name.as_str()).collect::<Vec<_>>(),
+        "drives seen at startup"
+    );
     drive_manager.reconcile(&conn, &detected)?;
 
     // Password recovery runs once, here, before the network is up: Connect has
