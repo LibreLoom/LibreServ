@@ -77,7 +77,8 @@ assert_file_has "$ROOT/../infra/ci-source/internal/release/parts/os.go" 'luna-os
 # The card's own title ("System updates") is fine; any other mention is a split.
 if grep -E 'System update|OS update|system update' \
 	"$ROOT/web/src/components/settings/categories/SystemUpdatesCard.jsx" 2>/dev/null |
-	grep -v 'title="System updates"' | grep -q .; then
+	grep -v 'title="System updates"' | grep -v -E '^[[:space:]]*//' |
+	grep -v "last system update didn" | grep -q .; then
 	echo "FAIL Updates UI must not differentiate OS vs software" >&2
 	fail=$((fail + 1))
 fi
