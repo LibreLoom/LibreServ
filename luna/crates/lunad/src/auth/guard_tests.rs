@@ -439,6 +439,42 @@ async fn setup_progress_saves_and_resumes_before_account() {
 }
 
 #[tokio::test]
+async fn remote_wizard_saves_every_step_before_account_but_cannot_finish() {
+    let (_dir, app) = test_app();
+    // Exactly what the wizard posts: Begin setup, then preflight pass.
+    for (step, data) in [
+        ("preflight", r#"{"network_connected":true}"#),
+        ("account", r#"{"network_connected":true,"preflight_passed":true}"#),
+    ] {
+        let body = format!(r#"{{"current_step":"{step}","step_data":{data}}}"#);
+        let res = call(
+            &app,
+            from_remote(req(Method::POST, "/api/v1/setup", Some(&body), None)),
+        )
+        .await;
+        assert_eq!(res.status(), 200, "{step}: {}", text(res).await);
+    }
+    // A refresh resumes where it left off.
+    let get = call(
+        &app,
+        from_remote(req(Method::GET, "/api/v1/setup", None, None)),
+    )
+    .await;
+    let body: serde_json::Value = serde_json::from_str(&text(get).await).unwrap();
+    assert_eq!(body["current_step"], "account");
+    assert_eq!(body["step_data"]["preflight_passed"], true);
+    // But a remote caller still can't close the wizard or name Luna.
+    for body in [r#"{"setup_completed":true}"#, r#"{"name":"Kitchen"}"#] {
+        let res = call(
+            &app,
+            from_remote(req(Method::POST, "/api/v1/setup", Some(body), None)),
+        )
+        .await;
+        assert_eq!(res.status(), 403, "{body}");
+    }
+}
+
+#[tokio::test]
 async fn setup_progress_rejects_unknown_step() {
     let (_dir, app) = test_app();
     let res = call(
