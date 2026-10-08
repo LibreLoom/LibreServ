@@ -899,7 +899,10 @@ mod tests {
         let conn = db.lock().unwrap();
         let up = create_scoped(&conn, &drive, "", "big.bin", 10, "user:u1").unwrap();
         crate::db::set_drive_state(&conn, &drive, "readonly").unwrap();
-        assert!(get_row(&conn, &up.id).is_ok(), "a full drive must not hide its uploads");
+        assert!(
+            get_row(&conn, &up.id).is_ok(),
+            "a full drive must not hide its uploads"
+        );
         crate::db::set_drive_state(&conn, &drive, "ejected").unwrap();
         assert!(get_row(&conn, &up.id).is_err());
     }

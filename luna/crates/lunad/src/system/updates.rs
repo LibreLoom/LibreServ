@@ -686,16 +686,14 @@ impl SlotOps for RealSlotOps {
 /// The `root=UUID=` the boot menu uses for `slot` (its `luna.slot=` line).
 fn pinned_uuid_from_grub_cfg(cfg: &str, slot: char) -> Option<String> {
     let marker = format!("luna.slot={slot}");
-    cfg.lines()
-        .filter(|l| l.contains(&marker))
-        .find_map(|l| {
-            let rest = l.split("root=UUID=").nth(1)?;
-            let id: String = rest
-                .chars()
-                .take_while(|c| c.is_ascii_hexdigit() || *c == '-')
-                .collect();
-            (id.len() == 36).then_some(id)
-        })
+    cfg.lines().filter(|l| l.contains(&marker)).find_map(|l| {
+        let rest = l.split("root=UUID=").nth(1)?;
+        let id: String = rest
+            .chars()
+            .take_while(|c| c.is_ascii_hexdigit() || *c == '-')
+            .collect();
+        (id.len() == 36).then_some(id)
+    })
 }
 
 /// Read the filesystem UUID from an ext4 superblock (1024 bytes in; magic at

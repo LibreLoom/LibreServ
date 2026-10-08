@@ -939,9 +939,10 @@ mod tests {
             tail.push_str(&String::from_utf8_lossy(&buf[..n]));
         }
         assert_eq!(
-            std::fs::metadata(mount.path().join("big.bin")).unwrap().len(),
+            std::fs::metadata(mount.path().join("big.bin"))
+                .unwrap()
+                .len(),
             300_000
         );
     }
-
 }

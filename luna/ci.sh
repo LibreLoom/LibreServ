@@ -55,7 +55,7 @@ sh -n os/build-rootfs.sh os/flash.sh os/make-image.sh os/make-iso.sh os/build-is
 	os/lib/musl-link.sh os/lib/musl-binaries_test.sh \
 	os/build/rootfs.sh os/build/image.sh os/build/input-hash.sh \
 	os/build/live.sh os/build/iso-customize.sh os/build/iso.sh \
-	os/iso/find-media.sh os/iso/find-media_test.sh os/iso/boot-test.sh os/iso/install-test.sh \
+	os/iso/find-media.sh os/iso/find-media_test.sh os/iso/boot-test.sh os/iso/install-test.sh os/iso/e2e.sh \
 	os/debian-live/debian_live_test.sh os/rootfs_test.sh os/rapidinstall_wait_test.sh
 sh os/lib/disk_test.sh
 sh os/lib/factory-assets_test.sh

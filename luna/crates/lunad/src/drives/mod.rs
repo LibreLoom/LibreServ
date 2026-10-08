@@ -40,9 +40,7 @@ pub const NEEDS_FORMAT_MESSAGE: &str =
 /// A removable drive with no filesystem Luna recognises (blank, damaged, or
 /// another system's format) that nothing has mounted.
 fn is_unrecognized(device: &DetectedDrive, choice: &MountChoice) -> bool {
-    choice.fs_type.is_empty()
-        && device.mount_point.is_none()
-        && (device.removable || device.usb)
+    choice.fs_type.is_empty() && device.mount_point.is_none() && (device.removable || device.usb)
 }
 
 #[derive(Debug, Clone)]
@@ -1249,7 +1247,9 @@ mod tests {
 
     #[test]
     fn desktop_automount_paths_are_not_system_mountpoints() {
-        assert!(!is_system_mountpoint(Path::new("/run/media/max/GENERAL UDISK")));
+        assert!(!is_system_mountpoint(Path::new(
+            "/run/media/max/GENERAL UDISK"
+        )));
         assert!(!is_system_mountpoint(Path::new("/media/max/stick")));
         assert!(is_system_mountpoint(Path::new("/run")));
         assert!(is_system_mountpoint(Path::new("/run/user/1000")));
@@ -1282,7 +1282,11 @@ mod tests {
     /// A stick coming back: the OS mounts it where it was before, so Luna can
     /// read its sticker file and tell it from a different stick with the same
     /// kernel name.
-    fn replugged(mounter: &crate::drives::mount::MockMounter, row: &db::DriveRow, name: &str) -> DetectedDrive {
+    fn replugged(
+        mounter: &crate::drives::mount::MockMounter,
+        row: &db::DriveRow,
+        name: &str,
+    ) -> DetectedDrive {
         mounter
             .mount(&format!("/dev/{name}"), Path::new(&row.mount_point), false)
             .unwrap();
@@ -1707,9 +1711,15 @@ mod tests {
         assert!(!mounter.is_mounted(Path::new(&row.mount_point)));
 
         let remounted = mgr.reconcile(&conn, &[detected("sdz", None)]).unwrap();
-        assert_eq!(db::get_drive(&conn, &row.id).unwrap().unwrap().state, "as_is");
+        assert_eq!(
+            db::get_drive(&conn, &row.id).unwrap().unwrap().state,
+            "as_is"
+        );
         assert!(mounter.is_mounted(Path::new(&row.mount_point)));
-        assert!(remounted.iter().any(|(id, _)| id == &row.id), "gallery must be re-armed");
+        assert!(
+            remounted.iter().any(|(id, _)| id == &row.id),
+            "gallery must be re-armed"
+        );
     }
 
     #[test]
@@ -1726,7 +1736,10 @@ mod tests {
         *mounter.fail_mount.lock().unwrap() = true;
 
         mgr.reconcile(&conn, &[detected("sdz", None)]).unwrap();
-        assert_eq!(db::get_drive(&conn, &row.id).unwrap().unwrap().state, "ejected");
+        assert_eq!(
+            db::get_drive(&conn, &row.id).unwrap().unwrap().state,
+            "ejected"
+        );
     }
 
     #[test]
@@ -1748,7 +1761,9 @@ mod tests {
         );
 
         // Drive back — must report gallery remount so callers re-arm watch_mount.
-        let remounted = mgr.reconcile(&conn, &[replugged(&mounter, &row, "sdz")]).unwrap();
+        let remounted = mgr
+            .reconcile(&conn, &[replugged(&mounter, &row, "sdz")])
+            .unwrap();
         assert_eq!(
             db::get_drive(&conn, &row.id).unwrap().unwrap().state,
             "as_is"
@@ -1777,7 +1792,8 @@ mod tests {
         // or the fresh mount on replug never happens and the files look gone.
         mgr.reconcile(&conn, &[]).unwrap();
         assert!(!mounter.is_mounted(&mount), "stale mount left behind");
-        mgr.reconcile(&conn, &[replugged(&mounter, &row, "sdz")]).unwrap();
+        mgr.reconcile(&conn, &[replugged(&mounter, &row, "sdz")])
+            .unwrap();
         assert!(mounter.is_mounted(&mount), "replug did not mount again");
     }
 
@@ -1792,7 +1808,10 @@ mod tests {
             .adopt(&conn, &detected("sdz", None), "First stick", false)
             .unwrap();
         mgr.reconcile(&conn, &[]).unwrap();
-        assert_eq!(db::get_drive(&conn, &row.id).unwrap().unwrap().state, "missing");
+        assert_eq!(
+            db::get_drive(&conn, &row.id).unwrap().unwrap().state,
+            "missing"
+        );
         // Another stick takes the name `sdz`. Its own mount has no sticker file.
         let other_mount = dir.join("other-stick");
         std::fs::create_dir_all(&other_mount).unwrap();
@@ -1816,14 +1835,18 @@ mod tests {
             .adopt(&conn, &detected("sdz", None), "Photos", false)
             .unwrap();
 
-        let first = mgr.reconcile(&conn, &[replugged(&mounter, &row, "sdz")]).unwrap();
+        let first = mgr
+            .reconcile(&conn, &[replugged(&mounter, &row, "sdz")])
+            .unwrap();
         assert!(
             first.is_empty(),
             "already-Ready drive must not re-arm every poll"
         );
 
         mgr.reconcile(&conn, &[]).unwrap();
-        let remounted = mgr.reconcile(&conn, &[replugged(&mounter, &row, "sdz")]).unwrap();
+        let remounted = mgr
+            .reconcile(&conn, &[replugged(&mounter, &row, "sdz")])
+            .unwrap();
         assert_eq!(remounted.len(), 1);
         assert_eq!(remounted[0].0, row.id);
         assert_eq!(remounted[0].1, PathBuf::from(&row.mount_point));
@@ -2018,7 +2041,8 @@ mod tests {
             "missing"
         );
 
-        mgr.reconcile(&conn, &[replugged(&mounter, &row, "sdz")]).unwrap();
+        mgr.reconcile(&conn, &[replugged(&mounter, &row, "sdz")])
+            .unwrap();
         assert_eq!(
             db::get_drive(&conn, &row.id).unwrap().unwrap().state,
             "as_is"
@@ -2156,7 +2180,10 @@ mod tests {
         assert!(mgr.peek(&dev).needs_erase);
         // Adding it without the erase says so in words a person can act on.
         let err = mgr.adopt(&conn, &dev, "New stick", false).unwrap_err();
-        assert!(err.to_string().contains("Erase and add this drive"), "{err}");
+        assert!(
+            err.to_string().contains("Erase and add this drive"),
+            "{err}"
+        );
         assert!(db::list_drives(&conn).unwrap().is_empty());
     }
 

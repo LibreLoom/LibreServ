@@ -1270,5 +1270,8 @@ fn a_full_drive_is_not_called_read_only_but_a_read_only_one_is() {
     note_write_failure(&conn, &id, "No space left on device (os error 28)");
     assert_eq!(db::get_drive(&conn, &id).unwrap().unwrap().state, "as_is");
     note_write_failure(&conn, &id, "Read-only file system (os error 30)");
-    assert_eq!(db::get_drive(&conn, &id).unwrap().unwrap().state, "readonly");
+    assert_eq!(
+        db::get_drive(&conn, &id).unwrap().unwrap().state,
+        "readonly"
+    );
 }

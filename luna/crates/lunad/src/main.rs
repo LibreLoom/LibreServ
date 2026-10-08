@@ -28,14 +28,19 @@ fn main() -> anyhow::Result<()> {
 
 /// Sleep until the system has been up for `seconds`, if it has not been yet.
 fn wait_for_usb_to_settle(seconds: f64) {
-    let up = std::fs::read_to_string("/proc/uptime")
-        .ok()
-        .and_then(|t| t.split_whitespace().next().and_then(|v| v.parse::<f64>().ok()));
+    let up = std::fs::read_to_string("/proc/uptime").ok().and_then(|t| {
+        t.split_whitespace()
+            .next()
+            .and_then(|v| v.parse::<f64>().ok())
+    });
     if let Some(up) = up
         && up < seconds
     {
         let wait = std::time::Duration::from_secs_f64((seconds - up).min(seconds));
-        tracing::info!(seconds = wait.as_secs_f32(), "waiting for USB drives to show up");
+        tracing::info!(
+            seconds = wait.as_secs_f32(),
+            "waiting for USB drives to show up"
+        );
         std::thread::sleep(wait);
     }
 }
@@ -145,10 +150,9 @@ async fn async_main() -> anyhow::Result<()> {
             loop {
                 tokio::time::sleep(std::time::Duration::from_secs(60 * 60)).await;
                 let db = db.clone();
-                let _ = tokio::task::spawn_blocking(move || {
-                    lunad::files::uploads::sweep_orphans(&db)
-                })
-                .await;
+                let _ =
+                    tokio::task::spawn_blocking(move || lunad::files::uploads::sweep_orphans(&db))
+                        .await;
             }
         });
     }

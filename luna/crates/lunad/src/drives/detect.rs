@@ -310,7 +310,9 @@ mod tests {
         fs::write(sys.join("sdb/size"), "524288\n").unwrap();
         fs::write(sys.join("sdb/removable"), "0\n").unwrap();
         // An internal SATA disk and a path that only has "usb" inside a name.
-        let sata = root.path().join("sys/devices/pci0000:00/0000:00:1f.2/ata1/host0/target0:0:0/0:0:0:0");
+        let sata = root
+            .path()
+            .join("sys/devices/pci0000:00/0000:00:1f.2/ata1/host0/target0:0:0/0:0:0:0");
         fs::create_dir_all(&sata).unwrap();
         fs::create_dir_all(sys.join("sdc")).unwrap();
         std::os::unix::fs::symlink(&sata, sys.join("sdc/device")).unwrap();

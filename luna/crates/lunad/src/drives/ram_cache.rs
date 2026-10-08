@@ -915,7 +915,11 @@ mod tests {
         // Other drives are unaffected.
         cache.put_listing("other-drive", "Docs", 100, Vec::new());
         note_drive_write("gen-drive");
-        assert!(cache.get_listing("other-drive", "Docs", Some(100)).is_some());
+        assert!(
+            cache
+                .get_listing("other-drive", "Docs", Some(100))
+                .is_some()
+        );
     }
 
     #[test]

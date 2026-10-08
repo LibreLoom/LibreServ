@@ -271,7 +271,9 @@ fn blkid_export(dev: &str) -> Option<(String, String)> {
     write_private(&staged, &head).ok()?;
     let blkid = crate::sandbox::which("blkid")?;
     let mut cmd = Command::new(blkid);
-    cmd.args(["-o", "export"]).arg(&staged).stderr(Stdio::null());
+    cmd.args(["-o", "export"])
+        .arg(&staged)
+        .stderr(Stdio::null());
     let out = crate::sandbox::output(&mut cmd, &io, std::time::Duration::from_secs(15)).ok()?;
     if !out.status.success() {
         return None;
@@ -551,6 +553,9 @@ mod head_tests {
         let out = dir.path().join("probe.img");
         write_private(&out, b"x").unwrap();
         use std::os::unix::fs::PermissionsExt;
-        assert_eq!(std::fs::metadata(&out).unwrap().permissions().mode() & 0o777, 0o644);
+        assert_eq!(
+            std::fs::metadata(&out).unwrap().permissions().mode() & 0o777,
+            0o644
+        );
     }
 }
