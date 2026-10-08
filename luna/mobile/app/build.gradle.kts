@@ -20,8 +20,8 @@ android {
         // file statically at each release tag. The release tool rewrites both
         // at bump time: versionCode = (major*10000 + minor*100 + patch) * 100 + n,
         // n = beta number (1-98) or 99 for a final; versionName = luna/mobile/VERSION.
-        versionCode = 7
-        versionName = "0.1.6"
+        versionCode = 1
+        versionName = "0.0.0"
     }
 
     signingConfigs {
