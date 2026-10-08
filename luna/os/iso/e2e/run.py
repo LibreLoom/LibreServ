@@ -398,10 +398,14 @@ def part_setup(vm, lu):
     check("wrong password is refused", c in (400, 401), f"{c} {b}")
     c, b = lu.post("/api/v1/auth/login", {"username": ADMIN["username"], "password": ADMIN["password"]})
     check("sign in works", c == 200 and b.get("role") == "admin", f"{c} {b}")
-    # brute force limiter
+
+
+def part_ratelimit():
+    say("-- sign-in rate limit (last, it locks this client out for a few minutes)")
     codes = [Luna(18080).post("/api/v1/auth/login", {"username": "admin", "password": f"nope-{i}-nope"})[0] for i in range(12)]
     check("repeated wrong passwords get rate-limited", 429 in codes, str(codes))
-    time.sleep(1)
+    c, b = Luna(18080).post("/api/v1/auth/login", {"username": "admin", "password": ADMIN["password"]})
+    check("while rate-limited even the right password waits", c == 429, f"{c} {b}")
 
 
 def detected(lu, pred=lambda d: True, timeout=40):
@@ -582,6 +586,113 @@ def part_files(vm, lu, drive, kind):
     return data
 
 
+def part_people(vm, lu, drive):
+    """Members, sharing, public links, private folders, WebDAV."""
+    say("-- people: members, sharing, links, private folders, WebDAV")
+    D = drive
+    c, b = lu.post("/api/v1/users", {"username": "sam", "display_name": "Sam", "password": "sams-long-password-7", "role": "member"})
+    check("admin adds a member", c in (200, 201), f"{c} {b}")
+    sam_id = b.get("id") if isinstance(b, dict) else None
+    c, b = lu.post("/api/v1/users", {"username": "sam", "display_name": "Sam 2", "password": "sams-long-password-7", "role": "member"})
+    check("a second 'sam' is refused plainly", c in (400, 409) and isinstance(b, dict) and b.get("error"), f"{c} {b}")
+    c, b = lu.post("/api/v1/users", {"username": "weak", "display_name": "Weak", "password": "123", "role": "member"})
+    check("a member with a weak password is refused", c == 400, f"{c} {b}")
+    sam = Luna(18080)
+    c, b = sam.post("/api/v1/auth/login", {"username": "sam", "password": "sams-long-password-7"})
+    check("the member can sign in", c == 200 and b.get("role") == "member", f"{c} {b}")
+    for path, what in (("/api/v1/drives/detected", "drive scan"), ("/api/v1/system/updates", "updates"),
+                       ("/api/v1/system/updates/source", "update source"), ("/api/v1/users", "user list")):
+        c, b = sam.get(path)
+        check(f"a member cannot open {what}", c == 403, f"{c} {b}")
+    c, b = sam.post("/api/v1/users", {"username": "evil", "display_name": "E", "password": "evil-long-password-1", "role": "admin"})
+    check("a member cannot create an admin", c == 403, f"{c} {b}")
+    c, b = sam.post(f"/api/v1/drives/{D}/files/mkdir", {"path": "SamsDir"})
+    check("a member without a share cannot write to the drive", c in (403, 404), f"{c} {b}")
+    c, b = sam.get(f"/api/v1/drives/{D}/files?path=Docs")
+    check("a member without a share cannot list a folder", c in (403, 404), f"{c} {b}")
+    # share Docs read-only
+    c, b = lu.post("/api/v1/access/members", {"kind": "path", "drive_id": D, "path": "Docs", "user_id": sam_id, "caps": "view"})
+    check("admin shares Docs with the member (view)", c in (200, 201), f"{c} {b}")
+    mid = b.get("id") if isinstance(b, dict) else None
+    c, b = sam.get(f"/api/v1/drives/{D}/files?path=Docs")
+    check("the member can now list Docs", c == 200 and isinstance(b, list), f"{c} {b}")
+    c, got = download(sam, D, "Docs/empty.txt")
+    check("the member can read a file in Docs", c == 200, f"{c} {got}")
+    c, b = sam.post(f"/api/v1/drives/{D}/files/mkdir", {"path": "Docs/ByS"})
+    check("view-only: the member cannot make a folder", c in (403, 404), f"{c} {b}")
+    c, b, _ = upload(sam, D, "x.bin", b"abc", path="Docs")
+    check("view-only: the member cannot upload", c in (403, 404), f"{c} {b}")
+    c, b = sam.req("DELETE", f"/api/v1/drives/{D}/files?path={quote('Docs/empty.txt')}")
+    check("view-only: the member cannot delete", c in (403, 404), f"{c} {b}")
+    c, b = sam.get(f"/api/v1/drives/{D}/files?path=")
+    show("member at drive root", (c, b))
+    c, b = sam.get(f"/api/v1/drives/{D}/files?path=../")
+    check("path escape through a share is refused", c in (400, 403, 404), f"{c} {b}")
+    c, b = lu.req("PATCH", f"/api/v1/access/members/{mid}", {"caps": "view+upload"})
+    check("admin lets the member upload", c == 200, f"{c} {b}")
+    c, b, _ = upload(sam, D, "fromsam.bin", b"hello from sam", path="Docs")
+    check("the member can now upload into Docs", c == 200, f"{c} {b}")
+    c, b = lu.req("DELETE", f"/api/v1/access/members/{mid}")
+    check("admin takes the share away", c == 200, f"{c} {b}")
+    c, b = sam.get(f"/api/v1/drives/{D}/files?path=Docs")
+    check("the member loses access at once", c in (403, 404), f"{c} {b}")
+    # private folder
+    c, b = lu.post(f"/api/v1/drives/{D}/files/mkdir", {"path": "Secret", "private": True})
+    check("admin makes a private folder", c in (200, 201), f"{c} {b}")
+    c, b = lu.get(f"/api/v1/drives/{D}/files?path=Secret")
+    check("the owner can open their private folder", c == 200, f"{c} {b}")
+    c, b = sam.get(f"/api/v1/drives/{D}/files?path=Secret")
+    check("another member cannot open it", c in (403, 404), f"{c} {b}")
+    # public link
+    c, b = lu.post("/api/v1/access/links", {"kind": "path", "drive_id": D, "path": "Docs", "caps": "view", "password": "open-sesame-1", "expires_in_days": 7})
+    show("create link", (c, b))
+    check("admin makes a password-protected public link", c in (200, 201), f"{c} {b}")
+    tok = None
+    if isinstance(b, dict):
+        tok = b.get("token") or (b.get("link") or {}).get("token")
+        url = b.get("url") or ""
+        if not tok and "/s/" in url:
+            tok = url.split("/s/")[-1].split("?")[0]
+    check("the link has a token", bool(tok), str(b))
+    if tok:
+        anon = Luna(18080)
+        c, b = anon.get(f"/s/{tok}/list")
+        check("without the password the link shows nothing", c in (401, 403), f"{c} {str(b)[:200]}")
+        c, b = anon.get(f"/s/{tok}/list", headers={"X-Share-Password": "wrong-password-1"})
+        check("a wrong link password is refused", c == 401, f"{c} {b}")
+        c, b = anon.get(f"/s/{tok}/list", headers={"X-Share-Password": "open-sesame-1"})
+        check("with the right password the link lists the folder", c == 200 and "empty.txt" in str(b), f"{c} {str(b)[:200]}")
+        c, b = anon.get(f"/s/{tok}/list")
+        check("after unlocking, the browser stays unlocked", c == 200, f"{c} {str(b)[:200]}")
+        c, got = anon.get(f"/s/{tok}/file?path=empty.txt", raw=True)
+        check("the link can download a file", c == 200, f"{c}")
+        c, b = anon.post(f"/s/{tok}/mkdir", {"path": "hack"})
+        check("a view link cannot create things", c in (400, 401, 403, 404), f"{c} {b}")
+        c, b = anon.get("/s/not-a-real-token/list")
+        check("an unknown link token is refused", c in (401, 403, 404), f"{c} {b}")
+    # WebDAV with the session cookie
+    base = f"/dav/{D}"
+    c, b = lu.req("PROPFIND", base + "/", b'<?xml version="1.0"?><propfind xmlns="DAV:"><allprop/></propfind>', headers={"Depth": "1", "Content-Type": "application/xml"})
+    check("WebDAV lists the drive", c == 207 and (b if isinstance(b, str) else str(b)).count("<D:response>") + str(b).count("<d:response>") + str(b).lower().count("response>") >= 2, f"{c} {str(b)[:200]}")
+    c, b = lu.req("MKCOL", base + "/FromDav")
+    check("WebDAV can make a folder", c in (200, 201), f"{c} {b}")
+    payload = os.urandom(200000)
+    c, b = lu.req("PUT", base + "/FromDav/blob.bin", payload, headers={"Content-Type": "application/octet-stream"})
+    check("WebDAV can upload a file", c in (200, 201, 204), f"{c} {b}")
+    c, got = lu.req("GET", base + "/FromDav/blob.bin", raw=True)
+    check("WebDAV download matches", c == 200 and got == payload, f"{c}")
+    c, got = download(lu, D, "FromDav/blob.bin")
+    check("a file put over WebDAV shows up in the web app", c == 200 and got == payload, f"{c}")
+    c, b = lu.req("MOVE", base + "/FromDav/blob.bin", headers={"Destination": f"http://127.0.0.1:18080{base}/FromDav/renamed.bin"})
+    check("WebDAV can rename", c in (200, 201, 204), f"{c} {b}")
+    c, b = lu.req("DELETE", base + "/FromDav/renamed.bin")
+    check("WebDAV can delete", c in (200, 204), f"{c} {b}")
+    c, b = Luna(18080).req("PROPFIND", base + "/", b"", headers={"Depth": "0"})
+    check("WebDAV needs a sign-in", c == 401, f"{c} {b}")
+    c, b = sam.req("PROPFIND", base + "/", b"", headers={"Depth": "0"})
+    check("WebDAV hides a drive the member has no share on", c in (403, 404, 207) and not (c == 207 and "Docs" in str(b)), f"{c} {str(b)[:200]}")
+
+
 def stage_flow():
     vm = golden_vm("flow", "sata", xhci=True)
     lu = Luna(18080)
@@ -591,9 +702,139 @@ def stage_flow():
     adopted = part_drives(vm, lu, fx)
     for kind, did in adopted.items():
         part_files(vm, lu, did, kind)
-        break
+        if kind == "ext4":
+            part_people(vm, lu, did)
+    part_ratelimit()
     vm.quit()
 
+
+# -- signed updates ---------------------------------------------------------------
+UPD = f"{WORK}/upd"
+FEED_URL = "http://10.0.2.2:18900"
+_feed_srv = None
+
+
+def feed_server():
+    global _feed_srv
+    if _feed_srv and _feed_srv.poll() is None:
+        return
+    import subprocess
+    os.makedirs(f"{UPD}/luna", exist_ok=True)
+    os.makedirs(f"{UPD}/files", exist_ok=True)
+    _feed_srv = subprocess.Popen(["python3", "-m", "http.server", "18900", "--bind", "0.0.0.0", "-d", UPD],
+                                 stdout=open(f"{WORK}/feed-server.log", "w"), stderr=subprocess.STDOUT)
+    time.sleep(1)
+
+
+def minisign_keys(name):
+    """(public key line, secret key path). Passwordless test keys."""
+    sec, pub = f"{UPD}/{name}.key", f"{UPD}/{name}.pub"
+    if not os.path.exists(sec):
+        os.makedirs(UPD, exist_ok=True)
+        sh(f"minisign -G -W -f -p {pub} -s {sec} >/dev/null")
+    return open(pub).read().strip().split("\n")[-1], sec
+
+
+def sha256_file(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def os_image_variant(name, edits):
+    """A copy of the shipped OS image with a few files changed (offline, debugfs).
+
+    Always carries the serial test shell so the checks can look inside, and a
+    marker file naming the variant.
+    """
+    out = f"{UPD}/files/{name}.img.xz"
+    if os.path.exists(out):
+        return out
+    raw = f"{WORK}/{name}.raw"
+    sh(f"xz -dc {SLOT_IMG} > {raw}")
+    inittab = sh(f"debugfs -R 'cat /etc/inittab' {raw} 2>/dev/null")
+    edits = dict(edits)
+    edits["/etc/inittab"] = inittab.rstrip("\n") + "\nttyS0::respawn:/usr/bin/env TERM=dumb /bin/ash\n"
+    edits["/etc/luna-os-release"] = f"os_release=e2e-{name}\n"
+    cmds = []
+    for i, (path, content) in enumerate(edits.items()):
+        d, f = os.path.split(path)
+        tmp = f"{WORK}/variant-{i}.tmp"
+        mode = "0100755" if isinstance(content, tuple) else "0100644"
+        data = content[0] if isinstance(content, tuple) else content
+        open(tmp, "wb").write(data if isinstance(data, bytes) else data.encode())
+        cmds += [f"cd {d}", f"rm {f}", f"write {tmp} {f}", f"sif {f} mode {mode}"]
+    open(f"{WORK}/variant.cmds", "w").write("\n".join(cmds) + "\n")
+    sh(f"debugfs -w -f {WORK}/variant.cmds {raw} >/dev/null 2>&1")
+    r = sh(f"e2fsck -fn {raw}; echo rc=$?", check_rc=False)
+    assert "rc=0" in r, r[-300:]
+    sh(f"xz -T0 -3 -c {raw} > {out}")
+    os.unlink(raw)
+    return out
+
+
+def publish(version, lunad=True, os_img=None, key="good", published=None, tamper=False, notes="E2E update"):
+    """Write a signed feed (unit luna, channel stable) and the files it lists."""
+    feed_server()
+    pub, sec = minisign_keys(key)
+    parts = []
+    if lunad:
+        src = LUNAD_BIN
+        dst = f"{UPD}/files/lunad-{version}"
+        shutil.copy(src, dst)
+        digest = sha256_file(dst)
+        if tamper:
+            open(dst, "ab").write(b"tampered")
+        parts.append({"name": "lunad", "os": "linux", "arch": "amd64", "file": "lunad-linux-amd64-musl",
+                      "size": os.path.getsize(dst), "sha256": digest, "urls": [f"{FEED_URL}/files/lunad-{version}"]})
+    if os_img:
+        parts.append({"name": "os", "os": "linux", "arch": "amd64", "file": "luna-os-x86_64.img.xz",
+                      "size": os.path.getsize(os_img), "sha256": sha256_file(os_img),
+                      "urls": [f"{FEED_URL}/files/{os.path.basename(os_img)}"]})
+    published = published or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    feed = {"format": 1, "unit": "luna", "channel": "stable", "version": version, "published": published,
+            "notes": notes, "parts": parts, "api": {"version": 1, "oldest_supported": 1}}
+    path = f"{UPD}/luna/stable.json"
+    open(path, "w").write(json.dumps(feed, indent=1))
+    if os.path.exists(path + ".minisig"):
+        os.unlink(path + ".minisig")
+    sh(f"minisign -S -s {sec} -m {path} -x {path}.minisig -t 'e2e {version}'")
+    return feed
+
+
+LUNAD_BIN = "/lunad"  # the musl lunad this OS image was built with
+
+
+def stage_lab():
+    """Boot, set up, add a FAT32 stick, then wait so you can poke at it (podman exec luna-e2e ...).
+
+    The web UI is at http://10.0.2.2:... inside the container: curl http://127.0.0.1:18080
+    Run a command in the guest: write it to /work/lab.cmd, read /work/lab.result.
+    Stop it with: podman exec luna-e2e touch /work/lab.stop
+    """
+    vm = golden_vm("lab", "sata", xhci=True)
+    lu = Luna(18080)
+    lu.wait_up(240)
+    lu.post("/api/v1/auth/register", ADMIN)
+    lu.post("/api/v1/auth/login", {"username": ADMIN["username"], "password": ADMIN["password"]})
+    lu.post("/api/v1/setup", {"setup_completed": True})
+    fx = make_fixtures()
+    d = plug(vm, lu, "u-lab", fx["fat32"])
+    c, b = lu.post(f"/api/v1/drives/{d['name']}/adopt", {"label": "Lab", "erase": False})
+    say(f"LAB READY drive={b.get('id')}")
+    open(f"{WORK}/lab.drive", "w").write(b.get("id", ""))
+    if os.path.exists(f"{WORK}/lab.stop"):
+        os.unlink(f"{WORK}/lab.stop")
+    while not os.path.exists(f"{WORK}/lab.stop"):
+        if os.path.exists(f"{WORK}/lab.cmd"):
+            cmd = open(f"{WORK}/lab.cmd").read()
+            os.unlink(f"{WORK}/lab.cmd")
+            rc, out = vm.sh(cmd, timeout=120)
+            open(f"{WORK}/lab.result", "w").write(f"rc={rc}\n{out}\n")
+        time.sleep(1)
+    vm.quit()
 
 STAGES = {}
 
@@ -605,6 +846,7 @@ def stage(fn):
 
 STAGES["explore"] = stage_explore
 STAGES["boot"] = stage_boot
+STAGES["lab"] = stage_lab
 STAGES["flow"] = stage_flow
 STAGES["installer-safety"] = stage_installer_safety
 for _bus in ("sata", "nvme", "mmc", "virtio"):

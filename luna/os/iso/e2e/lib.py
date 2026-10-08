@@ -24,9 +24,18 @@ def say(msg):
     print(msg, flush=True)
 
 
+CURRENT_VM = None
+
+
 def check(name, ok, detail=""):
     _results.append((name, bool(ok), detail))
     say(("  PASS  " if ok else "  FAIL  ") + name + (f"  [{detail}]" if detail and not ok else ""))
+    if not ok and CURRENT_VM is not None and re.match(r"\s*(500|502|503)\b", str(detail)):
+        try:
+            rc, out = CURRENT_VM.sh("tail -n 6 /var/log/luna.log | cut -c1-300", timeout=15)
+            say("      lunad log: " + out.replace("\n", "\n      "))
+        except Exception:
+            pass
     return bool(ok)
 
 
@@ -128,6 +137,8 @@ class VM:
         for p in (self.mon_path, self.ser_path, self.log):
             if os.path.exists(p):
                 os.unlink(p)
+        global CURRENT_VM
+        CURRENT_VM = self
         self.proc = subprocess.Popen(self.args, stdout=subprocess.DEVNULL, stderr=open(f"{WORK}/{self.name}.qemu.err", "w"))
         for _ in range(100):
             if os.path.exists(self.mon_path):

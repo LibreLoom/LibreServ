@@ -323,10 +323,13 @@ fn map_upload_err(err: UploadError) -> (StatusCode, Json<Value>) {
                 "This drive can't use that name. Try a shorter name without special characters.",
             )
         }
-        _ => json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't finish this upload. Check the drive and try again.",
-        ),
+        other => {
+            tracing::warn!(error = ?other, "an upload could not be finished");
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't finish this upload. Check the drive and try again.",
+            )
+        }
     }
 }
 

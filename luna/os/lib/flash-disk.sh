@@ -84,10 +84,10 @@ _write_grub_cfg() {
 		echo 'menuentry "Luna" {'
 		echo '    if [ "$luna_slot" = "B" ]; then'
 		echo "      search --no-floppy --fs-uuid --set=root ${_uuid_b}"
-		echo "      linux /boot/${_k} root=UUID=${_uuid_b} luna.slot=B modules=ext4 rootfstype=ext4 rootflags=ro,noatime quiet"
+		echo "      linux /boot/${_k} root=UUID=${_uuid_b} luna.slot=B modules=ext4 rootfstype=ext4 rootflags=ro,noatime panic=10 quiet"
 		echo '    else'
 		echo "      search --no-floppy --fs-uuid --set=root ${_uuid_a}"
-		echo "      linux /boot/${_k} root=UUID=${_uuid_a} luna.slot=A modules=ext4 rootfstype=ext4 rootflags=ro,noatime quiet"
+		echo "      linux /boot/${_k} root=UUID=${_uuid_a} luna.slot=A modules=ext4 rootfstype=ext4 rootflags=ro,noatime panic=10 quiet"
 		echo '    fi'
 		echo "    initrd /boot/${_i}"
 		echo '}'

@@ -23,8 +23,8 @@ mkdir -p "$WORK"
 DEV=""
 [ -w /dev/kvm ] && DEV="--device /dev/kvm"
 # shellcheck disable=SC2086
-exec podman run --rm --security-opt label=disable --memory "${E2E_MEMORY:-8g}" $DEV \
+exec podman run --rm --name luna-e2e --security-opt label=disable --memory "${E2E_MEMORY:-8g}" $DEV \
 	-v "$OSDIR/dist:/dist:ro" -v "$WORK:/work" -v "$OSDIR/iso/e2e:/e2e:ro" \
-	-v "$OSDIR/../../keys:/keys:ro" -v "$OSDIR/../scripts/mocks:/mocks:ro" \
+	-v "$OSDIR/../../keys:/keys:ro" -v "$OSDIR/../scripts/mocks:/mocks:ro" -v "$OSDIR/../target/x86_64-unknown-linux-musl/release/lunad:/lunad:ro" \
 	-e E2E_KEEP="${E2E_KEEP:-}" -e E2E_CMDS="${E2E_CMDS:-}" -e E2E_USB="${E2E_USB:-}" \
 	"$IMAGE" python3 -u /e2e/run.py "$@"

@@ -25,35 +25,53 @@ chmod +x "$ROOTFS/etc/init.d/luna-root-ro"
 # Mark tryboot success after lunad is up (best-effort; must never block boot).
 cat > "$ROOTFS/usr/local/sbin/luna-boot-ok" <<'BOOTOK'
 #!/bin/sh
-# Clear GRUB tryboot failure state after a successful boot into this slot, then
-# tell lunad: /run/luna/boot-ok holds this boot's id, written only after GRUB's
+# Call this boot good only once lunad really answers ("started" just means the
+# supervisor launched it). Then clear GRUB's tryboot failure state and tell
+# lunad: /run/luna/boot-ok holds this boot's id, written only after GRUB's
 # luna_boot_ok=1 was saved. lunad records a new OS image as installed only once
 # it sees that file, so it never gets ahead of GRUB. /run is empty after reboot.
+#
+# If lunad never answers while GRUB is still trying a new slot (luna_boot_ok=0),
+# reboot: GRUB counts the failed try and, after three, goes back to the old slot.
 if ! command -v grub-editenv >/dev/null 2>&1; then
     exit 0
 fi
-_saved=0
-for _env in /boot/efi/grub/grubenv /efi/grub/grubenv; do
-    [ -f "$_env" ] || continue
-    if grub-editenv "$_env" set luna_boot_ok=1 2>/dev/null; then
-        _saved=1
+_up=0
+_i=0
+while [ "$_i" -lt 45 ]; do
+    if curl -fs -m 2 -o /dev/null http://127.0.0.1/api/v1/health 2>/dev/null; then
+        _up=1
+        break
     fi
-    grub-editenv "$_env" set luna_tries=3 2>/dev/null || true
+    _i=$((_i + 1))
+    sleep 2
 done
-# ESP lives on its own FAT partition; prefer the stable by-label path over findfs.
+_saved=0
+_pending=0
+# The ESP lives on its own FAT partition; prefer the stable by-label path over findfs.
 for _esp in /dev/disk/by-label/LUNAESP; do
     [ -e "$_esp" ] || continue
     _m="$(mktemp -d /tmp/luna-esp.XXXXXX 2>/dev/null)" || continue
     if timeout 2 mount -o rw "$_esp" "$_m" 2>/dev/null; then
-        if grub-editenv "$_m/grub/grubenv" set luna_boot_ok=1 2>/dev/null; then
-            _saved=1
+        if [ "$(grub-editenv "$_m/grub/grubenv" list 2>/dev/null | sed -n 's/^luna_boot_ok=//p')" = 0 ]; then
+            _pending=1
         fi
-        grub-editenv "$_m/grub/grubenv" set luna_tries=3 2>/dev/null || true
+        if [ "$_up" = 1 ]; then
+            if grub-editenv "$_m/grub/grubenv" set luna_boot_ok=1 2>/dev/null; then
+                _saved=1
+            fi
+            grub-editenv "$_m/grub/grubenv" set luna_tries=3 2>/dev/null || true
+        fi
         umount "$_m" 2>/dev/null || true
     fi
     rmdir "$_m" 2>/dev/null || true
     break
 done
+if [ "$_up" = 0 ] && [ "$_pending" = 1 ]; then
+    logger -t luna-boot-ok "Luna did not start on the new system; restarting so the previous one can take over" 2>/dev/null || true
+    sync
+    reboot -f
+fi
 if [ "$_saved" = 1 ] && [ -r /proc/sys/kernel/random/boot_id ]; then
     mkdir -p /run/luna 2>/dev/null || true
     _tmp=/run/luna/boot-ok.tmp

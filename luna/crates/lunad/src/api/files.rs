@@ -2366,10 +2366,14 @@ pub(crate) fn map_files_err(err: FilesError) -> (StatusCode, Json<Value>) {
             StatusCode::CONFLICT,
             "This drive is read-only right now, so Luna can't change it.",
         ),
-        _ => json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't read this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in.",
-        ),
+        other => {
+            // Without this the reason for the 500 is nowhere in the log.
+            tracing::warn!(error = ?other, "a file operation failed on a drive");
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't read this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in.",
+            )
+        }
     }
 }
 

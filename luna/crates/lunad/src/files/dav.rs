@@ -62,9 +62,23 @@ async fn handle_dav_inner(state: AppState, id: String, req: Request) -> axum::re
     // dav-server drives its sync filesystem trait inline; on two worker
     // threads a slow drive walk would stall the whole API. block_in_place
     // parks this worker so the runtime can replace it while it blocks.
-    let resp = tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(handler.handle(req))
-    });
+    //
+    // That has to happen in its own task. The connection task is the one that
+    // reads the request body off the socket (and answers `Expect:
+    // 100-continue`); if it blocks itself here, any upload bigger than the
+    // first read waits forever for bytes nobody is reading.
+    let rt = tokio::runtime::Handle::current();
+    let joined = tokio::spawn(async move {
+        tokio::task::block_in_place(move || rt.block_on(handler.handle(req)))
+    })
+    .await;
+    let Ok(resp) = joined else {
+        return json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't finish that file transfer. Try again.",
+        )
+        .into_response();
+    };
     let (parts, body) = resp.into_parts();
     axum::response::Response::from_parts(parts, axum::body::Body::new(body))
 }
@@ -858,4 +872,51 @@ mod tests {
             "symlink escape must not leak outside the drive: {text}"
         );
     }
+    /// Real sockets, not `oneshot`: the body arrives after the headers (as it
+    /// does from Finder, Explorer and davfs2, which also wait for `100 Continue`).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn dav_put_larger_than_the_first_read_does_not_hang() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let mount = tempfile::tempdir().unwrap();
+        let (_dir, app, _state) = test_app(mount.path());
+        let token = setup_admin_and_token(&app).await;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+            .unwrap();
+        });
+        let body = vec![7u8; 300_000];
+        let mut sock = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let head = format!(
+            "PUT /dav/photos/big.bin HTTP/1.1\r\nHost: luna\r\nAuthorization: {}\r\nContent-Length: {}\r\nExpect: 100-continue\r\n\r\n",
+            basic("max", &token),
+            body.len()
+        );
+        sock.write_all(head.as_bytes()).await.unwrap();
+        let result = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            let mut buf = vec![0u8; 4096];
+            let mut seen = String::new();
+            while !seen.contains("100 Continue") {
+                let n = sock.read(&mut buf).await.unwrap();
+                assert!(n > 0, "connection closed before 100 Continue: {seen}");
+                seen.push_str(&String::from_utf8_lossy(&buf[..n]));
+            }
+            sock.write_all(&body).await.unwrap();
+            let mut tail = String::new();
+            while !tail.contains("201") {
+                let n = sock.read(&mut buf).await.unwrap();
+                assert!(n > 0, "connection closed before the final answer: {tail}");
+                tail.push_str(&String::from_utf8_lossy(&buf[..n]));
+            }
+        })
+        .await;
+        assert!(result.is_ok(), "the upload hung");
+        assert_eq!(std::fs::metadata(mount.path().join("big.bin")).unwrap().len(), 300_000);
+    }
+
 }
