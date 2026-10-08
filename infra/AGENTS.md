@@ -17,7 +17,6 @@ infra/
 │                   # docs, bot-specific tools. loop.sh is a stub that
 │                   # execs ../common/loop.sh — keep it (deployed compose
 │                   # files exec the per-bot path).
-├── docs/           # process docs (RELEASE-PLAN.md, …)
 └── AGENTS.md
 
 # plus, at repo root:
@@ -40,7 +39,7 @@ keys/               # release signing keys — public raw-URL path, do not move
 - Luna release assets: lunad binary, OS slot image, factory ISO, Flatpak, Windows installer (MinGW cross + NSIS, unsigned — SmartScreen warns), signed Android APK.
 - Android APK: signed when `LUNA_ANDROID_KEYSTORE`/`_B64` + passwords are in env, else debug-signed fallback with a warning. F-Droid builds/signs its own from the `luna-v*` tag.
 - Minisign secrets resolve per product: `LSLUNA_RELEASE_MINISIG_PK` / `SOL_RELEASE_MINISIG_PK` env, `MINISIGN_SECRET_KEY` (path or contents), then `~/.minisign/*.key`. Public keys committed in `keys/` at root — the path is public API (Sol and lunad embed them at build time; the Connect deploy script and Flatpak repo server read them from the checkout).
-- See `docs/RELEASE-PLAN.md` for the release and update design.
+- Tool docs: `ci-source/cmd/release/README.md`; feed format and release units: `ci-source/internal/feed/README.md`.
 
 ## keys/
 

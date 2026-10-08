@@ -1,7 +1,7 @@
 # Luna Desktop Flatpak repo server
 
 Hosted on the Luna Connect server at `https://flatpak.luna.libreloom.org`
-(Caddy site behind the cloudflared tunnel). Spec: `../docs/RELEASE-PLAN.md`.
+(Caddy site behind the cloudflared tunnel). Spec: `../ci-source/internal/feed/README.md`.
 
 ## What it does
 

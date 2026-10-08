@@ -1,4 +1,4 @@
-//! Signed update feeds, Format 1 (`infra/docs/RELEASE-PLAN.md`).
+//! Signed update feeds, Format 1 (`infra/ci-source/internal/feed/README.md`).
 //!
 //! Receivers (lunad, Luna Desktop on Windows) fetch `<unit>/<channel>.json`
 //! and its `.minisig`, then call [`check`], which runs the spec's rules in

@@ -9,7 +9,7 @@ use crate::api::response::json_error;
 
 /// The API version this lunad speaks, and the oldest client API it still
 /// serves (`CLIENT_API` in Desktop and Android is compared against these; see
-/// `infra/docs/RELEASE-PLAN.md`, "Versions").
+/// `infra/ci-source/internal/feed/README.md`, "Versions").
 ///
 /// Bump `API_VERSION` when lunad adds API that a client may rely on. Raise
 /// `API_OLDEST_SUPPORTED` only when something is removed or broken for

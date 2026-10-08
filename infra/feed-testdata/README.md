@@ -1,7 +1,7 @@
 # feed-testdata
 
 Signed **test** feeds that every receiver (Sol in Go, lunad in Rust, bash
-scripts) tests against. Spec: `../docs/RELEASE-PLAN.md`.
+scripts) tests against. Spec: `../ci-source/internal/feed/README.md`.
 
 **TEST ONLY.** `test-key.pub` belongs to a throwaway key derived from a public
 seed, so anyone can sign with it. Never copy it into `keys/` and never trust it

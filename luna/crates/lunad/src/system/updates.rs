@@ -1,7 +1,7 @@
 //! Software updates from the signed Luna feed (`luna/<channel>.json`).
 //!
 //! The feed format and its rules live in `luna_feed` (spec:
-//! `infra/docs/RELEASE-PLAN.md`). Two parts matter here: `lunad` (the daemon,
+//! `infra/ci-source/internal/feed/README.md`). Two parts matter here: `lunad` (the daemon,
 //! installed under LUNA_DATA) and `os` (an `.img.xz` slot image). When the
 //! OS part's SHA256 differs from the hash stored on LUNA_DATA, that image is
 //! decompressed onto the inactive A/B slot in the same Install update

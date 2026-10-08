@@ -1,7 +1,7 @@
-// Package publish is the supply side of the release tool (build order step 6):
+// Package publish is the supply side of the release tool:
 // SHA256SUMS + signing, the Forgejo generic package registry, the signed feeds
 // on the `feeds` branch, the git plumbing around a cut, and the resumable cut
-// state machine. See infra/docs/RELEASE-PLAN.md ("Commands" -> cut order).
+// state machine. See infra/ci-source/cmd/release/README.md ("Cut order").
 //
 // Nothing here knows how to build a part: the caller hands the cut a Build
 // callback that turns the release SHA into an output directory.

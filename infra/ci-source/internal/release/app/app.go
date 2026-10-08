@@ -65,7 +65,7 @@ type Config struct {
 	// Units lists the units "all" builds (default parts.Units).
 	Units func() []string
 	// FeedSpecs returns the unit's expected release files (default: the
-	// parts table in RELEASE-PLAN.md).
+	// parts table in internal/feed/README.md).
 	FeedSpecs func(unit string) []FileSpec
 	// VersionFiles maps unit -> VERSION file relative to Repo (default version.Units).
 	VersionFiles map[string]string

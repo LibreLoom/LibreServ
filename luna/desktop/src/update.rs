@@ -3,7 +3,7 @@
 //! Linux gets updates from our Flatpak repo (the software center), so nothing
 //! here runs there. The feed check and the "is there something newer?"
 //! decision compile and test everywhere; only starting the installer is
-//! `cfg(windows)`. Rules: `infra/docs/RELEASE-PLAN.md` ("Rules for every
+//! `cfg(windows)`. Rules: `infra/ci-source/internal/feed/README.md` ("Rules for every
 //! receiver"); the signature, replay and version rules live in
 //! `luna_feed`.
 

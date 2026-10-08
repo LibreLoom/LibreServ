@@ -142,9 +142,9 @@ cd sol/server/backend && go test -v -tags=integration ./tests/integration/...
 `./release` is the shared release tool. Tags are per product and **must not
 be mixed**: `v*` = Sol, `luna-v*` = Luna. The Connect servers deploy from
 the signed feeds, not tags — `connect-v*` / `luna-connect-v*` are retired. The
-release and update design is in
-[`infra/docs/RELEASE-PLAN.md`](infra/docs/RELEASE-PLAN.md). Run `./release help`
-for the commands.
+release tool is documented in
+[`infra/ci-source/cmd/release/README.md`](infra/ci-source/cmd/release/README.md); the feed format is in
+[`infra/ci-source/internal/feed/README.md`](infra/ci-source/internal/feed/README.md). Run `./release help` for the commands.
 
 Git tags do not sync across forges via the mirror — push release tags to the
 forge the consumer actually fetches.

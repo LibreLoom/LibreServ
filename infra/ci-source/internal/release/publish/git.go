@@ -395,7 +395,7 @@ type FeedFile struct {
 	Data []byte
 }
 
-const feedsReadme = "# Release feeds\n\nSigned release feeds, one commit per release. Written only by the release tool.\nSee infra/docs/RELEASE-PLAN.md (Feeds).\n"
+const feedsReadme = "# Release feeds\n\nSigned release feeds, one commit per release. Written only by the release tool.\nSee infra/ci-source/internal/feed/README.md (Feeds).\n"
 
 // CommitFeeds adds one commit to the feeds branch in a throwaway clone (the
 // caller's working tree and index are never touched) and pushes it to

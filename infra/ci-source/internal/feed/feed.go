@@ -1,5 +1,5 @@
 // Package feed defines the signed release feed (format 1, see
-// infra/docs/RELEASE-PLAN.md) and signs/verifies it with minisign.
+// README.md in this directory) and signs/verifies it with minisign.
 package feed
 
 import (

@@ -22,7 +22,7 @@ import (
 )
 
 // FileSpec is one expected release file: the feed part it becomes (see the
-// parts table in RELEASE-PLAN.md) and whether it may be reused from an
+// parts table in internal/feed/README.md) and whether it may be reused from an
 // earlier release when this build did not produce it.
 type FileSpec struct {
 	publish.PartSpec

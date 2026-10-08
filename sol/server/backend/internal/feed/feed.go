@@ -1,5 +1,5 @@
 // Package feed implements the signed update feed (format 1) described in
-// infra/docs/RELEASE-PLAN.md. A receiver verifies the feed's minisign
+// infra/ci-source/internal/feed/README.md. A receiver verifies the feed's minisign
 // signature over the exact bytes, applies the rules in a fixed order, and only
 // then downloads and checks the chosen part.
 package feed
