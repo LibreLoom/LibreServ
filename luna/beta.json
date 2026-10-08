@@ -1,0 +1,47 @@
+{
+  "format": 1,
+  "unit": "luna",
+  "channel": "beta",
+  "version": "0.0.1",
+  "published": "2026-10-08T03:38:19Z",
+  "notes": "This is the first release candidate for LibreServ Luna's initial beta. \n\nYou may refer to it as Luna Beta 0 RC 0\n\n- chore: bump toolchains to Go 1.27.1 and Rust 1.99.0\n- docs(release): drop the release plan; feed spec and tool notes live beside the code\n- chore: finish the Sol rename, drop the remaining LibreServ names\n- perf(release): OS slot image at xz preset 3 (2x faster, 2.8% bigger)\n- perf(release): live squashfs in zstd, ISO xz at preset 0\n- perf(release): write lunad's version into the finished binary instead of compiling it in\n- fix(release): verify cloudflared, pin OS bases and rustup by digest/sha256, pin Gradle checksum\n- feat(release): EuroOffice and draw.io packs as installer build jobs\n- feat(release): Luna OS image and installer ISO parts with input-hash reuse\n- feat(luna-web): show a failed system update in Settings and let an Admin try it again\n- fix(lunad): record a new OS image only after luna-boot-ok confirms the boot; report and clear a failed OS update\n- fix(lunad): keep slot UUID across OS updates; record OS hash only after the new slot boots\n- chore(luna): CI checks and setup scripts follow the rootless ISO build\n- test(luna-os): install check proves the LUNAASSETS token path\n- refactor(luna-os): live system build in its own script; cache key covers it\n- fix(luna-os): BIOS GRUB reads ESP/grub/grub.cfg; add QEMU install and boot checks\n- fix(luna-web): copy excalidraw fonts into the real build output dir\n- feat(luna-os): rootless ISO (mmdebstrap + grub-mkrescue), installer streams the .img.xz\n- feat(luna-os): rootless OS image build, .img.xz compressed once, input hash\n- fix(updates): say plainly when no feed is published yet\n- feat(luna-desktop): check Luna's API version and update on Windows from the feed\n- docs: point key and update notes at the signed feed\n- feat(luna): update Luna from the signed release feed\n- feat(luna-desktop): move the Flatpak to GNOME 51 and build per-channel bundles\n- test(luna-web): give the lazy note editor wait headroom when the machine is busy\n- …and 334 more changes\n",
+  "parts": [
+    {
+      "name": "lunad",
+      "os": "linux",
+      "arch": "amd64",
+      "file": "lunad-linux-amd64-musl",
+      "size": 43553144,
+      "sha256": "376143cf0df824d4e5dd2b11e0c0b2371bab53e1d47cb6ba0c35eed3171535d8",
+      "urls": [
+        "https://gt.plainskill.net/api/packages/LibreLoom/generic/luna/0.0.1/lunad-linux-amd64-musl"
+      ]
+    },
+    {
+      "name": "os",
+      "os": "linux",
+      "arch": "amd64",
+      "file": "luna-os-x86_64.img.xz",
+      "size": 276950176,
+      "sha256": "10ec0b1e6a98c171ba97da21a1bcb7e265559ccf4aae90c7f7a6d4a1f12549d3",
+      "urls": [
+        "https://gt.plainskill.net/api/packages/LibreLoom/generic/luna/0.0.1/luna-os-x86_64.img.xz"
+      ]
+    },
+    {
+      "name": "installer",
+      "os": "linux",
+      "arch": "amd64",
+      "file": "luna-rapidinstall-x86_64.iso.xz",
+      "size": 819312876,
+      "sha256": "cbd99986ab577e670cb249a0501ddd1d8e30ec416ebbadade189b7113f1f78b5",
+      "urls": [
+        "https://gt.plainskill.net/api/packages/LibreLoom/generic/luna/0.0.1/luna-rapidinstall-x86_64.iso.xz"
+      ]
+    }
+  ],
+  "api": {
+    "version": 1,
+    "oldest_supported": 1
+  }
+}
