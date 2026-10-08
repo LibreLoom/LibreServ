@@ -148,14 +148,35 @@ impl DriveManager {
             (PathBuf::from(existing), false)
         } else {
             let target = self.foreign_mount_point(&device.name);
-            self.mounter
+            let mounted = self
+                .mounter
                 .mount_typed(
                     &device_path(&choice.name),
                     &target,
                     true,
                     fs_opt(&choice.fs_type),
                 )
-                .map_err(|e| anyhow::anyhow!("Could not look at this drive safely. {e}"))?;
+                .map(|_| ());
+            if let Err(e) = mounted {
+                // A stick Luna can't open (blank, or a filesystem it can't
+                // read) can still be erased and set up, so say that instead
+                // of failing the look.
+                if device.removable || device.usb {
+                    return Ok(Inspection {
+                        device: device.name.clone(),
+                        model: device.model.clone(),
+                        fs_type: None,
+                        mount_point: PathBuf::new(),
+                        mounted_by_luna: false,
+                        summary: Default::default(),
+                        has_marker: false,
+                        needs_erase: true,
+                        readable: true,
+                        writable: false,
+                    });
+                }
+                return Err(anyhow::anyhow!("Could not look at this drive safely. {e}"));
+            }
             (target, true)
         };
 
@@ -283,7 +304,7 @@ impl DriveManager {
         if device.mount_point.as_deref() == Some("/")
             || mounted_points_for_disk(&device.name)
                 .iter()
-                .any(|p| is_system_mountpoint(p))
+                .any(|p| self.is_system_mount(p))
         {
             anyhow::bail!(
                 "That's the system disk Luna runs from — Luna won't touch the operating system's own drive."
@@ -429,7 +450,7 @@ impl DriveManager {
         match &device.mount_point {
             Some(existing) if !erase && !self.is_ours(Path::new(existing)) => {
                 let existing = PathBuf::from(existing);
-                if is_system_mountpoint(&existing) {
+                if self.is_system_mount(&existing) {
                     anyhow::bail!(
                         "That's the system disk Luna runs from — Luna won't touch the operating system's own drive."
                     );
@@ -515,7 +536,7 @@ impl DriveManager {
         let mut points = mounted_points_for_disk(disk);
         points.sort_by_key(|p| std::cmp::Reverse(p.as_os_str().len()));
         for point in &points {
-            if is_system_mountpoint(point) {
+            if self.is_system_mount(point) {
                 continue;
             }
             let _ = self.mounter.unmount(point);
@@ -975,6 +996,13 @@ impl DriveManager {
         self.adopted_base.join(id)
     }
 
+    /// A system path, excluding Luna's own mounts: they live under the data
+    /// directory (`/var/lib/luna/...` on a real Luna), which would otherwise
+    /// look like part of the OS.
+    fn is_system_mount(&self, path: &Path) -> bool {
+        !self.is_ours(path) && is_system_mountpoint(path)
+    }
+
     fn is_ours(&self, path: &Path) -> bool {
         path.starts_with(&self.foreign_base) || path.starts_with(&self.adopted_base)
     }
@@ -1129,6 +1157,32 @@ mod tests {
         assert!(is_system_mountpoint(Path::new("/run")));
         assert!(is_system_mountpoint(Path::new("/run/user/1000")));
         assert!(is_system_mountpoint(Path::new("/")));
+    }
+
+    #[test]
+    fn lunas_own_mounts_under_the_data_dir_are_not_system_mounts() {
+        // On a real Luna the data dir is /var/lib/luna, which is a system path.
+        let mgr = DriveManager::new(shared_mock(), Path::new("/var/lib/luna"));
+        assert!(!mgr.is_system_mount(Path::new("/var/lib/luna/mounts/foreign/sda")));
+        assert!(!mgr.is_system_mount(Path::new("/var/lib/luna/mounts/drives/abc")));
+        assert!(mgr.is_system_mount(Path::new("/var/lib/other")));
+        assert!(mgr.is_system_mount(Path::new("/")));
+    }
+
+    #[test]
+    fn inspect_of_a_usb_luna_cannot_mount_offers_erase() {
+        let mounter = shared_mock();
+        *mounter.fail_mount.lock().unwrap() = true;
+        let root = tempfile::tempdir().unwrap();
+        let mgr = DriveManager::new(mounter, root.path());
+
+        let inspection = mgr.inspect(&detected("sdz", None)).unwrap();
+        assert!(inspection.needs_erase && inspection.readable && !inspection.writable);
+
+        let mut internal = detected("nvme0n1", None);
+        internal.removable = false;
+        internal.usb = false;
+        assert!(mgr.inspect(&internal).is_err());
     }
 
     fn detected(name: &str, mount: Option<&str>) -> DetectedDrive {
