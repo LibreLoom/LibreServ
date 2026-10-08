@@ -1548,6 +1548,129 @@ def stage_app():
     vm.quit()
 
 
+def stage_reset():
+    """Factory reset: accounts, shares and settings go; the files on the drives stay."""
+    say("-- factory reset")
+    fx = make_fixtures()
+    img = copy_fixture(fx, "fat32", "reset")
+    before = image_root_listing("fat32", img)
+    vm, lu = bring_up("reset", usb=img)
+    check("web UI answers", lu.wait_up(240))
+    lu.post("/api/v1/auth/register", ADMIN)
+    check("admin signs in", login_admin(lu))
+    lu.post("/api/v1/setup", {"setup_completed": True, "current_step": "done", "name": "Reset me"})
+    d = detected(lu, lambda x: True, 60)
+    c, b = lu.post(f"/api/v1/drives/{d[0]['name']}/adopt", {"label": "Keep my files", "erase": False})
+    D = b.get("id")
+    check("a drive is added", c == 200 and D, f"{c} {b}")
+    data = os.urandom(500_000)
+    c, b, _ = upload(lu, D, "precious.bin", data)
+    check("a file is stored", c == 200, f"{c} {b}")
+    lu.post("/api/v1/users", {"username": "sam", "display_name": "Sam", "password": "sams-long-password-7", "role": "member"})
+    c, b = lu.post("/api/v1/system/factory-reset", {"confirm": False, "password": ADMIN["password"]})
+    check("reset needs the confirm box ticked", c == 400, f"{c} {b}")
+    c, b = lu.post("/api/v1/system/factory-reset", {"confirm": True, "password": "not-my-password-1"})
+    check("reset needs the right password", c == 401, f"{c} {b}")
+    sam = Luna(18080)
+    sam.post("/api/v1/auth/login", {"username": "sam", "password": "sams-long-password-7"})
+    c, b = sam.post("/api/v1/system/factory-reset", {"confirm": True, "password": "sams-long-password-7"})
+    check("a member cannot reset Luna", c == 403, f"{c} {b}")
+    c, b = lu.post("/api/v1/system/factory-reset", {"confirm": True, "password": ADMIN["password"]})
+    check("an admin with the right password can reset", c == 200, f"{c} {b}")
+    time.sleep(5)
+    check("Luna is still answering", lu.wait_up(60))
+    c, b = Luna(18080).get("/api/v1/auth/status")
+    check("it is back to first-run: no admin", c == 200 and b.get("has_admin") is False, f"{c} {b}")
+    c, b = Luna(18080).get("/api/v1/setup")
+    check("and the setup wizard is open again", c == 200 and b.get("setup_completed") is False, f"{c} {b}")
+    lu2 = Luna(18080)
+    c, b = lu2.post("/api/v1/auth/register", {"username": "newadmin", "display_name": "New", "password": "brand-new-long-pass-3"})
+    check("a new admin can be created", c == 200 and b.get("role") == "admin", f"{c} {b}")
+    lu2.post("/api/v1/auth/login", {"username": "newadmin", "password": "brand-new-long-pass-3"})
+    c, bd = lu2.get("/api/v1/drives")
+    check("no drives are registered any more", c == 200 and bd == [], f"{c} {bd}")
+    vm.sh("sync")
+    d2 = detected(lu2, lambda x: True, 60)
+    check("the stick is offered as a new drive again", bool(d2))
+    if d2:
+        c, b = lu2.post(f"/api/v1/drives/{d2[0]['name']}/adopt", {"label": "Again", "erase": False})
+        D2 = b.get("id")
+        check("and can be added again", c == 200 and D2, f"{c} {b}")
+        c, got = download(lu2, D2, "precious.bin")
+        check("the file stored before the reset is still there, unchanged", c == 200 and got == data, f"{c}")
+    c, b = lu2.post("/api/v1/system/factory-reset", {"confirm": True, "password": "brand-new-long-pass-3"})
+    time.sleep(3)
+    vm.sh("sync")
+    vm.quit()
+    vm.wait_exit(30)
+    after = image_root_listing("fat32", img)
+    left = [a for a in after if a.startswith(".luna")]
+    check("after reset the drive carries none of this Luna's hidden files", not left, str(left))
+    check("and everything that was on it is still there", all(x in after for x in before) and "precious.bin" in after, str(after))
+
+
+def recovery_stick(name, files):
+    img = f"{WORK}/fx/{name}.img"
+    os.makedirs(f"{WORK}/fx", exist_ok=True)
+    sh(f"rm -f {img}; truncate -s 64M {img}; mkfs.vfat -F 32 -n RECOVER {img} >/dev/null")
+    for fname, content in files.items():
+        tmp = f"{WORK}/fx/{name}.tmp"
+        open(tmp, "w").write(content)
+        sh(f"MTOOLS_SKIP_CHECK=1 mcopy -o -i {img} {tmp} ::'{fname}'")
+    return img
+
+
+def stage_recovery():
+    """Forgotten password: a dedicated stick named for the device token, honoured only at boot."""
+    say("-- password recovery stick")
+    vm, lu = bring_up("recovery")
+    check("web UI answers", lu.wait_up(240))
+    lu.post("/api/v1/auth/register", ADMIN)
+    check("admin signs in", login_admin(lu))
+    lu.post("/api/v1/setup", {"setup_completed": True, "current_step": "done"})
+    lu.post("/api/v1/users", {"username": "sam", "display_name": "Sam", "password": "sams-long-password-7", "role": "member"})
+    new_pw = "recovered-pass-12345"
+    payload = json.dumps({"user": "g-admin", "password": new_pw})
+
+    def reboot_with(img):
+        vm.usb_add("u-rec", img)
+        vm.sh("sync")
+        vm.serial_send("reboot\n")
+        ok = wait_reboot_up(vm, lu, 240)
+        vm.usb_del("u-rec")
+        return ok
+
+    # wrong token in the name: ignored
+    img = recovery_stick("rec-wrong", {"luna-recover-ZZZZZZZZZZZZZZZZ.luna": payload})
+    check("[wrong token] Luna restarts", reboot_with(img))
+    c, b = Luna(18080).post("/api/v1/auth/login", {"username": "admin", "password": new_pw})
+    check("[wrong token] a stick with the wrong token does nothing", c in (400, 401), f"{c} {b}")
+    # extra files on the stick: not a dedicated recovery stick
+    img = recovery_stick("rec-extra", {f"luna-recover-{TOKEN}.luna": payload, "holiday.jpg": "x"})
+    check("[extra files] Luna restarts", reboot_with(img))
+    c, b = Luna(18080).post("/api/v1/auth/login", {"username": "admin", "password": new_pw})
+    check("[extra files] a stick that also holds other files is refused", c in (400, 401), f"{c} {b}")
+    # the real thing
+    img = recovery_stick("rec-ok", {f"luna-recover-{TOKEN}.luna": payload})
+    check("[recovery] Luna restarts with the stick in", reboot_with(img))
+    c, b = Luna(18080).post("/api/v1/auth/login", {"username": "admin", "password": new_pw})
+    check("[recovery] the admin can sign in with the new password", c == 200 and b.get("role") == "admin", f"{c} {b}")
+    c, b = Luna(18080).post("/api/v1/auth/login", {"username": "admin", "password": ADMIN["password"]})
+    check("[recovery] the old password no longer works", c in (400, 401), f"{c} {b}")
+    c, b = Luna(18080).post("/api/v1/auth/login", {"username": "sam", "password": "sams-long-password-7"})
+    check("[recovery] other people's passwords were not touched", c == 200, f"{c} {b}")
+    left = image_root_listing("fat32", img)
+    say(f"    stick afterwards: {left}")
+    # not honoured when plugged in while running
+    img2 = recovery_stick("rec-live", {f"luna-recover-{TOKEN}.luna": json.dumps({"user": "g-admin", "password": "another-recovered-1"})})
+    vm.usb_add("u-rec2", img2)
+    time.sleep(15)
+    c, b = Luna(18080).post("/api/v1/auth/login", {"username": "admin", "password": "another-recovered-1"})
+    check("[live] a recovery stick plugged in while Luna runs is ignored", c in (400, 401), f"{c} {b}")
+    vm.sh("sync")
+    vm.quit()
+
+
 def stage_flow():
     vm = golden_vm("flow", "sata", xhci=True)
     lu = Luna(18080)
@@ -1634,7 +1757,7 @@ def os_image_variant(name, edits):
     return out
 
 
-def publish(version, lunad=True, os_img=None, key="good", published=None, tamper=False, notes="E2E update"):
+def publish(version, lunad=True, os_img=None, key="good", published=None, tamper=False, notes="E2E update", lunad_bytes=None):
     """Write a signed feed (unit luna, channel stable) and the files it lists."""
     feed_server()
     pub, sec = minisign_keys(key)
@@ -1642,7 +1765,10 @@ def publish(version, lunad=True, os_img=None, key="good", published=None, tamper
     if lunad:
         src = LUNAD_BIN
         dst = f"{UPD}/files/lunad-{version}"
-        shutil.copy(src, dst)
+        if lunad_bytes is not None:
+            open(dst, "wb").write(lunad_bytes)
+        else:
+            shutil.copy(src, dst)
         digest = sha256_file(dst)
         if tamper:
             open(dst, "ab").write(b"tampered")
@@ -1795,7 +1921,8 @@ def stage_update():
     new_hash = sha256_file(good_v2)
     check("the new OS image is recorded only after the new system proved itself", new_hash in o, o)
     c, b = api_check(lu)
-    check("no further update is offered", c == 200 and b.get("update_available") is False and b.get("os_update_failed") is None, f"{c} {b}")
+    # (the test feed's lunad part always reads as newer than the baked 0.0.1, so only the OS part is judged)
+    check("no further OS update is offered", c == 200 and b.get("reboot_required") is False and b.get("os_update_failed") is None, f"{c} {b}")
 
     # -- and back to slot A with a second update
     good_v3 = os_image_variant("v3", {})
@@ -1814,10 +1941,12 @@ def stage_update():
     check("the newest image is recorded", sha256_file(good_v3) in o, o)
     login_admin(lu)
 
-    def rollback_case(tag, variant_edits, version, note, expect_slot, expect_panic=False, wait=900):
+    def rollback_case(tag, variant_edits, version, note, expect_slot, expect_panic=False, wait=900, lunad_bytes=None):
         T = f"[{tag}] "
         img = os_image_variant(tag, variant_edits)
-        publish(version, key="good", os_img=img)
+        # An OS release also ships lunad, and luna-run falls back to that copy when the
+        # baked one cannot run: to test "lunad cannot start" both must be broken.
+        publish(version, key="good", os_img=img, lunad_bytes=lunad_bytes)
         c, b = api_check(lu)
         check(T + "the update is offered", c == 200 and b.get("update_available"), f"{c} {b}")
         before_hash = vm.sh("cat /var/lib/luna/os-image.sha256")[1]
@@ -1850,47 +1979,23 @@ def stage_update():
         c, b = api_check(lu)
         failed = b.get("os_update_failed") if isinstance(b, dict) else None
         check(T + "Luna reports that the update did not start, with its version", c == 200 and failed and failed.get("version") == version, f"{c} {failed}")
-        check(T + "and it does not keep re-installing the broken image", b.get("update_available") is False, f"{b}")
+        check(T + "and it does not keep re-installing the broken image", b.get("reboot_required") is False, f"{b}")
         c, b = lu.post("/api/v1/system/updates/os-failed/clear")
         check(T + "an admin can clear the failure", c == 200, f"{c} {b}")
         c, b = api_check(lu)
-        check(T + "after clearing, the same image is offered again", c == 200 and b.get("update_available") is True and b.get("os_update_failed") is None, f"{c} {b}")
+        check(T + "after clearing, the same image is offered again", c == 200 and b.get("reboot_required") is True and b.get("os_update_failed") is None, f"{c} {b}")
 
+    # luna-run falls back to the data-dir lunad when the baked one cannot run, so the
+    # earlier lunad-only update would (rightly) rescue this image: remove it first.
+    vm.sh("rm -f /var/lib/luna/bin/lunad")
     cur = slot_of(vm)
-    rollback_case("badlunad", {"/usr/local/bin/lunad": (b"#!/bin/sh\nexit 1\n",)}, "0.0.8", "lunad cannot start", cur)
+    rollback_case("badlunad", {"/usr/local/bin/lunad": (b"#!/bin/sh\nexit 1\n",)}, "0.0.8", "lunad cannot start", cur,
+                  lunad_bytes=b"#!/bin/sh\nexit 1\n")
     cur = slot_of(vm)
     rollback_case("badboot", {"/boot/initramfs-lts": b"this is not an initramfs\n" * 100}, "0.0.9", "kernel cannot find its root", cur, expect_panic=True)
 
-    # -- power cut while the new system is being written
-    cur = slot_of(vm)
-    good_v4 = os_image_variant("v4", {})
-    publish("0.1.0", key="good", os_img=good_v4)
-    api_check(lu)
-    import threading
-    th = threading.Thread(target=lambda: apply_update(lu))
-    th.start()
-    time.sleep(4)
-    vm.kill()
-    th.join(30)
-    ov = f"{WORK}/update.qcow2"
-    vm = VM("update2", [{"file": ov, "fmt": "qcow2", "bus": "sata", "bootindex": 0}], http_port=18080)
-    vm.start()
-    lu = Luna(18080)
-    check("a power cut while writing the update still boots", lu.wait_up(240))
-    time.sleep(10)
-    check("it stayed on the old system", slot_of(vm) == cur, f"{slot_of(vm)} vs {cur}")
-    check("accounts survived", login_admin(lu))
+    # (a power cut during the write has its own stage, update-powercut, on a raw disk)
     rc, o = vm.sh("cat /var/lib/luna/os-image.sha256")
-    check("the recorded image is still the old one", sha256_file(good_v4) not in o, o)
-    c, b = api_check(lu)
-    check("the update is offered again after the interruption", c == 200 and b.get("update_available") is True, f"{c} {b}")
-    c, b = apply_update(lu)
-    check("and it installs on the second try", c == 200 and b.get("ok"), f"{c} {b}")
-    check("Luna restarts into it", wait_reboot_up(vm, lu, 300))
-    time.sleep(10)
-    check("the new system is running", slot_of(vm) != cur, f"{slot_of(vm)} vs {cur}")
-    rc, o = vm.sh("cat /etc/luna-os-release")
-    check("with the right image", "e2e-v4" in o, o)
     vm.sh("sync; sync")
     vm.quit()
     vm.wait_exit(60)
@@ -1901,6 +2006,66 @@ def stage_update():
         r = ext_fsck(raw, n)
         check(f"slot {name} is a clean filesystem at the end", "rc=0" in r, r[-200:])
     return
+
+
+def stage_update_powercut():
+    """The power fails while an OS update is being written, at several moments."""
+    say("-- power cut during an OS update")
+    feed_server()
+    good_pub, _ = minisign_keys("good")
+    good_v4 = os_image_variant("v4", {})
+    start_mock_connect()
+    for cut in (2, 8, 16):
+        T = f"[cut at {cut}s] "
+        disk = f"{WORK}/pc-{cut}.raw"
+        sh(f"rm -f {disk}; cp --sparse=always --reflink=auto {WORK}/golden-sata.raw {disk}")
+        serial_console_for_tests(disk)
+        vm = VM(f"pc{cut}", [{"file": disk, "bus": "sata", "bootindex": 0}], http_port=18080)
+        vm.start()
+        lu = Luna(18080)
+        check(T + "Luna starts", lu.wait_up(240))
+        lu.post("/api/v1/auth/register", ADMIN)
+        login_admin(lu)
+        lu.post("/api/v1/setup", {"setup_completed": True, "current_step": "done"})
+        vm.sh("rm -f /var/lib/luna/device-token")
+        lu.req("PUT", "/api/v1/system/updates/source", {"feed_url": FEED_URL, "channel": "stable", "keys": [good_pub]})
+        publish(f"0.2.{cut}", key="good", os_img=good_v4)
+        c, b = api_check(lu)
+        check(T + "the update is offered", c == 200 and b.get("update_available"), f"{c} {b}")
+        import threading
+        th = threading.Thread(target=lambda: apply_update(lu))
+        th.start()
+        time.sleep(cut)
+        vm.kill()
+        th.join(30)
+        vm = VM(f"pc{cut}b", [{"file": disk, "bus": "sata", "bootindex": 0}], http_port=18080)
+        vm.start()
+        lu = Luna(18080)
+        up = lu.wait_up(240)
+        check(T + "Luna still boots after the power cut", up)
+        if not up:
+            say(vm.serial_text()[-1200:])
+            vm.quit()
+            continue
+        time.sleep(10)
+        check(T + "it is on the old system (slot A)", slot_of(vm) == "A", str(slot_of(vm)))
+        check(T + "accounts are intact", login_admin(lu))
+        c, b = api_check(lu)
+        check(T + "the update is offered again", c == 200 and b.get("reboot_required") is True, f"{c} {b}")
+        c, b = apply_update(lu)
+        check(T + "and installs on the next try", c == 200 and b.get("ok"), f"{c} {b}")
+        check(T + "Luna restarts into the new system", wait_reboot_up(vm, lu, 300))
+        time.sleep(10)
+        check(T + "it runs from slot B", slot_of(vm) == "B", str(slot_of(vm)))
+        rc, o = vm.sh("cat /etc/luna-os-release")
+        check(T + "with the new image", "e2e-v4" in o, o)
+        vm.sh("sync; sync")
+        vm.quit()
+        vm.wait_exit(30)
+        for n, name in ((3, "A"), (4, "B")):
+            r = ext_fsck(disk, n)
+            check(T + f"slot {name} is a clean filesystem afterwards", "rc=0" in r, r[-200:])
+        os.unlink(disk)
 
 
 
@@ -1949,6 +2114,9 @@ STAGES["explore"] = stage_explore
 STAGES["boot"] = stage_boot
 STAGES["lab"] = stage_lab
 STAGES["update"] = stage_update
+STAGES["update-powercut"] = stage_update_powercut
+STAGES["recovery"] = stage_recovery
+STAGES["reset"] = stage_reset
 STAGES["app"] = stage_app
 STAGES["bigfiles"] = stage_bigfiles
 STAGES["matrix"] = stage_matrix
