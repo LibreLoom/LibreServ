@@ -22,6 +22,9 @@ const AUTOSAVE_MAX_MS = 15_000;
 const AUTOSAVE_RETRY_MS = 5_000;
 const AUTOSAVE_TICK_MS = 250;
 
+const HYDRATE_TIMEOUT_MS = 10_000;
+const HYDRATE_POLL_MS = 50;
+
 /**
  * Fullscreen plaintext/markdown editor — the writable counterpart to the
  * modal's read-only text preview. Mounts inside FullscreenEditorFrame and
@@ -142,6 +145,13 @@ function EditorSession({
         if (cancelled) return;
         setBaseline(body);
         sync.adoptContent(body);
+        // With the hub, the file seeds the doc only after its welcome. Until
+        // then the doc is empty by timing, and typing into it would block the
+        // seed and later save over the real file. Keep the loading screen up.
+        const started = Date.now();
+        while (!cancelled && !sync.hydrated && Date.now() - started < HYDRATE_TIMEOUT_MS) {
+          await new Promise((resolve) => setTimeout(resolve, HYDRATE_POLL_MS));
+        }
       } catch (err) {
         if (!cancelled) {
           setError(apiErrorMessage(err, "Luna couldn't open this file. Try downloading it."));
@@ -175,7 +185,9 @@ function EditorSession({
     const session = syncRef.current;
     // A second in-flight save (frame button vs autosave tick) reports false
     // so the caller can tell "nothing ran" from "saved".
-    if (!session || savingRef.current) return false;
+    // An unseeded doc is empty by timing, not by fact — saving it would
+    // overwrite the real file with nothing.
+    if (!session || !session.hydrated || savingRef.current) return false;
     savingRef.current = true;
     try {
       const body = session.serialize();
