@@ -13,6 +13,7 @@ import {
   patchFormQuestion,
   readForm,
   removeFormQuestion,
+  formIsEmpty,
   repairQuestionIds,
   seedForm,
   seedFormSnapshot,
@@ -181,6 +182,13 @@ describe("formYDoc", () => {
     expect(new Set(ids).size).toBe(4);
     expect(ids[2]).toBe("q_1");
     expect(repairQuestionIds(doc, () => "unused")).toBe(false);
+    doc.destroy();
+  });
+
+  it("leaves an unseeded doc empty when repairing ids, so the file can still seed", () => {
+    const doc = new Y.Doc();
+    expect(repairQuestionIds(doc, () => "unused")).toBe(false);
+    expect(formIsEmpty(doc)).toBe(true);
     doc.destroy();
   });
 });

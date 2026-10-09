@@ -642,7 +642,11 @@ export function setFormOptions(ydoc, questionId, labels) {
  * @param {() => string} newId
  */
 export function repairQuestionIds(ydoc, newId) {
-  const list = questionsArray(ydoc).toArray();
+  // Read-only until seeded: questionsArray() would create the array and make
+  // the doc look non-empty, so the file's content would never be seeded.
+  const existing = formMap(ydoc).get("questions");
+  if (!(existing instanceof Y.Array)) return false;
+  const list = existing.toArray();
   const seen = new Set();
   const broken = [];
   for (const item of list) {

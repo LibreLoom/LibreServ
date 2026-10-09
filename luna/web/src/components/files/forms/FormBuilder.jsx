@@ -247,8 +247,16 @@ function BuilderSession({
 
   useEffect(() => {
     let cancelled = false;
+    let repaired = false;
+    // Seeding can wait for the hub's welcome, so repair once the doc has content.
+    const repairOnce = () => {
+      if (repaired || !canWrite || !sync.hydrated) return;
+      repaired = true;
+      repairQuestionIds(sync.ydoc, newQuestionId);
+    };
     /** @param {Uint8Array} _update @param {unknown} _origin @param {unknown} _doc @param {{ local?: boolean }} tr */
     const pull = (_update, _origin, _doc, tr) => {
+      repairOnce();
       setDoc(readForm(sync.ydoc, { withIds: true }));
       // Only our own typing holds autosave back — a peer's edits must not
       // keep pushing our save later.
@@ -292,7 +300,7 @@ function BuilderSession({
         sync.adoptContent(text);
         // Questions sharing an id would share every answer; give each its
         // own before anyone fills the form in again.
-        if (canWrite) repairQuestionIds(sync.ydoc, newQuestionId);
+        repairOnce();
         setDoc(readForm(sync.ydoc, { withIds: true }));
       } catch (err) {
         if (!cancelled) {
