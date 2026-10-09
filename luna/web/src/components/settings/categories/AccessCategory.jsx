@@ -4,7 +4,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Globe2, History, Shield, Smartphone, Trash2, User, UserRound } from "lucide-react";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
+import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
+import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import { ActionTooltipGroup, InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import CopyableValue from "@libreloom/ui/components/ui/CopyableValue.jsx";
@@ -53,27 +55,20 @@ function AccessTokenItem({ token, nowUnix, usageFor, usageRows, usagePending, re
       style={{ transitionDuration: "var(--motion-duration-medium2)" }}
     >
       <div ref={innerRef}>
-        <div className="flex items-center gap-2 px-4 py-2.5">
-          <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2 px-4 py-1.5">
+          <div className="min-w-0 flex-1 flex flex-wrap items-center gap-x-2 gap-y-1">
             <p className="text-sm font-mono truncate">{token.name}</p>
-            <p className="text-xs">
-              {token.last_used_at ? `Last used ${formatWhen(token.last_used_at)}` : "Never used"}
-              {token.expires_at != null && (
-                expired ? (
-                  <>
-                    {" · "}
-                    <span>Expired {formatWhen(token.expires_at)}</span>
-                  </>
-                ) : (
-                  ` · Expires ${formatWhen(token.expires_at)}`
-                )
-              )}
-            </p>
+            <Pill>{token.last_used_at ? `Last used ${formatWhen(token.last_used_at)}` : "Never used"}</Pill>
+            {token.expires_at != null && (
+              <Pill variant={expired ? "warning" : "default"}>
+                {expired ? "Expired" : "Expires"} {formatWhen(token.expires_at)}
+              </Pill>
+            )}
           </div>
           <ActionTooltipGroup className="flex items-center gap-1 shrink-0">
             <Button
               variant="ghost"
-              size="icon"
+              size="iconSm"
               surface="primary"
               className={expanded ? "bg-secondary/10" : ""}
               tooltip={expanded ? "Hide usage log" : "Usage log"}
@@ -85,7 +80,7 @@ function AccessTokenItem({ token, nowUnix, usageFor, usageRows, usagePending, re
             </Button>
             <Button
               variant="ghost"
-              size="icon"
+              size="iconSm"
               surface="primary"
               loading={revokePending}
               tooltip="Revoke token"
@@ -464,6 +459,8 @@ export default function AccessCategory() {
     onError: (err) => setError(apiErrorMessage(err)),
   });
 
+  const [revokeTarget, setRevokeTarget] = useState(null);
+
   useStrandedErrorToast(error, showQr, () => setError(null));
 
   const tokenList = tokens.data || [];
@@ -567,7 +564,9 @@ export default function AccessCategory() {
             </Button>
           </div>
           {tokenList.length === 0 ? (
-            <p className="px-4 pb-4 text-sm">No apps or access tokens are set up yet.</p>
+            <div className="px-4 pb-4">
+              <Pill>No apps or access tokens are set up yet.</Pill>
+            </div>
           ) : (
             <ul className="divide-y divide-secondary/10 border-t border-secondary/10">
               {tokenList.map((t) => (
@@ -580,12 +579,26 @@ export default function AccessCategory() {
                   usagePending={usageFor === t.id && usage.isPending}
                   revokePending={revokeOne.isPending && revokeOne.variables === t.id}
                   onToggleUsage={() => setUsageFor(usageFor === t.id ? null : t.id)}
-                  onRevoke={() => revokeOne.mutate(t.id)}
+                  onRevoke={() => setRevokeTarget(t)}
                 />
               ))}
             </ul>
           )}
         </div>
+
+        <ConfirmModal
+          open={revokeTarget != null}
+          variant="danger"
+          title="Revoke this access token?"
+          message={`${revokeTarget?.name ? `"${revokeTarget.name}"` : "This token"} will stop working right away. Any app or script using it will need a new token.`}
+          confirmLabel="Revoke token"
+          confirmIcon={Trash2}
+          onClose={() => setRevokeTarget(null)}
+          onConfirm={() => {
+            revokeOne.mutate(revokeTarget.id);
+            setRevokeTarget(null);
+          }}
+        />
 
         <CreateTokenModal
           key={createKey}
