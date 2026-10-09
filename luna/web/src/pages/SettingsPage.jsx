@@ -168,7 +168,7 @@ export default function SettingsPage() {
             <SettingsSidebar
               user={user}
               categories={categories}
-              memberHint="You're signed in as a Member. Ask an Admin to change External services or About."
+              memberHint="You're signed in as a Member. Some settings aren't accessible to you."
               userHref={(u) => (u.role === "admin" ? "/settings/users" : null)}
               deviceName="this Luna"
               activeCategory={activeCategory}
@@ -191,7 +191,7 @@ export default function SettingsPage() {
               <SettingsSidebar
                 user={user}
                 categories={categories}
-                memberHint="You're signed in as a Member. Ask an Admin to change External services or About."
+                memberHint="You're signed in as a Member. Some settings aren't accessible to you."
                 userHref={(u) => (u.role === "admin" ? "/settings/users" : null)}
                 deviceName="this Luna"
                 activeCategory={activeCategory}
