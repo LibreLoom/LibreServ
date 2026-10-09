@@ -460,7 +460,7 @@ describe("SetupPage", () => {
     });
   });
 
-  it("automatically focuses the Go to drives button on the Done step", async () => {
+  it("automatically focuses the Go to dashboard button on the Done step", async () => {
     vi.stubGlobal(
       "fetch",
       stubFetch({
@@ -480,11 +480,11 @@ describe("SetupPage", () => {
     const finishButton = await screen.findByRole("button", { name: /Finish setup/i });
     fireEvent.click(finishButton);
 
-    const goDrivesButton = await screen.findByRole("button", { name: /Go to drives/i });
-    expect(goDrivesButton).toBeTruthy();
+    const goDashboardButton = await screen.findByRole("button", { name: /Go to dashboard/i });
+    expect(goDashboardButton).toBeTruthy();
 
     await waitFor(() => {
-      expect(document.activeElement).toBe(goDrivesButton);
+      expect(document.activeElement).toBe(goDashboardButton);
     });
   });
 });

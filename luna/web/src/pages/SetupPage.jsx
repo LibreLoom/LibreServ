@@ -809,7 +809,7 @@ NameStep.propTypes = {
 };
 
 // ─── STEP: Done ───────────────────────────────────────────────────────────────
-function DoneStep({ name, onGoDrives }) {
+function DoneStep({ name, onGoDashboard }) {
   const buttonRef = useRef(null);
 
   useEffect(() => {
@@ -846,11 +846,11 @@ function DoneStep({ name, onGoDrives }) {
           variant="primary"
           onClick={() => {
             haptic("medium");
-            onGoDrives();
+            onGoDashboard();
           }}
           className="group px-9 py-4 font-mono hover:scale-[1.03]"
         >
-          Go to drives
+          Go to dashboard
           <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
         </Button>
       </div>
@@ -859,7 +859,7 @@ function DoneStep({ name, onGoDrives }) {
 }
 DoneStep.propTypes = {
   name: PropTypes.string,
-  onGoDrives: PropTypes.func.isRequired,
+  onGoDashboard: PropTypes.func.isRequired,
 };
 
 // ─── Root: SetupPage ──────────────────────────────────────────────────────────
@@ -918,7 +918,7 @@ export default function SetupPage() {
         if (setup?.name) setDeviceName(setup.name);
 
         if (setup?.setup_completed) {
-          navigate("/drives", { replace: true });
+          navigate("/", { replace: true });
           return;
         }
 
@@ -1071,7 +1071,7 @@ export default function SetupPage() {
   } else if (step === STEP.NAME) {
     renderedStep = <NameStep initialName={deviceName} onFinish={handleFinish} />;
   } else if (step === STEP.DONE) {
-    renderedStep = <DoneStep name={deviceName} onGoDrives={() => navigate("/drives")} />;
+    renderedStep = <DoneStep name={deviceName} onGoDashboard={() => navigate("/")} />;
   }
 
   // One persistent shell for the whole wizard. Because the SetupShell +
