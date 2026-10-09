@@ -255,11 +255,11 @@ fn a_forms_answers_stay_inside_the_private_folder() {
     std::fs::write(&answers, b"{}").unwrap();
     // Ordinary form inside a private folder: the answers sibling keeps the
     // ordinary name and sits inside the same private disk directory.
-    assert_eq!(answers, form.with_file_name("rsvp.lunaform.responses"));
+    assert_eq!(answers, form.with_file_name(".rsvp.lunaform.responses"));
     assert!(
         files_in(&root.join(crate::private::disk_rel(&root, "Mine")))
             .iter()
-            .any(|n| n == "rsvp.lunaform.responses")
+            .any(|n| n == ".rsvp.lunaform.responses")
     );
 }
 

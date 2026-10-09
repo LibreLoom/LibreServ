@@ -147,7 +147,7 @@ async fn respond_appends_jsonl_and_edits_reuse_the_id() {
     assert_ne!(edit_token, "x", "client-chosen secrets are not stored");
     assert!(edit_token.len() >= 16, "minted secrets carry entropy");
 
-    let jsonl = std::fs::read_to_string(mount.path().join("rsvp.lunaform.responses")).unwrap();
+    let jsonl = std::fs::read_to_string(mount.path().join(".rsvp.lunaform.responses")).unwrap();
     let rec: Value = serde_json::from_str(jsonl.trim()).unwrap();
     // The file stores the blake3 hash of the minted secret, never raw.
     assert_eq!(
@@ -185,7 +185,7 @@ async fn respond_appends_jsonl_and_edits_reuse_the_id() {
     .await;
     assert_eq!(res.status(), StatusCode::OK);
     assert_eq!(body_json(res).await["id"], id);
-    let jsonl = std::fs::read_to_string(mount.path().join("rsvp.lunaform.responses")).unwrap();
+    let jsonl = std::fs::read_to_string(mount.path().join(".rsvp.lunaform.responses")).unwrap();
     assert_eq!(jsonl.lines().count(), 2);
 
     // The wrong secret can't touch someone else's response.
@@ -234,7 +234,7 @@ async fn respond_requires_the_required_answers() {
     )
     .await;
     assert_eq!(res.status(), StatusCode::BAD_REQUEST);
-    assert!(!mount.path().join("rsvp.lunaform.responses").exists());
+    assert!(!mount.path().join(".rsvp.lunaform.responses").exists());
 }
 
 #[tokio::test]
@@ -299,7 +299,7 @@ async fn respond_refuses_edits_when_the_form_disallows_them() {
     assert_eq!(res.status(), StatusCode::FORBIDDEN);
 
     // None of the refusals touched the file — still just the one record.
-    let jsonl = std::fs::read_to_string(mount.path().join("rsvp.lunaform.responses")).unwrap();
+    let jsonl = std::fs::read_to_string(mount.path().join(".rsvp.lunaform.responses")).unwrap();
     assert_eq!(jsonl.lines().count(), 1);
 }
 
@@ -652,7 +652,7 @@ fn insert_link_full(
 
 fn write_answers(mount: &std::path::Path) {
     std::fs::write(
-        mount.join("rsvp.lunaform.responses"),
+        mount.join(".rsvp.lunaform.responses"),
         concat!(
             r#"{"id":"r_1","edit":"HASHSECRET","answers":{"q_1":"Yes"},"at":1}"#,
             "\n",
@@ -839,7 +839,7 @@ async fn responses_route_denies_respond_traversal_expired_and_password() {
         &app,
         req(
             Method::GET,
-            &format!("/s/{folder}/responses?path=rsvp.lunaform.responses"),
+            &format!("/s/{folder}/responses?path=.rsvp.lunaform.responses"),
             "",
         ),
     )
@@ -894,7 +894,7 @@ async fn responses_missing_empty_symlink_and_oversize_denied() {
         0
     );
 
-    let sibling = mount.path().join("rsvp.lunaform.responses");
+    let sibling = mount.path().join(".rsvp.lunaform.responses");
     std::os::unix::fs::symlink("/etc/hostname", &sibling).unwrap();
     let res = call(&app, req(Method::GET, &format!("/s/{token}/responses"), "")).await;
     assert!(res.status().is_client_error(), "symlink answers must fail");

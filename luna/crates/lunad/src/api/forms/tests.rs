@@ -12,11 +12,11 @@ fn form_path_match_is_case_insensitive() {
 fn responses_path_swaps_the_extension() {
     assert_eq!(
         responses_path_for(FsPath::new("/d/forms/rsvp.lunaform")).unwrap(),
-        PathBuf::from("/d/forms/rsvp.lunaform.responses")
+        PathBuf::from("/d/forms/.rsvp.lunaform.responses")
     );
     assert_eq!(
         responses_path_for(FsPath::new("/d/rsvp.LUNAFORM")).unwrap(),
-        PathBuf::from("/d/rsvp.lunaform.responses")
+        PathBuf::from("/d/.rsvp.lunaform.responses")
     );
     assert!(responses_path_for(FsPath::new("/d/rsvp.json")).is_none());
 }

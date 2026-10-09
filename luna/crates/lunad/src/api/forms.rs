@@ -1,7 +1,7 @@
 //! Luna Forms: `.lunaform` files shared through respond links (the
 //! link-only `CAP_RESPOND` capability in `crate::access`). A respond link
 //! lets anyone with the URL open the form and append one JSONL record to a
-//! sibling `<name>.lunaform.responses` — never read other people's answers back
+//! sibling `.<name>.lunaform.responses` — never read other people's answers back
 //! (a respondent can only re-fetch their own record by presenting the edit
 //! secret they were issued at submit time).
 //!
@@ -43,7 +43,7 @@ pub const PERMISSION_RESPOND: &str = "respond";
 /// Form documents are `<name>.lunaform` JSON envelopes.
 pub const FORM_FILE_SUFFIX: &str = ".lunaform";
 
-/// Answers live next to the form as `<name>.lunaform.responses` — one JSON
+/// Answers live next to the form as a hidden `.<name>.lunaform.responses` — one JSON
 /// record per line.
 pub const RESPONSES_SUFFIX: &str = ".lunaform.responses";
 
@@ -149,7 +149,7 @@ pub fn is_form_file(path: &FsPath) -> bool {
     leaf_name(path).is_some_and(|n| is_form_path(&n))
 }
 
-/// The `<name>.lunaform.responses` that sits next to a resolved form file.
+/// The `.<name>.lunaform.responses` that sits next to a resolved form file.
 fn responses_path_for(form_path: &FsPath) -> Option<PathBuf> {
     responses_path_named(form_path, &leaf_name(form_path)?)
 }
@@ -166,7 +166,7 @@ fn responses_path_named(form_path: &FsPath, name: &str) -> Option<PathBuf> {
     {
         return Some(form_path.with_file_name(format!("{disk}.responses")));
     }
-    let sibling = format!("{}{}", &name[..dot], RESPONSES_SUFFIX);
+    let sibling = format!(".{}{}", &name[..dot], RESPONSES_SUFFIX);
     Some(form_path.parent()?.join(sibling))
 }
 
@@ -249,7 +249,7 @@ fn files_dir_named(root: &FsPath, form_path: &FsPath, name: &str) -> Option<Path
 }
 
 /// Where the form's answers file sits. Normally the visible
-/// `<name>.lunaform.responses` sibling; for a top-level trash entry it is a
+/// `.<name>.lunaform.responses` sibling; for a top-level trash entry it is a
 /// Luna-owned name beside the files folder so the trash list never shows it.
 pub fn responses_file_for(root: &FsPath, form_path: &FsPath) -> Option<PathBuf> {
     responses_file_named(root, form_path, &leaf_name(form_path)?)
@@ -1234,7 +1234,7 @@ struct RespondLookup {
 }
 
 /// `POST /s/{token}/respond` — append one answer record to the sibling
-/// `<name>.lunaform.responses`. Re-submits with a matching edit secret keep the
+/// `.<name>.lunaform.responses`. Re-submits with a matching edit secret keep the
 /// same response id; latest wins at read time.
 async fn respond_submit(
     State(state): State<AppState>,
