@@ -47,6 +47,7 @@ const HYDRATE_POLL_MS = 50;
  *   path: string,
  *   name: string,
  *   isMarkdown?: boolean,
+ *   canWrite?: boolean,
  *   onSaved?: () => void,
  *   onRegisterSave: (save: (() => Promise<unknown>) | null) => void,
  *   onSaveStateChange: (hasUnsaved: boolean) => void,
@@ -61,6 +62,7 @@ TextFileEditor.propTypes = {
   path: PropTypes.string.isRequired,
   name: PropTypes.string.isRequired,
   isMarkdown: PropTypes.bool,
+  canWrite: PropTypes.bool,
   onSaved: PropTypes.func,
   onRegisterSave: PropTypes.func.isRequired,
   onSaveStateChange: PropTypes.func.isRequired,
@@ -74,6 +76,7 @@ function EditorSession({
   path,
   name,
   isMarkdown = false,
+  canWrite = true,
   onSaved,
   onRegisterSave,
   onSaveStateChange,
@@ -84,7 +87,7 @@ function EditorSession({
   const [baseline, setBaseline] = useState(/** @type {string|null} */ (null));
   const [peers, setPeers] = useState(/** @type {object[]} */ ([]));
   const [connStatus, setConnStatus] = useState("connecting");
-  const [mdMode, setMdMode] = useState(/** @type {"write"|"source"|"read"} */ ("write"));
+  const [mdMode, setMdMode] = useState(/** @type {"write"|"source"|"read"} */ (canWrite ? "write" : "read"));
   const [stats, setStats] = useState({ line: 1, col: 1, words: 0 });
   const source = useFileSource();
   // Guests have no session for the collab hub — solo mode seeds the doc
@@ -178,8 +181,8 @@ function EditorSession({
   // Report dirty upward; the clean report happens inside save() so the
   // frame's "Saved just now" stamp only fires on a real save, not on load.
   useEffect(() => {
-    if (isDirty) onSaveStateChange(true);
-  }, [isDirty, onSaveStateChange]);
+    if (isDirty && canWrite) onSaveStateChange(true);
+  }, [isDirty, canWrite, onSaveStateChange]);
 
   const save = useCallback(async () => {
     const session = syncRef.current;
@@ -208,7 +211,7 @@ function EditorSession({
   // stands down on its own — the tick re-checks dirtiness every pass rather
   // than latching a flag.
   useEffect(() => {
-    if (loading || error) return undefined;
+    if (loading || error || !canWrite) return undefined;
     const id = setInterval(() => {
       const session = syncRef.current;
       const now = Date.now();
@@ -234,15 +237,15 @@ function EditorSession({
       }
     }, AUTOSAVE_TICK_MS);
     return () => clearInterval(id);
-  }, [loading, error]);
+  }, [loading, error, canWrite]);
 
   // Register the save thunk once the session is up — Save stays disabled
   // until then, matching the office editor's "no session, no save" behavior.
   useEffect(() => {
-    if (loading || error || !sync) return undefined;
+    if (loading || error || !sync || !canWrite) return undefined;
     onRegisterSave(save);
     return () => onRegisterSave(null);
-  }, [loading, error, sync, save, onRegisterSave]);
+  }, [loading, error, sync, canWrite, save, onRegisterSave]);
 
   const peerNames = peers.map((p) => p.username).join(", ");
   const connNote =
@@ -260,12 +263,12 @@ function EditorSession({
         {isMarkdown ? (
           <SegmentedControl
             options={[
-              { value: "write", label: "Write", icon: Pencil },
+              ...(canWrite ? [{ value: "write", label: "Write", icon: Pencil }] : []),
               {
                 value: "source",
                 label: "Source",
                 icon: Code,
-                title: "Edit the raw Markdown text",
+                title: canWrite ? "Edit the raw Markdown text" : "Show the raw Markdown text",
               },
               { value: "read", label: "Read", icon: BookOpen },
             ]}
@@ -331,7 +334,7 @@ function EditorSession({
             driveId={driveId}
             path={path}
             name={name}
-            canWrite
+            canWrite={canWrite}
             mode={mdMode}
             error={error}
             onStats={setStats}
@@ -342,7 +345,7 @@ function EditorSession({
             <PlainTextSurface
               sync={sync}
               name={name}
-              canWrite
+              canWrite={canWrite}
               onStats={setStats}
               fill
             />
@@ -378,6 +381,7 @@ EditorSession.propTypes = {
   path: PropTypes.string.isRequired,
   name: PropTypes.string.isRequired,
   isMarkdown: PropTypes.bool,
+  canWrite: PropTypes.bool,
   onSaved: PropTypes.func,
   onRegisterSave: PropTypes.func.isRequired,
   onSaveStateChange: PropTypes.func.isRequired,

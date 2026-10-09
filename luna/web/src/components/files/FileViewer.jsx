@@ -1,13 +1,11 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import PropTypes from "prop-types";
-import { Code, Download, Eye, FileOutput, ImageOff, Maximize2, VideoOff, X } from "lucide-react";
+import { Download, FileOutput, ImageOff, Maximize2, VideoOff, X } from "lucide-react";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
-import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
-import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import { EditorMountedSignal } from "./EditorLoadingScreen.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import ImagePreviewPanel from "./ImagePreviewPanel.jsx";
@@ -24,7 +22,6 @@ import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 
 // Heavy viewers and editors (CodeMirror, forms, diagrams, whiteboard, office)
 // load only when a file of that kind is opened.
-const MarkdownPreview = lazy(() => import("./MarkdownPreview.jsx"));
 const TextFileEditor = lazy(() => import("./TextFileEditor.jsx"));
 const FormBuilder = lazy(() => import("./forms/FormBuilder.jsx"));
 const KindViewer = lazy(() => import("./viewers/KindViewer.jsx"));
@@ -129,13 +126,13 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
   const isWhiteboard = kind === "whiteboard";
   const isMarkdown = kind === "markdown";
   const isTextLike = kind === "text" || isMarkdown;
-  // Writable text/markdown gets the fullscreen editor; without write
-  // permission the same file is a preview-only kind and stays in the modal.
+  // Text/markdown always get the fullscreen editor; without write permission
+  // it opens read-only (no save, no typing, Markdown on its Read view).
   // Office, forms, and diagrams always take the fullscreen frame — they keep
   // a useful read-only view when the opener can't write, and link guests
   // reach all three through the scoped /s endpoints. Whiteboards too.
   const fullscreenEditor =
-    isOffice || isForm || isDiagram || isWhiteboard || (isTextLike && canWrite);
+    isOffice || isForm || isDiagram || isWhiteboard || isTextLike;
   // Set when EuroOfficeHost reports the DocsAPI script failed to load —
   // OfficeEditor swaps to its "can't open office files" card inside the
   // same fullscreen frame.
@@ -143,11 +140,6 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
   // Presence string is plumbed through from the editor but not rendered yet —
   // collab presence UI will be redesigned separately.
   const [, setEditorPresence] = useState("");
-  // Modal-only text preview state — only read for preview-only opens
-  // (isTextLike && !canWrite); the fullscreen editor loads its own copy.
-  const [text, setText] = useState("");
-  const [loading, setLoading] = useState(isTextLike && !canWrite);
-  const [mdView, setMdView] = useState(/** @type {"edit" | "preview"} */ ("preview"));
   const [error, setError] = useState(/** @type {string|null} */ (null));
   const [converting, setConverting] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -173,7 +165,6 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
     setConverting(false);
     setOfficeMissing(false);
     setEditorPresence("");
-    setMdView("preview");
   }
 
   useEffect(() => {
@@ -210,36 +201,6 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
   // load — the only "is EuroOffice installed" check, riding on the load the
   // editor was going to do anyway.
   const handleOfficeUnavailable = useCallback(() => setOfficeMissing(true), []);
-
-  // Read-only text/markdown preview — writable opens mount TextFileEditor
-  // inside the fullscreen frame and load their own copy.
-  useEffect(() => {
-    // A file link's path is legitimately "" — the source resolves it to the
-    // shared file. Only a missing path on a drive source means "nothing open".
-    if (!open || (!path && !source.isFile) || !isTextLike || canWrite) return undefined;
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const body = typeof source.fetchText === "function"
-          ? await source.fetchText(driveId, path)
-          : await (async () => {
-              const res = await source.fetch(source.contentHref(driveId, path));
-              await requireOk(res, "Luna couldn't open this file.");
-              return res.text();
-            })();
-        if (!cancelled) setText(body);
-      } catch (err) {
-        if (!cancelled) {
-          setError(apiErrorMessage(err, "Luna couldn't open this file. Try downloading it."));
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [source, driveId, path, isTextLike, canWrite, open]);
 
   /** Convert to the adjacent office format, upload the copy, open it. */
   async function convertAndOpen() {
@@ -379,6 +340,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
               path={frameView.path}
               name={frameView.name}
               isMarkdown={frameView.isMarkdown}
+              canWrite={canWrite}
               onSaved={onSaved}
               onRegisterSave={onRegisterSave}
               onSaveStateChange={onSaveStateChange}
@@ -428,53 +390,6 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
               )
             )}
 
-            {isTextLike && !canWrite && (
-              loading ? (
-                <div
-                  className="flex min-h-[50vh] items-center justify-center"
-                  role="status"
-                  aria-label={`Opening ${name}`}
-                >
-                  <div className="flex items-center gap-3 text-primary">
-                    <p className="font-mono text-sm">
-                      Opening
-                    </p>
-                    <Spinner size="md" decorative />
-                  </div>
-                </div>
-              ) : isMarkdown ? (
-                mdView === "preview" ? (
-                  <Suspense fallback={<ViewerFallback />}>
-                    <MarkdownPreview
-                      text={text}
-                      name={name}
-                      className="max-h-[65vh] min-h-[50vh] rounded-large-element"
-                      emptyHint="Nothing to preview yet."
-                    />
-                  </Suspense>
-                ) : (
-                  <ShakeTarget shake={error}>
-                    <pre
-                      aria-label={`Contents of ${name}`}
-                      className="max-h-[65vh] min-h-[50vh] overflow-y-auto whitespace-pre-wrap break-words rounded-large-element surface-primary p-4 font-mono text-sm"
-                    >
-                      {text}
-                    </pre>
-                  </ShakeTarget>
-                )
-              ) : (
-                <ShakeTarget shake={error}>
-                  <textarea
-                    className="w-full min-h-[50vh] rounded-large-element surface-primary p-4 font-mono text-sm outline-none resize-none"
-                    value={text}
-                    readOnly
-                    spellCheck={false}
-                    aria-label={`Contents of ${name}`}
-                  />
-                </ShakeTarget>
-              )
-            )}
-
             {open && kind && kind !== "image" && kind !== "video" && !isTextLike && kind !== "office" && kind !== "form" && kind !== "diagram" && kind !== "whiteboard" && (
               <Suspense fallback={<ViewerFallback />}>
                 <KindViewer
@@ -519,18 +434,6 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
                   <Maximize2 size={ICON_SIZE.sm} aria-hidden="true" />
                   Full view
                 </Button>
-              )}
-              {isMarkdown && !canWrite && !loading && (
-                <SegmentedControl
-                  options={[
-                    { value: "preview", label: "Preview", icon: Eye },
-                    { value: "edit", label: "Source", icon: Code },
-                  ]}
-                  value={mdView}
-                  onChange={(v) => setMdView(v === "preview" ? "preview" : "edit")}
-                  surface="secondary"
-                  className="self-center"
-                />
               )}
               {conversion?.convert && canWrite && !guest && (
                 <Button

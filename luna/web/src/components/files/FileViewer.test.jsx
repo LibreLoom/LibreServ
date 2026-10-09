@@ -463,7 +463,7 @@ describe("FileViewer text editor (fullscreen)", () => {
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
   });
 
-  it("keeps a read-only text file in the preview modal", async () => {
+  it("opens a read-only text file in the editor with typing and saving off", async () => {
     mockTextFetch();
 
     render(
@@ -477,11 +477,9 @@ describe("FileViewer text editor (fullscreen)", () => {
     );
 
     const editor = await screen.findByLabelText("Contents of note.txt");
-    expect(editor).toHaveAttribute("readonly");
-    expect(
-      document.querySelector('[data-slot="file-viewer-overlay"]'),
-    ).not.toBeInTheDocument();
+    expect(editor).toHaveAttribute("contenteditable", "false");
     expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/converting it to a/i)).not.toBeInTheDocument();
   });
 });
 
@@ -569,7 +567,7 @@ describe("FileViewer markdown editor", () => {
     await waitFor(() => expect(saveBtn).toBeDisabled());
   });
 
-  it("keeps a read-only .md in the modal preview", async () => {
+  it("opens a read-only .md on Read with no Write mode; Source stays read-only", async () => {
     mockMarkdownFetch();
 
     render(
@@ -582,17 +580,15 @@ describe("FileViewer markdown editor", () => {
       />,
     );
 
-    // Read-only opens on the rendered preview; Source shows the raw text.
     const preview = await screen.findByLabelText("Preview of roadmap.md");
     expect(preview.querySelector("h1")).toHaveTextContent("Title");
-    expect(
-      document.querySelector('[data-slot="file-viewer-overlay"]'),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: "Write" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/converting it to a/i)).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("radio", { name: "Source" }));
-    expect(screen.getByLabelText("Contents of roadmap.md")).toHaveTextContent(
-      "# Title",
-    );
+    const source = screen.getByLabelText("Contents of roadmap.md");
+    expect(source).toHaveAttribute("contenteditable", "false");
+    await waitFor(() => expect(cmText()).toBe("# Title\n\nSome **bold** text"));
   });
 
   it("inserts markdown syntax from the formatting toolbar", async () => {
