@@ -12,6 +12,7 @@ import { cn } from "@libreloom/ui/lib/utils.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import DocumentLoadingScreen from "./DocumentLoadingScreen.jsx";
+import SlowLoadNotice from "./SlowLoadNotice.jsx";
 import { EditorLoadingContext } from "./editorLoadingContext.js";
 
 /** Under this age the save indicator reads "Saved just now". */
@@ -482,10 +483,13 @@ export default function FullscreenEditorFrame({
                   })}
                 </EditorLoadingContext.Provider>
                 {showLoader ? (
-                  <DocumentLoadingScreen
-                    label={loaderLabel}
-                    className="absolute inset-0 z-[5]"
-                  />
+                  <>
+                    <DocumentLoadingScreen
+                      label={loaderLabel}
+                      className="absolute inset-0 z-[5]"
+                    />
+                    <SlowLoadNotice key={sessionKey} name={name} />
+                  </>
                 ) : null}
               </div>
             </div>
