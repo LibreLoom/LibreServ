@@ -5,7 +5,7 @@ import { ICON_SIZE } from "../../lib/ui-tokens.js";
 
 /**
  * @typedef {Record<string, any> & {
- *   options: { value: string, label?: string, icon?: import('react').ComponentType<any>, disabled?: boolean, title?: string }[],
+ *   options: { value: string, label?: string, count?: number, icon?: import('react').ComponentType<any>, disabled?: boolean, title?: string }[],
  *   value: string,
  *   onChange: (value: string) => void,
  *   onDisabledClick?: (value: string) => void,
@@ -64,7 +64,7 @@ export default function SegmentedControl({
           className={cn("h-full w-full rounded-pill animate-segmented-settle", indicatorClass)}
         />
       </div>
-      {options.map(({ value: optValue, icon: Icon, label, disabled, title }) => (
+      {options.map(({ value: optValue, icon: Icon, label, count, disabled, title }) => (
         <button
           key={optValue}
           title={title}
@@ -93,10 +93,16 @@ export default function SegmentedControl({
           data-contrast-surface={value === optValue && !disabled ? (onPrimary ? "secondary" : "primary") : undefined}
           aria-checked={value === optValue}
           aria-disabled={disabled || undefined}
-          aria-label={label}
+          aria-label={count ? `${label} (${count})` : label}
         >
           {Icon && <Icon size={ICON_SIZE.sm} className="shrink-0" />}
-          <span className="truncate text-center w-full">{label}</span>
+          <span className="truncate text-center w-full">
+            {label}
+            {count ? (
+              // Counts arrive after the data loads; fade in rather than pop in at full strength.
+              <span key={count} className="animate-count-in">{` (${count})`}</span>
+            ) : null}
+          </span>
         </button>
       ))}
     </div>
@@ -108,6 +114,7 @@ SegmentedControl.propTypes = {
     PropTypes.shape({
       value: PropTypes.string.isRequired,
       label: PropTypes.string.isRequired,
+      count: PropTypes.number,
       icon: PropTypes.elementType,
       disabled: PropTypes.bool,
       title: PropTypes.string,

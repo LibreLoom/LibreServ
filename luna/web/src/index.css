@@ -509,6 +509,20 @@ textarea::placeholder {
     animation: segmented-settle 240ms var(--motion-easing-spring) both;
 }
 
+/* Tab/segment counts — fade in when the number arrives after load */
+@keyframes count-in {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+.animate-count-in {
+    animation: count-in 240ms var(--motion-easing-standard) both;
+}
+
 /* Alert/Callout — slide down + fade in on mount */
 @keyframes alert-enter {
     from {
@@ -1210,6 +1224,7 @@ textarea::placeholder {
     .animate-rescan-swap-in-back,
     .animate-toggle-settle,
     .animate-segmented-settle,
+    .animate-count-in,
     .animate-alert-enter,
     .animate-nav-slide-in,
     .animate-card-stagger,

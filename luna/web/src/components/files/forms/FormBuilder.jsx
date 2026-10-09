@@ -494,7 +494,7 @@ function BuilderSession({
         <SegmentedControl
           options={[
             { value: "questions", label: "Questions", icon: Pencil },
-            { value: "responses", label: `Responses${responses.length ? ` (${responses.length})` : ""}`, icon: ListChecks },
+            { value: "responses", label: "Responses", count: responses.length, icon: ListChecks },
           ]}
           value={tab}
           onChange={(v) => {
