@@ -33,7 +33,7 @@ export default function SlowLoadNotice({ name, delayMs = SLOW_LOAD_MS }) {
 
   if (!visible) return null;
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[6] flex justify-center p-4">
+    <div className="pointer-events-none absolute inset-0 z-[6] flex items-center justify-center p-4">
       <div
         role="status"
         className="max-w-md rounded-large-element surface-secondary p-4 text-sm"
