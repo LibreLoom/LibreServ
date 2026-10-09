@@ -70,7 +70,7 @@ describe("recentItemFromLocation", () => {
     ).toEqual({ kind: "file", driveId: "d1", path: "pic.png" });
   });
 
-  it("records ?open= and hash file candidates the same way FilesPage does", () => {
+  it("records ?open= and hash file candidates the same way DrivePage does", () => {
     expect(
       recentItemFromLocation({
         pathname: "/drives/d1",

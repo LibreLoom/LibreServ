@@ -109,7 +109,7 @@ export function removeRecentItem(username, { driveId, path }) {
 /**
  * Turn a router location into a recent item, or null when the route is not
  * a browsable drive object (drive list, trash, settings, …). Mirrors
- * FilesPage's viewerPath rules: `?file=`/`?open=` or a bare `#name` hash
+ * DrivePage's viewerPath rules: `?file=`/`?open=` or a bare `#name` hash
  * counts as a file only when Luna can actually open it; otherwise the
  * surrounding folder is what the user is really looking at.
  *

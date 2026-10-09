@@ -62,7 +62,7 @@ function folderListingError(error) {
   // A missing folder was moved, renamed, or deleted — the drive is fine.
   // (Moved folders are followed before this shows; see useMovedLinkForwarding.)
   if (code === "not_found") {
-    return "This folder isn't here anymore — it may have been deleted. Open Files to look for it.";
+    return "This folder isn't here anymore — it may have been deleted. Open Drives to look for it.";
   }
   const unplugged =
     code === "unknown_drive" ||

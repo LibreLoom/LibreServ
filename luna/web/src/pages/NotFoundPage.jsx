@@ -62,7 +62,7 @@ const DESTINATIONS = [
   },
   {
     to: "/drives",
-    label: "Files",
+    label: "Drives",
     icon: HardDrive,
     aliases: ["files", "file", "folders", "documents", "docs", "drive", "storage", "browse"],
   },
@@ -288,7 +288,7 @@ function FindFile({ initialTerm, user, className }) {
       <div aria-live="polite">
         {results.isError && (
           <p className="mt-3 text-sm text-primary">
-            Luna couldn't search right now. Open Files and browse instead.
+            Luna couldn't search right now. Open Drives and browse instead.
           </p>
         )}
 

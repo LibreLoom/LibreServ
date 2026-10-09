@@ -484,7 +484,7 @@ function driveStatusMessage(drive) {
 }
 
 export default function DrivesPage() {
-  usePageTitle("Files");
+  usePageTitle("Drives");
   const { addToast } = useToast();
   const queryClient = useQueryClient();
   const { user } = useAuth();
@@ -589,7 +589,7 @@ export default function DrivesPage() {
   if (user?.role === "user") {
     const grants = memberAccessRoots(access.data || []).filter((g) => g.kind !== KIND_ALBUM);
     return (
-      <Page title="Files" titleId="drives-title" rightContent={<FileSearchButton />}>
+      <Page title="Drives" titleId="drives-title" rightContent={<FileSearchButton />}>
         <div className="grid gap-4 md:grid-cols-2">
           {grants.map((grant) => (
             <Card key={grant.id} icon={FolderOpen} title={grant.name || grant.drive_label}>
@@ -634,7 +634,7 @@ export default function DrivesPage() {
   }
 
   return (
-    <Page title="Files" titleId="drives-title" rightContent={<FileSearchButton />}>
+    <Page title="Drives" titleId="drives-title" rightContent={<FileSearchButton />}>
       {(drives.data || []).length === 0 && (
         <Card icon={PlugZap} title="No drives yet" className="mb-6">
           <p className="text-primary text-sm">

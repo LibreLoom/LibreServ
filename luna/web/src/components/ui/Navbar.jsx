@@ -13,7 +13,7 @@ import { useAuth } from "../../context/AuthContext";
 const navItems = [
   { to: "/", icon: Home, label: "Home", end: true },
   { to: "/gallery", icon: ImageIcon, label: "Photos" },
-  { to: "/drives", icon: HardDrive, label: "Files" },
+  { to: "/drives", icon: HardDrive, label: "Drives" },
   { to: "/shared", icon: Share2, label: "Shared" },
   { to: "/settings/users", icon: Users, label: "Users", adminOnly: true },
   { to: "/settings", icon: SlidersHorizontal, label: "Settings", end: true },

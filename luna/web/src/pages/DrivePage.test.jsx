@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
-import FilesPage from "./FilesPage";
+import DrivePage from "./DrivePage";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 
 function filesPath(url) {
@@ -164,7 +164,7 @@ function renderFiles(path = "/drives/d1") {
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[path]}>
         <AuthProvider>
-          <Routes><Route path="/drives/:id" element={<FilesPage />} /></Routes>
+          <Routes><Route path="/drives/:id" element={<DrivePage />} /></Routes>
         </AuthProvider>
       </MemoryRouter>
     </QueryClientProvider>
@@ -172,7 +172,7 @@ function renderFiles(path = "/drives/d1") {
   );
 }
 
-describe("FilesPage", () => {
+describe("DrivePage", () => {
   it("shows upload control and folder contents", async () => {
     stubFilesApi({
       "": [{ name: "photo.jpg", kind: "file", size: 1000, modified: 0, hidden: false }],

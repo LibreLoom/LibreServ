@@ -16,13 +16,13 @@ import useRecentItemsTracker from "./hooks/useRecentItemsTracker";
 
 // One chunk per page: the first paint downloads only the page being opened.
 const loadDrivesPage = () => import("./pages/DrivesPage");
-const loadFilesPage = () => import("./pages/FilesPage");
+const loadDrivePage = () => import("./pages/DrivePage");
 const loadGalleryPage = () => import("./pages/GalleryPage");
 const loadSharedPage = () => import("./pages/SharedPage");
 const loadDashboardPage = () => import("./pages/DashboardPage");
 const loadSettingsPage = () => import("./pages/SettingsPage");
 const DrivesPage = lazy(loadDrivesPage);
-const FilesPage = lazy(loadFilesPage);
+const DrivePage = lazy(loadDrivePage);
 const GalleryPage = lazy(loadGalleryPage);
 const SharedPage = lazy(loadSharedPage);
 const DashboardPage = lazy(loadDashboardPage);
@@ -84,7 +84,7 @@ function PageOutlet() {
 function usePreloadPages() {
   useEffect(() => {
     if (/** @type {any} */ (navigator).connection?.saveData) return undefined;
-    const loaders = [loadFilesPage, loadDrivesPage, loadGalleryPage, loadSharedPage, loadDashboardPage, loadSettingsPage];
+    const loaders = [loadDrivePage, loadDrivesPage, loadGalleryPage, loadSharedPage, loadDashboardPage, loadSettingsPage];
     const idle = window.requestIdleCallback
       ? (fn) => window.requestIdleCallback(fn, { timeout: 4000 })
       : (fn) => window.setTimeout(fn, 1500);
@@ -141,7 +141,7 @@ export default function App() {
               <Route element={<AppShell />}>
                 <Route path="/" element={<DashboardPage />} />
                 <Route path="/drives" element={<DrivesPage />} />
-                <Route path="/drives/:id" element={<FilesPage />} />
+                <Route path="/drives/:id" element={<DrivePage />} />
                 <Route path="/gallery" element={<GalleryPage />} />
                 <Route path="/shared" element={<SharedPage />} />
                 <Route path="/photos" element={<PhotosToGalleryRedirect />} />

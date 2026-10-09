@@ -31,7 +31,7 @@ function jobBusy(job) {
   return job.state === "running" || job.state === "queued";
 }
 
-export default function FilesPage() {
+export default function DrivePage() {
   const { addToast } = useToast();
   const { id } = useParams();
   const {
@@ -134,11 +134,11 @@ export default function FilesPage() {
   const openLabel = inTrash
     ? (openName === TRASH_PATH ? "Trash" : trashDisplayName(openName))
     : pathBasename(openName);
-  usePageTitle(openLabel || drive?.label || "Files");
+  usePageTitle(openLabel || drive?.label || "Drives");
 
   return (
     <Page
-      title={inTrash ? "Trash" : (drive ? drive.label : "Files")}
+      title={inTrash ? "Trash" : (drive ? drive.label : "Drives")}
       titleId="files-title"
       leftContent={showDriveMenu ? (
         <DriveMenu
@@ -215,7 +215,7 @@ export default function FilesPage() {
           }
           action={
             <Button size="sm" variant="primary" asChild>
-              <Link to="/drives">{isAdmin ? "Go to Drives" : "Back to Files"}</Link>
+              <Link to="/drives">{isAdmin ? "Go to Drives" : "Back to Drives"}</Link>
             </Button>
           }
         />
@@ -233,7 +233,7 @@ export default function FilesPage() {
           }
           action={
             <Button size="sm" variant="primary" asChild>
-              <Link to="/drives">{isAdmin ? "Go to Drives" : "Back to Files"}</Link>
+              <Link to="/drives">{isAdmin ? "Go to Drives" : "Back to Drives"}</Link>
             </Button>
           }
         />

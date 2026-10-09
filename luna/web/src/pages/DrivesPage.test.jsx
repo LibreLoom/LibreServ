@@ -107,7 +107,7 @@ describe("DrivesPage", () => {
     stubDrivesApi();
     renderPage();
     expect(screen.getAllByText(/Plug a USB drive/i).length).toBeGreaterThan(0);
-    expect(await screen.findByRole("heading", { name: "Files" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Drives" })).toBeInTheDocument();
   });
 
   it("shows a header search button that opens the universal search overlay", async () => {
