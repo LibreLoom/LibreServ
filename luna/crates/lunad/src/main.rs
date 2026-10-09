@@ -174,7 +174,7 @@ async fn async_main() -> anyhow::Result<()> {
         }
     }
 
-    let connect_poll_wake = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let connect_poll_wake = state.connect.poll_wake();
     // Set at graceful shutdown so the detached supervisor loops stop instead
     // of dying mid-work when the process exits.
     let shutting_down = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));

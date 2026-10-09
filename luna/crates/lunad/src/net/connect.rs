@@ -129,6 +129,8 @@ pub struct ConnectService {
     /// Sticky user-facing tunnel helper / start failure while Connect expects a tunnel.
     tunnel_error: Mutex<Option<String>>,
     cached_wan_ip: Mutex<Option<std::net::IpAddr>>,
+    /// Set to cut the poll loop's sleep short (link came up, device token saved).
+    poll_wake: Arc<std::sync::atomic::AtomicBool>,
     local_port: u16,
 }
 
@@ -164,6 +166,7 @@ impl ConnectService {
             connect_unreachable: Mutex::new(None),
             tunnel_error: Mutex::new(None),
             cached_wan_ip: Mutex::new(cached_wan_ip),
+            poll_wake: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             local_port: 8090,
         }
     }
@@ -214,6 +217,11 @@ impl ConnectService {
             status.backup_sources = Vec::new();
         }
         status
+    }
+
+    /// Flag the poll loop checks every second; setting it makes the next pull happen now.
+    pub fn poll_wake(&self) -> Arc<std::sync::atomic::AtomicBool> {
+        self.poll_wake.clone()
     }
 
     /// True when `{data_dir}/device-token` exists and holds a valid device token.
@@ -393,6 +401,8 @@ impl ConnectService {
         self.set_rejected_token(false);
         self.clear_connect_unreachable();
         self.clear_tunnel_error();
+        self.poll_wake
+            .store(true, std::sync::atomic::Ordering::Relaxed);
         Ok(())
     }
 
