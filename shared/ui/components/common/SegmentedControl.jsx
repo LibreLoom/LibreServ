@@ -42,7 +42,8 @@ export default function SegmentedControl({
     <div
       data-slot="segmented-control"
       className={cn(
-        "relative inline-grid rounded-pill p-[3px]",
+        // isolate: the buttons' z-10 stays inside the control, so a loading overlay above it can cover it.
+        "relative isolate inline-grid rounded-pill p-[3px]",
         trackClass,
         className
       )}
