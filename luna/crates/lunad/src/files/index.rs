@@ -282,10 +282,14 @@ pub fn sync_dir(
             format!("{rel}/{name}")
         }
     };
+    // Private folders sit on disk under their `.luna-` names, so the folder
+    // is found there and its private children are listed under real names;
+    // reading the real path or skipping the rows would index a listing
+    // without them.
     let dir = if rel.is_empty() {
         root.to_path_buf()
     } else {
-        root.join(rel)
+        root.join(crate::private::disk_rel(root, rel))
     };
     let meta = match std::fs::metadata(&dir) {
         Ok(meta) if meta.is_dir() => meta,
@@ -322,7 +326,11 @@ pub fn sync_dir(
     } else {
         Vec::new()
     };
-    let entries = crate::files::read_dir_entries(&dir)?;
+    let entries = crate::files::read_dir_entries_in(
+        &dir,
+        &crate::private::children_of(root, rel),
+        crate::private::boundary_for(root, rel).is_some(),
+    )?;
     replace_dir(conn, drive_id, rel, mtime, &entries)?;
     let now: Vec<&str> = entries
         .iter()
@@ -394,6 +402,47 @@ pub fn scan_drive_unlocked(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reindexing_keeps_private_folders_listed() {
+        let dir = tempfile::tempdir().unwrap();
+        let marker = luna_core::marker::Marker::new("d1", "D");
+        let conn = crate::drives::drive_db::create(
+            dir.path(),
+            &marker,
+            &luna_core::marker::pick_prefix(dir.path()).unwrap(),
+        )
+        .unwrap();
+        std::fs::create_dir(dir.path().join("secret")).unwrap();
+        crate::private::privatize(dir.path(), "secret", "u1").unwrap();
+        std::fs::write(
+            dir.path()
+                .join(crate::private::disk_rel(dir.path(), "secret"))
+                .join("note.txt"),
+            "hi",
+        )
+        .unwrap();
+        // Root and the private folder itself, as a write inside it triggers.
+        for rel in ["", "secret"] {
+            sync_dir(&conn, "d1", dir.path(), rel, true).unwrap();
+        }
+        let names = |parent: &str| -> Vec<String> {
+            let stamp: i64 = conn
+                .query_row(
+                    "SELECT dir_mtime FROM indexed_dirs WHERE drive_id = 'd1' AND path = ?1",
+                    [parent],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            fresh_entries(&conn, "d1", parent, stamp)
+                .unwrap()
+                .into_iter()
+                .map(|e| e.name)
+                .collect()
+        };
+        assert!(names("").contains(&"secret".to_string()));
+        assert!(names("secret").contains(&"note.txt".to_string()));
+    }
 
     #[test]
     fn fresh_and_stale_index_round_trip() {

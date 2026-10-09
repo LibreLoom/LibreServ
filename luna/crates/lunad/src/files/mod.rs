@@ -353,12 +353,8 @@ fn list_dir_unstamped(
     Ok(entries)
 }
 
-/// Read one directory into sorted entries (no index involvement).
-pub fn read_dir_entries(dir: &Path) -> Result<Vec<FileEntry>, FilesError> {
-    read_dir_entries_in(dir, &std::collections::HashMap::new(), false)
-}
-
-/// Like [`read_dir_entries`], showing each private item under its real name.
+/// Read one directory into sorted entries, showing each private item under
+/// its real name.
 /// `private` maps on-disk names to rows (see [`crate::private::children_of`]);
 /// any other `.luna-` entry stays hidden, so a private entry with no row is
 /// hidden from everyone.
