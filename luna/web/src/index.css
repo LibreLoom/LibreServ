@@ -520,7 +520,8 @@ textarea::placeholder {
 }
 
 .animate-count-in {
-    animation: count-in 240ms var(--motion-easing-standard) both;
+    /* Held back until the surrounding load-in has finished (fill-mode both keeps it hidden meanwhile). */
+    animation: count-in 240ms var(--motion-easing-standard) var(--motion-duration-long2) both;
 }
 
 /* Alert/Callout — slide down + fade in on mount */
