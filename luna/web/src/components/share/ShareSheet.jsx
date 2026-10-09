@@ -16,12 +16,9 @@ import AddPersonModal from "./AddPersonModal.jsx";
 import CreateLinkModal from "./CreateLinkModal.jsx";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
-import { deleteJson, getJson, patchJson, postJson, apiErrorMessage } from "../../lib/api";
-import { isTrashPath } from "../../lib/paths.js";
+import { deleteJson, getJson, patchJson, apiErrorMessage } from "../../lib/api";
 import {
   CAP,
-  CAP_MANAGE,
-  capsBits,
   KIND_ALBUM,
   capsLabel,
   capsOptions,
@@ -138,17 +135,6 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
   const isPrivate = subj?.private === true;
   // This folder is itself the boundary — vs. an ordinary thing inside one.
   const isPrivateFolder = subj?.private_folder === true;
-  const iAmOwner = isPrivateFolder && subj?.owner === user?.id;
-  // Folders can change their own privacy: managers draw the boundary, the
-  // owner (or an Admin when nobody owns it) lifts it.
-  const canMakePrivate =
-    subj?.kind === KIND_ALBUM || isFile || isPrivateFolder || !subj?.exists || isTrashPath(subj?.path || "")
-      ? false
-      : (capsBits(myCaps) & CAP_MANAGE) === CAP_MANAGE;
-  const canOpenPrivate =
-    isPrivateFolder &&
-    (iAmOwner || (user?.role === "admin" && !subj?.owner));
-  const [privacyAsk, setPrivacyAsk] = useState(/** @type {null|"make"|"open"} */ (null));
   const inheritedMembers = data?.inherited_members || [];
   const inheritedLinks = data?.inherited_links || [];
   // Unique parents carrying grants this subject inherits — deduped across
@@ -193,30 +179,6 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
     onError: (err) => {
       haptic("error");
       setError(apiErrorMessage(err, "Couldn't remove that person's access. Try again."));
-    },
-  });
-  const privacyMutation = useMutation({
-    mutationFn: (/** @type {boolean} */ makePrivate) =>
-      postJson(`/api/v1/drives/${subj.drive_id}/files/privacy`, {
-        path: subj.path,
-        private: makePrivate,
-      }),
-    onSuccess: (_d, makePrivate) => {
-      addToast({
-        type: "success",
-        message: makePrivate
-          ? "Folder is private now."
-          : "Folder uses its parent's access now.",
-      });
-      setPrivacyAsk(null);
-      setError(null);
-      invalidate();
-      queryClient.invalidateQueries({ queryKey: ["files"] });
-    },
-    onError: (err) => {
-      haptic("error");
-      setError(apiErrorMessage(err, "Couldn't change that folder's privacy. Try again."));
-      setPrivacyAsk(null);
     },
   });
   const removeLink = useMutation({
@@ -276,43 +238,6 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
                   : "In a private folder: only people added to that folder can open this."}
               </span>
             </p>
-          )}
-          {(canMakePrivate || canOpenPrivate) && (
-            <div className="rounded-large-element surface-primary p-3 space-y-2">
-              {canMakePrivate && (
-                <>
-                  <p className="text-secondary text-sm">
-                    Make this folder private to you. Shares on folders above
-                    it stop reaching in; shares here keep working.
-                  </p>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    surface="primary"
-                    onClick={() => setPrivacyAsk("make")}
-                  >
-                    <Lock size={ICON_SIZE.xs} aria-hidden="true" />
-                    Make private
-                  </Button>
-                </>
-              )}
-              {canOpenPrivate && (
-                <>
-                  <p className="text-secondary text-sm">
-                    This is a private folder. You can open it so it uses the
-                    same access as the folder it sits in.
-                  </p>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    surface="primary"
-                    onClick={() => setPrivacyAsk("open")}
-                  >
-                    Use parent access
-                  </Button>
-                </>
-              )}
-            </div>
           )}
           {parentSources.length > 0 && (
             <div className="space-y-2 rounded-large-element surface-primary p-3">
@@ -607,22 +532,6 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
       >
         <p className="text-primary text-sm">
           Anyone using this link will lose access.
-        </p>
-      </ConfirmModal>
-      <ConfirmModal
-        open={privacyAsk != null}
-        title={privacyAsk === "make" ? "Make this folder private?" : "Use parent access?"}
-        variant={privacyAsk === "open" ? "danger" : "warning"}
-        confirmLabel={privacyAsk === "make" ? "Make private" : "Use parent access"}
-        loading={privacyMutation.isPending}
-        overlayClassName={overlayClassName || NESTED_OVERLAY_CLASS}
-        onClose={() => !privacyMutation.isPending && setPrivacyAsk(null)}
-        onConfirm={() => privacyMutation.mutate(privacyAsk === "make")}
-      >
-        <p className="text-primary text-sm">
-          {privacyAsk === "make"
-            ? "Only you — and anyone you share it with here — will be able to open this folder. People who reach it through a folder above lose access. Private folders inside it stay private."
-            : "Everyone with access to the folder above will be able to open this folder too. Private folders inside it stay private."}
         </p>
       </ConfirmModal>
       {parentSubject && (

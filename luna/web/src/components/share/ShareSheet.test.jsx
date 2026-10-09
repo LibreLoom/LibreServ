@@ -105,18 +105,6 @@ describe("ShareSheet", () => {
       return { ...base, subject: { ...base.subject, private: true, private_folder: true }, ...extra };
     };
 
-    it("can make an ordinary protected subfolder independently private", async () => {
-      const calls = stubApi((path) => {
-        const base = subjectBody(path);
-        return { ...base, subject: { ...base.subject, private: true, private_folder: false, owner: "u1" } };
-      });
-      renderSheet();
-      fireEvent.click(await screen.findByRole("button", { name: "Make private" }));
-      const dialog = await screen.findByRole("dialog", { name: "Make this folder private?" });
-      fireEvent.click(within(dialog).getByRole("button", { name: "Make private" }));
-      await waitFor(() => expect(calls.some(([method, url, body]) => method === "POST" && url.endsWith("/files/privacy") && body.private === true)).toBe(true));
-    });
-
     it("explains that only added people can open it", async () => {
       stubApi((path) => privateBody(path));
       renderSheet();

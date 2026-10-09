@@ -878,6 +878,7 @@ fn lift_out(
 
 /// Lexical guard for callers that build disk paths with `join`: only
 /// ordinary `a/b/c` rel paths may reach the filesystem here.
+#[cfg(test)]
 fn plain_rel(path: &str) -> anyhow::Result<&str> {
     let path = path.trim_matches('/');
     if path.is_empty()
@@ -894,7 +895,8 @@ fn plain_rel(path: &str) -> anyhow::Result<&str> {
     Ok(path)
 }
 
-/// Turn the ordinary folder at `path` into a private item owned by `owner`:
+#[cfg(test)]
+/// Test helper: turn the ordinary folder at `path` into a private item owned by `owner`:
 /// a row appears and the directory takes its `.luna-` disk name. Private
 /// items already inside keep their rows — paths stay real above each
 /// boundary.
@@ -923,35 +925,6 @@ pub fn privatize(root: &Path, path: &str, owner: &str) -> anyhow::Result<Item> {
         let _ = dir.sync_all();
     }
     Ok(item)
-}
-
-/// Turn the private folder at `path` back into an ordinary folder: its
-/// `.luna-` entry takes the real name and the row goes. Private items
-/// nested inside keep their rows — one boundary's removal never crosses
-/// another.
-pub fn unprivatize(root: &Path, path: &str) -> anyhow::Result<()> {
-    let path = plain_rel(path)?;
-    let Some(item) = item_at(root, path) else {
-        anyhow::bail!("not a private folder");
-    };
-    let src = luna_core::path::resolve_child_nofollow(root, path)?;
-    let parent = path.rsplit_once('/').map_or("", |(p, _)| p);
-    let dest = luna_core::path::resolve_child_nofollow(root, parent)?.join(item.name());
-    if std::fs::symlink_metadata(&dest).is_ok() {
-        anyhow::bail!("a folder already has that name");
-    }
-    // Rename first, then drop the row: if the row outlives the rename,
-    // reconcile finds no `.luna-` entry and drops it — the folder reappears
-    // ordinary, never stranded hidden.
-    std::fs::rename(&src, &dest)?;
-    if let Err(e) = remove(root, path) {
-        let _ = std::fs::rename(&dest, &src);
-        return Err(e);
-    }
-    if let Ok(dir) = std::fs::File::open(dest.parent().unwrap_or(root)) {
-        let _ = dir.sync_all();
-    }
-    Ok(())
 }
 
 /// Record a new private item at real path `path` before its disk entry is
@@ -1178,8 +1151,6 @@ mod tests {
         repath(&root, "a//", "b").unwrap();
         assert!(item_at(&root, "a").is_none());
         assert_eq!(item_at(&root, "b").unwrap().owner, "bob");
-        unprivatize(&root, "b").unwrap();
-        assert!(item_at(&root, "b").is_none());
     }
 
     fn fixture() -> (tempfile::TempDir, crate::AppState) {
@@ -1269,8 +1240,8 @@ mod tests {
     }
 
     #[test]
-    fn privacy_changes_reject_symlink_parents_and_reserved_paths() {
-        let (dir, state) = fixture();
+    fn privatize_rejects_symlink_parents_and_reserved_paths() {
+        let (dir, _state) = fixture();
         let root = dir.path().join("a");
         let outside = dir.path().join("outside");
         std::fs::create_dir(&outside).unwrap();
@@ -1281,13 +1252,6 @@ mod tests {
         let layout = crate::drives::layout::Layout::detect(&root).unwrap();
         assert!(privatize(&root, &layout.trash_name(), "alice").is_err());
         assert!(privatize(&root, "../outside/Victim", "alice").is_err());
-        let conn = state.db.lock().unwrap();
-        crate::files::mkdir(&conn, "a", "Parent").unwrap();
-        crate::files::mkdir_as(&conn, "a", "Parent/Private", Some("alice")).unwrap();
-        std::fs::rename(root.join("Parent"), outside.join("Parent")).unwrap();
-        std::os::unix::fs::symlink(outside.join("Parent"), root.join("Parent")).unwrap();
-        assert!(unprivatize(&root, "Parent/Private").is_err());
-        assert!(item_at(&root, "Parent/Private").is_some());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1648,31 +1612,5 @@ mod tests {
         .await;
         assert_eq!(status, 200);
         assert_eq!(body["cameras"][0]["make"], "TestCamera");
-    }
-
-    #[tokio::test]
-    async fn privacy_transition_roundtrip_keeps_nested_boundaries() {
-        let (dir, state) = fixture();
-        {
-            let conn = state.db.lock().unwrap();
-            crate::files::mkdir(&conn, "a", "Folder").unwrap();
-            crate::files::mkdir_as(&conn, "a", "Folder/Bobs", Some("bob")).unwrap();
-        }
-        for private in [true, false] {
-            let (status, _) = request(
-                &state,
-                "admin",
-                "POST",
-                "/api/v1/drives/a/files/privacy",
-                serde_json::json!({"path":"Folder", "private":private}),
-            )
-            .await;
-            assert_eq!(status, 200);
-            assert_eq!(item_at(&dir.path().join("a"), "Folder").is_some(), private);
-            assert_eq!(
-                item_at(&dir.path().join("a"), "Folder/Bobs").unwrap().owner,
-                "bob"
-            );
-        }
     }
 }

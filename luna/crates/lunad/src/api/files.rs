@@ -88,14 +88,6 @@ struct CreateBody {
 }
 
 #[derive(Deserialize)]
-struct PrivacyBody {
-    /// The folder whose boundary changes.
-    path: String,
-    /// `true` makes it private to the caller; `false` uses parent access.
-    private: bool,
-}
-
-#[derive(Deserialize)]
 struct RenameBody {
     path: String,
     new_name: String,
@@ -123,7 +115,6 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/drives/{id}/files/stat", get(stat_entry))
         .route("/api/v1/drives/{id}/files/resolve", get(resolve_entry))
         .route("/api/v1/drives/{id}/files/mkdir", post(mkdir_entry))
-        .route("/api/v1/drives/{id}/files/privacy", post(set_privacy))
         .route("/api/v1/drives/{id}/files/create", post(create_entry))
         .route("/api/v1/drives/{id}/files/rename", post(rename_entry))
         .route("/api/v1/drives/{id}/files/restore", post(restore_entry))
@@ -1478,126 +1469,6 @@ async fn mkdir_entry(
         ),
         other => map_files_err(other),
     })?;
-    invalidate_parent_listing(&state, &id, &rel);
-    state.touch_io_activity();
-    Ok(Json(json!({ "ok": true, "path": rel })))
-}
-
-/// Make an ordinary folder private to the caller, or open a private folder
-/// to its parent's access. Making private takes full access ("full +
-/// share") on the folder — the caller becomes its owner. Opening it takes
-/// being its owner (or an Admin when the owner is a stranger this Luna
-/// doesn't know, the same people who could adopt it instead). Private
-/// folders nested inside are untouched either way.
-async fn set_privacy(
-    State(state): State<AppState>,
-    Extension(user): Extension<crate::auth::CurrentUser>,
-    Path(id): Path<String>,
-    Json(body): Json<PrivacyBody>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let rel = request_path(&body.path)?;
-    if rel.is_empty() {
-        return Err(json_error(
-            StatusCode::BAD_REQUEST,
-            "Choose a folder first.",
-        ));
-    }
-    if files::is_trash_api(&rel) {
-        return Err(json_error(
-            StatusCode::BAD_REQUEST,
-            "Restore it from Trash first.",
-        ));
-    }
-    let conn = state.db.lock().map_err(|_| {
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna's index is busy. Try again.",
-        )
-    })?;
-    let root = crate::db::get_drive(&conn, &id)
-        .ok()
-        .flatten()
-        .filter(|d| !d.mount_point.is_empty())
-        .map(|d| std::path::PathBuf::from(d.mount_point))
-        .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna can't find that drive."))?;
-    if !crate::auth::has_cap(&user, &conn, &id, &rel, crate::access::CAP_VIEW) {
-        return Err(json_error(
-            StatusCode::NOT_FOUND,
-            "Luna can't find that folder.",
-        ));
-    }
-    if crate::db::get_drive(&conn, &id)
-        .ok()
-        .flatten()
-        .is_none_or(|d| d.state != "as_is")
-    {
-        return Err(json_error(
-            StatusCode::FORBIDDEN,
-            "This drive isn't writable right now.",
-        ));
-    }
-    if body.private {
-        if !crate::auth::has_cap(&user, &conn, &id, &rel, crate::access::CAP_MANAGE) {
-            return Err(json_error(
-                StatusCode::FORBIDDEN,
-                "Only someone who manages this folder can make it private.",
-            ));
-        }
-        if crate::private::item_at(&root, &rel).is_some() {
-            return Err(json_error(
-                StatusCode::BAD_REQUEST,
-                "That folder is already private.",
-            ));
-        }
-        crate::private::privatize(&root, &rel, &user.id).map_err(|e| {
-            let msg = e.to_string();
-            if msg == "already private" {
-                json_error(StatusCode::BAD_REQUEST, "That folder is already private.")
-            } else if msg == "only folders can be private" {
-                json_error(StatusCode::BAD_REQUEST, "Only folders can be private.")
-            } else {
-                json_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Luna couldn't make that folder private. Try again.",
-                )
-            }
-        })?;
-    } else {
-        let Some(item) = crate::private::item_at(&root, &rel) else {
-            return Err(json_error(
-                StatusCode::BAD_REQUEST,
-                "That folder already uses its parent's access.",
-            ));
-        };
-        let can_open = item.owner == user.id
-            || (user.role == "admin" && !crate::private::owner_known(&conn, &item.owner));
-        if !can_open {
-            return Err(json_error(
-                StatusCode::FORBIDDEN,
-                "Only the folder's owner can open it to parent access.",
-            ));
-        }
-        crate::private::unprivatize(&root, &rel).map_err(|e| {
-            if e.to_string() == "a folder already has that name" {
-                json_error(
-                    StatusCode::CONFLICT,
-                    "A folder with this name is already here.",
-                )
-            } else {
-                json_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Luna couldn't open that folder. Try again.",
-                )
-            }
-        })?;
-    }
-    // The listing cache holds a private flag per entry — the folder's own
-    // row changed, and children's "in a private folder" state may have too.
-    if let Ok(real) = files::real_rel_path(&conn, &id, &rel) {
-        state.ram_cache.invalidate_listing(&id, &real);
-        state.ram_cache.invalidate_listing_tree(&id, &real);
-    }
-    drop(conn);
     invalidate_parent_listing(&state, &id, &rel);
     state.touch_io_activity();
     Ok(Json(json!({ "ok": true, "path": rel })))
