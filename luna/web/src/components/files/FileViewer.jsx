@@ -13,7 +13,7 @@ import FullscreenEditorFrame from "./FullscreenEditorFrame.jsx";
 import { ApiError, apiErrorMessage, postForm } from "../../lib/api.js";
 import { fileExtension, openableKind } from "../../lib/fileKinds.js";
 import { officeConversionFor } from "../../lib/officeConvert.js";
-import { requireOk, useFileSource } from "../../lib/fileSource.jsx";
+import { useFileSource } from "../../lib/fileSource.jsx";
 import { joinPath, parentPath, pathBasename } from "../../lib/paths.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { cn } from "@libreloom/ui/lib/utils.js";
