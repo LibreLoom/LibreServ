@@ -8,7 +8,7 @@ Two products plus shared glue live here:
 |------|------------|-------|
 | `sol/` | **Sol** — the home server (development currently stalled) | Go 1.27 (chi/v5) API, React 19 + Vite 7 + Tailwind 4, SQLite, Podman |
 | `sol/connect/` | **Sol Connect** — cloud companion (independent Go module) | Go 1.27, chi/v5, SQLite, Stripe |
-| `luna/` | **Luna** — the file box | Rust `lunad` + `luna-core`, React/Vite web, GTK 4 desktop, native Android app, Debian OS image |
+| `luna/` | **Luna** — the file box | Rust `lunad` + `luna-core`, React/Vite web, GTK 4 desktop, native Android app, Alpine OS image |
 | `luna/connect/` | **Luna Connect** — cloud companion (independent Go module) | Go 1.27, SQLite, Stripe |
 | `shared/ui/` | `@libreloom/ui` — shared design-system components | React 19, consumed as a `file:` dependency by both web apps |
 | `infra/` | CI runner, release pipeline, repo automation bots | Go + shell |
