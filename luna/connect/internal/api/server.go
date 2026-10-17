@@ -130,6 +130,19 @@ func (s *Server) routes() {
 				r.Use(dev.DeviceAuth)
 				r.Put("/backup/objects/*", bak.PutObject)
 			})
+
+			stor := handlers.StorageHandler{Deps: s.deps}
+			r.Group(func(r chi.Router) {
+				r.Use(dev.DeviceAuth)
+				r.Put("/storage/packs/{id}", stor.PutPack)
+				r.Get("/storage/packs/{id}", stor.GetPack)
+				r.Delete("/storage/packs/{id}", stor.DeletePack)
+				r.Put("/storage/records/{kind}/{name}", stor.PutRecord)
+				r.Get("/storage/records/{kind}/{name}", stor.GetRecord)
+				r.Delete("/storage/records/{kind}/{name}", stor.DeleteRecord)
+				r.Get("/storage/records/{kind}", stor.ListRecords)
+				r.Get("/storage/usage", stor.Usage)
+			})
 		})
 
 		r.With(handlers.LimitJSONBody).Post("/admin/login", adm.Login)

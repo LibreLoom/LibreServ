@@ -2,26 +2,54 @@ package accounts
 
 import (
 	"context"
-	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
 	"log/slog"
 	"time"
+
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/store"
 )
 
 const orphanGraceDays = 7
 
+// orphanWhere matches idle signups: email never verified, no Luna bound, no card.
+const orphanWhere = `created_at < ?
+  AND email_verified = 0
+  AND id NOT IN (SELECT DISTINCT account_id FROM devices WHERE account_id IS NOT NULL AND account_id != '')
+  AND has_card = 0`
+
 // CleanupOrphans removes Luna Connect accounts that never verified email,
-// never bound a Luna, and never added a card — idle signups only.
-func CleanupOrphans(ctx context.Context, db *database.DB) (int64, error) {
+// never bound a Luna, and never added a card — idle signups only. Each one's
+// cloud storage is purged before its row is removed.
+func CleanupOrphans(ctx context.Context, db *database.DB, st store.Store) (int64, error) {
 	if db == nil {
 		return 0, nil
 	}
 	cutoff := time.Now().Add(-orphanGraceDays * 24 * time.Hour).Unix()
-	res, err := db.ExecContext(ctx, `
-DELETE FROM accounts
-WHERE created_at < ?
-  AND email_verified = 0
-  AND id NOT IN (SELECT DISTINCT account_id FROM devices WHERE account_id IS NOT NULL AND account_id != '')
-  AND has_card = 0`, cutoff)
+	rows, err := db.QueryContext(ctx, `SELECT id FROM accounts WHERE `+orphanWhere, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		ids = append(ids, id)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return 0, err
+	}
+	for _, id := range ids {
+		if err := PurgeStorage(ctx, db, st, id); err != nil {
+			return 0, err
+		}
+	}
+
+	res, err := db.ExecContext(ctx, `DELETE FROM accounts WHERE `+orphanWhere, cutoff)
 	if err != nil {
 		return 0, err
 	}
@@ -72,8 +100,8 @@ func PruneExpired(ctx context.Context, db *database.DB) (int64, error) {
 	return total, nil
 }
 
-func runCleanup(ctx context.Context, db *database.DB) {
-	if _, err := CleanupOrphans(ctx, db); err != nil {
+func runCleanup(ctx context.Context, db *database.DB, st store.Store) {
+	if _, err := CleanupOrphans(ctx, db, st); err != nil {
 		slog.Warn("orphan account cleanup failed", "error", err)
 	}
 	if _, err := PruneExpired(ctx, db); err != nil {
@@ -81,8 +109,8 @@ func runCleanup(ctx context.Context, db *database.DB) {
 	}
 }
 
-func RunCleanupLoop(ctx context.Context, db *database.DB) {
-	runCleanup(ctx, db)
+func RunCleanupLoop(ctx context.Context, db *database.DB, st store.Store) {
+	runCleanup(ctx, db, st)
 	t := time.NewTicker(24 * time.Hour)
 	defer t.Stop()
 	for {
@@ -90,7 +118,7 @@ func RunCleanupLoop(ctx context.Context, db *database.DB) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			runCleanup(ctx, db)
+			runCleanup(ctx, db, st)
 		}
 	}
 }

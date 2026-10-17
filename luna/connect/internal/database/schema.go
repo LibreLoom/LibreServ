@@ -144,6 +144,24 @@ CREATE TABLE IF NOT EXISTS billing_period_egress (
   egress_bytes INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (account_id, period_ym)
 );
+CREATE TABLE IF NOT EXISTS storage_packs (
+  account_id TEXT NOT NULL,
+  luna_id TEXT NOT NULL,
+  id TEXT NOT NULL,
+  scope TEXT NOT NULL DEFAULT '',
+  size INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY(account_id, luna_id, id)
+);
+CREATE TABLE IF NOT EXISTS storage_records (
+  account_id TEXT NOT NULL,
+  luna_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  name TEXT NOT NULL,
+  bytes INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY(account_id, luna_id, kind, name)
+);
 `
 
 const schemaPostgres = `
@@ -287,5 +305,23 @@ CREATE TABLE IF NOT EXISTS billing_period_egress (
   period_ym TEXT NOT NULL,
   egress_bytes BIGINT NOT NULL DEFAULT 0,
   PRIMARY KEY (account_id, period_ym)
+);
+CREATE TABLE IF NOT EXISTS storage_packs (
+  account_id TEXT NOT NULL,
+  luna_id TEXT NOT NULL,
+  id TEXT NOT NULL,
+  scope TEXT NOT NULL DEFAULT '',
+  size BIGINT NOT NULL,
+  created_at BIGINT NOT NULL,
+  PRIMARY KEY(account_id, luna_id, id)
+);
+CREATE TABLE IF NOT EXISTS storage_records (
+  account_id TEXT NOT NULL,
+  luna_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  name TEXT NOT NULL,
+  bytes BIGINT NOT NULL,
+  updated_at BIGINT NOT NULL,
+  PRIMARY KEY(account_id, luna_id, kind, name)
 );
 `

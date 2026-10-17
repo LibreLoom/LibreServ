@@ -1,9 +1,11 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"log/slog"
 
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/accounts"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/domainname"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/providers"
@@ -96,6 +98,9 @@ func deleteCustomerAccount(deps Deps, accountID string) error {
 		}
 	}
 
+	if err := accounts.PurgeStorage(context.Background(), deps.DB, deps.Store, accountID); err != nil {
+		return err
+	}
 	_, _ = deps.DB.Exec(`DELETE FROM sessions WHERE account_id = ?`, accountID)
 	_, _ = deps.DB.Exec(`DELETE FROM oss_payments WHERE account_id = ?`, accountID)
 	_, _ = deps.DB.Exec(`DELETE FROM billing_storage_samples WHERE account_id = ?`, accountID)
