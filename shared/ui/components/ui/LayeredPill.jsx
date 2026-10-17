@@ -7,9 +7,9 @@ import { haptic } from "../../utils/haptics.js";
 /**
  * LayeredPill — the dual-layer segmented pill (settled format, do not deviate).
  *
- * Outer secondary track (accent outline) holding two pills inset by the same
- * amount on every side, so each inner curve is concentric with the track's:
- * a primary chip, then the trailing segment — an action button (when
+ * Outer secondary track (like the path pill on the 404 page) with a primary
+ * chip inset by the same amount on every side, so its curve is concentric
+ * with the track's; then the trailing segment — an action button (when
  * `onAction` is given) or static text (when not). Each
  * segment sizes to its own content; the wrap container keeps them on one line
  * unless there's no space, then the whole pill expands to two lines.
@@ -71,22 +71,22 @@ export default function LayeredPill({
     ? cloneElement(actionIcon, { className: cn("shrink-0", actionIcon.props?.className) })
     : null;
   const segmentBase = cn(
-    "flex items-center gap-1 whitespace-nowrap text-xs py-1.5 rounded-pill text-primary",
-    actionIconOnly ? "size-7 justify-center p-0" : "px-3",
+    "flex items-center gap-1 whitespace-nowrap text-xs py-1 rounded-pill text-primary",
+    actionIconOnly ? "size-6 justify-center p-0" : "pl-2 pr-4",
     mono && "font-mono",
   );
   const hasAction = actionLabel != null && actionLabel !== "";
   const pill = (
     <div
       className={cn(
-        "inline-flex max-w-full items-center rounded-pill surface-secondary text-xs border border-accent p-1",
+        "inline-flex max-w-full items-center rounded-pill surface-secondary text-xs p-1",
         noWrap ? "flex-nowrap" : "flex-wrap",
         className,
       )}
     >
       <span
         className={cn(
-          "flex items-center gap-1.5 whitespace-nowrap surface-primary rounded-pill py-1.5 px-3",
+          "flex items-center gap-1.5 whitespace-nowrap surface-primary rounded-pill py-1 px-3",
           noWrap && "min-w-0",
           mono && "font-mono",
         )}
