@@ -5,12 +5,14 @@ pub mod backups;
 pub mod cloud_backups;
 pub mod cloud_phrase;
 pub mod cloud_restore;
+pub mod cloud_restore_private;
 pub mod connect;
 pub mod device_tokens;
 pub mod drives;
 pub mod forms;
 pub mod health;
 pub mod network;
+pub mod private_backups;
 pub mod public_limits;
 pub mod response;
 pub mod search;
@@ -38,7 +40,9 @@ pub fn router() -> Router<AppState> {
         .merge(cloud_backups::router())
         .merge(cloud_phrase::router())
         .merge(cloud_restore::router())
+        .merge(cloud_restore_private::router())
         .merge(backup_folder::router())
+        .merge(private_backups::router())
         .merge(connect::router())
         .merge(device_tokens::router())
         .merge(users::router())

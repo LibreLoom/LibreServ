@@ -311,7 +311,12 @@ impl SnapshotRecord {
     }
 
     pub fn sign(self, signer: &Signer) -> SignedRecord {
-        let signature = signer.sign(SNAPSHOT_DOMAIN, &self.signed_bytes());
+        self.sign_with(signer, SNAPSHOT_DOMAIN)
+    }
+
+    /// Sign under `domain`. Private snapshots use their own domain so a shared signature never passes for one.
+    pub fn sign_with(self, signer: &Signer, domain: &str) -> SignedRecord {
+        let signature = signer.sign(domain, &self.signed_bytes());
         SignedRecord { record: self, signature }
     }
 }
@@ -327,7 +332,12 @@ pub struct SignedRecord {
 impl SignedRecord {
     /// Check the signature against `public` and return the record only if it holds.
     pub fn verify(&self, public: &[u8; 32]) -> Result<SnapshotRecord> {
-        if !crypto::verify(public, SNAPSHOT_DOMAIN, &self.record.signed_bytes(), &self.signature) {
+        self.verify_with(public, SNAPSHOT_DOMAIN)
+    }
+
+    /// Check the signature made under `domain` against `public`.
+    pub fn verify_with(&self, public: &[u8; 32], domain: &str) -> Result<SnapshotRecord> {
+        if !crypto::verify(public, domain, &self.record.signed_bytes(), &self.signature) {
             bail!("This snapshot's signature does not match. It was changed, or signed by a different key.");
         }
         Ok(self.record.clone())
@@ -343,7 +353,7 @@ impl SignedRecord {
 }
 
 /// Byte arrays and byte vectors as lowercase hex strings in JSON.
-mod hex_fixed {
+pub(crate) mod hex_fixed {
     use serde::de::Error as _;
     use serde::{Deserialize, Deserializer, Serializer};
 
@@ -398,6 +408,7 @@ pub fn sha256(bytes: &[u8]) -> [u8; 32] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::private::PRIVATE_SNAPSHOT_DOMAIN;
     use std::io::Cursor;
 
     /// Deterministic pseudo-random bytes (xorshift), so chunk boundaries are repeatable.
@@ -596,5 +607,15 @@ mod tests {
 
         // A different signer's key must fail too.
         assert!(signed.verify(&Signer::generate().public()).is_err());
+    }
+
+    #[test]
+    fn private_snapshot_domain_is_not_a_shared_signature() {
+        let signer = Signer::generate();
+        let public = signer.public();
+        let signed = sample_record().sign_with(&signer, PRIVATE_SNAPSHOT_DOMAIN);
+
+        assert!(signed.verify(&public).is_err());
+        assert_eq!(signed.verify_with(&public, PRIVATE_SNAPSHOT_DOMAIN).unwrap(), sample_record());
     }
 }

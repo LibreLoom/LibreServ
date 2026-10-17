@@ -368,7 +368,7 @@ pub(crate) fn record(db: &crate::Db, id: &str, now: i64, outcome: &CloudOutcome)
     };
     match &outcome.problem {
         None => {
-            let access = access_list::for_source(&conn, &row.source_drive, &row.source_path)?;
+            let access = access_list::for_row(&conn, &row)?;
             db::record_protection_ok(&conn, id, now, &serde_json::to_string(&access)?)?;
         }
         Some(message) => db::record_protection_error(&conn, id, message, false, now)?,
@@ -496,7 +496,7 @@ pub fn on_grants_changed(conn: &Connection, drive_id: &str) {
 }
 
 fn refresh_access(conn: &Connection, row: &ProtectionRow) -> anyhow::Result<()> {
-    let access = access_list::for_source(conn, &row.source_drive, &row.source_path)?;
+    let access = access_list::for_row(conn, row)?;
     let json = serde_json::to_string(&access)?;
     if json != row.access_json {
         db::set_protection_access(conn, &row.id, &json)?;

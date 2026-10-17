@@ -364,7 +364,7 @@ fn run_inner(
     // The album list is read here, under the same lock as the access list.
     // The Luna id goes in the manifest too, read under the same lock.
     let (access, albums, luna_id) = with_conn(db, |c| {
-        let access = access_list::for_source(c, &row.source_drive, &row.source_path);
+        let access = access_list::for_row(c, &row);
         // `None` when there is no identity here (a lost system DB) or it cannot be
         // read: either way the manifest keeps its Luna id.
         let luna_id = match crate::backup::cloud::identity::load(c) {
@@ -434,7 +434,7 @@ fn run_inner(
                         return Ok(None);
                     };
                     let fresh_access =
-                        access_list::for_source(c, &fresh.source_drive, &fresh.source_path)?;
+                        access_list::for_row(c, &fresh)?;
                     let state: ManifestState = (
                         fresh.source_drive.clone(),
                         drive_label(c, &fresh.source_drive),

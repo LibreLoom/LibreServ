@@ -32,7 +32,7 @@ const PACK_FLUSH_BYTES: usize = 8 << 20;
 
 /// Shown when a run is held because its source drive or folder is gone.
 const NO_ADMIN_PHRASE: &str = "Waiting for an Admin to set up the recovery phrase.";
-const SOURCE_MISSING: &str = "The source looks missing or unplugged. Plug the drive back in, then try again.";
+pub(crate) const SOURCE_MISSING: &str = "The source looks missing or unplugged. Plug the drive back in, then try again.";
 
 /// What one run did. `problem` is set, and no snapshot is committed, when the run failed.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -45,6 +45,11 @@ pub struct CloudOutcome {
     /// True when the run was held because most of the source looks gone. A person can
     /// then choose "Back up anyway", which runs it with `accept_missing`.
     pub source_missing: bool,
+}
+
+/// The folder on disk for a backup's logical path. A private item's disk name differs from its path.
+pub(crate) fn source_root(drive_root: &Path, source_path: &str) -> PathBuf {
+    drive_root.join(crate::private::disk_rel(drive_root, source_path.trim_start_matches('/')))
 }
 
 /// Runs one backup for `protection_id` against `store` and returns what happened.
@@ -65,7 +70,7 @@ pub fn run_once(
             .ok_or_else(|| anyhow!("This backup no longer exists."))?;
         let drive = files::drive_root(&conn, &row.source_drive)?;
         let drive_root = PathBuf::from(&drive.mount_point);
-        let root = drive_root.join(row.source_path.trim_start_matches('/'));
+        let root = source_root(&drive_root, &row.source_path);
         (drive_root, root)
     };
     // An unplugged drive has no Luna marker, so its folder is never read as empty.
@@ -152,27 +157,68 @@ fn source_looks_missing(db: &crate::Db, protection_id: &str, root: &Path, store:
         (record, tree_key)
     };
     let tree = read_tree(store, &record, &tree_key)?;
-    let missing = tree.entries.iter().filter(|e| !root.join(&e.path).is_file()).count();
-    Ok(!tree.entries.is_empty() && missing * 2 > tree.entries.len())
+    Ok(most_files_missing(&tree, root))
 }
 
-/// Recipients and their keys, kept for publishing a key version that is new.
-type Publish = (Recipients, HashMap<String, [u8; 32]>);
+/// True when most files of the last tree are gone from `root`. An empty tree is never missing.
+pub(crate) fn most_files_missing(tree: &Tree, root: &Path) -> bool {
+    let missing = tree.entries.iter().filter(|e| !root.join(&e.path).is_file()).count();
+    !tree.entries.is_empty() && missing * 2 > tree.entries.len()
+}
+
+/// How one kind of backup seals what a run writes. Shared backups use the backup key;
+/// private items seal to their owner (`private_run.rs`).
+pub(crate) trait Sealer: Send + Sync {
+    /// The wrapped pack key stored in a pack's header.
+    fn wrap_pack_key(&self, pack_key: &[u8; 32]) -> Vec<u8>;
+    /// The tree as stored in its tree pack. Its SHA-256 is the record's tree_hash.
+    fn seal_tree(&self, tree: &Tree) -> Result<Vec<u8>>;
+    /// Sign the record; returns (record kind, record name, bytes) for `put_record`.
+    fn finish_record(&self, record: SnapshotRecord, signer: &Signer) -> (&'static str, String, Vec<u8>);
+    /// Commit the snapshot locally, in one transaction.
+    fn commit(&self, conn: &mut Connection, snap: &db::SnapshotInsert, pack_ids: &[String], tree: &Tree) -> Result<()>;
+}
+
+/// Seals a shared backup with its backup key, exactly as runs always have.
+pub(crate) struct SharedSealer {
+    pub key_bytes: [u8; 32],
+}
+
+impl Sealer for SharedSealer {
+    fn wrap_pack_key(&self, pack_key: &[u8; 32]) -> Vec<u8> {
+        crypto::encrypt(&self.key_bytes, PACK_KEY_WRAP_AAD, pack_key)
+    }
+
+    fn seal_tree(&self, tree: &Tree) -> Result<Vec<u8>> {
+        Ok(format::encrypt_tree(tree, &self.key_bytes))
+    }
+
+    fn finish_record(&self, record: SnapshotRecord, signer: &Signer) -> (&'static str, String, Vec<u8>) {
+        let name = record.snapshot_id.clone();
+        ("snapshots", name, record.sign(signer).to_bytes())
+    }
+
+    fn commit(&self, conn: &mut Connection, snap: &db::SnapshotInsert, pack_ids: &[String], _tree: &Tree) -> Result<()> {
+        db::commit_snapshot_tx(conn, snap, pack_ids)
+    }
+}
+
+/// Recipients and their keys, plus the key version to publish, kept for a key version that is new.
+type Publish = (Recipients, HashMap<String, [u8; 32]>, BackupKey);
 
 /// Everything a run needs that does not change while it copies.
-struct RunContext {
-    run_id: String,
-    protection_id: String,
-    scope: String,
-    scope_id: [u8; 32],
-    key: BackupKey,
-    key_bytes: [u8; 32],
-    dedup_key: [u8; 32],
-    key_version: u32,
-    luna_id: String,
-    signer: Signer,
+pub(crate) struct RunContext {
+    pub(crate) run_id: String,
+    pub(crate) protection_id: String,
+    pub(crate) scope: String,
+    pub(crate) scope_id: [u8; 32],
+    pub(crate) dedup_key: [u8; 32],
+    pub(crate) key_version: u32,
+    pub(crate) luna_id: String,
+    pub(crate) signer: Signer,
     /// The backup's name and source, encrypted under the backup key, for recovery.
-    meta: Vec<u8>,
+    pub(crate) meta: Vec<u8>,
+    pub(crate) sealer: Box<dyn Sealer>,
 }
 
 /// Reads the key and recipients and opens the run row. Nothing after `start_run` can fail.
@@ -194,7 +240,7 @@ fn prepare(
     let seed: [u8; 32] = seed
         .try_into()
         .map_err(|_| anyhow!("Luna's cloud identity is damaged."))?;
-    let access = access_list::for_source(&conn, &row.source_drive, &row.source_path)?;
+    let access = access_list::for_row(&conn, &row)?;
 
     let user_pub: HashMap<String, [u8; 32]> = db::list_user_keys(&conn)?
         .into_iter()
@@ -258,20 +304,20 @@ fn prepare(
         &key_bytes,
     );
 
+    let key_version = key.version as u32;
+    let publish = is_new.then_some((recipients, user_pub, key));
     let ctx = RunContext {
         run_id,
         meta,
         protection_id: protection_id.to_string(),
         scope,
         scope_id,
-        key_version: key.version as u32,
-        key,
-        key_bytes,
+        key_version,
         dedup_key,
         luna_id: identity.luna_id.clone(),
         signer: Signer::from_seed(seed),
+        sealer: Box::new(SharedSealer { key_bytes }),
     };
-    let publish = is_new.then_some((recipients, user_pub));
     Ok((ctx, publish))
 }
 
@@ -284,13 +330,13 @@ fn publish_and_copy(
     store: &dyn CloudStore,
     now: i64,
 ) -> Result<CloudOutcome> {
-    if let Some((recipients, user_pub)) = publish {
+    if let Some((recipients, user_pub, key)) = publish {
         keys::publish_key(
             store,
             &ctx.signer,
             &ctx.luna_id,
             &ctx.protection_id,
-            &ctx.key,
+            &key,
             &recipients,
             |user| user_pub.get(user).copied(),
         )?;
@@ -353,8 +399,7 @@ impl CopyState<'_> {
         let Some(builder) = self.builder.take() else {
             return Ok(());
         };
-        let key = self.ctx.key_bytes;
-        let sealed = builder.finish(|pack_key| crypto::encrypt(&key, PACK_KEY_WRAP_AAD, pack_key));
+        let sealed = builder.finish(|pack_key| self.ctx.sealer.wrap_pack_key(pack_key));
         let pack_id = hex(&sealed.id);
         {
             let conn = lock(self.db);
@@ -400,7 +445,7 @@ impl CopyState<'_> {
 }
 
 /// Copies every file under `root`, uploads the tree and a signed snapshot record, and commits.
-fn copy_and_commit(
+pub(crate) fn copy_and_commit(
     db: &crate::Db,
     ctx: &RunContext,
     root: &Path,
@@ -447,13 +492,13 @@ fn copy_and_commit(
         .collect::<Result<Vec<_>>>()?;
 
     // The tree goes into a pack of its own, so restores can find it from the snapshot.
-    let tree_bytes = format::encrypt_tree(&Tree { entries }, &ctx.key_bytes);
+    let tree = Tree { entries };
+    let tree_bytes = ctx.sealer.seal_tree(&tree)?;
     // The tree's chunk id is its hash, so the snapshot record alone says where the tree is.
     let tree_hash = format::sha256(&tree_bytes);
     let mut tree_builder = PackBuilder::new(ctx.scope_id);
     let (tree_offset, tree_len) = tree_builder.add(tree_hash, &tree_bytes);
-    let key = ctx.key_bytes;
-    let tree_pack = tree_builder.finish(|pack_key| crypto::encrypt(&key, PACK_KEY_WRAP_AAD, pack_key));
+    let tree_pack = tree_builder.finish(|pack_key| ctx.sealer.wrap_pack_key(pack_key));
     let tree_pack_id = hex(&tree_pack.id);
     {
         let conn = lock(db);
@@ -488,15 +533,14 @@ fn copy_and_commit(
         tree_hash,
         meta: ctx.meta.clone(),
     };
-    let signed = record.sign(&ctx.signer);
-    let signed_bytes = signed.to_bytes();
+    let (kind, name, signed_bytes) = ctx.sealer.finish_record(record, &ctx.signer);
     store
-        .put_record("snapshots", &snapshot_id, &signed_bytes)
+        .put_record(kind, &name, &signed_bytes)
         .map_err(|e| anyhow!("{e}"))?;
 
     {
         let mut conn = lock(db);
-        db::commit_snapshot_tx(
+        ctx.sealer.commit(
             &mut conn,
             &db::SnapshotInsert {
                 id: snapshot_id.clone(),
@@ -507,6 +551,7 @@ fn copy_and_commit(
                 record: signed_bytes,
             },
             &copy.pack_ids,
+            &tree,
         )?;
     }
 
@@ -539,7 +584,7 @@ pub fn read_tree(store: &dyn CloudStore, record: &SnapshotRecord, tree_key: &[u8
     format::decrypt_tree(sealed, tree_key)
 }
 
-fn problem_outcome(message: &str) -> CloudOutcome {
+pub(crate) fn problem_outcome(message: &str) -> CloudOutcome {
     CloudOutcome {
         problem: Some(message.to_string()),
         ..Default::default()
@@ -547,7 +592,7 @@ fn problem_outcome(message: &str) -> CloudOutcome {
 }
 
 /// Holds a protection's place in [`RUNNING`] until it is dropped.
-struct RunSlot(String);
+pub(crate) struct RunSlot(String);
 
 /// Keyed by the database's address as well as the protection id, so two databases
 /// (for example two tests) that share an id never block each other. The address is
@@ -555,7 +600,7 @@ struct RunSlot(String);
 static RUNNING: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Default::default);
 
 impl RunSlot {
-    fn take(db: &crate::Db, id: &str) -> Option<Self> {
+    pub(crate) fn take(db: &crate::Db, id: &str) -> Option<Self> {
         let key = format!("{:x}:{id}", std::ptr::from_ref(db) as usize);
         let mut running = RUNNING.lock().unwrap_or_else(|p| p.into_inner());
         running.insert(key.clone()).then(|| Self(key))
@@ -568,7 +613,7 @@ impl Drop for RunSlot {
     }
 }
 
-fn lock(db: &crate::Db) -> MutexGuard<'_, Connection> {
+pub(crate) fn lock(db: &crate::Db) -> MutexGuard<'_, Connection> {
     db.lock().unwrap_or_else(|p| p.into_inner())
 }
 
@@ -578,11 +623,11 @@ fn random_bytes<const N: usize>() -> [u8; N] {
     out
 }
 
-fn random_id() -> String {
+pub(crate) fn random_id() -> String {
     hex(&random_bytes::<16>())
 }
 
-fn hex(bytes: &[u8]) -> String {
+pub(crate) fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
@@ -978,5 +1023,44 @@ mod tests {
                 assert!(!pack.windows(32).any(|w| w == chunk_id));
             }
         }
+    }
+
+    #[test]
+    fn source_root_maps_a_private_item_to_its_disk_name() {
+        crate::private::install();
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("d");
+        std::fs::create_dir(&root).unwrap();
+        let prefix = luna_core::marker::pick_prefix(&root).unwrap();
+        crate::drives::drive_db::create(&root, &luna_core::marker::Marker::new("d", "d"), &prefix)
+            .unwrap();
+        std::fs::create_dir(root.join("Diary")).unwrap();
+        std::fs::create_dir(root.join("Photos")).unwrap();
+        crate::private::privatize(&root, "Diary", "owner").unwrap();
+
+        let private = source_root(&root, "Diary");
+        let name = private.file_name().unwrap().to_string_lossy().to_string();
+        assert!(name.starts_with(".luna-"), "{name}");
+        assert_eq!(private, root.join(crate::private::disk_rel(&root, "Diary")));
+        assert_eq!(source_root(&root, "/Photos"), root.join("Photos"));
+    }
+
+    #[test]
+    fn shared_sealer_names_snapshots_records() {
+        let sealer = SharedSealer { key_bytes: [7u8; 32] };
+        let record = SnapshotRecord {
+            luna_id: "luna-1".into(),
+            protection_id: "p1".into(),
+            snapshot_id: "snap-1".into(),
+            created_at: 1,
+            key_version: 1,
+            tree_pack_id: [1u8; 32],
+            tree_hash: [2u8; 32],
+            meta: Vec::new(),
+        };
+        let (kind, name, bytes) = sealer.finish_record(record, &Signer::from_seed([3u8; 32]));
+        assert_eq!(kind, "snapshots");
+        assert_eq!(name, "snap-1");
+        assert!(!bytes.is_empty());
     }
 }

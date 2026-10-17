@@ -195,7 +195,7 @@ pub fn on_grants_changed(conn: &Connection, drive_id: &str) {
 }
 
 fn refresh_access(conn: &Connection, row: &ProtectionRow) -> anyhow::Result<()> {
-    let access = crate::backup::access_list::for_source(conn, &row.source_drive, &row.source_path)?;
+    let access = crate::backup::access_list::for_row(conn, row)?;
     let json = serde_json::to_string(&access)?;
     if json == row.access_json {
         return Ok(());

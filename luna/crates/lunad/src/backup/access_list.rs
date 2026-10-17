@@ -5,6 +5,7 @@
 //! the backup itself; once the source is gone it is frozen.
 
 use std::collections::{BTreeSet, HashSet};
+use std::path::Path;
 
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
@@ -70,6 +71,117 @@ pub fn for_source(
         users: users.into_iter().collect(),
         admins: true,
     })
+}
+
+/// Where a folder sits relative to private items.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PrivateSource {
+    /// Not private and not inside a private item.
+    Shared,
+    /// The folder is itself a private item owned by `owner`.
+    OwnItem { owner: String },
+    /// The folder is inside a private item (or is private trash).
+    Inside,
+}
+
+/// Classify `path` on `drive_id` against the private items on that drive.
+pub fn private_source(conn: &Connection, drive_id: &str, path: &str) -> PrivateSource {
+    let norm = crate::access::normalize_subject_path(path);
+    let mount = match db::get_drive(conn, drive_id) {
+        Ok(Some(d)) if !d.mount_point.is_empty() => d.mount_point,
+        _ => return PrivateSource::Shared,
+    };
+    let root = Path::new(&mount);
+    // Same translation as `auth::private_boundary`, so both agree on paths.
+    let real = crate::files::real_rel(root, &norm).into_owned();
+    if let Some(b) = crate::private::boundary_for(root, &real) {
+        return if b.path == real {
+            PrivateSource::OwnItem { owner: b.owner }
+        } else {
+            PrivateSource::Inside
+        };
+    }
+    if crate::files::is_trash_api(&norm)
+        && matches!(
+            crate::files::trash_private_meta(conn, drive_id, &real),
+            Ok(Some(_))
+        )
+    {
+        return PrivateSource::Inside;
+    }
+    PrivateSource::Shared
+}
+
+/// The access list for a private item at `path` on `drive_id`: the owner,
+/// plus anyone whose Read (`CAP_VIEW`) is a member grant on the item itself.
+/// Grants on ancestors or inside the item do not count. Never has Admins.
+pub fn for_private(
+    conn: &Connection,
+    drive_id: &str,
+    path: &str,
+    owner: &str,
+) -> anyhow::Result<AccessList> {
+    let item = crate::access::normalize_subject_path(path);
+    let people: HashSet<String> = db::list_users(conn)?.into_iter().map(|u| u.id).collect();
+
+    let mut users = BTreeSet::new();
+    users.insert(owner.to_string());
+    for row in db::list_all_access_members(conn)? {
+        if row.subject_kind != KIND_PATH || row.drive_id != drive_id {
+            continue;
+        }
+        if row.caps & CAP_VIEW == 0 {
+            continue;
+        }
+        if crate::access::normalize_subject_path(&row.path) != item {
+            continue;
+        }
+        if people.contains(&row.user_id) {
+            users.insert(row.user_id);
+        }
+    }
+
+    Ok(AccessList {
+        users: users.into_iter().collect(),
+        admins: false,
+    })
+}
+
+/// The access list a saved backup should carry now.
+pub fn for_row(conn: &Connection, row: &db::ProtectionRow) -> anyhow::Result<AccessList> {
+    if row.private_owner.is_empty() {
+        return for_source(conn, &row.source_drive, &row.source_path);
+    }
+    if row.kind == "cloud" {
+        return Ok(AccessList {
+            users: vec![row.private_owner.clone()],
+            admins: false,
+        });
+    }
+    for_private(
+        conn,
+        &row.source_drive,
+        &row.source_path,
+        &row.private_owner,
+    )
+}
+
+/// Why a private row must stop now, or None. Used by drive and cloud repath
+/// checks. A drive that is not mounted gives no decision.
+pub fn private_stop_reason(conn: &Connection, row: &db::ProtectionRow) -> Option<&'static str> {
+    if row.private_owner.is_empty() {
+        return None;
+    }
+    match db::get_drive(conn, &row.source_drive) {
+        Ok(Some(d)) if !d.mount_point.is_empty() => {}
+        _ => return None,
+    }
+    match private_source(conn, &row.source_drive, &row.source_path) {
+        PrivateSource::OwnItem { owner } if owner == row.private_owner => None,
+        PrivateSource::OwnItem { .. } => Some("This folder now belongs to someone else."),
+        PrivateSource::Inside => Some("This private item is now inside another private item."),
+        PrivateSource::Shared => Some("This folder is no longer a private item."),
+    }
 }
 
 #[cfg(test)]
@@ -253,5 +365,147 @@ mod tests {
             "private backup: no Admins entry"
         );
         assert!(list.allows("u-ann", false));
+    }
+
+    /// A mounted drive "drive-a" with a Luna marker, registered in the db.
+    fn mounted(dir: &tempfile::TempDir, conn: &Connection) {
+        let mount = dir.path().join("drive-a");
+        std::fs::create_dir_all(&mount).unwrap();
+        let prefix = luna_core::marker::pick_prefix(&mount).unwrap();
+        crate::drives::drive_db::create(
+            &mount,
+            &luna_core::marker::Marker::new("drive-a", "A"),
+            &prefix,
+        )
+        .unwrap();
+        db::upsert_drive(
+            conn,
+            "drive-a",
+            "A",
+            "as_is",
+            "ext4",
+            "sda",
+            mount.to_str().unwrap(),
+        )
+        .unwrap();
+        db::set_drive_state(conn, "drive-a", "as_is").unwrap();
+    }
+
+    fn private_row(
+        conn: &Connection,
+        id: &str,
+        kind: &str,
+        drive: &str,
+        path: &str,
+        owner: &str,
+    ) -> db::ProtectionRow {
+        db::insert_protection(
+            conn,
+            &db::NewProtection {
+                id,
+                kind,
+                source_drive: drive,
+                source_path: path,
+                target_drive: "drive-a",
+                private_owner: owner,
+                created_by: "u-root",
+                created_at: 0,
+            },
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn private_row_never_has_admins() {
+        let (dir, conn) = setup();
+        mounted(&dir, &conn);
+        crate::private::create(&dir.path().join("drive-a"), "Family/Vault", "u-ann").unwrap();
+        let drive_row = private_row(&conn, "p1", "drive", "drive-a", "Family/Vault", "u-ann");
+        let list = for_row(&conn, &drive_row).unwrap();
+        assert!(!list.admins, "private drive row has no Admins entry");
+
+        let cloud_row = private_row(&conn, "p2", "cloud", "", "", "u-ann");
+        let list = for_row(&conn, &cloud_row).unwrap();
+        assert!(!list.admins, "private cloud row has no Admins entry");
+        assert_eq!(list.users, vec!["u-ann"]);
+    }
+
+    #[test]
+    fn private_list_has_grants_on_the_item_only() {
+        let (dir, conn) = setup();
+        mounted(&dir, &conn);
+        grant(&conn, "g1", "drive-a", KIND_PATH, "Family/Vault", "u-bob", CAP_VIEW);
+        grant(&conn, "g2", "drive-a", KIND_PATH, "Family", "u-cat", CAP_VIEW);
+        grant(&conn, "g3", "drive-a", KIND_PATH, "Family/Vault", "u-root", CAP_VIEW);
+        let list = for_private(&conn, "drive-a", "Family/Vault", "u-ann").unwrap();
+        assert_eq!(list.users, vec!["u-ann", "u-bob", "u-root"]);
+        assert!(!list.admins);
+    }
+
+    #[test]
+    fn private_source_kinds() {
+        let (dir, conn) = setup();
+        mounted(&dir, &conn);
+        crate::private::create(&dir.path().join("drive-a"), "Family/Vault", "u-ann").unwrap();
+        assert_eq!(
+            private_source(&conn, "drive-a", "Family/Vault"),
+            PrivateSource::OwnItem {
+                owner: "u-ann".into()
+            }
+        );
+        assert_eq!(
+            private_source(&conn, "drive-a", "Family/Vault/Deep"),
+            PrivateSource::Inside
+        );
+        assert_eq!(
+            private_source(&conn, "drive-a", "Family"),
+            PrivateSource::Shared
+        );
+    }
+
+    #[test]
+    fn stop_reason_cases() {
+        let (dir, conn) = setup();
+        mounted(&dir, &conn);
+        let root = dir.path().join("drive-a");
+        crate::private::create(&root, "Family/Vault", "u-ann").unwrap();
+        crate::private::create(&root, "Family/Other", "u-bob").unwrap();
+
+        let own = private_row(&conn, "p1", "drive", "drive-a", "Family/Vault", "u-ann");
+        assert_eq!(private_stop_reason(&conn, &own), None);
+
+        let other = private_row(&conn, "p2", "drive", "drive-a", "Family/Other", "u-ann");
+        assert_eq!(
+            private_stop_reason(&conn, &other),
+            Some("This folder now belongs to someone else.")
+        );
+
+        let inside = private_row(&conn, "p3", "drive", "drive-a", "Family/Vault/Deep", "u-ann");
+        assert_eq!(
+            private_stop_reason(&conn, &inside),
+            Some("This private item is now inside another private item.")
+        );
+
+        let plain = private_row(&conn, "p4", "drive", "drive-a", "Family", "u-ann");
+        assert_eq!(
+            private_stop_reason(&conn, &plain),
+            Some("This folder is no longer a private item.")
+        );
+
+        let unmounted = private_row(&conn, "p5", "drive", "drive-missing", "Family", "u-ann");
+        assert_eq!(private_stop_reason(&conn, &unmounted), None);
+    }
+
+    #[test]
+    fn shared_row_is_unchanged() {
+        let (dir, conn) = setup();
+        mounted(&dir, &conn);
+        grant(&conn, "g1", "drive-a", KIND_PATH, "Photos", "u-ann", CAP_VIEW);
+        let row = private_row(&conn, "s1", "drive", "drive-a", "Photos/2024", "");
+        assert_eq!(
+            for_row(&conn, &row).unwrap(),
+            for_source(&conn, "drive-a", "Photos/2024").unwrap()
+        );
+        assert_eq!(private_stop_reason(&conn, &row), None);
     }
 }

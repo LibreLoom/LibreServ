@@ -231,6 +231,21 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             started_at INTEGER NOT NULL,
             ended_at INTEGER NOT NULL DEFAULT 0
         );
+        CREATE TABLE IF NOT EXISTS cloud_private_scopes (
+            scope TEXT PRIMARY KEY,
+            owner TEXT NOT NULL,
+            x25519_public BLOB NOT NULL,
+            dedup_key BLOB NOT NULL,
+            state TEXT NOT NULL DEFAULT 'active',
+            retire_after INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS cloud_private_scopes_owner ON cloud_private_scopes(owner);
+        CREATE TABLE IF NOT EXISTS cloud_private_trees (
+            snapshot_id TEXT PRIMARY KEY,
+            scope TEXT NOT NULL,
+            tree BLOB NOT NULL
+        );
         ",
     )?;
     // Thin upgrade path for boxes that already had an older CREATE.
@@ -499,6 +514,8 @@ pub fn factory_reset(conn: &Connection) -> anyhow::Result<()> {
         "cloud_snapshots",
         "cloud_snapshot_packs",
         "cloud_runs",
+        "cloud_private_scopes",
+        "cloud_private_trees",
     ] {
         conn.execute(&format!("DELETE FROM {table}"), [])?;
     }
@@ -1661,6 +1678,10 @@ pub fn delete_cloud_snapshot(conn: &Connection, id: &str) -> anyhow::Result<()> 
         params![id],
     )?;
     tx.execute("DELETE FROM cloud_snapshots WHERE id = ?1", params![id])?;
+    tx.execute(
+        "DELETE FROM cloud_private_trees WHERE snapshot_id = ?1",
+        params![id],
+    )?;
     tx.commit()?;
     Ok(())
 }
@@ -1707,7 +1728,18 @@ pub fn commit_snapshot_tx(
     pack_ids: &[String],
 ) -> anyhow::Result<()> {
     let tx = conn.transaction()?;
-    insert_cloud_snapshot(&tx, snap)?;
+    commit_snapshot_in(&tx, snap, pack_ids)?;
+    tx.commit()?;
+    Ok(())
+}
+
+/// The body of `commit_snapshot_tx`, inside a transaction the caller owns.
+fn commit_snapshot_in(
+    tx: &rusqlite::Transaction,
+    snap: &SnapshotInsert,
+    pack_ids: &[String],
+) -> anyhow::Result<()> {
+    insert_cloud_snapshot(tx, snap)?;
     for pack_id in pack_ids {
         let state: Option<String> = tx
             .query_row(
@@ -1732,7 +1764,6 @@ pub fn commit_snapshot_tx(
             params![pack_id],
         )?;
     }
-    tx.commit()?;
     Ok(())
 }
 
@@ -1808,6 +1839,174 @@ pub fn deletable_packs(conn: &Connection, scope: &str, now: i64) -> anyhow::Resu
         .query_map(params![scope, now], |r| r.get(0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(rows)
+}
+
+/// A private scope: one owner's private items, sealed to that owner's key.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PrivateScope {
+    pub scope: String,
+    pub owner: String,
+    pub x25519_public: Vec<u8>,
+    pub dedup_key: Vec<u8>,
+    pub state: String,
+    pub retire_after: i64,
+    pub created_at: i64,
+}
+
+const PRIVATE_SCOPE_COLUMNS: &str =
+    "scope, owner, x25519_public, dedup_key, state, retire_after, created_at";
+
+fn private_scope_from_row(r: &rusqlite::Row) -> rusqlite::Result<PrivateScope> {
+    Ok(PrivateScope {
+        scope: r.get(0)?,
+        owner: r.get(1)?,
+        x25519_public: r.get(2)?,
+        dedup_key: r.get(3)?,
+        state: r.get(4)?,
+        retire_after: r.get(5)?,
+        created_at: r.get(6)?,
+    })
+}
+
+pub fn insert_private_scope(conn: &Connection, s: &PrivateScope) -> anyhow::Result<()> {
+    conn.execute(
+        "INSERT INTO cloud_private_scopes (scope, owner, x25519_public, dedup_key, state, retire_after, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![
+            s.scope,
+            s.owner,
+            s.x25519_public,
+            s.dedup_key,
+            s.state,
+            s.retire_after,
+            s.created_at
+        ],
+    )?;
+    Ok(())
+}
+
+pub fn get_private_scope(conn: &Connection, scope: &str) -> anyhow::Result<Option<PrivateScope>> {
+    let sql = format!("SELECT {PRIVATE_SCOPE_COLUMNS} FROM cloud_private_scopes WHERE scope = ?1");
+    Ok(conn
+        .query_row(&sql, params![scope], private_scope_from_row)
+        .optional()?)
+}
+
+/// The owner's newest scope that is still `active`.
+pub fn active_private_scope(conn: &Connection, owner: &str) -> anyhow::Result<Option<PrivateScope>> {
+    let sql = format!(
+        "SELECT {PRIVATE_SCOPE_COLUMNS} FROM cloud_private_scopes
+         WHERE owner = ?1 AND state = 'active' ORDER BY created_at DESC LIMIT 1"
+    );
+    Ok(conn
+        .query_row(&sql, params![owner], private_scope_from_row)
+        .optional()?)
+}
+
+/// All scopes, or one owner's scopes, oldest first.
+pub fn list_private_scopes(
+    conn: &Connection,
+    owner: Option<&str>,
+) -> anyhow::Result<Vec<PrivateScope>> {
+    let rows = match owner {
+        Some(owner) => {
+            let sql = format!(
+                "SELECT {PRIVATE_SCOPE_COLUMNS} FROM cloud_private_scopes
+                 WHERE owner = ?1 ORDER BY created_at, scope"
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            stmt.query_map(params![owner], private_scope_from_row)?
+                .collect::<rusqlite::Result<Vec<_>>>()?
+        }
+        None => {
+            let sql = format!(
+                "SELECT {PRIVATE_SCOPE_COLUMNS} FROM cloud_private_scopes ORDER BY created_at, scope"
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            stmt.query_map([], private_scope_from_row)?
+                .collect::<rusqlite::Result<Vec<_>>>()?
+        }
+    };
+    Ok(rows)
+}
+
+pub fn set_private_scope_state(
+    conn: &Connection,
+    scope: &str,
+    state: &str,
+    retire_after: i64,
+) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE cloud_private_scopes SET state = ?2, retire_after = ?3 WHERE scope = ?1",
+        params![scope, state, retire_after],
+    )?;
+    Ok(())
+}
+
+/// Removes a scope row and the plain trees of its snapshots, in one transaction.
+pub fn delete_private_scope(conn: &Connection, scope: &str) -> anyhow::Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    tx.execute(
+        "DELETE FROM cloud_private_trees WHERE scope = ?1",
+        params![scope],
+    )?;
+    tx.execute(
+        "DELETE FROM cloud_private_scopes WHERE scope = ?1",
+        params![scope],
+    )?;
+    tx.commit()?;
+    Ok(())
+}
+
+pub fn get_private_tree(conn: &Connection, snapshot_id: &str) -> anyhow::Result<Option<Vec<u8>>> {
+    Ok(conn
+        .query_row(
+            "SELECT tree FROM cloud_private_trees WHERE snapshot_id = ?1",
+            params![snapshot_id],
+            |r| r.get(0),
+        )
+        .optional()?)
+}
+
+pub fn private_snapshot_ids(conn: &Connection, scope: &str) -> anyhow::Result<Vec<String>> {
+    let mut stmt = conn.prepare(
+        "SELECT snapshot_id FROM cloud_private_trees WHERE scope = ?1 ORDER BY snapshot_id",
+    )?;
+    let rows = stmt
+        .query_map(params![scope], |r| r.get(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+pub fn private_scope_of_snapshot(
+    conn: &Connection,
+    snapshot_id: &str,
+) -> anyhow::Result<Option<String>> {
+    Ok(conn
+        .query_row(
+            "SELECT scope FROM cloud_private_trees WHERE snapshot_id = ?1",
+            params![snapshot_id],
+            |r| r.get(0),
+        )
+        .optional()?)
+}
+
+/// `commit_snapshot_tx` for a private snapshot, plus its plain tree, in one transaction.
+pub fn commit_private_snapshot_tx(
+    conn: &mut Connection,
+    snap: &SnapshotInsert,
+    pack_ids: &[String],
+    scope: &str,
+    tree_json: &[u8],
+) -> anyhow::Result<()> {
+    let tx = conn.transaction()?;
+    commit_snapshot_in(&tx, snap, pack_ids)?;
+    tx.execute(
+        "INSERT INTO cloud_private_trees (snapshot_id, scope, tree) VALUES (?1, ?2, ?3)",
+        params![snap.id, scope, tree_json],
+    )?;
+    tx.commit()?;
+    Ok(())
 }
 
 pub fn set_meta(conn: &Connection, key: &str, value: &str) -> anyhow::Result<()> {
@@ -3015,5 +3214,88 @@ mod tests {
         assert!(get_cloud_identity(&conn).unwrap().is_none());
         assert!(list_cloud_snapshots(&conn, "prot").unwrap().is_empty());
         assert!(open_runs(&conn, "s").unwrap().is_empty());
+    }
+
+    fn private_scope(scope: &str, owner: &str, created_at: i64) -> PrivateScope {
+        PrivateScope {
+            scope: scope.into(),
+            owner: owner.into(),
+            x25519_public: vec![7; 32],
+            dedup_key: vec![9; 32],
+            state: "active".into(),
+            retire_after: 0,
+            created_at,
+        }
+    }
+
+    #[test]
+    fn private_scope_round_trip() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&dir.path().join("luna.db")).unwrap();
+        insert_private_scope(&conn, &private_scope("older", "u1", 10)).unwrap();
+        insert_private_scope(&conn, &private_scope("newer", "u1", 20)).unwrap();
+
+        assert_eq!(
+            active_private_scope(&conn, "u1").unwrap().unwrap().scope,
+            "newer"
+        );
+        set_private_scope_state(&conn, "newer", "old_phrase", 99).unwrap();
+        let old = get_private_scope(&conn, "newer").unwrap().unwrap();
+        assert_eq!((old.state.as_str(), old.retire_after), ("old_phrase", 99));
+        assert_eq!(
+            active_private_scope(&conn, "u1").unwrap().unwrap().scope,
+            "older"
+        );
+        let listed: Vec<String> = list_private_scopes(&conn, Some("u1"))
+            .unwrap()
+            .into_iter()
+            .map(|s| s.scope)
+            .collect();
+        assert_eq!(listed, vec!["older", "newer"]);
+    }
+
+    #[test]
+    fn private_snapshot_commit_and_delete() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut conn = open(&dir.path().join("luna.db")).unwrap();
+        insert_protection(&conn, &new_protection("prot", "d1", "docs")).unwrap();
+        live_pack(&conn, "pk1", "scope-a");
+        live_pack(&conn, "pk2", "scope-a");
+        let snap = cloud_snap("ps1", "prot", 5);
+        commit_private_snapshot_tx(
+            &mut conn,
+            &snap,
+            &["pk1".to_string(), "pk2".to_string()],
+            "scope-a",
+            b"{\"entries\":[]}",
+        )
+        .unwrap();
+
+        assert_eq!(
+            get_private_tree(&conn, "ps1").unwrap().unwrap(),
+            b"{\"entries\":[]}".to_vec()
+        );
+        assert_eq!(private_snapshot_ids(&conn, "scope-a").unwrap(), vec!["ps1"]);
+        assert_eq!(
+            private_scope_of_snapshot(&conn, "ps1").unwrap(),
+            Some("scope-a".to_string())
+        );
+        delete_cloud_snapshot(&conn, "ps1").unwrap();
+        assert!(get_private_tree(&conn, "ps1").unwrap().is_none());
+    }
+
+    #[test]
+    fn delete_private_scope_drops_its_trees() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut conn = open(&dir.path().join("luna.db")).unwrap();
+        insert_protection(&conn, &new_protection("prot", "d1", "docs")).unwrap();
+        insert_private_scope(&conn, &private_scope("scope-a", "u1", 1)).unwrap();
+        live_pack(&conn, "pk1", "scope-a");
+        commit_private_snapshot_tx(&mut conn, &cloud_snap("ps1", "prot", 5), &["pk1".to_string()], "scope-a", b"{}")
+            .unwrap();
+
+        delete_private_scope(&conn, "scope-a").unwrap();
+        assert!(get_private_scope(&conn, "scope-a").unwrap().is_none());
+        assert!(private_snapshot_ids(&conn, "scope-a").unwrap().is_empty());
     }
 }
