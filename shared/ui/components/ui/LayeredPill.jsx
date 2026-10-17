@@ -120,7 +120,7 @@ export default function LayeredPill({
               aria-label={actionAriaLabel}
               className={cn(
                 segmentBase,
-                "cursor-pointer enabled:hover:ring-1 enabled:hover:ring-accent enabled:hover:underline underline-offset-2 motion-safe:transition-shadow disabled:opacity-50 disabled:cursor-not-allowed",
+                "cursor-pointer enabled:hover:ring-1 enabled:hover:ring-inset enabled:hover:ring-accent enabled:hover:underline underline-offset-2 motion-safe:transition-shadow disabled:opacity-50 disabled:cursor-not-allowed",
               )}
             >
               {btnIcon} {actionLabel}
