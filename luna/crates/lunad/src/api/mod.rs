@@ -1,5 +1,7 @@
 pub mod access;
 pub mod auth;
+pub mod backup_folder;
+pub mod backups;
 pub mod connect;
 pub mod device_tokens;
 pub mod drives;
@@ -29,6 +31,8 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .merge(health::router())
         .merge(auth::router())
+        .merge(backups::router())
+        .merge(backup_folder::router())
         .merge(connect::router())
         .merge(device_tokens::router())
         .merge(users::router())
