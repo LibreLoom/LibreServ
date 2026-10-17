@@ -196,6 +196,7 @@ export default function InspectModal({ open = true, drive, result, error, onClos
                             Yes, format it
                           </Button>
                         )}
+                        <Button variant="outline" onClick={close}>Close</Button>
                       </div>
                     </>
                   )}
@@ -251,7 +252,7 @@ export default function InspectModal({ open = true, drive, result, error, onClos
                   </div>
                 </>
               )}
-              {!canUse && (
+              {!canUse && !offerFormat && (
                 <div className="mt-4">
                   <Button variant="outline" onClick={close}>Close</Button>
                 </div>
