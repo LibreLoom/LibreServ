@@ -74,7 +74,7 @@ function stubBackupApi({
   drives?: any[],
   backups?: any[],
   cloudBackups?: any[],
-  connect?: { connect_active: boolean },
+  connect?: { connect_active: boolean, card_on_file?: boolean },
   onCreate?: (body: any) => void,
   onRun?: (body: any) => void,
   onDelete?: (url: string) => void,
@@ -214,7 +214,7 @@ describe("ProtectSheet", () => {
     renderSheet();
     expect(await screen.findByText(/Needs another drive/i)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /In the cloud/i })).toBeInTheDocument();
-    expect(screen.getByText(/Add a card at connect\.luna\.libreloom\.org/i)).toBeInTheDocument();
+    expect(screen.getByText(/Link this Luna to Luna Connect/)).toBeInTheDocument();
   });
 
   it("lists each backup and offers the drives not used yet", async () => {
@@ -482,6 +482,18 @@ describe("ProtectSheet", () => {
       expect(onCloudDelete).toHaveBeenCalledWith(expect.stringContaining("/api/v1/cloud/backups/c1")),
     );
     expect(await screen.findByText("Cloud backup deleted.")).toBeInTheDocument();
+  });
+
+  it("asks for a payment card instead of offering cloud backup when no card is on file", async () => {
+    stubBackupApi({
+      drives: [{ id: "d1", label: "Main", mount_point: "/mnt/main" }],
+      connect: { connect_active: true, card_on_file: false },
+      cloudBackups: [],
+    });
+    renderSheet();
+    expect(await screen.findByText(/Add a payment card at Luna Connect/)).toBeInTheDocument();
+    expect(screen.getByText("connect.luna.libreloom.org")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Back up to the cloud" })).not.toBeInTheDocument();
   });
 
   it("keeps Back up to the cloud disabled while it is being added, then shows the cloud row", async () => {

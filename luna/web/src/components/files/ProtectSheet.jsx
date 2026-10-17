@@ -95,6 +95,8 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
   const tooFewDrives = driveList.length < 2;
   const hasBackups = matchingBackups.length > 0;
   const cloudConnected = Boolean(connect.data?.connect_active);
+  // Missing from older status replies: treat as on file, so only a clear false blocks backups.
+  const cardOnFile = connect.data?.card_on_file !== false;
   const cloudBackup = (cloudQuery.data || []).find(
     (b) => b.source_drive === driveId && trimSlashes(b.source_path) === trimSlashes(objectPath),
   );
@@ -376,7 +378,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                       <InfoHint
                         surface="primary"
                         label="What cloud backup means"
-                        content="An off-site copy of the latest files, stored with Luna Connect. It is not a history of old versions. Cloud backup costs $8 per terabyte each month."
+                        content="An off-site copy of your latest files, kept with Luna Connect. It keeps the latest copy, plus about one older copy from each of the last day, week and month. Cloud backup costs $8 per terabyte each month."
                       />
                     </h3>
                     {cloudBackup && (
@@ -385,16 +387,27 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                       </Pill>
                     )}
                   </div>
-                  {cloudConnected ? (
+                  {!cloudConnected ? (
                     <p className="text-secondary text-sm">
-                      {cloudBackup
-                        ? `Luna is copying this ${thingLabel} to the cloud when idle.`
-                        : `Copy the latest files from this ${thingLabel} off-site when Luna is idle.`}
+                      Link this Luna to Luna Connect. Then you can copy any folder or a whole drive off-site.
+                    </p>
+                  ) : !cardOnFile && !cloudBackup ? (
+                    <p className="text-secondary text-sm">
+                      Add a payment card at Luna Connect: <InlinePill>connect.luna.libreloom.org</InlinePill> Cloud backup can start after that.
                     </p>
                   ) : (
-                    <p className="text-secondary text-sm">
-                      Add a card at connect.luna.libreloom.org, then pair this Luna. After that you can copy any folder or a whole drive off-site.
-                    </p>
+                    <>
+                      <p className="text-secondary text-sm">
+                        {cloudBackup
+                          ? `Luna copies this ${thingLabel} to the cloud every 6 hours.`
+                          : `Copy the latest files from this ${thingLabel} off-site. Luna copies them every 6 hours.`}
+                      </p>
+                      {!cardOnFile && (
+                        <p className="text-secondary text-sm">
+                          Add a payment card at Luna Connect: <InlinePill>connect.luna.libreloom.org</InlinePill> Backups stay paused until then.
+                        </p>
+                      )}
+                    </>
                   )}
                 </div>
               </div>
@@ -406,7 +419,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                       state={cloudBackup.state}
                       lastError={cloudBackup.last_error}
                       lastOkAt={cloudBackup.last_ok_at}
-                      staleText="Cloud backup hasn't finished in over a day. Luna copies files to the cloud only while nobody is using it."
+                      staleText="Luna copies files to the cloud every 6 hours. This cloud backup hasn't finished in over a day."
                     />
                   ) : (
                     <p className="text-primary text-sm">
@@ -440,7 +453,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                 </div>
               )}
 
-              {cloudConnected && !cloudBackup && (
+              {cloudConnected && cardOnFile && !cloudBackup && (
                 <Button
                   size="sm"
                   variant="secondary"
@@ -485,7 +498,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
       >
         {deletingCloud && (
           <p className="text-primary text-sm">
-            Deletes the copies of this {thingLabel} stored in the cloud. The original files stay.
+            Deletes the copies of this {thingLabel} stored in the cloud, including all earlier versions. Everyone with access to this backup loses it. The original files stay.
           </p>
         )}
       </ConfirmModal>

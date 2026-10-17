@@ -8,10 +8,10 @@ const json = (body) =>
   new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
 
 /** Routes the cloud API calls the card makes; anything else gets an empty object. */
-function stubApi({ connected = true, backups = [], runResponse = { done: true } } = {}) {
+function stubApi({ connected = true, cardOnFile = true, backups = [], runResponse = { done: true } } = {}) {
   const fetchMock = vi.fn(async (url, options = {}) => {
     const method = options.method || "GET";
-    if (url === "/api/v1/connect/status") return json({ connect_active: connected });
+    if (url === "/api/v1/connect/status") return json({ connect_active: connected, card_on_file: cardOnFile });
     if (url === "/api/v1/cloud/backups" && method === "GET") return json(backups);
     if (url.endsWith("/run") && method === "POST") return json(runResponse);
     if (url.endsWith("/check") && method === "POST") return json({ done: true });
@@ -53,11 +53,34 @@ const sampleBackup = {
 describe("CloudBackupCategory", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it("explains how to get started before a card is added", async () => {
+  it("explains how to get started before this Luna is linked", async () => {
     stubApi({ connected: false });
     renderCard();
-    expect(await screen.findByText(/Add a card at connect\.luna\.libreloom\.org/)).toBeInTheDocument();
+    expect(await screen.findByText(/Link this Luna to Luna Connect/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Back up now" })).toBeNull();
+  });
+
+  it("asks for a payment card when this Luna is linked but no card is on file", async () => {
+    stubApi({ connected: true, cardOnFile: false, backups: [] });
+    renderCard();
+    expect(await screen.findByText(/Add a payment card at Luna Connect/)).toBeInTheDocument();
+    expect(screen.getByText("connect.luna.libreloom.org")).toBeInTheDocument();
+    expect(screen.queryByText(/Nothing is backed up to the cloud yet/)).toBeNull();
+  });
+
+  it("keeps listed backups visible and asks for a card when none is on file", async () => {
+    stubApi({ connected: true, cardOnFile: false, backups: [sampleBackup] });
+    renderCard();
+    expect(await screen.findByText("Pictures")).toBeInTheDocument();
+    expect(screen.getByText(/Backups stay paused until then/)).toBeInTheDocument();
+  });
+
+  it("describes the 6-hour copy schedule and the kept versions", async () => {
+    stubApi({ connected: true, backups: [sampleBackup] });
+    renderCard();
+    expect(await screen.findByText(/every 6 hours/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "What cloud backup means" }));
+    expect(await screen.findByText(/about one older copy from each of the last day, week and month/)).toBeInTheDocument();
   });
 
   it("says nothing is backed up yet when connected with no backups", async () => {
@@ -86,6 +109,7 @@ describe("CloudBackupCategory", () => {
     });
     renderCard();
     expect(await screen.findByText(/This backup hasn't finished in over a day/)).toBeInTheDocument();
+    expect(screen.getByText(/Luna copies files to the cloud every 6 hours/)).toBeInTheDocument();
   });
 
   it("runs a backup through the new run route", async () => {
@@ -105,6 +129,8 @@ describe("CloudBackupCategory", () => {
     renderCard();
     fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
     expect(await screen.findByText("Delete cloud backup?")).toBeInTheDocument();
+    expect(screen.getByText(/including all earlier versions/)).toBeInTheDocument();
+    expect(screen.getByText(/Everyone with access to this backup loses it/)).toBeInTheDocument();
     expect(screen.getByText(/The original files stay/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Delete cloud backup" }));
     await waitFor(() =>

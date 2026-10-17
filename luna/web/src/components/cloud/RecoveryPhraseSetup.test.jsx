@@ -49,6 +49,7 @@ async function answerCheck(user, words, overrides = {}) {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("RecoveryPhraseSetup", () => {
@@ -141,5 +142,67 @@ describe("RecoveryPhraseSetup", () => {
 
     await waitFor(() => expect(onClose).toHaveBeenCalled());
     expect(verify(authPublic, "phrase-check", challenge, fromBase64(sent.body.signature))).toBe(true);
+  });
+
+  it("says what happens to the cloud if the phrase is lost", () => {
+    renderSetup();
+    expect(
+      screen.getByText("If you lose it, your private items in the cloud can't be opened by anyone, including us."),
+    ).toBeInTheDocument();
+  });
+
+  it("prints the 12 words in a new window", async () => {
+    const user = userEvent.setup();
+    /** @type {any} */
+    const win = { document: { write: vi.fn(), close: vi.fn() }, focus: vi.fn(), print: vi.fn() };
+    const open = vi.spyOn(window, "open").mockReturnValue(win);
+    renderSetup();
+    const words = shownWords();
+
+    await user.click(screen.getByRole("button", { name: "Print" }));
+
+    expect(open).toHaveBeenCalledWith("", "_blank");
+    const html = win.document.write.mock.calls[0][0];
+    for (const word of words) expect(html).toContain(`>${words.indexOf(word) + 1}. ${word}<`);
+    expect(win.document.close).toHaveBeenCalled();
+    expect(win.print).toHaveBeenCalled();
+  });
+
+  it("explains how to print when the browser blocks the print window", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "open").mockReturnValue(null);
+    renderSetup();
+
+    await user.click(screen.getByRole("button", { name: "Print" }));
+
+    expect(
+      await screen.findByText("Could not open the print window. Allow pop-ups for Luna, or use Download."),
+    ).toBeInTheDocument();
+  });
+
+  it("downloads the 12 words as a text file", async () => {
+    const user = userEvent.setup();
+    const createObjectURL = vi.fn((/** @type {Blob} */ _blob) => "blob:phrase");
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL, revokeObjectURL }));
+    /** @type {HTMLAnchorElement | null} */
+    let clicked = null;
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(
+      /** @this {HTMLAnchorElement} */ function clickStub() {
+        clicked = this;
+      },
+    );
+    renderSetup();
+    const words = shownWords();
+
+    await user.click(screen.getByRole("button", { name: "Download" }));
+
+    const blob = createObjectURL.mock.calls[0][0];
+    expect(blob.type).toBe("text/plain");
+    const text = await blob.text();
+    expect(text).toContain(`1. ${words[0]}`);
+    expect(text).toContain(`12. ${words[11]}`);
+    expect(clicked?.download).toBe("luna-recovery-phrase.txt");
+    expect(clicked?.href).toBe("blob:phrase");
   });
 });

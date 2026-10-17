@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { AlertCircle } from "lucide-react";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { apiErrorMessage } from "../../lib/api";
 import { entropyToPhrase, newEntropy } from "../../lib/backupCrypto";
 import {
@@ -19,6 +21,16 @@ function pickCheckPositions() {
   const positions = new Set();
   while (positions.size < 3) positions.add(Math.floor(Math.random() * 12));
   return [...positions].sort((a, b) => a - b);
+}
+
+/** Error line: the icon carries the red, the words stay neutral text. */
+function ErrorNotice({ children }) {
+  return (
+    <p role="alert" className="flex items-start gap-2 text-primary text-sm">
+      <AlertCircle size={ICON_SIZE.sm} className="mt-0.5 shrink-0 text-error" aria-hidden="true" />
+      <span>{children}</span>
+    </p>
+  );
 }
 
 /**
@@ -47,6 +59,38 @@ export default function RecoveryPhraseSetup({ lunaId, userId, oldEntropy = null,
     } catch {
       setError("Could not copy. Select the words and copy them by hand.");
     }
+  }
+
+  function printWords() {
+    const win = window.open("", "_blank");
+    if (!win) {
+      setError("Could not open the print window. Allow pop-ups for Luna, or use Download.");
+      return;
+    }
+    const items = words.map((word, i) => `<li>${i + 1}. ${word}</li>`).join("");
+    win.document.write(
+      `<!doctype html><html><head><meta charset="utf-8"><title>Luna recovery phrase</title></head>` +
+        `<body><h1>Luna recovery phrase</h1><ol>${items}</ol>` +
+        `<p>Keep these 12 words somewhere safe. Anyone with them can open your cloud backups.</p></body></html>`,
+    );
+    win.document.close();
+    win.focus();
+    win.print();
+  }
+
+  function downloadWords() {
+    const lines = words.map((word, i) => `${i + 1}. ${word}`).join("\n");
+    const text =
+      `Luna recovery phrase\n\n${lines}\n\n` +
+      "Keep these 12 words somewhere safe. Anyone with them can open your cloud backups.\n";
+    const url = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "luna-recovery-phrase.txt";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
   }
 
   function setAnswer(index, value) {
@@ -86,6 +130,9 @@ export default function RecoveryPhraseSetup({ lunaId, userId, oldEntropy = null,
           <p className="text-primary text-sm">
             Write these 12 words down in order and keep them somewhere safe. Anyone with them can open your cloud backups.
           </p>
+          <p className="text-primary text-sm">
+            If you lose it, your private items in the cloud can't be opened by anyone, including us.
+          </p>
           <ol className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             {words.map((word, i) => (
               <li key={i} className="flex items-center gap-2 text-primary text-sm">
@@ -98,11 +145,17 @@ export default function RecoveryPhraseSetup({ lunaId, userId, oldEntropy = null,
             <Button variant="outline" size="sm" onClick={copyWords}>
               {copied ? "Copied" : "Copy"}
             </Button>
+            <Button variant="outline" size="sm" onClick={printWords}>
+              Print
+            </Button>
+            <Button variant="outline" size="sm" onClick={downloadWords}>
+              Download
+            </Button>
             <Button variant="primary" size="sm" onClick={() => setStep("confirm")}>
               I wrote them down
             </Button>
           </div>
-          {error && <p role="alert" className="text-error text-sm">{error}</p>}
+          {error && <ErrorNotice>{error}</ErrorNotice>}
         </div>
       ) : (
         <form onSubmit={save} className="space-y-4">
@@ -117,11 +170,11 @@ export default function RecoveryPhraseSetup({ lunaId, userId, oldEntropy = null,
                 autoComplete="off"
                 autoCapitalize="none"
                 spellCheck={false}
-                className="w-full rounded-pill border border-primary/30 bg-transparent px-4 py-2 text-primary text-sm outline-none focus:border-accent"
+                className="w-full rounded-pill border border-secondary bg-transparent px-4 py-2 text-primary text-sm outline-none focus:border-accent"
               />
             </label>
           ))}
-          {error && <p role="alert" className="text-error text-sm">{error}</p>}
+          {error && <ErrorNotice>{error}</ErrorNotice>}
           <div className="flex flex-wrap justify-end gap-2">
             <Button variant="outline" size="sm" onClick={() => { setError(""); setStep("show"); }} disabled={saving}>
               Back to the words

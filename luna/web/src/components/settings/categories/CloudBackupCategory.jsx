@@ -56,7 +56,7 @@ function CloudBackupRow({ backup, onRun, onCheck, onDelete, busy }) {
           lastError={backup.last_error}
           lastOkAt={backup.last_ok_at}
           surface="primary"
-          staleText="This backup hasn't finished in over a day. Luna copies files to the cloud only while nobody is using it."
+          staleText="Luna copies files to the cloud every 6 hours. This backup hasn't finished in over a day."
         />
       ) : (
         <p className="text-secondary text-sm">{backup.stop_reason || "This cloud backup has stopped."}</p>
@@ -98,8 +98,8 @@ function CloudBackupRow({ backup, onRun, onCheck, onDelete, busy }) {
 }
 
 /**
- * Cloud backups are created from Protect (open a drive or folder → Protect →
- * Back up to the cloud). This card lists them and runs, checks, or deletes them.
+ * Cloud backups are started from the shield (Back up) button on a drive or folder,
+ * then Back up to the cloud. This card lists them and runs, checks, or deletes them.
  */
 export default function CloudBackupCategory() {
   const queryClient = useQueryClient();
@@ -118,6 +118,8 @@ export default function CloudBackupCategory() {
   });
 
   const connected = Boolean(connect.data?.connect_active);
+  // Missing from older status replies: treat as on file, so only a clear false blocks backups.
+  const cardOnFile = connect.data?.card_on_file !== false;
   const backups = cloudQuery.data || [];
 
   const runBackup = useMutation({
@@ -186,7 +188,7 @@ export default function CloudBackupCategory() {
         headerActions={
           <InfoHint
             label="What cloud backup means"
-            content="An off-site copy of the latest files, stored with Luna Connect. It is not a history of old versions. Cloud backup costs $8 per terabyte each month."
+            content="An off-site copy of your latest files, kept with Luna Connect. It keeps the latest copy, plus about one older copy from each of the last day, week and month. Cloud backup costs $8 per terabyte each month."
           />
         }
       >
@@ -194,16 +196,25 @@ export default function CloudBackupCategory() {
 
         {!connected ? (
           <p className="text-primary text-sm">
-            Add a card at connect.luna.libreloom.org, then pair this Luna. After that, open a drive or folder, tap Protect, and use Back up to the cloud.
+            Link this Luna to Luna Connect. Then open a drive or folder, press the shield (Back up) button, and use Back up to the cloud.
+          </p>
+        ) : !cardOnFile && backups.length === 0 ? (
+          <p className="text-primary text-sm">
+            Add a payment card at Luna Connect: <InlinePill>connect.luna.libreloom.org</InlinePill> Cloud backup can start after that.
           </p>
         ) : backups.length === 0 ? (
           <p className="text-primary text-sm">
-            Nothing is backed up to the cloud yet. Open a drive or folder, tap Protect, then use Back up to the cloud.
+            Nothing is backed up to the cloud yet. Open a drive or folder, press the shield (Back up) button, then use Back up to the cloud.
           </p>
         ) : (
           <div className="space-y-3">
+            {!cardOnFile && (
+              <p className="text-primary text-sm">
+                Add a payment card at Luna Connect: <InlinePill>connect.luna.libreloom.org</InlinePill> Backups stay paused until then.
+              </p>
+            )}
             <p className="text-primary text-sm">
-              Luna copies the latest files when this Luna is idle. Cloud backup costs $8 per terabyte each month.
+              Luna copies the latest files every 6 hours. Cloud backup costs $8 per terabyte each month.
             </p>
             {backups.map((backup) => (
               <CloudBackupRow
@@ -230,7 +241,7 @@ export default function CloudBackupCategory() {
       >
         {deleting && (
           <p className="text-primary text-sm">
-            Deletes the copies of <InlinePill>{deleting.source_name || deleting.source_path || "this drive"}</InlinePill> stored in the cloud. The original files stay.
+            Deletes the copies of <InlinePill>{deleting.source_name || deleting.source_path || "this drive"}</InlinePill> stored in the cloud, including all earlier versions. Everyone with access to this backup loses it. The original files stay.
           </p>
         )}
       </ConfirmModal>

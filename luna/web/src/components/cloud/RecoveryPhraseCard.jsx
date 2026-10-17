@@ -99,7 +99,7 @@ export default function RecoveryPhraseCard() {
         headerActions={
           <InfoHint
             label="What the recovery phrase is"
-            content="12 words that lock your cloud backups. Luna never sees them. Write them down and keep them somewhere safe."
+            content="12 words that open your cloud backups."
           />
         }
       >
