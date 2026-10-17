@@ -32,6 +32,7 @@ import {
 import useConnectActive from "../hooks/useConnectActive.js";
 import usePageTitle from "../hooks/usePageTitle.js";
 import InspectModal from "../components/files/InspectModal.jsx";
+import BackupsCard from "../components/dashboard/BackupsCard.jsx";
 import { releaseInspectedDrive } from "../lib/drives.js";
 import { isMockUnknownDrive, mockInspectResult, withDevMockDetected } from "../lib/devMockDrives.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
@@ -766,6 +767,7 @@ export default function DashboardPage() {
             connectActive={connectActive}
             deviceTokenError={deviceTokenError}
           />
+          <BackupsCard />
           {recentItems.length > 0 && (
             <RecentItemsCard items={recentItems} drives={adopted} />
           )}
