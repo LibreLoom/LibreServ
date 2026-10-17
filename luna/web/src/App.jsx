@@ -30,6 +30,9 @@ const LoginPage = lazy(() => import("./pages/LoginPage"));
 const UsersPage = lazy(() => import("./pages/UsersPage"));
 const EditUserPage = lazy(() => import("./pages/EditUserPage"));
 const SetupPage = lazy(() => import("./pages/SetupPage"));
+const SetupLoadingDemoPage = import.meta.env.DEV
+  ? lazy(() => import("./pages/SetupLoadingDemoPage"))
+  : null;
 const NotFoundPage = lazy(() => import("./pages/NotFoundPage"));
 const SettingsPage = lazy(loadSettingsPage);
 const PublicSharePage = lazy(() => import("./pages/PublicSharePage"));
@@ -137,6 +140,9 @@ export default function App() {
             <Routes>
               <Route path="/login" element={<LoginPage />} />
               <Route path="/setup" element={<SetupPage />} />
+              {SetupLoadingDemoPage && (
+                <Route path="/dev/setup-loading" element={<SetupLoadingDemoPage />} />
+              )}
               <Route path="/s/:token" element={<PublicSharePage />} />
               <Route element={<AppShell />}>
                 <Route path="/" element={<DashboardPage />} />

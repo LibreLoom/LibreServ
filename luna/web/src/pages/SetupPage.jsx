@@ -56,7 +56,7 @@ const WIZARD_INPUT_CLASS =
   "w-full px-5 py-3.5 rounded-pill border border-primary/20 bg-transparent text-primary font-mono text-sm focus:outline-none focus:border-primary/50 motion-safe:transition-colors motion-safe:duration-150";
 
 // ─── Full-screen shell (bg-primary = page background) ────────────────────────
-function SetupShell({ children }) {
+export function SetupShell({ children }) {
   return (
     <div data-slot="setup-page" className="min-h-screen flex flex-col items-center justify-center surface-primary px-4 py-12">
       {children}
@@ -128,7 +128,8 @@ OneShotSlide.propTypes = {
 // wave fades out over the content, which cascades in on its own.
 const LOADER_FADE_MS = 500;
 
-function SetupCard({ children, className = "", header = null, loading = false }) {
+export function SetupCard({ children, className = "", header = null, loading = false, slow = 1 }) {
+  const fadeMs = LOADER_FADE_MS * slow;
   const { outerRef, innerRef } = useAnimatedHeight();
   const { key: tKey, direction } = useContext(StepTransitionContext);
   const [loaderGone, setLoaderGone] = useState(false);
@@ -136,9 +137,9 @@ function SetupCard({ children, className = "", header = null, loading = false })
   // Keep the loader mounted until its fade-out has finished.
   useEffect(() => {
     if (loading) return undefined;
-    const id = window.setTimeout(() => setLoaderGone(true), LOADER_FADE_MS);
+    const id = window.setTimeout(() => setLoaderGone(true), fadeMs);
     return () => window.clearTimeout(id);
-  }, [loading]);
+  }, [loading, fadeMs]);
 
   return (
     <div
@@ -163,7 +164,7 @@ function SetupCard({ children, className = "", header = null, loading = false })
             "absolute inset-0 z-10 motion-safe:transition-opacity ease-out",
             loading ? "opacity-100" : "opacity-0 pointer-events-none",
           )}
-          style={{ transitionDuration: `${LOADER_FADE_MS}ms` }}
+          style={{ transitionDuration: `${fadeMs}ms` }}
         >
           <DotMatrixLoader label="Loading setup" decorative={!loading} />
         </div>
@@ -176,6 +177,7 @@ SetupCard.propTypes = {
   className: PropTypes.string,
   header:    PropTypes.node,
   loading:   PropTypes.bool,
+  slow:      PropTypes.number,
 };
 
 // ─── Step progress dots (on the card, so use primary colors) ─────────────────
@@ -191,7 +193,7 @@ const VISIBLE_STEPS = [
   { id: STEP.DONE,       label: "Done" },
 ];
 
-function StepDots({ current }) {
+export function StepDots({ current }) {
   const idx = VISIBLE_STEPS.findIndex((s) => s.id === current);
   if (idx < 0) return null;
   return (
@@ -235,19 +237,23 @@ LogoMark.propTypes = { size: PropTypes.number };
 // Until then the elements just hold their place (the card is invisible).
 const CASCADE_STEP_MS = 90;
 
-function cascadeProps(cascade, index) {
+function cascadeProps(cascade, index, slow) {
   if (!cascade) return { className: "", style: undefined };
   return {
-    className: "animate-in fade-in slide-in-from-bottom-2 duration-500",
-    style: { animationDelay: `${index * CASCADE_STEP_MS}ms`, animationFillMode: "backwards" },
+    className: "animate-in fade-in slide-in-from-bottom-2",
+    style: {
+      animationDuration: `${500 * slow}ms`,
+      animationDelay: `${index * CASCADE_STEP_MS * slow}ms`,
+      animationFillMode: "backwards",
+    },
   };
 }
 
-function WelcomeStep({ onBegin, cascade = false }) {
-  const logo = cascadeProps(cascade, 1);
-  const title = cascadeProps(cascade, 2);
-  const lead = cascadeProps(cascade, 3);
-  const begin = cascadeProps(cascade, 4);
+export function WelcomeStep({ onBegin, cascade = false, slow = 1 }) {
+  const logo = cascadeProps(cascade, 1, slow);
+  const title = cascadeProps(cascade, 2, slow);
+  const lead = cascadeProps(cascade, 3, slow);
+  const begin = cascadeProps(cascade, 4, slow);
   return (
     <div className="flex flex-col items-center text-center">
       <div className={cn("mb-10", logo.className)} style={logo.style}>
@@ -278,6 +284,7 @@ function WelcomeStep({ onBegin, cascade = false }) {
 WelcomeStep.propTypes = {
   onBegin: PropTypes.func.isRequired,
   cascade: PropTypes.bool,
+  slow:    PropTypes.number,
 };
 
 
