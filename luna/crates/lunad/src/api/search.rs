@@ -141,7 +141,6 @@ fn visible_hits(
         // Anything inside a hidden folder is hidden too.
         if full.split('/').any(|part| part.starts_with('.'))
             || crate::files::is_internal_temp(&full)
-            || crate::backup::protect::is_protected_store(&full)
         {
             continue;
         }

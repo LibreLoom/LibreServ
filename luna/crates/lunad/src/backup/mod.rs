@@ -1,5 +1,7 @@
-//! Second copies: cloud (B2/S3 via connect) and local protect-a-folder.
+//! Backups: drive backups (drive_store, scope, access_list) and cloud backup.
 
+pub mod access_list;
 pub mod cloud_backup;
-pub mod protect;
+pub mod drive_store;
+pub mod scope;
 pub mod status;

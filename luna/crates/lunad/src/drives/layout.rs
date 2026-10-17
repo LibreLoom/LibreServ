@@ -2,15 +2,15 @@
 //! adopted drive lives under one `.luna-<uuid>` prefix chosen at adoption
 //! time so it can never collide with files already on the drive.
 //!
-//! | name                          | contents                          |
-//! |-------------------------------|-----------------------------------|
-//! | `{p}.sqlite3`                 | marker + microdb (drive_db)       |
-//! | `{p}-trash/`                  | deleted files                     |
-//! | `{p}-thumbs/`                 | gallery thumbnails                |
-//! | `{p}-shared-albums/`          | shared album image copies         |
-//! | `{p}-protected/`              | protected copies                  |
-//! | `{p}-upload.<id>.part`        | in-flight uploads                 |
-//! | `{p}.tmp.<pid>.<nonce>`       | marker temp files                 |
+//! | name                            | contents                            |
+//! | ------------------------------- | ----------------------------------- |
+//! | `{p}.sqlite3`                   | marker + microdb (drive_db)         |
+//! | `{p}-trash/`                    | deleted files                       |
+//! | `{p}-thumbs/`                   | gallery thumbnails                  |
+//! | `{p}-shared-albums/`            | shared album image copies           |
+//! | `{p}-backups/`                  | drive backups stored on this drive  |
+//! | `{p}-upload.<id>.part`          | in-flight uploads                   |
+//! | `{p}.tmp.<pid>.<nonce>`         | marker temp files                   |
 //!
 //! `Layout::detect` recovers the prefix from the marker file, so no prefix
 //! has to be threaded through call sites or stored in `luna.db`.
@@ -55,9 +55,9 @@ impl Layout {
         format!("{}-shared-albums", self.prefix)
     }
 
-    /// Protected copies directory name.
-    pub fn protected_name(&self) -> String {
-        format!("{}-protected", self.prefix)
+    /// Drive backups directory name.
+    pub fn backups_name(&self) -> String {
+        format!("{}-backups", self.prefix)
     }
 
     /// In-flight upload temp name for upload id `id`.
@@ -77,8 +77,8 @@ impl Layout {
         root.join(self.shared_albums_name())
     }
 
-    pub fn protected_dir(&self, root: &Path) -> PathBuf {
-        root.join(self.protected_name())
+    pub fn backups_dir(&self, root: &Path) -> PathBuf {
+        root.join(self.backups_name())
     }
 
     /// Is `name` (a single path segment, or basename of a rel path) inside

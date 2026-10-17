@@ -8,8 +8,8 @@ use rusqlite::params;
 ///
 /// Drive-scoped high-churn metadata (file index, scrub hashes, gallery, trash
 /// paths, upload sessions) lives in each drive's `.luna` SQLite microdb.
-/// This OS-disk DB keeps users, auth, access members/links, protection rules,
-/// jobs, and the thin drives registry.
+/// This OS-disk DB keeps users, auth, access members/links, jobs, and the
+/// thin drives registry.
 pub fn open(path: &Path) -> anyhow::Result<Connection> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -110,17 +110,6 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             ON access_members(subject_kind, drive_id, path, album_id);
         CREATE INDEX IF NOT EXISTS access_links_subject
             ON access_links(subject_kind, drive_id, path, album_id);
-        CREATE TABLE IF NOT EXISTS protections (
-            id TEXT PRIMARY KEY,
-            source_drive TEXT NOT NULL,
-            source_path TEXT NOT NULL,
-            target_drive TEXT NOT NULL,
-            target_path TEXT NOT NULL,
-            last_ok_at INTEGER NOT NULL DEFAULT 0,
-            last_error TEXT NOT NULL DEFAULT '',
-            failing_since INTEGER NOT NULL DEFAULT 0,
-            created_at INTEGER NOT NULL
-        );
         CREATE TABLE IF NOT EXISTS device_tokens (
             id TEXT PRIMARY KEY,
             user_id TEXT NOT NULL,
@@ -191,24 +180,6 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
         "INTEGER NOT NULL DEFAULT 0",
     )?;
     ensure_column(&conn, "device_tokens", "expires_at", "INTEGER")?;
-    ensure_column(
-        &conn,
-        "protections",
-        "last_ok_at",
-        "INTEGER NOT NULL DEFAULT 0",
-    )?;
-    ensure_column(
-        &conn,
-        "protections",
-        "last_error",
-        "TEXT NOT NULL DEFAULT ''",
-    )?;
-    ensure_column(
-        &conn,
-        "protections",
-        "failing_since",
-        "INTEGER NOT NULL DEFAULT 0",
-    )?;
     crate::files::forwarding::migrate(&conn)?;
     crate::files::recents::migrate(&conn)?;
     // Legacy sharing tables — replaced by access_members/access_links.
@@ -405,7 +376,6 @@ pub fn delete_drive_cascade(conn: &Connection, id: &str) -> anyhow::Result<()> {
         "DELETE FROM access_members WHERE drive_id = ?1",
         "DELETE FROM access_links WHERE drive_id = ?1",
         "DELETE FROM jobs WHERE from_drive = ?1 OR to_drive = ?1",
-        "DELETE FROM protections WHERE source_drive = ?1 OR target_drive = ?1",
     ];
     for sql in statements {
         match tx.execute(sql, params![id]) {
@@ -421,7 +391,7 @@ pub fn delete_drive_cascade(conn: &Connection, id: &str) -> anyhow::Result<()> {
 }
 
 /// Wipe all user data and return the box to first-run state, keeping the
-/// schema. Clears users/access/device-tokens, jobs/protections, drives,
+/// schema. Clears users/access/device-tokens, jobs, drives,
 /// and resets setup + the JWT and BLE setup secrets. Per-drive `.luna`
 /// microdbs (index, hashes, gallery, uploads, trash meta) are not part of
 /// `luna.db` and are left on the sticks.
@@ -432,7 +402,6 @@ pub fn factory_reset(conn: &Connection) -> anyhow::Result<()> {
         "access_links",
         "device_tokens",
         "jobs",
-        "protections",
         "drives",
         "device_token_usage",
         "rate_limit_buckets",
@@ -1007,113 +976,6 @@ pub fn delete_access_for_subject(
         "DELETE FROM access_links
          WHERE subject_kind = ?1 AND drive_id = ?2 AND path = ?3 AND album_id = ?4",
         params![subject_kind, drive_id, path, album_id],
-    )?;
-    Ok(())
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProtectionRow {
-    pub id: String,
-    pub source_drive: String,
-    pub source_path: String,
-    pub target_drive: String,
-    pub target_path: String,
-    /// Last run that copied everything. 0 = never.
-    pub last_ok_at: i64,
-    /// Plain-language reason the last run failed; empty once a run succeeds.
-    pub last_error: String,
-    /// When the current run of failures began. 0 while healthy.
-    pub failing_since: i64,
-    pub created_at: i64,
-}
-
-pub fn insert_protection(
-    conn: &Connection,
-    id: &str,
-    source_drive: &str,
-    source_path: &str,
-    target_drive: &str,
-    target_path: &str,
-) -> anyhow::Result<()> {
-    conn.execute(
-        "INSERT INTO protections (id, source_drive, source_path, target_drive, target_path, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![id, source_drive, source_path, target_drive, target_path, now_unix()],
-    )?;
-    Ok(())
-}
-
-pub fn list_protections(conn: &Connection) -> anyhow::Result<Vec<ProtectionRow>> {
-    let mut stmt = conn.prepare_cached(
-        "SELECT id, source_drive, source_path, target_drive, target_path,
-                last_ok_at, last_error, failing_since, created_at
-         FROM protections ORDER BY created_at DESC",
-    )?;
-    let rows = stmt.query_map([], |row| {
-        Ok(ProtectionRow {
-            id: row.get(0)?,
-            source_drive: row.get(1)?,
-            source_path: row.get(2)?,
-            target_drive: row.get(3)?,
-            target_path: row.get(4)?,
-            last_ok_at: row.get(5)?,
-            last_error: row.get(6)?,
-            failing_since: row.get(7)?,
-            created_at: row.get(8)?,
-        })
-    })?;
-    Ok(rows.collect::<Result<Vec<_>, _>>()?)
-}
-
-pub fn get_protection(conn: &Connection, id: &str) -> anyhow::Result<Option<ProtectionRow>> {
-    let mut stmt = conn.prepare_cached(
-        "SELECT id, source_drive, source_path, target_drive, target_path,
-                last_ok_at, last_error, failing_since, created_at
-         FROM protections WHERE id = ?1",
-    )?;
-    let mut rows = stmt.query_map(params![id], |row| {
-        Ok(ProtectionRow {
-            id: row.get(0)?,
-            source_drive: row.get(1)?,
-            source_path: row.get(2)?,
-            target_drive: row.get(3)?,
-            target_path: row.get(4)?,
-            last_ok_at: row.get(5)?,
-            last_error: row.get(6)?,
-            failing_since: row.get(7)?,
-            created_at: row.get(8)?,
-        })
-    })?;
-    Ok(rows.next().transpose()?)
-}
-
-pub fn delete_protection(conn: &Connection, id: &str) -> anyhow::Result<()> {
-    conn.execute("DELETE FROM protections WHERE id = ?1", params![id])?;
-    Ok(())
-}
-
-/// A run copied everything: clear any failure.
-pub fn record_protection_ok(conn: &Connection, id: &str, now: i64) -> anyhow::Result<()> {
-    conn.execute(
-        "UPDATE protections SET last_ok_at = ?2, last_error = '', failing_since = 0 WHERE id = ?1",
-        params![id, now],
-    )?;
-    Ok(())
-}
-
-/// A run failed: keep the reason, and keep `failing_since` from the first
-/// failure in a row.
-pub fn record_protection_error(
-    conn: &Connection,
-    id: &str,
-    message: &str,
-    now: i64,
-) -> anyhow::Result<()> {
-    conn.execute(
-        "UPDATE protections SET last_error = ?2,
-             failing_since = CASE WHEN failing_since = 0 THEN ?3 ELSE failing_since END
-         WHERE id = ?1",
-        params![id, message, now],
     )?;
     Ok(())
 }

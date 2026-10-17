@@ -5,8 +5,8 @@
 //! `.luna-<uuid>.sqlite3`. That file is a SQLite database (DELETE journal
 //! mode) whose `identity` row holds the drive id and label. Lunad opens the
 //! same file for index, hashes, gallery, trash metadata, and upload sessions.
-//! Every other name Luna creates on the drive — trash, thumbnails, protected
-//! copies, upload temps — starts with the same `.luna-<uuid>` prefix, so a
+//! Every other name Luna creates on the drive — trash, thumbnails, backups,
+//! upload temps — starts with the same `.luna-<uuid>` prefix, so a
 //! drive full of existing files can never clash with Luna's own bookkeeping.
 //! Adoption itself only requires identity.
 

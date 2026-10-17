@@ -228,7 +228,7 @@ struct FormLoc {
 /// The form's files folder: `{drive prefix}-form-{hash}` beside the form.
 /// The `.luna-<uuid>` prefix makes it Luna bookkeeping everywhere files are
 /// listed or served (`files::is_internal_temp`), and it sits next to the
-/// form so backups and protected copies, which walk the whole tree, cover it.
+/// form so backups, which walk the whole tree, cover it.
 /// The hash of the form's file name keeps two forms in one folder apart and
 /// the name short. The name is derived from the form's *file name*, so
 /// anything that renames, moves, trashes, or restores a form must call

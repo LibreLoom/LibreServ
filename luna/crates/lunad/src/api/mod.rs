@@ -6,7 +6,6 @@ pub mod drives;
 pub mod forms;
 pub mod health;
 pub mod network;
-pub mod protections;
 pub mod public_limits;
 pub mod response;
 pub mod search;
@@ -34,7 +33,6 @@ pub fn router() -> Router<AppState> {
         .merge(device_tokens::router())
         .merge(users::router())
         .merge(search::router())
-        .merge(protections::router())
         .merge(access::router())
         .merge(forms::router())
         .merge(network::router())

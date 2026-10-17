@@ -434,29 +434,6 @@ async fn async_main() -> anyhow::Result<()> {
         }
     }));
 
-    let protect_db = state.db.clone();
-    let protect_health = state.health_cache.clone();
-    bg_tasks.push(tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(30 * 60));
-        loop {
-            ticker.tick().await;
-            let db = protect_db.clone();
-            let changed =
-                tokio::task::spawn_blocking(move || match lunad::backup::protect::sync_all(&db) {
-                    Ok(outcome) => outcome.state_changed,
-                    Err(e) => {
-                        tracing::warn!(error = %e, "protected folders couldn't be listed");
-                        false
-                    }
-                })
-                .await
-                .unwrap_or(false);
-            if changed {
-                protect_health.invalidate();
-            }
-        }
-    }));
-
     let backup_state = state.clone();
     bg_tasks.push(tokio::spawn(async move {
         let mut ticker = tokio::time::interval(std::time::Duration::from_secs(120));

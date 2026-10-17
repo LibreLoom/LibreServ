@@ -796,11 +796,9 @@ fn stat_entry_sync(
     let in_trash =
         rel == files::TRASH_API_ALIAS || rel.starts_with(&format!("{}/", files::TRASH_API_ALIAS));
 
-    // Luna's own bookkeeping (index db, gallery, trash root, protected
-    // copies) is not a user file — never stat it.
-    if !in_trash
-        && (files::is_internal_temp(&rel) || crate::backup::protect::is_protected_store(&rel))
-    {
+    // Luna's own bookkeeping (index db, gallery, trash root) is not a
+    // user file — never stat it.
+    if !in_trash && files::is_internal_temp(&rel) {
         return Err(json_error(
             StatusCode::NOT_FOUND,
             "Luna can't find that file or folder.",
