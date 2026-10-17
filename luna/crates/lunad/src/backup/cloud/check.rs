@@ -11,7 +11,7 @@ use rand_core::{OsRng, RngCore};
 use rusqlite::{params, Connection};
 
 use super::crypto;
-use super::format::{self, OpenedPack, SignedRecord, SnapshotRecord, Tree};
+use super::format::{self, OpenedPack, SignedRecord, SnapshotRecord};
 use super::identity;
 use super::run::{self, PACK_KEY_WRAP_AAD};
 use super::store::{CloudStore, StoreError};
@@ -348,7 +348,7 @@ fn parse_id(s: &str) -> Option<[u8; 32]> {
 mod tests {
     use super::*;
     use crate::backup::cloud::crypto::Signer;
-    use crate::backup::cloud::format::{PackBuilder, TreeEntry};
+    use crate::backup::cloud::format::{PackBuilder, Tree, TreeEntry};
     use crate::backup::cloud::identity;
     use crate::backup::cloud::store::MemoryStore;
 

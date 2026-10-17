@@ -19,7 +19,8 @@ use serde_json::{Value, json};
 use crate::AppState;
 use crate::api::response::json_error;
 use crate::auth::CurrentUser;
-use crate::backup::cloud::{crypto, identity};
+use crate::api::cloud_backups::connect_store;
+use crate::backup::cloud::{crypto, identity, ops};
 use crate::db::{self, UserKeys};
 
 /// How long a challenge stays good after it is issued.
@@ -144,6 +145,20 @@ async fn set_phrase(
         },
     )
     .map_err(|_| save_failed())?;
+    drop(conn);
+
+    // Send the new keys to Luna Connect in the background, so the save never waits on the network.
+    // A failure here is only logged: the next cloud backup sends them again.
+    let connect = state.connect.clone();
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let Some(store) = connect_store(&connect, &db) else {
+            return;
+        };
+        if let Err(err) = ops::publish_users(&db, &store, now) {
+            tracing::warn!(error = %err, "could not send recovery keys to Luna Connect");
+        }
+    });
     Ok(Json(json!({ "set": true, "set_at": now })))
 }
 

@@ -693,15 +693,6 @@ impl ConnectService {
         Ok(())
     }
 
-    pub fn set_backup_sources(&self, sources: Vec<Value>) -> Result<(), ConnectError> {
-        if !self.has_valid_device_code() {
-            return Err(Self::connect_inactive_err());
-        }
-        let mut state = self.load();
-        state["backup_sources"] = json!(sources);
-        self.save(&state)
-    }
-
     pub fn refresh_remote(&self, state: &mut Value) -> Result<(), ConnectError> {
         let token = self.device_code()?;
         let remote = self.call_json("GET", "/api/v1/status", Some(&token), None)?;
@@ -896,14 +887,6 @@ impl ConnectService {
             .call()
             .map(|_| ())
             .map_err(map_transport_error)
-    }
-
-    pub fn backup_sources(&self) -> Vec<Value> {
-        self.load()
-            .get("backup_sources")
-            .and_then(|v| v.as_array())
-            .cloned()
-            .unwrap_or_default()
     }
 
     pub fn backup_unlocked(&self) -> bool {

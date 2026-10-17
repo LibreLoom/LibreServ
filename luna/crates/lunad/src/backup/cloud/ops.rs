@@ -8,6 +8,7 @@ use rusqlite::{params, Connection};
 use crate::backup::access_list::{self, AccessList};
 use crate::backup::cloud::check;
 use crate::backup::cloud::identity;
+use crate::backup::cloud::keys;
 use crate::backup::cloud::retention;
 use crate::backup::cloud::run::{self, CloudOutcome};
 use crate::backup::cloud::store::{CloudStore, StoreError};
@@ -24,6 +25,10 @@ const UNREACHABLE: &str = "Could not reach Luna Connect. Check your connection, 
 /// Record kinds in the store (private in `keys`, so mirrored here).
 const KEYS_RECORD_KIND: &str = "keys";
 const RECIPIENTS_RECORD_KIND: &str = "recipients";
+/// Record kind for each user's self-sealed signing key copy (one record per user).
+const USER_RECORD_KIND: &str = "self";
+const USER_LIST_FAILED: &str =
+    "Luna couldn't send your recovery keys to Luna Connect. It will try again on the next backup.";
 
 fn lock(db: &crate::Db) -> std::sync::MutexGuard<'_, Connection> {
     db.lock().unwrap_or_else(|p| p.into_inner())
@@ -121,7 +126,15 @@ pub fn run(db: &crate::Db, id: &str, store: &dyn CloudStore, now: i64) -> CloudO
     let Some(_slot) = drive_backup::try_hold(id) else {
         return problem_outcome("This backup is copying right now. Try again in a minute.");
     };
-    let outcome = match run::run_once(db, id, store, now) {
+    // Send the current recovery keys first. A failure does not stop the copy; it is reported here.
+    let users_problem = match publish_users(db, store, now) {
+        Ok(()) => None,
+        Err(err) => {
+            tracing::warn!(error = %err, id, "could not publish the cloud user list");
+            Some(USER_LIST_FAILED)
+        }
+    };
+    let mut outcome = match run::run_once(db, id, store, now) {
         Ok(out) if out.problem.is_none() => match tidy(db, id, store, now) {
             Ok(()) => out,
             Err(err) => {
@@ -132,10 +145,47 @@ pub fn run(db: &crate::Db, id: &str, store: &dyn CloudStore, now: i64) -> CloudO
         Ok(out) => out,
         Err(err) => problem_outcome(&err.to_string()),
     };
+    if let Some(users_problem) = users_problem {
+        outcome.problem = Some(match outcome.problem.take() {
+            Some(problem) => format!("{problem} {users_problem}"),
+            None => users_problem.to_string(),
+        });
+    }
     if let Err(err) = record(db, id, now, &outcome) {
         tracing::warn!(error = %err, id, "could not record a cloud backup run");
     }
     outcome
+}
+
+/// Send the signed user list and each user's self-sealed key copy to `store`, so Connect can
+/// hand them to a browser that needs to check them. Connect keeps the last copy, so a failure
+/// here only delays the update until the next run.
+pub fn publish_users(db: &crate::Db, store: &dyn CloudStore, now: i64) -> anyhow::Result<()> {
+    let (identity, users) = {
+        let conn = lock(db);
+        (identity::load_or_create(&conn, now)?, db::list_user_keys(&conn)?)
+    };
+    let listed = users
+        .iter()
+        .map(|user| {
+            let x25519: [u8; 32] = user.x25519_public.as_slice().try_into().map_err(|_| {
+                anyhow::anyhow!("The recovery key for user {} is damaged.", user.user_id)
+            })?;
+            let auth: [u8; 32] = user.auth_public.as_slice().try_into().map_err(|_| {
+                anyhow::anyhow!("The recovery key for user {} is damaged.", user.user_id)
+            })?;
+            Ok((user.user_id.clone(), x25519, auth, user.self_sealed.clone()))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    keys::publish_user_list(store, identity.signer(), identity.luna_id(), &listed)?;
+    for user in &users {
+        store.put_record(
+            USER_RECORD_KIND,
+            &keys::user_record_part(&user.user_id),
+            &user.self_sealed,
+        )?;
+    }
+    Ok(())
 }
 
 /// Run every active cloud backup, then tidy every pack scope. `store` is `None`
@@ -424,7 +474,7 @@ pub fn check_all(db: &crate::Db, store: &dyn CloudStore, now: i64) {
 mod tests {
     use super::*;
     use crate::auth::CurrentUser;
-    use crate::backup::cloud::store::MemoryStore;
+    use crate::backup::cloud::store::{MemoryStore, Usage};
     use luna_core::marker::{pick_prefix, Marker};
     use std::fs;
     use std::path::PathBuf;
@@ -498,6 +548,80 @@ mod tests {
         let conn = lock(&s.db);
         let row = db::get_protection(&conn, &id).unwrap().unwrap();
         assert_eq!(row.last_error, NOT_SET_UP);
+    }
+
+    /// A store whose user-list writes are refused, to check that the copy still runs.
+    struct ListRefused(MemoryStore);
+
+    impl CloudStore for ListRefused {
+        fn put_pack(&self, id: &[u8; 32], scope: Option<&str>, bytes: &[u8]) -> Result<(), StoreError> {
+            self.0.put_pack(id, scope, bytes)
+        }
+        fn get_pack(&self, id: &[u8; 32]) -> Result<Vec<u8>, StoreError> {
+            self.0.get_pack(id)
+        }
+        fn delete_pack(&self, id: &[u8; 32]) -> Result<(), StoreError> {
+            self.0.delete_pack(id)
+        }
+        fn put_record(&self, kind: &str, name: &str, bytes: &[u8]) -> Result<(), StoreError> {
+            if kind == "users" || kind == USER_RECORD_KIND {
+                return Err(StoreError::Unavailable("Could not reach Luna Connect.".into()));
+            }
+            self.0.put_record(kind, name, bytes)
+        }
+        fn get_record(&self, kind: &str, name: &str) -> Result<Option<Vec<u8>>, StoreError> {
+            self.0.get_record(kind, name)
+        }
+        fn delete_record(&self, kind: &str, name: &str) -> Result<(), StoreError> {
+            self.0.delete_record(kind, name)
+        }
+        fn list_records(&self, kind: &str) -> Result<Vec<String>, StoreError> {
+            self.0.list_records(kind)
+        }
+        fn usage(&self) -> Result<Usage, StoreError> {
+            self.0.usage()
+        }
+    }
+
+    #[test]
+    fn publish_users_sends_the_signed_list_and_each_self_copy() {
+        let s = setup();
+        let conn = lock(&s.db);
+        let signer = identity::load_or_create(&conn, NOW).unwrap();
+        db::set_user_keys(
+            &conn,
+            &db::UserKeys {
+                user_id: "admin".into(),
+                x25519_public: vec![1; 32],
+                auth_public: vec![2; 32],
+                self_sealed: b"sealed copy".to_vec(),
+                phrase_set_at: NOW,
+                last_checked_at: 0,
+            },
+        )
+        .unwrap();
+        drop(conn);
+        let store = MemoryStore::new();
+
+        publish_users(&s.db, &store, NOW).unwrap();
+
+        let list = store.get_record("users", "list").unwrap().unwrap();
+        assert!(keys::verify_user_list(&list, &signer.public(), signer.luna_id()).is_some());
+        let copy = store
+            .get_record(USER_RECORD_KIND, &keys::user_record_part("admin"))
+            .unwrap();
+        assert_eq!(copy.as_deref(), Some(&b"sealed copy"[..]));
+    }
+
+    #[test]
+    fn a_refused_user_list_is_reported_but_the_copy_still_runs() {
+        let s = setup();
+        let id = make_backup(&s);
+        let store = ListRefused(MemoryStore::new());
+
+        let outcome = run(&s.db, &id, &store, NOW);
+        assert_eq!(outcome.problem.as_deref(), Some(USER_LIST_FAILED));
+        assert_eq!(store.0.list_records("snapshots").unwrap().len(), 1);
     }
 
     #[test]

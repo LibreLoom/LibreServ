@@ -1427,6 +1427,30 @@ mod tests {
     }
 
     #[test]
+    fn adopt_copies_the_cloud_signing_key_tagged_with_luna_id() {
+        let mounter = shared_mock();
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path();
+        let conn = db::open(&dir.join("luna.db")).unwrap();
+        let identity =
+            crate::backup::cloud::identity::load_or_create(&conn, 1).unwrap();
+        let mgr = DriveManager::new(mounter.clone(), dir);
+        let dev = detected("sdz", None);
+
+        let row = mgr.adopt(&conn, &dev, "Photos Drive", false).unwrap();
+
+        let drive = drive_db::open(Path::new(&row.mount_point)).unwrap();
+        let copies: Vec<String> = drive
+            .prepare("SELECT luna_id FROM cloud_signing_keys")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert_eq!(copies, vec![identity.luna_id.clone()]);
+    }
+
+    #[test]
     fn adopt_recovers_from_os_readonly_by_remounting() {
         let mounter = shared_mock();
         let root = tempfile::tempdir().unwrap();

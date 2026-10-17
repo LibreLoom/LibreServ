@@ -36,6 +36,11 @@ impl Identity {
     pub fn sign(&self, domain: &str, msg: &[u8]) -> [u8; 64] {
         self.signer.sign(domain, msg)
     }
+
+    /// The signer itself, for functions that take one (such as `keys::publish_user_list`).
+    pub fn signer(&self) -> &Signer {
+        &self.signer
+    }
 }
 
 /// The stored identity, if cloud setup has already minted one.
@@ -51,12 +56,27 @@ pub fn load(conn: &Connection) -> Result<Option<Identity>> {
 
 /// The stored identity, or a new one minted and saved now.
 ///
-/// A new identity is copied to every connected drive. The caller must check the
-/// drives for a copy under a known id first (`recover_from_drives`) when it
-/// already knows the id, so a fresh Luna never mints over a recoverable key.
+/// A new identity is copied to every connected drive. Use `load_or_create_known`
+/// when the Luna id is already known, so a key on a drive is never replaced.
 pub fn load_or_create(conn: &Connection, now: i64) -> Result<Identity> {
+    load_or_create_known(conn, None, now)
+}
+
+/// Like `load_or_create`, but when `known_luna_id` is given and this Luna has no
+/// identity yet, the signing key is taken back from a drive copy tagged with that
+/// id (`recover_from_drives`) before any new key is minted.
+pub fn load_or_create_known(
+    conn: &Connection,
+    known_luna_id: Option<&str>,
+    now: i64,
+) -> Result<Identity> {
     if let Some(identity) = load(conn)? {
         return Ok(identity);
+    }
+    if let Some(luna_id) = known_luna_id {
+        if let Some(identity) = recover_from_drives(conn, luna_id)? {
+            return Ok(identity);
+        }
     }
     let luna_id = mint_luna_id();
     let signer = Signer::generate();
@@ -303,6 +323,32 @@ mod tests {
         assert!(recover_from_drives(&fresh, "luna-unknownunknownunknownun")
             .unwrap()
             .is_none());
+    }
+
+    #[test]
+    fn known_id_recovers_the_drive_copy_instead_of_minting() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("drive");
+        let owner_conn = db::open(&dir.path().join("a.db")).unwrap();
+        connected_drive(&owner_conn, &root, "d1");
+        let owner = load_or_create(&owner_conn, 1).unwrap();
+
+        // The system DB was lost: a fresh Luna knows the id and finds the key on the drive.
+        let fresh = db::open(&dir.path().join("fresh.db")).unwrap();
+        db::upsert_drive(&fresh, "d1", "Photos", "as_is", "ext4", "sdb", root.to_str().unwrap())
+            .unwrap();
+        let back = load_or_create_known(&fresh, Some(&owner.luna_id), 9).unwrap();
+        assert_eq!(back.luna_id, owner.luna_id);
+        assert_eq!(back.public(), owner.public());
+        assert_eq!(load(&fresh).unwrap().unwrap().public(), owner.public());
+    }
+
+    #[test]
+    fn known_id_without_a_drive_copy_still_mints_a_new_identity() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        let made = load_or_create_known(&conn, Some("luna-unknownunknownunknownun"), 1).unwrap();
+        assert_ne!(made.luna_id, "luna-unknownunknownunknownun");
     }
 
     #[test]
