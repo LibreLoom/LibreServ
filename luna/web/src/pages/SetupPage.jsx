@@ -161,12 +161,15 @@ export function SetupCard({ children, className = "", header = null, loading = f
       {(loading || !loaderGone) && (
         <div
           className={cn(
-            "absolute inset-0 z-10 motion-safe:transition-opacity ease-out",
+            "absolute inset-0 z-10 surface-secondary motion-safe:transition-opacity ease-out",
             loading ? "opacity-100" : "opacity-0 pointer-events-none",
           )}
           style={{ transitionDuration: `${fadeMs}ms` }}
         >
-          <DotMatrixLoader label="Loading setup" decorative={!loading} />
+          {/* Inset so the wave stays on the card and clear of its rounded edge. */}
+          <div className="absolute inset-6">
+            <DotMatrixLoader bare label="Loading setup" decorative={!loading} />
+          </div>
         </div>
       )}
     </div>

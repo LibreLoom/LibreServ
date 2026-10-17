@@ -50,6 +50,7 @@ function phaseToAlpha(p) {
  *   className?: string,
  *   label?: string,
  *   decorative?: boolean,
+ *   bare?: boolean,
  *   waveSpeedMs?: number,
  *   wavePeriodMs?: number,
  *   [key: string]: any
@@ -59,6 +60,7 @@ export default function DotMatrixLoader({
   className = "",
   label = "Loading",
   decorative = false,
+  bare = false,
   waveSpeedMs = WAVE_STEP_MS,
   wavePeriodMs = WAVE_PERIOD_MS,
   ...props
@@ -221,7 +223,8 @@ export default function DotMatrixLoader({
         aria-hidden="true"
         data-slot="matrix-loader"
         className={cn(
-          "relative flex h-full w-full min-h-0 flex-1 flex-col items-center justify-center overflow-hidden surface-primary",
+          "relative flex h-full w-full min-h-0 flex-1 flex-col items-center justify-center overflow-hidden",
+          !bare && "surface-primary",
           className,
         )}
         {...props}
@@ -237,7 +240,8 @@ export default function DotMatrixLoader({
       aria-label={label}
       data-slot="matrix-loader"
       className={cn(
-        "relative flex h-full w-full min-h-0 flex-1 flex-col items-center justify-center overflow-hidden surface-primary",
+        "relative flex h-full w-full min-h-0 flex-1 flex-col items-center justify-center overflow-hidden",
+        !bare && "surface-primary",
         className,
       )}
       {...props}
@@ -252,6 +256,7 @@ DotMatrixLoader.propTypes = {
   className: PropTypes.string,
   label: PropTypes.string,
   decorative: PropTypes.bool,
+  bare: PropTypes.bool,
   waveSpeedMs: PropTypes.number,
   wavePeriodMs: PropTypes.number,
 };
