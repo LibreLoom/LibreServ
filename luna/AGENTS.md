@@ -31,7 +31,7 @@ luna/
 │                         # Stripe $8/TB/month backups.
 ├── quick-start/          # printable quick-start leaflet (React/Vite) — two guides per US Letter
 │                         # sheet, one device token each; see quick-start/README.md
-├── os/                   # Debian live OS: rootfs build, A/B updates, factory ISO
+├── os/                   # Alpine OS: rootfs build, A/B updates, factory ISO
 ├── scripts/              # dev helpers; mocks/ holds the mock-connect/mock-drive cluster
 ├── docs/                 # eurooffice guide, THIRD_PARTY license, HW qualification
 ├── ci.sh                 # luna CI (invoked by ./ci -profile luna)
