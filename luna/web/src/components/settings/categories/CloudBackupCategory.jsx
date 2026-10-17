@@ -34,7 +34,7 @@ function lastRunText(backup) {
   return `Last finished ${ago === "Just now" ? "just now" : ago}`;
 }
 
-function CloudBackupRow({ backup, onRun, onCheck, onDelete, busy }) {
+function CloudBackupRow({ backup, onRun, onRunAnyway, missingSource, onCheck, onDelete, busy }) {
   const active = backup.status === "active";
   return (
     <div className="rounded-large-element surface-primary p-3 space-y-3">
@@ -75,6 +75,18 @@ function CloudBackupRow({ backup, onRun, onCheck, onDelete, busy }) {
             Back up now
           </Button>
         )}
+        {active && missingSource && (
+          <Button
+            size="sm"
+            variant="outline"
+            surface="primary"
+            loading={busy}
+            disabled={busy}
+            onClick={() => onRunAnyway(backup)}
+          >
+            Back up anyway
+          </Button>
+        )}
         {active && (
           <Button
             size="sm"
@@ -106,6 +118,8 @@ export default function CloudBackupCategory() {
   const { addToast } = useToast();
   const [error, setError] = useState(null);
   const [deleting, setDeleting] = useState(null);
+  // Set when a run stopped because the source looks missing; holds the backup id for "Back up anyway".
+  const [missingSourceId, setMissingSourceId] = useState(null);
 
   const connect = useQuery({
     queryKey: ["connect-status"],
@@ -123,14 +137,17 @@ export default function CloudBackupCategory() {
   const backups = cloudQuery.data || [];
 
   const runBackup = useMutation({
-    mutationFn: (/** @type {string} */ id) => postJson(`/api/v1/cloud/backups/${id}/run`, {}),
-    onSuccess: (res) => {
+    mutationFn: (/** @type {{id: string, acceptMissing?: boolean}} */ { id, acceptMissing = false }) =>
+      postJson(`/api/v1/cloud/backups/${id}/run${acceptMissing ? "?accept_missing=true" : ""}`, {}),
+    onSuccess: (res, { id, acceptMissing = false }) => {
       // A problem stays on this card, next to the backup, not in a success toast.
       if (res?.problem) {
         haptic("error");
         setError(res.problem);
+        setMissingSourceId(res.source_missing === true && !acceptMissing ? id : null);
         return;
       }
+      setMissingSourceId(null);
       setError(null);
       addToast({
         type: "success",
@@ -198,19 +215,22 @@ export default function CloudBackupCategory() {
           <p className="text-primary text-sm">
             Link this Luna to Luna Connect. Then open a drive or folder, press the shield (Back up) button, and use Back up to the cloud.
           </p>
-        ) : !cardOnFile && backups.length === 0 ? (
-          <p className="text-primary text-sm">
-            Add a payment card at Luna Connect: <InlinePill>connect.luna.libreloom.org</InlinePill> Cloud backup can start after that.
-          </p>
         ) : backups.length === 0 ? (
-          <p className="text-primary text-sm">
-            Nothing is backed up to the cloud yet. Open a drive or folder, press the shield (Back up) button, then use Back up to the cloud.
-          </p>
+          <div className="space-y-3">
+            {!cardOnFile && (
+              <p className="text-primary text-sm">
+                Add a payment card at Luna Connect: <InlinePill>connect.luna.libreloom.org</InlinePill>. Cloud backup can start after that.
+              </p>
+            )}
+            <p className="text-primary text-sm">
+              Nothing is backed up to the cloud yet. Open a drive or folder, press the shield (Back up) button, then use Back up to the cloud.
+            </p>
+          </div>
         ) : (
           <div className="space-y-3">
             {!cardOnFile && (
               <p className="text-primary text-sm">
-                Add a payment card at Luna Connect: <InlinePill>connect.luna.libreloom.org</InlinePill> Backups stay paused until then.
+                Add a payment card at Luna Connect: <InlinePill>connect.luna.libreloom.org</InlinePill>. Backups stay paused until then.
               </p>
             )}
             <p className="text-primary text-sm">
@@ -221,7 +241,9 @@ export default function CloudBackupCategory() {
                 key={backup.id}
                 backup={backup}
                 busy={busy}
-                onRun={(b) => runBackup.mutate(b.id)}
+                missingSource={missingSourceId === backup.id}
+                onRun={(b) => runBackup.mutate({ id: b.id })}
+                onRunAnyway={(b) => runBackup.mutate({ id: b.id, acceptMissing: true })}
                 onCheck={(b) => checkBackup.mutate(b.id)}
                 onDelete={(b) => setDeleting(b)}
               />

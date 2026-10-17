@@ -8,12 +8,12 @@ const json = (body) =>
   new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
 
 /** Routes the cloud API calls the card makes; anything else gets an empty object. */
-function stubApi({ connected = true, cardOnFile = true, backups = [], runResponse = { done: true } } = {}) {
+function stubApi({ connected = true, cardOnFile = true, backups = [], runResponse = /** @type {any} */ ({ done: true }) } = {}) {
   const fetchMock = vi.fn(async (url, options = {}) => {
     const method = options.method || "GET";
     if (url === "/api/v1/connect/status") return json({ connect_active: connected, card_on_file: cardOnFile });
     if (url === "/api/v1/cloud/backups" && method === "GET") return json(backups);
-    if (url.endsWith("/run") && method === "POST") return json(runResponse);
+    if (/\/run(\?|$)/.test(url) && method === "POST") return json(runResponse);
     if (url.endsWith("/check") && method === "POST") return json({ done: true });
     if (url.startsWith("/api/v1/cloud/backups/") && method === "DELETE") return json({});
     return json({});
@@ -65,7 +65,37 @@ describe("CloudBackupCategory", () => {
     renderCard();
     expect(await screen.findByText(/Add a payment card at Luna Connect/)).toBeInTheDocument();
     expect(screen.getByText("connect.luna.libreloom.org")).toBeInTheDocument();
-    expect(screen.queryByText(/Nothing is backed up to the cloud yet/)).toBeNull();
+    expect(screen.getByText(/Nothing is backed up to the cloud yet/)).toBeInTheDocument();
+  });
+
+  it("offers Back up anyway when a run says the source looks missing, and sends accept_missing", async () => {
+    const fetchMock = stubApi({
+      connected: true,
+      backups: [sampleBackup],
+      runResponse: { done: false, problem: "Luna cannot find this folder on the drive.", source_missing: true },
+    });
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: "Back up now" }));
+    expect(await screen.findByText("Luna cannot find this folder on the drive.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Back up anyway" }));
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/v1/cloud/backups/b1/run?accept_missing=true",
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+  });
+
+  it("does not offer Back up anyway for a normal run problem", async () => {
+    stubApi({
+      connected: true,
+      backups: [sampleBackup],
+      runResponse: { done: false, problem: "The drive is full." },
+    });
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: "Back up now" }));
+    expect(await screen.findByText("The drive is full.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Back up anyway" })).toBeNull();
   });
 
   it("keeps listed backups visible and asks for a card when none is on file", async () => {

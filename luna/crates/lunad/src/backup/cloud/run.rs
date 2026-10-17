@@ -46,11 +46,14 @@ pub struct CloudOutcome {
 
 /// Runs one backup for `protection_id` against `store` and returns what happened.
 /// `started_by` is the user who asked for it, or empty for a scheduled run.
+/// `accept_missing` lets the run go ahead when most of the source is gone, once a person has
+/// checked the drive. Without it, such a run is held.
 pub fn run_once(
     db: &crate::Db,
     protection_id: &str,
     store: &dyn CloudStore,
     started_by: &str,
+    accept_missing: bool,
     now: i64,
 ) -> Result<CloudOutcome> {
     let (drive_root, root) = {
@@ -66,7 +69,7 @@ pub fn run_once(
     if Layout::detect(&drive_root).is_none() {
         return Ok(problem_outcome(SOURCE_MISSING));
     }
-    run_with_root(db, protection_id, &root, store, started_by, now)
+    run_with_root(db, protection_id, &root, store, started_by, accept_missing, now)
 }
 
 /// The run itself, reading from `root` instead of resolving the drive. Tests use this.
@@ -76,6 +79,7 @@ fn run_with_root(
     root: &Path,
     store: &dyn CloudStore,
     started_by: &str,
+    accept_missing: bool,
     now: i64,
 ) -> Result<CloudOutcome> {
     let Some(_slot) = RunSlot::take(db, protection_id) else {
@@ -85,10 +89,15 @@ fn run_with_root(
     };
 
     // Held before any run row is opened, so nothing is committed and nothing needs closing.
-    match source_looks_missing(db, protection_id, root, store) {
-        Ok(true) => return Ok(problem_outcome(SOURCE_MISSING)),
-        Ok(false) => {}
-        Err(e) => return Ok(problem_outcome(&e.to_string())),
+    // If the last copy cannot be read, the check is skipped and the run goes ahead.
+    if !accept_missing {
+        match source_looks_missing(db, protection_id, root, store) {
+            Ok(true) => return Ok(problem_outcome(SOURCE_MISSING)),
+            Ok(false) => {}
+            Err(err) => {
+                tracing::warn!(error = %err, protection_id, "could not check the source against the last copy; running anyway");
+            }
+        }
     }
 
     // Failing here means no run row was opened, so there is nothing to close.
@@ -639,12 +648,12 @@ mod tests {
         let db = setup(dir.path());
         let src = source(dir.path());
         let store = MemoryStore::new();
-        let first = run_with_root(&db, "p6", &src, &store, "user-1", 100).unwrap();
+        let first = run_with_root(&db, "p6", &src, &store, "user-1", false, 100).unwrap();
         assert_eq!(first.problem, None);
 
         std::fs::remove_file(src.join("a.bin")).unwrap();
         std::fs::remove_file(src.join("b.bin")).unwrap();
-        let held = run_with_root(&db, "p6", &src, &store, "user-1", 200).unwrap();
+        let held = run_with_root(&db, "p6", &src, &store, "user-1", false, 200).unwrap();
         assert_eq!(held.problem.as_deref(), Some(SOURCE_MISSING));
         assert_eq!(held.snapshot_id, None);
         assert_eq!(store.list_records("snapshots").unwrap().len(), 1);
@@ -655,6 +664,38 @@ mod tests {
     }
 
     #[test]
+    fn accept_missing_lets_a_held_run_through() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = setup(dir.path());
+        let src = source(dir.path());
+        let store = MemoryStore::new();
+        run_with_root(&db, "p8", &src, &store, "user-1", false, 100).unwrap();
+
+        std::fs::remove_file(src.join("a.bin")).unwrap();
+        std::fs::remove_file(src.join("b.bin")).unwrap();
+        let out = run_with_root(&db, "p8", &src, &store, "user-1", true, 200).unwrap();
+        assert_eq!(out.problem, None);
+        assert!(out.snapshot_id.is_some());
+        assert_eq!(store.list_records("snapshots").unwrap().len(), 2);
+    }
+
+    #[test]
+    fn an_unreadable_last_copy_skips_the_check_instead_of_failing_the_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = setup(dir.path());
+        let src = source(dir.path());
+        let store = MemoryStore::new();
+        run_with_root(&db, "p7", &src, &store, "user-1", false, 100).unwrap();
+
+        lock(&db)
+            .execute("UPDATE cloud_snapshots SET record = x'00' WHERE protection_id = 'p7'", [])
+            .unwrap();
+        let out = run_with_root(&db, "p7", &src, &store, "user-1", false, 200).unwrap();
+        assert_eq!(out.problem, None);
+        assert!(out.snapshot_id.is_some());
+    }
+
+    #[test]
     fn a_run_without_an_identity_refuses_and_mints_none() {
         let dir = tempfile::tempdir().unwrap();
         let db = setup(dir.path());
@@ -662,7 +703,7 @@ mod tests {
         let store = MemoryStore::new();
         lock(&db).execute("DELETE FROM cloud_identity", []).unwrap();
 
-        let out = run_with_root(&db, "p1", &src, &store, "user-1", 100).unwrap();
+        let out = run_with_root(&db, "p1", &src, &store, "user-1", false, 100).unwrap();
         assert_eq!(
             out.problem.as_deref(),
             Some("Set up cloud backup on this Luna before running a backup.")
@@ -680,7 +721,7 @@ mod tests {
         let store = MemoryStore::new();
         db::delete_user_keys(&lock(&db), "owner").unwrap();
 
-        let held = run_with_root(&db, "p8", &src, &store, "user-1", 100).unwrap();
+        let held = run_with_root(&db, "p8", &src, &store, "user-1", false, 100).unwrap();
         assert_eq!(held.problem.as_deref(), Some(NO_ADMIN_PHRASE));
         assert_eq!(held.snapshot_id, None);
         assert!(store.list_records("snapshots").unwrap().is_empty());
@@ -699,7 +740,7 @@ mod tests {
             },
         )
         .unwrap();
-        let done = run_with_root(&db, "p8", &src, &store, "user-1", 200).unwrap();
+        let done = run_with_root(&db, "p8", &src, &store, "user-1", false, 200).unwrap();
         assert_eq!(done.problem, None);
         assert!(done.snapshot_id.is_some());
     }
@@ -711,13 +752,13 @@ mod tests {
         let src = source(dir.path());
         let store = MemoryStore::new();
 
-        let first = run_with_root(&db, "p1", &src, &store, "user-1", 100).unwrap();
+        let first = run_with_root(&db, "p1", &src, &store, "user-1", false, 100).unwrap();
         assert_eq!(first.problem, None);
         assert!(first.snapshot_id.is_some());
         assert_eq!(first.files, 2);
         assert!(first.uploaded_bytes >= 5 << 20);
 
-        let second = run_with_root(&db, "p1", &src, &store, "user-1", 200).unwrap();
+        let second = run_with_root(&db, "p1", &src, &store, "user-1", false, 200).unwrap();
         assert_eq!(second.problem, None);
         assert!(second.reused_chunks > 0);
         assert!(second.uploaded_bytes < first.uploaded_bytes / 10);
@@ -729,7 +770,7 @@ mod tests {
         let db = setup(dir.path());
         let src = source(dir.path());
         let store = MemoryStore::new();
-        let first = run_with_root(&db, "p3", &src, &store, "user-1", 100).unwrap();
+        let first = run_with_root(&db, "p3", &src, &store, "user-1", false, 100).unwrap();
         assert_eq!(first.problem, None);
 
         let conn = lock(&db);
@@ -750,12 +791,12 @@ mod tests {
         let db = setup(dir.path());
         let src = source(dir.path());
         let store = MemoryStore::new();
-        let first = run_with_root(&db, "p2", &src, &store, "user-1", 100).unwrap();
+        let first = run_with_root(&db, "p2", &src, &store, "user-1", false, 100).unwrap();
 
         let mut data = std::fs::read(src.join("a.bin")).unwrap();
         data[100] ^= 0xff;
         std::fs::write(src.join("a.bin"), data).unwrap();
-        let second = run_with_root(&db, "p2", &src, &store, "user-1", 200).unwrap();
+        let second = run_with_root(&db, "p2", &src, &store, "user-1", false, 200).unwrap();
 
         assert_eq!(second.problem, None);
         assert!(second.reused_chunks > 0);
@@ -769,7 +810,7 @@ mod tests {
         let src = source(dir.path());
         let store = MemoryStore::with_quota(1024);
 
-        let out = run_with_root(&db, "p7", &src, &store, "user-1", 100).unwrap();
+        let out = run_with_root(&db, "p7", &src, &store, "user-1", false, 100).unwrap();
         assert_eq!(out.problem.as_deref(), Some("Your cloud storage is full."));
         assert_eq!(out.snapshot_id, None);
         assert!(store.list_records("snapshots").unwrap().is_empty());
@@ -781,7 +822,7 @@ mod tests {
         let db = setup(dir.path());
         let src = source(dir.path());
         let store = MemoryStore::new();
-        let out = run_with_root(&db, "p5", &src, &store, "user-1", 100).unwrap();
+        let out = run_with_root(&db, "p5", &src, &store, "user-1", false, 100).unwrap();
         assert_eq!(out.problem, None);
         let snapshot_id = out.snapshot_id.unwrap();
 
@@ -815,7 +856,7 @@ mod tests {
         let db = setup(dir.path());
         let src = source(dir.path());
         let store = MemoryStore::new();
-        let out = run_with_root(&db, "p8", &src, &store, "user-1", 100).unwrap();
+        let out = run_with_root(&db, "p8", &src, &store, "user-1", false, 100).unwrap();
         let snapshot_id = out.snapshot_id.unwrap();
 
         let conn = lock(&db);
@@ -855,7 +896,7 @@ mod tests {
         let db = setup(dir.path());
         let src = source(dir.path());
         let store = MemoryStore::new();
-        let out = run_with_root(&db, "p8", &src, &store, "user-7", 100).unwrap();
+        let out = run_with_root(&db, "p8", &src, &store, "user-7", false, 100).unwrap();
         assert_eq!(out.problem, None);
         let snapshot_id = out.snapshot_id.unwrap();
 
@@ -880,7 +921,7 @@ mod tests {
         let db = setup(dir.path());
         let src = source(dir.path());
         let store = MemoryStore::new();
-        let out = run_with_root(&db, "p4", &src, &store, "user-1", 100).unwrap();
+        let out = run_with_root(&db, "p4", &src, &store, "user-1", false, 100).unwrap();
         let snapshot_id = out.snapshot_id.unwrap();
 
         let conn = lock(&db);

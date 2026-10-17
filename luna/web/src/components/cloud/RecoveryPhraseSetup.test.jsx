@@ -11,21 +11,19 @@ const LUNA_ID = "luna-1";
 const USER_ID = "42";
 const SIGNING_PUBLIC = new Uint8Array(32).map((_, i) => i + 100);
 
-/** GET /api/v1/cloud/phrase answer: the status that carries Luna's signing public key. */
-function statusResponse(extra = {}) {
-  return new Response(JSON.stringify({ set: false, luna_id: LUNA_ID, signing_public: toBase64(SIGNING_PUBLIC), ...extra }), {
-    status: 200,
-    headers: { "Content-Type": "application/json" },
-  });
-}
-
 function renderSetup(props = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const onClose = vi.fn();
   render(
     <QueryClientProvider client={client}>
       <ToastProvider>
-        <RecoveryPhraseSetup lunaId={LUNA_ID} userId={USER_ID} onClose={onClose} {...props} />
+        <RecoveryPhraseSetup
+          lunaId={LUNA_ID}
+          userId={USER_ID}
+          signingPublic={toBase64(SIGNING_PUBLIC)}
+          onClose={onClose}
+          {...props}
+        />
       </ToastProvider>
     </QueryClientProvider>,
   );
@@ -81,7 +79,6 @@ describe("RecoveryPhraseSetup", () => {
     const user = userEvent.setup();
     const sent = {};
     vi.stubGlobal("fetch", vi.fn(async (path, options = {}) => {
-      if (!options.method || options.method === "GET") return statusResponse();
       sent.path = String(path);
       sent.method = options.method;
       sent.body = JSON.parse(options.body);
@@ -112,28 +109,19 @@ describe("RecoveryPhraseSetup", () => {
     expect(decrypt(keys.selfKey, aad, fromBase64(sent.body.self_sealed))).toEqual(SIGNING_PUBLIC);
   });
 
-  it("signs the save with the old phrase when replacing one", async () => {
+  it("replaces a phrase without asking for the old one", async () => {
     const user = userEvent.setup();
-    const oldEntropy = newEntropy();
-    const { authPublic } = derive(oldEntropy, LUNA_ID);
-    const challenge = new Uint8Array(32).fill(7);
-    const sent = {};
+    const sent = { paths: [] };
     vi.stubGlobal("fetch", vi.fn(async (path, options = {}) => {
-      const url = String(path);
-      if (!options.method || options.method === "GET") return statusResponse({ set: true, set_at: 1 });
-      if (url.endsWith("/challenge")) {
-        return new Response(JSON.stringify({ challenge: toBase64(challenge) }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-      sent.body = JSON.parse(options.body);
+      sent.paths.push(String(path));
+      sent.body = options.body ? JSON.parse(options.body) : undefined;
       return new Response(JSON.stringify({ set: true, set_at: 2 }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
     }));
-    const { onClose } = renderSetup({ oldEntropy });
+    const { onClose } = renderSetup({ replacing: true });
+    expect(screen.getByRole("heading", { name: "Set a new recovery phrase" })).toBeInTheDocument();
     const words = shownWords();
 
     await user.click(screen.getByRole("button", { name: "I wrote them down" }));
@@ -141,13 +129,15 @@ describe("RecoveryPhraseSetup", () => {
     await user.click(screen.getByRole("button", { name: "Save recovery phrase" }));
 
     await waitFor(() => expect(onClose).toHaveBeenCalled());
-    expect(verify(authPublic, "phrase-check", challenge, fromBase64(sent.body.signature))).toBe(true);
+    expect(sent.paths).toEqual(["/api/v1/cloud/phrase"]);
+    expect(sent.body).not.toHaveProperty("signature");
+    expect(sent.body.self_sealed).toBeTruthy();
   });
 
   it("says what happens to the cloud if the phrase is lost", () => {
     renderSetup();
     expect(
-      screen.getByText("If you lose it, your private items in the cloud can't be opened by anyone, including us."),
+      screen.getByText("If you lose it, no one can open your cloud backups for you, including us."),
     ).toBeInTheDocument();
   });
 

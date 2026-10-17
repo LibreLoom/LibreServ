@@ -34,6 +34,14 @@ export function getPhraseStatus() {
   return getJson(PHRASE_PATH);
 }
 
+/**
+ * POST: `{ luna_id, signing_public }`. Creates Luna's identity the first time
+ * (a fresh Luna has no `luna_id` yet). Safe to call again; returns the same identity.
+ */
+export function createIdentity() {
+  return postJson("/api/v1/cloud/identity", {});
+}
+
 /** POST: `{ challenge }` (base64, 32 bytes, single-use). */
 export function requestChallenge() {
   return postJson(`${PHRASE_PATH}/challenge`, {});
@@ -73,11 +81,10 @@ export async function signFreshChallenge(entropy, lunaId) {
  * base64; it does not open it.
  *
  * @param {Uint8Array} entropy 16 bytes of phrase entropy
- * @param {{ lunaId: string, userId: string, signingPublic: Uint8Array | string, signature?: string }} opts
- *   `signingPublic` is 32 bytes, or base64 of 32 bytes. `signature` is required when
- *   replacing an existing phrase.
+ * @param {{ lunaId: string, userId: string, signingPublic: Uint8Array | string }} opts
+ *   `signingPublic` is 32 bytes, or base64 of 32 bytes.
  */
-export function buildPhraseBody(entropy, { lunaId, userId, signingPublic, signature }) {
+export function buildPhraseBody(entropy, { lunaId, userId, signingPublic }) {
   const signingBytes = typeof signingPublic === "string" ? fromBase64(signingPublic) : signingPublic;
   if (!signingBytes || signingBytes.length !== 32) {
     throw new Error("Luna's signing key is missing. Reload the page and try again.");
@@ -93,6 +100,5 @@ export function buildPhraseBody(entropy, { lunaId, userId, signingPublic, signat
     auth_public: toBase64(keys.authPublic),
     self_sealed: toBase64(encrypt(keys.selfKey, aad, signingBytes)),
   };
-  if (signature) body.signature = signature;
   return body;
 }

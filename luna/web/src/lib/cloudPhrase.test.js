@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { canonical, decrypt, derive, newEntropy, verify } from "./backupCrypto";
-import { buildPhraseBody, fromBase64, signFreshChallenge, toBase64 } from "./cloudPhrase";
+import { buildPhraseBody, createIdentity, fromBase64, signFreshChallenge, toBase64 } from "./cloudPhrase";
 
 const LUNA_ID = "luna-test-1";
 const USER_ID = "42";
@@ -43,15 +43,25 @@ describe("buildPhraseBody", () => {
     ).toThrow();
   });
 
-  it("includes the signature when one is given", () => {
-    const entropy = newEntropy();
-    const body = buildPhraseBody(entropy, {
-      lunaId: LUNA_ID,
-      userId: USER_ID,
-      signingPublic: SIGNING_PUBLIC,
-      signature: "c2ln",
-    });
-    expect(body.signature).toBe("c2ln");
+});
+
+describe("createIdentity", () => {
+  it("POSTs an empty body to the identity route and returns luna_id and signing_public", async () => {
+    const sent = {};
+    vi.stubGlobal("fetch", vi.fn(async (path, options) => {
+      sent.path = String(path);
+      sent.method = options.method;
+      sent.body = JSON.parse(options.body);
+      return new Response(JSON.stringify({ luna_id: LUNA_ID, signing_public: toBase64(SIGNING_PUBLIC) }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }));
+
+    const result = await createIdentity();
+
+    expect(sent).toEqual({ path: "/api/v1/cloud/identity", method: "POST", body: {} });
+    expect(result).toEqual({ luna_id: LUNA_ID, signing_public: toBase64(SIGNING_PUBLIC) });
   });
 });
 

@@ -130,20 +130,31 @@ pub fn load_or_create_connected(
 }
 
 /// The Luna id this Luna must keep, or None when it has none yet (so a new one is minted).
-/// Connect's list decides when it answers with a usable answer. Otherwise the drive copies decide.
+/// Only ids with a key copy on a connected drive are candidates: Connect's list is for the
+/// whole account, so an id that exists only there is never adopted. One candidate is used.
+/// Several are narrowed to the ids Connect also lists. Still several (or Connect cannot
+/// answer) is an error. None left means no candidate is this Luna's, so a new one is minted.
 fn known_luna_id(roots: &[PathBuf], connect: &ConnectService) -> Result<Option<String>> {
-    match connect.list_luna_ids() {
-        Ok(rows) if rows.len() == 1 => return Ok(Some(rows[0].luna_id.clone())),
-        Ok(rows) if rows.len() > 1 => bail!(AMBIGUOUS_MSG),
-        Ok(_) => {}
-        Err(e) => {
-            tracing::warn!(error = %e, "could not ask Luna Connect which Luna id this device has");
-        }
+    let candidates = drive_luna_ids(roots);
+    match candidates.len() {
+        0 => return Ok(None),
+        1 => return Ok(candidates.into_iter().next()),
+        _ => {}
     }
-    let mut from_drives = drive_luna_ids(roots);
-    match from_drives.len() {
+    let account_ids = match connect.list_luna_ids() {
+        Ok(rows) => rows.into_iter().map(|row| row.luna_id).collect::<BTreeSet<_>>(),
+        Err(e) => {
+            tracing::warn!(error = %e, "could not ask Luna Connect which Luna ids are on this account");
+            bail!(AMBIGUOUS_MSG);
+        }
+    };
+    let mut both: Vec<String> = candidates
+        .into_iter()
+        .filter(|id| account_ids.contains(id))
+        .collect();
+    match both.len() {
         0 => Ok(None),
-        1 => Ok(from_drives.pop()),
+        1 => Ok(both.pop()),
         _ => bail!(AMBIGUOUS_MSG),
     }
 }
@@ -437,15 +448,17 @@ mod tests {
     }
 
     #[test]
-    fn known_id_without_a_drive_copy_is_refused_not_replaced() {
+    fn connect_only_id_without_a_drive_copy_is_not_adopted() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("luna.db");
         db::open(&path).unwrap();
-        let (url, _seen) = fake_connect(&listing(&["luna-unknownunknownunknownun"]), 1);
+        // Connect lists an id for the account, but no drive holds its key copy.
+        let (url, _seen) = fake_connect(&listing(&["luna-unknownunknownunknownun"]), 2);
         let connect = connect_to(&dir.path().join("connect"), &url);
-        let err = load_or_create_connected(&db_at(&path), &connect, 1).err().unwrap();
-        assert!(err.to_string().contains("Connect the drive"), "{err}");
-        assert!(load(&db_at(&path).lock().unwrap()).unwrap().is_none());
+        let minted = load_or_create_connected(&db_at(&path), &connect, 1).unwrap();
+        assert_ne!(minted.luna_id, "luna-unknownunknownunknownun");
+        let stored = load(&db_at(&path).lock().unwrap()).unwrap().unwrap();
+        assert_eq!(stored.luna_id, minted.luna_id);
     }
 
     /// A fake Luna Connect on localhost. It answers the first request line `GET` with
@@ -566,15 +579,39 @@ mod tests {
     }
 
     #[test]
-    fn two_ids_from_connect_mint_nothing() {
+    fn ids_only_connect_lists_are_never_adopted() {
         let dir = tempfile::tempdir().unwrap();
         let conn = db::open(&dir.path().join("luna.db")).unwrap();
-        let (url, _seen) = fake_connect(&listing(&["luna-aaaaaaaaaaaaaaaaaaaaaaaaaa", "luna-bbbbbbbbbbbbbbbbbbbbbbbbbb"]), 1);
+        let other = "luna-aaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let (url, _seen) = fake_connect(&listing(&[other, "luna-bbbbbbbbbbbbbbbbbbbbbbbbbb"]), 1);
         let connect = connect_to(&dir.path().join("connect"), &url);
 
-        let err = load_or_create_connected(&db_at(&dir.path().join("luna.db")), &connect, 1).err().unwrap();
-        assert!(err.to_string().contains("Contact your Admin"), "{err}");
-        assert!(load(&conn).unwrap().is_none());
+        // No drive holds a key copy, so the account's ids are not this Luna's: a new one is minted.
+        let made = load_or_create_connected(&db_at(&dir.path().join("luna.db")), &connect, 1).unwrap();
+        assert_ne!(made.luna_id, other);
+        assert_eq!(load(&conn).unwrap().unwrap().luna_id, made.luna_id);
+    }
+
+    #[test]
+    fn several_drive_copies_are_narrowed_by_connect() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("drive");
+        let first_conn = db::open(&dir.path().join("a.db")).unwrap();
+        connected_drive(&first_conn, &root, "d1");
+        let first = load_or_create(&first_conn, 1).unwrap();
+        let second_conn = db::open(&dir.path().join("b.db")).unwrap();
+        let second = load_or_create(&second_conn, 2).unwrap();
+        copy_to_drive_at(&root, &second, 2).unwrap();
+
+        let fresh = db::open(&dir.path().join("fresh.db")).unwrap();
+        db::upsert_drive(&fresh, "d1", "Photos", "as_is", "ext4", "sdb", root.to_str().unwrap())
+            .unwrap();
+        let (url, _seen) = fake_connect(&listing(&[&second.luna_id]), 2);
+        let connect = connect_to(&dir.path().join("connect"), &url);
+
+        let back = load_or_create_connected(&db_at(&dir.path().join("fresh.db")), &connect, 9).unwrap();
+        assert_eq!(back.luna_id, second.luna_id);
+        assert_ne!(back.luna_id, first.luna_id);
     }
 
     #[test]
@@ -630,12 +667,25 @@ mod tests {
     #[test]
     fn connect_is_asked_with_the_database_lock_free() {
         let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("drive");
+        let first_conn = db::open(&dir.path().join("a.db")).unwrap();
+        connected_drive(&first_conn, &root, "d1");
+        load_or_create(&first_conn, 1).unwrap();
+        let second_conn = db::open(&dir.path().join("b.db")).unwrap();
+        let second = load_or_create(&second_conn, 2).unwrap();
+        copy_to_drive_at(&root, &second, 2).unwrap();
+        let fresh = db::open(&dir.path().join("luna.db")).unwrap();
+        db::upsert_drive(&fresh, "d1", "Photos", "as_is", "ext4", "sdb", root.to_str().unwrap())
+            .unwrap();
+        drop(fresh);
+
+        // Two drive copies: one Connect lookup (to narrow them), then the registration.
         let db = Arc::new(db_at(&dir.path().join("luna.db")));
-        // No Connect id and no drives: one lookup, then a new identity is registered.
-        let (url, probes) = fake_connect_probing(&listing(&[]), 2, db.clone());
+        let (url, probes) = fake_connect_probing(&listing(&[&second.luna_id]), 2, db.clone());
         let connect = connect_to(&dir.path().join("connect"), &url);
 
         let made = load_or_create_connected(&db, &connect, 1).unwrap();
+        assert_eq!(made.luna_id, second.luna_id);
         let probes = probes.lock().unwrap().clone();
         assert_eq!(probes.len(), 2, "one lookup and one registration");
         assert!(probes.iter().all(|free| *free), "the DB lock was held during a Connect request: {probes:?}");

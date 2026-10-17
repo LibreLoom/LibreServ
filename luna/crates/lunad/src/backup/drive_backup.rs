@@ -365,9 +365,11 @@ fn run_inner(
     // The Luna id goes in the manifest too, read under the same lock.
     let (access, albums, luna_id) = with_conn(db, |c| {
         let access = access_list::for_source(c, &row.source_drive, &row.source_path);
-        // `None` when the identity cannot be read: the manifest keeps its Luna id.
+        // `None` when there is no identity here (a lost system DB) or it cannot be
+        // read: either way the manifest keeps its Luna id.
         let luna_id = match crate::backup::cloud::identity::load(c) {
-            Ok(identity) => Some(identity.map(|identity| identity.luna_id)),
+            Ok(Some(identity)) => Some(Some(identity.luna_id)),
+            Ok(None) => None,
             Err(e) => {
                 tracing::warn!(error = %e, "could not read the cloud identity; keeping the manifest's Luna id");
                 None
@@ -1571,6 +1573,28 @@ mod tests {
         s.db.lock()
             .unwrap()
             .execute("UPDATE cloud_identity SET signing_seed = x'01' WHERE id = 1", [])
+            .unwrap();
+        run(&s.db, &id, NOW + 60).unwrap();
+        assert_eq!(manifest(&s, &id).luna_id, Some(luna_id));
+    }
+
+    #[test]
+    fn a_missing_identity_keeps_the_manifest_luna_id() {
+        let s = setup();
+        write(&docs(&s).join("a.txt"), "one");
+        let id = make_backup(&s);
+        let luna_id = with_conn(&s.db, |c| {
+            crate::backup::cloud::identity::load_or_create(c, NOW)
+        })
+        .unwrap()
+        .luna_id;
+        run(&s.db, &id, NOW).unwrap();
+        assert_eq!(manifest(&s, &id).luna_id, Some(luna_id.clone()));
+
+        // A lost system DB has no identity row at all.
+        s.db.lock()
+            .unwrap()
+            .execute("DELETE FROM cloud_identity", [])
             .unwrap();
         run(&s.db, &id, NOW + 60).unwrap();
         assert_eq!(manifest(&s, &id).luna_id, Some(luna_id));

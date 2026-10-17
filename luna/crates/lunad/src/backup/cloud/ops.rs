@@ -62,6 +62,10 @@ pub fn create(
     source_drive: &str,
     source_path: &str,
 ) -> Result<ProtectionRow, Refused> {
+    // A new backup means the account may now have a card, so an earlier refusal stops counting.
+    if let Err(err) = clear_card_marker(db) {
+        tracing::warn!(error = %err, "could not clear the card marker");
+    }
     let norm = crate::access::normalize_subject_path(source_path);
 
     let existing = {
@@ -110,7 +114,7 @@ pub fn create(
         .ok_or_else(save_refused)
 }
 
-const IDENTITY_REFUSAL: &str =
+pub const IDENTITY_REFUSAL: &str =
     "Luna could not set up its backup identity. Try again, or contact your Admin.";
 
 fn save_refused() -> Refused {
@@ -173,12 +177,14 @@ fn check_new_backup(
 /// Run one cloud backup now, then tidy its old copies. Records the result on
 /// the row and returns what happened. A run already in progress is refused.
 /// `started_by` is the user who asked for the run, or empty for a scheduled one.
+/// `accept_missing` is passed to the run; see `run::run_once`.
 pub fn run(
     db: &crate::Db,
     id: &str,
     store: &dyn CloudStore,
     connect: &ConnectService,
     started_by: &str,
+    accept_missing: bool,
     now: i64,
 ) -> CloudOutcome {
     let Some(_slot) = drive_backup::try_hold(id) else {
@@ -192,7 +198,7 @@ pub fn run(
             Some(USER_LIST_FAILED)
         }
     };
-    let mut outcome = match run::run_once(db, id, store, started_by, now) {
+    let mut outcome = match run::run_once(db, id, store, started_by, accept_missing, now) {
         Ok(out) if out.problem.is_none() => match tidy(db, id, store, now) {
             Ok(()) => out,
             Err(err) => {
@@ -227,6 +233,12 @@ fn note_card_marker(db: &crate::Db, problem: Option<&str>) -> anyhow::Result<()>
         Some(_) => Ok(()),
         None => db::set_meta(&conn, CARD_MARKER, ""),
     }
+}
+
+/// Forget an earlier card refusal, so the next run asks Luna Connect again.
+fn clear_card_marker(db: &crate::Db) -> anyhow::Result<()> {
+    let conn = lock(db);
+    db::set_meta(&conn, CARD_MARKER, "")
 }
 
 /// True while Luna Connect says this account has no payment card for cloud backups.
@@ -286,7 +298,7 @@ pub fn run_all(db: &crate::Db, store: Option<&dyn CloudStore>, connect: &Connect
         Some(store) => {
             for (id, _) in &before {
                 // Scheduled runs have no user who started them.
-                run(db, id, store, connect, "", now);
+                run(db, id, store, connect, "", false, now);
             }
             sweep(db, store, now);
         }
@@ -411,6 +423,10 @@ pub fn delete(db: &crate::Db, id: &str, store: &dyn CloudStore, now: i64) -> any
         "DELETE FROM backup_keys WHERE protection_id = ?1",
         params![id],
     )?;
+    // With no cloud backup left, no run can be refused for a card, so the marker goes too.
+    if !db::list_protections(&conn)?.iter().any(|p| p.kind == db::PROTECTION_CLOUD) {
+        db::set_meta(&conn, CARD_MARKER, "")?;
+    }
     Ok(())
 }
 
@@ -737,7 +753,7 @@ mod tests {
         let id = make_backup(&s);
         let store = ListRefused(MemoryStore::new());
 
-        let outcome = run(&s.db, &id, &store, &s.connect, "", NOW);
+        let outcome = run(&s.db, &id, &store, &s.connect, "", false, NOW);
         assert_eq!(outcome.problem.as_deref(), Some(USER_LIST_FAILED));
         assert_eq!(store.0.list_records("snapshots").unwrap().len(), 1);
     }
@@ -780,23 +796,52 @@ mod tests {
         let id = make_backup(&s);
         assert!(card_on_file(&s.db), "no run yet: nothing refused");
 
-        let refused = run(&s.db, &id, &NoCard(MemoryStore::new()), &s.connect, "", NOW);
+        let refused = run(&s.db, &id, &NoCard(MemoryStore::new()), &s.connect, "", false, NOW);
         assert!(refused.problem.as_deref().unwrap_or("").contains(CARD_REQUIRED_PREFIX), "{refused:?}");
         assert!(!card_on_file(&s.db));
 
-        let ok = run(&s.db, &id, &MemoryStore::new(), &s.connect, "", NOW);
+        let ok = run(&s.db, &id, &MemoryStore::new(), &s.connect, "", false, NOW);
         assert_eq!(ok.problem, None);
         assert!(card_on_file(&s.db));
+    }
+
+    #[test]
+    fn creating_a_backup_clears_an_old_card_refusal() {
+        let s = setup();
+        db::set_meta(&lock(&s.db), CARD_MARKER, "1").unwrap();
+        assert!(!card_on_file(&s.db));
+        make_backup(&s);
+        assert!(card_on_file(&s.db));
+    }
+
+    #[test]
+    fn deleting_the_last_cloud_backup_clears_the_card_refusal() {
+        let s = setup();
+        let id = make_backup(&s);
+        db::set_meta(&lock(&s.db), CARD_MARKER, "1").unwrap();
+        delete(&s.db, &id, &MemoryStore::new(), NOW).unwrap();
+        assert!(card_on_file(&s.db));
+    }
+
+    #[test]
+    fn deleting_one_of_two_cloud_backups_keeps_the_card_refusal() {
+        let s = setup();
+        let first = make_backup(&s);
+        fs::create_dir_all(s._dir.path().join(&s.src).join("Pics")).unwrap();
+        create(&s.db, &s.connect, &s.admin, &s.src, "Pics").unwrap();
+        db::set_meta(&lock(&s.db), CARD_MARKER, "1").unwrap();
+        delete(&s.db, &first, &MemoryStore::new(), NOW).unwrap();
+        assert!(!card_on_file(&s.db));
     }
 
     #[test]
     fn other_refusals_leave_the_card_marker_alone() {
         let s = setup();
         let id = make_backup(&s);
-        run(&s.db, &id, &NoCard(MemoryStore::new()), &s.connect, "", NOW);
+        run(&s.db, &id, &NoCard(MemoryStore::new()), &s.connect, "", false, NOW);
         assert!(!card_on_file(&s.db));
 
-        let outcome = run(&s.db, &id, &ListRefused(MemoryStore::new()), &s.connect, "", NOW);
+        let outcome = run(&s.db, &id, &ListRefused(MemoryStore::new()), &s.connect, "", false, NOW);
         assert_eq!(outcome.problem.as_deref(), Some(USER_LIST_FAILED));
         assert!(!card_on_file(&s.db));
     }
@@ -807,7 +852,7 @@ mod tests {
         let id = make_backup(&s);
         let store = MemoryStore::new();
 
-        let outcome = run(&s.db, &id, &store, &s.connect, "", NOW);
+        let outcome = run(&s.db, &id, &store, &s.connect, "", false, NOW);
         assert_eq!(outcome.problem, None);
         assert_eq!(store.list_records("snapshots").unwrap().len(), 1);
         {

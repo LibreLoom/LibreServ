@@ -12,6 +12,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 use super::crypto;
 use super::format::{self, SignedRecord};
+use crate::backup::access_list::AccessList;
 use super::identity::Identity;
 use super::run::PACK_KEY_WRAP_AAD;
 use super::store::CloudStore;
@@ -128,8 +129,9 @@ fn index_one(
         record: bytes.to_vec(),
     };
     let tx = conn.transaction()?;
+    // A pack row may already exist (for example from a run that was interrupted), so keep it.
     tx.execute(
-        "INSERT INTO cloud_packs (id, scope, state, run_id, size, marked_at, created_at)
+        "INSERT OR IGNORE INTO cloud_packs (id, scope, state, run_id, size, marked_at, created_at)
          VALUES (?1, ?2, 'live', ?3, ?4, 0, ?5)",
         params![tree_pack_id, scope, RECOVERED_RUN, pack_bytes.len() as i64, now],
     )?;
@@ -138,9 +140,15 @@ fn index_one(
         "INSERT OR IGNORE INTO cloud_snapshot_packs (snapshot_id, pack_id) VALUES (?1, ?2)",
         params![snapshot.id, tree_pack_id],
     )?;
-    index_tree_chunks(&tx, &scope, &snapshot.id, &tree, now)?;
+    index_tree_chunks(&tx, store, &scope, &snapshot.id, &tree, now)?;
     // Keep an existing protection row and key as they are; restore them only when missing.
     if db::get_protection(&tx, &record.protection_id)?.is_none() {
+        // Older records can leave the starter empty, so fall back to the first Admin.
+        let created_by = if meta.started_by.is_empty() {
+            db::first_admin(&tx)?.map(|u| u.id).unwrap_or_default()
+        } else {
+            meta.started_by.clone()
+        };
         db::insert_protection(
             &tx,
             &db::NewProtection {
@@ -150,10 +158,13 @@ fn index_one(
                 source_path: &meta.source_path,
                 target_drive: "",
                 private_owner: "",
-                created_by: &meta.started_by,
+                created_by: &created_by,
                 created_at: record.created_at,
             },
         )?;
+        // A shared backup is visible to every Admin, so the standing Admins entry comes back with it.
+        let access = AccessList { users: Vec::new(), admins: true };
+        db::set_protection_access(&tx, &record.protection_id, &serde_json::to_string(&access)?)?;
     }
     if !backup_key_exists(&tx, &key.protection_id, key.version)? {
         db::insert_backup_key(&tx, key)?;
@@ -164,15 +175,29 @@ fn index_one(
 
 /// Rebuild where each chunk of a snapshot's files is stored: its data pack, offset and length.
 /// Packs are INSERT OR IGNORE, since many snapshots share the same data packs.
-/// The data pack's size is not in the tree, so it stays 0 until a later check fills it in.
-fn index_tree_chunks(tx: &rusqlite::Transaction, scope: &str, snapshot_id: &str, tree: &format::Tree, now: i64) -> Result<()> {
+/// The data pack's size is not in the tree, so it is measured from the pack the store holds.
+/// The store has no size lookup, so each pack is fetched once, the first time it is seen.
+/// A pack the store cannot return keeps size 0.
+fn index_tree_chunks(
+    tx: &rusqlite::Transaction,
+    store: &dyn CloudStore,
+    scope: &str,
+    snapshot_id: &str,
+    tree: &format::Tree,
+    now: i64,
+) -> Result<()> {
     for entry in &tree.entries {
         for chunk in &entry.chunks {
             let pack_id = hex(&chunk.pack);
+            let size = if pack_row_exists(tx, &pack_id)? {
+                0
+            } else {
+                store.get_pack(&chunk.pack).map(|bytes| bytes.len() as i64).unwrap_or(0)
+            };
             tx.execute(
                 "INSERT OR IGNORE INTO cloud_packs (id, scope, state, run_id, size, marked_at, created_at)
-                 VALUES (?1, ?2, 'live', ?3, 0, 0, ?4)",
-                params![pack_id, scope, RECOVERED_RUN, now],
+                 VALUES (?1, ?2, 'live', ?3, ?4, 0, ?5)",
+                params![pack_id, scope, RECOVERED_RUN, size, now],
             )?;
             db::insert_chunk(tx, scope, &chunk.id, &pack_id, chunk.offset as i64, i64::from(chunk.len))?;
             tx.execute(
@@ -191,6 +216,13 @@ fn backup_key_exists(conn: &Connection, protection_id: &str, version: i64) -> Re
             params![protection_id, version],
             |r| r.get(0),
         )
+        .optional()?;
+    Ok(found.is_some())
+}
+
+fn pack_row_exists(conn: &Connection, pack_id: &str) -> Result<bool> {
+    let found: Option<i64> = conn
+        .query_row("SELECT 1 FROM cloud_packs WHERE id = ?1", params![pack_id], |r| r.get(0))
         .optional()?;
     Ok(found.is_some())
 }
@@ -367,6 +399,14 @@ mod tests {
             )
             .unwrap();
         assert_eq!(state, "live");
+        let size: i64 = fresh
+            .query_row(
+                "SELECT size FROM cloud_packs WHERE id = ?1",
+                params![hex(&data_pack.id)],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(size, data_pack.bytes.len() as i64);
         // The tree pack and the data pack both belong to the snapshot.
         assert_eq!(count(&fresh, "cloud_snapshot_packs"), 2);
         assert_eq!(count(&fresh, "cloud_packs"), 2);
@@ -488,5 +528,70 @@ mod tests {
         assert_eq!(count(&fresh, "cloud_snapshots"), 0);
         assert!(db::get_protection(&fresh, "p1").unwrap().is_none());
         assert_eq!(count(&fresh, "backup_keys"), 0);
+    }
+
+    #[test]
+    fn a_pack_row_already_in_the_index_does_not_stop_the_rebuild() {
+        let (_dir, id) = fixture();
+        let store = MemoryStore::new();
+        let pack = put_snapshot(&store, &id, "snap-a", id.luna_id());
+        let fresh_dir = tempfile::tempdir().unwrap();
+        let mut fresh = db::open(&fresh_dir.path().join("luna.db")).unwrap();
+        fresh
+            .execute(
+                "INSERT INTO cloud_packs (id, scope, state, run_id, size, marked_at, created_at)
+                 VALUES (?1, 'scope', 'live', 'older-run', 5, 0, ?2)",
+                params![hex(&pack), NOW],
+            )
+            .unwrap();
+
+        let out = rebuild_snapshot_index(&mut fresh, &store, &id, &[backup_key(TREE_KEY)], NOW).unwrap();
+
+        assert_eq!(out, Recovered { snapshots: 1, already_indexed: 0, skipped: 0 });
+        assert_eq!(count(&fresh, "cloud_snapshots"), 1);
+        let run: String = fresh
+            .query_row("SELECT run_id FROM cloud_packs WHERE id = ?1", params![hex(&pack)], |r| r.get(0))
+            .unwrap();
+        assert_eq!(run, "older-run");
+    }
+
+    #[test]
+    fn the_restored_protection_is_shared_with_admins() {
+        let (_dir, id) = fixture();
+        let store = MemoryStore::new();
+        put_snapshot(&store, &id, "snap-a", id.luna_id());
+        let fresh_dir = tempfile::tempdir().unwrap();
+        let mut fresh = db::open(&fresh_dir.path().join("luna.db")).unwrap();
+
+        rebuild_snapshot_index(&mut fresh, &store, &id, &[backup_key(TREE_KEY)], NOW).unwrap();
+
+        let row = db::get_protection(&fresh, "p1").unwrap().unwrap();
+        let access: AccessList = serde_json::from_str(&row.access_json).unwrap();
+        assert_eq!(access, AccessList { users: Vec::new(), admins: true });
+    }
+
+    #[test]
+    fn a_protection_without_a_starter_is_created_by_the_first_admin() {
+        let (_dir, id) = fixture();
+        let store = MemoryStore::new();
+        let meta = format::encrypt_meta(
+            &BackupMeta {
+                name: "Photos".into(),
+                source_drive: "drive-a".into(),
+                source_path: "/Photos".into(),
+                started_by: String::new(),
+            },
+            &TREE_KEY,
+        );
+        let tree = format::Tree { entries: Vec::new() };
+        put_snapshot_with_meta(&store, &id, "snap-a", id.luna_id(), &tree, meta);
+        let fresh_dir = tempfile::tempdir().unwrap();
+        let mut fresh = db::open(&fresh_dir.path().join("luna.db")).unwrap();
+        db::insert_user(&fresh, "admin-1", "owner", "Owner", "hash", "admin").unwrap();
+
+        rebuild_snapshot_index(&mut fresh, &store, &id, &[backup_key(TREE_KEY)], NOW).unwrap();
+
+        let row = db::get_protection(&fresh, "p1").unwrap().unwrap();
+        assert_eq!(row.created_by, "admin-1");
     }
 }

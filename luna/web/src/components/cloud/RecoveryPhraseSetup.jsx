@@ -8,13 +8,7 @@ import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { apiErrorMessage } from "../../lib/api";
 import { entropyToPhrase, newEntropy } from "../../lib/backupCrypto";
-import {
-  buildPhraseBody,
-  getPhraseStatus,
-  PHRASE_QUERY_KEY,
-  savePhrase,
-  signFreshChallenge,
-} from "../../lib/cloudPhrase";
+import { buildPhraseBody, PHRASE_QUERY_KEY, savePhrase } from "../../lib/cloudPhrase";
 
 /** Three distinct word positions (0-based), sorted, picked at random. */
 function pickCheckPositions() {
@@ -35,10 +29,18 @@ function ErrorNotice({ children }) {
 
 /**
  * Shows 12 new words, asks for three of them back, then saves the phrase.
- * `oldEntropy` is set when replacing a phrase: the save is then signed with the
- * old phrase. The words live only in this component's state.
+ * `signingPublic` is Luna's signing public key (base64) from the status call.
+ * `replacing` is set when a phrase already exists; the old phrase is not needed.
+ * The words live only in this component's state.
  */
-export default function RecoveryPhraseSetup({ lunaId, userId, oldEntropy = null, onClose, onSaved = null }) {
+export default function RecoveryPhraseSetup({
+  lunaId,
+  userId,
+  signingPublic,
+  replacing = false,
+  onClose,
+  onSaved = null,
+}) {
   const queryClient = useQueryClient();
   const { addToast } = useToast();
   const [entropy] = useState(() => newEntropy());
@@ -50,7 +52,7 @@ export default function RecoveryPhraseSetup({ lunaId, userId, oldEntropy = null,
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const title = oldEntropy ? "Change your recovery phrase" : "Set up your recovery phrase";
+  const title = replacing ? "Set a new recovery phrase" : "Set up your recovery phrase";
 
   async function copyWords() {
     try {
@@ -107,13 +109,10 @@ export default function RecoveryPhraseSetup({ lunaId, userId, oldEntropy = null,
     }
     setSaving(true);
     try {
-      // A replacement must be signed by the old phrase, with a challenge fetched just now.
       // Luna's signing public key is sealed into the save, so Connect cannot swap it.
-      const status = await queryClient.fetchQuery({ queryKey: PHRASE_QUERY_KEY, queryFn: getPhraseStatus });
-      const signature = oldEntropy ? await signFreshChallenge(oldEntropy, lunaId) : undefined;
-      await savePhrase(buildPhraseBody(entropy, { lunaId, userId, signingPublic: status.signing_public, signature }));
+      await savePhrase(buildPhraseBody(entropy, { lunaId, userId, signingPublic }));
       await queryClient.invalidateQueries({ queryKey: PHRASE_QUERY_KEY });
-      addToast({ type: "success", message: oldEntropy ? "Recovery phrase changed." : "Recovery phrase saved." });
+      addToast({ type: "success", message: replacing ? "Recovery phrase changed." : "Recovery phrase saved." });
       onSaved?.();
       onClose();
     } catch (err) {
@@ -131,7 +130,7 @@ export default function RecoveryPhraseSetup({ lunaId, userId, oldEntropy = null,
             Write these 12 words down in order and keep them somewhere safe. Anyone with them can open your cloud backups.
           </p>
           <p className="text-primary text-sm">
-            If you lose it, your private items in the cloud can't be opened by anyone, including us.
+            If you lose it, no one can open your cloud backups for you, including us.
           </p>
           <ol className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             {words.map((word, i) => (

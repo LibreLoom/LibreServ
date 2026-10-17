@@ -100,7 +100,7 @@ function stubBackupApi({
         return json({ setup_completed: true });
       }
       if (u.startsWith("/api/v1/cloud/backups")) {
-        if (method === "POST" && u.endsWith("/run")) {
+        if (method === "POST" && /\/run(\?|$)/.test(u)) {
           onCloudRun?.(u);
           return json(cloudRunReply.body, cloudRunReply.status);
         }
@@ -484,7 +484,7 @@ describe("ProtectSheet", () => {
     expect(await screen.findByText("Cloud backup deleted.")).toBeInTheDocument();
   });
 
-  it("asks for a payment card instead of offering cloud backup when no card is on file", async () => {
+  it("asks for a payment card and keeps Back up to the cloud usable when no card is on file", async () => {
     stubBackupApi({
       drives: [{ id: "d1", label: "Main", mount_point: "/mnt/main" }],
       connect: { connect_active: true, card_on_file: false },
@@ -493,7 +493,31 @@ describe("ProtectSheet", () => {
     renderSheet();
     expect(await screen.findByText(/Add a payment card at Luna Connect/)).toBeInTheDocument();
     expect(screen.getByText("connect.luna.libreloom.org")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Back up to the cloud" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Back up to the cloud" })).not.toBeDisabled();
+  });
+
+  it("offers Back up anyway when a cloud run says the source looks missing, and sends accept_missing", async () => {
+    const user = userEvent.setup();
+    const onCloudRun = vi.fn();
+    stubBackupApi({
+      drives: [{ id: "d1", label: "Main", mount_point: "/mnt/main" }],
+      connect: { connect_active: true },
+      cloudBackups: [cloudBackup({ id: "c1" })],
+      cloudRunReply: {
+        status: 200,
+        body: { done: false, problem: "Luna cannot find this folder on the drive.", source_missing: true },
+      },
+      onCloudRun,
+    });
+    renderSheet();
+    await user.click(await screen.findByRole("button", { name: "Back up now" }));
+    expect(await screen.findByText("Luna cannot find this folder on the drive.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Back up anyway" }));
+    await waitFor(() =>
+      expect(onCloudRun).toHaveBeenLastCalledWith(
+        expect.stringContaining("/api/v1/cloud/backups/c1/run?accept_missing=true"),
+      ),
+    );
   });
 
   it("keeps Back up to the cloud disabled while it is being added, then shows the cloud row", async () => {

@@ -4,11 +4,11 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::Deserialize;
 
-use super::crypto::pack_id;
+use super::crypto::{pack_id, Signer};
 
 /// Largest pack Connect accepts.
 pub const MAX_PACK_BYTES: usize = 64 * 1024 * 1024;
@@ -235,6 +235,41 @@ pub struct HttpStore {
     base_url: String,
     device_token: String,
     luna_id: String,
+    /// Luna's own signing key. When set, every request is signed so Connect can
+    /// check the request really comes from this Luna.
+    signer: Option<Signer>,
+}
+
+/// Signing domain for the per-request signature. Connect checks it with the same name.
+const REQUEST_SIGN_DOMAIN: &str = "move";
+
+/// Adds this Luna's id and, when the store is signed, the time and signature headers.
+/// The signature covers the luna id bytes, a zero byte, and the timestamp in decimal.
+trait IdentifyRequest: Sized {
+    fn identify(self, store: &HttpStore) -> Self;
+}
+
+impl<M> IdentifyRequest for ureq::RequestBuilder<M> {
+    fn identify(self, store: &HttpStore) -> Self {
+        let req = self.header("X-Luna-Id", store.luna_id.as_str());
+        let Some(signer) = &store.signer else {
+            return req;
+        };
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0)
+            .to_string();
+        let mut msg = store.luna_id.as_bytes().to_vec();
+        msg.push(0);
+        msg.extend_from_slice(ts.as_bytes());
+        let sig: String = signer
+            .sign(REQUEST_SIGN_DOMAIN, &msg)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        req.header("X-Luna-Ts", ts).header("X-Luna-Sig", sig)
+    }
 }
 
 /// A finished HTTP exchange: status and the body, already read.
@@ -260,7 +295,15 @@ impl HttpStore {
             base_url: base_url.trim_end_matches('/').to_string(),
             device_token: device_token.to_string(),
             luna_id: luna_id.to_string(),
+            signer: None,
         }
+    }
+
+    /// Signs every request with Luna's own key, so Connect can check that the
+    /// request comes from this Luna.
+    pub fn signed_by(mut self, signer: Signer) -> Self {
+        self.signer = Some(signer);
+        self
     }
 
     fn url(&self, path: &str) -> String {
@@ -327,7 +370,7 @@ impl CloudStore for HttpStore {
             .timeout_connect(Some(CONNECT_TIMEOUT))
             .build()
             .header("Authorization", self.auth())
-            .header("X-Luna-Id", self.luna_id.as_str());
+            .identify(self);
         if let Some(scope) = scope {
             req = req.header("X-Luna-Scope", scope);
         }
@@ -349,7 +392,7 @@ impl CloudStore for HttpStore {
                 .timeout_connect(Some(CONNECT_TIMEOUT))
                 .build()
                 .header("Authorization", self.auth())
-                .header("X-Luna-Id", self.luna_id.as_str())
+                .identify(self)
                 .call(),
             MAX_PACK_BYTES as u64,
         )?;
@@ -370,7 +413,7 @@ impl CloudStore for HttpStore {
                 .timeout_connect(Some(CONNECT_TIMEOUT))
                 .build()
                 .header("Authorization", self.auth())
-                .header("X-Luna-Id", self.luna_id.as_str())
+                .identify(self)
                 .call(),
             MAX_JSON_REPLY_BYTES,
         )?;
@@ -392,7 +435,7 @@ impl CloudStore for HttpStore {
                 .timeout_connect(Some(CONNECT_TIMEOUT))
                 .build()
                 .header("Authorization", self.auth())
-                .header("X-Luna-Id", self.luna_id.as_str())
+                .identify(self)
                 .send(bytes),
             MAX_JSON_REPLY_BYTES,
         )?;
@@ -416,7 +459,7 @@ impl CloudStore for HttpStore {
                 .timeout_connect(Some(CONNECT_TIMEOUT))
                 .build()
                 .header("Authorization", self.auth())
-                .header("X-Luna-Id", self.luna_id.as_str())
+                .identify(self)
                 .call(),
             MAX_RECORD_BYTES as u64,
         )?;
@@ -440,7 +483,7 @@ impl CloudStore for HttpStore {
                 .timeout_connect(Some(CONNECT_TIMEOUT))
                 .build()
                 .header("Authorization", self.auth())
-                .header("X-Luna-Id", self.luna_id.as_str())
+                .identify(self)
                 .call(),
             MAX_JSON_REPLY_BYTES,
         )?;
@@ -465,7 +508,7 @@ impl CloudStore for HttpStore {
                 .timeout_connect(Some(CONNECT_TIMEOUT))
                 .build()
                 .header("Authorization", self.auth())
-                .header("X-Luna-Id", self.luna_id.as_str())
+                .identify(self)
                 .call(),
             MAX_JSON_REPLY_BYTES,
         )?;
@@ -485,7 +528,7 @@ impl CloudStore for HttpStore {
                 .timeout_connect(Some(CONNECT_TIMEOUT))
                 .build()
                 .header("Authorization", self.auth())
-                .header("X-Luna-Id", self.luna_id.as_str())
+                .identify(self)
                 .call(),
             MAX_JSON_REPLY_BYTES,
         )?;
@@ -619,6 +662,55 @@ mod tests {
             store.put_record("Snapshot", "x", b"x"),
             Err(StoreError::Rejected(_))
         ));
+    }
+
+    #[test]
+    fn signed_requests_carry_a_timestamp_and_a_signature_connect_can_check() {
+        let signer = Signer::from_seed([9u8; 32]);
+        let public = signer.public();
+        let (base, server) = serve(vec![(200, "{}")]);
+        http(&base)
+            .signed_by(signer)
+            .get_pack(&id_of(b"pack"))
+            .unwrap();
+        let head = server.join().unwrap()[0].to_ascii_lowercase();
+        let field = |name: &str| {
+            head.lines()
+                .find_map(|l| l.strip_prefix(&format!("{name}: ")))
+                .unwrap()
+                .trim()
+                .to_string()
+        };
+        let ts = field("x-luna-ts");
+        let sig_hex = field("x-luna-sig");
+        let sig: [u8; 64] = (0..128)
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&sig_hex[i..i + 2], 16).unwrap())
+            .collect::<Vec<u8>>()
+            .try_into()
+            .unwrap();
+        let mut msg = LUNA.as_bytes().to_vec();
+        msg.push(0);
+        msg.extend_from_slice(ts.as_bytes());
+        assert!(crate::backup::cloud::crypto::verify(&public, "move", &msg, &sig));
+        // The signature covers the timestamp, so a changed time must not verify.
+        let mut later = LUNA.as_bytes().to_vec();
+        later.push(0);
+        later.extend_from_slice((ts.parse::<u64>().unwrap() + 1).to_string().as_bytes());
+        assert!(!crate::backup::cloud::crypto::verify(&public, "move", &later, &sig));
+        // The timestamp is Luna's clock in seconds, close to now.
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        assert!(ts.parse::<u64>().unwrap().abs_diff(now) < 60);
+    }
+
+    #[test]
+    fn unsigned_requests_carry_no_signature_headers() {
+        let (base, server) = serve(vec![(200, "{}")]);
+        http(&base).get_pack(&id_of(b"pack")).unwrap();
+        let head = server.join().unwrap()[0].to_ascii_lowercase();
+        assert!(head.contains(&format!("x-luna-id: {LUNA}")));
+        assert!(!head.contains("x-luna-sig"));
+        assert!(!head.contains("x-luna-ts"));
     }
 
     #[test]

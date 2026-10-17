@@ -14,6 +14,7 @@ use crate::AppState;
 use crate::api::response::json_error;
 use crate::auth::CurrentUser;
 use crate::backup::cloud::check::{CheckReport, Sample};
+use crate::backup::cloud::crypto::Signer;
 use crate::backup::cloud::identity;
 use crate::backup::cloud::ops::{self, NOT_SET_UP};
 use crate::backup::cloud::store::HttpStore;
@@ -110,7 +111,7 @@ async fn create(
         let now = db::now_unix();
         match connect_store(&connect, &db) {
             Some(store) => {
-                ops::run(&db, &id, &store, &connect, &started_by, now);
+                ops::run(&db, &id, &store, &connect, &started_by, false, now);
             }
             // Without Connect, every active cloud backup says why it cannot run.
             None => {
@@ -172,11 +173,22 @@ async fn remove(
     }
 }
 
+/// Options for running a backup now. `accept_missing` is the person's answer to "the source
+/// looks missing": true lets the run go ahead anyway. It may come as a query or in the body.
+#[derive(serde::Deserialize, Default)]
+struct RunOptions {
+    #[serde(default)]
+    accept_missing: bool,
+}
+
 async fn run(
     State(state): State<AppState>,
     Extension(user): Extension<CurrentUser>,
     Path(id): Path<String>,
+    axum::extract::Query(query): axum::extract::Query<RunOptions>,
+    body: Option<Json<RunOptions>>,
 ) -> ApiResult {
+    let accept_missing = query.accept_missing || body.is_some_and(|Json(b)| b.accept_missing);
     {
         let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
         let row = find_backup(&conn, &id)?;
@@ -196,7 +208,7 @@ async fn run(
     let started_by = user.id.clone();
     let job = tokio::task::spawn_blocking(move || {
         let store = connect_store(&connect, &db)?;
-        Some(ops::run(&db, &id, &store, &connect, &started_by, db::now_unix()))
+        Some(ops::run(&db, &id, &store, &connect, &started_by, accept_missing, db::now_unix()))
     });
     // A big first copy can take hours. Answer when it's quick; otherwise say
     // it's not done and let the backup's state tell the rest.
@@ -258,12 +270,17 @@ pub fn connect_store(connect: &ConnectService, db: &crate::Db) -> Option<HttpSto
     }
     let token = connect.token().ok()?;
     let base_url = connect.status().base_url;
-    let luna_id = {
-        let conn = db.lock().unwrap_or_else(|p| p.into_inner());
-        // No identity means cloud backup was never set up here, so there is no store to use.
-        identity::load(&conn).ok()??.luna_id().to_string()
+    // A fresh Luna mints its identity here, so the first cloud job can run without a setup step.
+    let identity = match identity::load_or_create_connected(db, connect, db::now_unix()) {
+        Ok(identity) => identity,
+        Err(err) => {
+            tracing::warn!(error = %err, "could not set up Luna's cloud identity");
+            return None;
+        }
     };
-    Some(HttpStore::new(&base_url, &token, &luna_id))
+    // Every request is signed with this Luna's key, so Connect can tell this Luna from any other.
+    let signer = Signer::from_seed(identity.signer().seed());
+    Some(HttpStore::new(&base_url, &token, identity.luna_id()).signed_by(signer))
 }
 
 fn check_json(report: &CheckReport) -> Value {

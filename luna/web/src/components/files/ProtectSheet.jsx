@@ -64,6 +64,8 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
   const [targetDrive, setTargetDrive] = useState("");
   const [deleting, setDeleting] = useState(null);
   const [deletingCloud, setDeletingCloud] = useState(null);
+  // Set when a cloud run stopped because the source looks missing; holds the backup id for "Back up anyway".
+  const [missingSourceId, setMissingSourceId] = useState(null);
   const objectPath = pathKey(path);
 
   const { outerRef: cloudOuterRef, innerRef: cloudInnerRef } = useAnimatedHeight();
@@ -176,14 +178,17 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
     },
   });
   const runCloud = useMutation({
-    mutationFn: (/** @type {string} */ id) => postJson(`/api/v1/cloud/backups/${id}/run`, {}),
-    onSuccess: (res) => {
+    mutationFn: (/** @type {{id: string, acceptMissing?: boolean}} */ { id, acceptMissing = false }) =>
+      postJson(`/api/v1/cloud/backups/${id}/run${acceptMissing ? "?accept_missing=true" : ""}`, {}),
+    onSuccess: (res, { id, acceptMissing = false }) => {
       // A problem stays on this sheet, next to the backup, not in a success toast.
       if (res?.problem) {
         haptic("error");
         setError(res.problem);
+        setMissingSourceId(res.source_missing === true && !acceptMissing ? id : null);
         return;
       }
+      setMissingSourceId(null);
       addToast({
         type: "success",
         message: res?.done
@@ -391,10 +396,6 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                     <p className="text-secondary text-sm">
                       Link this Luna to Luna Connect. Then you can copy any folder or a whole drive off-site.
                     </p>
-                  ) : !cardOnFile && !cloudBackup ? (
-                    <p className="text-secondary text-sm">
-                      Add a payment card at Luna Connect: <InlinePill>connect.luna.libreloom.org</InlinePill> Cloud backup can start after that.
-                    </p>
                   ) : (
                     <>
                       <p className="text-secondary text-sm">
@@ -404,7 +405,8 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                       </p>
                       {!cardOnFile && (
                         <p className="text-secondary text-sm">
-                          Add a payment card at Luna Connect: <InlinePill>connect.luna.libreloom.org</InlinePill> Backups stay paused until then.
+                          Add a payment card at Luna Connect: <InlinePill>connect.luna.libreloom.org</InlinePill>.{" "}
+                          {cloudBackup ? "Backups stay paused until then." : "Cloud backup can start after that."}
                         </p>
                       )}
                     </>
@@ -434,9 +436,21 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                         surface="secondary"
                         loading={runCloud.isPending || cloudBackup.running}
                         disabled={runCloud.isPending || cloudBackup.running}
-                        onClick={() => runCloud.mutate(cloudBackup.id)}
+                        onClick={() => runCloud.mutate({ id: cloudBackup.id })}
                       >
                         Back up now
+                      </Button>
+                    )}
+                    {cloudBackup.status === "active" && missingSourceId === cloudBackup.id && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        surface="secondary"
+                        loading={runCloud.isPending}
+                        disabled={runCloud.isPending}
+                        onClick={() => runCloud.mutate({ id: cloudBackup.id, acceptMissing: true })}
+                      >
+                        Back up anyway
                       </Button>
                     )}
                     {cloudBackup.can_delete && (
@@ -453,7 +467,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                 </div>
               )}
 
-              {cloudConnected && cardOnFile && !cloudBackup && (
+              {cloudConnected && !cloudBackup && (
                 <Button
                   size="sm"
                   variant="secondary"

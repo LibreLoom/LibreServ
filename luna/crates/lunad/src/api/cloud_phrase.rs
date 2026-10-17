@@ -76,6 +76,7 @@ struct CheckBody {
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/v1/cloud/phrase", get(status).put(set_phrase))
+        .route("/api/v1/cloud/identity", post(mint_identity))
         .route("/api/v1/cloud/phrase/challenge", post(challenge))
         .route("/api/v1/cloud/phrase/check", post(check))
 }
@@ -94,6 +95,41 @@ async fn status(State(state): State<AppState>, Extension(user): Extension<Curren
     })))
 }
 
+/// Makes this Luna's cloud identity if it has none yet, and returns it. Any signed-in person may
+/// call it: a fresh Luna has no identity until someone sets up cloud backup.
+async fn mint_identity(State(state): State<AppState>, Extension(_user): Extension<CurrentUser>) -> ApiResult {
+    let identity = ensure_identity(&state).await?;
+    Ok(Json(json!({
+        "luna_id": identity.luna_id(),
+        "signing_public": STANDARD.encode(identity.public()),
+    })))
+}
+
+/// Loads this Luna's identity, minting it on a fresh Luna. Runs off the async runtime because
+/// it may call Luna Connect and the drives; no DB lock is held across those calls.
+async fn ensure_identity(state: &AppState) -> Result<identity::Identity, ApiError> {
+    let db = state.db.clone();
+    let connect = state.connect.clone();
+    let made = tokio::task::spawn_blocking(move || {
+        identity::load_or_create_connected(&db, &connect, db::now_unix())
+    })
+    .await;
+    match made {
+        Ok(Ok(identity)) => Ok(identity),
+        Ok(Err(err)) => {
+            tracing::warn!(error = %err, "could not set up Luna's cloud identity");
+            Err(json_error(
+                StatusCode::CONFLICT,
+                "Luna could not set up its backup identity. Try again, or contact your Admin.",
+            ))
+        }
+        Err(_) => Err(json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna could not set up its backup identity. Try again.",
+        )),
+    }
+}
+
 async fn set_phrase(
     State(state): State<AppState>,
     Extension(user): Extension<CurrentUser>,
@@ -108,6 +144,8 @@ async fn set_phrase(
         .ok_or_else(bad_keys)?;
     let now = db::now_unix();
     crypto::check_public_key(&x25519_public).map_err(|_| bad_keys())?;
+    // A fresh Luna has no identity yet; setting the phrase is the first thing that needs one.
+    ensure_identity(&state).await?;
 
     let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
     // Two accounts with the same key would share sealed copies, so a key can belong to only one user.
@@ -510,5 +548,79 @@ mod tests {
             db::get_user_keys(&conn, &f.admin_id).unwrap().unwrap()
         };
         assert_eq!(stored.auth_public, admin_signer.public().to_vec());
+    }
+
+    #[tokio::test]
+    async fn identity_endpoint_mints_one_luna_id_and_signing_key_for_any_signed_in_user() {
+        let f = fixture();
+        let (status, first) = send(&f.router, "POST", "/api/v1/cloud/identity", &f.member_token, None).await;
+        assert_eq!(status, 200);
+        let luna_id = first["luna_id"].as_str().unwrap().to_string();
+        assert!(!luna_id.is_empty());
+        let public = STANDARD.decode(first["signing_public"].as_str().unwrap()).unwrap();
+        assert_eq!(public.len(), 32);
+
+        // A second call returns the same identity rather than minting another.
+        let (status, second) = send(&f.router, "POST", "/api/v1/cloud/identity", &f.admin_token, None).await;
+        assert_eq!(status, 200);
+        assert_eq!(second["luna_id"], json!(luna_id));
+        assert_eq!(second["signing_public"], first["signing_public"]);
+    }
+
+    #[tokio::test]
+    async fn fresh_luna_can_set_a_phrase_and_create_a_cloud_backup_with_nothing_seeded() {
+        let f = fixture();
+        // A backup needs a drive to read from. Seed one the way a connected drive is recorded.
+        let root = f._dir.path().join("drive-d1");
+        std::fs::create_dir_all(&root).unwrap();
+        let prefix = luna_core::marker::pick_prefix(&root).unwrap();
+        drop(
+            crate::drives::drive_db::create(
+                &root,
+                &luna_core::marker::Marker::new("d1".to_string(), "Photos"),
+                &prefix,
+            )
+            .unwrap(),
+        );
+        {
+            let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+            db::upsert_drive(&conn, "d1", "Photos", "as_is", "ext4", "d1", root.to_str().unwrap())
+                .unwrap();
+        }
+
+        // The backups routes sit beside the phrase routes, as they do in the real app.
+        let router = Router::new()
+            .merge(super::router())
+            .merge(crate::api::cloud_backups::router())
+            .layer(axum::middleware::from_fn_with_state(
+                f.state.clone(),
+                crate::auth::guard,
+            ))
+            .with_state(f.state.clone());
+
+        // Step 1: the app asks for an identity before anything else.
+        let (status, _) = send(&router, "POST", "/api/v1/cloud/identity", &f.admin_token, None).await;
+        assert_eq!(status, 200);
+
+        // Step 2: the Admin sets the recovery phrase (keys) on a fresh Luna.
+        let signer = Signer::generate();
+        let (status, _) = send(&router, "PUT", "/api/v1/cloud/phrase", &f.admin_token, Some(set_body(&signer, None))).await;
+        assert_eq!(status, 200);
+
+        // Step 3: the first backup starts with no files, drives or Connect set up.
+        let (status, body) = send(
+            &router,
+            "POST",
+            "/api/v1/cloud/backups",
+            &f.admin_token,
+            Some(json!({ "source_drive_id": "d1", "source_path": "" })),
+        )
+        .await;
+        assert_eq!(status, 200, "create refused: {body}");
+        assert!(body["id"].as_str().is_some_and(|id| !id.is_empty()));
+
+        let (status, list) = send(&router, "GET", "/api/v1/cloud/backups", &f.admin_token, None).await;
+        assert_eq!(status, 200);
+        assert_eq!(list.as_array().unwrap().len(), 1);
     }
 }

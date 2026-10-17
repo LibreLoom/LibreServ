@@ -56,7 +56,7 @@ fn lock_db(
     state.db.lock().map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't do that. Try again.",
+            "Luna could not save the user change. Try again.",
         )
     })
 }
@@ -72,7 +72,7 @@ fn check_recovery_admin_kept(
     let internal = |_: anyhow::Error| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't do that. Try again.",
+            "Luna could not check the recovery phrases. Try again.",
         )
     };
     let protections = crate::db::list_protections(conn).map_err(internal)?;
@@ -180,7 +180,7 @@ async fn update(
                 crate::auth::hash_password(&password).map_err(|_| {
                     json_error(
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        "Luna couldn't save that. Try again.",
+                        "Luna could not save the new password. Try again.",
                     )
                 })
             })
@@ -188,7 +188,7 @@ async fn update(
             .map_err(|_| {
                 json_error(
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    "Luna couldn't do that. Try again.",
+                    "Luna could not save the user change. Try again.",
                 )
             })??,
         );
@@ -293,12 +293,17 @@ async fn remove(
     let is_admin = crate::db::get_user(&conn, &id)
         .map_err(|_| map_err(AuthError::Db(anyhow::anyhow!("db"))))?
         .is_some_and(|u| u.role == "admin");
+    // The check and the delete share this one lock hold, so no other request
+    // can change the Admins between them.
     if is_admin {
         check_recovery_admin_kept(&conn, &id)?;
     }
-    // Release the lock: delete_user takes it again.
-    drop(conn);
-    state.auth.delete_user(&id).map_err(map_err)?;
+    crate::db::delete_user(&conn, &id).map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna could not remove this user. Try again.",
+        )
+    })?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -401,7 +406,7 @@ async fn purge_orphan(
     let report = crate::private::purge_orphan(&conn, &owner).map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't finish the cleanup. Refresh this page and try again.",
+            "Luna could not finish clearing the private folders. Refresh this page and try again.",
         )
     })?;
     let drives = crate::db::list_drives(&conn).unwrap_or_default();
@@ -434,7 +439,7 @@ fn map_err(err: AuthError) -> (StatusCode, Json<Value>) {
         ),
         _ => json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't update users. Try again.",
+            "Luna could not update users. Try again.",
         ),
     }
 }
@@ -934,6 +939,21 @@ mod tests {
         let (status, body) = send(&h, "DELETE", &uri, &actor, None).await;
         assert_eq!(status, 409, "{body}");
         assert!(user_row(&h, &h.admin_id).is_some());
+    }
+
+    #[tokio::test]
+    async fn an_admin_can_be_removed_when_another_admin_holds_a_phrase() {
+        let h = harness();
+        give_phrase(&h, &h.admin_id);
+        seed_cloud_backup(&h);
+        let actor = second_admin_without_phrase(&h);
+        let sam_id = h.state.auth.list_users().unwrap().into_iter()
+            .find(|u| u.username == "sam").unwrap().id;
+        give_phrase(&h, &sam_id);
+        let uri = format!("/api/v1/users/{}", h.admin_id);
+        let (status, body) = send(&h, "DELETE", &uri, &actor, None).await;
+        assert_eq!(status, 200, "{body}");
+        assert!(user_row(&h, &h.admin_id).is_none());
     }
 
     #[tokio::test]
