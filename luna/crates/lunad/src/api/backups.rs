@@ -71,7 +71,7 @@ async fn list(
         })
         .map(|row| backup_json(&conn, row, &user, now))
         .collect();
-    Ok(Json(json!({ "backups": backups })))
+    Ok(Json(Value::Array(backups)))
 }
 
 async fn create(
@@ -302,7 +302,7 @@ mod tests {
             &conn,
             &db::NewProtection {
                 id,
-                kind: "folder",
+                kind: db::PROTECTION_DRIVE,
                 source_drive: "d1",
                 source_path,
                 target_drive: "d2",
@@ -353,8 +353,7 @@ mod tests {
     }
 
     fn ids(json: &Value) -> Vec<String> {
-        json["backups"]
-            .as_array()
+        json.as_array()
             .unwrap()
             .iter()
             .map(|b| b["id"].as_str().unwrap().to_string())

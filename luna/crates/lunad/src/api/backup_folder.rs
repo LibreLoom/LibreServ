@@ -445,7 +445,7 @@ async fn list_folder(
 
     rows.sort_by_key(|r| (r.deleted, !r.is_dir, r.lower.clone()));
     let entries: Vec<Value> = rows.into_iter().map(|r| r.value).collect();
-    Ok(Json(json!({ "entries": entries })))
+    Ok(Json(Value::Array(entries)))
 }
 
 async fn versions(
@@ -996,7 +996,7 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::OK);
-        let entries = body["entries"].as_array().unwrap();
+        let entries = body.as_array().unwrap();
         let find = |name: &str| entries.iter().find(|e| e["name"] == name).unwrap().clone();
         assert_eq!(find("a.txt")["deleted"], false);
         assert_eq!(find("a.txt")["size"], 5);

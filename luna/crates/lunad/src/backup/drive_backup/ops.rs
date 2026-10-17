@@ -225,7 +225,7 @@ fn rebuild_one(conn: &Connection, drive: &DriveRow, store: &Store) -> anyhow::Re
         conn,
         &NewProtection {
             id: &id,
-            kind: "folder",
+            kind: db::PROTECTION_DRIVE,
             source_drive: &manifest.source_drive_id,
             source_path: &manifest.source_path,
             target_drive: &drive.id,
@@ -320,7 +320,7 @@ mod tests {
             conn,
             &NewProtection {
                 id: &id,
-                kind: "folder",
+                kind: db::PROTECTION_DRIVE,
                 source_drive: src,
                 source_path: &crate::access::normalize_subject_path(path),
                 target_drive: target,
