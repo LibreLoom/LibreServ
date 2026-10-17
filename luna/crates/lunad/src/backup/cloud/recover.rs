@@ -2,14 +2,16 @@
 //!
 //! Snapshot records live on Connect and are signed by Luna's signing key, so the recovered
 //! identity checks each one. A readable snapshot gets its row, its tree pack and the pack's
-//! live state. Data packs are not rebuilt: nothing lists them, and tree entries name chunks,
-//! not packs. Packs the index does not know are never deleted, so they are left alone.
+//! live state. The tree also names every chunk and the data pack it lives in, so those rows are
+//! rebuilt too. The snapshot's sealed meta names its protection, so the protection row and its
+//! backup key are restored from it. Packs the index does not know are never deleted, so they are
+//! left alone.
 
 use anyhow::{anyhow, Result};
 use rusqlite::{params, Connection, OptionalExtension};
 
 use super::crypto;
-use super::format::{self, SignedRecord, SnapshotRecord};
+use super::format::{self, SignedRecord};
 use super::identity::Identity;
 use super::run::PACK_KEY_WRAP_AAD;
 use super::store::CloudStore;
@@ -104,10 +106,16 @@ fn index_one(
     let Ok(pack) = format::open_pack(&pack_bytes, &record.tree_pack_id, unwrap) else {
         return Ok(Step::Skipped);
     };
-    match pack.chunk(&record.tree_hash) {
-        Some(sealed) if format::sha256(sealed) == record.tree_hash => {}
+    let sealed = match pack.chunk(&record.tree_hash) {
+        Some(sealed) if format::sha256(sealed) == record.tree_hash => sealed,
         _ => return Ok(Step::Skipped),
-    }
+    };
+    let Ok(tree) = format::decrypt_tree(sealed, &tree_key) else {
+        return Ok(Step::Skipped);
+    };
+    let Ok(meta) = format::decrypt_meta(&record.meta, &tree_key) else {
+        return Ok(Step::Skipped);
+    };
 
     let scope = hex(&pack.scope_id()[..16]);
     let tree_pack_id = hex(&record.tree_pack_id);
@@ -130,8 +138,61 @@ fn index_one(
         "INSERT OR IGNORE INTO cloud_snapshot_packs (snapshot_id, pack_id) VALUES (?1, ?2)",
         params![snapshot.id, tree_pack_id],
     )?;
+    index_tree_chunks(&tx, &scope, &snapshot.id, &tree, now)?;
+    // Keep an existing protection row and key as they are; restore them only when missing.
+    if db::get_protection(&tx, &record.protection_id)?.is_none() {
+        db::insert_protection(
+            &tx,
+            &db::NewProtection {
+                id: &record.protection_id,
+                kind: db::PROTECTION_CLOUD,
+                source_drive: &meta.source_drive,
+                source_path: &meta.source_path,
+                target_drive: "",
+                private_owner: "",
+                created_by: &meta.started_by,
+                created_at: record.created_at,
+            },
+        )?;
+    }
+    if !backup_key_exists(&tx, &key.protection_id, key.version)? {
+        db::insert_backup_key(&tx, key)?;
+    }
     tx.commit()?;
     Ok(Step::Written)
+}
+
+/// Rebuild where each chunk of a snapshot's files is stored: its data pack, offset and length.
+/// Packs are INSERT OR IGNORE, since many snapshots share the same data packs.
+/// The data pack's size is not in the tree, so it stays 0 until a later check fills it in.
+fn index_tree_chunks(tx: &rusqlite::Transaction, scope: &str, snapshot_id: &str, tree: &format::Tree, now: i64) -> Result<()> {
+    for entry in &tree.entries {
+        for chunk in &entry.chunks {
+            let pack_id = hex(&chunk.pack);
+            tx.execute(
+                "INSERT OR IGNORE INTO cloud_packs (id, scope, state, run_id, size, marked_at, created_at)
+                 VALUES (?1, ?2, 'live', ?3, 0, 0, ?4)",
+                params![pack_id, scope, RECOVERED_RUN, now],
+            )?;
+            db::insert_chunk(tx, scope, &chunk.id, &pack_id, chunk.offset as i64, i64::from(chunk.len))?;
+            tx.execute(
+                "INSERT OR IGNORE INTO cloud_snapshot_packs (snapshot_id, pack_id) VALUES (?1, ?2)",
+                params![snapshot_id, pack_id],
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn backup_key_exists(conn: &Connection, protection_id: &str, version: i64) -> Result<bool> {
+    let found: Option<i64> = conn
+        .query_row(
+            "SELECT 1 FROM backup_keys WHERE protection_id = ?1 AND version = ?2",
+            params![protection_id, version],
+            |r| r.get(0),
+        )
+        .optional()?;
+    Ok(found.is_some())
 }
 
 fn already_indexed(conn: &Connection, snapshot_id: &str) -> Result<bool> {
@@ -153,6 +214,7 @@ fn hex(bytes: &[u8]) -> String {
 mod tests {
     use super::*;
     use crate::backup::cloud::identity;
+    use crate::backup::cloud::format::{BackupMeta, SnapshotRecord};
     use crate::backup::cloud::store::MemoryStore;
 
     const NOW: i64 = 1_800_000_000;
@@ -177,9 +239,43 @@ mod tests {
         }
     }
 
-    /// Write one snapshot the way a backup run does: a sealed tree pack, then a signed record.
+    /// Write one snapshot of an empty tree the way a backup run does.
     fn put_snapshot(store: &MemoryStore, signer: &Identity, snapshot_id: &str, luna_id: &str) -> [u8; 32] {
-        let tree_bytes = format::encrypt_tree(&format::Tree { entries: Vec::new() }, &TREE_KEY);
+        put_snapshot_with_tree(store, signer, snapshot_id, luna_id, &format::Tree { entries: Vec::new() })
+    }
+
+    /// The meta a backup run seals into each snapshot record.
+    fn sealed_meta(key: &[u8; 32]) -> Vec<u8> {
+        let meta = BackupMeta {
+            name: "Photos".into(),
+            source_drive: "drive-a".into(),
+            source_path: "/Photos".into(),
+            started_by: "user-7".into(),
+        };
+        format::encrypt_meta(&meta, key)
+    }
+
+    /// Write one snapshot the way a backup run does: a sealed tree pack, then a signed record.
+    fn put_snapshot_with_tree(
+        store: &MemoryStore,
+        signer: &Identity,
+        snapshot_id: &str,
+        luna_id: &str,
+        tree: &format::Tree,
+    ) -> [u8; 32] {
+        put_snapshot_with_meta(store, signer, snapshot_id, luna_id, tree, sealed_meta(&TREE_KEY))
+    }
+
+    /// Write one snapshot with the given sealed meta bytes.
+    fn put_snapshot_with_meta(
+        store: &MemoryStore,
+        signer: &Identity,
+        snapshot_id: &str,
+        luna_id: &str,
+        tree: &format::Tree,
+        meta: Vec<u8>,
+    ) -> [u8; 32] {
+        let tree_bytes = format::encrypt_tree(tree, &TREE_KEY);
         let tree_hash = format::sha256(&tree_bytes);
         let mut builder = format::PackBuilder::new(SCOPE_ID);
         builder.add(tree_hash, &tree_bytes);
@@ -193,7 +289,7 @@ mod tests {
             key_version: 1,
             tree_pack_id: pack.id,
             tree_hash,
-            meta: Vec::new(),
+            meta,
         };
         let signed = record.sign(signer.signer()).to_bytes();
         store.put_record(SNAPSHOT_KIND, snapshot_id, &signed).unwrap();
@@ -228,6 +324,52 @@ mod tests {
             .unwrap();
         assert_eq!(state, "live");
         assert_eq!(scope, hex(&SCOPE_ID[..16]));
+    }
+
+    #[test]
+    fn rebuilds_chunk_places_and_data_packs_from_the_tree() {
+        let (_dir, id) = fixture();
+        let store = MemoryStore::new();
+        let chunk_id = [5u8; 32];
+        let mut data = format::PackBuilder::new(SCOPE_ID);
+        let (offset, len) = data.add(chunk_id, b"file bytes");
+        let data_pack = data.finish(|k| crypto::encrypt(&TREE_KEY, PACK_KEY_WRAP_AAD, k));
+        store.put_pack(&data_pack.id, Some("scope"), &data_pack.bytes).unwrap();
+        let tree = format::Tree {
+            entries: vec![format::TreeEntry {
+                path: "a.txt".into(),
+                size: 10,
+                mtime: NOW,
+                chunks: vec![format::ChunkRef { id: chunk_id, pack: data_pack.id, offset, len }],
+            }],
+        };
+        put_snapshot_with_tree(&store, &id, "snap-a", id.luna_id(), &tree);
+        let fresh_dir = tempfile::tempdir().unwrap();
+        let mut fresh = db::open(&fresh_dir.path().join("luna.db")).unwrap();
+
+        let out = rebuild_snapshot_index(&mut fresh, &store, &id, &[backup_key(TREE_KEY)], NOW).unwrap();
+
+        assert_eq!(out, Recovered { snapshots: 1, already_indexed: 0, skipped: 0 });
+        let (pack, at, size): (String, i64, i64) = fresh
+            .query_row(
+                "SELECT pack_id, offset, len FROM cloud_chunks WHERE chunk_id = ?1",
+                params![chunk_id.to_vec()],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(pack, hex(&data_pack.id));
+        assert_eq!((at, size), (offset as i64, i64::from(len)));
+        let state: String = fresh
+            .query_row(
+                "SELECT state FROM cloud_packs WHERE id = ?1",
+                params![hex(&data_pack.id)],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(state, "live");
+        // The tree pack and the data pack both belong to the snapshot.
+        assert_eq!(count(&fresh, "cloud_snapshot_packs"), 2);
+        assert_eq!(count(&fresh, "cloud_packs"), 2);
     }
 
     #[test]
@@ -274,5 +416,77 @@ mod tests {
         assert_eq!(again, Recovered { snapshots: 0, already_indexed: 1, skipped: 0 });
         assert_eq!(count(&fresh, "cloud_snapshots"), 1);
         assert_eq!(count(&fresh, "cloud_snapshot_packs"), 1);
+    }
+
+    #[test]
+    fn restores_the_protection_and_its_backup_key_from_the_snapshot_meta() {
+        let (_dir, id) = fixture();
+        let store = MemoryStore::new();
+        put_snapshot(&store, &id, "snap-a", id.luna_id());
+        put_snapshot(&store, &id, "snap-b", id.luna_id());
+        let fresh_dir = tempfile::tempdir().unwrap();
+        let mut fresh = db::open(&fresh_dir.path().join("luna.db")).unwrap();
+
+        // Two snapshots share one key version: the key is written once.
+        let out = rebuild_snapshot_index(&mut fresh, &store, &id, &[backup_key(TREE_KEY)], NOW).unwrap();
+
+        assert_eq!(out, Recovered { snapshots: 2, already_indexed: 0, skipped: 0 });
+        let row = db::get_protection(&fresh, "p1").unwrap().expect("protection restored");
+        assert_eq!(row.kind, db::PROTECTION_CLOUD);
+        assert_eq!(row.source_drive, "drive-a");
+        assert_eq!(row.source_path, "/Photos");
+        assert_eq!(row.created_by, "user-7");
+        assert_eq!(row.created_at, NOW);
+        let key = db::latest_backup_key(&fresh, "p1").unwrap().expect("backup key restored");
+        assert_eq!(key.version, 1);
+        assert_eq!(key.key, TREE_KEY.to_vec());
+        assert_eq!(count(&fresh, "backup_keys"), 1);
+    }
+
+    #[test]
+    fn keeps_an_existing_protection_row_as_it_is() {
+        let (_dir, id) = fixture();
+        let store = MemoryStore::new();
+        put_snapshot(&store, &id, "snap-a", id.luna_id());
+        let fresh_dir = tempfile::tempdir().unwrap();
+        let mut fresh = db::open(&fresh_dir.path().join("luna.db")).unwrap();
+        db::insert_protection(
+            &fresh,
+            &db::NewProtection {
+                id: "p1",
+                kind: db::PROTECTION_CLOUD,
+                source_drive: "local-drive",
+                source_path: "/Local",
+                target_drive: "",
+                private_owner: "",
+                created_by: "someone",
+                created_at: NOW - 1,
+            },
+        )
+        .unwrap();
+
+        rebuild_snapshot_index(&mut fresh, &store, &id, &[backup_key(TREE_KEY)], NOW).unwrap();
+
+        let row = db::get_protection(&fresh, "p1").unwrap().unwrap();
+        assert_eq!(row.source_path, "/Local");
+        assert_eq!(row.created_by, "someone");
+        assert_eq!(count(&fresh, "cloud_snapshots"), 1);
+    }
+
+    #[test]
+    fn skips_a_snapshot_whose_meta_does_not_open_with_its_key() {
+        let (_dir, id) = fixture();
+        let store = MemoryStore::new();
+        let tree = format::Tree { entries: Vec::new() };
+        put_snapshot_with_meta(&store, &id, "snap-a", id.luna_id(), &tree, sealed_meta(&[4; 32]));
+        let fresh_dir = tempfile::tempdir().unwrap();
+        let mut fresh = db::open(&fresh_dir.path().join("luna.db")).unwrap();
+
+        let out = rebuild_snapshot_index(&mut fresh, &store, &id, &[backup_key(TREE_KEY)], NOW).unwrap();
+
+        assert_eq!(out, Recovered { snapshots: 0, already_indexed: 0, skipped: 1 });
+        assert_eq!(count(&fresh, "cloud_snapshots"), 0);
+        assert!(db::get_protection(&fresh, "p1").unwrap().is_none());
+        assert_eq!(count(&fresh, "backup_keys"), 0);
     }
 }

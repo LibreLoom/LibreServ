@@ -14,7 +14,7 @@ use rand_core::{OsRng, RngCore};
 use rusqlite::Connection;
 
 use super::crypto::{self, Signer};
-use super::format::{self, PackBuilder, SnapshotRecord, Tree, TreeEntry};
+use super::format::{self, BackupMeta, ChunkRef, PackBuilder, SnapshotRecord, Tree, TreeEntry};
 use super::identity;
 use super::keys::{self, Recipients};
 use super::store::CloudStore;
@@ -45,10 +45,12 @@ pub struct CloudOutcome {
 }
 
 /// Runs one backup for `protection_id` against `store` and returns what happened.
+/// `started_by` is the user who asked for it, or empty for a scheduled run.
 pub fn run_once(
     db: &crate::Db,
     protection_id: &str,
     store: &dyn CloudStore,
+    started_by: &str,
     now: i64,
 ) -> Result<CloudOutcome> {
     let (drive_root, root) = {
@@ -64,7 +66,7 @@ pub fn run_once(
     if Layout::detect(&drive_root).is_none() {
         return Ok(problem_outcome(SOURCE_MISSING));
     }
-    run_with_root(db, protection_id, &root, store, now)
+    run_with_root(db, protection_id, &root, store, started_by, now)
 }
 
 /// The run itself, reading from `root` instead of resolving the drive. Tests use this.
@@ -73,9 +75,10 @@ fn run_with_root(
     protection_id: &str,
     root: &Path,
     store: &dyn CloudStore,
+    started_by: &str,
     now: i64,
 ) -> Result<CloudOutcome> {
-    let Some(_slot) = RunSlot::take(protection_id) else {
+    let Some(_slot) = RunSlot::take(db, protection_id) else {
         return Ok(problem_outcome(
             "A backup of this folder is already running. Wait for it to finish, then try again.",
         ));
@@ -89,7 +92,7 @@ fn run_with_root(
     }
 
     // Failing here means no run row was opened, so there is nothing to close.
-    let (ctx, publish) = match prepare(db, protection_id, now) {
+    let (ctx, publish) = match prepare(db, protection_id, started_by, now) {
         Ok(prepared) => prepared,
         Err(e) => return Ok(problem_outcome(&e.to_string())),
     };
@@ -151,14 +154,23 @@ struct RunContext {
     key_version: u32,
     luna_id: String,
     signer: Signer,
+    /// The backup's name and source, encrypted under the backup key, for recovery.
+    meta: Vec<u8>,
 }
 
 /// Reads the key and recipients and opens the run row. Nothing after `start_run` can fail.
-fn prepare(db: &crate::Db, protection_id: &str, now: i64) -> Result<(RunContext, Option<Publish>)> {
+fn prepare(
+    db: &crate::Db,
+    protection_id: &str,
+    started_by: &str,
+    now: i64,
+) -> Result<(RunContext, Option<Publish>)> {
     let conn = lock(db);
     let row = db::get_protection(&conn, protection_id)?
         .ok_or_else(|| anyhow!("This backup no longer exists."))?;
-    let identity = identity::load_or_create(&conn, now)?;
+    // A run never mints an identity: a Luna without one has never been set up for cloud backup.
+    let identity = identity::load(&conn)?
+        .ok_or_else(|| anyhow!("Set up cloud backup on this Luna before running a backup."))?;
     let seed = db::get_cloud_identity(&conn)?
         .ok_or_else(|| anyhow!("Luna's cloud identity is missing."))?
         .signing_seed;
@@ -204,8 +216,28 @@ fn prepare(db: &crate::Db, protection_id: &str, now: i64) -> Result<(RunContext,
     let run_id = random_id();
     db::start_run(&conn, &run_id, protection_id, &scope, now)?;
 
+    // The name is the last folder of the source. Protections have no name column, so this is the choice.
+    let name = row
+        .source_path
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .filter(|s| !s.is_empty())
+        .unwrap_or(&row.source_drive)
+        .to_string();
+    let meta = format::encrypt_meta(
+        &BackupMeta {
+            name,
+            source_drive: row.source_drive.clone(),
+            source_path: row.source_path.clone(),
+            started_by: started_by.to_string(),
+        },
+        &key_bytes,
+    );
+
     let ctx = RunContext {
         run_id,
+        meta,
         protection_id: protection_id.to_string(),
         scope,
         scope_id,
@@ -254,6 +286,8 @@ struct CopyState<'a> {
     pending: Vec<([u8; 32], u64, u32)>,
     /// Chunks already placed in this run, so a repeat in the same run is not stored twice.
     placed: HashSet<[u8; 32]>,
+    /// Where each chunk this run references is stored: pack id bytes, offset, length.
+    located: HashMap<[u8; 32], ([u8; 32], u64, u32)>,
     /// Pack ids this run references, for the commit.
     pack_ids: Vec<String>,
     uploaded_bytes: u64,
@@ -270,8 +304,10 @@ impl CopyState<'_> {
             let conn = lock(self.db);
             db::find_chunk(&conn, &self.ctx.scope, &id)?
         };
-        if let Some((pack_id, _, _)) = known {
+        if let Some((pack_id, offset, len)) = known {
             self.reused_chunks += 1;
+            let pack = unhex(&pack_id)?;
+            self.located.insert(id, (pack, offset as u64, len as u32));
             if !self.pack_ids.contains(&pack_id) {
                 self.pack_ids.push(pack_id);
             }
@@ -316,11 +352,27 @@ impl CopyState<'_> {
                     offset as i64,
                     i64::from(len),
                 )?;
+                self.located.insert(chunk_id, (sealed.id, offset, len));
             }
         }
         self.uploaded_bytes += sealed.bytes.len() as u64;
         self.pack_ids.push(pack_id);
         Ok(())
+    }
+
+    /// The pack and place of a chunk this run has already stored or reused.
+    /// Call only after the final `flush`, so every pending chunk has a place.
+    fn locate(&self, id: &[u8; 32]) -> Result<ChunkRef> {
+        let (pack, offset, len) = self
+            .located
+            .get(id)
+            .ok_or_else(|| anyhow!("A file's data was not stored. Try the backup again."))?;
+        Ok(ChunkRef {
+            id: *id,
+            pack: *pack,
+            offset: *offset,
+            len: *len,
+        })
     }
 }
 
@@ -340,12 +392,14 @@ fn copy_and_commit(
         builder: None,
         pending: Vec::new(),
         placed: HashSet::new(),
+        located: HashMap::new(),
         pack_ids: Vec::new(),
         uploaded_bytes: 0,
         reused_chunks: 0,
     };
 
-    let mut entries = Vec::new();
+    // Chunk ids per file; they become `ChunkRef`s once the last pack is flushed.
+    let mut drafts = Vec::new();
     let files = scope::walk(root).map_err(|e| anyhow!("Could not read the folder being backed up: {e}"))?;
     for entry in &files {
         let mut file = File::open(&entry.abs)
@@ -355,14 +409,19 @@ fn copy_and_commit(
             chunk_ids.push(copy.chunk(plain)?);
             Ok(())
         })?;
-        entries.push(TreeEntry {
-            path: entry.rel.clone(),
-            size: entry.size,
-            mtime: entry.mtime,
-            chunks: chunk_ids,
-        });
+        drafts.push((entry.rel.clone(), entry.size, entry.mtime, chunk_ids));
     }
     copy.flush()?;
+    let entries = drafts
+        .into_iter()
+        .map(|(path, size, mtime, ids)| {
+            let chunks = ids
+                .iter()
+                .map(|id| copy.locate(id))
+                .collect::<Result<Vec<_>>>()?;
+            Ok(TreeEntry { path, size, mtime, chunks })
+        })
+        .collect::<Result<Vec<_>>>()?;
 
     // The tree goes into a pack of its own, so restores can find it from the snapshot.
     let tree_bytes = format::encrypt_tree(&Tree { entries }, &ctx.key_bytes);
@@ -404,7 +463,7 @@ fn copy_and_commit(
         key_version: ctx.key_version,
         tree_pack_id: tree_pack.id,
         tree_hash,
-        meta: Vec::new(),
+        meta: ctx.meta.clone(),
     };
     let signed = record.sign(&ctx.signer);
     let signed_bytes = signed.to_bytes();
@@ -466,12 +525,16 @@ fn problem_outcome(message: &str) -> CloudOutcome {
 /// Holds a protection's place in [`RUNNING`] until it is dropped.
 struct RunSlot(String);
 
+/// Keyed by the database's address as well as the protection id, so two databases
+/// (for example two tests) that share an id never block each other. The address is
+/// stable while a run holds its slot because the run borrows the `Db`.
 static RUNNING: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Default::default);
 
 impl RunSlot {
-    fn take(id: &str) -> Option<Self> {
+    fn take(db: &crate::Db, id: &str) -> Option<Self> {
+        let key = format!("{:x}:{id}", std::ptr::from_ref(db) as usize);
         let mut running = RUNNING.lock().unwrap_or_else(|p| p.into_inner());
-        running.insert(id.to_string()).then(|| Self(id.to_string()))
+        running.insert(key.clone()).then(|| Self(key))
     }
 }
 
@@ -499,6 +562,20 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+/// Lowercase hex (as the database stores pack ids) back to the 32-byte id.
+fn unhex(text: &str) -> Result<[u8; 32]> {
+    if text.len() != 64 || !text.is_ascii() {
+        return Err(anyhow!("Backup pack id {text} is not valid."));
+    }
+    let mut out = [0u8; 32];
+    for (i, pair) in text.as_bytes().chunks(2).enumerate() {
+        let digits = std::str::from_utf8(pair)?;
+        out[i] = u8::from_str_radix(digits, 16)
+            .map_err(|_| anyhow!("Backup pack id {text} is not valid."))?;
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -508,6 +585,7 @@ mod tests {
     fn setup(dir: &Path) -> crate::Db {
         let conn = db::open(&dir.join("luna.db")).unwrap();
         db::insert_user(&conn, "owner", "owner", "Owner", "x", "admin").unwrap();
+        identity::load_or_create(&conn, 1).unwrap();
         let keys = crypto::derive(&[7u8; 16], "luna-test");
         db::set_user_keys(
             &conn,
@@ -561,12 +639,12 @@ mod tests {
         let db = setup(dir.path());
         let src = source(dir.path());
         let store = MemoryStore::new();
-        let first = run_with_root(&db, "p6", &src, &store, 100).unwrap();
+        let first = run_with_root(&db, "p6", &src, &store, "user-1", 100).unwrap();
         assert_eq!(first.problem, None);
 
         std::fs::remove_file(src.join("a.bin")).unwrap();
         std::fs::remove_file(src.join("b.bin")).unwrap();
-        let held = run_with_root(&db, "p6", &src, &store, 200).unwrap();
+        let held = run_with_root(&db, "p6", &src, &store, "user-1", 200).unwrap();
         assert_eq!(held.problem.as_deref(), Some(SOURCE_MISSING));
         assert_eq!(held.snapshot_id, None);
         assert_eq!(store.list_records("snapshots").unwrap().len(), 1);
@@ -577,6 +655,24 @@ mod tests {
     }
 
     #[test]
+    fn a_run_without_an_identity_refuses_and_mints_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = setup(dir.path());
+        let src = source(dir.path());
+        let store = MemoryStore::new();
+        lock(&db).execute("DELETE FROM cloud_identity", []).unwrap();
+
+        let out = run_with_root(&db, "p1", &src, &store, "user-1", 100).unwrap();
+        assert_eq!(
+            out.problem.as_deref(),
+            Some("Set up cloud backup on this Luna before running a backup.")
+        );
+        assert_eq!(out.snapshot_id, None);
+        assert!(identity::load(&lock(&db)).unwrap().is_none());
+        assert!(store.list_records("snapshots").unwrap().is_empty());
+    }
+
+    #[test]
     fn run_waits_until_an_admin_has_a_recovery_phrase() {
         let dir = tempfile::tempdir().unwrap();
         let db = setup(dir.path());
@@ -584,7 +680,7 @@ mod tests {
         let store = MemoryStore::new();
         db::delete_user_keys(&lock(&db), "owner").unwrap();
 
-        let held = run_with_root(&db, "p8", &src, &store, 100).unwrap();
+        let held = run_with_root(&db, "p8", &src, &store, "user-1", 100).unwrap();
         assert_eq!(held.problem.as_deref(), Some(NO_ADMIN_PHRASE));
         assert_eq!(held.snapshot_id, None);
         assert!(store.list_records("snapshots").unwrap().is_empty());
@@ -603,7 +699,7 @@ mod tests {
             },
         )
         .unwrap();
-        let done = run_with_root(&db, "p8", &src, &store, 200).unwrap();
+        let done = run_with_root(&db, "p8", &src, &store, "user-1", 200).unwrap();
         assert_eq!(done.problem, None);
         assert!(done.snapshot_id.is_some());
     }
@@ -615,13 +711,13 @@ mod tests {
         let src = source(dir.path());
         let store = MemoryStore::new();
 
-        let first = run_with_root(&db, "p1", &src, &store, 100).unwrap();
+        let first = run_with_root(&db, "p1", &src, &store, "user-1", 100).unwrap();
         assert_eq!(first.problem, None);
         assert!(first.snapshot_id.is_some());
         assert_eq!(first.files, 2);
         assert!(first.uploaded_bytes >= 5 << 20);
 
-        let second = run_with_root(&db, "p1", &src, &store, 200).unwrap();
+        let second = run_with_root(&db, "p1", &src, &store, "user-1", 200).unwrap();
         assert_eq!(second.problem, None);
         assert!(second.reused_chunks > 0);
         assert!(second.uploaded_bytes < first.uploaded_bytes / 10);
@@ -633,7 +729,7 @@ mod tests {
         let db = setup(dir.path());
         let src = source(dir.path());
         let store = MemoryStore::new();
-        let first = run_with_root(&db, "p3", &src, &store, 100).unwrap();
+        let first = run_with_root(&db, "p3", &src, &store, "user-1", 100).unwrap();
         assert_eq!(first.problem, None);
 
         let conn = lock(&db);
@@ -654,12 +750,12 @@ mod tests {
         let db = setup(dir.path());
         let src = source(dir.path());
         let store = MemoryStore::new();
-        let first = run_with_root(&db, "p2", &src, &store, 100).unwrap();
+        let first = run_with_root(&db, "p2", &src, &store, "user-1", 100).unwrap();
 
         let mut data = std::fs::read(src.join("a.bin")).unwrap();
         data[100] ^= 0xff;
         std::fs::write(src.join("a.bin"), data).unwrap();
-        let second = run_with_root(&db, "p2", &src, &store, 200).unwrap();
+        let second = run_with_root(&db, "p2", &src, &store, "user-1", 200).unwrap();
 
         assert_eq!(second.problem, None);
         assert!(second.reused_chunks > 0);
@@ -673,7 +769,7 @@ mod tests {
         let src = source(dir.path());
         let store = MemoryStore::with_quota(1024);
 
-        let out = run_with_root(&db, "p7", &src, &store, 100).unwrap();
+        let out = run_with_root(&db, "p7", &src, &store, "user-1", 100).unwrap();
         assert_eq!(out.problem.as_deref(), Some("Your cloud storage is full."));
         assert_eq!(out.snapshot_id, None);
         assert!(store.list_records("snapshots").unwrap().is_empty());
@@ -685,7 +781,7 @@ mod tests {
         let db = setup(dir.path());
         let src = source(dir.path());
         let store = MemoryStore::new();
-        let out = run_with_root(&db, "p5", &src, &store, 100).unwrap();
+        let out = run_with_root(&db, "p5", &src, &store, "user-1", 100).unwrap();
         assert_eq!(out.problem, None);
         let snapshot_id = out.snapshot_id.unwrap();
 
@@ -714,12 +810,77 @@ mod tests {
     }
 
     #[test]
+    fn tree_records_where_each_chunk_is_stored() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = setup(dir.path());
+        let src = source(dir.path());
+        let store = MemoryStore::new();
+        let out = run_with_root(&db, "p8", &src, &store, "user-1", 100).unwrap();
+        let snapshot_id = out.snapshot_id.unwrap();
+
+        let conn = lock(&db);
+        let identity = identity::load(&conn).unwrap().unwrap();
+        let bytes = store.get_record("snapshots", &snapshot_id).unwrap().unwrap();
+        let record = format::SignedRecord::from_bytes(&bytes)
+            .unwrap()
+            .verify(&identity.public())
+            .unwrap();
+        let backup_key = db::latest_backup_key(&conn, "p8").unwrap().unwrap();
+        let tree_key: [u8; 32] = backup_key.key.as_slice().try_into().unwrap();
+        let tree = read_tree(&store, &record, &tree_key).unwrap();
+
+        let mut checked = 0;
+        for entry in &tree.entries {
+            assert!(!entry.chunks.is_empty());
+            for chunk in &entry.chunks {
+                let (pack_id, offset, len): (String, i64, i64) = conn
+                    .query_row(
+                        "SELECT pack_id, offset, len FROM cloud_chunks WHERE chunk_id = ?1",
+                        [&chunk.id[..]],
+                        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                    )
+                    .unwrap();
+                assert_eq!(hex(&chunk.pack), pack_id);
+                assert_eq!(chunk.offset as i64, offset);
+                assert_eq!(i64::from(chunk.len), len);
+                checked += 1;
+            }
+        }
+        assert!(checked > 0);
+    }
+
+    #[test]
+    fn snapshot_meta_names_the_backup_and_who_started_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = setup(dir.path());
+        let src = source(dir.path());
+        let store = MemoryStore::new();
+        let out = run_with_root(&db, "p8", &src, &store, "user-7", 100).unwrap();
+        assert_eq!(out.problem, None);
+        let snapshot_id = out.snapshot_id.unwrap();
+
+        let conn = lock(&db);
+        let bytes = store.get_record("snapshots", &snapshot_id).unwrap().unwrap();
+        let record = format::SignedRecord::from_bytes(&bytes).unwrap();
+        let identity = identity::load(&conn).unwrap().unwrap();
+        let record = record.verify(&identity.public()).unwrap();
+        let key = db::latest_backup_key(&conn, "p8").unwrap().unwrap();
+        let key_bytes: [u8; 32] = key.key.as_slice().try_into().unwrap();
+        let meta = format::decrypt_meta(&record.meta, &key_bytes).unwrap();
+        let row = db::get_protection(&conn, "p8").unwrap().unwrap();
+        assert_eq!(meta.started_by, "user-7");
+        assert_eq!(meta.source_drive, row.source_drive);
+        assert_eq!(meta.source_path, row.source_path);
+        assert_eq!(meta.name, row.source_path.rsplit('/').next().unwrap());
+    }
+
+    #[test]
     fn snapshot_record_verifies_and_chunk_ids_stay_out_of_packs() {
         let dir = tempfile::tempdir().unwrap();
         let db = setup(dir.path());
         let src = source(dir.path());
         let store = MemoryStore::new();
-        let out = run_with_root(&db, "p4", &src, &store, 100).unwrap();
+        let out = run_with_root(&db, "p4", &src, &store, "user-1", 100).unwrap();
         let snapshot_id = out.snapshot_id.unwrap();
 
         let conn = lock(&db);

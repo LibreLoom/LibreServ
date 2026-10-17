@@ -44,7 +44,15 @@ async fn status(
     // The token is a credential and no screen shows it; only the on-device
     // console reads it, in-process.
     status.device_code = None;
-    Json(serde_json::to_value(status).unwrap_or_else(|_| json!({})))
+    let mut body = serde_json::to_value(status).unwrap_or_else(|_| json!({}));
+    if let Some(fields) = body.as_object_mut() {
+        // False after Luna Connect refused a cloud copy for a missing payment card.
+        fields.insert(
+            "card_on_file".into(),
+            json!(crate::backup::cloud::ops::card_on_file(&state.db)),
+        );
+    }
+    Json(body)
 }
 
 fn setup_or_admin(state: &AppState, current: Option<&Extension<crate::auth::CurrentUser>>) -> bool {
@@ -534,5 +542,19 @@ mod tests {
         assert!(!member_view.to_string().contains(TOKEN));
         assert!(admin_view["device_code"].is_null());
         assert_eq!(member_view["connect_active"], true);
+    }
+
+    #[tokio::test]
+    async fn status_says_whether_a_card_is_on_file() {
+        let h = harness(true);
+        let (_, before) = send(&h, Method::GET, "/api/v1/connect/status", h.member.as_deref(), None).await;
+        assert_eq!(before["card_on_file"], true);
+
+        {
+            let conn = h.state.db.lock().unwrap_or_else(|p| p.into_inner());
+            db::set_meta(&conn, "cloud_payment_required", "1").unwrap();
+        }
+        let (_, after) = send(&h, Method::GET, "/api/v1/connect/status", h.member.as_deref(), None).await;
+        assert_eq!(after["card_on_file"], false);
     }
 }

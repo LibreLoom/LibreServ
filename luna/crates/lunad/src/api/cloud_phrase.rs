@@ -83,13 +83,14 @@ pub fn router() -> Router<AppState> {
 async fn status(State(state): State<AppState>, Extension(user): Extension<CurrentUser>) -> ApiResult {
     let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
     let keys = db::get_user_keys(&conn, &user.id).map_err(|_| read_failed())?;
-    let identity = identity::load_or_create(&conn, db::now_unix()).map_err(|_| read_failed())?;
+    // Null until cloud backup is set up on this Luna. Setup never happens on a read.
+    let identity = identity::load(&conn).map_err(|_| read_failed())?;
     Ok(Json(json!({
         "set": keys.is_some(),
         "set_at": keys.as_ref().map(|k| k.phrase_set_at),
-        "luna_id": identity.luna_id(),
+        "luna_id": identity.as_ref().map(|i| i.luna_id()),
         // The browser seals this key with its self key, so Connect can never swap it.
-        "signing_public": STANDARD.encode(identity.public()),
+        "signing_public": identity.as_ref().map(|i| STANDARD.encode(i.public())),
     })))
 }
 
@@ -339,9 +340,9 @@ mod tests {
         assert_eq!(status, 200);
         assert_eq!(body["set"], json!(false));
         assert!(body["set_at"].is_null());
-        assert!(body["luna_id"].as_str().unwrap().starts_with("luna-"));
-        let signing_public = STANDARD.decode(body["signing_public"].as_str().unwrap()).unwrap();
-        assert_eq!(signing_public.len(), 32);
+        // Reading the status must not mint a Luna id or signing key before backup is set up.
+        assert!(body["luna_id"].is_null());
+        assert!(body["signing_public"].is_null());
 
         let signer = Signer::generate();
         let (status, _) = send(

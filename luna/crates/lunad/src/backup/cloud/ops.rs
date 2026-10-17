@@ -29,6 +29,11 @@ const RECIPIENTS_RECORD_KIND: &str = "recipients";
 const USER_RECORD_KIND: &str = "self";
 const USER_LIST_FAILED: &str =
     "Luna couldn't send your recovery keys to Luna Connect. It will try again on the next backup.";
+/// Start of the message Luna Connect sends with a 402 when the account has no payment card.
+/// `StoreError::Rejected` keeps only the message, so the status code is matched through it.
+const CARD_REQUIRED_PREFIX: &str = "Add a payment card at connect.luna.libreloom.org";
+/// Account-wide meta key: "1" while the last cloud run was refused for a missing card, "" otherwise.
+const CARD_MARKER: &str = "cloud_payment_required";
 
 fn lock(db: &crate::Db) -> std::sync::MutexGuard<'_, Connection> {
     db.lock().unwrap_or_else(|p| p.into_inner())
@@ -128,7 +133,8 @@ pub fn create(
 
 /// Run one cloud backup now, then tidy its old copies. Records the result on
 /// the row and returns what happened. A run already in progress is refused.
-pub fn run(db: &crate::Db, id: &str, store: &dyn CloudStore, now: i64) -> CloudOutcome {
+/// `started_by` is the user who asked for the run, or empty for a scheduled one.
+pub fn run(db: &crate::Db, id: &str, store: &dyn CloudStore, started_by: &str, now: i64) -> CloudOutcome {
     let Some(_slot) = drive_backup::try_hold(id) else {
         return problem_outcome("This backup is copying right now. Try again in a minute.");
     };
@@ -140,7 +146,7 @@ pub fn run(db: &crate::Db, id: &str, store: &dyn CloudStore, now: i64) -> CloudO
             Some(USER_LIST_FAILED)
         }
     };
-    let mut outcome = match run::run_once(db, id, store, now) {
+    let mut outcome = match run::run_once(db, id, store, started_by, now) {
         Ok(out) if out.problem.is_none() => match tidy(db, id, store, now) {
             Ok(()) => out,
             Err(err) => {
@@ -157,10 +163,30 @@ pub fn run(db: &crate::Db, id: &str, store: &dyn CloudStore, now: i64) -> CloudO
             None => users_problem.to_string(),
         });
     }
+    if let Err(err) = note_card_marker(db, outcome.problem.as_deref()) {
+        tracing::warn!(error = %err, "could not record the payment card state");
+    }
     if let Err(err) = record(db, id, now, &outcome) {
         tracing::warn!(error = %err, id, "could not record a cloud backup run");
     }
     outcome
+}
+
+/// Set the card marker when Luna Connect refused a run for a missing card, and clear it on a
+/// clean run. A run that failed for another reason leaves it as it was.
+fn note_card_marker(db: &crate::Db, problem: Option<&str>) -> anyhow::Result<()> {
+    let conn = lock(db);
+    match problem {
+        Some(message) if message.contains(CARD_REQUIRED_PREFIX) => db::set_meta(&conn, CARD_MARKER, "1"),
+        Some(_) => Ok(()),
+        None => db::set_meta(&conn, CARD_MARKER, ""),
+    }
+}
+
+/// True while Luna Connect says this account has no payment card for cloud backups.
+pub fn card_on_file(db: &crate::Db) -> bool {
+    let conn = lock(db);
+    !matches!(db::get_meta(&conn, CARD_MARKER), Ok(Some(v)) if v == "1")
 }
 
 /// Send the signed user list and each user's self-sealed key copy to `store`, so Connect can
@@ -209,7 +235,8 @@ pub fn run_all(db: &crate::Db, store: Option<&dyn CloudStore>, now: i64) -> bool
         }
         Some(store) => {
             for (id, _) in &before {
-                run(db, id, store, now);
+                // Scheduled runs have no user who started them.
+                run(db, id, store, "", now);
             }
             sweep(db, store, now);
         }
@@ -659,9 +686,68 @@ mod tests {
         let id = make_backup(&s);
         let store = ListRefused(MemoryStore::new());
 
-        let outcome = run(&s.db, &id, &store, NOW);
+        let outcome = run(&s.db, &id, &store, "", NOW);
         assert_eq!(outcome.problem.as_deref(), Some(USER_LIST_FAILED));
         assert_eq!(store.0.list_records("snapshots").unwrap().len(), 1);
+    }
+
+    /// A store that refuses every copy the way Luna Connect does for an account with no card.
+    struct NoCard(MemoryStore);
+
+    const NO_CARD_MSG: &str = "Add a payment card at connect.luna.libreloom.org so we can store your cloud backup. It costs $8 per terabyte each month.";
+
+    impl CloudStore for NoCard {
+        fn put_pack(&self, _id: &[u8; 32], _scope: Option<&str>, _bytes: &[u8]) -> Result<(), StoreError> {
+            Err(StoreError::Rejected(NO_CARD_MSG.into()))
+        }
+        fn get_pack(&self, id: &[u8; 32]) -> Result<Vec<u8>, StoreError> {
+            self.0.get_pack(id)
+        }
+        fn delete_pack(&self, id: &[u8; 32]) -> Result<(), StoreError> {
+            self.0.delete_pack(id)
+        }
+        fn put_record(&self, kind: &str, name: &str, bytes: &[u8]) -> Result<(), StoreError> {
+            self.0.put_record(kind, name, bytes)
+        }
+        fn get_record(&self, kind: &str, name: &str) -> Result<Option<Vec<u8>>, StoreError> {
+            self.0.get_record(kind, name)
+        }
+        fn delete_record(&self, kind: &str, name: &str) -> Result<(), StoreError> {
+            self.0.delete_record(kind, name)
+        }
+        fn list_records(&self, kind: &str) -> Result<Vec<String>, StoreError> {
+            self.0.list_records(kind)
+        }
+        fn usage(&self) -> Result<Usage, StoreError> {
+            self.0.usage()
+        }
+    }
+
+    #[test]
+    fn a_missing_card_clears_card_on_file_and_a_clean_run_sets_it_back() {
+        let s = setup();
+        let id = make_backup(&s);
+        assert!(card_on_file(&s.db), "no run yet: nothing refused");
+
+        let refused = run(&s.db, &id, &NoCard(MemoryStore::new()), "", NOW);
+        assert!(refused.problem.as_deref().unwrap_or("").contains(CARD_REQUIRED_PREFIX), "{refused:?}");
+        assert!(!card_on_file(&s.db));
+
+        let ok = run(&s.db, &id, &MemoryStore::new(), "", NOW);
+        assert_eq!(ok.problem, None);
+        assert!(card_on_file(&s.db));
+    }
+
+    #[test]
+    fn other_refusals_leave_the_card_marker_alone() {
+        let s = setup();
+        let id = make_backup(&s);
+        run(&s.db, &id, &NoCard(MemoryStore::new()), "", NOW);
+        assert!(!card_on_file(&s.db));
+
+        let outcome = run(&s.db, &id, &ListRefused(MemoryStore::new()), "", NOW);
+        assert_eq!(outcome.problem.as_deref(), Some(USER_LIST_FAILED));
+        assert!(!card_on_file(&s.db));
     }
 
     #[test]
@@ -670,7 +756,7 @@ mod tests {
         let id = make_backup(&s);
         let store = MemoryStore::new();
 
-        let outcome = run(&s.db, &id, &store, NOW);
+        let outcome = run(&s.db, &id, &store, "", NOW);
         assert_eq!(outcome.problem, None);
         assert_eq!(store.list_records("snapshots").unwrap().len(), 1);
         {

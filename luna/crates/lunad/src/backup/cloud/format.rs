@@ -29,6 +29,8 @@ const PACK_BODY_AAD: &[u8] = b"luna-pack-v1";
 const PACK_INDEX_AAD: &[u8] = b"luna-pack-index-v1";
 /// AAD for a pack key wrapped by the caller (the caller picks the wrapping key).
 const TREE_AAD: &[u8] = b"luna-tree-v1";
+/// AAD for the encrypted snapshot metadata, under the backup key.
+const META_AAD: &[u8] = b"luna-meta-v1";
 /// Domain for snapshot record signatures.
 const SNAPSHOT_DOMAIN: &str = "snapshot";
 
@@ -225,8 +227,20 @@ pub struct TreeEntry {
     pub path: String,
     pub size: u64,
     pub mtime: i64,
-    #[serde(with = "hex_list")]
-    pub chunks: Vec<[u8; 32]>,
+    /// The file's chunks, in order. Each one says where its bytes live, so a restore
+    /// after the local database is lost can read the data packs straight from the tree.
+    pub chunks: Vec<ChunkRef>,
+}
+
+/// One chunk of a file: its id, and the pack and place where its bytes are stored.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChunkRef {
+    #[serde(with = "hex_fixed")]
+    pub id: [u8; 32],
+    #[serde(with = "hex_fixed")]
+    pub pack: [u8; 32],
+    pub offset: u64,
+    pub len: u32,
 }
 
 /// Encrypt a tree as JSON under `key`. Output is `crypto::encrypt` layout (nonce ‖ ciphertext).
@@ -238,6 +252,26 @@ pub fn encrypt_tree(tree: &Tree, key: &[u8; 32]) -> Vec<u8> {
 pub fn decrypt_tree(sealed: &[u8], key: &[u8; 32]) -> Result<Tree> {
     let json = crypto::decrypt(key, TREE_AAD, sealed)?;
     serde_json::from_slice(&json).map_err(|_| anyhow!("This backup's file list could not be read. It may be damaged."))
+}
+
+/// What a recovery needs to rebuild a backup's row: its name, where it came from, and who started it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BackupMeta {
+    pub name: String,
+    pub source_drive: String,
+    pub source_path: String,
+    pub started_by: String,
+}
+
+/// Encrypt backup metadata as JSON under the backup key. Output is `crypto::encrypt` layout.
+pub fn encrypt_meta(meta: &BackupMeta, key: &[u8; 32]) -> Vec<u8> {
+    let json = serde_json::to_vec(meta).expect("backup metadata always serializes to JSON");
+    crypto::encrypt(key, META_AAD, &json)
+}
+
+pub fn decrypt_meta(sealed: &[u8], key: &[u8; 32]) -> Result<BackupMeta> {
+    let json = crypto::decrypt(key, META_AAD, sealed)?;
+    serde_json::from_slice(&json).map_err(|_| anyhow!("This backup's details could not be read. It may be damaged."))
 }
 
 /// One signed record per snapshot. Luna signs it so Connect cannot roll back, swap or regroup backups.
@@ -318,36 +352,6 @@ mod hex_fixed {
         let text = String::deserialize(d)?;
         let bytes = super::hex_decode(&text).map_err(D::Error::custom)?;
         T::try_from(bytes).map_err(|_| D::Error::custom("a hex field has the wrong length"))
-    }
-}
-
-/// Lists of 32-byte ids as hex strings in JSON.
-mod hex_list {
-    use serde::de::Error as _;
-    use serde::{Deserialize, Deserializer, Serializer};
-
-    pub fn serialize<S: Serializer>(value: &[[u8; 32]], s: S) -> Result<S::Ok, S::Error> {
-        let mut text = String::with_capacity(value.len() * 65);
-        for (i, id) in value.iter().enumerate() {
-            if i > 0 {
-                text.push(',');
-            }
-            text.push_str(&super::hex_encode(id));
-        }
-        s.serialize_str(&text)
-    }
-
-    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<[u8; 32]>, D::Error> {
-        let text = String::deserialize(d)?;
-        if text.is_empty() {
-            return Ok(Vec::new());
-        }
-        text.split(',')
-            .map(|part| {
-                let bytes = super::hex_decode(part).map_err(D::Error::custom)?;
-                <[u8; 32]>::try_from(bytes).map_err(|_| D::Error::custom("a chunk id has the wrong length"))
-            })
-            .collect()
     }
 }
 
@@ -511,13 +515,34 @@ mod tests {
                 path: "Photos/cat.jpg".into(),
                 size: 2048,
                 mtime: 1_700_000_000,
-                chunks: vec![[1u8; 32], [2u8; 32]],
+                chunks: vec![
+                    ChunkRef { id: [1u8; 32], pack: [9u8; 32], offset: 0, len: 1024 },
+                    ChunkRef { id: [2u8; 32], pack: [9u8; 32], offset: 1024, len: 1024 },
+                ],
             }],
         };
         let key = [5u8; 32];
         let sealed = encrypt_tree(&tree, &key);
         assert_eq!(decrypt_tree(&sealed, &key).unwrap(), tree);
         assert!(decrypt_tree(&sealed, &[6u8; 32]).is_err());
+    }
+
+    #[test]
+    fn meta_round_trip_and_key_and_aad_are_checked() {
+        let meta = BackupMeta {
+            name: "Photos".into(),
+            source_drive: "Main".into(),
+            source_path: "Photos/2024".into(),
+            started_by: "user-1".into(),
+        };
+        let key = [7u8; 32];
+        let sealed = encrypt_meta(&meta, &key);
+        assert_eq!(decrypt_meta(&sealed, &key).unwrap(), meta);
+        assert!(decrypt_meta(&sealed, &[8u8; 32]).is_err());
+        // Metadata and the file list use different AADs, so one cannot be read as the other.
+        let tree_sealed = encrypt_tree(&Tree { entries: vec![] }, &key);
+        assert!(decrypt_meta(&tree_sealed, &key).is_err());
+        assert!(decrypt_tree(&sealed, &key).is_err());
     }
 
     fn sample_record() -> SnapshotRecord {

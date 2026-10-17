@@ -11,7 +11,7 @@ use rand_core::{OsRng, RngCore};
 use rusqlite::{params, Connection};
 
 use super::crypto;
-use super::format::{self, OpenedPack, SignedRecord, SnapshotRecord};
+use super::format::{self, ChunkRef, OpenedPack, SignedRecord, SnapshotRecord};
 use super::identity;
 use super::run::{self, PACK_KEY_WRAP_AAD};
 use super::store::{CloudStore, StoreError};
@@ -47,8 +47,8 @@ struct Plan {
     snapshots: Vec<SnapshotInsert>,
     /// Snapshot id -> the pack ids listed for it.
     listed: HashMap<String, HashSet<String>>,
-    /// Chunk id -> the pack that holds it, for packs of this protection.
-    chunk_pack: HashMap<[u8; 32], String>,
+    /// The Luna id this identity signs records for.
+    luna_id: String,
 }
 
 pub fn check(
@@ -69,7 +69,7 @@ pub fn check(
 
     // Every snapshot: verify its record, then open its tree pack.
     for snap in &plan.snapshots {
-        let Some(record) = load_record(store, snap, protection_id, &plan.public)? else {
+        let Some(record) = load_record(store, snap, protection_id, &plan.public, &plan.luna_id)? else {
             report.bad_records.push(snap.id.clone());
             continue;
         };
@@ -104,19 +104,15 @@ pub fn check(
             report.bad_records.push(snap.id.clone());
             continue;
         };
-        let tree_chunks: Vec<[u8; 32]> = tree
+        let tree_chunks: Vec<ChunkRef> = tree
             .entries
             .iter()
-            .flat_map(|e| e.chunks.iter().copied())
+            .flat_map(|e| e.chunks.iter().cloned())
             .collect();
-        let (packs, unknown) = unlisted_chunks(&tree_chunks, listed, &plan.chunk_pack);
-        for pack in packs {
+        for pack in unlisted_packs(&tree_chunks, listed) {
             if !report.missing_packs.contains(&pack) {
                 report.missing_packs.push(pack);
             }
-        }
-        if unknown > 0 {
-            report.bad_records.push(snap.id.clone());
         }
     }
 
@@ -160,30 +156,12 @@ fn read_plan(conn: &Connection, protection_id: &str) -> Result<Plan> {
         listed.entry(snap).or_default().insert(pack);
     }
 
-    let mut chunk_pack = HashMap::new();
-    let mut stmt = conn.prepare(
-        "SELECT c.chunk_id, c.pack_id FROM cloud_chunks c
-         WHERE c.pack_id IN (
-             SELECT p.pack_id FROM cloud_snapshot_packs p
-             JOIN cloud_snapshots s ON s.id = p.snapshot_id
-             WHERE s.protection_id = ?1)",
-    )?;
-    let rows = stmt.query_map(params![protection_id], |r| {
-        Ok((r.get::<_, Vec<u8>>(0)?, r.get::<_, String>(1)?))
-    })?;
-    for row in rows {
-        let (blob, pack) = row?;
-        if let Ok(id) = <[u8; 32]>::try_from(blob.as_slice()) {
-            chunk_pack.insert(id, pack);
-        }
-    }
-
     Ok(Plan {
         public: identity.public(),
         keys,
         snapshots,
         listed,
-        chunk_pack,
+        luna_id: identity.luna_id().to_string(),
     })
 }
 
@@ -194,6 +172,7 @@ fn load_record(
     snap: &SnapshotInsert,
     protection_id: &str,
     public: &[u8; 32],
+    luna_id: &str,
 ) -> Result<Option<SnapshotRecord>> {
     let bytes = match store.get_record("snapshots", &snap.id) {
         Ok(Some(bytes)) => bytes,
@@ -208,6 +187,8 @@ fn load_record(
     };
     let matches_db = record.snapshot_id == snap.id
         && record.protection_id == protection_id
+        && record.luna_id == luna_id
+        && i64::from(record.key_version) == snap.key_version
         && hex(&record.tree_pack_id) == snap.tree_pack_id;
     Ok(matches_db.then_some(record))
 }
@@ -259,25 +240,13 @@ fn unwrap_with(keys: &[BackupKey]) -> impl Fn(&[u8]) -> Result<[u8; 32]> + '_ {
     }
 }
 
-/// The chunks a tree names that are not held by a pack listed for its snapshot.
-/// Returns the packs that hold such chunks, and how many chunks no known pack holds.
-fn unlisted_chunks(
-    chunks: &[[u8; 32]],
-    listed: &HashSet<String>,
-    chunk_pack: &HashMap<[u8; 32], String>,
-) -> (BTreeSet<String>, usize) {
-    let mut packs = BTreeSet::new();
-    let mut unknown = 0;
-    for chunk in chunks {
-        match chunk_pack.get(chunk) {
-            Some(pack) if !listed.contains(pack) => {
-                packs.insert(pack.clone());
-            }
-            Some(_) => {}
-            None => unknown += 1,
-        }
-    }
-    (packs, unknown)
+/// The packs a tree names for its chunks that the snapshot does not list.
+fn unlisted_packs(chunks: &[ChunkRef], listed: &HashSet<String>) -> BTreeSet<String> {
+    chunks
+        .iter()
+        .map(|c| hex(&c.pack))
+        .filter(|pack| !listed.contains(pack))
+        .collect()
 }
 
 fn sample_packs(mut ids: Vec<String>, sample: Sample) -> Vec<String> {
@@ -429,13 +398,13 @@ mod tests {
     }
 
     /// Write one snapshot (a data pack, a tree pack, a signed record) into the store and database.
-    /// The tree also names `extra` chunks, which no pack holds unless the caller stores them.
+    /// The tree also names the `extra` chunks, each in the pack it gives (the caller may not store that pack).
     /// Returns the data pack id and the tree pack id.
     fn backup_with_extra(
         db: &crate::Db,
         store: &MemoryStore,
         now: i64,
-        extra: &[[u8; 32]],
+        extra: &[ChunkRef],
     ) -> ([u8; 32], [u8; 32]) {
         let mut conn = db.lock().unwrap_or_else(|p| p.into_inner());
         let luna_id = identity::load(&conn).unwrap().unwrap().luna_id().to_string();
@@ -457,7 +426,12 @@ mod tests {
         let (offset, len) = builder.add(cid, &chunk);
         let data = builder.finish(|pk| crypto::encrypt(&key, AAD, pk));
 
-        let mut chunks = vec![cid];
+        let mut chunks = vec![ChunkRef {
+            id: cid,
+            pack: data.id,
+            offset: offset as u64,
+            len: len as u32,
+        }];
         chunks.extend_from_slice(extra);
         let tree = Tree {
             entries: vec![TreeEntry {
@@ -513,15 +487,20 @@ mod tests {
     }
 
     #[test]
-    fn tree_naming_a_chunk_in_no_pack_is_bad() {
+    fn tree_naming_an_unlisted_pack_reports_it() {
         let dir = tempfile::tempdir().unwrap();
         let db = setup(dir.path(), 100);
         let store = MemoryStore::new();
-        let missing = crypto::chunk_id(&[5u8; 32], b"no pack holds this chunk");
-        backup_with_extra(&db, &store, 100, &[missing]);
+        let elsewhere = ChunkRef {
+            id: crypto::chunk_id(&[5u8; 32], b"stored in a pack nobody lists"),
+            pack: [7u8; 32],
+            offset: 0,
+            len: 10,
+        };
+        backup_with_extra(&db, &store, 100, &[elsewhere]);
 
         let report = check(&db, "p1", &store, Sample::All, 200).unwrap();
-        assert_eq!(report.bad_records, vec!["snap-1".to_string()]);
+        assert_eq!(report.missing_packs, vec![hex(&[7u8; 32])]);
         assert!(report.problem.is_some());
     }
 
@@ -611,14 +590,57 @@ mod tests {
 
     #[test]
     fn chunks_outside_listed_packs_are_reported() {
-        let chunks = [[1u8; 32], [2u8; 32], [3u8; 32]];
-        let listed: HashSet<String> = ["pa".to_string()].into();
-        let chunk_pack = HashMap::from([
-            ([1u8; 32], "pa".to_string()),
-            ([2u8; 32], "pb".to_string()),
-        ]);
-        let (packs, unknown) = unlisted_chunks(&chunks, &listed, &chunk_pack);
-        assert_eq!(packs, BTreeSet::from(["pb".to_string()]));
-        assert_eq!(unknown, 1);
+        let chunk = |pack: u8| ChunkRef {
+            id: [pack; 32],
+            pack: [pack; 32],
+            offset: 0,
+            len: 1,
+        };
+        let chunks = [chunk(0xaa), chunk(0xbb), chunk(0xaa)];
+        let listed: HashSet<String> = [hex(&[0xaa; 32])].into();
+        assert_eq!(unlisted_packs(&chunks, &listed), BTreeSet::from([hex(&[0xbb; 32])]));
+    }
+
+    /// Re-sign the stored record for `snap-1` after `edit`, as this Luna's identity would.
+    fn resign_record(db: &crate::Db, store: &MemoryStore, edit: impl FnOnce(&mut SnapshotRecord)) {
+        let conn = db.lock().unwrap_or_else(|p| p.into_inner());
+        let seed: [u8; 32] = db::get_cloud_identity(&conn)
+            .unwrap()
+            .unwrap()
+            .signing_seed
+            .try_into()
+            .unwrap();
+        let signer = Signer::from_seed(seed);
+        let public = identity::load(&conn).unwrap().unwrap().public();
+        let bytes = store.get_record("snapshots", "snap-1").unwrap().unwrap();
+        let mut record = SignedRecord::from_bytes(&bytes).unwrap().verify(&public).unwrap();
+        edit(&mut record);
+        store
+            .put_record("snapshots", "snap-1", &record.sign(&signer).to_bytes())
+            .unwrap();
+    }
+
+    #[test]
+    fn record_naming_another_luna_is_bad() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = setup(dir.path(), 100);
+        let store = MemoryStore::new();
+        backup(&db, &store, 100);
+        resign_record(&db, &store, |r| r.luna_id = "someone-else".into());
+
+        let report = check(&db, "p1", &store, Sample::All, 200).unwrap();
+        assert_eq!(report.bad_records, vec!["snap-1".to_string()]);
+    }
+
+    #[test]
+    fn record_with_another_key_version_is_bad() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = setup(dir.path(), 100);
+        let store = MemoryStore::new();
+        backup(&db, &store, 100);
+        resign_record(&db, &store, |r| r.key_version = 2);
+
+        let report = check(&db, "p1", &store, Sample::All, 200).unwrap();
+        assert_eq!(report.bad_records, vec!["snap-1".to_string()]);
     }
 }

@@ -134,6 +134,7 @@ pub fn ensure_key(
 ) -> Result<BackupKey> {
     let readers = readers_json(conn, recipients)?;
     if let Some(latest) = db::latest_backup_key(conn, protection_id)? {
+        // A version with no recipient record is never reused: nothing shows who it was made for.
         let recorded = db::get_meta(conn, &recipients_meta_key(protection_id, latest.version))?;
         if let Some(text) = recorded {
             let saved: serde_json::Value = serde_json::from_str(&text)
@@ -413,6 +414,20 @@ mod tests {
         let again = ensure_key(&conn, PROTECTION, &set(&["b", "a"]), 20).unwrap();
         assert_eq!(first.version, 1);
         assert_eq!(again, first);
+    }
+
+    #[test]
+    fn a_missing_recipient_record_starts_a_new_version() {
+        let (_dir, conn) = conn();
+        let v1 = ensure_key(&conn, PROTECTION, &set(&["a"]), 10).unwrap();
+        let record = recipients_meta_key(PROTECTION, 1);
+        conn.execute("DELETE FROM meta WHERE key = ?1", [record.as_str()]).unwrap();
+
+        let v2 = ensure_key(&conn, PROTECTION, &set(&["a"]), 20).unwrap();
+        assert_eq!(v2.version, 2);
+        assert_ne!(v2.key, v1.key);
+        // The new version records its recipients, so the next call keeps it.
+        assert_eq!(ensure_key(&conn, PROTECTION, &set(&["a"]), 30).unwrap(), v2);
     }
 
     #[test]

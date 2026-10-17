@@ -61,6 +61,48 @@ fn lock_db(
     })
 }
 
+/// Cloud backups can only be opened with a recovery phrase, so while any
+/// exist, one Admin who holds a phrase must stay. `admin_id` is the Admin
+/// about to be demoted or removed; the check only applies when they hold a
+/// phrase and no other Admin does.
+fn check_recovery_admin_kept(
+    conn: &rusqlite::Connection,
+    admin_id: &str,
+) -> Result<(), (StatusCode, Json<Value>)> {
+    let internal = |_: anyhow::Error| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't do that. Try again.",
+        )
+    };
+    let protections = crate::db::list_protections(conn).map_err(internal)?;
+    if !protections
+        .iter()
+        .any(|p| p.kind == crate::db::PROTECTION_CLOUD)
+    {
+        return Ok(());
+    }
+    if crate::db::get_user_keys(conn, admin_id)
+        .map_err(internal)?
+        .is_none()
+    {
+        return Ok(());
+    }
+    for other in crate::db::list_admins(conn).map_err(internal)? {
+        if other.id != admin_id
+            && crate::db::get_user_keys(conn, &other.id)
+                .map_err(internal)?
+                .is_some()
+        {
+            return Ok(());
+        }
+    }
+    Err(json_error(
+        StatusCode::CONFLICT,
+        "Luna needs at least one Admin with a recovery phrase while cloud backups exist.",
+    ))
+}
+
 /// Household people picker (album invites, shares, etc.).
 /// Returns only non-sensitive identity fields — not an Admin user-management API.
 async fn directory(
@@ -213,6 +255,7 @@ async fn update(
                         "Luna needs at least one Admin. Make someone else an Admin first.",
                     ));
                 }
+                check_recovery_admin_kept(&conn, &id)?;
             }
             crate::db::set_user_role(&conn, &id, &role)
                 .map_err(|_| map_err(AuthError::Db(anyhow::anyhow!("db"))))?;
@@ -246,6 +289,15 @@ async fn remove(
             "You can't remove your own account.",
         ));
     }
+    let conn = lock_db(&state)?;
+    let is_admin = crate::db::get_user(&conn, &id)
+        .map_err(|_| map_err(AuthError::Db(anyhow::anyhow!("db"))))?
+        .is_some_and(|u| u.role == "admin");
+    if is_admin {
+        check_recovery_admin_kept(&conn, &id)?;
+    }
+    // Release the lock: delete_user takes it again.
+    drop(conn);
     state.auth.delete_user(&id).map_err(map_err)?;
     Ok(Json(json!({ "ok": true })))
 }
@@ -801,5 +853,135 @@ mod tests {
         assert_eq!(body["ok"], true);
         let (status, _) = send(&h, "DELETE", &purge, &h.member_token, None).await;
         assert_eq!(status, 401);
+    }
+
+    // ---- the last Admin who can open cloud backups ----------------------
+
+    fn give_phrase(h: &Harness, user_id: &str) {
+        let conn = h.state.db.lock().unwrap();
+        db::set_user_keys(
+            &conn,
+            &db::UserKeys {
+                user_id: user_id.to_string(),
+                x25519_public: vec![1; 32],
+                auth_public: vec![2; 32],
+                self_sealed: vec![3; 48],
+                phrase_set_at: 1,
+                last_checked_at: 1,
+            },
+        )
+        .unwrap();
+    }
+
+    fn seed_cloud_backup(h: &Harness) {
+        let conn = h.state.db.lock().unwrap();
+        db::insert_protection(
+            &conn,
+            &db::NewProtection {
+                id: "cloud-1",
+                kind: db::PROTECTION_CLOUD,
+                source_drive: "d1",
+                source_path: "docs",
+                target_drive: "",
+                private_owner: "",
+                created_by: "max",
+                created_at: 0,
+            },
+        )
+        .unwrap();
+    }
+
+    /// A second Admin with no recovery phrase, to act on the first one.
+    fn second_admin_without_phrase(h: &Harness) -> String {
+        let sam = h
+            .state
+            .auth
+            .register("Sam", "Sam", "hunter22hunter1", "admin")
+            .unwrap();
+        h.state.auth.issue(&sam).unwrap()
+    }
+
+    #[tokio::test]
+    async fn demoting_the_last_admin_with_a_phrase_is_refused_while_cloud_backups_exist() {
+        let h = harness();
+        give_phrase(&h, &h.admin_id);
+        seed_cloud_backup(&h);
+        let actor = second_admin_without_phrase(&h);
+        let uri = format!("/api/v1/users/{}", h.admin_id);
+        let (status, body) = send(
+            &h,
+            "PATCH",
+            &uri,
+            &actor,
+            Some(json!({ "role": "user" })),
+        )
+        .await;
+        assert_eq!(status, 409, "{body}");
+        assert_eq!(
+            body["error"],
+            "Luna needs at least one Admin with a recovery phrase while cloud backups exist."
+        );
+        assert_eq!(user_row(&h, &h.admin_id).unwrap().role, "admin");
+    }
+
+    #[tokio::test]
+    async fn removing_the_last_admin_with_a_phrase_is_refused_while_cloud_backups_exist() {
+        let h = harness();
+        give_phrase(&h, &h.admin_id);
+        seed_cloud_backup(&h);
+        let actor = second_admin_without_phrase(&h);
+        let uri = format!("/api/v1/users/{}", h.admin_id);
+        let (status, body) = send(&h, "DELETE", &uri, &actor, None).await;
+        assert_eq!(status, 409, "{body}");
+        assert!(user_row(&h, &h.admin_id).is_some());
+    }
+
+    #[tokio::test]
+    async fn an_admin_can_go_when_another_admin_holds_a_phrase() {
+        let h = harness();
+        give_phrase(&h, &h.admin_id);
+        seed_cloud_backup(&h);
+        let actor = second_admin_without_phrase(&h);
+        let sam_id = h.state.auth.list_users().unwrap().into_iter()
+            .find(|u| u.username == "sam").unwrap().id;
+        give_phrase(&h, &sam_id);
+        let uri = format!("/api/v1/users/{}", h.admin_id);
+        let (status, body) = send(
+            &h,
+            "PATCH",
+            &uri,
+            &actor,
+            Some(json!({ "role": "user" })),
+        )
+        .await;
+        assert_eq!(status, 200, "{body}");
+        assert_eq!(user_row(&h, &h.admin_id).unwrap().role, "user");
+    }
+
+    #[tokio::test]
+    async fn the_last_phrase_admin_can_go_when_no_cloud_backup_exists() {
+        let h = harness();
+        give_phrase(&h, &h.admin_id);
+        let actor = second_admin_without_phrase(&h);
+        let uri = format!("/api/v1/users/{}", h.admin_id);
+        let (status, body) = send(
+            &h,
+            "PATCH",
+            &uri,
+            &actor,
+            Some(json!({ "role": "user" })),
+        )
+        .await;
+        assert_eq!(status, 200, "{body}");
+    }
+
+    #[tokio::test]
+    async fn removing_a_member_is_not_blocked_by_the_recovery_rule() {
+        let h = harness();
+        give_phrase(&h, &h.admin_id);
+        seed_cloud_backup(&h);
+        let uri = format!("/api/v1/users/{}", h.member_id);
+        let (status, body) = send(&h, "DELETE", &uri, &h.admin_token, None).await;
+        assert_eq!(status, 200, "{body}");
     }
 }

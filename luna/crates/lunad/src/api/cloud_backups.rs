@@ -105,11 +105,12 @@ async fn create(
     let connect = state.connect.clone();
     let db = state.db.clone();
     let id = row.id.clone();
+    let started_by = user.id.clone();
     drop(tokio::task::spawn_blocking(move || {
         let now = db::now_unix();
         match connect_store(&connect, &db) {
             Some(store) => {
-                ops::run(&db, &id, &store, now);
+                ops::run(&db, &id, &store, &started_by, now);
             }
             // Without Connect, every active cloud backup says why it cannot run.
             None => {
@@ -192,9 +193,10 @@ async fn run(
     }
     let connect = state.connect.clone();
     let db = state.db.clone();
+    let started_by = user.id.clone();
     let job = tokio::task::spawn_blocking(move || {
         let store = connect_store(&connect, &db)?;
-        Some(ops::run(&db, &id, &store, db::now_unix()))
+        Some(ops::run(&db, &id, &store, &started_by, db::now_unix()))
     });
     // A big first copy can take hours. Answer when it's quick; otherwise say
     // it's not done and let the backup's state tell the rest.
@@ -258,10 +260,8 @@ pub fn connect_store(connect: &ConnectService, db: &crate::Db) -> Option<HttpSto
     let base_url = connect.status().base_url;
     let luna_id = {
         let conn = db.lock().unwrap_or_else(|p| p.into_inner());
-        identity::load_or_create(&conn, db::now_unix())
-            .ok()?
-            .luna_id()
-            .to_string()
+        // No identity means cloud backup was never set up here, so there is no store to use.
+        identity::load(&conn).ok()??.luna_id().to_string()
     };
     Some(HttpStore::new(&base_url, &token, &luna_id))
 }
