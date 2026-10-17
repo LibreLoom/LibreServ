@@ -1,5 +1,6 @@
 //! Cloud backup: crypto (keys, sealing, signatures, ids) and, later, upload and sync.
 
+pub mod check;
 pub mod crypto;
 pub mod format;
 pub mod identity;
