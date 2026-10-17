@@ -46,6 +46,13 @@ zip.workspace = true
 tempfile = "3"
 lzma-rust2.workspace = true
 semver.workspace = true
+# Cloud backup crypto (backup/cloud/crypto.rs): key agreement, signatures, AEAD, KDF, recovery phrases.
+bip39 = "3"
+chacha20poly1305 = "0.10"
+ed25519-dalek = "2"
+hkdf = "0.12"
+hmac = "0.12"
+x25519-dalek = { version = "2", features = ["static_secrets"] }
 
 [build-dependencies]
 semver.workspace = true
