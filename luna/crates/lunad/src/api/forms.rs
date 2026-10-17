@@ -240,12 +240,17 @@ pub fn files_dir_for(root: &FsPath, form_path: &FsPath) -> Option<PathBuf> {
 
 fn files_dir_named(root: &FsPath, form_path: &FsPath, name: &str) -> Option<PathBuf> {
     let layout = crate::drives::layout::Layout::detect(root)?;
-    let hash = blake3::hash(name.as_bytes()).to_hex();
-    Some(
-        form_path
-            .parent()?
-            .join(format!("{}-form-{}", layout.prefix(), &hash[..16])),
-    )
+    Some(form_path.parent()?.join(format!(
+        "{}-form-{}",
+        layout.prefix(),
+        form_files_dir_hash(name)
+    )))
+}
+
+/// The 16-hex tag a form's files folder carries, from the form's file name.
+/// Shared with the backup walker, which must match folders to their forms.
+pub(crate) fn form_files_dir_hash(name: &str) -> String {
+    blake3::hash(name.as_bytes()).to_hex()[..16].to_string()
 }
 
 /// Where the form's answers file sits. Normally the visible
