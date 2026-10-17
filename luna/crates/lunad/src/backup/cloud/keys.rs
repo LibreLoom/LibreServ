@@ -1,7 +1,8 @@
 //! Cloud backup keys and recipients: which users can read a shared backup, the versioned backup
 //! key that protects it, and the sealed copies and signed recipient list Connect keeps for it.
 //!
-//! A new key version starts whenever the recipient set changes (someone added or removed).
+//! A new key version starts whenever the recipient set changes (someone added or removed) or a
+//! recipient's recovery keys change (they set a new phrase).
 //! Each recipient gets their own sealed copy of the version's keys, and one signed record lists
 //! who the version was sealed to, so a browser can check it before trusting anything.
 
@@ -88,9 +89,24 @@ fn random_32() -> [u8; 32] {
     out
 }
 
-/// Return the latest key version for `protection_id` if it was created for exactly `recipients`.
-/// Otherwise create the next version with fresh random keys. The recipient set is recorded in
-/// the meta table for the new version, so the next call can compare against it.
+/// The recipient list as saved in meta: each user with the hex of their X25519 public key.
+/// A user with no recovery phrase gets an empty key, so a change to "no phrase" also counts.
+fn readers_json(conn: &Connection, recipients: &Recipients) -> Result<serde_json::Value> {
+    let mut readers = Vec::with_capacity(recipients.users.len());
+    for user in &recipients.users {
+        let public = db::get_user_keys(conn, user)?
+            .map(|keys| keys.x25519_public.iter().map(|b| format!("{b:02x}")).collect::<String>())
+            .unwrap_or_default();
+        readers.push(json!({ "user_id": user, "x25519_public": public }));
+    }
+    Ok(serde_json::Value::Array(readers))
+}
+
+/// Return the latest key version for `protection_id` if it was created for exactly `recipients`
+/// with the same recovery keys. Otherwise create the next version with fresh random keys.
+/// A changed recovery phrase counts as a change: the old copies are sealed to the old key.
+/// The recipient list and their keys are recorded in the meta table for the new version, so the
+/// next call can compare against it.
 ///
 /// Nothing is published here; call `publish_key` with the returned key.
 pub fn ensure_key(
@@ -99,12 +115,13 @@ pub fn ensure_key(
     recipients: &Recipients,
     now: i64,
 ) -> Result<BackupKey> {
+    let readers = readers_json(conn, recipients)?;
     if let Some(latest) = db::latest_backup_key(conn, protection_id)? {
         let recorded = db::get_meta(conn, &recipients_meta_key(protection_id, latest.version))?;
         if let Some(text) = recorded {
-            let users: Vec<String> = serde_json::from_str(&text)
+            let saved: serde_json::Value = serde_json::from_str(&text)
                 .context("The saved list of backup readers is damaged.")?;
-            if users == recipients.users {
+            if saved == readers {
                 return Ok(latest);
             }
         }
@@ -121,7 +138,7 @@ pub fn ensure_key(
     db::set_meta(
         conn,
         &recipients_meta_key(protection_id, version),
-        &serde_json::to_string(&recipients.users)?,
+        &readers.to_string(),
     )?;
     Ok(key)
 }
@@ -273,6 +290,32 @@ mod tests {
         let added = ensure_key(&conn, PROTECTION, &set(&["a", "c"]), 30).unwrap();
         assert_eq!(added.version, 3);
         assert_eq!(db::latest_backup_key(&conn, PROTECTION).unwrap(), Some(added));
+    }
+
+    #[test]
+    fn a_changed_recovery_phrase_starts_a_new_version() {
+        let (_dir, conn) = conn();
+        let v1_keys = user_keys("alice");
+        let mut alice_row = db::UserKeys {
+            user_id: "alice".into(),
+            x25519_public: v1_keys.x25519_public.to_vec(),
+            auth_public: vec![2; 32],
+            self_sealed: vec![3; 48],
+            phrase_set_at: 5,
+            last_checked_at: 0,
+        };
+        db::set_user_keys(&conn, &alice_row).unwrap();
+        let v1 = ensure_key(&conn, PROTECTION, &set(&["alice"]), 10).unwrap();
+
+        // Same user, same phrase: same version.
+        assert_eq!(ensure_key(&conn, PROTECTION, &set(&["alice"]), 20).unwrap(), v1);
+
+        // Same user, new phrase (new X25519 key): new version.
+        alice_row.x25519_public = user_keys("alice-new").x25519_public.to_vec();
+        db::set_user_keys(&conn, &alice_row).unwrap();
+        let v2 = ensure_key(&conn, PROTECTION, &set(&["alice"]), 30).unwrap();
+        assert_eq!(v2.version, 2);
+        assert_ne!(v2.key, v1.key);
     }
 
     #[test]
