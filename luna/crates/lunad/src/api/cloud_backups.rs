@@ -66,7 +66,7 @@ async fn create(
     Extension(user): Extension<CurrentUser>,
     Json(body): Json<CreateBody>,
 ) -> ApiResult {
-    let row = {
+    {
         let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
         let norm = crate::access::normalize_subject_path(&body.source_path);
         // Same order as drive backups: the no-access answer comes first, so
@@ -89,18 +89,18 @@ async fn create(
                 "You need Read access to this folder to back it up.",
             ));
         }
-        let row = ops::create(&conn, &state.connect, &user, &body.source_drive_id, &body.source_path)
-            .map_err(|Refused(msg)| json_error(refusal_status(&msg), msg))?;
-        // An existing backup of this folder comes back as it is, so only people
-        // on its access list may see it or start it.
-        if !ops::visible_to(&row, &user) {
-            return Err(json_error(
-                StatusCode::FORBIDDEN,
-                "Someone already backs this folder up to the cloud.",
-            ));
-        }
-        row
-    };
+    }
+    // Connect and the drives are reached with no DB lock held.
+    let row = ops::create(&state.db, &state.connect, &user, &body.source_drive_id, &body.source_path)
+        .map_err(|Refused(msg)| json_error(refusal_status(&msg), msg))?;
+    // An existing backup of this folder comes back as it is, so only people
+    // on its access list may see it or start it.
+    if !ops::visible_to(&row, &user) {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "Someone already backs this folder up to the cloud.",
+        ));
+    }
     // The first copy runs in the background; the row's state tells the rest.
     let connect = state.connect.clone();
     let db = state.db.clone();

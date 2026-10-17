@@ -56,64 +56,41 @@ fn problem_outcome(message: &str) -> CloudOutcome {
 /// source, Admin for a whole drive, never a source inside a private item.
 /// One cloud backup per folder: an existing one is returned as is.
 pub fn create(
-    conn: &Connection,
+    db: &crate::Db,
     connect: &ConnectService,
     user: &crate::auth::CurrentUser,
     source_drive: &str,
     source_path: &str,
 ) -> Result<ProtectionRow, Refused> {
-    use crate::access::CAP_VIEW;
-
-    let db_refused = || Refused("Luna couldn't save this backup. Try again.".to_string());
     let norm = crate::access::normalize_subject_path(source_path);
 
-    if norm.is_empty() && user.role != "admin" {
-        return Err(Refused("Only an Admin can back up a whole drive.".into()));
-    }
-    if !crate::auth::has_cap(user, conn, source_drive, &norm, CAP_VIEW) {
-        return Err(Refused(
-            "You need Read access to this folder to back it up.".into(),
-        ));
-    }
-    if crate::auth::inside_private(conn, source_drive, &norm) {
-        return Err(Refused(
-            "Private items can't be backed up to the cloud.".into(),
-        ));
-    }
-    if crate::files::drive_root(conn, source_drive).is_err() {
-        return Err(Refused(
-            "Luna can't reach this drive. Check that it is connected.".into(),
-        ));
-    }
-    match crate::files::resolve_any(conn, source_drive, &norm) {
-        Ok((_, meta)) if meta.is_dir() => {}
-        Ok(_) => {
-            return Err(Refused(
-                "Only folders and whole drives can be backed up.".into(),
-            ))
-        }
-        Err(_) => return Err(Refused("Luna can't find this folder.".into())),
-    }
-
-    if let Some(existing) =
-        db::find_protection(conn, db::PROTECTION_CLOUD, source_drive, &norm, "")
-            .map_err(|_| db_refused())?
-    {
+    let existing = {
+        let conn = lock(db);
+        check_new_backup(&conn, user, source_drive, &norm)?
+    };
+    if let Some(existing) = existing {
         return Ok(existing);
     }
 
-    // The creator's own key copy is what lets them see this backup later, so they need a phrase.
-    if db::get_user_keys(conn, &user.id).map_err(|_| db_refused())?.is_none() {
-        return Err(Refused(
-            "Set up your recovery phrase before you back up to the cloud.".into(),
-        ));
+    // Connect and the drives are reached with no DB lock held.
+    identity::load_or_create_connected(db, connect, db::now_unix()).map_err(|err| {
+        tracing::error!(error = %err, "could not set up the cloud backup identity");
+        Refused(IDENTITY_REFUSAL.to_string())
+    })?;
+
+    let conn = lock(db);
+    // Another request may have started this backup while the lock was free.
+    if let Some(existing) =
+        db::find_protection(&conn, db::PROTECTION_CLOUD, source_drive, &norm, "")
+            .map_err(|_| save_refused())?
+    {
+        return Ok(existing);
     }
-    identity::load_or_create_connected(conn, connect, db::now_unix()).map_err(|err| Refused(err.to_string()))?;
-    let access = access_list::for_source(conn, source_drive, &norm).map_err(|_| db_refused())?;
-    let access_json = serde_json::to_string(&access).map_err(|_| db_refused())?;
+    let access = access_list::for_source(&conn, source_drive, &norm).map_err(|_| save_refused())?;
+    let access_json = serde_json::to_string(&access).map_err(|_| save_refused())?;
     let id = uuid::Uuid::new_v4().to_string();
     db::insert_protection(
-        conn,
+        &conn,
         &db::NewProtection {
             id: &id,
             kind: db::PROTECTION_CLOUD,
@@ -125,12 +102,72 @@ pub fn create(
             created_at: db::now_unix(),
         },
     )
-    .map_err(|_| db_refused())?;
-    db::set_protection_access(conn, &id, &access_json).map_err(|_| db_refused())?;
-    db::get_protection(conn, &id)
+    .map_err(|_| save_refused())?;
+    db::set_protection_access(&conn, &id, &access_json).map_err(|_| save_refused())?;
+    db::get_protection(&conn, &id)
         .ok()
         .flatten()
-        .ok_or_else(db_refused)
+        .ok_or_else(save_refused)
+}
+
+const IDENTITY_REFUSAL: &str =
+    "Luna could not set up its backup identity. Try again, or contact your Admin.";
+
+fn save_refused() -> Refused {
+    Refused("Luna couldn't save this backup. Try again.".to_string())
+}
+
+/// The checks before a new cloud backup of `norm` is made. Returns the backup of this folder
+/// that already exists, if any, so it is never made twice.
+fn check_new_backup(
+    conn: &Connection,
+    user: &crate::auth::CurrentUser,
+    source_drive: &str,
+    norm: &str,
+) -> Result<Option<ProtectionRow>, Refused> {
+    use crate::access::CAP_VIEW;
+
+    if norm.is_empty() && user.role != "admin" {
+        return Err(Refused("Only an Admin can back up a whole drive.".into()));
+    }
+    if !crate::auth::has_cap(user, conn, source_drive, norm, CAP_VIEW) {
+        return Err(Refused(
+            "You need Read access to this folder to back it up.".into(),
+        ));
+    }
+    if crate::auth::inside_private(conn, source_drive, norm) {
+        return Err(Refused(
+            "Private items can't be backed up to the cloud.".into(),
+        ));
+    }
+    if crate::files::drive_root(conn, source_drive).is_err() {
+        return Err(Refused(
+            "Luna can't reach this drive. Check that it is connected.".into(),
+        ));
+    }
+    match crate::files::resolve_any(conn, source_drive, norm) {
+        Ok((_, meta)) if meta.is_dir() => {}
+        Ok(_) => {
+            return Err(Refused(
+                "Only folders and whole drives can be backed up.".into(),
+            ))
+        }
+        Err(_) => return Err(Refused("Luna can't find this folder.".into())),
+    }
+
+    if let Some(existing) = db::find_protection(conn, db::PROTECTION_CLOUD, source_drive, norm, "")
+        .map_err(|_| save_refused())?
+    {
+        return Ok(Some(existing));
+    }
+
+    // The creator's own key copy is what lets them see this backup later, so they need a phrase.
+    if db::get_user_keys(conn, &user.id).map_err(|_| save_refused())?.is_none() {
+        return Err(Refused(
+            "Set up your recovery phrase before you back up to the cloud.".into(),
+        ));
+    }
+    Ok(None)
 }
 
 /// Run one cloud backup now, then tidy its old copies. Records the result on
@@ -207,10 +244,9 @@ pub fn publish_users(
     connect: &ConnectService,
     now: i64,
 ) -> anyhow::Result<()> {
-    let (identity, users) = {
-        let conn = lock(db);
-        (identity::load_or_create_connected(&conn, connect, now)?, db::list_user_keys(&conn)?)
-    };
+    // Connect and the drives are reached with no DB lock held.
+    let identity = identity::load_or_create_connected(db, connect, now)?;
+    let users = db::list_user_keys(&lock(db))?;
     let listed = users
         .iter()
         .map(|user| {
@@ -579,8 +615,7 @@ mod tests {
     }
 
     fn make_backup(s: &Setup) -> String {
-        let conn = lock(&s.db);
-        create(&conn, &s.connect, &s.admin, &s.src, "Docs").unwrap().id
+        create(&s.db, &s.connect, &s.admin, &s.src, "Docs").unwrap().id
     }
 
     #[test]
@@ -591,8 +626,7 @@ mod tests {
             username: "member".into(),
             role: "member".into(),
         };
-        let conn = lock(&s.db);
-        let err = create(&conn, &s.connect, &member, &s.src, "").unwrap_err();
+        let err = create(&s.db, &s.connect, &member, &s.src, "").unwrap_err();
         assert!(err.0.contains("Only an Admin"), "{}", err.0);
     }
 
@@ -606,12 +640,11 @@ mod tests {
     #[test]
     fn create_needs_the_creators_recovery_phrase() {
         let s = setup();
-        let conn = lock(&s.db);
-        crate::db::delete_user_keys(&conn, "admin").unwrap();
-        let err = create(&conn, &s.connect, &s.admin, &s.src, "Docs").err().unwrap();
+        crate::db::delete_user_keys(&lock(&s.db), "admin").unwrap();
+        let err = create(&s.db, &s.connect, &s.admin, &s.src, "Docs").err().unwrap();
         assert_eq!(err.0, "Set up your recovery phrase before you back up to the cloud.");
         crate::db::set_user_keys(
-            &conn,
+            &lock(&s.db),
             &crate::db::UserKeys {
                 user_id: "admin".into(),
                 x25519_public: vec![5; 32],
@@ -622,7 +655,7 @@ mod tests {
             },
         )
         .unwrap();
-        assert!(create(&conn, &s.connect, &s.admin, &s.src, "Docs").is_ok());
+        assert!(create(&s.db, &s.connect, &s.admin, &s.src, "Docs").is_ok());
     }
 
     #[test]
