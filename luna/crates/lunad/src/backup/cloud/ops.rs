@@ -10,6 +10,7 @@ use crate::backup::cloud::check;
 use crate::backup::cloud::identity;
 use crate::backup::cloud::keys;
 use crate::backup::cloud::retention;
+use crate::net::connect::ConnectService;
 use crate::backup::cloud::run::{self, CloudOutcome};
 use crate::backup::cloud::store::{CloudStore, StoreError};
 use crate::backup::drive_backup::{self, Refused};
@@ -56,6 +57,7 @@ fn problem_outcome(message: &str) -> CloudOutcome {
 /// One cloud backup per folder: an existing one is returned as is.
 pub fn create(
     conn: &Connection,
+    connect: &ConnectService,
     user: &crate::auth::CurrentUser,
     source_drive: &str,
     source_path: &str,
@@ -106,7 +108,7 @@ pub fn create(
             "Set up your recovery phrase before you back up to the cloud.".into(),
         ));
     }
-    identity::load_or_create(conn, db::now_unix()).map_err(|_| db_refused())?;
+    identity::load_or_create_connected(conn, connect, db::now_unix()).map_err(|err| Refused(err.to_string()))?;
     let access = access_list::for_source(conn, source_drive, &norm).map_err(|_| db_refused())?;
     let access_json = serde_json::to_string(&access).map_err(|_| db_refused())?;
     let id = uuid::Uuid::new_v4().to_string();
@@ -134,12 +136,19 @@ pub fn create(
 /// Run one cloud backup now, then tidy its old copies. Records the result on
 /// the row and returns what happened. A run already in progress is refused.
 /// `started_by` is the user who asked for the run, or empty for a scheduled one.
-pub fn run(db: &crate::Db, id: &str, store: &dyn CloudStore, started_by: &str, now: i64) -> CloudOutcome {
+pub fn run(
+    db: &crate::Db,
+    id: &str,
+    store: &dyn CloudStore,
+    connect: &ConnectService,
+    started_by: &str,
+    now: i64,
+) -> CloudOutcome {
     let Some(_slot) = drive_backup::try_hold(id) else {
         return problem_outcome("This backup is copying right now. Try again in a minute.");
     };
     // Send the current recovery keys first. A failure does not stop the copy; it is reported here.
-    let users_problem = match publish_users(db, store, now) {
+    let users_problem = match publish_users(db, store, connect, now) {
         Ok(()) => None,
         Err(err) => {
             tracing::warn!(error = %err, id, "could not publish the cloud user list");
@@ -192,10 +201,15 @@ pub fn card_on_file(db: &crate::Db) -> bool {
 /// Send the signed user list and each user's self-sealed key copy to `store`, so Connect can
 /// hand them to a browser that needs to check them. Connect keeps the last copy, so a failure
 /// here only delays the update until the next run.
-pub fn publish_users(db: &crate::Db, store: &dyn CloudStore, now: i64) -> anyhow::Result<()> {
+pub fn publish_users(
+    db: &crate::Db,
+    store: &dyn CloudStore,
+    connect: &ConnectService,
+    now: i64,
+) -> anyhow::Result<()> {
     let (identity, users) = {
         let conn = lock(db);
-        (identity::load_or_create(&conn, now)?, db::list_user_keys(&conn)?)
+        (identity::load_or_create_connected(&conn, connect, now)?, db::list_user_keys(&conn)?)
     };
     let listed = users
         .iter()
@@ -223,7 +237,7 @@ pub fn publish_users(db: &crate::Db, store: &dyn CloudStore, now: i64) -> anyhow
 /// Run every active cloud backup, then tidy every pack scope. `store` is `None`
 /// when Luna Connect is not set up: each backup records that problem instead.
 /// True when any backup's state changed (so the health cache must be refreshed).
-pub fn run_all(db: &crate::Db, store: Option<&dyn CloudStore>, now: i64) -> bool {
+pub fn run_all(db: &crate::Db, store: Option<&dyn CloudStore>, connect: &ConnectService, now: i64) -> bool {
     let before = active_states(db, now);
     match store {
         None => {
@@ -236,7 +250,7 @@ pub fn run_all(db: &crate::Db, store: Option<&dyn CloudStore>, now: i64) -> bool
         Some(store) => {
             for (id, _) in &before {
                 // Scheduled runs have no user who started them.
-                run(db, id, store, "", now);
+                run(db, id, store, connect, "", now);
             }
             sweep(db, store, now);
         }
@@ -519,6 +533,8 @@ mod tests {
         db: crate::Db,
         admin: CurrentUser,
         src: String,
+        /// Connect with no device token, so no lookup reaches the network.
+        connect: ConnectService,
     }
 
     fn setup() -> Setup {
@@ -548,7 +564,9 @@ mod tests {
         db::upsert_drive(&conn, &src, "Photos", "as_is", "ext4", &src, root.to_str().unwrap())
             .unwrap();
         fs::write(root.join("Docs").join("a.txt"), "hello").unwrap();
+        let connect = ConnectService::new(&dir.path().join("connect"), None);
         Setup {
+            connect,
             _dir: dir,
             db: crate::Db::new(conn),
             admin: CurrentUser {
@@ -562,7 +580,7 @@ mod tests {
 
     fn make_backup(s: &Setup) -> String {
         let conn = lock(&s.db);
-        create(&conn, &s.admin, &s.src, "Docs").unwrap().id
+        create(&conn, &s.connect, &s.admin, &s.src, "Docs").unwrap().id
     }
 
     #[test]
@@ -574,7 +592,7 @@ mod tests {
             role: "member".into(),
         };
         let conn = lock(&s.db);
-        let err = create(&conn, &member, &s.src, "").unwrap_err();
+        let err = create(&conn, &s.connect, &member, &s.src, "").unwrap_err();
         assert!(err.0.contains("Only an Admin"), "{}", err.0);
     }
 
@@ -590,7 +608,7 @@ mod tests {
         let s = setup();
         let conn = lock(&s.db);
         crate::db::delete_user_keys(&conn, "admin").unwrap();
-        let err = create(&conn, &s.admin, &s.src, "Docs").err().unwrap();
+        let err = create(&conn, &s.connect, &s.admin, &s.src, "Docs").err().unwrap();
         assert_eq!(err.0, "Set up your recovery phrase before you back up to the cloud.");
         crate::db::set_user_keys(
             &conn,
@@ -604,14 +622,14 @@ mod tests {
             },
         )
         .unwrap();
-        assert!(create(&conn, &s.admin, &s.src, "Docs").is_ok());
+        assert!(create(&conn, &s.connect, &s.admin, &s.src, "Docs").is_ok());
     }
 
     #[test]
     fn without_connect_each_backup_says_so() {
         let s = setup();
         let id = make_backup(&s);
-        run_all(&s.db, None, NOW);
+        run_all(&s.db, None, &s.connect, NOW);
         let conn = lock(&s.db);
         let row = db::get_protection(&conn, &id).unwrap().unwrap();
         assert_eq!(row.last_error, NOT_SET_UP);
@@ -670,7 +688,7 @@ mod tests {
         drop(conn);
         let store = MemoryStore::new();
 
-        publish_users(&s.db, &store, NOW).unwrap();
+        publish_users(&s.db, &store, &s.connect, NOW).unwrap();
 
         let list = store.get_record("users", "list").unwrap().unwrap();
         assert!(keys::verify_user_list(&list, &signer.public(), signer.luna_id()).is_some());
@@ -686,7 +704,7 @@ mod tests {
         let id = make_backup(&s);
         let store = ListRefused(MemoryStore::new());
 
-        let outcome = run(&s.db, &id, &store, "", NOW);
+        let outcome = run(&s.db, &id, &store, &s.connect, "", NOW);
         assert_eq!(outcome.problem.as_deref(), Some(USER_LIST_FAILED));
         assert_eq!(store.0.list_records("snapshots").unwrap().len(), 1);
     }
@@ -729,11 +747,11 @@ mod tests {
         let id = make_backup(&s);
         assert!(card_on_file(&s.db), "no run yet: nothing refused");
 
-        let refused = run(&s.db, &id, &NoCard(MemoryStore::new()), "", NOW);
+        let refused = run(&s.db, &id, &NoCard(MemoryStore::new()), &s.connect, "", NOW);
         assert!(refused.problem.as_deref().unwrap_or("").contains(CARD_REQUIRED_PREFIX), "{refused:?}");
         assert!(!card_on_file(&s.db));
 
-        let ok = run(&s.db, &id, &MemoryStore::new(), "", NOW);
+        let ok = run(&s.db, &id, &MemoryStore::new(), &s.connect, "", NOW);
         assert_eq!(ok.problem, None);
         assert!(card_on_file(&s.db));
     }
@@ -742,10 +760,10 @@ mod tests {
     fn other_refusals_leave_the_card_marker_alone() {
         let s = setup();
         let id = make_backup(&s);
-        run(&s.db, &id, &NoCard(MemoryStore::new()), "", NOW);
+        run(&s.db, &id, &NoCard(MemoryStore::new()), &s.connect, "", NOW);
         assert!(!card_on_file(&s.db));
 
-        let outcome = run(&s.db, &id, &ListRefused(MemoryStore::new()), "", NOW);
+        let outcome = run(&s.db, &id, &ListRefused(MemoryStore::new()), &s.connect, "", NOW);
         assert_eq!(outcome.problem.as_deref(), Some(USER_LIST_FAILED));
         assert!(!card_on_file(&s.db));
     }
@@ -756,7 +774,7 @@ mod tests {
         let id = make_backup(&s);
         let store = MemoryStore::new();
 
-        let outcome = run(&s.db, &id, &store, "", NOW);
+        let outcome = run(&s.db, &id, &store, &s.connect, "", NOW);
         assert_eq!(outcome.problem, None);
         assert_eq!(store.list_records("snapshots").unwrap().len(), 1);
         {

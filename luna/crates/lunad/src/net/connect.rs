@@ -871,6 +871,90 @@ impl ConnectService {
         ))
     }
 
+    /// The Luna ids this account already holds on Connect, and whether each
+    /// one has its signing key registered (`GET /api/v1/storage/luna-ids`).
+    pub fn list_luna_ids(&self) -> Result<Vec<ConnectLunaId>, ConnectError> {
+        let token = self.token()?;
+        let reply = self.call_json_status(
+            "GET",
+            "/api/v1/storage/luna-ids",
+            Some(&token),
+            None,
+        )?;
+        let rows = reply
+            .get("luna_ids")
+            .and_then(Value::as_array)
+            .ok_or_else(luna_ids_unreadable)?;
+        rows.iter()
+            .map(|row| {
+                let luna_id = row.get("luna_id").and_then(Value::as_str);
+                let has_signing_key = row.get("has_signing_key").and_then(Value::as_bool);
+                match (luna_id, has_signing_key) {
+                    (Some(luna_id), Some(has_signing_key)) => Ok(ConnectLunaId {
+                        luna_id: luna_id.to_string(),
+                        has_signing_key,
+                    }),
+                    _ => Err(luna_ids_unreadable()),
+                }
+            })
+            .collect()
+    }
+
+    /// Registers this Luna's signing public key (64 hex characters) with
+    /// Connect (`POST /api/v1/storage/luna-ids/{id}/signing-public`).
+    pub fn register_signing_public(
+        &self,
+        luna_id: &str,
+        public_hex: &str,
+    ) -> Result<(), ConnectError> {
+        let token = self.token()?;
+        let url = format!(
+            "{}/api/v1/storage/luna-ids/{}/signing-public",
+            self.base_url.trim_end_matches('/'),
+            luna_id
+        );
+        let mut response = ureq::post(&url)
+            .config()
+            .http_status_as_error(false)
+            .timeout_global(Some(CONNECT_HTTP_TIMEOUT))
+            .timeout_connect(Some(CONNECT_HTTP_CONNECT_TIMEOUT))
+            .build()
+            .header("Authorization", format!("Bearer {token}"))
+            .send(public_hex.as_bytes())
+            .map_err(map_transport_error)?;
+        let status = response.status().as_u16();
+        if (200..300).contains(&status) {
+            return Ok(());
+        }
+        let content_type = response
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+        let cf_mitigated = response
+            .headers()
+            .get("cf-mitigated")
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string);
+        let body_text = response
+            .body_mut()
+            .with_config()
+            .limit(MAX_REPLY_BYTES)
+            .read_to_string()
+            .unwrap_or_default();
+        match status {
+            401 => Err(ConnectError::InvalidToken),
+            403 => Err(classify_403(
+                status,
+                &content_type,
+                &body_text,
+                cf_mitigated.as_deref(),
+            )),
+            _ => Err(map_transport_error(ureq::Error::StatusCode(status))),
+        }
+    }
+
     pub fn delete_backup_object(&self, rel: &str) -> Result<(), ConnectError> {
         let token = self.token()?;
         let url = format!(
@@ -1292,6 +1376,20 @@ impl ConnectService {
         }
         Ok(())
     }
+}
+
+/// One Luna id on this account, as Luna Connect lists it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConnectLunaId {
+    pub luna_id: String,
+    pub has_signing_key: bool,
+}
+
+fn luna_ids_unreadable() -> ConnectError {
+    ConnectError::Other(
+        "Luna Connect answered, but Luna could not read its list of Luna ids. Luna will try again."
+            .into(),
+    )
 }
 
 fn map_transport_error(err: ureq::Error) -> ConnectError {
@@ -2198,6 +2296,67 @@ mod tests {
             }
         });
         format!("http://{addr}")
+    }
+
+    #[test]
+    fn list_luna_ids_reads_each_id_and_its_signing_key_flag() {
+        let url = serve_once(
+            200,
+            r#"{"luna_ids":[{"luna_id":"luna-ABCDEFGHJKMNPQRSTVWXYZ2345","has_signing_key":true,"created_at":1700000000},{"luna_id":"luna-ZYXWVUTSRQPNMKJHGFEDCBA234","has_signing_key":false,"created_at":1700000001}]}"#,
+        );
+        let dir = tempfile::tempdir().unwrap();
+        let service = ConnectService::new(dir.path(), Some(url));
+        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
+        let ids = service.list_luna_ids().unwrap();
+        assert_eq!(
+            ids,
+            vec![
+                ConnectLunaId {
+                    luna_id: "luna-ABCDEFGHJKMNPQRSTVWXYZ2345".into(),
+                    has_signing_key: true,
+                },
+                ConnectLunaId {
+                    luna_id: "luna-ZYXWVUTSRQPNMKJHGFEDCBA234".into(),
+                    has_signing_key: false,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn list_luna_ids_refuses_a_reply_it_cannot_read() {
+        let url = serve_once(200, r#"{"luna_ids":[{"luna_id":"luna-X"}]}"#);
+        let dir = tempfile::tempdir().unwrap();
+        let service = ConnectService::new(dir.path(), Some(url));
+        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
+        assert!(matches!(
+            service.list_luna_ids(),
+            Err(ConnectError::Other(_))
+        ));
+    }
+
+    #[test]
+    fn register_signing_public_accepts_a_2xx_reply() {
+        let url = serve_once(200, "{\"ok\":true}");
+        let dir = tempfile::tempdir().unwrap();
+        let service = ConnectService::new(dir.path(), Some(url));
+        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
+        let key = "ab".repeat(32);
+        assert!(service
+            .register_signing_public("luna-ABCDEFGHJKMNPQRSTVWXYZ2345", &key)
+            .is_ok());
+    }
+
+    #[test]
+    fn register_signing_public_reports_a_refused_key() {
+        let url = serve_once(403, "{\"error\":\"another device owns this Luna\"}");
+        let dir = tempfile::tempdir().unwrap();
+        let service = ConnectService::new(dir.path(), Some(url));
+        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
+        let key = "ab".repeat(32);
+        assert!(service
+            .register_signing_public("luna-ABCDEFGHJKMNPQRSTVWXYZ2345", &key)
+            .is_err());
     }
 
     fn seed_claim(service: &ConnectService) {

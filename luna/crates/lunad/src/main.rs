@@ -452,7 +452,7 @@ async fn async_main() -> anyhow::Result<()> {
             let changed = tokio::task::spawn_blocking(move || {
                 let store = lunad::api::cloud_backups::connect_store(&connect, &db);
                 let store_ref = store.as_ref().map(|s| s as &dyn lunad::backup::cloud::store::CloudStore);
-                lunad::backup::cloud::ops::run_all(&db, store_ref, lunad::db::now_unix())
+                lunad::backup::cloud::ops::run_all(&db, store_ref, &connect, lunad::db::now_unix())
             })
             .await
             .unwrap_or(false);

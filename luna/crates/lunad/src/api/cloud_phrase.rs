@@ -146,7 +146,7 @@ async fn set_phrase(
         let Some(store) = connect_store(&connect, &db) else {
             return;
         };
-        if let Err(err) = ops::publish_users(&db, &store, now) {
+        if let Err(err) = ops::publish_users(&db, &store, &connect, now) {
             tracing::warn!(error = %err, "could not send recovery keys to Luna Connect");
         }
     });

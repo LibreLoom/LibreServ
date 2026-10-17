@@ -89,7 +89,7 @@ async fn create(
                 "You need Read access to this folder to back it up.",
             ));
         }
-        let row = ops::create(&conn, &user, &body.source_drive_id, &body.source_path)
+        let row = ops::create(&conn, &state.connect, &user, &body.source_drive_id, &body.source_path)
             .map_err(|Refused(msg)| json_error(refusal_status(&msg), msg))?;
         // An existing backup of this folder comes back as it is, so only people
         // on its access list may see it or start it.
@@ -110,11 +110,11 @@ async fn create(
         let now = db::now_unix();
         match connect_store(&connect, &db) {
             Some(store) => {
-                ops::run(&db, &id, &store, &started_by, now);
+                ops::run(&db, &id, &store, &connect, &started_by, now);
             }
             // Without Connect, every active cloud backup says why it cannot run.
             None => {
-                ops::run_all(&db, None, now);
+                ops::run_all(&db, None, &connect, now);
             }
         }
     }));
@@ -196,7 +196,7 @@ async fn run(
     let started_by = user.id.clone();
     let job = tokio::task::spawn_blocking(move || {
         let store = connect_store(&connect, &db)?;
-        Some(ops::run(&db, &id, &store, &started_by, db::now_unix()))
+        Some(ops::run(&db, &id, &store, &connect, &started_by, db::now_unix()))
     });
     // A big first copy can take hours. Answer when it's quick; otherwise say
     // it's not done and let the backup's state tell the rest.
