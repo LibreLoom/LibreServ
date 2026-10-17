@@ -1,7 +1,7 @@
 //! Lifecycle of a backup: deleting it, following moves and access changes,
 //! rebuilding its row from the copies on a drive, and what people see.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 use rusqlite::Connection;
@@ -55,9 +55,18 @@ fn check_stop(conn: &Connection, row: &ProtectionRow) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Marks a store that is being removed. Its name starts with the backup's
+/// id, so it is never mistaken for a backup: the manifest's id no longer
+/// matches the folder name.
+const TRASH_MARK: &str = ".deleting-";
+
 /// Deletes a backup. Its copies on the backup drive are removed when the
 /// drive is connected; otherwise they are removed the next time it is.
+/// Refused while the backup is copying.
 pub fn delete(conn: &Connection, row: &ProtectionRow) -> anyhow::Result<()> {
+    if crate::backup::drive_backup::is_running(&row.id) {
+        anyhow::bail!("This backup is copying right now. Try again in a minute.");
+    }
     db::delete_protection(conn, &row.id)?;
     // Recorded first, so a store left behind (drive absent, or removal
     // failing halfway) is cleaned up by `rebuild_from_manifests` later
@@ -66,10 +75,41 @@ pub fn delete(conn: &Connection, row: &ProtectionRow) -> anyhow::Result<()> {
     if let Some((root, layout)) = connected_target(conn, &row.target_drive)
         && let Some(store) = Store::existing(&root, &layout, &row.id)
     {
-        std::fs::remove_dir_all(store.root())
-            .context("Could not delete the backup's files on the backup drive.")?;
+        retire_store(store.root())?;
     }
     Ok(())
+}
+
+/// Moves a store out of the backups folder under a new name, so it stops
+/// being a backup at once, then removes it on a background thread. The
+/// rename is quick, so this can run while the database lock is held.
+fn retire_store(root: &Path) -> anyhow::Result<()> {
+    let name = root.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_nanos();
+    let trash = root.with_file_name(format!("{name}{TRASH_MARK}{stamp}"));
+    std::fs::rename(root, &trash)
+        .context("Could not delete the backup's files on the backup drive.")?;
+    std::thread::spawn(move || {
+        if let Err(err) = std::fs::remove_dir_all(&trash) {
+            tracing::warn!(error = %err, "could not finish deleting a backup's files");
+        }
+    });
+    Ok(())
+}
+
+/// Removes folders left behind by a removal that was interrupted. Runs in
+/// the background, and ignores what it cannot remove.
+fn sweep_leftover_trash(dir: PathBuf) {
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if entry.file_name().to_string_lossy().contains(TRASH_MARK) {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
 }
 
 /// A folder moved or was renamed. Follows every backup of it (and of
@@ -187,6 +227,8 @@ pub fn rebuild_from_manifests(conn: &Connection) -> usize {
         let Some((root, layout)) = connected(drive) else {
             continue;
         };
+        let backups = layout.backups_dir(&root);
+        std::thread::spawn(move || sweep_leftover_trash(backups));
         for store in drive_store::list_stores(&root, &layout) {
             match rebuild_one(conn, drive, &store) {
                 Ok(true) => inserted += 1,
@@ -213,7 +255,7 @@ fn rebuild_one(conn: &Connection, drive: &DriveRow, store: &Store) -> anyhow::Re
         return Ok(false);
     }
     if db::get_meta(conn, &deleted_key(&id))?.is_some() {
-        std::fs::remove_dir_all(store.root())?;
+        retire_store(store.root())?;
         return Ok(false);
     }
     if db::get_protection(conn, &id)?.is_some() {
@@ -239,14 +281,8 @@ fn rebuild_one(conn: &Connection, drive: &DriveRow, store: &Store) -> anyhow::Re
     if manifest.last_ok_at > 0 {
         db::record_protection_ok(conn, &id, manifest.last_ok_at, &access_json)?;
     }
-    if !source_known {
-        db::set_protection_state(
-            conn,
-            &id,
-            "source_gone",
-            "The drive this backup came from is not known to this Luna.",
-        )?;
-    } else if let Some(row) = db::get_protection(conn, &id)? {
+    // An unknown source drive stays `active`: the run waits for the drive.
+    if source_known && let Some(row) = db::get_protection(conn, &id)? {
         check_stop(conn, &row)?;
     }
     Ok(true)
@@ -464,6 +500,43 @@ mod tests {
                 .unwrap()
                 .is_some()
         );
+    }
+
+    #[test]
+    fn delete_refused_while_backup_is_copying() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        let (src, _, _) = new_drive(dir.path(), &conn);
+        let (target, root, layout) = new_drive(dir.path(), &conn);
+        let row = protect(&conn, &src, "/Photos", &target);
+        let store = Store::open(&root, &layout, &row.id).unwrap();
+        let _run = crate::backup::drive_backup::RunSlot::take(&row.id).unwrap();
+
+        let err = delete(&conn, &row).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "This backup is copying right now. Try again in a minute."
+        );
+        assert!(store.root().exists());
+        assert!(db::get_protection(&conn, &row.id).unwrap().is_some());
+        assert!(db::get_meta(&conn, &deleted_key(&row.id)).unwrap().is_none());
+    }
+
+    #[test]
+    fn rebuild_with_unknown_source_drive_stays_active() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        let (target, root, layout) = new_drive(dir.path(), &conn);
+        let id = uuid::Uuid::new_v4().to_string();
+        let store = Store::open(&root, &layout, &id).unwrap();
+        store
+            .write_manifest(&manifest(&id, "drive-not-here", "/Photos", NOW - 5))
+            .unwrap();
+
+        assert_eq!(rebuild_from_manifests(&conn), 1);
+        let back = db::get_protection(&conn, &id).unwrap().unwrap();
+        assert_eq!(back.target_drive, target);
+        assert_eq!(back.state, "active");
     }
 
     #[test]

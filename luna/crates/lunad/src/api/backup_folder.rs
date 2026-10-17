@@ -38,6 +38,8 @@ type ApiError = (StatusCode, Json<Value>);
 
 const ONE_DAY: i64 = 86_400;
 const MAX_RESTORE_NAMES: i64 = 999;
+/// Suffix of a backup folder that is being removed (see `retire_store`).
+const TRASH_MARK: &str = ".deleting-";
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -235,6 +237,10 @@ fn find_visible(
     }
     let (root, layout) = store_home(conn, drive_id)?;
     let store = Store::existing(&root, &layout, id).ok_or_else(not_found_backup)?;
+    if is_deleted(conn, id)? {
+        retire_store(store.root());
+        return Err(not_found_backup());
+    }
     let manifest = store
         .read_manifest()
         .map_err(io_error)?
@@ -250,6 +256,30 @@ fn state_label(state: BackupState) -> &'static str {
         BackupState::Ok => "ok",
         BackupState::Failing => "failing",
         BackupState::Stale => "stale",
+    }
+}
+
+/// Whether the backup was deleted (its tombstone is set, see ops.rs `delete`).
+fn is_deleted(conn: &rusqlite::Connection, id: &str) -> Result<bool, ApiError> {
+    Ok(db::get_meta(conn, &format!("deleted_backup:{id}"))
+        .map_err(db_error)?
+        .is_some())
+}
+
+/// Moves a deleted backup's folder out of the way at once, then removes it in the background.
+fn retire_store(root: &Path) {
+    let Some(name) = root.file_name().and_then(|n| n.to_str()) else {
+        return;
+    };
+    let nanos = std::time::SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let trash = root.with_file_name(format!("{name}{TRASH_MARK}{nanos}"));
+    if fs::rename(root, &trash).is_ok() {
+        std::thread::spawn(move || {
+            let _ = fs::remove_dir_all(&trash);
+        });
     }
 }
 
@@ -270,47 +300,77 @@ async fn list_backups(
     Extension(user): Extension<CurrentUser>,
     UrlPath(drive_id): UrlPath<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let conn = lock_db(&state)?;
-    let (root, layout) = store_home(&conn, &drive_id)?;
-    let now = db::now_unix();
-    let mut out = Vec::new();
-    for store in drive_store::list_stores(&root, &layout) {
-        let Some(manifest) = store.read_manifest().ok().flatten() else {
-            continue;
-        };
-        if !can_see(&conn, &user, &manifest)? {
-            continue;
-        }
-        // `status` is the backup's lifecycle (active / stopped / source
-        // gone), `state` its health, matching GET /api/v1/backups.
-        let (status, state) =
-            match db::get_protection(&conn, &manifest.protection_id).map_err(db_error)? {
-                Some(row) => (
-                    row.state.clone(),
-                    state_label(drive_backup::state(&row, now)),
-                ),
-                None if manifest.last_ok_at > 0 && now - manifest.last_ok_at <= ONE_DAY => {
-                    (db::PROTECTION_ACTIVE.to_string(), "ok")
-                }
-                None => (db::PROTECTION_ACTIVE.to_string(), "stale"),
+    // Read what the list needs from the database, then drop the lock before
+    // walking the backups' files for their sizes.
+    let mut listed: Vec<(Store, Value)> = Vec::new();
+    {
+        let conn = lock_db(&state)?;
+        let (root, layout) = store_home(&conn, &drive_id)?;
+        let now = db::now_unix();
+        for store in drive_store::list_stores(&root, &layout) {
+            let Some(manifest) = store.read_manifest().ok().flatten() else {
+                continue;
             };
-        let source_name = Path::new(&manifest.source_path)
-            .file_name()
-            .and_then(|n| n.to_str())
-            .filter(|s| !s.is_empty())
-            .unwrap_or(&manifest.source_drive_label)
-            .to_string();
-        out.push(json!({
-            "id": manifest.protection_id,
-            "source_name": source_name,
-            "source_drive_name": manifest.source_drive_label,
-            "source_path": manifest.source_path,
-            "last_ok_at": manifest.last_ok_at,
-            "status": status,
-            "state": state,
-            "size_bytes": store_size(&store),
-        }));
+            // A folder being removed keeps its old manifest under a `.deleting-` name.
+            if store.root().file_name().and_then(|n| n.to_str())
+                != Some(manifest.protection_id.as_str())
+            {
+                continue;
+            }
+            if is_deleted(&conn, &manifest.protection_id)? {
+                retire_store(store.root());
+                continue;
+            }
+            if !can_see(&conn, &user, &manifest)? {
+                continue;
+            }
+            // `status` is the backup's lifecycle (active / stopped / source
+            // gone), `state` its health, matching GET /api/v1/backups.
+            let (status, state) =
+                match db::get_protection(&conn, &manifest.protection_id).map_err(db_error)? {
+                    Some(row) => (
+                        row.state.clone(),
+                        state_label(drive_backup::state(&row, now)),
+                    ),
+                    None if manifest.last_ok_at > 0 && now - manifest.last_ok_at <= ONE_DAY => {
+                        (db::PROTECTION_ACTIVE.to_string(), "ok")
+                    }
+                    None => (db::PROTECTION_ACTIVE.to_string(), "stale"),
+                };
+            let source_name = Path::new(&manifest.source_path)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .filter(|s| !s.is_empty())
+                .unwrap_or(&manifest.source_drive_label)
+                .to_string();
+            let row = json!({
+                "id": manifest.protection_id,
+                "source_name": source_name,
+                "source_drive_name": manifest.source_drive_label,
+                "source_path": manifest.source_path,
+                "last_ok_at": manifest.last_ok_at,
+                "status": status,
+                "state": state,
+            });
+            listed.push((store, row));
+        }
     }
+    let out = tokio::task::spawn_blocking(move || {
+        listed
+            .into_iter()
+            .map(|(store, mut row)| {
+                row["size_bytes"] = json!(store_size(&store));
+                row
+            })
+            .collect::<Vec<Value>>()
+    })
+    .await
+    .map_err(|_| {
+        fail(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't work out how much space these backups use. Try again.",
+        )
+    })?;
     Ok(Json(Value::Array(out)))
 }
 
@@ -345,7 +405,9 @@ async fn list_folder(
     let base = store.current_dir();
     let dir = base.join(&rel);
     let is_folder = plain_meta(&dir).is_some_and(|m| m.is_dir());
-    if !is_folder || inside(&base, &dir).is_none() {
+    // A folder gone from the source has no current copy, but its deleted files still list.
+    let deleted_folder = !is_folder && !rel.is_empty() && deleted_under_folder(&manifest, &rel);
+    if (!is_folder && !deleted_folder) || (is_folder && inside(&base, &dir).is_none()) {
         return Err(fail(
             StatusCode::NOT_FOUND,
             "Luna couldn't find that folder in this backup.",
@@ -354,7 +416,12 @@ async fn list_folder(
 
     let mut rows: Vec<Row> = Vec::new();
     let mut names = std::collections::HashSet::new();
-    for entry in fs::read_dir(&dir).map_err(io_error)? {
+    let listing: Vec<io::Result<fs::DirEntry>> = if is_folder {
+        fs::read_dir(&dir).map_err(io_error)?.collect()
+    } else {
+        Vec::new()
+    };
+    for entry in listing {
         let Ok(entry) = entry else { continue };
         let Ok(name) = entry.file_name().into_string() else {
             continue;
@@ -511,6 +578,47 @@ async fn file_response(path: &Path, name: &str) -> Result<Response, ApiError> {
         })
 }
 
+/// Whether `rel` is a folder with deleted files under it.
+fn deleted_under_folder(manifest: &Manifest, rel: &str) -> bool {
+    let prefix = format!("{rel}/");
+    manifest.deleted.keys().any(|key| key.starts_with(&prefix))
+}
+
+/// The newest copy of a deleted file, from the newest version that has it.
+fn newest_copy_path(store: &Store, key: &str) -> Option<PathBuf> {
+    let mut times = store.version_times().ok()?;
+    times.sort_unstable_by(|a, b| b.cmp(a));
+    times.into_iter().find_map(|t| {
+        let path = store.versions_dir().join(t.to_string()).join(key);
+        plain_meta(&path)
+            .is_some_and(|m| m.is_file())
+            .then_some(path)
+    })
+}
+
+/// A deleted file or folder's newest copies, as (is folder, [(path inside it, copy)]).
+/// A deleted file has one entry with an empty path inside.
+fn deleted_copies(
+    store: &Store,
+    manifest: &Manifest,
+    rel: &str,
+) -> Option<(bool, Vec<(String, PathBuf)>)> {
+    if manifest.deleted.contains_key(rel) {
+        let copy = newest_copy_path(store, rel)?;
+        return Some((false, vec![(String::new(), copy)]));
+    }
+    let prefix = format!("{rel}/");
+    let entries: Vec<(String, PathBuf)> = manifest
+        .deleted
+        .keys()
+        .filter_map(|key| {
+            let inner = key.strip_prefix(&prefix)?;
+            Some((inner.to_string(), newest_copy_path(store, key)?))
+        })
+        .collect();
+    (!entries.is_empty()).then_some((true, entries))
+}
+
 /// Files under `rel` in the current copy, as (path inside the zip, file).
 fn folder_entries(store: &Store, rel: &str) -> Result<Vec<(String, PathBuf)>, ApiError> {
     let base = store.current_dir();
@@ -540,7 +648,7 @@ async fn download(
 ) -> Result<Response, ApiError> {
     let rel = clean_rel(&q.path)?;
     let at = parse_at(q.at.as_deref())?;
-    let (store, _) = {
+    let (store, manifest) = {
         let conn = lock_db(&state)?;
         find_visible(&conn, &user, &drive_id, &id)?
     };
@@ -572,7 +680,17 @@ async fn download(
 
     let base = store.current_dir();
     let path = base.join(&rel);
-    let md = plain_meta(&path).ok_or_else(not_found)?;
+    let Some(md) = plain_meta(&path) else {
+        // Not in the current copy: a deleted file or folder, from its newest copy.
+        return match deleted_copies(&store, &manifest, &rel) {
+            Some((false, entries)) => match entries.first() {
+                Some((_, copy)) => file_response(copy, file_name(&rel)).await,
+                None => Err(not_found()),
+            },
+            Some((true, entries)) => zip_response(&rel, entries).await,
+            None => Err(not_found()),
+        };
+    };
     if inside(&base, &path).is_none() {
         return Err(not_found());
     }
@@ -581,8 +699,13 @@ async fn download(
     }
 
     // A folder downloads as one zip, with the folder's name on the top level.
-    let root = files::zip_archive_basename(&rel);
-    let entries: Vec<(String, PathBuf)> = folder_entries(&store, &rel)?
+    zip_response(&rel, folder_entries(&store, &rel)?).await
+}
+
+/// Streams `entries` (path inside the folder, file) as one zip named after `rel`.
+async fn zip_response(rel: &str, entries: Vec<(String, PathBuf)>) -> Result<Response, ApiError> {
+    let root = files::zip_archive_basename(rel);
+    let entries: Vec<(String, PathBuf)> = entries
         .into_iter()
         .map(|(inner, abs)| (format!("{root}/{inner}"), abs))
         .collect();
@@ -646,6 +769,22 @@ fn restore_name(dir: &Path, name: &str, is_dir: bool, now: i64) -> Option<String
         .find(|candidate| free(candidate))
 }
 
+/// Copies deleted copies back out: each lands at its path inside `dest`.
+fn copy_entries(entries: &[(String, PathBuf)], dest: &Path) -> io::Result<()> {
+    for (inner, copy) in entries {
+        let to = if inner.is_empty() {
+            dest.to_path_buf()
+        } else {
+            dest.join(inner)
+        };
+        if let Some(parent) = to.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        copy_tree(copy, &to)?;
+    }
+    Ok(())
+}
+
 /// Copies a file or folder tree to `dest`, which must not exist. Links are skipped.
 fn copy_tree(src: &Path, dest: &Path) -> io::Result<()> {
     let md = fs::symlink_metadata(src)?;
@@ -693,7 +832,7 @@ async fn restore(
 
     // Everything that needs the database happens here, then the lock is dropped
     // before the copy starts.
-    let (src, dest, final_name, parent_rel) = {
+    let (src, copies, dest, final_name, parent_rel) = {
         let conn = lock_db(&state)?;
         let (store, manifest) = find_visible(&conn, &user, &drive_id, &id)?;
         if drive_backup::is_running(&id) {
@@ -714,19 +853,42 @@ async fn restore(
                 "Luna couldn't find that in this backup.",
             )
         };
-        let src_md = plain_meta(&src).ok_or_else(not_found)?;
-        if inside(&base, &src).is_none() || (at.is_some() && !src_md.is_file()) {
-            return Err(not_found());
-        }
-        let is_dir = src_md.is_dir();
+        let on_disk = match plain_meta(&src) {
+            Some(md) if inside(&base, &src).is_some() && (at.is_none() || md.is_file()) => {
+                Some(md)
+            }
+            Some(_) => return Err(not_found()),
+            None => None,
+        };
+        // Not in the current copy: a deleted file or folder, from its newest copies.
+        let (is_dir, copies) = match (&on_disk, at) {
+            (Some(md), _) => (md.is_dir(), None),
+            (None, None) => {
+                let (is_dir, copies) =
+                    deleted_copies(&store, &manifest, &rel).ok_or_else(not_found)?;
+                (is_dir, Some(copies))
+            }
+            (None, Some(_)) => return Err(not_found()),
+        };
         let name = file_name(&rel).to_string();
 
-        let label = if manifest.source_drive_label.is_empty() {
-            "the original drive".to_string()
-        } else {
-            manifest.source_drive_label.clone()
+        // The protections row knows where the backup's files come from now (it
+        // follows a moved source); the manifest is only the fallback.
+        let row = db::get_protection(&conn, &id).map_err(db_error)?;
+        let (source_id, source_path) = match &row {
+            Some(row) => (row.source_drive.clone(), row.source_path.clone()),
+            None => (manifest.source_drive_id.clone(), manifest.source_path.clone()),
         };
-        let source = files::drive_root(&conn, &manifest.source_drive_id)
+        let label = match db::get_drive(&conn, &source_id).ok().flatten() {
+            Some(drive) if !drive.label.is_empty() => drive.label,
+            _ if source_id == manifest.source_drive_id
+                && !manifest.source_drive_label.is_empty() =>
+            {
+                manifest.source_drive_label.clone()
+            }
+            _ => "the original drive".to_string(),
+        };
+        let source = files::drive_root(&conn, &source_id)
             .ok()
             .filter(|d| Layout::detect(Path::new(&d.mount_point)).is_some())
             .ok_or_else(|| {
@@ -736,7 +898,7 @@ async fn restore(
                 )
             })?;
 
-        let source_sub = clean_rel(&access::normalize_subject_path(&manifest.source_path))?;
+        let source_sub = clean_rel(&access::normalize_subject_path(&source_path))?;
         let parent_rel = rel
             .rsplit_once('/')
             .map(|(p, _)| p.to_string())
@@ -745,7 +907,7 @@ async fn restore(
         if !auth::has_cap(
             &user,
             &conn,
-            &manifest.source_drive_id,
+            &source_id,
             &parent_sub,
             CAP_EDIT,
         ) {
@@ -771,10 +933,13 @@ async fn restore(
                     "Luna couldn't find a free name for that copy.",
                 )
             })?;
-        (src, dest_dir.join(&final_name), final_name, parent_rel)
+        (src, copies, dest_dir.join(&final_name), final_name, parent_rel)
     };
 
-    tokio::task::spawn_blocking(move || copy_tree(&src, &dest))
+    tokio::task::spawn_blocking(move || match copies {
+        Some(entries) => copy_entries(&entries, &dest),
+        None => copy_tree(&src, &dest),
+    })
         .await
         .map_err(|_| fail(StatusCode::INTERNAL_SERVER_ERROR, "Luna couldn't finish the restore. Try again."))?
         .map_err(|_| {
@@ -810,6 +975,7 @@ mod tests {
         member_id: String,
         src_root: PathBuf,
         tgt_root: PathBuf,
+        state: AppState,
     }
 
     fn new_drive(dir: &Path, conn: &rusqlite::Connection, id: &str, label: &str) -> PathBuf {
@@ -854,6 +1020,7 @@ mod tests {
             router,
             src_root,
             tgt_root,
+            state,
         }
     }
 
@@ -1136,6 +1303,142 @@ mod tests {
         assert_eq!(
             body["error"],
             "Connect Photos to restore to the original folder."
+        );
+    }
+
+    fn tombstone(f: &Fixture, id: &str) {
+        let conn = lock_db(&f.state).ok().expect("database lock");
+        db::set_meta(&conn, &format!("deleted_backup:{id}"), "1").unwrap();
+    }
+
+    fn set_manifest(store: &Store, edit: impl FnOnce(&mut Manifest)) {
+        let mut manifest = store.read_manifest().unwrap().unwrap();
+        edit(&mut manifest);
+        store.write_manifest(&manifest).unwrap();
+    }
+
+    #[tokio::test]
+    async fn tombstoned_backup_is_hidden_and_removed() {
+        let f = fixture();
+        let shared = AccessList {
+            users: vec![f.member_id.clone()],
+            admins: true,
+        };
+        let store = make_store(&f, "p-gone", "drive-src", shared);
+        let root = store.root().to_path_buf();
+        tombstone(&f, "p-gone");
+
+        let (status, body) =
+            get_json(&f, &f.member_token, "/api/v1/drives/drive-tgt/backups").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.as_array().unwrap().is_empty());
+        assert!(!root.exists());
+
+        let (status, _) = get_json(
+            &f,
+            &f.member_token,
+            "/api/v1/drives/drive-tgt/backups/p-gone/list?path=",
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn deleted_folder_lists_and_downloads_its_newest_copies() {
+        let f = fixture();
+        let shared = AccessList {
+            users: vec![f.member_id.clone()],
+            admins: true,
+        };
+        let store = make_store(&f, "p-del", "drive-src", shared);
+        set_manifest(&store, |m| {
+            m.deleted.insert("Old/a.txt".into(), 150);
+        });
+        for (at, body) in [(100, "old"), (120, "older")] {
+            let dir = store.versions_dir().join(at.to_string()).join("Old");
+            fs::create_dir_all(&dir).unwrap();
+            fs::write(dir.join("a.txt"), body).unwrap();
+        }
+
+        let (status, body) = get_json(
+            &f,
+            &f.member_token,
+            "/api/v1/drives/drive-tgt/backups/p-del/list?path=Old",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let names: Vec<(Value, Value)> = body
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| (v["name"].clone(), v["deleted"].clone()))
+            .collect();
+        assert_eq!(names, vec![(json!("a.txt"), json!(true))]);
+
+        let (status, bytes) = send(
+            &f,
+            "GET",
+            "/api/v1/drives/drive-tgt/backups/p-del/download?path=Old/a.txt",
+            &f.member_token,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(bytes, b"older");
+    }
+
+    #[tokio::test]
+    async fn restore_of_deleted_file_uses_the_row_location() {
+        let f = fixture();
+        let store = make_store(&f, "p-restore", "drive-src", AccessList {
+            users: vec![],
+            admins: true,
+        });
+        // The manifest says the files came from "Elsewhere"; the row says "Docs".
+        set_manifest(&store, |m| {
+            m.source_path = "Elsewhere".into();
+            m.deleted.insert("Old/a.txt".into(), 150);
+        });
+        {
+            let conn = lock_db(&f.state).ok().expect("database lock");
+            db::insert_protection(
+                &conn,
+                &db::NewProtection {
+                    id: "p-restore",
+                    kind: db::PROTECTION_DRIVE,
+                    source_drive: "drive-src",
+                    source_path: "Docs",
+                    target_drive: "drive-tgt",
+                    private_owner: "",
+                    created_by: "admin",
+                    created_at: 1,
+                },
+            )
+            .unwrap();
+            let admin_only = serde_json::to_string(&AccessList {
+                users: vec![],
+                admins: true,
+            })
+            .unwrap();
+            db::set_protection_access(&conn, "p-restore", &admin_only).unwrap();
+        }
+        let dir = store.versions_dir().join("100").join("Old");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("a.txt"), "old").unwrap();
+        fs::create_dir_all(f.src_root.join("Docs").join("Old")).unwrap();
+
+        let (status, bytes) = send(
+            &f,
+            "POST",
+            "/api/v1/drives/drive-tgt/backups/p-restore/restore",
+            &f.admin_token,
+            Some(json!({ "path": "Old/a.txt" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&bytes));
+        assert_eq!(
+            fs::read_to_string(f.src_root.join("Docs").join("Old").join("a.txt")).unwrap(),
+            "old"
         );
     }
 }
