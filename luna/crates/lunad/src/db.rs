@@ -2,6 +2,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use rusqlite::Connection;
+use rusqlite::OptionalExtension;
 use rusqlite::params;
 
 /// Open (and initialize) the central metadata database.
@@ -166,6 +167,69 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             first_done INTEGER NOT NULL DEFAULT 0,
             notes TEXT NOT NULL DEFAULT '',          -- files the last good run couldn't copy as they are, one per line
             UNIQUE (kind, source_drive, source_path, target_drive)
+        );
+        CREATE TABLE IF NOT EXISTS cloud_identity (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            luna_id TEXT NOT NULL,
+            signing_seed BLOB NOT NULL,
+            created_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS user_keys (
+            user_id TEXT PRIMARY KEY,
+            x25519_public BLOB NOT NULL,
+            auth_public BLOB NOT NULL,
+            self_sealed BLOB NOT NULL,
+            phrase_set_at INTEGER NOT NULL,
+            last_checked_at INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS backup_keys (
+            protection_id TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            key BLOB NOT NULL,
+            dedup_key BLOB NOT NULL,
+            created_at INTEGER NOT NULL,
+            PRIMARY KEY (protection_id, version)
+        );
+        CREATE TABLE IF NOT EXISTS cloud_packs (
+            id TEXT PRIMARY KEY,
+            scope TEXT NOT NULL,
+            state TEXT NOT NULL CHECK (state IN ('pending', 'live', 'marked', 'deleting')),
+            run_id TEXT NOT NULL DEFAULT '',
+            size INTEGER NOT NULL DEFAULT 0,
+            marked_at INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS cloud_packs_scope_state ON cloud_packs (scope, state);
+        CREATE TABLE IF NOT EXISTS cloud_chunks (
+            scope TEXT NOT NULL,
+            chunk_id BLOB NOT NULL,
+            pack_id TEXT NOT NULL,
+            offset INTEGER NOT NULL,
+            len INTEGER NOT NULL,
+            PRIMARY KEY (scope, chunk_id)
+        );
+        CREATE INDEX IF NOT EXISTS cloud_chunks_pack ON cloud_chunks (pack_id);
+        CREATE TABLE IF NOT EXISTS cloud_snapshots (
+            id TEXT PRIMARY KEY,
+            protection_id TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            key_version INTEGER NOT NULL,
+            tree_pack_id TEXT NOT NULL,
+            record BLOB NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS cloud_snapshots_protection ON cloud_snapshots (protection_id);
+        CREATE TABLE IF NOT EXISTS cloud_snapshot_packs (
+            snapshot_id TEXT NOT NULL,
+            pack_id TEXT NOT NULL,
+            PRIMARY KEY (snapshot_id, pack_id)
+        );
+        CREATE INDEX IF NOT EXISTS cloud_snapshot_packs_pack ON cloud_snapshot_packs (pack_id);
+        CREATE TABLE IF NOT EXISTS cloud_runs (
+            id TEXT PRIMARY KEY,
+            protection_id TEXT NOT NULL,
+            scope TEXT NOT NULL,
+            started_at INTEGER NOT NULL,
+            ended_at INTEGER NOT NULL DEFAULT 0
         );
         ",
     )?;
@@ -427,6 +491,14 @@ pub fn factory_reset(conn: &Connection) -> anyhow::Result<()> {
         "drives",
         "device_token_usage",
         "rate_limit_buckets",
+        "cloud_identity",
+        "user_keys",
+        "backup_keys",
+        "cloud_packs",
+        "cloud_chunks",
+        "cloud_snapshots",
+        "cloud_snapshot_packs",
+        "cloud_runs",
     ] {
         conn.execute(&format!("DELETE FROM {table}"), [])?;
     }
@@ -1268,6 +1340,437 @@ pub fn protections_on_drive(
     ))?;
     let rows = stmt
         .query_map(params![drive_id], protection_from_row)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+// ---- Cloud backup (Protect rebuild) ----
+//
+// Packs belong to one dedup scope (the shared backup, or one private owner).
+// Pack states: pending (uploading) -> live (referenced by a snapshot) ->
+// marked (no snapshot uses it; 24 h grace) -> deleting (being removed).
+
+/// This Luna's cloud identity: its id and the seed for its signing key.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CloudIdentity {
+    pub luna_id: String,
+    pub signing_seed: Vec<u8>,
+    pub created_at: i64,
+}
+
+pub fn get_cloud_identity(conn: &Connection) -> anyhow::Result<Option<CloudIdentity>> {
+    let row = conn
+        .query_row(
+            "SELECT luna_id, signing_seed, created_at FROM cloud_identity WHERE id = 1",
+            [],
+            |r| {
+                Ok(CloudIdentity {
+                    luna_id: r.get(0)?,
+                    signing_seed: r.get(1)?,
+                    created_at: r.get(2)?,
+                })
+            },
+        )
+        .optional()?;
+    Ok(row)
+}
+
+pub fn set_cloud_identity(
+    conn: &Connection,
+    luna_id: &str,
+    seed: &[u8],
+    now: i64,
+) -> anyhow::Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO cloud_identity (id, luna_id, signing_seed, created_at)
+         VALUES (1, ?1, ?2, ?3)",
+        params![luna_id, seed, now],
+    )?;
+    Ok(())
+}
+
+/// Public keys and the sealed private key for one user's cloud access.
+#[derive(Debug, Clone, PartialEq)]
+pub struct UserKeys {
+    pub user_id: String,
+    pub x25519_public: Vec<u8>,
+    pub auth_public: Vec<u8>,
+    pub self_sealed: Vec<u8>,
+    pub phrase_set_at: i64,
+    pub last_checked_at: i64,
+}
+
+const USER_KEYS_COLUMNS: &str =
+    "user_id, x25519_public, auth_public, self_sealed, phrase_set_at, last_checked_at";
+
+fn user_keys_from_row(r: &rusqlite::Row) -> rusqlite::Result<UserKeys> {
+    Ok(UserKeys {
+        user_id: r.get(0)?,
+        x25519_public: r.get(1)?,
+        auth_public: r.get(2)?,
+        self_sealed: r.get(3)?,
+        phrase_set_at: r.get(4)?,
+        last_checked_at: r.get(5)?,
+    })
+}
+
+pub fn get_user_keys(conn: &Connection, user_id: &str) -> anyhow::Result<Option<UserKeys>> {
+    let row = conn
+        .query_row(
+            &format!("SELECT {USER_KEYS_COLUMNS} FROM user_keys WHERE user_id = ?1"),
+            params![user_id],
+            user_keys_from_row,
+        )
+        .optional()?;
+    Ok(row)
+}
+
+pub fn set_user_keys(conn: &Connection, keys: &UserKeys) -> anyhow::Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO user_keys
+            (user_id, x25519_public, auth_public, self_sealed, phrase_set_at, last_checked_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            keys.user_id,
+            keys.x25519_public,
+            keys.auth_public,
+            keys.self_sealed,
+            keys.phrase_set_at,
+            keys.last_checked_at
+        ],
+    )?;
+    Ok(())
+}
+
+pub fn delete_user_keys(conn: &Connection, user_id: &str) -> anyhow::Result<()> {
+    conn.execute("DELETE FROM user_keys WHERE user_id = ?1", params![user_id])?;
+    Ok(())
+}
+
+pub fn list_user_keys(conn: &Connection) -> anyhow::Result<Vec<UserKeys>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {USER_KEYS_COLUMNS} FROM user_keys ORDER BY user_id"
+    ))?;
+    let rows = stmt
+        .query_map([], user_keys_from_row)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+/// One versioned key for a protection's backups.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BackupKey {
+    pub protection_id: String,
+    pub version: i64,
+    pub key: Vec<u8>,
+    pub dedup_key: Vec<u8>,
+    pub created_at: i64,
+}
+
+pub fn insert_backup_key(conn: &Connection, k: &BackupKey) -> anyhow::Result<()> {
+    conn.execute(
+        "INSERT INTO backup_keys (protection_id, version, key, dedup_key, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![k.protection_id, k.version, k.key, k.dedup_key, k.created_at],
+    )?;
+    Ok(())
+}
+
+pub fn latest_backup_key(
+    conn: &Connection,
+    protection_id: &str,
+) -> anyhow::Result<Option<BackupKey>> {
+    let row = conn
+        .query_row(
+            "SELECT protection_id, version, key, dedup_key, created_at FROM backup_keys
+             WHERE protection_id = ?1 ORDER BY version DESC LIMIT 1",
+            params![protection_id],
+            backup_key_from_row,
+        )
+        .optional()?;
+    Ok(row)
+}
+
+pub fn list_backup_keys(conn: &Connection, protection_id: &str) -> anyhow::Result<Vec<BackupKey>> {
+    let mut stmt = conn.prepare(
+        "SELECT protection_id, version, key, dedup_key, created_at FROM backup_keys
+         WHERE protection_id = ?1 ORDER BY version ASC",
+    )?;
+    let rows = stmt
+        .query_map(params![protection_id], backup_key_from_row)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+fn backup_key_from_row(r: &rusqlite::Row) -> rusqlite::Result<BackupKey> {
+    Ok(BackupKey {
+        protection_id: r.get(0)?,
+        version: r.get(1)?,
+        key: r.get(2)?,
+        dedup_key: r.get(3)?,
+        created_at: r.get(4)?,
+    })
+}
+
+/// Start a pack upload. It stays `pending` until `set_pack_live` runs at commit.
+pub fn insert_pending_pack(
+    conn: &Connection,
+    id: &str,
+    scope: &str,
+    run_id: &str,
+    now: i64,
+) -> anyhow::Result<()> {
+    conn.execute(
+        "INSERT INTO cloud_packs (id, scope, state, run_id, size, marked_at, created_at)
+         VALUES (?1, ?2, 'pending', ?3, 0, 0, ?4)",
+        params![id, scope, run_id, now],
+    )?;
+    Ok(())
+}
+
+pub fn set_pack_live(conn: &Connection, id: &str, size: i64) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE cloud_packs SET state = 'live', size = ?2 WHERE id = ?1",
+        params![id, size],
+    )?;
+    Ok(())
+}
+
+/// Ids of packs in one scope with the given state.
+pub fn list_packs(conn: &Connection, scope: &str, state: &str) -> anyhow::Result<Vec<String>> {
+    let mut stmt = conn.prepare(
+        "SELECT id FROM cloud_packs WHERE scope = ?1 AND state = ?2 ORDER BY id",
+    )?;
+    let rows = stmt
+        .query_map(params![scope, state], |r| r.get(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+/// Remove a pack and its chunk index entries (after the file is gone from the cloud).
+pub fn delete_pack_row(conn: &Connection, id: &str) -> anyhow::Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    tx.execute("DELETE FROM cloud_chunks WHERE pack_id = ?1", params![id])?;
+    tx.execute("DELETE FROM cloud_packs WHERE id = ?1", params![id])?;
+    tx.commit()?;
+    Ok(())
+}
+
+/// Find where a chunk is stored. Chunks in marked or deleting packs don't count,
+/// so a new backup uploads them again instead of depending on a pack that may go away.
+pub fn find_chunk(
+    conn: &Connection,
+    scope: &str,
+    chunk_id: &[u8],
+) -> anyhow::Result<Option<(String, i64, i64)>> {
+    let row = conn
+        .query_row(
+            "SELECT c.pack_id, c.offset, c.len FROM cloud_chunks c
+             JOIN cloud_packs p ON p.id = c.pack_id
+             WHERE c.scope = ?1 AND c.chunk_id = ?2
+               AND p.state NOT IN ('marked', 'deleting')",
+            params![scope, chunk_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()?;
+    Ok(row)
+}
+
+pub fn insert_chunk(
+    conn: &Connection,
+    scope: &str,
+    chunk_id: &[u8],
+    pack_id: &str,
+    offset: i64,
+    len: i64,
+) -> anyhow::Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO cloud_chunks (scope, chunk_id, pack_id, offset, len)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![scope, chunk_id, pack_id, offset, len],
+    )?;
+    Ok(())
+}
+
+/// One saved backup snapshot. `record` is the encrypted snapshot record.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SnapshotInsert {
+    pub id: String,
+    pub protection_id: String,
+    pub created_at: i64,
+    pub key_version: i64,
+    pub tree_pack_id: String,
+    pub record: Vec<u8>,
+}
+
+fn snapshot_from_row(r: &rusqlite::Row) -> rusqlite::Result<SnapshotInsert> {
+    Ok(SnapshotInsert {
+        id: r.get(0)?,
+        protection_id: r.get(1)?,
+        created_at: r.get(2)?,
+        key_version: r.get(3)?,
+        tree_pack_id: r.get(4)?,
+        record: r.get(5)?,
+    })
+}
+
+pub fn insert_cloud_snapshot(conn: &Connection, s: &SnapshotInsert) -> anyhow::Result<()> {
+    conn.execute(
+        "INSERT INTO cloud_snapshots
+            (id, protection_id, created_at, key_version, tree_pack_id, record)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            s.id,
+            s.protection_id,
+            s.created_at,
+            s.key_version,
+            s.tree_pack_id,
+            s.record
+        ],
+    )?;
+    Ok(())
+}
+
+/// Snapshots of one protection, newest first.
+pub fn list_cloud_snapshots(
+    conn: &Connection,
+    protection_id: &str,
+) -> anyhow::Result<Vec<SnapshotInsert>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, protection_id, created_at, key_version, tree_pack_id, record
+         FROM cloud_snapshots WHERE protection_id = ?1 ORDER BY created_at DESC",
+    )?;
+    let rows = stmt
+        .query_map(params![protection_id], snapshot_from_row)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+/// Delete a snapshot and its pack links. Packs it used are not removed here;
+/// `mark_unused_packs_tx` finds the ones nothing uses anymore.
+pub fn delete_cloud_snapshot(conn: &Connection, id: &str) -> anyhow::Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    tx.execute(
+        "DELETE FROM cloud_snapshot_packs WHERE snapshot_id = ?1",
+        params![id],
+    )?;
+    tx.execute("DELETE FROM cloud_snapshots WHERE id = ?1", params![id])?;
+    tx.commit()?;
+    Ok(())
+}
+
+pub fn start_run(
+    conn: &Connection,
+    id: &str,
+    protection_id: &str,
+    scope: &str,
+    now: i64,
+) -> anyhow::Result<()> {
+    conn.execute(
+        "INSERT INTO cloud_runs (id, protection_id, scope, started_at, ended_at)
+         VALUES (?1, ?2, ?3, ?4, 0)",
+        params![id, protection_id, scope, now],
+    )?;
+    Ok(())
+}
+
+pub fn end_run(conn: &Connection, id: &str, now: i64) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE cloud_runs SET ended_at = ?2 WHERE id = ?1",
+        params![id, now],
+    )?;
+    Ok(())
+}
+
+/// Ids of runs in one scope that have not ended yet.
+pub fn open_runs(conn: &Connection, scope: &str) -> anyhow::Result<Vec<String>> {
+    let mut stmt = conn.prepare(
+        "SELECT id FROM cloud_runs WHERE scope = ?1 AND ended_at = 0 ORDER BY id",
+    )?;
+    let rows = stmt
+        .query_map(params![scope], |r| r.get(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+/// Save a snapshot and link the packs it uses, in one transaction.
+/// Those packs become `live`; a `marked` pack goes back to `live`.
+pub fn commit_snapshot_tx(
+    conn: &mut Connection,
+    snap: &SnapshotInsert,
+    pack_ids: &[String],
+) -> anyhow::Result<()> {
+    let tx = conn.transaction()?;
+    insert_cloud_snapshot(&tx, snap)?;
+    for pack_id in pack_ids {
+        let state: Option<String> = tx
+            .query_row(
+                "SELECT state FROM cloud_packs WHERE id = ?1",
+                params![pack_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        match state.as_deref() {
+            None => anyhow::bail!("Backup pack {pack_id} is missing from the database."),
+            Some("deleting") => anyhow::bail!(
+                "Backup pack {pack_id} is being removed, so this backup cannot use it."
+            ),
+            _ => {}
+        }
+        tx.execute(
+            "INSERT OR IGNORE INTO cloud_snapshot_packs (snapshot_id, pack_id) VALUES (?1, ?2)",
+            params![snap.id, pack_id],
+        )?;
+        tx.execute(
+            "UPDATE cloud_packs SET state = 'live', marked_at = 0 WHERE id = ?1",
+            params![pack_id],
+        )?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+/// Mark live packs in one scope that no snapshot uses. Returns their ids.
+/// Marking starts the 24 h wait before `deletable_packs` returns them.
+pub fn mark_unused_packs_tx(
+    conn: &mut Connection,
+    scope: &str,
+    now: i64,
+) -> anyhow::Result<Vec<String>> {
+    let tx = conn.transaction()?;
+    let ids: Vec<String> = {
+        let mut stmt = tx.prepare(
+            "SELECT id FROM cloud_packs
+             WHERE scope = ?1 AND state = 'live'
+               AND id NOT IN (SELECT pack_id FROM cloud_snapshot_packs)
+             ORDER BY id",
+        )?;
+        stmt.query_map(params![scope], |r| r.get(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    for id in &ids {
+        tx.execute(
+            "UPDATE cloud_packs SET state = 'marked', marked_at = ?2 WHERE id = ?1",
+            params![id, now],
+        )?;
+    }
+    tx.commit()?;
+    Ok(ids)
+}
+
+/// Marked packs in one scope that are safe to delete now: marked at least 24 h ago,
+/// and no unfinished run in the scope started before the mark (it might still use them).
+pub fn deletable_packs(conn: &Connection, scope: &str, now: i64) -> anyhow::Result<Vec<String>> {
+    let mut stmt = conn.prepare(
+        "SELECT p.id FROM cloud_packs p
+         WHERE p.scope = ?1 AND p.state = 'marked' AND ?2 - p.marked_at >= 86400
+           AND NOT EXISTS (
+               SELECT 1 FROM cloud_runs r
+               WHERE r.scope = ?1 AND r.started_at <= p.marked_at AND r.ended_at = 0)
+         ORDER BY p.id",
+    )?;
+    let rows = stmt
+        .query_map(params![scope, now], |r| r.get(0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(rows)
 }
@@ -2203,5 +2706,250 @@ mod tests {
         insert_protection(&conn, &new_protection("p1", "d1", "docs")).unwrap();
         factory_reset(&conn).unwrap();
         assert!(list_protections(&conn).unwrap().is_empty());
+    }
+
+    fn cloud_snap(id: &str, protection: &str, created_at: i64) -> SnapshotInsert {
+        SnapshotInsert {
+            id: id.into(),
+            protection_id: protection.into(),
+            created_at,
+            key_version: 1,
+            tree_pack_id: "tree".into(),
+            record: vec![1, 2, 3],
+        }
+    }
+
+    fn live_pack(conn: &Connection, id: &str, scope: &str) {
+        insert_pending_pack(conn, id, scope, "run", 1).unwrap();
+        set_pack_live(conn, id, 10).unwrap();
+    }
+
+    fn pack_state(conn: &Connection, id: &str) -> String {
+        conn.query_row("SELECT state FROM cloud_packs WHERE id = ?1", params![id], |r| {
+            r.get(0)
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn cloud_identity_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&dir.path().join("luna.db")).unwrap();
+        assert!(get_cloud_identity(&conn).unwrap().is_none());
+        set_cloud_identity(&conn, "luna-1", &[7; 32], 42).unwrap();
+        let id = get_cloud_identity(&conn).unwrap().unwrap();
+        assert_eq!(id.luna_id, "luna-1");
+        assert_eq!(id.signing_seed, vec![7; 32]);
+        assert_eq!(id.created_at, 42);
+    }
+
+    #[test]
+    fn user_keys_crud() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&dir.path().join("luna.db")).unwrap();
+        let keys = UserKeys {
+            user_id: "u1".into(),
+            x25519_public: vec![1; 32],
+            auth_public: vec![2; 32],
+            self_sealed: vec![3; 48],
+            phrase_set_at: 5,
+            last_checked_at: 0,
+        };
+        set_user_keys(&conn, &keys).unwrap();
+        assert_eq!(get_user_keys(&conn, "u1").unwrap(), Some(keys.clone()));
+        assert_eq!(list_user_keys(&conn).unwrap(), vec![keys]);
+        delete_user_keys(&conn, "u1").unwrap();
+        assert!(get_user_keys(&conn, "u1").unwrap().is_none());
+        assert!(list_user_keys(&conn).unwrap().is_empty());
+    }
+
+    #[test]
+    fn backup_keys_latest_and_list() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&dir.path().join("luna.db")).unwrap();
+        assert!(latest_backup_key(&conn, "p1").unwrap().is_none());
+        let key = |v: i64| BackupKey {
+            protection_id: "p1".into(),
+            version: v,
+            key: vec![v as u8; 32],
+            dedup_key: vec![9; 32],
+            created_at: v,
+        };
+        insert_backup_key(&conn, &key(1)).unwrap();
+        insert_backup_key(&conn, &key(2)).unwrap();
+        assert!(insert_backup_key(&conn, &key(2)).is_err());
+        assert_eq!(latest_backup_key(&conn, "p1").unwrap(), Some(key(2)));
+        let versions: Vec<i64> = list_backup_keys(&conn, "p1")
+            .unwrap()
+            .iter()
+            .map(|k| k.version)
+            .collect();
+        assert_eq!(versions, vec![1, 2]);
+    }
+
+    #[test]
+    fn pack_states_and_delete() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&dir.path().join("luna.db")).unwrap();
+        insert_pending_pack(&conn, "p1", "s", "run1", 1).unwrap();
+        assert_eq!(list_packs(&conn, "s", "pending").unwrap(), vec!["p1"]);
+        set_pack_live(&conn, "p1", 99).unwrap();
+        assert!(list_packs(&conn, "s", "pending").unwrap().is_empty());
+        assert_eq!(list_packs(&conn, "s", "live").unwrap(), vec!["p1"]);
+        assert!(list_packs(&conn, "other", "live").unwrap().is_empty());
+        insert_chunk(&conn, "s", &[1], "p1", 0, 5).unwrap();
+        delete_pack_row(&conn, "p1").unwrap();
+        assert!(list_packs(&conn, "s", "live").unwrap().is_empty());
+        assert!(find_chunk(&conn, "s", &[1]).unwrap().is_none());
+    }
+
+    #[test]
+    fn find_chunk_returns_live_and_skips_marked() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut conn = open(&dir.path().join("luna.db")).unwrap();
+        live_pack(&conn, "p1", "s");
+        insert_chunk(&conn, "s", &[1], "p1", 16, 100).unwrap();
+        assert_eq!(
+            find_chunk(&conn, "s", &[1]).unwrap(),
+            Some(("p1".into(), 16, 100))
+        );
+        assert!(find_chunk(&conn, "other", &[1]).unwrap().is_none());
+        // No snapshot uses p1, so marking it hides its chunks from dedup.
+        assert_eq!(mark_unused_packs_tx(&mut conn, "s", 1000).unwrap(), vec!["p1"]);
+        assert!(find_chunk(&conn, "s", &[1]).unwrap().is_none());
+        // A deleting pack is hidden too.
+        commit_snapshot_tx(&mut conn, &cloud_snap("snap1", "prot", 1), &["p1".into()]).unwrap();
+        conn.execute("UPDATE cloud_packs SET state = 'deleting' WHERE id = 'p1'", [])
+            .unwrap();
+        assert!(find_chunk(&conn, "s", &[1]).unwrap().is_none());
+    }
+
+    #[test]
+    fn commit_snapshot_links_packs_and_unmarks() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut conn = open(&dir.path().join("luna.db")).unwrap();
+        live_pack(&conn, "p1", "s");
+        live_pack(&conn, "p2", "s");
+        commit_snapshot_tx(&mut conn, &cloud_snap("snap1", "prot", 1), &["p1".into()]).unwrap();
+        assert_eq!(mark_unused_packs_tx(&mut conn, "s", 1000).unwrap(), vec!["p2"]);
+        assert_eq!(pack_state(&conn, "p2"), "marked");
+
+        // A new snapshot that uses marked p2 brings it back to live.
+        commit_snapshot_tx(
+            &mut conn,
+            &cloud_snap("snap2", "prot", 2),
+            &["p1".into(), "p2".into()],
+        )
+        .unwrap();
+        assert_eq!(pack_state(&conn, "p2"), "live");
+        assert!(mark_unused_packs_tx(&mut conn, "s", 2000).unwrap().is_empty());
+        assert!(deletable_packs(&conn, "s", 1_000_000).unwrap().is_empty());
+        assert_eq!(list_cloud_snapshots(&conn, "prot").unwrap().len(), 2);
+    }
+
+    #[test]
+    fn commit_snapshot_rejects_deleting_pack_and_rolls_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut conn = open(&dir.path().join("luna.db")).unwrap();
+        live_pack(&conn, "p1", "s");
+        conn.execute("UPDATE cloud_packs SET state = 'deleting' WHERE id = 'p1'", [])
+            .unwrap();
+        let err = commit_snapshot_tx(&mut conn, &cloud_snap("snap1", "prot", 1), &["p1".into()]);
+        assert!(err.is_err());
+        assert!(list_cloud_snapshots(&conn, "prot").unwrap().is_empty());
+    }
+
+    #[test]
+    fn mark_unused_packs_only_marks_unreferenced_live_packs_in_scope() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut conn = open(&dir.path().join("luna.db")).unwrap();
+        live_pack(&conn, "used", "s");
+        live_pack(&conn, "unused", "s");
+        live_pack(&conn, "elsewhere", "other");
+        insert_pending_pack(&conn, "uploading", "s", "run", 1).unwrap();
+        commit_snapshot_tx(&mut conn, &cloud_snap("snap1", "prot", 1), &["used".into()]).unwrap();
+        assert_eq!(
+            mark_unused_packs_tx(&mut conn, "s", 500).unwrap(),
+            vec!["unused"]
+        );
+        assert_eq!(pack_state(&conn, "elsewhere"), "live");
+        assert_eq!(pack_state(&conn, "uploading"), "pending");
+        assert_eq!(pack_state(&conn, "used"), "live");
+    }
+
+    #[test]
+    fn deletable_packs_waits_24_hours() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut conn = open(&dir.path().join("luna.db")).unwrap();
+        live_pack(&conn, "p1", "s");
+        mark_unused_packs_tx(&mut conn, "s", 1000).unwrap();
+        assert!(deletable_packs(&conn, "s", 1000 + 86399).unwrap().is_empty());
+        assert_eq!(deletable_packs(&conn, "s", 1000 + 86400).unwrap(), vec!["p1"]);
+        assert!(deletable_packs(&conn, "other", 1000 + 86400).unwrap().is_empty());
+    }
+
+    #[test]
+    fn deletable_packs_blocked_by_open_run_started_before_mark() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut conn = open(&dir.path().join("luna.db")).unwrap();
+        live_pack(&conn, "p1", "s");
+        start_run(&conn, "old", "prot", "s", 500).unwrap();
+        mark_unused_packs_tx(&mut conn, "s", 1000).unwrap();
+        // The run started before the mark and is still open, so it may still use p1.
+        assert!(deletable_packs(&conn, "s", 1000 + 86400).unwrap().is_empty());
+        end_run(&conn, "old", 1500).unwrap();
+        assert_eq!(deletable_packs(&conn, "s", 1000 + 86400).unwrap(), vec!["p1"]);
+    }
+
+    #[test]
+    fn deletable_packs_ignores_runs_started_after_mark_or_in_other_scope() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut conn = open(&dir.path().join("luna.db")).unwrap();
+        live_pack(&conn, "p1", "s");
+        mark_unused_packs_tx(&mut conn, "s", 1000).unwrap();
+        start_run(&conn, "later", "prot", "s", 2000).unwrap();
+        start_run(&conn, "elsewhere", "prot2", "other", 500).unwrap();
+        assert_eq!(deletable_packs(&conn, "s", 1000 + 86400).unwrap(), vec!["p1"]);
+    }
+
+    #[test]
+    fn cloud_snapshot_list_and_delete() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&dir.path().join("luna.db")).unwrap();
+        insert_cloud_snapshot(&conn, &cloud_snap("a", "prot", 1)).unwrap();
+        insert_cloud_snapshot(&conn, &cloud_snap("b", "prot", 2)).unwrap();
+        insert_cloud_snapshot(&conn, &cloud_snap("c", "other", 3)).unwrap();
+        let ids: Vec<String> = list_cloud_snapshots(&conn, "prot")
+            .unwrap()
+            .into_iter()
+            .map(|s| s.id)
+            .collect();
+        assert_eq!(ids, vec!["b", "a"]);
+        delete_cloud_snapshot(&conn, "a").unwrap();
+        assert_eq!(list_cloud_snapshots(&conn, "prot").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn cloud_runs_open_and_end() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&dir.path().join("luna.db")).unwrap();
+        start_run(&conn, "r1", "prot", "s", 10).unwrap();
+        assert_eq!(open_runs(&conn, "s").unwrap(), vec!["r1"]);
+        assert!(open_runs(&conn, "other").unwrap().is_empty());
+        end_run(&conn, "r1", 20).unwrap();
+        assert!(open_runs(&conn, "s").unwrap().is_empty());
+    }
+
+    #[test]
+    fn factory_reset_clears_cloud_tables() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&dir.path().join("luna.db")).unwrap();
+        set_cloud_identity(&conn, "luna-1", &[1; 32], 1).unwrap();
+        insert_cloud_snapshot(&conn, &cloud_snap("a", "prot", 1)).unwrap();
+        start_run(&conn, "r1", "prot", "s", 1).unwrap();
+        factory_reset(&conn).unwrap();
+        assert!(get_cloud_identity(&conn).unwrap().is_none());
+        assert!(list_cloud_snapshots(&conn, "prot").unwrap().is_empty());
+        assert!(open_runs(&conn, "s").unwrap().is_empty());
     }
 }
