@@ -84,13 +84,13 @@ pub fn router() -> Router<AppState> {
 async fn status(State(state): State<AppState>, Extension(user): Extension<CurrentUser>) -> ApiResult {
     let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
     let keys = db::get_user_keys(&conn, &user.id).map_err(|_| read_failed())?;
-    let luna_id = identity::load_or_create(&conn, db::now_unix())
-        .map_err(|_| read_failed())?
-        .luna_id;
+    let identity = identity::load_or_create(&conn, db::now_unix()).map_err(|_| read_failed())?;
     Ok(Json(json!({
         "set": keys.is_some(),
         "set_at": keys.as_ref().map(|k| k.phrase_set_at),
-        "luna_id": luna_id,
+        "luna_id": identity.luna_id(),
+        // The browser seals this key with its self key, so Connect can never swap it.
+        "signing_public": STANDARD.encode(identity.public()),
     })))
 }
 
@@ -335,6 +335,8 @@ mod tests {
         assert_eq!(body["set"], json!(false));
         assert!(body["set_at"].is_null());
         assert!(body["luna_id"].as_str().unwrap().starts_with("luna-"));
+        let signing_public = STANDARD.decode(body["signing_public"].as_str().unwrap()).unwrap();
+        assert_eq!(signing_public.len(), 32);
 
         let signer = Signer::generate();
         let (status, _) = send(

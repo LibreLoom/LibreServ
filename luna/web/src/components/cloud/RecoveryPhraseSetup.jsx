@@ -6,7 +6,13 @@ import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { apiErrorMessage } from "../../lib/api";
 import { entropyToPhrase, newEntropy } from "../../lib/backupCrypto";
-import { buildPhraseBody, PHRASE_QUERY_KEY, savePhrase, signFreshChallenge } from "../../lib/cloudPhrase";
+import {
+  buildPhraseBody,
+  getPhraseStatus,
+  PHRASE_QUERY_KEY,
+  savePhrase,
+  signFreshChallenge,
+} from "../../lib/cloudPhrase";
 
 /** Three distinct word positions (0-based), sorted, picked at random. */
 function pickCheckPositions() {
@@ -58,8 +64,10 @@ export default function RecoveryPhraseSetup({ lunaId, userId, oldEntropy = null,
     setSaving(true);
     try {
       // A replacement must be signed by the old phrase, with a challenge fetched just now.
+      // Luna's signing public key is sealed into the save, so Connect cannot swap it.
+      const status = await queryClient.fetchQuery({ queryKey: PHRASE_QUERY_KEY, queryFn: getPhraseStatus });
       const signature = oldEntropy ? await signFreshChallenge(oldEntropy, lunaId) : undefined;
-      await savePhrase(buildPhraseBody(entropy, { lunaId, userId, signature }));
+      await savePhrase(buildPhraseBody(entropy, { lunaId, userId, signingPublic: status.signing_public, signature }));
       await queryClient.invalidateQueries({ queryKey: PHRASE_QUERY_KEY });
       addToast({ type: "success", message: oldEntropy ? "Recovery phrase changed." : "Recovery phrase saved." });
       onSaved?.();

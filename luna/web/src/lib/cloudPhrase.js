@@ -29,7 +29,7 @@ export function fromBase64(text) {
   return Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
 }
 
-/** GET: `{ set, set_at, luna_id }`. */
+/** GET: `{ set, set_at, luna_id, signing_public }` (`signing_public` is base64, 32 bytes). */
 export function getPhraseStatus() {
   return getJson(PHRASE_PATH);
 }
@@ -65,25 +65,33 @@ export async function signFreshChallenge(entropy, lunaId) {
 /**
  * Body for PUT /api/v1/cloud/phrase.
  *
- * `self_sealed` is `encrypt(selfKey, aad, authPublic)`: the signing public key,
- * sealed with the phrase-derived `selfKey` so only someone with the phrase can read
- * it back. The AAD binds it to this Luna and this user. Luna only checks that the
- * field is non-empty base64; it does not open it.
+ * `self_sealed` is `encrypt(selfKey, aad, signingPublic)`: Luna's signing public key
+ * (from GET `signing_public`), sealed with the phrase-derived `selfKey` so only someone
+ * with the phrase can read it back. Connect keeps this copy, so a browser can later
+ * check Luna's signatures against a key Connect could not swap. The AAD binds it to
+ * this Luna, this user, and the purpose. Luna only checks that the field is non-empty
+ * base64; it does not open it.
  *
  * @param {Uint8Array} entropy 16 bytes of phrase entropy
- * @param {{ lunaId: string, userId: string, signature?: string }} opts
- *   `signature` is required when replacing an existing phrase.
+ * @param {{ lunaId: string, userId: string, signingPublic: Uint8Array | string, signature?: string }} opts
+ *   `signingPublic` is 32 bytes, or base64 of 32 bytes. `signature` is required when
+ *   replacing an existing phrase.
  */
-export function buildPhraseBody(entropy, { lunaId, userId, signature }) {
+export function buildPhraseBody(entropy, { lunaId, userId, signingPublic, signature }) {
+  const signingBytes = typeof signingPublic === "string" ? fromBase64(signingPublic) : signingPublic;
+  if (!signingBytes || signingBytes.length !== 32) {
+    throw new Error("Luna's signing key is missing. Reload the page and try again.");
+  }
   const keys = derive(entropy, lunaId);
   const aad = canonical([
     ["luna_id", encoder.encode(lunaId)],
     ["user_id", encoder.encode(userId)],
+    ["purpose", encoder.encode("signing-public")],
   ]);
   const body = {
     x25519_public: toBase64(keys.x25519Public),
     auth_public: toBase64(keys.authPublic),
-    self_sealed: toBase64(encrypt(keys.selfKey, aad, keys.authPublic)),
+    self_sealed: toBase64(encrypt(keys.selfKey, aad, signingBytes)),
   };
   if (signature) body.signature = signature;
   return body;

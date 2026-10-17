@@ -10,11 +10,17 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+const SIGNING_PUBLIC = new Uint8Array(32).map((_, i) => i + 1);
+
 describe("buildPhraseBody", () => {
-  it("sends 32-byte public keys and a self_sealed copy of the auth public key", () => {
+  it("sends 32-byte public keys and a self_sealed copy of the signing public key", () => {
     const entropy = newEntropy();
     const keys = derive(entropy, LUNA_ID);
-    const body = buildPhraseBody(entropy, { lunaId: LUNA_ID, userId: USER_ID });
+    const body = buildPhraseBody(entropy, {
+      lunaId: LUNA_ID,
+      userId: USER_ID,
+      signingPublic: toBase64(SIGNING_PUBLIC),
+    });
 
     expect(fromBase64(body.x25519_public)).toHaveLength(32);
     expect(fromBase64(body.auth_public)).toHaveLength(32);
@@ -25,14 +31,26 @@ describe("buildPhraseBody", () => {
     const aad = canonical([
       ["luna_id", encoder.encode(LUNA_ID)],
       ["user_id", encoder.encode(USER_ID)],
+      ["purpose", encoder.encode("signing-public")],
     ]);
     const opened = decrypt(keys.selfKey, aad, fromBase64(body.self_sealed));
-    expect(opened).toEqual(keys.authPublic);
+    expect(opened).toEqual(SIGNING_PUBLIC);
+  });
+
+  it("refuses a signing public key that is not 32 bytes", () => {
+    expect(() =>
+      buildPhraseBody(newEntropy(), { lunaId: LUNA_ID, userId: USER_ID, signingPublic: toBase64(new Uint8Array(5)) }),
+    ).toThrow();
   });
 
   it("includes the signature when one is given", () => {
     const entropy = newEntropy();
-    const body = buildPhraseBody(entropy, { lunaId: LUNA_ID, userId: USER_ID, signature: "c2ln" });
+    const body = buildPhraseBody(entropy, {
+      lunaId: LUNA_ID,
+      userId: USER_ID,
+      signingPublic: SIGNING_PUBLIC,
+      signature: "c2ln",
+    });
     expect(body.signature).toBe("c2ln");
   });
 });

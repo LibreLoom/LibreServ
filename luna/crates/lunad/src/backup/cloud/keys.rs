@@ -24,6 +24,12 @@ const RECIPIENTS_KIND: &str = "recipients";
 const RECIPIENTS_DOMAIN: &str = "recipients";
 /// Meta key prefix for the recipient list each key version was created for.
 const META_PREFIX: &str = "cloud_recipients";
+/// Record kind for the signed list of every user's recovery keys on this Luna.
+const USERS_KIND: &str = "users";
+/// Record name for that list. There is one per Luna.
+const USERS_LIST_NAME: &str = "list";
+/// Signature domain for the user list.
+const USERS_DOMAIN: &str = "users";
 
 /// The users who may read a shared backup, sorted and without duplicates.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -236,6 +242,110 @@ fn decode_hex_64(hex: &str) -> Option<[u8; 64]> {
     Some(out)
 }
 
+fn hex_encode(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn hex_decode(hex: &str) -> Option<Vec<u8>> {
+    if hex.len() % 2 != 0 {
+        return None;
+    }
+    (0..hex.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(hex.get(i..i + 2)?, 16).ok())
+        .collect()
+}
+
+/// One user as listed in the signed user list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ListedUser {
+    pub user_id: String,
+    pub x25519_public: [u8; 32],
+    pub auth_public: [u8; 32],
+    /// The browser's sealed copy of the user's signing public key.
+    pub self_sealed: Vec<u8>,
+}
+
+/// Signed bytes for the user list: this Luna plus the list as JSON text.
+fn user_list_message(luna_id: &str, users_text: &str) -> Vec<u8> {
+    crypto::canonical(&[
+        ("luna_id", luna_id.as_bytes()),
+        ("users", users_text.as_bytes()),
+    ])
+}
+
+/// Store the signed list of every user's recovery keys, so a browser on Connect can check it.
+/// `users` holds `(user id, X25519 public key, auth public key, self-sealed signing key)`.
+/// The list is one record, keyed by each user's X25519 public key. Two users may not share one.
+///
+/// Connect keeps this record and the next cloud run republishes it, so a failure here is only
+/// a delay, not a loss.
+pub fn publish_user_list(
+    store: &dyn CloudStore,
+    signer: &crypto::Signer,
+    luna_id: &str,
+    users: &[(String, [u8; 32], [u8; 32], Vec<u8>)],
+) -> Result<()> {
+    let mut map = serde_json::Map::new();
+    for (user_id, x25519_public, auth_public, self_sealed) in users {
+        if self_sealed.is_empty() {
+            bail!("The recovery copy for user {user_id} is empty.");
+        }
+        let key = hex_encode(x25519_public);
+        if map.contains_key(&key) {
+            bail!("Two users share the same recovery key.");
+        }
+        map.insert(
+            key,
+            json!({
+                "user_id": user_id,
+                "auth_public": hex_encode(auth_public),
+                "self_sealed": hex_encode(self_sealed),
+            }),
+        );
+    }
+    let users_value = serde_json::Value::Object(map);
+    let message = user_list_message(luna_id, &users_value.to_string());
+    let signature = signer.sign(USERS_DOMAIN, &message);
+    let body = json!({
+        "users": users_value,
+        "signature": hex_encode(&signature),
+    });
+    store.put_record(USERS_KIND, USERS_LIST_NAME, body.to_string().as_bytes())?;
+    Ok(())
+}
+
+/// Check a signed user list read back from the store. Returns the listed users, sorted by user id,
+/// if the signature is valid for this Luna and `public`, and `None` otherwise.
+pub fn verify_user_list(bytes: &[u8], public: &[u8; 32], luna_id: &str) -> Option<Vec<ListedUser>> {
+    let body: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+    let users_value = body.get("users")?.clone();
+    let sig = decode_hex_64(body.get("signature")?.as_str()?)?;
+    let message = user_list_message(luna_id, &users_value.to_string());
+    if !crypto::verify(public, USERS_DOMAIN, &message, &sig) {
+        return None;
+    }
+    let mut listed = Vec::new();
+    for (key, entry) in users_value.as_object()? {
+        let x25519_public: [u8; 32] = hex_decode(key)?.try_into().ok()?;
+        let auth_public: [u8; 32] = hex_decode(entry.get("auth_public")?.as_str()?)?
+            .try_into()
+            .ok()?;
+        let self_sealed = hex_decode(entry.get("self_sealed")?.as_str()?)?;
+        if self_sealed.is_empty() {
+            return None;
+        }
+        listed.push(ListedUser {
+            user_id: entry.get("user_id")?.as_str()?.to_string(),
+            x25519_public,
+            auth_public,
+            self_sealed,
+        });
+    }
+    listed.sort_by(|a, b| a.user_id.cmp(&b.user_id));
+    Some(listed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -407,5 +517,57 @@ mod tests {
         let part = user_record_part("Alice Smith@example");
         assert_eq!(part.len(), 32);
         assert!(part.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+    }
+
+    #[test]
+    fn user_list_verifies_and_fails_when_altered() {
+        let store = MemoryStore::new();
+        let signer = crypto::Signer::generate();
+        let alice = user_keys("alice");
+        let bob = user_keys("bob");
+        let users = vec![
+            ("alice".to_string(), alice.x25519_public, alice.auth_public, vec![7u8; 48]),
+            ("bob".to_string(), bob.x25519_public, bob.auth_public, vec![8u8; 48]),
+        ];
+        publish_user_list(&store, &signer, LUNA, &users).unwrap();
+
+        let bytes = store.get_record(USERS_KIND, USERS_LIST_NAME).unwrap().unwrap();
+        let listed = verify_user_list(&bytes, &signer.public(), LUNA).unwrap();
+        assert_eq!(listed.len(), 2);
+        assert_eq!(listed[0].user_id, "alice");
+        assert_eq!(listed[0].x25519_public, alice.x25519_public);
+        assert_eq!(listed[0].auth_public, alice.auth_public);
+        assert_eq!(listed[0].self_sealed, vec![7u8; 48]);
+        assert_eq!(listed[1].user_id, "bob");
+
+        // Wrong Luna and wrong key fail.
+        assert!(verify_user_list(&bytes, &signer.public(), "other-luna").is_none());
+        let other = crypto::Signer::generate();
+        assert!(verify_user_list(&bytes, &other.public(), LUNA).is_none());
+
+        // Altered user id, altered sealed copy, and an extra user all fail.
+        let text = String::from_utf8(bytes.clone()).unwrap();
+        let renamed = text.replace("\"alice\"", "\"mallory\"");
+        assert!(verify_user_list(renamed.as_bytes(), &signer.public(), LUNA).is_none());
+        let swapped = text.replace(&hex_encode(&[7u8; 48]), &hex_encode(&[9u8; 48]));
+        assert!(verify_user_list(swapped.as_bytes(), &signer.public(), LUNA).is_none());
+        let mut body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        body["users"]
+            .as_object_mut()
+            .unwrap()
+            .insert(hex_encode(&[1u8; 32]), json!({ "user_id": "eve", "auth_public": hex_encode(&[1u8; 32]), "self_sealed": hex_encode(&[1u8; 48]) }));
+        assert!(verify_user_list(body.to_string().as_bytes(), &signer.public(), LUNA).is_none());
+    }
+
+    #[test]
+    fn user_list_refuses_two_users_with_one_recovery_key() {
+        let store = MemoryStore::new();
+        let signer = crypto::Signer::generate();
+        let alice = user_keys("alice");
+        let users = vec![
+            ("alice".to_string(), alice.x25519_public, alice.auth_public, vec![7u8; 48]),
+            ("alice-again".to_string(), alice.x25519_public, alice.auth_public, vec![7u8; 48]),
+        ];
+        assert!(publish_user_list(&store, &signer, LUNA, &users).is_err());
     }
 }

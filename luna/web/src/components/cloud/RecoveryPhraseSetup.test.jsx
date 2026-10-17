@@ -4,11 +4,20 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import RecoveryPhraseSetup from "./RecoveryPhraseSetup.jsx";
-import { derive, newEntropy, verify } from "../../lib/backupCrypto";
+import { canonical, decrypt, derive, newEntropy, phraseToEntropy, verify } from "../../lib/backupCrypto";
 import { fromBase64, toBase64 } from "../../lib/cloudPhrase";
 
 const LUNA_ID = "luna-1";
 const USER_ID = "42";
+const SIGNING_PUBLIC = new Uint8Array(32).map((_, i) => i + 100);
+
+/** GET /api/v1/cloud/phrase answer: the status that carries Luna's signing public key. */
+function statusResponse(extra = {}) {
+  return new Response(JSON.stringify({ set: false, luna_id: LUNA_ID, signing_public: toBase64(SIGNING_PUBLIC), ...extra }), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  });
+}
 
 function renderSetup(props = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -71,6 +80,7 @@ describe("RecoveryPhraseSetup", () => {
     const user = userEvent.setup();
     const sent = {};
     vi.stubGlobal("fetch", vi.fn(async (path, options = {}) => {
+      if (!options.method || options.method === "GET") return statusResponse();
       sent.path = String(path);
       sent.method = options.method;
       sent.body = JSON.parse(options.body);
@@ -92,6 +102,13 @@ describe("RecoveryPhraseSetup", () => {
     expect(sent.body).not.toHaveProperty("signature");
     expect(fromBase64(sent.body.x25519_public)).toHaveLength(32);
     expect(fromBase64(sent.body.auth_public)).toHaveLength(32);
+    const keys = derive(phraseToEntropy(words.join(" ")), LUNA_ID);
+    const aad = canonical([
+      ["luna_id", new TextEncoder().encode(LUNA_ID)],
+      ["user_id", new TextEncoder().encode(USER_ID)],
+      ["purpose", new TextEncoder().encode("signing-public")],
+    ]);
+    expect(decrypt(keys.selfKey, aad, fromBase64(sent.body.self_sealed))).toEqual(SIGNING_PUBLIC);
   });
 
   it("signs the save with the old phrase when replacing one", async () => {
@@ -102,6 +119,7 @@ describe("RecoveryPhraseSetup", () => {
     const sent = {};
     vi.stubGlobal("fetch", vi.fn(async (path, options = {}) => {
       const url = String(path);
+      if (!options.method || options.method === "GET") return statusResponse({ set: true, set_at: 1 });
       if (url.endsWith("/challenge")) {
         return new Response(JSON.stringify({ challenge: toBase64(challenge) }), {
           status: 200,
