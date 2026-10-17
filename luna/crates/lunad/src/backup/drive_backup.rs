@@ -30,6 +30,17 @@ pub struct RunOutcome {
     /// Files that couldn't go onto the target as they are (case clash on
     /// exFAT/FAT, too large for FAT), named in plain words.
     pub notes: Vec<String>,
+    /// Why this run did not complete a good copy, in plain words. None when
+    /// the copy finished.
+    pub problem: Option<String>,
+}
+
+/// An outcome for a run that copied nothing, with the reason in plain words.
+fn problem_outcome(message: &str) -> RunOutcome {
+    RunOutcome {
+        problem: Some(message.to_string()),
+        ..RunOutcome::default()
+    }
 }
 
 /// Why a create request was refused, in words a person can act on.
@@ -117,6 +128,16 @@ pub fn create(
     )
     .map_err(|_| db_refused())?
     {
+        // The folder exists (checked above), so a backup that was waiting on
+        // it runs again.
+        if existing.state == db::PROTECTION_SOURCE_GONE {
+            db::set_protection_state(conn, &existing.id, db::PROTECTION_ACTIVE, "")
+                .map_err(|_| db_refused())?;
+            return db::get_protection(conn, &existing.id)
+                .ok()
+                .flatten()
+                .ok_or_else(db_refused);
+        }
         return Ok(existing);
     }
 
@@ -169,7 +190,10 @@ pub fn run_all(db: &crate::Db, now: i64) -> bool {
     let mut changed = false;
     for row in rows
         .iter()
-        .filter(|r| r.kind == db::PROTECTION_DRIVE && r.state == db::PROTECTION_ACTIVE)
+        .filter(|r| {
+            r.kind == db::PROTECTION_DRIVE
+                && matches!(r.state.as_str(), db::PROTECTION_ACTIVE | db::PROTECTION_SOURCE_GONE)
+        })
     {
         let before = (row.state.clone(), backup_state(row, now));
         if let Err(e) = run(db, &row.id, now) {
@@ -225,13 +249,28 @@ fn run_inner(
 ) -> anyhow::Result<RunOutcome> {
     // Already running: that run records its own result.
     let Some(_slot) = RunSlot::take(id) else {
-        return Ok(RunOutcome::default());
+        return Ok(problem_outcome(
+            "This backup is already running. Its status updates when it finishes.",
+        ));
     };
     let Some(row) = with_conn(db, |c| db::get_protection(c, id))? else {
-        return Ok(RunOutcome::default());
+        return Ok(problem_outcome("This backup no longer exists."));
     };
-    if row.kind != db::PROTECTION_DRIVE || row.state != db::PROTECTION_ACTIVE {
-        return Ok(RunOutcome::default());
+    if row.kind != db::PROTECTION_DRIVE {
+        return Ok(problem_outcome("This isn't a folder backup."));
+    }
+    // A stopped backup stays stopped until its folder is set up again. Only
+    // a backup whose folder was gone may run again (step 4 revives it).
+    if !matches!(
+        row.state.as_str(),
+        db::PROTECTION_ACTIVE | db::PROTECTION_SOURCE_GONE
+    ) {
+        let reason = if row.stop_reason.is_empty() {
+            "This backup is stopped."
+        } else {
+            row.stop_reason.as_str()
+        };
+        return Ok(problem_outcome(reason));
     }
 
     // Step 2: the backup drive must be connected.
@@ -262,18 +301,36 @@ fn run_inner(
 
     // Step 4: the folder itself must still be there.
     let folder = folder_name(&row.source_path, &source.label);
-    let Some((abs, _)) = with_conn(db, |c| {
-        files::resolve_any(c, &row.source_drive, &row.source_path).ok()
-    }) else {
-        return source_gone(db, &row, &target, now);
+    let abs = match with_conn(db, |c| {
+        files::resolve_any(c, &row.source_drive, &row.source_path)
+    }) {
+        Ok((abs, _)) => abs,
+        Err(e) if is_not_found(&e) => return source_gone(db, &row, &target, now),
+        Err(_) => {
+            pause_clock(&target, id, now);
+            return fail(
+                db,
+                id,
+                &format!("Luna couldn't read {folder} on {}.", source.label),
+                false,
+                now,
+            );
+        }
     };
+    // The folder is back (restored from the trash, say): a backup that was
+    // waiting on it runs again.
+    if row.state == db::PROTECTION_SOURCE_GONE {
+        with_conn(db, |c| {
+            db::set_protection_state(c, id, db::PROTECTION_ACTIVE, "")
+        })?;
+    }
 
     // Step 5: the folder moved somewhere a backup can't follow.
     if let Some(reason) = with_conn(db, |c| ops::stop_reason(c, &row)) {
         with_conn(db, |c| {
             db::set_protection_state(c, id, db::PROTECTION_STOPPED, reason)
         })?;
-        return Ok(RunOutcome::default());
+        return Ok(problem_outcome(reason));
     }
 
     // Step 6: read the folder. Walking it is the first step that can fail
@@ -367,13 +424,20 @@ fn sync_target(
 ) -> io::Result<Option<RunOutcome>> {
     let store = drive_store::Store::open(&target.root, &target.layout, &row.id)?;
     let limits = drive_store::fs_limits(&target.root);
-    let (wanted, notes) = plan_names(walked, limits, &target.label);
+    let (wanted, notes, kept) = plan_names(walked, limits, &target.label);
 
     let current = store.current_files()?;
-    let wanted_set: HashSet<&str> = wanted.iter().map(|(rel, _)| rel.as_str()).collect();
+    // Compared by name_key on both sides, so a case-only change on a target
+    // that ignores capitals never reads as a deletion.
+    let wanted_keys: HashSet<String> = wanted
+        .iter()
+        .map(|(rel, _)| name_key(rel, limits))
+        .chain(kept.iter().map(|rel| name_key(rel, limits)))
+        .collect();
+    let current_keys: HashSet<String> = current.iter().map(|rel| name_key(rel, limits)).collect();
     let deletions: Vec<String> = current
         .iter()
-        .filter(|rel| !wanted_set.contains(rel.as_str()))
+        .filter(|rel| !wanted_keys.contains(&name_key(rel, limits)))
         .cloned()
         .collect();
     if !allow_mass_delete
@@ -404,6 +468,16 @@ fn sync_target(
     };
     // The source is readable again, so the deleted-files clock runs; stamp
     // this run's deletions on that clock.
+    // If nobody could look at this backup for a long stretch (both drives
+    // away, or Luna off), that time doesn't count toward deleted files aging
+    // out. Runs happen every 30 minutes, so a 2-hour gap is a real one.
+    const CLOCK_GAP_SECS: i64 = 2 * 60 * 60;
+    if manifest.paused_since == 0
+        && manifest.last_ok_at > 0
+        && now - manifest.last_ok_at > CLOCK_GAP_SECS
+    {
+        manifest.paused_secs += now - manifest.last_ok_at;
+    }
     manifest.resume(now);
     let stamp = manifest.clock(now);
 
@@ -412,13 +486,31 @@ fn sync_target(
         ..RunOutcome::default()
     };
     for (rel, entry) in &wanted {
-        let meta = fs::metadata(&entry.abs)?;
-        match store.put(rel, &entry.abs, &meta, now)? {
+        // A file that vanished since the walk is skipped quietly; the next
+        // run sees it gone.
+        let meta = match fs::metadata(&entry.abs) {
+            Ok(meta) => meta,
+            Err(e) if e.kind() == ErrorKind::NotFound => continue,
+            Err(e) => return Err(e),
+        };
+        let put = match store.put(rel, &entry.abs, &meta, now) {
+            Ok(put) => put,
+            Err(e) if e.kind() == ErrorKind::NotFound && !entry.abs.exists() => continue,
+            Err(e) => return Err(e),
+        };
+        match put {
             drive_store::Put::Unchanged => outcome.unchanged += 1,
             drive_store::Put::Added | drive_store::Put::Updated => outcome.copied += 1,
         }
         // A file that came back is no longer deleted.
         manifest.deleted.remove(rel);
+    }
+    // A file too big for the target keeps its existing copy: it counts as
+    // unchanged and is never a deletion.
+    for rel in &kept {
+        if current_keys.contains(&name_key(rel, limits)) {
+            outcome.unchanged += 1;
+        }
     }
     for rel in &deletions {
         if store.remove(rel, now)? {
@@ -429,6 +521,7 @@ fn sync_target(
 
     store.thin(&mut manifest, now)?;
     manifest.source_drive_label = source_label.to_string();
+    manifest.source_drive_id = row.source_drive.clone();
     manifest.source_path = row.source_path.clone();
     manifest.access = access.clone();
     manifest.last_ok_at = now;
@@ -438,23 +531,26 @@ fn sync_target(
 
 /// The name each file gets on the target (plan §4), and a note for each one
 /// that couldn't keep its own name. Files too big for the target's format are
-/// left out. On a target that ignores capitals, the second of two clashing
-/// names is saved as `<stem> (2).<ext>` in the same folder.
+/// not copied; their rel paths come back in the third list so the caller keeps
+/// their existing copies. On a target that ignores capitals, the second of two
+/// clashing names is saved as `<stem> (2).<ext>` in the same folder.
 fn plan_names(
     mut walked: Vec<scope::Entry>,
     limits: drive_store::FsLimits,
     target_name: &str,
-) -> (Vec<(String, scope::Entry)>, Vec<String>) {
+) -> (Vec<(String, scope::Entry)>, Vec<String>, Vec<String>) {
     walked.sort_by(|a, b| a.rel.cmp(&b.rel));
     let mut notes = Vec::new();
     let mut taken: HashSet<String> = HashSet::new();
     let mut out = Vec::new();
+    let mut kept = Vec::new();
     for entry in walked {
         if limits.max_file.is_some_and(|max| entry.size > max) {
             notes.push(format!(
                 "{} is too big for {target_name}'s format (largest 4 GB).",
                 entry.rel
             ));
+            kept.push(entry.rel.clone());
             continue;
         }
         if taken.insert(name_key(&entry.rel, limits)) {
@@ -468,7 +564,7 @@ fn plan_names(
             out.push((alt, entry));
         }
     }
-    (out, notes)
+    (out, notes, kept)
 }
 
 fn name_key(rel: &str, limits: drive_store::FsLimits) -> String {
@@ -588,7 +684,19 @@ fn source_gone(
     with_conn(db, |c| {
         db::set_protection_state(c, &row.id, db::PROTECTION_SOURCE_GONE, reason)
     })?;
-    Ok(RunOutcome::default())
+    Ok(problem_outcome(reason))
+}
+
+/// Only a folder that is really missing counts as gone. Anything else (no
+/// permission, a disk error) is a passing problem.
+fn is_not_found(e: &files::FilesError) -> bool {
+    match e {
+        files::FilesError::Io(e) => e.kind() == ErrorKind::NotFound,
+        files::FilesError::Path(luna_core::path::PathError::NotFound(e)) => {
+            e.kind() == ErrorKind::NotFound
+        }
+        _ => false,
+    }
 }
 
 /// Record a failed run on the row and report it as an empty outcome.
@@ -602,7 +710,7 @@ fn fail(
     with_conn(db, |c| {
         db::record_protection_error(c, id, message, hard, now)
     })?;
-    Ok(RunOutcome::default())
+    Ok(problem_outcome(message))
 }
 
 /// Run `f` with the database lock held. The lock is taken and released per
@@ -816,7 +924,8 @@ mod tests {
             fs::remove_file(docs(&s).join(format!("f{i}.txt"))).unwrap();
         }
         let held = run(&s.db, &id, NOW + 60).unwrap();
-        assert_eq!(held, RunOutcome::default());
+        assert_eq!(held.removed, 0);
+        assert!(held.problem.as_deref().unwrap().starts_with("Most of Docs seems to be gone"));
         let r = row(&s, &id);
         assert!(r.hard);
         assert!(r.last_error.starts_with("Most of Docs seems to be gone"));
@@ -848,14 +957,18 @@ mod tests {
     }
 
     #[test]
-    fn source_folder_gone_is_final() {
+    fn source_folder_gone_waits_and_revives_when_back() {
         let s = setup();
         write(&docs(&s).join("a.txt"), "one");
         let id = make_backup(&s);
         run(&s.db, &id, NOW).unwrap();
 
         fs::remove_dir_all(docs(&s)).unwrap();
-        run(&s.db, &id, NOW + 60).unwrap();
+        let gone = run(&s.db, &id, NOW + 60).unwrap();
+        assert_eq!(
+            gone.problem.as_deref(),
+            Some("The folder was deleted or moved somewhere Luna can't follow.")
+        );
         let r = row(&s, &id);
         assert_eq!(r.state, db::PROTECTION_SOURCE_GONE);
         assert_eq!(
@@ -864,10 +977,142 @@ mod tests {
         );
         assert!(manifest(&s, &id).paused_since > 0);
 
-        // Final: a later run does nothing, even once the folder is back.
+        // Back again (restored from the trash): the backup runs on its own.
         fs::create_dir_all(docs(&s)).unwrap();
-        assert_eq!(run(&s.db, &id, NOW + 120).unwrap(), RunOutcome::default());
+        write(&docs(&s).join("a.txt"), "one");
+        let back = run(&s.db, &id, NOW + 120).unwrap();
+        assert_eq!(back.copied + back.unchanged, 1);
+        assert_eq!(back.problem, None);
+        let r = row(&s, &id);
+        assert_eq!(r.state, db::PROTECTION_ACTIVE);
+        assert!(r.last_error.is_empty());
+        assert_eq!(manifest(&s, &id).paused_since, 0);
+    }
+
+    #[test]
+    fn create_revives_a_backup_whose_folder_was_gone() {
+        let s = setup();
+        write(&docs(&s).join("a.txt"), "one");
+        let id = make_backup(&s);
+        run(&s.db, &id, NOW).unwrap();
+
+        fs::remove_dir_all(docs(&s)).unwrap();
+        run(&s.db, &id, NOW + 60).unwrap();
         assert_eq!(row(&s, &id).state, db::PROTECTION_SOURCE_GONE);
+
+        fs::create_dir_all(docs(&s)).unwrap();
+        assert_eq!(make_backup(&s), id);
+        assert_eq!(row(&s, &id).state, db::PROTECTION_ACTIVE);
+    }
+
+    #[test]
+    fn stopped_backup_stays_stopped_and_says_why() {
+        let s = setup();
+        write(&docs(&s).join("a.txt"), "one");
+        let id = make_backup(&s);
+        with_conn(&s.db, |c| {
+            db::set_protection_state(c, &id, db::PROTECTION_STOPPED, "Stopped for testing.")
+        })
+        .unwrap();
+
+        let r = run(&s.db, &id, NOW).unwrap();
+        assert_eq!(r.problem.as_deref(), Some("Stopped for testing."));
+        assert_eq!(row(&s, &id).state, db::PROTECTION_STOPPED);
+    }
+
+    #[test]
+    fn already_running_backup_says_so() {
+        let s = setup();
+        write(&docs(&s).join("a.txt"), "one");
+        let id = make_backup(&s);
+        let _slot = RunSlot::take(&id).unwrap();
+
+        let r = run(&s.db, &id, NOW).unwrap();
+        assert_eq!(
+            r.problem.as_deref(),
+            Some("This backup is already running. Its status updates when it finishes.")
+        );
+    }
+
+    #[test]
+    fn only_missing_folders_count_as_gone() {
+        let missing = files::FilesError::Io(io::Error::from(ErrorKind::NotFound));
+        let denied = files::FilesError::Io(io::Error::from(ErrorKind::PermissionDenied));
+        assert!(is_not_found(&missing));
+        assert!(!is_not_found(&denied));
+    }
+
+    #[test]
+    fn case_only_names_match_on_case_blind_targets() {
+        let blind = drive_store::FsLimits {
+            case_insensitive: true,
+            max_file: None,
+        };
+        let exact = drive_store::FsLimits {
+            case_insensitive: false,
+            max_file: None,
+        };
+        assert_eq!(name_key("Docs/A.txt", blind), name_key("docs/a.txt", blind));
+        assert_ne!(name_key("Docs/A.txt", exact), name_key("docs/a.txt", exact));
+    }
+
+    #[test]
+    fn clock_skips_a_long_gap_between_runs() {
+        let s = setup();
+        write(&docs(&s).join("a.txt"), "one");
+        write(&docs(&s).join("b.txt"), "two");
+        let id = make_backup(&s);
+        run(&s.db, &id, NOW).unwrap();
+
+        // Nobody could look for three hours; then b.txt is deleted.
+        fs::remove_file(docs(&s).join("b.txt")).unwrap();
+        let later = NOW + 3 * 60 * 60;
+        run(&s.db, &id, later).unwrap();
+        let m = manifest(&s, &id);
+        assert_eq!(m.paused_secs, 3 * 60 * 60);
+        assert_eq!(m.deleted.get("b.txt"), Some(&NOW));
+    }
+
+    #[test]
+    fn manifest_records_the_source_drive() {
+        let s = setup();
+        write(&docs(&s).join("a.txt"), "one");
+        let id = make_backup(&s);
+        run(&s.db, &id, NOW).unwrap();
+        assert_eq!(manifest(&s, &id).source_drive_id, s.src);
+    }
+
+    #[test]
+    fn file_gone_before_the_copy_is_skipped() {
+        let s = setup();
+        write(&docs(&s).join("a.txt"), "one");
+        let id = make_backup(&s);
+        let r = row(&s, &id);
+        let target = with_conn(&s.db, |c| connected(c, &s.tgt)).unwrap();
+        let access = with_conn(&s.db, |c| {
+            access_list::for_source(c, &r.source_drive, &r.source_path)
+        })
+        .unwrap();
+        // gone.txt was in the walk but is no longer on disk.
+        let walked = vec![
+            scope::Entry {
+                rel: "a.txt".into(),
+                abs: docs(&s).join("a.txt"),
+                size: 3,
+                mtime: 0,
+            },
+            scope::Entry {
+                rel: "gone.txt".into(),
+                abs: docs(&s).join("gone.txt"),
+                size: 3,
+                mtime: 0,
+            },
+        ];
+        let outcome = sync_target(&target, &r, "Photos", walked, &access, false, NOW)
+            .unwrap()
+            .unwrap();
+        assert_eq!(outcome.copied, 1);
+        assert!(outcome.notes.is_empty());
     }
 
     #[test]
@@ -887,7 +1132,7 @@ mod tests {
             case_insensitive: true,
             max_file: Some(100),
         };
-        let (out, notes) = plan_names(
+        let (out, notes, kept) = plan_names(
             vec![
                 entry("B.txt", 1),
                 entry("a.txt", 1),
@@ -899,6 +1144,7 @@ mod tests {
         );
         let names: Vec<&str> = out.iter().map(|(rel, _)| rel.as_str()).collect();
         assert_eq!(names, vec!["A.txt", "B.txt", "a (2).txt"]);
+        assert_eq!(kept, vec!["big.bin".to_string()]);
         assert_eq!(notes.len(), 2);
         assert!(notes[0].contains("saved as a (2).txt"));
         assert_eq!(
