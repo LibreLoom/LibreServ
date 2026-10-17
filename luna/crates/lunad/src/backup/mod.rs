@@ -2,6 +2,7 @@
 
 pub mod access_list;
 pub mod cloud_backup;
+pub mod drive_backup;
 pub mod drive_store;
 pub mod scope;
 pub mod status;
