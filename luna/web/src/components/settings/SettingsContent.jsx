@@ -5,6 +5,7 @@ import { CATEGORY_COMPONENTS } from "./categoryComponents.js";
 const CATEGORY_TITLES = {
   appearance: "Appearance",
   external_services: "External services",
+  users: "Users",
   devices: "Devices",
   security: "Security",
   about: "About",

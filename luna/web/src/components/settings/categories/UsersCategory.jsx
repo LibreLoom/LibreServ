@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Pencil, Shield, Trash2, User, UserPlus } from "lucide-react";
-import Page from "@libreloom/ui/components/ui/Page.jsx";
+import { Pencil, Shield, Trash2, User, UserPlus, Users } from "lucide-react";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
+import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
@@ -13,16 +13,14 @@ import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
-import { apiErrorMessage, deleteJson, getJson, postJson } from "../lib/api";
-import { useAuth } from "../context/AuthContext";
+import { apiErrorMessage, deleteJson, getJson, postJson } from "../../../lib/api";
+import { useAuth } from "../../../context/AuthContext";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
-import CreateUserForm from "../components/common/forms/CreateUserForm";
-import useStrandedErrorToast from "../hooks/useStrandedErrorToast";
-import usePageTitle from "../hooks/usePageTitle.js";
+import CreateUserForm from "../../common/forms/CreateUserForm";
+import useStrandedErrorToast from "../../../hooks/useStrandedErrorToast";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 
-export default function UsersPage() {
-  usePageTitle("Users");
+export default function UsersCategory() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -150,18 +148,6 @@ export default function UsersPage() {
   const actionModalOpen = creating || userToDelete != null;
   useStrandedErrorToast(error, actionModalOpen, () => setError(null));
 
-  if (user?.role !== "admin") {
-    return (
-      <Page title="Users">
-        <Card padding>
-          <p className="text-primary text-sm">
-            This page is for Admins. Ask an Admin if you need someone added or removed.
-          </p>
-        </Card>
-      </Page>
-    );
-  }
-
   const list = users.data || [];
   const loading = users.isLoading;
   const showList = !loading && !users.isError && list.length > 0;
@@ -169,11 +155,7 @@ export default function UsersPage() {
 
   return (
     <>
-      <Page
-        title="Users"
-        titleId="users-title"
-        className={userToDelete ? "pop-out" : "pop-in"}
-      >
+      <div data-slot="users-category" className={userToDelete ? "pop-out" : "pop-in"}>
         {users.isError && (
           <PageNotice variant="error" className="mb-4">
             {String(users.error?.message || "Couldn't load users. Try again.")}
@@ -266,9 +248,11 @@ export default function UsersPage() {
           </section>
         )}
 
+        <section className="mt-5" aria-label="User list">
+          <SettingsCard icon={Users} title="People on this Luna" padding={false}>
         {showEmpty && (
           <EmptyState
-            className="mt-5"
+            className="p-5"
             icon={User}
             title="No people yet"
             description="Add someone to share drives with."
@@ -287,15 +271,7 @@ export default function UsersPage() {
             }
           />
         )}
-
-        {showList && (
-          <section className="mt-5" aria-label="User list">
-            <Card
-              surface="primary"
-              padding={false}
-              className="overflow-hidden border-0 md:border-2 bg-transparent md:bg-primary"
-              noHeightAnim
-            >
+            {showList && (
               <div className="overflow-x-auto">
                 <Table
                   columns={[
@@ -423,11 +399,11 @@ export default function UsersPage() {
                   mobileCards
                 />
               </div>
-            </Card>
-          </section>
-        )}
+            )}
+          </SettingsCard>
+        </section>
 
-      </Page>
+      </div>
 
       <CreateUserModal
         open={creating}

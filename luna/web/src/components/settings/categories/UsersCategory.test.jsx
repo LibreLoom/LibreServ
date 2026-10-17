@@ -3,9 +3,9 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
-import { AuthProvider } from "../context/AuthContext";
+import { AuthProvider } from "../../../context/AuthContext";
 import { ThemeProvider } from"@libreloom/ui/context/ThemeContext.jsx";
-import UsersPage from "./UsersPage";
+import UsersCategory from "./UsersCategory";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import Toaster from "@libreloom/ui/components/common/Toaster.jsx";
 
@@ -76,7 +76,7 @@ function renderPage() {
       <ThemeProvider>
         <QueryClientProvider client={client}>
           <AuthProvider>
-            <UsersPage />
+            <UsersCategory />
           </AuthProvider>
         </QueryClientProvider>
       </ThemeProvider>
@@ -85,7 +85,7 @@ function renderPage() {
   );
 }
 
-describe("UsersPage", () => {
+describe("UsersCategory", () => {
   beforeEach(() => {
     window.matchMedia = (query) => ({
       matches: String(query).includes("min-width: 768px"),
@@ -248,22 +248,13 @@ describe("UsersPage", () => {
     expect(screen.queryByText("Private content deleted.")).not.toBeInTheDocument();
   });
 
-  it("blocks non-admins from managing users", async () => {
-    stubFetch({ role: "user", users: [] });
-    renderPage();
-
-    expect(
-      await screen.findByText(/This page is for admins/i),
-    ).toBeTruthy();
-    expect(screen.queryByRole("table")).toBeNull();
-  });
-
   it("shows the shared password checklist and blocks weak passwords on submit", async () => {
     stubFetch();
     const user = userEvent.setup();
     renderPage();
 
     // Floating trigger is icon-only (Sol-style big plus) with aria-label.
+    await screen.findByRole("link", { name: /Edit Alex/i });
     await user.click(await screen.findByRole("button", { name: /^Add user$/i }));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByRole("heading", { name: /Add a user/i })).toBeTruthy();
@@ -328,7 +319,7 @@ describe("UsersPage", () => {
     renderPage();
 
     const list = await screen.findByRole("region", { name: /User list/i });
-    const add = within(list).getByRole("button", { name: /^Add user$/i });
+    const add = await within(list).findByRole("button", { name: /^Add user$/i });
     expect(add.textContent?.trim()).toBe("Add user");
     expect(add.className).toMatch(/surface-secondary/);
     expect(add.className).toMatch(/rounded-large-element/);
@@ -356,6 +347,7 @@ describe("UsersPage", () => {
     renderPage();
 
     const list = await screen.findByRole("region", { name: /User list/i });
+    await within(list).findByRole("button", { name: /^Add user$/i });
     const items = within(list).getAllByRole("listitem");
     expect(within(items[items.length - 1]).getByRole("button", { name: /^Add user$/i })).toBeInTheDocument();
   });

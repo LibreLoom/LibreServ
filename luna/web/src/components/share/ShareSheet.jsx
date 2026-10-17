@@ -375,7 +375,7 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
                     </p>
                     {user?.role === "admin" && (
                       <Button variant="secondary" surface="primary" size="sm" asChild>
-                        <Link to="/settings/users" onClick={onClose}>
+                        <Link to="/settings#users" onClick={onClose}>
                           Go to Users
                         </Link>
                       </Button>

@@ -68,7 +68,7 @@ const DESTINATIONS = [
   },
   { to: "/shared", label: "Shared", icon: Share2, aliases: ["share", "shares", "links", "sharing"] },
   {
-    to: "/settings/users",
+    to: "/settings#users",
     label: "Users",
     icon: Users,
     adminOnly: true,

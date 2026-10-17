@@ -31,7 +31,7 @@ const ROLE_HINTS = {
   user: "A Member can use folders and albums shared with them. They cannot manage users, drives, or Luna settings.",
 };
 
-const USERS_PATH = "/settings/users";
+const USERS_PATH = "/settings#users";
 
 /**
  * Full-page editor for one person on this Luna (Settings → Users → Edit).

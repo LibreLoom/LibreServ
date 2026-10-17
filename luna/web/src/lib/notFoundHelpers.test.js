@@ -18,7 +18,7 @@ const knownPages = [
   { to: "/drives", label: "Files" },
   { to: "/gallery", label: "Photos" },
   { to: "/settings", label: "Settings" },
-  { to: "/settings/users", label: "Users" },
+  { to: "/settings#users", label: "Users" },
   { to: "/login", label: "Login" },
 ];
 

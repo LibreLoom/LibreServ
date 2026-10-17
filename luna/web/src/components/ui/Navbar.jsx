@@ -5,7 +5,6 @@ import {
   Share2,
   SlidersHorizontal,
   UserRound,
-  Users,
 } from "lucide-react";
 import SharedNavbar from "@libreloom/ui/components/ui/Navbar.jsx";
 import { useAuth } from "../../context/AuthContext";
@@ -15,7 +14,6 @@ const navItems = [
   { to: "/gallery", icon: ImageIcon, label: "Photos" },
   { to: "/drives", icon: HardDrive, label: "Drives" },
   { to: "/shared", icon: Share2, label: "Shared" },
-  { to: "/settings/users", icon: Users, label: "Users", adminOnly: true },
   { to: "/settings", icon: SlidersHorizontal, label: "Settings", end: true },
 ];
 

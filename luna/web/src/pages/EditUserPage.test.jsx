@@ -61,8 +61,7 @@ function renderAt(id) {
             <AuthProvider>
               <Routes>
                 <Route path="/settings/users/:id" element={<EditUserPage />} />
-                <Route path="/settings/users" element={<div>USERS LIST</div>} />
-                <Route path="/settings" element={<div>SETTINGS PAGE</div>} />
+                <Route path="/settings" element={<div>SETTINGS PAGE USERS LIST</div>} />
               </Routes>
             </AuthProvider>
           </QueryClientProvider>
@@ -114,7 +113,7 @@ describe("EditUserPage", () => {
     await waitFor(() => expect(patches).toHaveLength(1));
     expect(patches[0].url).toMatch(/\/api\/v1\/users\/2$/);
     expect(patches[0].body).toEqual({ username: "alex.k" });
-    expect(await screen.findByText("USERS LIST")).toBeInTheDocument();
+    expect(await screen.findByText(/USERS LIST/)).toBeInTheDocument();
   });
 
   it("checks a new password and warns it signs them out", async () => {
@@ -138,7 +137,7 @@ describe("EditUserPage", () => {
 
   it("sends you to Settings to edit your own account", async () => {
     renderAt("1");
-    expect(await screen.findByText("SETTINGS PAGE")).toBeInTheDocument();
+    expect(await screen.findByText(/SETTINGS PAGE/)).toBeInTheDocument();
   });
 
   it("asks before removing someone, then returns to Users", async () => {
@@ -149,12 +148,12 @@ describe("EditUserPage", () => {
     await user.click(screen.getByRole("button", { name: /^Remove$/ }));
     await waitFor(() => expect(deletes).toHaveLength(1));
     expect(deletes[0]).toMatch(/\/api\/v1\/users\/2$/);
-    expect(await screen.findByText("USERS LIST")).toBeInTheDocument();
+    expect(await screen.findByText(/USERS LIST/)).toBeInTheDocument();
   });
 
   it("explains when the person no longer exists", async () => {
     renderAt("missing");
     expect(await screen.findByText(/This person isn't on this Luna/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Back to Users/ })).toHaveAttribute("href", "/settings/users");
+    expect(screen.getByRole("link", { name: /Back to Users/ })).toHaveAttribute("href", "/settings#users");
   });
 });
