@@ -4,14 +4,15 @@
 
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
-use std::io::{self, ErrorKind};
+use std::io::{self, ErrorKind, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex};
 
 use rusqlite::Connection;
 
-use super::{access_list, drive_store, scope, status};
+use super::{access_list, albums_export, drive_store, scope, status};
 use crate::db::{self, ProtectionRow};
+use crate::drives::drive_db;
 use crate::drives::layout::Layout;
 use crate::files;
 
@@ -351,9 +352,12 @@ fn run_inner(
             );
         }
     };
-    let access = with_conn(db, |c| {
-        access_list::for_source(c, &row.source_drive, &row.source_path)
-    })?;
+    // The album list is read here, under the same lock as the access list.
+    let (access, albums) = with_conn(db, |c| {
+        let access = access_list::for_source(c, &row.source_drive, &row.source_path);
+        (access, source_albums(c, &row, &source.root))
+    });
+    let access = access?;
 
     // Steps 6-9 touch the backup drive; the database lock is not held here.
     let target_name = target.label.clone();
@@ -375,7 +379,15 @@ fn run_inner(
             true,
             now,
         ),
-        Ok(Some(outcome)) => {
+        Ok(Some(mut outcome)) => {
+            // The files are safe at this point, so a problem with the album
+            // list is only a note.
+            if let Err(e) = albums.and_then(|list| save_albums(&target, &row.id, &list)) {
+                tracing::warn!(error = %e, id, "drive backup could not save the album list");
+                outcome.notes.push(format!(
+                    "Luna couldn't update the album list in this backup on {target_name}. Your files are backed up."
+                ));
+            }
             let access_json = serde_json::to_string(&access)?;
             with_conn(db, |c| -> anyhow::Result<()> {
                 db::record_protection_ok(c, id, now, &access_json)?;
@@ -385,7 +397,7 @@ fn run_inner(
         }
         Err(e) => {
             tracing::warn!(error = %e, id, "drive backup could not write to the backup drive");
-            if e.kind() == ErrorKind::StorageFull || e.raw_os_error() == Some(28) {
+            if is_disk_full(&e) {
                 fail(
                     db,
                     id,
@@ -423,7 +435,7 @@ fn sync_target(
     now: i64,
 ) -> io::Result<Option<RunOutcome>> {
     let store = drive_store::Store::open(&target.root, &target.layout, &row.id)?;
-    let limits = drive_store::fs_limits(&target.root);
+    let limits = target.limits;
     let (wanted, notes, kept) = plan_names(walked, limits, &target.label);
 
     let current = store.current_files()?;
@@ -485,6 +497,18 @@ fn sync_target(
         notes,
         ..RunOutcome::default()
     };
+    // On a target that ignores capitals, a copy saved under another spelling
+    // of the same name is the same file: move it aside as replaced (not as a
+    // deletion) so the new spelling is the only copy left in `current/`.
+    if limits.case_insensitive {
+        for (rel, _) in &wanted {
+            for old in current.iter().filter(|old| {
+                old.as_str() != rel.as_str() && name_key(old, limits) == name_key(rel, limits)
+            }) {
+                store.remove(old, now)?;
+            }
+        }
+    }
     for (rel, entry) in &wanted {
         // A file that vanished since the walk is skipped quietly; the next
         // run sees it gone.
@@ -493,7 +517,7 @@ fn sync_target(
             Err(e) if e.kind() == ErrorKind::NotFound => continue,
             Err(e) => return Err(e),
         };
-        let put = match store.put(rel, &entry.abs, &meta, now) {
+        let put = match put_with_room(&store, &mut manifest, rel, &entry.abs, &meta, now) {
             Ok(put) => put,
             Err(e) if e.kind() == ErrorKind::NotFound && !entry.abs.exists() => continue,
             Err(e) => return Err(e),
@@ -527,6 +551,76 @@ fn sync_target(
     manifest.last_ok_at = now;
     store.write_manifest(&manifest)?;
     Ok(Some(outcome))
+}
+
+fn is_disk_full(e: &io::Error) -> bool {
+    e.kind() == ErrorKind::StorageFull || e.raw_os_error() == Some(28)
+}
+
+/// Copy one file. When the target is full, thin out old versions to make room
+/// and try this file once more. The error comes back when nothing was freed.
+fn put_with_room(
+    store: &drive_store::Store,
+    manifest: &mut drive_store::Manifest,
+    rel: &str,
+    abs: &Path,
+    meta: &fs::Metadata,
+    now: i64,
+) -> io::Result<drive_store::Put> {
+    match store.put(rel, abs, meta, now) {
+        Err(e) if is_disk_full(&e) => {
+            // If thinning fails, nothing was freed and the full-disk error stands.
+            let freed = store.free_space_by_thinning(manifest, now).unwrap_or(0);
+            if freed == 0 {
+                return Err(e);
+            }
+            store.put(rel, abs, meta, now)
+        }
+        other => other,
+    }
+}
+
+/// The source drive's albums that belong in a backup. The drive's own
+/// database is attached for the read, since albums live there and not in
+/// luna.db.
+fn source_albums(
+    conn: &Connection,
+    row: &ProtectionRow,
+    source_root: &Path,
+) -> anyhow::Result<Vec<albums_export::AlbumExport>> {
+    let Some(db_file) = drive_db::find_db_file(source_root) else {
+        anyhow::bail!("the source drive has no Luna database");
+    };
+    conn.execute(
+        "ATTACH DATABASE ?1 AS src_drive",
+        [db_file.to_string_lossy().as_ref()],
+    )?;
+    let list = albums_export::export(conn, &row.source_drive, &row.source_path);
+    // Detach even when the read failed, so the next run can attach again.
+    let detached = conn.execute_batch("DETACH DATABASE src_drive");
+    let list = list?;
+    detached?;
+    Ok(list)
+}
+
+/// Write the album list next to the backup's manifest. It goes to a temp file
+/// first and is renamed into place, so a failed write never leaves half a list.
+fn save_albums(
+    target: &Target,
+    protection_id: &str,
+    list: &[albums_export::AlbumExport],
+) -> anyhow::Result<()> {
+    let store = drive_store::Store::existing(&target.root, &target.layout, protection_id)
+        .ok_or_else(|| anyhow::anyhow!("the backup's folder is missing on the backup drive"))?;
+    let body = serde_json::to_vec_pretty(list)?;
+    let mut tmp = tempfile::Builder::new()
+        .prefix(".albums")
+        .rand_bytes(8)
+        .tempfile_in(store.root())?;
+    tmp.as_file_mut().write_all(&body)?;
+    tmp.persist(store.root().join(albums_export::ALBUMS_FILE))
+        .map_err(|e| e.error)?;
+    Ok(())
 }
 
 /// The name each file gets on the target (plan §4), and a note for each one
@@ -602,16 +696,19 @@ struct Target {
     root: PathBuf,
     layout: Layout,
     label: String,
+    limits: drive_store::FsLimits,
 }
 
 fn connected(conn: &Connection, drive_id: &str) -> Option<Target> {
     let drive = files::drive_root(conn, drive_id).ok()?;
     let root = PathBuf::from(&drive.mount_point);
     let layout = Layout::detect(&root)?;
+    let limits = drive_store::fs_limits(&root);
     Some(Target {
         root,
         layout,
         label: label_or_default(&drive.label),
+        limits,
     })
 }
 
@@ -1151,5 +1248,111 @@ mod tests {
             notes[1],
             "big.bin is too big for Backup's format (largest 4 GB)."
         );
+    }
+
+    /// The target's connection with the given filesystem limits. The real
+    /// limits of a temp folder can't be steered from a test.
+    fn with_limits(s: &Setup, limits: drive_store::FsLimits) -> Target {
+        Target {
+            limits,
+            ..with_conn(&s.db, |c| connected(c, &s.tgt)).unwrap()
+        }
+    }
+
+    #[test]
+    fn album_list_is_written_next_to_the_manifest() {
+        let s = setup();
+        write(&docs(&s).join("a.txt"), "one");
+        {
+            let conn = drive_db::open(&s.src_root).unwrap();
+            conn.execute(
+                "INSERT INTO albums (id, owner_user_id, name, created_at) VALUES ('trip', 'admin', 'Trip', 100)",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO album_items (album_id, drive_id, path, added_at) VALUES ('trip', ?1, 'Docs/a.txt', 1)",
+                [&s.src],
+            )
+            .unwrap();
+        }
+        let id = make_backup(&s);
+        run(&s.db, &id, NOW).unwrap();
+        let body =
+            fs::read_to_string(store(&s, &id).root().join(albums_export::ALBUMS_FILE)).unwrap();
+        assert!(body.contains("\"Trip\""), "{body}");
+        assert!(body.contains("a.txt"), "{body}");
+    }
+
+    #[test]
+    fn file_over_the_fat_limit_keeps_its_existing_copy() {
+        let s = setup();
+        let doc = docs(&s).join("a.txt");
+        write(&doc, "one");
+        let id = make_backup(&s);
+        let r = row(&s, &id);
+        let access = with_conn(&s.db, |c| {
+            access_list::for_source(c, &r.source_drive, &r.source_path)
+        })
+        .unwrap();
+        let roomy = with_limits(&s, drive_store::FsLimits::default());
+        let walked = scope::walk(&docs(&s)).unwrap();
+        sync_target(&roomy, &r, "Photos", walked, &access, false, NOW)
+            .unwrap()
+            .unwrap();
+
+        // The file grows past a 5-byte limit, like a FAT drive's file cap.
+        write(&doc, "much longer than five bytes");
+        let small = with_limits(
+            &s,
+            drive_store::FsLimits {
+                case_insensitive: false,
+                max_file: Some(5),
+            },
+        );
+        let walked = scope::walk(&docs(&s)).unwrap();
+        let outcome = sync_target(&small, &r, "Photos", walked, &access, false, NOW)
+            .unwrap()
+            .unwrap();
+        assert!(outcome.notes.iter().any(|n| n.contains("a.txt")), "{:?}", outcome.notes);
+        assert_eq!(
+            fs::read_to_string(store(&s, &id).current_dir().join("a.txt")).unwrap(),
+            "one"
+        );
+    }
+
+    #[test]
+    fn case_only_rename_keeps_the_file_in_current() {
+        let s = setup();
+        let doc = docs(&s).join("notes.txt");
+        write(&doc, "one");
+        let id = make_backup(&s);
+        let r = row(&s, &id);
+        let access = with_conn(&s.db, |c| {
+            access_list::for_source(c, &r.source_drive, &r.source_path)
+        })
+        .unwrap();
+        let ci = with_limits(
+            &s,
+            drive_store::FsLimits {
+                case_insensitive: true,
+                max_file: None,
+            },
+        );
+        let walked = scope::walk(&docs(&s)).unwrap();
+        sync_target(&ci, &r, "Photos", walked, &access, false, NOW)
+            .unwrap()
+            .unwrap();
+
+        // Same name with different capitals, same content.
+        fs::rename(&doc, docs(&s).join("Notes.txt")).unwrap();
+        let walked = scope::walk(&docs(&s)).unwrap();
+        sync_target(&ci, &r, "Photos", walked, &access, false, NOW)
+            .unwrap()
+            .unwrap();
+
+        let files = store(&s, &id).current_files().unwrap();
+        assert_eq!(files.len(), 1, "{files:?}");
+        assert_eq!(files[0].to_lowercase(), "notes.txt");
     }
 }
