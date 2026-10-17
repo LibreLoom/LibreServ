@@ -92,17 +92,13 @@ fn compute(state: &AppState) -> crate::system::system_health::ComprehensiveHealt
         Probes, backup_checks, finish_comprehensive, run_preflight,
     };
     let probes = Probes::from_state(state);
-    let cloud_sources = probes
-        .connect
-        .as_ref()
-        .is_some_and(|c| !c.backup_sources.is_empty());
     let (preflight, drives) = {
         let conn = state.db.lock().unwrap();
         let mut preflight = run_preflight(&state.data_dir, &conn, &probes);
         // Backup rows warn only, so they never change `healthy`.
         preflight
             .checks
-            .extend(backup_checks(&conn, cloud_sources, crate::db::now_unix()));
+            .extend(backup_checks(&conn, crate::db::now_unix()));
         let drives = crate::db::list_drives(&conn).unwrap_or_default();
         (preflight, drives)
     };

@@ -309,11 +309,9 @@ async fn async_main() -> anyhow::Result<()> {
                         }
 
                         // Same rows and wording as the web's system checks.
-                        let cloud_sources = st.connect_active && !st.backup_sources.is_empty();
                         let mut backup_problems: Vec<_> =
                             lunad::system::system_health::backup_checks(
                                 &conn,
-                                cloud_sources,
                                 lunad::db::now_unix(),
                             )
                             .into_values()
@@ -434,25 +432,48 @@ async fn async_main() -> anyhow::Result<()> {
         }
     }));
 
-    let backup_state = state.clone();
+    // Cloud backups: copy every active backup to Luna Connect every 6 hours,
+    // and check a sample of each one once a day. Each loop awaits its own run
+    // before waiting again, so runs never overlap.
+    let cloud_db = state.db.clone();
+    let cloud_connect = state.connect.clone();
+    let cloud_health = state.health_cache.clone();
     bg_tasks.push(tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(120));
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(6 * 60 * 60));
         loop {
             ticker.tick().await;
-            let last = backup_state
-                .last_io_activity
-                .load(std::sync::atomic::Ordering::Relaxed);
-            let now = lunad::db::now_unix();
-            let connect = backup_state.connect.clone();
-            let db = backup_state.db.clone();
+            let db = cloud_db.clone();
+            let connect = cloud_connect.clone();
             let changed = tokio::task::spawn_blocking(move || {
-                lunad::backup::cloud_backup::tick(&connect, last, now, &db)
+                let store = lunad::api::cloud_backups::connect_store(&connect, &db);
+                let store_ref = store.as_ref().map(|s| s as &dyn lunad::backup::cloud::store::CloudStore);
+                lunad::backup::cloud::ops::run_all(&db, store_ref, lunad::db::now_unix())
             })
             .await
             .unwrap_or(false);
             if changed {
-                backup_state.health_cache.invalidate();
+                cloud_health.invalidate();
             }
+        }
+    }));
+
+    let check_db = state.db.clone();
+    let check_connect = state.connect.clone();
+    let check_health = state.health_cache.clone();
+    bg_tasks.push(tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(24 * 60 * 60));
+        loop {
+            ticker.tick().await;
+            let db = check_db.clone();
+            let connect = check_connect.clone();
+            let _ = tokio::task::spawn_blocking(move || {
+                // Without Connect there is nothing to check against.
+                if let Some(store) = lunad::api::cloud_backups::connect_store(&connect, &db) {
+                    lunad::backup::cloud::ops::check_all(&db, &store, lunad::db::now_unix());
+                }
+            })
+            .await;
+            check_health.invalidate();
         }
     }));
 

@@ -23,7 +23,10 @@ describe("healthChecks", () => {
   });
 
   it("names backup rows by what they copy", () => {
-    expect(labelFor("cloud_backup")).toBe("Cloud backup");
+    expect(labelFor("cloud_backup_c1")).toBe("Cloud backup");
+    expect(
+      displayLabel("cloud_backup_c1", { details: { folder: "Photos" } }),
+    ).toBe("Photos — cloud backup");
     expect(labelFor("protect_3f6a")).toBe("Protected folder");
     expect(
       displayLabel("protect_3f6a", {

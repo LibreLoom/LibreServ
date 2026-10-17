@@ -10,11 +10,6 @@ use crate::api::response::json_error;
 use crate::net::connect::ConnectError;
 
 #[derive(Deserialize)]
-struct SourcesBody {
-    sources: Vec<Value>,
-}
-
-#[derive(Deserialize)]
 struct TokenBody {
     token: Option<String>,
     code: Option<String>,
@@ -33,7 +28,6 @@ pub fn router() -> Router<AppState> {
             "/api/v1/connect/device-token",
             post(save_device_token).delete(remove_device_token),
         )
-        .route("/api/v1/connect/backup-sources", post(set_sources))
 }
 
 async fn status(
@@ -50,24 +44,7 @@ async fn status(
     // The token is a credential and no screen shows it; only the on-device
     // console reads it, in-process.
     status.device_code = None;
-    let has_sources = !status.backup_sources.is_empty();
-    let mut body = serde_json::to_value(status).unwrap_or_else(|_| json!({}));
-    // How the cloud backup is doing — Admins manage it, so only they see it.
-    if admin && has_sources {
-        let record = state
-            .db
-            .lock()
-            .ok()
-            .and_then(|conn| crate::backup::cloud_backup::read_status(&conn));
-        if let Some(record) = record {
-            body["backup_status"] = json!({
-                "state": record.state(crate::db::now_unix()),
-                "last_ok_at": record.last_ok_at,
-                "last_error": record.last_error,
-            });
-        }
-    }
-    Json(body)
+    Json(serde_json::to_value(status).unwrap_or_else(|_| json!({})))
 }
 
 fn setup_or_admin(state: &AppState, current: Option<&Extension<crate::auth::CurrentUser>>) -> bool {
@@ -161,51 +138,6 @@ async fn remove_device_token(
     Ok(Json(json!({ "ok": true })))
 }
 
-async fn set_sources(
-    State(state): State<AppState>,
-    Extension(user): Extension<crate::auth::CurrentUser>,
-    Json(body): Json<SourcesBody>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    if !state.connect.is_connect_active() {
-        return Err(connect_inactive_error());
-    }
-    require_admin(user)?;
-    let sources = {
-        let conn = state.db.lock().map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna is updating its file list. Wait a moment and try again.",
-            )
-        })?;
-        let drives = crate::db::list_drives(&conn).map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't read your drives.",
-            )
-        })?;
-        crate::backup::cloud_backup::validate_backup_sources(body.sources, &drives)
-            .map_err(map_connect_err)?
-    };
-    let had_sources = !state.connect.backup_sources().is_empty();
-    let now_on = !sources.is_empty();
-    let service = state.connect.clone();
-    tokio::task::spawn_blocking(move || service.set_backup_sources(sources))
-        .await
-        .map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't save those folders.",
-            )
-        })?
-        .map_err(map_connect_err)?;
-    if now_on && let Ok(conn) = state.db.lock() {
-        crate::backup::cloud_backup::note_sources_saved(&conn, had_sources, crate::db::now_unix());
-    }
-    // Turning backup off removes its health row; on, adds one.
-    state.health_cache.invalidate();
-    Ok(Json(json!({ "ok": true })))
-}
-
 fn require_admin(user: crate::auth::CurrentUser) -> Result<(), (StatusCode, Json<Value>)> {
     if user.role != "admin" {
         return Err(json_error(
@@ -214,13 +146,6 @@ fn require_admin(user: crate::auth::CurrentUser) -> Result<(), (StatusCode, Json
         ));
     }
     Ok(())
-}
-
-fn connect_inactive_error() -> (StatusCode, Json<Value>) {
-    json_error(
-        StatusCode::NOT_FOUND,
-        "Luna Connect is not set up on this Luna. Add a device token in Settings → About → Advanced.",
-    )
 }
 
 fn map_connect_err(err: ConnectError) -> (StatusCode, Json<Value>) {
@@ -580,48 +505,6 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::OK, "{body}");
         assert!(h.state.connect.is_connect_active());
-    }
-
-    #[tokio::test]
-    async fn backup_sources_need_connect_first_and_then_an_admin() {
-        let h = harness(true);
-        let body = Some(json!({ "sources": [] }));
-        // Connect off: the same plain answer for everyone, before any role check.
-        let (status, err) = send(
-            &h,
-            Method::POST,
-            "/api/v1/connect/backup-sources",
-            h.admin.as_deref(),
-            body.clone(),
-        )
-        .await;
-        assert_eq!(status, StatusCode::NOT_FOUND);
-        assert!(
-            err["error"]
-                .as_str()
-                .unwrap()
-                .contains("Luna Connect is not set up")
-        );
-
-        h.state.connect.set_oss_code(TOKEN).unwrap();
-        let (status, _) = send(
-            &h,
-            Method::POST,
-            "/api/v1/connect/backup-sources",
-            h.member.as_deref(),
-            body.clone(),
-        )
-        .await;
-        assert_eq!(status, StatusCode::FORBIDDEN);
-        let (status, _) = send(
-            &h,
-            Method::POST,
-            "/api/v1/connect/backup-sources",
-            h.admin.as_deref(),
-            body,
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK);
     }
 
     #[tokio::test]

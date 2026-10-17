@@ -945,14 +945,22 @@ fn add_drive_tool_checks(checks: &mut Checks, probes: &Probes) {
     }
 }
 
-/// Backup rows (category `backups`): one per drive backup, plus cloud
-/// backup while it has sources. Warnings only — a backup problem never
-/// blocks setup or marks Luna unhealthy, but it must never go unseen.
-pub fn backup_checks(
-    conn: &Connection,
-    cloud_sources: bool,
-    now: i64,
-) -> HashMap<String, HealthCheckResult> {
+/// The folder's own name, or `fallback` when the path has none.
+fn folder_name(row: &crate::db::ProtectionRow, fallback: &str) -> String {
+    row.source_path
+        .trim_matches('/')
+        .rsplit('/')
+        .next()
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| fallback.to_string())
+}
+
+/// Backup rows (category `backups`): one per drive or cloud backup, plus a
+/// row for each person on a cloud backup's access list who has no recovery
+/// phrase. Warnings only — a backup problem never blocks setup or marks Luna
+/// unhealthy, but it must never go unseen.
+pub fn backup_checks(conn: &Connection, now: i64) -> HashMap<String, HealthCheckResult> {
     use crate::backup::drive_backup::state as drive_state;
     use crate::backup::status::{BackupState, ago};
     let mut checks = Checks::default();
@@ -970,15 +978,7 @@ pub fn backup_checks(
         if row.kind != crate::db::PROTECTION_DRIVE {
             continue;
         }
-        let source_name = drive_label(&row.source_drive);
-        let folder = row
-            .source_path
-            .trim_matches('/')
-            .rsplit('/')
-            .next()
-            .filter(|s| !s.is_empty())
-            .map(str::to_string)
-            .unwrap_or_else(|| source_name.clone());
+        let folder = folder_name(&row, &drive_label(&row.source_drive));
         let target = drive_label(&row.target_drive);
         let details = json!({
             "folder": folder,
@@ -1049,81 +1049,102 @@ pub fn backup_checks(
         }
     }
 
-    if cloud_sources {
-        let record = crate::backup::cloud_backup::read_status(conn).unwrap_or_default();
-        let details = Some(json!({ "last_ok_at": record.last_ok_at }));
-        let last_backup = format!("Last full backup: {}.", last(record.last_ok_at));
-        // No record yet: the first idle tick writes one.
-        let state = if record.since == 0 {
-            BackupState::Ok
+    for row in crate::db::list_protections(conn).unwrap_or_default() {
+        if row.kind != crate::db::PROTECTION_CLOUD {
+            continue;
+        }
+        let folder = folder_name(&row, &drive_label(&row.source_drive));
+        let name = format!("cloud_backup_{}", row.id);
+        let details = json!({ "folder": folder, "last_ok_at": row.last_ok_at });
+        let last_copy = format!("Last full backup: {}.", last(row.last_ok_at));
+        if row.state == "stopped" || row.state == "source_gone" {
+            let reason = if row.stop_reason.trim().is_empty() {
+                "Luna didn't save a reason.".to_string()
+            } else {
+                row.stop_reason.clone()
+            };
+            checks.add(
+                &name,
+                "backups",
+                PASSED,
+                format!("{folder}'s cloud backup is stopped: {reason}"),
+                Some(details),
+            );
+        } else if !row.last_error.is_empty()
+            && matches!(crate::backup::cloud::ops::state(&row, now), BackupState::Failing)
+        {
+            checks
+                .add(
+                    &name,
+                    "backups",
+                    WARNING,
+                    format!("The cloud backup of {folder} is out of date."),
+                    Some(details),
+                )
+                .more(format!("{} {last_copy}", row.last_error));
+        } else if now - row.last_ok_at.max(row.created_at) >= 2 * 86_400 {
+            checks
+                .add(
+                    &name,
+                    "backups",
+                    WARNING,
+                    format!("The cloud backup of {folder} hasn't run in 2 days."),
+                    Some(details),
+                )
+                .more(format!("Luna tries again every 6 hours. {last_copy}"));
+        } else if let Some(problem) = crate::backup::cloud::ops::last_check_problem(conn, &row.id) {
+            checks
+                .add(
+                    &name,
+                    "backups",
+                    WARNING,
+                    format!("The last check of {folder}'s cloud backup found problems."),
+                    Some(details),
+                )
+                .more(problem);
         } else {
-            record.state(now)
+            let message = if row.last_ok_at > 0 {
+                format!(
+                    "{folder} was backed up to the cloud {}.",
+                    ago(row.last_ok_at, now)
+                )
+            } else {
+                format!("Luna will back up {folder} to the cloud soon.")
+            };
+            checks.add(&name, "backups", PASSED, message, Some(details));
+        }
+
+        let access: crate::backup::access_list::AccessList = if row.access_json.trim().is_empty()
+        {
+            Default::default()
+        } else {
+            serde_json::from_str(&row.access_json).unwrap_or_default()
         };
-        match state {
-            BackupState::Ok if record.last_progress_at > record.last_ok_at => {
-                checks
-                    .add(
-                        "cloud_backup",
-                        "backups",
-                        PASSED,
-                        format!(
-                            "Cloud backup is still copying files; it last made progress {}.",
-                            ago(record.last_progress_at, now)
-                        ),
-                        details,
-                    )
-                    .more(format!(
-                        "Luna sends up to 4 GB each time it's idle, so a big backup takes a while. {last_backup}"
-                    ));
+        for user in crate::db::list_users(conn).unwrap_or_default() {
+            let listed = access.users.contains(&user.id)
+                || (access.admins && user.role == "admin");
+            let has_phrase = crate::db::get_user_keys(conn, &user.id)
+                .ok()
+                .flatten()
+                .is_some_and(|k| k.phrase_set_at > 0);
+            if !listed || has_phrase {
+                continue;
             }
-            BackupState::Ok if record.last_ok_at > 0 => {
-                checks.add(
-                    "cloud_backup",
+            let who = if user.display_name.trim().is_empty() {
+                user.username.clone()
+            } else {
+                user.display_name.clone()
+            };
+            let phrase_name = format!("cloud_phrase_{}_{}", row.id, user.id);
+            checks
+                .add(
+                    &phrase_name,
                     "backups",
-                    PASSED,
-                    format!(
-                        "Cloud backup last finished {}.",
-                        ago(record.last_ok_at, now)
-                    ),
-                    details,
-                );
-            }
-            BackupState::Ok => {
-                checks.add(
-                    "cloud_backup",
-                    "backups",
-                    PASSED,
-                    "Cloud backup starts the next time Luna is idle.",
-                    details,
-                );
-            }
-            BackupState::Failing => {
-                checks
-                    .add(
-                        "cloud_backup",
-                        "backups",
-                        WARNING,
-                        "Cloud backup is out of date.",
-                        details,
-                    )
-                    .more(format!("{} {last_backup}", record.last_error));
-            }
-            BackupState::Stale => {
-                let why = if record.last_error.is_empty() {
-                    "Luna copies files to the cloud only while nobody is using it.".to_string()
-                } else {
-                    record.last_error.clone()
-                };
-                checks
-                    .add(
-                        "cloud_backup",
-                        "backups",
-                        WARNING,
-                        "Cloud backup hasn't finished in over a day.",
-                        details,
-                    )
-                    .more(format!("{why} {last_backup}"));
-            }
+                    WARNING,
+                    format!("{who} hasn't set a recovery phrase, so they can't open this cloud backup."),
+                    Some(json!({ "folder": folder, "user_id": user.id })),
+                )
+                .more("Without a recovery phrase, this person can't get their files back from the cloud.");
         }
     }
     checks.0
@@ -1850,8 +1871,7 @@ mod tests {
         )
         .unwrap();
 
-        let checks = backup_checks(&conn, false, now);
-        assert!(!checks.contains_key("cloud_backup"), "no sources, no row");
+        let checks = backup_checks(&conn, now);
         let failing = &checks["drive_backup_p1"];
         assert_eq!(failing.status, WARNING);
         assert_eq!(failing.category, "backups");
@@ -1912,14 +1932,48 @@ mod tests {
     fn cloud_backup_row_follows_its_record() {
         let (_dir, conn) = setup();
         let now = 10_000_000;
-        assert_eq!(
-            backup_checks(&conn, true, now)["cloud_backup"].status,
-            PASSED,
-            "nothing recorded yet is not a failure"
-        );
-        crate::backup::cloud_backup::note_sources_saved(&conn, false, now - 2 * 86_400);
-        let stale = &backup_checks(&conn, true, now)["cloud_backup"];
+        crate::db::insert_protection(
+            &conn,
+            &crate::db::NewProtection {
+                id: "c1",
+                kind: crate::db::PROTECTION_CLOUD,
+                source_drive: "a",
+                source_path: "/family",
+                target_drive: "",
+                private_owner: "",
+                created_by: "",
+                created_at: now,
+            },
+        )
+        .unwrap();
+        let key = "cloud_backup_c1";
+        let fresh = &backup_checks(&conn, now)[key];
+        assert_eq!(fresh.status, PASSED, "nothing run yet is not a failure");
+        assert_eq!(fresh.message, "Luna will back up family to the cloud soon.");
+
+        conn.execute(
+            "UPDATE protections SET created_at = ?1 WHERE id = 'c1'",
+            [now - 3 * 86_400],
+        )
+        .unwrap();
+        let stale = &backup_checks(&conn, now)[key];
         assert_eq!(stale.status, WARNING);
-        assert_eq!(stale.message, "Cloud backup hasn't finished in over a day.");
+        assert_eq!(
+            stale.message,
+            "The cloud backup of family hasn't run in 2 days."
+        );
+
+        conn.execute(
+            "UPDATE protections SET state = 'stopped', stop_reason = 'Luna stopped this backup.'
+             WHERE id = 'c1'",
+            [],
+        )
+        .unwrap();
+        let stopped = &backup_checks(&conn, now)[key];
+        assert_eq!(stopped.status, PASSED);
+        assert_eq!(
+            stopped.message,
+            "family's cloud backup is stopped: Luna stopped this backup."
+        );
     }
 }

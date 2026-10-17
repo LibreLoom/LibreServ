@@ -23,7 +23,6 @@ export const CHECK_LABELS = {
   erase_tools: "Erasing drives",
   smart_tool: "Hard drive health reports",
   trim_tool: "SSD upkeep",
-  cloud_backup: "Cloud backup",
 };
 
 export const CATEGORY_LABELS = {
@@ -56,6 +55,8 @@ export function labelFor(name) {
   const driveSmart = name.match(/^drive_(.+)_smart$/);
   if (driveSmart) return "Hard drive wear check";
   if (name.startsWith("protect_")) return "Protected folder";
+  if (name.startsWith("cloud_backup_")) return "Cloud backup";
+  if (name.startsWith("cloud_phrase_")) return "Cloud recovery phrase";
   return String(name)
     .replace(/_/g, " ")
     .replace(/\b\w/g, (c) => c.toUpperCase());
@@ -67,6 +68,12 @@ export function displayLabel(name, check) {
   if (folder && name.startsWith("protect_")) {
     const target = check?.details?.target_drive;
     return target ? `${folder} — copy on ${target}` : `${folder} — protected copy`;
+  }
+  if (check?.details?.folder && name.startsWith("cloud_backup_")) {
+    return `${check.details.folder} — cloud backup`;
+  }
+  if (check?.details?.folder && name.startsWith("cloud_phrase_")) {
+    return `${check.details.folder} — recovery phrase`;
   }
   const label = check?.details?.drive_label;
   if (label && name.startsWith("drive_")) {
