@@ -181,7 +181,8 @@ export default function SystemUpdatesCard({ index = 0 }) {
                 </p>
                 <div className="flex items-center gap-1">
                   <Button
-                    variant="primary"
+                    variant="secondary"
+                    surface="primary"
                     onClick={() => {
                       setRetrying(true);
                       setShowUpdateModal(true);

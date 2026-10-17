@@ -9,7 +9,8 @@
  *
  * An element painted by a sibling (a sliding indicator) declares the surface
  * behind it with `data-contrast-surface="primary|secondary"` (not
- * `data-surface`: Button uses that for the backdrop it's *meant* for). Opt out one subtree with
+ * `data-surface`: Button uses that for the backdrop it's *meant* for, which
+ * findSurfaceMismatches checks against the real one). Opt out one subtree with
  * `data-contrast-skip` (say why next to it).
  */
 
@@ -147,6 +148,38 @@ export function findContrastProblems(root = document.body) {
 }
 
 /**
+ * Buttons that vanish into the surface they sit on. Two kinds:
+ *  - outline / ghost derive their border and text from the `surface` prop,
+ *    which defaults to "secondary" (a card). Placed on the page without
+ *    `surface="primary"` they draw in the page's own color. `surface` must
+ *    name the real backdrop.
+ *  - solid primary / secondary are filled with a surface color, so they need
+ *    the opposite backdrop (primary on cards, secondary on the page).
+ * A button on an unknown backdrop is not judged.
+ *
+ * @param {Element} [root]
+ * @returns {string[]}
+ */
+export function findSurfaceMismatches(root = document.body) {
+  const problems = [];
+  for (const el of root.querySelectorAll("button[data-surface], a[data-surface], [role=button][data-surface]")) {
+    if (isHidden(el)) continue;
+    const behind = el.parentElement ? surfaceOf(el.parentElement) : { token: null, at: null };
+    if (!behind.token) continue;
+    const variant = el.getAttribute("data-variant");
+    const declared = el.getAttribute("data-surface");
+    let why = null;
+    if ((variant === "outline" || variant === "ghost") && declared !== behind.token) {
+      why = `${variant} button has surface="${declared}" (the default is "secondary") but sits on the ${behind.token} surface`;
+    } else if ((variant === "primary" || variant === "secondary") && variant === behind.token) {
+      why = `solid ${variant} button is filled with the same ${behind.token} surface it sits on`;
+    }
+    if (why) problems.push(`${describe(el)}\n    ${why}, from ${describe(behind.at)}`);
+  }
+  return problems;
+}
+
+/**
  * Fail any test that leaves invisible text on screen. Call once from a
  * vitest setup file, after @testing-library/react is imported: vitest runs
  * afterEach hooks in reverse order, so this sees the DOM before cleanup.
@@ -155,6 +188,14 @@ export function installContrastCheck() {
   afterEach(() => {
     // Node-environment test files have no DOM to check.
     if (typeof document === "undefined") return;
+    const mismatches = findSurfaceMismatches();
+    if (mismatches.length > 0) {
+      throw new Error(
+        `Button on the wrong surface: ${mismatches.length} button(s) blend into their backdrop.\n`
+        + 'Outline and ghost buttons need surface="primary" on the page ("secondary" is the default, for cards); solid primary buttons go on cards, solid secondary on the page.\n\n'
+        + mismatches.join("\n\n"),
+      );
+    }
     const problems = findContrastProblems();
     if (problems.length === 0) return;
     throw new Error(

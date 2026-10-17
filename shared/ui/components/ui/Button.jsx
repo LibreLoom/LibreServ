@@ -205,6 +205,7 @@ export default function Button({
     autoFocus: autoFocus || undefined,
     "data-slot": "button",
     "data-surface": surface,
+    "data-variant": variant,
     "aria-pressed": active || undefined,
     // Icon-only buttons have no text content, so the tooltip doubles as the
     // accessible name. Callers can still override via an explicit aria-label.

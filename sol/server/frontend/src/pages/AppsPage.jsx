@@ -159,8 +159,7 @@ export default function AppsPage() {
           description="Failed to load the app catalog. Please try again."
           action={
             <Button
-              variant="secondary"
-              surface="primary"
+              variant="primary"
               onClick={() => window.location.reload()}
             >
               Try again

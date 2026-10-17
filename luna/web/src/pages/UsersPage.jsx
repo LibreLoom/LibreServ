@@ -201,7 +201,8 @@ export default function UsersPage() {
               />
               <Button
                 size="sm"
-                variant="primary"
+                variant="secondary"
+                surface="primary"
                 disabled={!adoptId || adoptMutation.isPending}
                 onClick={() => adoptMutation.mutate(adoptId)}
               >

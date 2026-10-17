@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { findContrastProblems } from "./contrast.js";
+import { findContrastProblems, findSurfaceMismatches } from "./contrast.js";
 
 function mount(html) {
   document.body.innerHTML = html;
@@ -79,5 +79,55 @@ describe("findContrastProblems", () => {
       </div>
       <p class="text-primary">no surface rendered around me</p>`);
     expect(findContrastProblems(root)).toEqual([]);
+  });
+});
+
+describe("findSurfaceMismatches", () => {
+  it("flags a default-surface button placed directly on the page", () => {
+    // The demo-page bug: outline button with no surface="primary" on bg-primary.
+    const root = mount(`
+      <div class="surface-primary">
+        <button data-variant="outline" data-surface="secondary" class="border-primary text-primary">Restart</button>
+      </div>`);
+    const problems = findSurfaceMismatches(root);
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toMatch(/Restart/);
+  });
+
+  it("flags a page-surface outline button placed on a card", () => {
+    const root = mount(`
+      <div class="surface-secondary">
+        <button data-variant="ghost" data-surface="primary">Save</button>
+      </div>`);
+    expect(findSurfaceMismatches(root)).toHaveLength(1);
+  });
+
+  it("passes buttons whose surface matches their backdrop", () => {
+    const root = mount(`
+      <div class="surface-primary"><button data-variant="outline" data-surface="primary">Page</button></div>
+      <div class="surface-secondary"><button data-variant="outline" data-surface="secondary">Card</button></div>`);
+    expect(findSurfaceMismatches(root)).toHaveLength(0);
+  });
+
+  it("flags a solid button filled with its own backdrop color", () => {
+    const root = mount(`
+      <div class="surface-primary"><button data-variant="primary" data-surface="primary">Go</button></div>
+      <div class="surface-secondary"><button data-variant="secondary" data-surface="secondary">Go</button></div>`);
+    expect(findSurfaceMismatches(root)).toHaveLength(2);
+  });
+
+  it("passes solid buttons on the opposite backdrop and ignores accent/danger", () => {
+    const root = mount(`
+      <div class="surface-secondary">
+        <button data-variant="primary" data-surface="secondary">Go</button>
+        <button data-variant="accent" data-surface="secondary">Remove</button>
+      </div>
+      <div class="surface-primary"><button data-variant="secondary" data-surface="primary">Go</button></div>`);
+    expect(findSurfaceMismatches(root)).toHaveLength(0);
+  });
+
+  it("does not judge a button on an unknown backdrop", () => {
+    const root = mount(`<div class="bg-accent"><button data-variant="outline" data-surface="secondary">Go</button></div>`);
+    expect(findSurfaceMismatches(root)).toHaveLength(0);
   });
 });
