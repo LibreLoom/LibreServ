@@ -39,6 +39,7 @@ import { haptic } from "../../utils/haptics.js";
  *   actionAriaLabel?: string,
  *   noWrap?: boolean,  // keep the action beside the text; long text is cut off with … instead of wrapping
  *   actionHaptic?: boolean,  // false when onAction opens something that buzzes itself
+ *   actionIconOnly?: boolean,  // icon-only action: a square segment so the icon sits centered in the track's rounded end
  *   actionRef?: React.Ref<HTMLButtonElement>,
  *   mono?: boolean,
  *   title?: string,
@@ -54,6 +55,7 @@ export default function LayeredPill({
   actionDisabled = false,
   actionAriaLabel,
   actionHaptic = true,
+  actionIconOnly = false,
   noWrap = false,
   actionRef,
   mono = false,
@@ -67,7 +69,8 @@ export default function LayeredPill({
     ? cloneElement(actionIcon, { className: cn("shrink-0", actionIcon.props?.className) })
     : null;
   const segmentBase = cn(
-    "flex items-center gap-1 whitespace-nowrap text-xs py-1.5 pl-2.5 pr-3 rounded-r-pill text-primary",
+    "flex items-center gap-1 whitespace-nowrap text-xs py-1.5 rounded-r-pill text-primary",
+    actionIconOnly ? "w-7 justify-center px-0" : "pl-2.5 pr-3",
     mono && "font-mono",
   );
   const hasAction = actionLabel != null && actionLabel !== "";
@@ -144,6 +147,7 @@ LayeredPill.propTypes = {
   actionDisabled: PropTypes.bool,
   actionAriaLabel: PropTypes.string,
   actionHaptic: PropTypes.bool,
+  actionIconOnly: PropTypes.bool,
   noWrap: PropTypes.bool,
   actionRef: PropTypes.oneOfType([
     PropTypes.func,
