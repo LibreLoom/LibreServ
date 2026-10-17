@@ -4,6 +4,7 @@ import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
 import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { getJson } from "../../../lib/api";
 import BackupStatusNotice from "../../common/BackupStatusNotice.jsx";
+import RecoveryPhraseCard from "../../cloud/RecoveryPhraseCard.jsx";
 
 /**
  * Cloud backup status only — choosing what to copy lives in Protect
@@ -16,6 +17,7 @@ export default function CloudBackupCategory() {
   });
 
   return (
+    <>
     <SettingsCard
       icon={Cloud}
       title="Cloud backup"
@@ -48,5 +50,7 @@ export default function CloudBackupCategory() {
         </p>
       )}
     </SettingsCard>
+    <RecoveryPhraseCard />
+    </>
   );
 }
