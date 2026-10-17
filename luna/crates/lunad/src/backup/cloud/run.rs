@@ -23,7 +23,7 @@ use crate::db::{self, BackupKey};
 use crate::files;
 
 /// Wraps each pack's random key under the backup key.
-const PACK_KEY_WRAP_AAD: &[u8] = b"luna-pack-key-wrap-v1";
+pub(super) const PACK_KEY_WRAP_AAD: &[u8] = b"luna-pack-key-wrap-v1";
 /// Domain for deriving the opaque scope id that stands in for a protection.
 const SCOPE_DOMAIN: &[u8] = b"luna-scope-v1";
 /// A pack is uploaded once its plain bytes reach this size.
@@ -311,9 +311,10 @@ fn copy_and_commit(
 
     // The tree goes into a pack of its own, so restores can find it from the snapshot.
     let tree_bytes = format::encrypt_tree(&Tree { entries }, &ctx.key_bytes);
-    let tree_id = crypto::chunk_id(&ctx.dedup_key, &tree_bytes);
+    // The tree's chunk id is its hash, so the snapshot record alone says where the tree is.
+    let tree_hash = format::sha256(&tree_bytes);
     let mut tree_builder = PackBuilder::new(ctx.scope_id);
-    tree_builder.add(tree_id, &tree_bytes);
+    let (tree_offset, tree_len) = tree_builder.add(tree_hash, &tree_bytes);
     let key = ctx.key_bytes;
     let tree_pack = tree_builder.finish(|pack_key| crypto::encrypt(&key, PACK_KEY_WRAP_AAD, pack_key));
     let tree_pack_id = hex(&tree_pack.id);
@@ -324,6 +325,17 @@ fn copy_and_commit(
     store
         .put_pack(&tree_pack.id, Some(&ctx.scope), &tree_pack.bytes)
         .map_err(|e| anyhow!("{e}"))?;
+    {
+        let conn = lock(db);
+        db::insert_chunk(
+            &conn,
+            &ctx.scope,
+            &tree_hash,
+            &tree_pack_id,
+            tree_offset as i64,
+            i64::from(tree_len),
+        )?;
+    }
     copy.uploaded_bytes += tree_pack.bytes.len() as u64;
     copy.pack_ids.push(tree_pack_id.clone());
 
@@ -335,7 +347,7 @@ fn copy_and_commit(
         created_at: now,
         key_version: ctx.key_version,
         tree_pack_id: tree_pack.id,
-        tree_hash: format::sha256(&tree_bytes),
+        tree_hash,
         meta: Vec::new(),
     };
     let signed = record.sign(&ctx.signer);
@@ -367,6 +379,25 @@ fn copy_and_commit(
         snapshot_id: Some(snapshot_id),
         problem: None,
     })
+}
+
+/// Read a snapshot's tree: fetch its tree pack, open it with `tree_key`, and decrypt the tree.
+/// The tree chunk id is the record's `tree_hash`, so the record and the backup key are enough.
+pub fn read_tree(store: &dyn CloudStore, record: &SnapshotRecord, tree_key: &[u8; 32]) -> Result<Tree> {
+    let bytes = store.get_pack(&record.tree_pack_id).map_err(|e| anyhow!("{e}"))?;
+    let unwrap = |wrapped: &[u8]| -> Result<[u8; 32]> {
+        let plain = crypto::decrypt(tree_key, PACK_KEY_WRAP_AAD, wrapped)?;
+        <[u8; 32]>::try_from(plain.as_slice())
+            .map_err(|_| anyhow!("This backup file's key could not be read."))
+    };
+    let pack = format::open_pack(&bytes, &record.tree_pack_id, unwrap)?;
+    let sealed = pack
+        .chunk(&record.tree_hash)
+        .ok_or_else(|| anyhow!("This backup's file list is missing from its backup file."))?;
+    if format::sha256(sealed) != record.tree_hash {
+        return Err(anyhow!("This backup's file list does not match its fingerprint. It may be damaged."));
+    }
+    format::decrypt_tree(sealed, tree_key)
 }
 
 fn problem_outcome(message: &str) -> CloudOutcome {
@@ -434,7 +465,7 @@ mod tests {
             },
         )
         .unwrap();
-        for id in ["p1", "p2", "p3", "p4"] {
+        for id in ["p1", "p2", "p3", "p4", "p5"] {
             db::insert_protection(
                 &conn,
                 &db::NewProtection {
@@ -516,6 +547,40 @@ mod tests {
         assert_eq!(out.problem.as_deref(), Some("Your cloud storage is full."));
         assert_eq!(out.snapshot_id, None);
         assert!(store.list_records("snapshots").unwrap().is_empty());
+    }
+
+    #[test]
+    fn tree_reads_back_from_the_record_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = setup(dir.path());
+        let src = source(dir.path());
+        let store = MemoryStore::new();
+        let out = run_with_root(&db, "p5", &src, &store, 100).unwrap();
+        assert_eq!(out.problem, None);
+        let snapshot_id = out.snapshot_id.unwrap();
+
+        let conn = lock(&db);
+        let identity = identity::load(&conn).unwrap().unwrap();
+        let bytes = store.get_record("snapshots", &snapshot_id).unwrap().unwrap();
+        let record = format::SignedRecord::from_bytes(&bytes)
+            .unwrap()
+            .verify(&identity.public())
+            .unwrap();
+        let backup_key = db::latest_backup_key(&conn, "p5").unwrap().unwrap();
+        let tree_key: [u8; 32] = backup_key.key.as_slice().try_into().unwrap();
+
+        let tree = read_tree(&store, &record, &tree_key).unwrap();
+        let mut paths: Vec<&str> = tree.entries.iter().map(|e| e.path.as_str()).collect();
+        paths.sort();
+        assert_eq!(paths, ["a.bin", "b.bin"]);
+        let recorded: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM cloud_chunks WHERE chunk_id = ?1",
+                [&record.tree_hash[..]],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(recorded, 1);
     }
 
     #[test]

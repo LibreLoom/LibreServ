@@ -13,10 +13,9 @@ use rusqlite::{params, Connection};
 use super::crypto;
 use super::format::{self, OpenedPack, SignedRecord, SnapshotRecord, Tree};
 use super::identity;
+use super::run::{self, PACK_KEY_WRAP_AAD};
 use super::store::{CloudStore, StoreError};
 use crate::db::{self, BackupKey, SnapshotInsert};
-
-const PACK_KEY_WRAP_AAD: &[u8] = b"luna-pack-key-wrap-v1";
 
 /// What a check found. An empty list means nothing was found wrong with that kind of piece.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -97,30 +96,27 @@ pub fn check(
             .as_slice()
             .try_into()
             .map_err(|_| anyhow!("The backup key for this cloud backup is damaged."))?;
-        let Some(tree_pack) =
-            examine_pack(store, &snap.tree_pack_id, &unwrap, &mut report, &mut examined)?
-        else {
+        if examine_pack(store, &snap.tree_pack_id, &unwrap, &mut report, &mut examined)?.is_none() {
+            continue;
+        }
+        // The tree chunk is found by the record's `tree_hash`, so no pack chunk listing is needed.
+        let Ok(tree) = run::read_tree(store, &record, &key) else {
+            report.bad_records.push(snap.id.clone());
             continue;
         };
-        // MISSING LINK: `read_tree` cannot return the tree yet. `OpenedPack` has no way to list
-        // its chunk ids, and run.rs does not record the tree chunk id in the database, so the
-        // tree cannot be found inside its pack from here. Until format.rs exposes that, the
-        // tree is not decrypted and the chunk-to-pack comparison below does not run.
-        if let Some(tree) = read_tree(&tree_pack, &key) {
-            let tree_chunks: Vec<[u8; 32]> = tree
-                .entries
-                .iter()
-                .flat_map(|e| e.chunks.iter().copied())
-                .collect();
-            let (packs, unknown) = unlisted_chunks(&tree_chunks, listed, &plan.chunk_pack);
-            for pack in packs {
-                if !report.missing_packs.contains(&pack) {
-                    report.missing_packs.push(pack);
-                }
+        let tree_chunks: Vec<[u8; 32]> = tree
+            .entries
+            .iter()
+            .flat_map(|e| e.chunks.iter().copied())
+            .collect();
+        let (packs, unknown) = unlisted_chunks(&tree_chunks, listed, &plan.chunk_pack);
+        for pack in packs {
+            if !report.missing_packs.contains(&pack) {
+                report.missing_packs.push(pack);
             }
-            if unknown > 0 {
-                report.bad_records.push(snap.id.clone());
-            }
+        }
+        if unknown > 0 {
+            report.bad_records.push(snap.id.clone());
         }
     }
 
@@ -261,13 +257,6 @@ fn unwrap_with(keys: &[BackupKey]) -> impl Fn(&[u8]) -> Result<[u8; 32]> + '_ {
         }
         Err(anyhow!("A backup file could not be opened with this Luna's keys."))
     }
-}
-
-/// MISSING LINK (see `check`): always `None` until format.rs can list a pack's chunks.
-/// Once it can, this decrypts the tree chunk with `format::decrypt_tree`.
-fn read_tree(pack: &OpenedPack, key: &[u8; 32]) -> Option<Tree> {
-    let _ = (pack, key);
-    None
 }
 
 /// The chunks a tree names that are not held by a pack listed for its snapshot.
@@ -434,9 +423,20 @@ mod tests {
         crate::Db::new(conn)
     }
 
-    /// Write one snapshot (a data pack, a tree pack, a signed record) into the store and database.
-    /// Returns the data pack id and the tree pack id.
+    /// Write one snapshot with no extra chunks.
     fn backup(db: &crate::Db, store: &MemoryStore, now: i64) -> ([u8; 32], [u8; 32]) {
+        backup_with_extra(db, store, now, &[])
+    }
+
+    /// Write one snapshot (a data pack, a tree pack, a signed record) into the store and database.
+    /// The tree also names `extra` chunks, which no pack holds unless the caller stores them.
+    /// Returns the data pack id and the tree pack id.
+    fn backup_with_extra(
+        db: &crate::Db,
+        store: &MemoryStore,
+        now: i64,
+        extra: &[[u8; 32]],
+    ) -> ([u8; 32], [u8; 32]) {
         let mut conn = db.lock().unwrap_or_else(|p| p.into_inner());
         let luna_id = identity::load(&conn).unwrap().unwrap().luna_id().to_string();
         let seed: [u8; 32] = db::get_cloud_identity(&conn)
@@ -457,18 +457,20 @@ mod tests {
         let (offset, len) = builder.add(cid, &chunk);
         let data = builder.finish(|pk| crypto::encrypt(&key, AAD, pk));
 
+        let mut chunks = vec![cid];
+        chunks.extend_from_slice(extra);
         let tree = Tree {
             entries: vec![TreeEntry {
                 path: "a.bin".into(),
                 size: 5000,
                 mtime: 1,
-                chunks: vec![cid],
+                chunks,
             }],
         };
         let tree_bytes = format::encrypt_tree(&tree, &key);
-        let tree_id = crypto::chunk_id(&dedup, &tree_bytes);
+        let tree_hash = format::sha256(&tree_bytes);
         let mut tree_builder = PackBuilder::new(scope_id);
-        tree_builder.add(tree_id, &tree_bytes);
+        let (tree_offset, tree_len) = tree_builder.add(tree_hash, &tree_bytes);
         let tree_pack = tree_builder.finish(|pk| crypto::encrypt(&key, AAD, pk));
 
         for sealed in [&data, &tree_pack] {
@@ -476,6 +478,15 @@ mod tests {
             db::insert_pending_pack(&conn, &hex(&sealed.id), &scope, "run-1", now).unwrap();
         }
         db::insert_chunk(&conn, &scope, &cid, &hex(&data.id), offset as i64, len as i64).unwrap();
+        db::insert_chunk(
+            &conn,
+            &scope,
+            &tree_hash,
+            &hex(&tree_pack.id),
+            tree_offset as i64,
+            tree_len as i64,
+        )
+        .unwrap();
 
         let record = SnapshotRecord {
             luna_id,
@@ -484,7 +495,7 @@ mod tests {
             created_at: now,
             key_version: 1,
             tree_pack_id: tree_pack.id,
-            tree_hash: format::sha256(&tree_bytes),
+            tree_hash,
             meta: Vec::new(),
         };
         let signed = record.sign(&signer).to_bytes();
@@ -499,6 +510,19 @@ mod tests {
         };
         db::commit_snapshot_tx(&mut conn, &snap, &[hex(&data.id), hex(&tree_pack.id)]).unwrap();
         (data.id, tree_pack.id)
+    }
+
+    #[test]
+    fn tree_naming_a_chunk_in_no_pack_is_bad() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = setup(dir.path(), 100);
+        let store = MemoryStore::new();
+        let missing = crypto::chunk_id(&[5u8; 32], b"no pack holds this chunk");
+        backup_with_extra(&db, &store, 100, &[missing]);
+
+        let report = check(&db, "p1", &store, Sample::All, 200).unwrap();
+        assert_eq!(report.bad_records, vec!["snap-1".to_string()]);
+        assert!(report.problem.is_some());
     }
 
     #[test]
