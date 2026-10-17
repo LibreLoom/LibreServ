@@ -9,8 +9,14 @@ use crate::db::ProtectionRow;
 /// item, or sits on the backup's own target drive (plan §2). Shared by
 /// [`on_moved`] and the copy engine's run.
 pub(super) fn stop_reason(conn: &Connection, row: &ProtectionRow) -> Option<&'static str> {
-    let _ = (conn, row);
-    todo!("task D2")
+    let norm = crate::access::normalize_subject_path(&row.source_path);
+    if crate::auth::inside_private(conn, &row.source_drive, &norm) {
+        Some("This folder is now inside a private item.")
+    } else if row.source_drive == row.target_drive {
+        Some("This folder is now on the backup drive itself.")
+    } else {
+        None
+    }
 }
 
 /// Delete a backup and its stored copies on the target drive (when the
