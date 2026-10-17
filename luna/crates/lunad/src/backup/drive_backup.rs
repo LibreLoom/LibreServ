@@ -2,12 +2,24 @@
 //! (plan §2-§4). Storage lives in [`super::drive_store`], what gets copied in
 //! [`super::scope`], who may see it in [`super::access_list`].
 
+use std::collections::{BTreeMap, HashSet};
+use std::fs;
+use std::io::{self, ErrorKind};
+use std::path::{Path, PathBuf};
+use std::sync::{LazyLock, Mutex};
+
 use rusqlite::Connection;
 
-use crate::db::ProtectionRow;
+use super::{access_list, drive_store, scope, status};
+use crate::db::{self, ProtectionRow};
+use crate::drives::layout::Layout;
+use crate::files;
 
 mod ops;
 pub use ops::{delete, on_grants_changed, on_moved, rebuild_from_manifests, state, visible_to};
+
+/// Fewer deletions than this never trip the mass-delete guard.
+const MASS_DELETE_MIN: usize = 20;
 
 /// What one run did.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -36,27 +48,862 @@ pub fn create(
     source_path: &str,
     target_drive: &str,
 ) -> Result<ProtectionRow, Refused> {
-    let _ = (conn, user, source_drive, source_path, target_drive);
-    todo!("task D1")
+    use crate::access::{CAP_EDIT, CAP_VIEW};
+
+    let refuse = |msg: String| Refused(msg);
+    let db_refused = || Refused("Luna couldn't save this backup. Try again.".to_string());
+    let norm = crate::access::normalize_subject_path(source_path);
+
+    if norm.is_empty() && user.role != "admin" {
+        return Err(refuse("Only an Admin can back up a whole drive.".into()));
+    }
+    if !crate::auth::has_cap(user, conn, source_drive, &norm, CAP_VIEW) {
+        return Err(refuse(
+            "You need Read access to this folder to back it up.".into(),
+        ));
+    }
+    if !crate::auth::has_cap(user, conn, target_drive, "", CAP_EDIT) {
+        return Err(refuse(
+            "You need Write access to the backup drive to back up to it.".into(),
+        ));
+    }
+    if source_drive == target_drive {
+        return Err(refuse(
+            "A backup has to go on a different drive from the folder it copies.".into(),
+        ));
+    }
+    if crate::auth::inside_private(conn, source_drive, &norm) {
+        return Err(refuse(
+            "Private items are backed up from their own shield by their owner.".into(),
+        ));
+    }
+
+    let source_label = drive_label(conn, source_drive);
+    let folder = folder_name(&norm, &source_label);
+    if files::drive_root(conn, source_drive).is_err() {
+        return Err(refuse(format!(
+            "Connect {source_label} first, then try again."
+        )));
+    }
+    let meta = match files::resolve_any(conn, source_drive, &norm) {
+        Ok((_, meta)) => meta,
+        Err(_) => {
+            return Err(refuse(format!(
+                "Luna can't find \"{folder}\" on {source_label}."
+            )));
+        }
+    };
+    if !meta.is_dir() {
+        return Err(refuse(
+            "Only folders and whole drives can be backed up.".into(),
+        ));
+    }
+    match connected(conn, target_drive) {
+        Some(_) => {}
+        None => {
+            let target_label = drive_label(conn, target_drive);
+            return Err(refuse(format!(
+                "Connect {target_label} first, then try again."
+            )));
+        }
+    }
+
+    if let Some(existing) = db::find_protection(
+        conn,
+        db::PROTECTION_DRIVE,
+        source_drive,
+        &norm,
+        target_drive,
+    )
+    .map_err(|_| db_refused())?
+    {
+        return Ok(existing);
+    }
+
+    let access = access_list::for_source(conn, source_drive, &norm).map_err(|_| db_refused())?;
+    let access_json = serde_json::to_string(&access).map_err(|_| db_refused())?;
+    let id = uuid::Uuid::new_v4().to_string();
+    db::insert_protection(
+        conn,
+        &db::NewProtection {
+            id: &id,
+            kind: db::PROTECTION_DRIVE,
+            source_drive,
+            source_path: &norm,
+            target_drive,
+            private_owner: "",
+            created_by: &user.id,
+            created_at: db::now_unix(),
+        },
+    )
+    .map_err(|_| db_refused())?;
+    db::set_protection_access(conn, &id, &access_json).map_err(|_| db_refused())?;
+    db::get_protection(conn, &id)
+        .ok()
+        .flatten()
+        .ok_or_else(db_refused)
 }
 
 /// Run one drive backup now. Records the result on the row (ok / error /
 /// stopped / source gone) and returns what happened.
 pub fn run(db: &crate::Db, id: &str, now: i64) -> anyhow::Result<RunOutcome> {
-    let _ = (db, id, now);
-    todo!("task D1")
+    run_inner(db, id, now, false)
 }
 
 /// Like [`run`], but applies deletions even when most of the source seems
 /// gone (the person pressed "Run anyway" after the mass-delete guard).
 pub fn run_allowing_mass_delete(db: &crate::Db, id: &str, now: i64) -> anyhow::Result<RunOutcome> {
-    let _ = (db, id, now);
-    todo!("task D1")
+    run_inner(db, id, now, true)
 }
 
 /// Run every active drive backup. True when any backup's state changed (so
 /// the health cache must be refreshed).
 pub fn run_all(db: &crate::Db, now: i64) -> bool {
-    let _ = (db, now);
-    todo!("task D1")
+    let rows = match with_conn(db, |c| db::list_protections(c)) {
+        Ok(rows) => rows,
+        Err(e) => {
+            tracing::warn!(error = %e, "could not list drive backups");
+            return false;
+        }
+    };
+    let mut changed = false;
+    for row in rows
+        .iter()
+        .filter(|r| r.kind == db::PROTECTION_DRIVE && r.state == db::PROTECTION_ACTIVE)
+    {
+        let before = (row.state.clone(), backup_state(row, now));
+        if let Err(e) = run(db, &row.id, now) {
+            tracing::warn!(error = %e, id = %row.id, "drive backup run failed");
+        }
+        let after = match with_conn(db, |c| db::get_protection(c, &row.id)) {
+            Ok(Some(after)) => after,
+            _ => continue,
+        };
+        if after.state != before.0 || backup_state(&after, now) != before.1 {
+            changed = true;
+        }
+    }
+    changed
+}
+
+/// Backups being copied right now. Two runs of one backup at once (the
+/// schedule and "Back up now") would both move files into `versions/`.
+static RUNNING: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Default::default);
+
+/// Holds a backup's place in [`RUNNING`] until the run ends.
+struct RunSlot(String);
+
+impl RunSlot {
+    fn take(id: &str) -> Option<Self> {
+        let mut running = RUNNING.lock().unwrap_or_else(|p| p.into_inner());
+        running.insert(id.to_string()).then(|| Self(id.to_string()))
+    }
+}
+
+impl Drop for RunSlot {
+    fn drop(&mut self) {
+        RUNNING
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(&self.0);
+    }
+}
+
+/// Is this backup being copied right now?
+pub fn is_running(id: &str) -> bool {
+    RUNNING
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .contains(id)
+}
+
+fn run_inner(
+    db: &crate::Db,
+    id: &str,
+    now: i64,
+    allow_mass_delete: bool,
+) -> anyhow::Result<RunOutcome> {
+    // Already running: that run records its own result.
+    let Some(_slot) = RunSlot::take(id) else {
+        return Ok(RunOutcome::default());
+    };
+    let Some(row) = with_conn(db, |c| db::get_protection(c, id))? else {
+        return Ok(RunOutcome::default());
+    };
+    if row.kind != db::PROTECTION_DRIVE || row.state != db::PROTECTION_ACTIVE {
+        return Ok(RunOutcome::default());
+    }
+
+    // Step 2: the backup drive must be connected.
+    let Some(target) = with_conn(db, |c| connected(c, &row.target_drive)) else {
+        let name = with_conn(db, |c| drive_label(c, &row.target_drive));
+        return fail(
+            db,
+            id,
+            &format!("Waiting: {name} isn't connected."),
+            false,
+            now,
+        );
+    };
+
+    // Step 3: the source drive must be connected. Its folder can't be read,
+    // so the deleted-files clock freezes until it is back.
+    let Some(source) = with_conn(db, |c| connected(c, &row.source_drive)) else {
+        pause_clock(&target, id, now);
+        let name = with_conn(db, |c| drive_label(c, &row.source_drive));
+        return fail(
+            db,
+            id,
+            &format!("Waiting: {name} isn't connected."),
+            false,
+            now,
+        );
+    };
+
+    // Step 4: the folder itself must still be there.
+    let folder = folder_name(&row.source_path, &source.label);
+    let Some((abs, _)) = with_conn(db, |c| {
+        files::resolve_any(c, &row.source_drive, &row.source_path).ok()
+    }) else {
+        return source_gone(db, &row, &target, now);
+    };
+
+    // Step 5: the folder moved somewhere a backup can't follow.
+    if let Some(reason) = with_conn(db, |c| ops::stop_reason(c, &row)) {
+        with_conn(db, |c| {
+            db::set_protection_state(c, id, db::PROTECTION_STOPPED, reason)
+        })?;
+        return Ok(RunOutcome::default());
+    }
+
+    // Step 6: read the folder. Walking it is the first step that can fail
+    // because of the source, so a failure here also freezes the clock.
+    let walked = match scope::walk(&abs) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == ErrorKind::NotFound => {
+            return source_gone(db, &row, &target, now);
+        }
+        Err(_) => {
+            pause_clock(&target, id, now);
+            return fail(
+                db,
+                id,
+                &format!("Luna couldn't read {folder} on {}.", source.label),
+                false,
+                now,
+            );
+        }
+    };
+    let access = with_conn(db, |c| {
+        access_list::for_source(c, &row.source_drive, &row.source_path)
+    })?;
+
+    // Steps 6-9 touch the backup drive; the database lock is not held here.
+    let target_name = target.label.clone();
+    match sync_target(
+        &target,
+        &row,
+        &source.label,
+        walked,
+        &access,
+        allow_mass_delete,
+        now,
+    ) {
+        Ok(None) => fail(
+            db,
+            id,
+            &format!(
+                "Most of {folder} seems to be gone, so Luna paused this backup to keep the copies. Check the drive, then run the backup again."
+            ),
+            true,
+            now,
+        ),
+        Ok(Some(outcome)) => {
+            let access_json = serde_json::to_string(&access)?;
+            with_conn(db, |c| -> anyhow::Result<()> {
+                db::record_protection_ok(c, id, now, &access_json)?;
+                db::set_protection_notes(c, id, &outcome.notes.join("\n"))
+            })?;
+            Ok(outcome)
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, id, "drive backup could not write to the backup drive");
+            if e.kind() == ErrorKind::StorageFull || e.raw_os_error() == Some(28) {
+                fail(
+                    db,
+                    id,
+                    &format!(
+                        "{target_name} is full. Free up space on it, then the backup continues."
+                    ),
+                    true,
+                    now,
+                )
+            } else {
+                fail(
+                    db,
+                    id,
+                    &format!(
+                        "Luna couldn't save the backup on {target_name}. Check that the drive is connected and has room, then try again."
+                    ),
+                    false,
+                    now,
+                )
+            }
+        }
+    }
+}
+
+/// Copy `walked` into the backup store, delete what left the source, and
+/// save the manifest. `Ok(None)` means the mass-delete guard held and nothing
+/// was changed.
+fn sync_target(
+    target: &Target,
+    row: &ProtectionRow,
+    source_label: &str,
+    walked: Vec<scope::Entry>,
+    access: &access_list::AccessList,
+    allow_mass_delete: bool,
+    now: i64,
+) -> io::Result<Option<RunOutcome>> {
+    let store = drive_store::Store::open(&target.root, &target.layout, &row.id)?;
+    let limits = drive_store::fs_limits(&target.root);
+    let (wanted, notes) = plan_names(walked, limits, &target.label);
+
+    let current = store.current_files()?;
+    let wanted_set: HashSet<&str> = wanted.iter().map(|(rel, _)| rel.as_str()).collect();
+    let deletions: Vec<String> = current
+        .iter()
+        .filter(|rel| !wanted_set.contains(rel.as_str()))
+        .cloned()
+        .collect();
+    if !allow_mass_delete
+        && deletions.len() >= MASS_DELETE_MIN
+        && deletions.len() * 2 > current.len()
+    {
+        return Ok(None);
+    }
+
+    let mut manifest = match store.read_manifest()? {
+        Some(manifest) => manifest,
+        None => drive_store::Manifest {
+            format: drive_store::MANIFEST_FORMAT,
+            protection_id: row.id.clone(),
+            luna_id: String::new(),
+            source_drive_id: row.source_drive.clone(),
+            source_drive_label: source_label.to_string(),
+            source_path: row.source_path.clone(),
+            private_owner: None,
+            created_by: row.created_by.clone(),
+            created_at: row.created_at,
+            access: access.clone(),
+            last_ok_at: 0,
+            deleted: BTreeMap::new(),
+            paused_secs: 0,
+            paused_since: 0,
+        },
+    };
+    // The source is readable again, so the deleted-files clock runs; stamp
+    // this run's deletions on that clock.
+    manifest.resume(now);
+    let stamp = manifest.clock(now);
+
+    let mut outcome = RunOutcome {
+        notes,
+        ..RunOutcome::default()
+    };
+    for (rel, entry) in &wanted {
+        let meta = fs::metadata(&entry.abs)?;
+        match store.put(rel, &entry.abs, &meta, now)? {
+            drive_store::Put::Unchanged => outcome.unchanged += 1,
+            drive_store::Put::Added | drive_store::Put::Updated => outcome.copied += 1,
+        }
+        // A file that came back is no longer deleted.
+        manifest.deleted.remove(rel);
+    }
+    for rel in &deletions {
+        if store.remove(rel, now)? {
+            outcome.removed += 1;
+        }
+        manifest.deleted.insert(rel.clone(), stamp);
+    }
+
+    store.thin(&mut manifest, now)?;
+    manifest.source_drive_label = source_label.to_string();
+    manifest.source_path = row.source_path.clone();
+    manifest.access = access.clone();
+    manifest.last_ok_at = now;
+    store.write_manifest(&manifest)?;
+    Ok(Some(outcome))
+}
+
+/// The name each file gets on the target (plan §4), and a note for each one
+/// that couldn't keep its own name. Files too big for the target's format are
+/// left out. On a target that ignores capitals, the second of two clashing
+/// names is saved as `<stem> (2).<ext>` in the same folder.
+fn plan_names(
+    mut walked: Vec<scope::Entry>,
+    limits: drive_store::FsLimits,
+    target_name: &str,
+) -> (Vec<(String, scope::Entry)>, Vec<String>) {
+    walked.sort_by(|a, b| a.rel.cmp(&b.rel));
+    let mut notes = Vec::new();
+    let mut taken: HashSet<String> = HashSet::new();
+    let mut out = Vec::new();
+    for entry in walked {
+        if limits.max_file.is_some_and(|max| entry.size > max) {
+            notes.push(format!(
+                "{} is too big for {target_name}'s format (largest 4 GB).",
+                entry.rel
+            ));
+            continue;
+        }
+        if taken.insert(name_key(&entry.rel, limits)) {
+            out.push((entry.rel.clone(), entry));
+        } else {
+            let alt = free_alt_name(&entry.rel, limits, &mut taken);
+            notes.push(format!(
+                "{} has the same name as another file on {target_name} apart from capitals, so it was saved as {alt}.",
+                entry.rel
+            ));
+            out.push((alt, entry));
+        }
+    }
+    (out, notes)
+}
+
+fn name_key(rel: &str, limits: drive_store::FsLimits) -> String {
+    if limits.case_insensitive {
+        rel.to_lowercase()
+    } else {
+        rel.to_string()
+    }
+}
+
+/// `dir/stem (2).ext`, `dir/stem (3).ext`, … — the first free one.
+fn free_alt_name(rel: &str, limits: drive_store::FsLimits, taken: &mut HashSet<String>) -> String {
+    let (dir, name) = match rel.rfind('/') {
+        Some(i) => (&rel[..=i], &rel[i + 1..]),
+        None => ("", rel),
+    };
+    let path = Path::new(name);
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or(name);
+    let ext = path.extension().and_then(|e| e.to_str());
+    let mut n = 2;
+    loop {
+        let candidate = match ext {
+            Some(ext) => format!("{dir}{stem} ({n}).{ext}"),
+            None => format!("{dir}{stem} ({n})"),
+        };
+        if taken.insert(name_key(&candidate, limits)) {
+            return candidate;
+        }
+        n += 1;
+    }
+}
+
+/// A backup's drive, when it is plugged in and carries its Luna marker.
+struct Target {
+    root: PathBuf,
+    layout: Layout,
+    label: String,
+}
+
+fn connected(conn: &Connection, drive_id: &str) -> Option<Target> {
+    let drive = files::drive_root(conn, drive_id).ok()?;
+    let root = PathBuf::from(&drive.mount_point);
+    let layout = Layout::detect(&root)?;
+    Some(Target {
+        root,
+        layout,
+        label: label_or_default(&drive.label),
+    })
+}
+
+fn drive_label(conn: &Connection, drive_id: &str) -> String {
+    let label = db::get_drive(conn, drive_id)
+        .ok()
+        .flatten()
+        .map(|d| d.label)
+        .unwrap_or_default();
+    label_or_default(&label)
+}
+
+fn label_or_default(label: &str) -> String {
+    if label.trim().is_empty() {
+        "Unnamed drive".to_string()
+    } else {
+        label.to_string()
+    }
+}
+
+/// The folder's own name, or the drive's name for a whole drive.
+fn folder_name(source_path: &str, drive_label: &str) -> String {
+    source_path
+        .rsplit('/')
+        .next()
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| drive_label.to_string())
+}
+
+fn backup_state(row: &ProtectionRow, now: i64) -> status::BackupState {
+    status::state(
+        status::Record {
+            last_ok_at: row.last_ok_at,
+            failing_since: row.failing_since,
+            last_error: &row.last_error,
+            hard: row.hard,
+            since: row.created_at,
+        },
+        now,
+    )
+}
+
+/// Freeze the backup's deleted-files clock. Best-effort: a failure is logged,
+/// and the run still reports why it stopped.
+fn pause_clock(target: &Target, id: &str, now: i64) {
+    let Some(store) = drive_store::Store::existing(&target.root, &target.layout, id) else {
+        return;
+    };
+    let result = store.read_manifest().and_then(|manifest| match manifest {
+        Some(mut manifest) => {
+            manifest.pause(now);
+            store.write_manifest(&manifest)
+        }
+        None => Ok(()),
+    });
+    if let Err(e) = result {
+        tracing::warn!(error = %e, id, "could not pause the deleted-files clock");
+    }
+}
+
+fn source_gone(
+    db: &crate::Db,
+    row: &ProtectionRow,
+    target: &Target,
+    now: i64,
+) -> anyhow::Result<RunOutcome> {
+    pause_clock(target, &row.id, now);
+    let reason = "The folder was deleted or moved somewhere Luna can't follow.";
+    with_conn(db, |c| {
+        db::set_protection_state(c, &row.id, db::PROTECTION_SOURCE_GONE, reason)
+    })?;
+    Ok(RunOutcome::default())
+}
+
+/// Record a failed run on the row and report it as an empty outcome.
+fn fail(
+    db: &crate::Db,
+    id: &str,
+    message: &str,
+    hard: bool,
+    now: i64,
+) -> anyhow::Result<RunOutcome> {
+    with_conn(db, |c| {
+        db::record_protection_error(c, id, message, hard, now)
+    })?;
+    Ok(RunOutcome::default())
+}
+
+/// Run `f` with the database lock held. The lock is taken and released per
+/// call, so copying never happens under it.
+fn with_conn<T>(db: &crate::Db, f: impl FnOnce(&Connection) -> T) -> T {
+    let conn = db.lock().unwrap_or_else(|p| p.into_inner());
+    f(&conn)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::auth::CurrentUser;
+    use luna_core::marker::{Marker, pick_prefix};
+
+    const NOW: i64 = 1_800_000_000;
+
+    struct Setup {
+        _dir: tempfile::TempDir,
+        db: crate::Db,
+        admin: CurrentUser,
+        src: String,
+        src_root: PathBuf,
+        tgt: String,
+        tgt_root: PathBuf,
+    }
+
+    fn new_drive(dir: &Path, conn: &Connection, id: &str, label: &str) -> PathBuf {
+        let root = dir.join(id);
+        fs::create_dir_all(&root).unwrap();
+        let prefix = pick_prefix(&root).unwrap();
+        drop(
+            crate::drives::drive_db::create(&root, &Marker::new(id.to_string(), label), &prefix)
+                .unwrap(),
+        );
+        db::upsert_drive(conn, id, label, "as_is", "ext4", id, root.to_str().unwrap()).unwrap();
+        root
+    }
+
+    /// Two drives with markers ("Photos" source, "Backup" target) and a
+    /// `Docs` folder on the source.
+    fn setup() -> Setup {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+        crate::db::insert_user(&conn, "admin", "admin", "Admin", "", "admin").unwrap();
+        let src = "drive-src".to_string();
+        let tgt = "drive-tgt".to_string();
+        let src_root = new_drive(dir.path(), &conn, &src, "Photos");
+        let tgt_root = new_drive(dir.path(), &conn, &tgt, "Backup");
+        fs::create_dir_all(src_root.join("Docs")).unwrap();
+        Setup {
+            _dir: dir,
+            db: crate::Db::new(conn),
+            admin: CurrentUser {
+                id: "admin".into(),
+                username: "admin".into(),
+                role: "admin".into(),
+            },
+            src,
+            src_root,
+            tgt,
+            tgt_root,
+        }
+    }
+
+    fn docs(s: &Setup) -> PathBuf {
+        s.src_root.join("Docs")
+    }
+
+    fn write(path: &Path, body: &str) {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, body).unwrap();
+    }
+
+    fn make_backup(s: &Setup) -> String {
+        let conn = s.db.lock().unwrap();
+        create(&conn, &s.admin, &s.src, "Docs", &s.tgt).unwrap().id
+    }
+
+    fn row(s: &Setup, id: &str) -> ProtectionRow {
+        let conn = s.db.lock().unwrap();
+        db::get_protection(&conn, id).unwrap().unwrap()
+    }
+
+    fn store(s: &Setup, id: &str) -> drive_store::Store {
+        let layout = Layout::detect(&s.tgt_root).unwrap();
+        drive_store::Store::existing(&s.tgt_root, &layout, id).unwrap()
+    }
+
+    fn manifest(s: &Setup, id: &str) -> drive_store::Manifest {
+        store(s, id).read_manifest().unwrap().unwrap()
+    }
+
+    #[test]
+    fn create_refuses_whole_drive_for_non_admin() {
+        let s = setup();
+        let member = CurrentUser {
+            id: "m".into(),
+            username: "m".into(),
+            role: "member".into(),
+        };
+        let conn = s.db.lock().unwrap();
+        let err = create(&conn, &member, &s.src, "", &s.tgt).unwrap_err();
+        assert_eq!(err.0, "Only an Admin can back up a whole drive.");
+    }
+
+    #[test]
+    fn create_refuses_member_without_read_on_source() {
+        let s = setup();
+        let member = CurrentUser {
+            id: "m".into(),
+            username: "m".into(),
+            role: "member".into(),
+        };
+        let conn = s.db.lock().unwrap();
+        let err = create(&conn, &member, &s.src, "Docs", &s.tgt).unwrap_err();
+        assert_eq!(err.0, "You need Read access to this folder to back it up.");
+    }
+
+    #[test]
+    fn create_refuses_same_drive() {
+        let s = setup();
+        let conn = s.db.lock().unwrap();
+        let err = create(&conn, &s.admin, &s.src, "Docs", &s.src).unwrap_err();
+        assert_eq!(
+            err.0,
+            "A backup has to go on a different drive from the folder it copies."
+        );
+    }
+
+    #[test]
+    fn create_returns_existing_backup_for_same_pair() {
+        let s = setup();
+        let first = make_backup(&s);
+        let again = make_backup(&s);
+        assert_eq!(first, again);
+    }
+
+    #[test]
+    fn first_run_copies_and_second_run_is_unchanged() {
+        let s = setup();
+        write(&docs(&s).join("a.txt"), "one");
+        write(&docs(&s).join("sub/b.txt"), "two");
+        let id = make_backup(&s);
+
+        let first = run(&s.db, &id, NOW).unwrap();
+        assert_eq!(
+            first,
+            RunOutcome {
+                copied: 2,
+                ..RunOutcome::default()
+            }
+        );
+
+        let second = run(&s.db, &id, NOW + 60).unwrap();
+        assert_eq!(
+            second,
+            RunOutcome {
+                unchanged: 2,
+                ..RunOutcome::default()
+            }
+        );
+
+        let r = row(&s, &id);
+        assert_eq!(r.state, db::PROTECTION_ACTIVE);
+        assert_eq!(r.last_ok_at, NOW + 60);
+        assert!(r.last_error.is_empty());
+    }
+
+    #[test]
+    fn modified_file_keeps_previous_copy_in_versions() {
+        let s = setup();
+        write(&docs(&s).join("a.txt"), "one");
+        let id = make_backup(&s);
+        run(&s.db, &id, NOW).unwrap();
+
+        write(&docs(&s).join("a.txt"), "one, but longer now");
+        let outcome = run(&s.db, &id, NOW + 60).unwrap();
+        assert_eq!(outcome.copied, 1);
+        assert_eq!(store(&s, &id).version_times().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn deleted_file_is_recorded_in_manifest() {
+        let s = setup();
+        write(&docs(&s).join("a.txt"), "one");
+        write(&docs(&s).join("b.txt"), "two");
+        let id = make_backup(&s);
+        run(&s.db, &id, NOW).unwrap();
+
+        fs::remove_file(docs(&s).join("a.txt")).unwrap();
+        let outcome = run(&s.db, &id, NOW + 60).unwrap();
+        assert_eq!(outcome.removed, 1);
+        assert!(manifest(&s, &id).deleted.contains_key("a.txt"));
+        assert_eq!(
+            store(&s, &id).current_files().unwrap(),
+            vec!["b.txt".to_string()]
+        );
+    }
+
+    #[test]
+    fn mass_delete_guard_holds_until_overridden() {
+        let s = setup();
+        for i in 0..30 {
+            write(&docs(&s).join(format!("f{i}.txt")), "x");
+        }
+        let id = make_backup(&s);
+        assert_eq!(run(&s.db, &id, NOW).unwrap().copied, 30);
+
+        for i in 0..25 {
+            fs::remove_file(docs(&s).join(format!("f{i}.txt"))).unwrap();
+        }
+        let held = run(&s.db, &id, NOW + 60).unwrap();
+        assert_eq!(held, RunOutcome::default());
+        let r = row(&s, &id);
+        assert!(r.hard);
+        assert!(r.last_error.starts_with("Most of Docs seems to be gone"));
+        assert_eq!(store(&s, &id).current_files().unwrap().len(), 30);
+
+        let forced = run_allowing_mass_delete(&s.db, &id, NOW + 120).unwrap();
+        assert_eq!(forced.removed, 25);
+        assert!(row(&s, &id).last_error.is_empty());
+        assert_eq!(store(&s, &id).current_files().unwrap().len(), 5);
+    }
+
+    #[test]
+    fn missing_source_drive_is_soft_and_pauses_clock() {
+        let s = setup();
+        write(&docs(&s).join("a.txt"), "one");
+        let id = make_backup(&s);
+        run(&s.db, &id, NOW).unwrap();
+
+        {
+            let conn = s.db.lock().unwrap();
+            db::set_drive_state(&conn, &s.src, "missing").unwrap();
+        }
+        run(&s.db, &id, NOW + 100).unwrap();
+
+        let r = row(&s, &id);
+        assert_eq!(r.last_error, "Waiting: Photos isn't connected.");
+        assert!(!r.hard);
+        assert_eq!(manifest(&s, &id).paused_since, NOW + 100);
+    }
+
+    #[test]
+    fn source_folder_gone_is_final() {
+        let s = setup();
+        write(&docs(&s).join("a.txt"), "one");
+        let id = make_backup(&s);
+        run(&s.db, &id, NOW).unwrap();
+
+        fs::remove_dir_all(docs(&s)).unwrap();
+        run(&s.db, &id, NOW + 60).unwrap();
+        let r = row(&s, &id);
+        assert_eq!(r.state, db::PROTECTION_SOURCE_GONE);
+        assert_eq!(
+            r.stop_reason,
+            "The folder was deleted or moved somewhere Luna can't follow."
+        );
+        assert!(manifest(&s, &id).paused_since > 0);
+
+        // Final: a later run does nothing, even once the folder is back.
+        fs::create_dir_all(docs(&s)).unwrap();
+        assert_eq!(run(&s.db, &id, NOW + 120).unwrap(), RunOutcome::default());
+        assert_eq!(row(&s, &id).state, db::PROTECTION_SOURCE_GONE);
+    }
+
+    #[test]
+    fn name_clashes_and_big_files_become_notes() {
+        // exFAT/FAT-style target: capitals don't count, and files over the
+        // limit are left out. Tested on the planner directly because a real
+        // drive's limits can't be steered from a test.
+        fn entry(rel: &str, size: u64) -> scope::Entry {
+            scope::Entry {
+                rel: rel.into(),
+                abs: PathBuf::from(format!("/src/{rel}")),
+                size,
+                mtime: 0,
+            }
+        }
+        let limits = drive_store::FsLimits {
+            case_insensitive: true,
+            max_file: Some(100),
+        };
+        let (out, notes) = plan_names(
+            vec![
+                entry("B.txt", 1),
+                entry("a.txt", 1),
+                entry("A.txt", 1),
+                entry("big.bin", 200),
+            ],
+            limits,
+            "Backup",
+        );
+        let names: Vec<&str> = out.iter().map(|(rel, _)| rel.as_str()).collect();
+        assert_eq!(names, vec!["A.txt", "B.txt", "a (2).txt"]);
+        assert_eq!(notes.len(), 2);
+        assert!(notes[0].contains("saved as a (2).txt"));
+        assert_eq!(
+            notes[1],
+            "big.bin is too big for Backup's format (largest 4 GB)."
+        );
+    }
 }
