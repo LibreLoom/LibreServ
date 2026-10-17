@@ -169,9 +169,11 @@ impl Store {
     }
 
     /// Copy `src` to `current/<rel>` unless the copy there already matches
-    /// (size and mtime). A different existing copy moves to
-    /// `versions/<now>/<rel>` first; the new one is written temp-file-then-
-    /// rename and keeps the source mtime.
+    /// (size and mtime). The new copy is first written to a temp file next
+    /// to the destination, so a failed copy (source gone, disk full) leaves
+    /// `current/` as it was. Only then does a different existing copy move
+    /// to `versions/<now>/<rel>`, and the temp file is renamed into place.
+    /// The new copy keeps the source mtime.
     pub fn put(
         &self,
         rel: &str,
@@ -184,17 +186,12 @@ impl Store {
         if let Some(parent) = dst.parent() {
             fs::create_dir_all(parent)?;
         }
-        let outcome = match fs::symlink_metadata(&dst) {
+        let existing = match fs::symlink_metadata(&dst) {
             Ok(meta) if meta.is_file() => {
                 if meta.len() == src_meta.len() && same_mtime(&meta, src_meta) {
                     return Ok(Put::Unchanged);
                 }
-                let old = self.version_path(now, rel)?;
-                if let Some(parent) = old.parent() {
-                    fs::create_dir_all(parent)?;
-                }
-                fs::rename(&dst, &old)?;
-                Put::Updated
+                true
             }
             Ok(_) => {
                 return Err(io::Error::new(
@@ -202,11 +199,29 @@ impl Store {
                     "The backup has a folder where this file should go.",
                 ));
             }
-            Err(e) if e.kind() == ErrorKind::NotFound => Put::Added,
+            Err(e) if e.kind() == ErrorKind::NotFound => false,
             Err(e) => return Err(e),
         };
-        copy_atomic(src, src_meta, &dst)?;
-        Ok(outcome)
+
+        // Copy first: until the new copy is complete, the old one stays put.
+        let staged = stage_copy(src, src_meta, &dst)?;
+        let mut moved_old = None;
+        if existing {
+            let old = self.version_path(now, rel)?;
+            if let Some(parent) = old.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::rename(&dst, &old)?;
+            moved_old = Some(old);
+        }
+        if let Err(e) = staged.persist(&dst) {
+            // Dropping the failed temp file removes it. Put the old copy back.
+            if let Some(old) = moved_old {
+                let _ = fs::rename(&old, &dst);
+            }
+            return Err(e.error);
+        }
+        Ok(if existing { Put::Updated } else { Put::Added })
     }
 
     /// The source no longer has `rel`: move `current/<rel>` to
@@ -327,6 +342,69 @@ impl Store {
         Ok(removed)
     }
 
+    /// Free space on a full drive by deleting old versions (plan §3). Walks
+    /// `versions/<t>` oldest first and deletes every file in a folder, except
+    /// the newest copy of a file deleted less than [`DELETED_KEEP_SECS`] ago
+    /// on the manifest's clock. It stops after the first folder that frees
+    /// bytes, so the caller can retry its write. `current/` is never touched.
+    /// Returns the bytes freed, or 0 when nothing is left to remove.
+    pub fn free_space_by_thinning(&self, manifest: &mut Manifest, now: i64) -> io::Result<u64> {
+        let clock = manifest.clock(now);
+        let times = self.version_times()?;
+
+        // Newest version time and copy count per rel, to protect and to
+        // spot files whose last copy is gone.
+        let mut newest: BTreeMap<String, i64> = BTreeMap::new();
+        let mut copies: BTreeMap<String, usize> = BTreeMap::new();
+        for t in &times {
+            for rel in walk_files(&self.versions_dir().join(t.to_string()))? {
+                *copies.entry(rel.clone()).or_default() += 1;
+                let entry = newest.entry(rel).or_insert(*t);
+                *entry = (*entry).max(*t);
+            }
+        }
+        let young_deleted: Vec<String> = manifest
+            .deleted
+            .iter()
+            .filter(|(_, at)| clock - **at <= DELETED_KEEP_SECS)
+            .map(|(rel, _)| rel.clone())
+            .collect();
+        let protected = |rel: &str, t: i64| {
+            newest.get(rel) == Some(&t) && young_deleted.iter().any(|r| r == rel)
+        };
+
+        for t in times {
+            let dir = self.versions_dir().join(t.to_string());
+            let mut freed = 0;
+            for rel in walk_files(&dir)? {
+                if protected(&rel, t) {
+                    continue;
+                }
+                let path = self.version_path(t, &rel)?;
+                let size = match fs::symlink_metadata(&path) {
+                    Ok(meta) => meta.len(),
+                    Err(e) if e.kind() == ErrorKind::NotFound => continue,
+                    Err(e) => return Err(e),
+                };
+                if remove_file_if_exists(&path)? {
+                    freed += size;
+                    if let Some(count) = copies.get_mut(&rel) {
+                        *count -= 1;
+                        if *count == 0 {
+                            manifest.deleted.remove(&rel);
+                        }
+                    }
+                }
+            }
+            prune_empty_dirs(&dir)?;
+            let _ = fs::remove_dir(&dir);
+            if freed > 0 {
+                return Ok(freed);
+            }
+        }
+        Ok(0)
+    }
+
     /// `versions/<t>/<rel>`.
     fn version_path(&self, t: i64, rel: &str) -> io::Result<PathBuf> {
         Ok(join_rel(
@@ -401,9 +479,14 @@ pub fn fs_limits(target_root: &Path) -> FsLimits {
     limits_for_fs(&fstype)
 }
 
+/// `fuseblk` is what `/proc/mounts` shows for any filesystem driven through
+/// FUSE, such as exFAT (exfat-fuse) or NTFS (ntfs-3g). The real type is not
+/// visible there, and reading it would mean shelling out to `blkid`, which
+/// we do not do. Both FUSE drivers used for removable drives are
+/// case-insensitive and have no 4 GiB limit, so `fuseblk` gets those limits.
 fn limits_for_fs(fstype: &str) -> FsLimits {
     match fstype.to_ascii_lowercase().as_str() {
-        "exfat" => FsLimits {
+        "exfat" | "fuseblk" => FsLimits {
             case_insensitive: true,
             max_file: None,
         },
@@ -557,9 +640,18 @@ fn remove_file_if_exists(path: &Path) -> io::Result<bool> {
     }
 }
 
-/// Write `src` to `dst` through a temp file in the same directory, keeping
-/// the source mtime. The temp file is removed if anything fails.
-fn copy_atomic(src: &Path, src_meta: &fs::Metadata, dst: &Path) -> io::Result<()> {
+/// Copy `src` into a temp file in `dst`'s directory, keeping the source
+/// mtime. Nothing is visible at `dst` until the caller persists the temp
+/// file; dropping it removes it. A source that no longer exists comes back
+/// as `NotFound`, so the caller can skip the file.
+fn stage_copy(src: &Path, src_meta: &fs::Metadata, dst: &Path) -> io::Result<tempfile::NamedTempFile> {
+    let mut src_file = fs::File::open(src).map_err(|e| {
+        if e.kind() == ErrorKind::NotFound {
+            io::Error::new(ErrorKind::NotFound, "The file is no longer in the source.")
+        } else {
+            e
+        }
+    })?;
     let dir = dst.parent().unwrap_or(Path::new("."));
     let name = dst
         .file_name()
@@ -570,11 +662,10 @@ fn copy_atomic(src: &Path, src_meta: &fs::Metadata, dst: &Path) -> io::Result<()
         .prefix(&prefix)
         .rand_bytes(8)
         .tempfile_in(dir)?;
-    io::copy(&mut fs::File::open(src)?, tmp.as_file_mut())?;
+    io::copy(&mut src_file, tmp.as_file_mut())?;
     tmp.as_file().set_modified(src_meta.modified()?)?;
     tmp.as_file().sync_all()?;
-    tmp.persist(dst).map_err(|e| e.error)?;
-    Ok(())
+    Ok(tmp)
 }
 
 /// Modification time in whole seconds since the Unix epoch.
@@ -900,5 +991,99 @@ mod tests {
         let root = fs_type_at(mounts, Path::new("/home/max")).unwrap();
         assert_eq!(limits_for_fs(&root), FsLimits::default());
         assert_eq!(limits_for_fs(""), FsLimits::default());
+    }
+
+    #[test]
+    fn fuseblk_is_case_insensitive_without_size_limit() {
+        assert_eq!(
+            limits_for_fs("fuseblk"),
+            FsLimits {
+                case_insensitive: true,
+                max_file: None,
+            }
+        );
+    }
+
+    #[test]
+    fn put_with_vanished_source_keeps_the_current_copy() {
+        let target = tempfile::tempdir().unwrap();
+        let store = Store::open(target.path(), &layout(), ID).unwrap();
+        let src_dir = tempfile::tempdir().unwrap();
+        let s = source(src_dir.path(), "a.txt", b"one", 1_700_000_000);
+        store.put("a.txt", &s, &meta(&s), NOW).unwrap();
+
+        let s2 = source(src_dir.path(), "a.txt", b"two!", 1_700_000_300);
+        let m2 = meta(&s2);
+        fs::remove_file(&s2).unwrap();
+        let err = store
+            .put("a.txt", &s2, &m2, NOW + 100)
+            .expect_err("the source is gone");
+        assert_eq!(err.kind(), ErrorKind::NotFound);
+
+        assert_eq!(fs::read(store.current_dir().join("a.txt")).unwrap(), b"one");
+        assert!(store.version_times().unwrap().is_empty());
+        let names: Vec<_> = fs::read_dir(store.current_dir())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(names, vec![std::ffi::OsString::from("a.txt")]);
+    }
+
+    #[test]
+    fn free_space_by_thinning_removes_oldest_first_and_protects_recent_deletes() {
+        let target = tempfile::tempdir().unwrap();
+        let store = Store::open(target.path(), &layout(), ID).unwrap();
+        let src_dir = tempfile::tempdir().unwrap();
+        let versions = store.versions_dir();
+        let put_version = |t: i64, rel: &str| {
+            let p = versions.join(t.to_string()).join(rel);
+            fs::create_dir_all(p.parent().unwrap()).unwrap();
+            fs::write(p, b"old").unwrap();
+        };
+        let d = DAY_SECS;
+
+        // keep.txt is in current/ and has two old copies. Those may go.
+        let s = source(src_dir.path(), "keep.txt", b"now", 1_700_000_000);
+        store.put("keep.txt", &s, &meta(&s), NOW).unwrap();
+        put_version(NOW - 40 * d, "keep.txt");
+        put_version(NOW - 20 * d, "keep.txt");
+
+        // old.txt was deleted 80 days ago: its only copy may go.
+        put_version(NOW - 80 * d, "old.txt");
+
+        // gone.txt was deleted 5 days ago: its older copy may go, but its
+        // newest copy is protected.
+        put_version(NOW - 10 * d, "gone.txt");
+        put_version(NOW - 6 * d, "gone.txt");
+
+        let mut m = manifest();
+        m.deleted.insert("old.txt".into(), NOW - 80 * d);
+        m.deleted.insert("gone.txt".into(), NOW - 5 * d);
+
+        // Each call frees one folder, oldest first.
+        assert_eq!(store.free_space_by_thinning(&mut m, NOW).unwrap(), 3);
+        assert!(!versions.join(format!("{}", NOW - 80 * d)).exists());
+        assert!(!m.deleted.contains_key("old.txt"));
+
+        assert_eq!(store.free_space_by_thinning(&mut m, NOW).unwrap(), 3);
+        assert!(!versions.join(format!("{}/keep.txt", NOW - 40 * d)).exists());
+        assert_eq!(store.free_space_by_thinning(&mut m, NOW).unwrap(), 3);
+        assert!(!versions.join(format!("{}/keep.txt", NOW - 20 * d)).exists());
+        assert_eq!(store.free_space_by_thinning(&mut m, NOW).unwrap(), 3);
+        assert!(!versions.join(format!("{}/gone.txt", NOW - 10 * d)).exists());
+
+        // Only the protected copy is left: nothing to free.
+        assert_eq!(store.free_space_by_thinning(&mut m, NOW).unwrap(), 0);
+        assert!(versions.join(format!("{}/gone.txt", NOW - 6 * d)).exists());
+        assert!(m.deleted.contains_key("gone.txt"));
+        assert_eq!(fs::read(store.current_dir().join("keep.txt")).unwrap(), b"now");
+    }
+
+    #[test]
+    fn free_space_by_thinning_returns_zero_when_empty() {
+        let target = tempfile::tempdir().unwrap();
+        let store = Store::open(target.path(), &layout(), ID).unwrap();
+        let mut m = manifest();
+        assert_eq!(store.free_space_by_thinning(&mut m, NOW).unwrap(), 0);
     }
 }
