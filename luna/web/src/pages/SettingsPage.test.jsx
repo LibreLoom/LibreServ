@@ -43,7 +43,7 @@ function stubFetch(role = "admin", connectActive = false) {
     }
     if (u.includes("/device-tokens")) return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
     if (u.includes("/connect/status")) {
-      return new Response(JSON.stringify({ enabled: false, backup_unlocked: false, backup_sources: [] }), {
+      return new Response(JSON.stringify({ enabled: false, connect_active: false }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });

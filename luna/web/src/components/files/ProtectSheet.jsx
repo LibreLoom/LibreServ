@@ -1,4 +1,3 @@
-/* eslint-disable react-refresh/only-export-components -- helpers + ProtectButton shared with explorers/tests */
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Cloud, HardDrive, Shield } from "lucide-react";
@@ -23,29 +22,9 @@ function pathKey(value) {
   return value || "";
 }
 
-/** Absolute folder path under a drive mount for cloud backup sources. */
-export function cloudFolderPath(mountPoint, relativePath) {
-  const root = (mountPoint || "").replace(/\/+$/, "");
-  const rel = (relativePath || "").replace(/^\/+|\/+$/g, "");
-  if (!root) return "";
-  return rel ? `${root}/${rel}` : root;
-}
-
-/** True when `sources` already covers this Back up target. */
-export function matchesCloudSource(sources, { driveId, objectPath, mountPoint }) {
-  const list = sources || [];
-  if (!objectPath) {
-    return list.some((s) => s.kind === "drive" && s.drive_id === driveId);
-  }
-  const abs = cloudFolderPath(mountPoint, objectPath);
-  return list.some((s) => s.kind === "folder" && s.path === abs);
-}
-
-export function buildCloudSource({ driveId, objectPath, mountPoint }) {
-  if (!objectPath) {
-    return { kind: "drive", drive_id: driveId };
-  }
-  return { kind: "folder", path: cloudFolderPath(mountPoint, objectPath) };
+/** Last-resort path compare: folder paths match without leading or trailing slashes. */
+function trimSlashes(value) {
+  return (value || "").replace(/^\/+|\/+$/g, "");
 }
 
 /** Headline for a backup that is working: when it last finished, or that it hasn't yet. */
@@ -84,7 +63,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
   const [error, setError] = useState(null);
   const [targetDrive, setTargetDrive] = useState("");
   const [deleting, setDeleting] = useState(null);
-  const [pendingCloudIntent, setPendingCloudIntent] = useState(null);
+  const [deletingCloud, setDeletingCloud] = useState(null);
   const objectPath = pathKey(path);
 
   const { outerRef: cloudOuterRef, innerRef: cloudInnerRef } = useAnimatedHeight();
@@ -103,23 +82,22 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
     queryKey: ["connect-status"],
     queryFn: () => getJson("/api/v1/connect/status"),
   });
+  const cloudQuery = useQuery({
+    queryKey: ["cloud-backups"],
+    queryFn: () => getJson("/api/v1/cloud/backups"),
+    refetchInterval: 30_000,
+  });
 
   const matchingBackups = backups.data || [];
   const driveList = drives.data || [];
   const usedTargetIds = new Set(matchingBackups.map((b) => b.target_drive));
   const availableTargets = driveList.filter((d) => d.id !== driveId && !usedTargetIds.has(d.id));
   const tooFewDrives = driveList.length < 2;
-  const thisDrive = driveList.find((d) => d.id === driveId);
-  const mountPoint = thisDrive?.mount_point || "";
-  const targetKey = { driveId, objectPath, mountPoint };
-  const cloudOn = matchesCloudSource(connect.data?.backup_sources, targetKey);
-  const cloudUnlocked = Boolean(connect.data?.backup_unlocked);
   const hasBackups = matchingBackups.length > 0;
-
-  // Reset pending intent if target state has been reflected in connect.data
-  if (pendingCloudIntent !== null && cloudOn === pendingCloudIntent) {
-    setPendingCloudIntent(null);
-  }
+  const cloudConnected = Boolean(connect.data?.connect_active);
+  const cloudBackup = (cloudQuery.data || []).find(
+    (b) => b.source_drive === driveId && trimSlashes(b.source_path) === trimSlashes(objectPath),
+  );
 
   const createBackup = useMutation({
     mutationFn: () =>
@@ -182,48 +160,57 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
     },
   });
 
-  const saveCloud = useMutation({
-    mutationFn: async (sources) => {
-      const res = await postJson("/api/v1/connect/backup-sources", { sources });
-      await queryClient.refetchQueries({ queryKey: ["connect-status"] });
-      return res;
-    },
+  const createCloud = useMutation({
+    mutationFn: () =>
+      postJson("/api/v1/cloud/backups", { source_drive_id: driveId, source_path: objectPath }),
     onSuccess: () => {
-      addToast({ type: "success", message: "Cloud backup saved." });
+      addToast({ type: "success", message: "Cloud backup started." });
+      setError(null);
+      queryClient.invalidateQueries({ queryKey: ["cloud-backups"] });
+    },
+    onError: (err) => {
+      haptic("error");
+      setError(apiErrorMessage(err));
+    },
+  });
+  const runCloud = useMutation({
+    mutationFn: (/** @type {string} */ id) => postJson(`/api/v1/cloud/backups/${id}/run`, {}),
+    onSuccess: (res) => {
+      // A problem stays on this sheet, next to the backup, not in a success toast.
+      if (res?.problem) {
+        haptic("error");
+        setError(res.problem);
+        return;
+      }
+      addToast({
+        type: "success",
+        message: res?.done
+          ? "Cloud backup is up to date."
+          : "Luna is still copying. The status updates when it finishes.",
+      });
       setError(null);
     },
     onError: (err) => {
       haptic("error");
-      setPendingCloudIntent(null);
       setError(apiErrorMessage(err));
     },
     onSettled: () => {
-      setPendingCloudIntent(null);
+      queryClient.invalidateQueries({ queryKey: ["cloud-backups"] });
     },
   });
-
-  const isCloudLoading =
-    saveCloud.isPending || (pendingCloudIntent !== null && cloudOn !== pendingCloudIntent);
-
-  function toggleCloud() {
-    if (isCloudLoading) return;
-    const current = connect.data?.backup_sources || [];
-    const nextSource = buildCloudSource(targetKey);
-    if (!nextSource.path && nextSource.kind === "folder") {
-      setError("Luna couldn't find this folder on the drive. Try again after the drive is ready.");
-      return;
-    }
-    let next;
-    if (cloudOn) {
-      next = objectPath
-        ? current.filter((s) => !(s.kind === "folder" && s.path === nextSource.path))
-        : current.filter((s) => !(s.kind === "drive" && s.drive_id === driveId));
-    } else {
-      next = [...current, nextSource];
-    }
-    setPendingCloudIntent(!cloudOn);
-    saveCloud.mutate(next);
-  }
+  const deleteCloud = useMutation({
+    mutationFn: (/** @type {string} */ id) => deleteJson(`/api/v1/cloud/backups/${id}`),
+    onSuccess: () => {
+      addToast({ type: "success", message: "Cloud backup deleted." });
+      setDeletingCloud(null);
+      queryClient.invalidateQueries({ queryKey: ["cloud-backups"] });
+    },
+    onError: (err) => {
+      haptic("error");
+      setDeletingCloud(null);
+      setError(apiErrorMessage(err));
+    },
+  });
 
   const thingLabel = objectPath ? "folder" : "drive";
   const isRunning = (id, allowMassDelete) =>
@@ -392,15 +379,15 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                         content="An off-site copy of the latest files, stored with Luna Connect. It is not a history of old versions. Cloud backup costs $8 per terabyte each month."
                       />
                     </h3>
-                    {cloudOn && (
+                    {cloudBackup && (
                       <Pill variant="success" className="shrink-0 px-2 py-0.5 leading-none">
                         On
                       </Pill>
                     )}
                   </div>
-                  {cloudUnlocked ? (
+                  {cloudConnected ? (
                     <p className="text-secondary text-sm">
-                      {cloudOn
+                      {cloudBackup
                         ? `Luna is copying this ${thingLabel} to the cloud when idle.`
                         : `Copy the latest files from this ${thingLabel} off-site when Luna is idle.`}
                     </p>
@@ -412,26 +399,58 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                 </div>
               </div>
 
-              {cloudOn && cloudUnlocked && (
-                <BackupStatusNotice
-                  state={connect.data?.backup_status?.state}
-                  lastError={connect.data?.backup_status?.last_error}
-                  lastOkAt={connect.data?.backup_status?.last_ok_at}
-                  staleText="Cloud backup hasn't finished in over a day. Luna copies files to the cloud only while nobody is using it."
-                />
+              {cloudConnected && cloudBackup && (
+                <div className="rounded-large-element surface-secondary p-3 space-y-3">
+                  {cloudBackup.status === "active" ? (
+                    <BackupStatusNotice
+                      state={cloudBackup.state}
+                      lastError={cloudBackup.last_error}
+                      lastOkAt={cloudBackup.last_ok_at}
+                      staleText="Cloud backup hasn't finished in over a day. Luna copies files to the cloud only while nobody is using it."
+                    />
+                  ) : (
+                    <p className="text-primary text-sm">
+                      {cloudBackup.stop_reason || "This cloud backup has stopped."}
+                    </p>
+                  )}
+                  <div className="flex flex-wrap gap-2">
+                    {cloudBackup.status === "active" && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        surface="secondary"
+                        loading={runCloud.isPending || cloudBackup.running}
+                        disabled={runCloud.isPending || cloudBackup.running}
+                        onClick={() => runCloud.mutate(cloudBackup.id)}
+                      >
+                        Back up now
+                      </Button>
+                    )}
+                    {cloudBackup.can_delete && (
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        surface="secondary"
+                        onClick={() => setDeletingCloud(cloudBackup)}
+                      >
+                        Delete cloud backup
+                      </Button>
+                    )}
+                  </div>
+                </div>
               )}
 
-              {cloudUnlocked && (
+              {cloudConnected && !cloudBackup && (
                 <Button
                   size="sm"
-                  variant={cloudOn ? "danger" : "secondary"}
+                  variant="secondary"
                   surface="primary"
                   fullWidth
-                  loading={isCloudLoading}
-                  disabled={isCloudLoading}
-                  onClick={toggleCloud}
+                  loading={createCloud.isPending}
+                  disabled={createCloud.isPending}
+                  onClick={() => createCloud.mutate()}
                 >
-                  {cloudOn ? "Stop cloud backup" : "Copy to cloud"}
+                  Back up to the cloud
                 </Button>
               )}
             </div>
@@ -451,6 +470,22 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
         {deleting && (
           <p className="text-primary text-sm">
             Deletes the backup and every saved copy on <InlinePill>{deleting.target_drive_name}</InlinePill>. The original files stay.
+          </p>
+        )}
+      </ConfirmModal>
+
+      <ConfirmModal
+        open={deletingCloud != null}
+        variant="danger"
+        title="Delete cloud backup?"
+        confirmLabel="Delete cloud backup"
+        loading={deleteCloud.isPending}
+        onClose={() => setDeletingCloud(null)}
+        onConfirm={() => deleteCloud.mutate(deletingCloud.id)}
+      >
+        {deletingCloud && (
+          <p className="text-primary text-sm">
+            Deletes the copies of this {thingLabel} stored in the cloud. The original files stay.
           </p>
         )}
       </ConfirmModal>

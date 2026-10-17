@@ -26,8 +26,6 @@ function stubFilesApi(byPath) {
     }
     if (u.includes("/api/v1/connect/status")) {
       return new Response(JSON.stringify({
-        backup_unlocked: Boolean(byPath.__backupUnlocked),
-        backup_sources: byPath.__backupSources || [],
         connect_active: Boolean(byPath.__backupUnlocked),
         enabled: Boolean(byPath.__backupUnlocked),
       }), { status: 200, headers: { "Content-Type": "application/json" } });

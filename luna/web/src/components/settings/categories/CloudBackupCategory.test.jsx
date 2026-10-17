@@ -1,48 +1,117 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import CloudBackupCategory from "./CloudBackupCategory.jsx";
 
-function stubStatus(status) {
-  vi.stubGlobal("fetch", vi.fn(async () =>
-    new Response(JSON.stringify(status), { status: 200, headers: { "Content-Type": "application/json" } })));
+const json = (body) =>
+  new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
+
+/** Routes the cloud API calls the card makes; anything else gets an empty object. */
+function stubApi({ connected = true, backups = [], runResponse = { done: true } } = {}) {
+  const fetchMock = vi.fn(async (url, options = {}) => {
+    const method = options.method || "GET";
+    if (url === "/api/v1/connect/status") return json({ connect_active: connected });
+    if (url === "/api/v1/cloud/backups" && method === "GET") return json(backups);
+    if (url.endsWith("/run") && method === "POST") return json(runResponse);
+    if (url.endsWith("/check") && method === "POST") return json({ done: true });
+    if (url.startsWith("/api/v1/cloud/backups/") && method === "DELETE") return json({});
+    return json({});
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
 }
 
 function renderCard() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <CloudBackupCategory />
+      <ToastProvider>
+        <CloudBackupCategory />
+      </ToastProvider>
     </QueryClientProvider>,
   );
 }
+
+const sampleBackup = {
+  id: "b1",
+  kind: "folder",
+  source_drive: "drive-1",
+  source_drive_name: "Family photos",
+  source_path: "/Pictures",
+  source_name: "Pictures",
+  state: "ok",
+  status: "active",
+  stop_reason: "",
+  last_ok_at: Math.floor(Date.now() / 1000) - 3600,
+  last_error: "",
+  size: 2147483648,
+  can_delete: true,
+  running: false,
+};
 
 describe("CloudBackupCategory", () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it("explains how to get started before a card is added", async () => {
-    stubStatus({ backup_unlocked: false });
+    stubApi({ connected: false });
     renderCard();
     expect(await screen.findByText(/Add a card at connect\.luna\.libreloom\.org/)).toBeInTheDocument();
-    expect(screen.queryByText(/costs \$8 per terabyte/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Back up now" })).toBeNull();
   });
 
-  it("states what backup does and costs once it is unlocked", async () => {
-    stubStatus({ backup_unlocked: true });
+  it("says nothing is backed up yet when connected with no backups", async () => {
+    stubApi({ connected: true, backups: [] });
     renderCard();
-    expect(await screen.findByText(/costs \$8 per terabyte each month/)).toBeInTheDocument();
-    expect(screen.getByText(/open it and tap Protect, then use In the cloud/)).toBeInTheDocument();
+    expect(await screen.findByText(/Nothing is backed up to the cloud yet/)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Cloud backup" })).toBeInTheDocument();
-    expect(screen.queryByText(/Last full copy/)).toBeNull();
   });
 
-  it("says when cloud backup has stopped finishing", async () => {
-    stubStatus({
-      backup_unlocked: true,
-      backup_status: { state: "stale", last_ok_at: 0, last_error: "" },
+  it("lists each cloud backup with its size and actions", async () => {
+    stubApi({ connected: true, backups: [sampleBackup] });
+    renderCard();
+    expect(await screen.findByText("Pictures")).toBeInTheDocument();
+    expect(screen.getByText(/Family photos/)).toBeInTheDocument();
+    expect(screen.getByText(/2(\.0)? GB in the cloud/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Back up now" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Check" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
+    expect(screen.getByText(/costs \$8 per terabyte each month/)).toBeInTheDocument();
+  });
+
+  it("says when a cloud backup has stopped finishing", async () => {
+    stubApi({
+      connected: true,
+      backups: [{ ...sampleBackup, state: "stale", last_ok_at: 0 }],
     });
     renderCard();
-    expect(await screen.findByText(/Cloud backup hasn't finished in over a day/)).toBeInTheDocument();
-    expect(screen.getByText("Last full copy: never")).toBeInTheDocument();
+    expect(await screen.findByText(/This backup hasn't finished in over a day/)).toBeInTheDocument();
+  });
+
+  it("runs a backup through the new run route", async () => {
+    const fetchMock = stubApi({ connected: true, backups: [sampleBackup] });
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: "Back up now" }));
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/v1/cloud/backups/b1/run",
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+  });
+
+  it("asks before deleting and then calls the delete route", async () => {
+    const fetchMock = stubApi({ connected: true, backups: [sampleBackup] });
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
+    expect(await screen.findByText("Delete cloud backup?")).toBeInTheDocument();
+    expect(screen.getByText(/The original files stay/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Delete cloud backup" }));
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/v1/cloud/backups/b1",
+        expect.objectContaining({ method: "DELETE" }),
+      ),
+    );
   });
 });

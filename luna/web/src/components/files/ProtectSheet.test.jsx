@@ -4,11 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../../context/AuthContext";
-import ProtectSheet, {
-  buildCloudSource,
-  cloudFolderPath,
-  matchesCloudSource,
-} from "./ProtectSheet";
+import ProtectSheet from "./ProtectSheet";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import Toaster from "@libreloom/ui/components/common/Toaster.jsx";
 
@@ -35,6 +31,26 @@ function backup(overrides = {}) {
   };
 }
 
+function cloudBackup(overrides = {}) {
+  return {
+    id: "c1",
+    kind: "folder",
+    source_drive: "d1",
+    source_drive_name: "Main",
+    source_path: "photos",
+    source_name: "photos",
+    state: "ok",
+    status: "active",
+    stop_reason: "",
+    last_error: "",
+    last_ok_at: nowSeconds(),
+    size: 0,
+    can_delete: true,
+    running: false,
+    ...overrides,
+  };
+}
+
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 }
@@ -42,24 +58,36 @@ function json(body, status = 200) {
 function stubBackupApi({
   drives = [],
   backups = [],
-  connect = { backup_unlocked: false, backup_sources: [] },
-  onBackupSources,
+  cloudBackups = [],
+  connect = { connect_active: false },
   onCreate,
   onRun,
   onDelete,
+  onCloudCreate,
+  onCloudRun,
+  onCloudDelete,
+  cloudCreateGate,
   runReply = { status: 200, body: { done: true } },
+  cloudRunReply = { status: 200, body: { done: true } },
   deleteReply = { status: 200, body: {} },
 } = /** @type {{
   drives?: any[],
   backups?: any[],
-  connect?: { backup_unlocked: boolean, backup_sources: any[], backup_status?: any },
-  onBackupSources?: (sources: unknown) => void,
+  cloudBackups?: any[],
+  connect?: { connect_active: boolean },
   onCreate?: (body: any) => void,
   onRun?: (body: any) => void,
   onDelete?: (url: string) => void,
+  onCloudCreate?: (body: any) => void,
+  onCloudRun?: (url: string) => void,
+  onCloudDelete?: (url: string) => void,
+  cloudCreateGate?: Promise<unknown>,
   runReply?: { status: number, body: any },
+  cloudRunReply?: { status: number, body: any },
   deleteReply?: { status: number, body: any },
 }} */ ({})) {
+  // The cloud list changes when a backup is created or deleted, like the server's does.
+  const cloud = cloudBackups.map((b) => ({ ...b }));
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url, init) => {
@@ -70,6 +98,34 @@ function stubBackupApi({
       }
       if (u.includes("/setup")) {
         return json({ setup_completed: true });
+      }
+      if (u.startsWith("/api/v1/cloud/backups")) {
+        if (method === "POST" && u.endsWith("/run")) {
+          onCloudRun?.(u);
+          return json(cloudRunReply.body, cloudRunReply.status);
+        }
+        if (method === "DELETE") {
+          onCloudDelete?.(u);
+          const id = u.split("/").pop();
+          const index = cloud.findIndex((b) => b.id === id);
+          if (index >= 0) cloud.splice(index, 1);
+          return json(deleteReply.body, deleteReply.status);
+        }
+        if (method === "POST") {
+          const body = JSON.parse(init?.body || "{}");
+          await cloudCreateGate;
+          onCloudCreate?.(body);
+          const created = cloudBackup({
+            id: "c-new",
+            source_drive: body.source_drive_id,
+            source_path: body.source_path,
+            source_name: body.source_path,
+            last_ok_at: 0,
+          });
+          cloud.push(created);
+          return json(created);
+        }
+        return json(cloud);
       }
       if (u.includes("/api/v1/drives") && !u.includes("/detected") && !u.includes("/files") && !u.includes("/health")) {
         return json(drives);
@@ -93,11 +149,6 @@ function stubBackupApi({
       if (u.includes("/api/v1/connect/status")) {
         return json(connect);
       }
-      if (u.includes("/api/v1/connect/backup-sources") && method === "POST") {
-        const body = JSON.parse(init?.body || "{}");
-        onBackupSources?.(body.sources);
-        return json({ ok: true });
-      }
       return new Response("{}", { status: 500 });
     }),
   );
@@ -118,30 +169,6 @@ function renderSheet(props = {}) {
     </ToastProvider>,
   );
 }
-
-describe("cloud source helpers", () => {
-  it("joins mount and relative folder paths", () => {
-    expect(cloudFolderPath("/mnt/drive/", "photos/album")).toBe("/mnt/drive/photos/album");
-    expect(cloudFolderPath("/mnt/drive", "")).toBe("/mnt/drive");
-  });
-
-  it("matches drive and folder sources", () => {
-    expect(
-      matchesCloudSource([{ kind: "drive", drive_id: "d1" }], { driveId: "d1", objectPath: "", mountPoint: "/m" }),
-    ).toBe(true);
-    expect(
-      matchesCloudSource([{ kind: "folder", path: "/m/photos" }], {
-        driveId: "d1",
-        objectPath: "photos",
-        mountPoint: "/m",
-      }),
-    ).toBe(true);
-    expect(buildCloudSource({ driveId: "d1", objectPath: "", mountPoint: "/m" })).toEqual({
-      kind: "drive",
-      drive_id: "d1",
-    });
-  });
-});
 
 describe("ProtectSheet", () => {
   it("lets an admin back up a folder onto another drive", async () => {
@@ -182,7 +209,7 @@ describe("ProtectSheet", () => {
     stubBackupApi({
       drives: [{ id: "d1", label: "Main", mount_point: "/mnt/main" }],
       backups: [],
-      connect: { backup_unlocked: false, backup_sources: [] },
+      connect: { connect_active: false },
     });
     renderSheet();
     expect(await screen.findByText(/Needs another drive/i)).toBeInTheDocument();
@@ -403,15 +430,14 @@ describe("ProtectSheet", () => {
   it("shows a cloud backup problem on the cloud row", async () => {
     stubBackupApi({
       drives: [{ id: "d1", label: "Main", mount_point: "/mnt/main" }],
-      connect: {
-        backup_unlocked: true,
-        backup_sources: [{ kind: "folder", path: "/mnt/main/photos" }],
-        backup_status: {
+      connect: { connect_active: true },
+      cloudBackups: [
+        cloudBackup({
           state: "failing",
           last_ok_at: 0,
           last_error: "Cloud backup for this account is full. Remove some files, then try again.",
-        },
-      },
+        }),
+      ],
     });
     renderSheet();
     expect(
@@ -421,203 +447,71 @@ describe("ProtectSheet", () => {
     ).toBeInTheDocument();
   });
 
-  it("lets an admin start cloud backup when unlocked", async () => {
+  it("lets an admin back up a folder to the cloud when connected", async () => {
     const user = userEvent.setup();
-    /** @type {unknown} */
-    let saved = null;
+    const onCloudCreate = vi.fn();
     stubBackupApi({
       drives: [{ id: "d1", label: "Main", mount_point: "/mnt/main" }],
-      backups: [],
-      connect: { backup_unlocked: true, backup_sources: [] },
-      onBackupSources: (sources) => {
-        saved = sources;
-      },
+      connect: { connect_active: true },
+      cloudBackups: [],
+      onCloudCreate,
     });
     renderSheet();
-    const btn = await screen.findByRole("button", { name: "Copy to cloud" });
-    await user.click(btn);
-    expect(saved).toEqual([{ kind: "folder", path: "/mnt/main/photos" }]);
+    await user.click(await screen.findByRole("button", { name: "Back up to the cloud" }));
+    await waitFor(() =>
+      expect(onCloudCreate).toHaveBeenCalledWith({ source_drive_id: "d1", source_path: "photos" }),
+    );
+    expect(await screen.findByText("Cloud backup started.")).toBeInTheDocument();
   });
 
-  it("lets an admin stop cloud backup for a drive", async () => {
+  it("confirms before deleting a cloud backup and calls the cloud delete route", async () => {
     const user = userEvent.setup();
-    /** @type {unknown} */
-    let saved = null;
+    const onCloudDelete = vi.fn();
     stubBackupApi({
-      drives: [
-        { id: "d1", label: "Main", mount_point: "/mnt/main" },
-        { id: "d2", label: "Other", mount_point: "/mnt/other" },
-      ],
-      backups: [],
-      connect: {
-        backup_unlocked: true,
-        backup_sources: [
-          { kind: "drive", drive_id: "d1" },
-          { kind: "drive", drive_id: "d2" },
-        ],
-      },
-      onBackupSources: (sources) => {
-        saved = sources;
-      },
+      drives: [{ id: "d1", label: "Main", mount_point: "/mnt/main" }],
+      connect: { connect_active: true },
+      cloudBackups: [cloudBackup({ id: "c1" })],
+      onCloudDelete,
     });
-    renderSheet({ path: "" });
-    const btn = await screen.findByRole("button", { name: "Stop cloud backup" });
-    await user.click(btn);
-    expect(saved).toEqual([{ kind: "drive", drive_id: "d2" }]);
+    renderSheet();
+    await user.click(await screen.findByRole("button", { name: "Delete cloud backup" }));
+    const dialog = await screen.findByRole("dialog", { name: /Delete cloud backup\?/ });
+    expect(within(dialog).getByText(/The original files stay/)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Delete cloud backup" }));
+    await waitFor(() =>
+      expect(onCloudDelete).toHaveBeenCalledWith(expect.stringContaining("/api/v1/cloud/backups/c1")),
+    );
+    expect(await screen.findByText("Cloud backup deleted.")).toBeInTheDocument();
   });
 
-  it("keeps button in loading and disabled state while enabling cloud backup until status refetches", async () => {
+  it("keeps Back up to the cloud disabled while it is being added, then shows the cloud row", async () => {
     const user = userEvent.setup();
     /** @type {((value?: unknown) => void) | undefined} */
-    let resolveBackupSources;
-    const backupSourcesPromise = new Promise((resolve) => {
-      resolveBackupSources = resolve;
+    let resolveCreate;
+    const createGate = new Promise((resolve) => {
+      resolveCreate = resolve;
     });
-
-    const connectStatus = { backup_unlocked: true, backup_sources: [] };
-
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (url, init) => {
-        const u = typeof url === "string" ? url : url?.url || String(url);
-        if (u.includes("/auth/me") || u.includes("/api/v1/auth/me")) {
-          return new Response(JSON.stringify({ id: "1", role: "admin", username: "admin" }), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          });
-        }
-        if (u.includes("/setup")) {
-          return new Response(JSON.stringify({ setup_completed: true }), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          });
-        }
-        if (u.includes("/api/v1/drives")) {
-          return new Response(JSON.stringify([{ id: "d1", label: "Main", mount_point: "/mnt/main" }]), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          });
-        }
-        if (u.includes("/api/v1/backups")) {
-          return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
-        }
-        if (u.includes("/api/v1/connect/status")) {
-          return new Response(JSON.stringify(connectStatus), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          });
-        }
-        if (u.includes("/api/v1/connect/backup-sources") && init?.method === "POST") {
-          await backupSourcesPromise;
-          const body = JSON.parse(init.body || "{}");
-          connectStatus.backup_sources = body.sources;
-          return new Response(JSON.stringify({ ok: true }), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          });
-        }
-        return new Response("{}", { status: 500 });
-      }),
-    );
-
+    stubBackupApi({
+      drives: [{ id: "d1", label: "Main", mount_point: "/mnt/main" }],
+      connect: { connect_active: true },
+      cloudBackups: [],
+      cloudCreateGate: createGate,
+    });
     renderSheet();
-    const btn = await screen.findByRole("button", { name: "Copy to cloud" });
+    const btn = await screen.findByRole("button", { name: "Back up to the cloud" });
     expect(btn).not.toBeDisabled();
 
     await user.click(btn);
 
     // While in-flight, the button is loading and disabled
     expect(btn).toBeDisabled();
-    expect(screen.getByRole("button", { name: /Copy to cloud/i })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /Copy to cloud/i })).toHaveAttribute("aria-busy", "true");
+    expect(btn).toHaveAttribute("aria-busy", "true");
 
-    // Complete the POST and refetch
-    resolveBackupSources?.();
+    // Complete the POST; the list refetches and the cloud row replaces the button
+    resolveCreate?.();
 
-    // Now the button transitions to "Stop cloud backup" and is enabled
-    const stopBtn = await screen.findByRole("button", { name: "Stop cloud backup" });
-    expect(stopBtn).toBeInTheDocument();
-    expect(stopBtn).not.toBeDisabled();
-    expect(stopBtn).not.toHaveAttribute("aria-busy");
+    expect(await screen.findByRole("button", { name: "Delete cloud backup" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Back up to the cloud" })).not.toBeInTheDocument();
     expect(screen.getByText("On")).toBeInTheDocument();
-  });
-
-  it("keeps button in loading and disabled state while stopping cloud backup until status refetches", async () => {
-    const user = userEvent.setup();
-    /** @type {((value?: unknown) => void) | undefined} */
-    let resolveBackupSources;
-    const backupSourcesPromise = new Promise((resolve) => {
-      resolveBackupSources = resolve;
-    });
-
-    const connectStatus = {
-      backup_unlocked: true,
-      backup_sources: [{ kind: "folder", path: "/mnt/main/photos" }],
-    };
-
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (url, init) => {
-        const u = typeof url === "string" ? url : url?.url || String(url);
-        if (u.includes("/auth/me") || u.includes("/api/v1/auth/me")) {
-          return new Response(JSON.stringify({ id: "1", role: "admin", username: "admin" }), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          });
-        }
-        if (u.includes("/setup")) {
-          return new Response(JSON.stringify({ setup_completed: true }), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          });
-        }
-        if (u.includes("/api/v1/drives")) {
-          return new Response(JSON.stringify([{ id: "d1", label: "Main", mount_point: "/mnt/main" }]), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          });
-        }
-        if (u.includes("/api/v1/backups")) {
-          return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
-        }
-        if (u.includes("/api/v1/connect/status")) {
-          return new Response(JSON.stringify(connectStatus), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          });
-        }
-        if (u.includes("/api/v1/connect/backup-sources") && init?.method === "POST") {
-          await backupSourcesPromise;
-          const body = JSON.parse(init.body || "{}");
-          connectStatus.backup_sources = body.sources;
-          return new Response(JSON.stringify({ ok: true }), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          });
-        }
-        return new Response("{}", { status: 500 });
-      }),
-    );
-
-    renderSheet();
-    const btn = await screen.findByRole("button", { name: "Stop cloud backup" });
-    expect(btn).not.toBeDisabled();
-
-    await user.click(btn);
-
-    // While in-flight, the button is loading and disabled
-    expect(btn).toBeDisabled();
-    expect(screen.getByRole("button", { name: /Stop cloud backup/i })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /Stop cloud backup/i })).toHaveAttribute("aria-busy", "true");
-
-    // Complete the POST and refetch
-    resolveBackupSources?.();
-
-    // Now the button transitions to "Copy to cloud" and is enabled
-    const copyBtn = await screen.findByRole("button", { name: "Copy to cloud" });
-    expect(copyBtn).toBeInTheDocument();
-    expect(copyBtn).not.toBeDisabled();
-    expect(copyBtn).not.toHaveAttribute("aria-busy");
-    expect(screen.queryByText("On")).not.toBeInTheDocument();
   });
 });

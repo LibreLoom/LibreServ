@@ -15,6 +15,6 @@ export default function useCanProtect(enabled = true) {
   });
   return canProtect({
     driveCount: (drives.data || []).length,
-    cloudBackupConnected: Boolean(connect.data?.backup_unlocked),
+    cloudBackupConnected: Boolean(connect.data?.connect_active),
   });
 }
