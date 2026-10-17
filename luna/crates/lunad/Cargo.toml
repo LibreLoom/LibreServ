@@ -53,6 +53,8 @@ ed25519-dalek = "2"
 hkdf = "0.12"
 hmac = "0.12"
 x25519-dalek = { version = "2", features = ["static_secrets"] }
+# Cloud backup chunking (backup/cloud/format.rs): content-defined chunk boundaries.
+fastcdc = "3"
 
 [build-dependencies]
 semver.workspace = true
