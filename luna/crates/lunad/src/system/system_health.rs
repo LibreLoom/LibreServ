@@ -945,17 +945,109 @@ fn add_drive_tool_checks(checks: &mut Checks, probes: &Probes) {
     }
 }
 
-/// Backup rows (category `backups`): cloud backup while it has sources.
-/// Warnings only — a backup problem never blocks setup or marks Luna
-/// unhealthy, but it must never go unseen.
+/// Backup rows (category `backups`): one per drive backup, plus cloud
+/// backup while it has sources. Warnings only — a backup problem never
+/// blocks setup or marks Luna unhealthy, but it must never go unseen.
 pub fn backup_checks(
     conn: &Connection,
     cloud_sources: bool,
     now: i64,
 ) -> HashMap<String, HealthCheckResult> {
+    use crate::backup::drive_backup::state as drive_state;
     use crate::backup::status::{BackupState, ago};
     let mut checks = Checks::default();
     let last = |at: i64| if at > 0 { ago(at, now) } else { "never".into() };
+    let drive_label = |id: &str| {
+        crate::db::get_drive(conn, id)
+            .ok()
+            .flatten()
+            .map(|d| d.label)
+            .filter(|l| !l.trim().is_empty())
+            .unwrap_or_else(|| "a drive that's not connected".into())
+    };
+
+    for row in crate::db::list_protections(conn).unwrap_or_default() {
+        if row.kind != crate::db::PROTECTION_DRIVE {
+            continue;
+        }
+        let source_name = drive_label(&row.source_drive);
+        let folder = row
+            .source_path
+            .trim_matches('/')
+            .rsplit('/')
+            .next()
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| source_name.clone());
+        let target = drive_label(&row.target_drive);
+        let details = json!({
+            "folder": folder,
+            "target_drive": target,
+            "last_ok_at": row.last_ok_at,
+        });
+        let name = format!("drive_backup_{}", row.id);
+        let last_copy = format!("Last good copy: {}.", last(row.last_ok_at));
+        if row.state == "stopped" || row.state == "source_gone" {
+            // Final, not a failure: a person chose it or the folder is gone.
+            let reason = if row.stop_reason.trim().is_empty() {
+                "Luna didn't save a reason.".to_string()
+            } else {
+                row.stop_reason.clone()
+            };
+            checks.add(
+                &name,
+                "backups",
+                PASSED,
+                format!("{folder}'s backup is stopped: {reason}"),
+                Some(details),
+            );
+            continue;
+        }
+        match drive_state(&row, now) {
+            BackupState::Ok => {
+                let mut ok_details = details;
+                if !row.notes.is_empty() {
+                    ok_details["notes"] = json!(row.notes);
+                }
+                let message = if row.last_ok_at > 0 {
+                    format!(
+                        "{folder} was backed up to {target} {}.",
+                        ago(row.last_ok_at, now)
+                    )
+                } else {
+                    format!("Luna will back up {folder} to {target} soon.")
+                };
+                checks.add(&name, "backups", PASSED, message, Some(ok_details));
+            }
+            BackupState::Failing => {
+                checks
+                    .add(
+                        &name,
+                        "backups",
+                        WARNING,
+                        format!("The backup of {folder} on {target} is out of date."),
+                        Some(details),
+                    )
+                    .more(format!("{} {last_copy}", row.last_error));
+            }
+            BackupState::Stale => {
+                let why = if row.last_error.is_empty() {
+                    "Luna backs it up every 30 minutes while it's on.".to_string()
+                } else {
+                    row.last_error.clone()
+                };
+                checks
+                    .add(
+                        &name,
+                        "backups",
+                        WARNING,
+                        format!("{folder} hasn't been backed up to {target} in over a day."),
+                        Some(details),
+                    )
+                    .more(format!("{why} {last_copy}"));
+            }
+        }
+    }
 
     if cloud_sources {
         let record = crate::backup::cloud_backup::read_status(conn).unwrap_or_default();
@@ -1700,6 +1792,120 @@ mod tests {
         );
         let resp = comprehensive(dir.path(), &conn);
         assert!(!resp.checks.contains_key("drive_d1_smart"));
+    }
+
+    fn add_drive_backup(
+        conn: &Connection,
+        id: &str,
+        source_drive: &str,
+        source_path: &str,
+        target_drive: &str,
+        created_at: i64,
+    ) {
+        crate::db::insert_protection(
+            conn,
+            &crate::db::NewProtection {
+                id,
+                kind: crate::db::PROTECTION_DRIVE,
+                source_drive,
+                source_path,
+                target_drive,
+                private_owner: "",
+                created_by: "",
+                created_at,
+            },
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn drive_backups_warn_in_one_sentence() {
+        let (_dir, conn) = setup();
+        insert_drive(&conn, "a", "Main", "ready", "ext4", "sda", "/mnt/a");
+        insert_drive(&conn, "b", "Backup B", "ready", "ext4", "sdb", "/mnt/b");
+        let now = 10_000_000;
+        let old = now - 3 * 86_400;
+        add_drive_backup(&conn, "p1", "a", "/family", "b", old);
+        add_drive_backup(&conn, "p2", "a", "/work", "b", old);
+        add_drive_backup(&conn, "p3", "a", "/music", "b", old);
+        add_drive_backup(&conn, "p4", "a", "/photos", "b", old);
+        add_drive_backup(&conn, "p5", "a", "/docs", "gone", now - 300);
+        add_drive_backup(&conn, "p6", "a", "/new", "b", now - 60);
+        crate::db::record_protection_error(
+            &conn,
+            "p1",
+            "Luna can't find the drive Backup B, so family wasn't backed up.",
+            true,
+            now - 60,
+        )
+        .unwrap();
+        crate::db::record_protection_ok(&conn, "p2", now - 2 * 86_400, "").unwrap();
+        crate::db::record_protection_ok(&conn, "p3", now - 600, "").unwrap();
+        crate::db::set_protection_notes(&conn, "p3", "Luna skipped one file.").unwrap();
+        crate::db::record_protection_ok(&conn, "p5", now - 300, "").unwrap();
+        conn.execute(
+            "UPDATE protections SET state = 'stopped', stop_reason = 'Luna stopped this backup.'
+             WHERE id = 'p4'",
+            [],
+        )
+        .unwrap();
+
+        let checks = backup_checks(&conn, false, now);
+        assert!(!checks.contains_key("cloud_backup"), "no sources, no row");
+        let failing = &checks["drive_backup_p1"];
+        assert_eq!(failing.status, WARNING);
+        assert_eq!(failing.category, "backups");
+        assert_eq!(
+            failing.message,
+            "The backup of family on Backup B is out of date."
+        );
+        assert_eq!(
+            failing.more.as_deref(),
+            Some(
+                "Luna can't find the drive Backup B, so family wasn't backed up. Last good copy: never."
+            )
+        );
+        assert_eq!(
+            checks["drive_backup_p2"].status, WARNING,
+            "stale after a day"
+        );
+        assert_eq!(
+            checks["drive_backup_p2"].message,
+            "work hasn't been backed up to Backup B in over a day."
+        );
+        let done = &checks["drive_backup_p3"];
+        assert_eq!(done.status, PASSED);
+        assert_eq!(
+            done.message,
+            "music was backed up to Backup B 10 minutes ago."
+        );
+        assert_eq!(
+            done.details.as_ref().unwrap()["notes"],
+            "Luna skipped one file."
+        );
+        assert_eq!(
+            checks["drive_backup_p4"].message,
+            "photos's backup is stopped: Luna stopped this backup."
+        );
+        assert_eq!(checks["drive_backup_p4"].status, PASSED);
+        assert_eq!(
+            checks["drive_backup_p5"].message,
+            "docs was backed up to a drive that's not connected 5 minutes ago."
+        );
+        assert_eq!(
+            checks["drive_backup_p6"].message,
+            "Luna will back up new to Backup B soon."
+        );
+        for (name, check) in &checks {
+            assert!(
+                !check.message.trim_end_matches('.').contains(". "),
+                "{name}: {}",
+                check.message
+            );
+            if check.status != PASSED {
+                assert!(check.more.is_some(), "{name} has nothing one step in");
+            }
+        }
     }
 
     #[test]

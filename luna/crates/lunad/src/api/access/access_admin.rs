@@ -310,6 +310,9 @@ pub(super) async fn add_member(
             ));
         }
         db::update_access_member_caps(&conn, &row.id, caps).map_err(|_| busy())?;
+        if subj.kind == KIND_PATH {
+            crate::backup::drive_backup::on_grants_changed(&conn, &subj.drive_id);
+        }
         return Ok(Json(member_json(&AccessMemberRow { caps, ..row }, &names)));
     }
 
@@ -324,6 +327,9 @@ pub(super) async fn add_member(
         created_by: user.id.clone(),
     };
     access::create_member(&conn, &row).map_err(|_| busy())?;
+    if subj.kind == KIND_PATH {
+        crate::backup::drive_backup::on_grants_changed(&conn, &subj.drive_id);
+    }
     Ok(Json(member_json(&row, &names)))
 }
 
@@ -377,6 +383,9 @@ pub(super) async fn update_member(
         ));
     }
     db::update_access_member_caps(&conn, &id, caps).map_err(|_| busy())?;
+    if row.subject_kind == KIND_PATH {
+        crate::backup::drive_backup::on_grants_changed(&conn, &row.drive_id);
+    }
     let names = user_names(&conn);
     Ok(Json(member_json(&AccessMemberRow { caps, ..row }, &names)))
 }
@@ -408,6 +417,9 @@ pub(super) async fn remove_member(
         ));
     }
     db::delete_access_member(&conn, &id).map_err(|_| busy())?;
+    if row.subject_kind == KIND_PATH {
+        crate::backup::drive_backup::on_grants_changed(&conn, &row.drive_id);
+    }
     Ok(Json(json!({ "ok": true })))
 }
 

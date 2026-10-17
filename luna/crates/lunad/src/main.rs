@@ -456,6 +456,36 @@ async fn async_main() -> anyhow::Result<()> {
         }
     }));
 
+    // Drive backups: rebuild the backup list from the copies on the drives
+    // once at start, then run every active backup every 30 minutes.
+    let backups_db = state.db.clone();
+    let backups_health = state.health_cache.clone();
+    bg_tasks.push(tokio::spawn(async move {
+        let db = backups_db.clone();
+        let rebuilt = tokio::task::spawn_blocking(move || {
+            let conn = db.lock().unwrap_or_else(|p| p.into_inner());
+            lunad::backup::drive_backup::rebuild_from_manifests(&conn)
+        })
+        .await
+        .unwrap_or(0);
+        if rebuilt > 0 {
+            backups_health.invalidate();
+        }
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(30 * 60));
+        loop {
+            ticker.tick().await;
+            let db = backups_db.clone();
+            let changed = tokio::task::spawn_blocking(move || {
+                lunad::backup::drive_backup::run_all(&db, lunad::db::now_unix())
+            })
+            .await
+            .unwrap_or(false);
+            if changed {
+                backups_health.invalidate();
+            }
+        }
+    }));
+
     let scrub_state = state.clone();
     bg_tasks.push(tokio::spawn(async move {
         let mut ticker = tokio::time::interval(std::time::Duration::from_secs(10 * 60));

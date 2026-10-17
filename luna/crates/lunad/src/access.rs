@@ -357,6 +357,8 @@ pub fn repath_subjects_move(
             moved += 1;
         }
     }
+    // Backups follow the folder too, whether or not any grant moved.
+    crate::backup::drive_backup::on_moved(conn, old_drive, &old_path, new_drive, &new_path);
     Ok(moved)
 }
 
