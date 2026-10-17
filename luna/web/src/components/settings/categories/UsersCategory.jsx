@@ -8,6 +8,7 @@ import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
+import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import Table from "@libreloom/ui/components/common/Table.jsx";
 import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
@@ -249,10 +250,9 @@ export default function UsersCategory() {
         )}
 
         <section className="mt-5" aria-label="User list">
-          <SettingsCard icon={Users} title="People on this Luna" padding={false}>
+          <SettingsCard icon={Users} title="People on this Luna">
         {showEmpty && (
           <EmptyState
-            className="p-5"
             icon={User}
             title="No people yet"
             description="Add someone to share drives with."
@@ -285,7 +285,7 @@ export default function UsersCategory() {
                             <span className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
                               <User size={14} aria-hidden="true" />
                             </span>
-                            <span className="font-semibold text-sm text-primary">
+                            <span className="text-sm text-primary">
                               {row.display_name || row.username}
                             </span>
                           </>
@@ -311,8 +311,8 @@ export default function UsersCategory() {
                       key: "username",
                       label: "Username",
                       render: (row) => (
-                        <span className="inline-flex items-center px-2.5 py-1 rounded-pill bg-primary/10 text-sm font-mono text-primary">
-                          {row.username}
+                        <span className="text-sm text-primary">
+                          <InlinePill>{row.username}</InlinePill>
                         </span>
                       ),
                     },
