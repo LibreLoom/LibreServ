@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -93,9 +94,15 @@ func (s *countingStore) Delete(accountID, deviceID, relPath string) error {
 	return s.Store.Delete(accountID, deviceID, relPath)
 }
 
-// signMove returns the X-Luna-Sig value a Luna sends when moving to deviceID.
-func signMove(priv ed25519.PrivateKey, lunaID, deviceID string) string {
-	return base64.StdEncoding.EncodeToString(ed25519.Sign(priv, []byte("luna-sig-v1\x00move\x00"+lunaID+deviceID)))
+// signMove returns the X-Luna-Sig and X-Luna-Ts headers a Luna sends to move to a
+// new device, signed at time ts.
+func signMove(priv ed25519.PrivateKey, lunaID string, ts int64) map[string]string {
+	tsStr := strconv.FormatInt(ts, 10)
+	sig := ed25519.Sign(priv, []byte("luna-sig-v1\x00move\x00"+lunaID+"\x00"+tsStr))
+	return map[string]string{
+		"X-Luna-Sig": base64.StdEncoding.EncodeToString(sig),
+		"X-Luna-Ts":  tsStr,
+	}
 }
 
 // fixtureAccountID returns the account that owns the fixture's device.
@@ -323,13 +330,13 @@ func TestStorageSecondDeviceNeedsSignature(t *testing.T) {
 		t.Fatalf("second device replacing key: %d", rec.Code)
 	}
 	// A signature from some other key is refused too.
-	bad := map[string]string{"X-Luna-Sig": signMove(otherPriv, "luna1", "dev_sigs-2")}
+	bad := signMove(otherPriv, "luna1", time.Now().Unix())
 	if rec := storageDo(t, h, http.MethodGet, "/records/identity/public", tok2, "luna1", nil, bad); rec.Code != http.StatusForbidden {
 		t.Fatalf("wrong-key sig: %d", rec.Code)
 	}
 
 	// A signature from the Luna's own key moves it to the second device.
-	good := map[string]string{"X-Luna-Sig": signMove(priv, "luna1", "dev_sigs-2")}
+	good := signMove(priv, "luna1", time.Now().Unix())
 	if rec := storageDo(t, h, http.MethodGet, "/records/identity/public", tok2, "luna1", nil, good); rec.Code != http.StatusOK {
 		t.Fatalf("takeover with valid sig: %d %s", rec.Code, rec.Body.String())
 	}
@@ -449,5 +456,96 @@ BEGIN SELECT RAISE(ABORT, 'forced failure'); END`); err != nil {
 	rc.Close()
 	if get := storageDo(t, h, http.MethodGet, "/packs/"+id, tok, "luna1", nil, nil); get.Code != http.StatusNotFound {
 		t.Fatalf("unrecorded pack readable: %d", get.Code)
+	}
+}
+
+func TestStorageMoveSignatureMustBeFresh(t *testing.T) {
+	h, d, tok := storageFixture(t, "fresh", 0)
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec := storageDo(t, h, http.MethodPut, "/records/identity/public", tok, "luna1", []byte(hex.EncodeToString(pub)), nil); rec.Code != http.StatusOK {
+		t.Fatalf("set key %d", rec.Code)
+	}
+	tok2 := addStorageDevice(t, d, "fresh", tok)
+	now := time.Now().Unix()
+	for _, ts := range []int64{now - 301, now + 301} {
+		if rec := storageDo(t, h, http.MethodGet, "/records/identity/public", tok2, "luna1", nil, signMove(priv, "luna1", ts)); rec.Code != http.StatusForbidden {
+			t.Fatalf("signature at %d accepted: %d", ts, rec.Code)
+		}
+	}
+	// A signature for a different Luna does not move this one.
+	if rec := storageDo(t, h, http.MethodGet, "/records/identity/public", tok2, "luna1", nil, signMove(priv, "luna2", now)); rec.Code != http.StatusForbidden {
+		t.Fatalf("signature for another Luna accepted: %d", rec.Code)
+	}
+	// A timestamp inside the window moves the Luna.
+	if rec := storageDo(t, h, http.MethodGet, "/records/identity/public", tok2, "luna1", nil, signMove(priv, "luna1", now-299)); rec.Code != http.StatusOK {
+		t.Fatalf("fresh signature refused: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestStorageReadDoesNotClaimLuna(t *testing.T) {
+	h, d, tok := storageFixture(t, "readonly", 0)
+	if rec := storageDo(t, h, http.MethodGet, "/records/identity/public", tok, "ghost", nil, nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("read of unknown Luna: %d", rec.Code)
+	}
+	var n int
+	if err := d.DB.QueryRow(`SELECT COUNT(*) FROM luna_ids WHERE luna_id = ?`, "ghost").Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("read created %d luna_ids rows", n)
+	}
+	if rec := storageDo(t, h, http.MethodPut, "/records/notes/a", tok, "ghost", []byte("hi"), nil); rec.Code != http.StatusOK {
+		t.Fatalf("write %d", rec.Code)
+	}
+	if err := d.DB.QueryRow(`SELECT COUNT(*) FROM luna_ids WHERE luna_id = ?`, "ghost").Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("write did not claim the Luna: %d rows", n)
+	}
+}
+
+func TestStorageNonOwnerCannotSetFirstSigningKey(t *testing.T) {
+	h, d, tok := storageFixture(t, "nokey", 0)
+	if rec := storageDo(t, h, http.MethodPut, "/records/notes/a", tok, "luna1", []byte("hi"), nil); rec.Code != http.StatusOK {
+		t.Fatalf("claim %d", rec.Code)
+	}
+	tok2 := addStorageDevice(t, d, "nokey", tok)
+	pub, _, _ := ed25519.GenerateKey(rand.Reader)
+	if rec := storageDo(t, h, http.MethodPut, "/records/identity/public", tok2, "luna1", []byte(hex.EncodeToString(pub)), nil); rec.Code != http.StatusForbidden {
+		t.Fatalf("non-owner set first key: %d", rec.Code)
+	}
+	if rec := storageDo(t, h, http.MethodPost, "/luna-ids/luna1/signing-public", tok2, "", []byte(hex.EncodeToString(pub)), nil); rec.Code != http.StatusForbidden {
+		t.Fatalf("non-owner POST first key: %d", rec.Code)
+	}
+	var owner, key string
+	if err := d.DB.QueryRow(`SELECT device_id, signing_public FROM luna_ids WHERE luna_id = ?`, "luna1").Scan(&owner, &key); err != nil {
+		t.Fatal(err)
+	}
+	if owner != "dev_nokey" || key != "" {
+		t.Fatalf("owner %q key %q after refused takeover", owner, key)
+	}
+}
+
+func TestRecordPackUpdatesBackend(t *testing.T) {
+	_, d, _ := storageFixture(t, "packback", 0)
+	acctID := fixtureAccountID(t, d, "packback")
+	id := strings.Repeat("ab", 32)
+	if err := recordPack(d.DB.DB, acctID, "luna1", id, "", 5, "local"); err != nil {
+		t.Fatal(err)
+	}
+	if err := recordPack(d.DB.DB, acctID, "luna1", id, "", 5, "b2"); err != nil {
+		t.Fatal(err)
+	}
+	var backend string
+	var n int
+	if err := d.DB.QueryRow(`SELECT storage_backend, COUNT(*) FROM storage_packs WHERE account_id = ? AND id = ?`, acctID, id).Scan(&backend, &n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 || backend != "b2" {
+		t.Fatalf("rows %d backend %q, want 1 row on b2", n, backend)
 	}
 }

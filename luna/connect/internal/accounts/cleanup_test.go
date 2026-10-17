@@ -74,6 +74,9 @@ VALUES ('acct_gone', 'gone@b.co', 'x', 0, 'none', 0, ?)`, old); err != nil {
 	if _, err := db.Exec(`INSERT INTO storage_records (account_id, luna_id, kind, name, bytes, updated_at) VALUES ('acct_gone', 'luna1', 'notes', 'todo', 5, ?)`, old); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.Exec(`INSERT INTO luna_ids (account_id, luna_id, device_id, created_at) VALUES ('acct_gone', 'luna1', 'dev_gone', ?)`, old); err != nil {
+		t.Fatal(err)
+	}
 	if _, _, err := st.Put("acct_gone", store.StorageSlot("luna1"), store.StoragePackPath("pack1"), strings.NewReader("pack-bytes")); err != nil {
 		t.Fatal(err)
 	}
@@ -91,6 +94,7 @@ VALUES ('acct_gone', 'gone@b.co', 'x', 0, 'none', 0, ?)`, old); err != nil {
 	for _, q := range []string{
 		`SELECT COUNT(*) FROM storage_packs`,
 		`SELECT COUNT(*) FROM storage_records`,
+		`SELECT COUNT(*) FROM luna_ids`,
 	} {
 		var left int
 		if err := db.QueryRow(q).Scan(&left); err != nil {
@@ -121,6 +125,39 @@ type notSetUpStore struct{ store.Store }
 
 func (notSetUpStore) DeleteBackend(string, string, string, string) error {
 	return providers.ErrBackupNotConfigured
+}
+
+// A B2 blob whose provider is not set up may still be in the cloud, so the
+// account and its rows are kept for a retry.
+func TestCleanupKeepsAccountWhenB2NotSetUp(t *testing.T) {
+	db, err := database.Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := database.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	local, err := store.NewLocal(filepath.Join(t.TempDir(), "obj"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	insertIdleAccount(t, db, "acct_b2", "b2", true)
+
+	n, err := CleanupOrphans(context.Background(), db, notSetUpStore{Store: local})
+	if err != nil {
+		t.Fatalf("run stopped: %v", err)
+	}
+	if n != 0 || accountRows(t, db, "acct_b2") != 1 {
+		t.Fatalf("removed %d, account rows left %d; want the account kept", n, accountRows(t, db, "acct_b2"))
+	}
+	var packs int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM storage_packs WHERE account_id = 'acct_b2'`).Scan(&packs); err != nil {
+		t.Fatal(err)
+	}
+	if packs != 1 {
+		t.Fatalf("pack row removed (%d left)", packs)
+	}
 }
 
 func insertIdleAccount(t *testing.T, db *database.DB, id string, packBackend string, withPack bool) {
@@ -192,7 +229,7 @@ func TestCleanupCountsMissingAndNotSetUpBlobsAsGone(t *testing.T) {
 		backend string
 		st      func(*store.Local) store.Store
 	}{
-		{"backend not set up", "b2", func(l *store.Local) store.Store { return notSetUpStore{Store: l} }},
+		{"local backend not set up", "local", func(l *store.Local) store.Store { return notSetUpStore{Store: l} }},
 		{"blob already missing", "local", func(l *store.Local) store.Store { return l }},
 	}
 	for _, c := range cases {

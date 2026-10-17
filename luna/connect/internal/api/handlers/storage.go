@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -27,6 +28,9 @@ const (
 	maxStorageRecordBytes = 1 << 20
 	identityKind          = "identity"
 	identityPublicName    = "public"
+	// storageSigWindow is how far, in seconds, a move signature's timestamp may
+	// differ from the server clock.
+	storageSigWindow = 300
 )
 
 var (
@@ -70,7 +74,9 @@ func storageScope(d Deps, w http.ResponseWriter, r *http.Request) (accountID, lu
 		JSONError(w, http.StatusBadRequest, "Luna did not say which Luna is asking. Update Luna and try again.")
 		return "", "", false
 	}
-	if !authorizeLuna(d, w, r, accountID, lunaID, deviceIDFrom(r)) {
+	// Only a PUT may claim a Luna. Other calls find the Luna's existing owner and
+	// never create a row.
+	if !authorizeLuna(d, w, r, accountID, lunaID, deviceIDFrom(r), r.Method == http.MethodPut) {
 		return "", "", false
 	}
 	return accountID, lunaID, true
@@ -99,9 +105,21 @@ ON CONFLICT(account_id, luna_id) DO NOTHING`, accountID, lunaID, deviceID, time.
 	return boundDevice, signingHex, err
 }
 
-// lunaSigValid reports whether the request carries a signature, made with the
-// Luna's registered signing key, that moves this Luna to the calling device.
-func lunaSigValid(r *http.Request, signingHex, lunaID, deviceID string) bool {
+// lookupLuna returns the owning device and signing key of a Luna without creating
+// a row. found is false when the account has never claimed this Luna.
+func lookupLuna(d Deps, accountID, lunaID string) (boundDevice, signingHex string, found bool, err error) {
+	err = d.DB.QueryRow(`SELECT device_id, signing_public FROM luna_ids WHERE account_id = ? AND luna_id = ?`,
+		accountID, lunaID).Scan(&boundDevice, &signingHex)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", false, nil
+	}
+	return boundDevice, signingHex, err == nil, err
+}
+
+// lunaSigValid reports whether the request carries a fresh signature, made with the
+// Luna's registered signing key, that moves this Luna to a new device. The signed
+// message is the domain prefix, the Luna id, a zero byte and X-Luna-Ts.
+func lunaSigValid(r *http.Request, signingHex, lunaID string, now time.Time) bool {
 	pub, err := hex.DecodeString(signingHex)
 	if err != nil || len(pub) != ed25519.PublicKeySize {
 		return false
@@ -110,23 +128,41 @@ func lunaSigValid(r *http.Request, signingHex, lunaID, deviceID string) bool {
 	if err != nil || len(sig) != ed25519.SignatureSize {
 		return false
 	}
-	msg := []byte("luna-sig-v1\x00move\x00" + lunaID + deviceID)
+	ts := strings.TrimSpace(r.Header.Get("X-Luna-Ts"))
+	sentAt, err := strconv.ParseInt(ts, 10, 64)
+	if err != nil {
+		return false
+	}
+	if skew := now.Unix() - sentAt; skew < -storageSigWindow || skew > storageSigWindow {
+		return false
+	}
+	msg := []byte("luna-sig-v1\x00move\x00" + lunaID + "\x00" + ts)
 	return ed25519.Verify(pub, msg, sig)
 }
 
-// authorizeLuna lets the calling device use a Luna's storage. Another device on the
-// same account may take the Luna over only with a valid X-Luna-Sig from that Luna's
-// signing key, and then it becomes the owner.
-func authorizeLuna(d Deps, w http.ResponseWriter, r *http.Request, accountID, lunaID, deviceID string) bool {
-	bound, signing, err := bindLuna(d, accountID, lunaID, deviceID)
+// authorizeLuna lets the calling device use a Luna's storage. A PUT (write) claims an
+// unclaimed Luna for the calling device. Any other call only reads the owner, so an
+// unknown Luna simply has nothing stored. A device that is not the owner may take the
+// Luna over only with a fresh X-Luna-Sig from that Luna's signing key, and then it
+// becomes the owner.
+func authorizeLuna(d Deps, w http.ResponseWriter, r *http.Request, accountID, lunaID, deviceID string, write bool) bool {
+	var bound, signing string
+	var found bool
+	var err error
+	if write {
+		bound, signing, err = bindLuna(d, accountID, lunaID, deviceID)
+		found = err == nil
+	} else {
+		bound, signing, found, err = lookupLuna(d, accountID, lunaID)
+	}
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "Cloud storage could not check this Luna. Try again.")
 		return false
 	}
-	if bound == deviceID {
+	if !found || bound == deviceID {
 		return true
 	}
-	if !lunaSigValid(r, signing, lunaID, deviceID) {
+	if !lunaSigValid(r, signing, lunaID, time.Now()) {
 		JSONError(w, http.StatusForbidden, "This Luna's cloud storage belongs to another device on your account.")
 		return false
 	}
@@ -146,12 +182,12 @@ func setSigningPublic(d Deps, w http.ResponseWriter, accountID, lunaID, deviceID
 		JSONError(w, http.StatusBadRequest, "That signing key is not valid. Update Luna and try again.")
 		return false
 	}
-	bound, signing, err := bindLuna(d, accountID, lunaID, deviceID)
+	bound, _, err := bindLuna(d, accountID, lunaID, deviceID)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "Cloud storage could not check this Luna. Try again.")
 		return false
 	}
-	if bound != deviceID && signing != "" {
+	if bound != deviceID {
 		JSONError(w, http.StatusForbidden, "This Luna's cloud storage belongs to another device on your account.")
 		return false
 	}
@@ -275,13 +311,21 @@ func (h StorageHandler) PutPack(w http.ResponseWriter, r *http.Request) {
 	}
 	// If this insert fails the stored bytes are left in place: a concurrent upload of
 	// the same pack may have recorded them, and an unrecorded copy is harmless.
-	if _, err := h.DB.Exec(`INSERT INTO storage_packs (account_id, luna_id, id, scope, size, storage_backend, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT(account_id, luna_id, id) DO NOTHING`, accountID, lunaID, id, scope, n, backend, time.Now().Unix()); err != nil {
+	if err := recordPack(h.DB.DB, accountID, lunaID, id, scope, n, backend); err != nil {
 		JSONError(w, http.StatusInternalServerError, "Cloud storage could not record that data. Try again.")
 		return
 	}
 	JSON(w, http.StatusOK, map[string]any{"ok": true, "id": id, "size": n, "created": true})
+}
+
+// recordPack saves where a pack's bytes live. If a concurrent upload of the same pack
+// already recorded a row, the row takes the backend that now holds the bytes.
+func recordPack(db *sql.DB, accountID, lunaID, id, scope string, size int64, backend string) error {
+	_, err := db.Exec(`INSERT INTO storage_packs (account_id, luna_id, id, scope, size, storage_backend, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(account_id, luna_id, id) DO UPDATE SET storage_backend = excluded.storage_backend`,
+		accountID, lunaID, id, scope, size, backend, time.Now().Unix())
+	return err
 }
 
 func (h StorageHandler) GetPack(w http.ResponseWriter, r *http.Request) {
