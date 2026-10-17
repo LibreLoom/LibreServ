@@ -362,9 +362,14 @@ fn run_inner(
         }
     };
     // The album list is read here, under the same lock as the access list.
-    let (access, albums) = with_conn(db, |c| {
+    // The Luna id goes in the manifest too, read under the same lock.
+    let (access, albums, luna_id) = with_conn(db, |c| {
         let access = access_list::for_source(c, &row.source_drive, &row.source_path);
-        (access, source_albums(c, &row, &source.root))
+        let luna_id = crate::backup::cloud::identity::load(c)
+            .ok()
+            .flatten()
+            .map(|identity| identity.luna_id);
+        (access, source_albums(c, &row, &source.root), luna_id)
     });
     let access = access?;
 
@@ -376,6 +381,7 @@ fn run_inner(
         &source.label,
         walked,
         &access,
+        luna_id,
         allow_mass_delete,
         now,
     ) {
@@ -494,6 +500,7 @@ fn sync_target(
     source_label: &str,
     walked: Vec<scope::Entry>,
     access: &access_list::AccessList,
+    luna_id: Option<String>,
     allow_mass_delete: bool,
     now: i64,
 ) -> io::Result<Option<RunOutcome>> {
@@ -527,7 +534,7 @@ fn sync_target(
         None => drive_store::Manifest {
             format: drive_store::MANIFEST_FORMAT,
             protection_id: row.id.clone(),
-            luna_id: String::new(),
+            luna_id: None,
             source_drive_id: row.source_drive.clone(),
             source_drive_label: source_label.to_string(),
             source_path: row.source_path.clone(),
@@ -626,6 +633,7 @@ fn sync_target(
     manifest.source_drive_id = row.source_drive.clone();
     manifest.source_path = row.source_path.clone();
     manifest.access = access.clone();
+    manifest.luna_id = luna_id;
     manifest.last_ok_at = now;
     save_manifest(&store, &mut manifest, now, &mut outcome.notes, &target.label)?;
 
@@ -1548,7 +1556,7 @@ mod tests {
                 mtime: 0,
             },
         ];
-        let outcome = sync_target(&target, &r, "Photos", walked, &access, false, NOW)
+        let outcome = sync_target(&target, &r, "Photos", walked, &access, None, false, NOW)
             .unwrap()
             .unwrap();
         assert_eq!(outcome.copied, 1);
@@ -1640,7 +1648,7 @@ mod tests {
         .unwrap();
         let roomy = with_limits(&s, drive_store::FsLimits::default());
         let walked = scope::walk(&docs(&s)).unwrap();
-        sync_target(&roomy, &r, "Photos", walked, &access, false, NOW)
+        sync_target(&roomy, &r, "Photos", walked, &access, None, false, NOW)
             .unwrap()
             .unwrap();
 
@@ -1654,7 +1662,7 @@ mod tests {
             },
         );
         let walked = scope::walk(&docs(&s)).unwrap();
-        let outcome = sync_target(&small, &r, "Photos", walked, &access, false, NOW)
+        let outcome = sync_target(&small, &r, "Photos", walked, &access, None, false, NOW)
             .unwrap()
             .unwrap();
         assert!(outcome.notes.iter().any(|n| n.contains("a.txt")), "{:?}", outcome.notes);
@@ -1683,14 +1691,14 @@ mod tests {
             },
         );
         let walked = scope::walk(&docs(&s)).unwrap();
-        sync_target(&ci, &r, "Photos", walked, &access, false, NOW)
+        sync_target(&ci, &r, "Photos", walked, &access, None, false, NOW)
             .unwrap()
             .unwrap();
 
         // Same name with different capitals, same content.
         fs::rename(&doc, docs(&s).join("Notes.txt")).unwrap();
         let walked = scope::walk(&docs(&s)).unwrap();
-        sync_target(&ci, &r, "Photos", walked, &access, false, NOW)
+        sync_target(&ci, &r, "Photos", walked, &access, None, false, NOW)
             .unwrap()
             .unwrap();
 

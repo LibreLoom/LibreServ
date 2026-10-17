@@ -373,7 +373,7 @@ mod tests {
         Manifest {
             format: MANIFEST_FORMAT,
             protection_id: id.into(),
-            luna_id: String::new(),
+            luna_id: None,
             source_drive_id: src.into(),
             source_drive_label: "Source".into(),
             source_path: path.into(),

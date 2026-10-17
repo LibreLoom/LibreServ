@@ -495,6 +495,11 @@ pub fn migrate_schema(conn: &Connection) -> anyhow::Result<()> {
             start INTEGER NOT NULL,
             end INTEGER NOT NULL,
             PRIMARY KEY (upload_id, start)
+         );
+         CREATE TABLE IF NOT EXISTS cloud_signing_keys (
+            luna_id TEXT PRIMARY KEY NOT NULL,
+            seed BLOB NOT NULL,
+            created_at INTEGER NOT NULL
          );",
     )?;
     ensure_search_fts(conn)?;

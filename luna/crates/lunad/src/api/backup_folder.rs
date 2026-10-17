@@ -1039,7 +1039,7 @@ mod tests {
         let manifest = Manifest {
             format: MANIFEST_FORMAT,
             protection_id: id.into(),
-            luna_id: String::new(),
+            luna_id: None,
             source_drive_id: source_drive.into(),
             source_drive_label: "Photos".into(),
             source_path: "Docs".into(),

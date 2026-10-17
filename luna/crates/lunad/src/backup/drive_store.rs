@@ -39,8 +39,9 @@ const FAT32_MAX_FILE: u64 = 4 * 1024 * 1024 * 1024 - 1;
 pub struct Manifest {
     pub format: u32,
     pub protection_id: String,
-    /// The lasting Luna id (plan §5). Empty until cloud setup provides it.
-    pub luna_id: String,
+    /// The lasting Luna id (plan §5). None until this Luna has a cloud identity.
+    #[serde(default)]
+    pub luna_id: Option<String>,
     pub source_drive_id: String,
     /// The source drive's name when last seen, for "came from" labels.
     pub source_drive_label: String,
@@ -716,7 +717,7 @@ mod tests {
         Manifest {
             format: MANIFEST_FORMAT,
             protection_id: ID.into(),
-            luna_id: String::new(),
+            luna_id: None,
             source_drive_id: "drive-1".into(),
             source_drive_label: "Photos".into(),
             source_path: "/Photos".into(),
