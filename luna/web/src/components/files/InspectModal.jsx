@@ -126,7 +126,7 @@ export default function InspectModal({ open = true, drive, result, error, onClos
                   </ul>
                   {(Number(result.folders) + Number(result.files) > result.entries.length) && (
                     <p className="text-secondary text-xs mt-2">
-                      Showing names at the{" "}
+                      Showing items at the{" "}
                       <TermHint content={ROOT_TERM_HINT} surface="primary">
                         root
                       </TermHint>{" "}
@@ -150,8 +150,9 @@ export default function InspectModal({ open = true, drive, result, error, onClos
                 <div className="mt-4 space-y-3">
                   <div className="flex items-start gap-3">
                     <TriangleAlert size={18} className="text-warning shrink-0 mt-0.5" />
-                    <span className="text-primary text-xs inline-flex items-center gap-1.5 flex-wrap">
+                    <span className="text-primary text-xs">
                       {blockedReason}
+                      {blockedHint && " "}
                       {blockedHint && <InfoHint label="Why this happens" content={blockedHint} />}
                     </span>
                   </div>

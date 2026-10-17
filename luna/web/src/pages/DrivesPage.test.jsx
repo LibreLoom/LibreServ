@@ -963,7 +963,7 @@ describe("DrivesPage", () => {
     await user.click(await screen.findByRole("button", { name: /^Add drive$/i }));
     const hint = await screen.findByText((_content, el) =>
       el?.tagName === "P" &&
-      /Showing names at the root of the drive/i.test(el.textContent || ""),
+      /Showing items at the root of the drive/i.test(el.textContent || ""),
     );
     expect(hint).toHaveClass("text-secondary");
     expect(hint).not.toHaveClass("text-primary");
