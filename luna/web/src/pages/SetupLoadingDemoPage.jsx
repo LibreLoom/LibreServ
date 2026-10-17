@@ -38,13 +38,12 @@ export default function SetupLoadingDemoPage() {
           <Button variant="secondary" onClick={() => setLoading(false)} disabled={!loading}>
             Finish loading
           </Button>
-          <Button variant="outline" surface="primary" onClick={restart}>
+          <Button variant="outline" onClick={restart}>
             Restart
           </Button>
           {SPEEDS.map((o) => (
             <Button
               key={o.value}
-              surface="primary"
               variant={slow === o.value ? "secondary" : "outline"}
               onClick={() => { setSlow(o.value); setLoading(true); }}
             >
