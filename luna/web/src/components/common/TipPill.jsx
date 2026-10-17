@@ -46,7 +46,7 @@ export default function TipPill() {
         <div data-slot="tip-pill" data-header-item onKeyDown={onKeyDown}>
           <LayeredPill
             icon={<Lightbulb size={ICON_SIZE.xs} aria-hidden="true" />}
-            actionIcon={<X size={ICON_SIZE.sm} strokeWidth={3} aria-hidden="true" />}
+            actionIcon={<X size={ICON_SIZE.xs} aria-hidden="true" />}
             actionIconOnly
             actionLabel={<span className="sr-only">Hide tips</span>}
             actionAriaLabel="Hide tips"

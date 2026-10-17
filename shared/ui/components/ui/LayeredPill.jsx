@@ -7,8 +7,10 @@ import { haptic } from "../../utils/haptics.js";
 /**
  * LayeredPill — the dual-layer segmented pill (settled format, do not deviate).
  *
- * Outer secondary track (accent outline) with an inset primary chip; the trailing segment is an
- * action button (when `onAction` is given) or static text (when not). Each
+ * Outer secondary track (accent outline) holding two pills inset by the same
+ * amount on every side, so each inner curve is concentric with the track's:
+ * a primary chip, then the trailing segment — an action button (when
+ * `onAction` is given) or static text (when not). Each
  * segment sizes to its own content; the wrap container keeps them on one line
  * unless there's no space, then the whole pill expands to two lines.
  *
@@ -69,22 +71,22 @@ export default function LayeredPill({
     ? cloneElement(actionIcon, { className: cn("shrink-0", actionIcon.props?.className) })
     : null;
   const segmentBase = cn(
-    "flex items-center gap-1 whitespace-nowrap text-xs py-1.5 rounded-r-pill text-primary",
-    actionIconOnly ? "w-7 justify-center px-0" : "pl-2.5 pr-3",
+    "flex items-center gap-1 whitespace-nowrap text-xs py-1.5 rounded-pill text-primary",
+    actionIconOnly ? "size-7 justify-center p-0" : "px-3",
     mono && "font-mono",
   );
   const hasAction = actionLabel != null && actionLabel !== "";
   const pill = (
     <div
       className={cn(
-        "inline-flex max-w-full items-center rounded-pill surface-secondary text-xs border border-accent",
+        "inline-flex max-w-full items-center rounded-pill surface-secondary text-xs border border-accent p-1",
         noWrap ? "flex-nowrap" : "flex-wrap",
         className,
       )}
     >
       <span
         className={cn(
-          "flex items-center gap-1.5 whitespace-nowrap surface-primary rounded-pill py-1.5 pl-3 pr-2.5",
+          "flex items-center gap-1.5 whitespace-nowrap surface-primary rounded-pill py-1.5 px-3",
           noWrap && "min-w-0",
           mono && "font-mono",
         )}
@@ -104,7 +106,7 @@ export default function LayeredPill({
           hasAction ? "grid-cols-[1fr] opacity-100" : "grid-cols-[0fr] opacity-0",
         )}
       >
-        <span className="min-w-0 overflow-hidden">
+        <span className="min-w-0 overflow-hidden pl-1">
           {onAction && hasAction ? (
             <button
               ref={actionRef}
@@ -117,7 +119,7 @@ export default function LayeredPill({
               aria-label={actionAriaLabel}
               className={cn(
                 segmentBase,
-                "cursor-pointer enabled:hover:underline underline-offset-2 motion-safe:transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
+                "cursor-pointer enabled:hover:ring-1 enabled:hover:ring-accent enabled:hover:underline underline-offset-2 motion-safe:transition-shadow disabled:opacity-50 disabled:cursor-not-allowed",
               )}
             >
               {btnIcon} {actionLabel}
