@@ -241,7 +241,7 @@ export default function CloudBackupCategory() {
                 key={backup.id}
                 backup={backup}
                 busy={busy}
-                missingSource={missingSourceId === backup.id}
+                missingSource={missingSourceId === backup.id || backup.source_missing === true}
                 onRun={(b) => runBackup.mutate({ id: b.id })}
                 onRunAnyway={(b) => runBackup.mutate({ id: b.id, acceptMissing: true })}
                 onCheck={(b) => checkBackup.mutate(b.id)}

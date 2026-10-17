@@ -441,7 +441,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                         Back up now
                       </Button>
                     )}
-                    {cloudBackup.status === "active" && missingSourceId === cloudBackup.id && (
+                    {cloudBackup.status === "active" && (missingSourceId === cloudBackup.id || cloudBackup.source_missing === true) && (
                       <Button
                         size="sm"
                         variant="outline"

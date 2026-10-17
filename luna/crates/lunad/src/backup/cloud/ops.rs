@@ -361,7 +361,7 @@ fn active_states(db: &crate::Db, now: i64) -> Vec<(String, BackupState)> {
 }
 
 /// Save a run's result on the row: a success refreshes the access list too.
-fn record(db: &crate::Db, id: &str, now: i64, outcome: &CloudOutcome) -> anyhow::Result<()> {
+pub(crate) fn record(db: &crate::Db, id: &str, now: i64, outcome: &CloudOutcome) -> anyhow::Result<()> {
     let conn = lock(db);
     let Some(row) = db::get_protection(&conn, id)? else {
         return Ok(());
@@ -373,6 +373,11 @@ fn record(db: &crate::Db, id: &str, now: i64, outcome: &CloudOutcome) -> anyhow:
         }
         Some(message) => db::record_protection_error(&conn, id, message, false, now)?,
     }
+    db::set_meta(
+        &conn,
+        &source_held_key(id),
+        if outcome.source_missing { "1" } else { "" },
+    )?;
     Ok(())
 }
 
@@ -502,6 +507,17 @@ fn refresh_access(conn: &Connection, row: &ProtectionRow) -> anyhow::Result<()> 
 /// Meta key for the last check's problem, empty when the check found nothing.
 fn check_key(id: &str) -> String {
     format!("cloud_check:{id}")
+}
+
+/// Meta key: "1" while the last run was held because the source looks missing.
+fn source_held_key(id: &str) -> String {
+    format!("cloud_source_held:{id}")
+}
+
+/// True when the last run was held because most of the source looks gone, so the
+/// "Back up anyway" choice should be offered again after a reload.
+pub fn last_run_source_missing(conn: &Connection, id: &str) -> bool {
+    matches!(db::get_meta(conn, &source_held_key(id)), Ok(Some(v)) if v == "1")
 }
 
 /// Bytes stored in the cloud for this backup: the live packs of every scope it
@@ -682,6 +698,31 @@ mod tests {
         let conn = lock(&s.db);
         let row = db::get_protection(&conn, &id).unwrap().unwrap();
         assert_eq!(row.last_error, NOT_SET_UP);
+    }
+
+    #[test]
+    fn a_held_run_is_remembered_until_a_later_run_clears_it() {
+        let s = setup();
+        let id = make_backup(&s);
+        let held = CloudOutcome {
+            problem: Some("The source looks missing or unplugged.".into()),
+            source_missing: true,
+            ..CloudOutcome::default()
+        };
+        record(&s.db, &id, NOW, &held).unwrap();
+        assert!(last_run_source_missing(&lock(&s.db), &id));
+
+        // A different failure is not the source hold, so the choice goes away.
+        let other = CloudOutcome {
+            problem: Some(NOT_SET_UP.into()),
+            ..CloudOutcome::default()
+        };
+        record(&s.db, &id, NOW + 1, &other).unwrap();
+        assert!(!last_run_source_missing(&lock(&s.db), &id));
+
+        record(&s.db, &id, NOW + 2, &held).unwrap();
+        record(&s.db, &id, NOW + 3, &CloudOutcome::default()).unwrap();
+        assert!(!last_run_source_missing(&lock(&s.db), &id));
     }
 
     /// A store whose user-list writes are refused, to check that the copy still runs.

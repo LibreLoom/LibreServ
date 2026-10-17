@@ -42,6 +42,9 @@ pub struct CloudOutcome {
     pub reused_chunks: u64,
     pub snapshot_id: Option<String>,
     pub problem: Option<String>,
+    /// True when the run was held because most of the source looks gone. A person can
+    /// then choose "Back up anyway", which runs it with `accept_missing`.
+    pub source_missing: bool,
 }
 
 /// Runs one backup for `protection_id` against `store` and returns what happened.
@@ -92,7 +95,12 @@ fn run_with_root(
     // If the last copy cannot be read, the check is skipped and the run goes ahead.
     if !accept_missing {
         match source_looks_missing(db, protection_id, root, store) {
-            Ok(true) => return Ok(problem_outcome(SOURCE_MISSING)),
+            Ok(true) => {
+                return Ok(CloudOutcome {
+                    source_missing: true,
+                    ..problem_outcome(SOURCE_MISSING)
+                })
+            }
             Ok(false) => {}
             Err(err) => {
                 tracing::warn!(error = %err, protection_id, "could not check the source against the last copy; running anyway");
@@ -502,6 +510,7 @@ fn copy_and_commit(
         reused_chunks: copy.reused_chunks,
         snapshot_id: Some(snapshot_id),
         problem: None,
+        source_missing: false,
     })
 }
 
@@ -655,6 +664,7 @@ mod tests {
         std::fs::remove_file(src.join("b.bin")).unwrap();
         let held = run_with_root(&db, "p6", &src, &store, "user-1", false, 200).unwrap();
         assert_eq!(held.problem.as_deref(), Some(SOURCE_MISSING));
+        assert!(held.source_missing);
         assert_eq!(held.snapshot_id, None);
         assert_eq!(store.list_records("snapshots").unwrap().len(), 1);
         let open_runs: i64 = lock(&db)
@@ -675,6 +685,7 @@ mod tests {
         std::fs::remove_file(src.join("b.bin")).unwrap();
         let out = run_with_root(&db, "p8", &src, &store, "user-1", true, 200).unwrap();
         assert_eq!(out.problem, None);
+        assert!(!out.source_missing);
         assert!(out.snapshot_id.is_some());
         assert_eq!(store.list_records("snapshots").unwrap().len(), 2);
     }
