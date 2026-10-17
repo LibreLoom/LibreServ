@@ -164,6 +164,7 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             failing_since INTEGER NOT NULL DEFAULT 0,
             last_checked_at INTEGER NOT NULL DEFAULT 0,
             first_done INTEGER NOT NULL DEFAULT 0,
+            notes TEXT NOT NULL DEFAULT '',          -- files the last good run couldn't copy as they are, one per line
             UNIQUE (kind, source_drive, source_path, target_drive)
         );
         ",
@@ -1012,7 +1013,7 @@ pub const PROTECTION_SOURCE_GONE: &str = "source_gone";
 
 const PROTECTION_COLUMNS: &str = "id, kind, source_drive, source_path, target_drive,
     private_owner, created_by, created_at, state, stop_reason, access_json,
-    last_ok_at, last_error, hard, failing_since, last_checked_at, first_done";
+    last_ok_at, last_error, hard, failing_since, last_checked_at, first_done, notes";
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProtectionRow {
@@ -1035,6 +1036,10 @@ pub struct ProtectionRow {
     pub failing_since: i64,
     pub last_checked_at: i64,
     pub first_done: bool,
+    /// Files the last good run couldn't copy as they are (case clash, too
+    /// big for the target's format), one plain sentence per line. Not a
+    /// failure: the rest of the backup is fine.
+    pub notes: String,
 }
 
 pub struct NewProtection<'a> {
@@ -1067,6 +1072,7 @@ fn protection_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProtectionRo
         failing_since: row.get(14)?,
         last_checked_at: row.get(15)?,
         first_done: row.get::<_, i64>(16)? != 0,
+        notes: row.get(17)?,
     })
 }
 
@@ -1168,6 +1174,15 @@ pub fn record_protection_error(
              failing_since = CASE WHEN failing_since = 0 THEN ?4 ELSE failing_since END
          WHERE id = ?1",
         params![id, message, hard as i64, now],
+    )?;
+    Ok(())
+}
+
+/// Save what the last good run couldn't copy as it is (empty clears it).
+pub fn set_protection_notes(conn: &Connection, id: &str, notes: &str) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE protections SET notes = ?2 WHERE id = ?1",
+        params![id, notes],
     )?;
     Ok(())
 }
