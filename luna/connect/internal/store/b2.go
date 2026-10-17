@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
@@ -10,6 +11,7 @@ import (
 	"strings"
 
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/providers"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/security"
 )
 
 // B2 stores backup objects in one Backblaze B2 bucket per Luna device.
@@ -93,12 +95,36 @@ func (s *B2) Put(accountID, deviceID, relPath string, r io.Reader) (int64, strin
 	return n, BackendB2, nil
 }
 
+// existingBucket returns a device's bucket if one was already provisioned. It never
+// creates a bucket, so reads and deletes cannot provision new Backblaze storage.
+// A missing bucket reports os.ErrNotExist.
+func (s *B2) existingBucket(deviceID string) (*providers.DeviceBucket, error) {
+	var b providers.DeviceBucket
+	var sealed string
+	err := s.DB.QueryRow(`
+SELECT device_id, bucket_name, bucket_id, endpoint, key_id, application_key_sealed
+FROM device_backup_buckets WHERE device_id = ?`, deviceID).
+		Scan(&b.DeviceID, &b.BucketName, &b.BucketID, &b.Endpoint, &b.KeyID, &sealed)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("no backup bucket for this Luna: %w", os.ErrNotExist)
+	}
+	if err != nil {
+		return nil, err
+	}
+	key, err := security.OpenString(sealed)
+	if err != nil {
+		return nil, fmt.Errorf("could not unlock backup credentials: %w", err)
+	}
+	b.Key = key
+	return &b, nil
+}
+
 func (s *B2) Get(accountID, deviceID, relPath string) (io.ReadCloser, error) {
 	key, err := s.objectKey(accountID, deviceID, relPath)
 	if err != nil {
 		return nil, err
 	}
-	bucket, err := s.Provisioner.EnsureDeviceBucket(deviceID)
+	bucket, err := s.existingBucket(deviceID)
 	if err != nil {
 		return nil, err
 	}
@@ -110,7 +136,7 @@ func (s *B2) Delete(accountID, deviceID, relPath string) error {
 	if err != nil {
 		return err
 	}
-	bucket, err := s.Provisioner.EnsureDeviceBucket(deviceID)
+	bucket, err := s.existingBucket(deviceID)
 	if err != nil {
 		return err
 	}

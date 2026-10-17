@@ -69,3 +69,54 @@ func TestPutGetStaysUnderRoot(t *testing.T) {
 		t.Fatal("object escaped root")
 	}
 }
+
+// failingReader yields some bytes and then fails, like a dropped upload.
+type failingReader struct {
+	data []byte
+	err  error
+}
+
+func (f *failingReader) Read(p []byte) (int, error) {
+	if len(f.data) > 0 {
+		n := copy(p, f.data)
+		f.data = f.data[n:]
+		return n, nil
+	}
+	return 0, f.err
+}
+
+func TestLocalPutFailureKeepsExistingObject(t *testing.T) {
+	s, err := NewLocal(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.Put("acct_1", "dev_1", "a.txt", strings.NewReader("old")); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = s.Put("acct_1", "dev_1", "a.txt", &failingReader{data: []byte("partial"), err: io.ErrUnexpectedEOF})
+	if err == nil {
+		t.Fatal("failed upload reported success")
+	}
+	rc, err := s.Get("acct_1", "dev_1", "a.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := io.ReadAll(rc)
+	rc.Close()
+	if string(got) != "old" {
+		t.Fatalf("existing object changed to %q", got)
+	}
+	p, err := s.path("acct_1", "dev_1", "a.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(filepath.Dir(p))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".put-") {
+			t.Fatalf("temp file %s left behind", e.Name())
+		}
+	}
+}

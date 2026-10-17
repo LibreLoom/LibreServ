@@ -49,10 +49,10 @@ func (a *Auto) Put(accountID, deviceID, relPath string, r io.Reader) (int64, str
 	dst := PreferredBackend(a.DB)
 	old := a.lookupBackend(accountID, deviceID, relPath)
 
+	// A failed Put cleans up its own partial upload (temp file). It must not delete
+	// the destination path: an object already committed there could be the real copy.
 	n, _, err := a.put(dst, accountID, deviceID, relPath, r)
 	if err != nil {
-		// Remove a partial write on the destination only — do not touch an older copy.
-		_ = a.del(dst, accountID, deviceID, relPath)
 		return n, dst, err
 	}
 	if old != "" && old != dst {
@@ -115,17 +115,50 @@ func (a *Auto) lookupBackend(accountID, deviceID, relPath string) string {
 	if a.DB == nil {
 		return ""
 	}
-	var be string
-	err := a.DB.QueryRow(`
+	if be := a.queryBackend(`
 SELECT COALESCE(storage_backend, '') FROM backup_objects
 WHERE account_id = ? AND device_id = ? AND relative_path = ?`,
-		accountID, deviceID, relPath).Scan(&be)
-	if err != nil {
+		accountID, deviceID, relPath); be != "" {
+		return be
+	}
+	return a.lookupStorageBackend(accountID, deviceID, relPath)
+}
+
+// lookupStorageBackend finds the backend of a Connect storage pack or record. Those
+// slots are "storage-<luna id>" with paths "packs/<id>" or "records/<kind>/<name>".
+func (a *Auto) lookupStorageBackend(accountID, deviceID, relPath string) string {
+	lunaID, ok := strings.CutPrefix(deviceID, "storage-")
+	if !ok {
+		return ""
+	}
+	if id, ok := strings.CutPrefix(relPath, "packs/"); ok {
+		return a.queryBackend(`
+SELECT COALESCE(storage_backend, '') FROM storage_packs
+WHERE account_id = ? AND luna_id = ? AND id = ?`, accountID, lunaID, id)
+	}
+	if rest, ok := strings.CutPrefix(relPath, "records/"); ok {
+		kind, name, ok := strings.Cut(rest, "/")
+		if !ok {
+			return ""
+		}
+		return a.queryBackend(`
+SELECT COALESCE(storage_backend, '') FROM storage_records
+WHERE account_id = ? AND luna_id = ? AND kind = ? AND name = ?`, accountID, lunaID, kind, name)
+	}
+	return ""
+}
+
+func (a *Auto) queryBackend(query string, args ...any) string {
+	var be string
+	if err := a.DB.QueryRow(query, args...).Scan(&be); err != nil {
 		return ""
 	}
 	be = strings.ToLower(strings.TrimSpace(be))
 	if be == BackendB2 || be == BackendLocal {
 		return be
+	}
+	if be == "" {
+		return ""
 	}
 	return BackendLocal
 }

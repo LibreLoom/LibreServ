@@ -298,3 +298,53 @@ func mustProviderID(t *testing.T, db *database.DB) string {
 	}
 	return id
 }
+
+func TestAutoFailedPutKeepsExistingObject(t *testing.T) {
+	local, err := NewLocal(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	auto := &Auto{Local: local}
+	if _, _, err := auto.Put("acct_1", "dev_1", "a.txt", strings.NewReader("old")); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := auto.Put("acct_1", "dev_1", "a.txt", &failingReader{data: []byte("partial"), err: io.ErrUnexpectedEOF}); err == nil {
+		t.Fatal("failed upload reported success")
+	}
+	rc, err := auto.Get("acct_1", "dev_1", "a.txt")
+	if err != nil {
+		t.Fatalf("existing object was deleted: %v", err)
+	}
+	got, _ := io.ReadAll(rc)
+	rc.Close()
+	if string(got) != "old" {
+		t.Fatalf("existing object changed to %q", got)
+	}
+}
+
+func TestAutoStorageBlobBackendFromRecord(t *testing.T) {
+	db, err := database.Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := database.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = db.Exec(`INSERT INTO storage_packs (account_id, luna_id, id, size, created_at, storage_backend) VALUES ('acct_1', 'luna1', 'pk_b2', 1, 1, 'b2')`)
+	_, _ = db.Exec(`INSERT INTO storage_packs (account_id, luna_id, id, size, created_at, storage_backend) VALUES ('acct_1', 'luna1', 'pk_local', 1, 1, 'local')`)
+	_, _ = db.Exec(`INSERT INTO storage_records (account_id, luna_id, kind, name, bytes, updated_at, storage_backend) VALUES ('acct_1', 'luna1', 'notes', 'todo', 1, 1, 'b2')`)
+
+	auto := &Auto{DB: db}
+	cases := map[string]string{
+		"packs/pk_b2":        BackendB2,
+		"packs/pk_local":     BackendLocal,
+		"records/notes/todo": BackendB2,
+		"packs/missing":      "",
+	}
+	for rel, want := range cases {
+		if got := auto.lookupBackend("acct_1", "storage-luna1", rel); got != want {
+			t.Fatalf("%s: backend %q, want %q", rel, got, want)
+		}
+	}
+}

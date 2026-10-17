@@ -2,11 +2,16 @@ package handlers
 
 import (
 	"bytes"
+	"crypto/ed25519"
 	"crypto/sha256"
+	"database/sql"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -20,6 +25,8 @@ import (
 const (
 	maxStoragePackBytes   = 64 << 20
 	maxStorageRecordBytes = 1 << 20
+	identityKind          = "identity"
+	identityPublicName    = "public"
 )
 
 var (
@@ -35,12 +42,27 @@ type StorageHandler struct {
 	Deps
 }
 
-// storageScope checks the device and the X-Luna-Id header, then returns the
-// account and the Luna id that the call is scoped to.
-func storageScope(w http.ResponseWriter, r *http.Request) (accountID, lunaID string, ok bool) {
+// storageAccount returns the account of the calling device.
+func storageAccount(w http.ResponseWriter, r *http.Request) (string, bool) {
 	dev, found := DeviceFrom(r.Context())
 	if !found || !dev.AccountID.Valid {
 		JSONError(w, http.StatusForbidden, "Link this Luna at connect.luna.libreloom.org first.")
+		return "", false
+	}
+	return dev.AccountID.String, true
+}
+
+// deviceIDFrom returns the id of the calling device. Call it only after storageAccount.
+func deviceIDFrom(r *http.Request) string {
+	dev, _ := DeviceFrom(r.Context())
+	return dev.ID
+}
+
+// storageScope checks the device and the X-Luna-Id header, then returns the
+// account and the Luna id that the call is scoped to.
+func storageScope(d Deps, w http.ResponseWriter, r *http.Request) (accountID, lunaID string, ok bool) {
+	accountID, ok = storageAccount(w, r)
+	if !ok {
 		return "", "", false
 	}
 	lunaID = strings.TrimSpace(r.Header.Get("X-Luna-Id"))
@@ -48,14 +70,113 @@ func storageScope(w http.ResponseWriter, r *http.Request) (accountID, lunaID str
 		JSONError(w, http.StatusBadRequest, "Luna did not say which Luna is asking. Update Luna and try again.")
 		return "", "", false
 	}
-	return dev.AccountID.String, lunaID, true
+	if !authorizeLuna(d, w, r, accountID, lunaID, deviceIDFrom(r)) {
+		return "", "", false
+	}
+	return accountID, lunaID, true
 }
 
-// storageSlot is the directory-like key the blob store uses for one Luna.
 // validStorageName accepts the documented pattern and rejects dot segments,
 // so a name can never climb out of its folder.
 func validStorageName(s string) bool {
 	return storageNamePattern.MatchString(s) && s != "." && !strings.Contains(s, "..")
+}
+
+// bindLuna returns the device that owns a Luna's cloud storage and the Luna's
+// registered signing key (hex, empty until one is set). The first device to use
+// a Luna id claims it.
+func bindLuna(d Deps, accountID, lunaID, deviceID string) (boundDevice, signingHex string, err error) {
+	const query = `SELECT device_id, signing_public FROM luna_ids WHERE account_id = ? AND luna_id = ?`
+	err = d.DB.QueryRow(query, accountID, lunaID).Scan(&boundDevice, &signingHex)
+	if errors.Is(err, sql.ErrNoRows) {
+		if _, err = d.DB.Exec(`INSERT INTO luna_ids (account_id, luna_id, device_id, signing_public, created_at)
+VALUES (?, ?, ?, '', ?)
+ON CONFLICT(account_id, luna_id) DO NOTHING`, accountID, lunaID, deviceID, time.Now().Unix()); err != nil {
+			return "", "", err
+		}
+		err = d.DB.QueryRow(query, accountID, lunaID).Scan(&boundDevice, &signingHex)
+	}
+	return boundDevice, signingHex, err
+}
+
+// lunaSigValid reports whether the request carries a signature, made with the
+// Luna's registered signing key, that moves this Luna to the calling device.
+func lunaSigValid(r *http.Request, signingHex, lunaID, deviceID string) bool {
+	pub, err := hex.DecodeString(signingHex)
+	if err != nil || len(pub) != ed25519.PublicKeySize {
+		return false
+	}
+	sig, err := base64.StdEncoding.DecodeString(strings.TrimSpace(r.Header.Get("X-Luna-Sig")))
+	if err != nil || len(sig) != ed25519.SignatureSize {
+		return false
+	}
+	msg := []byte("luna-sig-v1\x00move\x00" + lunaID + deviceID)
+	return ed25519.Verify(pub, msg, sig)
+}
+
+// authorizeLuna lets the calling device use a Luna's storage. Another device on the
+// same account may take the Luna over only with a valid X-Luna-Sig from that Luna's
+// signing key, and then it becomes the owner.
+func authorizeLuna(d Deps, w http.ResponseWriter, r *http.Request, accountID, lunaID, deviceID string) bool {
+	bound, signing, err := bindLuna(d, accountID, lunaID, deviceID)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "Cloud storage could not check this Luna. Try again.")
+		return false
+	}
+	if bound == deviceID {
+		return true
+	}
+	if !lunaSigValid(r, signing, lunaID, deviceID) {
+		JSONError(w, http.StatusForbidden, "This Luna's cloud storage belongs to another device on your account.")
+		return false
+	}
+	if _, err := d.DB.Exec(`UPDATE luna_ids SET device_id = ? WHERE account_id = ? AND luna_id = ?`,
+		deviceID, accountID, lunaID); err != nil {
+		JSONError(w, http.StatusInternalServerError, "Cloud storage could not check this Luna. Try again.")
+		return false
+	}
+	return true
+}
+
+// setSigningPublic records the signing key a Luna uses to move its storage to a new
+// device. Once a key is set, only the device that owns the Luna can change the owner.
+func setSigningPublic(d Deps, w http.ResponseWriter, accountID, lunaID, deviceID, keyHex string) bool {
+	keyHex = strings.ToLower(strings.TrimSpace(keyHex))
+	if pub, err := hex.DecodeString(keyHex); err != nil || len(pub) != ed25519.PublicKeySize {
+		JSONError(w, http.StatusBadRequest, "That signing key is not valid. Update Luna and try again.")
+		return false
+	}
+	bound, signing, err := bindLuna(d, accountID, lunaID, deviceID)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "Cloud storage could not check this Luna. Try again.")
+		return false
+	}
+	if bound != deviceID && signing != "" {
+		JSONError(w, http.StatusForbidden, "This Luna's cloud storage belongs to another device on your account.")
+		return false
+	}
+	if _, err := d.DB.Exec(`UPDATE luna_ids SET signing_public = ?, device_id = ? WHERE account_id = ? AND luna_id = ?`,
+		keyHex, deviceID, accountID, lunaID); err != nil {
+		JSONError(w, http.StatusInternalServerError, "Cloud storage could not save that signing key. Try again.")
+		return false
+	}
+	return true
+}
+
+// removeStored deletes a blob from the backend that holds it. A missing blob is not an
+// error: the row that pointed at it is already gone, so the only result is a log line.
+func (h StorageHandler) removeStored(backend, accountID, deviceID, relPath string) {
+	var err error
+	if ad, ok := h.Store.(interface {
+		DeleteBackend(backend, accountID, deviceID, relPath string) error
+	}); ok && backend != "" {
+		err = ad.DeleteBackend(backend, accountID, deviceID, relPath)
+	} else {
+		err = h.Store.Delete(accountID, deviceID, relPath)
+	}
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		slog.Warn("storage: a deleted piece could not be removed from its backend", "backend", backend, "error", err)
+	}
 }
 
 func storageUsed(h Deps, accountID string) int64 {
@@ -70,7 +191,7 @@ func storageFull(w http.ResponseWriter) {
 }
 
 func (h StorageHandler) PutPack(w http.ResponseWriter, r *http.Request) {
-	accountID, lunaID, ok := storageScope(w, r)
+	accountID, lunaID, ok := storageScope(h.Deps, w, r)
 	if !ok {
 		return
 	}
@@ -108,11 +229,21 @@ func (h StorageHandler) PutPack(w http.ResponseWriter, r *http.Request) {
 	}
 	slot := store.StorageSlot(lunaID)
 	rel := store.StoragePackPath(id)
+
+	// Spool the body and check its hash before the store is touched. A mismatched
+	// upload then never replaces bytes that are already stored under this ID.
+	spool, err := os.CreateTemp("", "luna-pack-*")
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "Cloud storage could not save that data. Try again.")
+		return
+	}
+	defer func() {
+		_ = spool.Close()
+		_ = os.Remove(spool.Name())
+	}()
 	hasher := sha256.New()
 	limited := http.MaxBytesReader(w, r.Body, limit)
-	n, _, err := h.Store.Put(accountID, slot, rel, io.TeeReader(limited, hasher))
-	if err != nil {
-		_ = h.Store.Delete(accountID, slot, rel)
+	if _, err := io.Copy(io.MultiWriter(spool, hasher), limited); err != nil {
 		var maxErr *http.MaxBytesError
 		if errors.As(err, &maxErr) {
 			if remain < maxStoragePackBytes {
@@ -122,6 +253,19 @@ func (h StorageHandler) PutPack(w http.ResponseWriter, r *http.Request) {
 			JSONError(w, http.StatusRequestEntityTooLarge, "That data is too large to store in cloud storage. The limit is 64 MB per piece.")
 			return
 		}
+		JSONError(w, http.StatusBadRequest, "Cloud storage could not save that data. Check your connection and try again.")
+		return
+	}
+	if hex.EncodeToString(hasher.Sum(nil)) != id {
+		JSONError(w, http.StatusBadRequest, "The data did not match its ID. Try the upload again from Luna.")
+		return
+	}
+	if _, err := spool.Seek(0, io.SeekStart); err != nil {
+		JSONError(w, http.StatusInternalServerError, "Cloud storage could not save that data. Try again.")
+		return
+	}
+	n, backend, err := h.Store.Put(accountID, slot, rel, spool)
+	if err != nil {
 		if errors.Is(err, providers.ErrBackupNotConfigured) {
 			JSONError(w, http.StatusServiceUnavailable, "Cloud storage is not ready yet. Contact support and we will finish setting it up.")
 			return
@@ -129,15 +273,11 @@ func (h StorageHandler) PutPack(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusBadRequest, "Cloud storage could not save that data. Check your connection and try again.")
 		return
 	}
-	if hex.EncodeToString(hasher.Sum(nil)) != id {
-		_ = h.Store.Delete(accountID, slot, rel)
-		JSONError(w, http.StatusBadRequest, "The data did not match its ID. Try the upload again from Luna.")
-		return
-	}
-	if _, err := h.DB.Exec(`INSERT INTO storage_packs (account_id, luna_id, id, scope, size, created_at)
-VALUES (?, ?, ?, ?, ?, ?)
-ON CONFLICT(account_id, luna_id, id) DO NOTHING`, accountID, lunaID, id, scope, n, time.Now().Unix()); err != nil {
-		_ = h.Store.Delete(accountID, slot, rel)
+	// If this insert fails the stored bytes are left in place: a concurrent upload of
+	// the same pack may have recorded them, and an unrecorded copy is harmless.
+	if _, err := h.DB.Exec(`INSERT INTO storage_packs (account_id, luna_id, id, scope, size, storage_backend, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(account_id, luna_id, id) DO NOTHING`, accountID, lunaID, id, scope, n, backend, time.Now().Unix()); err != nil {
 		JSONError(w, http.StatusInternalServerError, "Cloud storage could not record that data. Try again.")
 		return
 	}
@@ -145,7 +285,7 @@ ON CONFLICT(account_id, luna_id, id) DO NOTHING`, accountID, lunaID, id, scope, 
 }
 
 func (h StorageHandler) GetPack(w http.ResponseWriter, r *http.Request) {
-	accountID, lunaID, ok := storageScope(w, r)
+	accountID, lunaID, ok := storageScope(h.Deps, w, r)
 	if !ok {
 		return
 	}
@@ -174,7 +314,7 @@ func (h StorageHandler) GetPack(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h StorageHandler) DeletePack(w http.ResponseWriter, r *http.Request) {
-	accountID, lunaID, ok := storageScope(w, r)
+	accountID, lunaID, ok := storageScope(h.Deps, w, r)
 	if !ok {
 		return
 	}
@@ -183,18 +323,25 @@ func (h StorageHandler) DeletePack(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusNotFound, "That pack is not in cloud storage.")
 		return
 	}
-	if _, err := h.DB.Exec(`DELETE FROM storage_packs WHERE account_id = ? AND luna_id = ? AND id = ?`,
-		accountID, lunaID, id); err != nil {
+	var backend string
+	_ = h.DB.QueryRow(`SELECT COALESCE(storage_backend, '') FROM storage_packs WHERE account_id = ? AND luna_id = ? AND id = ?`,
+		accountID, lunaID, id).Scan(&backend)
+	res, err := h.DB.Exec(`DELETE FROM storage_packs WHERE account_id = ? AND luna_id = ? AND id = ?`,
+		accountID, lunaID, id)
+	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "Cloud storage could not delete that pack. Try again.")
 		return
 	}
-	// A pack that is already gone still counts as deleted, so retries are safe.
-	_ = h.Store.Delete(accountID, store.StorageSlot(lunaID), store.StoragePackPath(id))
+	// Remove the bytes only when this call removed the row. A pack that is already
+	// gone still counts as deleted, so retries are safe and never touch the store.
+	if n, _ := res.RowsAffected(); n > 0 {
+		h.removeStored(backend, accountID, store.StorageSlot(lunaID), store.StoragePackPath(id))
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h StorageHandler) PutRecord(w http.ResponseWriter, r *http.Request) {
-	accountID, lunaID, ok := storageScope(w, r)
+	accountID, lunaID, ok := storageScope(h.Deps, w, r)
 	if !ok {
 		return
 	}
@@ -217,6 +364,13 @@ func (h StorageHandler) PutRecord(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusBadRequest, "Could not read that record. Try again.")
 		return
 	}
+	// The identity public record carries the Luna's signing key, which later device
+	// moves are checked against.
+	if kind == identityKind && name == identityPublicName {
+		if !setSigningPublic(h.Deps, w, accountID, lunaID, deviceIDFrom(r), string(data)) {
+			return
+		}
+	}
 
 	var oldBytes int64
 	_ = h.DB.QueryRow(`SELECT bytes FROM storage_records WHERE account_id = ? AND luna_id = ? AND kind = ? AND name = ?`,
@@ -229,9 +383,8 @@ func (h StorageHandler) PutRecord(w http.ResponseWriter, r *http.Request) {
 
 	slot := store.StorageSlot(lunaID)
 	rel := store.StorageRecordPath(kind, name)
-	n, _, err := h.Store.Put(accountID, slot, rel, bytes.NewReader(data))
+	n, backend, err := h.Store.Put(accountID, slot, rel, bytes.NewReader(data))
 	if err != nil {
-		_ = h.Store.Delete(accountID, slot, rel)
 		if errors.Is(err, providers.ErrBackupNotConfigured) {
 			JSONError(w, http.StatusServiceUnavailable, "Cloud storage is not ready yet. Contact support and we will finish setting it up.")
 			return
@@ -239,10 +392,10 @@ func (h StorageHandler) PutRecord(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusBadRequest, "Cloud storage could not save that record. Check your connection and try again.")
 		return
 	}
-	if _, err := h.DB.Exec(`INSERT INTO storage_records (account_id, luna_id, kind, name, bytes, updated_at)
-VALUES (?, ?, ?, ?, ?, ?)
-ON CONFLICT(account_id, luna_id, kind, name) DO UPDATE SET bytes = excluded.bytes, updated_at = excluded.updated_at`,
-		accountID, lunaID, kind, name, n, time.Now().Unix()); err != nil {
+	if _, err := h.DB.Exec(`INSERT INTO storage_records (account_id, luna_id, kind, name, bytes, storage_backend, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(account_id, luna_id, kind, name) DO UPDATE SET bytes = excluded.bytes, storage_backend = excluded.storage_backend, updated_at = excluded.updated_at`,
+		accountID, lunaID, kind, name, n, backend, time.Now().Unix()); err != nil {
 		JSONError(w, http.StatusInternalServerError, "Cloud storage could not record that save. Try again.")
 		return
 	}
@@ -250,7 +403,7 @@ ON CONFLICT(account_id, luna_id, kind, name) DO UPDATE SET bytes = excluded.byte
 }
 
 func (h StorageHandler) GetRecord(w http.ResponseWriter, r *http.Request) {
-	accountID, lunaID, ok := storageScope(w, r)
+	accountID, lunaID, ok := storageScope(h.Deps, w, r)
 	if !ok {
 		return
 	}
@@ -280,7 +433,7 @@ func (h StorageHandler) GetRecord(w http.ResponseWriter, r *http.Request) {
 
 // DeleteRecord is idempotent: deleting a record that is already gone is a success.
 func (h StorageHandler) DeleteRecord(w http.ResponseWriter, r *http.Request) {
-	accountID, lunaID, ok := storageScope(w, r)
+	accountID, lunaID, ok := storageScope(h.Deps, w, r)
 	if !ok {
 		return
 	}
@@ -289,17 +442,23 @@ func (h StorageHandler) DeleteRecord(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusBadRequest, "That record name is not valid. Use only lowercase letters, numbers, dots, dashes and underscores.")
 		return
 	}
-	if _, err := h.DB.Exec(`DELETE FROM storage_records WHERE account_id = ? AND luna_id = ? AND kind = ? AND name = ?`,
-		accountID, lunaID, kind, name); err != nil {
+	var backend string
+	_ = h.DB.QueryRow(`SELECT COALESCE(storage_backend, '') FROM storage_records WHERE account_id = ? AND luna_id = ? AND kind = ? AND name = ?`,
+		accountID, lunaID, kind, name).Scan(&backend)
+	res, err := h.DB.Exec(`DELETE FROM storage_records WHERE account_id = ? AND luna_id = ? AND kind = ? AND name = ?`,
+		accountID, lunaID, kind, name)
+	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "Cloud storage could not delete that record. Try again.")
 		return
 	}
-	_ = h.Store.Delete(accountID, store.StorageSlot(lunaID), store.StorageRecordPath(kind, name))
+	if n, _ := res.RowsAffected(); n > 0 {
+		h.removeStored(backend, accountID, store.StorageSlot(lunaID), store.StorageRecordPath(kind, name))
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h StorageHandler) ListRecords(w http.ResponseWriter, r *http.Request) {
-	accountID, lunaID, ok := storageScope(w, r)
+	accountID, lunaID, ok := storageScope(h.Deps, w, r)
 	if !ok {
 		return
 	}
@@ -325,8 +484,57 @@ func (h StorageHandler) ListRecords(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, map[string]any{"names": names})
 }
 
+// ListLunaIDs returns the Lunas on the calling account, and whether each has a signing key.
+func (h StorageHandler) ListLunaIDs(w http.ResponseWriter, r *http.Request) {
+	accountID, ok := storageAccount(w, r)
+	if !ok {
+		return
+	}
+	rows, err := h.DB.Query(`SELECT luna_id, signing_public, created_at FROM luna_ids WHERE account_id = ? ORDER BY luna_id`, accountID)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "Cloud storage could not list your Lunas. Try again.")
+		return
+	}
+	defer rows.Close()
+	lunas := []map[string]any{}
+	for rows.Next() {
+		var lunaID, signing string
+		var created int64
+		if err := rows.Scan(&lunaID, &signing, &created); err == nil {
+			lunas = append(lunas, map[string]any{
+				"luna_id":         lunaID,
+				"has_signing_key": signing != "",
+				"created_at":      created,
+			})
+		}
+	}
+	JSON(w, http.StatusOK, map[string]any{"luna_ids": lunas})
+}
+
+// SetSigningPublic registers a Luna's signing key from the request body (64 hex characters).
+func (h StorageHandler) SetSigningPublic(w http.ResponseWriter, r *http.Request) {
+	accountID, ok := storageAccount(w, r)
+	if !ok {
+		return
+	}
+	lunaID := chi.URLParam(r, "id")
+	if !storageLunaIDPattern.MatchString(lunaID) {
+		JSONError(w, http.StatusBadRequest, "That Luna ID is not valid. Update Luna and try again.")
+		return
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 256))
+	if err != nil {
+		JSONError(w, http.StatusBadRequest, "Could not read that signing key. Try again.")
+		return
+	}
+	if !setSigningPublic(h.Deps, w, accountID, lunaID, deviceIDFrom(r), string(body)) {
+		return
+	}
+	JSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
 func (h StorageHandler) Usage(w http.ResponseWriter, r *http.Request) {
-	accountID, _, ok := storageScope(w, r)
+	accountID, _, ok := storageScope(h.Deps, w, r)
 	if !ok {
 		return
 	}

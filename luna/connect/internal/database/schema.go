@@ -151,6 +151,7 @@ CREATE TABLE IF NOT EXISTS storage_packs (
   scope TEXT NOT NULL DEFAULT '',
   size INTEGER NOT NULL,
   created_at INTEGER NOT NULL,
+  storage_backend TEXT NOT NULL DEFAULT 'local',
   PRIMARY KEY(account_id, luna_id, id)
 );
 CREATE TABLE IF NOT EXISTS storage_records (
@@ -160,7 +161,16 @@ CREATE TABLE IF NOT EXISTS storage_records (
   name TEXT NOT NULL,
   bytes INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
+  storage_backend TEXT NOT NULL DEFAULT 'local',
   PRIMARY KEY(account_id, luna_id, kind, name)
+);
+CREATE TABLE IF NOT EXISTS luna_ids (
+  account_id TEXT NOT NULL,
+  luna_id TEXT NOT NULL,
+  device_id TEXT NOT NULL,
+  signing_public TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY(account_id, luna_id)
 );
 `
 
@@ -313,6 +323,7 @@ CREATE TABLE IF NOT EXISTS storage_packs (
   scope TEXT NOT NULL DEFAULT '',
   size BIGINT NOT NULL,
   created_at BIGINT NOT NULL,
+  storage_backend TEXT NOT NULL DEFAULT 'local',
   PRIMARY KEY(account_id, luna_id, id)
 );
 CREATE TABLE IF NOT EXISTS storage_records (
@@ -322,6 +333,15 @@ CREATE TABLE IF NOT EXISTS storage_records (
   name TEXT NOT NULL,
   bytes BIGINT NOT NULL,
   updated_at BIGINT NOT NULL,
+  storage_backend TEXT NOT NULL DEFAULT 'local',
   PRIMARY KEY(account_id, luna_id, kind, name)
+);
+CREATE TABLE IF NOT EXISTS luna_ids (
+  account_id TEXT NOT NULL,
+  luna_id TEXT NOT NULL,
+  device_id TEXT NOT NULL,
+  signing_public TEXT NOT NULL DEFAULT '',
+  created_at BIGINT NOT NULL,
+  PRIMARY KEY(account_id, luna_id)
 );
 `

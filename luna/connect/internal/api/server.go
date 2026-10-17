@@ -142,6 +142,8 @@ func (s *Server) routes() {
 				r.Delete("/storage/records/{kind}/{name}", stor.DeleteRecord)
 				r.Get("/storage/records/{kind}", stor.ListRecords)
 				r.Get("/storage/usage", stor.Usage)
+				r.Get("/storage/luna-ids", stor.ListLunaIDs)
+				r.Post("/storage/luna-ids/{id}/signing-public", stor.SetSigningPublic)
 			})
 		})
 

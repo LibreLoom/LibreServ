@@ -3,6 +3,7 @@ package store
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -162,5 +163,29 @@ func TestOpenAutoUsesLocalWithoutProvider(t *testing.T) {
 	n, be, err := st.Put("acct_1", "dev_1", "f.txt", strings.NewReader("x"))
 	if err != nil || n != 1 || be != BackendLocal {
 		t.Fatalf("local put via auto: %d be=%q %v", n, be, err)
+	}
+}
+
+func TestB2MissingBucketIsNotProvisioned(t *testing.T) {
+	db, err := database.Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := database.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	// No device_backup_buckets row: reads and deletes must fail, not create a bucket.
+	b := &B2{DB: db, TmpDir: t.TempDir()}
+	if _, err := b.Get("acct_1", "dev_nobucket0001", "a.txt"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("get without bucket: %v, want not-exist", err)
+	}
+	if err := b.Delete("acct_1", "dev_nobucket0001", "a.txt"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("delete without bucket: %v, want not-exist", err)
+	}
+	var n int
+	_ = db.QueryRow(`SELECT COUNT(*) FROM device_backup_buckets`).Scan(&n)
+	if n != 0 {
+		t.Fatalf("a bucket row was created (%d)", n)
 	}
 }

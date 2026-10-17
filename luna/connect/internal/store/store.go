@@ -72,17 +72,30 @@ func (s *Local) Put(accountID, deviceID, relPath string, r io.Reader) (int64, st
 	if err != nil {
 		return 0, BackendLocal, err
 	}
-	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+	dir := filepath.Dir(p)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return 0, BackendLocal, err
 	}
-	f, err := os.OpenFile(p, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	// Write to a temp file and rename it into place, so a failed upload never
+	// touches an object that was already committed at this path.
+	tmp, err := os.CreateTemp(dir, ".put-*")
 	if err != nil {
 		return 0, BackendLocal, err
 	}
-	defer f.Close()
-	_ = os.Chmod(p, 0o600)
-	n, err := io.Copy(f, r)
-	return n, BackendLocal, err
+	tmpName := tmp.Name()
+	n, err := io.Copy(tmp, r)
+	if cerr := tmp.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		_ = os.Chmod(tmpName, 0o600)
+		err = os.Rename(tmpName, p)
+	}
+	if err != nil {
+		_ = os.Remove(tmpName)
+		return n, BackendLocal, err
+	}
+	return n, BackendLocal, nil
 }
 
 func (s *Local) Get(accountID, deviceID, relPath string) (io.ReadCloser, error) {
