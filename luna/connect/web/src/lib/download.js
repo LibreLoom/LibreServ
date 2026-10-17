@@ -7,5 +7,6 @@ export function saveBlob(blob, filename) {
   document.body.appendChild(a);
   a.click();
   a.remove();
-  URL.revokeObjectURL(url);
+  // Some browsers cancel the download if the URL is revoked before it starts, so keep it for a minute.
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }

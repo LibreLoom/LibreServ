@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { entropyToPhrase } from "@libreloom/ui/lib/cloud/backupCrypto.js";
+import { derive, entropyToPhrase, sign } from "@libreloom/ui/lib/cloud/backupCrypto.js";
 import { NO_BACKUPS, SIGNING_MISMATCH } from "@libreloom/ui/lib/cloud/cloudKeys.js";
 import { hexToBytes } from "@noble/hashes/utils.js";
 import fixture from "../../../crates/lunad/src/backup/cloud/fixture.json";
@@ -23,6 +23,22 @@ const savePhraseMock = vi.mocked(savePhrase);
 
 const hex = (value) => toBase64(hexToBytes(value));
 
+const CHALLENGE = new Uint8Array(32).fill(5);
+
+/** Answer the challenge request; every other POST gets the restore result. */
+function servePosts() {
+  postJsonMock.mockImplementation(async (path) => {
+    if (path.endsWith("/challenge")) return { challenge: toBase64(CHALLENGE) };
+    return { snapshots: 1, already_indexed: 0, skipped: 0 };
+  });
+}
+
+/** The body sent to POST /api/v1/cloud/restore. */
+function restoreBody() {
+  const call = postJsonMock.mock.calls.find(([path]) => path === RESTORE_PATH);
+  return call?.[1];
+}
+
 /** Serve the Rust fixture's record lists the way lunad's GET endpoints do. */
 function serveFixtureRecords() {
   getJsonMock.mockImplementation(async (path) => {
@@ -42,7 +58,7 @@ const CTX = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  postJsonMock.mockResolvedValue({ snapshots: 1, already_indexed: 0, skipped: 0 });
+  servePosts();
   savePhraseMock.mockResolvedValue({});
   serveFixtureRecords();
 });
@@ -65,15 +81,38 @@ describe("restoreFromPhrase", () => {
 
     const result = await restoreFromPhrase(phrase, CTX);
 
-    expect(postJsonMock).toHaveBeenCalledTimes(1);
-    const [path, body] = postJsonMock.mock.calls[0];
-    expect(path).toBe(RESTORE_PATH);
+    const body = restoreBody();
     expect(body.keys).toHaveLength(1);
     expect(body.keys[0].key).toBe(hex(fixture.backup_key));
     expect(body.keys[0].protection_id).toBe(fixture.protection_id);
     expect(body.keys[0].version).toBe(fixture.key_version);
     expect(body.old_user_ids).toEqual(["alice"]);
     expect(result).toEqual({ snapshots: 1, alreadyIndexed: 0, skipped: 0 });
+  });
+
+  it("fetches a challenge and sends its signature with the restore", async () => {
+    const phrase = entropyToPhrase(hexToBytes(fixture.alice_entropy));
+
+    await restoreFromPhrase(phrase, CTX);
+
+    const challengeCall = postJsonMock.mock.calls.find(([path]) => path.endsWith("/challenge"));
+    expect(challengeCall).toBeDefined();
+    const { authSecret } = derive(hexToBytes(fixture.alice_entropy), CTX.lunaId);
+    const expected = toBase64(sign(authSecret, "phrase-check", CHALLENGE));
+    expect(restoreBody().signature).toBe(expected);
+  });
+
+  it("still restores without a signature when the challenge fails", async () => {
+    const phrase = entropyToPhrase(hexToBytes(fixture.alice_entropy));
+    postJsonMock.mockImplementation(async (path) => {
+      if (path.endsWith("/challenge")) throw new Error("network");
+      return { snapshots: 1, already_indexed: 0, skipped: 0 };
+    });
+
+    const result = await restoreFromPhrase(phrase, CTX);
+
+    expect(restoreBody().signature).toBe("");
+    expect(result.snapshots).toBe(1);
   });
 
   it("saves the phrase to this account only when none is linked yet", async () => {

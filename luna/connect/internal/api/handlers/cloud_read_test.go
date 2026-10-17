@@ -305,7 +305,7 @@ func TestPackAllowed(t *testing.T) {
 		"missing pack":                      {hexPack('9'), false},
 	}
 	for name, c := range cases {
-		got, err := packAllowed(d, userA, c.pack)
+		got, err := packAllowed(d, userA, "", c.pack)
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
@@ -314,7 +314,7 @@ func TestPackAllowed(t *testing.T) {
 		}
 	}
 
-	owned, err := packAllowed(d, readScope{AccountID: owner, LunaID: "home-luna"}, hexPack('e'))
+	owned, err := packAllowed(d, readScope{AccountID: owner, LunaID: "home-luna"}, "", hexPack('e'))
 	if err != nil || !owned {
 		t.Fatalf("owner scope should allow every pack, got %v %v", owned, err)
 	}
@@ -335,5 +335,133 @@ VALUES (?, 'home-luna', 'snapshots', 'ghost.json', 1, 0, 'local')`, owner); err 
 	}
 	if len(recs) != 0 {
 		t.Fatalf("missing blob should be skipped, got %+v", recs)
+	}
+}
+
+func TestListLunasReportsPurgeAndIgnoresOtherAccountDevice(t *testing.T) {
+	d := testDeps(t)
+	owner := cloudAccount(t, d, "purge@example.com")
+	other := cloudAccount(t, d, "purge-other@example.com")
+	cloudLuna(t, d, owner, "home-luna", "Living room drive")
+	cloudLuna(t, d, owner, "spare-luna", "Spare drive")
+	purgeAt := time.Now().Add(24 * time.Hour).Unix()
+	if _, err := d.DB.Exec(`UPDATE luna_ids SET purge_after = ? WHERE account_id = ? AND luna_id = 'spare-luna'`, purgeAt, owner); err != nil {
+		t.Fatal(err)
+	}
+	foreignDev, _ := mintDevice(t, d, "official")
+	if _, err := d.DB.Exec(`UPDATE devices SET account_id = ?, name = 'Their drive' WHERE id = ?`, other, foreignDev); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.DB.Exec(`UPDATE luna_ids SET device_id = ? WHERE account_id = ? AND luna_id = 'home-luna'`, foreignDev, owner); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := httptest.NewRecorder()
+	CloudReadHandler{Deps: d}.ListLunas(rec, cloudReq(owner, http.MethodGet, "/cloud/lunas", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		Lunas []struct {
+			LunaID     string `json:"luna_id"`
+			Name       string `json:"name"`
+			Linked     bool   `json:"linked"`
+			PurgeAfter int64  `json:"purge_after"`
+		} `json:"lunas"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]int{}
+	for i, l := range got.Lunas {
+		byID[l.LunaID] = i
+	}
+	home, ok := byID["home-luna"]
+	if !ok {
+		t.Fatalf("home-luna missing from %+v", got.Lunas)
+	}
+	if got.Lunas[home].Linked || got.Lunas[home].Name != "" {
+		t.Fatalf("device of another account leaked into the list: %+v", got.Lunas[home])
+	}
+	spare, ok := byID["spare-luna"]
+	if !ok {
+		t.Fatalf("spare-luna missing from %+v", got.Lunas)
+	}
+	if got.Lunas[spare].PurgeAfter != purgeAt || !got.Lunas[spare].Linked {
+		t.Fatalf("spare-luna %+v, want purge_after %d", got.Lunas[spare], purgeAt)
+	}
+	if got.Lunas[home].PurgeAfter != 0 {
+		t.Fatalf("home-luna purge_after %d, want 0", got.Lunas[home].PurgeAfter)
+	}
+}
+
+func TestAllowedPackScopesCacheLastsSixtySeconds(t *testing.T) {
+	d := testDeps(t)
+	owner := cloudAccount(t, d, "cache@example.com")
+	cloudLuna(t, d, owner, "home-luna", "Drive")
+	cloudRecord(t, d, owner, "home-luna", "keys", cloudProtA+".1."+cloudUserA, []byte("k"))
+	cloudRecord(t, d, owner, "home-luna", "snapshots", "snap-a.json", snapshotJSON(cloudProtA, hexPack('c')))
+	cloudPack(t, d, owner, "home-luna", hexPack('c'), "tree-a", []byte("tree"))
+	userA := readScope{AccountID: owner, LunaID: "home-luna", Kind: "user", Value: cloudUserA}
+
+	const linkID = "cache-test-link"
+	packScopeCache.Delete(linkID)
+	t0 := time.Now()
+	first, err := allowedPackScopes(d, userA, linkID, t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !first["tree-a"] {
+		t.Fatalf("first scopes %v, want tree-a", first)
+	}
+
+	// A new protection becomes visible to user A only after the cache is rebuilt.
+	cloudRecord(t, d, owner, "home-luna", "keys", cloudProtB+".1."+cloudUserA, []byte("k"))
+	cloudRecord(t, d, owner, "home-luna", "snapshots", "snap-b.json", snapshotJSON(cloudProtB, hexPack('e')))
+	cloudPack(t, d, owner, "home-luna", hexPack('e'), "tree-b", []byte("tree b"))
+
+	within, err := allowedPackScopes(d, userA, linkID, t0.Add(30*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if within["tree-b"] {
+		t.Fatal("cache should still serve the old scopes at 30 s")
+	}
+	after, err := allowedPackScopes(d, userA, linkID, t0.Add(61*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !after["tree-b"] {
+		t.Fatalf("cache should rebuild after 60 s, got %v", after)
+	}
+}
+
+func TestListLunasReportsZeroForPurgeInProgress(t *testing.T) {
+	d := testDeps(t)
+	owner := cloudAccount(t, d, "claimed@example.com")
+	cloudLuna(t, d, owner, "claimed-luna", "Claimed drive")
+	if _, err := d.DB.Exec(`UPDATE luna_ids SET purge_after = -1 WHERE account_id = ? AND luna_id = 'claimed-luna'`, owner); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := httptest.NewRecorder()
+	CloudReadHandler{Deps: d}.ListLunas(rec, cloudReq(owner, http.MethodGet, "/cloud/lunas", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		Lunas []struct {
+			LunaID     string `json:"luna_id"`
+			PurgeAfter int64  `json:"purge_after"`
+		} `json:"lunas"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Lunas) != 1 {
+		t.Fatalf("lunas %+v, want one", got.Lunas)
+	}
+	if got.Lunas[0].PurgeAfter != 0 {
+		t.Fatalf("purge_after %d for a purge in progress, want 0", got.Lunas[0].PurgeAfter)
 	}
 }

@@ -2,8 +2,10 @@ package accounts
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"io/fs"
+	"time"
 
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/providers"
@@ -34,9 +36,25 @@ func PurgeLunaStorage(ctx context.Context, db *database.DB, st store.Store, acco
 
 // purgeStorage does the work for PurgeStorage and PurgeLunaStorage. An empty
 // lunaID means every Luna on the account.
-func purgeStorage(ctx context.Context, db *database.DB, st store.Store, accountID, lunaID string) error {
+//
+// For one Luna, the purge first claims it: purge_after moves to -1 only while it is still due,
+// so a second run or a relink cannot overlap it. If the purge fails, the old purge_after comes
+// back so the next retention run tries again.
+func purgeStorage(ctx context.Context, db *database.DB, st store.Store, accountID, lunaID string) (err error) {
 	if db == nil || accountID == "" {
 		return nil
+	}
+	if lunaID != "" {
+		old, claimed, claimErr := claimLunaForPurge(ctx, db, accountID, lunaID, time.Now().Unix())
+		if claimErr != nil || !claimed {
+			return claimErr
+		}
+		defer func() {
+			if err != nil {
+				_, _ = db.ExecContext(ctx, `UPDATE luna_ids SET purge_after = ? WHERE account_id = ? AND luna_id = ? AND purge_after = -1`,
+					old, accountID, lunaID)
+			}
+		}()
 	}
 	lunaClause := ""
 	args := []any{accountID}
@@ -103,6 +121,31 @@ func purgeStorage(ctx context.Context, db *database.DB, st store.Store, accountI
 	}
 	_, err = db.ExecContext(ctx, `DELETE FROM luna_ids WHERE account_id = ?`+lunaClause, args...)
 	return err
+}
+
+// claimLunaForPurge sets a due Luna's purge_after to -1 and returns the value it had. A Luna at
+// -1 was claimed by a purge that never finished, so it is claimed again to retry that purge. It
+// reports false when the Luna is not due and not claimed, or is linked again.
+func claimLunaForPurge(ctx context.Context, db *database.DB, accountID, lunaID string, now int64) (int64, bool, error) {
+	var old int64
+	err := db.QueryRowContext(ctx, `SELECT purge_after FROM luna_ids WHERE account_id = ? AND luna_id = ?`,
+		accountID, lunaID).Scan(&old)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, err
+	}
+	res, err := db.ExecContext(ctx, `UPDATE luna_ids SET purge_after = -1 WHERE account_id = ? AND luna_id = ? AND purge_after = ? AND (purge_after = -1 OR (purge_after > 0 AND purge_after <= ?))`,
+		accountID, lunaID, old, now)
+	if err != nil {
+		return 0, false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, false, err
+	}
+	return old, n == 1, nil
 }
 
 // deleteBlob removes a blob from the backend that recorded it, when the store can

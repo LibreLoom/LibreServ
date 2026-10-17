@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/billing"
@@ -72,8 +74,8 @@ func (h CloudReadHandler) ListLunas(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := h.DB.Query(`SELECT l.luna_id, COALESCE(d.name, ''),
-CASE WHEN d.account_id = l.account_id THEN 1 ELSE 0 END
-FROM luna_ids l LEFT JOIN devices d ON d.id = l.device_id
+CASE WHEN d.id IS NULL THEN 0 ELSE 1 END, l.purge_after
+FROM luna_ids l LEFT JOIN devices d ON d.id = l.device_id AND d.account_id = l.account_id
 WHERE l.account_id = ? ORDER BY l.created_at`, accountID)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "Cloud storage could not list your Lunas. Try again.")
@@ -81,19 +83,24 @@ WHERE l.account_id = ? ORDER BY l.created_at`, accountID)
 	}
 	defer rows.Close()
 	type lunaItem struct {
-		LunaID string `json:"luna_id"`
-		Name   string `json:"name"`
-		Linked bool   `json:"linked"`
+		LunaID     string `json:"luna_id"`
+		Name       string `json:"name"`
+		Linked     bool   `json:"linked"`
+		PurgeAfter int64  `json:"purge_after"`
 	}
 	out := make([]lunaItem, 0)
 	for rows.Next() {
 		var it lunaItem
 		var linked int
-		if err := rows.Scan(&it.LunaID, &it.Name, &linked); err != nil {
+		if err := rows.Scan(&it.LunaID, &it.Name, &linked, &it.PurgeAfter); err != nil {
 			JSONError(w, http.StatusInternalServerError, "Cloud storage could not list your Lunas. Try again.")
 			return
 		}
 		it.Linked = linked == 1
+		// -1 means a purge is running (or stopped mid-run): the browser only needs to know it is not scheduled.
+		if it.PurgeAfter < 0 {
+			it.PurgeAfter = 0
+		}
 		out = append(out, it)
 	}
 	if err := rows.Err(); err != nil {
@@ -128,7 +135,7 @@ func (h CloudReadHandler) GetPack(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusNotFound, "That Luna has no cloud backups on this account.")
 		return
 	}
-	writePack(h.Deps, w, readScope{AccountID: accountID, LunaID: lunaID}, chi.URLParam(r, "id"))
+	writePack(h.Deps, w, readScope{AccountID: accountID, LunaID: lunaID}, chi.URLParam(r, "id"), "")
 }
 
 // recordNames lists the names of one kind of record for the scope's Luna, in name order.
@@ -254,20 +261,72 @@ func allowedProtections(s readScope, keyNames []string) map[string]bool {
 	return map[string]bool{}
 }
 
+// packScopeCacheTTL is how long a share link keeps its allowed pack scopes before they are rebuilt.
+const packScopeCacheTTL = 60 * time.Second
+
+// cachedPackScopes is one share link's allowed pack scopes and when they were built.
+type cachedPackScopes struct {
+	scopes map[string]bool
+	at     time.Time
+}
+
+// packScopeCache holds cachedPackScopes per share link id. resolveShare still refuses a revoked
+// or expired link on every request; the cache only spares rereading the snapshots.
+var packScopeCache sync.Map
+
 // packAllowed reports whether a pack may be served to the scope (always true for Kind "").
 // Data packs carry the same scope tag as their snapshot's tree pack, because both come from
 // the backup's dedup key, so a pack is allowed when its tag matches a tree pack of an allowed snapshot.
-func packAllowed(d Deps, s readScope, packID string) (bool, error) {
+// linkID is the share link's id; "" skips the cache.
+func packAllowed(d Deps, s readScope, linkID, packID string) (bool, error) {
 	if s.Kind == "" {
 		return true, nil
 	}
-	snaps, err := loadRecords(d, s, "snapshots")
+	scopes, err := allowedPackScopes(d, s, linkID, time.Now())
 	if err != nil {
 		return false, err
 	}
-	keyNames, err := recordNames(d, s, "keys")
+	var scope string
+	err = d.DB.QueryRow(`SELECT scope FROM storage_packs WHERE account_id = ? AND luna_id = ? AND id = ?`,
+		s.AccountID, s.LunaID, packID).Scan(&scope)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
 	if err != nil {
 		return false, err
+	}
+	return scope != "" && scopes[scope], nil
+}
+
+// allowedPackScopes returns the pack scope tags a share scope may read, from a cache that lives
+// packScopeCacheTTL for each link.
+func allowedPackScopes(d Deps, s readScope, linkID string, now time.Time) (map[string]bool, error) {
+	if linkID == "" {
+		return loadPackScopes(d, s)
+	}
+	if v, ok := packScopeCache.Load(linkID); ok {
+		if c := v.(cachedPackScopes); now.Sub(c.at) < packScopeCacheTTL {
+			return c.scopes, nil
+		}
+	}
+	scopes, err := loadPackScopes(d, s)
+	if err != nil {
+		return nil, err
+	}
+	packScopeCache.Store(linkID, cachedPackScopes{scopes: scopes, at: now})
+	return scopes, nil
+}
+
+// loadPackScopes reads the snapshots and key names the scope may see and returns the scope tags
+// of their tree packs.
+func loadPackScopes(d Deps, s readScope) (map[string]bool, error) {
+	snaps, err := loadRecords(d, s, "snapshots")
+	if err != nil {
+		return nil, err
+	}
+	keyNames, err := recordNames(d, s, "keys")
+	if err != nil {
+		return nil, err
 	}
 	snaps = filterRecords(s, "snapshots", snaps, keyNames)
 	scopes := map[string]bool{}
@@ -283,22 +342,13 @@ func packAllowed(d Deps, s readScope, packID string) (bool, error) {
 			continue
 		}
 		if err != nil {
-			return false, err
+			return nil, err
 		}
 		if scope != "" {
 			scopes[scope] = true
 		}
 	}
-	var scope string
-	err = d.DB.QueryRow(`SELECT scope FROM storage_packs WHERE account_id = ? AND luna_id = ? AND id = ?`,
-		s.AccountID, s.LunaID, packID).Scan(&scope)
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	return scope != "" && scopes[scope], nil
+	return scopes, nil
 }
 
 // writeRecords and writePack do the HTTP part for both the account and share routes.
@@ -339,36 +389,38 @@ func writeRecords(d Deps, w http.ResponseWriter, s readScope, kind string) {
 	JSON(w, http.StatusOK, map[string]any{"records": out})
 }
 
-// writePack streams one pack to the scope. Every refusal gets the same answer, so a caller
-// cannot tell a pack that is missing from one it may not see.
-func writePack(d Deps, w http.ResponseWriter, s readScope, packID string) {
+// writePack streams one pack to the scope and returns the bytes it wrote, even when the copy
+// stops early. Every refusal gets the same answer, so a caller cannot tell a pack that is missing
+// from one it may not see. linkID is the share link, or "" for the account owner.
+func writePack(d Deps, w http.ResponseWriter, s readScope, packID, linkID string) int64 {
 	notFound := func() {
 		JSONError(w, http.StatusNotFound, "That backup file is not in cloud storage.")
 	}
 	if !storagePackIDPattern.MatchString(packID) {
 		notFound()
-		return
+		return 0
 	}
 	var one int
 	if err := d.DB.QueryRow(`SELECT 1 FROM storage_packs WHERE account_id = ? AND luna_id = ? AND id = ?`,
 		s.AccountID, s.LunaID, packID).Scan(&one); err != nil {
 		notFound()
-		return
+		return 0
 	}
-	allowed, err := packAllowed(d, s, packID)
+	allowed, err := packAllowed(d, s, linkID, packID)
 	if err != nil || !allowed {
 		notFound()
-		return
+		return 0
 	}
 	rc, err := d.Store.Get(s.AccountID, store.StorageSlot(s.LunaID), store.StoragePackPath(packID))
 	if err != nil {
 		notFound()
-		return
+		return 0
 	}
 	defer rc.Close()
 	w.Header().Set("Content-Type", "application/octet-stream")
-	n, err := io.Copy(w, rc)
-	if err == nil && n > 0 {
+	n, _ := io.Copy(w, rc)
+	if n > 0 {
 		billing.RecordEgress(d.DB, s.AccountID, n)
 	}
+	return n
 }

@@ -12,15 +12,18 @@ use axum::routing::get;
 use axum::{Json, Router};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
-use rusqlite::{Connection, params};
+use rusqlite::params;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::AppState;
 use crate::api::cloud_backups::connect_store;
+use crate::api::cloud_phrase::{CHECK_DOMAIN, decode_signature, take_challenge};
 use crate::api::response::json_error;
 use crate::auth::CurrentUser;
+use crate::backup::cloud::crypto;
 use crate::backup::cloud::identity::{self, Identity};
+use crate::backup::cloud::keys::{self, USERS_KIND, USERS_LIST_NAME};
 use crate::backup::cloud::recover::{self, Recovered};
 use crate::backup::cloud::store::CloudStore;
 use crate::db;
@@ -50,6 +53,10 @@ struct RestoreBody {
     /// Account ids that made backups before this Luna lost its database.
     #[serde(default)]
     old_user_ids: Vec<String>,
+    /// Base64 signature over a fresh challenge for the signed-in Admin, made with an old
+    /// account's auth key. Without a valid one, no old account is re-linked.
+    #[serde(default)]
+    signature: String,
 }
 
 #[derive(Deserialize)]
@@ -176,13 +183,13 @@ async fn restore(
     let user_id = user.id.clone();
     let answer = tokio::task::spawn_blocking(move || -> Result<Value, ApiError> {
         let store = connect_store(&connect, &db).ok_or_else(not_set_up)?;
-        // The store is read while the DB lock is held. A restore is rare and Admin-only, and
-        // rebuild_snapshot_index needs one connection for its transactions.
-        let mut conn = db.lock().unwrap_or_else(|p| p.into_inner());
-        let identity = identity::load(&conn)
-            .map_err(read_failed)?
-            .ok_or_else(|| json_error(StatusCode::CONFLICT, "Luna has no cloud backup identity yet."))?;
-        let r = restore_with_store(&mut conn, &store, &identity, &user_id, &body, db::now_unix())?;
+        let identity = {
+            let conn = db.lock().unwrap_or_else(|p| p.into_inner());
+            identity::load(&conn)
+                .map_err(read_failed)?
+                .ok_or_else(|| json_error(StatusCode::CONFLICT, "Luna has no cloud backup identity yet."))?
+        };
+        let r = restore_with_store(&db, &store, &identity, &user_id, &body, db::now_unix())?;
         Ok(json!({
             "snapshots": r.snapshots,
             "already_indexed": r.already_indexed,
@@ -241,8 +248,9 @@ fn records_with_store(store: &dyn CloudStore, kind: &str) -> Result<Value, ApiEr
 }
 
 /// Rebuilds the snapshot index from the store, then re-links backups made under old accounts.
+/// Every store read happens with the database lock free. The lock is taken only for the writes.
 fn restore_with_store(
-    conn: &mut Connection,
+    db: &crate::Db,
     store: &dyn CloudStore,
     identity: &Identity,
     user_id: &str,
@@ -250,19 +258,20 @@ fn restore_with_store(
     now: i64,
 ) -> Result<Recovered, ApiError> {
     let keys = parse_keys(body, now)?;
-    let r = recover::rebuild_snapshot_index(conn, store, identity, &keys, now).map_err(|err| {
+    let index_failed = |err: anyhow::Error| {
         tracing::warn!(error = %err, "could not rebuild the cloud backup index");
         json_error(
             StatusCode::BAD_GATEWAY,
             "Luna could not read its cloud backups from Luna Connect. Try again.",
         )
-    })?;
+    };
+    let prepared = recover::fetch_recoverable(store, identity, &keys).map_err(index_failed)?;
+    let relink = proven_old_accounts(store, identity, user_id, body, now);
+    let mut conn = db.lock().unwrap_or_else(|p| p.into_inner());
+    let r = recover::write_recovered(&mut conn, prepared, now).map_err(index_failed)?;
     // Only old accounts are re-linked. A current user's backups stay theirs.
-    for old in &body.old_user_ids {
-        if old.is_empty() || old.len() > MAX_OLD_USER_ID {
-            continue;
-        }
-        if db::get_user(conn, old).map_err(read_failed)?.is_some() {
+    for old in &relink {
+        if db::get_user(&conn, old).map_err(read_failed)?.is_some() {
             continue;
         }
         conn.execute(
@@ -272,6 +281,50 @@ fn restore_with_store(
         .map_err(read_failed)?;
     }
     Ok(r)
+}
+
+/// The old account ids the browser has proven it may claim. Empty unless the signature checks.
+/// The signature must be over the challenge issued to the signed-in Admin, and must verify under
+/// the listed auth key of the old account. A missing, stale, or bad signature re-links nothing,
+/// and the snapshots still restore.
+fn proven_old_accounts(
+    store: &dyn CloudStore,
+    identity: &Identity,
+    user_id: &str,
+    body: &RestoreBody,
+    now: i64,
+) -> Vec<String> {
+    let candidates: Vec<&String> = body
+        .old_user_ids
+        .iter()
+        .filter(|old| !old.is_empty() && old.len() <= MAX_OLD_USER_ID)
+        .collect();
+    if candidates.is_empty() {
+        return Vec::new();
+    }
+    // Taking the challenge spends it, whether or not the signature checks out.
+    let Some(challenge) = take_challenge(user_id, now) else {
+        return Vec::new();
+    };
+    let Some(sig) = decode_signature(&body.signature) else {
+        return Vec::new();
+    };
+    let listed = match store.get_record(USERS_KIND, USERS_LIST_NAME) {
+        Ok(Some(bytes)) => keys::verify_user_list(&bytes, &identity.public(), identity.luna_id()),
+        _ => None,
+    };
+    let Some(listed) = listed else {
+        return Vec::new();
+    };
+    candidates
+        .into_iter()
+        .filter(|old| {
+            listed.iter().any(|u| {
+                &u.user_id == *old && crypto::verify(&u.auth_public, CHECK_DOMAIN, &challenge, &sig)
+            })
+        })
+        .cloned()
+        .collect()
 }
 
 #[cfg(test)]
@@ -285,17 +338,21 @@ mod tests {
     use serde_json::{Value, json};
     use tower::ServiceExt;
 
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+
     use super::{KeyIn, RestoreBody, records_with_store, restore_with_store};
+    use crate::api::cloud_phrase::{CHECK_DOMAIN, issue_challenge};
     use crate::backup::cloud::crypto;
     use crate::backup::cloud::format::{self, BackupMeta, SnapshotRecord};
     use crate::backup::cloud::identity::{self, Identity};
-    use crate::backup::cloud::store::{CloudStore, MemoryStore};
+    use crate::backup::cloud::keys;
+    use crate::backup::cloud::store::{CloudStore, MemoryStore, StoreError, Usage};
     use crate::drives::DriveManager;
     use crate::drives::mount::shared_mock;
     use crate::{AppState, db};
 
     const NOW: i64 = 1_800_000_000;
-    const SCOPE_ID: [u8; 32] = [7; 32];
     const TREE_KEY: [u8; 32] = [9; 32];
     /// Same bytes as backup::cloud::run::PACK_KEY_WRAP_AAD, which is private to that module.
     const PACK_KEY_WRAP_AAD: &[u8] = b"luna-pack-key-wrap-v1";
@@ -367,6 +424,90 @@ mod tests {
                 dedup_key: STANDARD.encode([3u8; 32]),
             }],
             old_user_ids: Vec::new(),
+            signature: String::new(),
+        }
+    }
+
+    /// The same body as `body(TREE_KEY)`, claiming the given old accounts with a signature.
+    fn signed_body(old_ids: &[&str], signature: String) -> RestoreBody {
+        let mut restore = body(TREE_KEY);
+        restore.old_user_ids = old_ids.iter().map(|id| id.to_string()).collect();
+        restore.signature = signature;
+        restore
+    }
+
+    fn load_identity(f: &Fixture) -> Identity {
+        let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+        identity::load_or_create(&conn, NOW).unwrap()
+    }
+
+    /// An old account's backups: one protection row that still names the old account.
+    fn insert_old_row(f: &Fixture) {
+        let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+        insert_protection(&conn, "old-row", "/Old", "old-user");
+    }
+
+    fn owner_of(f: &Fixture, row: &str) -> String {
+        let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+        conn.query_row("SELECT created_by FROM protections WHERE id = ?1", params![row], |r| r.get(0))
+            .unwrap()
+    }
+
+    /// Publish the signed users list the way Luna Connect would hold it: one old account whose
+    /// auth key is `auth`.
+    fn publish_old_user(store: &MemoryStore, id: &Identity, old_user: &str, auth: &crypto::Signer) {
+        let users = [(old_user.to_string(), [4u8; 32], auth.public(), vec![1u8; 8])];
+        keys::publish_user_list(store, id.signer(), id.luna_id(), &users).unwrap();
+    }
+
+    /// A store that fails the test if the DB lock is held during any store read.
+    struct ProbeStore {
+        inner: MemoryStore,
+        db: std::sync::Arc<crate::Db>,
+        probes: AtomicUsize,
+    }
+
+    impl ProbeStore {
+        fn probe(&self) {
+            self.probes.fetch_add(1, Ordering::SeqCst);
+            let db = self.db.clone();
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let _guard = db.lock().unwrap_or_else(|p| p.into_inner());
+                let _ = tx.send(());
+            });
+            rx.recv_timeout(Duration::from_secs(2))
+                .expect("the DB lock was held during a cloud store read");
+        }
+    }
+
+    impl CloudStore for ProbeStore {
+        fn put_pack(&self, id: &[u8; 32], scope: Option<&str>, bytes: &[u8]) -> Result<(), StoreError> {
+            self.inner.put_pack(id, scope, bytes)
+        }
+        fn get_pack(&self, id: &[u8; 32]) -> Result<Vec<u8>, StoreError> {
+            self.probe();
+            self.inner.get_pack(id)
+        }
+        fn delete_pack(&self, id: &[u8; 32]) -> Result<(), StoreError> {
+            self.inner.delete_pack(id)
+        }
+        fn put_record(&self, kind: &str, name: &str, bytes: &[u8]) -> Result<(), StoreError> {
+            self.inner.put_record(kind, name, bytes)
+        }
+        fn get_record(&self, kind: &str, name: &str) -> Result<Option<Vec<u8>>, StoreError> {
+            self.probe();
+            self.inner.get_record(kind, name)
+        }
+        fn delete_record(&self, kind: &str, name: &str) -> Result<(), StoreError> {
+            self.inner.delete_record(kind, name)
+        }
+        fn list_records(&self, kind: &str) -> Result<Vec<String>, StoreError> {
+            self.probe();
+            self.inner.list_records(kind)
+        }
+        fn usage(&self) -> Result<Usage, StoreError> {
+            self.inner.usage()
         }
     }
 
@@ -375,7 +516,9 @@ mod tests {
     fn put_snapshot(store: &MemoryStore, signer: &Identity, snapshot_id: &str) {
         let tree_bytes = format::encrypt_tree(&format::Tree { entries: Vec::new() }, &TREE_KEY);
         let tree_hash = format::sha256(&tree_bytes);
-        let mut builder = format::PackBuilder::new(SCOPE_ID);
+        // The pack's scope must be derived from the dedup key the tests POST (see `body`).
+        let scope = crypto::chunk_id(&[3u8; 32], b"luna-scope-v1");
+        let mut builder = format::PackBuilder::new(scope);
         builder.add(tree_hash, &tree_bytes);
         let pack = builder.finish(|pack_key| crypto::encrypt(&TREE_KEY, PACK_KEY_WRAP_AAD, pack_key));
         store.put_pack(&pack.id, Some("scope"), &pack.bytes).unwrap();
@@ -429,40 +572,108 @@ mod tests {
     #[test]
     fn restore_counts_new_snapshots_then_indexed_and_skips_a_wrong_key() {
         let f = fixture();
-        let mut conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
-        let id = identity::load_or_create(&conn, NOW).unwrap();
+        let id = load_identity(&f);
         let store = MemoryStore::new();
         put_snapshot(&store, &id, "snap-a");
 
-        let wrong = restore_with_store(&mut conn, &store, &id, &f.admin_id, &body([1; 32]), NOW).unwrap();
+        let wrong = restore_with_store(&f.state.db, &store, &id, &f.admin_id, &body([1; 32]), NOW).unwrap();
         assert_eq!((wrong.snapshots, wrong.already_indexed, wrong.skipped), (0, 0, 1));
 
-        let first = restore_with_store(&mut conn, &store, &id, &f.admin_id, &body(TREE_KEY), NOW).unwrap();
+        let first = restore_with_store(&f.state.db, &store, &id, &f.admin_id, &body(TREE_KEY), NOW).unwrap();
         assert_eq!((first.snapshots, first.already_indexed, first.skipped), (1, 0, 0));
 
-        let again = restore_with_store(&mut conn, &store, &id, &f.admin_id, &body(TREE_KEY), NOW).unwrap();
+        let again = restore_with_store(&f.state.db, &store, &id, &f.admin_id, &body(TREE_KEY), NOW).unwrap();
         assert_eq!((again.snapshots, again.already_indexed, again.skipped), (0, 1, 0));
+    }
+
+    #[test]
+    fn the_db_lock_is_free_while_the_store_is_read() {
+        let f = fixture();
+        let id = load_identity(&f);
+        let inner = MemoryStore::new();
+        put_snapshot(&inner, &id, "snap-a");
+        let store = ProbeStore { inner, db: f.state.db.clone(), probes: AtomicUsize::new(0) };
+
+        let r = restore_with_store(&f.state.db, &store, &id, &f.admin_id, &body(TREE_KEY), NOW).unwrap();
+        assert_eq!(r.snapshots, 1);
+        assert!(store.probes.load(Ordering::SeqCst) >= 1);
     }
 
     #[test]
     fn relinks_only_backups_from_accounts_that_no_longer_exist() {
         let f = fixture();
-        let mut conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
-        let id = identity::load_or_create(&conn, NOW).unwrap();
+        let id = load_identity(&f);
         let store = MemoryStore::new();
-        insert_protection(&conn, "old-row", "/Old", "old-user");
-        insert_protection(&conn, "mine-row", "/Mine", &f.member_id);
+        let old_auth = crypto::Signer::from_seed([5u8; 32]);
+        publish_old_user(&store, &id, "old-user", &old_auth);
+        insert_old_row(&f);
+        {
+            let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+            insert_protection(&conn, "mine-row", "/Mine", &f.member_id);
+        }
 
-        let mut restore = body(TREE_KEY);
-        restore.old_user_ids = vec!["old-user".into(), "member-gone".into(), String::new()];
-        restore_with_store(&mut conn, &store, &id, &f.admin_id, &restore, NOW).unwrap();
+        let challenge = issue_challenge(&f.admin_id, NOW);
+        let sig = STANDARD.encode(old_auth.sign(CHECK_DOMAIN, &challenge));
+        let restore = signed_body(&["old-user", "member-gone", ""], sig);
+        restore_with_store(&f.state.db, &store, &id, &f.admin_id, &restore, NOW).unwrap();
 
-        let owner = |row: &str| -> String {
-            conn.query_row("SELECT created_by FROM protections WHERE id = ?1", params![row], |r| r.get(0))
-                .unwrap()
-        };
-        assert_eq!(owner("old-row"), f.admin_id);
-        assert_eq!(owner("mine-row"), f.member_id);
+        assert_eq!(owner_of(&f, "old-row"), f.admin_id);
+        assert_eq!(owner_of(&f, "mine-row"), f.member_id);
+    }
+
+    #[test]
+    fn a_valid_signature_relinks_the_old_account_it_proves() {
+        let f = fixture();
+        let id = load_identity(&f);
+        let store = MemoryStore::new();
+        let old_auth = crypto::Signer::from_seed([5u8; 32]);
+        publish_old_user(&store, &id, "old-user", &old_auth);
+        insert_old_row(&f);
+
+        let challenge = issue_challenge(&f.admin_id, NOW);
+        let sig = STANDARD.encode(old_auth.sign(CHECK_DOMAIN, &challenge));
+        restore_with_store(&f.state.db, &store, &id, &f.admin_id, &signed_body(&["old-user"], sig), NOW)
+            .unwrap();
+
+        assert_eq!(owner_of(&f, "old-row"), f.admin_id);
+    }
+
+    #[test]
+    fn an_empty_or_wrong_signature_relinks_nothing_but_still_restores() {
+        let f = fixture();
+        let id = load_identity(&f);
+        let store = MemoryStore::new();
+        put_snapshot(&store, &id, "snap-a");
+        let old_auth = crypto::Signer::from_seed([5u8; 32]);
+        publish_old_user(&store, &id, "old-user", &old_auth);
+        insert_old_row(&f);
+
+        // No signature at all: the snapshot still restores, nothing is re-linked.
+        let r = restore_with_store(
+            &f.state.db,
+            &store,
+            &id,
+            &f.admin_id,
+            &signed_body(&["old-user"], String::new()),
+            NOW,
+        )
+        .unwrap();
+        assert_eq!(r.snapshots, 1);
+        assert_eq!(owner_of(&f, "old-row"), "old-user");
+
+        // Signed by a key that is not the listed auth key.
+        let imposter = crypto::Signer::from_seed([6u8; 32]);
+        let challenge = issue_challenge(&f.admin_id, NOW);
+        let sig = STANDARD.encode(imposter.sign(CHECK_DOMAIN, &challenge));
+        restore_with_store(&f.state.db, &store, &id, &f.admin_id, &signed_body(&["old-user"], sig), NOW)
+            .unwrap();
+        assert_eq!(owner_of(&f, "old-row"), "old-user");
+
+        // The right key, but its challenge was spent by the attempt above, so it cannot be replayed.
+        let sig = STANDARD.encode(old_auth.sign(CHECK_DOMAIN, &challenge));
+        restore_with_store(&f.state.db, &store, &id, &f.admin_id, &signed_body(&["old-user"], sig), NOW)
+            .unwrap();
+        assert_eq!(owner_of(&f, "old-row"), "old-user");
     }
 
     #[tokio::test]

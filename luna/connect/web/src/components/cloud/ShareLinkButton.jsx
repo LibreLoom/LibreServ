@@ -54,8 +54,8 @@ export function ShareLinkButton({ lunaId, scope, label, onCreated }) {
 
   const sentence =
     scope.kind === "user"
-      ? `Anyone with this link and ${label}'s recovery phrase can download these backups for 7 days. The link alone opens nothing.`
-      : `Anyone with this link and the recovery phrase of someone who has ${label} can download it for 7 days. The link alone opens nothing.`;
+      ? `Anyone with this link and ${label}'s recovery phrase can download every backup ${label} can open, for 7 days. The link alone opens nothing.`
+      : `Anyone with this link and the recovery phrase of someone who can open ${label} can download it for 7 days. The link alone opens nothing.`;
 
   return (
     <div className="space-y-3 min-w-0">

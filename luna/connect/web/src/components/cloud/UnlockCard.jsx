@@ -1,4 +1,5 @@
 import { useId, useState } from "react";
+import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import { Button } from "../ui/button.jsx";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card.jsx";
 import { Label } from "../ui/label.jsx";
@@ -52,7 +53,7 @@ export function UnlockCard({ title = "Open your cloud backups", description, onU
         </div>
         <p className="text-sm text-muted-foreground leading-relaxed">
           {phishingBefore}
-          <span className="rounded-pill border border-border px-2 font-mono">{CONNECT_HOST}</span>
+          <InlinePill>{CONNECT_HOST}</InlinePill>
           {phishingAfter}
         </p>
         {error ? <p role="alert" className="text-sm text-error">{error}</p> : null}

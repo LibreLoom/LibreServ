@@ -31,9 +31,9 @@ const KEY_COPY_SIG_LEN: usize = 64;
 /// Meta key prefix for the recipient list each key version was created for.
 const META_PREFIX: &str = "cloud_recipients";
 /// Record kind for the signed list of every user's recovery keys on this Luna.
-const USERS_KIND: &str = "users";
+pub(crate) const USERS_KIND: &str = "users";
 /// Record name for that list. There is one per Luna.
-const USERS_LIST_NAME: &str = "list";
+pub(crate) const USERS_LIST_NAME: &str = "list";
 /// Signature domain for the user list.
 const USERS_DOMAIN: &str = "users";
 

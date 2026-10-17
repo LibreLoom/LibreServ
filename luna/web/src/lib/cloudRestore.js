@@ -1,7 +1,7 @@
 import { phraseToEntropy } from "@libreloom/ui/lib/cloud/backupCrypto.js";
 import { findMyKeys } from "@libreloom/ui/lib/cloud/cloudKeys.js";
 import { getJson, postJson } from "./api";
-import { buildPhraseBody, fromBase64, savePhrase, toBase64 } from "./cloudPhrase";
+import { buildPhraseBody, fromBase64, savePhrase, signFreshChallenge, toBase64 } from "./cloudPhrase";
 
 export const RESTORE_QUERY_KEY = ["cloud-restore"];
 export const RESTORE_PATH = "/api/v1/cloud/restore";
@@ -43,6 +43,16 @@ export async function restoreFromPhrase(words, { lunaId, signingPublic, userId, 
     expectSigningPublic: fromBase64(signingPublic),
   });
 
+  // Proves this person holds the phrase, so Luna can re-link their old backups.
+  // If the challenge or signing fails, send an empty signature: Luna still rebuilds
+  // its list but does not re-link anything.
+  let signature = "";
+  try {
+    signature = await signFreshChallenge(entropy, lunaId);
+  } catch {
+    signature = "";
+  }
+
   const result = await postJson(RESTORE_PATH, {
     keys: mine.keys.map((k) => ({
       protection_id: k.protectionId,
@@ -51,6 +61,7 @@ export async function restoreFromPhrase(words, { lunaId, signingPublic, userId, 
       dedup_key: toBase64(k.dedupKey),
     })),
     old_user_ids: mine.userIds.filter((id) => id !== userId),
+    signature,
   });
 
   if (!phraseSet) {

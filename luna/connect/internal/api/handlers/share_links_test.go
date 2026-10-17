@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -281,5 +282,146 @@ func TestShareCreateRejectsBadScope(t *testing.T) {
 	}
 	if !bytes.Contains(rec.Body.Bytes(), []byte(`"token"`)) {
 		t.Fatalf("valid body answer %s", rec.Body.String())
+	}
+}
+
+// cutOffWriter accepts limit bytes and then fails, like a client that went away mid-download.
+type cutOffWriter struct {
+	header       http.Header
+	limit, wrote int
+}
+
+func (w *cutOffWriter) Header() http.Header { return w.header }
+func (w *cutOffWriter) WriteHeader(int)     {}
+func (w *cutOffWriter) Write(p []byte) (int, error) {
+	room := w.limit - w.wrote
+	if len(p) <= room {
+		w.wrote += len(p)
+		return len(p), nil
+	}
+	w.wrote += room
+	return room, errors.New("client went away")
+}
+
+func TestShareEgressRecordedAndCapped(t *testing.T) {
+	d, owner := shareFixture(t)
+	cloudRecord(t, d, owner, "home-luna", "keys", cloudProtA+".1."+cloudUserA, []byte("key a"))
+	cloudRecord(t, d, owner, "home-luna", "snapshots", "snap-a.json", snapshotJSON(cloudProtA, hexPack('c')))
+	cloudPack(t, d, owner, "home-luna", hexPack('c'), "tagA", []byte("tree a"))
+	id, token := createShare(t, d, owner, shareBody("user", cloudUserA))
+	h := ShareLinkHandler{Deps: d}
+	packGet := func() *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		h.Pack(rec, shareReq("", http.MethodGet, "/x", "", map[string]string{"id": hexPack('c')}, token))
+		return rec
+	}
+
+	if rec := packGet(); rec.Code != http.StatusOK || rec.Body.String() != "tree a" {
+		t.Fatalf("pack status %d body %q", rec.Code, rec.Body.String())
+	}
+	var used int64
+	if err := d.DB.QueryRow(`SELECT egress_bytes FROM share_links WHERE id = ?`, id).Scan(&used); err != nil {
+		t.Fatal(err)
+	}
+	if used != 6 {
+		t.Fatalf("egress_bytes %d, want 6", used)
+	}
+
+	limit, err := shareEgressCap(d, owner, "home-luna")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if limit != 18 {
+		t.Fatalf("cap %d, want 3 x 6 = 18", limit)
+	}
+	if _, err := d.DB.Exec(`UPDATE share_links SET egress_bytes = ? WHERE id = ?`, limit, id); err != nil {
+		t.Fatal(err)
+	}
+	if rec := packGet(); rec.Code != http.StatusTooManyRequests || !strings.Contains(rec.Body.String(), shareEgressMessage) {
+		t.Fatalf("over cap: status %d body %q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestShareEgressFallbackCapWithoutStoredPacks(t *testing.T) {
+	d, owner := shareFixture(t) // home-luna has no packs, so the 2 TB fallback applies
+	id, token := createShare(t, d, owner, shareBody("user", cloudUserA))
+	limit, err := shareEgressCap(d, owner, "home-luna")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if limit != shareEgressFallbackCap {
+		t.Fatalf("cap %d, want fallback %d", limit, shareEgressFallbackCap)
+	}
+	h := ShareLinkHandler{Deps: d}
+	packGet := func() *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		h.Pack(rec, shareReq("", http.MethodGet, "/x", "", map[string]string{"id": hexPack('c')}, token))
+		return rec
+	}
+	if _, err := d.DB.Exec(`UPDATE share_links SET egress_bytes = ? WHERE id = ?`, shareEgressFallbackCap-1, id); err != nil {
+		t.Fatal(err)
+	}
+	if rec := packGet(); rec.Code == http.StatusTooManyRequests {
+		t.Fatal("just under the fallback cap should not be refused")
+	}
+	if _, err := d.DB.Exec(`UPDATE share_links SET egress_bytes = ? WHERE id = ?`, shareEgressFallbackCap, id); err != nil {
+		t.Fatal(err)
+	}
+	if rec := packGet(); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("at the fallback cap: status %d, want 429", rec.Code)
+	}
+}
+
+func TestShareEgressRecordedWhenClientStopsEarly(t *testing.T) {
+	d, owner := shareFixture(t)
+	cloudRecord(t, d, owner, "home-luna", "keys", cloudProtA+".1."+cloudUserA, []byte("key a"))
+	cloudRecord(t, d, owner, "home-luna", "snapshots", "snap-a.json", snapshotJSON(cloudProtA, hexPack('c')))
+	cloudPack(t, d, owner, "home-luna", hexPack('c'), "tagA", []byte("tree a"))
+	id, token := createShare(t, d, owner, shareBody("user", cloudUserA))
+
+	w := &cutOffWriter{header: http.Header{}, limit: 3}
+	ShareLinkHandler{Deps: d}.Pack(w, shareReq("", http.MethodGet, "/x", "", map[string]string{"id": hexPack('c')}, token))
+	if w.wrote != 3 {
+		t.Fatalf("wrote %d bytes, want 3", w.wrote)
+	}
+	var used int64
+	if err := d.DB.QueryRow(`SELECT egress_bytes FROM share_links WHERE id = ?`, id).Scan(&used); err != nil {
+		t.Fatal(err)
+	}
+	if used != 3 {
+		t.Fatalf("link egress %d, want the 3 bytes that were written", used)
+	}
+	var billed int64
+	if err := d.DB.QueryRow(`SELECT COALESCE(SUM(egress_bytes), 0) FROM billing_period_egress WHERE account_id = ?`, owner).Scan(&billed); err != nil {
+		t.Fatal(err)
+	}
+	if billed != 3 {
+		t.Fatalf("billed egress %d, want 3", billed)
+	}
+}
+
+func TestInfoIgnoresDeviceOfAnotherAccount(t *testing.T) {
+	d, owner := shareFixture(t)
+	other := cloudAccount(t, d, "elsewhere@example.com")
+	foreignDev, _ := mintDevice(t, d, "official")
+	if _, err := d.DB.Exec(`UPDATE devices SET account_id = ?, name = 'Their drive' WHERE id = ?`, other, foreignDev); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.DB.Exec(`UPDATE luna_ids SET device_id = ? WHERE account_id = ? AND luna_id = 'home-luna'`, foreignDev, owner); err != nil {
+		t.Fatal(err)
+	}
+	_, token := createShare(t, d, owner, shareBody("user", cloudUserA))
+	rec := fetchShareInfo(d, token)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		LunaName string `json:"luna_name"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.LunaName != "" {
+		t.Fatalf("luna_name %q leaked from another account's device", got.LunaName)
 	}
 }

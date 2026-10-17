@@ -6,7 +6,7 @@ describe("UnlockCard", () => {
   it("shows the phishing line with the host", () => {
     render(<UnlockCard onUnlock={vi.fn()} />);
     expect(screen.getByText(/Only type your recovery phrase on/)).toBeTruthy();
-    expect(screen.getByText("connect.luna.libreloom.org").className).toMatch(/rounded-pill/);
+    expect(screen.getByText("connect.luna.libreloom.org").getAttribute("data-slot")).toBe("inline-pill");
     expect(screen.getByLabelText("Recovery phrase")).toBeTruthy();
   });
 

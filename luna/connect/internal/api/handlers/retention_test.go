@@ -215,3 +215,71 @@ func TestPurgeMailAsksForDataNotACard(t *testing.T) {
 		t.Fatalf("day30 %q %q", subj, body)
 	}
 }
+
+func TestKeepLunaOnlyCancelsAPendingPurge(t *testing.T) {
+	d := testDeps(t)
+	_, acct, _ := testOnboarding(t)
+	acct.Deps = d
+	_ = registerAccount(t, acct, "keep@b.co")
+	var id string
+	_ = d.DB.QueryRow(`SELECT id FROM accounts WHERE email = 'keep@b.co'`).Scan(&id)
+	now := time.Now().Unix()
+	seedLunaWithPack(t, d, id, "luna-pending", "dev_p", now+86400, strings.Repeat("a", 64))
+	seedLunaWithPack(t, d, id, "luna-claimed", "dev_c", -1, strings.Repeat("b", 64))
+
+	keepLuna(d, id, "luna-pending")
+	keepLuna(d, id, "luna-claimed")
+
+	var pending, claimed int64
+	_ = d.DB.QueryRow(`SELECT purge_after FROM luna_ids WHERE account_id = ? AND luna_id = 'luna-pending'`, id).Scan(&pending)
+	_ = d.DB.QueryRow(`SELECT purge_after FROM luna_ids WHERE account_id = ? AND luna_id = 'luna-claimed'`, id).Scan(&claimed)
+	if pending != 0 {
+		t.Fatalf("pending purge %d, want cancelled (0)", pending)
+	}
+	if claimed != 0 {
+		t.Fatalf("claimed purge %d, want cancelled (0)", claimed)
+	}
+}
+
+func TestKeepLunaStopsRetryOfStuckPurge(t *testing.T) {
+	d := testDeps(t)
+	_, acct, _ := testOnboarding(t)
+	acct.Deps = d
+	_ = registerAccount(t, acct, "recall@b.co")
+	var id string
+	_ = d.DB.QueryRow(`SELECT id FROM accounts WHERE email = 'recall@b.co'`).Scan(&id)
+	now := time.Now().Unix()
+	packID := strings.Repeat("d", 64)
+	seedLunaWithPack(t, d, id, "luna-recalled", "dev_recalled", -1, packID)
+
+	keepLuna(d, id, "luna-recalled")
+	ProcessRetention(d, now)
+
+	if n := countRows(t, d, `SELECT COUNT(*) FROM luna_ids WHERE account_id = ? AND luna_id = 'luna-recalled' AND purge_after = 0`, id); n != 1 {
+		t.Fatalf("recalled luna row with purge_after 0 %d, want kept (1)", n)
+	}
+	if n := countRows(t, d, `SELECT COUNT(*) FROM storage_packs WHERE account_id = ? AND luna_id = 'luna-recalled'`, id); n != 1 {
+		t.Fatalf("recalled luna packs %d after retention, want kept (1)", n)
+	}
+}
+
+func TestRetentionRetriesLunaStuckMidPurge(t *testing.T) {
+	d := testDeps(t)
+	_, acct, _ := testOnboarding(t)
+	acct.Deps = d
+	_ = registerAccount(t, acct, "stuck@b.co")
+	var id string
+	_ = d.DB.QueryRow(`SELECT id FROM accounts WHERE email = 'stuck@b.co'`).Scan(&id)
+	now := time.Now().Unix()
+	packID := strings.Repeat("c", 64)
+	seedLunaWithPack(t, d, id, "luna-stuck", "dev_stuck", -1, packID)
+
+	ProcessRetention(d, now)
+
+	if n := countRows(t, d, `SELECT COUNT(*) FROM luna_ids WHERE account_id = ? AND luna_id = 'luna-stuck'`, id); n != 0 {
+		t.Fatalf("stuck luna row %d after retention, want purged (0)", n)
+	}
+	if n := countRows(t, d, `SELECT COUNT(*) FROM storage_packs WHERE account_id = ? AND luna_id = 'luna-stuck'`, id); n != 0 {
+		t.Fatalf("stuck luna packs %d after retention, want 0", n)
+	}
+}

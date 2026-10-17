@@ -26,7 +26,7 @@ use crate::db::{self, UserKeys};
 /// How long a challenge stays good after it is issued.
 const CHALLENGE_TTL: i64 = 5 * 60;
 /// Domain the browser signs the challenge under. Must match the web side.
-const CHECK_DOMAIN: &str = "phrase-check";
+pub(crate) const CHECK_DOMAIN: &str = "phrase-check";
 
 type ApiError = (StatusCode, Json<Value>);
 type ApiResult = Result<Json<Value>, ApiError>;
@@ -45,7 +45,7 @@ fn challenges() -> &'static Mutex<HashMap<String, Challenge>> {
 }
 
 /// Issue a fresh challenge for `user_id`, replacing any earlier one.
-fn issue_challenge(user_id: &str, now: i64) -> [u8; 32] {
+pub(crate) fn issue_challenge(user_id: &str, now: i64) -> [u8; 32] {
     let mut bytes = [0u8; 32];
     getrandom::getrandom(&mut bytes).expect("system randomness");
     let mut map = challenges().lock().unwrap_or_else(|p| p.into_inner());
@@ -55,7 +55,7 @@ fn issue_challenge(user_id: &str, now: i64) -> [u8; 32] {
 
 /// Remove and return the user's challenge if it has not expired. A challenge is single-use:
 /// taking it always removes it, whether or not the caller goes on to use it.
-fn take_challenge(user_id: &str, now: i64) -> Option<[u8; 32]> {
+pub(crate) fn take_challenge(user_id: &str, now: i64) -> Option<[u8; 32]> {
     let mut map = challenges().lock().unwrap_or_else(|p| p.into_inner());
     let challenge = map.remove(user_id)?;
     (now < challenge.expires_at).then_some(challenge.bytes)
@@ -238,7 +238,7 @@ fn decode_key(text: &str) -> Result<[u8; 32], ApiError> {
 }
 
 /// Decode a base64 signature, which must be exactly 64 bytes.
-fn decode_signature(text: &str) -> Option<[u8; 64]> {
+pub(crate) fn decode_signature(text: &str) -> Option<[u8; 64]> {
     let bytes = STANDARD.decode(text.trim()).ok()?;
     <[u8; 64]>::try_from(bytes.as_slice()).ok()
 }

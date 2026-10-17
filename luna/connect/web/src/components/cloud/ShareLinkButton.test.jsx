@@ -29,7 +29,7 @@ describe("ShareLinkButton", () => {
     render(<ShareLinkButton lunaId="l1" scope={{ kind: "user", value: "abc" }} label="Alex" onCreated={onCreated} />);
     fireEvent.click(screen.getByRole("button", { name: "Share link" }));
     expect(await screen.findByDisplayValue(new RegExp(`#${TOKEN}$`))).toBeTruthy();
-    expect(screen.getByText(/Anyone with this link and Alex's recovery phrase can download these backups for 7 days/)).toBeTruthy();
+    expect(screen.getByText(/Anyone with this link and Alex's recovery phrase can download every backup Alex can open, for 7 days/)).toBeTruthy();
     expect(createShareLink).toHaveBeenCalledWith("l1", { kind: "user", value: "abc" });
     expect(onCreated).toHaveBeenCalled();
   });
@@ -38,7 +38,7 @@ describe("ShareLinkButton", () => {
     createShareLink.mockResolvedValue({ id: "s2", token: TOKEN, expires_at: 1 });
     render(<ShareLinkButton lunaId="l1" scope={{ kind: "backup", value: "p1" }} label="Photos" />);
     fireEvent.click(screen.getByRole("button", { name: "Share link" }));
-    expect(await screen.findByText(/the recovery phrase of someone who has Photos can download it for 7 days/)).toBeTruthy();
+    expect(await screen.findByText(/the recovery phrase of someone who can open Photos can download it for 7 days/)).toBeTruthy();
   });
 
   it("copies the link and shows Copied", async () => {

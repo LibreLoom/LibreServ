@@ -162,9 +162,10 @@ func ProcessRetention(deps Deps, now int64) {
 }
 
 // purgeUnlinkedLunas deletes the storage of each Luna whose 30 days after unlinking are up.
-// Linking the Luna again clears its purge_after before then.
+// Linking the Luna again clears its purge_after before then. A Luna at -1 was claimed by a
+// purge that never finished (the process stopped mid-purge), so it is retried here; purging is idempotent.
 func purgeUnlinkedLunas(deps Deps, now int64) {
-	rows, err := deps.DB.Query(`SELECT account_id, luna_id FROM luna_ids WHERE purge_after > 0 AND purge_after <= ?`, now)
+	rows, err := deps.DB.Query(`SELECT account_id, luna_id FROM luna_ids WHERE purge_after = -1 OR (purge_after > 0 AND purge_after <= ?)`, now)
 	if err != nil {
 		slog.Error("retention luna query", "err", err)
 		return

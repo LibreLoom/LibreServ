@@ -164,7 +164,8 @@ CREATE TABLE IF NOT EXISTS share_links (
   created_at INTEGER NOT NULL,
   expires_at INTEGER NOT NULL,
   revoked_at INTEGER NOT NULL DEFAULT 0,
-  last_opened_at INTEGER NOT NULL DEFAULT 0
+  last_opened_at INTEGER NOT NULL DEFAULT 0,
+  egress_bytes INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_share_links_account ON share_links (account_id);
 `
@@ -331,7 +332,8 @@ CREATE TABLE IF NOT EXISTS share_links (
   created_at BIGINT NOT NULL,
   expires_at BIGINT NOT NULL,
   revoked_at BIGINT NOT NULL DEFAULT 0,
-  last_opened_at BIGINT NOT NULL DEFAULT 0
+  last_opened_at BIGINT NOT NULL DEFAULT 0,
+  egress_bytes BIGINT NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_share_links_account ON share_links (account_id);
 `

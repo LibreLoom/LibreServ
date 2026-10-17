@@ -180,9 +180,10 @@ func authorizeLuna(d Deps, w http.ResponseWriter, r *http.Request, accountID, lu
 	return true
 }
 
-// keepLuna cancels a pending purge: the Luna is linked and using its storage again.
+// keepLuna cancels a pending purge, or one that was claimed and never finished: the Luna is
+// linked and using its storage again.
 func keepLuna(d Deps, accountID, lunaID string) {
-	_, _ = d.DB.Exec(`UPDATE luna_ids SET purge_after = 0 WHERE account_id = ? AND luna_id = ? AND purge_after != 0`, accountID, lunaID)
+	_, _ = d.DB.Exec(`UPDATE luna_ids SET purge_after = 0 WHERE account_id = ? AND luna_id = ? AND (purge_after > 0 OR purge_after = -1)`, accountID, lunaID)
 }
 
 // setSigningPublic records the signing key a Luna uses to move its storage to a new

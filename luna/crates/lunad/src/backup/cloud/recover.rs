@@ -7,11 +7,13 @@
 //! backup key are restored from it. Packs the index does not know are never deleted, so they are
 //! left alone.
 
+use std::collections::HashMap;
+
 use anyhow::{anyhow, Result};
 use rusqlite::{params, Connection, OptionalExtension};
 
 use super::crypto;
-use super::format::{self, SignedRecord};
+use super::format::{self, BackupMeta, SignedRecord, SnapshotRecord};
 use crate::backup::access_list::AccessList;
 use super::identity::Identity;
 use super::run::PACK_KEY_WRAP_AAD;
@@ -32,10 +34,28 @@ pub struct Recovered {
     pub skipped: u32,
 }
 
-enum Step {
-    Written,
-    Indexed,
-    Skipped,
+/// Records fetched and checked from Connect, ready to write. Built without a database connection,
+/// so the network work can finish before any database lock is taken.
+pub struct Prepared {
+    /// Records that could not be read, verified, opened, or matched to a backup key.
+    pub skipped: u32,
+    /// Snapshots that passed every check.
+    pub snapshots: Vec<PreparedSnapshot>,
+}
+
+/// One snapshot's fetched and decrypted parts.
+pub struct PreparedSnapshot {
+    /// The signed record bytes, kept as the index's copy of the snapshot.
+    pub record_bytes: Vec<u8>,
+    pub record: SnapshotRecord,
+    /// The tree pack's size as stored on Connect.
+    pub tree_pack_size: i64,
+    /// The scope tag of this snapshot's packs.
+    pub scope: String,
+    pub tree: format::Tree,
+    pub meta: BackupMeta,
+    /// The backup key this snapshot was opened with.
+    pub key: BackupKey,
 }
 
 /// Rebuild the snapshot index from the snapshot records on the store.
@@ -47,8 +67,14 @@ pub fn rebuild_snapshot_index(
     keys: &[BackupKey],
     now: i64,
 ) -> Result<Recovered> {
+    let prepared = fetch_recoverable(store, identity, keys)?;
+    write_recovered(conn, prepared, now)
+}
+
+/// Fetch, verify and decrypt every snapshot record on the store. Makes no database changes.
+pub fn fetch_recoverable(store: &dyn CloudStore, identity: &Identity, keys: &[BackupKey]) -> Result<Prepared> {
     let names = store.list_records(SNAPSHOT_KIND).map_err(|e| anyhow!("{e}"))?;
-    let mut out = Recovered::default();
+    let mut out = Prepared { skipped: 0, snapshots: Vec::new() };
     for name in names {
         let bytes = match store.get_record(SNAPSHOT_KIND, &name) {
             Ok(Some(bytes)) => bytes,
@@ -57,90 +83,97 @@ pub fn rebuild_snapshot_index(
                 continue;
             }
         };
-        match index_one(conn, store, identity, keys, &bytes, now)? {
-            Step::Written => out.snapshots += 1,
-            Step::Indexed => out.already_indexed += 1,
-            Step::Skipped => out.skipped += 1,
+        match fetch_one(store, identity, keys, bytes) {
+            Some(snapshot) => out.snapshots.push(snapshot),
+            None => out.skipped += 1,
         }
     }
     Ok(out)
 }
 
-fn index_one(
-    conn: &mut Connection,
-    store: &dyn CloudStore,
-    identity: &Identity,
-    keys: &[BackupKey],
-    bytes: &[u8],
-    now: i64,
-) -> Result<Step> {
-    let Ok(signed) = SignedRecord::from_bytes(bytes) else {
-        return Ok(Step::Skipped);
-    };
-    let Ok(record) = signed.verify(&identity.public()) else {
-        return Ok(Step::Skipped);
-    };
+/// Write fetched snapshots into the index. Snapshots already indexed are counted and left alone.
+pub fn write_recovered(conn: &mut Connection, prepared: Prepared, now: i64) -> Result<Recovered> {
+    let mut out = Recovered { skipped: prepared.skipped, ..Recovered::default() };
+    for snapshot in prepared.snapshots {
+        if already_indexed(conn, &snapshot.record.snapshot_id)? {
+            out.already_indexed += 1;
+        } else {
+            write_snapshot(conn, snapshot, now)?;
+            out.snapshots += 1;
+        }
+    }
+    Ok(out)
+}
+
+/// Check one record and fetch its tree. `None` means the record is skipped.
+fn fetch_one(store: &dyn CloudStore, identity: &Identity, keys: &[BackupKey], bytes: Vec<u8>) -> Option<PreparedSnapshot> {
+    let signed = SignedRecord::from_bytes(&bytes).ok()?;
+    let record = signed.verify(&identity.public()).ok()?;
     if record.luna_id != identity.luna_id() {
-        return Ok(Step::Skipped);
+        return None;
     }
-    let Some(key) = keys
+    let key = keys
         .iter()
-        .find(|k| k.protection_id == record.protection_id && k.version == i64::from(record.key_version))
-    else {
-        return Ok(Step::Skipped);
-    };
-    let Ok(tree_key) = <[u8; 32]>::try_from(key.key.as_slice()) else {
-        return Ok(Step::Skipped);
-    };
-    if already_indexed(conn, &record.snapshot_id)? {
-        return Ok(Step::Indexed);
-    }
+        .find(|k| k.protection_id == record.protection_id && k.version == i64::from(record.key_version))?;
+    let tree_key = <[u8; 32]>::try_from(key.key.as_slice()).ok()?;
+    let dedup_key = <[u8; 32]>::try_from(key.dedup_key.as_slice()).ok()?;
 
     // The tree pack must open with this key and hold the tree the record names.
-    let Ok(pack_bytes) = store.get_pack(&record.tree_pack_id) else {
-        return Ok(Step::Skipped);
-    };
+    let pack_bytes = store.get_pack(&record.tree_pack_id).ok()?;
     let unwrap = |wrapped: &[u8]| -> Result<[u8; 32]> {
         let plain = crypto::decrypt(&tree_key, PACK_KEY_WRAP_AAD, wrapped)?;
         <[u8; 32]>::try_from(plain.as_slice()).map_err(|_| anyhow!("pack key"))
     };
-    let Ok(pack) = format::open_pack(&pack_bytes, &record.tree_pack_id, unwrap) else {
-        return Ok(Step::Skipped);
-    };
+    let pack = format::open_pack(&pack_bytes, &record.tree_pack_id, unwrap).ok()?;
     let sealed = match pack.chunk(&record.tree_hash) {
         Some(sealed) if format::sha256(sealed) == record.tree_hash => sealed,
-        _ => return Ok(Step::Skipped),
+        _ => return None,
     };
-    let Ok(tree) = format::decrypt_tree(sealed, &tree_key) else {
-        return Ok(Step::Skipped);
-    };
-    let Ok(meta) = format::decrypt_meta(&record.meta, &tree_key) else {
-        return Ok(Step::Skipped);
-    };
+    let tree = format::decrypt_tree(sealed, &tree_key).ok()?;
+    let meta = format::decrypt_meta(&record.meta, &tree_key).ok()?;
 
+    // The pack's scope tag is derived from the dedup key, so a wrong dedup key cannot match it.
+    let expected_scope = hex(&crypto::chunk_id(&dedup_key, b"luna-scope-v1")[..16]);
     let scope = hex(&pack.scope_id()[..16]);
+    if scope != expected_scope {
+        return None;
+    }
+    Some(PreparedSnapshot {
+        record_bytes: bytes,
+        tree_pack_size: pack_bytes.len() as i64,
+        scope,
+        record,
+        tree,
+        meta,
+        key: key.clone(),
+    })
+}
+
+/// Write one prepared snapshot, its packs, chunks, protection row and backup key in one transaction.
+fn write_snapshot(conn: &mut Connection, snapshot: PreparedSnapshot, now: i64) -> Result<()> {
+    let PreparedSnapshot { record_bytes, record, tree_pack_size, scope, tree, meta, key } = snapshot;
     let tree_pack_id = hex(&record.tree_pack_id);
-    let snapshot = SnapshotInsert {
+    let index_row = SnapshotInsert {
         id: record.snapshot_id.clone(),
         protection_id: record.protection_id.clone(),
         created_at: record.created_at,
         key_version: i64::from(record.key_version),
         tree_pack_id: tree_pack_id.clone(),
-        record: bytes.to_vec(),
+        record: record_bytes,
     };
     let tx = conn.transaction()?;
     // A pack row may already exist (for example from a run that was interrupted), so keep it.
     tx.execute(
         "INSERT OR IGNORE INTO cloud_packs (id, scope, state, run_id, size, marked_at, created_at)
          VALUES (?1, ?2, 'live', ?3, ?4, 0, ?5)",
-        params![tree_pack_id, scope, RECOVERED_RUN, pack_bytes.len() as i64, now],
+        params![tree_pack_id, scope, RECOVERED_RUN, tree_pack_size, now],
     )?;
-    db::insert_cloud_snapshot(&tx, &snapshot)?;
+    db::insert_cloud_snapshot(&tx, &index_row)?;
     tx.execute(
         "INSERT OR IGNORE INTO cloud_snapshot_packs (snapshot_id, pack_id) VALUES (?1, ?2)",
-        params![snapshot.id, tree_pack_id],
+        params![index_row.id, tree_pack_id],
     )?;
-    index_tree_chunks(&tx, store, &scope, &snapshot.id, &tree, now)?;
+    index_tree_chunks(&tx, &scope, &index_row.id, &tree, now)?;
     // Keep an existing protection row and key as they are; restore them only when missing.
     if db::get_protection(&tx, &record.protection_id)?.is_none() {
         // Older records can leave the starter empty, so fall back to the first Admin.
@@ -167,33 +200,33 @@ fn index_one(
         db::set_protection_access(&tx, &record.protection_id, &serde_json::to_string(&access)?)?;
     }
     if !backup_key_exists(&tx, &key.protection_id, key.version)? {
-        db::insert_backup_key(&tx, key)?;
+        db::insert_backup_key(&tx, &key)?;
     }
     tx.commit()?;
-    Ok(Step::Written)
+    Ok(())
 }
 
 /// Rebuild where each chunk of a snapshot's files is stored: its data pack, offset and length.
 /// Packs are INSERT OR IGNORE, since many snapshots share the same data packs.
-/// The data pack's size is not in the tree, so it is measured from the pack the store holds.
-/// The store has no size lookup, so each pack is fetched once, the first time it is seen.
-/// A pack the store cannot return keeps size 0.
+/// A data pack's real size is not in the tree. The end of its furthest chunk in this tree is the
+/// least it can be, so the size is an estimate: cleanup and usage treat it as a lower bound.
 fn index_tree_chunks(
     tx: &rusqlite::Transaction,
-    store: &dyn CloudStore,
     scope: &str,
     snapshot_id: &str,
     tree: &format::Tree,
     now: i64,
 ) -> Result<()> {
+    let mut pack_sizes: HashMap<[u8; 32], i64> = HashMap::new();
+    for chunk in tree.entries.iter().flat_map(|entry| entry.chunks.iter()) {
+        let end = (chunk.offset + u64::from(chunk.len)) as i64;
+        let size = pack_sizes.entry(chunk.pack).or_insert(0);
+        *size = (*size).max(end);
+    }
     for entry in &tree.entries {
         for chunk in &entry.chunks {
             let pack_id = hex(&chunk.pack);
-            let size = if pack_row_exists(tx, &pack_id)? {
-                0
-            } else {
-                store.get_pack(&chunk.pack).map(|bytes| bytes.len() as i64).unwrap_or(0)
-            };
+            let size = pack_sizes.get(&chunk.pack).copied().unwrap_or(0);
             tx.execute(
                 "INSERT OR IGNORE INTO cloud_packs (id, scope, state, run_id, size, marked_at, created_at)
                  VALUES (?1, ?2, 'live', ?3, ?4, 0, ?5)",
@@ -220,13 +253,6 @@ fn backup_key_exists(conn: &Connection, protection_id: &str, version: i64) -> Re
     Ok(found.is_some())
 }
 
-fn pack_row_exists(conn: &Connection, pack_id: &str) -> Result<bool> {
-    let found: Option<i64> = conn
-        .query_row("SELECT 1 FROM cloud_packs WHERE id = ?1", params![pack_id], |r| r.get(0))
-        .optional()?;
-    Ok(found.is_some())
-}
-
 fn already_indexed(conn: &Connection, snapshot_id: &str) -> Result<bool> {
     let found: Option<i64> = conn
         .query_row(
@@ -246,11 +272,15 @@ fn hex(bytes: &[u8]) -> String {
 mod tests {
     use super::*;
     use crate::backup::cloud::identity;
-    use crate::backup::cloud::format::{BackupMeta, SnapshotRecord};
     use crate::backup::cloud::store::MemoryStore;
 
     const NOW: i64 = 1_800_000_000;
-    const SCOPE_ID: [u8; 32] = [7; 32];
+    const DEDUP_KEY: [u8; 32] = [3; 32];
+
+    /// The scope tag a backup run derives from the dedup key.
+    fn scope_id() -> [u8; 32] {
+        crypto::chunk_id(&DEDUP_KEY, b"luna-scope-v1")
+    }
     const TREE_KEY: [u8; 32] = [9; 32];
 
     /// A Luna identity (its signing key) made in its own database.
@@ -266,7 +296,7 @@ mod tests {
             protection_id: "p1".into(),
             version: 1,
             key: key.to_vec(),
-            dedup_key: vec![3; 32],
+            dedup_key: DEDUP_KEY.to_vec(),
             created_at: NOW,
         }
     }
@@ -310,7 +340,7 @@ mod tests {
     ) -> [u8; 32] {
         let tree_bytes = format::encrypt_tree(tree, &TREE_KEY);
         let tree_hash = format::sha256(&tree_bytes);
-        let mut builder = format::PackBuilder::new(SCOPE_ID);
+        let mut builder = format::PackBuilder::new(scope_id());
         builder.add(tree_hash, &tree_bytes);
         let pack = builder.finish(|pack_key| crypto::encrypt(&TREE_KEY, PACK_KEY_WRAP_AAD, pack_key));
         store.put_pack(&pack.id, Some("scope"), &pack.bytes).unwrap();
@@ -356,7 +386,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(state, "live");
-        assert_eq!(scope, hex(&SCOPE_ID[..16]));
+        assert_eq!(scope, hex(&scope_id()[..16]));
     }
 
     #[test]
@@ -364,7 +394,7 @@ mod tests {
         let (_dir, id) = fixture();
         let store = MemoryStore::new();
         let chunk_id = [5u8; 32];
-        let mut data = format::PackBuilder::new(SCOPE_ID);
+        let mut data = format::PackBuilder::new(scope_id());
         let (offset, len) = data.add(chunk_id, b"file bytes");
         let data_pack = data.finish(|k| crypto::encrypt(&TREE_KEY, PACK_KEY_WRAP_AAD, k));
         store.put_pack(&data_pack.id, Some("scope"), &data_pack.bytes).unwrap();
@@ -407,7 +437,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(size, data_pack.bytes.len() as i64);
+        assert_eq!(size, offset as i64 + i64::from(len));
         // The tree pack and the data pack both belong to the snapshot.
         assert_eq!(count(&fresh, "cloud_snapshot_packs"), 2);
         assert_eq!(count(&fresh, "cloud_packs"), 2);
@@ -430,6 +460,23 @@ mod tests {
         let out = rebuild_snapshot_index(&mut fresh, &store, &id, &[backup_key(TREE_KEY)], NOW).unwrap();
 
         assert_eq!(out, Recovered { snapshots: 0, already_indexed: 0, skipped: 3 });
+        assert_eq!(count(&fresh, "cloud_snapshots"), 0);
+        assert_eq!(count(&fresh, "cloud_packs"), 0);
+    }
+
+    #[test]
+    fn skips_a_snapshot_whose_dedup_key_names_a_different_scope() {
+        let (_dir, id) = fixture();
+        let store = MemoryStore::new();
+        put_snapshot(&store, &id, "snap-a", id.luna_id());
+        let fresh_dir = tempfile::tempdir().unwrap();
+        let mut fresh = db::open(&fresh_dir.path().join("luna.db")).unwrap();
+        // The right key bytes with a wrong dedup key: its scope does not match the pack's.
+        let wrong = BackupKey { dedup_key: vec![4; 32], ..backup_key(TREE_KEY) };
+
+        let out = rebuild_snapshot_index(&mut fresh, &store, &id, &[wrong], NOW).unwrap();
+
+        assert_eq!(out, Recovered { snapshots: 0, already_indexed: 0, skipped: 1 });
         assert_eq!(count(&fresh, "cloud_snapshots"), 0);
         assert_eq!(count(&fresh, "cloud_packs"), 0);
     }

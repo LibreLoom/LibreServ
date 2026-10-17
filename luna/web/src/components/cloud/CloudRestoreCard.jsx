@@ -75,6 +75,19 @@ export default function CloudRestoreCard() {
     restoreMutation.mutate(words);
   };
 
+  const cloudCount = restore.data.cloud_snapshots;
+  const indexedCount = restore.data.indexed_snapshots;
+
+  if (!restore.data.signing_public) {
+    return (
+      <SettingsCard icon={CloudDownload} title="Bring back cloud backups">
+        <PageNotice variant="warning">
+          Luna hasn&apos;t found its backup signing key yet. Connect the drives that were in this Luna, then reload this page.
+        </PageNotice>
+      </SettingsCard>
+    );
+  }
+
   return (
     <SettingsCard icon={CloudDownload} title="Bring back cloud backups">
       <div className="space-y-3">
@@ -82,7 +95,8 @@ export default function CloudRestoreCard() {
           Luna lost its list of cloud backups. Enter your recovery phrase to find them again.
         </p>
         <p className="text-primary text-sm">
-          {restore.data.cloud_snapshots} versions are in the cloud, {restore.data.indexed_snapshots} are on Luna&apos;s list.{" "}
+          {cloudCount === 1 ? "1 version is" : `${cloudCount} versions are`} in the cloud,{" "}
+          {indexedCount === 1 ? "1 is" : `${indexedCount} are`} on Luna&apos;s list.{" "}
           <InfoHint label="What a version is" content="One saved state of a backup, from one time it ran." />
         </p>
 

@@ -95,6 +95,24 @@ describe("CloudRestoreCard", () => {
     expect(screen.getByLabelText("Recovery phrase")).toBeInTheDocument();
   });
 
+  it("uses singular verbs for one version", async () => {
+    getRestoreStatusMock.mockResolvedValue({ ...STATUS, cloud_snapshots: 1, indexed_snapshots: 1 });
+    renderCard();
+    expect(await screen.findByText(/1 version is in the cloud/)).toBeInTheDocument();
+    expect(screen.getByText(/1 is on Luna/)).toBeInTheDocument();
+  });
+
+  it("explains a missing signing key instead of the phrase form", async () => {
+    getRestoreStatusMock.mockResolvedValue({ ...STATUS, signing_public: null });
+    renderCard();
+    expect(
+      await screen.findByText(
+        "Luna hasn't found its backup signing key yet. Connect the drives that were in this Luna, then reload this page.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText("Recovery phrase")).not.toBeInTheDocument();
+  });
+
   it("submits the words with the restore context and shows a toast", async () => {
     const user = userEvent.setup();
     renderCard();

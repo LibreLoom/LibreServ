@@ -83,4 +83,35 @@ describe("downloadFolder", () => {
     expect(source.getPack).not.toHaveBeenCalled();
     expect(saveBlob).not.toHaveBeenCalled();
   });
+
+  it("leaves out entries whose path would escape the zip", async () => {
+    const source = fixtureSource();
+    const { backup, version, entries } = await openFixture(source);
+    const escape = { path: "../escape.txt", size: 1, mtime: 0, chunks: [] };
+    const absolute = { path: "/etc/passwd", size: 1, mtime: 0, chunks: [] };
+
+    await downloadFolder(source, backup, version, [...entries, escape, absolute], "");
+
+    const [blob] = saveBlob.mock.calls[0];
+    const text = new TextDecoder("latin1").decode(await bytesOf(blob));
+    expect(text).toContain("docs/a.txt");
+    expect(text).not.toContain("escape.txt");
+    expect(text).not.toContain("etc/passwd");
+  });
+
+  it("reads packs in sorted order and keeps the zip in tree order", async () => {
+    const source = fixtureSource();
+    const { backup, version, entries } = await openFixture(source);
+    source.getPack.mockClear();
+
+    await downloadFolder(source, backup, version, entries, "");
+
+    const packIds = source.getPack.mock.calls.map(([id]) => id);
+    expect(packIds).toEqual([...packIds].sort());
+    const [blob] = saveBlob.mock.calls[0];
+    const text = new TextDecoder("latin1").decode(await bytesOf(blob));
+    const positions = entries.map((e) => text.indexOf(e.path));
+    expect(positions.every((i) => i >= 0)).toBe(true);
+    expect([...positions].sort((a, b) => a - b)).toEqual(positions);
+  });
 });

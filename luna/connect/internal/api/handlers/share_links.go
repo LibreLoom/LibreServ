@@ -34,6 +34,9 @@ const (
 	shareLimitMessage    = "You have 20 active backup links. Turn one off before making another."
 	shareAlreadyOff      = "That link is already off."
 	shareCreateBodyLimit = 4096
+	shareEgressMessage   = "This link has reached its download limit. Ask the person who sent it for a new link."
+	// shareEgressFallbackCap is the download limit (2 TB) for a Luna with no stored packs.
+	shareEgressFallbackCap int64 = 2 << 40
 )
 
 var (
@@ -213,7 +216,7 @@ func (h ShareLinkHandler) Info(w http.ResponseWriter, r *http.Request) {
 FROM share_links s
 JOIN accounts a ON a.id = s.account_id
 LEFT JOIN luna_ids l ON l.account_id = s.account_id AND l.luna_id = s.luna_id
-LEFT JOIN devices d ON d.id = l.device_id
+LEFT JOIN devices d ON d.id = l.device_id AND d.account_id = l.account_id
 WHERE s.id = ?`, linkID).Scan(&lunaName, &sentBy, &expiresAt); err != nil {
 		JSONError(w, http.StatusInternalServerError, shareReadErrMessage)
 		return
@@ -241,12 +244,54 @@ func (h ShareLinkHandler) Records(w http.ResponseWriter, r *http.Request) {
 	writeRecords(h.Deps, w, scope, chi.URLParam(r, "kind"))
 }
 
-// Pack streams one pack the link's scope may read.
+// Pack streams one pack the link's scope may read. Each link may download up to 3 times the
+// Luna's stored bytes, or 2 TB when the Luna has no packs; after that it answers 429.
 func (h ShareLinkHandler) Pack(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	scope, _, ok := resolveShare(h.Deps, w, r, time.Now())
+	scope, linkID, ok := resolveShare(h.Deps, w, r, time.Now())
 	if !ok {
 		return
 	}
-	writePack(h.Deps, w, scope, chi.URLParam(r, "id"))
+	if shareOverEgress(h.Deps, w, linkID) {
+		return
+	}
+	n := writePack(h.Deps, w, scope, chi.URLParam(r, "id"), linkID)
+	if n > 0 {
+		_, _ = h.DB.Exec(`UPDATE share_links SET egress_bytes = egress_bytes + ? WHERE id = ?`, n, linkID)
+	}
+}
+
+// shareEgressCap is 3 times the bytes stored for the link's Luna, or the 2 TB fallback when that is 0.
+func shareEgressCap(d Deps, accountID, lunaID string) (int64, error) {
+	var stored int64
+	if err := d.DB.QueryRow(`SELECT COALESCE(SUM(size), 0) FROM storage_packs WHERE account_id = ? AND luna_id = ?`,
+		accountID, lunaID).Scan(&stored); err != nil {
+		return 0, err
+	}
+	if stored == 0 {
+		return shareEgressFallbackCap, nil
+	}
+	return 3 * stored, nil
+}
+
+// shareOverEgress writes the answer and returns true when the link has used up its download limit
+// or its limit cannot be read.
+func shareOverEgress(d Deps, w http.ResponseWriter, linkID string) bool {
+	var accountID, lunaID string
+	var used int64
+	if err := d.DB.QueryRow(`SELECT account_id, luna_id, egress_bytes FROM share_links WHERE id = ?`,
+		linkID).Scan(&accountID, &lunaID, &used); err != nil {
+		JSONError(w, http.StatusInternalServerError, shareReadErrMessage)
+		return true
+	}
+	limit, err := shareEgressCap(d, accountID, lunaID)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, shareReadErrMessage)
+		return true
+	}
+	if used >= limit {
+		JSONError(w, http.StatusTooManyRequests, shareEgressMessage)
+		return true
+	}
+	return false
 }
