@@ -26,7 +26,7 @@ export function needsALook(b) {
  */
 export function backupStatus(b) {
   if (b.status === "stopped") return { label: "Stopped", variant: "muted" };
-  if (b.status === "source_gone") return { label: "Source deleted", variant: "muted" };
+  if (b.status === "source_gone") return { label: "Source gone", variant: "muted" };
   if (needsALook(b)) {
     return { label: "Needs a look", variant: b.state === "failing" ? "error" : "warning" };
   }
@@ -91,6 +91,7 @@ function BackupRow({ backup, onOpen }) {
         <Pill>{backup.target_drive_name}</Pill>
         <span>{lastGoodCopyLine(backup)}</span>
       </div>
+      {!active && backup.stop_reason && <p className="text-sm">{backup.stop_reason}</p>}
       {!active && (
         <p className="text-sm">
           Copies are in the Backups folder on <InlinePill>{backup.target_drive_name}</InlinePill>

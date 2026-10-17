@@ -42,7 +42,7 @@ function downloadUrl(driveId, backupId, relPath, at) {
 
 function statusPill(status) {
   if (status === "stopped") return <InlinePill>Stopped</InlinePill>;
-  if (status === "source_gone") return <InlinePill>Source deleted</InlinePill>;
+  if (status === "source_gone") return <InlinePill>Source gone</InlinePill>;
   return null;
 }
 
@@ -70,6 +70,9 @@ function BackupRow({ backup, onOpen }) {
           <span className="mt-1 block text-sm text-primary">
             From <InlinePill>{backup.source_drive_name}</InlinePill> · <InlinePill>{backup.source_path}</InlinePill>
           </span>
+          {backup.stop_reason && (
+            <span className="mt-1 block text-sm text-primary">{backup.stop_reason}</span>
+          )}
           <span className="mt-1 block text-sm text-primary">
             {lastGood} · {fmtSize(backup.size_bytes)}
           </span>

@@ -143,12 +143,20 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
     mutationFn: (/** @type {{ id: string, allowMassDelete?: boolean }} */ { id, allowMassDelete }) =>
       postJson(`/api/v1/backups/${id}/run`, allowMassDelete ? { allow_mass_delete: true } : {}),
     onSuccess: (res) => {
-      addToast({
-        type: "success",
-        message: res?.done
-          ? "Backup is up to date."
-          : "Luna is still copying. The status updates when it finishes.",
-      });
+      // A problem stays on this sheet, next to the backup, not in a success toast.
+      if (res?.problem) {
+        haptic("error");
+        setError(res.problem);
+        return;
+      }
+      if (res?.done) {
+        addToast({ type: "success", message: "Backup is up to date." });
+      } else {
+        addToast({
+          type: "success",
+          message: "Luna is still copying. The status updates when it finishes.",
+        });
+      }
       setError(null);
     },
     onError: (err) => {
@@ -287,7 +295,8 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                     ) : (
                       <>
                         <p className="text-primary text-xs">
-                          Stopped · <InlinePill>{b.target_drive_name}</InlinePill>
+                          {b.status === "source_gone" ? "Source gone" : "Stopped"} ·{" "}
+                          <InlinePill>{b.target_drive_name}</InlinePill>
                         </p>
                         <p className="text-primary text-sm">
                           {b.stop_reason || "This backup has stopped."}
@@ -307,15 +316,21 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                         </Button>
                       )}
                       {b.hard && b.can_delete && b.last_error?.startsWith("Most of") && (
-                        <Button
-                          size="sm"
-                          variant="accent"
-                          surface="secondary"
-                          loading={isRunning(b.id, true)}
-                          onClick={() => runBackup.mutate({ id: b.id, allowMassDelete: true })}
-                        >
-                          Run anyway
-                        </Button>
+                        <span className="inline-flex items-center gap-1.5">
+                          <Button
+                            size="sm"
+                            variant="accent"
+                            surface="secondary"
+                            loading={isRunning(b.id, true)}
+                            onClick={() => runBackup.mutate({ id: b.id, allowMassDelete: true })}
+                          >
+                            Run anyway
+                          </Button>
+                          <InfoHint
+                            label="What Run anyway does"
+                            content="Applies the deletions and keeps the removed files for 30 days."
+                          />
+                        </span>
                       )}
                       {b.can_delete && (
                         <Button

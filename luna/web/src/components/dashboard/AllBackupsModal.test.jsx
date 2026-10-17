@@ -110,6 +110,6 @@ describe("AllBackupsModal", () => {
   it("maps status to pills", () => {
     expect(backupStatus(backup()).label).toBe("Backed up");
     expect(backupStatus(backup({ state: "stale" })).label).toBe("Needs a look");
-    expect(backupStatus(backup({ status: "source_gone" })).label).toBe("Source deleted");
+    expect(backupStatus(backup({ status: "source_gone" })).label).toBe("Source gone");
   });
 });

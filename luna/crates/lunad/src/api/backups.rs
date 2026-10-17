@@ -80,6 +80,24 @@ async fn create(
     Json(body): Json<CreateBody>,
 ) -> ApiResult {
     let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
+    // The engine hands back an existing backup of this folder to this drive as
+    // it is, so only people on its access list may get its details.
+    let norm = crate::access::normalize_subject_path(&body.source_path);
+    if let Some(existing) = db::find_protection(
+        &conn,
+        db::PROTECTION_DRIVE,
+        &body.source_drive_id,
+        &norm,
+        &body.target_drive_id,
+    )
+    .map_err(|_| read_failed())?
+        && !drive_backup::visible_to(&existing, &user)
+    {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "Someone already backs this folder up to that drive.",
+        ));
+    }
     let row = drive_backup::create(
         &conn,
         &user,
@@ -112,6 +130,13 @@ async fn remove(
         return Err(json_error(
             StatusCode::FORBIDDEN,
             "Only an Admin or the person who made this backup can delete it.",
+        ));
+    }
+    // A copy in progress would write into the backup's files as they go.
+    if drive_backup::is_running(&id) {
+        return Err(json_error(
+            StatusCode::CONFLICT,
+            "Luna is copying this backup right now. Delete it when the copy finishes.",
         ));
     }
     drive_backup::delete(&conn, &row).map_err(|_| {
@@ -157,11 +182,15 @@ async fn run(
     });
     // A big first copy can take hours. Answer when it's quick; otherwise say
     // it's not done and let the backup's state tell the rest.
-    let done = match tokio::time::timeout(RUN_WAIT, job).await {
-        Ok(Ok(Ok(_))) => true,
-        _ => false,
+    // Done only when the copy finished without a problem; a problem is said in words.
+    let answer = match tokio::time::timeout(RUN_WAIT, job).await {
+        Ok(Ok(Ok(outcome))) => match outcome.problem {
+            None => json!({ "done": true }),
+            Some(problem) => json!({ "done": false, "problem": problem }),
+        },
+        _ => json!({ "done": false }),
     };
-    Ok(Json(json!({ "done": done })))
+    Ok(Json(answer))
 }
 
 /// The backup if it exists, else a plain 404.
@@ -457,8 +486,8 @@ mod tests {
     async fn run_answers_done() {
         let f = fixture();
         let member_only = format!(r#"{{"users":["{}"],"admins":false}}"#, f.member_id);
-        // The source drive is not connected here, so the run records a failure
-        // on the row; it still finishes, which is what `done` reports.
+        // The source drive is not connected here, so the run records a problem
+        // on the row: it is not done, and the problem is said in words.
         seed(&f.state, "ran", "photos", &member_only, &f.member_id);
 
         let (status, json) = send(
@@ -470,6 +499,29 @@ mod tests {
         )
         .await;
         assert_eq!(status, axum::http::StatusCode::OK);
-        assert_eq!(json["done"], true);
+        assert_eq!(json["done"], false);
+        assert!(json["problem"].as_str().is_some_and(|p| !p.is_empty()));
+    }
+
+    #[tokio::test]
+    async fn create_does_not_reveal_a_backup_the_user_cannot_see() {
+        let f = fixture();
+        let nobody = r#"{"users":[],"admins":false}"#;
+        seed(&f.state, "private", "photos", nobody, &f.admin_id);
+
+        let body = r#"{"source_drive_id":"d1","source_path":"photos","target_drive_id":"d2"}"#;
+        let (status, json) = send(
+            &f.router,
+            "POST",
+            "/api/v1/backups",
+            &f.member_token,
+            Some(body),
+        )
+        .await;
+        assert_eq!(status, axum::http::StatusCode::FORBIDDEN);
+        assert_eq!(
+            json["error"],
+            "Someone already backs this folder up to that drive."
+        );
     }
 }

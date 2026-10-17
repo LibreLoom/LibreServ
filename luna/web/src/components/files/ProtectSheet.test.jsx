@@ -295,6 +295,27 @@ describe("ProtectSheet", () => {
     expect(await screen.findByText(/Luna is still copying/)).toBeInTheDocument();
   });
 
+  it("shows a Back up now problem on the sheet, not as a success", async () => {
+    const user = userEvent.setup();
+    stubBackupApi({
+      drives: [
+        { id: "d1", label: "Main", mount_point: "/mnt/main" },
+        { id: "d2", label: "Backup", mount_point: "/mnt/backup" },
+      ],
+      backups: [backup({ id: "b1", target_drive: "d2", target_drive_name: "Backup", last_ok_at: 0 })],
+      runReply: {
+        status: 200,
+        body: { done: false, problem: "Luna couldn't read the drive Main. Check it is plugged in." },
+      },
+    });
+    renderSheet();
+    await user.click(await screen.findByRole("button", { name: "Back up now" }));
+    expect(
+      await screen.findByText("Luna couldn't read the drive Main. Check it is plugged in."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Luna is still copying/)).not.toBeInTheDocument();
+  });
+
   it("shows the reason when Back up now fails", async () => {
     const user = userEvent.setup();
     stubBackupApi({
