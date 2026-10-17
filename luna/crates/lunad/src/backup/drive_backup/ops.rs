@@ -64,9 +64,10 @@ const TRASH_MARK: &str = ".deleting-";
 /// drive is connected; otherwise they are removed the next time it is.
 /// Refused while the backup is copying.
 pub fn delete(conn: &Connection, row: &ProtectionRow) -> anyhow::Result<()> {
-    if crate::backup::drive_backup::is_running(&row.id) {
+    // Held for the whole delete, so a run cannot start while the row goes.
+    let Some(_slot) = crate::backup::drive_backup::try_hold(&row.id) else {
         anyhow::bail!("This backup is copying right now. Try again in a minute.");
-    }
+    };
     db::delete_protection(conn, &row.id)?;
     // Recorded first, so a store left behind (drive absent, or removal
     // failing halfway) is cleaned up by `rebuild_from_manifests` later

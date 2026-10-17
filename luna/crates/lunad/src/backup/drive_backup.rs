@@ -215,14 +215,23 @@ pub fn run_all(db: &crate::Db, now: i64) -> bool {
 /// schedule and "Back up now") would both move files into `versions/`.
 static RUNNING: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Default::default);
 
-/// Holds a backup's place in [`RUNNING`] until the run ends.
-struct RunSlot(String);
+/// Holds a backup's place in [`RUNNING`] until it is dropped. A run holds
+/// one while it copies; a restore or delete holds one so no run starts
+/// meanwhile.
+pub struct RunSlot(String);
 
 impl RunSlot {
     fn take(id: &str) -> Option<Self> {
         let mut running = RUNNING.lock().unwrap_or_else(|p| p.into_inner());
         running.insert(id.to_string()).then(|| Self(id.to_string()))
     }
+}
+
+/// Holds the backup's slot, or returns `None` when a run or another holder
+/// already has it. While the slot is held, [`run`] refuses and
+/// [`is_running`] reports true.
+pub fn try_hold(id: &str) -> Option<RunSlot> {
+    RunSlot::take(id)
 }
 
 impl Drop for RunSlot {
@@ -234,7 +243,7 @@ impl Drop for RunSlot {
     }
 }
 
-/// Is this backup being copied right now?
+/// Is this backup being copied right now, or held by a restore or delete?
 pub fn is_running(id: &str) -> bool {
     RUNNING
         .lock()
@@ -388,7 +397,38 @@ fn run_inner(
                     "Luna couldn't update the album list in this backup on {target_name}. Your files are backed up."
                 ));
             }
-            let access_json = serde_json::to_string(&access)?;
+            #[cfg(test)]
+            {
+                let hook = BEFORE_RECORD.with(|h| h.borrow_mut().take());
+                if let Some(hook) = hook {
+                    hook(db);
+                }
+            }
+            // A revoke or a move during the run has already changed the row
+            // and, through the grant or move code, possibly the manifest. Read
+            // the row again under the lock. When it no longer matches what this
+            // run copied, keep its current values and fix the manifest.
+            let Some((fresh, fresh_access)) = with_conn(db, |c| -> anyhow::Result<_> {
+                let Some(fresh) = db::get_protection(c, id)? else {
+                    return Ok(None);
+                };
+                let fresh_access =
+                    access_list::for_source(c, &fresh.source_drive, &fresh.source_path)?;
+                Ok(Some((fresh, fresh_access)))
+            })?
+            else {
+                // The backup was removed during the run: nothing to record.
+                return Ok(outcome);
+            };
+            if fresh.source_drive != row.source_drive
+                || fresh.source_path != row.source_path
+                || fresh_access != access
+            {
+                if let Err(e) = repair_manifest(&target, id, &fresh, &fresh_access) {
+                    tracing::warn!(error = %e, id, "could not update the backup's manifest after a change");
+                }
+            }
+            let access_json = serde_json::to_string(&fresh_access)?;
             with_conn(db, |c| -> anyhow::Result<()> {
                 db::record_protection_ok(c, id, now, &access_json)?;
                 db::set_protection_notes(c, id, &outcome.notes.join("\n"))
@@ -505,7 +545,14 @@ fn sync_target(
             for old in current.iter().filter(|old| {
                 old.as_str() != rel.as_str() && name_key(old, limits) == name_key(rel, limits)
             }) {
-                store.remove(old, now)?;
+                retry_with_room(
+                    &store,
+                    &mut manifest,
+                    now,
+                    &mut outcome.notes,
+                    &target.label,
+                    |_| store.remove(old, now),
+                )?;
             }
         }
     }
@@ -517,7 +564,14 @@ fn sync_target(
             Err(e) if e.kind() == ErrorKind::NotFound => continue,
             Err(e) => return Err(e),
         };
-        let put = match put_with_room(&store, &mut manifest, rel, &entry.abs, &meta, now) {
+        let put = match retry_with_room(
+            &store,
+            &mut manifest,
+            now,
+            &mut outcome.notes,
+            &target.label,
+            |_| store.put(rel, &entry.abs, &meta, now),
+        ) {
             Ok(put) => put,
             Err(e) if e.kind() == ErrorKind::NotFound && !entry.abs.exists() => continue,
             Err(e) => return Err(e),
@@ -536,20 +590,45 @@ fn sync_target(
             outcome.unchanged += 1;
         }
     }
+    // The manifest lists every deletion before any file leaves `current/`.
+    // If the run stops partway, the next run finishes the job and no file is
+    // lost from the backup.
+    // Thinning runs before the stamps go in: it would drop stamps for files
+    // still in `current/`.
+    store.thin(&mut manifest, now)?;
     for rel in &deletions {
-        if store.remove(rel, now)? {
-            outcome.removed += 1;
-        }
         manifest.deleted.insert(rel.clone(), stamp);
     }
-
-    store.thin(&mut manifest, now)?;
     manifest.source_drive_label = source_label.to_string();
     manifest.source_drive_id = row.source_drive.clone();
     manifest.source_path = row.source_path.clone();
     manifest.access = access.clone();
     manifest.last_ok_at = now;
-    store.write_manifest(&manifest)?;
+    save_manifest(&store, &mut manifest, now, &mut outcome.notes, &target.label)?;
+
+    for rel in &deletions {
+        #[cfg(test)]
+        {
+            if FAIL_REMOVAL_OF.with(|f| f.borrow().as_deref() == Some(rel.as_str())) {
+                return Err(io::Error::other("injected removal failure"));
+            }
+        }
+        let removed = retry_with_room(
+            &store,
+            &mut manifest,
+            now,
+            &mut outcome.notes,
+            &target.label,
+            |_| store.remove(rel, now),
+        )?;
+        if removed {
+            outcome.removed += 1;
+        }
+    }
+    // Making room during a removal can thin the manifest, so save it again.
+    if !deletions.is_empty() {
+        save_manifest(&store, &mut manifest, now, &mut outcome.notes, &target.label)?;
+    }
     Ok(Some(outcome))
 }
 
@@ -557,27 +636,76 @@ fn is_disk_full(e: &io::Error) -> bool {
     e.kind() == ErrorKind::StorageFull || e.raw_os_error() == Some(28)
 }
 
-/// Copy one file. When the target is full, thin out old versions to make room
-/// and try this file once more. The error comes back when nothing was freed.
-fn put_with_room(
+/// Run one disk write. When the target is full, thin out old versions to make
+/// room and try once more. A note says when versions were removed. The error
+/// comes back when nothing was freed.
+fn retry_with_room<T>(
     store: &drive_store::Store,
     manifest: &mut drive_store::Manifest,
-    rel: &str,
-    abs: &Path,
-    meta: &fs::Metadata,
     now: i64,
-) -> io::Result<drive_store::Put> {
-    match store.put(rel, abs, meta, now) {
+    notes: &mut Vec<String>,
+    target_label: &str,
+    mut op: impl FnMut(&mut drive_store::Manifest) -> io::Result<T>,
+) -> io::Result<T> {
+    match op(manifest) {
         Err(e) if is_disk_full(&e) => {
             // If thinning fails, nothing was freed and the full-disk error stands.
             let freed = store.free_space_by_thinning(manifest, now).unwrap_or(0);
             if freed == 0 {
                 return Err(e);
             }
-            store.put(rel, abs, meta, now)
+            let note = format!("Removed older versions to make room on {target_label}.");
+            if !notes.contains(&note) {
+                notes.push(note);
+            }
+            op(manifest)
         }
         other => other,
     }
+}
+
+/// Save the manifest, making room once if the target is full.
+fn save_manifest(
+    store: &drive_store::Store,
+    manifest: &mut drive_store::Manifest,
+    now: i64,
+    notes: &mut Vec<String>,
+    target_label: &str,
+) -> io::Result<()> {
+    retry_with_room(store, manifest, now, notes, target_label, |m| {
+        store.write_manifest(m)
+    })
+}
+
+/// Bring the backup drive's manifest in line with the row's source and access.
+/// Used when a revoke or a move changed them during a run.
+fn repair_manifest(
+    target: &Target,
+    id: &str,
+    row: &ProtectionRow,
+    access: &access_list::AccessList,
+) -> anyhow::Result<()> {
+    let Some(store) = drive_store::Store::existing(&target.root, &target.layout, id) else {
+        return Ok(());
+    };
+    let Some(mut manifest) = store.read_manifest()? else {
+        return Ok(());
+    };
+    manifest.source_drive_id = row.source_drive.clone();
+    manifest.source_path = row.source_path.clone();
+    manifest.access = access.clone();
+    store.write_manifest(&manifest)?;
+    Ok(())
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Test seam: runs once, after a run has copied and before it records its result.
+    static BEFORE_RECORD: std::cell::RefCell<Option<Box<dyn FnOnce(&crate::Db)>>> =
+        std::cell::RefCell::new(None);
+    /// Test seam: removing this file fails.
+    static FAIL_REMOVAL_OF: std::cell::RefCell<Option<String>> =
+        std::cell::RefCell::new(None);
 }
 
 /// The source drive's albums that belong in a backup. The drive's own
@@ -1006,6 +1134,104 @@ mod tests {
             store(&s, &id).current_files().unwrap(),
             vec!["b.txt".to_string()]
         );
+    }
+
+    #[test]
+    fn failed_run_keeps_deleted_files_listed() {
+        let s = setup();
+        for name in ["a.txt", "b.txt", "c.txt", "d.txt"] {
+            write(&docs(&s).join(name), "x");
+        }
+        let id = make_backup(&s);
+        run(&s.db, &id, NOW).unwrap();
+
+        fs::remove_file(docs(&s).join("a.txt")).unwrap();
+        fs::remove_file(docs(&s).join("b.txt")).unwrap();
+        FAIL_REMOVAL_OF.with(|f| *f.borrow_mut() = Some("b.txt".into()));
+        run(&s.db, &id, NOW + 60).unwrap();
+        FAIL_REMOVAL_OF.with(|f| *f.borrow_mut() = None);
+
+        // a.txt was moved aside; b.txt is still in current/ and both are listed.
+        let deleted = manifest(&s, &id).deleted;
+        assert!(deleted.contains_key("a.txt"));
+        assert!(deleted.contains_key("b.txt"));
+        assert_eq!(
+            store(&s, &id).current_files().unwrap(),
+            vec!["b.txt".to_string(), "c.txt".to_string(), "d.txt".to_string()]
+        );
+
+        // The next clean run finishes the removal and keeps both entries.
+        let outcome = run(&s.db, &id, NOW + 120).unwrap();
+        assert_eq!(outcome.removed, 1);
+        assert_eq!(
+            store(&s, &id).current_files().unwrap(),
+            vec!["c.txt".to_string(), "d.txt".to_string()]
+        );
+        let deleted = manifest(&s, &id).deleted;
+        assert!(deleted.contains_key("a.txt"));
+        assert!(deleted.contains_key("b.txt"));
+    }
+
+    #[test]
+    fn revoked_access_survives_a_run_in_progress() {
+        let s = setup();
+        write(&docs(&s).join("a.txt"), "one");
+        let id = make_backup(&s);
+        {
+            let conn = s.db.lock().unwrap();
+            db::insert_user(&conn, "member", "member", "Member", "", "member").unwrap();
+            db::insert_access_member(
+                &conn,
+                &db::AccessMemberRow {
+                    id: "grant-1".into(),
+                    subject_kind: crate::access::KIND_PATH.into(),
+                    drive_id: s.src.clone(),
+                    path: "Docs".into(),
+                    album_id: String::new(),
+                    user_id: "member".into(),
+                    caps: crate::access::CAP_VIEW.into(),
+                    created_by: "admin".into(),
+                },
+            )
+            .unwrap();
+        }
+        run(&s.db, &id, NOW).unwrap();
+        assert!(row(&s, &id).access_json.contains("member"));
+
+        // Revoke the grant while the next run is copying.
+        let src = s.src.clone();
+        BEFORE_RECORD.with(|h| {
+            *h.borrow_mut() = Some(Box::new(move |db: &crate::Db| {
+                let conn = db.lock().unwrap();
+                db::delete_access_member(&conn, "grant-1").unwrap();
+                ops::on_grants_changed(&conn, &src);
+            }));
+        });
+        run(&s.db, &id, NOW + 60).unwrap();
+
+        assert!(!row(&s, &id).access_json.contains("member"));
+        assert!(!manifest(&s, &id).access.users.contains(&"member".to_string()));
+    }
+
+    #[test]
+    fn move_during_a_run_survives_it() {
+        let s = setup();
+        write(&docs(&s).join("a.txt"), "one");
+        let id = make_backup(&s);
+        run(&s.db, &id, NOW).unwrap();
+
+        // Move the folder while the next run is copying.
+        let src = s.src.clone();
+        BEFORE_RECORD.with(|h| {
+            *h.borrow_mut() = Some(Box::new(move |db: &crate::Db| {
+                let conn = db.lock().unwrap();
+                ops::on_moved(&conn, &src, "Docs", &src, "Papers");
+            }));
+        });
+        run(&s.db, &id, NOW + 60).unwrap();
+
+        assert_eq!(row(&s, &id).source_path, "Papers");
+        assert_eq!(manifest(&s, &id).source_path, "Papers");
     }
 
     #[test]

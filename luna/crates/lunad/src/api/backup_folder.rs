@@ -326,16 +326,17 @@ async fn list_backups(
             }
             // `status` is the backup's lifecycle (active / stopped / source
             // gone), `state` its health, matching GET /api/v1/backups.
-            let (status, state) =
+            let (status, state, stop_reason) =
                 match db::get_protection(&conn, &manifest.protection_id).map_err(db_error)? {
                     Some(row) => (
                         row.state.clone(),
                         state_label(drive_backup::state(&row, now)),
+                        row.stop_reason.clone(),
                     ),
                     None if manifest.last_ok_at > 0 && now - manifest.last_ok_at <= ONE_DAY => {
-                        (db::PROTECTION_ACTIVE.to_string(), "ok")
+                        (db::PROTECTION_ACTIVE.to_string(), "ok", String::new())
                     }
-                    None => (db::PROTECTION_ACTIVE.to_string(), "stale"),
+                    None => (db::PROTECTION_ACTIVE.to_string(), "stale", String::new()),
                 };
             let source_name = Path::new(&manifest.source_path)
                 .file_name()
@@ -350,6 +351,7 @@ async fn list_backups(
                 "source_path": manifest.source_path,
                 "last_ok_at": manifest.last_ok_at,
                 "status": status,
+                "stop_reason": stop_reason,
                 "state": state,
             });
             listed.push((store, row));
@@ -832,15 +834,17 @@ async fn restore(
 
     // Everything that needs the database happens here, then the lock is dropped
     // before the copy starts.
-    let (src, copies, dest, final_name, parent_rel) = {
+    let (src, copies, dest, final_name, parent_rel, _slot) = {
         let conn = lock_db(&state)?;
         let (store, manifest) = find_visible(&conn, &user, &drive_id, &id)?;
-        if drive_backup::is_running(&id) {
+        // Held until the copy below finishes, so no backup run can write into
+        // the files being restored.
+        let Some(slot) = drive_backup::try_hold(&id) else {
             return Err(fail(
                 StatusCode::CONFLICT,
-                "This backup is copying files right now. Try the restore again when it finishes.",
+                "This backup is copying right now. Try again in a minute.",
             ));
-        }
+        };
 
         let base = match at {
             Some(t) => store.versions_dir().join(t.to_string()),
@@ -933,7 +937,7 @@ async fn restore(
                     "Luna couldn't find a free name for that copy.",
                 )
             })?;
-        (src, copies, dest_dir.join(&final_name), final_name, parent_rel)
+        (src, copies, dest_dir.join(&final_name), final_name, parent_rel, slot)
     };
 
     tokio::task::spawn_blocking(move || match copies {
@@ -1143,6 +1147,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn list_includes_stop_reason() {
+        let f = fixture();
+        let shared = AccessList {
+            users: vec![f.member_id.clone()],
+            admins: true,
+        };
+        make_store(&f, "p-reason", "drive-src", shared);
+        let (status, body) =
+            get_json(&f, &f.admin_token, "/api/v1/drives/drive-tgt/backups").await;
+        assert_eq!(status, StatusCode::OK);
+        let row = body
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["id"] == "p-reason")
+            .expect("backup listed");
+        assert!(row["stop_reason"].is_string());
+    }
+
+    #[tokio::test]
     async fn browse_lists_current_files_and_deleted_ones() {
         let f = fixture();
         let shared = AccessList {
@@ -1303,6 +1327,33 @@ mod tests {
         assert_eq!(
             body["error"],
             "Connect Photos to restore to the original folder."
+        );
+    }
+
+    #[tokio::test]
+    async fn restore_is_409_while_the_backup_is_copying() {
+        let f = fixture();
+        let shared = AccessList {
+            users: vec![f.member_id.clone()],
+            admins: true,
+        };
+        let store = make_store(&f, "p-held", "drive-src", shared);
+        fs::write(store.current_dir().join("a.txt"), "hello").unwrap();
+        let _held = drive_backup::try_hold("p-held").expect("slot free");
+
+        let (status, bytes) = send(
+            &f,
+            "POST",
+            "/api/v1/drives/drive-tgt/backups/p-held/restore",
+            &f.admin_token,
+            Some(json!({ "path": "a.txt" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(
+            body["error"],
+            "This backup is copying right now. Try again in a minute."
         );
     }
 

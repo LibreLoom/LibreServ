@@ -80,9 +80,29 @@ async fn create(
     Json(body): Json<CreateBody>,
 ) -> ApiResult {
     let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
+    let norm = crate::access::normalize_subject_path(&body.source_path);
+    // Check the source access first, so someone who cannot see the folder gets
+    // the normal no-access answer and never learns a backup of it exists.
+    if norm.is_empty() && user.role != "admin" {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "Only an Admin can back up a whole drive.",
+        ));
+    }
+    if !crate::auth::has_cap(
+        &user,
+        &conn,
+        &body.source_drive_id,
+        &norm,
+        crate::access::CAP_VIEW,
+    ) {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "You need Read access to this folder to back it up.",
+        ));
+    }
     // The engine hands back an existing backup of this folder to this drive as
     // it is, so only people on its access list may get its details.
-    let norm = crate::access::normalize_subject_path(&body.source_path);
     if let Some(existing) = db::find_protection(
         &conn,
         db::PROTECTION_DRIVE,
@@ -509,6 +529,8 @@ mod tests {
         let nobody = r#"{"users":[],"admins":false}"#;
         seed(&f.state, "private", "photos", nobody, &f.admin_id);
 
+        // The member has no Read on "photos", so the no-access answer comes
+        // back, not the "already backed up" one.
         let body = r#"{"source_drive_id":"d1","source_path":"photos","target_drive_id":"d2"}"#;
         let (status, json) = send(
             &f.router,
@@ -519,9 +541,6 @@ mod tests {
         )
         .await;
         assert_eq!(status, axum::http::StatusCode::FORBIDDEN);
-        assert_eq!(
-            json["error"],
-            "Someone already backs this folder up to that drive."
-        );
+        assert!(json["error"].as_str().unwrap().starts_with("You need"));
     }
 }
