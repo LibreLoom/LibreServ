@@ -507,7 +507,7 @@ export default function DrivesPage() {
   const [actionError, setActionError] = useState(null);
   const [sharingDrive, setSharingDrive] = useState(null);
   const [protectingDrive, setProtectingDrive] = useState(null);
-  const protectAvailable = useCanProtect();
+  const protectAvailable = useCanProtect(isAdmin);
   const unknownDrives = withDevMockDetected(detected.data);
   const [dismissedDrives, setDriveDismissed] = useDismissedDrives();
   const [showDismissed, setShowDismissed] = useState(false);

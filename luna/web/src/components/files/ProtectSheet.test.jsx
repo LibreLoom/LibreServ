@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
@@ -12,54 +12,91 @@ import ProtectSheet, {
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import Toaster from "@libreloom/ui/components/common/Toaster.jsx";
 
-function stubProtectApi({
+function nowSeconds() {
+  return Math.floor(Date.now() / 1000);
+}
+
+function backup(overrides = {}) {
+  return {
+    source_drive: "d1",
+    source_drive_name: "Main",
+    source_path: "photos",
+    source_name: "photos",
+    kind: "drive",
+    state: "ok",
+    status: "active",
+    stop_reason: "",
+    last_error: "",
+    hard: false,
+    first_done: true,
+    created_by: "admin",
+    can_delete: true,
+    ...overrides,
+  };
+}
+
+function json(body, status = 200) {
+  return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+}
+
+function stubBackupApi({
   drives = [],
-  protections = [],
+  backups = [],
   connect = { backup_unlocked: false, backup_sources: [] },
   onBackupSources,
-  runReply = { status: 200, body: { ok: true, copied: 0 } },
+  onCreate,
+  onRun,
+  onDelete,
+  runReply = { status: 200, body: { done: true } },
+  deleteReply = { status: 200, body: {} },
 } = /** @type {{
   drives?: any[],
-  protections?: any[],
+  backups?: any[],
   connect?: { backup_unlocked: boolean, backup_sources: any[], backup_status?: any },
   onBackupSources?: (sources: unknown) => void,
+  onCreate?: (body: any) => void,
+  onRun?: (body: any) => void,
+  onDelete?: (url: string) => void,
   runReply?: { status: number, body: any },
+  deleteReply?: { status: number, body: any },
 }} */ ({})) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url, init) => {
       const u = typeof url === "string" ? url : url?.url || String(url);
+      const method = init?.method || "GET";
       if (u.includes("/auth/me") || u.includes("/api/v1/auth/me")) {
-        return new Response(JSON.stringify({ id: "1", role: "admin", username: "admin" }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
+        return json({ id: "1", role: "admin", username: "admin" });
       }
       if (u.includes("/setup")) {
-        return new Response(JSON.stringify({ setup_completed: true }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
+        return json({ setup_completed: true });
       }
       if (u.includes("/api/v1/drives") && !u.includes("/detected") && !u.includes("/files") && !u.includes("/health")) {
-        return new Response(JSON.stringify(drives), { status: 200, headers: { "Content-Type": "application/json" } });
+        return json(drives);
       }
-      if (u.includes("/api/v1/protections/") && u.endsWith("/run")) {
-        return new Response(JSON.stringify(runReply.body), {
-          status: runReply.status,
-          headers: { "Content-Type": "application/json" },
-        });
+      if (u.includes("/api/v1/backups/") && u.endsWith("/run")) {
+        onRun?.(JSON.parse(init?.body || "{}"));
+        return json(runReply.body, runReply.status);
       }
-      if (u.includes("/api/v1/protections")) {
-        return new Response(JSON.stringify(protections), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (u.includes("/api/v1/backups/") && method === "DELETE") {
+        onDelete?.(u);
+        return json(deleteReply.body, deleteReply.status);
+      }
+      if (u.includes("/api/v1/backups") && method === "POST") {
+        const body = JSON.parse(init?.body || "{}");
+        onCreate?.(body);
+        return json({ id: "b-new", ...body });
+      }
+      if (u.includes("/api/v1/backups")) {
+        return json(backups);
       }
       if (u.includes("/api/v1/connect/status")) {
-        return new Response(JSON.stringify(connect), { status: 200, headers: { "Content-Type": "application/json" } });
+        return json(connect);
       }
-      if (u.includes("/api/v1/connect/backup-sources") && init?.method === "POST") {
-        const body = JSON.parse(init.body || "{}");
+      if (u.includes("/api/v1/connect/backup-sources") && method === "POST") {
+        const body = JSON.parse(init?.body || "{}");
         onBackupSources?.(body.sources);
-        return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "Content-Type": "application/json" } });
+        return json({ ok: true });
       }
       return new Response("{}", { status: 500 });
     }),
@@ -107,29 +144,44 @@ describe("cloud source helpers", () => {
 });
 
 describe("ProtectSheet", () => {
-  it("lets an admin protect a folder onto another drive", async () => {
-    stubProtectApi({
+  it("lets an admin back up a folder onto another drive", async () => {
+    const user = userEvent.setup();
+    const onCreate = vi.fn();
+    stubBackupApi({
       drives: [
         { id: "d1", label: "Main", mount_point: "/mnt/main" },
         { id: "d2", label: "Backup", mount_point: "/mnt/backup" },
       ],
-      protections: [],
+      backups: [],
+      onCreate,
     });
     renderSheet();
-    expect(await screen.findByRole("heading", { name: /Protect/ })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /Back up/ })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /On other drives/i })).toBeInTheDocument();
-    expect(await screen.findByRole("button", { name: "Protect" })).toBeInTheDocument();
-    const copyOnto = screen.getByRole("button", { name: "Copy onto" });
+    expect(screen.getByText(/Private items inside aren't included/)).toBeInTheDocument();
+    const choose = await screen.findByRole("button", { name: "Choose a drive" });
     // Dropdown sits on the inverted option panel (surface-primary), so it uses the card surface.
-    expect(copyOnto.className).toMatch(/surface-secondary/);
+    expect(choose.className).toMatch(/surface-secondary/);
     expect(screen.queryByRole("button", { name: "New link" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Grant access" })).not.toBeInTheDocument();
+
+    await user.click(choose);
+    await user.click(await screen.findByRole("option", { name: "Backup" }));
+    await user.click(screen.getByRole("button", { name: "Back up" }));
+    await waitFor(() =>
+      expect(onCreate).toHaveBeenCalledWith({
+        source_drive_id: "d1",
+        source_path: "photos",
+        target_drive_id: "d2",
+      }),
+    );
+    expect(await screen.findByText("Backup started.")).toBeInTheDocument();
   });
 
   it("explains when a second drive is missing but still shows cloud", async () => {
-    stubProtectApi({
+    stubBackupApi({
       drives: [{ id: "d1", label: "Main", mount_point: "/mnt/main" }],
-      protections: [],
+      backups: [],
       connect: { backup_unlocked: false, backup_sources: [] },
     });
     renderSheet();
@@ -138,73 +190,54 @@ describe("ProtectSheet", () => {
     expect(screen.getByText(/Add a card at connect\.luna\.libreloom\.org/i)).toBeInTheDocument();
   });
 
-  it("lets an admin add copies onto more than one other drive", async () => {
-    stubProtectApi({
+  it("lists each backup and offers the drives not used yet", async () => {
+    stubBackupApi({
       drives: [
         { id: "d1", label: "Main", mount_point: "/mnt/main" },
         { id: "d2", label: "Backup", mount_point: "/mnt/backup" },
         { id: "d3", label: "Archive", mount_point: "/mnt/archive" },
       ],
-      protections: [
-        {
-          id: "p1",
-          source_drive: "d1",
-          source_path: "photos",
-          target_drive: "d2",
-          last_ok_at: 1_700_000_000,
-        },
+      backups: [
+        backup({ id: "b1", target_drive: "d2", target_drive_name: "Backup", last_ok_at: nowSeconds() }),
       ],
-      connect: { backup_unlocked: false, backup_sources: [] },
     });
     renderSheet();
-    expect(await screen.findByText(/Copy on Backup/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Add another copy" })).toBeInTheDocument();
-    const copyOnto = screen.getByRole("button", { name: "Copy onto" });
-    expect(copyOnto).toBeInTheDocument();
-    // Already used Backup must not appear as an option.
-    await userEvent.click(copyOnto);
+    expect(await screen.findByText(/Backed up just now/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add another drive" })).toBeInTheDocument();
+    await userEvent.click(await screen.findByRole("button", { name: "Choose a drive" }));
     expect(screen.queryByRole("option", { name: "Backup" })).not.toBeInTheDocument();
     expect(await screen.findByRole("option", { name: "Archive" })).toBeInTheDocument();
   });
 
-  it("hides the add form when every other drive already has a copy", async () => {
-    stubProtectApi({
+  it("hides the add form when every other drive already has a backup", async () => {
+    stubBackupApi({
       drives: [
         { id: "d1", label: "Main", mount_point: "/mnt/main" },
         { id: "d2", label: "Backup", mount_point: "/mnt/backup" },
       ],
-      protections: [
-        {
-          id: "p1",
-          source_drive: "d1",
-          source_path: "photos",
-          target_drive: "d2",
-          last_ok_at: 0,
-        },
-      ],
+      backups: [backup({ id: "b1", target_drive: "d2", target_drive_name: "Backup", last_ok_at: 0, first_done: false })],
     });
     renderSheet();
-    expect(await screen.findByText(/Copy on Backup/i)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Add another copy" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Copy onto" })).not.toBeInTheDocument();
+    expect(await screen.findByText(/First backup in progress/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add another drive" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Choose a drive" })).not.toBeInTheDocument();
   });
 
-  it("shows why a protected copy is out of date", async () => {
-    stubProtectApi({
+  it("shows why a backup is out of date", async () => {
+    stubBackupApi({
       drives: [
         { id: "d1", label: "Main", mount_point: "/mnt/main" },
         { id: "d2", label: "Backup", mount_point: "/mnt/backup" },
       ],
-      protections: [
-        {
-          id: "p1",
-          source_drive: "d1",
-          source_path: "photos",
+      backups: [
+        backup({
+          id: "b1",
           target_drive: "d2",
+          target_drive_name: "Backup",
           last_ok_at: 0,
           last_error: "Luna can't find the drive Backup, so photos wasn't copied.",
           state: "failing",
-        },
+        }),
       ],
     });
     renderSheet();
@@ -214,70 +247,140 @@ describe("ProtectSheet", () => {
     expect(screen.getByText("Last full copy: never")).toBeInTheDocument();
   });
 
-  it("says nothing extra while a protected copy is working", async () => {
-    stubProtectApi({
+  it("says nothing extra while a backup is working", async () => {
+    stubBackupApi({
       drives: [
         { id: "d1", label: "Main", mount_point: "/mnt/main" },
         { id: "d2", label: "Backup", mount_point: "/mnt/backup" },
       ],
-      protections: [
-        {
-          id: "p1",
-          source_drive: "d1",
-          source_path: "photos",
-          target_drive: "d2",
-          last_ok_at: 1_700_000_000,
-          last_error: "",
-          state: "ok",
-        },
+      backups: [
+        backup({ id: "b1", target_drive: "d2", target_drive_name: "Backup", last_ok_at: nowSeconds() }),
       ],
     });
     renderSheet();
-    expect(await screen.findByText(/Copy on Backup/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Backed up just now/)).toBeInTheDocument();
     expect(screen.queryByText(/Last full copy/)).not.toBeInTheDocument();
   });
 
-  it("reports what Refresh now actually did", async () => {
+  it("says a Back up now that finished is up to date", async () => {
     const user = userEvent.setup();
-    stubProtectApi({
+    const onRun = vi.fn();
+    stubBackupApi({
       drives: [
         { id: "d1", label: "Main", mount_point: "/mnt/main" },
         { id: "d2", label: "Backup", mount_point: "/mnt/backup" },
       ],
-      protections: [
-        { id: "p1", source_drive: "d1", source_path: "photos", target_drive: "d2", last_ok_at: 0 },
-      ],
-      runReply: {
-        status: 409,
-        body: { error: "Backup is full, so the copy of photos stopped." },
-      },
+      backups: [backup({ id: "b1", target_drive: "d2", target_drive_name: "Backup", last_ok_at: nowSeconds() })],
+      onRun,
+      runReply: { status: 200, body: { done: true } },
     });
     renderSheet();
-    await user.click(await screen.findByRole("button", { name: "Refresh now" }));
-    expect(
-      await screen.findByText("Backup is full, so the copy of photos stopped."),
-    ).toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: "Back up now" }));
+    expect(await screen.findByText("Backup is up to date.")).toBeInTheDocument();
+    expect(onRun).toHaveBeenCalledWith({});
   });
 
-  it("says when a long Refresh is still copying", async () => {
+  it("says when a long Back up now is still copying", async () => {
     const user = userEvent.setup();
-    stubProtectApi({
+    stubBackupApi({
       drives: [
         { id: "d1", label: "Main", mount_point: "/mnt/main" },
         { id: "d2", label: "Backup", mount_point: "/mnt/backup" },
       ],
-      protections: [
-        { id: "p1", source_drive: "d1", source_path: "photos", target_drive: "d2", last_ok_at: 0 },
-      ],
-      runReply: { status: 200, body: { ok: true, still_copying: true } },
+      backups: [backup({ id: "b1", target_drive: "d2", target_drive_name: "Backup", last_ok_at: 0 })],
+      runReply: { status: 200, body: { done: false } },
     });
     renderSheet();
-    await user.click(await screen.findByRole("button", { name: "Refresh now" }));
+    await user.click(await screen.findByRole("button", { name: "Back up now" }));
     expect(await screen.findByText(/Luna is still copying/)).toBeInTheDocument();
   });
 
+  it("shows the reason when Back up now fails", async () => {
+    const user = userEvent.setup();
+    stubBackupApi({
+      drives: [
+        { id: "d1", label: "Main", mount_point: "/mnt/main" },
+        { id: "d2", label: "Backup", mount_point: "/mnt/backup" },
+      ],
+      backups: [backup({ id: "b1", target_drive: "d2", target_drive_name: "Backup", last_ok_at: 0 })],
+      runReply: { status: 409, body: { error: "Backup is full, so the copy of photos stopped." } },
+    });
+    renderSheet();
+    await user.click(await screen.findByRole("button", { name: "Back up now" }));
+    expect(await screen.findByText("Backup is full, so the copy of photos stopped.")).toBeInTheDocument();
+  });
+
+  it("offers Run anyway for a blocked mass-delete and sends the override", async () => {
+    const user = userEvent.setup();
+    const onRun = vi.fn();
+    stubBackupApi({
+      drives: [
+        { id: "d1", label: "Main", mount_point: "/mnt/main" },
+        { id: "d2", label: "Backup", mount_point: "/mnt/backup" },
+      ],
+      backups: [
+        backup({
+          id: "b1",
+          target_drive: "d2",
+          target_drive_name: "Backup",
+          hard: true,
+          last_error: "Most of the files in photos would be deleted, so Luna stopped.",
+          state: "failing",
+        }),
+      ],
+      onRun,
+    });
+    renderSheet();
+    await user.click(await screen.findByRole("button", { name: "Run anyway" }));
+    await waitFor(() => expect(onRun).toHaveBeenCalledWith({ allow_mass_delete: true }));
+  });
+
+  it("confirms before deleting a backup and names the target drive", async () => {
+    const user = userEvent.setup();
+    const onDelete = vi.fn();
+    stubBackupApi({
+      drives: [
+        { id: "d1", label: "Main", mount_point: "/mnt/main" },
+        { id: "d2", label: "Backup", mount_point: "/mnt/backup" },
+      ],
+      backups: [backup({ id: "b1", target_drive: "d2", target_drive_name: "Backup", last_ok_at: 0 })],
+      onDelete,
+    });
+    renderSheet();
+    await user.click(await screen.findByRole("button", { name: "Delete backup" }));
+    const dialog = await screen.findByRole("dialog", { name: /Delete backup\?/ });
+    expect(within(dialog).getByText(/Deletes the backup and every saved copy on/)).toBeInTheDocument();
+    expect(within(dialog).getByText("Backup")).toBeInTheDocument();
+    expect(within(dialog).getByText(/The original files stay/)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Delete backup" }));
+    await waitFor(() => expect(onDelete).toHaveBeenCalledWith(expect.stringContaining("/api/v1/backups/b1")));
+    expect(await screen.findByText("Backup deleted.")).toBeInTheDocument();
+  });
+
+  it("shows a stopped backup with its reason and only Delete", async () => {
+    stubBackupApi({
+      drives: [
+        { id: "d1", label: "Main", mount_point: "/mnt/main" },
+        { id: "d2", label: "Backup", mount_point: "/mnt/backup" },
+      ],
+      backups: [
+        backup({
+          id: "b1",
+          target_drive: "d2",
+          target_drive_name: "Backup",
+          status: "stopped",
+          stop_reason: "The Backup drive was removed from Luna.",
+        }),
+      ],
+    });
+    renderSheet();
+    expect(await screen.findByText("The Backup drive was removed from Luna.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Back up now" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete backup" })).toBeInTheDocument();
+  });
+
   it("shows a cloud backup problem on the cloud row", async () => {
-    stubProtectApi({
+    stubBackupApi({
       drives: [{ id: "d1", label: "Main", mount_point: "/mnt/main" }],
       connect: {
         backup_unlocked: true,
@@ -301,9 +404,9 @@ describe("ProtectSheet", () => {
     const user = userEvent.setup();
     /** @type {unknown} */
     let saved = null;
-    stubProtectApi({
+    stubBackupApi({
       drives: [{ id: "d1", label: "Main", mount_point: "/mnt/main" }],
-      protections: [],
+      backups: [],
       connect: { backup_unlocked: true, backup_sources: [] },
       onBackupSources: (sources) => {
         saved = sources;
@@ -319,12 +422,12 @@ describe("ProtectSheet", () => {
     const user = userEvent.setup();
     /** @type {unknown} */
     let saved = null;
-    stubProtectApi({
+    stubBackupApi({
       drives: [
         { id: "d1", label: "Main", mount_point: "/mnt/main" },
         { id: "d2", label: "Other", mount_point: "/mnt/other" },
       ],
-      protections: [],
+      backups: [],
       connect: {
         backup_unlocked: true,
         backup_sources: [
@@ -374,7 +477,7 @@ describe("ProtectSheet", () => {
             headers: { "Content-Type": "application/json" },
           });
         }
-        if (u.includes("/api/v1/protections")) {
+        if (u.includes("/api/v1/backups")) {
           return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
         }
         if (u.includes("/api/v1/connect/status")) {
@@ -453,7 +556,7 @@ describe("ProtectSheet", () => {
             headers: { "Content-Type": "application/json" },
           });
         }
-        if (u.includes("/api/v1/protections")) {
+        if (u.includes("/api/v1/backups")) {
           return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
         }
         if (u.includes("/api/v1/connect/status")) {
