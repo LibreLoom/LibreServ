@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, Download, FolderInput, HardDrive, Lock, Pencil, RotateCcw, Trash2 } from "lucide-react";
+import { Archive, Copy, Download, FolderInput, HardDrive, Lock, Pencil, RotateCcw, Trash2 } from "lucide-react";
 import PropTypes from "prop-types";
 import FileBrowser from "./FileBrowser.jsx";
+import BackupsFolder from "./BackupsFolder.jsx";
 import FileViewer from "./FileViewer.jsx";
 import FolderPickerModal from "./FolderPickerModal.jsx";
 import CreateNameModal from "./CreateNameModal.jsx";
@@ -306,6 +307,15 @@ export default function DriveFileExplorer({
   const [restoreName, setRestoreName] = useState("");
   const [purgeTarget, setPurgeTarget] = useState(/** @type {null|{ paths: string[], label: string }} */ (null));
   const [emptyTrashOpen, setEmptyTrashOpen] = useState(false);
+  // Drive id whose Backups folder is open (null = normal file list).
+  const [backupsDriveId, setBackupsDriveId] = useState(/** @type {string|null} */ (null));
+  const inBackups = !guest && backupsDriveId === driveId;
+  const backupsList = useQuery({
+    queryKey: ["drive-backups", driveId],
+    queryFn: () => getJson(`/api/v1/drives/${driveId}/backups`),
+    enabled: !guest && !!driveId,
+  });
+  const backupsAvailable = Array.isArray(backupsList.data) && backupsList.data.length > 0;
 
   const drivesQuery = useQuery({ queryKey: ["drives"], queryFn: getDrives, enabled: !guest });
   const availableDrives = useMemo(() => {
@@ -345,8 +355,9 @@ export default function DriveFileExplorer({
     queryFn: () => getJson("/api/v1/me/access"),
     enabled: !guest && !isAdmin,
   });
-  const protectAvailable = useCanProtect(!guest && isAdmin);
-  const showProtect = !guest && isAdmin && protectAvailable;
+  const protectAvailable = useCanProtect(!guest);
+  // Read on a folder is enough to back it up; a whole drive needs Admin.
+  const showProtect = !guest && protectAvailable;
   // Trash browses like a normal folder — same chrome, same actions. The
   // only affordances that stay off are the ones that would put NEW things
   // inside it (upload, create): items reach trash by being deleted.
@@ -362,6 +373,12 @@ export default function DriveFileExplorer({
   const folderCanUpload = !inTrash && (myFolderCaps & CAP.UPLOAD) !== 0;
   const folderCanEdit = inTrash ? trashVisible : (myFolderCaps & CAP.EDIT) !== 0;
   const folderCanShare = !inTrash && (myFolderCaps & CAP.SHARE) !== 0;
+  const backupsLink = backupsAvailable && !inTrash && path === "" ? (
+    <Button variant="outline" surface="secondary" size="sm" onClick={() => setBackupsDriveId(driveId)}>
+      <Archive size={14} aria-hidden="true" />
+      Backups
+    </Button>
+  ) : null;
   // Upload-only links can write but never read — downloads stay hidden.
   const canView = inTrash ? trashVisible : (myFolderCaps & CAP.VIEW) !== 0;
 
@@ -907,6 +924,8 @@ export default function DriveFileExplorer({
         <div className="flex justify-center py-16">
           <Spinner size="sm" decorative className="text-primary" />
         </div>
+      ) : inBackups ? (
+        <BackupsFolder driveId={driveId} onExit={() => setBackupsDriveId(null)} />
       ) : !canView && folderCanUpload ? (
         <UploadFilesPanel
           onUploadFiles={(files) => uploadFiles(files, path)}
@@ -1016,7 +1035,7 @@ export default function DriveFileExplorer({
                   label={label}
                 />
               )}
-              {showProtect && !trashChildFolder && (
+              {showProtect && !trashChildFolder && (path !== "" || isAdmin) && (
                 <ProtectButton
                   label={label}
                   onClick={() => setProtectTarget({ path })}
@@ -1040,6 +1059,11 @@ export default function DriveFileExplorer({
               <Trash2 size={14} aria-hidden="true" />
               Empty trash
             </Button>
+            {headerExtra}
+          </>
+        ) : backupsLink ? (
+          <>
+            {backupsLink}
             {headerExtra}
           </>
         ) : headerExtra}
