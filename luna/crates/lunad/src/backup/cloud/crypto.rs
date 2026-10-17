@@ -70,12 +70,23 @@ pub fn derive(entropy: &[u8; 16], luna_id: &str) -> UserKeys {
 
 /// Seal `msg` so only the holder of the secret half of `recipient_public` can open it.
 /// Layout: ephemeral public key (32) ‖ nonce (24) ‖ ciphertext and tag.
-pub fn seal(recipient_public: &[u8; 32], aad: &[u8], msg: &[u8]) -> Vec<u8> {
+pub fn seal(recipient_public: &[u8; 32], aad: &[u8], msg: &[u8]) -> Result<Vec<u8>> {
     let mut eph_secret = [0u8; 32];
     OsRng.fill_bytes(&mut eph_secret);
     let mut nonce = [0u8; NONCE_LEN];
     OsRng.fill_bytes(&mut nonce);
     seal_inner(eph_secret, nonce, recipient_public, aad, msg)
+}
+
+/// Check that a recipient public key is not a low-order point. Such a key makes every
+/// shared secret the same (all zeros), so anything sealed to it could be opened by anyone.
+pub fn check_public_key(public: &[u8; 32]) -> Result<()> {
+    // Multiplying a low-order point by a clamped scalar gives the identity (all zeros).
+    let probe = StaticSecret::from([0x42u8; 32]);
+    if !probe.diffie_hellman(&PublicKey::from(*public)).was_contributory() {
+        bail!("This recovery key is not valid. Set up the recovery phrase again.");
+    }
+    Ok(())
 }
 
 /// `seal` with the ephemeral secret and nonce supplied by the caller (used by the vectors).
@@ -85,18 +96,21 @@ fn seal_inner(
     recipient_public: &[u8; 32],
     aad: &[u8],
     msg: &[u8],
-) -> Vec<u8> {
+) -> Result<Vec<u8>> {
     let eph = StaticSecret::from(eph_secret);
     let eph_public = PublicKey::from(&eph).to_bytes();
     let shared = eph.diffie_hellman(&PublicKey::from(*recipient_public));
-    // Seal only to keys we derived or fetched and checked. A low-order key would make the shared secret all zeros.
+    // A low-order recipient key gives an all-zero shared secret. Refuse to seal to it.
+    if !shared.was_contributory() {
+        bail!("This recovery key is not valid. Set up the recovery phrase again.");
+    }
     let key = seal_key(shared.as_bytes(), &eph_public, recipient_public);
 
     let mut out = Vec::with_capacity(PUBLIC_LEN + NONCE_LEN + msg.len() + TAG_LEN);
     out.extend_from_slice(&eph_public);
     out.extend_from_slice(&nonce);
     out.extend_from_slice(&aead_encrypt(&key, &nonce, aad, msg));
-    out
+    Ok(out)
 }
 
 /// Open a sealed copy with the recipient's X25519 secret.
@@ -305,7 +319,8 @@ mod tests {
             &recipient_public,
             b"aad",
             b"backup key bytes",
-        );
+        )
+        .unwrap();
         let canonical_bytes = canonical(&[
             ("luna_id", LUNA_ID.as_bytes()),
             ("protection", b"p1"),
@@ -380,15 +395,31 @@ mod tests {
     #[test]
     fn seal_open_round_trip() {
         let k = derive(&entropy(), LUNA_ID);
-        let sealed = seal(&k.x25519_public, b"aad", b"hello");
+        let sealed = seal(&k.x25519_public, b"aad", b"hello").unwrap();
         assert_eq!(open(&k.x25519_secret, b"aad", &sealed).unwrap(), b"hello");
+    }
+
+    #[test]
+    fn seal_refuses_low_order_recipient_keys() {
+        // All zeros is the identity point, and so is the order-2 point u = 1.
+        for low_order in [[0u8; 32], {
+            let mut one = [0u8; 32];
+            one[0] = 1;
+            one
+        }] {
+            assert!(seal(&low_order, b"aad", b"key").is_err());
+            assert!(check_public_key(&low_order).is_err());
+        }
+        let k = derive(&entropy(), LUNA_ID);
+        assert!(check_public_key(&k.x25519_public).is_ok());
+        assert!(seal(&k.x25519_public, b"aad", b"key").is_ok());
     }
 
     #[test]
     fn open_rejects_wrong_key_aad_and_tampering() {
         let k = derive(&entropy(), LUNA_ID);
         let other = derive(&[9u8; 16], LUNA_ID);
-        let sealed = seal(&k.x25519_public, b"aad", b"hello");
+        let sealed = seal(&k.x25519_public, b"aad", b"hello").unwrap();
         assert!(open(&other.x25519_secret, b"aad", &sealed).is_err());
         assert!(open(&k.x25519_secret, b"other", &sealed).is_err());
         let mut tampered = sealed.clone();

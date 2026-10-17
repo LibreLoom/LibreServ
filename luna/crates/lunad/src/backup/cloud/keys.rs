@@ -22,6 +22,12 @@ const KEYS_KIND: &str = "keys";
 const RECIPIENTS_KIND: &str = "recipients";
 /// Signature domain for the recipient list.
 const RECIPIENTS_DOMAIN: &str = "recipients";
+
+/// Signing domain for one sealed key copy. Luna signs each copy, so Connect cannot swap one out.
+const KEY_COPY_DOMAIN: &str = "key-copy";
+
+/// Length of the Ed25519 signature stored after each sealed key copy.
+const KEY_COPY_SIG_LEN: usize = 64;
 /// Meta key prefix for the recipient list each key version was created for.
 const META_PREFIX: &str = "cloud_recipients";
 /// Record kind for the signed list of every user's recovery keys on this Luna.
@@ -77,6 +83,11 @@ fn key_aad(luna_id: &str, protection_id: &str, version: i64, user_id: &str) -> V
         ("version", version.to_string().as_bytes()),
         ("user_id", user_id.as_bytes()),
     ])
+}
+
+/// Signed bytes for one key copy: the association data plus the sealed bytes.
+fn key_copy_message(aad: &[u8], sealed: &[u8]) -> Vec<u8> {
+    crypto::canonical(&[("aad", aad), ("sealed", sealed)])
 }
 
 /// Signed bytes for the recipient list: the same binding as the key copies, plus the sorted list.
@@ -171,11 +182,14 @@ pub fn publish_key(
         let public = user_pub(user)
             .with_context(|| format!("User {user} has not set a recovery phrase yet."))?;
         let aad = key_aad(luna_id, protection_id, key.version, user);
-        let sealed = crypto::seal(&public, &aad, &plain);
+        let sealed = crypto::seal(&public, &aad, &plain)?;
+        let signature = signer.sign(KEY_COPY_DOMAIN, &key_copy_message(&aad, &sealed));
+        let mut record = sealed;
+        record.extend_from_slice(&signature);
         store.put_record(
             KEYS_KIND,
             &key_record_name(protection_id, key.version, user),
-            &sealed,
+            &record,
         )?;
     }
 
@@ -193,16 +207,28 @@ pub fn publish_key(
     Ok(())
 }
 
-/// Open one sealed key copy. Returns `(key, dedup_key)`.
+/// Open one stored key copy (sealed bytes followed by Luna's signature). Returns `(key, dedup_key)`.
+/// The signature is checked first, against `luna_public`, so a copy that was changed or not made
+/// by this Luna is refused before anything is decrypted.
 pub fn open_key(
-    sealed: &[u8],
+    record: &[u8],
     user_secret: &[u8; 32],
+    luna_public: &[u8; 32],
     luna_id: &str,
     protection_id: &str,
     version: i64,
     user_id: &str,
 ) -> Result<([u8; 32], [u8; 32])> {
     let aad = key_aad(luna_id, protection_id, version, user_id);
+    if record.len() <= KEY_COPY_SIG_LEN {
+        bail!("This backup key copy is damaged.");
+    }
+    let (sealed, sig_bytes) = record.split_at(record.len() - KEY_COPY_SIG_LEN);
+    let mut signature = [0u8; KEY_COPY_SIG_LEN];
+    signature.copy_from_slice(sig_bytes);
+    if !crypto::verify(luna_public, KEY_COPY_DOMAIN, &key_copy_message(&aad, sealed), &signature) {
+        bail!("This backup key copy was not made by this Luna. It may have been changed.");
+    }
     let plain = crypto::open(user_secret, &aad, sealed)?;
     if plain.len() != 64 {
         bail!("This backup key copy is damaged.");
@@ -453,7 +479,7 @@ mod tests {
             .unwrap()
             .unwrap();
         let (key, dedup) =
-            open_key(&sealed, &alice.x25519_secret, LUNA, PROTECTION, 2, "alice").unwrap();
+            open_key(&sealed, &alice.x25519_secret, &signer.public(), LUNA, PROTECTION, 2, "alice").unwrap();
         assert_eq!(key.to_vec(), v2.key);
         assert_eq!(dedup.to_vec(), v2.dedup_key);
 
@@ -466,10 +492,39 @@ mod tests {
             .get_record(KEYS_KIND, &key_record_name(PROTECTION, 1, "bob"))
             .unwrap()
             .unwrap();
-        assert!(open_key(&old, &bob.x25519_secret, LUNA, PROTECTION, 1, "bob").is_ok());
+        assert!(open_key(&old, &bob.x25519_secret, &signer.public(), LUNA, PROTECTION, 1, "bob").is_ok());
         // A copy cannot be opened under another version or user id.
-        assert!(open_key(&old, &bob.x25519_secret, LUNA, PROTECTION, 2, "bob").is_err());
-        assert!(open_key(&sealed, &bob.x25519_secret, LUNA, PROTECTION, 2, "alice").is_err());
+        assert!(open_key(&old, &bob.x25519_secret, &signer.public(), LUNA, PROTECTION, 2, "bob").is_err());
+        assert!(open_key(&sealed, &bob.x25519_secret, &signer.public(), LUNA, PROTECTION, 2, "alice").is_err());
+    }
+
+    #[test]
+    fn key_copies_must_carry_a_luna_signature() {
+        let (_dir, conn) = conn();
+        let store = MemoryStore::new();
+        let signer = crypto::Signer::generate();
+        let alice = user_keys("alice");
+        let pubs = HashMap::from([("alice".to_string(), alice.x25519_public)]);
+        let recipients = set(&["alice"]);
+        let key = ensure_key(&conn, PROTECTION, &recipients, 10).unwrap();
+        publish(&store, &signer, &key, &recipients, &pubs).unwrap();
+        let name = key_record_name(PROTECTION, 1, "alice");
+        let record = store.get_record(KEYS_KIND, &name).unwrap().unwrap();
+        let open = |bytes: &[u8], public: &[u8; 32]| {
+            open_key(bytes, &alice.x25519_secret, public, LUNA, PROTECTION, 1, "alice")
+        };
+
+        // The stored copy opens with Luna's public key.
+        assert!(open(&record, &signer.public()).is_ok());
+        // A changed byte in the sealed copy is refused.
+        let mut changed = record.clone();
+        changed[40] ^= 1;
+        assert!(open(&changed, &signer.public()).is_err());
+        // A copy with its signature stripped is refused.
+        assert!(open(&record[..record.len() - 64], &signer.public()).is_err());
+        // A copy signed by another Luna is refused.
+        let other = crypto::Signer::generate();
+        assert!(open(&record, &other.public()).is_err());
     }
 
     #[test]

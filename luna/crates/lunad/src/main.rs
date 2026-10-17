@@ -84,6 +84,11 @@ async fn async_main() -> anyhow::Result<()> {
         )?;
     }
     let conn = db::open(&cfg.db_path())?;
+    // Nothing is uploading yet, so any cloud backup run left open by a crash or restart is over.
+    let ended_runs = db::recover_interrupted_runs(&conn, db::now_unix())?;
+    if ended_runs > 0 {
+        tracing::info!(ended_runs, "ended cloud backup runs interrupted by a restart");
+    }
     let drive_manager = std::sync::Arc::new(DriveManager::new(
         std::sync::Arc::new(CommandMounter),
         &cfg.data_dir,

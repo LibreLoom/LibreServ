@@ -1528,6 +1528,12 @@ pub fn insert_pending_pack(
     Ok(())
 }
 
+/// Record the real byte size of a pack once it is sealed, so storage totals are not zero.
+pub fn record_pack_size(conn: &Connection, id: &str, size: i64) -> anyhow::Result<()> {
+    conn.execute("UPDATE cloud_packs SET size = ?2 WHERE id = ?1", params![id, size])?;
+    Ok(())
+}
+
 pub fn set_pack_live(conn: &Connection, id: &str, size: i64) -> anyhow::Result<()> {
     conn.execute(
         "UPDATE cloud_packs SET state = 'live', size = ?2 WHERE id = ?1",
@@ -1756,6 +1762,35 @@ pub fn mark_unused_packs_tx(
     }
     tx.commit()?;
     Ok(ids)
+}
+
+/// Startup cleanup after a crash or restart: no cloud run can still be going, so every run
+/// without an end time is over. Packs those runs uploaded but never committed are marked
+/// for the normal cleanup (after its 24 h wait), and their chunk index rows are dropped so
+/// no later run reuses them. Returns how many runs were ended.
+pub fn recover_interrupted_runs(conn: &Connection, now: i64) -> anyhow::Result<usize> {
+    let tx = conn.unchecked_transaction()?;
+    let ended = tx.execute(
+        "UPDATE cloud_runs SET ended_at = ?1 WHERE ended_at = 0",
+        params![now],
+    )?;
+    tx.execute(
+        "DELETE FROM cloud_chunks WHERE pack_id IN (
+             SELECT p.id FROM cloud_packs p
+             WHERE p.state = 'pending'
+               AND p.run_id IN (SELECT id FROM cloud_runs WHERE ended_at = ?1)
+               AND p.id NOT IN (SELECT pack_id FROM cloud_snapshot_packs))",
+        params![now],
+    )?;
+    tx.execute(
+        "UPDATE cloud_packs SET state = 'marked', marked_at = ?1
+         WHERE state = 'pending'
+           AND run_id IN (SELECT id FROM cloud_runs WHERE ended_at = ?1)
+           AND id NOT IN (SELECT pack_id FROM cloud_snapshot_packs)",
+        params![now],
+    )?;
+    tx.commit()?;
+    Ok(ended)
 }
 
 /// Marked packs in one scope that are safe to delete now: marked at least 24 h ago,
@@ -2312,6 +2347,35 @@ pub fn with_db<T, E>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn interrupted_runs_are_ended_and_their_uncommitted_packs_marked() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&dir.path().join("luna.db")).unwrap();
+        start_run(&conn, "run-crashed", "p1", "s", 100).unwrap();
+        insert_pending_pack(&conn, "orphan", "s", "run-crashed", 100).unwrap();
+        insert_chunk(&conn, "s", b"chunk-a", "orphan", 0, 10).unwrap();
+        insert_pending_pack(&conn, "committed", "s", "run-crashed", 100).unwrap();
+        set_pack_live(&conn, "committed", 10).unwrap();
+        insert_chunk(&conn, "s", b"chunk-b", "committed", 0, 10).unwrap();
+
+        assert_eq!(recover_interrupted_runs(&conn, 500).unwrap(), 1);
+        assert_eq!(open_runs(&conn, "s").unwrap(), Vec::<String>::new());
+        let (state, marked_at): (String, i64) = conn
+            .query_row(
+                "SELECT state, marked_at FROM cloud_packs WHERE id = 'orphan'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((state.as_str(), marked_at), ("marked", 500));
+        assert!(find_chunk(&conn, "s", b"chunk-a").unwrap().is_none());
+        let live: String = conn
+            .query_row("SELECT state FROM cloud_packs WHERE id = 'committed'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(live, "live", "committed packs are left alone");
+        assert_eq!(recover_interrupted_runs(&conn, 600).unwrap(), 0, "nothing left to end");
+    }
 
     #[test]
     fn open_and_round_trip_meta() {

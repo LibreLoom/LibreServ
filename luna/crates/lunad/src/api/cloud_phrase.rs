@@ -66,8 +66,6 @@ struct SetBody {
     x25519_public: String,
     auth_public: String,
     self_sealed: String,
-    /// Required when keys already exist: the challenge signed with the current auth key.
-    signature: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -108,31 +106,23 @@ async fn set_phrase(
         .filter(|bytes| !bytes.is_empty())
         .ok_or_else(bad_keys)?;
     let now = db::now_unix();
+    crypto::check_public_key(&x25519_public).map_err(|_| bad_keys())?;
 
     let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
-    let current = db::get_user_keys(&conn, &user.id).map_err(|_| read_failed())?;
-    // Replacing a phrase needs proof of the old one. A first-time set needs no proof.
-    let last_checked_at = match &current {
-        None => 0,
-        Some(old) => {
-            let signature = body.signature.as_deref().and_then(decode_signature);
-            let challenge = take_challenge(&user.id, now);
-            let proven = match (challenge, signature, <[u8; 32]>::try_from(old.auth_public.as_slice())) {
-                (Some(challenge), Some(sig), Ok(old_auth)) => {
-                    crypto::verify(&old_auth, CHECK_DOMAIN, &challenge, &sig)
-                }
-                _ => false,
-            };
-            if !proven {
-                return Err(json_error(
-                    StatusCode::FORBIDDEN,
-                    "Enter your current recovery phrase first.",
-                ));
-            }
-            now
-        }
-    };
-
+    // Two accounts with the same key would share sealed copies, so a key can belong to only one user.
+    let key_taken = db::list_user_keys(&conn)
+        .map_err(|_| read_failed())?
+        .iter()
+        .any(|keys| keys.user_id != user.id && keys.x25519_public == x25519_public);
+    if key_taken {
+        return Err(json_error(
+            StatusCode::CONFLICT,
+            "This recovery key is already used by another account. Set up the recovery phrase again.",
+        ));
+    }
+    // Setting or replacing a phrase needs only this user's Luna sign-in. The phrase itself is not
+    // checked here, so the new phrase counts as unchecked until the user checks it.
+    // Sealed copies made for the old key stay unreadable: the next backup starts a new key version.
     db::set_user_keys(
         &conn,
         &UserKeys {
@@ -141,7 +131,7 @@ async fn set_phrase(
             auth_public: auth_public.to_vec(),
             self_sealed,
             phrase_set_at: now,
-            last_checked_at,
+            last_checked_at: 0,
         },
     )
     .map_err(|_| save_failed())?;
@@ -381,33 +371,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn change_needs_a_valid_signature_from_the_old_key() {
+    async fn replacing_the_phrase_needs_only_a_luna_sign_in() {
         let f = fixture();
         let old = Signer::generate();
         let new = Signer::generate();
-        send(&f.router, "PUT", "/api/v1/cloud/phrase", &f.admin_token, Some(set_body(&old, None))).await;
+        let (status, _) = send(&f.router, "PUT", "/api/v1/cloud/phrase", &f.admin_token, Some(set_body(&old, None))).await;
+        assert_eq!(status, 200);
 
-        // No signature at all.
-        let (status, body) = send(&f.router, "PUT", "/api/v1/cloud/phrase", &f.admin_token, Some(set_body(&new, None))).await;
-        assert_eq!(status, 403);
-        assert_eq!(body["error"], json!("Enter your current recovery phrase first."));
-
-        // Signed with the new key instead of the old one.
-        let challenge = fetch_challenge(&f.router, &f.admin_token).await;
-        let wrong = sign_challenge(&new, &challenge);
-        let (status, _) = send(&f.router, "PUT", "/api/v1/cloud/phrase", &f.admin_token, Some(set_body(&new, Some(wrong)))).await;
-        assert_eq!(status, 403);
-
-        // Signed with the old key: accepted, and the new keys are stored.
-        let challenge = fetch_challenge(&f.router, &f.admin_token).await;
-        let right = sign_challenge(&old, &challenge);
-        let (status, _) = send(&f.router, "PUT", "/api/v1/cloud/phrase", &f.admin_token, Some(set_body(&new, Some(right)))).await;
+        // No old-phrase signature is needed. The new keys replace the old ones.
+        let (status, _) = send(&f.router, "PUT", "/api/v1/cloud/phrase", &f.admin_token, Some(set_body(&new, None))).await;
         assert_eq!(status, 200);
         let stored = {
             let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
             db::get_user_keys(&conn, &f.admin_id).unwrap().unwrap()
         };
         assert_eq!(stored.auth_public, new.public().to_vec());
+        assert_eq!(stored.last_checked_at, 0);
     }
 
     #[tokio::test]
@@ -471,6 +450,31 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn low_order_x25519_key_is_refused() {
+        let f = fixture();
+        let signer = Signer::generate();
+        let mut bad = set_body(&signer, None);
+        bad["x25519_public"] = json!(STANDARD.encode([0u8; 32]));
+        let (status, _) = send(&f.router, "PUT", "/api/v1/cloud/phrase", &f.admin_token, Some(bad)).await;
+        assert_eq!(status, 400);
+        let (_, body) = send(&f.router, "GET", "/api/v1/cloud/phrase", &f.admin_token, None).await;
+        assert_eq!(body["set"], json!(false));
+    }
+
+    #[tokio::test]
+    async fn x25519_key_already_used_by_another_user_is_refused() {
+        let f = fixture();
+        // set_body uses the same x25519 key (7s) for everyone.
+        let admin_signer = Signer::generate();
+        send(&f.router, "PUT", "/api/v1/cloud/phrase", &f.admin_token, Some(set_body(&admin_signer, None))).await;
+
+        let member_signer = Signer::generate();
+        let (status, body) = send(&f.router, "PUT", "/api/v1/cloud/phrase", &f.member_token, Some(set_body(&member_signer, None))).await;
+        assert_eq!(status, 409);
+        assert!(body["error"].as_str().unwrap().contains("already used by another account"));
+    }
+
+    #[tokio::test]
     async fn another_user_cannot_touch_your_phrase() {
         let f = fixture();
         let admin_signer = Signer::generate();
@@ -482,8 +486,11 @@ mod tests {
 
         // The member's change attempt cannot use the admin's key: it is judged against the
         // member's own (empty) record, so it is a first set, and the admin keeps theirs.
+        // The member uses their own X25519 key: the admin's key is already registered.
         let member_signer = Signer::generate();
-        let (status, _) = send(&f.router, "PUT", "/api/v1/cloud/phrase", &f.member_token, Some(set_body(&member_signer, None))).await;
+        let mut member_body = set_body(&member_signer, None);
+        member_body["x25519_public"] = json!(STANDARD.encode([9u8; 32]));
+        let (status, _) = send(&f.router, "PUT", "/api/v1/cloud/phrase", &f.member_token, Some(member_body)).await;
         assert_eq!(status, 200);
 
         // The member's challenge cannot prove the admin's phrase.

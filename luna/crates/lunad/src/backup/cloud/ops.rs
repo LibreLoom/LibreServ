@@ -95,6 +95,12 @@ pub fn create(
         return Ok(existing);
     }
 
+    // The creator's own key copy is what lets them see this backup later, so they need a phrase.
+    if db::get_user_keys(conn, &user.id).map_err(|_| db_refused())?.is_none() {
+        return Err(Refused(
+            "Set up your recovery phrase before you back up to the cloud.".into(),
+        ));
+    }
     identity::load_or_create(conn, db::now_unix()).map_err(|_| db_refused())?;
     let access = access_list::for_source(conn, source_drive, &norm).map_err(|_| db_refused())?;
     let access_json = serde_json::to_string(&access).map_err(|_| db_refused())?;
@@ -492,6 +498,18 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
         crate::db::insert_user(&conn, "admin", "admin", "Admin", "", "admin").unwrap();
+        crate::db::set_user_keys(
+            &conn,
+            &crate::db::UserKeys {
+                user_id: "admin".into(),
+                x25519_public: vec![5; 32],
+                auth_public: vec![6; 32],
+                self_sealed: vec![3; 48],
+                phrase_set_at: 1,
+                last_checked_at: 0,
+            },
+        )
+        .unwrap();
         let src = "drive-src".to_string();
         let root: PathBuf = dir.path().join(&src);
         fs::create_dir_all(root.join("Docs")).unwrap();
@@ -538,6 +556,28 @@ mod tests {
         let s = setup();
         let first = make_backup(&s);
         assert_eq!(make_backup(&s), first);
+    }
+
+    #[test]
+    fn create_needs_the_creators_recovery_phrase() {
+        let s = setup();
+        let conn = lock(&s.db);
+        crate::db::delete_user_keys(&conn, "admin").unwrap();
+        let err = create(&conn, &s.admin, &s.src, "Docs").err().unwrap();
+        assert_eq!(err.0, "Set up your recovery phrase before you back up to the cloud.");
+        crate::db::set_user_keys(
+            &conn,
+            &crate::db::UserKeys {
+                user_id: "admin".into(),
+                x25519_public: vec![5; 32],
+                auth_public: vec![6; 32],
+                self_sealed: vec![3; 48],
+                phrase_set_at: 2,
+                last_checked_at: 0,
+            },
+        )
+        .unwrap();
+        assert!(create(&conn, &s.admin, &s.src, "Docs").is_ok());
     }
 
     #[test]

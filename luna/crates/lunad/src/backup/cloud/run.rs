@@ -20,6 +20,7 @@ use super::keys::{self, Recipients};
 use super::store::CloudStore;
 use crate::backup::{access_list, scope};
 use crate::db::{self, BackupKey};
+use crate::drives::layout::Layout;
 use crate::files;
 
 /// Wraps each pack's random key under the backup key.
@@ -28,6 +29,10 @@ pub(super) const PACK_KEY_WRAP_AAD: &[u8] = b"luna-pack-key-wrap-v1";
 const SCOPE_DOMAIN: &[u8] = b"luna-scope-v1";
 /// A pack is uploaded once its plain bytes reach this size.
 const PACK_FLUSH_BYTES: usize = 8 << 20;
+
+/// Shown when a run is held because its source drive or folder is gone.
+const NO_ADMIN_PHRASE: &str = "Waiting for an Admin to set up the recovery phrase.";
+const SOURCE_MISSING: &str = "The source looks missing or unplugged. Plug the drive back in, then try again.";
 
 /// What one run did. `problem` is set, and no snapshot is committed, when the run failed.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -46,13 +51,19 @@ pub fn run_once(
     store: &dyn CloudStore,
     now: i64,
 ) -> Result<CloudOutcome> {
-    let root = {
+    let (drive_root, root) = {
         let conn = lock(db);
         let row = db::get_protection(&conn, protection_id)?
             .ok_or_else(|| anyhow!("This backup no longer exists."))?;
         let drive = files::drive_root(&conn, &row.source_drive)?;
-        PathBuf::from(&drive.mount_point).join(row.source_path.trim_start_matches('/'))
+        let drive_root = PathBuf::from(&drive.mount_point);
+        let root = drive_root.join(row.source_path.trim_start_matches('/'));
+        (drive_root, root)
     };
+    // An unplugged drive has no Luna marker, so its folder is never read as empty.
+    if Layout::detect(&drive_root).is_none() {
+        return Ok(problem_outcome(SOURCE_MISSING));
+    }
     run_with_root(db, protection_id, &root, store, now)
 }
 
@@ -70,6 +81,13 @@ fn run_with_root(
         ));
     };
 
+    // Held before any run row is opened, so nothing is committed and nothing needs closing.
+    match source_looks_missing(db, protection_id, root, store) {
+        Ok(true) => return Ok(problem_outcome(SOURCE_MISSING)),
+        Ok(false) => {}
+        Err(e) => return Ok(problem_outcome(&e.to_string())),
+    }
+
     // Failing here means no run row was opened, so there is nothing to close.
     let (ctx, publish) = match prepare(db, protection_id, now) {
         Ok(prepared) => prepared,
@@ -86,6 +104,36 @@ fn run_with_root(
         Ok(outcome) => outcome,
         Err(e) => problem_outcome(&e.to_string()),
     })
+}
+
+/// True when most files in the previous snapshot are gone from `root`. The previous snapshot's
+/// file list is read back from the cloud. A protection with no earlier snapshot is never held.
+fn source_looks_missing(db: &crate::Db, protection_id: &str, root: &Path, store: &dyn CloudStore) -> Result<bool> {
+    let (record, tree_key) = {
+        let conn = lock(db);
+        let Some(last) = db::list_cloud_snapshots(&conn, protection_id)?.into_iter().next() else {
+            return Ok(false);
+        };
+        let Some(identity) = identity::load(&conn)? else {
+            return Ok(false);
+        };
+        let record = format::SignedRecord::from_bytes(&last.record)?.verify(&identity.public())?;
+        let Some(key) = db::latest_backup_key(&conn, protection_id)? else {
+            return Ok(false);
+        };
+        if key.version != last.key_version {
+            return Ok(false);
+        }
+        let tree_key: [u8; 32] = key
+            .key
+            .as_slice()
+            .try_into()
+            .map_err(|_| anyhow!("This backup's key is damaged."))?;
+        (record, tree_key)
+    };
+    let tree = read_tree(store, &record, &tree_key)?;
+    let missing = tree.entries.iter().filter(|e| !root.join(&e.path).is_file()).count();
+    Ok(!tree.entries.is_empty() && missing * 2 > tree.entries.len())
 }
 
 /// Recipients and their keys, kept for publishing a key version that is new.
@@ -123,12 +171,18 @@ fn prepare(db: &crate::Db, protection_id: &str, now: i64) -> Result<(RunContext,
         .into_iter()
         .filter_map(|k| Some((k.user_id, k.x25519_public.as_slice().try_into().ok()?)))
         .collect();
+    let users = db::list_users(&conn)?;
     let mut ids = Vec::new();
-    for user in db::list_users(&conn)? {
+    for user in &users {
         let is_admin = user.role == "admin";
         if access.allows(&user.id, is_admin) && user_pub.contains_key(&user.id) {
-            ids.push(user.id);
+            ids.push(user.id.clone());
         }
+    }
+    // Only an Admin can open a key copy in a disaster, so nothing uploads until one can.
+    let admin_ready = users.iter().any(|u| u.role == "admin" && ids.contains(&u.id));
+    if !admin_ready {
+        return Err(anyhow!(NO_ADMIN_PHRASE));
     }
     let recipients = Recipients::new(ids);
     let before = db::latest_backup_key(&conn, protection_id)?.map(|k| k.version);
@@ -246,6 +300,7 @@ impl CopyState<'_> {
         {
             let conn = lock(self.db);
             db::insert_pending_pack(&conn, &pack_id, &self.ctx.scope, &self.ctx.run_id, self.now)?;
+            db::record_pack_size(&conn, &pack_id, sealed.bytes.len() as i64)?;
         }
         self.store
             .put_pack(&sealed.id, Some(&self.ctx.scope), &sealed.bytes)
@@ -321,6 +376,7 @@ fn copy_and_commit(
     {
         let conn = lock(db);
         db::insert_pending_pack(&conn, &tree_pack_id, &ctx.scope, &ctx.run_id, now)?;
+        db::record_pack_size(&conn, &tree_pack_id, tree_pack.bytes.len() as i64)?;
     }
     store
         .put_pack(&tree_pack.id, Some(&ctx.scope), &tree_pack.bytes)
@@ -465,7 +521,7 @@ mod tests {
             },
         )
         .unwrap();
-        for id in ["p1", "p2", "p3", "p4", "p5"] {
+        for id in ["p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8"] {
             db::insert_protection(
                 &conn,
                 &db::NewProtection {
@@ -500,6 +556,59 @@ mod tests {
     }
 
     #[test]
+    fn run_is_held_when_most_source_files_are_gone() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = setup(dir.path());
+        let src = source(dir.path());
+        let store = MemoryStore::new();
+        let first = run_with_root(&db, "p6", &src, &store, 100).unwrap();
+        assert_eq!(first.problem, None);
+
+        std::fs::remove_file(src.join("a.bin")).unwrap();
+        std::fs::remove_file(src.join("b.bin")).unwrap();
+        let held = run_with_root(&db, "p6", &src, &store, 200).unwrap();
+        assert_eq!(held.problem.as_deref(), Some(SOURCE_MISSING));
+        assert_eq!(held.snapshot_id, None);
+        assert_eq!(store.list_records("snapshots").unwrap().len(), 1);
+        let open_runs: i64 = lock(&db)
+            .query_row("SELECT COUNT(*) FROM cloud_runs WHERE ended_at = 0", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(open_runs, 0);
+    }
+
+    #[test]
+    fn run_waits_until_an_admin_has_a_recovery_phrase() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = setup(dir.path());
+        let src = source(dir.path());
+        let store = MemoryStore::new();
+        db::delete_user_keys(&lock(&db), "owner").unwrap();
+
+        let held = run_with_root(&db, "p8", &src, &store, 100).unwrap();
+        assert_eq!(held.problem.as_deref(), Some(NO_ADMIN_PHRASE));
+        assert_eq!(held.snapshot_id, None);
+        assert!(store.list_records("snapshots").unwrap().is_empty());
+        assert!(store.list_records("keys").unwrap().is_empty());
+
+        let keys = crypto::derive(&[8u8; 16], "luna-test");
+        db::set_user_keys(
+            &lock(&db),
+            &db::UserKeys {
+                user_id: "owner".into(),
+                x25519_public: keys.x25519_public.to_vec(),
+                auth_public: keys.auth_public.to_vec(),
+                self_sealed: vec![3; 48],
+                phrase_set_at: 2,
+                last_checked_at: 0,
+            },
+        )
+        .unwrap();
+        let done = run_with_root(&db, "p8", &src, &store, 200).unwrap();
+        assert_eq!(done.problem, None);
+        assert!(done.snapshot_id.is_some());
+    }
+
+    #[test]
     fn first_run_uploads_everything_then_second_run_reuses_chunks() {
         let dir = tempfile::tempdir().unwrap();
         let db = setup(dir.path());
@@ -516,6 +625,27 @@ mod tests {
         assert_eq!(second.problem, None);
         assert!(second.reused_chunks > 0);
         assert!(second.uploaded_bytes < first.uploaded_bytes / 10);
+    }
+
+    #[test]
+    fn stored_pack_sizes_are_recorded() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = setup(dir.path());
+        let src = source(dir.path());
+        let store = MemoryStore::new();
+        let first = run_with_root(&db, "p3", &src, &store, 100).unwrap();
+        assert_eq!(first.problem, None);
+
+        let conn = lock(&db);
+        let zero_sized: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM cloud_packs WHERE state = 'live' AND size = 0",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(zero_sized, 0, "every live pack records its byte size");
+        assert!(crate::backup::cloud::ops::size(&conn, "p3") >= 5 << 20);
     }
 
     #[test]
@@ -543,7 +673,7 @@ mod tests {
         let src = source(dir.path());
         let store = MemoryStore::with_quota(1024);
 
-        let out = run_with_root(&db, "p3", &src, &store, 100).unwrap();
+        let out = run_with_root(&db, "p7", &src, &store, 100).unwrap();
         assert_eq!(out.problem.as_deref(), Some("Your cloud storage is full."));
         assert_eq!(out.snapshot_id, None);
         assert!(store.list_records("snapshots").unwrap().is_empty());
