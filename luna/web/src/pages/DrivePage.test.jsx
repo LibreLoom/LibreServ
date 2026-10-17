@@ -184,8 +184,8 @@ describe("DrivePage", () => {
     expect(screen.queryByRole("link", { name: /Open trash/i })).not.toBeInTheDocument();
     expect(screen.getAllByText("Current folder").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Sharing for photo.jpg" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Protect photo.jpg" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Protect Photos Drive" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Back up photo.jpg" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Back up Photos Drive" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Share this folder/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: /Open as a folder on a computer/i })).not.toBeInTheDocument();
   });
@@ -363,17 +363,17 @@ describe("DrivePage", () => {
     expect(posts[1].confirm_broaden).toBe(true);
   });
 
-  it("shows a separate Protect button for folders", async () => {
+  it("shows a separate Back up button for folders", async () => {
     stubFilesApi({
       "": [{ name: "album", kind: "dir", size: 0, modified: 0, hidden: false }],
     });
     renderFiles();
     expect(await screen.findByText(/album/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sharing for album" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Protect album" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Back up album" })).toBeInTheDocument();
   });
 
-  it("hides Protect with one drive and no cloud backup", async () => {
+  it("hides Back up with one drive and no cloud backup", async () => {
     stubFilesApi({
       "": [{ name: "album", kind: "dir", size: 0, modified: 0, hidden: false }],
       __drives: [
@@ -383,11 +383,11 @@ describe("DrivePage", () => {
     });
     renderFiles();
     expect(await screen.findByText(/album/i)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Protect album" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Protect Photos Drive" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Back up album" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Back up Photos Drive" })).not.toBeInTheDocument();
   });
 
-  it("shows Protect with one drive when cloud backup is connected", async () => {
+  it("shows Back up with one drive when cloud backup is connected", async () => {
     stubFilesApi({
       "": [{ name: "album", kind: "dir", size: 0, modified: 0, hidden: false }],
       __drives: [
@@ -396,8 +396,8 @@ describe("DrivePage", () => {
       __backupUnlocked: true,
     });
     renderFiles();
-    expect(await screen.findByRole("button", { name: "Protect album" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Protect Photos Drive" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Back up album" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Back up Photos Drive" })).toBeInTheDocument();
   });
 
   it("offers download for files and folders in the row toolbar", async () => {
@@ -557,7 +557,7 @@ describe("DrivePage", () => {
     // copy, properties — but no move/rename/delete (the trash dir itself
     // can't be moved, renamed, or trashed).
     expect(screen.getByRole("button", { name: "Sharing for Trash" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Protect Trash" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Back up Trash" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Download Trash" })).toHaveAttribute(
       "href",
       "/api/v1/drives/d1/files/content?path=.luna-trash&download=1",
