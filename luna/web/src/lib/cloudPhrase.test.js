@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { canonical, decrypt, derive, newEntropy, verify } from "./backupCrypto";
+import { canonical, decrypt, derive, newEntropy, verify } from "@libreloom/ui/lib/cloud/backupCrypto.js";
 import { buildPhraseBody, createIdentity, fromBase64, signFreshChallenge, toBase64 } from "./cloudPhrase";
 
 const LUNA_ID = "luna-test-1";

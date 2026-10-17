@@ -147,28 +147,51 @@ func (s *B2) DeleteAccount(accountID string) error {
 	if !opaqueIDOK(accountID) {
 		return fmt.Errorf("that account is not allowed")
 	}
-	rows, err := s.DB.Query(`
-SELECT device_id, relative_path
-FROM backup_objects
+	var errs []error
+
+	packs, err := s.DB.Query(`
+SELECT luna_id, id
+FROM storage_packs
 WHERE account_id = ? AND COALESCE(storage_backend, 'local') = ?`,
 		accountID, BackendB2)
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
-
-	var errs []error
-	for rows.Next() {
-		var deviceID, relPath string
-		if err := rows.Scan(&deviceID, &relPath); err != nil {
+	defer packs.Close()
+	for packs.Next() {
+		var lunaID, id string
+		if err := packs.Scan(&lunaID, &id); err != nil {
 			errs = append(errs, err)
 			continue
 		}
-		if err := s.Delete(accountID, deviceID, relPath); err != nil {
+		if err := s.Delete(accountID, StorageSlot(lunaID), StoragePackPath(id)); err != nil {
 			errs = append(errs, err)
 		}
 	}
-	if err := rows.Err(); err != nil {
+	if err := packs.Err(); err != nil {
+		errs = append(errs, err)
+	}
+
+	records, err := s.DB.Query(`
+SELECT luna_id, kind, name
+FROM storage_records
+WHERE account_id = ? AND COALESCE(storage_backend, 'local') = ?`,
+		accountID, BackendB2)
+	if err != nil {
+		return errors.Join(append(errs, err)...)
+	}
+	defer records.Close()
+	for records.Next() {
+		var lunaID, kind, name string
+		if err := records.Scan(&lunaID, &kind, &name); err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		if err := s.Delete(accountID, StorageSlot(lunaID), StorageRecordPath(kind, name)); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if err := records.Err(); err != nil {
 		errs = append(errs, err)
 	}
 	return errors.Join(errs...)

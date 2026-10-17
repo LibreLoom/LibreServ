@@ -17,7 +17,7 @@ const (
 )
 
 // Auto routes new Puts to B2 when an enabled backup provider exists, else local.
-// Get/Delete use the storage_backend recorded on backup_objects so enabling or
+// Get/Delete use the storage_backend recorded on storage_packs / storage_records so enabling or
 // disabling B2 never points at the wrong store (or bills for unreachable bytes).
 type Auto struct {
 	DB    *database.DB
@@ -114,12 +114,6 @@ func (a *Auto) backendFor(accountID, deviceID, relPath string) string {
 func (a *Auto) lookupBackend(accountID, deviceID, relPath string) string {
 	if a.DB == nil {
 		return ""
-	}
-	if be := a.queryBackend(`
-SELECT COALESCE(storage_backend, '') FROM backup_objects
-WHERE account_id = ? AND device_id = ? AND relative_path = ?`,
-		accountID, deviceID, relPath); be != "" {
-		return be
 	}
 	return a.lookupStorageBackend(accountID, deviceID, relPath)
 }

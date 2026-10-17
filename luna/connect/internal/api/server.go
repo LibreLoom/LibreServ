@@ -67,11 +67,12 @@ func (s *Server) routes() {
 
 	dev := handlers.DeviceHandler{Deps: s.deps}
 	acct := handlers.AccountHandler{Deps: s.deps}
-	bak := handlers.BackupHandler{Deps: s.deps}
 	onb := handlers.OnboardingHandler{Deps: s.deps}
 	adm := handlers.AdminAuthHandler{Deps: s.deps}
 	console := handlers.AdminConsoleHandler{Deps: s.deps}
 	prov := handlers.NewProvidersHandler(s.db)
+	cloud := handlers.CloudReadHandler{Deps: s.deps}
+	share := handlers.ShareLinkHandler{Deps: s.deps}
 
 	r.Post("/api/v1/billing/webhook", http.MaxBytesHandler(http.HandlerFunc(acct.StripeWebhook), 65536).ServeHTTP)
 
@@ -86,13 +87,15 @@ func (s *Server) routes() {
 				r.Post("/account/check-email", acct.CheckEmail)
 				r.Post("/account/login", acct.Login)
 				r.Post("/account/verify-email", acct.VerifyEmail)
+				r.Get("/share", share.Info)
+				r.Get("/share/records/{kind}", share.Records)
+				r.Get("/share/packs/{id}", share.Pack)
 
 				r.Group(func(r chi.Router) {
 					r.Use(dev.DeviceAuth)
 					r.Get("/status", dev.Status)
 					r.Post("/domain", dev.Domain)
 					r.Post("/unregister", dev.Unregister)
-					r.Delete("/backup/objects/*", bak.DeleteObject)
 				})
 
 				r.Group(func(r chi.Router) {
@@ -111,12 +114,15 @@ func (s *Server) routes() {
 						r.Get("/account/devices", acct.Devices)
 						r.Get("/account/devices/{deviceID}/code", acct.RevealDeviceCode)
 						r.Get("/account/devices/{deviceID}/setup-readiness", acct.DeviceSetupReadiness)
+						r.Get("/cloud/lunas", cloud.ListLunas)
+						r.Get("/cloud/lunas/{lunaID}/records/{kind}", cloud.ListRecords)
+						r.Get("/cloud/lunas/{lunaID}/packs/{id}", cloud.GetPack)
+						r.Get("/cloud/share-links", share.List)
+						r.Post("/cloud/share-links", share.Create)
+						r.Delete("/cloud/share-links/{id}", share.Revoke)
 						r.Post("/devices/bind", dev.Bind)
 						r.Delete("/devices/{deviceID}", dev.Unbind)
 						r.Post("/devices/{deviceID}/domain", dev.SetDomain)
-						r.Get("/backups", bak.List)
-						r.Post("/backups/download", bak.Download)
-						r.Delete("/backups", bak.DeleteAccountObject)
 						r.Get("/onboarding/status", onb.Status)
 						r.Post("/onboarding/backups", onb.Backups)
 						r.Post("/onboarding/progress", onb.SetOnboardingProgress)
@@ -124,11 +130,6 @@ func (s *Server) routes() {
 						r.Post("/account/diy-token", onb.MintDIY)
 					})
 				})
-			})
-
-			r.Group(func(r chi.Router) {
-				r.Use(dev.DeviceAuth)
-				r.Put("/backup/objects/*", bak.PutObject)
 			})
 
 			stor := handlers.StorageHandler{Deps: s.deps}

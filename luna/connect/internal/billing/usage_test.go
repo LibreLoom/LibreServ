@@ -82,8 +82,8 @@ func TestSampleAndRecordEgress(t *testing.T) {
 	}
 	_, _ = db.Exec(`INSERT INTO accounts (id, email, password_hash, has_card, billing_status, stripe_customer_id, stripe_subscription_id, created_at)
 VALUES ('acct_1', 'a@b.co', 'x', 1, 'active', 'cus_test', 'sub_test', 1)`)
-	_, _ = db.Exec(`INSERT INTO backup_objects (id, account_id, device_id, relative_path, size, updated_at)
-VALUES ('o1', 'acct_1', 'dev_1', 'a.bin', ?, 1)`, 10*BytesPerGB)
+	_, _ = db.Exec(`INSERT INTO storage_packs (account_id, luna_id, id, scope, size, created_at, storage_backend)
+VALUES ('acct_1', 'luna-t', 'p1', '', ?, 1, 'local')`, 10*BytesPerGB)
 
 	SampleStorage(db)
 	avg, egress := AccountPeriodUsage(db, "acct_1")

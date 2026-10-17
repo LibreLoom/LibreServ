@@ -11,20 +11,43 @@ import (
 )
 
 // PurgeStorage deletes an account's cloud storage: every pack and record blob
-// in the store, then their metadata rows and the account's Luna identities. A
-// blob that is already gone counts as deleted. A local blob whose backend is
-// not set up also counts as deleted, since it lives on this server. A B2 blob
-// whose provider is not set up is an error: its bytes may still be in the
-// cloud, so the rows are kept and a retry can find them. Any blob error stops
-// the purge before rows are removed.
+// in the store, then their metadata rows, share links and the account's Luna
+// identities. A blob that is already gone counts as deleted. A local blob whose
+// backend is not set up also counts as deleted, since it lives on this server. A
+// B2 blob whose provider is not set up is an error: its bytes may still be in the
+// cloud, so the rows are kept and a retry can find them. Any blob error stops the
+// purge before rows are removed.
 func PurgeStorage(ctx context.Context, db *database.DB, st store.Store, accountID string) error {
+	return purgeStorage(ctx, db, st, accountID, "")
+}
+
+// PurgeLunaStorage deletes one Luna's cloud storage on an account: its pack and
+// record blobs, their rows, its share links and its luna_ids row. Same blob rules
+// as PurgeStorage. An empty lunaID deletes nothing, so a caller cannot wipe the
+// whole account by accident.
+func PurgeLunaStorage(ctx context.Context, db *database.DB, st store.Store, accountID, lunaID string) error {
+	if lunaID == "" {
+		return nil
+	}
+	return purgeStorage(ctx, db, st, accountID, lunaID)
+}
+
+// purgeStorage does the work for PurgeStorage and PurgeLunaStorage. An empty
+// lunaID means every Luna on the account.
+func purgeStorage(ctx context.Context, db *database.DB, st store.Store, accountID, lunaID string) error {
 	if db == nil || accountID == "" {
 		return nil
+	}
+	lunaClause := ""
+	args := []any{accountID}
+	if lunaID != "" {
+		lunaClause = " AND luna_id = ?"
+		args = append(args, lunaID)
 	}
 	type blob struct{ backend, slot, path string }
 	var blobs []blob
 
-	prows, err := db.QueryContext(ctx, `SELECT luna_id, id, COALESCE(storage_backend, '') FROM storage_packs WHERE account_id = ?`, accountID)
+	prows, err := db.QueryContext(ctx, `SELECT luna_id, id, COALESCE(storage_backend, '') FROM storage_packs WHERE account_id = ?`+lunaClause, args...)
 	if err != nil {
 		return err
 	}
@@ -42,7 +65,7 @@ func PurgeStorage(ctx context.Context, db *database.DB, st store.Store, accountI
 		return err
 	}
 
-	rrows, err := db.QueryContext(ctx, `SELECT luna_id, kind, name, COALESCE(storage_backend, '') FROM storage_records WHERE account_id = ?`, accountID)
+	rrows, err := db.QueryContext(ctx, `SELECT luna_id, kind, name, COALESCE(storage_backend, '') FROM storage_records WHERE account_id = ?`+lunaClause, args...)
 	if err != nil {
 		return err
 	}
@@ -73,13 +96,12 @@ func PurgeStorage(ctx context.Context, db *database.DB, st store.Store, accountI
 		}
 	}
 
-	if _, err := db.ExecContext(ctx, `DELETE FROM storage_packs WHERE account_id = ?`, accountID); err != nil {
-		return err
+	for _, table := range []string{"storage_packs", "storage_records", "share_links"} {
+		if _, err := db.ExecContext(ctx, `DELETE FROM `+table+` WHERE account_id = ?`+lunaClause, args...); err != nil {
+			return err
+		}
 	}
-	if _, err := db.ExecContext(ctx, `DELETE FROM storage_records WHERE account_id = ?`, accountID); err != nil {
-		return err
-	}
-	_, err = db.ExecContext(ctx, `DELETE FROM luna_ids WHERE account_id = ?`, accountID)
+	_, err = db.ExecContext(ctx, `DELETE FROM luna_ids WHERE account_id = ?`+lunaClause, args...)
 	return err
 }
 

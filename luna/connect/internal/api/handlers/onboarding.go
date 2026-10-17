@@ -37,17 +37,10 @@ func (h OnboardingHandler) Backups(w http.ResponseWriter, r *http.Request) {
 	if billing.DevBypass() {
 		price = "Cloud backup costs $8 per terabyte each month. Luna will turn cloud backup on when it is next quiet."
 	}
-	bind := func() {
-		deviceID := h.ownedBackupDeviceID(acct.ID, req.DeviceID)
-		if deviceID != "" {
-			h.ensureBackupBinding(acct.ID, deviceID)
-		}
-	}
 	// Already subscribed (either the common path or a race loser): never call
 	// billing.Subscribe twice — that would bill the customer twice.
 	if acct.StripeSub != "" {
 		_, _ = h.DB.Exec(`UPDATE accounts SET onboarding_step = 'done' WHERE id = ?`, acct.ID)
-		bind()
 		JSON(w, http.StatusOK, map[string]any{"ok": true, "enabled": true, "already_active": true, "price_copy": price})
 		return
 	}
@@ -84,41 +77,13 @@ func (h OnboardingHandler) Backups(w http.ResponseWriter, r *http.Request) {
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		_ = billing.CancelSubscription(sub)
-		bind()
 		JSON(w, http.StatusOK, map[string]any{"ok": true, "enabled": true, "already_active": true, "price_copy": price})
 		return
 	}
-	bind()
 	JSON(w, http.StatusOK, map[string]any{
 		"ok": true, "enabled": true,
 		"price_copy": price,
 	})
-}
-
-// ownedBackupDeviceID resolves the device a backup binding may point at: an
-// explicit choice only counts when the device belongs to this account, and the
-// fallback picks the account's own first device.
-func (h OnboardingHandler) ownedBackupDeviceID(accountID, requested string) string {
-	requested = strings.TrimSpace(requested)
-	var devID string
-	if requested != "" {
-		if err := h.DB.QueryRow(`SELECT id FROM devices WHERE id = ? AND account_id = ?`, requested, accountID).Scan(&devID); err == nil {
-			return devID
-		}
-		return ""
-	}
-	if err := h.DB.QueryRow(`SELECT id FROM devices WHERE account_id = ? LIMIT 1`, accountID).Scan(&devID); err == nil {
-		return devID
-	}
-	return ""
-}
-
-func (h OnboardingHandler) ensureBackupBinding(accountID, deviceID string) {
-	id := security.NewID("bb")
-	_, _ = h.DB.Exec(`INSERT INTO backup_bindings (id, account_id, device_id, status, created_at)
-VALUES (?, ?, ?, 'active', ?)
-ON CONFLICT(account_id, device_id) DO UPDATE SET status = 'active', archived_at = NULL, archive_key = NULL`,
-		id, accountID, deviceID, time.Now().Unix())
 }
 
 func (h OnboardingHandler) VerifyHuman(w http.ResponseWriter, r *http.Request) {

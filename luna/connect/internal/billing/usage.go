@@ -73,8 +73,9 @@ func EstimateMonthUSD(avgStorageBytes, egressBytes int64) float64 {
 	return storage + float64(overGB)*DollarsPerEgressGB
 }
 
-// SampleStorage records current SUM(backup_objects.size) for every account that
-// has ever stored data or has an active subscription. Call at least hourly.
+// SampleStorage records the current stored size (the account's stored packs and
+// records) for every account that has ever stored data or has an active
+// subscription. Call at least hourly.
 func SampleStorage(db *database.DB) {
 	if db == nil {
 		return
@@ -86,12 +87,13 @@ func SampleStorage(db *database.DB) {
 	hourBucket := ts - (ts % 3600)
 
 	rows, err := db.Query(`
-SELECT a.id, COALESCE(SUM(b.size), 0)
+SELECT a.id,
+  COALESCE((SELECT SUM(size) FROM storage_packs p WHERE p.account_id = a.id), 0)
++ COALESCE((SELECT SUM(bytes) FROM storage_records r WHERE r.account_id = a.id), 0)
 FROM accounts a
-LEFT JOIN backup_objects b ON b.account_id = a.id
 WHERE (a.stripe_subscription_id IS NOT NULL AND a.stripe_subscription_id != '')
-   OR EXISTS (SELECT 1 FROM backup_objects bo WHERE bo.account_id = a.id)
-GROUP BY a.id`)
+   OR EXISTS (SELECT 1 FROM storage_packs sp WHERE sp.account_id = a.id)
+   OR EXISTS (SELECT 1 FROM storage_records sr WHERE sr.account_id = a.id)`)
 	if err != nil {
 		slog.Warn("storage sample query failed", "error", err)
 		return
@@ -159,7 +161,8 @@ func LoadPeriodUsage(db *database.DB, period string) ([]PeriodUsage, error) {
 SELECT a.id, a.stripe_customer_id,
        COALESCE(s.sample_sum, 0), COALESCE(s.sample_count, 0),
        COALESCE(e.egress_bytes, 0),
-       COALESCE((SELECT SUM(size) FROM backup_objects WHERE account_id = a.id), 0)
+       COALESCE((SELECT SUM(size) FROM storage_packs WHERE account_id = a.id), 0)
+     + COALESCE((SELECT SUM(bytes) FROM storage_records WHERE account_id = a.id), 0)
 FROM accounts a
 LEFT JOIN (
   SELECT account_id, SUM(stored_bytes) AS sample_sum, COUNT(*) AS sample_count
@@ -206,7 +209,7 @@ WHERE account_id = ? AND period_ym = ?`, accountID, period).Scan(&sum, &count)
 	if count.Valid && count.Int64 > 0 && sum.Valid {
 		avgBytes = AverageStoredBytes(sum.Int64, count.Int64)
 	} else {
-		_ = db.QueryRow(`SELECT COALESCE(SUM(size),0) FROM backup_objects WHERE account_id = ?`, accountID).Scan(&avgBytes)
+		_ = db.QueryRow(`SELECT COALESCE((SELECT SUM(size) FROM storage_packs WHERE account_id = ?), 0) + COALESCE((SELECT SUM(bytes) FROM storage_records WHERE account_id = ?), 0)`, accountID, accountID).Scan(&avgBytes)
 	}
 	_ = db.QueryRow(`
 SELECT COALESCE(egress_bytes,0) FROM billing_period_egress

@@ -47,6 +47,10 @@ vi.mock("./pages/BackupsPage.jsx", () => ({
   BackupsTab: () => null,
 }));
 
+vi.mock("./pages/SharePage.jsx", () => ({
+  default: () => <div>Share page</div>,
+}));
+
 vi.mock("./pages/AdminLogin.jsx", () => ({
   default: () => <div>Admin login</div>,
 }));
@@ -110,6 +114,12 @@ describe("App root routing", () => {
     expect(await screen.findByText("Dashboard page")).toBeTruthy();
     expect(screen.getByTestId("location").textContent).toBe("/");
     expect(screen.queryByText("Onboarding page")).toBeNull();
+  });
+
+  it("serves /share to logged-out visitors without redirecting to /login", async () => {
+    mount("/share");
+    expect(await screen.findByText("Share page")).toBeTruthy();
+    expect(screen.getByTestId("location").textContent).toBe("/share");
   });
 
   it("shows the dashboard at / when logged in even if email is unverified", async () => {

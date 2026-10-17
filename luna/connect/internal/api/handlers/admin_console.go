@@ -23,7 +23,7 @@ func (h AdminConsoleHandler) Stats(w http.ResponseWriter, r *http.Request) {
 	_ = h.DB.QueryRow(`SELECT COUNT(*) FROM devices`).Scan(&devices)
 	_ = h.DB.QueryRow(`SELECT COUNT(*) FROM devices WHERE (account_id IS NULL OR account_id = '') AND revoked = 0`).Scan(&unbound)
 	_ = h.DB.QueryRow(`SELECT COUNT(*) FROM devices WHERE revoked != 0`).Scan(&revoked)
-	_ = h.DB.QueryRow(`SELECT COALESCE(SUM(size), 0) FROM backup_objects`).Scan(&backupBytes)
+	_ = h.DB.QueryRow(`SELECT COALESCE((SELECT SUM(size) FROM storage_packs), 0) + COALESCE((SELECT SUM(bytes) FROM storage_records), 0)`).Scan(&backupBytes)
 	JSON(w, http.StatusOK, map[string]any{
 		"accounts":         accounts,
 		"devices":          devices,

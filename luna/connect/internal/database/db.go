@@ -42,7 +42,6 @@ func applyAdditiveColumnsSQLite(db *DB) error {
 	_, _ = db.Exec(`ALTER TABLE devices ADD COLUMN order_ref TEXT`)
 	_, _ = db.Exec(`ALTER TABLE devices ADD COLUMN revoked INTEGER NOT NULL DEFAULT 0`)
 	_, _ = db.Exec(`ALTER TABLE devices ADD COLUMN tunnel_token TEXT`)
-	_, _ = db.Exec(`ALTER TABLE backup_objects ADD COLUMN storage_backend TEXT NOT NULL DEFAULT 'local'`)
 
 	// Legacy devices required token_hash + subdomain on every row. Permanent
 	// unbound codes only set code_hash and leave subdomain NULL, so upgraded
@@ -76,9 +75,8 @@ func applyAdditiveColumnsPostgres(db *DB) error {
 		`ALTER TABLE devices ADD COLUMN IF NOT EXISTS order_ref TEXT`,
 		`ALTER TABLE devices ADD COLUMN IF NOT EXISTS revoked INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE devices ADD COLUMN IF NOT EXISTS tunnel_token TEXT`,
-		`ALTER TABLE backup_objects ADD COLUMN IF NOT EXISTS storage_backend TEXT NOT NULL DEFAULT 'local'`,
-		// The mapping must survive device purge so retained backup objects
-		// stay reachable in the same B2 bucket.
+		// The mapping must survive device purge so retained stored packs and
+		// records stay reachable in the same B2 bucket.
 		`ALTER TABLE device_backup_buckets DROP CONSTRAINT IF EXISTS device_backup_buckets_device_id_fkey`,
 	}
 	for _, q := range cols {

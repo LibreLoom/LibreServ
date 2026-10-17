@@ -50,27 +50,6 @@ CREATE TABLE IF NOT EXISTS sessions (
   account_id TEXT NOT NULL,
   expires_at INTEGER NOT NULL
 );
-CREATE TABLE IF NOT EXISTS backup_objects (
-  id TEXT PRIMARY KEY,
-  account_id TEXT NOT NULL,
-  device_id TEXT NOT NULL,
-  relative_path TEXT NOT NULL,
-  size INTEGER NOT NULL,
-  content_hash TEXT,
-  storage_backend TEXT NOT NULL DEFAULT 'local',
-  updated_at INTEGER NOT NULL,
-  UNIQUE(account_id, device_id, relative_path)
-);
-CREATE TABLE IF NOT EXISTS backup_bindings (
-  id TEXT PRIMARY KEY,
-  account_id TEXT NOT NULL,
-  device_id TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'active',
-  archived_at INTEGER,
-  archive_key TEXT,
-  created_at INTEGER NOT NULL,
-  UNIQUE(account_id, device_id)
-);
 CREATE TABLE IF NOT EXISTS register_attempts (
   ip TEXT PRIMARY KEY,
   count INTEGER NOT NULL,
@@ -120,8 +99,8 @@ CREATE TABLE IF NOT EXISTS service_providers (
 );
 CREATE TABLE IF NOT EXISTS device_backup_buckets (
   -- No FK to devices: the row must survive device purge so retained
-  -- backup_objects stay reachable in the same B2 bucket (deleting it would
-  -- orphan the paid bucket and let EnsureDeviceBucket provision a new one).
+  -- Stored packs and records stay reachable in the same B2 bucket (deleting it
+  -- would orphan the paid bucket and let EnsureDeviceBucket provision a new one).
   device_id TEXT PRIMARY KEY,
   bucket_name TEXT NOT NULL UNIQUE,
   bucket_id TEXT NOT NULL,
@@ -164,14 +143,30 @@ CREATE TABLE IF NOT EXISTS storage_records (
   storage_backend TEXT NOT NULL DEFAULT 'local',
   PRIMARY KEY(account_id, luna_id, kind, name)
 );
+-- purge_after: unix time when this Luna's storage is deleted (30 days after its device was unlinked), 0 = never.
 CREATE TABLE IF NOT EXISTS luna_ids (
   account_id TEXT NOT NULL,
   luna_id TEXT NOT NULL,
   device_id TEXT NOT NULL,
   signing_public TEXT NOT NULL DEFAULT '',
+  purge_after INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL,
   PRIMARY KEY(account_id, luna_id)
 );
+-- Share backup links: the token is never stored, only its SHA-256 (hex).
+CREATE TABLE IF NOT EXISTS share_links (
+  id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL,
+  luna_id TEXT NOT NULL,
+  token_hash TEXT NOT NULL UNIQUE,
+  scope_kind TEXT NOT NULL,
+  scope_value TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  revoked_at INTEGER NOT NULL DEFAULT 0,
+  last_opened_at INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_share_links_account ON share_links (account_id);
 `
 
 const schemaPostgres = `
@@ -223,27 +218,6 @@ CREATE TABLE IF NOT EXISTS sessions (
   account_id TEXT NOT NULL,
   expires_at BIGINT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS backup_objects (
-  id TEXT PRIMARY KEY,
-  account_id TEXT NOT NULL,
-  device_id TEXT NOT NULL,
-  relative_path TEXT NOT NULL,
-  size BIGINT NOT NULL,
-  content_hash TEXT,
-  storage_backend TEXT NOT NULL DEFAULT 'local',
-  updated_at BIGINT NOT NULL,
-  UNIQUE(account_id, device_id, relative_path)
-);
-CREATE TABLE IF NOT EXISTS backup_bindings (
-  id TEXT PRIMARY KEY,
-  account_id TEXT NOT NULL,
-  device_id TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'active',
-  archived_at BIGINT,
-  archive_key TEXT,
-  created_at BIGINT NOT NULL,
-  UNIQUE(account_id, device_id)
-);
 CREATE TABLE IF NOT EXISTS register_attempts (
   ip TEXT PRIMARY KEY,
   count INTEGER NOT NULL,
@@ -292,8 +266,8 @@ CREATE TABLE IF NOT EXISTS service_providers (
 );
 CREATE TABLE IF NOT EXISTS device_backup_buckets (
   -- No FK to devices: the row must survive device purge so retained
-  -- backup_objects stay reachable in the same B2 bucket (deleting it would
-  -- orphan the paid bucket and let EnsureDeviceBucket provision a new one).
+  -- Stored packs and records stay reachable in the same B2 bucket (deleting it
+  -- would orphan the paid bucket and let EnsureDeviceBucket provision a new one).
   device_id TEXT PRIMARY KEY,
   bucket_name TEXT NOT NULL UNIQUE,
   bucket_id TEXT NOT NULL,
@@ -336,12 +310,28 @@ CREATE TABLE IF NOT EXISTS storage_records (
   storage_backend TEXT NOT NULL DEFAULT 'local',
   PRIMARY KEY(account_id, luna_id, kind, name)
 );
+-- purge_after: unix time when this Luna's storage is deleted (30 days after its device was unlinked), 0 = never.
 CREATE TABLE IF NOT EXISTS luna_ids (
   account_id TEXT NOT NULL,
   luna_id TEXT NOT NULL,
   device_id TEXT NOT NULL,
   signing_public TEXT NOT NULL DEFAULT '',
+  purge_after BIGINT NOT NULL DEFAULT 0,
   created_at BIGINT NOT NULL,
   PRIMARY KEY(account_id, luna_id)
 );
+-- Share backup links: the token is never stored, only its SHA-256 (hex).
+CREATE TABLE IF NOT EXISTS share_links (
+  id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL,
+  luna_id TEXT NOT NULL,
+  token_hash TEXT NOT NULL UNIQUE,
+  scope_kind TEXT NOT NULL,
+  scope_value TEXT NOT NULL,
+  created_at BIGINT NOT NULL,
+  expires_at BIGINT NOT NULL,
+  revoked_at BIGINT NOT NULL DEFAULT 0,
+  last_opened_at BIGINT NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_share_links_account ON share_links (account_id);
 `

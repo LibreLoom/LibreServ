@@ -7,7 +7,7 @@ import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { apiErrorMessage } from "../../lib/api";
-import { entropyToPhrase, newEntropy } from "../../lib/backupCrypto";
+import { entropyToPhrase, newEntropy } from "@libreloom/ui/lib/cloud/backupCrypto.js";
 import { buildPhraseBody, PHRASE_QUERY_KEY, savePhrase } from "../../lib/cloudPhrase";
 
 /** Three distinct word positions (0-based), sorted, picked at random. */

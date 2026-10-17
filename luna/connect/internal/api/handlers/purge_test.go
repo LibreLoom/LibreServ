@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -25,8 +26,8 @@ VALUES ('acct_purge', 'purge@b.co', 'x', 0, 'none', 1, ?)`, now)
 		t.Fatal(err)
 	}
 	_, _ = d.DB.Exec(`UPDATE devices SET account_id = 'acct_purge', subdomain = 'purgebox', tunnel_id = 'tnl_test' WHERE id = ?`, devID)
-	_, _ = d.DB.Exec(`INSERT INTO backup_bindings (id, account_id, device_id, status, created_at) VALUES ('bb_1', 'acct_purge', ?, 'active', ?)`, devID, now)
-	_, _ = d.DB.Exec(`INSERT INTO backup_objects (id, account_id, device_id, relative_path, size, updated_at) VALUES ('bo_1', 'acct_purge', ?, 'Photos/a.jpg', 42, ?)`, devID, now)
+	_, _ = d.DB.Exec(`INSERT INTO luna_ids (account_id, luna_id, device_id, signing_public, purge_after, created_at) VALUES ('acct_purge', 'luna-purge', ?, '', 0, ?)`, devID, now)
+	_, _ = d.DB.Exec(`INSERT INTO storage_packs (account_id, luna_id, id, scope, size, created_at, storage_backend) VALUES ('acct_purge', 'luna-purge', ?, '', 42, ?, 'local')`, strings.Repeat("a", 64), now)
 	_, _ = d.DB.Exec(`INSERT INTO device_backup_buckets (device_id, bucket_name, bucket_id, endpoint, key_id, application_key_sealed, provisioned_at)
 VALUES (?, 'bucket-test', 'bid', 'https://b2.example', 'kid', 'sealed', ?)`, devID, now)
 
@@ -52,16 +53,16 @@ VALUES (?, 'bucket-test', 'bid', 'https://b2.example', 'kid', 'sealed', ?)`, dev
 		t.Fatal("bucket mapping must survive purge so kept backup objects stay reachable")
 	}
 
-	var objCount int
-	_ = d.DB.QueryRow(`SELECT COUNT(*) FROM backup_objects WHERE id = 'bo_1'`).Scan(&objCount)
-	if objCount != 1 {
-		t.Fatal("backup objects must be kept")
+	// The Luna's storage is kept for 30 days; its purge is scheduled, not run now.
+	var purgeAfter int64
+	_ = d.DB.QueryRow(`SELECT purge_after FROM luna_ids WHERE account_id = 'acct_purge' AND luna_id = 'luna-purge'`).Scan(&purgeAfter)
+	if purgeAfter < now+29*86400 || purgeAfter > now+31*86400 {
+		t.Fatalf("purge_after %d, want about 30 days from now", purgeAfter)
 	}
-
-	var bindingStatus string
-	_ = d.DB.QueryRow(`SELECT status FROM backup_bindings WHERE id = 'bb_1'`).Scan(&bindingStatus)
-	if bindingStatus != "archived" {
-		t.Fatalf("binding status %q want archived", bindingStatus)
+	var packCount int
+	_ = d.DB.QueryRow(`SELECT COUNT(*) FROM storage_packs WHERE account_id = 'acct_purge' AND luna_id = 'luna-purge'`).Scan(&packCount)
+	if packCount != 1 {
+		t.Fatal("storage must be kept until the 30 days are up")
 	}
 
 	stReq := httptest.NewRequest(http.MethodGet, "/status", nil)
@@ -99,7 +100,7 @@ func TestPurgeDeviceCodeUnboundRevokesInsteadOfConflict(t *testing.T) {
 	_ = code
 }
 
-func TestDeleteAccountKeepsBackups(t *testing.T) {
+func TestDeleteAccountRemovesStorage(t *testing.T) {
 	d := testDeps(t)
 	h := AdminConsoleHandler{Deps: d}
 	now := time.Now().Unix()
@@ -114,7 +115,8 @@ VALUES ('acct_del', 'del@b.co', 'x', 0, 'none', 1, ?)`, now)
 		t.Fatal(err)
 	}
 	_, _ = d.DB.Exec(`UPDATE devices SET account_id = 'acct_del' WHERE id = ?`, devID)
-	_, _ = d.DB.Exec(`INSERT INTO backup_objects (id, account_id, device_id, relative_path, size, updated_at) VALUES ('bo_del', 'acct_del', ?, 'Docs/x.txt', 9, ?)`, devID, now)
+	_, _ = d.DB.Exec(`INSERT INTO luna_ids (account_id, luna_id, device_id, signing_public, purge_after, created_at) VALUES ('acct_del', 'luna-del', ?, '', 0, ?)`, devID, now)
+	_, _ = d.DB.Exec(`INSERT INTO storage_packs (account_id, luna_id, id, scope, size, created_at, storage_backend) VALUES ('acct_del', 'luna-del', ?, '', 9, ?, 'local')`, strings.Repeat("b", 64), now)
 
 	req := httptest.NewRequest(http.MethodDelete, "/admin/accounts/acct_del", nil)
 	rctx := chi.NewRouteContext()
@@ -144,9 +146,29 @@ VALUES ('acct_del', 'del@b.co', 'x', 0, 'none', 1, ?)`, now)
 		t.Fatal("billing samples should be deleted")
 	}
 
-	var objCount int
-	_ = d.DB.QueryRow(`SELECT COUNT(*) FROM backup_objects WHERE id = 'bo_del'`).Scan(&objCount)
-	if objCount != 1 {
-		t.Fatal("backup objects must remain after account delete")
+	var packCount int
+	_ = d.DB.QueryRow(`SELECT COUNT(*) FROM storage_packs WHERE account_id = 'acct_del'`).Scan(&packCount)
+	if packCount != 0 {
+		t.Fatal("storage packs should be deleted with the account")
+	}
+}
+
+// Linking a Luna again (any storage call by its owning device) cancels its pending purge.
+func TestStorageCallClearsPendingLunaPurge(t *testing.T) {
+	h, d, tok := storageFixture(t, "relink", 0)
+	now := time.Now().Unix()
+	var acctID string
+	_ = d.DB.QueryRow(`SELECT account_id FROM devices WHERE id = 'dev_relink'`).Scan(&acctID)
+	_, _ = d.DB.Exec(`INSERT INTO luna_ids (account_id, luna_id, device_id, signing_public, purge_after, created_at) VALUES (?, 'luna1', 'dev_relink', '', ?, ?)`,
+		acctID, now+86400, now)
+
+	rec := storageDo(t, h, http.MethodGet, "/records/notes", tok, "luna1", nil, nil)
+	if rec.Code == http.StatusUnauthorized || rec.Code == http.StatusForbidden {
+		t.Fatalf("owner call refused %d %s", rec.Code, rec.Body.String())
+	}
+	var purgeAfter int64
+	_ = d.DB.QueryRow(`SELECT purge_after FROM luna_ids WHERE account_id = ? AND luna_id = 'luna1'`, acctID).Scan(&purgeAfter)
+	if purgeAfter != 0 {
+		t.Fatalf("purge_after %d after the Luna was used again, want 0", purgeAfter)
 	}
 }

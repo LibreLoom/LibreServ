@@ -1,7 +1,7 @@
 import { bytesToHex, hexToBytes, utf8ToBytes } from '@noble/hashes/utils.js';
 import { describe, expect, it } from 'vitest';
 
-import vectors from '../../../crates/lunad/src/backup/cloud/vectors.json';
+import vectors from '../../../../luna/crates/lunad/src/backup/cloud/vectors.json';
 import {
 	canonical,
 	chunkId,

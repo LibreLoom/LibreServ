@@ -2,7 +2,7 @@ import { useState } from "react";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import { apiErrorMessage } from "../../lib/api";
-import { phraseToEntropy } from "../../lib/backupCrypto";
+import { phraseToEntropy } from "@libreloom/ui/lib/cloud/backupCrypto.js";
 import { checkPhrase, signFreshChallenge } from "../../lib/cloudPhrase";
 
 /**

@@ -261,6 +261,9 @@ pub struct BackupMeta {
     pub source_drive: String,
     pub source_path: String,
     pub started_by: String,
+    /// The starter's display name when the backup was made, for the Connect page. Empty if unknown.
+    #[serde(default)]
+    pub started_by_name: String,
 }
 
 /// Encrypt backup metadata as JSON under the backup key. Output is `crypto::encrypt` layout.
@@ -534,6 +537,7 @@ mod tests {
             source_drive: "Main".into(),
             source_path: "Photos/2024".into(),
             started_by: "user-1".into(),
+            started_by_name: "Max".into(),
         };
         let key = [7u8; 32];
         let sealed = encrypt_meta(&meta, &key);

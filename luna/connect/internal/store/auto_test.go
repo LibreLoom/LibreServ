@@ -48,12 +48,12 @@ VALUES ('dev_autotest000001', 'acct_1', 'th', 'Luna', 'den', 8090, 1)`)
 	auto := &Auto{DB: db, Local: local, B2: b2}
 
 	// Before B2 is configured, Put goes to local and we record that.
-	n, be, err := auto.Put("acct_1", "dev_autotest000001", "old.txt", strings.NewReader("local-bytes"))
+	n, be, err := auto.Put("acct_1", "storage-luna-t", "packs/0000000000000000000000000000000000000000000000000000000000000001", strings.NewReader("local-bytes"))
 	if err != nil || n != 11 || be != BackendLocal {
 		t.Fatalf("local put: n=%d be=%q err=%v", n, be, err)
 	}
-	_, _ = db.Exec(`INSERT INTO backup_objects (id, account_id, device_id, relative_path, size, content_hash, storage_backend, updated_at)
-VALUES ('obj_old', 'acct_1', 'dev_autotest000001', 'old.txt', 11, 'h', ?, ?)`, BackendLocal, time.Now().Unix())
+	_, _ = db.Exec(`INSERT INTO storage_packs (account_id, luna_id, id, scope, size, created_at, storage_backend)
+VALUES ('acct_1', 'luna-t', '0000000000000000000000000000000000000000000000000000000000000001', '', 11, ?, ?)`, time.Now().Unix(), BackendLocal)
 
 	objects := map[string][]byte{}
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -119,14 +119,14 @@ VALUES ('obj_old', 'acct_1', 'dev_autotest000001', 'old.txt', 11, 'h', ?, ?)`, B
 	}
 
 	// New Put goes to B2 while old local object remains readable.
-	n, be, err = auto.Put("acct_1", "dev_autotest000001", "new.txt", strings.NewReader("b2-bytes"))
+	n, be, err = auto.Put("acct_1", "storage-luna-t", "packs/0000000000000000000000000000000000000000000000000000000000000002", strings.NewReader("b2-bytes"))
 	if err != nil || n != 8 || be != BackendB2 {
 		t.Fatalf("b2 put: n=%d be=%q err=%v", n, be, err)
 	}
-	_, _ = db.Exec(`INSERT INTO backup_objects (id, account_id, device_id, relative_path, size, content_hash, storage_backend, updated_at)
-VALUES ('obj_new', 'acct_1', 'dev_autotest000001', 'new.txt', 8, 'h2', ?, ?)`, BackendB2, time.Now().Unix())
+	_, _ = db.Exec(`INSERT INTO storage_packs (account_id, luna_id, id, scope, size, created_at, storage_backend)
+VALUES ('acct_1', 'luna-t', '0000000000000000000000000000000000000000000000000000000000000002', '', 8, ?, ?)`, time.Now().Unix(), BackendB2)
 
-	rc, err := auto.Get("acct_1", "dev_autotest000001", "old.txt")
+	rc, err := auto.Get("acct_1", "storage-luna-t", "packs/0000000000000000000000000000000000000000000000000000000000000001")
 	if err != nil {
 		t.Fatalf("get old local after B2 enabled: %v", err)
 	}
@@ -136,7 +136,7 @@ VALUES ('obj_new', 'acct_1', 'dev_autotest000001', 'new.txt', 8, 'h2', ?, ?)`, B
 		t.Fatalf("old object corrupted: %q", got)
 	}
 
-	rc, err = auto.Get("acct_1", "dev_autotest000001", "new.txt")
+	rc, err = auto.Get("acct_1", "storage-luna-t", "packs/0000000000000000000000000000000000000000000000000000000000000002")
 	if err != nil {
 		t.Fatalf("get new b2: %v", err)
 	}
@@ -151,7 +151,7 @@ VALUES ('obj_new', 'acct_1', 'dev_autotest000001', 'new.txt', 8, 'h2', ?, ?)`, B
 		"account_id": "acc", "application_key": "master",
 	}, map[string]string{"bucket_prefix": "luna-backup"}, false)
 
-	rc, err = auto.Get("acct_1", "dev_autotest000001", "new.txt")
+	rc, err = auto.Get("acct_1", "storage-luna-t", "packs/0000000000000000000000000000000000000000000000000000000000000002")
 	if err != nil {
 		t.Fatalf("get b2 object after provider disabled: %v", err)
 	}
@@ -161,10 +161,10 @@ VALUES ('obj_new', 'acct_1', 'dev_autotest000001', 'new.txt', 8, 'h2', ?, ?)`, B
 		t.Fatalf("b2 object after disable: %q", got)
 	}
 
-	if err := auto.Delete("acct_1", "dev_autotest000001", "old.txt"); err != nil {
+	if err := auto.Delete("acct_1", "storage-luna-t", "packs/0000000000000000000000000000000000000000000000000000000000000001"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := local.Get("acct_1", "dev_autotest000001", "old.txt"); !os.IsNotExist(err) {
+	if _, err := local.Get("acct_1", "storage-luna-t", "packs/0000000000000000000000000000000000000000000000000000000000000001"); !os.IsNotExist(err) {
 		t.Fatalf("expected local deleted, err=%v", err)
 	}
 }
@@ -207,12 +207,12 @@ VALUES ('dev_migrate0000001', 'acct_1', 'th', 'Luna', 'den', 8090, 1)`)
 	b2.Provisioner.B2 = client
 
 	auto := &Auto{DB: db, Local: local, B2: b2}
-	_, be, err := auto.Put("acct_1", "dev_migrate0000001", "same.txt", strings.NewReader("v1"))
+	_, be, err := auto.Put("acct_1", "storage-luna-t", "packs/0000000000000000000000000000000000000000000000000000000000000003", strings.NewReader("v1"))
 	if err != nil || be != BackendLocal {
 		t.Fatalf("first put: be=%q err=%v", be, err)
 	}
-	_, _ = db.Exec(`INSERT INTO backup_objects (id, account_id, device_id, relative_path, size, content_hash, storage_backend, updated_at)
-VALUES ('obj1', 'acct_1', 'dev_migrate0000001', 'same.txt', 2, 'h', 'local', 1)`)
+	_, _ = db.Exec(`INSERT INTO storage_packs (account_id, luna_id, id, scope, size, created_at, storage_backend)
+VALUES ('acct_1', 'luna-t', '0000000000000000000000000000000000000000000000000000000000000003', '', 2, 1, 'local')`)
 
 	svc := providers.NewService(db)
 	_, err = svc.Create("backup", "B2", map[string]string{
@@ -222,14 +222,14 @@ VALUES ('obj1', 'acct_1', 'dev_migrate0000001', 'same.txt', 2, 'h', 'local', 1)`
 		t.Fatal(err)
 	}
 
-	_, be, err = auto.Put("acct_1", "dev_migrate0000001", "same.txt", strings.NewReader("v2-longer"))
+	_, be, err = auto.Put("acct_1", "storage-luna-t", "packs/0000000000000000000000000000000000000000000000000000000000000003", strings.NewReader("v2-longer"))
 	if err != nil || be != BackendB2 {
 		t.Fatalf("migrate put: be=%q err=%v", be, err)
 	}
-	if _, err := local.Get("acct_1", "dev_migrate0000001", "same.txt"); !os.IsNotExist(err) {
+	if _, err := local.Get("acct_1", "storage-luna-t", "packs/0000000000000000000000000000000000000000000000000000000000000003"); !os.IsNotExist(err) {
 		t.Fatalf("expected old local removed after migrate, err=%v", err)
 	}
-	rc, err := auto.Get("acct_1", "dev_migrate0000001", "same.txt")
+	rc, err := auto.Get("acct_1", "storage-luna-t", "packs/0000000000000000000000000000000000000000000000000000000000000003")
 	if err != nil {
 		t.Fatal(err)
 	}

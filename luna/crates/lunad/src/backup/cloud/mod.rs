@@ -2,6 +2,8 @@
 
 pub mod check;
 pub mod crypto;
+#[cfg(test)]
+mod fixture;
 pub mod format;
 pub mod identity;
 pub mod keys;

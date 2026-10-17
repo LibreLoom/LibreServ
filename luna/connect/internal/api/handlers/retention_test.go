@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/mail"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/store"
 )
 
 func TestCancelSetsPurgeAndReattachClears(t *testing.T) {
@@ -71,21 +72,16 @@ func TestRetentionDeletesAfterDeadline(t *testing.T) {
 	_ = registerAccount(t, acct, "gone@b.co")
 	var id string
 	_ = d.DB.QueryRow(`SELECT id FROM accounts WHERE email = 'gone@b.co'`).Scan(&id)
-	if _, _, err := d.Store.Put(id, "dev_old1", "keep.txt", strings.NewReader("bytes")); err != nil {
-		t.Fatal(err)
-	}
-	_, _ = d.DB.Exec(`INSERT INTO backup_objects (id, account_id, device_id, relative_path, size, content_hash, updated_at)
-VALUES ('obj_g', ?, 'dev_old1', 'keep.txt', 5, 'h', ?)`, id, time.Now().Unix())
+	packID := strings.Repeat("c", 64)
+	seedLunaWithPack(t, d, id, "luna-t", "dev_old1", 0, packID)
 	now := time.Now().Unix()
 	_, _ = d.DB.Exec(`UPDATE accounts SET backup_purge_after = ?, purge_mail_day = 27 WHERE id = ?`, now-1, id)
 
 	ProcessRetention(d, now)
-	var n int
-	_ = d.DB.QueryRow(`SELECT COUNT(*) FROM backup_objects WHERE account_id = ?`, id).Scan(&n)
-	if n != 0 {
-		t.Fatalf("objects left %d", n)
+	if n := countRows(t, d, `SELECT COUNT(*) FROM storage_packs WHERE account_id = ?`, id); n != 0 {
+		t.Fatalf("packs left %d", n)
 	}
-	if _, err := d.Store.Get(id, "dev_old1", "keep.txt"); err == nil {
+	if _, err := d.Store.Get(id, store.StorageSlot("luna-t"), store.StoragePackPath(packID)); err == nil {
 		t.Fatal("store file should be gone")
 	}
 	if len(recMail.Sends) != 1 || !strings.Contains(recMail.Sends[0][1], "were deleted") {
@@ -121,16 +117,82 @@ func TestRetentionWarningDaysDoNotDoubleSend(t *testing.T) {
 	}
 }
 
-func TestBackupDownloadAfterDeviceDeleted(t *testing.T) {
-	bak, acctH, owner, _, mine, ownerID := seedBackupAccounts(t)
-	_, _ = bak.DB.Exec(`DELETE FROM devices WHERE id = ?`, mine)
-	okReq := httptest.NewRequest(http.MethodPost, "/backups/download", strings.NewReader(`{"device_id":"`+mine+`","path":"Photos/a.jpg"}`))
-	okReq.AddCookie(owner)
-	okRec := withAccount(acctH, bak.Download, okReq)
-	if okRec.Code != 200 || !strings.Contains(okRec.Body.String(), "owner-bytes") {
-		t.Fatalf("download after delete %d %s", okRec.Code, okRec.Body.String())
+// seedLunaWithPack gives an account one Luna: its luna_ids row, one storage pack row and the pack's blob.
+func seedLunaWithPack(t *testing.T, d Deps, acctID, lunaID, deviceID string, purgeAfter int64, packID string) {
+	t.Helper()
+	now := time.Now().Unix()
+	if _, err := d.DB.Exec(`INSERT INTO luna_ids (account_id, luna_id, device_id, signing_public, purge_after, created_at) VALUES (?, ?, ?, '', ?, ?)`,
+		acctID, lunaID, deviceID, purgeAfter, now); err != nil {
+		t.Fatal(err)
 	}
-	_ = ownerID
+	if _, err := d.DB.Exec(`INSERT INTO storage_packs (account_id, luna_id, id, scope, size, created_at, storage_backend) VALUES (?, ?, ?, '', 5, ?, 'local')`,
+		acctID, lunaID, packID, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := d.Store.Put(acctID, store.StorageSlot(lunaID), store.StoragePackPath(packID), strings.NewReader("bytes")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// countRows runs a COUNT(*) query and returns the number it finds.
+func countRows(t *testing.T, d Deps, query string, args ...any) int {
+	t.Helper()
+	var n int
+	if err := d.DB.QueryRow(query, args...).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+func TestRetentionPurgesOnlyUnlinkedLuna(t *testing.T) {
+	d := testDeps(t)
+	_, acct, _ := testOnboarding(t)
+	acct.Deps = d
+	_ = registerAccount(t, acct, "unlink@b.co")
+	var id string
+	_ = d.DB.QueryRow(`SELECT id FROM accounts WHERE email = 'unlink@b.co'`).Scan(&id)
+	now := time.Now().Unix()
+	seedLunaWithPack(t, d, id, "luna-gone", "dev_gone", now-1, strings.Repeat("d", 64))
+	seedLunaWithPack(t, d, id, "luna-kept", "dev_kept", 0, strings.Repeat("e", 64))
+
+	ProcessRetention(d, now)
+
+	if n := countRows(t, d, `SELECT COUNT(*) FROM storage_packs WHERE account_id = ? AND luna_id = 'luna-gone'`, id); n != 0 {
+		t.Fatalf("unlinked luna packs left %d", n)
+	}
+	if n := countRows(t, d, `SELECT COUNT(*) FROM luna_ids WHERE account_id = ? AND luna_id = 'luna-gone'`, id); n != 0 {
+		t.Fatalf("unlinked luna row left %d", n)
+	}
+	if n := countRows(t, d, `SELECT COUNT(*) FROM storage_packs WHERE account_id = ? AND luna_id = 'luna-kept'`, id); n != 1 {
+		t.Fatalf("linked luna packs %d want 1", n)
+	}
+	if n := countRows(t, d, `SELECT COUNT(*) FROM luna_ids WHERE account_id = ? AND luna_id = 'luna-kept'`, id); n != 1 {
+		t.Fatalf("linked luna row %d want 1", n)
+	}
+}
+
+func TestRetentionKeepsLunaWithFuturePurge(t *testing.T) {
+	d := testDeps(t)
+	_, acct, _ := testOnboarding(t)
+	acct.Deps = d
+	_ = registerAccount(t, acct, "later@b.co")
+	var id string
+	_ = d.DB.QueryRow(`SELECT id FROM accounts WHERE email = 'later@b.co'`).Scan(&id)
+	now := time.Now().Unix()
+	packID := strings.Repeat("f", 64)
+	seedLunaWithPack(t, d, id, "luna-later", "dev_later", now+86400, packID)
+
+	ProcessRetention(d, now)
+
+	if n := countRows(t, d, `SELECT COUNT(*) FROM storage_packs WHERE account_id = ? AND luna_id = 'luna-later'`, id); n != 1 {
+		t.Fatalf("pending luna packs %d want 1", n)
+	}
+	if n := countRows(t, d, `SELECT COUNT(*) FROM luna_ids WHERE account_id = ? AND luna_id = 'luna-later'`, id); n != 1 {
+		t.Fatalf("pending luna row %d want 1", n)
+	}
+	if _, err := d.Store.Get(id, store.StorageSlot("luna-later"), store.StoragePackPath(packID)); err != nil {
+		t.Fatalf("pending luna blob should stay: %v", err)
+	}
 }
 
 func TestShouldSendWarningSchedule(t *testing.T) {

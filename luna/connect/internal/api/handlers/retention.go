@@ -1,12 +1,14 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
 	"log/slog"
 	"strings"
 	"time"
 
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/accounts"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/mail"
 )
 
@@ -145,6 +147,7 @@ func ProcessRetention(deps Deps, now int64) {
 		}
 		list = append(list, r)
 	}
+	rows.Close()
 	for _, r := range list {
 		if now >= r.after {
 			purgeAccountBackups(deps, r.id, r.email)
@@ -155,16 +158,39 @@ func ProcessRetention(deps Deps, now int64) {
 			markAndSendPurgeWarning(deps, r.id, r.email, day, r.after)
 		}
 	}
+	purgeUnlinkedLunas(deps, now)
+}
+
+// purgeUnlinkedLunas deletes the storage of each Luna whose 30 days after unlinking are up.
+// Linking the Luna again clears its purge_after before then.
+func purgeUnlinkedLunas(deps Deps, now int64) {
+	rows, err := deps.DB.Query(`SELECT account_id, luna_id FROM luna_ids WHERE purge_after > 0 AND purge_after <= ?`, now)
+	if err != nil {
+		slog.Error("retention luna query", "err", err)
+		return
+	}
+	type pair struct{ accountID, lunaID string }
+	var list []pair
+	for rows.Next() {
+		var p pair
+		if err := rows.Scan(&p.accountID, &p.lunaID); err != nil {
+			continue
+		}
+		list = append(list, p)
+	}
+	rows.Close()
+	for _, p := range list {
+		if err := accounts.PurgeLunaStorage(context.Background(), deps.DB, deps.Store, p.accountID, p.lunaID); err != nil {
+			slog.Error("purge luna storage", "account", p.accountID, "luna", p.lunaID, "err", err)
+		}
+	}
 }
 
 func purgeAccountBackups(deps Deps, accountID, email string) {
-	if deps.Store != nil {
-		if err := deps.Store.DeleteAccount(accountID); err != nil {
-			slog.Error("purge store", "account", accountID, "err", err)
-			return
-		}
+	if err := accounts.PurgeStorage(context.Background(), deps.DB, deps.Store, accountID); err != nil {
+		slog.Error("purge storage", "account", accountID, "err", err)
+		return
 	}
-	_, _ = deps.DB.Exec(`DELETE FROM backup_objects WHERE account_id = ?`, accountID)
 	markAndSendPurgeWarning(deps, accountID, email, backupRetentionDays, 0)
 	_, _ = deps.DB.Exec(`UPDATE accounts SET backup_purge_after = NULL, purge_mail_day = ? WHERE id = ?`, backupRetentionDays, accountID)
 }

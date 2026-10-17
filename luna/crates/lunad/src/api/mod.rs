@@ -4,6 +4,7 @@ pub mod backup_folder;
 pub mod backups;
 pub mod cloud_backups;
 pub mod cloud_phrase;
+pub mod cloud_restore;
 pub mod connect;
 pub mod device_tokens;
 pub mod drives;
@@ -36,6 +37,7 @@ pub fn router() -> Router<AppState> {
         .merge(backups::router())
         .merge(cloud_backups::router())
         .merge(cloud_phrase::router())
+        .merge(cloud_restore::router())
         .merge(backup_folder::router())
         .merge(connect::router())
         .merge(device_tokens::router())

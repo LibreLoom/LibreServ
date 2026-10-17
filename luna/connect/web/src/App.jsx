@@ -7,6 +7,7 @@ const Login = lazy(() => import("./pages/Login.jsx"));
 const VerifyEmail = lazy(() => import("./pages/VerifyEmail.jsx"));
 const LunaPage = lazy(() => import("./pages/LunaPage.jsx"));
 const BackupsPage = lazy(() => import("./pages/BackupsPage.jsx"));
+const SharePage = lazy(() => import("./pages/SharePage.jsx"));
 const OnboardingPage = lazy(() => import("./pages/OnboardingPage.jsx"));
 const AdminTokensPage = lazy(() => import("./pages/AdminTokensPage.jsx"));
 const AdminLogin = lazy(() => import("./pages/AdminLogin.jsx"));
@@ -79,6 +80,7 @@ export default function App() {
         <Route path="/admin/accounts" element={<AdminProtected><AdminAccountsPage /></AdminProtected>} />
         <Route path="/admin/providers" element={<AdminProtected><AdminProvidersPage /></AdminProtected>} />
         <Route path="/admin/security" element={<AdminProtected><AdminSecurityPage /></AdminProtected>} />
+        <Route path="/share" element={<SharePage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>

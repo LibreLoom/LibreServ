@@ -10,7 +10,7 @@ import (
 
 type Store interface {
 	// Put stores bytes and returns how many were written plus which backend holds them
-	// ("local" or "b2"). Callers should persist that backend on backup_objects.
+	// ("local" or "b2"). Callers should persist that backend on storage_packs / storage_records.
 	Put(accountID, deviceID, relPath string, r io.Reader) (written int64, backend string, err error)
 	Get(accountID, deviceID, relPath string) (io.ReadCloser, error)
 	Delete(accountID, deviceID, relPath string) error

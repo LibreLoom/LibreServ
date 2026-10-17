@@ -19,6 +19,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/billing"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/providers"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/store"
 )
@@ -159,7 +160,11 @@ func authorizeLuna(d Deps, w http.ResponseWriter, r *http.Request, accountID, lu
 		JSONError(w, http.StatusInternalServerError, "Cloud storage could not check this Luna. Try again.")
 		return false
 	}
-	if !found || bound == deviceID {
+	if !found {
+		return true
+	}
+	if bound == deviceID {
+		keepLuna(d, accountID, lunaID)
 		return true
 	}
 	if !lunaSigValid(r, signing, lunaID, time.Now()) {
@@ -171,7 +176,13 @@ func authorizeLuna(d Deps, w http.ResponseWriter, r *http.Request, accountID, lu
 		JSONError(w, http.StatusInternalServerError, "Cloud storage could not check this Luna. Try again.")
 		return false
 	}
+	keepLuna(d, accountID, lunaID)
 	return true
+}
+
+// keepLuna cancels a pending purge: the Luna is linked and using its storage again.
+func keepLuna(d Deps, accountID, lunaID string) {
+	_, _ = d.DB.Exec(`UPDATE luna_ids SET purge_after = 0 WHERE account_id = ? AND luna_id = ? AND purge_after != 0`, accountID, lunaID)
 }
 
 // setSigningPublic records the signing key a Luna uses to move its storage to a new
@@ -586,4 +597,26 @@ func (h StorageHandler) Usage(w http.ResponseWriter, r *http.Request) {
 		"used_bytes":  storageUsed(h.Deps, accountID),
 		"quota_bytes": accountBackupCap(h.Deps, accountID),
 	})
+}
+
+func backupUnlocked(h Deps, accountID string) bool {
+	if accountID == "" {
+		return false
+	}
+	var has int
+	var status string
+	err := h.DB.QueryRow(`SELECT has_card, billing_status FROM accounts WHERE id = ?`, accountID).Scan(&has, &status)
+	return err == nil && billing.BackupsUnlocked(has == 1, status)
+}
+
+func accountBackupCap(h Deps, accountID string) int64 {
+	var quota sql.NullInt64
+	_ = h.DB.QueryRow(`SELECT backup_quota_bytes FROM accounts WHERE id = ?`, accountID).Scan(&quota)
+	if quota.Valid && quota.Int64 > 0 {
+		return quota.Int64
+	}
+	if config.C.Backup.MaxAccountBytes > 0 {
+		return config.C.Backup.MaxAccountBytes
+	}
+	return 2_000_000_000_000
 }

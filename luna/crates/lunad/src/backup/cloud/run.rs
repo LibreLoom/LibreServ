@@ -179,7 +179,7 @@ struct RunContext {
 fn prepare(
     db: &crate::Db,
     protection_id: &str,
-    started_by: &str,
+    _started_by: &str,
     now: i64,
 ) -> Result<(RunContext, Option<Publish>)> {
     let conn = lock(db);
@@ -242,12 +242,18 @@ fn prepare(
         .filter(|s| !s.is_empty())
         .unwrap_or(&row.source_drive)
         .to_string();
+    // The person who set the backup up, not whoever triggered this run. Their name goes in the
+    // encrypted metadata so the Connect page can group by person without seeing names.
+    let started_by_name = db::get_user(&conn, &row.created_by)?
+        .map(|user| if user.display_name.is_empty() { user.username } else { user.display_name })
+        .unwrap_or_default();
     let meta = format::encrypt_meta(
         &BackupMeta {
             name,
             source_drive: row.source_drive.clone(),
             source_path: row.source_path.clone(),
-            started_by: started_by.to_string(),
+            started_by: row.created_by.clone(),
+            started_by_name,
         },
         &key_bytes,
     );
@@ -920,7 +926,9 @@ mod tests {
         let key_bytes: [u8; 32] = key.key.as_slice().try_into().unwrap();
         let meta = format::decrypt_meta(&record.meta, &key_bytes).unwrap();
         let row = db::get_protection(&conn, "p8").unwrap().unwrap();
-        assert_eq!(meta.started_by, "user-7");
+        // The protection was created by "owner" (see `setup`), not by the run's trigger "user-7".
+        assert_eq!(meta.started_by, "owner");
+        assert_eq!(meta.started_by_name, "Owner");
         assert_eq!(meta.source_drive, row.source_drive);
         assert_eq!(meta.source_path, row.source_path);
         assert_eq!(meta.name, row.source_path.rsplit('/').next().unwrap());

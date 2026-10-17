@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import RecoveryPhraseCheck from "./RecoveryPhraseCheck.jsx";
-import { derive, entropyToPhrase, newEntropy, verify } from "../../lib/backupCrypto";
+import { derive, entropyToPhrase, newEntropy, verify } from "@libreloom/ui/lib/cloud/backupCrypto.js";
 import { fromBase64, toBase64 } from "../../lib/cloudPhrase";
 
 const LUNA_ID = "luna-1";

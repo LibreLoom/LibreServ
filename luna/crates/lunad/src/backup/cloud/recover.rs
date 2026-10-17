@@ -283,6 +283,7 @@ mod tests {
             source_drive: "drive-a".into(),
             source_path: "/Photos".into(),
             started_by: "user-7".into(),
+            started_by_name: String::new(),
         };
         format::encrypt_meta(&meta, key)
     }
@@ -580,6 +581,7 @@ mod tests {
                 source_drive: "drive-a".into(),
                 source_path: "/Photos".into(),
                 started_by: String::new(),
+                started_by_name: String::new(),
             },
             &TREE_KEY,
         );

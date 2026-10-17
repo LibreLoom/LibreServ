@@ -26,8 +26,6 @@ var migrateTables = []string{
 	"email_verification_tokens",
 	"devices",
 	"sessions",
-	"backup_objects",
-	"backup_bindings",
 	"register_attempts",
 	"guess_attempts",
 	"oss_payments",
@@ -37,6 +35,10 @@ var migrateTables = []string{
 	"device_backup_buckets",
 	"billing_storage_samples",
 	"billing_period_egress",
+	"storage_packs",
+	"storage_records",
+	"luna_ids",
+	"share_links",
 }
 
 func copyTableRaw(src *sql.DB, dst *sql.Tx, table string) (int, error) {

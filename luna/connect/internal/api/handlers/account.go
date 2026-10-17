@@ -153,7 +153,7 @@ func (h AccountHandler) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var liveBytes int64
-	_ = h.DB.QueryRow(`SELECT COALESCE(SUM(size),0) FROM backup_objects WHERE account_id = ?`, acct.ID).Scan(&liveBytes)
+	_ = h.DB.QueryRow(`SELECT COALESCE((SELECT SUM(size) FROM storage_packs WHERE account_id = ?), 0) + COALESCE((SELECT SUM(bytes) FROM storage_records WHERE account_id = ?), 0)`, acct.ID, acct.ID).Scan(&liveBytes)
 	avgBytes, egressBytes := billing.AccountPeriodUsage(h.DB, acct.ID)
 	var payStatus string
 	humanVerified := false
@@ -328,7 +328,7 @@ func (h AccountHandler) Usage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var liveBytes int64
-	_ = h.DB.QueryRow(`SELECT COALESCE(SUM(size),0) FROM backup_objects WHERE account_id = ?`, acct.ID).Scan(&liveBytes)
+	_ = h.DB.QueryRow(`SELECT COALESCE((SELECT SUM(size) FROM storage_packs WHERE account_id = ?), 0) + COALESCE((SELECT SUM(bytes) FROM storage_records WHERE account_id = ?), 0)`, acct.ID, acct.ID).Scan(&liveBytes)
 	avgBytes, egressBytes := billing.AccountPeriodUsage(h.DB, acct.ID)
 	JSON(w, http.StatusOK, map[string]any{
 		"stored_bytes":        liveBytes,

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { HardDrive } from "lucide-react";
 import { Layout } from "../components/Layout.jsx";
 import { Button } from "../components/ui/button.jsx";
@@ -8,10 +8,16 @@ import { Separator } from "../components/ui/separator.jsx";
 import { BackupPricingTable } from "../components/BackupPricingTable.jsx";
 import { InfoHint } from "../components/ui/Tooltip.jsx";
 import { VerifyHumanCard } from "../components/VerifyHumanCard.jsx";
+import { UnlockCard } from "../components/cloud/UnlockCard.jsx";
+import { CloudBrowser } from "../components/cloud/CloudBrowser.jsx";
+import { ShareLinkButton } from "../components/cloud/ShareLinkButton.jsx";
+import { ShareLinksCard } from "../components/cloud/ShareLinksCard.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { api } from "../api.js";
 import { stripeLooksConfigured } from "../billing/stripeConfig.js";
-import { BackupBrowser } from "../components/BackupBrowser.jsx";
+import { accountSource, listLunas } from "../lib/cloudSource.js";
+import { unlockBackups } from "../lib/cloudUnlock.js";
+import { userRecordPart } from "@libreloom/ui/lib/cloud/cloudKeys.js";
 
 function daysUntil(unixSeconds) {
   if (!unixSeconds) return null;
@@ -53,21 +59,6 @@ function EmptyStorageState({ paired }) {
   );
 }
 
-function VersionNote({ note }) {
-  const text = note || "This is the latest copy we have, not a history of old versions.";
-  return (
-    <p className="text-sm text-muted-foreground leading-relaxed flex flex-wrap items-center gap-1">
-      <span>{text}</span>
-      <InfoHint
-        surface="secondary"
-        delayMs={0}
-        label="About cloud backup copies"
-        content="Cloud backup keeps one current copy of each file you choose. It is not a timeline of older versions you can roll back to."
-      />
-    </p>
-  );
-}
-
 function CancelPaymentSection({ confirmCancel, setConfirmCancel, busy, onCancel }) {
   if (!confirmCancel) {
     return (
@@ -104,12 +95,106 @@ function CancelPaymentSection({ confirmCancel, setConfirmCancel, busy, onCancel 
   );
 }
 
-function BackupFilesCard({ objects, note, unpairedNote, paired, setError }) {
-  const storageSection = objects.length === 0 ? (
-    <EmptyStorageState paired={paired} />
-  ) : (
-    <BackupBrowser objects={objects} onError={(message) => setError(message)} />
+function LunaPicker({ lunas, chosenId, onChoose }) {
+  return (
+    <div className="flex flex-wrap gap-2" role="group" aria-label="Choose a Luna">
+      {lunas.map((luna) => {
+        const selected = luna.luna_id === chosenId;
+        return (
+          <Button
+            key={luna.luna_id}
+            type="button"
+            size="sm"
+            variant={selected ? "default" : "outline"}
+            aria-pressed={selected}
+            onClick={() => onChoose(luna.luna_id)}
+          >
+            {luna.name || "Luna"}
+          </Button>
+        );
+      })}
+    </div>
   );
+}
+
+function BackupFilesCard({ lunas, paired }) {
+  const [chosenId, setChosenId] = useState("");
+  // Decrypted backups for one Luna. Only shown while that Luna is still the chosen one.
+  const [unlocked, setUnlocked] = useState(null);
+  // Bumped after a link is created so the links list reloads.
+  const [linkRefresh, setLinkRefresh] = useState(0);
+  const bump = () => setLinkRefresh((n) => n + 1);
+
+  const chosen = lunas?.find((luna) => luna.luna_id === chosenId) || lunas?.[0] || null;
+  const lunaId = chosen?.luna_id || "";
+  const source = useMemo(() => (lunaId ? accountSource(lunaId) : null), [lunaId]);
+  const backups = unlocked && unlocked.lunaId === lunaId ? unlocked.backups : null;
+
+  function choose(id) {
+    setUnlocked(null);
+    setChosenId(id);
+  }
+
+  async function unlock(words) {
+    const result = await unlockBackups(source, words);
+    setUnlocked({ lunaId, backups: result.backups });
+  }
+
+  let body = null;
+
+  if (lunas && lunas.length === 0) {
+    body = <EmptyStorageState paired={paired} />;
+  } else if (lunas) {
+    const unpairedNote = chosen && chosen.linked === false ? (
+      <p className="text-sm leading-relaxed rounded-large-element border border-warning/30 bg-warning/20 text-foreground px-4 py-3">
+        These files are from a Luna that is no longer linked to this account. The monthly bill stays until you turn payment off.
+      </p>
+    ) : null;
+
+    body = (
+      <>
+        {lunas.length > 1 ? <LunaPicker lunas={lunas} chosenId={lunaId} onChoose={choose} /> : null}
+        {unpairedNote}
+        {backups ? (
+          <div className="space-y-4">
+            <div className="flex justify-end">
+              <Button variant="outline" size="sm" onClick={() => setUnlocked(null)}>
+                Lock
+              </Button>
+            </div>
+            <CloudBrowser
+              source={source}
+              backups={backups}
+              groupActions={(g) =>
+                g.startedBy ? (
+                  <ShareLinkButton
+                    lunaId={lunaId}
+                    scope={{ kind: "user", value: userRecordPart(g.startedBy) }}
+                    label={g.name}
+                    onCreated={bump}
+                  />
+                ) : null
+              }
+              backupActions={(b) => (
+                <ShareLinkButton
+                  lunaId={lunaId}
+                  scope={{ kind: "backup", value: b.protectionId }}
+                  label={b.name}
+                  onCreated={bump}
+                />
+              )}
+            />
+            <ShareLinksCard lunaId={lunaId} backups={backups} refreshKey={linkRefresh} />
+          </div>
+        ) : (
+          <UnlockCard
+            description="Type the recovery phrase you wrote down when you turned on cloud backup on Luna."
+            onUnlock={unlock}
+          />
+        )}
+      </>
+    );
+  }
 
   return (
     <Card className="animate-fade-in-up" data-testid="backups-files">
@@ -120,20 +205,16 @@ function BackupFilesCard({ objects, note, unpairedNote, paired, setError }) {
             surface="secondary"
             delayMs={0}
             label="About your cloud copies"
-            content="These are the files we keep off-site. You can browse and download them here."
+            content="Your files are encrypted on Luna before they leave the house. Only your recovery phrase opens them, here in this browser."
           />
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-4">
-        {note ? <VersionNote note={note} /> : null}
-        {unpairedNote}
-        {storageSection}
-      </CardContent>
+      <CardContent className="space-y-4">{body}</CardContent>
     </Card>
   );
 }
 
-export function BackupsTab({ me, objects, note, paired, onRefresh, setError, error }) {
+export function BackupsTab({ me, lunas, paired, onRefresh, setError, error }) {
   const [busy, setBusy] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const purgeAfter = Number(me?.backup_purge_after || 0);
@@ -196,21 +277,7 @@ export function BackupsTab({ me, objects, note, paired, onRefresh, setError, err
     </Button>
   );
 
-  const unpairedNote = !paired && objects.length > 0 ? (
-    <p className="text-sm leading-relaxed rounded-large-element border border-warning/30 bg-warning/20 text-foreground px-4 py-3">
-      These files are from a Luna that is no longer linked to this account. The monthly bill stays until you turn payment off.
-    </p>
-  ) : null;
-
-  const filesCard = (
-    <BackupFilesCard
-      objects={objects}
-      note={purging || !me.has_card ? "" : note}
-      unpairedNote={unpairedNote}
-      paired={paired}
-      setError={setError}
-    />
-  );
+  const filesCard = <BackupFilesCard lunas={lunas} paired={paired} />;
 
   let billingCard;
 
@@ -289,18 +356,14 @@ export function BackupsTab({ me, objects, note, paired, onRefresh, setError, err
 
 export default function BackupsPage() {
   const { me, refresh } = useAuth();
-  const [objects, setObjects] = useState([]);
-  const [note, setNote] = useState("");
+  const [lunas, setLunas] = useState(null);
   const [paired, setPaired] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
     if (!me) return;
-    api("/api/v1/backups")
-      .then((b) => {
-        setObjects(b.objects || []);
-        setNote(b.note || "");
-      })
+    listLunas()
+      .then((list) => setLunas(list || []))
       .catch((err) => setError(err.message));
     api("/api/v1/account/devices")
       .then((d) => setPaired((d.devices || []).length > 0))
@@ -310,8 +373,8 @@ export default function BackupsPage() {
   return (
     <Layout>
       <h1 className="font-mono text-3xl mb-2">Cloud backups</h1>
-      <p className="text-muted-foreground mb-8">A second place for your files if a drive fails or the house is gone. Latest copy only.</p>
-      <BackupsTab me={me} objects={objects} note={note} paired={paired} onRefresh={refresh} setError={setError} error={error} />
+      <p className="text-muted-foreground mb-8">A second place for your files if a drive fails or the house is gone.</p>
+      <BackupsTab me={me} lunas={lunas} paired={paired} onRefresh={refresh} setError={setError} error={error} />
     </Layout>
   );
 }

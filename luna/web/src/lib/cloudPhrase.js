@@ -1,5 +1,5 @@
 import { getJson, postJson, putJson } from "./api";
-import { canonical, derive, encrypt, sign } from "./backupCrypto";
+import { canonical, derive, encrypt, sign } from "@libreloom/ui/lib/cloud/backupCrypto.js";
 
 /**
  * Cloud recovery phrase: the API calls and the key steps behind it.
