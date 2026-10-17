@@ -32,7 +32,11 @@ impl AccessList {
 /// The access list for a shared backup of `source_path` on `drive_id`:
 /// users whose Read (`CAP_VIEW`) covers the source root through a member
 /// grant on the root or an ancestor, plus the Admins entry.
-pub fn for_source(conn: &Connection, drive_id: &str, source_path: &str) -> anyhow::Result<AccessList> {
+pub fn for_source(
+    conn: &Connection,
+    drive_id: &str,
+    source_path: &str,
+) -> anyhow::Result<AccessList> {
     let source = crate::access::normalize_subject_path(source_path);
     // Admins are covered by the `admins` flag, so they stay out of `users`.
     // Only accounts that still exist count, so a deleted user's leftover
@@ -87,7 +91,15 @@ mod tests {
         (dir, conn)
     }
 
-    fn grant(conn: &Connection, id: &str, drive: &str, kind: &str, path: &str, user: &str, caps: i64) {
+    fn grant(
+        conn: &Connection,
+        id: &str,
+        drive: &str,
+        kind: &str,
+        path: &str,
+        user: &str,
+        caps: i64,
+    ) {
         let album = if kind == KIND_ALBUM { "alb1" } else { "" };
         db::insert_access_member(
             conn,
@@ -135,7 +147,15 @@ mod tests {
     #[test]
     fn sub_path_only_grant_is_excluded() {
         let (_dir, conn) = setup();
-        grant(&conn, "g1", "d", KIND_PATH, "Photos/2024/trip", "u-ann", CAP_VIEW);
+        grant(
+            &conn,
+            "g1",
+            "d",
+            KIND_PATH,
+            "Photos/2024/trip",
+            "u-ann",
+            CAP_VIEW,
+        );
         assert!(users_for(&conn, "d", "Photos").is_empty());
     }
 
@@ -187,7 +207,15 @@ mod tests {
         grant(&conn, "g1", "d", KIND_PATH, "", "u-cat", CAP_VIEW);
         grant(&conn, "g2", "d", KIND_PATH, "", "u-ann", CAP_VIEW);
         grant(&conn, "g3", "d", KIND_PATH, "Photos", "u-ann", CAP_ALL);
-        grant(&conn, "g4", "d", KIND_PATH, "Photos/2024", "u-ann", CAP_VIEW);
+        grant(
+            &conn,
+            "g4",
+            "d",
+            KIND_PATH,
+            "Photos/2024",
+            "u-ann",
+            CAP_VIEW,
+        );
         grant(&conn, "g5", "d", KIND_PATH, "", "u-bob", CAP_VIEW);
         assert_eq!(
             users_for(&conn, "d", "Photos/2024"),
@@ -204,8 +232,14 @@ mod tests {
         assert!(list.allows("u-root", true), "admin via the Admins entry");
         assert!(list.allows("u-ann", false), "member on the list");
         assert!(!list.allows("u-bob", false), "stranger");
-        assert!(!list.allows("u-root", false), "admin role alone is not enough");
-        assert!(list.allows("u-bob", true), "any admin is let in by the entry");
+        assert!(
+            !list.allows("u-root", false),
+            "admin role alone is not enough"
+        );
+        assert!(
+            list.allows("u-bob", true),
+            "any admin is let in by the entry"
+        );
     }
 
     #[test]
@@ -214,7 +248,10 @@ mod tests {
             users: vec!["u-ann".into()],
             admins: false,
         };
-        assert!(!list.allows("u-root", true), "private backup: no Admins entry");
+        assert!(
+            !list.allows("u-root", true),
+            "private backup: no Admins entry"
+        );
         assert!(list.allows("u-ann", false));
     }
 }

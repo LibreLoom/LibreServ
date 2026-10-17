@@ -8,8 +8,8 @@ use rusqlite::params;
 ///
 /// Drive-scoped high-churn metadata (file index, scrub hashes, gallery, trash
 /// paths, upload sessions) lives in each drive's `.luna` SQLite microdb.
-/// This OS-disk DB keeps users, auth, access members/links, jobs, and the
-/// thin drives registry.
+/// This OS-disk DB keeps users, auth, access members/links, protection rules,
+/// jobs, and the thin drives registry.
 pub fn open(path: &Path) -> anyhow::Result<Connection> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -145,6 +145,26 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             mtime INTEGER NOT NULL,
             uploaded_at INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (source, path)
+        );
+        CREATE TABLE IF NOT EXISTS protections (
+            id TEXT PRIMARY KEY,
+            kind TEXT NOT NULL,                 -- 'drive' | 'cloud'
+            source_drive TEXT NOT NULL,
+            source_path TEXT NOT NULL,          -- drive-relative real path, no leading/trailing slash
+            target_drive TEXT NOT NULL DEFAULT '',  -- drive kind only
+            private_owner TEXT NOT NULL DEFAULT '', -- user id for a private item's backup
+            created_by TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            state TEXT NOT NULL DEFAULT 'active',   -- 'active' | 'stopped' | 'source_gone'
+            stop_reason TEXT NOT NULL DEFAULT '',   -- plain-language, shown to people
+            access_json TEXT NOT NULL DEFAULT '',   -- last saved AccessList (backup::access_list) as JSON
+            last_ok_at INTEGER NOT NULL DEFAULT 0,
+            last_error TEXT NOT NULL DEFAULT '',
+            hard INTEGER NOT NULL DEFAULT 0,
+            failing_since INTEGER NOT NULL DEFAULT 0,
+            last_checked_at INTEGER NOT NULL DEFAULT 0,
+            first_done INTEGER NOT NULL DEFAULT 0,
+            UNIQUE (kind, source_drive, source_path, target_drive)
         );
         ",
     )?;
@@ -391,7 +411,7 @@ pub fn delete_drive_cascade(conn: &Connection, id: &str) -> anyhow::Result<()> {
 }
 
 /// Wipe all user data and return the box to first-run state, keeping the
-/// schema. Clears users/access/device-tokens, jobs, drives,
+/// schema. Clears users/access/device-tokens, protections/jobs, drives,
 /// and resets setup + the JWT and BLE setup secrets. Per-drive `.luna`
 /// microdbs (index, hashes, gallery, uploads, trash meta) are not part of
 /// `luna.db` and are left on the sticks.
@@ -402,6 +422,7 @@ pub fn factory_reset(conn: &Connection) -> anyhow::Result<()> {
         "access_links",
         "device_tokens",
         "jobs",
+        "protections",
         "drives",
         "device_token_usage",
         "rate_limit_buckets",
@@ -978,6 +999,262 @@ pub fn delete_access_for_subject(
         params![subject_kind, drive_id, path, album_id],
     )?;
     Ok(())
+}
+
+/// Protection kinds: a second drive, or the cloud.
+pub const PROTECTION_DRIVE: &str = "drive";
+pub const PROTECTION_CLOUD: &str = "cloud";
+/// Protection states. `stopped` is set by a person; `source_gone` means the
+/// protected item was removed or its drive was unplugged for good.
+pub const PROTECTION_ACTIVE: &str = "active";
+pub const PROTECTION_STOPPED: &str = "stopped";
+pub const PROTECTION_SOURCE_GONE: &str = "source_gone";
+
+const PROTECTION_COLUMNS: &str = "id, kind, source_drive, source_path, target_drive,
+    private_owner, created_by, created_at, state, stop_reason, access_json,
+    last_ok_at, last_error, hard, failing_since, last_checked_at, first_done";
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProtectionRow {
+    pub id: String,
+    pub kind: String,
+    pub source_drive: String,
+    pub source_path: String,
+    pub target_drive: String,
+    pub private_owner: String,
+    pub created_by: String,
+    pub created_at: i64,
+    pub state: String,
+    pub stop_reason: String,
+    /// Last saved access list (JSON). Empty until the first good backup.
+    pub access_json: String,
+    pub last_ok_at: i64,
+    pub last_error: String,
+    /// True when the last failure needs a person to act (not just a retry).
+    pub hard: bool,
+    pub failing_since: i64,
+    pub last_checked_at: i64,
+    pub first_done: bool,
+}
+
+pub struct NewProtection<'a> {
+    pub id: &'a str,
+    pub kind: &'a str,
+    pub source_drive: &'a str,
+    pub source_path: &'a str,
+    pub target_drive: &'a str,
+    pub private_owner: &'a str,
+    pub created_by: &'a str,
+    pub created_at: i64,
+}
+
+fn protection_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProtectionRow> {
+    Ok(ProtectionRow {
+        id: row.get(0)?,
+        kind: row.get(1)?,
+        source_drive: row.get(2)?,
+        source_path: row.get(3)?,
+        target_drive: row.get(4)?,
+        private_owner: row.get(5)?,
+        created_by: row.get(6)?,
+        created_at: row.get(7)?,
+        state: row.get(8)?,
+        stop_reason: row.get(9)?,
+        access_json: row.get(10)?,
+        last_ok_at: row.get(11)?,
+        last_error: row.get(12)?,
+        hard: row.get::<_, i64>(13)? != 0,
+        failing_since: row.get(14)?,
+        last_checked_at: row.get(15)?,
+        first_done: row.get::<_, i64>(16)? != 0,
+    })
+}
+
+pub fn insert_protection(
+    conn: &Connection,
+    new: &NewProtection<'_>,
+) -> anyhow::Result<ProtectionRow> {
+    conn.execute(
+        "INSERT INTO protections (id, kind, source_drive, source_path, target_drive,
+             private_owner, created_by, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![
+            new.id,
+            new.kind,
+            new.source_drive,
+            new.source_path,
+            new.target_drive,
+            new.private_owner,
+            new.created_by,
+            new.created_at
+        ],
+    )?;
+    get_protection(conn, new.id)?
+        .ok_or_else(|| anyhow::anyhow!("protection {} was not saved", new.id))
+}
+
+pub fn find_protection(
+    conn: &Connection,
+    kind: &str,
+    source_drive: &str,
+    source_path: &str,
+    target_drive: &str,
+) -> anyhow::Result<Option<ProtectionRow>> {
+    let mut stmt = conn.prepare_cached(&format!(
+        "SELECT {PROTECTION_COLUMNS} FROM protections
+         WHERE kind = ?1 AND source_drive = ?2 AND source_path = ?3 AND target_drive = ?4"
+    ))?;
+    let mut rows = stmt.query(params![kind, source_drive, source_path, target_drive])?;
+    match rows.next()? {
+        Some(row) => Ok(Some(protection_from_row(row)?)),
+        None => Ok(None),
+    }
+}
+
+pub fn list_protections(conn: &Connection) -> anyhow::Result<Vec<ProtectionRow>> {
+    let mut stmt = conn.prepare_cached(&format!(
+        "SELECT {PROTECTION_COLUMNS} FROM protections ORDER BY created_at DESC"
+    ))?;
+    let rows = stmt
+        .query_map([], protection_from_row)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+pub fn get_protection(conn: &Connection, id: &str) -> anyhow::Result<Option<ProtectionRow>> {
+    let mut stmt = conn.prepare_cached(&format!(
+        "SELECT {PROTECTION_COLUMNS} FROM protections WHERE id = ?1"
+    ))?;
+    let mut rows = stmt.query(params![id])?;
+    match rows.next()? {
+        Some(row) => Ok(Some(protection_from_row(row)?)),
+        None => Ok(None),
+    }
+}
+
+/// Returns true when a row was removed.
+pub fn delete_protection(conn: &Connection, id: &str) -> anyhow::Result<bool> {
+    let n = conn.execute("DELETE FROM protections WHERE id = ?1", params![id])?;
+    Ok(n > 0)
+}
+
+/// A backup run succeeded: stamp it, clear the failure, save the access list.
+pub fn record_protection_ok(
+    conn: &Connection,
+    id: &str,
+    now: i64,
+    access_json: &str,
+) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE protections SET last_ok_at = ?2, last_error = '', hard = 0,
+             failing_since = 0, first_done = 1, access_json = ?3
+         WHERE id = ?1",
+        params![id, now, access_json],
+    )?;
+    Ok(())
+}
+
+/// A backup run failed. `failing_since` keeps the time of the first failure
+/// in a row, so repeated failures do not move it.
+pub fn record_protection_error(
+    conn: &Connection,
+    id: &str,
+    message: &str,
+    hard: bool,
+    now: i64,
+) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE protections SET last_error = ?2, hard = ?3,
+             failing_since = CASE WHEN failing_since = 0 THEN ?4 ELSE failing_since END
+         WHERE id = ?1",
+        params![id, message, hard as i64, now],
+    )?;
+    Ok(())
+}
+
+/// Save a new access list after a grant change on a healthy source.
+pub fn set_protection_access(conn: &Connection, id: &str, access_json: &str) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE protections SET access_json = ?2 WHERE id = ?1",
+        params![id, access_json],
+    )?;
+    Ok(())
+}
+
+pub fn set_protection_state(
+    conn: &Connection,
+    id: &str,
+    state: &str,
+    stop_reason: &str,
+) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE protections SET state = ?2, stop_reason = ?3 WHERE id = ?1",
+        params![id, state, stop_reason],
+    )?;
+    Ok(())
+}
+
+pub fn record_protection_checked(conn: &Connection, id: &str, now: i64) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE protections SET last_checked_at = ?2 WHERE id = ?1",
+        params![id, now],
+    )?;
+    Ok(())
+}
+
+/// A folder or file moved on one drive: point every protection under the old
+/// path at the new one, the same way grants follow a move. Moving the drive
+/// root (empty old path) changes nothing here. Returns the number moved.
+pub fn repath_protections_move(
+    conn: &Connection,
+    from_drive: &str,
+    old_path: &str,
+    to_drive: &str,
+    new_path: &str,
+) -> anyhow::Result<usize> {
+    let old = crate::access::normalize_subject_path(old_path);
+    if old.is_empty() {
+        return Ok(0);
+    }
+    let new = crate::access::normalize_subject_path(new_path);
+    let candidates = {
+        let mut stmt =
+            conn.prepare_cached("SELECT id, source_path FROM protections WHERE source_drive = ?1")?;
+        stmt.query_map(params![from_drive], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    let mut moved = 0;
+    for (id, path) in candidates {
+        if !crate::access::path_contains(&old, &path) {
+            continue;
+        }
+        let suffix = &path[old.len()..];
+        let retargeted = crate::access::normalize_subject_path(&format!("{new}{suffix}"));
+        conn.execute(
+            "UPDATE protections SET source_drive = ?2, source_path = ?3 WHERE id = ?1",
+            params![id, to_drive, retargeted],
+        )?;
+        moved += 1;
+    }
+    Ok(moved)
+}
+
+/// Protections that read from this drive or write to it.
+pub fn protections_on_drive(
+    conn: &Connection,
+    drive_id: &str,
+) -> anyhow::Result<Vec<ProtectionRow>> {
+    let mut stmt = conn.prepare_cached(&format!(
+        "SELECT {PROTECTION_COLUMNS} FROM protections
+         WHERE source_drive = ?1 OR target_drive = ?1
+         ORDER BY created_at DESC"
+    ))?;
+    let rows = stmt
+        .query_map(params![drive_id], protection_from_row)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
 }
 
 pub fn set_meta(conn: &Connection, key: &str, value: &str) -> anyhow::Result<()> {
@@ -1719,5 +1996,197 @@ mod tests {
         assert_eq!(usage_multi.len(), 2);
         assert_eq!(usage_multi[0].action, "File upload");
         assert_eq!(usage_multi[1].action, "WebDAV folder");
+    }
+
+    fn new_protection<'a>(id: &'a str, drive: &'a str, path: &'a str) -> NewProtection<'a> {
+        NewProtection {
+            id,
+            kind: PROTECTION_DRIVE,
+            source_drive: drive,
+            source_path: path,
+            target_drive: "backup1",
+            private_owner: "",
+            created_by: "u1",
+            created_at: 100,
+        }
+    }
+
+    #[test]
+    fn protection_insert_get_list_delete() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&dir.path().join("luna.db")).unwrap();
+        let row = insert_protection(&conn, &new_protection("p1", "d1", "docs")).unwrap();
+        assert_eq!(row.state, PROTECTION_ACTIVE);
+        assert!(!row.first_done);
+        assert_eq!(row.access_json, "");
+        assert_eq!(get_protection(&conn, "p1").unwrap(), Some(row.clone()));
+        assert_eq!(
+            find_protection(&conn, PROTECTION_DRIVE, "d1", "docs", "backup1").unwrap(),
+            Some(row)
+        );
+        assert!(
+            find_protection(&conn, PROTECTION_CLOUD, "d1", "docs", "")
+                .unwrap()
+                .is_none()
+        );
+
+        insert_protection(
+            &conn,
+            &NewProtection {
+                created_at: 200,
+                ..new_protection("p2", "d1", "pics")
+            },
+        )
+        .unwrap();
+        let ids: Vec<String> = list_protections(&conn)
+            .unwrap()
+            .into_iter()
+            .map(|r| r.id)
+            .collect();
+        assert_eq!(ids, vec!["p2", "p1"]);
+
+        assert!(delete_protection(&conn, "p1").unwrap());
+        assert!(!delete_protection(&conn, "p1").unwrap());
+        assert!(get_protection(&conn, "p1").unwrap().is_none());
+    }
+
+    #[test]
+    fn protection_unique_clash_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&dir.path().join("luna.db")).unwrap();
+        insert_protection(&conn, &new_protection("p1", "d1", "docs")).unwrap();
+        assert!(insert_protection(&conn, &new_protection("p2", "d1", "docs")).is_err());
+    }
+
+    #[test]
+    fn protection_ok_and_error_bookkeeping() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&dir.path().join("luna.db")).unwrap();
+        insert_protection(&conn, &new_protection("p1", "d1", "docs")).unwrap();
+
+        record_protection_error(&conn, "p1", "Drive not found", false, 500).unwrap();
+        record_protection_error(&conn, "p1", "Drive still not found", true, 600).unwrap();
+        let failing = get_protection(&conn, "p1").unwrap().unwrap();
+        assert_eq!(failing.failing_since, 500);
+        assert_eq!(failing.last_error, "Drive still not found");
+        assert!(failing.hard);
+        assert!(!failing.first_done);
+
+        record_protection_ok(&conn, "p1", 700, "{\"grants\":[]}").unwrap();
+        let ok = get_protection(&conn, "p1").unwrap().unwrap();
+        assert_eq!(ok.last_ok_at, 700);
+        assert_eq!(ok.last_error, "");
+        assert!(!ok.hard);
+        assert_eq!(ok.failing_since, 0);
+        assert!(ok.first_done);
+        assert_eq!(ok.access_json, "{\"grants\":[]}");
+
+        set_protection_access(&conn, "p1", "{}").unwrap();
+        record_protection_checked(&conn, "p1", 800).unwrap();
+        set_protection_state(&conn, "p1", PROTECTION_STOPPED, "You stopped this backup.").unwrap();
+        let later = get_protection(&conn, "p1").unwrap().unwrap();
+        assert_eq!(later.access_json, "{}");
+        assert_eq!(later.last_checked_at, 800);
+        assert_eq!(later.state, PROTECTION_STOPPED);
+        assert_eq!(later.stop_reason, "You stopped this backup.");
+    }
+
+    #[test]
+    fn repath_protections_move_follows_subtree_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&dir.path().join("luna.db")).unwrap();
+        insert_protection(&conn, &new_protection("exact", "d1", "docs")).unwrap();
+        insert_protection(&conn, &new_protection("nested", "d1", "docs/2024/jan")).unwrap();
+        insert_protection(&conn, &new_protection("sibling", "d1", "docs2")).unwrap();
+        insert_protection(&conn, &new_protection("other", "d2", "docs")).unwrap();
+
+        let moved = repath_protections_move(&conn, "d1", "/docs/", "d1", "archive").unwrap();
+        assert_eq!(moved, 2);
+        assert_eq!(
+            get_protection(&conn, "exact").unwrap().unwrap().source_path,
+            "archive"
+        );
+        assert_eq!(
+            get_protection(&conn, "nested")
+                .unwrap()
+                .unwrap()
+                .source_path,
+            "archive/2024/jan"
+        );
+        assert_eq!(
+            get_protection(&conn, "sibling")
+                .unwrap()
+                .unwrap()
+                .source_path,
+            "docs2"
+        );
+        assert_eq!(
+            get_protection(&conn, "other")
+                .unwrap()
+                .unwrap()
+                .source_drive,
+            "d2"
+        );
+    }
+
+    #[test]
+    fn repath_protections_move_across_drives() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&dir.path().join("luna.db")).unwrap();
+        insert_protection(&conn, &new_protection("p1", "d1", "photos/trip")).unwrap();
+
+        let moved = repath_protections_move(&conn, "d1", "photos", "d2", "").unwrap();
+        assert_eq!(moved, 1);
+        let row = get_protection(&conn, "p1").unwrap().unwrap();
+        assert_eq!(row.source_drive, "d2");
+        assert_eq!(row.source_path, "trip");
+
+        assert_eq!(
+            repath_protections_move(&conn, "d2", "", "d3", "x").unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn protections_on_drive_matches_source_or_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&dir.path().join("luna.db")).unwrap();
+        insert_protection(&conn, &new_protection("p1", "d1", "docs")).unwrap();
+        insert_protection(
+            &conn,
+            &NewProtection {
+                target_drive: "d9",
+                ..new_protection("p2", "d2", "docs")
+            },
+        )
+        .unwrap();
+        insert_protection(&conn, &new_protection("p3", "d3", "docs")).unwrap();
+
+        let mut ids: Vec<String> = protections_on_drive(&conn, "d9")
+            .unwrap()
+            .into_iter()
+            .map(|r| r.id)
+            .collect();
+        ids.sort();
+        assert_eq!(ids, vec!["p2"]);
+        assert_eq!(protections_on_drive(&conn, "d1").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn delete_drive_cascade_leaves_protections_intact() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&dir.path().join("luna.db")).unwrap();
+        insert_protection(&conn, &new_protection("p1", "d1", "docs")).unwrap();
+        delete_drive_cascade(&conn, "d1").unwrap();
+        assert!(get_protection(&conn, "p1").unwrap().is_some());
+    }
+
+    #[test]
+    fn factory_reset_clears_protections() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&dir.path().join("luna.db")).unwrap();
+        insert_protection(&conn, &new_protection("p1", "d1", "docs")).unwrap();
+        factory_reset(&conn).unwrap();
+        assert!(list_protections(&conn).unwrap().is_empty());
     }
 }
