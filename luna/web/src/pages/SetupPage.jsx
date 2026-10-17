@@ -29,6 +29,7 @@ import useConnectActive from "../hooks/useConnectActive";
 import { StepTransitionContext } from "@libreloom/ui/components/setup/StepTransitionContext.js";
 import { StepTransitionProvider } from "@libreloom/ui/components/setup/StepTransition.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
+import DotMatrixLoader from "@libreloom/ui/components/ui/DotMatrixLoader.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import useLabelErrorState from "@libreloom/ui/hooks/useLabelErrorState.js";
 import PreflightStep from "../components/setup/PreflightStep.jsx";
@@ -121,21 +122,52 @@ OneShotSlide.propTypes = {
 // in from the right (advancing) or left (going back), keyed so it remounts and
 // the slide replays within the card bounds (overflow-hidden clips the offset).
 // Direction/key come from StepTransitionContext, provided by SetupPage.
-function SetupCard({ children, className = "", header = null }) {
+//
+// While `loading`, the card holds its (invisible) content so it is already the
+// size of the first step, and a dot-matrix wave fills it. When loading ends the
+// wave fades out over the content, which cascades in on its own.
+const LOADER_FADE_MS = 500;
+
+function SetupCard({ children, className = "", header = null, loading = false }) {
   const { outerRef, innerRef } = useAnimatedHeight();
   const { key: tKey, direction } = useContext(StepTransitionContext);
+  const [loaderGone, setLoaderGone] = useState(false);
+
+  // Keep the loader mounted until its fade-out has finished.
+  useEffect(() => {
+    if (loading) return undefined;
+    const id = window.setTimeout(() => setLoaderGone(true), LOADER_FADE_MS);
+    return () => window.clearTimeout(id);
+  }, [loading]);
+
   return (
     <div
       ref={outerRef}
-      className="w-full max-w-md surface-secondary rounded-large-element shadow-[0_32px_80px_rgba(0,0,0,0.12)] overflow-hidden transition-[height] ease-[var(--motion-easing-emphasized-decelerate)]"
+      className="relative w-full max-w-md surface-secondary rounded-large-element shadow-[0_32px_80px_rgba(0,0,0,0.12)] overflow-hidden transition-[height] ease-[var(--motion-easing-emphasized-decelerate)]"
       style={{ transitionDuration: "var(--motion-duration-medium2)" }}
     >
-      <div ref={innerRef} className="px-10 py-10">
+      <div
+        ref={innerRef}
+        className={cn("px-10 py-10", loading && "invisible")}
+        aria-hidden={loading || undefined}
+        inert={loading || undefined}
+      >
         {header}
         <OneShotSlide key={tKey} className={className} direction={direction}>
           {children}
         </OneShotSlide>
       </div>
+      {(loading || !loaderGone) && (
+        <div
+          className={cn(
+            "absolute inset-0 z-10 motion-safe:transition-opacity ease-out",
+            loading ? "opacity-100" : "opacity-0 pointer-events-none",
+          )}
+          style={{ transitionDuration: `${LOADER_FADE_MS}ms` }}
+        >
+          <DotMatrixLoader label="Loading setup" decorative={!loading} />
+        </div>
+      )}
     </div>
   );
 }
@@ -143,6 +175,7 @@ SetupCard.propTypes = {
   children:  PropTypes.node.isRequired,
   className: PropTypes.string,
   header:    PropTypes.node,
+  loading:   PropTypes.bool,
 };
 
 // ─── Step progress dots (on the card, so use primary colors) ─────────────────
@@ -197,34 +230,54 @@ LogoMark.propTypes = { size: PropTypes.number };
 // Content-only: SetupPage renders the persistent shell (SetupShell + SetupCard
 // with the dots header) around the current step, so the card and the dot row
 // survive step changes and the active dot's width smoothly transitions.
-function WelcomeStep({ onBegin }) {
+//
+// `cascade` is true once loading finishes: each element then fades up in turn.
+// Until then the elements just hold their place (the card is invisible).
+const CASCADE_STEP_MS = 90;
+
+function cascadeProps(cascade, index) {
+  if (!cascade) return { className: "", style: undefined };
+  return {
+    className: "animate-in fade-in slide-in-from-bottom-2 duration-500",
+    style: { animationDelay: `${index * CASCADE_STEP_MS}ms`, animationFillMode: "backwards" },
+  };
+}
+
+function WelcomeStep({ onBegin, cascade = false }) {
+  const logo = cascadeProps(cascade, 1);
+  const title = cascadeProps(cascade, 2);
+  const lead = cascadeProps(cascade, 3);
+  const begin = cascadeProps(cascade, 4);
   return (
     <div className="flex flex-col items-center text-center">
-      <div className="mb-10">
+      <div className={cn("mb-10", logo.className)} style={logo.style}>
         <LogoMark size={120} />
       </div>
 
-      <h1 className="font-mono text-5xl font-normal text-primary mb-4">
+      <h1 className={cn("font-mono text-5xl font-normal text-primary mb-4", title.className)} style={title.style}>
         Welcome.
       </h1>
 
-      <p className="text-primary text-xl leading-[1.65] mb-12 max-w-[22rem]">
+      <p className={cn("text-primary text-xl leading-[1.65] mb-12 max-w-[22rem]", lead.className)} style={lead.style}>
         Let&rsquo;s get Luna set up for you.
       </p>
 
-      <Button
-        variant="primary"
-        onClick={onBegin}
-        className="group px-9 py-4 font-mono hover:scale-[1.03]"
-      >
-        Begin setup
-        <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
-      </Button>
+      <div className={begin.className} style={begin.style}>
+        <Button
+          variant="primary"
+          onClick={onBegin}
+          className="group px-9 py-4 font-mono hover:scale-[1.03]"
+        >
+          Begin setup
+          <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
+        </Button>
+      </div>
     </div>
   );
 }
 WelcomeStep.propTypes = {
   onBegin: PropTypes.func.isRequired,
+  cascade: PropTypes.bool,
 };
 
 
@@ -1045,22 +1098,17 @@ export default function SetupPage() {
     setStep(STEP.DONE);
   }, [flushProgress, refresh]);
 
-  if (!hydrated || step == null) {
-    return (
-      <SetupShell>
-        <div className="w-full max-w-md surface-secondary rounded-large-element px-10 py-10 shadow-[0_32px_80px_rgba(0,0,0,0.12)]">
-          <p className="font-mono text-sm text-primary text-center">Loading setup…</p>
-        </div>
-      </SetupShell>
-    );
-  }
+  // While loading, the card holds an invisible Welcome step (the usual first
+  // step) so it is already the right size under the dot-matrix wave.
+  const loading = !hydrated || step == null;
+  const shownStep = loading ? STEP.WELCOME : step;
 
   let renderedStep;
-  if (step === STEP.WELCOME) {
-    renderedStep = <WelcomeStep onBegin={handleBegin} />;
-  } else if (step === STEP.PREFLIGHT) {
+  if (shownStep === STEP.WELCOME) {
+    renderedStep = <WelcomeStep onBegin={handleBegin} cascade={!loading} />;
+  } else if (shownStep === STEP.PREFLIGHT) {
     renderedStep = <PreflightStep onPass={handlePreflightPass} />;
-  } else if (step === STEP.ACCOUNT) {
+  } else if (shownStep === STEP.ACCOUNT) {
     renderedStep = (
       <AccountStep
         hasAdmin={hasAdmin}
@@ -1068,9 +1116,9 @@ export default function SetupPage() {
         connectActive={connectActive}
       />
     );
-  } else if (step === STEP.NAME) {
+  } else if (shownStep === STEP.NAME) {
     renderedStep = <NameStep initialName={deviceName} onFinish={handleFinish} />;
-  } else if (step === STEP.DONE) {
+  } else if (shownStep === STEP.DONE) {
     renderedStep = <DoneStep name={deviceName} onGoDashboard={() => navigate("/")} />;
   }
 
@@ -1080,9 +1128,9 @@ export default function SetupPage() {
   // resizes smoothly (useAnimatedHeight) as you move between steps — only the
   // inner content remounts and slides. Each step is content-only for this.
   return (
-    <StepTransitionProvider stepKey={step} direction={animationDirection}>
+    <StepTransitionProvider stepKey={shownStep} direction={animationDirection}>
       <SetupShell>
-        <SetupCard header={<StepDots current={step} />}>
+        <SetupCard header={<StepDots current={shownStep} />} loading={loading}>
           {saveError && (
             <div className="mb-6 flex items-start gap-2.5 p-4 rounded-card border border-error/25 bg-error/10">
               <AlertCircle className="w-4 h-4 text-error flex-shrink-0 mt-0.5" />
