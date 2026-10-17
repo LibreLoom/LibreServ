@@ -405,35 +405,58 @@ fn run_inner(
                 }
             }
             // A revoke or a move during the run has already changed the row
-            // and, through the grant or move code, possibly the manifest. Read
-            // the row again under the lock. When it no longer matches what this
-            // run copied, keep its current values and fix the manifest.
-            let Some((fresh, fresh_access)) = with_conn(db, |c| -> anyhow::Result<_> {
-                let Some(fresh) = db::get_protection(c, id)? else {
-                    return Ok(None);
+            // and, through the grant or move code, possibly the manifest. The
+            // row is read and the result recorded under one lock, so nothing
+            // can change between the check and the record. When the row no
+            // longer matches what the manifest holds, the manifest is fixed
+            // (a disk write, so outside the lock) and the row is checked again.
+            let mut in_manifest: ManifestState = (
+                row.source_drive.clone(),
+                source.label.clone(),
+                row.source_path.clone(),
+                access.clone(),
+            );
+            loop {
+                let Some((state, recorded)) = with_conn(db, |c| -> anyhow::Result<_> {
+                    let Some(fresh) = db::get_protection(c, id)? else {
+                        return Ok(None);
+                    };
+                    let fresh_access =
+                        access_list::for_source(c, &fresh.source_drive, &fresh.source_path)?;
+                    let state: ManifestState = (
+                        fresh.source_drive.clone(),
+                        drive_label(c, &fresh.source_drive),
+                        fresh.source_path.clone(),
+                        fresh_access,
+                    );
+                    if state == in_manifest {
+                        let access_json = serde_json::to_string(&state.3)?;
+                        db::record_protection_ok(c, id, now, &access_json)?;
+                        db::set_protection_notes(c, id, &outcome.notes.join("\n"))?;
+                        return Ok(Some((state, true)));
+                    }
+                    Ok(Some((state, false)))
+                })?
+                else {
+                    // The backup was removed during the run: nothing to record.
+                    return Ok(outcome);
                 };
-                let fresh_access =
-                    access_list::for_source(c, &fresh.source_drive, &fresh.source_path)?;
-                Ok(Some((fresh, fresh_access)))
-            })?
-            else {
-                // The backup was removed during the run: nothing to record.
-                return Ok(outcome);
-            };
-            if fresh.source_drive != row.source_drive
-                || fresh.source_path != row.source_path
-                || fresh_access != access
-            {
-                if let Err(e) = repair_manifest(&target, id, &fresh, &fresh_access) {
+                if recorded {
+                    return Ok(outcome);
+                }
+                let (drive, label, path, grants) = &state;
+                if let Err(e) = repair_manifest(&target, id, drive, label, path, grants) {
                     tracing::warn!(error = %e, id, "could not update the backup's manifest after a change");
                 }
+                #[cfg(test)]
+                {
+                    let hook = BEFORE_RECHECK.with(|h| h.borrow_mut().take());
+                    if let Some(hook) = hook {
+                        hook(db);
+                    }
+                }
+                in_manifest = state;
             }
-            let access_json = serde_json::to_string(&fresh_access)?;
-            with_conn(db, |c| -> anyhow::Result<()> {
-                db::record_protection_ok(c, id, now, &access_json)?;
-                db::set_protection_notes(c, id, &outcome.notes.join("\n"))
-            })?;
-            Ok(outcome)
         }
         Err(e) => {
             tracing::warn!(error = %e, id, "drive backup could not write to the backup drive");
@@ -677,12 +700,18 @@ fn save_manifest(
     })
 }
 
+/// What a backup's manifest says about its source and who can see it:
+/// (source drive id, source drive label, source path, access).
+type ManifestState = (String, String, String, access_list::AccessList);
+
 /// Bring the backup drive's manifest in line with the row's source and access.
 /// Used when a revoke or a move changed them during a run.
 fn repair_manifest(
     target: &Target,
     id: &str,
-    row: &ProtectionRow,
+    drive: &str,
+    label: &str,
+    path: &str,
     access: &access_list::AccessList,
 ) -> anyhow::Result<()> {
     let Some(store) = drive_store::Store::existing(&target.root, &target.layout, id) else {
@@ -691,8 +720,9 @@ fn repair_manifest(
     let Some(mut manifest) = store.read_manifest()? else {
         return Ok(());
     };
-    manifest.source_drive_id = row.source_drive.clone();
-    manifest.source_path = row.source_path.clone();
+    manifest.source_drive_id = drive.to_string();
+    manifest.source_drive_label = label.to_string();
+    manifest.source_path = path.to_string();
     manifest.access = access.clone();
     store.write_manifest(&manifest)?;
     Ok(())
@@ -702,6 +732,9 @@ fn repair_manifest(
 thread_local! {
     /// Test seam: runs once, after a run has copied and before it records its result.
     static BEFORE_RECORD: std::cell::RefCell<Option<Box<dyn FnOnce(&crate::Db)>>> =
+        std::cell::RefCell::new(None);
+    /// Test seam: runs once, after a repair of the manifest and before the row is checked again.
+    static BEFORE_RECHECK: std::cell::RefCell<Option<Box<dyn FnOnce(&crate::Db)>>> =
         std::cell::RefCell::new(None);
     /// Test seam: removing this file fails.
     static FAIL_REMOVAL_OF: std::cell::RefCell<Option<String>> =
@@ -1211,6 +1244,90 @@ mod tests {
 
         assert!(!row(&s, &id).access_json.contains("member"));
         assert!(!manifest(&s, &id).access.users.contains(&"member".to_string()));
+    }
+
+    #[test]
+    fn revoke_between_repair_and_recheck_survives_the_run() {
+        let s = setup();
+        write(&docs(&s).join("a.txt"), "one");
+        let id = make_backup(&s);
+        {
+            let conn = s.db.lock().unwrap();
+            db::insert_user(&conn, "member", "member", "Member", "", "member").unwrap();
+            db::insert_user(&conn, "friend", "friend", "Friend", "", "member").unwrap();
+            for (grant, user) in [("grant-1", "member"), ("grant-2", "friend")] {
+                db::insert_access_member(
+                    &conn,
+                    &db::AccessMemberRow {
+                        id: grant.into(),
+                        subject_kind: crate::access::KIND_PATH.into(),
+                        drive_id: s.src.clone(),
+                        path: "Docs".into(),
+                        album_id: String::new(),
+                        user_id: user.into(),
+                        caps: crate::access::CAP_VIEW.into(),
+                        created_by: "admin".into(),
+                    },
+                )
+                .unwrap();
+            }
+        }
+        run(&s.db, &id, NOW).unwrap();
+        assert!(row(&s, &id).access_json.contains("friend"));
+
+        // Revoke "member" while the run copies, so the manifest needs repair.
+        // Then revoke "friend" after that repair and before the row is checked again.
+        let src = s.src.clone();
+        BEFORE_RECORD.with(|h| {
+            *h.borrow_mut() = Some(Box::new(move |db: &crate::Db| {
+                let conn = db.lock().unwrap();
+                db::delete_access_member(&conn, "grant-1").unwrap();
+                ops::on_grants_changed(&conn, &src);
+            }));
+        });
+        let src = s.src.clone();
+        BEFORE_RECHECK.with(|h| {
+            *h.borrow_mut() = Some(Box::new(move |db: &crate::Db| {
+                let conn = db.lock().unwrap();
+                db::delete_access_member(&conn, "grant-2").unwrap();
+                ops::on_grants_changed(&conn, &src);
+            }));
+        });
+        run(&s.db, &id, NOW + 60).unwrap();
+
+        assert!(!row(&s, &id).access_json.contains("member"));
+        assert!(!row(&s, &id).access_json.contains("friend"));
+        let m = manifest(&s, &id);
+        assert!(!m.access.users.contains(&"member".to_string()));
+        assert!(!m.access.users.contains(&"friend".to_string()));
+    }
+
+    #[test]
+    fn move_to_another_drive_during_a_run_updates_the_manifest() {
+        let s = setup();
+        write(&docs(&s).join("a.txt"), "one");
+        let id = make_backup(&s);
+        run(&s.db, &id, NOW).unwrap();
+        {
+            let conn = s.db.lock().unwrap();
+            new_drive(s._dir.path(), &conn, "drive-shelf", "Shelf");
+        }
+
+        // Move the folder to the other drive while the next run is copying.
+        let src = s.src.clone();
+        BEFORE_RECORD.with(|h| {
+            *h.borrow_mut() = Some(Box::new(move |db: &crate::Db| {
+                let conn = db.lock().unwrap();
+                ops::on_moved(&conn, &src, "Docs", "drive-shelf", "Papers");
+            }));
+        });
+        run(&s.db, &id, NOW + 60).unwrap();
+
+        assert_eq!(row(&s, &id).source_drive, "drive-shelf");
+        let m = manifest(&s, &id);
+        assert_eq!(m.source_drive_id, "drive-shelf");
+        assert_eq!(m.source_drive_label, "Shelf");
+        assert_eq!(m.source_path, "Papers");
     }
 
     #[test]

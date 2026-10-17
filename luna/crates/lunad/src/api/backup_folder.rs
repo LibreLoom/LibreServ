@@ -834,7 +834,7 @@ async fn restore(
 
     // Everything that needs the database happens here, then the lock is dropped
     // before the copy starts.
-    let (src, copies, dest, final_name, parent_rel, _slot) = {
+    let (src, copies, dest, final_name, parent_rel, slot) = {
         let conn = lock_db(&state)?;
         let (store, manifest) = find_visible(&conn, &user, &drive_id, &id)?;
         // Held until the copy below finishes, so no backup run can write into
@@ -940,9 +940,14 @@ async fn restore(
         (src, copies, dest_dir.join(&final_name), final_name, parent_rel, slot)
     };
 
-    tokio::task::spawn_blocking(move || match copies {
-        Some(entries) => copy_entries(&entries, &dest),
-        None => copy_tree(&src, &dest),
+    // The slot moves into the blocking task, so it is held until the copy
+    // ends even if this request is dropped (client disconnects).
+    tokio::task::spawn_blocking(move || {
+        let _slot = slot;
+        match copies {
+            Some(entries) => copy_entries(&entries, &dest),
+            None => copy_tree(&src, &dest),
+        }
     })
         .await
         .map_err(|_| fail(StatusCode::INTERNAL_SERVER_ERROR, "Luna couldn't finish the restore. Try again."))?

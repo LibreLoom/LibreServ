@@ -363,6 +363,11 @@ impl Store {
                 *entry = (*entry).max(*t);
             }
         }
+        // A file still in current/ is a copy too. Its deleted entry must stay
+        // until that copy has moved into versions/.
+        for rel in self.current_files()? {
+            *copies.entry(rel).or_default() += 1;
+        }
         let young_deleted: Vec<String> = manifest
             .deleted
             .iter()
@@ -1077,6 +1082,31 @@ mod tests {
         assert!(versions.join(format!("{}/gone.txt", NOW - 6 * d)).exists());
         assert!(m.deleted.contains_key("gone.txt"));
         assert_eq!(fs::read(store.current_dir().join("keep.txt")).unwrap(), b"now");
+    }
+
+    #[test]
+    fn free_space_by_thinning_keeps_deleted_entry_while_current_copy_waits_to_move() {
+        let target = tempfile::tempdir().unwrap();
+        let store = Store::open(target.path(), &layout(), ID).unwrap();
+        let src_dir = tempfile::tempdir().unwrap();
+        let d = DAY_SECS;
+
+        // waiting.txt was deleted 80 days ago. Its old version may go, but
+        // its newest copy is still in current/ waiting to move, so the
+        // deleted entry must stay.
+        let s = source(src_dir.path(), "waiting.txt", b"now", 1_700_000_000);
+        store.put("waiting.txt", &s, &meta(&s), NOW).unwrap();
+        let p = store.versions_dir().join((NOW - 80 * d).to_string()).join("waiting.txt");
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        fs::write(p.clone(), b"old").unwrap();
+
+        let mut m = manifest();
+        m.deleted.insert("waiting.txt".into(), NOW - 80 * d);
+
+        assert_eq!(store.free_space_by_thinning(&mut m, NOW).unwrap(), 3);
+        assert!(!p.exists());
+        assert!(m.deleted.contains_key("waiting.txt"));
+        assert_eq!(fs::read(store.current_dir().join("waiting.txt")).unwrap(), b"now");
     }
 
     #[test]

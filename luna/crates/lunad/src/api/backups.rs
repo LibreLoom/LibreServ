@@ -186,9 +186,13 @@ async fn run(
     // Only people who may delete the backup may let a run delete a lot.
     let allow_mass_delete = wants_mass_delete && can_delete(&row, &user);
 
-    // A run already in progress records its own result; don't start another.
+    // A run or a restore already holds the backup. Say so instead of starting
+    // another run.
     if drive_backup::is_running(&id) {
-        return Ok(Json(json!({ "done": false })));
+        return Ok(Json(json!({
+            "done": false,
+            "problem": "This backup is busy right now. Try again in a minute.",
+        })));
     }
 
     let db = state.db.clone();
@@ -302,6 +306,7 @@ mod tests {
     use serde_json::Value;
     use tower::ServiceExt;
 
+    use crate::backup::drive_backup;
     use crate::drives::DriveManager;
     use crate::drives::mount::shared_mock;
     use crate::{AppState, db};
@@ -521,6 +526,30 @@ mod tests {
         assert_eq!(status, axum::http::StatusCode::OK);
         assert_eq!(json["done"], false);
         assert!(json["problem"].as_str().is_some_and(|p| !p.is_empty()));
+    }
+
+    #[tokio::test]
+    async fn run_says_busy_while_a_run_or_restore_holds_the_backup() {
+        let f = fixture();
+        let member_only = format!(r#"{{"users":["{}"],"admins":false}}"#, f.member_id);
+        seed(&f.state, "busy", "photos", &member_only, &f.member_id);
+
+        // A restore holds the same slot as a run.
+        let _held = drive_backup::try_hold("busy").expect("slot free");
+        let (status, json) = send(
+            &f.router,
+            "POST",
+            "/api/v1/backups/busy/run",
+            &f.member_token,
+            None,
+        )
+        .await;
+        assert_eq!(status, axum::http::StatusCode::OK);
+        assert_eq!(json["done"], false);
+        assert_eq!(
+            json["problem"],
+            "This backup is busy right now. Try again in a minute."
+        );
     }
 
     #[tokio::test]
