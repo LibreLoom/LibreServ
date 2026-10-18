@@ -12,17 +12,17 @@ func setupKeys(t *testing.T) (*testEnv, testKey, testKey, testKey) {
 	e := newTestEnv(t)
 	lib, luna, other := genKey(t), genKey(t), genKey(t)
 	e.writePub("sol.minisign.pub", lib)
-	e.writePub("lsluna.minisign.pub", luna)
+	e.writePub("luna.minisign.pub", luna)
 	// Names deliberately swapped: contents decide, not names.
 	e.write(filepath.Join(e.home, ".minisign", "sol.key"), e.encrypted(luna, "pw-luna"))
-	e.write(filepath.Join(e.home, ".minisign", "lsluna.key"), e.encrypted(lib, "pw-lib"))
+	e.write(filepath.Join(e.home, ".minisign", "luna.key"), e.encrypted(lib, "pw-lib"))
 	e.write(filepath.Join(e.home, ".minisign", "old.key"), e.encrypted(other, "pw-old"))
 	return e, lib, luna, other
 }
 
 func TestSigningPairsByContentsAndCaches(t *testing.T) {
 	e, lib, luna, _ := setupKeys(t)
-	e.env["LSLUNA_RELEASE_MINISIG_PW"] = "pw-luna"
+	e.env["LUNA_RELEASE_MINISIG_PW"] = "pw-luna"
 	e.env["MINISIGN_PASSPHRASE"] = "pw-lib"
 	m := e.manager(func(o *Options) { o.NoHomeScan = true })
 	ctx := context.Background()
@@ -102,7 +102,7 @@ func TestSigningMissingAndScan(t *testing.T) {
 	e := newTestEnv(t)
 	lib, luna := genKey(t), genKey(t)
 	e.writePub("sol.minisign.pub", lib)
-	e.writePub("lsluna.minisign.pub", luna)
+	e.writePub("luna.minisign.pub", luna)
 	e.write(filepath.Join(e.home, "Documents", "stuff", "backup.txt"), e.encrypted(lib, "pw"))
 	e.env["MINISIGN_PASSPHRASE"] = "pw"
 
@@ -123,10 +123,10 @@ func TestSigningEnvFormsAndAddPath(t *testing.T) {
 	e := newTestEnv(t)
 	lib, luna := genKey(t), genKey(t)
 	e.writePub("sol.minisign.pub", lib)
-	e.writePub("lsluna.minisign.pub", luna)
+	e.writePub("luna.minisign.pub", luna)
 	// Luna key as pasted text; sol key in a user-added folder.
-	e.env["LSLUNA_RELEASE_MINISIG_PK"] = e.encrypted(luna, "p1")
-	e.env["LSLUNA_RELEASE_MINISIG_PW_CMD"] = "echo p1"
+	e.env["LUNA_RELEASE_MINISIG_PK"] = e.encrypted(luna, "p1")
+	e.env["LUNA_RELEASE_MINISIG_PW_CMD"] = "echo p1"
 	e.run = func(_ context.Context, _ string, _ []string, name string, args ...string) ([]byte, error) {
 		if name == "sh" && len(args) == 2 && args[1] == "echo p1" {
 			return []byte("p1\n"), nil
@@ -167,7 +167,7 @@ func TestSigningSwappedPublicKeyRejected(t *testing.T) {
 	e := newTestEnv(t)
 	lib, other := genKey(t), genKey(t)
 	e.writePub("sol.minisign.pub", lib)
-	e.writePub("lsluna.minisign.pub", genKey(t))
+	e.writePub("luna.minisign.pub", genKey(t))
 	e.write(filepath.Join(e.home, ".minisign", "sol.key"), e.encrypted(other, "pw"))
 	e.env["MINISIGN_PASSPHRASE"] = "pw"
 	m := e.manager(func(o *Options) { o.NoHomeScan = true })
@@ -191,7 +191,7 @@ func TestPromptSkipRememberedPerFileAndScopedToTheUnit(t *testing.T) {
 	// First run: passwords from the environment teach the pairing cache which
 	// file is which key.
 	e.env["SOL_RELEASE_MINISIG_PW"] = "pw-lib"
-	e.env["LSLUNA_RELEASE_MINISIG_PW"] = "pw-luna"
+	e.env["LUNA_RELEASE_MINISIG_PW"] = "pw-luna"
 	ctx := context.Background()
 	m := e.manager(func(o *Options) { o.NoHomeScan = true })
 	for _, id := range []ID{SolSigning, LunaSigning} {
@@ -201,7 +201,7 @@ func TestPromptSkipRememberedPerFileAndScopedToTheUnit(t *testing.T) {
 	}
 	// Second run: no passwords at all; the user skips every question.
 	delete(e.env, "SOL_RELEASE_MINISIG_PW")
-	delete(e.env, "LSLUNA_RELEASE_MINISIG_PW")
+	delete(e.env, "LUNA_RELEASE_MINISIG_PW")
 	e.pr = &fakePrompter{}
 	m = e.manager(func(o *Options) { o.NoHomeScan = true })
 	st := m.Status(ctx, SolSigning)

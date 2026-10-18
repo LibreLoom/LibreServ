@@ -152,7 +152,7 @@ func newFake(br *Bridge) *fakeBackend {
 		secrets.SolSigning: {ID: secrets.SolSigning, Label: "LibreServ release signing key", State: secrets.Proven, Summary: "Signs as key AB12.",
 			Candidates: []secrets.Candidate{{Where: "file ~/.minisign/sol.key", Outcome: secrets.Used, Detail: "key ID matches"}}},
 		secrets.LunaSigning: {ID: secrets.LunaSigning, Label: "Luna release signing key", State: secrets.Failed, Summary: "Found signing key files, but no known password opens them.",
-			Candidates: []secrets.Candidate{{Where: "file ~/.minisign/lsluna.key", Outcome: secrets.Unusable, Reason: "none of the 3 known passwords opens it"},
+			Candidates: []secrets.Candidate{{Where: "file ~/.minisign/luna.key", Outcome: secrets.Unusable, Reason: "none of the 3 known passwords opens it"},
 				{Where: "file ~/backup/old-luna.key", Outcome: secrets.Rejected, Reason: "key ID 4C1F matches no public key"}}},
 		secrets.ForgejoToken: {ID: secrets.ForgejoToken, Label: "Forgejo token", State: secrets.Proven, Summary: "fj CLI login, user plainskill",
 			Candidates: []secrets.Candidate{{Where: "fj CLI login", Outcome: secrets.Used}}},
@@ -221,7 +221,7 @@ func (f *fakeBackend) NotesDraft(context.Context, string) (app.NotesDraft, error
 }
 func (f *fakeBackend) Preflight(ctx context.Context, r app.CutRequest) *app.PreflightReport {
 	if f.preflightAsk {
-		ans, _ := f.br.Ask(ctx, secrets.Question{Slot: secrets.SlotMinisignPassword, Label: "Password for ~/.minisign/lsluna.key", Secret: true})
+		ans, _ := f.br.Ask(ctx, secrets.Question{Slot: secrets.SlotMinisignPassword, Label: "Password for ~/.minisign/luna.key", Secret: true})
 		if !ans.Skip {
 			f.sec.SetValueOpt(secrets.SlotPassword(secrets.LunaSigning), ans.Value, ans.Remember)
 		}

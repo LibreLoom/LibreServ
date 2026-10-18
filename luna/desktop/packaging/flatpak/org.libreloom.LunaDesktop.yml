@@ -58,5 +58,5 @@ modules:
         skip:
           - target
       - type: file
-        path: ../../../../keys/lsluna.minisign.pub
+        path: ../../../../keys/luna.minisign.pub
         dest: keys

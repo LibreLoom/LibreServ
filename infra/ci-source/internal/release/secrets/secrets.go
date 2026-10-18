@@ -25,8 +25,8 @@ import (
 type ID string
 
 const (
-	SolSigning      ID = "sol-signing"    // keys/sol.minisign.pub
-	LunaSigning     ID = "lsluna-signing" // keys/lsluna.minisign.pub
+	SolSigning      ID = "sol-signing"  // keys/sol.minisign.pub
+	LunaSigning     ID = "luna-signing" // keys/luna.minisign.pub
 	ForgejoToken    ID = "forgejo-token"
 	AndroidKeystore ID = "android-keystore"
 )
@@ -58,7 +58,7 @@ const (
 
 // Candidate is one place a secret might live, and what happened to it.
 type Candidate struct {
-	Where   string // "file ~/.minisign/lsluna.key", "env FORGEJO_TOKEN", "fj CLI login", ...
+	Where   string // "file ~/.minisign/luna.key", "env FORGEJO_TOKEN", "fj CLI login", ...
 	Ref     string // short stable id for Choose (never reveals the value)
 	Detail  string // key ID, user name, fingerprint, ...
 	Outcome Outcome
@@ -84,7 +84,7 @@ type Redactor interface{ Add(secret string) }
 type Question struct {
 	Slot   string // store slot the answer belongs to
 	Key    string // what is being asked about (a file path); a skipped answer is remembered per Slot and Key
-	Label  string // short, plain: "Password for ~/.minisign/lsluna.key"
+	Label  string // short, plain: "Password for ~/.minisign/luna.key"
 	Hint   string // where the value comes from
 	Secret bool   // hide typed characters
 }

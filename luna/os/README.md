@@ -136,7 +136,7 @@ client). Luna does not store map tiles on disk.
 Lunad reads a **signed release feed** for the `luna` unit at
 `https://gt.plainskill.net/LibreLoom/LibreServ/raw/branch/feeds/luna/<channel>.json`
 (stable or beta) plus a matching `.json.minisig`, verified against the minisign
-public key embedded at build time from `keys/lsluna.minisign.pub`. The feed
+public key embedded at build time from `keys/luna.minisign.pub`. The feed
 lists the files in the Forgejo generic package registry; Luna checks each one's
 size and sha256 before use. A missing feed means nothing is published yet.
 

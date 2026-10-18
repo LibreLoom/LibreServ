@@ -93,7 +93,7 @@ a failed cut on the same commit.
 Found and proven automatically, not "configured with fallbacks":
 
 1. **Identify by contents, never by name or place.** A file is the Luna signing
-   key only if its key ID matches `keys/lsluna.minisign.pub`; a token is the
+   key only if its key ID matches `keys/luna.minisign.pub`; a token is the
    Forgejo token only if the forge accepts it with the right rights; a keystore
    only if it holds the pinned certificate.
 2. **Gather every candidate, test all, use the one that proves itself.** Two
@@ -105,7 +105,7 @@ Found and proven automatically, not "configured with fallbacks":
    `tea`, `~/.netrc`, `FORGEJO_TOKEN`, keyring. Android keystore: `~/.android/`,
    user-added paths, home scan for `.jks`/`.keystore`/`.p12`,
    `LUNA_ANDROID_KEYSTORE(_B64)`. Env sources accept `NAME`, `NAME_B64`,
-   `NAME_FILE`, `NAME_CMD`; `LSLUNA_RELEASE_MINISIG_PK/PW`,
+   `NAME_FILE`, `NAME_CMD`; `LUNA_RELEASE_MINISIG_PK/PW`,
    `SOL_RELEASE_MINISIG_PK/PW` and `MINISIGN_SECRET_KEY` keep working. Proton
    Pass is an optional source (`pass-cli item view "pass://<vault>/<item>/<field>"`;
    needs a logged-in session, no TTY). A field written `file:<name>` reads an

@@ -25,7 +25,7 @@ var usedBy = map[secrets.ID]string{
 
 var mustMatch = map[secrets.ID]string{
 	secrets.SolSigning:      "must match keys/sol.minisign.pub",
-	secrets.LunaSigning:     "must match keys/lsluna.minisign.pub",
+	secrets.LunaSigning:     "must match keys/luna.minisign.pub",
 	secrets.ForgejoToken:    "the forge must accept it",
 	secrets.AndroidKeystore: "must open and hold the pinned certificate",
 }

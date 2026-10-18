@@ -43,9 +43,9 @@ const FEED_SEEN_FILE: &str = "update-feed-seen.json";
 /// decompressed image) matches the 1280 MiB A/B slot plus a little headroom.
 const OS_IMAGE_MAX_BYTES: u64 = 1536 * 1024 * 1024;
 
-/// Committed Luna minisign public key (`keys/lsluna.minisign.pub`).
+/// Committed Luna minisign public key (`keys/luna.minisign.pub`).
 /// This is Luna’s production trust root (separate from Sol).
-const PINNED_PUB: &str = include_str!("../../../../../keys/lsluna.minisign.pub");
+const PINNED_PUB: &str = include_str!("../../../../../keys/luna.minisign.pub");
 
 /// Meta-table key for the persisted update-source settings.
 const SETTINGS_META_KEY: &str = "updates_config";
@@ -1709,7 +1709,7 @@ mod tests {
     fn pinned_pub_parses() {
         assert!(
             !parse_minisign_pub(PINNED_PUB).is_empty(),
-            "keys/lsluna.minisign.pub must contain an RW public key line"
+            "keys/luna.minisign.pub must contain an RW public key line"
         );
         let dir = tempfile::tempdir().unwrap();
         assert!(

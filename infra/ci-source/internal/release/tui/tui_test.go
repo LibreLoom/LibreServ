@@ -72,7 +72,7 @@ func TestPrompterInlineFlow(t *testing.T) {
 	allow := h.br.AllowAsk()
 	got := make(chan secrets.Answer, 1)
 	go func() {
-		a, _ := h.br.Ask(context.Background(), secrets.Question{Slot: secrets.SlotMinisignPassword, Label: "Password for ~/.minisign/lsluna.key", Secret: true, Hint: "The password you chose."})
+		a, _ := h.br.Ask(context.Background(), secrets.Question{Slot: secrets.SlotMinisignPassword, Label: "Password for ~/.minisign/luna.key", Secret: true, Hint: "The password you chose."})
 		got <- a
 	}()
 	var ask tea_msg
@@ -92,7 +92,7 @@ func TestPrompterInlineFlow(t *testing.T) {
 		}
 	}
 	h.pump()
-	v := h.wantView("Password for ~/.minisign/lsluna.key", "[x] Remember", "enter use it")
+	v := h.wantView("Password for ~/.minisign/luna.key", "[x] Remember", "enter use it")
 	show(t, "inline question", v)
 	h.typ(secretValue)
 	v = h.wantView("•••••")
@@ -184,7 +184,7 @@ func TestCutHappyPathWithFix(t *testing.T) {
 	h.wantView("[x] Remember")
 	h.key("enter")
 	v = h.wantView("Everything is ready")
-	if got := h.be.sec.values; len(got) != 1 || !strings.Contains(got[0], "minisign-password:lsluna-signing remember=true") {
+	if got := h.be.sec.values; len(got) != 1 || !strings.Contains(got[0], "minisign-password:luna-signing remember=true") {
 		t.Fatalf("%v", got)
 	}
 	h.key("enter")
@@ -251,7 +251,7 @@ func TestSecretsScreens(t *testing.T) {
 	show(t, "secrets", v)
 	h.key("down")
 	h.key("enter")
-	v = h.wantView("Luna release signing key", "must match keys/lsluna.minisign.pub", "none of the 3 known passwords opens it", "matches no public key", "e enter or paste")
+	v = h.wantView("Luna release signing key", "must match keys/luna.minisign.pub", "none of the 3 known passwords opens it", "matches no public key", "e enter or paste")
 	show(t, "secret details", v)
 	h.key("e")
 	h.key("down") // paste the secret key

@@ -238,7 +238,7 @@ func TestPasteKeyAndKeystoreAndSession(t *testing.T) {
 	e := newTestEnv(t)
 	m := e.manager()
 	k := genKey(t)
-	e.writePub("lsluna.minisign.pub", k)
+	e.writePub("luna.minisign.pub", k)
 	e.writePub("sol.minisign.pub", genKey(t))
 	text := e.encrypted(k, "pw")
 	// Pasted as one line (a terminal paste may drop the newlines) with the comment: still works.

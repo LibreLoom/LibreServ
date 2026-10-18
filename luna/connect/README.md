@@ -86,7 +86,7 @@ sudo caddy reload --config /etc/caddy/Caddyfile
 # later (must be root — systemctl stop/start). `deploy.sh` is a thin wrapper around the
 # shared script infra/connect-deploy/deploy.sh (unit luna-connect). Needs `minisign` and `jq`.
 # default: newest signed release from the stable feed; nothing is built on the server.
-# The signing key (keys/lsluna.minisign.pub) is read from this checkout, so `git pull` first.
+# The signing key (keys/luna.minisign.pub) is read from this checkout, so `git pull` first.
 sudo ./luna/connect/deploy/deploy.sh
 # beta channel:
 # sudo ./luna/connect/deploy/deploy.sh --channel beta

@@ -73,7 +73,7 @@ pub fn app_version() -> &'static str {
 /// Luna's release key, pinned into the build. Windows only: the Linux Flatpak
 /// build never reads the feed, and the file sits outside `luna/desktop`.
 #[cfg(windows)]
-pub const FEED_KEY: &str = include_str!("../../../keys/lsluna.minisign.pub");
+pub const FEED_KEY: &str = include_str!("../../../keys/luna.minisign.pub");
 /// Never used off Windows (no check runs there); empty trusts nothing.
 #[cfg(not(windows))]
 pub const FEED_KEY: &str = "";
@@ -400,7 +400,7 @@ mod tests {
         assert_eq!(tampered.unwrap_err(), FeedError::BadSignature);
         // Signed by the test key, but not a key this build trusts.
         let other = std::fs::read_to_string(
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../keys/lsluna.minisign.pub"),
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../keys/luna.minisign.pub"),
         )
         .unwrap();
         let other = other.as_str();

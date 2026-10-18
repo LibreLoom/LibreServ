@@ -38,9 +38,9 @@ keys/               # release signing keys — public raw-URL path, do not move
 - Six release units (`sol`, `sol-connect`, `luna`, `luna-desktop`, `luna-android`, `luna-connect`), each with its own version, `<unit>/vX.Y.Z` tag, files and signed feed. Connect servers deploy from the signed feeds. The old `v*`, `luna-v*`, `connect-v*` and `luna-connect-v*` tags are retired.
 - Luna release assets: lunad binary, OS slot image, factory ISO (`luna` unit); Flatpak and Windows installer (MinGW cross + NSIS, unsigned — SmartScreen warns) (`luna-desktop`); signed Android APK (`luna-android`).
 - Android APK: signed when `LUNA_ANDROID_KEYSTORE`/`_B64` + passwords are in env, else debug-signed fallback with a warning. F-Droid builds/signs its own from the `luna-android/v*` tag.
-- Minisign secrets resolve per product: `LSLUNA_RELEASE_MINISIG_PK` / `SOL_RELEASE_MINISIG_PK` env, `MINISIGN_SECRET_KEY` (path or contents), then `~/.minisign/*.key`. Public keys committed in `keys/` at root — the path is public API (Sol and lunad embed them at build time; the Connect deploy script and Flatpak repo server read them from the checkout).
+- Minisign secrets resolve per product: `LUNA_RELEASE_MINISIG_PK` / `SOL_RELEASE_MINISIG_PK` env, `MINISIGN_SECRET_KEY` (path or contents), then `~/.minisign/*.key`. Public keys committed in `keys/` at root — the path is public API (Sol and lunad embed them at build time; the Connect deploy script and Flatpak repo server read them from the checkout).
 - Tool docs: `ci-source/cmd/release/README.md`; feed format and release units: `ci-source/internal/feed/README.md`.
 
 ## keys/
 
-Release signing keys only — `*.minisign.pub` and the Flatpak repo's `luna-desktop-flatpak.gpg` committed, `*.key` / `*_B64` secrets never. `keys/lsluna.minisign.pub` is embedded into lunad at build time (`include_str!`) and verifies the signed release feed — the directory must stay at repo root.
+Release signing keys only — `*.minisign.pub` and the Flatpak repo's `luna-desktop-flatpak.gpg` committed, `*.key` / `*_B64` secrets never. `keys/luna.minisign.pub` is embedded into lunad at build time (`include_str!`) and verifies the signed release feed — the directory must stay at repo root.

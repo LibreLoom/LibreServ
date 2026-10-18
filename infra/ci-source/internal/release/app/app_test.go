@@ -120,7 +120,7 @@ func newWorld(t *testing.T) *world {
 	must(t, err)
 	w.pub, w.signer = pub, publish.MinisignSigner{Key: priv}
 	pt, _ := pub.MarshalText()
-	must(t, os.WriteFile(filepath.Join(w.repo, "keys", "lsluna.minisign.pub"), []byte("untrusted comment: test key\n"+string(pt)+"\n"), 0o644))
+	must(t, os.WriteFile(filepath.Join(w.repo, "keys", "luna.minisign.pub"), []byte("untrusted comment: test key\n"+string(pt)+"\n"), 0o644))
 	git(t, w.repo, "add", ".")
 	git(t, w.repo, "commit", "-q", "-m", "init")
 	git(t, w.repo, "push", "-q", "origin", "main")

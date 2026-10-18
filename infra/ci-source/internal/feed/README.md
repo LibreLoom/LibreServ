@@ -146,7 +146,7 @@ site files (`index.html` …) at the top for `luna-connect`
 | Key | Signs | Lives |
 |---|---|---|
 | Sol minisign (`keys/sol.minisign.pub`) | `sol`, `sol-connect` feeds + sums | Release owner's machine; never in the repo |
-| Luna minisign (`keys/lsluna.minisign.pub`) | `luna*` feeds + sums | Release owner's machine; never in the repo |
+| Luna minisign (`keys/luna.minisign.pub`) | `luna*` feeds + sums | Release owner's machine; never in the repo |
 | Luna Desktop Flatpak GPG (`keys/luna-desktop-flatpak.gpg`) | Flatpak repo commits + summary | Generated on the Flatpak repo server, readable only by the watcher's user; backup and revocation certificate kept offline |
 
 ## Receiver notes

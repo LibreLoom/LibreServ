@@ -244,7 +244,7 @@ func PublicKeyFile(unit string) string {
 	if signingID(unit) == secrets.SolSigning {
 		return "sol.minisign.pub"
 	}
-	return "lsluna.minisign.pub"
+	return "luna.minisign.pub"
 }
 
 // PublicKey reads the pinned public key of a unit from keys/.

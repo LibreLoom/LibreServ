@@ -26,7 +26,7 @@ HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 # All of these can be overridden from the environment (tests do).
 FEED_BASE=${FEED_BASE:-https://gt.plainskill.net/LibreLoom/LibreServ/raw/branch/feeds}
-KEY_FILE=${KEY_FILE:-$HERE/../../keys/lsluna.minisign.pub}
+KEY_FILE=${KEY_FILE:-$HERE/../../keys/luna.minisign.pub}
 GPG_PUBKEY_FILE=${GPG_PUBKEY_FILE:-$HERE/../../keys/luna-desktop-flatpak.gpg}
 ROOT=${ROOT:-/srv/luna-flatpak}
 REPO=${REPO:-$ROOT/repo}

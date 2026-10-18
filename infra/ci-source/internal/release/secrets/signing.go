@@ -25,9 +25,9 @@ var products = []product{
 	{SolSigning, "Sol release signing key", "sol.minisign.pub",
 		[]string{"SOL_RELEASE_MINISIG_PK", "MINISIGN_SECRET_KEY"},
 		[]string{"SOL_RELEASE_MINISIG_PW"}},
-	{LunaSigning, "Luna release signing key", "lsluna.minisign.pub",
-		[]string{"LSLUNA_RELEASE_MINISIG_PK", "MINISIGN_SECRET_KEY"},
-		[]string{"LSLUNA_RELEASE_MINISIG_PW"}},
+	{LunaSigning, "Luna release signing key", "luna.minisign.pub",
+		[]string{"LUNA_RELEASE_MINISIG_PK", "MINISIGN_SECRET_KEY"},
+		[]string{"LUNA_RELEASE_MINISIG_PW"}},
 }
 
 func productOf(id ID) (product, bool) {

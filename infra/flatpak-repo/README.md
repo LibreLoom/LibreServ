@@ -9,7 +9,7 @@ A systemd timer runs `watch.sh` as the `luna-flatpak` user every 5 minutes.
 For each channel (`stable`, `beta`) it:
 
 1. Fetches `feeds/luna-desktop/<channel>.json` + `.json.minisig` and verifies it
-   against `keys/lsluna.minisign.pub`. A missing feed (404) is normal.
+   against `keys/luna.minisign.pub`. A missing feed (404) is normal.
 2. Skips unless `published` is not older than the newest seen and `version` is
    strictly newer than the last imported one (strict semver, `-beta.N` aware).
 3. Downloads the `flatpak` (linux, amd64) part, checks size and sha256.
