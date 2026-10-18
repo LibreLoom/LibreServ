@@ -10,6 +10,7 @@ import DriveFileExplorer from "./DriveFileExplorer.jsx";
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
 
+/** @param {{ listing?: any[], mine?: any[], initialEntries?: string[], path?: string, backups?: any[] }} [opts] */
 function renderExplorer({ listing = [], mine = [], initialEntries = ["/"], path, backups = [] } = {}) {
   const calls = [];
   vi.stubGlobal("fetch", vi.fn(async (url, init = {}) => {
