@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "@libreloom/ui/context/ThemeContext.jsx";
 import { VersionsModal } from "./backupsView.jsx";
+import PropertiesSheet from "./PropertiesSheet.jsx";
 import { backupSegmentLabel, backupSource } from "./backupsSource.js";
 
 const toasts = vi.hoisted(() => ({ addToast: vi.fn() }));
@@ -149,5 +150,40 @@ describe("VersionsModal", () => {
       expect(screen.getByText("Connect Photo drive to restore this file.")).toBeInTheDocument(),
     );
     expect(within(screen.getByRole("dialog")).getAllByRole("button", { name: /Restore to original folder/ })).toHaveLength(2);
+  });
+});
+
+describe("backup details sheet", () => {
+  function renderSheet(path, entry) {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <ThemeProvider>
+        <QueryClientProvider client={queryClient}>
+          <PropertiesSheet driveId="d1" driveLabel="Backup drive" path={path} entry={entry} onClose={() => {}} />
+        </QueryClientProvider>
+      </ThemeProvider>,
+    );
+  }
+
+  it("describes a backup from its own record", async () => {
+    stubApi();
+    const [row] = await backupSource("d1").listDir("d1", ".luna-backups");
+    renderSheet(".luna-backups/b1", { ...row, name: "Trips" });
+    expect(await screen.findByText("Backup of a folder")).toBeInTheDocument();
+    expect(screen.getByText("Up to date")).toBeInTheDocument();
+    expect(screen.getByText("Backups on Backup drive")).toBeInTheDocument();
+    expect(screen.getByText("Photo drive / Pictures / Trips")).toBeInTheDocument();
+    expect(screen.getByText(/Earlier versions of changed files aren't counted/)).toBeInTheDocument();
+  });
+
+  it("describes a deleted file inside a backup", async () => {
+    stubApi();
+    const rows = await backupSource("d1").listDir("d1", ".luna-backups/b1");
+    const old = rows.find((r) => r.name === "old.txt");
+    renderSheet(".luna-backups/b1/old.txt", { ...old, name: "old.txt (deleted)" });
+    expect(await screen.findByText("Deleted from the original")).toBeInTheDocument();
+    expect(screen.getByText("Kept until")).toBeInTheDocument();
+    expect(screen.getByText("Photo drive / Pictures / Trips / old.txt")).toBeInTheDocument();
+    expect(screen.getByText("Backups on Backup drive / Trips")).toBeInTheDocument();
   });
 });

@@ -34,12 +34,16 @@ export function backupSource(driveId) {
           original_name: b.source_name,
           kind: "dir",
           size: b.size_bytes,
-          mtime: b.last_ok_at,
+          modified: b.last_ok_at,
           hidden: false,
+          backup: b,
         }));
       }
       const { id, sub } = splitBackupPath(inner);
-      const list = await getJson(`${base(driveId, id)}/list?path=${encodeURIComponent(sub)}`);
+      const [backups, list] = await Promise.all([
+        getJson(`/api/v1/drives/${driveId}/backups`).then((r) => (Array.isArray(r) ? r : [])),
+        getJson(`${base(driveId, id)}/list?path=${encodeURIComponent(sub)}`),
+      ]);
       return (Array.isArray(list) ? list : []).map((e) => ({
         name: e.name,
         original_name: e.deleted ? `${e.name} (deleted)` : e.name,
@@ -48,6 +52,8 @@ export function backupSource(driveId) {
         hidden: false,
         deleted: e.deleted,
         deleted_at: e.deleted_at,
+        modified: e.mtime ?? undefined,
+        backup: backups.find((b) => b.id === id),
       }));
     },
     stat: async () => ({ kind: "dir" }),

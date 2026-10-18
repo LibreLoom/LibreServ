@@ -17,6 +17,7 @@ import {
   Folder,
   FolderTree,
   HardDrive,
+  Archive,
   Image,
   Info,
   Link2,
@@ -43,10 +44,15 @@ import { fileSourceScope, useFileSource } from "../../lib/fileSource.jsx";
 import {
   fmtSize,
   parentPath,
+  BACKUPS_PATH,
+  isBackupsPath,
   pathBasename,
   TRASH_PATH,
 } from "../../lib/paths.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
+import { splitBackupPath } from "./backupsSource.js";
+
+const DELETED_KEPT_DAYS = 30;
 
 const TYPE_LABELS = {
   image: "Image",
@@ -296,7 +302,7 @@ PropertiesButton.propTypes = {
  *   inTrash?: boolean,
  * }} props
  */
-export default function PropertiesSheet({
+function FilePropertiesSheet({
   open = true,
   onClose,
   driveId,
@@ -522,6 +528,113 @@ export default function PropertiesSheet({
       )}
     </ModalCard>
   );
+}
+
+/**
+ * Details for a backup, or for something kept inside one. Everything comes from the backup's own
+ * record: nothing here is a live file, so there is no access or hidden-file information to show.
+ */
+function BackupPropertiesSheet({ open = true, onClose, driveId, driveLabel = "Drive", path, entry = null }) {
+  const source = useFileSource();
+  const backup = entry?.backup || null;
+  const { id, sub } = splitBackupPath(path === BACKUPS_PATH ? "" : path.slice(BACKUPS_PATH.length + 1));
+  const isBackup = !sub;
+  const kind = entry?.kind || "dir";
+  const name = isBackup ? backup?.source_name || id : pathBasename(sub);
+  const original = backup
+    ? locationLabel(backup.source_drive_name, [backup.source_path, sub].filter(Boolean).join("/"))
+    : "";
+  const insideLabel = locationLabel(`Backups on ${driveLabel}`, [backup?.source_name || id, parentPath(sub) || ""].filter(Boolean).join("/"));
+  const deleted = Boolean(entry?.deleted);
+  const keptUntil = deleted && entry?.deleted_at ? Number(entry.deleted_at) + DELETED_KEPT_DAYS * 24 * 60 * 60 : 0;
+  const size = Number(entry?.size);
+  const HeroIcon = isBackup ? Archive : kindIcon(name, kind);
+
+  let health = null;
+  if (isBackup && backup) {
+    if (backup.status === "stopped") health = { variant: "warning", text: "Stopped" };
+    else if (backup.status === "source_gone") health = { variant: "warning", text: "Original folder is gone" };
+    else if (backup.state === "failing") health = { variant: "warning", text: "Last copy failed" };
+    else if (backup.state === "stale") health = { variant: "warning", text: "Not copied in over a day" };
+    else health = { variant: "success", text: "Up to date" };
+  }
+
+  return (
+    <ModalCard open={open} onClose={onClose} title={<span className="break-all">{name}</span>}>
+      <div className="space-y-3">
+        <div className="flex items-center gap-3">
+          <IconCircle icon={HeroIcon} size="lg" variant="default" className="shrink-0" />
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+            <Pill variant="accent" className="max-w-full">
+              <span className="truncate">{isBackup ? "Backup of a folder" : typeLabel(name, kind)}</span>
+            </Pill>
+            {health ? <Pill variant={health.variant}>{health.text}</Pill> : null}
+            {deleted ? (
+              <Pill variant="warning">
+                <Trash2 size={ICON_SIZE.xs} aria-hidden="true" />
+                Deleted from the original
+              </Pill>
+            ) : null}
+          </div>
+        </div>
+
+        {isBackup && backup?.stop_reason ? <PageNotice variant="warning">{backup.stop_reason}</PageNotice> : null}
+
+        {(isBackup || kind === "file") && Number.isFinite(size) && entry?.size != null ? (
+          <Section>
+            <div className="flex items-center gap-2 text-xs font-mono text-secondary">
+              <HardDrive size={ICON_SIZE.sm} aria-hidden="true" />
+              {isBackup ? "Latest copy" : "Size"}
+            </div>
+            <p className="mt-1 font-mono text-3xl leading-none text-secondary">{fmtSize(size)}</p>
+            <p className="mt-2 text-xs text-secondary">
+              {isBackup
+                ? "Size of the newest copy. Earlier versions of changed files aren't counted."
+                : `${size.toLocaleString()} bytes`}
+            </p>
+          </Section>
+        ) : null}
+
+        <Section title="Details">
+          <DetailRow icon={FolderTree} label={isBackup ? "Kept on" : "In backup"} value={isBackup ? `Backups on ${driveLabel}` : insideLabel} mono />
+          <DetailRow icon={Undo2} label={isBackup ? "Backed up from" : "Original place"} value={original} mono />
+        </Section>
+
+        <Section title="Activity">
+          {isBackup ? (
+            <DetailRow
+              icon={Clock}
+              label="Last good copy"
+              value={backup?.last_ok_at > 0 ? fmtWhen(backup.last_ok_at) : "No copy finished yet"}
+              mono
+            />
+          ) : (
+            <DetailRow icon={Clock} label="Last changed" value={fmtWhen(entry?.modified)} mono />
+          )}
+          {deleted ? (
+            <DetailRow icon={Trash2} label="Deleted" value={fmtWhen(entry?.deleted_at)} mono />
+          ) : null}
+          {keptUntil ? (
+            <DetailRow icon={CalendarPlus} label="Kept until" value={fmtWhen(keptUntil)} mono />
+          ) : null}
+        </Section>
+
+        {!isBackup ? (
+          <Button variant="outline" surface="secondary" size="sm" asChild>
+            <a href={source.downloadHref(driveId, path)}>
+              <Download size={ICON_SIZE.sm} aria-hidden="true" />
+              Download
+            </a>
+          </Button>
+        ) : null}
+      </div>
+    </ModalCard>
+  );
+}
+
+/** Backups and what's inside them have their own details; everything else is a live file or folder. */
+export default function PropertiesSheet(props) {
+  return isBackupsPath(props.path) ? <BackupPropertiesSheet {...props} /> : <FilePropertiesSheet {...props} />;
 }
 
 PropertiesSheet.propTypes = {
