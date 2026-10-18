@@ -19,6 +19,7 @@ import {
 } from "../../lib/backupRows.js";
 import { useAuth } from "../../context/AuthContext.jsx";
 import ProtectSheet from "../files/ProtectSheet.jsx";
+import { BACKUPS_PATH, folderHref } from "../../lib/paths.js";
 
 const CONNECT_BACKUPS_URL = "https://connect.luna.libreloom.org/backups";
 
@@ -59,7 +60,7 @@ function CopiesLink({ backup }) {
   return (
     <p className="text-sm">
       <Link
-        to={`/drives/${backup.target_drive}?backups=1`}
+        to={folderHref(backup.target_drive, BACKUPS_PATH)}
         className={linkClass}
         onClick={() => haptic("selection")}
       >

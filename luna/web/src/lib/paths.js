@@ -1,6 +1,14 @@
 /** Public API alias for a drive's trash folder — browses like a real path. */
 export const TRASH_PATH = ".luna-trash";
 
+/** Virtual path of a drive's Backups folder: `.luna-backups/<backup id>/<folder inside it>`. */
+export const BACKUPS_PATH = ".luna-backups";
+
+/** Is `path` the Backups folder or somewhere inside it? */
+export function isBackupsPath(path) {
+  return path === BACKUPS_PATH || path.startsWith(`${BACKUPS_PATH}/`);
+}
+
 /** Is `path` the trash folder itself or somewhere inside it? */
 export function isTrashPath(path) {
   return path === TRASH_PATH || path.startsWith(`${TRASH_PATH}/`);

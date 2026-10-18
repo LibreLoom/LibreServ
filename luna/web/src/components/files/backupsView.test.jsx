@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "@libreloom/ui/context/ThemeContext.jsx";
-import BackupsFolder from "./BackupsFolder.jsx";
+import { VersionsModal } from "./backupsView.jsx";
+import { backupSegmentLabel, backupSource } from "./backupsSource.js";
 
 const toasts = vi.hoisted(() => ({ addToast: vi.fn() }));
 
@@ -56,13 +57,15 @@ function stubApi(opts = /** @type {{ restore?: () => Response }} */ ({})) {
   return calls;
 }
 
-function renderFolder() {
+const FILE = { backup: BACKUP, rel: "cat.jpg", name: "cat.jpg" };
+
+function renderVersions() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <ThemeProvider>
-        <QueryClientProvider client={queryClient}>
-          <BackupsFolder driveId="d1" onExit={() => {}} />
-        </QueryClientProvider>
+      <QueryClientProvider client={queryClient}>
+        <VersionsModal driveId="d1" backup={BACKUP} file={FILE} onClose={() => {}} />
+      </QueryClientProvider>
     </ThemeProvider>,
   );
 }
@@ -72,34 +75,45 @@ afterEach(() => {
   toasts.addToast.mockClear();
 });
 
-describe("BackupsFolder", () => {
-  it("lists the backups stored on this drive", async () => {
+describe("backup source", () => {
+  it("lists the backups on the drive as folders at the Backups path", async () => {
     stubApi();
-    renderFolder();
-
-    expect(await screen.findByText("Trips")).toBeInTheDocument();
-    expect(screen.getByText("Photo drive")).toBeInTheDocument();
-    expect(screen.getByText(/Last good copy/)).toBeInTheDocument();
+    const rows = await backupSource("d1").listDir("d1", ".luna-backups");
+    expect(rows).toEqual([
+      expect.objectContaining({ name: "b1", original_name: "Trips", kind: "dir", size: 2_500_000 }),
+    ]);
   });
 
-  it("opens a backup and shows its contents with a Deleted pill", async () => {
+  it("lists what a backup holds, marking deleted files", async () => {
     stubApi();
-    renderFolder();
-
-    fireEvent.click(await screen.findByRole("button", { name: /Trips/ }));
-
-    expect(await screen.findByText("Holiday")).toBeInTheDocument();
-    expect(screen.getByText("cat.jpg")).toBeInTheDocument();
-    expect(screen.getByText("Deleted")).toBeInTheDocument();
-    expect(screen.getByText(/Kept until/)).toBeInTheDocument();
+    const rows = await backupSource("d1").listDir("d1", ".luna-backups/b1");
+    expect(rows.map((r) => [r.original_name, r.kind])).toEqual([
+      ["Holiday", "dir"],
+      ["cat.jpg", "file"],
+      ["old.txt (deleted)", "file"],
+    ]);
   });
 
+  it("points downloads at the backup", () => {
+    expect(backupSource("d1").downloadHref("d1", ".luna-backups/b1/Holiday")).toBe(
+      "/api/v1/drives/d1/backups/b1/download?path=Holiday",
+    );
+  });
+
+  it("labels the crumbs with the backup's source folder", () => {
+    const label = backupSegmentLabel([BACKUP], ".luna-backups/b1/Holiday");
+    expect(["", "", ""].map((_, i) => label([".luna-backups", "b1", "Holiday"][i], i))).toEqual([
+      "Backups",
+      "Trips",
+      "Holiday",
+    ]);
+  });
+});
+
+describe("VersionsModal", () => {
   it("opens the versions modal for a file", async () => {
     stubApi();
-    renderFolder();
-
-    fireEvent.click(await screen.findByRole("button", { name: /Trips/ }));
-    fireEvent.click(await screen.findByRole("button", { name: /cat\.jpg/ }));
+    renderVersions();
 
     const dialog = await screen.findByRole("dialog");
     expect(await within(dialog).findByText("Latest")).toBeInTheDocument();
@@ -109,10 +123,7 @@ describe("BackupsFolder", () => {
 
   it("shows a success toast after a restore", async () => {
     const calls = stubApi();
-    renderFolder();
-
-    fireEvent.click(await screen.findByRole("button", { name: /Trips/ }));
-    fireEvent.click(await screen.findByRole("button", { name: /cat\.jpg/ }));
+    renderVersions();
     const dialog = await screen.findByRole("dialog");
     fireEvent.click((await within(dialog).findAllByRole("button", { name: /Restore to original folder/ }))[0]);
 
@@ -130,10 +141,7 @@ describe("BackupsFolder", () => {
     stubApi({
       restore: () => json({ error: "Connect Photo drive to restore this file." }, 409),
     });
-    renderFolder();
-
-    fireEvent.click(await screen.findByRole("button", { name: /Trips/ }));
-    fireEvent.click(await screen.findByRole("button", { name: /cat\.jpg/ }));
+    renderVersions();
     const dialog = await screen.findByRole("dialog");
     fireEvent.click((await within(dialog).findAllByRole("button", { name: /Restore to original folder/ }))[1]);
 

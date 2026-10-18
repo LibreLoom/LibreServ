@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, Download, FolderInput, HardDrive, Lock, Pencil, RotateCcw, Trash2 } from "lucide-react";
 import PropTypes from "prop-types";
 import FileBrowser from "./FileBrowser.jsx";
-import BackupsFolder from "./BackupsFolder.jsx";
+import { BackupRowActions, VersionsModal } from "./backupsView.jsx";
+import { backupSegmentLabel, backupSource } from "./backupsSource.js";
 import FileViewer from "./FileViewer.jsx";
 import FolderPickerModal from "./FolderPickerModal.jsx";
 import CreateNameModal from "./CreateNameModal.jsx";
@@ -32,7 +33,7 @@ import {
   getJson,
   postJson,
 } from "../../lib/api.js";
-import { fileListKey, fileSourceScope, useFileSource } from "../../lib/fileSource.jsx";
+import { FileSourceProvider, fileListKey, fileSourceScope, useFileSource } from "../../lib/fileSource.jsx";
 import { submitBatch } from "../../lib/submitBatch.js";
 import UploadFilesPanel from "./UploadFilesPanel.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
@@ -53,6 +54,8 @@ import {
   fileHref as defaultFileHref,
   folderHref as defaultFolderHref,
   fmtSize,
+  BACKUPS_PATH,
+  isBackupsPath,
   isTrashPath,
   joinPath,
   parentPath,
@@ -313,19 +316,10 @@ export default function DriveFileExplorer({
     enabled: !guest && !!driveId,
   });
   const backupsAvailable = Array.isArray(backupsList.data) && backupsList.data.length > 0;
-  // Deep link: /drives/<id>?backups=1 opens this drive's Backups folder.
-  const [searchParams, setSearchParams] = useSearchParams();
-  const backupsParam = searchParams.get("backups") === "1";
-  // The Backups row in the file list links here too.
-  const inBackups = !guest && backupsParam;
-  function leaveBackups() {
-    if (!searchParams.has("backups")) return;
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
-      next.delete("backups");
-      return next;
-    }, { replace: true });
-  }
+  // Backups browse like Trash: a virtual folder in the same path, listed through its own source.
+  const inBackups = !guest && isBackupsPath(path);
+  const bSource = useMemo(() => backupSource(driveId), [driveId]);
+  const [versionsFile, setVersionsFile] = useState(/** @type {null|{ backup: object, rel: string, name: string }} */ (null));
   // Only the signed-in owner's private items come back, so a match means "my private folder".
   const privateMine = useQuery({
     queryKey: ["private-backups-mine"],
@@ -398,6 +392,8 @@ export default function DriveFileExplorer({
   const capsForPath = (p) => capsOnPath(access.data, driveId, p);
   const myFolderCaps = guest
     ? guestCaps
+    : inBackups
+      ? CAP.VIEW
     : isAdmin
       ? CAP_MANAGE
       : capsForPath(path);
@@ -405,7 +401,7 @@ export default function DriveFileExplorer({
   const folderCanUpload = !inTrash && (myFolderCaps & CAP.UPLOAD) !== 0;
   const folderCanEdit = inTrash ? trashVisible : (myFolderCaps & CAP.EDIT) !== 0;
   const folderCanShare = !inTrash && (myFolderCaps & CAP.SHARE) !== 0;
-  const backupsHref = backupsAvailable && !inTrash && path === "" ? `${folderHref(driveId, "")}?backups=1` : null;
+  const backupsHref = backupsAvailable && !inTrash && path === "" ? folderHref(driveId, BACKUPS_PATH) : null;
   // Upload-only links can write but never read — downloads stay hidden.
   const canView = inTrash ? trashVisible : (myFolderCaps & CAP.VIEW) !== 0;
 
@@ -807,9 +803,17 @@ export default function DriveFileExplorer({
     () => setActionError(null),
   );
 
+  const openVersions = useCallback((/** @type {{ fullPath: string, displayName: string }} */ ctx) => {
+    const rest = ctx.fullPath.slice(BACKUPS_PATH.length + 1);
+    const slash = rest.indexOf("/");
+    const backup = (backupsList.data || []).find((b) => b.id === rest.slice(0, slash));
+    if (backup) setVersionsFile({ backup, rel: rest.slice(slash + 1), name: ctx.displayName });
+  }, [backupsList.data]);
+
   // Stable identity so FileBrowser's memoized rows only re-render when one of
   // these inputs changes, not on every explorer render.
   const renderRowActions = useCallback((ctx) => {
+    if (inBackups) return <BackupRowActions driveId={driveId} ctx={ctx} onVersions={openVersions} />;
     // Same action row as any folder, with trash deltas. The Trash row
     // itself (the drive-root entry that opens trash) behaves like a
     // folder: share, protect, download, copy, properties. Items INSIDE
@@ -940,7 +944,7 @@ export default function DriveFileExplorer({
     </ActionTooltipGroup>
     );
   },
-    [access.data, driveId, guest, guestCaps, source.isFile, isAdmin, showProtect, canView, isNotBackedUp]);
+    [access.data, driveId, guest, guestCaps, source.isFile, isAdmin, showProtect, canView, isNotBackedUp, inBackups, openVersions]);
 
   return (
     <>
@@ -952,8 +956,6 @@ export default function DriveFileExplorer({
         <div className="flex justify-center py-16">
           <Spinner size="sm" decorative className="text-primary" />
         </div>
-      ) : inBackups ? (
-        <BackupsFolder driveId={driveId} onExit={leaveBackups} />
       ) : !canView && folderCanUpload ? (
         <UploadFilesPanel
           onUploadFiles={(files) => uploadFiles(files, path)}
@@ -984,6 +986,7 @@ export default function DriveFileExplorer({
           error={actionError}
         />
       ) : (
+      <FileSourceProvider source={inBackups ? bSource : source}>
       <FileBrowser
         driveId={driveId}
         driveLabel={driveLabel}
@@ -1017,7 +1020,7 @@ export default function DriveFileExplorer({
           guest
             ? shareMoveMutation.mutate({ paths, dest: destFolder })
             : internalMoveMutation.mutate({ paths, destFolder, destDriveId, fromDriveId: sourceDriveId }) : undefined}
-        onOpenFile={(ctx) => setViewerPath(ctx.fullPath)}
+        onOpenFile={(ctx) => (inBackups ? openVersions(ctx) : setViewerPath(ctx.fullPath))}
         onShare={guest || inTrash ? undefined : (ctx) => setAccessTarget({
           path: ctx.fullPath,
         })}
@@ -1036,10 +1039,10 @@ export default function DriveFileExplorer({
           : setDeletePaths) : undefined}
         backupsHref={backupsHref}
         trashHref={showTrashLink && trashVisible && !inTrash ? folderHref(driveId, TRASH_PATH) : null}
-        segmentLabel={segmentLabel}
+        segmentLabel={inBackups ? backupSegmentLabel(backupsList.data || [], path) : segmentLabel}
         folderActions={folderCanUpload && !source.isFile ? <NewItemMenu onPick={openCreate} allowPrivate={allowPrivate} /> : null}
-        emptyTitle={inTrash ? "Trash is empty" : undefined}
-        breadcrumbExtra={(() => {
+        emptyTitle={inTrash ? "Trash is empty" : inBackups ? "No backups on this drive" : undefined}
+        breadcrumbExtra={inBackups ? null : (() => {
           // Same buttons a folder's breadcrumb row gets — the label just
           // reads "Trash" / the item's original name instead of the
           // generated on-disk name. Share/protect stay on the Trash root
@@ -1125,6 +1128,16 @@ export default function DriveFileExplorer({
         } : undefined}
         renderRowActions={renderRowActions}
       />
+      </FileSourceProvider>
+      )}
+
+      {versionsFile && (
+        <VersionsModal
+          driveId={driveId}
+          backup={versionsFile.backup}
+          file={versionsFile}
+          onClose={() => setVersionsFile(null)}
+        />
       )}
 
       <FileViewer

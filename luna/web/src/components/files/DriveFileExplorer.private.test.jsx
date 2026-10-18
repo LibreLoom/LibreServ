@@ -10,7 +10,7 @@ import DriveFileExplorer from "./DriveFileExplorer.jsx";
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
 
-function renderExplorer({ listing = [], mine = [], initialEntries = ["/"] } = {}) {
+function renderExplorer({ listing = [], mine = [], initialEntries = ["/"], path, backups = [] } = {}) {
   const calls = [];
   vi.stubGlobal("fetch", vi.fn(async (url, init = {}) => {
     const u = String(url);
@@ -31,6 +31,7 @@ function renderExplorer({ listing = [], mine = [], initialEntries = ["/"] } = {}
     if (u.includes("/files/mkdir") || u.includes("/files/create") || u.includes("/files/upload")) {
       return json({ ok: true });
     }
+    if (u.endsWith("/api/v1/drives/d1/backups")) return json(backups);
     if (u.includes("/api/v1/drives/d1/files?path=")) return json(listing);
     return json([]);
   }));
@@ -41,7 +42,7 @@ function renderExplorer({ listing = [], mine = [], initialEntries = ["/"] } = {}
       <QueryClientProvider client={client}>
         <MemoryRouter initialEntries={initialEntries}>
           <AuthProvider>
-            <DriveFileExplorer driveId="d1" driveLabel="Photos" isAdmin />
+            <DriveFileExplorer driveId="d1" driveLabel="Photos" isAdmin path={path} />
           </AuthProvider>
         </MemoryRouter>
       </QueryClientProvider>
@@ -105,8 +106,18 @@ describe("DriveFileExplorer private folders", () => {
     expect(screen.queryByText("Not backed up")).not.toBeInTheDocument();
   });
 
-  it("opens the Backups folder from ?backups=1", async () => {
-    renderExplorer({ initialEntries: ["/drives/d1?backups=1"] });
-    expect(await screen.findByRole("heading", { name: "Backups" })).toBeInTheDocument();
+  it("browses the Backups folder like Trash: each backup is a folder row", async () => {
+    renderExplorer({
+      path: ".luna-backups",
+      backups: [{ id: "b1", source_name: "Trips", source_drive_name: "Photo drive", source_path: "Trips", status: "active", last_ok_at: 1, size_bytes: 10 }],
+    });
+    expect(await screen.findByText("Trips")).toBeInTheDocument();
+  });
+
+  it("offers a Backups row at the drive root when this drive holds backups", async () => {
+    renderExplorer({
+      backups: [{ id: "b1", source_name: "Trips", source_drive_name: "Photo drive", source_path: "Trips", status: "active", last_ok_at: 1, size_bytes: 10 }],
+    });
+    expect(await screen.findByText("Backups")).toBeInTheDocument();
   });
 });

@@ -209,7 +209,7 @@ describe("AllBackupsModal", () => {
       }),
     ]);
     const driveLink = await screen.findByRole("link", { name: /Open the Backups folder on/ });
-    expect(driveLink).toHaveAttribute("href", "/drives/d2?backups=1");
+    expect(driveLink).toHaveAttribute("href", "/drives/d2?path=.luna-backups");
 
     const connectLink = screen.getByRole("link", { name: "Open Luna Connect" });
     expect(connectLink).toHaveAttribute("href", "https://connect.luna.libreloom.org/backups");
