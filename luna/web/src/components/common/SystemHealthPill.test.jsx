@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import SystemHealthPill from "./SystemHealthPill.jsx";
@@ -21,6 +22,24 @@ function renderPill() {
   );
 }
 
+/** @param {Record<string, any>} checks */
+function mockChecks(checks) {
+  vi.mocked(useSystemHealthCheck).mockReturnValue(/** @type {any} */({
+    data: { overall_pass: false, checks },
+    isLoading: false,
+    error: null,
+  }));
+}
+
+const PASSED = { status: "passed", message: "OK", category: "system" };
+const FAILED_DISK = { status: "failed", message: "Low space", category: "system" };
+const WARN_DIAGRAMS = {
+  status: "warning",
+  message: "Diagrams can't be opened.",
+  category: "features",
+};
+const WARN_VIDEO = { status: "warning", message: "No video previews.", category: "features" };
+
 describe("SystemHealthPill", () => {
   beforeEach(() => {
     vi.mocked(useSystemHealthCheck).mockReturnValue(/** @type {any} */({
@@ -30,65 +49,119 @@ describe("SystemHealthPill", () => {
     }));
   });
 
-  it("shows the healthy state when all checks pass", () => {
-    vi.mocked(useSystemHealthCheck).mockReturnValue(/** @type {any} */({
-      data: {
-        overall_pass: true,
-        checks: { database: { status: "passed", message: "OK", category: "system" } },
-      },
-      isLoading: false,
-      error: null,
-    }));
-    renderPill();
-    expect(screen.getByText("Everything looks good")).toBeInTheDocument();
-  });
-
-  it("shows an issue count when checks fail", () => {
-    vi.mocked(useSystemHealthCheck).mockReturnValue(/** @type {any} */({
-      data: {
-        overall_pass: false,
-        checks: {
-          disk_space: { status: "failed", message: "Low space", category: "system" },
-        },
-      },
-      isLoading: false,
-      error: null,
-    }));
-    renderPill();
-    expect(screen.getByText("1 issue")).toBeInTheDocument();
-  });
-
-  it("counts warnings as warnings when nothing failed", () => {
-    vi.mocked(useSystemHealthCheck).mockReturnValue(/** @type {any} */({
-      data: {
-        overall_pass: true,
-        checks: {
-          database: { status: "passed", message: "OK", category: "system" },
-          diagram_pack: { status: "warning", message: "Diagrams can't be opened.", category: "features" },
-          video_tools: { status: "warning", message: "No video previews.", category: "features" },
-        },
-      },
-      isLoading: false,
-      error: null,
-    }));
-    renderPill();
-    expect(screen.getByText("2 warnings")).toBeInTheDocument();
+  it("renders nothing when every check passes", () => {
+    mockChecks({ database: PASSED, clock: PASSED });
+    const { container } = renderPill();
+    expect(container.firstChild).toBeNull();
     expect(screen.queryByText("Everything looks good")).not.toBeInTheDocument();
   });
 
-  it("calls it issues when a failure sits next to warnings", () => {
+  it("renders nothing when the only problem is a failed check", () => {
+    mockChecks({ database: PASSED, disk_space: FAILED_DISK });
+    const { container } = renderPill();
+    expect(container.firstChild).toBeNull();
+    expect(screen.queryByText("1 issue")).not.toBeInTheDocument();
+    expect(screen.queryByText(/warning/)).not.toBeInTheDocument();
+  });
+
+  it("renders nothing when there are no checks at all", () => {
+    mockChecks({});
+    const { container } = renderPill();
+    expect(container.firstChild).toBeNull();
+  });
+
+  it("renders nothing while the checks are loading", () => {
     vi.mocked(useSystemHealthCheck).mockReturnValue(/** @type {any} */({
-      data: {
-        overall_pass: false,
-        checks: {
-          disk_space: { status: "failed", message: "Low space", category: "system" },
-          diagram_pack: { status: "warning", message: "Diagrams can't be opened.", category: "features" },
-        },
-      },
-      isLoading: false,
+      data: undefined,
+      isLoading: true,
       error: null,
     }));
+    const { container } = renderPill();
+    expect(container.firstChild).toBeNull();
+  });
+
+  it("renders nothing when the checks could not be loaded", () => {
+    vi.mocked(useSystemHealthCheck).mockReturnValue(/** @type {any} */({
+      data: undefined,
+      isLoading: false,
+      error: new Error("network down"),
+    }));
+    const { container } = renderPill();
+    expect(container.firstChild).toBeNull();
+  });
+
+  it("renders nothing when there is no data", () => {
+    const { container } = renderPill();
+    expect(container.firstChild).toBeNull();
+  });
+
+  it("counts several warnings in the warning pill", () => {
+    mockChecks({ database: PASSED, diagram_pack: WARN_DIAGRAMS, video_tools: WARN_VIDEO });
     renderPill();
-    expect(screen.getByText("2 issues")).toBeInTheDocument();
+    expect(screen.getByText("2 warnings")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "2 warnings. Click to view details." })).toBeInTheDocument();
+    expect(document.querySelector('[data-slot="badge"]')).toHaveAttribute("data-variant", "warning");
+  });
+
+  it("uses the singular for one warning", () => {
+    mockChecks({ diagram_pack: WARN_DIAGRAMS });
+    renderPill();
+    expect(screen.getByText("1 warning")).toBeInTheDocument();
+    expect(screen.queryByText("1 warnings")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "1 warning. Click to view details." })).toBeInTheDocument();
+  });
+
+  it("counts only the warning when a failed check sits next to it", async () => {
+    mockChecks({ disk_space: FAILED_DISK, diagram_pack: WARN_DIAGRAMS });
+    renderPill();
+    expect(screen.getByText("1 warning")).toBeInTheDocument();
+    expect(document.querySelector('[data-slot="badge"]')).toHaveAttribute("data-variant", "warning");
+
+    await userEvent.click(screen.getByRole("button", { name: /warning/ }));
+    const dialog = await screen.findByRole("dialog", { name: "System health warnings" });
+    expect(dialog).toHaveTextContent("Diagrams");
+    expect(dialog).not.toHaveTextContent("Storage space");
+    expect(dialog).not.toHaveTextContent("Low space");
+  });
+
+  it("opens a list of the warnings with a link to the system checks", async () => {
+    mockChecks({ database: PASSED, diagram_pack: WARN_DIAGRAMS, video_tools: WARN_VIDEO });
+    renderPill();
+
+    const button = screen.getByRole("button", { name: "2 warnings. Click to view details." });
+    expect(button).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    await userEvent.click(button);
+
+    const dialog = await screen.findByRole("dialog", { name: "System health warnings" });
+    expect(button).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("2 warnings found")).toBeInTheDocument();
+    expect(dialog).toHaveTextContent("Diagrams");
+    expect(dialog).toHaveTextContent("Diagrams can't be opened.");
+    expect(dialog).toHaveTextContent("Video previews");
+    expect(dialog).toHaveTextContent("No video previews.");
+    expect(dialog).not.toHaveTextContent("Accounts and settings");
+    expect(screen.getByRole("link", { name: "Open system checks in Settings" })).toHaveAttribute(
+      "href",
+      "/settings#about",
+    );
+  });
+
+  it("titles the list in the singular for one warning", async () => {
+    mockChecks({ video_tools: WARN_VIDEO });
+    renderPill();
+    await userEvent.click(screen.getByRole("button", { name: /warning/ }));
+    expect(await screen.findByText("1 warning found")).toBeInTheDocument();
+  });
+
+  it("closes the list when the pill is clicked again", async () => {
+    mockChecks({ diagram_pack: WARN_DIAGRAMS });
+    renderPill();
+    const button = screen.getByRole("button", { name: /warning/ });
+    await userEvent.click(button);
+    await screen.findByRole("dialog", { name: "System health warnings" });
+    await userEvent.click(button);
+    await vi.waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 });

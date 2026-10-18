@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import { cn } from "@libreloom/ui/lib/utils.js";
-import { AlertTriangle, CheckCircle, ChevronDown } from "lucide-react";
+import { AlertTriangle, ChevronDown } from "lucide-react";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import { useSystemHealthCheck } from "../../hooks/useSystemHealthCheck.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
@@ -11,9 +11,10 @@ import CheckStatusIcon from "./CheckStatusIcon.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 /**
- * SystemHealthPill — failed and warning health checks as a compact dashboard
- * header pill, mirroring Sol's CriticalIssues pattern. Failures use the
- * error pill; warnings alone (a feature that won't work) use the warning pill.
+ * SystemHealthPill — warning health checks (a feature that won't work) as a
+ * compact dashboard header pill, mirroring Sol's CriticalIssues pattern.
+ * Failed checks are not listed here: they are rows in Needs you. With no
+ * warnings the pill renders nothing.
  */
 export default function SystemHealthPill() {
   const { data, isLoading, error } = useSystemHealthCheck();
@@ -27,19 +28,13 @@ export default function SystemHealthPill() {
   const issues = useMemo(() => {
     if (!data?.checks) return [];
     return Object.entries(data.checks)
-      .filter(([, result]) => result?.status && result.status !== "passed")
+      .filter(([, result]) => result?.status === "warning")
       .map(([name, result]) => ({
         name,
         label: displayLabel(name, result),
         message: result?.message,
-        warning: result.status === "warning",
-      }))
-      // Failures before warnings.
-      .sort((a, b) => Number(a.warning) - Number(b.warning));
+      }));
   }, [data]);
-
-  const hasIssues = issues.length > 0;
-  const onlyWarnings = hasIssues && issues.every((i) => i.warning);
 
   const updatePosition = useCallback(() => {
     if (buttonRef.current) {
@@ -105,20 +100,10 @@ export default function SystemHealthPill() {
   if (isLoading) return null;
   if (error || !data) return null;
 
-  if (!hasIssues) {
-    return (
-      <span data-slot="system-health-pill" data-header-item>
-        <Pill variant="success">
-          <CheckCircle size={ICON_SIZE.xs} strokeWidth={2.5} aria-hidden="true" />
-          <span className="font-medium">Everything looks good</span>
-        </Pill>
-      </span>
-    );
-  }
-
   const count = issues.length;
-  const noun = onlyWarnings ? "warning" : "issue";
-  const countText = `${count} ${noun}${count !== 1 ? "s" : ""}`;
+  if (count === 0) return null;
+
+  const countText = `${count} warning${count !== 1 ? "s" : ""}`;
 
   return (
     <div className="relative" ref={containerRef} data-slot="system-health-pill" data-header-item>
@@ -135,7 +120,7 @@ export default function SystemHealthPill() {
         aria-haspopup="dialog"
         aria-label={`${countText}. Click to view details.`}
       >
-        <Pill variant={onlyWarnings ? "warning" : "error"} className="hover:brightness-110">
+        <Pill variant="warning" className="hover:brightness-110">
           <AlertTriangle size={ICON_SIZE.xs} strokeWidth={2.5} aria-hidden="true" />
           <span className="font-medium">{countText}</span>
           <ChevronDown
@@ -155,7 +140,7 @@ export default function SystemHealthPill() {
             ref={portalRef}
             data-slot="system-health-dropdown"
             role="dialog"
-            aria-label="System health issues"
+            aria-label="System health warnings"
             style={{ position: "absolute", top: position.top, left: position.left }}
             className={cn(
               "surface-secondary ring-inset ring-2 ring-accent",
@@ -165,7 +150,7 @@ export default function SystemHealthPill() {
           >
             <div className="px-4 py-3 border-b border-primary/10">
               <div className="flex items-center gap-2">
-                <CheckStatusIcon status={onlyWarnings ? "warning" : "failed"} size="sm" />
+                <CheckStatusIcon status="warning" size="sm" />
                 <span className="font-mono text-sm text-primary">
                   {countText} found
                 </span>
@@ -179,7 +164,7 @@ export default function SystemHealthPill() {
                   style={isClosing ? undefined : { animationDelay: `${i * 45}ms` }}
                 >
                   <div className="px-4 py-2 flex items-start gap-2">
-                    <CheckStatusIcon status={check.warning ? "warning" : "failed"} size="sm" className="mt-0.5" />
+                    <CheckStatusIcon status="warning" size="sm" className="mt-0.5" />
                     <div className="min-w-0">
                       <div className="text-sm text-primary font-medium">{check.label}</div>
                       {check.message && (
