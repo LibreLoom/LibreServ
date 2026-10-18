@@ -1,23 +1,25 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Lock, Shield } from "lucide-react";
 import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
+import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { apiErrorMessage, deleteJson, getJson } from "../../lib/api";
 import {
-  backupStatus,
   groupByCreator,
-  lastGoodCopyLine,
   needsALook,
   privateGroups,
 } from "../../lib/backupRows.js";
 import { useAuth } from "../../context/AuthContext.jsx";
+import BackupItem from "../protect/BackupItem.jsx";
 import ProtectSheet from "../files/ProtectSheet.jsx";
 import { BACKUPS_PATH, folderHref } from "../../lib/paths.js";
 
@@ -40,76 +42,62 @@ function filterBackups(list, filter) {
 const linkClass =
   "text-secondary underline decoration-accent underline-offset-4 rounded-pill focus-visible:ring-2 focus-visible:ring-accent outline-none";
 
-/** Link line for a backup whose copies live somewhere else (stopped or source gone). */
+/** Where the copies of a stopped backup live, as a link. */
 function CopiesLink({ backup }) {
   if (backup.kind === "cloud") {
     return (
-      <p className="text-sm">
-        <a
-          href={CONNECT_BACKUPS_URL}
-          target="_blank"
-          rel="noreferrer"
-          className={linkClass}
-          onClick={() => haptic("selection")}
-        >
-          Open Luna Connect
-        </a>
-      </p>
-    );
-  }
-  return (
-    <p className="text-sm">
-      <Link
-        to={folderHref(backup.target_drive, BACKUPS_PATH)}
+      <a
+        href={CONNECT_BACKUPS_URL}
+        target="_blank"
+        rel="noreferrer"
         className={linkClass}
         onClick={() => haptic("selection")}
       >
-        Open the Backups folder on <InlinePill>{backup.destination || backup.target_drive_name}</InlinePill>
-      </Link>
-    </p>
+        Open Luna Connect
+      </a>
+    );
+  }
+  return (
+    <Link
+      to={folderHref(backup.target_drive, BACKUPS_PATH)}
+      className={linkClass}
+      onClick={() => haptic("selection")}
+    >
+      Open the Backups folder on <InlinePill>{backup.destination || backup.target_drive_name}</InlinePill>
+    </Link>
   );
 }
 
 function BackupRow({ backup, onOpen }) {
-  const status = backupStatus(backup);
   const active = backup.status === "active";
-  const body = (
-    <>
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="font-medium min-w-0 break-words">{backup.source_name}</span>
-        {backup.private && <Pill>Private</Pill>}
-        <Pill variant={status.variant}>{status.label}</Pill>
-      </div>
-      <div className="flex flex-wrap items-center gap-2 text-sm">
-        <Pill>{backup.destination}</Pill>
-        <span>{lastGoodCopyLine(backup)}</span>
-      </div>
-      {!active && backup.stop_reason && <p className="text-sm">{backup.stop_reason}</p>}
-      {!active && backup.kind === "drive" && (
-        <p className="text-sm">
-          Copies are in the Backups folder on <InlinePill>{backup.target_drive_name}</InlinePill>
-        </p>
-      )}
-      {!active && <CopiesLink backup={backup} />}
-    </>
-  );
   return (
     <li>
-      {active ? (
-        <button
-          type="button"
-          aria-label={`Open protection for ${backup.source_name}`}
-          onClick={() => {
-            haptic("selection");
-            onOpen(backup);
-          }}
-          className="surface-primary rounded-large-element p-3 w-full text-left flex flex-col gap-2 cursor-pointer motion-safe:transition-all focus-visible:ring-2 focus-visible:ring-accent outline-none"
-        >
-          {body}
-        </button>
-      ) : (
-        <div className="surface-primary rounded-large-element p-3 flex flex-col gap-2">{body}</div>
-      )}
+      <BackupItem
+        backup={backup}
+        surface="primary"
+        note={
+          !active && (
+            <>
+              {backup.stop_reason && <p>{backup.stop_reason}</p>}
+              <p>
+                <CopiesLink backup={backup} />
+              </p>
+            </>
+          )
+        }
+      >
+        {active && (
+          <Button
+            variant="outline"
+            surface="primary"
+            size="sm"
+            aria-label={`Open protection for ${backup.source_name}`}
+            onClick={() => onOpen(backup)}
+          >
+            Open
+          </Button>
+        )}
+      </BackupItem>
     </li>
   );
 }
@@ -127,15 +115,22 @@ function PrivateItemsRow({ owner, isYours, isAdmin, onRemove }) {
       : { label: needing === 1 ? "1 needs a look" : `${needing} need a look`, variant: "warning" };
   return (
     <li>
-      <div className="surface-primary rounded-large-element p-3 flex flex-col gap-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="font-medium min-w-0 break-words">{title}</span>
-          <Pill variant={status.variant}>{status.label}</Pill>
+      <div className="surface-primary rounded-large-element p-4 space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1 space-y-1">
+            <p className="flex items-center gap-2 text-xl font-mono font-normal leading-tight break-words">
+              <Lock size={ICON_SIZE.md} className="shrink-0" aria-hidden="true" />
+              {title}
+            </p>
+          </div>
+          <Pill variant={/** @type {any} */ (status.variant)} className="shrink-0">
+            {status.label}
+          </Pill>
         </div>
         {line && <p className="text-sm">{line}</p>}
         {owner.deleted && isAdmin && (
           <div>
-            <Button variant="accent" surface="primary" onClick={() => onRemove(owner)}>
+            <Button variant="accent" surface="primary" size="sm" onClick={() => onRemove(owner)}>
               Remove
             </Button>
           </div>
@@ -223,17 +218,26 @@ export default function AllBackupsModal({ open, onClose, backups = [] }) {
             value={filter}
             onChange={setFilter}
           />
-          {sections.length === 0 && (
-            <p>
-              {backups.length === 0 && owners.length === 0
-                ? "No backups yet."
-                : "No backups match this filter."}
-            </p>
-          )}
+          {sections.length === 0 &&
+            (backups.length === 0 && owners.length === 0 ? (
+              <EmptyState
+                surface="primary"
+                icon={Shield}
+                title="No backups yet"
+                description="Click the shield icon beside a drive or folder to back it up."
+              />
+            ) : (
+              <EmptyState
+                surface="primary"
+                icon={Shield}
+                title="Nothing matched"
+                description="No backups fit this filter. Try another one."
+              />
+            ))}
           {sections.map((group) => (
-            <section key={group.ownerId ?? group.name} className="flex flex-col gap-2">
-              <h3 className="text-base">{group.name}</h3>
-              <ul className="flex flex-col gap-2">
+            <section key={group.ownerId ?? group.name} className="flex flex-col gap-3">
+              <h3 className="text-sm font-mono">{group.name}</h3>
+              <ul className="flex flex-col gap-3">
                 {group.privateOwner && (
                   <PrivateItemsRow
                     owner={group.privateOwner}

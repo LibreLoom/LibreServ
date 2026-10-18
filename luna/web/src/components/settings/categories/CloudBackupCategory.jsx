@@ -10,104 +10,81 @@ import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { apiErrorMessage, deleteJson, getJson, postJson } from "../../../lib/api";
-import { formatRecentAgo } from "../../../lib/recentItems.js";
+import { formatBytes } from "../../../lib/formatBytes.js";
+import BackupItem from "../../protect/BackupItem.jsx";
 import BackupStatusNotice from "../../common/BackupStatusNotice.jsx";
 import CloudRestoreCard from "../../cloud/CloudRestoreCard.jsx";
 import PrivateRestoreCard from "../../cloud/PrivateRestoreCard.jsx";
 import RecoveryPhraseCard from "../../cloud/RecoveryPhraseCard.jsx";
 
-/** Human size for a byte count, e.g. "1.2 GB". */
-function formatSize(bytes) {
-  if (!bytes || bytes < 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  return `${value >= 10 || unit === 0 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`;
-}
-
-/** "Last run" line: when the copy last finished, or that it hasn't yet. */
-function lastRunText(backup) {
-  if (!backup.last_ok_at) return "Not finished yet";
-  const ago = formatRecentAgo(backup.last_ok_at * 1000);
-  return `Last finished ${ago === "Just now" ? "just now" : ago}`;
-}
-
 function CloudBackupRow({ backup, onRun, onRunAnyway, missingSource, onCheck, onDelete, busy }) {
   const active = backup.status === "active";
+  const item = {
+    ...backup,
+    kind: "cloud",
+    destination: "Cloud",
+    source_name: backup.source_name || backup.source_path || "Whole drive",
+  };
+  const size = formatBytes(backup.size);
   return (
-    <div className="rounded-large-element surface-primary p-3 space-y-3">
-      <div className="space-y-1">
-        <p className="text-secondary text-sm">
-          <InlinePill>{backup.source_name || backup.source_path || "Whole drive"}</InlinePill>
-          {backup.source_drive_name && (
-            <span className="text-secondary text-sm"> on {backup.source_drive_name}</span>
+    <BackupItem
+      backup={item}
+      surface="primary"
+      note={
+        <>
+          <p>
+            {backup.source_drive_name ? `On ${backup.source_drive_name}` : "Whole drive"}
+            {size ? ` · ${size} in the cloud` : ""}
+          </p>
+          {active ? (
+            <BackupStatusNotice
+              state={backup.state}
+              lastError={backup.last_error}
+              lastOkAt={backup.last_ok_at}
+              surface="secondary"
+              staleText="Luna copies files to the cloud every 6 hours. This backup hasn't finished in over a day."
+            />
+          ) : (
+            <p>{backup.stop_reason || "This cloud backup has stopped."}</p>
           )}
-        </p>
-        <p className="text-secondary text-xs">
-          {lastRunText(backup)} · {formatSize(backup.size)} in the cloud
-        </p>
-      </div>
-
-      {active ? (
-        <BackupStatusNotice
-          state={backup.state}
-          lastError={backup.last_error}
-          lastOkAt={backup.last_ok_at}
+        </>
+      }
+    >
+      {active && (
+        <Button
+          size="sm"
+          variant="outline"
           surface="primary"
-          staleText="Luna copies files to the cloud every 6 hours. This backup hasn't finished in over a day."
-        />
-      ) : (
-        <p className="text-secondary text-sm">{backup.stop_reason || "This cloud backup has stopped."}</p>
+          loading={busy || backup.running}
+          disabled={busy || backup.running}
+          onClick={() => onRun(backup)}
+        >
+          Back up now
+        </Button>
       )}
-
-      <div className="flex flex-wrap gap-2">
-        {active && (
-          <Button
-            size="sm"
-            variant="outline"
-            surface="primary"
-            loading={busy || backup.running}
-            disabled={busy || backup.running}
-            onClick={() => onRun(backup)}
-          >
-            Back up now
-          </Button>
-        )}
-        {active && missingSource && (
-          <Button
-            size="sm"
-            variant="outline"
-            surface="primary"
-            loading={busy}
-            disabled={busy}
-            onClick={() => onRunAnyway(backup)}
-          >
-            Back up anyway
-          </Button>
-        )}
-        {active && (
-          <Button
-            size="sm"
-            variant="outline"
-            surface="primary"
-            loading={busy}
-            disabled={busy || backup.running}
-            onClick={() => onCheck(backup)}
-          >
-            Check
-          </Button>
-        )}
-        {backup.can_delete && (
-          <Button size="sm" variant="danger" surface="primary" onClick={() => onDelete(backup)}>
-            Delete
-          </Button>
-        )}
-      </div>
-    </div>
+      {active && missingSource && (
+        <Button size="sm" variant="outline" surface="primary" loading={busy} disabled={busy} onClick={() => onRunAnyway(backup)}>
+          Back up anyway
+        </Button>
+      )}
+      {active && (
+        <Button
+          size="sm"
+          variant="outline"
+          surface="primary"
+          loading={busy}
+          disabled={busy || backup.running}
+          onClick={() => onCheck(backup)}
+        >
+          Check
+        </Button>
+      )}
+      {backup.can_delete && (
+        <Button size="sm" variant="danger" surface="primary" onClick={() => onDelete(backup)}>
+          Delete
+        </Button>
+      )}
+    </BackupItem>
   );
 }
 

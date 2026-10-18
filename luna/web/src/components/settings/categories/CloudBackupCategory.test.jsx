@@ -125,7 +125,7 @@ describe("CloudBackupCategory", () => {
     renderCard();
     expect(await screen.findByText("Pictures")).toBeInTheDocument();
     expect(screen.getByText(/Family photos/)).toBeInTheDocument();
-    expect(screen.getByText(/2(\.0)? GB in the cloud/)).toBeInTheDocument();
+    expect(screen.getByText(/2\.1 GB in the cloud/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Back up now" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Check" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();

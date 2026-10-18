@@ -131,7 +131,7 @@ describe("AllBackupsModal", () => {
 
   it("explains where copies of stopped backups are", async () => {
     renderModal();
-    expect(await screen.findByText(/Copies are in the Backups folder on/)).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: /Open the Backups folder on/ })).toBeInTheDocument();
     expect(screen.getByText("Stopped")).toBeInTheDocument();
   });
 
@@ -227,8 +227,8 @@ describe("AllBackupsModal", () => {
   });
 
   it("maps status to pills", () => {
-    expect(backupStatus(backup()).label).toBe("Backed up");
-    expect(backupStatus(backup({ state: "stale" })).label).toBe("Needs a look");
-    expect(backupStatus(backup({ status: "source_gone" })).label).toBe("Source gone");
+    expect(backupStatus(backup()).label).toBe("Up to date");
+    expect(backupStatus(backup({ state: "stale" })).label).toBe("Not copied in a day");
+    expect(backupStatus(backup({ status: "source_gone" })).label).toBe("Original is gone");
   });
 });

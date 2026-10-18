@@ -106,8 +106,8 @@ describe("BackupsCard", () => {
 
   it("shows the empty state when there are no backups", async () => {
     renderCard([]);
-    expect(await screen.findByText("No backups yet.")).toBeInTheDocument();
-    expect(screen.getByText("Click the shield icon beside an item to back it up.")).toBeInTheDocument();
+    expect(await screen.findByText("No backups yet")).toBeInTheDocument();
+    expect(screen.getByText("Click the shield icon beside a drive or folder to back it up.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "See all backups" })).not.toBeInTheDocument();
   });
 

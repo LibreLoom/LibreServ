@@ -42,7 +42,7 @@ describe("RecoveryPhraseCard", () => {
     renderCard();
 
     expect(await screen.findByText(/Cloud backups are locked with 12 words only you know/)).toBeInTheDocument();
-    expect(screen.getByText("Not set")).toBeInTheDocument();
+    expect(screen.getByText(/^Not set\./)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Set up" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Change" })).toBeNull();
   });

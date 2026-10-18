@@ -1,11 +1,10 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { AlertCircle } from "lucide-react";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
+import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
-import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { apiErrorMessage } from "../../lib/api";
 import { entropyToPhrase, newEntropy } from "@libreloom/ui/lib/cloud/backupCrypto.js";
 import { buildPhraseBody, PHRASE_QUERY_KEY, savePhrase } from "../../lib/cloudPhrase";
@@ -17,14 +16,9 @@ function pickCheckPositions() {
   return [...positions].sort((a, b) => a - b);
 }
 
-/** Error line: the icon carries the red, the words stay neutral text. */
+/** Inline error in its own notice card. */
 function ErrorNotice({ children }) {
-  return (
-    <p role="alert" className="flex items-start gap-2 text-primary text-sm">
-      <AlertCircle size={ICON_SIZE.sm} className="mt-0.5 shrink-0 text-error" aria-hidden="true" />
-      <span>{children}</span>
-    </p>
-  );
+  return <PageNotice variant="error">{children}</PageNotice>;
 }
 
 /**
@@ -134,8 +128,8 @@ export default function RecoveryPhraseSetup({
           </p>
           <ol className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             {words.map((word, i) => (
-              <li key={i} className="flex items-center gap-2 text-primary text-sm">
-                <span className="w-6 text-right text-primary">{i + 1}.</span>
+              <li key={i} className="flex items-center gap-2 rounded-pill surface-primary px-3 py-2 text-sm">
+                <span className="w-5 text-right text-xs font-mono">{i + 1}.</span>
                 <InlinePill>{word}</InlinePill>
               </li>
             ))}
@@ -169,7 +163,7 @@ export default function RecoveryPhraseSetup({
                 autoComplete="off"
                 autoCapitalize="none"
                 spellCheck={false}
-                className="w-full rounded-pill border border-secondary bg-transparent px-4 py-2 text-primary text-sm outline-none focus:border-accent"
+                className="w-full rounded-pill surface-primary border border-transparent px-4 py-2 text-sm outline-none focus:border-accent motion-safe:transition-colors"
               />
             </label>
           ))}

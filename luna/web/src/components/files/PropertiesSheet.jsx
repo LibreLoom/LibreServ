@@ -51,6 +51,7 @@ import {
 } from "../../lib/paths.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { splitBackupPath } from "./backupsSource.js";
+import { backupKindLabel, backupStatus } from "../../lib/backupRows.js";
 
 const DELETED_KEPT_DAYS = 30;
 
@@ -550,14 +551,7 @@ function BackupPropertiesSheet({ open = true, onClose, driveId, driveLabel = "Dr
   const size = Number(entry?.size);
   const HeroIcon = isBackup ? Archive : kindIcon(name, kind);
 
-  let health = null;
-  if (isBackup && backup) {
-    if (backup.status === "stopped") health = { variant: "warning", text: "Stopped" };
-    else if (backup.status === "source_gone") health = { variant: "warning", text: "Original folder is gone" };
-    else if (backup.state === "failing") health = { variant: "warning", text: "Last copy failed" };
-    else if (backup.state === "stale") health = { variant: "warning", text: "Not copied in over a day" };
-    else health = { variant: "success", text: "Up to date" };
-  }
+  const health = isBackup && backup ? backupStatus({ ...backup, kind: "drive" }) : null;
 
   return (
     <ModalCard open={open} onClose={onClose} title={<span className="break-all">{name}</span>}>
@@ -566,9 +560,9 @@ function BackupPropertiesSheet({ open = true, onClose, driveId, driveLabel = "Dr
           <IconCircle icon={HeroIcon} size="lg" variant="default" className="shrink-0" />
           <div className="flex min-w-0 flex-wrap items-center gap-1.5">
             <Pill variant="accent" className="max-w-full">
-              <span className="truncate">{isBackup ? "Backup of a folder" : typeLabel(name, kind)}</span>
+              <span className="truncate">{isBackup ? backupKindLabel({ source_path: backup?.source_path }) : typeLabel(name, kind)}</span>
             </Pill>
-            {health ? <Pill variant={health.variant}>{health.text}</Pill> : null}
+            {health ? <Pill variant={health.variant}>{health.label}</Pill> : null}
             {deleted ? (
               <Pill variant="warning">
                 <Trash2 size={ICON_SIZE.xs} aria-hidden="true" />
@@ -604,7 +598,7 @@ function BackupPropertiesSheet({ open = true, onClose, driveId, driveLabel = "Dr
           {isBackup ? (
             <DetailRow
               icon={Clock}
-              label="Last good copy"
+              label="Last copy"
               value={backup?.last_ok_at > 0 ? fmtWhen(backup.last_ok_at) : "No copy finished yet"}
               mono
             />

@@ -9,6 +9,7 @@ import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import LayeredPill from "@libreloom/ui/components/ui/LayeredPill.jsx";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
+import IconCircle from "@libreloom/ui/components/ui/IconCircle.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import { InfoHint, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { deleteJson, getDrives, getJson, postJson, apiErrorMessage } from "../../lib/api";
@@ -78,6 +79,28 @@ export function ProtectButton({ label, onClick, notBackedUp = false }) {
         <Shield size={ICON_SIZE.sm} />
       </Button>
     </Tooltip>
+  );
+}
+
+/** Heading for one place copies can go: icon, name, whether it is on, and a one-line explanation. */
+/** @param {{ icon: any, title: string, hint?: any, on: boolean, children?: any }} props */
+function DestinationHeader({ icon: Icon, title, hint = null, on, children }) {
+  return (
+    <div className="flex items-start gap-3">
+      <IconCircle icon={Icon} size="sm" variant="secondary" className="shrink-0" />
+      <div className="min-w-0 flex-1 space-y-1">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-base font-mono font-normal inline-flex items-center gap-1.5">
+            {title}
+            {hint}
+          </h3>
+          <Pill variant={on ? "success" : "default"} className="shrink-0">
+            {on ? "On" : "Off"}
+          </Pill>
+        </div>
+        {children}
+      </div>
+    </div>
   );
 }
 
@@ -345,31 +368,18 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
 
         <div className="space-y-3">
           <section className="rounded-large-element surface-primary p-4 space-y-3 motion-safe:transition-[box-shadow,transform] motion-safe:duration-200">
-            <div className="flex items-start gap-3">
-              <HardDrive size={ICON_SIZE.md} className="mt-0.5 shrink-0 text-secondary" aria-hidden="true" />
-              <div className="min-w-0 flex-1 space-y-1">
-                <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-secondary text-sm font-mono">On other drives</h3>
-                  {hasBackups && (
-                    <Pill variant="success" className="shrink-0 px-2 py-0.5 leading-none">
-                      On
-                    </Pill>
-                  )}
-                </div>
-                <p className="text-secondary text-sm">
-                  Copies this {thingLabel} onto other drives plugged into Luna.
-                </p>
-              </div>
-            </div>
+            <DestinationHeader icon={HardDrive} title="On other drives" on={hasBackups}>
+              <p className="text-sm">Copies this {thingLabel} onto other drives plugged into Luna.</p>
+            </DestinationHeader>
 
             {tooFewDrives && !blockedCreate ? (
-              <p className="text-secondary text-sm">Needs another drive.</p>
+              <p className="text-sm">Needs another drive.</p>
             ) : (
               <>
                 {matchingBackups.map((b) => (
                   <div
                     key={b.id}
-                    className="rounded-large-element surface-secondary p-3 space-y-3"
+                    className="rounded-large-element surface-secondary p-4 space-y-3"
                   >
                     {b.status === "active" ? (
                       <>
@@ -384,7 +394,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                     ) : (
                       <>
                         <LayeredPill actionLabel={b.target_drive_name}>
-                          {b.status === "source_gone" ? "Source gone" : "Stopped"}
+                          {b.status === "source_gone" ? "Original is gone" : "Stopped"}
                         </LayeredPill>
                         <p className="text-primary text-sm">
                           {b.stop_reason || "This backup has stopped."}
@@ -469,48 +479,41 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
             style={{ transitionDuration: "var(--motion-duration-medium2)" }}
           >
             <div ref={cloudInnerRef} className="p-4 space-y-3">
-              <div className="flex items-start gap-3">
-                <Cloud size={ICON_SIZE.md} className="mt-0.5 shrink-0 text-secondary" aria-hidden="true" />
-                <div className="min-w-0 flex-1 space-y-1">
-                  <div className="flex items-center justify-between gap-3">
-                    <h3 className="text-secondary text-sm font-mono inline-flex items-center gap-1.5">
-                      In the cloud
-                      <InfoHint
-                        surface="primary"
-                        label="What cloud backup means"
-                        content="An off-site copy of your latest files, kept with Luna Connect. It keeps the latest copy, plus about one older copy from each of the last day, week and month. Cloud backup costs $8 per terabyte each month."
-                      />
-                    </h3>
-                    {cloudBackup && (
-                      <Pill variant="success" className="shrink-0 px-2 py-0.5 leading-none">
-                        On
-                      </Pill>
-                    )}
-                  </div>
-                  {!cloudConnected ? (
-                    <p className="text-secondary text-sm">
-                      Link this Luna to Luna Connect. Then you can copy any folder or a whole drive off-site.
+              <DestinationHeader
+                icon={Cloud}
+                title="In the cloud"
+                on={Boolean(cloudBackup)}
+                hint={
+                  <InfoHint
+                    surface="primary"
+                    label="What cloud backup means"
+                    content="An off-site copy of your latest files, kept with Luna Connect. It keeps the latest copy, plus about one older copy from each of the last day, week and month. Cloud backup costs $8 per terabyte each month."
+                  />
+                }
+              >
+                {!cloudConnected ? (
+                  <p className="text-sm">
+                    Link this Luna to Luna Connect. Then you can copy any folder or a whole drive off-site.
+                  </p>
+                ) : (
+                  <>
+                    <p className="text-sm">
+                      {cloudBackup
+                        ? `Luna copies this ${thingLabel} to the cloud every 6 hours.`
+                        : `Copy the latest files from this ${thingLabel} off-site. Luna copies them every 6 hours.`}
                     </p>
-                  ) : (
-                    <>
-                      <p className="text-secondary text-sm">
-                        {cloudBackup
-                          ? `Luna copies this ${thingLabel} to the cloud every 6 hours.`
-                          : `Copy the latest files from this ${thingLabel} off-site. Luna copies them every 6 hours.`}
+                    {!cardOnFile && (
+                      <p className="text-sm">
+                        Add a payment card at Luna Connect: <InlinePill>connect.luna.libreloom.org</InlinePill>.{" "}
+                        {cloudBackup ? "Backups stay paused until then." : "Cloud backup can start after that."}
                       </p>
-                      {!cardOnFile && (
-                        <p className="text-secondary text-sm">
-                          Add a payment card at Luna Connect: <InlinePill>connect.luna.libreloom.org</InlinePill>.{" "}
-                          {cloudBackup ? "Backups stay paused until then." : "Cloud backup can start after that."}
-                        </p>
-                      )}
-                    </>
-                  )}
-                </div>
-              </div>
+                    )}
+                  </>
+                )}
+              </DestinationHeader>
 
               {cloudConnected && cloudBackup && (
-                <div className="rounded-large-element surface-secondary p-3 space-y-3">
+                <div className="rounded-large-element surface-secondary p-4 space-y-3">
                   {cloudBackup.status === "active" ? (
                     <BackupStatusNotice
                       state={cloudBackup.state}

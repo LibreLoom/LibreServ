@@ -63,20 +63,26 @@ export function needsALook(b) {
 }
 
 /**
- * Status pill for one backup row.
+ * Status pill for one backup row. One vocabulary for every screen that shows a backup.
  * @param {any} b
- * @returns {{ label: string, variant: "success"|"warning"|"error"|"muted" }}
+ * @returns {{ label: string, variant: "success"|"warning"|"error"|"default" }}
  */
 export function backupStatus(b) {
-  if (b.status === "stopped") return { label: "Stopped", variant: "muted" };
-  if (b.status === "source_gone") return { label: "Source gone", variant: "muted" };
+  if (b.status === "stopped") return { label: "Stopped", variant: "default" };
+  if (b.status === "source_gone") return { label: "Original is gone", variant: "default" };
   if (b.kind === "cloud" && b.status === "active" && b.source_missing) {
-    return { label: "Waiting for you", variant: "warning" };
+    return { label: "Original is missing", variant: "warning" };
   }
-  if (needsALook(b)) {
-    return { label: "Needs a look", variant: b.state === "failing" ? "error" : "warning" };
-  }
-  return { label: "Backed up", variant: "success" };
+  if (b.state === "failing") return { label: "Last copy failed", variant: "error" };
+  if (b.state === "stale") return { label: "Not copied in a day", variant: "warning" };
+  if (b.kind === "cloud" && b.check_problem) return { label: "Check failed", variant: "warning" };
+  return { label: "Up to date", variant: "success" };
+}
+
+/** What a backup copies, in words: "Folder backup", "Drive backup" or "Cloud backup". */
+export function backupKindLabel(b) {
+  if (b.kind === "cloud") return "Cloud backup";
+  return b.source_path ? "Folder backup" : "Drive backup";
 }
 
 /** Most urgent first: hard errors, then the oldest good copy (0 = never). */
@@ -87,10 +93,10 @@ export function sortByUrgency(list) {
 }
 
 /** @param {any} b @param {number} [now] */
-export function lastGoodCopyLine(b, now = Date.now()) {
+export function lastCopyLine(b, now = Date.now()) {
   return b.last_ok_at
-    ? `Last good copy ${formatRecentAgo(b.last_ok_at * 1000, now)}`
-    : "No good copy yet";
+    ? `Last copy ${formatRecentAgo(b.last_ok_at * 1000, now).replace(/^Just now$/, "just now")}`
+    : "No copy yet";
 }
 
 /** Name shown for a backup's creator, or "Someone" when unknown. */

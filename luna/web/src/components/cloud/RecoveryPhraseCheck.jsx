@@ -1,6 +1,8 @@
 import { useState } from "react";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
+import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
+import { PhraseField } from "./RestoreForm.jsx";
 import { apiErrorMessage } from "../../lib/api";
 import { phraseToEntropy } from "@libreloom/ui/lib/cloud/backupCrypto.js";
 import { checkPhrase, signFreshChallenge } from "../../lib/cloudPhrase";
@@ -54,19 +56,9 @@ export default function RecoveryPhraseCheck({
     <ModalCard open title={title} onClose={onClose} size="md">
       <form onSubmit={submit} className="space-y-4">
         <p className="text-primary text-sm">{intro}</p>
-        <label className="block space-y-1">
-          <span className="text-primary text-sm">Your 12 words</span>
-          <textarea
-            value={words}
-            onChange={(e) => setWords(e.target.value)}
-            rows={3}
-            spellCheck={false}
-            autoComplete="off"
-            className="w-full rounded-large-element border border-primary/30 bg-transparent p-3 text-primary text-sm outline-none focus:border-accent"
-          />
-        </label>
-        {error && <p role="alert" className="text-error text-sm">{error}</p>}
-        {matched && <p role="status" className="text-primary text-sm">Your words match your recovery phrase.</p>}
+        <PhraseField value={words} onChange={setWords} label="Your 12 words" />
+        {error && <PageNotice variant="error">{error}</PageNotice>}
+        {matched && <PageNotice variant="info" surface="primary">Your words match your recovery phrase.</PageNotice>}
         <div className="flex justify-end">
           <Button type="submit" variant="primary" size="sm" loading={checking} disabled={checking || !words.trim()}>
             {submitLabel}

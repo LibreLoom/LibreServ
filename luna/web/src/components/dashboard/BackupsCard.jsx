@@ -1,16 +1,15 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Shield } from "lucide-react";
+import { ChevronRight, KeyRound, Shield } from "lucide-react";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
+import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
-import Pill from "@libreloom/ui/components/common/Pill.jsx";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { getJson } from "../../lib/api";
 import {
   backupHeadline,
-  backupStatus,
   buildBackupRows,
   CARD_PROBLEM_LIMIT,
-  lastGoodCopyLine,
   lastTestedLine,
   needsALook,
   sortByUrgency,
@@ -18,6 +17,7 @@ import {
 import { getPhraseStatus, PHRASE_QUERY_KEY } from "../../lib/cloudPhrase";
 import ProtectSheet from "../files/ProtectSheet.jsx";
 import RecoveryPhraseCheck from "../cloud/RecoveryPhraseCheck.jsx";
+import BackupItem from "../protect/BackupItem.jsx";
 import AllBackupsModal from "./AllBackupsModal.jsx";
 
 const MISSING_SOURCE_REASON = "The folder or drive this backs up is not available right now.";
@@ -39,24 +39,25 @@ function BackupsSummary({ rows, remind, onOpenAll, onOpenProblem, onCheckPhrase 
   const showReminder = remind && problems.length < CARD_PROBLEM_LIMIT;
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-1">
-        <p className="text-lg font-medium">{backupHeadline(rows)}</p>
-        <p>{lastTestedLine(rows)}</p>
+      <div>
+        <div className="flex items-center gap-2 mb-1">
+          <span
+            className="inline-block h-2 w-2 rounded-full shrink-0 surface-primary"
+            aria-hidden="true"
+          />
+          <span className="text-xs font-mono">{lastTestedLine(rows)}</span>
+        </div>
+        <p className="text-3xl font-mono font-normal leading-tight text-primary">{backupHeadline(rows)}</p>
       </div>
       {(problems.length > 0 || showReminder) && (
         <ul className="flex flex-col gap-3">
           {problems.map((b) => (
-            <li key={`${b.kind}-${b.id}`} className="surface-primary rounded-large-element p-3 flex flex-col gap-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-medium min-w-0 break-words">{b.source_name}</span>
-                <Pill variant={backupStatus(b).variant}>{backupStatus(b).label}</Pill>
-              </div>
-              <div className="flex flex-wrap items-center gap-2 text-sm">
-                <Pill>{b.destination}</Pill>
-              </div>
-              <p className="text-sm">{b.last_error || b.check_problem || (b.source_missing ? MISSING_SOURCE_REASON : FALLBACK_REASON)}</p>
-              <p className="text-sm">{lastGoodCopyLine(b)}</p>
-              <div>
+            <li key={`${b.kind}-${b.id}`}>
+              <BackupItem
+                backup={b}
+                surface="primary"
+                note={<p>{b.last_error || b.check_problem || (b.source_missing ? MISSING_SOURCE_REASON : FALLBACK_REASON)}</p>}
+              >
                 <Button
                   variant="outline"
                   surface="primary"
@@ -66,29 +67,28 @@ function BackupsSummary({ rows, remind, onOpenAll, onOpenProblem, onCheckPhrase 
                 >
                   Open
                 </Button>
-              </div>
+              </BackupItem>
             </li>
           ))}
           {showReminder && (
-            <li className="surface-primary rounded-large-element p-3 flex flex-col gap-2">
-              <span className="font-medium">Check your recovery phrase</span>
-              <p className="text-sm">It&apos;s been a while. Make sure your 12 words still open your cloud backups.</p>
-              <div>
-                <Button variant="outline" surface="primary" size="sm" onClick={onCheckPhrase}>
-                  Check now
-                </Button>
+            <li className="surface-primary rounded-large-element p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <KeyRound size={ICON_SIZE.sm} aria-hidden="true" />
+                <span className="text-xs font-mono">Recovery phrase</span>
               </div>
+              <p className="text-xl font-mono font-normal leading-tight">Check your recovery phrase</p>
+              <p className="text-sm">It&apos;s been a while. Make sure your 12 words still open your cloud backups.</p>
+              <Button variant="outline" surface="primary" size="sm" onClick={onCheckPhrase}>
+                Check now
+              </Button>
             </li>
           )}
         </ul>
       )}
-      {rows.length > 0 && (
-        <div>
-          <Button variant="outline" size="sm" onClick={onOpenAll}>
-            See all backups
-          </Button>
-        </div>
-      )}
+      <Button size="md" variant="primary" fullWidth className="justify-between" onClick={onOpenAll}>
+        <span>See all backups</span>
+        <ChevronRight size={16} aria-hidden="true" />
+      </Button>
     </div>
   );
 }
@@ -128,10 +128,12 @@ export default function BackupsCard() {
   } else {
     body =
       rows.length === 0 ? (
-        <div className="flex flex-col gap-1">
-          <p className="text-lg font-medium">No backups yet.</p>
-          <p>Click the shield icon beside an item to back it up.</p>
-        </div>
+        <EmptyState
+          surface="primary"
+          icon={Shield}
+          title="No backups yet"
+          description="Click the shield icon beside a drive or folder to back it up."
+        />
       ) : (
         <BackupsSummary
           rows={rows}

@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertCircle, KeyRound } from "lucide-react";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
+import SettingsRow from "@libreloom/ui/components/settings/SettingsRow.jsx";
 import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { useOptionalAuth } from "../../context/AuthContext";
@@ -14,7 +15,7 @@ import RecoveryPhraseSetup from "./RecoveryPhraseSetup.jsx";
 /** Error line for a failed start: the icon carries the red, the words stay neutral text. */
 function StartError({ children }) {
   return (
-    <p role="alert" className="flex items-start gap-2 text-primary text-sm">
+    <p role="alert" className="flex items-start gap-2 px-4 py-3 text-primary text-sm">
       <AlertCircle size={ICON_SIZE.sm} className="mt-0.5 shrink-0 text-error" aria-hidden="true" />
       <span>{children}</span>
     </p>
@@ -81,58 +82,60 @@ export default function RecoveryPhraseCard() {
 
   let body;
   if (status.isPending) {
-    body = <p className="text-primary text-sm">Checking your recovery phrase…</p>;
+    body = <p className="px-4 py-3 text-primary text-sm">Checking your recovery phrase…</p>;
   } else if (status.isError) {
     body = (
-      <p className="text-primary text-sm">
+      <p className="px-4 py-3 text-primary text-sm">
         {apiErrorMessage(status.error, "Could not load your recovery phrase status. Try again later.")}
       </p>
     );
   } else if (!isSet) {
     body = (
-      <div className="space-y-3">
-        <p className="text-primary text-sm">
-          Recovery phrase: <span>Not set</span>
-        </p>
-        <p className="text-primary text-sm">
-          Cloud backups are locked with 12 words only you know. Only people with a recovery phrase for that backup can open it.
-        </p>
-        <Button variant="primary" size="sm" disabled={!userId || starting} loading={starting} onClick={() => openSetup(false)}>
-          Set up
-        </Button>
+      <>
+        <SettingsRow
+          stack
+          label="Recovery phrase"
+          description="Not set. Cloud backups are locked with 12 words only you know. Only people with a recovery phrase for that backup can open it."
+          hideDivider={!startError}
+        >
+          <Button variant="primary" size="sm" disabled={!userId || starting} loading={starting} onClick={() => openSetup(false)}>
+            Set up
+          </Button>
+        </SettingsRow>
         {startError && <StartError>{startError}</StartError>}
-      </div>
+      </>
     );
   } else {
     body = (
-      <div className="space-y-3">
-        <p className="text-primary text-sm">
-          Recovery phrase: <span>Set on {formatSetAt(status.data?.set_at)}</span>
-        </p>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" onClick={() => setDialog({ kind: "check" })}>
-            Check my words
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={!userId || starting}
-            loading={starting}
-            onClick={() => openSetup(true)}
-          >
-            Change
-          </Button>
-        </div>
-        <div className="space-y-2">
-          <p className="text-primary text-sm">
-            Lost your 12 words? Get a new phrase without the old one. Your old phrase stops working for you, and backups sealed with it can then be opened only by others who have access to them.
-          </p>
+      <>
+        <SettingsRow stack label="Recovery phrase" description={`Set on ${formatSetAt(status.data?.set_at)}`}>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" onClick={() => setDialog({ kind: "check" })}>
+              Check my words
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!userId || starting}
+              loading={starting}
+              onClick={() => openSetup(true)}
+            >
+              Change
+            </Button>
+          </div>
+        </SettingsRow>
+        <SettingsRow
+          stack
+          hideDivider={!startError}
+          label="Lost your 12 words?"
+          description="Get a new phrase without the old one. Your old phrase stops working for you, and backups sealed with it can then be opened only by others who have access to them."
+        >
           <Button variant="outline" size="sm" disabled={!userId || starting} onClick={() => openSetup(true)}>
             Get a new phrase
           </Button>
-        </div>
+        </SettingsRow>
         {startError && <StartError>{startError}</StartError>}
-      </div>
+      </>
     );
   }
 
@@ -141,6 +144,7 @@ export default function RecoveryPhraseCard() {
       <SettingsCard
         icon={KeyRound}
         title="Recovery phrase"
+        padding={false}
         headerActions={
           <InfoHint
             label="What the recovery phrase is"

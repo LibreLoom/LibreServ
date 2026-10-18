@@ -4,7 +4,7 @@ import {
   backupStatus,
   buildBackupRows,
   groupByCreator,
-  lastGoodCopyLine,
+  lastCopyLine,
   lastTestedLine,
   needsALook,
   privateGroups,
@@ -106,22 +106,22 @@ describe("needsALook", () => {
 });
 
 describe("backupStatus", () => {
-  it("shows Waiting for you for a cloud row that held for a missing source", () => {
+  it("shows Original is missing for a cloud row that held for a missing source", () => {
     expect(backupStatus(cloud({ source_missing: true }))).toEqual({
-      label: "Waiting for you",
+      label: "Original is missing",
       variant: "warning",
     });
   });
 
-  it("keeps the old labels for drive rows", () => {
-    expect(backupStatus(drive()).label).toBe("Backed up");
-    expect(backupStatus(drive({ state: "failing" }))).toEqual({ label: "Needs a look", variant: "error" });
+  it("labels drive rows in plain words", () => {
+    expect(backupStatus(drive()).label).toBe("Up to date");
+    expect(backupStatus(drive({ state: "failing" }))).toEqual({ label: "Last copy failed", variant: "error" });
     expect(backupStatus(drive({ status: "stopped" })).label).toBe("Stopped");
-    expect(backupStatus(drive({ status: "source_gone" })).label).toBe("Source gone");
+    expect(backupStatus(drive({ status: "source_gone" })).label).toBe("Original is gone");
   });
 });
 
-describe("sortByUrgency and lastGoodCopyLine", () => {
+describe("sortByUrgency and lastCopyLine", () => {
   it("puts hard errors first, then the oldest good copy", () => {
     const sorted = sortByUrgency([
       { id: "y", last_ok_at: 200 },
@@ -132,8 +132,8 @@ describe("sortByUrgency and lastGoodCopyLine", () => {
   });
 
   it("says when there is no good copy yet", () => {
-    expect(lastGoodCopyLine(drive(), NOW)).toBe("No good copy yet");
-    expect(lastGoodCopyLine(cloud({ last_ok_at: NOW / 1000 - 300 }), NOW)).toBe("Last good copy 5 min ago");
+    expect(lastCopyLine(drive(), NOW)).toBe("No copy yet");
+    expect(lastCopyLine(cloud({ last_ok_at: NOW / 1000 - 300 }), NOW)).toBe("Last copy 5 min ago");
   });
 });
 

@@ -1,5 +1,5 @@
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
-import { formatRecentAgo } from "../../lib/recentItems.js";
+import { lastCopyLine } from "../../lib/backupRows.js";
 
 /**
  * BackupStatusNotice — why a backup is out of date, shown where it's
@@ -16,11 +16,10 @@ import { formatRecentAgo } from "../../lib/recentItems.js";
  */
 export default function BackupStatusNotice({ state, lastError, lastOkAt, staleText, surface }) {
   if (!state || state === "ok") return null;
-  const when = lastOkAt ? formatRecentAgo(lastOkAt * 1000).replace(/^Just now$/, "just now") : "never";
   return (
     <PageNotice variant="warning" surface={surface}>
       <p>{lastError || staleText}</p>
-      <p>Last full copy: {when}</p>
+      <p>{lastCopyLine({ last_ok_at: lastOkAt })}</p>
     </PageNotice>
   );
 }

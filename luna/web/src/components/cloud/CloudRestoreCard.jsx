@@ -1,14 +1,13 @@
 import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CloudDownload } from "lucide-react";
-import Button from "@libreloom/ui/components/ui/Button.jsx";
-import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
 import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { shakeElement } from "@libreloom/ui/utils/shake.js";
 import { useOptionalAuth } from "../../context/AuthContext";
+import RestoreForm from "./RestoreForm.jsx";
 import { apiErrorMessage } from "../../lib/api";
 import { getPhraseStatus, PHRASE_QUERY_KEY } from "../../lib/cloudPhrase";
 import { getRestoreStatus, restoreFromPhrase, RESTORE_QUERY_KEY } from "../../lib/cloudRestore";
@@ -100,35 +99,15 @@ export default function CloudRestoreCard() {
           <InfoHint label="What a version is" content="One saved state of a backup, from one time it ran." />
         </p>
 
-        <form onSubmit={submit} className="space-y-3">
-          <label className="block space-y-1">
-            <span className="text-primary text-sm">Recovery phrase</span>
-            <textarea
-              ref={fieldRef}
-              value={words}
-              onChange={(e) => setWords(e.target.value)}
-              placeholder="12 words, with spaces between them"
-              rows={3}
-              autoComplete="off"
-              spellCheck={false}
-              autoCapitalize="none"
-              className="w-full rounded-large-element bg-transparent border border-primary/30 p-3 text-primary text-sm outline-none focus:border-accent"
-            />
-          </label>
-          <p className="text-primary text-sm">
-            Only type your recovery phrase on this Luna or on <InlinePill>connect.luna.libreloom.org</InlinePill>.
-          </p>
-          {error && <PageNotice variant="error">{error}</PageNotice>}
-          <Button
-            type="submit"
-            variant="primary"
-            size="sm"
-            loading={restoreMutation.isPending}
-            disabled={restoreMutation.isPending || !words.trim()}
-          >
-            Find my backups
-          </Button>
-        </form>
+        <RestoreForm
+          words={words}
+          onWords={setWords}
+          onSubmit={submit}
+          error={error}
+          pending={restoreMutation.isPending}
+          submitLabel="Find my backups"
+          fieldRef={fieldRef}
+        />
       </div>
     </SettingsCard>
   );
