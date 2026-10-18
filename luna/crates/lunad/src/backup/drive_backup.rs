@@ -48,6 +48,20 @@ fn problem_outcome(message: &str) -> RunOutcome {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Refused(pub String);
 
+/// Display name of a user for a refusal message, falling back to the id.
+fn owner_name(conn: &Connection, user_id: &str) -> String {
+    match db::get_user(conn, user_id) {
+        Ok(Some(u)) if !u.display_name.is_empty() => u.display_name,
+        Ok(Some(u)) => u.username,
+        _ => user_id.to_string(),
+    }
+}
+
+/// The private owner a manifest records for `row`; None for a shared folder.
+fn owner_of(row: &ProtectionRow) -> Option<String> {
+    (!row.private_owner.is_empty()).then(|| row.private_owner.clone())
+}
+
 /// Start a drive backup of `source_path` on `source_drive` onto
 /// `target_drive` for `user`. Permission rules (plan §2): Read on the source,
 /// Write on the target drive, Admin for a whole drive; never a source inside
@@ -84,11 +98,25 @@ pub fn create(
             "A backup has to go on a different drive from the folder it copies.".into(),
         ));
     }
-    if crate::auth::inside_private(conn, source_drive, &norm) {
-        return Err(refuse(
-            "Private items are backed up from their own shield by their owner.".into(),
-        ));
-    }
+    // A private item is backed up by its owner only. Inside one, the folder
+    // is not a backup source on its own.
+    let private_owner = match access_list::private_source(conn, source_drive, &norm) {
+        access_list::PrivateSource::Shared => None,
+        access_list::PrivateSource::OwnItem { owner } => {
+            if owner != user.id {
+                return Err(refuse(format!(
+                    "Only {} can back up this item.",
+                    owner_name(conn, &owner)
+                )));
+            }
+            Some(owner)
+        }
+        access_list::PrivateSource::Inside => {
+            return Err(refuse(
+                "Back up the private item itself, from its own shield.".into(),
+            ));
+        }
+    };
 
     let source_label = drive_label(conn, source_drive);
     let folder = folder_name(&norm, &source_label);
@@ -142,7 +170,11 @@ pub fn create(
         return Ok(existing);
     }
 
-    let access = access_list::for_source(conn, source_drive, &norm).map_err(|_| db_refused())?;
+    let access = match &private_owner {
+        Some(owner) => access_list::for_private(conn, source_drive, &norm, owner),
+        None => access_list::for_source(conn, source_drive, &norm),
+    }
+    .map_err(|_| db_refused())?;
     let access_json = serde_json::to_string(&access).map_err(|_| db_refused())?;
     let id = uuid::Uuid::new_v4().to_string();
     db::insert_protection(
@@ -153,7 +185,7 @@ pub fn create(
             source_drive,
             source_path: &norm,
             target_drive,
-            private_owner: "",
+            private_owner: private_owner.as_deref().unwrap_or(""),
             created_by: &user.id,
             created_at: db::now_unix(),
         },
@@ -189,13 +221,13 @@ pub fn run_all(db: &crate::Db, now: i64) -> bool {
         }
     };
     let mut changed = false;
-    for row in rows
-        .iter()
-        .filter(|r| {
-            r.kind == db::PROTECTION_DRIVE
-                && matches!(r.state.as_str(), db::PROTECTION_ACTIVE | db::PROTECTION_SOURCE_GONE)
-        })
-    {
+    for row in rows.iter().filter(|r| {
+        r.kind == db::PROTECTION_DRIVE
+            && matches!(
+                r.state.as_str(),
+                db::PROTECTION_ACTIVE | db::PROTECTION_SOURCE_GONE
+            )
+    }) {
         let before = (row.state.clone(), backup_state(row, now));
         if let Err(e) = run(db, &row.id, now) {
             tracing::warn!(error = %e, id = %row.id, "drive backup run failed");
@@ -433,8 +465,7 @@ fn run_inner(
                     let Some(fresh) = db::get_protection(c, id)? else {
                         return Ok(None);
                     };
-                    let fresh_access =
-                        access_list::for_row(c, &fresh)?;
+                    let fresh_access = access_list::for_row(c, &fresh)?;
                     let state: ManifestState = (
                         fresh.source_drive.clone(),
                         drive_label(c, &fresh.source_drive),
@@ -545,7 +576,7 @@ fn sync_target(
             source_drive_id: row.source_drive.clone(),
             source_drive_label: source_label.to_string(),
             source_path: row.source_path.clone(),
-            private_owner: None,
+            private_owner: owner_of(row),
             created_by: row.created_by.clone(),
             created_at: row.created_at,
             access: access.clone(),
@@ -640,11 +671,18 @@ fn sync_target(
     manifest.source_drive_id = row.source_drive.clone();
     manifest.source_path = row.source_path.clone();
     manifest.access = access.clone();
+    manifest.private_owner = owner_of(row);
     if let Some(luna_id) = luna_id {
         manifest.luna_id = luna_id;
     }
     manifest.last_ok_at = now;
-    save_manifest(&store, &mut manifest, now, &mut outcome.notes, &target.label)?;
+    save_manifest(
+        &store,
+        &mut manifest,
+        now,
+        &mut outcome.notes,
+        &target.label,
+    )?;
 
     for rel in &deletions {
         #[cfg(test)]
@@ -667,7 +705,13 @@ fn sync_target(
     }
     // Making room during a removal can thin the manifest, so save it again.
     if !deletions.is_empty() {
-        save_manifest(&store, &mut manifest, now, &mut outcome.notes, &target.label)?;
+        save_manifest(
+            &store,
+            &mut manifest,
+            now,
+            &mut outcome.notes,
+            &target.label,
+        )?;
     }
     Ok(Some(outcome))
 }
@@ -1055,6 +1099,18 @@ mod tests {
         s.src_root.join("Docs")
     }
 
+    /// Make `Docs` a private item owned by `owner`. A private item lives on
+    /// disk under its `.luna-<prefix>-<id>` name, so move the folder there and
+    /// return that disk path.
+    fn make_private_docs(s: &Setup, owner: &str) -> PathBuf {
+        crate::private::create(&s.src_root, "Docs", owner).unwrap();
+        let disk = s
+            .src_root
+            .join(crate::private::disk_rel(&s.src_root, "Docs"));
+        fs::rename(docs(s), &disk).unwrap();
+        disk
+    }
+
     fn write(path: &Path, body: &str) {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(path, body).unwrap();
@@ -1207,7 +1263,11 @@ mod tests {
         assert!(deleted.contains_key("b.txt"));
         assert_eq!(
             store(&s, &id).current_files().unwrap(),
-            vec!["b.txt".to_string(), "c.txt".to_string(), "d.txt".to_string()]
+            vec![
+                "b.txt".to_string(),
+                "c.txt".to_string(),
+                "d.txt".to_string()
+            ]
         );
 
         // The next clean run finishes the removal and keeps both entries.
@@ -1260,7 +1320,12 @@ mod tests {
         run(&s.db, &id, NOW + 60).unwrap();
 
         assert!(!row(&s, &id).access_json.contains("member"));
-        assert!(!manifest(&s, &id).access.users.contains(&"member".to_string()));
+        assert!(
+            !manifest(&s, &id)
+                .access
+                .users
+                .contains(&"member".to_string())
+        );
     }
 
     #[test]
@@ -1382,7 +1447,12 @@ mod tests {
         }
         let held = run(&s.db, &id, NOW + 60).unwrap();
         assert_eq!(held.removed, 0);
-        assert!(held.problem.as_deref().unwrap().starts_with("Most of Docs seems to be gone"));
+        assert!(
+            held.problem
+                .as_deref()
+                .unwrap()
+                .starts_with("Most of Docs seems to be gone")
+        );
         let r = row(&s, &id);
         assert!(r.hard);
         assert!(r.last_error.starts_with("Most of Docs seems to be gone"));
@@ -1572,7 +1642,10 @@ mod tests {
         // A damaged signing key makes identity::load fail.
         s.db.lock()
             .unwrap()
-            .execute("UPDATE cloud_identity SET signing_seed = x'01' WHERE id = 1", [])
+            .execute(
+                "UPDATE cloud_identity SET signing_seed = x'01' WHERE id = 1",
+                [],
+            )
             .unwrap();
         run(&s.db, &id, NOW + 60).unwrap();
         assert_eq!(manifest(&s, &id).luna_id, Some(luna_id));
@@ -1735,7 +1808,11 @@ mod tests {
         let outcome = sync_target(&small, &r, "Photos", walked, &access, None, false, NOW)
             .unwrap()
             .unwrap();
-        assert!(outcome.notes.iter().any(|n| n.contains("a.txt")), "{:?}", outcome.notes);
+        assert!(
+            outcome.notes.iter().any(|n| n.contains("a.txt")),
+            "{:?}",
+            outcome.notes
+        );
         assert_eq!(
             fs::read_to_string(store(&s, &id).current_dir().join("a.txt")).unwrap(),
             "one"
@@ -1775,5 +1852,150 @@ mod tests {
         let files = store(&s, &id).current_files().unwrap();
         assert_eq!(files.len(), 1, "{files:?}");
         assert_eq!(files[0].to_lowercase(), "notes.txt");
+    }
+
+    #[test]
+    fn create_private_owner_backs_up_own_item() {
+        let s = setup();
+        make_private_docs(&s, "admin");
+        let id = make_backup(&s);
+        let r = row(&s, &id);
+        assert_eq!(r.private_owner, "admin");
+        let list: access_list::AccessList = serde_json::from_str(&r.access_json).unwrap();
+        assert!(!list.admins, "a private backup never has Admins");
+        assert_eq!(list.users, vec!["admin".to_string()]);
+    }
+
+    #[test]
+    fn create_private_refuses_someone_other_than_the_owner() {
+        let s = setup();
+        {
+            let conn = s.db.lock().unwrap();
+            crate::db::insert_user(&conn, "ann", "ann", "Ann", "", "member").unwrap();
+        }
+        crate::private::create(&s.src_root, "Docs", "ann").unwrap();
+        let conn = s.db.lock().unwrap();
+        // The Admin has no Read on Ann's private item, so the Read check refuses
+        // first. No Admin path reaches a private item it doesn't own.
+        let err = create(&conn, &s.admin, &s.src, "Docs", &s.tgt).unwrap_err();
+        assert_eq!(err.0, "You need Read access to this folder to back it up.");
+    }
+
+    #[test]
+    fn owner_name_uses_display_name_for_the_owner_message() {
+        let s = setup();
+        let conn = s.db.lock().unwrap();
+        crate::db::insert_user(&conn, "ann", "ann", "Ann", "", "member").unwrap();
+        // The "Only <name> can back up this item." message is built from this.
+        assert_eq!(owner_name(&conn, "ann"), "Ann");
+        assert_eq!(owner_name(&conn, "missing-id"), "missing-id");
+    }
+
+    #[test]
+    fn create_refuses_folder_inside_private_item() {
+        let s = setup();
+        fs::create_dir_all(docs(&s).join("Sub")).unwrap();
+        crate::private::create(&s.src_root, "Docs", "admin").unwrap();
+        let conn = s.db.lock().unwrap();
+        let err = create(&conn, &s.admin, &s.src, "Docs/Sub", &s.tgt).unwrap_err();
+        assert_eq!(err.0, "Back up the private item itself, from its own shield.");
+    }
+
+    #[test]
+    fn run_writes_private_owner_into_manifest() {
+        let s = setup();
+        let disk = make_private_docs(&s, "admin");
+        write(&disk.join("a.txt"), "hello");
+        let id = make_backup(&s);
+        run(&s.db, &id, NOW).unwrap();
+        assert_eq!(manifest(&s, &id).private_owner.as_deref(), Some("admin"));
+    }
+
+    #[test]
+    fn run_shared_folder_has_no_private_owner_in_manifest() {
+        let s = setup();
+        write(&docs(&s).join("a.txt"), "hello");
+        let id = make_backup(&s);
+        run(&s.db, &id, NOW).unwrap();
+        assert_eq!(manifest(&s, &id).private_owner, None);
+    }
+
+    #[test]
+    fn someone_else_is_refused_with_the_owner_name() {
+        let s = setup();
+        crate::private::create(&s.src_root, "Docs", "ann").unwrap();
+        {
+            let conn = s.db.lock().unwrap();
+            db::insert_user(&conn, "ann", "ann", "Ann", "", "member").unwrap();
+            db::insert_user(&conn, "member", "member", "Member", "", "member").unwrap();
+            // Read on the private folder and Write on the backup drive, so
+            // only the owner check can refuse.
+            db::insert_access_member(
+                &conn,
+                &db::AccessMemberRow {
+                    id: "grant-view".into(),
+                    subject_kind: crate::access::KIND_PATH.into(),
+                    drive_id: s.src.clone(),
+                    path: "Docs".into(),
+                    album_id: String::new(),
+                    user_id: "member".into(),
+                    caps: crate::access::CAP_VIEW.into(),
+                    created_by: "admin".into(),
+                },
+            )
+            .unwrap();
+            db::insert_access_member(
+                &conn,
+                &db::AccessMemberRow {
+                    id: "grant-edit".into(),
+                    subject_kind: crate::access::KIND_PATH.into(),
+                    drive_id: s.tgt.clone(),
+                    path: String::new(),
+                    album_id: String::new(),
+                    user_id: "member".into(),
+                    caps: crate::access::CAP_EDIT.into(),
+                    created_by: "admin".into(),
+                },
+            )
+            .unwrap();
+        }
+        let member = CurrentUser {
+            id: "member".into(),
+            username: "member".into(),
+            role: "member".into(),
+        };
+        let conn = s.db.lock().unwrap();
+        let err = create(&conn, &member, &s.src, "Docs", &s.tgt).unwrap_err();
+        assert_eq!(err.0, "Only Ann can back up this item.");
+    }
+
+    #[test]
+    fn private_backup_keeps_admins_off_after_a_run() {
+        let s = setup();
+        let disk = make_private_docs(&s, "admin");
+        write(&disk.join("a.txt"), "one");
+        let id = make_backup(&s);
+        run(&s.db, &id, NOW).unwrap();
+        let r = row(&s, &id);
+        let list: access_list::AccessList = serde_json::from_str(&r.access_json).unwrap();
+        assert!(!list.admins, "a private backup never has Admins");
+        assert_eq!(list.users, vec!["admin".to_string()]);
+        assert!(!manifest(&s, &id).access.admins);
+    }
+
+    #[test]
+    fn shared_backup_has_no_private_entries() {
+        let s = setup();
+        write(&docs(&s).join("a.txt"), "one");
+        let id = make_backup(&s);
+        run(&s.db, &id, NOW).unwrap();
+        let r = row(&s, &id);
+        assert_eq!(r.private_owner, "");
+        let list: access_list::AccessList = serde_json::from_str(&r.access_json).unwrap();
+        assert!(list.admins, "a shared backup keeps Admins");
+        assert_eq!(manifest(&s, &id).private_owner, None);
+        let files = store(&s, &id).current_files().unwrap();
+        assert_eq!(files, vec!["a.txt".to_string()]);
+        assert!(files.iter().all(|f| !f.contains(".luna-")), "{files:?}");
     }
 }

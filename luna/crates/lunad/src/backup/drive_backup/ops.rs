@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use anyhow::Context;
 use rusqlite::Connection;
 
-use crate::backup::access_list::AccessList;
+use crate::backup::access_list::{self, AccessList};
 use crate::backup::drive_store::{self, Store};
 use crate::backup::status::{self, BackupState, Record};
 use crate::db::{self, DriveRow, NewProtection, ProtectionRow};
@@ -34,10 +34,22 @@ fn connected_target(conn: &Connection, drive_id: &str) -> Option<(PathBuf, Layou
 }
 
 pub(super) fn stop_reason(conn: &Connection, row: &ProtectionRow) -> Option<&'static str> {
-    let norm = crate::access::normalize_subject_path(&row.source_path);
-    if crate::auth::inside_private(conn, &row.source_drive, &norm) {
-        Some("This folder is now inside a private item.")
-    } else if row.source_drive == row.target_drive {
+    if row.private_owner.is_empty() {
+        // A shared folder must not drift into a private item.
+        let norm = crate::access::normalize_subject_path(&row.source_path);
+        match access_list::private_source(conn, &row.source_drive, &norm) {
+            access_list::PrivateSource::Shared => {}
+            access_list::PrivateSource::OwnItem { .. } => {
+                return Some("This folder is now a private item.");
+            }
+            access_list::PrivateSource::Inside => {
+                return Some("This folder is now inside a private item.");
+            }
+        }
+    } else if let Some(reason) = access_list::private_stop_reason(conn, row) {
+        return Some(reason);
+    }
+    if row.source_drive == row.target_drive {
         Some("This folder is now on the backup drive itself.")
     } else {
         None
@@ -85,7 +97,10 @@ pub fn delete(conn: &Connection, row: &ProtectionRow) -> anyhow::Result<()> {
 /// being a backup at once, then removes it on a background thread. The
 /// rename is quick, so this can run while the database lock is held.
 fn retire_store(root: &Path) -> anyhow::Result<()> {
-    let name = root.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+    let name = root
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or_default();
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)?
         .as_nanos();
@@ -520,7 +535,11 @@ mod tests {
         );
         assert!(store.root().exists());
         assert!(db::get_protection(&conn, &row.id).unwrap().is_some());
-        assert!(db::get_meta(&conn, &deleted_key(&row.id)).unwrap().is_none());
+        assert!(
+            db::get_meta(&conn, &deleted_key(&row.id))
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]
@@ -609,5 +628,122 @@ mod tests {
         assert!(visible_to(&row, &user("member", "user")));
         assert!(visible_to(&row, &user("boss", "admin")));
         assert!(!visible_to(&row, &user("stranger", "user")));
+    }
+
+    fn protect_private(
+        conn: &Connection,
+        src: &str,
+        path: &str,
+        target: &str,
+        owner: &str,
+    ) -> ProtectionRow {
+        let id = uuid::Uuid::new_v4().to_string();
+        db::insert_protection(
+            conn,
+            &NewProtection {
+                id: &id,
+                kind: db::PROTECTION_DRIVE,
+                source_drive: src,
+                source_path: &crate::access::normalize_subject_path(path),
+                target_drive: target,
+                private_owner: owner,
+                created_by: "u1",
+                created_at: NOW - 100,
+            },
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn stop_reason_when_private_item_changes_owner() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        let (src, root, _) = new_drive(dir.path(), &conn);
+        let (target, _, _) = new_drive(dir.path(), &conn);
+        crate::private::create(&root, "Docs", "u1").unwrap();
+        let row = protect_private(&conn, &src, "Docs", &target, "u1");
+        assert_eq!(stop_reason(&conn, &row), None);
+        crate::private::remove(&root, "Docs").unwrap();
+        crate::private::create(&root, "Docs", "u2").unwrap();
+        assert_eq!(
+            stop_reason(&conn, &row),
+            Some("This folder now belongs to someone else.")
+        );
+    }
+
+    #[test]
+    fn stop_reason_when_shared_folder_becomes_private() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        let (src, root, _) = new_drive(dir.path(), &conn);
+        let (target, _, _) = new_drive(dir.path(), &conn);
+        let row = protect(&conn, &src, "/Docs", &target);
+        assert_eq!(stop_reason(&conn, &row), None);
+        crate::private::create(&root, "Docs", "u1").unwrap();
+        assert_eq!(
+            stop_reason(&conn, &row),
+            Some("This folder is now a private item.")
+        );
+    }
+
+    #[test]
+    fn stop_reason_when_shared_folder_goes_inside_private_item() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        let (src, root, _) = new_drive(dir.path(), &conn);
+        let (target, _, _) = new_drive(dir.path(), &conn);
+        let row = protect(&conn, &src, "/Docs/Sub", &target);
+        assert_eq!(stop_reason(&conn, &row), None);
+        crate::private::create(&root, "Docs", "u1").unwrap();
+        assert_eq!(
+            stop_reason(&conn, &row),
+            Some("This folder is now inside a private item.")
+        );
+    }
+
+    #[test]
+    fn stop_reason_none_for_private_item_still_owned_by_same_user() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        let (src, root, _) = new_drive(dir.path(), &conn);
+        let (target, _, _) = new_drive(dir.path(), &conn);
+        crate::private::create(&root, "Docs", "u1").unwrap();
+        let row = protect_private(&conn, &src, "Docs", &target, "u1");
+        assert_eq!(stop_reason(&conn, &row), None);
+    }
+
+    #[test]
+    fn renaming_the_private_item_keeps_its_backup() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        let (src, root, _) = new_drive(dir.path(), &conn);
+        let (target, _, _) = new_drive(dir.path(), &conn);
+        crate::private::create(&root, "Docs", "u1").unwrap();
+        let row = protect_private(&conn, &src, "Docs", &target, "u1");
+        crate::private::repath(&root, "Docs", "Papers").unwrap();
+        on_moved(&conn, &src, "Docs", &src, "Papers");
+        let after = db::get_protection(&conn, &row.id).unwrap().unwrap();
+        assert_eq!(after.state, "active", "{}", after.stop_reason);
+        assert!(after.source_path.ends_with("Papers"), "{}", after.source_path);
+        assert_eq!(after.private_owner, "u1");
+        assert_eq!(stop_reason(&conn, &after), None);
+    }
+
+    #[test]
+    fn private_backup_stops_when_moved_inside_another_private_item() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        let (src, root, _) = new_drive(dir.path(), &conn);
+        let (target, _, _) = new_drive(dir.path(), &conn);
+        crate::private::create(&root, "Vault", "u1").unwrap();
+        crate::private::create(&root, "Docs", "u1").unwrap();
+        let row = protect_private(&conn, &src, "Docs", &target, "u1");
+        on_moved(&conn, &src, "Docs", &src, "Vault/Docs");
+        let after = db::get_protection(&conn, &row.id).unwrap().unwrap();
+        assert_eq!(after.state, "stopped");
+        assert_eq!(
+            after.stop_reason,
+            "This private item is now inside another private item."
+        );
     }
 }

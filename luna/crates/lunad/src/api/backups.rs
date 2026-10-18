@@ -257,7 +257,10 @@ fn backup_json(conn: &Connection, row: &ProtectionRow, user: &CurrentUser, now: 
 
 /// A refusal about who may do something is 403; anything else is 400.
 fn refusal_status(msg: &str) -> StatusCode {
-    if msg.starts_with("You need") || msg.starts_with("Only an Admin") {
+    let who_may = msg.starts_with("You need")
+        || msg.starts_with("Only an Admin")
+        || (msg.starts_with("Only ") && msg.ends_with("can back up this item."));
+    if who_may {
         StatusCode::FORBIDDEN
     } else {
         StatusCode::BAD_REQUEST
@@ -571,5 +574,37 @@ mod tests {
         .await;
         assert_eq!(status, axum::http::StatusCode::FORBIDDEN);
         assert!(json["error"].as_str().unwrap().starts_with("You need"));
+    }
+
+    #[test]
+    fn refusal_status_maps_who_may_refusals_to_403() {
+        use axum::http::StatusCode;
+        assert_eq!(
+            super::refusal_status("You need Read access to this folder to back it up."),
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            super::refusal_status("Only an Admin can back up a whole drive."),
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            super::refusal_status("Only Ann can back up this item."),
+            StatusCode::FORBIDDEN
+        );
+    }
+
+    #[test]
+    fn refusal_status_keeps_other_refusals_at_400() {
+        use axum::http::StatusCode;
+        assert_eq!(
+            super::refusal_status(
+                "This folder is inside a private item, so it can't be backed up here."
+            ),
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            super::refusal_status("Only one copy can run at a time."),
+            StatusCode::BAD_REQUEST
+        );
     }
 }
