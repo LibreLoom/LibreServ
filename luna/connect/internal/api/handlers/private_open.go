@@ -22,6 +22,9 @@ import (
 )
 
 const privateChallengeTTL = 5 * 60
+
+// maxPrivateChallenges is how many unspent challenges one Luna and link may hold at once.
+const maxPrivateChallenges = 20
 const privateSessionTTL = 30 * 60
 const privateOpenDomain = "private-open"
 const privateScopeDomain = "private-scope"
@@ -31,6 +34,9 @@ const privateOpenReadErr = "Cloud storage could not open your private items. Try
 
 // errPrivateDenied is every refusal that the caller should see as the same 403.
 var errPrivateDenied = errors.New("private open denied")
+
+// errTooManyChallenges means the Luna and link already hold their limit of unspent challenges.
+var errTooManyChallenges = errors.New("too many open challenges")
 
 // lunaCanonical mirrors crypto::canonical: for each field, u32 BE len(name) ‖ name ‖ u32 BE len(value) ‖ value.
 func lunaCanonical(fields ...[2][]byte) []byte {
@@ -181,6 +187,14 @@ func newPrivateChallenge(d Deps, s readScope, linkID string, now time.Time) (str
 	if _, err := d.DB.Exec(`DELETE FROM private_sessions WHERE expires_at < ?`, now.Unix()); err != nil {
 		return "", err
 	}
+	var open int
+	if err := d.DB.QueryRow(`SELECT COUNT(*) FROM private_challenges WHERE account_id = ? AND luna_id = ? AND link_id = ?`,
+		s.AccountID, s.LunaID, linkID).Scan(&open); err != nil {
+		return "", err
+	}
+	if open >= maxPrivateChallenges {
+		return "", errTooManyChallenges
+	}
 	if _, err := d.DB.Exec(`INSERT INTO private_challenges (hash, account_id, luna_id, link_id, expires_at)
 VALUES (?, ?, ?, ?, ?)`, security.HashToken(challenge), s.AccountID, s.LunaID, linkID, now.Add(privateChallengeTTL*time.Second).Unix()); err != nil {
 		return "", err
@@ -294,6 +308,10 @@ func writePrivateOpenErr(w http.ResponseWriter, err error) {
 // writeChallenge sends a new challenge and its expiry as JSON.
 func writeChallenge(d Deps, w http.ResponseWriter, s readScope, linkID string, now time.Time) {
 	challenge, err := newPrivateChallenge(d, s, linkID, now)
+	if errors.Is(err, errTooManyChallenges) {
+		JSONError(w, http.StatusTooManyRequests, "Too many sign-in attempts are open. Wait a few minutes, then try again.")
+		return
+	}
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, privateOpenReadErr)
 		return

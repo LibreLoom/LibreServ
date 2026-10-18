@@ -348,7 +348,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
               <HardDrive size={ICON_SIZE.md} className="mt-0.5 shrink-0 text-secondary" aria-hidden="true" />
               <div className="min-w-0 flex-1 space-y-1">
                 <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-secondary text-sm font-semibold">On other drives</h3>
+                  <h3 className="text-secondary text-sm font-mono">On other drives</h3>
                   {hasBackups && (
                     <Pill variant="success" className="shrink-0 px-2 py-0.5 leading-none">
                       On
@@ -475,7 +475,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                 <Cloud size={ICON_SIZE.md} className="mt-0.5 shrink-0 text-secondary" aria-hidden="true" />
                 <div className="min-w-0 flex-1 space-y-1">
                   <div className="flex items-center justify-between gap-3">
-                    <h3 className="text-secondary text-sm font-semibold inline-flex items-center gap-1.5">
+                    <h3 className="text-secondary text-sm font-mono inline-flex items-center gap-1.5">
                       In the cloud
                       <InfoHint
                         surface="primary"

@@ -420,14 +420,6 @@ func (h StorageHandler) PutRecord(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusBadRequest, "Could not read that record. Try again.")
 		return
 	}
-	// The identity public record carries the Luna's signing key, which later device
-	// moves are checked against.
-	if kind == identityKind && name == identityPublicName {
-		if !setSigningPublic(h.Deps, w, accountID, lunaID, deviceIDFrom(r), string(data)) {
-			return
-		}
-	}
-
 	var oldBytes int64
 	_ = h.DB.QueryRow(`SELECT bytes FROM storage_records WHERE account_id = ? AND luna_id = ? AND kind = ? AND name = ?`,
 		accountID, lunaID, kind, name).Scan(&oldBytes)
@@ -435,6 +427,14 @@ func (h StorageHandler) PutRecord(w http.ResponseWriter, r *http.Request) {
 	if used+int64(len(data)) > accountBackupCap(h.Deps, accountID) {
 		storageFull(w)
 		return
+	}
+
+	// The identity public record carries the Luna's signing key, which later device
+	// moves are checked against.
+	if kind == identityKind && name == identityPublicName {
+		if !setSigningPublic(h.Deps, w, accountID, lunaID, deviceIDFrom(r), string(data)) {
+			return
+		}
 	}
 
 	slot := store.StorageSlot(lunaID)

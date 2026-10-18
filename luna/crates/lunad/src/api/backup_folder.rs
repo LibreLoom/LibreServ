@@ -1193,7 +1193,7 @@ mod tests {
             users: vec![f.member_id.clone()],
             admins: true,
         };
-        make_store(&f, "p-shared", "drive-src", shared);
+        make_store(&f, "p-list-shared", "drive-src", shared);
         make_store(
             &f,
             "p-admin",
@@ -1225,9 +1225,9 @@ mod tests {
         let (status, member) =
             get_json(&f, &f.member_token, "/api/v1/drives/drive-tgt/backups").await;
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(ids(&member), vec!["p-shared"]);
+        assert_eq!(ids(&member), vec!["p-list-shared"]);
         let (_, admin) = get_json(&f, &f.admin_token, "/api/v1/drives/drive-tgt/backups").await;
-        assert_eq!(ids(&admin), vec!["p-admin", "p-shared"]);
+        assert_eq!(ids(&admin), vec!["p-admin", "p-list-shared"]);
     }
 
     #[tokio::test]
@@ -1256,7 +1256,7 @@ mod tests {
             users: vec![f.member_id.clone()],
             admins: true,
         };
-        let store = make_store(&f, "p-shared", "drive-src", shared);
+        let store = make_store(&f, "p-browse-shared", "drive-src", shared);
         fs::write(store.current_dir().join("a.txt"), "hello").unwrap();
         fs::create_dir_all(store.current_dir().join("sub")).unwrap();
         let mut manifest = store.read_manifest().unwrap().unwrap();
@@ -1266,7 +1266,7 @@ mod tests {
         let (status, body) = get_json(
             &f,
             &f.admin_token,
-            "/api/v1/drives/drive-tgt/backups/p-shared/list?path=",
+            "/api/v1/drives/drive-tgt/backups/p-browse-shared/list?path=",
         )
         .await;
         assert_eq!(status, StatusCode::OK);
@@ -1286,7 +1286,7 @@ mod tests {
             users: vec![f.member_id.clone()],
             admins: true,
         };
-        let store = make_store(&f, "p-shared", "drive-src", shared);
+        let store = make_store(&f, "p-versions-shared", "drive-src", shared);
         fs::write(store.current_dir().join("a.txt"), "v3").unwrap();
         for (at, body) in [(100, "v1"), (200, "v2")] {
             let dir = store.versions_dir().join(at.to_string());
@@ -1297,7 +1297,7 @@ mod tests {
         let (status, body) = get_json(
             &f,
             &f.member_token,
-            "/api/v1/drives/drive-tgt/backups/p-shared/versions?path=a.txt",
+            "/api/v1/drives/drive-tgt/backups/p-versions-shared/versions?path=a.txt",
         )
         .await;
         assert_eq!(status, StatusCode::OK);
@@ -1312,7 +1312,7 @@ mod tests {
         let (status, bytes) = send(
             &f,
             "GET",
-            "/api/v1/drives/drive-tgt/backups/p-shared/download?path=a.txt&at=100",
+            "/api/v1/drives/drive-tgt/backups/p-versions-shared/download?path=a.txt&at=100",
             &f.member_token,
             None,
         )
@@ -1328,12 +1328,12 @@ mod tests {
             users: vec![f.member_id.clone()],
             admins: true,
         };
-        make_store(&f, "p-shared", "drive-src", shared);
+        make_store(&f, "p-bad-paths-shared", "drive-src", shared);
         for uri in [
-            "/api/v1/drives/drive-tgt/backups/p-shared/list?path=..",
-            "/api/v1/drives/drive-tgt/backups/p-shared/list?path=/etc",
-            "/api/v1/drives/drive-tgt/backups/p-shared/download?path=..%2Fsecret",
-            "/api/v1/drives/drive-tgt/backups/p-shared/download?path=a.txt&at=../1",
+            "/api/v1/drives/drive-tgt/backups/p-bad-paths-shared/list?path=..",
+            "/api/v1/drives/drive-tgt/backups/p-bad-paths-shared/list?path=/etc",
+            "/api/v1/drives/drive-tgt/backups/p-bad-paths-shared/download?path=..%2Fsecret",
+            "/api/v1/drives/drive-tgt/backups/p-bad-paths-shared/download?path=a.txt&at=../1",
         ] {
             let (status, _) = send(&f, "GET", uri, &f.admin_token, None).await;
             assert_eq!(status, StatusCode::BAD_REQUEST, "{uri}");
@@ -1516,12 +1516,12 @@ mod tests {
             users: vec![f.member_id.clone()],
             admins: true,
         };
-        let store = make_store(&f, "p-shared", "drive-src", shared);
+        let store = make_store(&f, "p-restore-clash-shared", "drive-src", shared);
         fs::write(store.current_dir().join("a.txt"), "hello").unwrap();
         fs::write(f.src_root.join("Docs/a.txt"), "live").unwrap();
 
         let day = short_date(db::now_unix());
-        let uri = "/api/v1/drives/drive-tgt/backups/p-shared/restore";
+        let uri = "/api/v1/drives/drive-tgt/backups/p-restore-clash-shared/restore";
         let (status, bytes) = send(
             &f,
             "POST",
@@ -1591,13 +1591,13 @@ mod tests {
             users: vec![f.member_id.clone()],
             admins: true,
         };
-        let store = make_store(&f, "p-gone", "drive-missing", shared);
+        let store = make_store(&f, "p-gone-drive", "drive-missing", shared);
         fs::write(store.current_dir().join("a.txt"), "hello").unwrap();
 
         let (status, bytes) = send(
             &f,
             "POST",
-            "/api/v1/drives/drive-tgt/backups/p-gone/restore",
+            "/api/v1/drives/drive-tgt/backups/p-gone-drive/restore",
             &f.admin_token,
             Some(json!({ "path": "a.txt" })),
         )
@@ -1655,9 +1655,9 @@ mod tests {
             users: vec![f.member_id.clone()],
             admins: true,
         };
-        let store = make_store(&f, "p-gone", "drive-src", shared);
+        let store = make_store(&f, "p-tombstoned", "drive-src", shared);
         let root = store.root().to_path_buf();
-        tombstone(&f, "p-gone");
+        tombstone(&f, "p-tombstoned");
 
         let (status, body) =
             get_json(&f, &f.member_token, "/api/v1/drives/drive-tgt/backups").await;
@@ -1668,7 +1668,7 @@ mod tests {
         let (status, _) = get_json(
             &f,
             &f.member_token,
-            "/api/v1/drives/drive-tgt/backups/p-gone/list?path=",
+            "/api/v1/drives/drive-tgt/backups/p-tombstoned/list?path=",
         )
         .await;
         assert_eq!(status, StatusCode::NOT_FOUND);

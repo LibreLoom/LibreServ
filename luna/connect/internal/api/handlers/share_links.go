@@ -245,19 +245,22 @@ func (h ShareLinkHandler) Records(w http.ResponseWriter, r *http.Request) {
 }
 
 // Pack streams one pack the link's scope may read. Each link may download up to 3 times the
-// Luna's stored bytes, or 2 TB when the Luna has no packs; after that it answers 429.
+// Luna's stored bytes, or 2 TB when the Luna has no packs; after that it answers 429. The pack's
+// size is reserved before it streams, so downloads started together cannot all pass the limit.
 func (h ShareLinkHandler) Pack(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	scope, linkID, ok := resolveShare(h.Deps, w, r, time.Now())
 	if !ok {
 		return
 	}
-	if shareOverEgress(h.Deps, w, linkID) {
+	reserved, ok := reserveShareEgress(h.Deps, w, scope, linkID, chi.URLParam(r, "id"))
+	if !ok {
 		return
 	}
 	n := writePack(h.Deps, w, scope, chi.URLParam(r, "id"), linkID, r.Header.Get(privateTokenHeader))
-	if n > 0 {
-		_, _ = h.DB.Exec(`UPDATE share_links SET egress_bytes = egress_bytes + ? WHERE id = ?`, n, linkID)
+	// Swap the reservation for what was actually sent.
+	if delta := n - reserved; delta != 0 {
+		_, _ = h.DB.Exec(`UPDATE share_links SET egress_bytes = MAX(0, egress_bytes + ?) WHERE id = ?`, delta, linkID)
 	}
 }
 
@@ -274,24 +277,30 @@ func shareEgressCap(d Deps, accountID, lunaID string) (int64, error) {
 	return 3 * stored, nil
 }
 
-// shareOverEgress writes the answer and returns true when the link has used up its download limit
-// or its limit cannot be read.
-func shareOverEgress(d Deps, w http.ResponseWriter, linkID string) bool {
-	var accountID, lunaID string
-	var used int64
-	if err := d.DB.QueryRow(`SELECT account_id, luna_id, egress_bytes FROM share_links WHERE id = ?`,
-		linkID).Scan(&accountID, &lunaID, &used); err != nil {
-		JSONError(w, http.StatusInternalServerError, shareReadErrMessage)
-		return true
-	}
-	limit, err := shareEgressCap(d, accountID, lunaID)
+// reserveShareEgress adds the pack's size to the link's download count when the link is still under
+// its limit, in one statement, and returns the size it reserved. It writes the answer and returns
+// false when the link has used up its limit or the limit cannot be read. A pack that is not stored
+// reserves nothing, and the pack call answers 404 for it.
+func reserveShareEgress(d Deps, w http.ResponseWriter, scope readScope, linkID, packID string) (int64, bool) {
+	limit, err := shareEgressCap(d, scope.AccountID, scope.LunaID)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, shareReadErrMessage)
-		return true
+		return 0, false
 	}
-	if used >= limit {
+	var size int64
+	if storagePackIDPattern.MatchString(packID) {
+		_ = d.DB.QueryRow(`SELECT size FROM storage_packs WHERE account_id = ? AND luna_id = ? AND id = ?`,
+			scope.AccountID, scope.LunaID, packID).Scan(&size)
+	}
+	res, err := d.DB.Exec(`UPDATE share_links SET egress_bytes = egress_bytes + ? WHERE id = ? AND egress_bytes < ?`,
+		size, linkID, limit)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, shareReadErrMessage)
+		return 0, false
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
 		JSONError(w, http.StatusTooManyRequests, shareEgressMessage)
-		return true
+		return 0, false
 	}
-	return false
+	return size, true
 }
