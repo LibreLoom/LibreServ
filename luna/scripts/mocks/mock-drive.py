@@ -1037,8 +1037,8 @@ def populate_stress(dest: Path) -> int:
         zf.writestr("page01.jpg", TINY_JPEG)
     count += 1
 
-    # font — real TTF shipped in the Luna web UI
-    font_src = ROOT / "web" / "public" / "fonts" / "FreeMono.ttf"
+    # font — real TTF from the shared UI fonts
+    font_src = ROOT.parent / "shared" / "ui" / "fonts" / "FreeMono.ttf"
     (base / "font").mkdir(parents=True, exist_ok=True)
     if font_src.is_file():
         shutil.copy2(font_src, base / "font/FreeMono.ttf")
