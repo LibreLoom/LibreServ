@@ -247,12 +247,14 @@ export function BackupsTab({ me, lunas, paired, onRefresh, setError, error }) {
   const daysLeft = daysUntil(purgeAfter);
   const purging = purgeAfter > 0;
 
-  async function attach(paymentMethodId) {
+  async function attach(paymentMethodId, setupIntentId) {
     const body = paymentMethodId
-      ? JSON.stringify({ payment_method_id: paymentMethodId })
+      ? JSON.stringify({ payment_method_id: paymentMethodId, setup_intent_id: setupIntentId || undefined })
       : "{}";
-    await api("/api/v1/billing/attach-card", { method: "POST", body });
-    await onRefresh();
+    const result = await api("/api/v1/billing/attach-card", { method: "POST", body });
+    // requires_action: the card's bank wants a confirmation; the card form handles it.
+    if (!result?.requires_action) await onRefresh();
+    return result;
   }
 
   async function cancelPayment() {
@@ -275,11 +277,11 @@ export function BackupsTab({ me, lunas, paired, onRefresh, setError, error }) {
       loading={busy}
       description="Add a payment card so we can store a cloud backup. It costs $8 per terabyte each month."
       buttonLabel="Add a payment card"
-      onConfirm={async (paymentMethodId) => {
+      onConfirm={async (paymentMethodId, setupIntentId) => {
         setError("");
         setBusy(true);
         try {
-          await attach(paymentMethodId);
+          return await attach(paymentMethodId, setupIntentId);
         } catch (err) {
           setError(err.message);
         } finally {

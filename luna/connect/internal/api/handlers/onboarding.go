@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -25,6 +26,7 @@ func (h OnboardingHandler) Backups(w http.ResponseWriter, r *http.Request) {
 		Enable          bool   `json:"enable"`
 		PaymentMethod   string `json:"payment_method"`
 		PaymentMethodID string `json:"payment_method_id"`
+		SetupIntentID   string `json:"setup_intent_id"`
 		DeviceID        string `json:"device_id"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
@@ -57,6 +59,9 @@ func (h OnboardingHandler) Backups(w http.ResponseWriter, r *http.Request) {
 		_, _ = h.DB.Exec(`UPDATE accounts SET stripe_customer_id = ? WHERE id = ?`, cust, acct.ID)
 		acct.StripeCustomer = cust
 	}
+	if !verifyCardForBilling(w, cust, pm, strings.TrimSpace(req.SetupIntentID), "Could not check the card. Try again.") {
+		return
+	}
 	sub, item, err := billing.Subscribe(cust, pm)
 	if err != nil {
 		writeBillingErr(w, err, "Could not start cloud backup. Check the card and try again.")
@@ -71,12 +76,16 @@ func (h OnboardingHandler) Backups(w http.ResponseWriter, r *http.Request) {
 	res, err := h.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = ?, stripe_subscription_id = ?, stripe_subscription_item_id = ?, backup_purge_after = NULL, purge_mail_day = NULL, onboarding_step = 'done' WHERE id = ? AND (stripe_subscription_id IS NULL OR stripe_subscription_id = '')`,
 		status, sub, item, acct.ID)
 	if err != nil {
-		_ = billing.CancelSubscription(sub)
+		if cerr := billing.CancelSubscription(sub); cerr != nil {
+			slog.Error("onboarding: failed to cancel orphaned subscription; customer may be billed twice", "account", acct.ID, "subscription", sub, "err", cerr)
+		}
 		JSONError(w, http.StatusInternalServerError, "Could not start cloud backup. Try again.")
 		return
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		_ = billing.CancelSubscription(sub)
+		if cerr := billing.CancelSubscription(sub); cerr != nil {
+			slog.Error("onboarding: failed to cancel orphaned subscription; customer may be billed twice", "account", acct.ID, "subscription", sub, "err", cerr)
+		}
 		JSON(w, http.StatusOK, map[string]any{"ok": true, "enabled": true, "already_active": true, "price_copy": price})
 		return
 	}

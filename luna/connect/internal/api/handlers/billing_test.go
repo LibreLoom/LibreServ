@@ -253,3 +253,50 @@ func stripeTestSig(secret, payload string) string {
 	fmt.Fprintf(mac, "%d.%s", ts, payload)
 	return fmt.Sprintf("t=%d,v1=%s", ts, hex.EncodeToString(mac.Sum(nil)))
 }
+
+func stripeWebhookRequest(payload string) *http.Request {
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/billing/webhook", strings.NewReader(payload))
+	req.Header.Set("Stripe-Signature", stripeTestSig("whsec_test_secret", payload))
+	return req
+}
+
+func TestStripeWebhookUnknownSubscriptionIsAcknowledged(t *testing.T) {
+	d := testDeps(t)
+	acct := AccountHandler{Deps: d}
+	prev := config.C.Stripe
+	t.Cleanup(func() { config.C.Stripe = prev })
+	config.C.Stripe.Enabled = true
+	config.C.Stripe.WebhookSecret = "whsec_test_secret"
+
+	// A subscription we cancelled ourselves (lost signup race) belongs to no account.
+	payload := `{"id":"evt_u","object":"event","type":"customer.subscription.deleted","data":{"object":{"id":"sub_nobody","object":"subscription","status":"canceled"}}}`
+	rec := httptest.NewRecorder()
+	acct.StripeWebhook(rec, stripeWebhookRequest(payload))
+	if rec.Code != 200 {
+		t.Fatalf("unknown subscription should be acknowledged, got %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestStripeWebhookDatabaseFailureAsksStripeToRetry(t *testing.T) {
+	d := testDeps(t)
+	acct := AccountHandler{Deps: d}
+	prev := config.C.Stripe
+	t.Cleanup(func() { config.C.Stripe = prev })
+	config.C.Stripe.Enabled = true
+	config.C.Stripe.WebhookSecret = "whsec_test_secret"
+	if _, err := d.DB.Exec(`ALTER TABLE accounts RENAME TO accounts_gone`); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, payload := range []string{
+		`{"id":"evt_f1","object":"event","type":"invoice.payment_failed","data":{"object":{"id":"in_1","object":"invoice","subscription":"sub_x"}}}`,
+		`{"id":"evt_f2","object":"event","type":"invoice.paid","data":{"object":{"id":"in_2","object":"invoice","subscription":"sub_x"}}}`,
+		`{"id":"evt_f3","object":"event","type":"customer.subscription.deleted","data":{"object":{"id":"sub_x","object":"subscription","status":"canceled"}}}`,
+	} {
+		rec := httptest.NewRecorder()
+		acct.StripeWebhook(rec, stripeWebhookRequest(payload))
+		if rec.Code != http.StatusInternalServerError {
+			t.Fatalf("db failure must return 500 so Stripe retries, got %d for %s", rec.Code, payload)
+		}
+	}
+}

@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -43,13 +45,20 @@ func (h AccountHandler) StripeWebhook(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusForbidden, "Could not verify that billing update.")
 		return
 	}
+	var handleErr error
 	switch event.Type {
 	case "customer.subscription.deleted":
-		h.cancelSubscription(event.Data.Raw)
+		handleErr = h.cancelSubscription(event.Data.Raw)
 	case "invoice.payment_failed":
-		h.lockFromInvoiceJSON(event.Data.Raw, "past_due")
+		handleErr = h.lockFromInvoiceJSON(event.Data.Raw, "past_due")
 	case "invoice.paid", "customer.subscription.updated":
-		h.unlockFromEvent(string(event.Type), event.Data.Raw)
+		handleErr = h.unlockFromEvent(string(event.Type), event.Data.Raw)
+	}
+	if handleErr != nil {
+		// A database failure is temporary: 500 makes Stripe retry the event.
+		slog.Error("stripe webhook not applied; Stripe will retry", "event", event.ID, "type", event.Type, "error", handleErr)
+		JSONError(w, http.StatusInternalServerError, "Could not save that billing update. It will be retried.")
+		return
 	}
 	JSON(w, http.StatusOK, map[string]string{"message": "ok"})
 }
@@ -57,46 +66,61 @@ func (h AccountHandler) StripeWebhook(w http.ResponseWriter, r *http.Request) {
 // A canceled subscription no longer exists at Stripe. Clear the stored id so
 // AttachCard (which treats any stored id as already-subscribed) can open a
 // fresh subscription on the next card; billing_status stays for the record.
-func (h AccountHandler) cancelSubscription(raw json.RawMessage) {
+// A subscription no account owns (for example one we cancelled ourselves after
+// losing a signup race) is not an error.
+func (h AccountHandler) cancelSubscription(raw json.RawMessage) error {
 	var sub stripego.Subscription
 	if err := json.Unmarshal(raw, &sub); err != nil || sub.ID == "" {
-		return
+		return nil
 	}
 	var accountID, email string
-	_ = h.DB.QueryRow(`SELECT id, email FROM accounts WHERE stripe_subscription_id = ?`, sub.ID).Scan(&accountID, &email)
-	_, _ = h.DB.Exec(`UPDATE accounts SET has_card = 0, billing_status = 'canceled', stripe_subscription_id = '', stripe_subscription_item_id = '' WHERE stripe_subscription_id = ?`, sub.ID)
+	if err := h.DB.QueryRow(`SELECT id, email FROM accounts WHERE stripe_subscription_id = ?`, sub.ID).Scan(&accountID, &email); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	if _, err := h.DB.Exec(`UPDATE accounts SET has_card = 0, billing_status = 'canceled', stripe_subscription_id = '', stripe_subscription_item_id = '' WHERE stripe_subscription_id = ?`, sub.ID); err != nil {
+		return err
+	}
 	beginBackupPurgeForAccount(h.Deps, accountID, email)
+	return nil
 }
 
-func (h AccountHandler) lockFromSubscriptionJSON(raw json.RawMessage, status string) {
+func (h AccountHandler) lockFromSubscriptionJSON(raw json.RawMessage, status string) error {
 	var sub stripego.Subscription
 	if err := json.Unmarshal(raw, &sub); err != nil || sub.ID == "" {
-		return
+		return nil
 	}
-	_, _ = h.DB.Exec(`UPDATE accounts SET has_card = 0, billing_status = ? WHERE stripe_subscription_id = ?`, status, sub.ID)
-	beginBackupPurgeForSubscription(h.Deps, sub.ID)
+	return h.lockSubscription(sub.ID, status)
 }
 
-func (h AccountHandler) lockFromInvoiceJSON(raw json.RawMessage, status string) {
+func (h AccountHandler) lockFromInvoiceJSON(raw json.RawMessage, status string) error {
 	subID := subscriptionIDFromInvoiceJSON(raw)
 	if subID == "" {
-		return
+		return nil
 	}
-	_, _ = h.DB.Exec(`UPDATE accounts SET has_card = 0, billing_status = ? WHERE stripe_subscription_id = ?`, status, subID)
-	beginBackupPurgeForSubscription(h.Deps, subID)
+	return h.lockSubscription(subID, status)
 }
 
-func (h AccountHandler) unlockFromEvent(kind string, raw json.RawMessage) {
+func (h AccountHandler) lockSubscription(subID, status string) error {
+	if _, err := h.DB.Exec(`UPDATE accounts SET has_card = 0, billing_status = ? WHERE stripe_subscription_id = ?`, status, subID); err != nil {
+		return err
+	}
+	beginBackupPurgeForSubscription(h.Deps, subID)
+	return nil
+}
+
+func (h AccountHandler) unlockFromEvent(kind string, raw json.RawMessage) error {
 	subID, itemID, status := "", "", "active"
 	switch kind {
 	case "customer.subscription.updated":
 		var sub stripego.Subscription
 		if err := json.Unmarshal(raw, &sub); err != nil || sub.ID == "" {
-			return
+			return nil
 		}
 		if sub.Status != stripego.SubscriptionStatusActive && sub.Status != stripego.SubscriptionStatusTrialing {
-			h.lockFromSubscriptionJSON(raw, string(sub.Status))
-			return
+			return h.lockSubscription(sub.ID, string(sub.Status))
 		}
 		subID = sub.ID
 		if sub.Items != nil && len(sub.Items.Data) > 0 && sub.Items.Data[0] != nil {
@@ -107,14 +131,15 @@ func (h AccountHandler) unlockFromEvent(kind string, raw json.RawMessage) {
 		subID = subscriptionIDFromInvoiceJSON(raw)
 	}
 	if subID == "" {
-		return
+		return nil
 	}
 	if itemID != "" {
-		_, _ = h.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = ?, stripe_subscription_item_id = ?, backup_purge_after = NULL, purge_mail_day = NULL WHERE stripe_subscription_id = ?`,
+		_, err := h.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = ?, stripe_subscription_item_id = ?, backup_purge_after = NULL, purge_mail_day = NULL WHERE stripe_subscription_id = ?`,
 			status, itemID, subID)
-		return
+		return err
 	}
-	_, _ = h.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = ?, backup_purge_after = NULL, purge_mail_day = NULL WHERE stripe_subscription_id = ?`, status, subID)
+	_, err := h.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = ?, backup_purge_after = NULL, purge_mail_day = NULL WHERE stripe_subscription_id = ?`, status, subID)
+	return err
 }
 
 // subscriptionIDFromInvoiceJSON reads the subscription id from an invoice webhook

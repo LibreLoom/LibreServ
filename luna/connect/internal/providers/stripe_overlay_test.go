@@ -43,7 +43,7 @@ func TestRefreshStripeLoadsPeerAdminWrite(t *testing.T) {
 		"price_id":                "price_peer",
 		"meter_event_name":        "luna_backup_gb",
 		"egress_price_id":         "price_egress_peer",
-		"egress_meter_event_name": "luna_backup_egress_gb",
+		"egress_meter_event_name": "luna_egress_gb",
 	}, true)
 	if err != nil {
 		t.Fatal(err)
@@ -70,7 +70,7 @@ func TestRefreshStripeLoadsPeerAdminWrite(t *testing.T) {
 	if config.C.Stripe.EgressPriceID != "price_egress_peer" {
 		t.Fatalf("egress_price_id=%q", config.C.Stripe.EgressPriceID)
 	}
-	if config.C.Stripe.EgressMeterEventName != "luna_backup_egress_gb" {
+	if config.C.Stripe.EgressMeterEventName != "luna_egress_gb" {
 		t.Fatalf("egress_meter_event_name=%q", config.C.Stripe.EgressMeterEventName)
 	}
 	if !config.C.Stripe.Enabled {

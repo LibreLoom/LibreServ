@@ -3,6 +3,7 @@ package billing
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
 )
@@ -138,4 +139,40 @@ func TestReportUsageSkipsWithoutMeterEventName(t *testing.T) {
 	}
 	// Must not panic / call Stripe when meter_event_name is empty (nil db is fine — returns early).
 	ReportUsage(nil)
+}
+
+func TestNextMonthStartUTC(t *testing.T) {
+	cases := []struct{ in, want time.Time }{
+		{time.Date(2026, 10, 18, 13, 5, 0, 0, time.UTC), time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)},
+		{time.Date(2026, 12, 31, 23, 59, 59, 0, time.UTC), time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)},
+		{time.Date(2026, 1, 31, 0, 0, 0, 0, time.UTC), time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)},
+		// A non-UTC clock must still land on the UTC month boundary.
+		{time.Date(2026, 10, 31, 22, 0, 0, 0, time.FixedZone("x", -5*3600)), time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)},
+	}
+	for _, tc := range cases {
+		if got := NextMonthStartUTC(tc.in); !got.Equal(tc.want) {
+			t.Fatalf("NextMonthStartUTC(%v)=%v want %v", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestVerifyCardFailsClosed(t *testing.T) {
+	t.Setenv("LUNACONNECT_DEV", "")
+	prev := config.C.Stripe
+	t.Cleanup(func() { config.C.Stripe = prev })
+	config.C.Stripe.Enabled = true
+	config.C.Stripe.SecretKey = ""
+	if _, err := VerifyCard("cus_x", "pm_x", ""); !errors.Is(err, ErrNotConfigured) {
+		t.Fatalf("verify without key: %v", err)
+	}
+}
+
+func TestVerifyCardDevBypass(t *testing.T) {
+	t.Setenv("LUNACONNECT_DEV", "1")
+	prev := config.C.Stripe
+	t.Cleanup(func() { config.C.Stripe = prev })
+	config.C.Stripe.Enabled = false
+	if action, err := VerifyCard("cus_dev_x", "", ""); action != nil || err != nil {
+		t.Fatalf("dev bypass: %v %v", action, err)
+	}
 }

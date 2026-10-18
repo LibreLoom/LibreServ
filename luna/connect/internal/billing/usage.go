@@ -28,8 +28,9 @@ import (
 //   Overage GB = floor(max(0, egress_bytes − 3×avg_storage_bytes) / 1e9),
 //   billed at $0.01/GB via a second meter (also aggregation "last").
 //
-// Period key is UTC YYYY-MM (calendar month). Stripe subscription anchors may
-// differ slightly; we still use calendar months to match B2’s model.
+// Period key is UTC YYYY-MM (calendar month). Subscribe anchors each Stripe
+// billing cycle to 00:00 UTC on the 1st, so a Stripe period and a usage month
+// are the same span (a new customer's first period is the partial month).
 
 const (
 	EgressFreeMultiplier = 3
@@ -217,11 +218,16 @@ WHERE account_id = ? AND period_ym = ?`, accountID, period).Scan(&egressBytes)
 	return avgBytes, egressBytes
 }
 
-// ReportUsage samples once, then reports period-average storage GB and egress
-// overage GB to Stripe Billing Meters (aggregation must be Last on both).
+// ReportUsage samples once (call it hourly), then reports period-average
+// storage GB and egress overage GB to Stripe Billing Meters (aggregation must be Last on both).
 func ReportUsage(db *database.DB) {
+	if db == nil {
+		return
+	}
+	// Sampling feeds the month average and must run even when Stripe is off.
+	SampleStorage(db)
 	providers.RefreshStripe()
-	if db == nil || !config.C.Stripe.Ready() {
+	if !config.C.Stripe.Ready() {
 		return
 	}
 	storageMeter := strings.TrimSpace(config.C.Stripe.MeterEventName)
@@ -229,7 +235,6 @@ func ReportUsage(db *database.DB) {
 		slog.Warn("stripe meter events skipped: meter_event_name not set")
 		return
 	}
-	SampleStorage(db)
 
 	period := PeriodKeyUTC(time.Now())
 	usages, err := LoadPeriodUsage(db, period)

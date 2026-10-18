@@ -57,9 +57,11 @@ Stripe only skips real charges in **explicit local/dev**: set `LUNACONNECT_DEV=1
    - Aggregation: **Last** (gauge)
    - Luna Connect samples stored bytes hourly, computes the UTC calendar-month average, and reports that average GB (so emptying before invoice does not zero the charge).
 2. **Storage price** — usage-based, **$0.008 per GB**, linked to `luna_backup_gb`. Do not reuse old Usage Record or $0.80 / 0.1 TB prices.
-3. **Egress meter** — event name `luna_backup_egress_gb`, aggregation **Last**.
-4. **Egress price** — usage-based, **$0.01 per GB**, linked to `luna_backup_egress_gb`. Only **overage** is reported: `max(0, egress − 3 × average_storage)` in GB. Free under the 3× allowance is never sent to Stripe.
+3. **Egress meter** — event name `luna_egress_gb`, aggregation **Last**.
+4. **Egress price** — usage-based, **$0.01 per GB**, linked to `luna_egress_gb`. Only **overage** is reported: `max(0, egress − 3 × average_storage)` in GB. Free under the 3× allowance is never sent to Stripe.
 5. Put both price IDs and meter event names in yaml or Admin → Connections. New subscriptions attach both prices.
+6. **Billing period** — each subscription's cycle is anchored to 00:00 UTC on the 1st, so a Stripe invoice covers the same UTC month the usage average is computed over (the first period is the partial month). Usage is reported at startup and then hourly.
+7. **Card check** — before subscribing, the card is saved with a SetupIntent so the bank confirms it (3D Secure included). A declined card is refused up front instead of failing on the first invoice.
 
 Empty keys refuse paid routes (fail closed). `stripe.enabled: false` by itself does **not** unlock cloud backup.
 

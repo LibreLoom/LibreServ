@@ -48,7 +48,20 @@ function VerifyHumanCardForm({ onConfirm, loading, description, buttonLabel }) {
         setLocalError(error?.message || "We could not save the card. Try again.");
         return;
       }
-      await onConfirm(paymentMethod.id);
+      // The server answers requires_action when the card's bank wants the person
+      // to confirm (3D Secure). Finish that here, then ask the server again.
+      let setupIntentId;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const result = await onConfirm(paymentMethod.id, setupIntentId);
+        if (!result?.requires_action) return;
+        const { error: actionError } = await stripe.handleNextAction({ clientSecret: result.client_secret });
+        if (actionError) {
+          setLocalError(actionError.message || "Your bank did not confirm the card. Try again or use a different card.");
+          return;
+        }
+        setupIntentId = result.setup_intent_id;
+      }
+      setLocalError("Your bank did not confirm the card. Try again or use a different card.");
     } catch (err) {
       setLocalError(err.message || "The $1 card check did not go through. Check the card details and try again.");
     } finally {
@@ -79,7 +92,7 @@ function VerifyHumanCardForm({ onConfirm, loading, description, buttonLabel }) {
 /**
  * @param {{
  *   account?: { stripe_publishable_key?: string } | null,
- *   onConfirm: (paymentMethodId: string) => Promise<void> | void,
+ *   onConfirm: (paymentMethodId: string, setupIntentId?: string) => Promise<unknown> | unknown,
  *   loading?: boolean,
  *   description?: string,
  *   buttonLabel?: string,

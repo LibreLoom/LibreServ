@@ -122,21 +122,16 @@ func main() {
 		go accounts.RunCleanupLoop(context.Background(), db, st)
 		go accounts.RunPendingDeleteLoop(context.Background(), db, st)
 
-		// Hourly: sample stored bytes for month-average billing (B2-style).
-		// Daily: report period-average storage + egress overage to Stripe meters.
+		// Hourly: sample stored bytes for month-average billing (B2-style), then
+		// report period-average storage + egress overage to Stripe meters. Reporting
+		// also runs at startup, so restarts never skip a report, and hourly keeps the
+		// last value before Stripe closes a bill (00:00 UTC on the 1st) fresh.
 		go func() {
-			sample := time.NewTicker(1 * time.Hour)
-			report := time.NewTicker(24 * time.Hour)
-			defer sample.Stop()
-			defer report.Stop()
-			billing.SampleStorage(db)
-			for {
-				select {
-				case <-sample.C:
-					billing.SampleStorage(db)
-				case <-report.C:
-					billing.ReportUsage(db)
-				}
+			t := time.NewTicker(1 * time.Hour)
+			defer t.Stop()
+			billing.ReportUsage(db)
+			for range t.C {
+				billing.ReportUsage(db)
 			}
 		}()
 

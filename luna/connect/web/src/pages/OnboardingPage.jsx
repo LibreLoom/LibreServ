@@ -1282,18 +1282,21 @@ export default function OnboardingPage() {
           loading={loading}
           description="Add a payment card to turn on cloud backup. The monthly price is based on your average storage."
           buttonLabel="Turn on cloud backup"
-          onConfirm={async (paymentMethodId) => {
+          onConfirm={async (paymentMethodId, setupIntentId) => {
             setError("");
             setLoading(true);
             try {
-              await api("/api/v1/onboarding/backups", {
+              const result = await api("/api/v1/onboarding/backups", {
                 method: "POST",
                 body: JSON.stringify({
                   enable: true,
                   payment_method_id: paymentMethodId,
+                  setup_intent_id: setupIntentId || undefined,
                   device_id: deviceId || undefined,
                 }),
               });
+              // requires_action: the card's bank wants a confirmation; the card form handles it.
+              if (result?.requires_action) return result;
               await goToFinish();
             } catch (err) {
               setError(err.message);

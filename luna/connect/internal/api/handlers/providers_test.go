@@ -166,7 +166,7 @@ func TestAdminProvidersStripeOverlay(t *testing.T) {
 			"price_id":                "price_admin",
 			"meter_event_name":        "luna_backup_gb",
 			"egress_price_id":         "price_egress_admin",
-			"egress_meter_event_name": "luna_backup_egress_gb",
+			"egress_meter_event_name": "luna_egress_gb",
 		},
 		"enabled": true,
 	})
@@ -182,7 +182,7 @@ func TestAdminProvidersStripeOverlay(t *testing.T) {
 	if config.C.Stripe.MeterEventName != "luna_backup_gb" {
 		t.Fatalf("meter_event_name=%q", config.C.Stripe.MeterEventName)
 	}
-	if config.C.Stripe.EgressMeterEventName != "luna_backup_egress_gb" {
+	if config.C.Stripe.EgressMeterEventName != "luna_egress_gb" {
 		t.Fatalf("egress_meter=%q", config.C.Stripe.EgressMeterEventName)
 	}
 	if !config.C.Stripe.Enabled {
