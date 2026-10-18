@@ -9,9 +9,7 @@ DS_IMAGE ?= ghcr.io/euro-office/documentserver@sha256:889e681923d2dcc8bdfb92fe12
 DRAWIO_VERSION ?= v31.5.2
 # sha256 of the draw.war asset on that release — bump both together.
 DRAWIO_SHA256 ?= abd58ad15baef57f43acb79a56350ba8900a8b6fabe94391d8906148fe64e264
-# JS package manager: npm if installed, else pnpm; force one with `make dev PM=pnpm`.
-PM ?= $(if $(shell command -v npm 2>/dev/null),npm,pnpm)
-PM_INSTALL = $(if $(filter pnpm,$(PM)),pnpm install,npm install --no-audit --no-fund)
+include $(ROOT)/../shared/js-pm.mk
 MAKEFLAGS += --no-print-directory
 
 .PHONY: web build test run dev dev-daemon daemon-dev dev-web lint clean os-image iso desktop desktop-bundle desktop-dev desktop-dev-login desktop-appimage desktop-flatpak ensure-web-dist mock-drive mock-connect mobile-dev mobile-dev-repair companion-dev eurooffice eurooffice-assets eurooffice-pack drawio drawio-pack
@@ -26,7 +24,7 @@ build: web
 
 test:
 	cargo test --workspace
-	cd web && $(PM) test -- --run
+	cd web && $(PM) run test -- --run
 
 run: build
 	./target/debug/lunad --port $(PORT)

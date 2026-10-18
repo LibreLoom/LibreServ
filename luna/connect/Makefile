@@ -1,5 +1,7 @@
 .PHONY: build run lint test fmt fmt-check vet clean frontend-build
 
+include ../../shared/js-pm.mk
+
 BINARY := bin/luna-connect
 MAIN := ./cmd/server
 
@@ -28,7 +30,7 @@ vet:
 lint: fmt-check vet
 
 frontend-build:
-	@cd web && npm install && npm run build
+	@cd web && $(PM_INSTALL) && $(PM) run build
 
 clean:
 	@rm -rf bin/
