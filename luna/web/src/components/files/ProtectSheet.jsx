@@ -7,6 +7,7 @@ import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
+import LayeredPill from "@libreloom/ui/components/ui/LayeredPill.jsx";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import { InfoHint, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
@@ -372,9 +373,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                   >
                     {b.status === "active" ? (
                       <>
-                        <p className="text-primary text-xs">
-                          {backupHeadline(b)} · <InlinePill>{b.target_drive_name}</InlinePill>
-                        </p>
+                        <LayeredPill actionLabel={b.target_drive_name}>{backupHeadline(b)}</LayeredPill>
                         <BackupStatusNotice
                           state={b.state}
                           lastError={b.last_error}
@@ -384,10 +383,9 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                       </>
                     ) : (
                       <>
-                        <p className="text-primary text-xs">
-                          {b.status === "source_gone" ? "Source gone" : "Stopped"} ·{" "}
-                          <InlinePill>{b.target_drive_name}</InlinePill>
-                        </p>
+                        <LayeredPill actionLabel={b.target_drive_name}>
+                          {b.status === "source_gone" ? "Source gone" : "Stopped"}
+                        </LayeredPill>
                         <p className="text-primary text-sm">
                           {b.stop_reason || "This backup has stopped."}
                         </p>
