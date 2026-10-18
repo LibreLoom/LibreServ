@@ -19,6 +19,17 @@ function makeBackup(overrides = {}) {
 }
 
 describe("PrivateItemsRow", () => {
+  it("says a person has no private items, and shows any actions beside the status", () => {
+    const { rerender } = render(<PrivateItemsRow kind="none" backups={[]} onOpen={vi.fn()} />);
+    const row = screen.getByRole("region", { name: "Private items" });
+    expect(within(row).getByText("None")).toBeTruthy();
+    expect(within(row).getByText("This person has no private items backed up.")).toBeTruthy();
+
+    rerender(<PrivateItemsRow kind="other" backups={[]} onOpen={vi.fn()} actions={<button type="button">Share link</button>} />);
+    expect(within(screen.getByRole("region", { name: "Private items" })).getByText("Has private items")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Share link" })).toBeTruthy();
+  });
+
   it("for another person shows only the title and the line, with no names, counts or sizes", () => {
     render(<PrivateItemsRow kind="other" backups={[makeBackup()]} onOpen={vi.fn()} />);
 

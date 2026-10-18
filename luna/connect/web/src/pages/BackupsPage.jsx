@@ -179,6 +179,18 @@ function BackupFilesCard({ lunas, paired }) {
               source={source}
               backups={backups}
               privateOwners={privateOwners}
+              showPrivateStatus
+              privateActions={(g) =>
+                g.startedBy ? (
+                  <ShareLinkButton
+                    lunaId={lunaId}
+                    scope={{ kind: "user", value: userRecordPart(g.startedBy) }}
+                    label={g.name}
+                    sentence={`Anyone with this link and ${g.name}'s recovery phrase can download ${g.name}'s private items, along with their other backups, for 7 days. The link alone opens nothing.`}
+                    onCreated={bump}
+                  />
+                ) : null
+              }
               groupActions={(g) =>
                 g.startedBy ? (
                   <ShareLinkButton

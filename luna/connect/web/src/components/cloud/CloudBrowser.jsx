@@ -16,10 +16,12 @@ const SELECT_CLASS =
  * @param {{ source: import("../../lib/cloudSource.js").CloudSource,
  *   backups: import("../../lib/cloudUnlock.js").CloudBackup[],
  *   privateOwners?: string[],
+ *   showPrivateStatus?: boolean,
+ *   privateActions?: (group: { startedBy: string, name: string }) => import("react").ReactNode,
  *   groupActions?: (group: { startedBy: string, name: string, backups: import("../../lib/cloudUnlock.js").CloudBackup[] }) => import("react").ReactNode,
  *   backupActions?: (backup: import("../../lib/cloudUnlock.js").CloudBackup) => import("react").ReactNode }} props
  */
-export function CloudBrowser({ source, backups, privateOwners = [], groupActions, backupActions }) {
+export function CloudBrowser({ source, backups, privateOwners = [], showPrivateStatus = false, privateActions, groupActions, backupActions }) {
   const versionId = useId();
   const [selectedId, setSelectedId] = useState(/** @type {string | null} */ (null));
   const [versionIdx, setVersionIdx] = useState(0);
@@ -102,11 +104,12 @@ export function CloudBrowser({ source, backups, privateOwners = [], groupActions
                   actions={backupActions?.(backup)}
                 />
               ))}
-            {group.privateRow ? (
+            {group.privateRow || showPrivateStatus ? (
               <PrivateItemsRow
-                kind={group.privateRow}
+                kind={group.privateRow || "none"}
                 backups={group.backups.filter((backup) => backup.private)}
                 onOpen={openBackup}
+                actions={group.privateRow ? privateActions?.(group) : null}
               />
             ) : null}
           </section>

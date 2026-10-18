@@ -7,9 +7,9 @@ import { createShareLink, shareUrl } from "../../lib/shareLinks.js";
 /**
  * "Share link" for one person's backups (scope kind "user") or one backup (kind "backup").
  * Shows the new link in an inline panel. The token is kept only while the panel is open.
- * @param {{ lunaId: string, scope: { kind: "user" | "backup", value: string }, label: string, onCreated?: () => void }} props
+ * @param {{ lunaId: string, scope: { kind: "user" | "backup", value: string }, label: string, onCreated?: () => void, sentence?: string }} props
  */
-export function ShareLinkButton({ lunaId, scope, label, onCreated }) {
+export function ShareLinkButton({ lunaId, scope, label, onCreated, sentence: sentenceOverride }) {
   const fieldId = useId();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -53,9 +53,10 @@ export function ShareLinkButton({ lunaId, scope, label, onCreated }) {
   }
 
   const sentence =
-    scope.kind === "user"
+    sentenceOverride ||
+    (scope.kind === "user"
       ? `Anyone with this link and ${label}'s recovery phrase can download every backup ${label} can open, for 7 days. The link alone opens nothing.`
-      : `Anyone with this link and the recovery phrase of someone who can open ${label} can download it for 7 days. The link alone opens nothing.`;
+      : `Anyone with this link and the recovery phrase of someone who can open ${label} can download it for 7 days. The link alone opens nothing.`);
 
   return (
     <div className="space-y-3 min-w-0">
