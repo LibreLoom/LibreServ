@@ -349,6 +349,30 @@ describe("FileBrowser", () => {
     );
   });
 
+  it("stripes the Trash and Backups rows in step with the file rows", async () => {
+    stubListing({
+      "": [
+        { name: "alpha.txt", kind: "file", size: 10, hidden: false },
+        { name: "beta.txt", kind: "file", size: 20, hidden: false },
+      ],
+    });
+    renderBrowser({
+      multiSelect: false,
+      linkNavigation: true,
+      trashHref: "/drives/d1?view=trash",
+      backupsHref: "/drives/d1?backups=1",
+    });
+    const STRIPE = "bg-[color-mix(in_oklab,var(--secondary)_92%,var(--primary))]";
+    const trashRow = (await screen.findByRole("link", { name: "Trash" })).closest("li");
+    const backupsRow = screen.getByRole("link", { name: "Backups" }).closest("li");
+    // Rows in order: Trash, Backups, alpha.txt, beta.txt — every odd row is
+    // striped, so the alternation runs unbroken from Trash into the files.
+    expect(trashRow).not.toHaveClass(STRIPE);
+    expect(backupsRow).toHaveClass(STRIPE);
+    expect((await screen.findByText("alpha.txt")).closest("li")).not.toHaveClass(STRIPE);
+    expect(screen.getByText("beta.txt").closest("li")).toHaveClass(STRIPE);
+  });
+
   it("selects and scrolls to a deep-linked selectPath", async () => {
     const onSelectPathApplied = vi.fn();
     const scrollIntoView = vi.fn();

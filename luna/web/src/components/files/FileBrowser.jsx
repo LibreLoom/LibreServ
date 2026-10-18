@@ -1206,6 +1206,17 @@ export default function FileBrowser({
   const well = surface === "primary" ? "secondary" : "primary";
   const fg = surface === "primary" ? "text-secondary" : "text-primary";
   const cardSurface = surface === "primary" ? "surface-primary" : "surface-secondary";
+  // Row striping is positional: even rows in the listing wear the card
+  // surface, odd rows this fill (FileRow makes the same pick from its
+  // `striped` flag). Trash and Backups render as the first rows of the drive
+  // root, so they stripe too, and the file rows offset by `rowsAboveFiles` to
+  // stay on the listing's one alternation.
+  // color-scan: ignore-next-line mixes theme CSS vars only (no hardcoded hex)
+  const stripeSurface = surface === "primary"
+    ? "bg-[color-mix(in_oklab,var(--primary)_92%,var(--secondary))]"
+    : "bg-[color-mix(in_oklab,var(--secondary)_92%,var(--primary))]";
+  const rowSurface = (rowIndex) => (rowIndex % 2 === 1 ? stripeSurface : cardSurface);
+  const rowsAboveFiles = (showTrashEntry ? 1 : 0) + (showBackupsEntry ? 1 : 0);
   const wellSurface = well === "primary" ? "surface-primary" : "surface-secondary";
   const wellFg = well === "primary" ? "text-secondary" : "text-primary";
   const hairline = surface === "primary" ? "border-secondary" : "border-primary";
@@ -1774,7 +1785,8 @@ export default function FileBrowser({
                       className={[
                         "flex items-center gap-2 px-3",
                         padY,
-                        `${cardSurface} ${fg}`,
+                        // Trash is row 0 of the listing: the plain card surface.
+                        `${rowSurface(0)} ${fg}`,
                         // One outline: the drop ring replaces the row separator
                         // (border-b kept transparent so the row height doesn't shift).
                         isTrashDrop
@@ -1854,7 +1866,9 @@ export default function FileBrowser({
                 className={[
                   "flex items-center gap-2 px-3",
                   padY,
-                  `${cardSurface} ${fg}`,
+                  // Row 1 when Trash is above it, so this is where the stripe
+                  // starts showing; without Trash it leads as row 0.
+                  `${rowSurface(showTrashEntry ? 1 : 0)} ${fg}`,
                   "border-b border-primary/15",
                   entries.length > 0 ? "last:border-b-0 last:rounded-b-large-element" : "",
                 ].filter(Boolean).join(" ")}
@@ -1903,9 +1917,10 @@ export default function FileBrowser({
                       entry={entry}
                       path={path}
                       fileRoot={fileRoot}
-                      // Trash counts as the first row when shown, so the striping
-                      // stays on the same visual parity either way.
-                      striped={(rowIndex + (showTrashEntry ? 1 : 0) + (showBackupsEntry ? 1 : 0)) % 2 === 1}
+                      // Trash and Backups count as the rows above, so the
+                      // striping stays on the listing's one alternation
+                      // either way.
+                      striped={(rowIndex + rowsAboveFiles) % 2 === 1}
                       isLast={rowIndex === visibleEntries.length - 1}
                       isSelected={selectedSet.has(rowPath)}
                       isDrop={dropTarget === rowPath}
