@@ -994,6 +994,14 @@ async fn restore(
             }
             dest_dir
         };
+        // A link anywhere along the way (a drive that came from another computer can
+        // carry them) must not lead the copy out of this drive.
+        if inside(&mount, &dest_dir).is_none() {
+            return Err(fail(
+                StatusCode::CONFLICT,
+                format!("The original folder on {label} isn't a regular folder, so Luna won't restore into it."),
+            ));
+        }
         let final_name =
             restore_name(&dest_dir, &name, is_dir, db::now_unix()).ok_or_else(|| {
                 fail(
@@ -1546,6 +1554,34 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         let body: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(body["name"], format!("a (restored {day} 2).txt"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn restore_refuses_a_destination_behind_a_link() {
+        let f = fixture();
+        let shared = AccessList {
+            users: vec![f.member_id.clone()],
+            admins: true,
+        };
+        let store = make_store(&f, "p-link", "drive-src", shared);
+        fs::create_dir_all(store.current_dir().join("Sub/Deep")).unwrap();
+        fs::write(store.current_dir().join("Sub/Deep/a.txt"), "hello").unwrap();
+        // "Sub" on the live drive is a link that leads outside the drive.
+        let outside = f._dir.path().join("outside");
+        fs::create_dir_all(outside.join("Deep")).unwrap();
+        std::os::unix::fs::symlink(&outside, f.src_root.join("Docs/Sub")).unwrap();
+
+        let (status, _) = send(
+            &f,
+            "POST",
+            "/api/v1/drives/drive-tgt/backups/p-link/restore",
+            &f.admin_token,
+            Some(json!({ "path": "Sub/Deep/a.txt" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(fs::read_dir(outside.join("Deep")).unwrap().count(), 0);
     }
 
     #[tokio::test]
