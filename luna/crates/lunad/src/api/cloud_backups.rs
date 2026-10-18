@@ -22,6 +22,7 @@ use crate::backup::cloud::store::HttpStore;
 use crate::backup::drive_backup::{self, Refused};
 use crate::db::{self, ProtectionRow};
 use crate::net::connect::ConnectService;
+use crate::private::{self, OwnerState};
 
 /// How long Run and Check wait for the job before answering "not done yet".
 const RUN_WAIT: Duration = Duration::from_secs(15);
@@ -129,11 +130,12 @@ async fn remove(
     Extension(user): Extension<CurrentUser>,
     Path(id): Path<String>,
 ) -> ApiResult {
-    let row = {
+    let allowed = {
         let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
-        find_backup(&conn, &id)?
+        let row = find_backup(&conn, &id)?;
+        can_delete(&conn, &row, &user)
     };
-    if !can_delete(&row, &user) {
+    if !allowed {
         return Err(json_error(
             StatusCode::FORBIDDEN,
             "Only an Admin or the person who made this backup can delete it.",
@@ -301,8 +303,15 @@ fn find_backup(conn: &Connection, id: &str) -> Result<ProtectionRow, ApiError> {
         .ok_or_else(not_found)
 }
 
-/// Admins may delete any backup; anyone else only a backup they made and can see.
-fn can_delete(row: &ProtectionRow, user: &CurrentUser) -> bool {
+/// Admins may delete any shared backup; anyone else only a backup they made and can see.
+/// A private item's backup is the owner's to delete. An Admin may delete it only once
+/// its owner's account is gone, and never while the owner is still a person here.
+fn can_delete(conn: &Connection, row: &ProtectionRow, user: &CurrentUser) -> bool {
+    if !row.private_owner.is_empty() {
+        return user.id == row.private_owner
+            || (user.role == "admin"
+                && private::owner_state(conn, &row.private_owner) != OwnerState::Active);
+    }
     user.role == "admin" || (row.created_by == user.id && ops::visible_to(row, user))
 }
 
@@ -332,7 +341,8 @@ fn backup_json(conn: &Connection, row: &ProtectionRow, user: &CurrentUser, now: 
         "size": ops::size(conn, &row.id),
         "first_done": row.first_done,
         "created_by": row.created_by,
-        "can_delete": can_delete(row, user),
+        "can_delete": can_delete(conn, row, user),
+        "private": !row.private_owner.is_empty(),
         "running": drive_backup::is_running(&row.id),
         "notes": row.notes.lines().filter(|l| !l.trim().is_empty()).collect::<Vec<_>>(),
     })
@@ -351,8 +361,13 @@ fn run_answer(outcome: &CloudOutcome) -> Value {
 }
 
 /// A refusal about who may do something is 403; anything else is 400.
+/// "Back up the private item itself, from its own shield." is a 400: it says how to
+/// do the thing, not who may do it.
 fn refusal_status(msg: &str) -> StatusCode {
-    if msg.starts_with("You need") || msg.starts_with("Only an Admin") {
+    if msg.starts_with("You need")
+        || msg.starts_with("Only an Admin")
+        || (msg.starts_with("Only ") && msg.ends_with("can back up this item."))
+    {
         StatusCode::FORBIDDEN
     } else {
         StatusCode::BAD_REQUEST

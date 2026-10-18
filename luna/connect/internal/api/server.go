@@ -73,6 +73,7 @@ func (s *Server) routes() {
 	prov := handlers.NewProvidersHandler(s.db)
 	cloud := handlers.CloudReadHandler{Deps: s.deps}
 	share := handlers.ShareLinkHandler{Deps: s.deps}
+	priv := handlers.PrivateHandler{Deps: s.deps}
 
 	r.Post("/api/v1/billing/webhook", http.MaxBytesHandler(http.HandlerFunc(acct.StripeWebhook), 65536).ServeHTTP)
 
@@ -90,6 +91,8 @@ func (s *Server) routes() {
 				r.Get("/share", share.Info)
 				r.Get("/share/records/{kind}", share.Records)
 				r.Get("/share/packs/{id}", share.Pack)
+				r.Post("/share/private/challenge", priv.ShareChallenge)
+				r.Post("/share/private/open", priv.ShareOpen)
 
 				r.Group(func(r chi.Router) {
 					r.Use(dev.DeviceAuth)
@@ -117,6 +120,8 @@ func (s *Server) routes() {
 						r.Get("/cloud/lunas", cloud.ListLunas)
 						r.Get("/cloud/lunas/{lunaID}/records/{kind}", cloud.ListRecords)
 						r.Get("/cloud/lunas/{lunaID}/packs/{id}", cloud.GetPack)
+						r.Post("/cloud/lunas/{lunaID}/private/challenge", priv.Challenge)
+						r.Post("/cloud/lunas/{lunaID}/private/open", priv.Open)
 						r.Get("/cloud/share-links", share.List)
 						r.Post("/cloud/share-links", share.Create)
 						r.Delete("/cloud/share-links/{id}", share.Revoke)

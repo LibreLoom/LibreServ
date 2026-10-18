@@ -7,9 +7,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/security"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/store"
 )
 
@@ -65,9 +68,7 @@ func privWriteScope(t *testing.T, d Deps, acct, scope, userID string, authPub ed
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := d.Store.Put(acct, store.StorageSlot(privTestLuna), store.StorageRecordPath("pscopes", scope), bytes.NewReader(data)); err != nil {
-		t.Fatal(err)
-	}
+	cloudRecord(t, d, acct, privTestLuna, "pscopes", scope, data)
 }
 
 // privSign signs a challenge for scope the way the client's auth key does.
@@ -233,5 +234,67 @@ func TestLunaCanonicalMatchesRust(t *testing.T) {
 	}
 	if bytes.Equal(lunaCanonical([2][]byte{[]byte("ab"), []byte("c")}), lunaCanonical([2][]byte{[]byte("a"), []byte("bc")})) {
 		t.Fatal("canonical is ambiguous")
+	}
+}
+
+// TestPrivateOpenAcceptsRustFixture opens a session with the signed private items that lunad writes in its
+// cloud fixture, so the Go side is checked against the Rust side's exact bytes and signatures.
+func TestPrivateOpenAcceptsRustFixture(t *testing.T) {
+	type fixtureRecord struct {
+		Name string `json:"name"`
+		Data string `json:"data"`
+	}
+	var fx struct {
+		LunaID        string `json:"luna_id"`
+		SigningPublic string `json:"signing_public"`
+		Private       struct {
+			Scope         string `json:"scope"`
+			Challenge     string `json:"challenge"`
+			OpenSignature string `json:"open_signature"`
+			Records       struct {
+				PScopes    []fixtureRecord `json:"pscopes"`
+				PSnapshots []fixtureRecord `json:"psnapshots"`
+			} `json:"records"`
+		} `json:"private"`
+	}
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "crates", "lunad", "src", "backup", "cloud", "fixture.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, &fx); err != nil {
+		t.Fatal(err)
+	}
+
+	d := testDeps(t)
+	acct := cloudAccount(t, d, "fixture@example.com")
+	cloudLuna(t, d, acct, fx.LunaID, "Fixture")
+	if _, err := d.DB.Exec(`UPDATE luna_ids SET signing_public = ? WHERE account_id = ? AND luna_id = ?`,
+		fx.SigningPublic, acct, fx.LunaID); err != nil {
+		t.Fatal(err)
+	}
+	for kind, recs := range map[string][]fixtureRecord{"pscopes": fx.Private.Records.PScopes, "psnapshots": fx.Private.Records.PSnapshots} {
+		for _, r := range recs {
+			data, err := hex.DecodeString(r.Data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err := d.Store.Put(acct, store.StorageSlot(fx.LunaID), store.StorageRecordPath(kind, r.Name), bytes.NewReader(data)); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	s := readScope{AccountID: acct, LunaID: fx.LunaID}
+	now := time.Now()
+	if _, err := d.DB.Exec(`INSERT INTO private_challenges (hash, account_id, luna_id, link_id, expires_at)
+VALUES (?, ?, ?, '', ?)`, security.HashToken(fx.Private.Challenge), acct, fx.LunaID, now.Add(privateChallengeTTL*time.Second).Unix()); err != nil {
+		t.Fatal(err)
+	}
+	token, _, err := openPrivateSession(d, s, "", fx.Private.Scope, fx.Private.Challenge, fx.Private.OpenSignature, now)
+	if err != nil {
+		t.Fatalf("open with Rust fixture: %v", err)
+	}
+	if got, err := privateSessionScope(d, s, "", token, now); err != nil || got != fx.Private.Scope {
+		t.Fatalf("session scope = %q, %v; want %q", got, err, fx.Private.Scope)
 	}
 }

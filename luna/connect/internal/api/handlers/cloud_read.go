@@ -31,7 +31,7 @@ type readScope struct {
 }
 
 // browserKinds are the record kinds a browser may read.
-var browserKinds = map[string]bool{"snapshots": true, "keys": true, "recipients": true, "self": true}
+var browserKinds = map[string]bool{"snapshots": true, "keys": true, "recipients": true, "self": true, "pscopes": true, "psnapshots": true}
 
 type storedRecord struct {
 	Name string
@@ -121,7 +121,7 @@ func (h CloudReadHandler) ListRecords(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusNotFound, "That Luna has no cloud backups on this account.")
 		return
 	}
-	writeRecords(h.Deps, w, readScope{AccountID: accountID, LunaID: lunaID}, chi.URLParam(r, "kind"))
+	writeRecords(h.Deps, w, readScope{AccountID: accountID, LunaID: lunaID}, chi.URLParam(r, "kind"), "", r.Header.Get(privateTokenHeader))
 }
 
 // GetPack streams one pack of a Luna on the signed-in account.
@@ -135,7 +135,7 @@ func (h CloudReadHandler) GetPack(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusNotFound, "That Luna has no cloud backups on this account.")
 		return
 	}
-	writePack(h.Deps, w, readScope{AccountID: accountID, LunaID: lunaID}, chi.URLParam(r, "id"), "")
+	writePack(h.Deps, w, readScope{AccountID: accountID, LunaID: lunaID}, chi.URLParam(r, "id"), "", r.Header.Get(privateTokenHeader))
 }
 
 // recordNames lists the names of one kind of record for the scope's Luna, in name order.
@@ -351,17 +351,47 @@ func loadPackScopes(d Deps, s readScope) (map[string]bool, error) {
 	return scopes, nil
 }
 
+// privateTokenHeader carries the private session token that opens a private scope.
+const privateTokenHeader = "X-Private-Token"
+
+// privatePackReadErr is the 500 answer when a pack's private scope cannot be checked.
+const privatePackReadErr = "Cloud storage could not read this backup. Try again."
+
 // writeRecords and writePack do the HTTP part for both the account and share routes.
-func writeRecords(d Deps, w http.ResponseWriter, s readScope, kind string) {
+// linkID is the share link, or "" for the account owner. token is the X-Private-Token header.
+func writeRecords(d Deps, w http.ResponseWriter, s readScope, kind, linkID, token string) {
 	if !browserKinds[kind] {
 		JSONError(w, http.StatusNotFound, "That kind of backup record is not available.")
 		return
 	}
 	const readErr = "Cloud storage could not read this backup. Try again."
+	prefix := ""
+	if kind == "psnapshots" {
+		scope, err := privateSessionScope(d, s, linkID, token, time.Now())
+		if err != nil {
+			JSONError(w, http.StatusInternalServerError, readErr)
+			return
+		}
+		if scope == "" {
+			JSONError(w, http.StatusForbidden, privateTokenMessage)
+			return
+		}
+		prefix = scope + "."
+	}
 	recs, err := loadRecords(d, s, kind)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, readErr)
 		return
+	}
+	if kind == "pscopes" {
+		recs, err = filterPrivateScopes(d, s, recs)
+		if err != nil {
+			JSONError(w, http.StatusInternalServerError, readErr)
+			return
+		}
+	}
+	if prefix != "" {
+		recs = keepWithPrefix(recs, prefix)
 	}
 	var keyNames []string
 	if s.Kind != "" {
@@ -389,10 +419,49 @@ func writeRecords(d Deps, w http.ResponseWriter, s readScope, kind string) {
 	JSON(w, http.StatusOK, map[string]any{"records": out})
 }
 
+// filterPrivateScopes keeps the pscopes records the scope may see. The account owner sees all of
+// them, a user share link sees only the record for its own user, and every other link sees none.
+func filterPrivateScopes(d Deps, s readScope, recs []storedRecord) ([]storedRecord, error) {
+	if s.Kind == "" {
+		return recs, nil
+	}
+	out := []storedRecord{}
+	if s.Kind != "user" {
+		return out, nil
+	}
+	_, signingHex, found, err := lookupLuna(d, s.AccountID, s.LunaID)
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		return out, nil
+	}
+	for _, rec := range recs {
+		parsed, ok := parseScopeRecord(rec.Data, signingHex)
+		if ok && scopePart(parsed.UserID) == s.Value {
+			out = append(out, rec)
+		}
+	}
+	return out, nil
+}
+
+// keepWithPrefix keeps the records whose name starts with prefix.
+func keepWithPrefix(recs []storedRecord, prefix string) []storedRecord {
+	out := make([]storedRecord, 0, len(recs))
+	for _, rec := range recs {
+		if strings.HasPrefix(rec.Name, prefix) {
+			out = append(out, rec)
+		}
+	}
+	return out
+}
+
 // writePack streams one pack to the scope and returns the bytes it wrote, even when the copy
 // stops early. Every refusal gets the same answer, so a caller cannot tell a pack that is missing
-// from one it may not see. linkID is the share link, or "" for the account owner.
-func writePack(d Deps, w http.ResponseWriter, s readScope, packID, linkID string) int64 {
+// from one it may not see. A pack in a private scope needs a session token for that scope: the
+// account owner gets a 403 without one, and a share link gets the same 404 as any other refusal.
+// linkID is the share link, or "" for the account owner.
+func writePack(d Deps, w http.ResponseWriter, s readScope, packID, linkID, token string) int64 {
 	notFound := func() {
 		JSONError(w, http.StatusNotFound, "That backup file is not in cloud storage.")
 	}
@@ -400,16 +469,37 @@ func writePack(d Deps, w http.ResponseWriter, s readScope, packID, linkID string
 		notFound()
 		return 0
 	}
-	var one int
-	if err := d.DB.QueryRow(`SELECT 1 FROM storage_packs WHERE account_id = ? AND luna_id = ? AND id = ?`,
-		s.AccountID, s.LunaID, packID).Scan(&one); err != nil {
+	var packScope string
+	if err := d.DB.QueryRow(`SELECT scope FROM storage_packs WHERE account_id = ? AND luna_id = ? AND id = ?`,
+		s.AccountID, s.LunaID, packID).Scan(&packScope); err != nil {
 		notFound()
 		return 0
 	}
-	allowed, err := packAllowed(d, s, linkID, packID)
-	if err != nil || !allowed {
-		notFound()
+	_, isPrivate, err := loadScopeRecord(d, s, packScope)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, privatePackReadErr)
 		return 0
+	}
+	if isPrivate {
+		sess, err := privateSessionScope(d, s, linkID, token, time.Now())
+		if err != nil {
+			JSONError(w, http.StatusInternalServerError, privatePackReadErr)
+			return 0
+		}
+		if sess != packScope {
+			if s.Kind == "" {
+				JSONError(w, http.StatusForbidden, privateTokenMessage)
+			} else {
+				notFound()
+			}
+			return 0
+		}
+	} else {
+		allowed, err := packAllowed(d, s, linkID, packID)
+		if err != nil || !allowed {
+			notFound()
+			return 0
+		}
 	}
 	rc, err := d.Store.Get(s.AccountID, store.StorageSlot(s.LunaID), store.StoragePackPath(packID))
 	if err != nil {

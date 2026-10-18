@@ -15,6 +15,7 @@ use crate::api::response::json_error;
 use crate::auth::CurrentUser;
 use crate::backup::drive_backup::{self, Refused};
 use crate::db::{self, ProtectionRow};
+use crate::private::{self, OwnerState};
 
 /// How long Run waits for the copy before answering "not done yet".
 const RUN_WAIT: Duration = Duration::from_secs(15);
@@ -146,7 +147,7 @@ async fn remove(
 ) -> ApiResult {
     let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
     let row = find_backup(&conn, &id)?;
-    if !can_delete(&row, &user) {
+    if !can_delete(&conn, &row, &user) {
         return Err(json_error(
             StatusCode::FORBIDDEN,
             "Only an Admin or the person who made this backup can delete it.",
@@ -184,7 +185,10 @@ async fn run(
         row
     };
     // Only people who may delete the backup may let a run delete a lot.
-    let allow_mass_delete = wants_mass_delete && can_delete(&row, &user);
+    let allow_mass_delete = wants_mass_delete && {
+        let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
+        can_delete(&conn, &row, &user)
+    };
 
     // A run or a restore already holds the backup. Say so instead of starting
     // another run.
@@ -224,8 +228,15 @@ fn find_backup(conn: &Connection, id: &str) -> Result<ProtectionRow, ApiError> {
         .ok_or_else(not_found)
 }
 
-/// Admins may delete any backup; anyone else only a backup they made and can see.
-fn can_delete(row: &ProtectionRow, user: &CurrentUser) -> bool {
+/// Admins may delete any shared backup; anyone else only a backup they made and can see.
+/// A private item's backup is the owner's to delete. An Admin may delete it only once
+/// its owner's account is gone, and never while the owner is still a person here.
+fn can_delete(conn: &Connection, row: &ProtectionRow, user: &CurrentUser) -> bool {
+    if !row.private_owner.is_empty() {
+        return user.id == row.private_owner
+            || (user.role == "admin"
+                && private::owner_state(conn, &row.private_owner) != OwnerState::Active);
+    }
     user.role == "admin" || (row.created_by == user.id && drive_backup::visible_to(row, user))
 }
 
@@ -249,13 +260,16 @@ fn backup_json(conn: &Connection, row: &ProtectionRow, user: &CurrentUser, now: 
         "hard": row.hard,
         "first_done": row.first_done,
         "created_by": row.created_by,
-        "can_delete": can_delete(row, user),
+        "can_delete": can_delete(conn, row, user),
+        "private": !row.private_owner.is_empty(),
         "running": drive_backup::is_running(&row.id),
         "notes": row.notes.lines().filter(|l| !l.trim().is_empty()).collect::<Vec<_>>(),
     })
 }
 
 /// A refusal about who may do something is 403; anything else is 400.
+/// The private-item refusal "Back up the private item itself, from its own shield."
+/// is not a who-may refusal, so it stays 400.
 fn refusal_status(msg: &str) -> StatusCode {
     let who_may = msg.starts_with("You need")
         || msg.starts_with("Only an Admin")
@@ -321,6 +335,7 @@ mod tests {
         admin_id: String,
         member_id: String,
         member_token: String,
+        admin_token: String,
     }
 
     fn fixture() -> Fixture {
@@ -343,6 +358,7 @@ mod tests {
             ))
             .with_state(state.clone());
         Fixture {
+            admin_token: auth.issue(&admin).unwrap(),
             member_token: auth.issue(&member).unwrap(),
             admin_id: admin.id.clone(),
             member_id: member.id.clone(),
@@ -354,6 +370,18 @@ mod tests {
 
     /// Insert a backup row straight into the table, with the given access list.
     fn seed(state: &AppState, id: &str, source_path: &str, access_json: &str, created_by: &str) {
+        seed_owned(state, id, source_path, access_json, created_by, "");
+    }
+
+    /// Like `seed`, for a backup of a private item owned by `private_owner`.
+    fn seed_owned(
+        state: &AppState,
+        id: &str,
+        source_path: &str,
+        access_json: &str,
+        created_by: &str,
+        private_owner: &str,
+    ) {
         let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
         db::insert_protection(
             &conn,
@@ -363,7 +391,7 @@ mod tests {
                 source_drive: "d1",
                 source_path,
                 target_drive: "d2",
-                private_owner: "",
+                private_owner,
                 created_by,
                 created_at: 0,
             },
@@ -491,6 +519,69 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn private_row_is_hidden_from_admin_and_marked_private_for_owner() {
+        let f = fixture();
+        let owner_only = format!(r#"{{"users":["{}"],"admins":false}}"#, f.member_id);
+        seed_owned(&f.state, "mine-private", "notes", &owner_only, &f.member_id, &f.member_id);
+
+        let (status, body) = send(&f.router, "GET", "/api/v1/backups", &f.member_token, None).await;
+        assert_eq!(status, axum::http::StatusCode::OK);
+        let member_rows = body.as_array().unwrap();
+        let row = member_rows
+            .iter()
+            .find(|b| b["id"] == "mine-private")
+            .expect("the owner sees their private backup");
+        assert_eq!(row["private"], true);
+        assert_eq!(row["can_delete"], true);
+
+        let (status, body) = send(&f.router, "GET", "/api/v1/backups", &f.admin_token, None).await;
+        assert_eq!(status, axum::http::StatusCode::OK);
+        assert!(
+            !ids(&body).contains(&"mine-private".to_string()),
+            "an Admin who is not on the list must not see a private backup"
+        );
+    }
+
+    #[tokio::test]
+    async fn admin_can_delete_a_deleted_owners_private_backup_but_not_a_live_owners() {
+        let f = fixture();
+        let owner_only = format!(r#"{{"users":["{}"],"admins":false}}"#, f.member_id);
+        seed_owned(&f.state, "live-owner", "live", &owner_only, &f.member_id, &f.member_id);
+        seed_owned(&f.state, "gone-owner", "gone", &owner_only, "gone-user", "gone-user");
+        {
+            let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+            conn.execute(
+                "INSERT INTO deleted_users (id) VALUES ('gone-user')",
+                [],
+            )
+            .unwrap();
+        }
+
+        let (status, _) = send(
+            &f.router,
+            "DELETE",
+            "/api/v1/backups/live-owner",
+            &f.admin_token,
+            None,
+        )
+        .await;
+        assert_eq!(status, axum::http::StatusCode::FORBIDDEN);
+
+        let (status, _) = send(
+            &f.router,
+            "DELETE",
+            "/api/v1/backups/gone-owner",
+            &f.admin_token,
+            None,
+        )
+        .await;
+        assert_ne!(status, axum::http::StatusCode::FORBIDDEN);
+        let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+        assert!(db::get_protection(&conn, "gone-owner").unwrap().is_none());
+        assert!(db::get_protection(&conn, "live-owner").unwrap().is_some());
+    }
+
+    #[tokio::test]
     async fn delete_is_forbidden_for_a_stranger() {
         let f = fixture();
         let member_only = format!(r#"{{"users":["{}"],"admins":false}}"#, f.member_id);
@@ -596,6 +687,10 @@ mod tests {
     #[test]
     fn refusal_status_keeps_other_refusals_at_400() {
         use axum::http::StatusCode;
+        assert_eq!(
+            super::refusal_status("Back up the private item itself, from its own shield."),
+            StatusCode::BAD_REQUEST
+        );
         assert_eq!(
             super::refusal_status(
                 "This folder is inside a private item, so it can't be backed up here."

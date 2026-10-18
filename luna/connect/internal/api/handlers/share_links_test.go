@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/security"
 )
 
@@ -423,5 +424,198 @@ func TestInfoIgnoresDeviceOfAnotherAccount(t *testing.T) {
 	}
 	if got.LunaName != "" {
 		t.Fatalf("luna_name %q leaked from another account's device", got.LunaName)
+	}
+}
+
+func TestShareUserLinkPrivateItems(t *testing.T) {
+	d, acct, lunaPriv, authPub, authPriv := privFixture(t)
+	privWriteScope(t, d, acct, "main", "user_a", authPub, lunaPriv)
+	privWriteScope(t, d, acct, "other", "user_b", authPub, lunaPriv)
+	cloudRecord(t, d, acct, privTestLuna, "psnapshots", "main.0123", []byte("a"))
+	cloudRecord(t, d, acct, privTestLuna, "psnapshots", "other.0123", []byte("b"))
+	cloudPack(t, d, acct, privTestLuna, hexPack('f'), "main", []byte("private pack"))
+	linkID, userTok := createShare(t, d, acct, `{"luna_id":"`+privTestLuna+`","scope_kind":"user","scope_value":"`+scopePart("user_a")+`"}`)
+	_, backupTok := createShare(t, d, acct, `{"luna_id":"`+privTestLuna+`","scope_kind":"backup","scope_value":"`+cloudProtA+`"}`)
+	h := ShareLinkHandler{Deps: d}
+	records := func(token, kind string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		h.Records(rec, shareReq("", http.MethodGet, "/x", "", map[string]string{"kind": kind}, token))
+		return rec
+	}
+
+	rec := records(userTok, "pscopes")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("user link pscopes status %d: %s", rec.Code, rec.Body.String())
+	}
+	if names := listedNames(t, rec); len(names) != 1 || names[0] != "main" {
+		t.Fatalf("user link pscopes = %v; want [main]", names)
+	}
+	if names := listedNames(t, records(backupTok, "pscopes")); len(names) != 0 {
+		t.Fatalf("backup link pscopes = %v; want none", names)
+	}
+	if rec := records(userTok, "psnapshots"); rec.Code != http.StatusForbidden {
+		t.Fatalf("user link psnapshots without session status %d; want 403", rec.Code)
+	}
+
+	s := readScope{AccountID: acct, LunaID: privTestLuna, Kind: "user", Value: scopePart("user_a")}
+	now := time.Now()
+	ch, err := newPrivateChallenge(d, s, linkID, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, _, err := openPrivateSession(d, s, linkID, "main", ch, privSign(authPriv, "main", ch), now)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	packReq := func(shareTok, privTok string) *httptest.ResponseRecorder {
+		req := shareReq("", http.MethodGet, "/x", "", map[string]string{"id": hexPack('f')}, shareTok)
+		if privTok != "" {
+			req.Header.Set(privateTokenHeader, privTok)
+		}
+		rec := httptest.NewRecorder()
+		h.Pack(rec, req)
+		return rec
+	}
+	if rec := packReq(userTok, ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("private pack without session status %d; want 404", rec.Code)
+	}
+	if rec := packReq(userTok, token); rec.Code != http.StatusOK || rec.Body.String() != "private pack" {
+		t.Fatalf("private pack with session status %d body %q", rec.Code, rec.Body.String())
+	}
+	rec = records(userTok, "psnapshots")
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("psnapshots without private header status %d; want 403", rec.Code)
+	}
+	rec = httptest.NewRecorder()
+	req := shareReq("", http.MethodGet, "/x", "", map[string]string{"kind": "psnapshots"}, userTok)
+	req.Header.Set(privateTokenHeader, token)
+	h.Records(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("psnapshots with session status %d: %s", rec.Code, rec.Body.String())
+	}
+	if names := listedNames(t, rec); len(names) != 1 || names[0] != "main.0123" {
+		t.Fatalf("user link psnapshots = %v; want [main.0123]", names)
+	}
+}
+
+// TestShareOpenThroughRoute runs a user link through the HTTP routes: challenge, sign, open,
+// then read the private snapshots with both the share token and the private session header.
+func TestShareOpenThroughRoute(t *testing.T) {
+	d, acct, lunaPriv, authPub, authPriv := privFixture(t)
+	privWriteScope(t, d, acct, "main", "user_a", authPub, lunaPriv)
+	cloudRecord(t, d, acct, privTestLuna, "psnapshots", "main.0123", []byte("a"))
+	_, userTok := createShare(t, d, acct, `{"luna_id":"`+privTestLuna+`","scope_kind":"user","scope_value":"`+scopePart("user_a")+`"}`)
+
+	ph := PrivateHandler{Deps: d}
+	sh := ShareLinkHandler{Deps: d}
+	r := chi.NewRouter()
+	r.Post("/api/v1/share/private/challenge", ph.ShareChallenge)
+	r.Post("/api/v1/share/private/open", ph.ShareOpen)
+	r.Get("/api/v1/share/records/{kind}", sh.Records)
+	do := func(method, path, body string, headers map[string]string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set(shareTokenHeader, userTok)
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		return rec
+	}
+
+	rec := do(http.MethodPost, "/api/v1/share/private/challenge", "", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("challenge status %d: %s", rec.Code, rec.Body.String())
+	}
+	var ch struct {
+		Challenge string `json:"challenge"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &ch); err != nil || ch.Challenge == "" {
+		t.Fatalf("challenge body %q: %v", rec.Body.String(), err)
+	}
+
+	openBody := `{"scope":"main","challenge":"` + ch.Challenge + `","signature":"` + privSign(authPriv, "main", ch.Challenge) + `"}`
+	rec = do(http.MethodPost, "/api/v1/share/private/open", openBody, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("open status %d: %s", rec.Code, rec.Body.String())
+	}
+	var opened struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &opened); err != nil || opened.Token == "" {
+		t.Fatalf("open body %q: %v", rec.Body.String(), err)
+	}
+
+	rec = do(http.MethodGet, "/api/v1/share/records/psnapshots", "", nil)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("psnapshots without private header status %d; want 403", rec.Code)
+	}
+	rec = do(http.MethodGet, "/api/v1/share/records/psnapshots", "", map[string]string{privateTokenHeader: opened.Token})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("psnapshots with private header status %d: %s", rec.Code, rec.Body.String())
+	}
+	if names := listedNames(t, rec); len(names) != 1 || names[0] != "main.0123" {
+		t.Fatalf("psnapshots through route = %v; want [main.0123]", names)
+	}
+
+	// A replayed challenge is refused: it is single use.
+	rec = do(http.MethodPost, "/api/v1/share/private/open", openBody, nil)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("replayed open status %d; want 403", rec.Code)
+	}
+}
+
+// TestUserLinkSeesOnlyItsUsersScopes checks the scope list a user link shows: its own user's scope only.
+func TestUserLinkSeesOnlyItsUsersScopes(t *testing.T) {
+	d, acct, lunaPriv, authPub, _ := privFixture(t)
+	privWriteScope(t, d, acct, "main", "user_a", authPub, lunaPriv)
+	privWriteScope(t, d, acct, "other", "user_b", authPub, lunaPriv)
+	_, userTok := createShare(t, d, acct, `{"luna_id":"`+privTestLuna+`","scope_kind":"user","scope_value":"`+scopePart("user_a")+`"}`)
+
+	rec := httptest.NewRecorder()
+	ShareLinkHandler{Deps: d}.Records(rec, shareReq("", http.MethodGet, "/x", "", map[string]string{"kind": "pscopes"}, userTok))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("pscopes status %d: %s", rec.Code, rec.Body.String())
+	}
+	if names := listedNames(t, rec); len(names) != 1 || names[0] != "main" {
+		t.Fatalf("user link pscopes = %v; want [main]", names)
+	}
+}
+
+// TestBackupLinkSeesNoPscopes checks that a backup link lists no private scopes at all.
+func TestBackupLinkSeesNoPscopes(t *testing.T) {
+	d, acct, lunaPriv, authPub, _ := privFixture(t)
+	privWriteScope(t, d, acct, "main", "user_a", authPub, lunaPriv)
+	_, backupTok := createShare(t, d, acct, `{"luna_id":"`+privTestLuna+`","scope_kind":"backup","scope_value":"`+cloudProtA+`"}`)
+
+	rec := httptest.NewRecorder()
+	ShareLinkHandler{Deps: d}.Records(rec, shareReq("", http.MethodGet, "/x", "", map[string]string{"kind": "pscopes"}, backupTok))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("pscopes status %d: %s", rec.Code, rec.Body.String())
+	}
+	if names := listedNames(t, rec); len(names) != 0 {
+		t.Fatalf("backup link pscopes = %v; want none", names)
+	}
+}
+
+// TestSharedPacksUnchanged checks that an ordinary (not private) pack still serves without a session token,
+// both on the account route and through a share link.
+func TestSharedPacksUnchanged(t *testing.T) {
+	d, acct, _, _, _ := privFixture(t)
+	data := []byte("shared pack")
+	cloudPack(t, d, acct, privTestLuna, hexPack('f'), "shared", data)
+	cloudRecord(t, d, acct, privTestLuna, "snapshots", "snap-shared.json", snapshotJSON(cloudProtA, hexPack('f')))
+
+	rec := httptest.NewRecorder()
+	CloudReadHandler{Deps: d}.GetPack(rec, cloudReq(acct, http.MethodGet, "/x", map[string]string{"lunaID": privTestLuna, "id": hexPack('f')}))
+	if rec.Code != http.StatusOK || !bytes.Equal(rec.Body.Bytes(), data) {
+		t.Fatalf("account route pack: status %d body %q", rec.Code, rec.Body.String())
+	}
+
+	_, backupTok := createShare(t, d, acct, `{"luna_id":"`+privTestLuna+`","scope_kind":"backup","scope_value":"`+cloudProtA+`"}`)
+	rec = httptest.NewRecorder()
+	ShareLinkHandler{Deps: d}.Pack(rec, shareReq("", http.MethodGet, "/x", "", map[string]string{"id": hexPack('f')}, backupTok))
+	if rec.Code != http.StatusOK || !bytes.Equal(rec.Body.Bytes(), data) {
+		t.Fatalf("backup link pack without session: status %d body %q", rec.Code, rec.Body.String())
 	}
 }

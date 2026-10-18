@@ -93,6 +93,23 @@ describe('cloudKeys', () => {
 		expect(() => findMyKeys({ lunaId, entropy: bobEntropy, ...all() })).toThrow(NO_BACKUPS);
 	});
 
+	it('findMyKeys also reports the private scope for alice and keeps her shared keys', () => {
+		const pscopes = records(fixture.private.records.pscopes);
+		const found = findMyKeys({ lunaId, entropy: aliceEntropy, ...all(), pscopes });
+		expect(found.privateScopes).toHaveLength(1);
+		expect(found.privateScopes[0].scope).toBe(fixture.private.scope);
+		expect(found.keys).toHaveLength(1);
+		expect(found.keys[0].key).toEqual(hexToBytes(fixture.backup_key));
+	});
+
+	it('findMyKeys returns no shared keys, without throwing, for a private-only user', () => {
+		const pscopes = records(fixture.private.records.pscopes);
+		const self = records(fixture.records.self);
+		const found = findMyKeys({ lunaId, entropy: aliceEntropy, self, recipients: [], keys: [], pscopes });
+		expect(found.keys).toEqual([]);
+		expect(found.privateScopes).toHaveLength(1);
+	});
+
 	it('verifyRecipients returns the signed users in order', () => {
 		const users = verifyRecipients(
 			records(fixture.records.recipients)[0].data,

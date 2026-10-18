@@ -9,6 +9,9 @@ use crate::backup::access_list::{self, AccessList};
 use crate::backup::cloud::check;
 use crate::backup::cloud::identity;
 use crate::backup::cloud::keys;
+use crate::backup::cloud::private::snapshot_record_ref;
+use crate::backup::cloud::private_check;
+use crate::backup::cloud::private_run;
 use crate::backup::cloud::retention;
 use crate::net::connect::ConnectService;
 use crate::backup::cloud::run::{self, CloudOutcome};
@@ -90,7 +93,16 @@ pub fn create(
     {
         return Ok(existing);
     }
-    let access = access_list::for_source(&conn, source_drive, &norm).map_err(|_| save_refused())?;
+    let private_owner = private_owner_for(&conn, user, source_drive, &norm)?;
+    let access = if private_owner.is_empty() {
+        access_list::for_source(&conn, source_drive, &norm).map_err(|_| save_refused())?
+    } else {
+        // Same as `access_list::for_row` for a private cloud backup: the owner only.
+        AccessList {
+            users: vec![private_owner.clone()],
+            admins: false,
+        }
+    };
     let access_json = serde_json::to_string(&access).map_err(|_| save_refused())?;
     let id = uuid::Uuid::new_v4().to_string();
     db::insert_protection(
@@ -101,7 +113,7 @@ pub fn create(
             source_drive,
             source_path: &norm,
             target_drive: "",
-            private_owner: "",
+            private_owner: &private_owner,
             created_by: &user.id,
             created_at: db::now_unix(),
         },
@@ -112,6 +124,27 @@ pub fn create(
         .ok()
         .flatten()
         .ok_or_else(save_refused)
+}
+
+/// The owner a new backup of `norm` belongs to: the item's owner for a private item, "" for a
+/// shared folder. A private item is backed up by its owner only, and a folder inside one is not
+/// a backup source on its own (same rules as `drive_backup`).
+fn private_owner_for(
+    conn: &Connection,
+    user: &crate::auth::CurrentUser,
+    source_drive: &str,
+    norm: &str,
+) -> Result<String, Refused> {
+    match access_list::private_source(conn, source_drive, norm) {
+        access_list::PrivateSource::Shared => Ok(String::new()),
+        access_list::PrivateSource::OwnItem { owner } if owner == user.id => Ok(owner),
+        access_list::PrivateSource::OwnItem { .. } => Err(Refused(
+            "Only the owner of this private item can back it up.".into(),
+        )),
+        access_list::PrivateSource::Inside => Err(Refused(
+            "Back up the private item itself, not a folder inside it.".into(),
+        )),
+    }
 }
 
 pub const IDENTITY_REFUSAL: &str =
@@ -139,11 +172,7 @@ fn check_new_backup(
             "You need Read access to this folder to back it up.".into(),
         ));
     }
-    if crate::auth::inside_private(conn, source_drive, norm) {
-        return Err(Refused(
-            "Private items can't be backed up to the cloud.".into(),
-        ));
-    }
+    private_owner_for(conn, user, source_drive, norm)?;
     if crate::files::drive_root(conn, source_drive).is_err() {
         return Err(Refused(
             "Luna can't reach this drive. Check that it is connected.".into(),
@@ -198,7 +227,20 @@ pub fn run(
             Some(USER_LIST_FAILED)
         }
     };
-    let mut outcome = match run::run_once(db, id, store, started_by, accept_missing, now) {
+    let private = {
+        let conn = lock(db);
+        db::get_protection(&conn, id)
+            .ok()
+            .flatten()
+            .is_some_and(|row| !row.private_owner.is_empty())
+    };
+    let ran = if private {
+        // A private item's copy is sealed to its owner's keys, so it has its own run.
+        private_run::run_once(db, id, store, accept_missing, now)
+    } else {
+        run::run_once(db, id, store, started_by, accept_missing, now)
+    };
+    let mut outcome = match ran {
         Ok(out) if out.problem.is_none() => match tidy(db, id, store, now) {
             Ok(()) => out,
             Err(err) => {
@@ -326,6 +368,9 @@ fn sweep(db: &crate::Db, store: &dyn CloudStore, now: i64) {
         let conn = lock(db);
         scopes_of(&conn, None)
     };
+    if let Err(err) = retention::retire_old_phrases(db, store, now) {
+        tracing::warn!(error = %err, "could not remove old-phrase private backups");
+    }
     match scopes {
         Ok(scopes) => {
             for scope in scopes {
@@ -336,6 +381,37 @@ fn sweep(db: &crate::Db, store: &dyn CloudStore, now: i64) {
         }
         Err(err) => tracing::warn!(error = %err, "could not list cloud pack scopes"),
     }
+}
+
+/// How many old-phrase private copies `owner` still holds, and when the first of them is due
+/// to be removed. `None` when there are none.
+pub fn old_phrase_copies(conn: &Connection, owner: &str) -> Option<(usize, i64)> {
+    let scopes = db::list_private_scopes(conn, Some(owner)).ok()?;
+    let mut count = 0usize;
+    let mut earliest: Option<i64> = None;
+    for scope in scopes.iter().filter(|s| s.state == "old_phrase") {
+        let n = db::private_snapshot_ids(conn, &scope.scope).ok()?.len();
+        if n == 0 {
+            continue;
+        }
+        count += n;
+        earliest = Some(earliest.map_or(scope.retire_after, |e| e.min(scope.retire_after)));
+    }
+    if count == 0 {
+        return None;
+    }
+    earliest.map(|at| (count, at))
+}
+
+/// Lets `owner`'s old-phrase private copies be removed by the next sweep, rather than
+/// waiting out the 30 days.
+pub fn retire_old_phrase_now(conn: &Connection, owner: &str, now: i64) -> anyhow::Result<()> {
+    for scope in db::list_private_scopes(conn, Some(owner))? {
+        if scope.state == "old_phrase" {
+            db::set_private_scope_state(conn, &scope.scope, "old_phrase", now)?;
+        }
+    }
+    Ok(())
 }
 
 /// Every pack scope a backup (or all backups, when `None`) has written to.
@@ -401,7 +477,11 @@ pub fn delete(db: &crate::Db, id: &str, store: &dyn CloudStore, now: i64) -> any
         db::list_cloud_snapshots(&conn, id)?
     };
     for snap in snapshots {
-        remote_delete(store, "snapshots", &snap.id)?;
+        let (kind, name) = {
+            let conn = lock(db);
+            snapshot_record_ref(&conn, &snap.id)?
+        };
+        remote_delete(store, kind, &name)?;
         let conn = lock(db);
         db::delete_cloud_snapshot(&conn, &snap.id)?;
     }
@@ -487,7 +567,10 @@ pub fn on_grants_changed(conn: &Connection, drive_id: &str) {
         }
     };
     for row in rows.iter().filter(|r| {
-        r.kind == db::PROTECTION_CLOUD && r.state == db::PROTECTION_ACTIVE && r.source_drive == drive_id
+        r.kind == db::PROTECTION_CLOUD
+            && r.state == db::PROTECTION_ACTIVE
+            && r.source_drive == drive_id
+            && r.private_owner.is_empty()
     }) {
         if let Err(err) = refresh_access(conn, row) {
             tracing::warn!(error = %err, id = %row.id, "could not update a cloud backup's access");
@@ -555,7 +638,15 @@ pub fn check(
     sample: check::Sample,
     now: i64,
 ) -> anyhow::Result<check::CheckReport> {
-    let report = check::check(db, id, store, sample, now)?;
+    let private = {
+        let conn = lock(db);
+        db::get_protection(&conn, id)?.is_some_and(|row| !row.private_owner.is_empty())
+    };
+    let report = if private {
+        private_check::check(db, id, store, sample, now)?
+    } else {
+        check::check(db, id, store, sample, now)?
+    };
     let conn = lock(db);
     db::record_protection_checked(&conn, id, now)?;
     db::set_meta(
@@ -593,6 +684,8 @@ mod tests {
     use luna_core::marker::{pick_prefix, Marker};
     use std::fs;
     use std::path::PathBuf;
+    use crate::backup::cloud::crypto;
+    use crate::backup::cloud::private::{OLD_PHRASE_GRACE, PSCOPES_KIND, PSNAPSHOTS_KIND};
 
     const NOW: i64 = 1_800_000_000;
 
@@ -954,5 +1047,265 @@ mod tests {
         };
         assert!(visible_to(&row, &alice));
         assert!(!visible_to(&row, &bob));
+    }
+
+    const DAY: i64 = 24 * 60 * 60;
+
+    /// An owner and an Admin, both with recovery-phrase keys, and a drive with a Luna marker.
+    /// The private-item disk layout is installed, as it is on a running drive.
+    struct PrivateSetup {
+        _dir: tempfile::TempDir,
+        db: crate::Db,
+        owner: CurrentUser,
+        admin: CurrentUser,
+        root: PathBuf,
+        connect: ConnectService,
+    }
+
+    fn owner_keys(seed: u8) -> db::UserKeys {
+        let keys = crypto::derive(&[seed; 16], "luna-test");
+        db::UserKeys {
+            user_id: "owner".into(),
+            x25519_public: keys.x25519_public.to_vec(),
+            auth_public: keys.auth_public.to_vec(),
+            self_sealed: vec![3; 48],
+            phrase_set_at: 1,
+            last_checked_at: 0,
+        }
+    }
+
+    fn private_setup() -> PrivateSetup {
+        crate::private::install();
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        db::insert_user(&conn, "owner", "owner", "Owner", "x", "member").unwrap();
+        db::insert_user(&conn, "admin", "admin", "Admin", "x", "admin").unwrap();
+        identity::load_or_create(&conn, 1).unwrap();
+        db::set_user_keys(&conn, &owner_keys(7)).unwrap();
+        db::set_user_keys(
+            &conn,
+            &db::UserKeys {
+                user_id: "admin".into(),
+                x25519_public: vec![5; 32],
+                auth_public: vec![6; 32],
+                self_sealed: vec![3; 48],
+                phrase_set_at: 1,
+                last_checked_at: 0,
+            },
+        )
+        .unwrap();
+        let root = dir.path().join("drive-src");
+        fs::create_dir_all(&root).unwrap();
+        let prefix = pick_prefix(&root).unwrap();
+        drop(
+            crate::drives::drive_db::create(&root, &Marker::new("drive-src".to_string(), "Photos"), &prefix)
+                .unwrap(),
+        );
+        db::upsert_drive(&conn, "drive-src", "Photos", "as_is", "ext4", "drive-src", root.to_str().unwrap())
+            .unwrap();
+        let connect = ConnectService::new(&dir.path().join("connect"), None);
+        PrivateSetup {
+            _dir: dir,
+            db: crate::Db::new(conn),
+            owner: CurrentUser {
+                id: "owner".into(),
+                username: "owner".into(),
+                role: "member".into(),
+            },
+            admin: CurrentUser {
+                id: "admin".into(),
+                username: "admin".into(),
+                role: "admin".into(),
+            },
+            root,
+            connect,
+        }
+    }
+
+    /// Make `path` (a folder in the drive root) a private item of the owner, holding one file.
+    /// The folder moves to its disk name, as a private item lives on disk; its disk path is returned.
+    fn private_item(s: &PrivateSetup, path: &str) -> PathBuf {
+        let shown = s.root.join(path);
+        fs::create_dir_all(&shown).unwrap();
+        fs::write(shown.join("a.txt"), "hello").unwrap();
+        crate::private::create(&s.root, path, "owner").unwrap();
+        let disk = s.root.join(crate::private::disk_rel(&s.root, path));
+        fs::rename(&shown, &disk).unwrap();
+        disk
+    }
+
+    fn private_backup(s: &PrivateSetup, path: &str) -> String {
+        create(&s.db, &s.connect, &s.owner, "drive-src", path).unwrap().id
+    }
+
+    fn active_scope(db: &crate::Db) -> String {
+        db::active_private_scope(&lock(db), "owner").unwrap().unwrap().scope
+    }
+
+    fn snapshot_count(db: &crate::Db, scope: &str) -> usize {
+        db::private_snapshot_ids(&lock(db), scope).unwrap().len()
+    }
+
+    fn rotate_owner_keys(s: &PrivateSetup) {
+        db::set_user_keys(&lock(&s.db), &owner_keys(8)).unwrap();
+    }
+
+    #[test]
+    fn owner_creates_a_private_cloud_backup() {
+        let s = private_setup();
+        private_item(&s, "Docs");
+        let row = create(&s.db, &s.connect, &s.owner, "drive-src", "Docs").unwrap();
+        assert_eq!(row.private_owner, "owner");
+        assert_eq!(row.kind, db::PROTECTION_CLOUD);
+        let stored = db::get_protection(&lock(&s.db), &row.id).unwrap().unwrap();
+        assert_eq!(stored.private_owner, "owner");
+    }
+
+    #[test]
+    fn admin_is_refused_on_someone_elses_private_item() {
+        let s = private_setup();
+        private_item(&s, "Docs");
+        // The Admin has no Read access to a private item, so the Read check refuses first;
+        // the owner-only message is not reached for an Admin.
+        let err = create(&s.db, &s.connect, &s.admin, "drive-src", "Docs").err().unwrap();
+        assert_eq!(err.0, "You need Read access to this folder to back it up.");
+    }
+
+    #[test]
+    fn inside_is_refused() {
+        let s = private_setup();
+        let disk = private_item(&s, "Docs");
+        fs::create_dir_all(disk.join("Inner")).unwrap();
+        let err = create(&s.db, &s.connect, &s.owner, "drive-src", "Docs/Inner").err().unwrap();
+        assert_eq!(err.0, "Back up the private item itself, not a folder inside it.");
+    }
+
+    #[test]
+    fn private_run_goes_through_private_run() {
+        let s = private_setup();
+        private_item(&s, "Docs");
+        let id = private_backup(&s, "Docs");
+        let store = MemoryStore::new();
+        let out = run(&s.db, &id, &store, &s.connect, "owner", false, NOW);
+        assert_eq!(out.problem, None);
+        assert!(store.list_records("snapshots").unwrap().is_empty());
+        assert_eq!(store.list_records(PSNAPSHOTS_KIND).unwrap().len(), 1);
+        assert_eq!(store.list_records(PSCOPES_KIND).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn two_private_items_share_a_scope_and_deleting_one_keeps_the_other() {
+        let s = private_setup();
+        private_item(&s, "Docs");
+        private_item(&s, "Notes");
+        let docs = private_backup(&s, "Docs");
+        let notes = private_backup(&s, "Notes");
+        let store = MemoryStore::new();
+        assert_eq!(run(&s.db, &docs, &store, &s.connect, "owner", false, NOW).problem, None);
+        assert_eq!(run(&s.db, &notes, &store, &s.connect, "owner", false, NOW + 1).problem, None);
+        let scope = active_scope(&s.db);
+        assert_eq!(snapshot_count(&s.db, &scope), 2);
+
+        delete(&s.db, &docs, &store, NOW + 2).unwrap();
+        sweep(&s.db, &store, NOW + 2 + 2 * DAY);
+        sweep(&s.db, &store, NOW + 2 + 3 * DAY);
+        assert_eq!(snapshot_count(&s.db, &scope), 1);
+
+        let report = check(&s.db, &notes, &store, check::Sample::All, NOW + 3 * DAY).unwrap();
+        assert_eq!(report.problem, None);
+        assert!(report.missing_packs.is_empty(), "{:?}", report.missing_packs);
+    }
+
+    #[test]
+    fn old_phrase_versions_wait_30_days() {
+        let s = private_setup();
+        private_item(&s, "Docs");
+        let id = private_backup(&s, "Docs");
+        let store = MemoryStore::new();
+        assert_eq!(run(&s.db, &id, &store, &s.connect, "owner", false, NOW).problem, None);
+        let old = active_scope(&s.db);
+
+        rotate_owner_keys(&s);
+        let t2 = NOW + DAY;
+        assert_eq!(run(&s.db, &id, &store, &s.connect, "owner", false, t2).problem, None);
+        assert_ne!(active_scope(&s.db), old);
+
+        let retire_at = t2 + OLD_PHRASE_GRACE;
+        sweep(&s.db, &store, retire_at - 1);
+        assert_eq!(snapshot_count(&s.db, &old), 1, "old copies must stay until 30 days");
+
+        sweep(&s.db, &store, retire_at);
+        assert_eq!(snapshot_count(&s.db, &old), 0);
+        let left: Vec<String> = store
+            .list_records(PSNAPSHOTS_KIND)
+            .unwrap()
+            .into_iter()
+            .filter(|name| name.starts_with(&format!("{old}.")))
+            .collect();
+        assert!(left.is_empty(), "{left:?}");
+
+        // Their packs wait the normal 24 hours, then the scope's own record goes.
+        sweep(&s.db, &store, retire_at + DAY + 1);
+        assert!(store.get_record(PSCOPES_KIND, &old).unwrap().is_none());
+    }
+
+    #[test]
+    fn retire_old_phrase_now_lets_the_next_sweep_remove_them() {
+        let s = private_setup();
+        private_item(&s, "Docs");
+        let id = private_backup(&s, "Docs");
+        let store = MemoryStore::new();
+        assert_eq!(run(&s.db, &id, &store, &s.connect, "owner", false, NOW).problem, None);
+        let old = active_scope(&s.db);
+        rotate_owner_keys(&s);
+        let t2 = NOW + DAY;
+        assert_eq!(run(&s.db, &id, &store, &s.connect, "owner", false, t2).problem, None);
+        assert_eq!(snapshot_count(&s.db, &old), 1);
+
+        assert_eq!(old_phrase_copies(&lock(&s.db), "owner"), Some((1, t2 + OLD_PHRASE_GRACE)));
+        retire_old_phrase_now(&lock(&s.db), "owner", t2).unwrap();
+        assert_eq!(old_phrase_copies(&lock(&s.db), "owner"), Some((1, t2)));
+        sweep(&s.db, &store, t2 + 1);
+        assert_eq!(snapshot_count(&s.db, &old), 0);
+        assert_eq!(old_phrase_copies(&lock(&s.db), "owner"), None);
+    }
+
+    #[test]
+    fn old_phrase_copies_counts_copies_and_the_earliest_wait() {
+        let s = private_setup();
+        private_item(&s, "Docs");
+        let id = private_backup(&s, "Docs");
+        let store = MemoryStore::new();
+        assert_eq!(old_phrase_copies(&lock(&s.db), "owner"), None);
+        assert_eq!(run(&s.db, &id, &store, &s.connect, "owner", false, NOW).problem, None);
+        assert_eq!(old_phrase_copies(&lock(&s.db), "owner"), None);
+
+        rotate_owner_keys(&s);
+        let t2 = NOW + DAY;
+        assert_eq!(run(&s.db, &id, &store, &s.connect, "owner", false, t2).problem, None);
+        assert_eq!(old_phrase_copies(&lock(&s.db), "owner"), Some((1, t2 + OLD_PHRASE_GRACE)));
+        assert_eq!(old_phrase_copies(&lock(&s.db), "admin"), None);
+
+        sweep(&s.db, &store, t2 + OLD_PHRASE_GRACE);
+        assert_eq!(old_phrase_copies(&lock(&s.db), "owner"), None);
+    }
+
+    #[test]
+    fn on_grants_changed_leaves_private_rows_alone() {
+        let s = private_setup();
+        fs::create_dir_all(s.root.join("Shared")).unwrap();
+        fs::write(s.root.join("Shared").join("a.txt"), "hello").unwrap();
+        let shared = create(&s.db, &s.connect, &s.admin, "drive-src", "Shared").unwrap().id;
+        private_item(&s, "Docs");
+        let private = private_backup(&s, "Docs");
+        {
+            let conn = lock(&s.db);
+            db::set_protection_access(&conn, &shared, "stale").unwrap();
+            db::set_protection_access(&conn, &private, "keep-me").unwrap();
+        }
+        on_grants_changed(&lock(&s.db), "drive-src");
+        let conn = lock(&s.db);
+        assert_ne!(db::get_protection(&conn, &shared).unwrap().unwrap().access_json, "stale");
+        assert_eq!(db::get_protection(&conn, &private).unwrap().unwrap().access_json, "keep-me");
     }
 }

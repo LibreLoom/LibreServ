@@ -3,6 +3,7 @@
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex, hexToBytes, utf8ToBytes } from '@noble/hashes/utils.js';
 import { canonical, decrypt, derive, open, verify } from './backupCrypto.js';
+import { findMyPrivateScopes } from './cloudPrivate.js';
 
 /** @typedef {{ name: string, data: Uint8Array }} RecordEntry */
 
@@ -163,22 +164,31 @@ export function openKeyCopy(record, x25519Secret, signingPublic, lunaId, protect
 
 /**
  * Everything one recovery phrase opens on one Luna.
- * @param {{ lunaId: string, entropy: Uint8Array, self: RecordEntry[], recipients: RecordEntry[], keys: RecordEntry[], expectSigningPublic?: Uint8Array }} input
- * @returns {{ signingPublics: Uint8Array[], userIds: string[], keys: Array<{ protectionId: string, version: number, key: Uint8Array, dedupKey: Uint8Array, userId: string }>, latestVersion: Record<string, number> }}
+ * @param {{ lunaId: string, entropy: Uint8Array, self: RecordEntry[], recipients: RecordEntry[], keys: RecordEntry[], pscopes?: RecordEntry[], expectSigningPublic?: Uint8Array }} input
+ * @returns {{ signingPublics: Uint8Array[], userIds: string[], keys: Array<{ protectionId: string, version: number, key: Uint8Array, dedupKey: Uint8Array, userId: string }>, latestVersion: Record<string, number>, privateScopes: Array<{ scope: string, userId: string, createdAt: number, dedupKey: Uint8Array }> }}
  */
-export function findMyKeys({ lunaId, entropy, self, recipients, keys, expectSigningPublic }) {
+export function findMyKeys({ lunaId, entropy, self, recipients, keys, pscopes = [], expectSigningPublic }) {
 	const k = derive(entropy, lunaId);
 	const decoder = new TextDecoder();
 	const selfByName = new Map(self.map((r) => [r.name, r.data]));
 	const keyByName = new Map(keys.map((r) => [r.name, r.data]));
 
-	// Candidate user ids come from the recipient lists. A person's id can change after Luna
-	// loses its database, so no current id is assumed. Nothing here is trusted until a signature checks.
+	// Candidate user ids come from the recipient lists and the private scope records. A person's id
+	// can change after Luna loses its database, so no current id is assumed. Nothing here is trusted
+	// until a signature checks.
 	const candidates = new Set();
 	for (const r of recipients) {
 		try {
 			const users = JSON.parse(decoder.decode(r.data)).users;
 			if (Array.isArray(users)) for (const u of users) if (typeof u === 'string') candidates.add(u);
+		} catch {
+			// Unreadable record: skipped for now.
+		}
+	}
+	for (const r of pscopes) {
+		try {
+			const uid = JSON.parse(decoder.decode(r.data)).record?.user_id;
+			if (typeof uid === 'string') candidates.add(uid);
 		} catch {
 			// Unreadable record: skipped for now.
 		}
@@ -232,6 +242,7 @@ export function findMyKeys({ lunaId, entropy, self, recipients, keys, expectSign
 			}
 		}
 	}
-	if (found.length === 0) throw new Error(NO_BACKUPS);
-	return { signingPublics, userIds, keys: found, latestVersion };
+	const privateScopes = findMyPrivateScopes({ lunaId, entropy, pscopes, signingPublics });
+	if (found.length === 0 && privateScopes.length === 0) throw new Error(NO_BACKUPS);
+	return { signingPublics, userIds, keys: found, latestVersion, privateScopes };
 }

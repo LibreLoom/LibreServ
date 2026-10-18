@@ -237,11 +237,11 @@ WHERE s.id = ?`, linkID).Scan(&lunaName, &sentBy, &expiresAt); err != nil {
 // Records answers one kind of record for the link's scope.
 func (h ShareLinkHandler) Records(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	scope, _, ok := resolveShare(h.Deps, w, r, time.Now())
+	scope, linkID, ok := resolveShare(h.Deps, w, r, time.Now())
 	if !ok {
 		return
 	}
-	writeRecords(h.Deps, w, scope, chi.URLParam(r, "kind"))
+	writeRecords(h.Deps, w, scope, chi.URLParam(r, "kind"), linkID, r.Header.Get(privateTokenHeader))
 }
 
 // Pack streams one pack the link's scope may read. Each link may download up to 3 times the
@@ -255,7 +255,7 @@ func (h ShareLinkHandler) Pack(w http.ResponseWriter, r *http.Request) {
 	if shareOverEgress(h.Deps, w, linkID) {
 		return
 	}
-	n := writePack(h.Deps, w, scope, chi.URLParam(r, "id"), linkID)
+	n := writePack(h.Deps, w, scope, chi.URLParam(r, "id"), linkID, r.Header.Get(privateTokenHeader))
 	if n > 0 {
 		_, _ = h.DB.Exec(`UPDATE share_links SET egress_bytes = egress_bytes + ? WHERE id = ?`, n, linkID)
 	}

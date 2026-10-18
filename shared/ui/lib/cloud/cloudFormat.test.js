@@ -44,6 +44,13 @@ describe('cloudFormat', () => {
 		expect(verifySnapshot(snapBytes, [signingPublic], 'other-luna')).toBeNull();
 	});
 
+	it('verifySnapshot needs the private-snapshot domain for a private psnapshot', () => {
+		const privateSnap = hexToBytes(fixture.private.records.psnapshots[0].data);
+		const signingPublics = [signingPublic];
+		expect(verifySnapshot(privateSnap, signingPublics, lunaId)).toBeNull();
+		expect(verifySnapshot(privateSnap, signingPublics, lunaId, 'private-snapshot')).not.toBeNull();
+	});
+
 	it('decryptMeta returns the backup name and who started it, in camelCase', () => {
 		const snap = verifySnapshot(snapBytes, [signingPublic], lunaId);
 		expect(decryptMeta(snap.meta, backupKey)).toEqual({

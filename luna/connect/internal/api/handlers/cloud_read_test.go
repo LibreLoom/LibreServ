@@ -465,3 +465,120 @@ func TestListLunasReportsZeroForPurgeInProgress(t *testing.T) {
 		t.Fatalf("purge_after %d for a purge in progress, want 0", got.Lunas[0].PurgeAfter)
 	}
 }
+
+// listedNames returns the names in a {"records": [...]} response.
+func listedNames(t *testing.T, rec *httptest.ResponseRecorder) []string {
+	t.Helper()
+	var got struct {
+		Records []struct {
+			Name string `json:"name"`
+		} `json:"records"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	names := make([]string, 0, len(got.Records))
+	for _, r := range got.Records {
+		names = append(names, r.Name)
+	}
+	return names
+}
+
+func TestCloudPrivateScopesAndSnapshotsNeedSession(t *testing.T) {
+	d, acct, lunaPriv, authPub, authPriv := privFixture(t)
+	privWriteScope(t, d, acct, "main", "user_a", authPub, lunaPriv)
+	privWriteScope(t, d, acct, "other", "user_b", authPub, lunaPriv)
+	cloudRecord(t, d, acct, privTestLuna, "psnapshots", "main.0123", []byte("a"))
+	cloudRecord(t, d, acct, privTestLuna, "psnapshots", "other.0123", []byte("b"))
+	h := CloudReadHandler{Deps: d}
+	list := func(token, kind string) *httptest.ResponseRecorder {
+		req := cloudReq(acct, http.MethodGet, "/x", map[string]string{"lunaID": privTestLuna, "kind": kind})
+		if token != "" {
+			req.Header.Set(privateTokenHeader, token)
+		}
+		rec := httptest.NewRecorder()
+		h.ListRecords(rec, req)
+		return rec
+	}
+
+	rec := list("", "pscopes")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("pscopes status %d: %s", rec.Code, rec.Body.String())
+	}
+	if names := listedNames(t, rec); len(names) != 2 {
+		t.Fatalf("owner pscopes = %v; want both scopes", names)
+	}
+
+	if rec := list("", "psnapshots"); rec.Code != http.StatusForbidden {
+		t.Fatalf("psnapshots without token status %d; want 403", rec.Code)
+	}
+	if rec := list("not-a-token", "psnapshots"); rec.Code != http.StatusForbidden {
+		t.Fatalf("psnapshots with bad token status %d; want 403", rec.Code)
+	}
+
+	s := readScope{AccountID: acct, LunaID: privTestLuna}
+	now := time.Now()
+	ch, err := newPrivateChallenge(d, s, "", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, _, err := openPrivateSession(d, s, "", "main", ch, privSign(authPriv, "main", ch), now)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	rec = list(token, "psnapshots")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("psnapshots with token status %d: %s", rec.Code, rec.Body.String())
+	}
+	if names := listedNames(t, rec); len(names) != 1 || names[0] != "main.0123" {
+		t.Fatalf("psnapshots with main session = %v; want [main.0123]", names)
+	}
+}
+
+func TestCloudPrivatePackNeedsSessionForItsScope(t *testing.T) {
+	d, acct, lunaPriv, authPub, authPriv := privFixture(t)
+	privWriteScope(t, d, acct, "main", "user_a", authPub, lunaPriv)
+	privWriteScope(t, d, acct, "other", "user_b", authPub, lunaPriv)
+	cloudPack(t, d, acct, privTestLuna, hexPack('f'), "main", []byte("private pack"))
+	h := CloudReadHandler{Deps: d}
+	get := func(token string) *httptest.ResponseRecorder {
+		req := cloudReq(acct, http.MethodGet, "/x", map[string]string{"lunaID": privTestLuna, "id": hexPack('f')})
+		if token != "" {
+			req.Header.Set(privateTokenHeader, token)
+		}
+		rec := httptest.NewRecorder()
+		h.GetPack(rec, req)
+		return rec
+	}
+
+	if rec := get(""); rec.Code != http.StatusForbidden {
+		t.Fatalf("private pack without token status %d; want 403", rec.Code)
+	}
+
+	s := readScope{AccountID: acct, LunaID: privTestLuna}
+	now := time.Now()
+	ch, err := newPrivateChallenge(d, s, "", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherToken, _, err := openPrivateSession(d, s, "", "other", ch, privSign(authPriv, "other", ch), now)
+	if err != nil {
+		t.Fatalf("open other: %v", err)
+	}
+	if rec := get(otherToken); rec.Code != http.StatusForbidden {
+		t.Fatalf("pack of scope main with session for other status %d; want 403", rec.Code)
+	}
+
+	ch, err = newPrivateChallenge(d, s, "", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, _, err := openPrivateSession(d, s, "", "main", ch, privSign(authPriv, "main", ch), now)
+	if err != nil {
+		t.Fatalf("open main: %v", err)
+	}
+	rec := get(token)
+	if rec.Code != http.StatusOK || rec.Body.String() != "private pack" {
+		t.Fatalf("private pack with session status %d body %q", rec.Code, rec.Body.String())
+	}
+}

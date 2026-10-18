@@ -79,10 +79,11 @@ export function snapshotSignedBytes(rec) {
  * @param {Uint8Array} bytes JSON {record, signature}
  * @param {Uint8Array[]} signingPublics
  * @param {string} lunaId the Luna being viewed; other Lunas' snapshots are dropped
+ * @param {string} [domain='snapshot'] the signature domain: 'snapshot' for shared backups, 'private-snapshot' for private ones
  * @returns {{ lunaId: string, protectionId: string, snapshotId: string, createdAt: number, keyVersion: number, treePackId: string, treeHash: Uint8Array, meta: Uint8Array } | null}
  *   null when the record is unreadable, signed by none of the keys, or for another Luna. Never throws.
  */
-export function verifySnapshot(bytes, signingPublics, lunaId) {
+export function verifySnapshot(bytes, signingPublics, lunaId, domain = 'snapshot') {
 	try {
 		const signed = JSON.parse(new TextDecoder().decode(bytes));
 		const rec = signed.record;
@@ -102,7 +103,7 @@ export function verifySnapshot(bytes, signingPublics, lunaId) {
 		};
 		const msg = snapshotSignedBytes(view);
 		const signature = hexToBytes(signed.signature);
-		return signingPublics.some((pub) => verify(pub, 'snapshot', msg, signature)) ? view : null;
+		return signingPublics.some((pub) => verify(pub, domain, msg, signature)) ? view : null;
 	} catch {
 		return null;
 	}
@@ -130,6 +131,15 @@ export function decryptMeta(meta, key) {
 }
 
 /**
+ * The unwrap step for a backup key: opens a pack's wrapped pack key with the backup key.
+ * @param {Uint8Array} backupKey
+ * @returns {(wrapped: Uint8Array) => Uint8Array}
+ */
+function unwrapWithBackupKey(backupKey) {
+	return (wrapped) => decrypt(backupKey, PACK_KEY_WRAP_AAD, wrapped);
+}
+
+/**
  * Open a pack (format.rs open_pack): check its hash, unwrap its key, then read its index and body.
  * @param {Uint8Array} bytes the whole pack
  * @param {string} idHex the pack id, lowercase hex (SHA-256 of bytes)
@@ -138,23 +148,35 @@ export function decryptMeta(meta, key) {
  *   chunk returns the plain bytes of one chunk, or null if this pack does not hold it.
  */
 export function openPack(bytes, idHex, backupKey) {
+	return openPackWith(bytes, idHex, unwrapWithBackupKey(backupKey));
+}
+
+/**
+ * Open a pack like openPack, but unwrap its pack key with a caller-supplied function. Private
+ * items use this: their pack keys are sealed to the owner's X25519 key, not the backup key.
+ * @param {Uint8Array} bytes the whole pack
+ * @param {string} idHex the pack id, lowercase hex (SHA-256 of bytes)
+ * @param {(wrapped: Uint8Array) => Uint8Array} unwrapKey returns the 32-byte pack key; throws if it cannot
+ * @returns {{ scopeId: Uint8Array, chunk: (idBytes: Uint8Array) => Uint8Array | null }}
+ */
+export function openPackWith(bytes, idHex, unwrapKey) {
 	if (bytesToHex(packId(bytes)) !== idHex) throw new Error(CHANGED);
 	try {
-		return openPackParts(bytes, backupKey);
+		return openPackParts(bytes, unwrapKey);
 	} catch {
 		throw new Error(DAMAGED);
 	}
 }
 
-/** @param {Uint8Array} bytes @param {Uint8Array} backupKey */
-function openPackParts(bytes, backupKey) {
+/** @param {Uint8Array} bytes @param {(wrapped: Uint8Array) => Uint8Array} unwrapKey */
+function openPackParts(bytes, unwrapKey) {
 	if (bytes[0] !== PACK_VERSION) throw new Error(DAMAGED);
 	let pos = 1;
 	const wrappedLen = u32At(bytes, pos);
 	pos += 4;
 	const wrapped = sliceChecked(bytes, pos, wrappedLen);
 	pos += wrappedLen;
-	const packKey = decrypt(backupKey, PACK_KEY_WRAP_AAD, wrapped);
+	const packKey = unwrapKey(wrapped);
 	if (packKey.length !== KEY_LEN) throw new Error(DAMAGED);
 
 	const indexLen = u32At(bytes, pos);
@@ -197,16 +219,46 @@ function openPackParts(bytes, backupKey) {
  * @returns {Array<{ path: string, size: number, mtime: number, chunks: Array<{ id: string, pack: string, offset: number, len: number }> }>}
  */
 export function readTree(treePackBytes, snap, backupKey) {
-	const pack = openPack(treePackBytes, snap.treePackId, backupKey);
+	return readTreeWith(treePackBytes, snap, unwrapWithBackupKey(backupKey), (sealed) =>
+		decrypt(backupKey, TREE_AAD, sealed),
+	);
+}
+
+/**
+ * Read a version's file list like readTree, with caller-supplied keys: the pack key unwrap and the
+ * tree opener. Private items use this.
+ * @param {Uint8Array} treePackBytes
+ * @param {{ treePackId: string, treeHash: Uint8Array }} snap a verified snapshot
+ * @param {(wrapped: Uint8Array) => Uint8Array} unwrapKey
+ * @param {(sealed: Uint8Array) => Uint8Array} openTreeBytes returns the plain tree JSON; throws if it cannot
+ * @returns {Array<{ path: string, size: number, mtime: number, chunks: Array<{ id: string, pack: string, offset: number, len: number }> }>}
+ */
+export function readTreeWith(treePackBytes, snap, unwrapKey, openTreeBytes) {
+	const tree = readRawTreeWith(treePackBytes, snap, unwrapKey, openTreeBytes);
+	try {
+		const entries = tree.entries;
+		if (!Array.isArray(entries)) throw new Error(DAMAGED);
+		return entries.map(parseTreeEntry);
+	} catch {
+		throw new Error(DAMAGED);
+	}
+}
+
+/**
+ * Open a tree pack and return its parsed tree object, without reading the entries.
+ * @param {Uint8Array} treePackBytes
+ * @param {{ treePackId: string, treeHash: Uint8Array }} snap a verified snapshot
+ * @param {(wrapped: Uint8Array) => Uint8Array} unwrapKey
+ * @param {(sealed: Uint8Array) => Uint8Array} openTreeBytes
+ * @returns {any} the parsed tree JSON, as stored
+ */
+export function readRawTreeWith(treePackBytes, snap, unwrapKey, openTreeBytes) {
+	const pack = openPackWith(treePackBytes, snap.treePackId, unwrapKey);
 	const sealed = pack.chunk(snap.treeHash);
 	if (!sealed) throw new Error(DAMAGED);
 	if (!sameBytes(sha256(sealed), snap.treeHash)) throw new Error(CHANGED);
-	let entries;
 	try {
-		const tree = JSON.parse(new TextDecoder().decode(decrypt(backupKey, TREE_AAD, sealed)));
-		entries = tree.entries;
-		if (!Array.isArray(entries)) throw new Error(DAMAGED);
-		return entries.map(parseTreeEntry);
+		return JSON.parse(new TextDecoder().decode(openTreeBytes(sealed)));
 	} catch {
 		throw new Error(DAMAGED);
 	}
@@ -240,7 +292,18 @@ function parseTreeEntry(e) {
  * @returns {(idHex: string) => Promise<{ scopeId: Uint8Array, chunk: (idBytes: Uint8Array) => Uint8Array | null }>}
  */
 export function makePackReader(getPack, backupKey, keep = 3) {
-	/** @type {Map<string, Promise<ReturnType<typeof openPack>>>} */
+	return makePackReaderWith(getPack, unwrapWithBackupKey(backupKey), keep);
+}
+
+/**
+ * Opened-pack cache like makePackReader, with a caller-supplied pack key unwrap (see openPackWith).
+ * @param {(idHex: string) => Promise<Uint8Array>} getPack
+ * @param {(wrapped: Uint8Array) => Uint8Array} unwrapKey
+ * @param {number} [keep=3] how many opened packs to keep, most recently used first
+ * @returns {(idHex: string) => Promise<{ scopeId: Uint8Array, chunk: (idBytes: Uint8Array) => Uint8Array | null }>}
+ */
+export function makePackReaderWith(getPack, unwrapKey, keep = 3) {
+	/** @type {Map<string, Promise<ReturnType<typeof openPackWith>>>} */
 	const cache = new Map();
 	return async (idHex) => {
 		const hit = cache.get(idHex);
@@ -249,7 +312,7 @@ export function makePackReader(getPack, backupKey, keep = 3) {
 			cache.set(idHex, hit);
 			return hit;
 		}
-		const opening = getPack(idHex).then((bytes) => openPack(bytes, idHex, backupKey));
+		const opening = getPack(idHex).then((bytes) => openPackWith(bytes, idHex, unwrapKey));
 		cache.set(idHex, opening);
 		opening.catch(() => {
 			if (cache.get(idHex) === opening) cache.delete(idHex);

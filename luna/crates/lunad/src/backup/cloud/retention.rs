@@ -7,6 +7,7 @@ use std::sync::MutexGuard;
 use anyhow::{anyhow, bail};
 use rusqlite::{params, Connection, OptionalExtension};
 
+use crate::backup::cloud::private::{snapshot_record_ref, PSCOPES_KIND};
 use crate::backup::cloud::store::{CloudStore, StoreError};
 use crate::backup::drive_store::keep_versions;
 use crate::db;
@@ -51,7 +52,11 @@ pub fn thin(
             continue;
         }
         // Store first: if it fails, the row stays and the next pass tries again.
-        match store.delete_record("snapshots", &snap.id) {
+        let (kind, name) = {
+            let conn = lock(db)?;
+            snapshot_record_ref(&conn, &snap.id)?
+        };
+        match store.delete_record(kind, &name) {
             Ok(()) | Err(StoreError::NotFound) => {}
             Err(e) => return Err(anyhow!("{e}")),
         }
@@ -95,6 +100,64 @@ pub fn thin(
         out.bytes_freed += claim.size;
     }
     Ok(out)
+}
+
+/// Finish the old-phrase copies whose 30-day wait is over (plan: a replaced private backup
+/// is deleted after 30 days, or sooner when its owner asks). Their snapshots go at once;
+/// their packs follow the normal 24 h wait; the scope's own record goes once no packs are
+/// left. A pass that stops part-way is finished by the next one.
+pub fn retire_old_phrases(db: &crate::Db, store: &dyn CloudStore, now: i64) -> anyhow::Result<()> {
+    let due: Vec<String> = {
+        let conn = lock(db)?;
+        db::list_private_scopes(&conn, None)?
+            .into_iter()
+            .filter(|s| s.state == "old_phrase" && s.retire_after <= now)
+            .map(|s| s.scope)
+            .collect()
+    };
+    for scope in due {
+        let snapshots = {
+            let conn = lock(db)?;
+            db::private_snapshot_ids(&conn, &scope)?
+        };
+        for id in snapshots {
+            // Look up the record before the row goes, since the lookup needs it.
+            let (kind, name) = {
+                let conn = lock(db)?;
+                snapshot_record_ref(&conn, &id)?
+            };
+            match store.delete_record(kind, &name) {
+                Ok(()) | Err(StoreError::NotFound) => {}
+                Err(e) => return Err(anyhow!("{e}")),
+            }
+            let conn = lock(db)?;
+            db::delete_cloud_snapshot(&conn, &id)?;
+        }
+
+        // Packs no snapshot uses any more are marked, then deleted after their wait.
+        thin(db, "", &scope, store, now)?;
+
+        let packs_left = {
+            let conn = lock(db)?;
+            let mut left = 0;
+            for state in ["pending", "live", "marked", "deleting"] {
+                left += db::list_packs(&conn, &scope, state)?.len();
+            }
+            left
+        };
+        if packs_left > 0 {
+            continue;
+        }
+        // Scope record first, then the local row: if the store fails, the row stays and
+        // the next pass tries again.
+        match store.delete_record(PSCOPES_KIND, &scope) {
+            Ok(()) | Err(StoreError::NotFound) => {}
+            Err(e) => return Err(anyhow!("{e}")),
+        }
+        let conn = lock(db)?;
+        db::delete_private_scope(&conn, &scope)?;
+    }
+    Ok(())
 }
 
 fn lock(db: &crate::Db) -> anyhow::Result<MutexGuard<'_, Connection>> {
@@ -176,6 +239,7 @@ fn unhex(text: &str) -> anyhow::Result<[u8; 32]> {
 mod tests {
     use super::*;
     use crate::backup::cloud::crypto::pack_id;
+    use crate::backup::cloud::private::PSNAPSHOTS_KIND;
     use crate::backup::cloud::store::MemoryStore;
     use crate::db::SnapshotInsert;
 
@@ -247,6 +311,57 @@ mod tests {
     fn packs_in_state(db: &crate::Db, state: &str) -> Vec<String> {
         let conn = db.lock().unwrap();
         db::list_packs(&conn, SCOPE, state).unwrap()
+    }
+
+    #[test]
+    fn thin_removes_private_records_by_their_kind() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = setup(dir.path());
+        let store = MemoryStore::new();
+        const PSCOPE: &str = "scope-p";
+        {
+            let conn = db.lock().unwrap();
+            db::insert_private_scope(
+                &conn,
+                &db::PrivateScope {
+                    scope: PSCOPE.into(),
+                    owner: "owner".into(),
+                    x25519_public: vec![5; 32],
+                    dedup_key: vec![6; 32],
+                    state: "active".into(),
+                    retire_after: 0,
+                    created_at: 1,
+                },
+            )
+            .unwrap();
+        }
+        // A private snapshot, 40 days old, whose record lives under the private kind.
+        store
+            .put_record(PSNAPSHOTS_KIND, &format!("{PSCOPE}.priv-1"), b"private record")
+            .unwrap();
+        // A decoy: a standard record that happens to share the private snapshot's id.
+        store.put_record("snapshots", "priv-1", b"decoy").unwrap();
+        {
+            let snap = SnapshotInsert {
+                id: "priv-1".into(),
+                protection_id: "p1".into(),
+                created_at: NOW - 40 * DAY,
+                key_version: 1,
+                tree_pack_id: String::new(),
+                record: b"private record".to_vec(),
+            };
+            let mut conn = db.lock().unwrap();
+            db::commit_private_snapshot_tx(&mut conn, &snap, &[], PSCOPE, b"{}").unwrap();
+        }
+        add_snapshot(&db, &store, "latest", NOW - 10, &[]);
+
+        let out = thin(&db, "p1", PSCOPE, &store, NOW).unwrap();
+
+        assert_eq!(out.snapshots_removed, 1);
+        assert!(store.get_record(PSNAPSHOTS_KIND, &format!("{PSCOPE}.priv-1")).unwrap().is_none());
+        assert!(store.get_record("snapshots", "priv-1").unwrap().is_some(), "decoy must stay");
+        assert!(store.get_record("snapshots", "latest").unwrap().is_some());
+        assert_eq!(snapshot_ids(&db), ["latest"]);
     }
 
     #[test]
