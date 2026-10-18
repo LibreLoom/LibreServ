@@ -29,6 +29,12 @@ sol/server/frontend/coverage/
 npm-debug.log*
 yarn-debug.log*
 pnpm-debug.log*
+
+# npm is the lockfile of record; pnpm/bun fallbacks (shared/js-pm.mk) must not leave their own
+pnpm-lock.yaml
+pnpm-workspace.yaml
+bun.lock
+bun.lockb
 coverage.out
 coverage.html
 node_modules/
