@@ -19,7 +19,7 @@ describe("ShortcutsProvider", () => {
     );
     press({ key: "n" });
     expect(handler).toHaveBeenCalledTimes(1);
-    rerender(<ShortcutsProvider />);
+    rerender(<ShortcutsProvider>{null}</ShortcutsProvider>);
     press({ key: "n" });
     expect(handler).toHaveBeenCalledTimes(1);
   });

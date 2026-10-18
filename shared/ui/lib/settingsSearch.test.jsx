@@ -33,6 +33,7 @@ function Devices() {
   );
 }
 
+/** @returns {never} */
 function Broken() {
   throw new Error("needs live data");
 }

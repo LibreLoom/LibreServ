@@ -141,7 +141,7 @@ describe("HeaderCard auto-split", () => {
       el.tagName === "H1"
         ? { left: titleLeft, top: 0, width: 100, right: titleLeft + 100, bottom: 0, height: 0 }
         : { left: 0, top: 0, width: 900, right: 900, bottom: 0, height: 0 };
-    const spy = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function () {
+    const spy = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(/** @this {HTMLElement} */ function () {
       return /** @type {any} */ (rectOf(this));
     });
 
@@ -163,7 +163,6 @@ describe("HeaderCard auto-split", () => {
     expect(animate).toHaveBeenCalledTimes(1);
     expect(animate.mock.calls[0][0][0].transform).toBe("translate(100px, 0px)");
     spy.mockRestore();
-    // @ts-expect-error cleanup test polyfill
     delete HTMLElement.prototype.animate;
   });
 });

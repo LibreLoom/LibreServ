@@ -20,7 +20,7 @@ describe("Dropdown (value picker)", () => {
   });
 });
 
-function MenuHarness({ onChange = vi.fn(), options, onOpenChange, startOpen }) {
+function MenuHarness({ onChange = vi.fn(), options, onOpenChange = vi.fn(), startOpen = false }) {
   const [open, setOpen] = useState(Boolean(startOpen));
   return (
     <>

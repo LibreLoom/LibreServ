@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import RecoveryPhraseSetup from "./RecoveryPhraseSetup.jsx";
-import { canonical, decrypt, derive, newEntropy, phraseToEntropy, verify } from "@libreloom/ui/lib/cloud/backupCrypto.js";
+import { canonical, decrypt, derive, phraseToEntropy } from "@libreloom/ui/lib/cloud/backupCrypto.js";
 import { fromBase64, toBase64 } from "../../lib/cloudPhrase";
 
 const LUNA_ID = "luna-1";

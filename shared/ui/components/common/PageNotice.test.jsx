@@ -20,7 +20,7 @@ describe("PageNotice", () => {
   });
 
   it("uses the requested surface for every variant", () => {
-    for (const variant of ["error", "warning", "info"]) {
+    for (const variant of /** @type {const} */ (["error", "warning", "info"])) {
       const { container, unmount } = render(
         <PageNotice variant={variant} surface="secondary">On a card</PageNotice>,
       );
