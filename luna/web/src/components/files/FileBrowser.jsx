@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { defaultRangeExtractor, useWindowVirtualizer } from "@tanstack/react-virtual";
 import {
+  Archive,
   Check,
   Copy,
   Download,
@@ -233,6 +234,7 @@ function compareEntries(a, b, sortKey) {
  *   breadcrumbExtra?: import("react").ReactNode,
  *   headerExtra?: import("react").ReactNode,
  *   trashHref?: string | null,
+ *   backupsHref?: string | null,
  *   toolbarExtra?: import("react").ReactNode,
  *   folderActions?: import("react").ReactNode,
  *   emptyTitle?: string,
@@ -279,6 +281,7 @@ export default function FileBrowser({
   breadcrumbExtra = null,
   headerExtra = null,
   trashHref = null,
+  backupsHref = null,
   toolbarExtra = null,
   folderActions = null,
   emptyTitle = "There's nothing here.",
@@ -1162,6 +1165,7 @@ export default function FileBrowser({
   }, [lunaDragActive, clearSpringLoad]);
 
   const showTrashEntry = Boolean(trashHref && !isPicker && path === "");
+  const showBackupsEntry = Boolean(backupsHref && !isPicker && path === "");
 
   const folderActionButtons = hasFolderActions ? (
     <>
@@ -1845,6 +1849,42 @@ export default function FileBrowser({
                 </li>
               );
             })() : null}
+            {showBackupsEntry ? (
+              <li
+                className={[
+                  "flex items-center gap-2 px-3",
+                  padY,
+                  `${cardSurface} ${fg}`,
+                  "border-b border-primary/15",
+                  entries.length > 0 ? "last:border-b-0 last:rounded-b-large-element" : "",
+                ].filter(Boolean).join(" ")}
+              >
+                {!isPicker && multiSelect ? (
+                  <span className="w-5 shrink-0" aria-hidden="true" />
+                ) : null}
+                <div className="flex items-center gap-2 flex-1 min-w-0">
+                  {linkNavigation ? (
+                    <Link
+                      to={backupsHref}
+                      draggable={false}
+                      className={`flex items-center gap-2 min-w-0 ${fg} hover:underline`}
+                    >
+                      <Archive size={16} className="shrink-0" aria-hidden="true" />
+                      <span className="font-mono text-sm truncate">Backups</span>
+                    </Link>
+                  ) : (
+                    <a
+                      href={backupsHref}
+                      draggable={false}
+                      className={`flex items-center gap-2 min-w-0 ${fg} hover:underline`}
+                    >
+                      <Archive size={16} className="shrink-0" aria-hidden="true" />
+                      <span className="font-mono text-sm truncate">Backups</span>
+                    </a>
+                  )}
+                </div>
+              </li>
+            ) : null}
             {visibleEntries.length > 0 ? (
               <>
                 {virtualOn ? (
@@ -1865,7 +1905,7 @@ export default function FileBrowser({
                       fileRoot={fileRoot}
                       // Trash counts as the first row when shown, so the striping
                       // stays on the same visual parity either way.
-                      striped={(rowIndex + (showTrashEntry ? 1 : 0)) % 2 === 1}
+                      striped={(rowIndex + (showTrashEntry ? 1 : 0) + (showBackupsEntry ? 1 : 0)) % 2 === 1}
                       isLast={rowIndex === visibleEntries.length - 1}
                       isSelected={selectedSet.has(rowPath)}
                       isDrop={dropTarget === rowPath}
@@ -2027,6 +2067,7 @@ FileBrowser.propTypes = {
   breadcrumbExtra: PropTypes.node,
   headerExtra: PropTypes.node,
   trashHref: PropTypes.string,
+  backupsHref: PropTypes.string,
   toolbarExtra: PropTypes.node,
   folderActions: PropTypes.node,
   emptyTitle: PropTypes.string,

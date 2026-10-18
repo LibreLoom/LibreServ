@@ -334,6 +334,21 @@ describe("FileBrowser", () => {
     expect(screen.queryByRole("link", { name: /Open trash/i })).not.toBeInTheDocument();
   });
 
+  it("shows backups as a folder row at drive root when backupsHref is set", async () => {
+    stubListing({
+      "": [{ name: "photo.jpg", kind: "file", size: 10, hidden: false }],
+    });
+    renderBrowser({
+      multiSelect: false,
+      linkNavigation: true,
+      backupsHref: "/drives/d1?backups=1",
+    });
+    expect(await screen.findByRole("link", { name: "Backups" })).toHaveAttribute(
+      "href",
+      "/drives/d1?backups=1",
+    );
+  });
+
   it("selects and scrolls to a deep-linked selectPath", async () => {
     const onSelectPathApplied = vi.fn();
     const scrollIntoView = vi.fn();

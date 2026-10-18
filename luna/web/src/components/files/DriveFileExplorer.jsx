@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, Copy, Download, FolderInput, HardDrive, Lock, Pencil, RotateCcw, Trash2 } from "lucide-react";
+import { Copy, Download, FolderInput, HardDrive, Lock, Pencil, RotateCcw, Trash2 } from "lucide-react";
 import PropTypes from "prop-types";
 import FileBrowser from "./FileBrowser.jsx";
 import BackupsFolder from "./BackupsFolder.jsx";
@@ -307,8 +307,6 @@ export default function DriveFileExplorer({
   const [restoreName, setRestoreName] = useState("");
   const [purgeTarget, setPurgeTarget] = useState(/** @type {null|{ paths: string[], label: string }} */ (null));
   const [emptyTrashOpen, setEmptyTrashOpen] = useState(false);
-  // Drive id whose Backups folder is open (null = normal file list).
-  const [backupsDriveId, setBackupsDriveId] = useState(/** @type {string|null} */ (null));
   const backupsList = useQuery({
     queryKey: ["drive-backups", driveId],
     queryFn: () => getJson(`/api/v1/drives/${driveId}/backups`),
@@ -318,10 +316,9 @@ export default function DriveFileExplorer({
   // Deep link: /drives/<id>?backups=1 opens this drive's Backups folder.
   const [searchParams, setSearchParams] = useSearchParams();
   const backupsParam = searchParams.get("backups") === "1";
-  // ?backups=1 (the deep link) opens the same folder as the Backups button.
-  const inBackups = !guest && (backupsDriveId === driveId || backupsParam);
+  // The Backups row in the file list links here too.
+  const inBackups = !guest && backupsParam;
   function leaveBackups() {
-    setBackupsDriveId(null);
     if (!searchParams.has("backups")) return;
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
@@ -408,12 +405,7 @@ export default function DriveFileExplorer({
   const folderCanUpload = !inTrash && (myFolderCaps & CAP.UPLOAD) !== 0;
   const folderCanEdit = inTrash ? trashVisible : (myFolderCaps & CAP.EDIT) !== 0;
   const folderCanShare = !inTrash && (myFolderCaps & CAP.SHARE) !== 0;
-  const backupsLink = backupsAvailable && !inTrash && path === "" ? (
-    <Button variant="outline" surface="secondary" size="sm" onClick={() => setBackupsDriveId(driveId)}>
-      <Archive size={14} aria-hidden="true" />
-      Backups
-    </Button>
-  ) : null;
+  const backupsHref = backupsAvailable && !inTrash && path === "" ? `${folderHref(driveId, "")}?backups=1` : null;
   // Upload-only links can write but never read — downloads stay hidden.
   const canView = inTrash ? trashVisible : (myFolderCaps & CAP.VIEW) !== 0;
 
@@ -1042,6 +1034,7 @@ export default function DriveFileExplorer({
               label: paths.length === 1 ? trashDisplayName(paths[0]) : `${paths.length} items`,
             })
           : setDeletePaths) : undefined}
+        backupsHref={backupsHref}
         trashHref={showTrashLink && trashVisible && !inTrash ? folderHref(driveId, TRASH_PATH) : null}
         segmentLabel={segmentLabel}
         folderActions={folderCanUpload && !source.isFile ? <NewItemMenu onPick={openCreate} allowPrivate={allowPrivate} /> : null}
@@ -1096,11 +1089,6 @@ export default function DriveFileExplorer({
               <Trash2 size={14} aria-hidden="true" />
               Empty trash
             </Button>
-            {headerExtra}
-          </>
-        ) : backupsLink ? (
-          <>
-            {backupsLink}
             {headerExtra}
           </>
         ) : headerExtra}
