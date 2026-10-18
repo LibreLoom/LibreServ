@@ -530,6 +530,23 @@ describe("ProtectSheet", () => {
     );
   });
 
+  it("does not offer Back up anyway to someone who cannot delete the cloud backup", async () => {
+    const user = userEvent.setup();
+    stubBackupApi({
+      drives: [{ id: "d1", label: "Main", mount_point: "/mnt/main" }],
+      connect: { connect_active: true },
+      cloudBackups: [cloudBackup({ id: "c1", can_delete: false })],
+      cloudRunReply: {
+        status: 200,
+        body: { done: false, problem: "Luna cannot find this folder on the drive.", source_missing: true },
+      },
+    });
+    renderSheet();
+    await user.click(await screen.findByRole("button", { name: "Back up now" }));
+    expect(await screen.findByText("Luna cannot find this folder on the drive.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Back up anyway" })).not.toBeInTheDocument();
+  });
+
   it("keeps Back up to the cloud disabled while it is being added, then shows the cloud row", async () => {
     const user = userEvent.setup();
     /** @type {((value?: unknown) => void) | undefined} */

@@ -191,14 +191,16 @@ async fn run(
     axum::extract::Query(query): axum::extract::Query<RunOptions>,
     body: Option<Json<RunOptions>>,
 ) -> ApiResult {
-    let accept_missing = query.accept_missing || body.is_some_and(|Json(b)| b.accept_missing);
-    {
+    let wants_accept_missing = query.accept_missing || body.is_some_and(|Json(b)| b.accept_missing);
+    // Only people who may delete the backup may let a run go ahead on a source that looks gone.
+    let accept_missing = {
         let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
         let row = find_backup(&conn, &id)?;
         if !ops::visible_to(&row, &user) {
             return Err(not_found());
         }
-    }
+        accept_missing_allowed(&conn, &row, &user, wants_accept_missing)
+    };
     // A run or a check already holds the backup. Say so instead of starting another.
     if drive_backup::is_running(&id) {
         return Ok(Json(json!({
@@ -301,6 +303,12 @@ fn find_backup(conn: &Connection, id: &str) -> Result<ProtectionRow, ApiError> {
         .map_err(|_| read_failed())?
         .filter(|row| row.kind == db::PROTECTION_CLOUD)
         .ok_or_else(not_found)
+}
+
+/// "Back up anyway" on a source that looks gone is for people who may delete the backup,
+/// the same rule as a drive backup's "Run anyway". Anyone else's request is ignored.
+fn accept_missing_allowed(conn: &Connection, row: &ProtectionRow, user: &CurrentUser, wants: bool) -> bool {
+    wants && can_delete(conn, row, user)
 }
 
 /// Admins may delete any shared backup; anyone else only a backup they made and can see.
@@ -552,6 +560,25 @@ mod tests {
 
         let (_, body) = send(&f.router, "GET", "/api/v1/cloud/backups", &f.admin_token, None).await;
         assert_eq!(ids(&body), vec!["c-admin".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn only_people_who_can_delete_may_accept_a_missing_source() {
+        let f = fixture();
+        let both = format!(r#"{{"users":["{}"],"admins":true}}"#, f.member_id);
+        seed(&f.state, "c-both", &both);
+        let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+        let row = db::get_protection(&conn, "c-both").unwrap().unwrap();
+        let user_of = |role: &str, id: &str| crate::auth::CurrentUser {
+            id: id.to_string(),
+            role: role.to_string(),
+            username: id.to_string(),
+        };
+        let member = user_of("user", &f.member_id);
+        let admin = user_of("admin", "admin-id");
+        assert!(!super::accept_missing_allowed(&conn, &row, &member, true));
+        assert!(super::accept_missing_allowed(&conn, &row, &admin, true));
+        assert!(!super::accept_missing_allowed(&conn, &row, &admin, false));
     }
 
     #[test]
