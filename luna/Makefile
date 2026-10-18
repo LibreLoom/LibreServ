@@ -9,8 +9,8 @@ DS_IMAGE ?= ghcr.io/euro-office/documentserver@sha256:889e681923d2dcc8bdfb92fe12
 DRAWIO_VERSION ?= v31.5.2
 # sha256 of the draw.war asset on that release — bump both together.
 DRAWIO_SHA256 ?= abd58ad15baef57f43acb79a56350ba8900a8b6fabe94391d8906148fe64e264
-# JS package manager: `make dev PM=pnpm` (default npm; both lockfiles are kept).
-PM ?= npm
+# JS package manager: npm if installed, else pnpm; force one with `make dev PM=pnpm`.
+PM ?= $(if $(shell command -v npm 2>/dev/null),npm,pnpm)
 PM_INSTALL = $(if $(filter pnpm,$(PM)),pnpm install,npm install --no-audit --no-fund)
 MAKEFLAGS += --no-print-directory
 
