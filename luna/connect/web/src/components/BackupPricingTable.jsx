@@ -1,9 +1,9 @@
 import { InfoHint } from "./ui/Tooltip.jsx";
 
 const PRICING_ROWS = [
-  { label: "Storage", value: "$8 / terabyte / month", mono: true },
-  { label: "Downloads", value: "Free up to 3× stored amount", mono: false },
-  { label: "Extra download traffic", value: "$0.01 / GB", mono: true },
+  { label: "Storage", value: "$8 / terabyte / month" },
+  { label: "Downloads", value: "Free up to 3× stored amount" },
+  { label: "Extra download traffic", value: "$0.01 / GB" },
 ];
 
 /**
@@ -44,7 +44,7 @@ export function BackupPricingTable({ surface = "secondary", className = "" }) {
                   {row.label}
                 </th>
                 <td
-                  className={`px-4 py-3 text-right align-middle break-words ${row.mono ? "font-mono" : ""}`}
+                  className={`px-4 py-3 text-right align-middle break-words font-mono`}
                 >
                   {row.value}
                 </td>
