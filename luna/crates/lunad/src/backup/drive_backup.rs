@@ -22,6 +22,10 @@ pub use ops::{delete, on_grants_changed, on_moved, rebuild_from_manifests, state
 /// Fewer deletions than this never trip the mass-delete guard.
 const MASS_DELETE_MIN: usize = 20;
 
+/// A test hook that runs once, against the database, at a fixed point in a run.
+#[cfg(test)]
+type BeforeHook = Box<dyn FnOnce(&crate::Db)>;
+
 /// What one run did.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RunOutcome {
@@ -213,7 +217,7 @@ pub fn run_allowing_mass_delete(db: &crate::Db, id: &str, now: i64) -> anyhow::R
 /// Run every active drive backup. True when any backup's state changed (so
 /// the health cache must be refreshed).
 pub fn run_all(db: &crate::Db, now: i64) -> bool {
-    let rows = match with_conn(db, |c| db::list_protections(c)) {
+    let rows = match with_conn(db, db::list_protections) {
         Ok(rows) => rows,
         Err(e) => {
             tracing::warn!(error = %e, "could not list drive backups");
@@ -419,8 +423,10 @@ fn run_inner(
         &source.label,
         walked,
         &access,
-        luna_id,
-        allow_mass_delete,
+        SyncOptions {
+            luna_id,
+            allow_mass_delete,
+        },
         now,
     ) {
         Ok(None) => fail(
@@ -528,20 +534,31 @@ fn run_inner(
     }
 }
 
+/// The choices one sync is made with, apart from the copy itself.
+#[derive(Default)]
+struct SyncOptions {
+    /// `Some(id)` sets the manifest's Luna id (`None` inside means no identity
+    /// yet); `None` leaves the manifest's current Luna id as it is.
+    luna_id: Option<Option<String>>,
+    allow_mass_delete: bool,
+}
+
 /// Copy `walked` into the backup store, delete what left the source, and
 /// save the manifest. `Ok(None)` means the mass-delete guard held and nothing
-/// was changed. `luna_id`: `Some(id)` sets the manifest's Luna id (`None` inside
-/// means no identity yet); `None` leaves the manifest's current Luna id as it is.
+/// was changed.
 fn sync_target(
     target: &Target,
     row: &ProtectionRow,
     source_label: &str,
     walked: Vec<scope::Entry>,
     access: &access_list::AccessList,
-    luna_id: Option<Option<String>>,
-    allow_mass_delete: bool,
+    opts: SyncOptions,
     now: i64,
 ) -> io::Result<Option<RunOutcome>> {
+    let SyncOptions {
+        luna_id,
+        allow_mass_delete,
+    } = opts;
     let store = drive_store::Store::open(&target.root, &target.layout, &row.id)?;
     let limits = target.limits;
     let (wanted, notes, kept) = plan_names(walked, limits, &target.label);
@@ -792,14 +809,14 @@ fn repair_manifest(
 #[cfg(test)]
 thread_local! {
     /// Test seam: runs once, after a run has copied and before it records its result.
-    static BEFORE_RECORD: std::cell::RefCell<Option<Box<dyn FnOnce(&crate::Db)>>> =
+    static BEFORE_RECORD: std::cell::RefCell<Option<BeforeHook>> =
         std::cell::RefCell::new(None);
     /// Test seam: runs once, after a repair of the manifest and before the row is checked again.
-    static BEFORE_RECHECK: std::cell::RefCell<Option<Box<dyn FnOnce(&crate::Db)>>> =
+    static BEFORE_RECHECK: std::cell::RefCell<Option<BeforeHook>> =
         std::cell::RefCell::new(None);
     /// Test seam: removing this file fails.
     static FAIL_REMOVAL_OF: std::cell::RefCell<Option<String>> =
-        std::cell::RefCell::new(None);
+        const { std::cell::RefCell::new(None) };
 }
 
 /// The source drive's albums that belong in a backup. The drive's own
@@ -1299,7 +1316,7 @@ mod tests {
                     path: "Docs".into(),
                     album_id: String::new(),
                     user_id: "member".into(),
-                    caps: crate::access::CAP_VIEW.into(),
+                    caps: crate::access::CAP_VIEW,
                     created_by: "admin".into(),
                 },
             )
@@ -1347,7 +1364,7 @@ mod tests {
                         path: "Docs".into(),
                         album_id: String::new(),
                         user_id: user.into(),
-                        caps: crate::access::CAP_VIEW.into(),
+                        caps: crate::access::CAP_VIEW,
                         created_by: "admin".into(),
                     },
                 )
@@ -1699,7 +1716,7 @@ mod tests {
                 mtime: 0,
             },
         ];
-        let outcome = sync_target(&target, &r, "Photos", walked, &access, None, false, NOW)
+        let outcome = sync_target(&target, &r, "Photos", walked, &access, SyncOptions::default(), NOW)
             .unwrap()
             .unwrap();
         assert_eq!(outcome.copied, 1);
@@ -1791,7 +1808,7 @@ mod tests {
         .unwrap();
         let roomy = with_limits(&s, drive_store::FsLimits::default());
         let walked = scope::walk(&docs(&s)).unwrap();
-        sync_target(&roomy, &r, "Photos", walked, &access, None, false, NOW)
+        sync_target(&roomy, &r, "Photos", walked, &access, SyncOptions::default(), NOW)
             .unwrap()
             .unwrap();
 
@@ -1805,7 +1822,7 @@ mod tests {
             },
         );
         let walked = scope::walk(&docs(&s)).unwrap();
-        let outcome = sync_target(&small, &r, "Photos", walked, &access, None, false, NOW)
+        let outcome = sync_target(&small, &r, "Photos", walked, &access, SyncOptions::default(), NOW)
             .unwrap()
             .unwrap();
         assert!(
@@ -1838,14 +1855,14 @@ mod tests {
             },
         );
         let walked = scope::walk(&docs(&s)).unwrap();
-        sync_target(&ci, &r, "Photos", walked, &access, None, false, NOW)
+        sync_target(&ci, &r, "Photos", walked, &access, SyncOptions::default(), NOW)
             .unwrap()
             .unwrap();
 
         // Same name with different capitals, same content.
         fs::rename(&doc, docs(&s).join("Notes.txt")).unwrap();
         let walked = scope::walk(&docs(&s)).unwrap();
-        sync_target(&ci, &r, "Photos", walked, &access, None, false, NOW)
+        sync_target(&ci, &r, "Photos", walked, &access, SyncOptions::default(), NOW)
             .unwrap()
             .unwrap();
 
@@ -1906,9 +1923,15 @@ mod tests {
         let s = setup();
         let disk = make_private_docs(&s, "admin");
         write(&disk.join("a.txt"), "hello");
+        write(&disk.join("sub/b.txt"), "world");
         let id = make_backup(&s);
-        run(&s.db, &id, NOW).unwrap();
+        let outcome = run(&s.db, &id, NOW).unwrap();
         assert_eq!(manifest(&s, &id).private_owner.as_deref(), Some("admin"));
+        // The item lives under a `.luna-` disk name; its own files must still be copied.
+        assert_eq!(outcome.copied, 2);
+        let copy = |rel: &str| fs::read_to_string(store(&s, &id).current_dir().join(rel)).unwrap();
+        assert_eq!(copy("a.txt"), "hello");
+        assert_eq!(copy("sub/b.txt"), "world");
     }
 
     #[test]
@@ -1939,7 +1962,7 @@ mod tests {
                     path: "Docs".into(),
                     album_id: String::new(),
                     user_id: "member".into(),
-                    caps: crate::access::CAP_VIEW.into(),
+                    caps: crate::access::CAP_VIEW,
                     created_by: "admin".into(),
                 },
             )
@@ -1953,7 +1976,7 @@ mod tests {
                     path: String::new(),
                     album_id: String::new(),
                     user_id: "member".into(),
-                    caps: crate::access::CAP_EDIT.into(),
+                    caps: crate::access::CAP_EDIT,
                     created_by: "admin".into(),
                 },
             )
