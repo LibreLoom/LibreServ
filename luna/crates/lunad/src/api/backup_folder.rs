@@ -1602,7 +1602,7 @@ mod tests {
     }
 
     fn tombstone(f: &Fixture, id: &str) {
-        let conn = lock_db(&f.state).ok().expect("database lock");
+        let conn = lock_db(&f.state).expect("database lock");
         db::set_meta(&conn, &format!("deleted_backup:{id}"), "1").unwrap();
     }
 
@@ -1700,7 +1700,7 @@ mod tests {
             m.deleted.insert("Old/a.txt".into(), 150);
         });
         {
-            let conn = lock_db(&f.state).ok().expect("database lock");
+            let conn = lock_db(&f.state).expect("database lock");
             db::insert_protection(
                 &conn,
                 &db::NewProtection {
