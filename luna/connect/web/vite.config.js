@@ -6,9 +6,9 @@ import sharedFonts from "../../../shared/ui/vite/sharedFonts.js";
 export default defineConfig({
   plugins: [react(), tailwindcss(), sharedFonts()],
   build: { outDir: "dist", emptyOutDir: true },
-  // @noble/@scure resolve from this app's node_modules, the same as react (shared/ui is never installed).
+  // Packages shared/ui imports resolve from this app's node_modules (shared/ui is never installed here).
   resolve: {
-    dedupe: ["@noble/ciphers", "@noble/curves", "@noble/hashes", "@scure/bip39"],
+    dedupe: ["react", "react-dom", "react-router-dom", "lucide-react", "@noble/ciphers", "@noble/curves", "@noble/hashes", "@scure/bip39"],
   },
   server: {
     port: 3012,
