@@ -13,7 +13,7 @@ use super::format::{BackupMeta, SnapshotRecord, Tree};
 use super::identity;
 use super::private::{self, PRIVATE_SNAPSHOT_DOMAIN, PSNAPSHOTS_KIND};
 use super::run::{
-    CloudOutcome, RunContext, RunSlot, SOURCE_MISSING, Sealer, copy_and_commit, lock,
+    CHECK_FAILED, CloudOutcome, RunContext, RunSlot, SOURCE_MISSING, Sealer, copy_and_commit, lock,
     most_files_missing, problem_outcome, random_id, source_root,
 };
 use super::store::CloudStore;
@@ -69,7 +69,7 @@ pub(super) fn run_with_root(
     };
 
     // Held before any run row is opened, so nothing is committed and nothing needs closing.
-    // If the last copy cannot be read, the check is skipped and the run goes ahead.
+    // If the last copy cannot be read, the run is held too: a check that cannot run must not pass.
     if !accept_missing {
         match source_looks_missing(db, protection_id, root) {
             Ok(true) => {
@@ -80,7 +80,11 @@ pub(super) fn run_with_root(
             }
             Ok(false) => {}
             Err(err) => {
-                tracing::warn!(error = %err, protection_id, "could not check the source against the last copy; running anyway");
+                tracing::warn!(error = %err, protection_id, "could not check the source against the last copy; holding the run");
+                return Ok(CloudOutcome {
+                    source_missing: true,
+                    ..problem_outcome(CHECK_FAILED)
+                });
             }
         }
     }

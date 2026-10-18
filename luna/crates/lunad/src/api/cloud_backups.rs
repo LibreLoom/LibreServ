@@ -237,6 +237,12 @@ async fn check(
             return Err(not_found());
         }
     }
+    if drive_backup::is_running(&id) {
+        return Ok(Json(json!({
+            "done": false,
+            "problem": "This backup is busy right now. Try again in a minute.",
+        })));
+    }
     let connect = state.connect.clone();
     let db = state.db.clone();
     let job = tokio::task::spawn_blocking(move || {

@@ -34,6 +34,9 @@ const PACK_FLUSH_BYTES: usize = 8 << 20;
 const NO_ADMIN_PHRASE: &str = "Waiting for an Admin to set up the recovery phrase.";
 pub(crate) const SOURCE_MISSING: &str = "The source looks missing or unplugged. Plug the drive back in, then try again.";
 
+/// Shown when a run is held because it could not be compared with the last copy.
+pub(crate) const CHECK_FAILED: &str = "Luna couldn't compare this folder with the last cloud copy, so it paused this backup. Try again, or choose Back up anyway if the folder looks right.";
+
 /// What one run did. `problem` is set, and no snapshot is committed, when the run failed.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct CloudOutcome {
@@ -97,7 +100,7 @@ fn run_with_root(
     };
 
     // Held before any run row is opened, so nothing is committed and nothing needs closing.
-    // If the last copy cannot be read, the check is skipped and the run goes ahead.
+    // If the last copy cannot be read, the run is held too: a check that cannot run must not pass.
     if !accept_missing {
         match source_looks_missing(db, protection_id, root, store) {
             Ok(true) => {
@@ -108,7 +111,11 @@ fn run_with_root(
             }
             Ok(false) => {}
             Err(err) => {
-                tracing::warn!(error = %err, protection_id, "could not check the source against the last copy; running anyway");
+                tracing::warn!(error = %err, protection_id, "could not check the source against the last copy; holding the run");
+                return Ok(CloudOutcome {
+                    source_missing: true,
+                    ..problem_outcome(CHECK_FAILED)
+                });
             }
         }
     }
@@ -140,15 +147,16 @@ fn source_looks_missing(db: &crate::Db, protection_id: &str, root: &Path, store:
             return Ok(false);
         };
         let Some(identity) = identity::load(&conn)? else {
-            return Ok(false);
+            return Err(anyhow!("Luna's cloud identity is missing."));
         };
         let record = format::SignedRecord::from_bytes(&last.record)?.verify(&identity.public())?;
-        let Some(key) = db::latest_backup_key(&conn, protection_id)? else {
-            return Ok(false);
+        // The last copy was sealed with the key version it names, which may be older than the newest.
+        let Some(key) = db::list_backup_keys(&conn, protection_id)?
+            .into_iter()
+            .find(|k| k.version == last.key_version)
+        else {
+            return Err(anyhow!("The key for the last copy is missing."));
         };
-        if key.version != last.key_version {
-            return Ok(false);
-        }
         let tree_key: [u8; 32] = key
             .key
             .as_slice()
@@ -668,7 +676,7 @@ mod tests {
             },
         )
         .unwrap();
-        for id in ["p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8"] {
+        for id in ["p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9"] {
             db::insert_protection(
                 &conn,
                 &db::NewProtection {
@@ -742,7 +750,7 @@ mod tests {
     }
 
     #[test]
-    fn an_unreadable_last_copy_skips_the_check_instead_of_failing_the_run() {
+    fn an_unreadable_last_copy_holds_the_run() {
         let dir = tempfile::tempdir().unwrap();
         let db = setup(dir.path());
         let src = source(dir.path());
@@ -752,9 +760,37 @@ mod tests {
         lock(&db)
             .execute("UPDATE cloud_snapshots SET record = x'00' WHERE protection_id = 'p7'", [])
             .unwrap();
-        let out = run_with_root(&db, "p7", &src, &store, "user-1", false, 200).unwrap();
-        assert_eq!(out.problem, None);
-        assert!(out.snapshot_id.is_some());
+        let held = run_with_root(&db, "p7", &src, &store, "user-1", false, 200).unwrap();
+        assert_eq!(held.problem.as_deref(), Some(CHECK_FAILED));
+        assert!(held.source_missing, "the person may choose Back up anyway");
+        assert_eq!(held.snapshot_id, None);
+
+        let forced = run_with_root(&db, "p7", &src, &store, "user-1", true, 300).unwrap();
+        assert_eq!(forced.problem, None);
+        assert!(forced.snapshot_id.is_some());
+    }
+
+    #[test]
+    fn the_check_still_runs_after_the_key_version_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = setup(dir.path());
+        let src = source(dir.path());
+        let store = MemoryStore::new();
+        run_with_root(&db, "p9", &src, &store, "user-1", false, 100).unwrap();
+
+        // Someone's access changed, so the newest key is a later version than the last copy's.
+        let newest = db::latest_backup_key(&lock(&db), "p9").unwrap().unwrap();
+        db::insert_backup_key(
+            &lock(&db),
+            &BackupKey { version: newest.version + 1, key: vec![7; 32], dedup_key: vec![8; 32], ..newest },
+        )
+        .unwrap();
+
+        std::fs::remove_file(src.join("a.bin")).unwrap();
+        std::fs::remove_file(src.join("b.bin")).unwrap();
+        let held = run_with_root(&db, "p9", &src, &store, "user-1", false, 200).unwrap();
+        assert_eq!(held.problem.as_deref(), Some(SOURCE_MISSING));
+        assert!(held.source_missing);
     }
 
     #[test]

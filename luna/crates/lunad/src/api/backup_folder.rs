@@ -1355,14 +1355,14 @@ mod tests {
             users: vec![f.member_id.clone()],
             admins: false,
         };
-        let store = make_private_store(&f, "p-priv", &f.member_id, access);
+        let store = make_private_store(&f, "p-priv-owner-restores-into-the-private-item", &f.member_id, access);
         fs::write(store.current_dir().join("a.txt"), "hello").unwrap();
         private::privatize(&f.src_root, "Docs", &f.member_id).unwrap();
 
         let (status, _) = send(
             &f,
             "POST",
-            "/api/v1/drives/drive-tgt/backups/p-priv/restore",
+            "/api/v1/drives/drive-tgt/backups/p-priv-owner-restores-into-the-private-item/restore",
             &f.member_token,
             Some(json!({ "path": "a.txt" })),
         )
@@ -1379,14 +1379,14 @@ mod tests {
             users: vec![f.member_id.clone()],
             admins: false,
         };
-        let store = make_private_store(&f, "p-priv", "someone-else", access);
+        let store = make_private_store(&f, "p-priv-a-shared-person-cannot-restore-a-private", "someone-else", access);
         fs::write(store.current_dir().join("a.txt"), "hello").unwrap();
         private::privatize(&f.src_root, "Docs", "someone-else").unwrap();
 
         let (status, bytes) = send(
             &f,
             "POST",
-            "/api/v1/drives/drive-tgt/backups/p-priv/restore",
+            "/api/v1/drives/drive-tgt/backups/p-priv-a-shared-person-cannot-restore-a-private/restore",
             &f.member_token,
             Some(json!({ "path": "a.txt" })),
         )
@@ -1408,14 +1408,14 @@ mod tests {
             users: vec![],
             admins: true,
         };
-        let store = make_private_store(&f, "p-priv", &f.member_id, access);
+        let store = make_private_store(&f, "p-priv-admin-cannot-restore-a-private-item", &f.member_id, access);
         fs::write(store.current_dir().join("a.txt"), "hello").unwrap();
         private::privatize(&f.src_root, "Docs", &f.member_id).unwrap();
 
         let (status, _) = send(
             &f,
             "POST",
-            "/api/v1/drives/drive-tgt/backups/p-priv/restore",
+            "/api/v1/drives/drive-tgt/backups/p-priv-admin-cannot-restore-a-private-item/restore",
             &f.admin_token,
             Some(json!({ "path": "a.txt" })),
         )
@@ -1432,14 +1432,14 @@ mod tests {
             users: vec![f.member_id.clone()],
             admins: false,
         };
-        let store = make_private_store(&f, "p-priv", &f.member_id, access);
+        let store = make_private_store(&f, "p-priv-gone-private-item-is-recreated-as-privat", &f.member_id, access);
         fs::write(store.current_dir().join("a.txt"), "hello").unwrap();
         fs::remove_dir_all(f.src_root.join("Docs")).unwrap();
 
         let (status, _) = send(
             &f,
             "POST",
-            "/api/v1/drives/drive-tgt/backups/p-priv/restore",
+            "/api/v1/drives/drive-tgt/backups/p-priv-gone-private-item-is-recreated-as-privat/restore",
             &f.member_token,
             Some(json!({ "path": "a.txt" })),
         )
@@ -1459,7 +1459,7 @@ mod tests {
             users: vec![f.member_id.clone()],
             admins: false,
         };
-        let store = make_private_store(&f, "p-priv", &f.member_id, access);
+        let store = make_private_store(&f, "p-priv-gone-private-item-under-a-missing-folder", &f.member_id, access);
         set_manifest(&store, |m| m.source_path = "Work/Docs".into());
         fs::write(store.current_dir().join("a.txt"), "hello").unwrap();
         // Neither the private item nor its parent folder "Work" exists.
@@ -1467,7 +1467,7 @@ mod tests {
         let (status, bytes) = send(
             &f,
             "POST",
-            "/api/v1/drives/drive-tgt/backups/p-priv/restore",
+            "/api/v1/drives/drive-tgt/backups/p-priv-gone-private-item-under-a-missing-folder/restore",
             &f.member_token,
             Some(json!({ "path": "a.txt" })),
         )
@@ -1489,7 +1489,7 @@ mod tests {
             users: vec![f.member_id.clone()],
             admins: false,
         };
-        let store = make_private_store(&f, "p-priv", &f.member_id, access);
+        let store = make_private_store(&f, "p-priv-gone-private-item-is-recreated-under-its", &f.member_id, access);
         set_manifest(&store, |m| m.source_path = "Work/Docs".into());
         fs::write(store.current_dir().join("a.txt"), "hello").unwrap();
         fs::create_dir(f.src_root.join("Work")).unwrap();
@@ -1497,7 +1497,7 @@ mod tests {
         let (status, _) = send(
             &f,
             "POST",
-            "/api/v1/drives/drive-tgt/backups/p-priv/restore",
+            "/api/v1/drives/drive-tgt/backups/p-priv-gone-private-item-is-recreated-under-its/restore",
             &f.member_token,
             Some(json!({ "path": "a.txt" })),
         )
