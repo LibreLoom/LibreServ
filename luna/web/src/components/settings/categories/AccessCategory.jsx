@@ -276,7 +276,7 @@ function ProfileCard() {
               </p>
             )}
           </div>
-          <span className="inline-flex items-center gap-1 rounded-pill bg-primary/10 px-2.5 py-1 text-xs text-primary shrink-0">
+          <span className="inline-flex items-center gap-1 rounded-chip bg-primary/10 px-2.5 py-1 text-xs text-primary shrink-0">
             <Shield size={ICON_SIZE.xs} aria-hidden="true" />
             {isAdmin ? "Admin" : "Member"}
             <InfoHint

@@ -147,19 +147,19 @@ export default function SystemUpdatesCard({ index = 0 }) {
           <div className="flex items-center gap-3 mb-4">
             <div className="text-sm">Status:</div>
             {notChecked && (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-pill text-xs font-medium surface-primary">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-chip text-xs font-medium surface-primary">
                 <Info size={ICON_SIZE.xs} aria-hidden="true" />
                 Not checked yet
               </span>
             )}
             {isUpToDate && (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-pill text-xs font-medium bg-success/20 border-2 border-success/30 text-primary">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-chip text-xs font-medium bg-success/20 border-2 border-success/30 text-primary">
                 <CheckCircle size={ICON_SIZE.xs} aria-hidden="true" />
                 Up to date
               </span>
             )}
             {hasUpdate && (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-pill text-xs font-medium bg-warning/20 border-2 border-warning/30 text-primary">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-chip text-xs font-medium bg-warning/20 border-2 border-warning/30 text-primary">
                 <AlertCircle size={ICON_SIZE.xs} aria-hidden="true" />
                 {updateInfo.latest_version} available
               </span>

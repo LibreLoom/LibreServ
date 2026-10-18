@@ -15,7 +15,7 @@ export default function CheckStatusTag({ status, className = "" }) {
     <Pill
       variant="custom"
       className={cn(
-        "px-2.5 py-0.5 rounded-pill text-xs border text-primary shrink-0 motion-safe:transition-colors motion-safe:duration-300",
+        "px-2.5 py-0.5 rounded-chip text-xs border text-primary shrink-0 motion-safe:transition-colors motion-safe:duration-300",
         tag.tone,
         className,
       )}

@@ -72,7 +72,7 @@ Section.propTypes = {
 /** @param {{ children: import("react").ReactNode }} props */
 function SpecChip({ children }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-pill surface-secondary px-2.5 py-1 text-xs font-mono">
+    <span className="inline-flex items-center gap-1.5 rounded-chip surface-secondary px-2.5 py-1 text-xs font-mono">
       {children}
     </span>
   );

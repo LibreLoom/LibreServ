@@ -109,7 +109,7 @@ function ReachabilityCard({ report, loading, onRetry, connectivity }) {
               <span
                 key={p.label}
                 className={cn(
-                  "text-xs px-3 py-1 rounded-pill border",
+                  "text-xs px-3 py-1 rounded-chip border",
                   p.ok
                     ? "bg-success/10 border-success/20 text-success"
                     : "bg-primary/5 border-primary/10 text-primary"
@@ -318,7 +318,7 @@ function AppPlanRow({ plan }) {
           <p className="font-mono text-sm text-primary truncate">{plan.app_name}</p>
           <p className="text-xs text-primary mt-0.5">{needLabel}</p>
         </div>
-        <span className={cn("text-xs px-3 py-1 rounded-pill border font-mono shrink-0", cfg.bg, cfg.tone)}>
+        <span className={cn("text-xs px-3 py-1 rounded-chip border font-mono shrink-0", cfg.bg, cfg.tone)}>
           {cfg.label}
         </span>
       </div>

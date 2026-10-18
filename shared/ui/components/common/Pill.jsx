@@ -3,7 +3,7 @@ import { cva } from "class-variance-authority";
 import { cn } from "../../lib/utils";
 
 const pillVariants = cva(
-  "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-pill text-xs border",
+  "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-chip text-xs border",
   {
     variants: {
       variant: {

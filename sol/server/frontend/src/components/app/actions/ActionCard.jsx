@@ -35,7 +35,7 @@ export function ActionCard({ action, onExecute, disabled, loading }) {
           {/* surface-scan: ignore-next-line -- action title, mono is the heading face */}
           <p className="font-mono">{action.label}</p>
           {hasOptions && (
-            <span className="inline-block text-xs border border-accent px-2 py-0.5 rounded-pill mt-1">
+            <span className="inline-block text-xs border border-accent px-2 py-0.5 rounded-chip mt-1">
               Has options
             </span>
           )}

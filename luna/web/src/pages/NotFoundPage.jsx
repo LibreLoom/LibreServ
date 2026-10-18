@@ -214,7 +214,7 @@ function MoonHero({ shownPath }) {
       >
         <span
           aria-hidden="true"
-          className="min-w-0 truncate rounded-pill surface-primary px-3 py-1 font-mono text-sm"
+          className="min-w-0 truncate rounded-chip surface-primary px-3 py-1 font-mono text-sm"
         >
           {shortPath}
         </span>

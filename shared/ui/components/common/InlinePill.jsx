@@ -22,7 +22,7 @@ export default function InlinePill({ children, className = "" }) {
     <span
       data-slot="inline-pill"
       className={cn(
-        "inline rounded-pill border border-current/25 bg-current/10 px-1.5 py-0 font-mono text-[0.85em] leading-normal box-decoration-clone",
+        "inline rounded-chip border border-current/25 bg-current/10 px-1.5 py-0 font-mono text-[0.85em] leading-normal box-decoration-clone",
         className,
       )}
     >

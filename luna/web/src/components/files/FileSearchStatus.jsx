@@ -48,7 +48,7 @@ export default function FileSearchStatus({ scan, className }) {
       <p
         role="status"
         data-slot="file-search-status"
-        className={cn("inline-flex items-center gap-2 rounded-pill surface-primary px-3 py-1 text-xs font-mono", className)}
+        className={cn("inline-flex items-center gap-2 rounded-chip surface-primary px-3 py-1 text-xs font-mono", className)}
       >
         <span aria-hidden="true" className="size-2 shrink-0 rounded-pill border-2 border-accent" />
         {failed === 1
@@ -64,7 +64,7 @@ export default function FileSearchStatus({ scan, className }) {
       role="status"
       data-slot="file-search-status"
       className={cn(
-        "inline-flex items-center gap-2 rounded-pill surface-primary px-3 py-1 text-xs font-mono",
+        "inline-flex items-center gap-2 rounded-chip surface-primary px-3 py-1 text-xs font-mono",
         "file-search-row-enter",
         className,
       )}

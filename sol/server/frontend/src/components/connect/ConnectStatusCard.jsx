@@ -136,7 +136,7 @@ export default function ConnectStatusCard({
           </div>
           {planBadge && (
             <span
-              className={cn("text-xs px-3 py-1 rounded-pill font-medium", planBadge.class)}
+              className={cn("text-xs px-3 py-1 rounded-chip font-medium", planBadge.class)}
             >
               {planBadge.label}
             </span>

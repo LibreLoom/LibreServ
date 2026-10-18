@@ -179,7 +179,7 @@ export default function LogsViewer({
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-current opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-current"></span>
               </span>
-              <div className="hidden sm:inline-flex items-center gap-1 rounded-pill border border-accent px-2 py-0.5 text-xs font-sans">
+              <div className="hidden sm:inline-flex items-center gap-1 rounded-chip border border-accent px-2 py-0.5 text-xs font-sans">
                 <span className="relative flex h-2 w-2 mr-1">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-current opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-current"></span>

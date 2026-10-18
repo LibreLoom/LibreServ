@@ -35,7 +35,7 @@ export default function FormResponseBadge({ driveId, formPath }) {
     : (n === 1 ? "1 response so far" : `${n} responses so far`);
   return (
     <span
-      className="rounded-pill surface-primary px-2 py-0.5 font-mono text-xs"
+      className="rounded-chip surface-primary px-2 py-0.5 font-mono text-xs"
       title={title}
     >
       {label}

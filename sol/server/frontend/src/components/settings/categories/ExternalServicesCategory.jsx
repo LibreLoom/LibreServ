@@ -294,7 +294,7 @@ export default function ExternalServicesCategory({
                             surface="secondary"
                           >
                             <span
-                              className="inline-flex items-center gap-2 text-xs px-2.5 py-1 rounded-pill font-mono surface-primary border-2 border-secondary/10"
+                              className="inline-flex items-center gap-2 text-xs px-2.5 py-1 rounded-chip font-mono surface-primary border-2 border-secondary/10"
                             >
                               Included: {limitLabel}
                             </span>
@@ -309,7 +309,7 @@ export default function ExternalServicesCategory({
                             )}
                           >
                             <span className="min-h-0 overflow-hidden">
-                              <span className="inline-flex items-center gap-2 text-xs px-2.5 py-1 rounded-pill font-mono surface-primary border border-accent">
+                              <span className="inline-flex items-center gap-2 text-xs px-2.5 py-1 rounded-chip font-mono surface-primary border border-accent">
                                 {detailText}
                               </span>
                             </span>
@@ -324,7 +324,7 @@ export default function ExternalServicesCategory({
                     )}
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <span className={cn("text-xs px-2.5 py-1 rounded-pill font-medium", badge.class)}>
+                    <span className={cn("text-xs px-2.5 py-1 rounded-chip font-medium", badge.class)}>
                       {badge.label}
                     </span>
                     {!informational && (

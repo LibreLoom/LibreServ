@@ -127,7 +127,7 @@ export default function BackupServiceModal({ open, onClose, onSaved, service, re
                   <p className="text-sm text-secondary font-medium">Connect storage</p>
                   <p className="text-xs">S3-compatible</p>
                 </div>
-                <span className="text-xs px-2.5 py-1 rounded-pill surface-secondary font-medium">
+                <span className="text-xs px-2.5 py-1 rounded-chip surface-secondary font-medium">
                   Connect
                 </span>
               </div>
@@ -158,7 +158,7 @@ export default function BackupServiceModal({ open, onClose, onSaved, service, re
                   <p className="text-sm text-secondary">{repo.name || repo.repo_type}</p>
                   <p className="text-xs font-mono truncate">{repo.repo_path}</p>
                 </div>
-                <span className="text-xs px-2.5 py-1 rounded-pill border border-accent font-medium capitalize">
+                <span className="text-xs px-2.5 py-1 rounded-chip border border-accent font-medium capitalize">
                   {repo.repo_type}
                 </span>
                 <button className="hover:text-secondary motion-safe:transition-colors">

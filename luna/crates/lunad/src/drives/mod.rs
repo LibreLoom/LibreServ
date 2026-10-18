@@ -1109,7 +1109,7 @@ impl DriveManager {
     /// directory (`/var/lib/luna/...` on a real Luna), which would otherwise
     /// look like part of the OS.
     fn is_system_mount(&self, path: &Path) -> bool {
-        !self.is_ours(path) && is_system_mountpoint(path)
+        !self.is_ours(path) && !is_mock_drive(path) && is_system_mountpoint(path)
     }
 
     fn is_ours(&self, path: &Path) -> bool {
@@ -1173,6 +1173,12 @@ fn mounted_points_for_disk_in(mounts: &str, disk: &str) -> Vec<PathBuf> {
         }
     }
     points
+}
+
+/// Dev mock drives are plain folders under the data directory, which on a dev
+/// machine sits under `/home`. They are not the OS disk.
+fn is_mock_drive(path: &Path) -> bool {
+    crate::dev_mock::enabled() && path.starts_with(crate::dev_mock::mock_drives_path())
 }
 
 fn is_system_mountpoint(path: &Path) -> bool {

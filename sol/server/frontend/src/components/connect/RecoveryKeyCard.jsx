@@ -72,7 +72,7 @@ export default function RecoveryKeyCard({ repo, repoId = "" }) {
     <Card icon={Key} title="Backup recovery key" noHeightAnim
       data-slot="recovery-key-card"
       headerActions={
-        <span className="text-xs px-2.5 py-1 rounded-pill surface-primary border-2 border-warning/30 text-warning font-medium flex items-center gap-1">
+        <span className="text-xs px-2.5 py-1 rounded-chip surface-primary border-2 border-warning/30 text-warning font-medium flex items-center gap-1">
           <AlertTriangle size={ICON_SIZE.xs} />
           Critical
         </span>

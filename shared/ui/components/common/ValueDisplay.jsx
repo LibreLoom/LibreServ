@@ -30,7 +30,7 @@ export default function ValueDisplay({
 
   if (!label) {
     return (
-      <span className={cn("inline-flex items-center px-2 py-0.5 rounded-pill bg-primary/10 text-sm", mono && "font-mono", text, className)} data-slot="value-pill">
+      <span className={cn("inline-flex items-center px-2 py-0.5 rounded-chip bg-primary/10 text-sm", mono && "font-mono", text, className)} data-slot="value-pill">
         {value ?? fallback}
       </span>
     );
@@ -39,7 +39,7 @@ export default function ValueDisplay({
   return (
     <div className={cn("flex items-center justify-between gap-3 py-2 px-3 border border-primary/10 rounded-large-element bg-primary/5", className)} data-slot="value-display">
       <span className={cn("text-sm shrink-0", text, "font-medium")}>{label}</span>
-      <span className={cn("text-sm min-w-0 text-right", text, "px-2 py-0.5 rounded-pill bg-primary/10", mono && "font-mono")}>
+      <span className={cn("text-sm min-w-0 text-right", text, "px-2 py-0.5 rounded-chip bg-primary/10", mono && "font-mono")}>
         {value ?? fallback}
       </span>
     </div>

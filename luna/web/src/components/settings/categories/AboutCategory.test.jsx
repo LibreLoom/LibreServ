@@ -130,7 +130,7 @@ describe("AboutCategory", () => {
     const deviceRow = await screen.findByText("This Luna");
     expect(deviceRow.closest("[data-slot='value-display']")).toBeTruthy();
     const deviceValue = screen.getByText("Living Room Luna");
-    expect(deviceValue.className).toMatch(/rounded-pill/);
+    expect(deviceValue.className).toMatch(/rounded-chip/);
     expect(screen.queryByText("Software")).toBeNull();
     expect(await screen.findByRole("heading", { name: "Where to open Luna" })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Everywhere" })).toBeNull();

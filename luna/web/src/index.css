@@ -92,6 +92,8 @@
 
   /* Setup Pill Shape */
   --radius-pill: 9999px;
+  /* Text chips: a full pill on one line, a card-like corner once the text wraps. */
+  --radius-chip: 0.875lh;
   --radius-large-element: 24px;
   --radius-button: 9999px;
   --radius-card: 24px;

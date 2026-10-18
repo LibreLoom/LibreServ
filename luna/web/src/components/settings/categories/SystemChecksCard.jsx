@@ -73,7 +73,7 @@ export default function SystemChecksCard({ index = 1 }) {
           {total > 0 && (
             <span
               className={cn(
-                "text-xs px-3 py-1 rounded-pill font-medium shrink-0 border-2 text-primary motion-safe:transition-colors motion-safe:duration-300",
+                "text-xs px-3 py-1 rounded-chip font-medium shrink-0 border-2 text-primary motion-safe:transition-colors motion-safe:duration-300",
                 badge.tone,
               )}
             >

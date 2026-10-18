@@ -68,7 +68,7 @@ function SystemChecksCard({ index = 2 }) {
           </p>
           <span
             className={cn(
-              "text-xs px-3 py-1 rounded-pill font-medium shrink-0",
+              "text-xs px-3 py-1 rounded-chip font-medium shrink-0",
               allOk ? "bg-success/20 border-2 border-success/30 text-primary" : "bg-error/20 border-2 border-error/30 text-primary"
             )}
           >
@@ -99,7 +99,7 @@ function SystemChecksCard({ index = 2 }) {
                 </div>
                 <span
                   className={cn(
-                    "text-xs font-mono px-2.5 py-1 rounded-pill shrink-0",
+                    "text-xs font-mono px-2.5 py-1 rounded-chip shrink-0",
                     ok ? "bg-success/20 text-primary" : "bg-error/20 text-primary"
                   )}
                 >

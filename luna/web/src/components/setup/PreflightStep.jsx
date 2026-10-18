@@ -93,7 +93,7 @@ function Summary({ verdict, title, detail, categories, busy }) {
         {categories.map(({ id, status }, i) => (
           <li
             key={id}
-            className="flex items-center gap-1.5 pl-1 pr-3 py-1 rounded-pill border border-primary/15 text-xs text-primary animate-in fade-in slide-in-from-bottom-1 duration-300"
+            className="flex items-center gap-1.5 pl-1 pr-3 py-1 rounded-chip border border-primary/15 text-xs text-primary animate-in fade-in slide-in-from-bottom-1 duration-300"
             style={{ animationDelay: `${i * 50}ms`, animationFillMode: "backwards" }}
           >
             <CheckStatusIcon status={busy ? "pending" : status} size="sm" />

@@ -60,7 +60,7 @@ const CHIP_TINT = {
 function StatusChip({ state, children }) {
   return (
     <span
-      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-pill text-xs font-medium border-2 text-primary ${CHIP_TINT[state] || CHIP_TINT[INFO]}`}
+      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-chip text-xs font-medium border-2 text-primary ${CHIP_TINT[state] || CHIP_TINT[INFO]}`}
     >
       {children}
     </span>

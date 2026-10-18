@@ -703,14 +703,14 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
             )}
 
             {currentAuthField.inlineError && (
-              <p className="inline-block text-xs text-primary bg-error/20 border border-error/30 rounded-pill px-3 py-1 mt-2.5" role="alert">
+              <p className="inline-block text-xs text-primary bg-error/20 border border-error/30 rounded-chip px-3 py-1 mt-2.5" role="alert">
                 {currentAuthField.inlineError}
               </p>
             )}
 
             {currentAuthField.name === "confirm_password" && confirm && (
               <p
-                className={`inline-flex items-center gap-1.5 text-xs text-primary border rounded-pill px-3 py-1 mt-2.5 ${
+                className={`inline-flex items-center gap-1.5 text-xs text-primary border rounded-chip px-3 py-1 mt-2.5 ${
                   confirmOk ? "bg-success/20 border-success/30" : "bg-error/20 border-error/30"
                 }`}
                 role="status"
