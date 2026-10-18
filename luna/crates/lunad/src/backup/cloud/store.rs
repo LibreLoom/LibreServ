@@ -74,10 +74,10 @@ fn check_pack(id: &[u8; 32], scope: Option<&str>, bytes: &[u8]) -> Result<(), St
     if pack_id(bytes) != *id {
         return Err(StoreError::Rejected(CHECKSUM_MSG.into()));
     }
-    if let Some(scope) = scope {
-        if !valid_token(scope, 64) {
-            return Err(StoreError::Rejected(SCOPE_MSG.into()));
-        }
+    if let Some(scope) = scope
+        && !valid_token(scope, 64)
+    {
+        return Err(StoreError::Rejected(SCOPE_MSG.into()));
     }
     Ok(())
 }
