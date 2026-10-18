@@ -1,14 +1,15 @@
 import { useEffect, useId, useState } from "react";
+import { ArrowLeft, ChevronRight, Download, File as FileIcon, Folder } from "lucide-react";
 import { Button } from "../ui/button.jsx";
-import { Label } from "../ui/label.jsx";
 import { groupByStarter, loadTree } from "../../lib/cloudUnlock.js";
 import { downloadFile, downloadFolder } from "../../lib/cloudDownload.js";
 import { baseName, filesUnder, formatSize, formatWhen, listFolder, versionLabel } from "../../lib/cloudTree.js";
+import { Chip, ROW_CLASS, RowIcon } from "./Chip.jsx";
+import { BackupRow } from "./BackupRow.jsx";
 import { PrivateItemsRow } from "./PrivateItemsRow.jsx";
 
 const SELECT_CLASS =
-  "flex h-10 w-full max-w-xs rounded-pill border border-input bg-background px-4 py-2 font-mono text-sm text-foreground outline-none transition-colors focus-visible:border-ring";
-const ROW_CLASS = "rounded-large-element border border-border px-4 py-3 flex flex-wrap items-center justify-between gap-3";
+  "h-8 rounded-pill border border-border bg-secondary px-4 font-mono text-sm text-foreground outline-none transition-colors focus-visible:border-ring";
 
 /**
  * Backups grouped by who started them, with a version picker and downloads.
@@ -84,7 +85,7 @@ export function CloudBrowser({ source, backups, privateOwners = [], groupActions
       return <p className="text-sm text-muted-foreground">No backups here yet.</p>;
     }
     return (
-      <div className="space-y-6">
+      <div className="space-y-8">
         {groups.map((group) => (
           <section key={group.startedBy} className="space-y-3" aria-label={group.name}>
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -93,25 +94,14 @@ export function CloudBrowser({ source, backups, privateOwners = [], groupActions
             </div>
             {group.backups
               .filter((backup) => !backup.private)
-              .map((backup) => {
-              const count = backup.versions.length;
-              return (
-                <div key={backup.protectionId} className={ROW_CLASS}>
-                  <div className="min-w-0">
-                    <p className="text-sm">{backup.name}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {count === 1 ? "1 version" : `${count} versions`} · Latest {formatWhen(backup.versions[0].createdAt)}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button variant="outline" size="sm" onClick={() => openBackup(backup.protectionId)}>
-                      Open
-                    </Button>
-                    {backupActions?.(backup)}
-                  </div>
-                </div>
-              );
-            })}
+              .map((backup) => (
+                <BackupRow
+                  key={backup.protectionId}
+                  backup={backup}
+                  onOpen={openBackup}
+                  actions={backupActions?.(backup)}
+                />
+              ))}
             {group.privateRow ? (
               <PrivateItemsRow
                 kind={group.privateRow}
@@ -135,52 +125,58 @@ export function CloudBrowser({ source, backups, privateOwners = [], groupActions
 
   return (
     <div className="space-y-4">
-      <Button variant="ghost" size="sm" onClick={closeBackup}>
-        Back to all backups
-      </Button>
-      <h3 className="font-mono text-lg">{selected.name}</h3>
-
-      <div className="space-y-2">
-        <Label htmlFor={versionId}>Version</Label>
-        <select
-          id={versionId}
-          aria-label="Version"
-          className={SELECT_CLASS}
-          value={versionIdx}
-          onChange={(e) => changeVersion(Number(e.target.value))}
-        >
-          {selected.versions.map((v, i) => (
-            <option key={v.snapshotId} value={i}>
-              {versionLabel(v.createdAt, i)}
-            </option>
-          ))}
-        </select>
+      <div className="space-y-3">
+        <Button variant="ghost" size="sm" onClick={closeBackup} className="-ml-3">
+          <ArrowLeft className="size-4" aria-hidden="true" />
+          Back to all backups
+        </Button>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h3 className="font-mono text-2xl break-words">{selected.name}</h3>
+          <div className="flex items-center gap-2">
+            <label htmlFor={versionId} className="text-sm text-muted-foreground">
+              Version
+            </label>
+            <select
+              id={versionId}
+              aria-label="Version"
+              className={SELECT_CLASS}
+              value={versionIdx}
+              onChange={(e) => changeVersion(Number(e.target.value))}
+            >
+              {selected.versions.map((v, i) => (
+                <option key={v.snapshotId} value={i}>
+                  {versionLabel(v.createdAt, i)}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
       </div>
 
-      <nav aria-label="Folder path" className="flex flex-wrap items-center gap-1 text-sm">
-        <Button variant="ghost" size="sm" onClick={() => setFolder("")}>
-          All files
-        </Button>
-        {segments.map((segment, i) => {
-          const path = segments.slice(0, i + 1).join("/");
-          return (
-            <span key={path} className="flex items-center gap-1">
-              <span aria-hidden="true">/</span>
-              <Button variant="ghost" size="sm" onClick={() => setFolder(path)}>
-                {segment}
-              </Button>
-            </span>
-          );
-        })}
-      </nav>
-
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-large-element bg-secondary px-4 py-3">
+        <nav aria-label="Folder path" className="flex min-w-0 flex-wrap items-center gap-1 text-sm">
+          <Button variant="ghost" size="sm" onClick={() => setFolder("")} aria-current={folder === "" ? "page" : undefined}>
+            All files
+          </Button>
+          {segments.map((segment, i) => {
+            const path = segments.slice(0, i + 1).join("/");
+            return (
+              <span key={path} className="flex items-center gap-1">
+                <ChevronRight className="size-3.5 text-muted-foreground" aria-hidden="true" />
+                <Button variant="ghost" size="sm" onClick={() => setFolder(path)}>
+                  {segment}
+                </Button>
+              </span>
+            );
+          })}
+        </nav>
         <Button
-          variant="outline"
+          variant="default"
           size="sm"
           disabled={actionsDisabled}
           onClick={() => run(() => downloadFolder(source, selected, version, entries, folder))}
         >
+          <Download className="size-4" aria-hidden="true" />
           {folder === "" ? "Download everything" : "Download this folder"}
         </Button>
       </div>
@@ -194,28 +190,53 @@ export function CloudBrowser({ source, backups, privateOwners = [], groupActions
         <div className="space-y-2">
           {listing.folders.map((f) => (
             <div key={f.path} className={ROW_CLASS}>
-              <Button variant="ghost" size="sm" onClick={() => setFolder(f.path)}>
-                {f.name}
+              <button
+                type="button"
+                onClick={() => setFolder(f.path)}
+                className="flex min-w-0 flex-1 items-center gap-3 rounded-pill text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label={`Open folder ${f.name}`}
+              >
+                <RowIcon icon={Folder} />
+                <span className="min-w-0 space-y-1.5">
+                  <span className="block font-mono text-base break-all">{f.name}</span>
+                  <span className="flex flex-wrap items-center gap-1.5">
+                    <Chip>{f.files === 1 ? "1 file" : `${f.files} files`}</Chip>
+                    <Chip>{formatSize(f.size)}</Chip>
+                  </span>
+                </span>
+              </button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={downloading}
+                aria-label={`Download folder ${f.name}`}
+                onClick={() => run(() => downloadFolder(source, selected, version, entries, f.path))}
+              >
+                <Download className="size-4" aria-hidden="true" />
+                Download
               </Button>
-              <span className="text-sm text-muted-foreground">
-                {f.files === 1 ? "1 file" : `${f.files} files`} · {formatSize(f.size)}
-              </span>
             </div>
           ))}
           {listing.files.map((file) => (
             <div key={file.path} className={ROW_CLASS}>
-              <div className="min-w-0">
-                <p className="text-sm break-all">{baseName(file.path)}</p>
-                <p className="text-sm text-muted-foreground">
-                  {formatSize(file.size)} · {formatWhen(file.mtime)}
-                </p>
+              <div className="flex min-w-0 items-center gap-3">
+                <RowIcon icon={FileIcon} />
+                <div className="min-w-0 space-y-1.5">
+                  <p className="font-mono text-base break-all">{baseName(file.path)}</p>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Chip>{formatSize(file.size)}</Chip>
+                    <Chip>{formatWhen(file.mtime)}</Chip>
+                  </div>
+                </div>
               </div>
               <Button
                 variant="outline"
                 size="sm"
                 disabled={downloading}
+                aria-label={`Download ${baseName(file.path)}`}
                 onClick={() => run(() => downloadFile(source, selected, version, file))}
               >
+                <Download className="size-4" aria-hidden="true" />
                 Download
               </Button>
             </div>

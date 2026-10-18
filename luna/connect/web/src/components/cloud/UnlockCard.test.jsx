@@ -15,7 +15,7 @@ describe("UnlockCard", () => {
     render(<UnlockCard onUnlock={onUnlock} />);
     const field = screen.getByLabelText("Recovery phrase");
     fireEvent.change(field, { target: { value: "one two three" } });
-    fireEvent.click(screen.getByRole("button", { name: "Open backups" }));
+    fireEvent.click(screen.getByRole("button", { name: "Unlock backups" }));
     await waitFor(() => expect(onUnlock).toHaveBeenCalledWith("one two three"));
     await waitFor(() => expect(field.value).toBe(""));
   });
@@ -24,7 +24,7 @@ describe("UnlockCard", () => {
     const onUnlock = vi.fn().mockRejectedValue(new Error("That phrase did not open these backups."));
     render(<UnlockCard onUnlock={onUnlock} />);
     fireEvent.change(screen.getByLabelText("Recovery phrase"), { target: { value: "wrong words" } });
-    fireEvent.click(screen.getByRole("button", { name: "Open backups" }));
+    fireEvent.click(screen.getByRole("button", { name: "Unlock backups" }));
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toBe("That phrase did not open these backups.");
     expect(screen.getByLabelText("Recovery phrase").value).toBe("");

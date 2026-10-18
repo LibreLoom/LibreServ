@@ -80,7 +80,7 @@ describe("CloudBrowser", () => {
     expect(screen.getByRole("combobox", { name: "Version" })).toBeTruthy();
     expect(screen.getByText("Opening this version…")).toBeTruthy();
 
-    expect(await screen.findByRole("button", { name: "Photos" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Open folder Photos" })).toBeTruthy();
     expect(screen.getByText("notes.txt")).toBeTruthy();
     expect(loadTree).toHaveBeenCalledWith(SOURCE, expect.objectContaining({ protectionId: "p1" }), expect.objectContaining({ snapshotId: "v2" }));
 
@@ -93,7 +93,7 @@ describe("CloudBrowser", () => {
     render(<CloudBrowser source={SOURCE} backups={[makeBackup()]} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Open" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Photos" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open folder Photos" }));
     expect(screen.getByRole("button", { name: "Download this folder" }).disabled).toBe(false);
     expect(screen.getByText("cat.jpg")).toBeTruthy();
 
@@ -103,13 +103,26 @@ describe("CloudBrowser", () => {
     );
   });
 
+  it("downloads a folder straight from its row, without opening it", async () => {
+    downloadFolder.mockResolvedValue(undefined);
+    render(<CloudBrowser source={SOURCE} backups={[makeBackup()]} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Download folder Photos" }));
+    await waitFor(() =>
+      expect(downloadFolder).toHaveBeenCalledWith(SOURCE, expect.objectContaining({ protectionId: "p1" }), expect.objectContaining({ snapshotId: "v2" }), ENTRIES, "Photos"),
+    );
+    // Still at the top: the folder was downloaded, not entered.
+    expect(screen.getByRole("button", { name: "Download everything" })).toBeTruthy();
+  });
+
   it("downloads a single file from the list", async () => {
     downloadFile.mockResolvedValue(undefined);
     render(<CloudBrowser source={SOURCE} backups={[makeBackup()]} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Open" }));
     const row = (await screen.findByText("notes.txt")).closest(".rounded-large-element");
-    fireEvent.click(within(row).getByRole("button", { name: "Download" }));
+    fireEvent.click(within(row).getByRole("button", { name: "Download notes.txt" }));
     await waitFor(() => expect(downloadFile).toHaveBeenCalledWith(SOURCE, expect.anything(), expect.anything(), expect.objectContaining({ path: "notes.txt" })));
   });
 
@@ -164,7 +177,7 @@ describe("CloudBrowser", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Open" }));
     const row = (await screen.findByText("notes.txt")).closest(".rounded-large-element");
-    fireEvent.click(within(row).getByRole("button", { name: "Download" }));
+    fireEvent.click(within(row).getByRole("button", { name: "Download notes.txt" }));
     expect((await screen.findByRole("alert")).textContent).toBe("Could not decrypt this file.");
   });
 });

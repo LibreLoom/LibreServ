@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { HardDrive } from "lucide-react";
+import { HardDrive, Lock, LockOpen } from "lucide-react";
 import { Layout } from "../components/Layout.jsx";
 import { Button } from "../components/ui/button.jsx";
 import { Badge } from "../components/ui/badge.jsx";
@@ -165,8 +165,13 @@ function BackupFilesCard({ lunas, paired }) {
         {unpairedNote}
         {backups ? (
           <div className="space-y-4">
-            <div className="flex justify-end">
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-large-element bg-secondary px-4 py-2">
+              <span className="inline-flex items-center gap-2 text-sm">
+                <LockOpen className="size-4" aria-hidden="true" />
+                Unlocked in this browser
+              </span>
               <Button variant="outline" size="sm" onClick={() => setUnlocked(null)}>
+                <Lock className="size-4" aria-hidden="true" />
                 Lock
               </Button>
             </div>
@@ -197,7 +202,7 @@ function BackupFilesCard({ lunas, paired }) {
           </div>
         ) : (
           <UnlockCard
-            description="Type the recovery phrase you wrote down when you turned on cloud backup on Luna."
+            description="Your backups are encrypted on Luna, so their names and files stay hidden until you enter the recovery phrase you wrote down. One phrase opens every backup you can access on this Luna."
             onUnlock={unlock}
           />
         )}
@@ -209,7 +214,7 @@ function BackupFilesCard({ lunas, paired }) {
     <Card className="animate-fade-in-up" data-testid="backups-files">
       <CardHeader>
         <CardTitle>
-          Your files
+          Your backups
           <InfoHint
             surface="secondary"
             delayMs={0}
@@ -357,8 +362,8 @@ export function BackupsTab({ me, lunas, paired, onRefresh, setError, error }) {
 
   return (
     <div className="space-y-6">
-      {billingCard}
       {filesCard}
+      {billingCard}
     </div>
   );
 }

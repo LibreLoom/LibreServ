@@ -65,10 +65,10 @@ export function ShareLinkButton({ lunaId, scope, label, onCreated }) {
         </Button>
       )}
       {link ? (
-        <div className="rounded-large-element border border-border px-4 py-4 space-y-3 w-full" data-testid="share-link-panel">
+        <div className="rounded-large-element bg-secondary text-secondary-foreground px-4 py-4 space-y-3 w-full" data-testid="share-link-panel">
           <div className="space-y-2">
             <Label htmlFor={fieldId}>Share link</Label>
-            <Input id={fieldId} readOnly value={link.url} onFocus={(e) => e.target.select()} />
+            <Input id={fieldId} readOnly value={link.url} className="bg-card" onFocus={(e) => e.target.select()} />
           </div>
           <p className="text-sm text-muted-foreground leading-relaxed">{sentence}</p>
           <div className="flex flex-wrap gap-2">

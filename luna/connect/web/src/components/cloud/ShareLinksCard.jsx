@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
+import { Link2 } from "lucide-react";
 import { Button } from "../ui/button.jsx";
+import { Chip, ROW_CLASS, RowIcon } from "./Chip.jsx";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card.jsx";
 import { listShareLinks, revokeShareLink } from "../../lib/shareLinks.js";
 import { formatWhen } from "../../lib/cloudTree.js";
@@ -70,18 +72,16 @@ export function ShareLinksCard({ lunaId, backups, refreshKey = 0 }) {
         ) : null}
         <ul className="space-y-3">
           {links.map((link) => (
-            <li
-              key={link.id}
-              className="flex flex-wrap items-center justify-between gap-3 rounded-large-element border border-border px-4 py-3"
-            >
-              <div className="min-w-0 space-y-1">
-                <p className="font-medium">{whatFor(link)}</p>
-                <p className="text-sm text-muted-foreground">
-                  Turns off {formatWhen(link.expires_at)}.{" "}
-                  {link.last_opened_at
-                    ? `Last opened ${formatWhen(link.last_opened_at)}.`
-                    : "Not opened yet."}
-                </p>
+            <li key={link.id} className={ROW_CLASS}>
+              <div className="flex min-w-0 items-center gap-3">
+                <RowIcon icon={Link2} />
+                <div className="min-w-0 space-y-1.5">
+                  <p className="font-mono text-base break-words">{whatFor(link)}</p>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Chip>Turns off {formatWhen(link.expires_at)}</Chip>
+                    <Chip>{link.last_opened_at ? `Last opened ${formatWhen(link.last_opened_at)}` : "Not opened yet"}</Chip>
+                  </div>
+                </div>
               </div>
               <Button
                 type="button"

@@ -65,6 +65,7 @@
   --color-info: var(--palette-info, #3b82f6);
 
   --radius-pill: 9999px;
+  --radius-chip: 0.875lh;
   --radius-large-element: 24px;
   --radius-lg: 24px;
   --radius-md: 16px;

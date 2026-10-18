@@ -79,7 +79,7 @@ describe("SharePage", () => {
     unlockBackups.mockResolvedValue({ userIds: ["someone-else"], backups: [] });
     render(<SharePage />);
     fireEvent.change(await screen.findByLabelText("Recovery phrase"), { target: { value: "one two three" } });
-    fireEvent.click(screen.getByRole("button", { name: "Open backups" }));
+    fireEvent.click(screen.getByRole("button", { name: "Unlock backups" }));
     expect(
       await screen.findByText(
         "This recovery phrase belongs to someone else. Use the phrase of the person these backups were shared for.",
@@ -92,7 +92,7 @@ describe("SharePage", () => {
     unlockBackups.mockResolvedValue({ userIds: [OWNER_ID], backups: [] });
     render(<SharePage />);
     fireEvent.change(await screen.findByLabelText("Recovery phrase"), { target: { value: "one two three" } });
-    fireEvent.click(screen.getByRole("button", { name: "Open backups" }));
+    fireEvent.click(screen.getByRole("button", { name: "Unlock backups" }));
     expect(await screen.findByText("Viewing shared backups.")).toBeTruthy();
     expect(unlockBackups).toHaveBeenCalledWith(expect.anything(), "one two three", { requireLatest: true });
     fireEvent.click(screen.getByRole("button", { name: "Lock" }));
@@ -110,7 +110,7 @@ describe("SharePage", () => {
     render(<SharePage />);
     expect(await screen.findByText("Type your recovery phrase.")).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Recovery phrase"), { target: { value: "one two three" } });
-    fireEvent.click(screen.getByRole("button", { name: "Open backups" }));
+    fireEvent.click(screen.getByRole("button", { name: "Unlock backups" }));
     await waitFor(() => expect(screen.getByText("Viewing shared backups.")).toBeTruthy());
   });
 
@@ -123,7 +123,7 @@ describe("SharePage", () => {
     });
     render(<SharePage />);
     fireEvent.change(await screen.findByLabelText("Recovery phrase"), { target: { value: "one two three" } });
-    fireEvent.click(screen.getByRole("button", { name: "Open backups" }));
+    fireEvent.click(screen.getByRole("button", { name: "Unlock backups" }));
     await waitFor(() => expect(screen.getByText("Viewing shared backups.")).toBeTruthy());
     expect(groupByStarter).toHaveBeenLastCalledWith(expect.anything(), [OWNER_ID]);
   });
@@ -140,7 +140,7 @@ describe("SharePage", () => {
     });
     render(<SharePage />);
     fireEvent.change(await screen.findByLabelText("Recovery phrase"), { target: { value: "one two three" } });
-    fireEvent.click(screen.getByRole("button", { name: "Open backups" }));
+    fireEvent.click(screen.getByRole("button", { name: "Unlock backups" }));
     await waitFor(() => expect(screen.getByText("Viewing shared backups.")).toBeTruthy());
     expect(groupByStarter).toHaveBeenLastCalledWith(expect.anything(), []);
     expect(screen.queryByRole("region", { name: "Private items" })).toBeNull();
@@ -166,7 +166,7 @@ describe("SharePage", () => {
     });
     render(<SharePage />);
     fireEvent.change(await screen.findByLabelText("Recovery phrase"), { target: { value: "one two three" } });
-    fireEvent.click(screen.getByRole("button", { name: "Open backups" }));
+    fireEvent.click(screen.getByRole("button", { name: "Unlock backups" }));
     await waitFor(() => expect(screen.getByText("Viewing shared backups.")).toBeTruthy());
     expect(groupByStarter).toHaveBeenLastCalledWith([], []);
     expect(screen.queryByRole("region", { name: "Private items" })).toBeNull();

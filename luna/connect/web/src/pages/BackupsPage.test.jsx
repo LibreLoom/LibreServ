@@ -144,7 +144,7 @@ describe("BackupsPage", () => {
     unlockBackups.mockResolvedValue({ userIds: [], backups: [makeBackup()] });
     renderTab({ lunas: [HOME] });
     fireEvent.change(screen.getByLabelText("Recovery phrase"), { target: { value: "one two three" } });
-    fireEvent.click(screen.getByRole("button", { name: "Open backups" }));
+    fireEvent.click(screen.getByRole("button", { name: "Unlock backups" }));
     expect(await screen.findByRole("button", { name: "Lock" })).toBeTruthy();
     expect(unlockBackups).toHaveBeenCalledWith(expect.anything(), "one two three");
     expect(accountSource).toHaveBeenCalledWith("l1");
@@ -158,7 +158,7 @@ describe("BackupsPage", () => {
     unlockBackups.mockResolvedValue({ userIds: [], backups: [makeBackup()], privateOwners: ["u2"] });
     renderTab({ lunas: [HOME] });
     fireEvent.change(screen.getByLabelText("Recovery phrase"), { target: { value: "one two three" } });
-    fireEvent.click(screen.getByRole("button", { name: "Open backups" }));
+    fireEvent.click(screen.getByRole("button", { name: "Unlock backups" }));
     expect(await screen.findByRole("button", { name: "Lock" })).toBeTruthy();
     expect(groupByStarter).toHaveBeenLastCalledWith(expect.anything(), ["u2"]);
   });
@@ -167,7 +167,7 @@ describe("BackupsPage", () => {
     unlockBackups.mockResolvedValue({ userIds: [], backups: [makeBackup()] });
     renderTab({ lunas: [HOME] });
     fireEvent.change(screen.getByLabelText("Recovery phrase"), { target: { value: "one two three" } });
-    fireEvent.click(screen.getByRole("button", { name: "Open backups" }));
+    fireEvent.click(screen.getByRole("button", { name: "Unlock backups" }));
     expect(await screen.findByRole("button", { name: "Lock" })).toBeTruthy();
     // One group (Alex) plus one backup (Photos).
     expect(screen.getAllByRole("button", { name: "Share link" })).toHaveLength(2);
@@ -181,7 +181,7 @@ describe("BackupsPage", () => {
     expect(group.querySelectorAll("button").length).toBe(2);
     expect(screen.getByRole("button", { name: "Home" }).getAttribute("aria-pressed")).toBe("true");
     fireEvent.change(screen.getByLabelText("Recovery phrase"), { target: { value: "one two three" } });
-    fireEvent.click(screen.getByRole("button", { name: "Open backups" }));
+    fireEvent.click(screen.getByRole("button", { name: "Unlock backups" }));
     expect(await screen.findByRole("button", { name: "Lock" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Cabin" }));
     expect(screen.getByRole("button", { name: "Cabin" }).getAttribute("aria-pressed")).toBe("true");
