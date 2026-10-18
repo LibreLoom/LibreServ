@@ -230,10 +230,10 @@ fn unwrap_with(keys: &[BackupKey]) -> impl Fn(&[u8]) -> Result<[u8; 32]> + '_ {
             let Ok(key) = <[u8; 32]>::try_from(k.key.as_slice()) else {
                 continue;
             };
-            if let Ok(plain) = crypto::decrypt(&key, PACK_KEY_WRAP_AAD, wrapped) {
-                if let Ok(pack_key) = <[u8; 32]>::try_from(plain.as_slice()) {
-                    return Ok(pack_key);
-                }
+            if let Ok(plain) = crypto::decrypt(&key, PACK_KEY_WRAP_AAD, wrapped)
+                && let Ok(pack_key) = <[u8; 32]>::try_from(plain.as_slice())
+            {
+                return Ok(pack_key);
             }
         }
         Err(anyhow!("A backup file could not be opened with this Luna's keys."))
@@ -429,8 +429,8 @@ mod tests {
         let mut chunks = vec![ChunkRef {
             id: cid,
             pack: data.id,
-            offset: offset as u64,
-            len: len as u32,
+            offset,
+            len,
         }];
         chunks.extend_from_slice(extra);
         let tree = Tree {
