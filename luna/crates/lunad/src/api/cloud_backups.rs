@@ -343,9 +343,21 @@ fn backup_json(conn: &Connection, row: &ProtectionRow, user: &CurrentUser, now: 
         "created_by": row.created_by,
         "can_delete": can_delete(conn, row, user),
         "private": !row.private_owner.is_empty(),
+        "old_phrase_copies": old_phrase_copies_json(conn, row, user),
         "running": drive_backup::is_running(&row.id),
         "notes": row.notes.lines().filter(|l| !l.trim().is_empty()).collect::<Vec<_>>(),
     })
+}
+
+/// Copies of a private item made with an old recovery phrase, waiting to be removed.
+/// Only the owner sees them; everyone else, Admins included, gets `null`.
+fn old_phrase_copies_json(conn: &Connection, row: &ProtectionRow, user: &CurrentUser) -> Value {
+    if row.private_owner.is_empty() || user.id != row.private_owner {
+        return Value::Null;
+    }
+    ops::old_phrase_copies(conn, &row.private_owner)
+        .map(|(count, removed_at)| json!({ "count": count, "removed_at": removed_at }))
+        .unwrap_or(Value::Null)
 }
 
 /// What the Run button hears back: done, or the problem and whether the source looks gone.
@@ -654,6 +666,101 @@ mod tests {
         )
         .await;
         assert_eq!(status, 404);
+    }
+
+    #[tokio::test]
+    async fn old_phrase_copies_shows_for_the_owner() {
+        let f = fixture();
+        let owner = f.member_id.clone();
+        {
+            let mut conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+            db::insert_protection(
+                &conn,
+                &db::NewProtection {
+                    id: "p-private",
+                    kind: db::PROTECTION_CLOUD,
+                    source_drive: "d1",
+                    source_path: "/Docs",
+                    target_drive: "",
+                    private_owner: &owner,
+                    created_by: &owner,
+                    created_at: 0,
+                },
+            )
+            .unwrap();
+            // Admins are kept out of private rows, but even one who can see it must not see the copies.
+            let access = format!(r#"{{"users":["{owner}"],"admins":true}}"#);
+            conn.execute(
+                "UPDATE protections SET access_json = ?1 WHERE id = ?2",
+                rusqlite::params![access, "p-private"],
+            )
+            .unwrap();
+            db::insert_private_scope(
+                &conn,
+                &db::PrivateScope {
+                    scope: "aa".repeat(16),
+                    owner: owner.clone(),
+                    x25519_public: vec![0; 32],
+                    dedup_key: vec![0; 32],
+                    state: "old_phrase".to_string(),
+                    retire_after: 1_900_000_000,
+                    created_at: 0,
+                },
+            )
+            .unwrap();
+            db::commit_private_snapshot_tx(
+                &mut conn,
+                &db::SnapshotInsert {
+                    id: "snap-old".to_string(),
+                    protection_id: "p-private".to_string(),
+                    created_at: 0,
+                    key_version: 0,
+                    tree_pack_id: "tree-pack".to_string(),
+                    record: Vec::new(),
+                },
+                &[],
+                &"aa".repeat(16),
+                b"{}",
+            )
+            .unwrap();
+        }
+
+        let (status, body) = send(
+            &f.router,
+            "GET",
+            "/api/v1/cloud/backups",
+            &f.member_token,
+            None,
+        )
+        .await;
+        assert_eq!(status, 200);
+        let row = body
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|b| b["id"] == "p-private")
+            .expect("the owner sees their private backup");
+        assert_eq!(row["private"], true);
+        assert_eq!(row["old_phrase_copies"]["count"], 1);
+        assert_eq!(row["old_phrase_copies"]["removed_at"], 1_900_000_000i64);
+
+        let (status, body) = send(
+            &f.router,
+            "GET",
+            "/api/v1/cloud/backups",
+            &f.admin_token,
+            None,
+        )
+        .await;
+        assert_eq!(status, 200);
+        let row = body
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|b| b["id"] == "p-private")
+            .expect("the Admin in this test is on the access list");
+        assert_eq!(row["private"], true);
+        assert!(row["old_phrase_copies"].is_null());
     }
 
     #[tokio::test]

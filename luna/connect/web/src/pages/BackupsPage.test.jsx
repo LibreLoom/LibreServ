@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { BackupsTab } from "./BackupsPage.jsx";
 import { accountSource } from "../lib/cloudSource.js";
-import { loadTree, unlockBackups } from "../lib/cloudUnlock.js";
+import { groupByStarter, loadTree, unlockBackups } from "../lib/cloudUnlock.js";
 import { listShareLinks } from "../lib/shareLinks.js";
 
 vi.mock("../lib/cloudSource.js", () => ({
@@ -10,11 +10,15 @@ vi.mock("../lib/cloudSource.js", () => ({
   accountSource: vi.fn(() => ({ getPack: vi.fn() })),
 }));
 
-vi.mock("../lib/cloudUnlock.js", async (importOriginal) => ({
-  ...(await importOriginal()),
-  unlockBackups: vi.fn(),
-  loadTree: vi.fn(),
-}));
+vi.mock("../lib/cloudUnlock.js", async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    unlockBackups: vi.fn(),
+    loadTree: vi.fn(),
+    groupByStarter: vi.fn(actual.groupByStarter),
+  };
+});
 
 vi.mock("../lib/shareLinks.js", async (importOriginal) => ({
   ...(await importOriginal()),
@@ -148,6 +152,15 @@ describe("BackupsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Lock" }));
     expect(screen.getByLabelText("Recovery phrase")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Lock" })).toBeNull();
+  });
+
+  it("passes the private owners from the unlock to the browser", async () => {
+    unlockBackups.mockResolvedValue({ userIds: [], backups: [makeBackup()], privateOwners: ["u2"] });
+    renderTab({ lunas: [HOME] });
+    fireEvent.change(screen.getByLabelText("Recovery phrase"), { target: { value: "one two three" } });
+    fireEvent.click(screen.getByRole("button", { name: "Open backups" }));
+    expect(await screen.findByRole("button", { name: "Lock" })).toBeTruthy();
+    expect(groupByStarter).toHaveBeenLastCalledWith(expect.anything(), ["u2"]);
   });
 
   it("offers a Share link button per group and per backup once unlocked", async () => {

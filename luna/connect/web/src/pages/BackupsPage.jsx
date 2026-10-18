@@ -133,6 +133,7 @@ function BackupFilesCard({ lunas, paired }) {
   const lunaId = chosen?.luna_id || "";
   const source = useMemo(() => (lunaId ? accountSource(lunaId) : null), [lunaId]);
   const backups = unlocked && unlocked.lunaId === lunaId ? unlocked.backups : null;
+  const privateOwners = unlocked && unlocked.lunaId === lunaId ? unlocked.privateOwners : [];
 
   function choose(id) {
     setUnlocked(null);
@@ -141,7 +142,7 @@ function BackupFilesCard({ lunas, paired }) {
 
   async function unlock(words) {
     const result = await unlockBackups(source, words);
-    setUnlocked({ lunaId, backups: result.backups });
+    setUnlocked({ lunaId, backups: result.backups, privateOwners: result.privateOwners || [] });
   }
 
   let body = null;
@@ -172,6 +173,7 @@ function BackupFilesCard({ lunas, paired }) {
             <CloudBrowser
               source={source}
               backups={backups}
+              privateOwners={privateOwners}
               groupActions={(g) =>
                 g.startedBy ? (
                   <ShareLinkButton

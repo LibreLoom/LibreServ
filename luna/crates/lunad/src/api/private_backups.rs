@@ -34,6 +34,10 @@ pub fn router() -> Router<AppState> {
             "/api/v1/private-backups/owners/{owner}",
             delete(remove_owner),
         )
+        .route(
+            "/api/v1/private-backups/old-copies",
+            delete(remove_old_copies),
+        )
 }
 
 #[derive(Deserialize)]
@@ -222,6 +226,22 @@ async fn remove_owner(
         removed += 1;
     }
     Ok(Json(json!({ "removed": removed })))
+}
+
+/// Ends the grace period of the signed-in person's old-phrase copies now, so the
+/// next sweep removes them. Only their own copies are touched.
+async fn remove_old_copies(
+    State(state): State<AppState>,
+    Extension(user): Extension<CurrentUser>,
+) -> ApiResult {
+    let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
+    ops::retire_old_phrase_now(&conn, &user.id, db::now_unix()).map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't remove your old copies. Try again.",
+        )
+    })?;
+    Ok(Json(json!({ "ok": true })))
 }
 
 const LOAD_FAILED: &str = "Luna couldn't load your private backups. Try again.";
@@ -477,5 +497,50 @@ mod tests {
         assert_eq!(body["removed"], 1);
         let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
         assert!(db::get_protection(&conn, "b-gone").unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn old_copies_sets_retire_after_now() {
+        let f = fixture();
+        let scope = |name: &str, owner: &str| db::PrivateScope {
+            scope: name.to_string(),
+            owner: owner.to_string(),
+            x25519_public: vec![1; 32],
+            dedup_key: vec![2; 32],
+            state: "old_phrase".to_string(),
+            retire_after: 12_345,
+            created_at: 0,
+        };
+        {
+            let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+            db::insert_private_scope(&conn, &scope("owner-old", &f.owner_id)).unwrap();
+            db::insert_private_scope(&conn, &scope("stranger-old", &f.stranger_id)).unwrap();
+        }
+
+        let before = db::now_unix();
+        let (status, body) = send(
+            &f.router,
+            "DELETE",
+            "/api/v1/private-backups/old-copies",
+            &f.owner_token,
+        )
+        .await;
+        let after = db::now_unix();
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body, serde_json::json!({ "ok": true }));
+
+        let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+        let owner_scope = db::list_private_scopes(&conn, Some(&f.owner_id)).unwrap();
+        assert_eq!(owner_scope.len(), 1);
+        assert_eq!(owner_scope[0].state, "old_phrase");
+        assert!(
+            (before..=after).contains(&owner_scope[0].retire_after),
+            "retire_after {} not within {before}..={after}",
+            owner_scope[0].retire_after
+        );
+
+        let stranger_scope = db::list_private_scopes(&conn, Some(&f.stranger_id)).unwrap();
+        assert_eq!(stranger_scope.len(), 1);
+        assert_eq!(stranger_scope[0].retire_after, 12_345);
     }
 }

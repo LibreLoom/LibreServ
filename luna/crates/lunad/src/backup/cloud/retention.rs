@@ -111,7 +111,7 @@ pub fn retire_old_phrases(db: &crate::Db, store: &dyn CloudStore, now: i64) -> a
         let conn = lock(db)?;
         db::list_private_scopes(&conn, None)?
             .into_iter()
-            .filter(|s| s.state == "old_phrase" && s.retire_after <= now)
+            .filter(|s| s.state == "old_phrase" && s.retire_after > 0 && now >= s.retire_after)
             .map(|s| s.scope)
             .collect()
     };
@@ -486,6 +486,58 @@ mod tests {
         assert_eq!(out.packs_deleted, 0);
         assert!(store.get_pack(&reused).is_ok());
         assert!(packs_in_state(&db, "live").contains(&hex(&reused)));
+    }
+
+    #[test]
+    fn old_phrase_scope_without_a_retire_time_is_never_retired() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = setup(dir.path());
+        let store = MemoryStore::new();
+        const PSCOPE: &str = "scope-old-phrase";
+        {
+            let conn = db.lock().unwrap();
+            db::insert_private_scope(
+                &conn,
+                &db::PrivateScope {
+                    scope: PSCOPE.into(),
+                    owner: "owner".into(),
+                    x25519_public: vec![5; 32],
+                    dedup_key: vec![6; 32],
+                    state: "old_phrase".into(),
+                    retire_after: 0,
+                    created_at: 1,
+                },
+            )
+            .unwrap();
+        }
+        store
+            .put_record(PSNAPSHOTS_KIND, &format!("{PSCOPE}.priv-1"), b"private record")
+            .unwrap();
+        {
+            let snap = SnapshotInsert {
+                id: "priv-1".into(),
+                protection_id: "p1".into(),
+                created_at: NOW - 40 * DAY,
+                key_version: 1,
+                tree_pack_id: String::new(),
+                record: b"private record".to_vec(),
+            };
+            let mut conn = db.lock().unwrap();
+            db::commit_private_snapshot_tx(&mut conn, &snap, &[], PSCOPE, b"{}").unwrap();
+        }
+
+        retire_old_phrases(&db, &store, NOW + 1000 * DAY).unwrap();
+
+        assert!(store
+            .get_record(PSNAPSHOTS_KIND, &format!("{PSCOPE}.priv-1"))
+            .unwrap()
+            .is_some());
+        let conn = db.lock().unwrap();
+        assert_eq!(db::private_snapshot_ids(&conn, PSCOPE).unwrap(), ["priv-1"]);
+        assert!(db::list_private_scopes(&conn, None)
+            .unwrap()
+            .iter()
+            .any(|s| s.scope == PSCOPE));
     }
 
     #[test]

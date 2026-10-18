@@ -202,8 +202,9 @@ export function findMyKeys({ lunaId, entropy, self, recipients, keys, pscopes = 
 		const publicKey = openSelfRecord(k.selfKey, lunaId, uid, data);
 		if (publicKey && !signingPublics.some((p) => sameBytes(p, publicKey))) signingPublics.push(publicKey);
 	}
-	if (signingPublics.length === 0) throw new Error(NO_BACKUPS);
-	if (expectSigningPublic) {
+	// No signing key is not an error yet: a phrase can still open private scopes, which are checked
+	// below. NO_BACKUPS is thrown only when nothing at all opens.
+	if (expectSigningPublic && signingPublics.length > 0) {
 		const expected = expectSigningPublic;
 		signingPublics = signingPublics.filter((p) => sameBytes(p, expected));
 		if (signingPublics.length === 0) throw new Error(SIGNING_MISMATCH);

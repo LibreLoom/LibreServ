@@ -42,11 +42,12 @@ export default function SharePage() {
           "This recovery phrase belongs to someone else. Use the phrase of the person these backups were shared for.",
         );
       }
-      setUnlocked({ source, backups: res.backups });
+      setUnlocked({ source, backups: res.backups, privateOwners: res.privateOwners || [] });
       return;
     }
-    const backups = res.backups.filter((b) => b.protectionId === info.scope.value);
-    setUnlocked({ source, backups });
+    // A folder or backup link shows only that backup, so no other person's private items belong here.
+    const backups = res.backups.filter((b) => !b.private && b.protectionId === info.scope.value);
+    setUnlocked({ source, backups, privateOwners: [] });
   }
 
   let body;
@@ -73,7 +74,7 @@ export default function SharePage() {
             Lock
           </Button>
         </div>
-        <CloudBrowser source={unlocked.source} backups={unlocked.backups} />
+        <CloudBrowser source={unlocked.source} backups={unlocked.backups} privateOwners={unlocked.privateOwners} />
       </div>
     );
   } else {

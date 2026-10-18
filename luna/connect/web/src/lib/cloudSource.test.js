@@ -127,3 +127,74 @@ describe("shareSource", () => {
     expect(packOpts.headers).toEqual({ "X-Share-Token": "tok" });
   });
 });
+
+describe("private session routes", () => {
+  it("posts to the account challenge and open routes and returns the token", async () => {
+    globalThis.fetch.mockResolvedValueOnce(jsonReply({ challenge: "ab12", expires_at: 1700000000 }));
+    globalThis.fetch.mockResolvedValueOnce(jsonReply({ token: "tok2", expires_at: 1700001800 }));
+    const source = accountSource("L1");
+
+    expect(await source.privateChallenge()).toBe("ab12");
+    const [challengeUrl, challengeOpts] = globalThis.fetch.mock.calls[0];
+    expect(challengeUrl).toBe("/api/v1/cloud/lunas/L1/private/challenge");
+    expect(challengeOpts.method).toBe("POST");
+    expect(challengeOpts.credentials).toBe("include");
+
+    const opened = await source.privateOpen({ scope: "s1", challenge: "ab12", signature: "cd34" });
+    expect(opened).toEqual({ token: "tok2", expiresAt: 1700001800 });
+    const [openUrl, openOpts] = globalThis.fetch.mock.calls[1];
+    expect(openUrl).toBe("/api/v1/cloud/lunas/L1/private/open");
+    expect(openOpts.method).toBe("POST");
+    expect(JSON.parse(openOpts.body)).toEqual({ scope: "s1", challenge: "ab12", signature: "cd34" });
+  });
+
+  it("posts to the share challenge and open routes with the share token", async () => {
+    globalThis.fetch.mockResolvedValueOnce(jsonReply({ challenge: "ef56", expires_at: 1 }));
+    globalThis.fetch.mockResolvedValueOnce(jsonReply({ token: "tok3", expires_at: 2 }));
+    const source = shareSource("share-tok", "L1");
+
+    expect(await source.privateChallenge()).toBe("ef56");
+    expect(globalThis.fetch.mock.calls[0][0]).toBe("/api/v1/share/private/challenge");
+    expect(globalThis.fetch.mock.calls[0][1].headers).toEqual({ "X-Share-Token": "share-tok" });
+
+    await source.privateOpen({ scope: "s2", challenge: "ef56", signature: "99" });
+    const [openUrl, openOpts] = globalThis.fetch.mock.calls[1];
+    expect(openUrl).toBe("/api/v1/share/private/open");
+    expect(openOpts.headers).toEqual({ "X-Share-Token": "share-tok", "Content-Type": "application/json" });
+    expect(JSON.parse(openOpts.body)).toEqual({ scope: "s2", challenge: "ef56", signature: "99" });
+  });
+
+  it("keeps the server sentence on a 403 and uses the private fallback otherwise", async () => {
+    globalThis.fetch.mockResolvedValueOnce({ ok: false, status: 403, json: async () => ({ error: "Not allowed." }) });
+    const denied = await accountSource("L1").privateChallenge().catch((e) => e);
+    expect(denied.message).toBe("Not allowed.");
+    expect(denied.status).toBe(403);
+
+    globalThis.fetch.mockResolvedValueOnce(jsonReply({}, 500));
+    const broken = await accountSource("L1").privateChallenge().catch((e) => e);
+    expect(broken.message).toBe("Could not open your private items. Check your connection, then try again.");
+  });
+});
+
+describe("withPrivateToken", () => {
+  it("returns the same source and adds X-Private-Token to its reads", async () => {
+    globalThis.fetch.mockResolvedValue(jsonReply({ records: [] }));
+    const base = accountSource("L1");
+    const scoped = base.withPrivateToken("ptok");
+    expect(scoped.lunaId).toBe("L1");
+
+    await scoped.listRecords("psnapshots");
+    const [url, opts] = globalThis.fetch.mock.calls[0];
+    expect(url).toBe("/api/v1/cloud/lunas/L1/records/psnapshots");
+    expect(opts.headers).toEqual({ "X-Private-Token": "ptok" });
+  });
+
+  it("keeps the share token alongside the private token", async () => {
+    globalThis.fetch.mockResolvedValue(packReply(new Uint8Array([7])));
+    const scoped = shareSource("share-tok", "L1").withPrivateToken("ptok");
+    await scoped.getPack("abc");
+    const [url, opts] = globalThis.fetch.mock.calls[0];
+    expect(url).toBe("/api/v1/share/packs/abc");
+    expect(opts.headers).toEqual({ "X-Share-Token": "share-tok", "X-Private-Token": "ptok" });
+  });
+});

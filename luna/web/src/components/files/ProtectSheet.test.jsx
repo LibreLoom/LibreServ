@@ -70,6 +70,8 @@ function stubBackupApi({
   runReply = { status: 200, body: { done: true } },
   cloudRunReply = { status: 200, body: { done: true } },
   deleteReply = { status: 200, body: {} },
+  privateItem = { private: false, inside_private: false, mine: false, owner_name: "" },
+  onOldCopiesDelete,
 } = /** @type {{
   drives?: any[],
   backups?: any[],
@@ -85,6 +87,8 @@ function stubBackupApi({
   runReply?: { status: number, body: any },
   cloudRunReply?: { status: number, body: any },
   deleteReply?: { status: number, body: any },
+  privateItem?: { private: boolean, inside_private: boolean, mine: boolean, owner_name: string },
+  onOldCopiesDelete?: (url: string) => void,
 }} */ ({})) {
   // The cloud list changes when a backup is created or deleted, like the server's does.
   const cloud = cloudBackups.map((b) => ({ ...b }));
@@ -98,6 +102,13 @@ function stubBackupApi({
       }
       if (u.includes("/setup")) {
         return json({ setup_completed: true });
+      }
+      if (u.startsWith("/api/v1/private-backups/item")) {
+        return json(privateItem);
+      }
+      if (u.startsWith("/api/v1/private-backups/old-copies") && method === "DELETE") {
+        onOldCopiesDelete?.(u);
+        return json({ ok: true });
       }
       if (u.startsWith("/api/v1/cloud/backups")) {
         if (method === "POST" && /\/run(\?|$)/.test(u)) {
@@ -549,5 +560,95 @@ describe("ProtectSheet", () => {
     expect(await screen.findByRole("button", { name: "Delete cloud backup" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Back up to the cloud" })).not.toBeInTheDocument();
     expect(screen.getByText("On")).toBeInTheDocument();
+  });
+
+  it("someone else's private item says who can back it up and hides create buttons", async () => {
+    stubBackupApi({
+      drives: [
+        { id: "d1", label: "Main", mount_point: "/mnt/main" },
+        { id: "d2", label: "Backup", mount_point: "/mnt/backup" },
+      ],
+      backups: [backup({ id: "b1", target_drive: "d2", target_drive_name: "Backup", can_delete: false })],
+      connect: { connect_active: true },
+      cloudBackups: [cloudBackup({ id: "c1" })],
+      privateItem: { private: true, inside_private: false, mine: false, owner_name: "Sam" },
+    });
+    renderSheet();
+    expect(await screen.findByText("Sam")).toBeInTheDocument();
+    expect(screen.getByText(/can back up this item/)).toBeInTheDocument();
+    // The existing drive backup still lists, without Run or Delete.
+    expect(screen.getByText("Backup")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Back up now" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete backup" })).not.toBeInTheDocument();
+    // No create controls, and the cloud section is hidden.
+    expect(screen.queryByText(/Back up to/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Back up" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Choose a drive" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /In the cloud/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete cloud backup" })).not.toBeInTheDocument();
+  });
+
+  it("inside a private item points to the item's own shield", async () => {
+    stubBackupApi({
+      drives: [
+        { id: "d1", label: "Main", mount_point: "/mnt/main" },
+        { id: "d2", label: "Backup", mount_point: "/mnt/backup" },
+      ],
+      backups: [],
+      connect: { connect_active: true },
+      cloudBackups: [],
+      privateItem: { private: false, inside_private: true, mine: false, owner_name: "" },
+    });
+    renderSheet();
+    expect(await screen.findByText("Back up the private item itself, from its own shield.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Choose a drive" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Back up" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Back up to the cloud" })).not.toBeInTheDocument();
+  });
+
+  it("owner sees both sections and the owner line", async () => {
+    stubBackupApi({
+      drives: [
+        { id: "d1", label: "Main", mount_point: "/mnt/main" },
+        { id: "d2", label: "Backup", mount_point: "/mnt/backup" },
+      ],
+      backups: [],
+      connect: { connect_active: true },
+      cloudBackups: [cloudBackup({ id: "c1" })],
+      privateItem: { private: true, inside_private: false, mine: true, owner_name: "Max" },
+    });
+    renderSheet();
+    expect(await screen.findByText("Only you can back this up. Its cloud copy opens only with your recovery phrase.")).toBeInTheDocument();
+    expect(screen.getByText(/Private items inside aren't included/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /On other drives/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /In the cloud/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete cloud backup" })).toBeInTheDocument();
+  });
+
+  it("old phrase versions show with Remove now; confirming calls DELETE and toasts", async () => {
+    const user = userEvent.setup();
+    const onOldCopiesDelete = vi.fn();
+    stubBackupApi({
+      drives: [{ id: "d1", label: "Main", mount_point: "/mnt/main" }],
+      connect: { connect_active: true },
+      cloudBackups: [
+        cloudBackup({
+          id: "c1",
+          old_phrase_copies: { count: 2, removed_at: Math.floor(Date.UTC(2026, 2, 3, 12) / 1000) },
+        }),
+      ],
+      onOldCopiesDelete,
+    });
+    renderSheet();
+    expect(await screen.findByText(/Older versions made with your old recovery phrase/)).toBeInTheDocument();
+    expect(screen.getByText(/removed/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Remove now" }));
+    const dialog = await screen.findByRole("dialog", { name: /Remove older cloud versions\?/ });
+    expect(within(dialog).getByText(/will be gone/)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Remove" }));
+    await waitFor(() =>
+      expect(onOldCopiesDelete).toHaveBeenCalledWith(expect.stringContaining("/api/v1/private-backups/old-copies")),
+    );
+    expect(await screen.findByText("Older versions will be removed")).toBeInTheDocument();
   });
 });

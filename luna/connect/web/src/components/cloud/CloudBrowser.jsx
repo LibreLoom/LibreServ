@@ -4,6 +4,7 @@ import { Label } from "../ui/label.jsx";
 import { groupByStarter, loadTree } from "../../lib/cloudUnlock.js";
 import { downloadFile, downloadFolder } from "../../lib/cloudDownload.js";
 import { baseName, filesUnder, formatSize, formatWhen, listFolder, versionLabel } from "../../lib/cloudTree.js";
+import { PrivateItemsRow } from "./PrivateItemsRow.jsx";
 
 const SELECT_CLASS =
   "flex h-10 w-full max-w-xs rounded-pill border border-input bg-background px-4 py-2 font-mono text-sm text-foreground outline-none transition-colors focus-visible:border-ring";
@@ -13,10 +14,11 @@ const ROW_CLASS = "rounded-large-element border border-border px-4 py-3 flex fle
  * Backups grouped by who started them, with a version picker and downloads.
  * @param {{ source: import("../../lib/cloudSource.js").CloudSource,
  *   backups: import("../../lib/cloudUnlock.js").CloudBackup[],
+ *   privateOwners?: string[],
  *   groupActions?: (group: { startedBy: string, name: string, backups: import("../../lib/cloudUnlock.js").CloudBackup[] }) => import("react").ReactNode,
  *   backupActions?: (backup: import("../../lib/cloudUnlock.js").CloudBackup) => import("react").ReactNode }} props
  */
-export function CloudBrowser({ source, backups, groupActions, backupActions }) {
+export function CloudBrowser({ source, backups, privateOwners = [], groupActions, backupActions }) {
   const versionId = useId();
   const [selectedId, setSelectedId] = useState(/** @type {string | null} */ (null));
   const [versionIdx, setVersionIdx] = useState(0);
@@ -77,7 +79,7 @@ export function CloudBrowser({ source, backups, groupActions, backupActions }) {
   }
 
   if (!selected) {
-    const groups = groupByStarter(backups);
+    const groups = groupByStarter(backups, privateOwners);
     if (groups.length === 0) {
       return <p className="text-sm text-muted-foreground">No backups here yet.</p>;
     }
@@ -89,7 +91,9 @@ export function CloudBrowser({ source, backups, groupActions, backupActions }) {
               <h3 className="font-mono text-lg">{group.name}</h3>
               {groupActions?.(group)}
             </div>
-            {group.backups.map((backup) => {
+            {group.backups
+              .filter((backup) => !backup.private)
+              .map((backup) => {
               const count = backup.versions.length;
               return (
                 <div key={backup.protectionId} className={ROW_CLASS}>
@@ -108,6 +112,13 @@ export function CloudBrowser({ source, backups, groupActions, backupActions }) {
                 </div>
               );
             })}
+            {group.privateRow ? (
+              <PrivateItemsRow
+                kind={group.privateRow}
+                backups={group.backups.filter((backup) => backup.private)}
+                onOpen={openBackup}
+              />
+            ) : null}
           </section>
         ))}
       </div>

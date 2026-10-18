@@ -13,6 +13,7 @@ import { apiErrorMessage, deleteJson, getJson, postJson } from "../../../lib/api
 import { formatRecentAgo } from "../../../lib/recentItems.js";
 import BackupStatusNotice from "../../common/BackupStatusNotice.jsx";
 import CloudRestoreCard from "../../cloud/CloudRestoreCard.jsx";
+import PrivateRestoreCard from "../../cloud/PrivateRestoreCard.jsx";
 import RecoveryPhraseCard from "../../cloud/RecoveryPhraseCard.jsx";
 
 /** Human size for a byte count, e.g. "1.2 GB". */
@@ -270,6 +271,7 @@ export default function CloudBackupCategory() {
       </ConfirmModal>
 
       <CloudRestoreCard />
+      <PrivateRestoreCard />
       <RecoveryPhraseCard />
     </>
   );

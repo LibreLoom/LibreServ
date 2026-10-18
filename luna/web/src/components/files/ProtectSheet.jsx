@@ -37,6 +37,15 @@ function backupHeadline(backup) {
   return "Not backed up yet";
 }
 
+/** Absolute calendar date for a unix time in seconds, e.g. "3 March 2026" in the viewer's language. */
+function formatOnDate(unixSeconds) {
+  return new Date(unixSeconds * 1000).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+}
+
 export function ProtectButton({ label, onClick }) {
   return (
     <Tooltip content="Back up">
@@ -66,6 +75,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
   const [deletingCloud, setDeletingCloud] = useState(null);
   // Set when a cloud run stopped because the source looks missing; holds the backup id for "Back up anyway".
   const [missingSourceId, setMissingSourceId] = useState(null);
+  const [confirmingOldCopies, setConfirmingOldCopies] = useState(false);
   const objectPath = pathKey(path);
 
   const { outerRef: cloudOuterRef, innerRef: cloudInnerRef } = useAnimatedHeight();
@@ -90,6 +100,14 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
     refetchInterval: 30_000,
   });
 
+  const privateItemQuery = useQuery({
+    queryKey: ["private-item", driveId, objectPath],
+    queryFn: () =>
+      getJson(
+        `/api/v1/private-backups/item?drive=${encodeURIComponent(driveId)}&path=${encodeURIComponent(objectPath)}`,
+      ),
+  });
+  const privateItem = privateItemQuery.data;
   const matchingBackups = backups.data || [];
   const driveList = drives.data || [];
   const usedTargetIds = new Set(matchingBackups.map((b) => b.target_drive));
@@ -102,6 +120,14 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
   const cloudBackup = (cloudQuery.data || []).find(
     (b) => b.source_drive === driveId && trimSlashes(b.source_path) === trimSlashes(objectPath),
   );
+  // Someone else's private item: only its owner can back it up, and its cloud copies are theirs alone.
+  const isOthersPrivate = privateItem?.private === true && privateItem?.mine !== true;
+  // The owner's own private item: keeps every control.
+  const isOwnPrivate = privateItem?.private === true && privateItem?.mine === true;
+  // A folder inside a private item: back it up from the item's own shield instead.
+  const isInside = privateItem?.inside_private === true && privateItem?.private !== true;
+  const blockedCreate = isOthersPrivate || isInside;
+  const showCloudSection = !isOthersPrivate && (!isInside || Boolean(cloudBackup));
 
   const createBackup = useMutation({
     mutationFn: () =>
@@ -219,6 +245,20 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
     },
   });
 
+  const removeOldCopies = useMutation({
+    mutationFn: () => deleteJson("/api/v1/private-backups/old-copies"),
+    onSuccess: () => {
+      addToast({ type: "success", message: "Older versions will be removed" });
+      setConfirmingOldCopies(false);
+      setError(null);
+      queryClient.invalidateQueries({ queryKey: ["cloud-backups"] });
+    },
+    onError: () => {
+      setConfirmingOldCopies(false);
+      setError("Could not remove the older versions. Try again.");
+    },
+  });
+
   const thingLabel = objectPath ? "folder" : "drive";
   const isRunning = (id, allowMassDelete) =>
     runBackup.isPending && runBackup.variables?.id === id && runBackup.variables?.allowMassDelete === allowMassDelete;
@@ -238,12 +278,37 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
         {error && <PageNotice variant="error" className="mb-3">{error}</PageNotice>}
 
         <div className="mb-5 space-y-1">
-          <p className="text-primary text-sm">
-            Luna can keep copies of this {thingLabel} on other drives, and in the cloud, so you still have it if something goes wrong.
-          </p>
-          <p className="text-primary text-sm">
-            Private items inside aren't included. Their owners back them up separately.
-          </p>
+          {isOthersPrivate ? (
+            <p className="text-primary text-sm">
+              {privateItem.owner_name ? (
+                <>Only <InlinePill>{privateItem.owner_name}</InlinePill> can back up this item.</>
+              ) : (
+                "Only the owner can back up this item."
+              )}
+            </p>
+          ) : isInside ? (
+            <p className="text-primary text-sm">Back up the private item itself, from its own shield.</p>
+          ) : (
+            <>
+              <p className="text-primary text-sm">
+                Luna can keep copies of this {thingLabel} on other drives, and in the cloud, so you still have it if something goes wrong.
+              </p>
+              {isOwnPrivate ? (
+                <>
+                  <p className="text-primary text-sm">
+                    Only you can back this up. Its cloud copy opens only with your recovery phrase.
+                  </p>
+                  <p className="text-primary text-sm">
+                    Private items inside aren't included. Their owners back them up separately.
+                  </p>
+                </>
+              ) : (
+                <p className="text-primary text-sm">
+                  Private items inside aren't included. Their owners back them up separately.
+                </p>
+              )}
+            </>
+          )}
         </div>
 
         <div className="space-y-3">
@@ -265,7 +330,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
               </div>
             </div>
 
-            {tooFewDrives ? (
+            {tooFewDrives && !blockedCreate ? (
               <p className="text-secondary text-sm">Needs another drive.</p>
             ) : (
               <>
@@ -298,7 +363,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                       </>
                     )}
                     <div className="flex flex-wrap gap-2">
-                      {b.status === "active" && (
+                      {b.status === "active" && (!isOthersPrivate || b.can_delete) && (
                         <Button
                           size="sm"
                           variant="outline"
@@ -339,7 +404,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                     </div>
                   </div>
                 ))}
-                {availableTargets.length > 0 && (
+                {!blockedCreate && availableTargets.length > 0 && (
                   <div className="space-y-3">
                     <ShakeTarget shake={error}>
                       <Dropdown
@@ -368,6 +433,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
             )}
           </section>
 
+          {showCloudSection && (
           <section
             ref={cloudOuterRef}
             className="overflow-hidden rounded-large-element surface-primary transition-[height] ease-[var(--motion-easing-emphasized-decelerate)]"
@@ -428,6 +494,17 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                       {cloudBackup.stop_reason || "This cloud backup has stopped."}
                     </p>
                   )}
+                  {cloudBackup.old_phrase_copies && (
+                    <p className="text-primary text-sm">
+                      <span className="inline-flex flex-wrap items-center gap-1.5">
+                        Older versions made with your old recovery phrase
+                        {cloudBackup.old_phrase_copies.removed_at
+                          ? ` · removed ${formatOnDate(cloudBackup.old_phrase_copies.removed_at)}`
+                          : ""}
+                        <InfoHint content="These were made before you got a new recovery phrase. They open only with the old phrase." />
+                      </span>
+                    </p>
+                  )}
                   <div className="flex flex-wrap gap-2">
                     {cloudBackup.status === "active" && (
                       <Button
@@ -453,6 +530,16 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                         Back up anyway
                       </Button>
                     )}
+                    {cloudBackup.old_phrase_copies && (
+                      <Button
+                        size="sm"
+                        variant="accent"
+                        surface="secondary"
+                        onClick={() => setConfirmingOldCopies(true)}
+                      >
+                        Remove now
+                      </Button>
+                    )}
                     {cloudBackup.can_delete && (
                       <Button
                         size="sm"
@@ -467,7 +554,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                 </div>
               )}
 
-              {cloudConnected && !cloudBackup && (
+              {cloudConnected && !cloudBackup && !blockedCreate && (
                 <Button
                   size="sm"
                   variant="secondary"
@@ -482,6 +569,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
               )}
             </div>
           </section>
+          )}
         </div>
       </ModalCard>
 
@@ -515,6 +603,20 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
             Deletes the copies of this {thingLabel} stored in the cloud, including all earlier versions. Everyone with access to this backup loses it. The original files stay.
           </p>
         )}
+      </ConfirmModal>
+
+      <ConfirmModal
+        open={confirmingOldCopies}
+        variant="danger"
+        title="Remove older cloud versions?"
+        confirmLabel="Remove"
+        loading={removeOldCopies.isPending}
+        onClose={() => setConfirmingOldCopies(false)}
+        onConfirm={() => removeOldCopies.mutate()}
+      >
+        <p className="text-primary text-sm">
+          Earlier versions and deleted files that only exist in these older versions will be gone.
+        </p>
       </ConfirmModal>
     </>
   );

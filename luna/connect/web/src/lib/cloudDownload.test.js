@@ -5,7 +5,10 @@ import { downloadFile, downloadFolder } from "./cloudDownload.js";
 import { loadTree, unlockBackups } from "./cloudUnlock.js";
 import { ZIP_TOO_BIG } from "./zip.js";
 import { saveBlob } from "./download.js";
-import { entropyToPhrase } from "@libreloom/ui/lib/cloud/backupCrypto.js";
+import { derive, entropyToPhrase, verify } from "@libreloom/ui/lib/cloud/backupCrypto.js";
+import { openPrivateTreeBytes, privateOpenMessage, privateUnwrap } from "@libreloom/ui/lib/cloud/cloudPrivate.js";
+import { readTreeWith } from "@libreloom/ui/lib/cloud/cloudFormat.js";
+import { openPrivateScope } from "./privateUnlock.js";
 
 vi.mock("./download.js", () => ({ saveBlob: vi.fn() }));
 
@@ -113,5 +116,66 @@ describe("downloadFolder", () => {
     const positions = entries.map((e) => text.indexOf(e.path));
     expect(positions.every((i) => i >= 0)).toBe(true);
     expect([...positions].sort((a, b) => a - b)).toEqual(positions);
+  });
+});
+
+describe("private backups", () => {
+  const priv = fixture.private;
+  const entropy = () => hexToBytes(fixture.alice_entropy);
+  const scopeInfo = () => ({ scope: priv.scope, dedupKey: hexToBytes(priv.dedup_key) });
+
+  /** A private session that opens only with alice's signed challenge; packs and records come from the fixture. */
+  function privateSource() {
+    const authPublic = derive(entropy(), fixture.luna_id).authPublic;
+    const tokenSource = {
+      lunaId: fixture.luna_id,
+      listRecords: async (kind) =>
+        (priv.records[kind] || []).map((r) => ({ name: r.name, data: hexToBytes(r.data) })),
+      getPack: vi.fn(async (idHex) => hexToBytes(priv.packs[idHex])),
+    };
+    const source = {
+      lunaId: fixture.luna_id,
+      listRecords: vi.fn(async () => []),
+      getPack: vi.fn(async () => {
+        throw new Error("the shared source must not be read for a private backup");
+      }),
+      privateChallenge: vi.fn(async () => priv.challenge),
+      privateOpen: vi.fn(async ({ scope, challenge, signature }) => {
+        const ok = verify(authPublic, "private-open", privateOpenMessage(fixture.luna_id, scope, hexToBytes(challenge)), hexToBytes(signature));
+        if (!ok) throw Object.assign(new Error("Bad signature."), { status: 403 });
+        return { token: "tok" };
+      }),
+      withPrivateToken: vi.fn(() => tokenSource),
+    };
+    return source;
+  }
+
+  async function openPrivate(source) {
+    const [backup] = await openPrivateScope(source, entropy(), fixture.luna_id, scopeInfo(), [hexToBytes(fixture.signing_public)]);
+    const version = backup.versions[0];
+    const { x25519Secret, scope } = backup.private;
+    const treeBytes = await backup.private.source.getPack(version.treePackId);
+    const entries = readTreeWith(
+      treeBytes,
+      { treePackId: version.treePackId, treeHash: version.treeHash },
+      privateUnwrap(x25519Secret, fixture.luna_id, scope),
+      openPrivateTreeBytes(x25519Secret, fixture.luna_id, scope),
+    );
+    return { backup, version, entries };
+  }
+
+  it("downloads docs/a.txt from the private fixture with the fixture's bytes", async () => {
+    const source = privateSource();
+    const { backup, version, entries } = await openPrivate(source);
+    const entry = entries.find((e) => e.path === "docs/a.txt");
+    expect(entry).toBeDefined();
+
+    await downloadFile(source, backup, version, entry);
+
+    expect(saveBlob).toHaveBeenCalledTimes(1);
+    const [blob, name] = saveBlob.mock.calls[0];
+    expect(name).toBe("a.txt");
+    expect(toHex(await bytesOf(blob))).toBe(priv.expected.files["docs/a.txt"]);
+    expect(source.getPack).not.toHaveBeenCalled();
   });
 });
