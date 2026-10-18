@@ -155,6 +155,7 @@ export default function GeozoneMap({
             type="button"
             size="sm"
             variant="outline"
+            surface="primary"
             onClick={() => {
               haptic("selection");
               setMode("draw");
@@ -167,6 +168,7 @@ export default function GeozoneMap({
             type="button"
             size="sm"
             variant="outline"
+            surface="primary"
             onClick={() => {
               haptic("light");
               onChange?.(null);

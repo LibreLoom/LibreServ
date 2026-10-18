@@ -39,9 +39,16 @@ describe("nudgeBbox", () => {
 });
 
 describe("MapAreaFields", () => {
+  // In the map the fields sit inside the "Set area with coordinates" section,
+  // which runs on a primary surface; render them there so the contrast check
+  // judges the move buttons.
+  function renderFields(ui) {
+    return render(<div className="surface-primary">{ui}</div>);
+  }
+
   it("applies typed edges", () => {
     const onChange = vi.fn();
-    render(<MapAreaFields onChange={onChange} />);
+    renderFields(<MapAreaFields onChange={onChange} />);
     fireEvent.change(screen.getByLabelText(/North edge/), { target: { value: "52" } });
     fireEvent.change(screen.getByLabelText(/South edge/), { target: { value: "51" } });
     fireEvent.change(screen.getByLabelText(/West edge/), { target: { value: "4" } });
@@ -52,7 +59,7 @@ describe("MapAreaFields", () => {
 
   it("says what is wrong instead of applying a bad box", () => {
     const onChange = vi.fn();
-    render(<MapAreaFields value={BOX} onChange={onChange} />);
+    renderFields(<MapAreaFields value={BOX} onChange={onChange} />);
     fireEvent.change(screen.getByLabelText(/South edge/), { target: { value: "60" } });
     fireEvent.click(screen.getByRole("button", { name: "Set area" }));
     expect(screen.getByRole("alert")).toHaveTextContent(/south edge must be below/);
@@ -61,7 +68,7 @@ describe("MapAreaFields", () => {
 
   it("moves the selected area with the move buttons", () => {
     const onChange = vi.fn();
-    render(<MapAreaFields value={BOX} onChange={onChange} />);
+    renderFields(<MapAreaFields value={BOX} onChange={onChange} />);
     fireEvent.click(screen.getByRole("button", { name: "Move area north" }));
     expect(onChange.mock.calls[0][0].map((n) => Number(n.toFixed(3)))).toEqual([4, 51.1, 5, 52.1]);
   });

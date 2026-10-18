@@ -49,8 +49,14 @@ describe("GeozoneMap helpers", () => {
 });
 
 describe("GeozoneMap component", () => {
+  // The filter sheet's "Where" section is a primary surface; render the map
+  // on that backdrop so the contrast check judges its buttons.
+  function renderMap(ui) {
+    return render(<div className="surface-primary">{ui}</div>);
+  }
+
   it("renders mode toggle with Pan map and Draw area options", () => {
-    render(<GeozoneMap value={null} onChange={vi.fn()} />);
+    renderMap(<GeozoneMap value={null} onChange={vi.fn()} />);
 
     expect(screen.getByRole("radio", { name: /Pan map/i })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: /Draw area/i })).toBeInTheDocument();
@@ -58,7 +64,7 @@ describe("GeozoneMap component", () => {
 
   it("switches interaction mode when buttons are clicked", async () => {
     const user = userEvent.setup();
-    render(<GeozoneMap value={null} onChange={vi.fn()} />);
+    renderMap(<GeozoneMap value={null} onChange={vi.fn()} />);
 
     const panBtn = screen.getByRole("radio", { name: /Pan map/i });
     const drawBtn = screen.getByRole("radio", { name: /Draw area/i });
@@ -76,7 +82,7 @@ describe("GeozoneMap component", () => {
   it("renders Redraw and Clear zone buttons when value is provided", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
-    render(
+    renderMap(
       <GeozoneMap
         value={[-122.5, 37.7, -122.3, 37.9]}
         onChange={onChange}
@@ -93,7 +99,7 @@ describe("GeozoneMap component", () => {
 
   it("allows clicking Redraw to switch back to draw mode", async () => {
     const user = userEvent.setup();
-    render(
+    renderMap(
       <GeozoneMap
         value={[-122.5, 37.7, -122.3, 37.9]}
         onChange={vi.fn()}

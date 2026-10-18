@@ -101,6 +101,7 @@ export default function MapAreaFields({ value = null, onChange, idPrefix = "map-
                 type="button"
                 size="sm"
                 variant="outline"
+                surface="primary"
                 aria-label={label}
                 title={label}
                 onClick={() => move(key)}
