@@ -2,6 +2,7 @@ package providers
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
@@ -9,7 +10,13 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
+	"time"
 )
+
+// authCacheTTL is how long a b2_authorize_account result is reused. B2 tokens last 24 hours;
+// a short TTL keeps a revoked key from lingering while sparing a sign-in on every pack.
+const authCacheTTL = 20 * time.Minute
 
 // B2Credentials holds S3-compatible values for a single device bucket.
 type B2Credentials struct {
@@ -24,6 +31,14 @@ type B2Credentials struct {
 type B2Client struct {
 	httpClient   *http.Client
 	authorizeURL string
+
+	mu    sync.Mutex
+	cache map[string]cachedAuth
+}
+
+type cachedAuth struct {
+	auth *b2AuthResponse
+	at   time.Time
 }
 
 // NewB2Client creates a B2 client with the given HTTP client or a default 15s timeout client.
@@ -89,8 +104,42 @@ type b2ListBucketsResponse struct {
 	Buckets []b2BucketResponse `json:"buckets"`
 }
 
-// Authorize calls b2_authorize_account with the master application key.
+func authCacheKey(accountID, applicationKey string) string {
+	sum := sha256.Sum256([]byte(applicationKey))
+	return accountID + "\x00" + hex.EncodeToString(sum[:])
+}
+
+// Authorize calls b2_authorize_account, reusing a recent result for the same key.
 func (c *B2Client) Authorize(accountID, applicationKey string) (*b2AuthResponse, error) {
+	ck := authCacheKey(accountID, applicationKey)
+	c.mu.Lock()
+	if e, ok := c.cache[ck]; ok && time.Since(e.at) < authCacheTTL {
+		c.mu.Unlock()
+		return e.auth, nil
+	}
+	c.mu.Unlock()
+
+	resp, err := c.authorizeFresh(accountID, applicationKey)
+	if err != nil {
+		return nil, err
+	}
+	c.mu.Lock()
+	if c.cache == nil {
+		c.cache = map[string]cachedAuth{}
+	}
+	c.cache[ck] = cachedAuth{auth: resp, at: time.Now()}
+	c.mu.Unlock()
+	return resp, nil
+}
+
+// forgetAuth drops a cached sign-in, so the next call signs in again. Call it when B2 refuses a token.
+func (c *B2Client) forgetAuth(accountID, applicationKey string) {
+	c.mu.Lock()
+	delete(c.cache, authCacheKey(accountID, applicationKey))
+	c.mu.Unlock()
+}
+
+func (c *B2Client) authorizeFresh(accountID, applicationKey string) (*b2AuthResponse, error) {
 	auth := base64.StdEncoding.EncodeToString([]byte(accountID + ":" + applicationKey))
 	url := c.authorizeURL
 	if url == "" {
@@ -158,6 +207,42 @@ func (c *B2Client) CreateKey(apiURL, authToken, accountID, name, bucketID string
 		return nil, fmt.Errorf("could not create Backblaze B2 application key: %w", err)
 	}
 	return &resp, nil
+}
+
+// DeleteKey revokes an application key. A key that is already gone counts as revoked.
+func (c *B2Client) DeleteKey(accountID, applicationKey, keyID string) error {
+	auth, err := c.Authorize(accountID, applicationKey)
+	if err != nil {
+		return err
+	}
+	url := strings.TrimRight(auth.APIURL, "/") + "/b2api/v2/b2_delete_key"
+	if err := doJSON(c.httpClient, http.MethodPost, url, map[string]string{
+		"Authorization": auth.AuthorizationToken,
+	}, map[string]string{"applicationKeyId": keyID}, nil); err != nil {
+		if strings.Contains(err.Error(), "no_such_key") {
+			return nil
+		}
+		return fmt.Errorf("could not delete Backblaze B2 application key: %w", err)
+	}
+	return nil
+}
+
+// DeleteBucket removes an empty bucket. B2 refuses a bucket that still holds files.
+func (c *B2Client) DeleteBucket(accountID, applicationKey, bucketID string) error {
+	auth, err := c.Authorize(accountID, applicationKey)
+	if err != nil {
+		return err
+	}
+	url := strings.TrimRight(auth.APIURL, "/") + "/b2api/v2/b2_delete_bucket"
+	if err := doJSON(c.httpClient, http.MethodPost, url, map[string]string{
+		"Authorization": auth.AuthorizationToken,
+	}, map[string]string{"accountId": auth.AccountID, "bucketId": bucketID}, nil); err != nil {
+		if strings.Contains(err.Error(), "bad_bucket_id") {
+			return nil
+		}
+		return fmt.Errorf("could not delete Backblaze B2 bucket: %w", err)
+	}
+	return nil
 }
 
 // ProvisionBucket creates (or reuses) a private bucket and a bucket-scoped application key.

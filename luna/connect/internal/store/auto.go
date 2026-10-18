@@ -98,6 +98,14 @@ func (a *Auto) DeleteAccount(accountID string) error {
 	return errors.Join(b2Err, localErr)
 }
 
+// ReleaseBuckets frees the B2 buckets of a purged Luna (lunaID "" means all of an account's Lunas).
+func (a *Auto) ReleaseBuckets(accountID, lunaID string) error {
+	if a.B2 == nil {
+		return nil
+	}
+	return a.B2.ReleaseBuckets(accountID, lunaID)
+}
+
 // DeleteBackend removes an object from a specific backend (cleanup after Put).
 func (a *Auto) DeleteBackend(backend, accountID, deviceID, relPath string) error {
 	return a.del(backend, accountID, deviceID, relPath)

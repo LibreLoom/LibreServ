@@ -120,3 +120,127 @@ func TestEnsureDeviceBucketMissingProvider(t *testing.T) {
 		t.Fatalf("err=%v", err)
 	}
 }
+
+func TestBucketNameUniqueAndBounded(t *testing.T) {
+	a := bucketName("luna-backup", BucketKey("acct_1", "storage-luna-abcdefghijklmnopqrstuvwxyz"))
+	b := bucketName("luna-backup", BucketKey("acct_1", "storage-luna-abcdefghijklmnopqrstuvwxy2"))
+	c := bucketName("luna-backup", BucketKey("acct_2", "storage-luna-abcdefghijklmnopqrstuvwxyz"))
+	if a == b || a == c || b == c {
+		t.Fatalf("names collide: %s %s %s", a, b, c)
+	}
+	long := bucketName("a-very-long-prefix-from-settings", "k")
+	if len(a) > 50 || len(long) > 50 || len(long) < 6 {
+		t.Fatalf("bad lengths %d %d", len(a), len(long))
+	}
+}
+
+func TestB2AuthorizeIsCached(t *testing.T) {
+	calls := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		_ = json.NewEncoder(w).Encode(map[string]any{"accountId": "a", "authorizationToken": "t", "apiUrl": "http://x"})
+	}))
+	defer ts.Close()
+	c := NewB2Client(ts.Client())
+	c.authorizeURL = ts.URL
+	for i := 0; i < 3; i++ {
+		if _, err := c.Authorize("a", "k"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("authorize calls = %d, want 1", calls)
+	}
+	c.forgetAuth("a", "k")
+	_, _ = c.Authorize("a", "k")
+	if calls != 2 {
+		t.Fatalf("after forget calls = %d, want 2", calls)
+	}
+}
+
+func TestEnsureDeviceBucketRevokesLostRaceKey(t *testing.T) {
+	prev := os.Getenv("LUNACONNECT_DEV")
+	_ = os.Setenv("LUNACONNECT_DEV", "1")
+	t.Cleanup(func() { _ = os.Setenv("LUNACONNECT_DEV", prev) })
+	config.C.Server.AtRestKey = ""
+	db, err := database.Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := database.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	key := BucketKey("acct_1", "storage-luna-x")
+	var deleted []string
+	var deletedBuckets []string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/b2api/v2/b2_authorize_account":
+			_ = json.NewEncoder(w).Encode(map[string]any{"accountId": "acc", "authorizationToken": "tok",
+				"apiUrl": "http://" + r.Host, "s3ApiUrl": "https://s3.example"})
+		case strings.Contains(r.URL.Path, "b2_create_bucket"):
+			// Another instance saves its own row while this one is still provisioning.
+			_, _ = db.Exec(`INSERT INTO device_backup_buckets (device_id, bucket_name, bucket_id, endpoint, key_id, application_key_sealed, provisioned_at)
+VALUES (?, 'other', 'buc0', 'e', 'winner', '', 1)`, key)
+			_ = json.NewEncoder(w).Encode(map[string]string{"bucketId": "buc1"})
+		case strings.Contains(r.URL.Path, "b2_create_key"):
+			_ = json.NewEncoder(w).Encode(map[string]string{"applicationKeyId": "loser", "applicationKey": "s"})
+		case strings.Contains(r.URL.Path, "b2_delete_key"):
+			var req map[string]string
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			deleted = append(deleted, req["applicationKeyId"])
+			_, _ = w.Write([]byte(`{}`))
+		case strings.Contains(r.URL.Path, "b2_delete_bucket"):
+			var req map[string]string
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			deletedBuckets = append(deletedBuckets, req["bucketId"])
+			_, _ = w.Write([]byte(`{}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ts.Close()
+	svc := NewService(db)
+	if _, err := svc.Create("backup", "B2", map[string]string{"account_id": "acc", "application_key": "master"}, nil, true); err != nil {
+		t.Fatal(err)
+	}
+	client := NewB2Client(ts.Client())
+	client.authorizeURL = ts.URL + "/b2api/v2/b2_authorize_account"
+	p := &BucketProvisioner{DB: db, Providers: svc, B2: client}
+
+	// The row exists only after create_bucket runs, so the first look finds nothing.
+	got, err := p.EnsureDeviceBucket(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.KeyID != "winner" {
+		t.Fatalf("kept key %q, want the winner's", got.KeyID)
+	}
+	if len(deleted) != 1 || deleted[0] != "loser" {
+		t.Fatalf("revoked keys = %v, want [loser]", deleted)
+	}
+
+	// Releasing the account frees the bucket, then the key, then the row.
+	if err := p.ReleaseBuckets("acct_1", ""); err != nil {
+		t.Fatal(err)
+	}
+	if len(deletedBuckets) != 1 || deletedBuckets[0] != "buc0" {
+		t.Fatalf("deleted buckets = %v", deletedBuckets)
+	}
+	var n int
+	_ = db.QueryRow(`SELECT COUNT(*) FROM device_backup_buckets`).Scan(&n)
+	if n != 0 {
+		t.Fatalf("row left behind (%d)", n)
+	}
+	// Another account's bucket is untouched.
+	_, _ = db.Exec(`INSERT INTO device_backup_buckets (device_id, bucket_name, bucket_id, endpoint, key_id, application_key_sealed, provisioned_at)
+VALUES ('acct_10:storage-luna-y', 'n', 'b', 'e', 'k', '', 1)`)
+	if err := p.ReleaseBuckets("acct_1", ""); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.QueryRow(`SELECT COUNT(*) FROM device_backup_buckets`).Scan(&n)
+	if n != 1 {
+		t.Fatalf("acct_10's bucket was released by acct_1 (%d rows)", n)
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"io/fs"
+	"log/slog"
 	"time"
 
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
@@ -119,8 +120,19 @@ func purgeStorage(ctx context.Context, db *database.DB, st store.Store, accountI
 			return err
 		}
 	}
-	_, err = db.ExecContext(ctx, `DELETE FROM luna_ids WHERE account_id = ?`+lunaClause, args...)
-	return err
+	if _, err = db.ExecContext(ctx, `DELETE FROM luna_ids WHERE account_id = ?`+lunaClause, args...); err != nil {
+		return err
+	}
+	// The blobs are gone, so give the B2 buckets and keys back. This is best effort: a bucket
+	// that cannot be deleted now is only a spare bucket, not lost data.
+	if rel, ok := st.(interface {
+		ReleaseBuckets(accountID, lunaID string) error
+	}); ok {
+		if relErr := rel.ReleaseBuckets(accountID, lunaID); relErr != nil && !errors.Is(relErr, providers.ErrBackupNotConfigured) {
+			slog.Warn("purge storage: could not free Backblaze buckets", "error", relErr)
+		}
+	}
+	return nil
 }
 
 // claimLunaForPurge sets a due Luna's purge_after to -1 and returns the value it had. A Luna at

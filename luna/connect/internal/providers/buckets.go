@@ -1,9 +1,12 @@
 package providers
 
 import (
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -30,7 +33,25 @@ type DeviceBucket struct {
 // ErrBackupNotConfigured means Admin → Connections has no enabled B2 provider.
 var ErrBackupNotConfigured = fmt.Errorf("off-site storage is not configured. Add an enabled Backblaze B2 connection in Admin → Connections, or contact support")
 
+// BucketKey names the bucket of one Luna on one account. Two accounts never share a key, so they
+// never share a bucket, whatever Luna ID a client sends.
+func BucketKey(accountID, slot string) string {
+	return accountID + ":" + slot
+}
+
+// bucketName is the B2 bucket name for a bucket key: a short prefix and a hash of the whole key.
+// The hash keeps names unique and the same length however long the Luna ID is, so a long ID can
+// never be cut down into another Luna's name.
+func bucketName(prefix, key string) string {
+	if len(prefix) > 12 {
+		prefix = strings.Trim(prefix[:12], "-")
+	}
+	sum := sha256.Sum256([]byte(key))
+	return prefix + "-" + hex.EncodeToString(sum[:])[:36]
+}
+
 // EnsureDeviceBucket returns existing credentials or provisions a new bucket (idempotent).
+// deviceID is a BucketKey.
 func (p *BucketProvisioner) EnsureDeviceBucket(deviceID string) (*DeviceBucket, error) {
 	if deviceID == "" {
 		return nil, fmt.Errorf("missing device")
@@ -55,27 +76,28 @@ func (p *BucketProvisioner) EnsureDeviceBucket(deviceID string) (*DeviceBucket, 
 	if prefix == "" {
 		prefix = "luna-backup"
 	}
-	bucketName := prefix + "-" + sanitizeBucketPart(deviceID)
-	if len(bucketName) > 50 {
-		bucketName = bucketName[:50]
-		bucketName = strings.Trim(bucketName, "-")
-	}
+	name := bucketName(prefix, deviceID)
 
 	b2 := p.B2
 	if b2 == nil {
 		b2 = NewB2Client(nil)
 	}
-	creds, err := b2.ProvisionBucket(
-		prov.Credential("account_id", ""),
-		prov.Credential("application_key", ""),
-		bucketName,
-	)
+	masterID, masterKey := prov.Credential("account_id", ""), prov.Credential("application_key", "")
+	creds, err := b2.ProvisionBucket(masterID, masterKey, name)
 	if err != nil {
 		return nil, fmt.Errorf("could not create a cloud backup bucket for this Luna: %w", err)
+	}
+	// A key that is not saved is a working key to the bucket that nobody can ever use or
+	// revoke. Revoke it here so a failed save or a lost race leaves nothing behind.
+	revokeNew := func() {
+		if err := b2.DeleteKey(masterID, masterKey, creds.KeyID); err != nil {
+			slog.Warn("backup bucket: could not revoke an unused key", "error", err)
+		}
 	}
 
 	sealed, err := security.SealString(creds.Key)
 	if err != nil {
+		revokeNew()
 		return nil, fmt.Errorf("could not protect backup credentials: %w", err)
 	}
 	now := time.Now().Unix()
@@ -85,6 +107,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(device_id) DO NOTHING`,
 		deviceID, creds.BucketName, creds.BucketID, creds.Endpoint, creds.KeyID, sealed, now)
 	if err != nil {
+		revokeNew()
 		return nil, fmt.Errorf("could not save backup bucket mapping: %w", err)
 	}
 
@@ -96,7 +119,84 @@ ON CONFLICT(device_id) DO NOTHING`,
 	if existing == nil {
 		return nil, fmt.Errorf("could not load backup bucket after provisioning")
 	}
+	if existing.KeyID != creds.KeyID {
+		revokeNew()
+	}
 	return existing, nil
+}
+
+// ReleaseBuckets deletes the B2 bucket and key of every Luna that matches. lunaSlot "" matches
+// every Luna on the account. The bucket must already be empty: B2 refuses to delete one that
+// holds files, and then its row stays so nothing is lost track of. Buckets are freed after a
+// purge so the B2 account's bucket limit is spent only on Lunas that still have backups.
+func (p *BucketProvisioner) ReleaseBuckets(accountID, lunaSlot string) error {
+	if accountID == "" {
+		return nil
+	}
+	var rows *sql.Rows
+	var err error
+	if lunaSlot != "" {
+		rows, err = p.DB.Query(`SELECT device_id, bucket_id, key_id FROM device_backup_buckets WHERE device_id = ?`,
+			BucketKey(accountID, lunaSlot))
+	} else {
+		rows, err = p.DB.Query(`SELECT device_id, bucket_id, key_id FROM device_backup_buckets WHERE substr(device_id, 1, ?) = ?`,
+			len(accountID)+1, accountID+":")
+	}
+	if err != nil {
+		return err
+	}
+	type row struct{ id, bucketID, keyID string }
+	var found []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.id, &r.bucketID, &r.keyID); err != nil {
+			rows.Close()
+			return err
+		}
+		found = append(found, r)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	if len(found) == 0 {
+		return nil
+	}
+
+	prov, err := p.Providers.FindEnabled("backup")
+	if err != nil {
+		return fmt.Errorf("could not look up backup connection: %w", err)
+	}
+	if prov == nil {
+		return ErrBackupNotConfigured
+	}
+	masterID, masterKey := prov.Credential("account_id", ""), prov.Credential("application_key", "")
+	if strings.TrimSpace(masterID) == "" || strings.TrimSpace(masterKey) == "" {
+		return ErrBackupNotConfigured
+	}
+	b2 := p.B2
+	if b2 == nil {
+		b2 = NewB2Client(nil)
+	}
+	var firstErr error
+	for _, r := range found {
+		// Delete the bucket first: if it still holds files B2 refuses, and the key must stay
+		// so those files can still be reached and removed.
+		if err := b2.DeleteBucket(masterID, masterKey, r.bucketID); err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		if err := b2.DeleteKey(masterID, masterKey, r.keyID); err != nil && firstErr == nil {
+			firstErr = err
+		}
+		if _, err := p.DB.Exec(`DELETE FROM device_backup_buckets WHERE device_id = ?`, r.id); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
 }
 
 func (p *BucketProvisioner) load(deviceID string) (*DeviceBucket, error) {

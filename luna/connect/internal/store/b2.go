@@ -65,7 +65,7 @@ func (s *B2) Put(accountID, deviceID, relPath string, r io.Reader) (int64, strin
 	if err != nil {
 		return 0, BackendB2, err
 	}
-	bucket, err := s.Provisioner.EnsureDeviceBucket(deviceID)
+	bucket, err := s.Provisioner.EnsureDeviceBucket(providers.BucketKey(accountID, deviceID))
 	if err != nil {
 		return 0, BackendB2, err
 	}
@@ -95,15 +95,15 @@ func (s *B2) Put(accountID, deviceID, relPath string, r io.Reader) (int64, strin
 	return n, BackendB2, nil
 }
 
-// existingBucket returns a device's bucket if one was already provisioned. It never
+// existingBucket returns a Luna's bucket on an account if one was already provisioned. It never
 // creates a bucket, so reads and deletes cannot provision new Backblaze storage.
 // A missing bucket reports os.ErrNotExist.
-func (s *B2) existingBucket(deviceID string) (*providers.DeviceBucket, error) {
+func (s *B2) existingBucket(accountID, deviceID string) (*providers.DeviceBucket, error) {
 	var b providers.DeviceBucket
 	var sealed string
 	err := s.DB.QueryRow(`
 SELECT device_id, bucket_name, bucket_id, endpoint, key_id, application_key_sealed
-FROM device_backup_buckets WHERE device_id = ?`, deviceID).
+FROM device_backup_buckets WHERE device_id = ?`, providers.BucketKey(accountID, deviceID)).
 		Scan(&b.DeviceID, &b.BucketName, &b.BucketID, &b.Endpoint, &b.KeyID, &sealed)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("no backup bucket for this Luna: %w", os.ErrNotExist)
@@ -124,7 +124,7 @@ func (s *B2) Get(accountID, deviceID, relPath string) (io.ReadCloser, error) {
 	if err != nil {
 		return nil, err
 	}
-	bucket, err := s.existingBucket(deviceID)
+	bucket, err := s.existingBucket(accountID, deviceID)
 	if err != nil {
 		return nil, err
 	}
@@ -136,7 +136,7 @@ func (s *B2) Delete(accountID, deviceID, relPath string) error {
 	if err != nil {
 		return err
 	}
-	bucket, err := s.existingBucket(deviceID)
+	bucket, err := s.existingBucket(accountID, deviceID)
 	if err != nil {
 		return err
 	}
@@ -195,4 +195,14 @@ WHERE account_id = ? AND COALESCE(storage_backend, 'local') = ?`,
 		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
+}
+
+// ReleaseBuckets deletes the B2 buckets and keys of a purged Luna (lunaID "" means every Luna on
+// the account). Buckets that still hold files are kept.
+func (s *B2) ReleaseBuckets(accountID, lunaID string) error {
+	slot := ""
+	if lunaID != "" {
+		slot = StorageSlot(lunaID)
+	}
+	return s.Provisioner.ReleaseBuckets(accountID, slot)
 }

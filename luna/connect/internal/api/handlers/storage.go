@@ -29,6 +29,9 @@ const (
 	maxStorageRecordBytes = 1 << 20
 	identityKind          = "identity"
 	identityPublicName    = "public"
+	// maxLunasPerAccount caps the Luna IDs one account can claim. Each Luna that stores
+	// something gets its own Backblaze bucket, and the Backblaze account allows only so many.
+	maxLunasPerAccount = 25
 	// storageSigWindow is how far, in seconds, a move signature's timestamp may
 	// differ from the server clock.
 	storageSigWindow = 300
@@ -96,14 +99,32 @@ func bindLuna(d Deps, accountID, lunaID, deviceID string) (boundDevice, signingH
 	const query = `SELECT device_id, signing_public FROM luna_ids WHERE account_id = ? AND luna_id = ?`
 	err = d.DB.QueryRow(query, accountID, lunaID).Scan(&boundDevice, &signingHex)
 	if errors.Is(err, sql.ErrNoRows) {
+		// One statement counts and inserts, so parallel claims cannot pass the cap together.
 		if _, err = d.DB.Exec(`INSERT INTO luna_ids (account_id, luna_id, device_id, signing_public, created_at)
-VALUES (?, ?, ?, '', ?)
-ON CONFLICT(account_id, luna_id) DO NOTHING`, accountID, lunaID, deviceID, time.Now().Unix()); err != nil {
+SELECT ?, ?, ?, '', ?
+WHERE (SELECT COUNT(*) FROM luna_ids WHERE account_id = ?) < ?
+ON CONFLICT(account_id, luna_id) DO NOTHING`, accountID, lunaID, deviceID, time.Now().Unix(),
+			accountID, maxLunasPerAccount); err != nil {
 			return "", "", err
 		}
 		err = d.DB.QueryRow(query, accountID, lunaID).Scan(&boundDevice, &signingHex)
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", "", errLunaLimit
+		}
 	}
 	return boundDevice, signingHex, err
+}
+
+// errLunaLimit means the account already holds maxLunasPerAccount Luna IDs.
+var errLunaLimit = errors.New("too many Lunas on this account")
+
+// writeLunaBindError answers a failed bindLuna: the cap gets its own sentence, anything else is a retry.
+func writeLunaBindError(w http.ResponseWriter, err error) {
+	if errors.Is(err, errLunaLimit) {
+		JSONError(w, http.StatusConflict, "This account already has 25 Lunas with cloud backups. Delete the backups of one you no longer use, then try again.")
+		return
+	}
+	JSONError(w, http.StatusInternalServerError, "Cloud storage could not check this Luna. Try again.")
 }
 
 // lookupLuna returns the owning device and signing key of a Luna without creating
@@ -157,7 +178,7 @@ func authorizeLuna(d Deps, w http.ResponseWriter, r *http.Request, accountID, lu
 		bound, signing, found, err = lookupLuna(d, accountID, lunaID)
 	}
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "Cloud storage could not check this Luna. Try again.")
+		writeLunaBindError(w, err)
 		return false
 	}
 	if !found {
@@ -196,7 +217,7 @@ func setSigningPublic(d Deps, w http.ResponseWriter, accountID, lunaID, deviceID
 	}
 	bound, _, err := bindLuna(d, accountID, lunaID, deviceID)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "Cloud storage could not check this Luna. Try again.")
+		writeLunaBindError(w, err)
 		return false
 	}
 	if bound != deviceID {

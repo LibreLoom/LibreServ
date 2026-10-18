@@ -549,3 +549,20 @@ func TestRecordPackUpdatesBackend(t *testing.T) {
 		t.Fatalf("rows %d backend %q, want 1 row on b2", n, backend)
 	}
 }
+
+func TestStorageLunaCapPerAccount(t *testing.T) {
+	h, _, tok := storageFixture(t, "lunacap", 0)
+	for i := 0; i < maxLunasPerAccount; i++ {
+		id := "luna-cap" + strconv.Itoa(i)
+		if rec := storageDo(t, h, http.MethodPut, "/records/self/a", tok, id, []byte("x"), nil); rec.Code != http.StatusOK {
+			t.Fatalf("luna %d: %d %s", i, rec.Code, rec.Body.String())
+		}
+	}
+	if rec := storageDo(t, h, http.MethodPut, "/records/self/a", tok, "luna-onetoomany", []byte("x"), nil); rec.Code != http.StatusConflict {
+		t.Fatalf("over the cap = %d, want 409", rec.Code)
+	}
+	// A Luna the account already has still works.
+	if rec := storageDo(t, h, http.MethodPut, "/records/self/b", tok, "luna-cap0", []byte("x"), nil); rec.Code != http.StatusOK {
+		t.Fatalf("existing luna = %d", rec.Code)
+	}
+}

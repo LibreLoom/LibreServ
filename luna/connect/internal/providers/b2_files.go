@@ -35,6 +35,7 @@ func (c *B2Client) UploadFile(accountID, applicationKey, bucketID, fileName stri
 	}
 	upload, err := c.getUploadURL(auth.APIURL, auth.AuthorizationToken, bucketID)
 	if err != nil {
+		c.forgetAuth(accountID, applicationKey)
 		return err
 	}
 	req, err := http.NewRequest(http.MethodPost, upload.UploadURL, body)
@@ -53,6 +54,7 @@ func (c *B2Client) UploadFile(accountID, applicationKey, bucketID, fileName stri
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode >= 400 {
+		c.forgetAuth(accountID, applicationKey)
 		return fmt.Errorf("could not upload to Backblaze B2: status %d: %s", resp.StatusCode, string(raw))
 	}
 	return nil
@@ -92,6 +94,7 @@ func (c *B2Client) DownloadFile(accountID, applicationKey, bucketName, fileName 
 	if resp.StatusCode >= 400 {
 		raw, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
+		c.forgetAuth(accountID, applicationKey)
 		return nil, fmt.Errorf("could not download from Backblaze B2: status %d: %s", resp.StatusCode, string(raw))
 	}
 	return resp.Body, nil
@@ -106,6 +109,7 @@ func (c *B2Client) DeleteFile(accountID, applicationKey, bucketID, fileName stri
 	for {
 		files, err := c.listFileVersions(auth.APIURL, auth.AuthorizationToken, bucketID, fileName)
 		if err != nil {
+			c.forgetAuth(accountID, applicationKey)
 			return err
 		}
 		if len(files) == 0 {
