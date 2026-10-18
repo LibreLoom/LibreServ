@@ -135,9 +135,13 @@ tools; remove the service files during the image build.
 Luna never talks to Backblaze. Luna encrypts packs on the box and uploads them to Connect with its
 device token; Connect holds the B2 credentials and writes to a private bucket per Luna. Findings:
 
-- **B1 — Connect holds the B2 master key** — open. Swap it for a restricted key (bucket and key
-  management only) in Admin → Connections, after confirming B2 refuses a key that tries to grant
-  itself file-read rights.
+- **B1 — Connect's B2 key can do everything** — open, and harder to fix than first thought. The key in
+  use is a non-master key that still holds every capability (read, write and delete files, manage
+  keys and buckets, lock bypass). A narrower key cannot be a real barrier: Connect must create keys
+  that read and write files, so a key that can do that either holds file access itself or can hand out
+  rights it lacks. What is worth doing: drop the capabilities Connect never uses (`bypassGovernance`,
+  `shareFiles`, retention, legal hold, replication, notification and lifecycle settings), keep exactly
+  one key in use, and keep the Connect database and its `at_rest_key` apart.
 - **B2 — Unlimited Luna IDs could exhaust the B2 bucket limit; buckets and keys were never freed** —
   fixed: 25 Luna IDs per account; buckets and keys are deleted when a Luna is purged.
 - **B3 — Buckets were keyed by the client-chosen Luna ID alone, with a truncated name** — fixed:
