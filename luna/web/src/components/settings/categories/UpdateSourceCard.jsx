@@ -133,7 +133,7 @@ export default function UpdateSourceCard({ index = 3 }) {
               <div className="p-4 mb-3 rounded-large-element bg-warning/20 border-2 border-warning/30">
                 <div className="flex items-center gap-3">
                   <AlertTriangle size={ICON_SIZE.lg} className="text-warning flex-shrink-0" aria-hidden="true" />
-                  <p className="text-sm text-primary font-semibold">
+                  <p className="text-sm text-primary">
                     Only change these if your updates come from somewhere else.{" "}
                     <InfoHint
                       label="What these settings control"
