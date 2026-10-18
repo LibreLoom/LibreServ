@@ -120,6 +120,7 @@ func main() {
 
 	if jobLeader.IsLeader() {
 		go accounts.RunCleanupLoop(context.Background(), db, st)
+		go accounts.RunPendingDeleteLoop(context.Background(), db, st)
 
 		// Hourly: sample stored bytes for month-average billing (B2-style).
 		// Daily: report period-average storage + egress overage to Stripe meters.

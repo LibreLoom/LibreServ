@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io/fs"
 	"log/slog"
+	"strings"
 	"time"
 
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
@@ -102,6 +103,25 @@ func purgeStorage(ctx context.Context, db *database.DB, st store.Store, accountI
 		return err
 	}
 
+	// Bytes still waiting out their delete grace period go with the rest.
+	pend, err := db.QueryContext(ctx, `SELECT luna_id, path, storage_backend FROM storage_pending_deletes WHERE account_id = ?`+lunaClause, args...)
+	if err != nil {
+		return err
+	}
+	for pend.Next() {
+		var lunaID, path, backend string
+		if err := pend.Scan(&lunaID, &path, &backend); err != nil {
+			pend.Close()
+			return err
+		}
+		blobs = append(blobs, blob{backend, store.StorageSlot(lunaID), path})
+	}
+	err = pend.Err()
+	pend.Close()
+	if err != nil {
+		return err
+	}
+
 	if len(blobs) > 0 && st == nil {
 		return errors.New("cloud storage store is not configured")
 	}
@@ -115,7 +135,7 @@ func purgeStorage(ctx context.Context, db *database.DB, st store.Store, accountI
 		}
 	}
 
-	for _, table := range []string{"storage_packs", "storage_records", "share_links"} {
+	for _, table := range []string{"storage_packs", "storage_records", "storage_pending_deletes", "share_links"} {
 		if _, err := db.ExecContext(ctx, `DELETE FROM `+table+` WHERE account_id = ?`+lunaClause, args...); err != nil {
 			return err
 		}
@@ -170,4 +190,111 @@ func deleteBlob(st store.Store, backend, accountID, slot, path string) error {
 		return ad.DeleteBackend(backend, accountID, slot, path)
 	}
 	return st.Delete(accountID, slot, path)
+}
+
+// pendingDeleteBatch is how many due blobs one pass removes.
+const pendingDeleteBatch = 500
+
+// pathIsLive says whether a stored pack or record row still points at a path.
+func pathIsLive(ctx context.Context, db *database.DB, accountID, lunaID, path string) (bool, error) {
+	var n int
+	var err error
+	if id, ok := strings.CutPrefix(path, "packs/"); ok {
+		err = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM storage_packs WHERE account_id = ? AND luna_id = ? AND id = ?`,
+			accountID, lunaID, id).Scan(&n)
+	} else if rest, ok := strings.CutPrefix(path, "records/"); ok {
+		kind, name, _ := strings.Cut(rest, "/")
+		err = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM storage_records WHERE account_id = ? AND luna_id = ? AND kind = ? AND name = ?`,
+			accountID, lunaID, kind, name).Scan(&n)
+	}
+	return n > 0, err
+}
+
+// ProcessPendingDeletes removes the bytes of packs and records that Luna deleted at least the grace
+// period ago. A blob whose backend fails stays queued and is tried again on the next pass. It returns
+// how many blobs it removed.
+func ProcessPendingDeletes(ctx context.Context, db *database.DB, st store.Store, now int64) int {
+	if db == nil || st == nil {
+		return 0
+	}
+	rows, err := db.QueryContext(ctx, `SELECT account_id, luna_id, path, storage_backend FROM storage_pending_deletes
+WHERE delete_after <= ? ORDER BY delete_after LIMIT ?`, now, pendingDeleteBatch)
+	if err != nil {
+		slog.Error("pending deletes: query", "error", err)
+		return 0
+	}
+	type item struct{ account, luna, path, backend string }
+	var due []item
+	for rows.Next() {
+		var it item
+		if err := rows.Scan(&it.account, &it.luna, &it.path, &it.backend); err != nil {
+			rows.Close()
+			slog.Error("pending deletes: scan", "error", err)
+			return 0
+		}
+		due = append(due, it)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		slog.Error("pending deletes: read", "error", err)
+		return 0
+	}
+	removed := 0
+	for _, it := range due {
+		if ctx.Err() != nil {
+			break
+		}
+		forget := func() {
+			_, _ = db.ExecContext(ctx, `DELETE FROM storage_pending_deletes WHERE account_id = ? AND luna_id = ? AND path = ?`,
+				it.account, it.luna, it.path)
+		}
+		// Stored again since: the bytes are wanted, so only drop the reminder.
+		if live, err := pathIsLive(ctx, db, it.account, it.luna, it.path); err != nil {
+			slog.Warn("pending deletes: could not check a piece", "error", err)
+			continue
+		} else if live {
+			forget()
+			continue
+		}
+		err := deleteBlob(st, it.backend, it.account, store.StorageSlot(it.luna), it.path)
+		if err != nil && !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, providers.ErrBackupNotConfigured) {
+			slog.Warn("pending deletes: a piece could not be removed yet", "backend", it.backend, "error", err)
+			continue
+		}
+		if errors.Is(err, providers.ErrBackupNotConfigured) && it.backend != "local" {
+			continue
+		}
+		// An upload that landed while the bytes were being removed would now point at nothing.
+		// Dropping its row makes Luna upload that piece again.
+		if live, _ := pathIsLive(ctx, db, it.account, it.luna, it.path); live {
+			dropLiveRow(ctx, db, it.account, it.luna, it.path)
+		}
+		forget()
+		removed++
+	}
+	return removed
+}
+
+func dropLiveRow(ctx context.Context, db *database.DB, accountID, lunaID, path string) {
+	if id, ok := strings.CutPrefix(path, "packs/"); ok {
+		_, _ = db.ExecContext(ctx, `DELETE FROM storage_packs WHERE account_id = ? AND luna_id = ? AND id = ?`, accountID, lunaID, id)
+	} else if rest, ok := strings.CutPrefix(path, "records/"); ok {
+		kind, name, _ := strings.Cut(rest, "/")
+		_, _ = db.ExecContext(ctx, `DELETE FROM storage_records WHERE account_id = ? AND luna_id = ? AND kind = ? AND name = ?`, accountID, lunaID, kind, name)
+	}
+}
+
+// RunPendingDeleteLoop removes due blobs once an hour until ctx ends.
+func RunPendingDeleteLoop(ctx context.Context, db *database.DB, st store.Store) {
+	t := time.NewTicker(time.Hour)
+	defer t.Stop()
+	for {
+		ProcessPendingDeletes(ctx, db, st, time.Now().Unix())
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+	}
 }

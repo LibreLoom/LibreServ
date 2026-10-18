@@ -2,7 +2,9 @@ package accounts
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
@@ -91,5 +93,69 @@ func TestClaimLunaForPurgeClaimsDueOnceThenRetriesStuck(t *testing.T) {
 		if _, ok, _ := claimLunaForPurge(ctx, db, "acct_c", lunaID, now); ok {
 			t.Fatalf("%s is not due and should not be claimed", lunaID)
 		}
+	}
+}
+
+type recordingStore struct {
+	store.Store
+	deleted []string
+	fail    bool
+}
+
+func (r *recordingStore) Delete(_, _, path string) error {
+	if r.fail {
+		return errors.New("backend down")
+	}
+	r.deleted = append(r.deleted, path)
+	return nil
+}
+
+func TestProcessPendingDeletes(t *testing.T) {
+	db, err := database.Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := database.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	add := func(path string, due int64) {
+		if _, err := db.Exec(`INSERT INTO storage_pending_deletes (account_id, luna_id, path, storage_backend, delete_after)
+VALUES ('acct_1', 'luna-a', ?, 'local', ?)`, path, due); err != nil {
+			t.Fatal(err)
+		}
+	}
+	add("packs/due", 100)
+	add("packs/later", 1000)
+	add("packs/"+strings.Repeat("a", 64), 100)
+	if _, err := db.Exec(`INSERT INTO storage_packs (account_id, luna_id, id, size, created_at) VALUES ('acct_1', 'luna-a', ?, 1, 1)`,
+		strings.Repeat("a", 64)); err != nil {
+		t.Fatal(err)
+	}
+	st := &recordingStore{}
+
+	// A backend that fails keeps the reminder for the next pass.
+	st.fail = true
+	if n := ProcessPendingDeletes(context.Background(), db, st, 500); n != 0 {
+		t.Fatalf("removed %d with a failing backend", n)
+	}
+	var left int
+	_ = db.QueryRow(`SELECT COUNT(*) FROM storage_pending_deletes`).Scan(&left)
+	// The stored-again piece already lost its reminder; the two others wait for the next pass.
+	if left != 2 {
+		t.Fatalf("reminders left %d, want 2", left)
+	}
+
+	st.fail = false
+	if n := ProcessPendingDeletes(context.Background(), db, st, 500); n != 1 {
+		t.Fatalf("removed %d, want 1", n)
+	}
+	// Only the due, not-stored-again piece was removed. The stored-again one lost its reminder.
+	if len(st.deleted) != 1 || st.deleted[0] != "packs/due" {
+		t.Fatalf("deleted %v", st.deleted)
+	}
+	_ = db.QueryRow(`SELECT COUNT(*) FROM storage_pending_deletes`).Scan(&left)
+	if left != 1 {
+		t.Fatalf("reminders left %d, want 1 (the not-yet-due one)", left)
 	}
 }

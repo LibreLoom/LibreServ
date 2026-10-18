@@ -133,6 +133,14 @@ CREATE TABLE IF NOT EXISTS storage_packs (
   storage_backend TEXT NOT NULL DEFAULT 'local',
   PRIMARY KEY(account_id, luna_id, id)
 );
+CREATE TABLE IF NOT EXISTS storage_pending_deletes (
+  account_id TEXT NOT NULL,
+  luna_id TEXT NOT NULL,
+  path TEXT NOT NULL,
+  storage_backend TEXT NOT NULL DEFAULT '',
+  delete_after INTEGER NOT NULL,
+  PRIMARY KEY(account_id, luna_id, path)
+);
 CREATE TABLE IF NOT EXISTS storage_records (
   account_id TEXT NOT NULL,
   luna_id TEXT NOT NULL,
@@ -315,6 +323,14 @@ CREATE TABLE IF NOT EXISTS storage_packs (
   created_at BIGINT NOT NULL,
   storage_backend TEXT NOT NULL DEFAULT 'local',
   PRIMARY KEY(account_id, luna_id, id)
+);
+CREATE TABLE IF NOT EXISTS storage_pending_deletes (
+  account_id TEXT NOT NULL,
+  luna_id TEXT NOT NULL,
+  path TEXT NOT NULL,
+  storage_backend TEXT NOT NULL DEFAULT '',
+  delete_after BIGINT NOT NULL,
+  PRIMARY KEY(account_id, luna_id, path)
 );
 CREATE TABLE IF NOT EXISTS storage_records (
   account_id TEXT NOT NULL,

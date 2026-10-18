@@ -232,20 +232,29 @@ func setSigningPublic(d Deps, w http.ResponseWriter, accountID, lunaID, deviceID
 	return true
 }
 
-// removeStored deletes a blob from the backend that holds it. A missing blob is not an
-// error: the row that pointed at it is already gone, so the only result is a log line.
-func (h StorageHandler) removeStored(backend, accountID, deviceID, relPath string) {
-	var err error
-	if ad, ok := h.Store.(interface {
-		DeleteBackend(backend, accountID, deviceID, relPath string) error
-	}); ok && backend != "" {
-		err = ad.DeleteBackend(backend, accountID, deviceID, relPath)
-	} else {
-		err = h.Store.Delete(accountID, deviceID, relPath)
+// deleteGraceSeconds is how long the bytes of a deleted pack or record stay in storage after Luna
+// deletes them. Luna's row disappears at once, so the data is gone from the user's side, but a stolen
+// device token or a bug in Luna cannot destroy the off-site copy faster than support can notice.
+const deleteGraceSeconds = 7 * 24 * 3600
+
+// removeStored schedules a deleted blob for removal from the backend that holds it. The row that
+// pointed at it is already gone. A background job removes the bytes after deleteGraceSeconds and
+// retries until the backend confirms, so a failed removal never leaves bytes behind for good.
+// A blob that is uploaded again before then is kept (see cancelRemoval).
+func (h StorageHandler) removeStored(backend, accountID, lunaID, relPath string) {
+	_, err := h.DB.Exec(`INSERT INTO storage_pending_deletes (account_id, luna_id, path, storage_backend, delete_after)
+VALUES (?, ?, ?, ?, ?)
+ON CONFLICT(account_id, luna_id, path) DO NOTHING`,
+		accountID, lunaID, relPath, backend, time.Now().Unix()+deleteGraceSeconds)
+	if err != nil {
+		slog.Warn("storage: a deleted piece could not be scheduled for removal", "error", err)
 	}
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		slog.Warn("storage: a deleted piece could not be removed from its backend", "backend", backend, "error", err)
-	}
+}
+
+// cancelRemoval keeps a blob that was deleted and then stored again.
+func cancelRemoval(d Deps, accountID, lunaID, relPath string) {
+	_, _ = d.DB.Exec(`DELETE FROM storage_pending_deletes WHERE account_id = ? AND luna_id = ? AND path = ?`,
+		accountID, lunaID, relPath)
 }
 
 func storageUsed(h Deps, accountID string) int64 {
@@ -348,6 +357,7 @@ func (h StorageHandler) PutPack(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusInternalServerError, "Cloud storage could not record that data. Try again.")
 		return
 	}
+	cancelRemoval(h.Deps, accountID, lunaID, rel)
 	JSON(w, http.StatusOK, map[string]any{"ok": true, "id": id, "size": n, "created": true})
 }
 
@@ -412,7 +422,7 @@ func (h StorageHandler) DeletePack(w http.ResponseWriter, r *http.Request) {
 	// Remove the bytes only when this call removed the row. A pack that is already
 	// gone still counts as deleted, so retries are safe and never touch the store.
 	if n, _ := res.RowsAffected(); n > 0 {
-		h.removeStored(backend, accountID, store.StorageSlot(lunaID), store.StoragePackPath(id))
+		h.removeStored(backend, accountID, lunaID, store.StoragePackPath(id))
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -476,6 +486,7 @@ ON CONFLICT(account_id, luna_id, kind, name) DO UPDATE SET bytes = excluded.byte
 		JSONError(w, http.StatusInternalServerError, "Cloud storage could not record that save. Try again.")
 		return
 	}
+	cancelRemoval(h.Deps, accountID, lunaID, rel)
 	JSON(w, http.StatusOK, map[string]any{"ok": true, "bytes": n})
 }
 
@@ -529,7 +540,7 @@ func (h StorageHandler) DeleteRecord(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if n, _ := res.RowsAffected(); n > 0 {
-		h.removeStored(backend, accountID, store.StorageSlot(lunaID), store.StorageRecordPath(kind, name))
+		h.removeStored(backend, accountID, lunaID, store.StorageRecordPath(kind, name))
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

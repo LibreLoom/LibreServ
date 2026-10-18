@@ -130,6 +130,26 @@ are stock Debian avahi announcements for `_ssh._tcp`/port 22, but no SSH daemon
 ships in the image. Harmless but misleading to network scanners and inventory
 tools; remove the service files during the image build.
 
+### Backblaze B2 integration review — October 2026
+
+Luna never talks to Backblaze. Luna encrypts packs on the box and uploads them to Connect with its
+device token; Connect holds the B2 credentials and writes to a private bucket per Luna. Findings:
+
+- **B1 — Connect holds the B2 master key** — open. Swap it for a restricted key (bucket and key
+  management only) in Admin → Connections, after confirming B2 refuses a key that tries to grant
+  itself file-read rights.
+- **B2 — Unlimited Luna IDs could exhaust the B2 bucket limit; buckets and keys were never freed** —
+  fixed: 25 Luna IDs per account; buckets and keys are deleted when a Luna is purged.
+- **B3 — Buckets were keyed by the client-chosen Luna ID alone, with a truncated name** — fixed:
+  keyed by account and Luna, named by hash.
+- **B4 — A stolen device token could erase the off-site copy at once** — mitigated: deleted packs and
+  records stay in storage for 7 days (`storage_pending_deletes`) and are removed by a background job.
+- **B5 — Unsaved B2 keys were left active** — fixed: revoked right away.
+- **B6 — A failed B2 delete left the bytes behind** — fixed: the same background job retries.
+- **B7 — A B2 sign-in per request** — fixed: sign-ins are reused for 20 minutes.
+- **B8 — Connect and B2 see sizes, counts, record names and timing** — accepted.
+- **B9 — Calls use the older `/b2api/v2/` endpoints** — open; switch after testing against B2.
+
 ## Dependency advisories — assessed, not exploitable in current use
 
 | Package | Advisory | Assessment |

@@ -399,8 +399,22 @@ func TestStorageRepeatDeleteLeavesStoreAlone(t *testing.T) {
 			t.Fatalf("delete %d: %d", i, rec.Code)
 		}
 	}
-	if spy.deletes != 1 {
-		t.Fatalf("store deletes %d, want 1 (the repeat must not touch the store)", spy.deletes)
+	// The bytes wait out the grace period: nothing is removed yet, and one reminder is queued.
+	if spy.deletes != 0 {
+		t.Fatalf("store deletes %d, want 0 (removal waits for the grace period)", spy.deletes)
+	}
+	var queued int
+	_ = d.DB.QueryRow(`SELECT COUNT(*) FROM storage_pending_deletes`).Scan(&queued)
+	if queued != 1 {
+		t.Fatalf("pending deletes %d, want 1", queued)
+	}
+	// Storing the same pack again keeps it.
+	if rec := storageDo(t, h, http.MethodPut, "/packs/"+id, tok, "luna1", body, nil); rec.Code != http.StatusOK {
+		t.Fatalf("re-put %d", rec.Code)
+	}
+	_ = d.DB.QueryRow(`SELECT COUNT(*) FROM storage_pending_deletes`).Scan(&queued)
+	if queued != 0 {
+		t.Fatalf("pending deletes after re-upload %d, want 0", queued)
 	}
 }
 
