@@ -2,7 +2,11 @@ package secrets
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -14,6 +18,10 @@ import (
 // Verified against pass-cli 2.4.2: `pass-cli info` (exit 1 when logged out),
 // then `pass-cli item view "pass://<vault>/<item>/<field>"` prints the value
 // with a trailing newline; stderr "Error:" means failure whatever the exit code.
+//
+// A reference whose field is "file:<name>" reads an attachment of the item
+// instead (keys and keystores are stored as files): pass://Vault/Item/file:key.
+// The Android keystore slot gets it as base64, every other slot as text.
 type ProtonConfig struct {
 	Enabled bool `json:"enabled"`
 	// Refs maps a slot name (see Slot* constants) to a pass:// reference,
@@ -178,6 +186,9 @@ func (p *Proton) fetch(ctx context.Context, slot string) ([]string, error) {
 	}
 	cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
+	if vault, item, name, ok := attachmentRef(ref); ok {
+		return p.fetchFile(cctx, slot, vault, item, name)
+	}
 	out, err := p.run(cctx, "", nil, p.bin(), "item", "view", ref)
 	if err != nil {
 		return nil, fmt.Errorf("proton pass: %w", err)
@@ -187,4 +198,69 @@ func (p *Proton) fetch(ctx context.Context, slot string) ([]string, error) {
 		return nil, nil
 	}
 	return []string{v}, nil
+}
+
+// attachmentRef splits pass://Vault/Item/file:<name> into its parts.
+func attachmentRef(ref string) (vault, item, name string, ok bool) {
+	parts := strings.SplitN(strings.TrimPrefix(ref, "pass://"), "/", 3)
+	if len(parts) != 3 {
+		return "", "", "", false
+	}
+	name, ok = strings.CutPrefix(parts[2], "file:")
+	return parts[0], parts[1], name, ok && name != ""
+}
+
+// fetchFile downloads one attachment into a private temp folder, reads it, and
+// removes it again.
+func (p *Proton) fetchFile(ctx context.Context, slot, vault, item, name string) ([]string, error) {
+	out, err := p.run(ctx, "", nil, p.bin(), "item", "view", "--vault-name", vault, "--item-title", item, "--output", "json")
+	if err != nil {
+		return nil, fmt.Errorf("proton pass: %w", err)
+	}
+	var v struct {
+		Item struct {
+			ID      string `json:"id"`
+			ShareID string `json:"share_id"`
+		} `json:"item"`
+		Attachments []struct {
+			ID      string `json:"id"`
+			Content struct {
+				Name string `json:"name"`
+			} `json:"content"`
+		} `json:"attachments"`
+	}
+	if err := json.Unmarshal(out, &v); err != nil {
+		return nil, fmt.Errorf("proton pass: could not read item %q", item)
+	}
+	attID := ""
+	for _, a := range v.Attachments {
+		if a.Content.Name == name {
+			attID = a.ID
+			break
+		}
+	}
+	if attID == "" {
+		return nil, fmt.Errorf("proton pass: item %q has no attached file %q", item, name)
+	}
+	dir, err := os.MkdirTemp("", "release-pass-")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(dir)
+	dst := filepath.Join(dir, "attachment")
+	if _, err := p.run(ctx, "", nil, p.bin(), "item", "attachment", "download",
+		"--share-id", v.Item.ShareID, "--item-id", v.Item.ID, "--attachment-id", attID, "--output", dst); err != nil {
+		return nil, fmt.Errorf("proton pass: %w", err)
+	}
+	data, err := os.ReadFile(dst)
+	if err != nil {
+		return nil, fmt.Errorf("proton pass: could not read downloaded file %q", name)
+	}
+	if len(data) == 0 {
+		return nil, nil
+	}
+	if slot == SlotAndroidKeystore {
+		return []string{base64.StdEncoding.EncodeToString(data)}, nil
+	}
+	return []string{string(data)}, nil
 }

@@ -108,7 +108,9 @@ Found and proven automatically, not "configured with fallbacks":
    `NAME_FILE`, `NAME_CMD`; `LSLUNA_RELEASE_MINISIG_PK/PW`,
    `SOL_RELEASE_MINISIG_PK/PW` and `MINISIGN_SECRET_KEY` keep working. Proton
    Pass is an optional source (`pass-cli item view "pass://<vault>/<item>/<field>"`;
-   needs a logged-in session, no TTY).
+   needs a logged-in session, no TTY). A field written `file:<name>` reads an
+   attached file of the item (keys and keystores), e.g.
+   `pass://Vault/Item/file:release.key`.
 4. **Pair keys and passwords automatically; remember what worked.** Keys are
    scrypt-encrypted, so the tool tries known passwords against candidates (one
    at a time, ~1 s and up to 1 GB RAM each) and caches non-secret facts (path,

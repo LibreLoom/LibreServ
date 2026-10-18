@@ -206,3 +206,42 @@ func TestProtonReadsInParallel(t *testing.T) {
 		t.Fatalf("peak concurrency %d, want reads at once", peak.Load())
 	}
 }
+
+func TestProtonReadsAttachment(t *testing.T) {
+	var downloads int
+	run := func(_ context.Context, _ string, _ []string, name string, args ...string) ([]byte, error) {
+		switch {
+		case args[0] == "info":
+			return nil, nil
+		case args[1] == "view":
+			return []byte(`{"item":{"id":"I1","share_id":"S1"},"attachments":[{"id":"A0","content":{"name":"other"}},{"id":"A1","content":{"name":"k.key"}}]}`), nil
+		case args[1] == "attachment":
+			downloads++
+			joined := strings.Join(args, " ")
+			if !strings.Contains(joined, "--attachment-id A1") || !strings.Contains(joined, "--share-id S1") {
+				t.Fatalf("wrong download: %v", args)
+			}
+			return nil, os.WriteFile(args[len(args)-1], []byte{0, 1, 2, 250}, 0o600)
+		}
+		return nil, errors.New("unexpected " + strings.Join(args, " "))
+	}
+	p := NewProton(ProtonConfig{Enabled: true, Refs: map[string]string{
+		SlotAndroidKeystore:      "pass://V/I/file:k.key",
+		SlotKey(SolSigning):      "pass://V/I/file:k.key",
+		SlotPassword(SolSigning): "pass://V/I/file:missing",
+	}}, run)
+	vals, err := p.Lookup(context.Background(), SlotAndroidKeystore)
+	if err != nil || len(vals) != 1 || vals[0] != "AAEC+g==" {
+		t.Fatalf("keystore = %q, %v", vals, err)
+	}
+	vals, err = p.Lookup(context.Background(), SlotKey(SolSigning))
+	if err != nil || len(vals) != 1 || vals[0] != "\x00\x01\x02\xfa" {
+		t.Fatalf("key = %q, %v", vals, err)
+	}
+	if _, err := p.Lookup(context.Background(), SlotPassword(SolSigning)); err == nil || !strings.Contains(err.Error(), "no attached file") {
+		t.Fatalf("missing file err = %v", err)
+	}
+	if downloads != 2 {
+		t.Fatalf("downloads = %d", downloads)
+	}
+}
