@@ -24,8 +24,8 @@ Checks at fae9c307f: lunad lib 1126 passed, Go `vet` and tests clean, Connect we
 | 5 | Dashboard Backups card, See all backups, health checks, 90-day phrase reminder, Android and desktop upload copy ("Photo upload", "Folder upload") | see git log |
 
 Each wave: Haiku agents implemented, a reviewer checked against the briefs, Haiku agents fixed the findings, then the
-orchestrator re-ran every suite before committing. Checks at the phase 5 commit: lunad lib 1212 passed, luna/web 1420 passed
-(tsc, eslint, `scan:colors` clean), Connect web 185 passed, shared/ui `lib/cloud` 47 passed, Android 76 and desktop 61 unit tests passed.
+orchestrator re-ran every suite before committing. Checks at the phase 5 commit: lunad lib 1213 passed, `cargo clippy --workspace --all-targets -- -D warnings` clean, desktop 61, luna/web 1420 passed
+(tsc, eslint, `scan:colors` clean), Connect web 185 passed, shared/ui `lib/cloud` 47 passed. Android's 76 unit tests were run by an agent and not re-run by the orchestrator.
 
 ## How to test
 
