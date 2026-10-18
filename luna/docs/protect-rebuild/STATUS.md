@@ -1,9 +1,9 @@
 # Protect rebuild: status (2026-10-17)
 
-Design: `plan.md` (same folder). Worker rules: `briefs/brief-common.md`, `briefs/brief-web.md`.
+Design: `plan.md` (same folder). The per-task briefs were removed once every phase shipped; they are in git history before the commit that deleted `briefs/`.
 Method used so far: an Opus orchestrator wrote briefs, Haiku agents implemented them in parallel waves,
 an Opus reviewer checked each phase, Haiku agents fixed its findings, then the phase was committed.
-Nothing below needs that setup; a person can follow the briefs just as well.
+Nothing below needs that setup; a person can follow `plan.md` just as well.
 
 ## Done and committed
 
@@ -23,7 +23,7 @@ Checks at fae9c307f: lunad lib 1126 passed, Go `vet` and tests clean, Connect we
 | 4 | Private item backups: drive and cloud (owner-sealed), private restore, Connect private sessions and the Private items row | 78ac8ebe, 97088968, bf91ecc4 |
 | 5 | Dashboard Backups card, See all backups, health checks, 90-day phrase reminder, Android and desktop upload copy ("Photo upload", "Folder upload") | see git log |
 
-Each wave: Haiku agents implemented, a reviewer checked against the briefs, Haiku agents fixed the findings, then the
+Each wave: Haiku agents implemented, a reviewer checked against the task briefs, Haiku agents fixed the findings, then the
 orchestrator re-ran every suite before committing. Checks at the phase 5 commit: lunad lib 1213 passed, `cargo clippy --workspace --all-targets -- -D warnings` clean, desktop 61, luna/web 1420 passed
 (tsc, eslint, `scan:colors` clean), Connect web 185 passed, shared/ui `lib/cloud` 47 passed. Android's 76 unit tests were run by an agent and not re-run by the orchestrator.
 
@@ -47,4 +47,4 @@ orchestrator re-ran every suite before committing. Checks at the phase 5 commit:
 
 ## Decisions recorded for phase 4
 
-See the "Decisions taken in this plan" list in `briefs/p4-plan.md` (Connect links a private scope to a user id and auth key; one protection row per private item and destination; folders only; Admin removes a deleted owner's private backups all at once; recovered private index is read-only; no repacking of private packs; private sessions on Connect last 30 minutes).
+Decisions taken for phase 4 (Connect links a private scope to a user id and auth key; one protection row per private item and destination; folders only; Admin removes a deleted owner's private backups all at once; recovered private index is read-only; no repacking of private packs; private sessions on Connect last 30 minutes).
