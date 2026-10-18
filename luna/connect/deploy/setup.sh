@@ -116,15 +116,12 @@ template="$SCRIPT_DIR/luna-connect-instance.service.tmpl"
 for inst in "${INSTANCES[@]}"; do
     name="${inst%%:*}"
     sed "s/{INSTANCE}/${name}/g" "$template" > "/etc/systemd/system/luna-connect-${name}.service"
-    if [ "$name" = "a" ]; then
-        mkdir -p "/etc/systemd/system/luna-connect-${name}.service.d"
-        cat > "/etc/systemd/system/luna-connect-${name}.service.d/job-leader.conf" <<'EOF'
-[Service]
-# Only instance A runs background jobs (Stripe meters, retention, orphan cleanup).
-# With Postgres, advisory locks also prevent duplicate job runs if both instances start.
-Environment=LUNACONNECT_JOB_LEADER=1
-EOF
-    fi
+    # Background jobs (Stripe meters, retention, orphan cleanup, delayed deletes) run on exactly one
+    # instance: whichever holds the Postgres advisory lock (or the data-dir flock on SQLite), with the
+    # other taking over if it stops. Do not force LUNACONNECT_JOB_LEADER=1 here: it skips the lock, and
+    # a second instance that wins the lock would then run every job as well. Remove an old forced setting.
+    rm -rf "/etc/systemd/system/luna-connect-${name}.service.d/job-leader.conf"
+    rmdir "/etc/systemd/system/luna-connect-${name}.service.d" 2>/dev/null || true
 done
 systemctl daemon-reload
 
