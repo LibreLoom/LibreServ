@@ -8,7 +8,7 @@ export default defineConfig({
   build: { outDir: "dist", emptyOutDir: true },
   // Packages shared/ui imports resolve from this app's node_modules (shared/ui is never installed here).
   resolve: {
-    dedupe: ["react", "react-dom", "react-router-dom", "lucide-react", "@noble/ciphers", "@noble/curves", "@noble/hashes", "@scure/bip39"],
+    dedupe: ["react", "react-dom", "react-router-dom", "lucide-react", "prop-types", "@noble/ciphers", "@noble/curves", "@noble/hashes", "@scure/bip39"],
   },
   server: {
     port: 3012,
