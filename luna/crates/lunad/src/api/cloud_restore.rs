@@ -134,9 +134,7 @@ async fn status(State(state): State<AppState>, Extension(user): Extension<Curren
         };
         let cloud = store.list_records(SNAPSHOT_KIND).map_err(unreachable_connect)?.len() as i64;
         let conn = db.lock().unwrap_or_else(|p| p.into_inner());
-        let indexed: i64 = conn
-            .query_row("SELECT COUNT(*) FROM cloud_snapshots", [], |r| r.get(0))
-            .map_err(read_failed)?;
+        let indexed = crate::db::count_shared_cloud_snapshots(&conn).map_err(read_failed)?;
         let identity = identity::load(&conn).map_err(read_failed)?;
         let (luna_id, signing_public) = match &identity {
             Some(id) => (json!(id.luna_id()), json!(STANDARD.encode(id.public()))),
@@ -239,9 +237,8 @@ fn records_with_store(store: &dyn CloudStore, kind: &str) -> Result<Value, ApiEr
     names.sort();
     let mut out = Vec::with_capacity(names.len());
     for name in names {
-        match store.get_record(kind, &name).map_err(unreachable_connect)? {
-            Some(bytes) => out.push(json!({ "name": name, "data": STANDARD.encode(bytes) })),
-            None => {}
+        if let Some(bytes) = store.get_record(kind, &name).map_err(unreachable_connect)? {
+            out.push(json!({ "name": name, "data": STANDARD.encode(bytes) }));
         }
     }
     Ok(json!({ "records": out }))

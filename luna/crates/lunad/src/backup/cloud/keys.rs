@@ -37,6 +37,9 @@ pub(crate) const USERS_LIST_NAME: &str = "list";
 /// Signature domain for the user list.
 const USERS_DOMAIN: &str = "users";
 
+/// One user as given to `publish_user_list`: `(user id, X25519 public key, auth public key, self-sealed signing key)`.
+type UserListEntry = (String, [u8; 32], [u8; 32], Vec<u8>);
+
 /// The users who may read a shared backup, sorted and without duplicates.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Recipients {
@@ -274,7 +277,7 @@ fn hex_encode(bytes: &[u8]) -> String {
 }
 
 fn hex_decode(hex: &str) -> Option<Vec<u8>> {
-    if hex.len() % 2 != 0 {
+    if !hex.len().is_multiple_of(2) {
         return None;
     }
     (0..hex.len())
@@ -311,7 +314,7 @@ pub fn publish_user_list(
     store: &dyn CloudStore,
     signer: &crypto::Signer,
     luna_id: &str,
-    users: &[(String, [u8; 32], [u8; 32], Vec<u8>)],
+    users: &[UserListEntry],
 ) -> Result<()> {
     let mut map = serde_json::Map::new();
     for (user_id, x25519_public, auth_public, self_sealed) in users {

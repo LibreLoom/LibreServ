@@ -68,7 +68,7 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 fn unhex(s: &str) -> Result<Vec<u8>> {
-    ensure!(s.len() % 2 == 0, "odd-length hex in fixture");
+    ensure!(s.len().is_multiple_of(2), "odd-length hex in fixture");
     (0..s.len())
         .step_by(2)
         .map(|i| u8::from_str_radix(&s[i..i + 2], 16).map_err(|e| anyhow!("bad hex: {e}")))
@@ -260,7 +260,7 @@ fn build_private() -> Result<Value> {
         let (offset, len) = data.add(id, content);
         placed.push((*path, content.len() as u64, id, offset, len));
     }
-    let data_pack = data.finish(&wrap);
+    let data_pack = data.finish(wrap);
 
     // Tree, sealed to alice, stored in its own pack.
     let mut entries = Vec::new();
@@ -277,7 +277,7 @@ fn build_private() -> Result<Value> {
     let tree_hash = format::sha256(&tree_bytes);
     let mut tree_builder = PackBuilder::new(scope_id);
     tree_builder.add(tree_hash, &tree_bytes);
-    let tree_pack = tree_builder.finish(&wrap);
+    let tree_pack = tree_builder.finish(wrap);
 
     // Metadata and the snapshot record, signed under the private snapshot domain.
     let meta = BackupMeta {
@@ -397,7 +397,7 @@ fn check_private(fx: &Value) -> Result<()> {
     for pack_field in ["tree_pack_id", "data_pack_id"] {
         let id = unhex32(field(p, pack_field)?)?;
         let bytes = unhex(field(&p["packs"], &hex(&id))?)?;
-        packs.insert(id, format::open_pack(&bytes, &id, &unwrap)?);
+        packs.insert(id, format::open_pack(&bytes, &id, unwrap)?);
     }
     ensure!(
         snap.tree_pack_id == unhex32(field(p, "tree_pack_id")?)?,
@@ -520,7 +520,7 @@ fn check(fx: &Value) -> Result<()> {
     for pack_field in ["tree_pack_id", "data_pack_id"] {
         let id = unhex32(field(fx, pack_field)?)?;
         let bytes = unhex(field(&fx["packs"], &hex(&id))?)?;
-        opened.insert(id, format::open_pack(&bytes, &id, &unwrap)?);
+        opened.insert(id, format::open_pack(&bytes, &id, unwrap)?);
     }
     ensure!(
         snap.tree_pack_id == unhex32(field(fx, "tree_pack_id")?)?,

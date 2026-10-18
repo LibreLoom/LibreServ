@@ -448,14 +448,14 @@ impl DriveManager {
 
         // Keep a copy of this Luna's cloud signing key on the drive, so a recovered
         // Luna can find it. Best-effort: the drive is added either way.
-        if let Ok(Some(cloud)) = crate::backup::cloud::identity::load(conn) {
-            if let Err(e) = crate::backup::cloud::identity::copy_to_drive_at(
+        if let Ok(Some(cloud)) = crate::backup::cloud::identity::load(conn)
+            && let Err(e) = crate::backup::cloud::identity::copy_to_drive_at(
                 &mount_point,
                 &cloud,
                 db::now_unix(),
-            ) {
-                tracing::warn!(error = %e, "could not copy the cloud signing key to the new drive");
-            }
+            )
+        {
+            tracing::warn!(error = %e, "could not copy the cloud signing key to the new drive");
         }
 
         db::get_drive(conn, &id)?

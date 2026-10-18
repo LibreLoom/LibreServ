@@ -12,6 +12,8 @@ use sha2::{Digest, Sha256};
 
 use super::crypto::{self, Signer};
 
+/// One pack index entry: the chunk id, its offset in the pack and its length.
+type IndexEntry = ([u8; 32], u64, u32);
 /// Smallest chunk FastCDC will cut.
 pub const CHUNK_MIN: u32 = 256 * 1024;
 /// Average chunk size, which sets the cut points.
@@ -181,7 +183,7 @@ fn encode_index(scope_id: &[u8; 32], entries: &[([u8; 32], u64, u32)]) -> Vec<u8
     out
 }
 
-fn decode_index(mut rest: &[u8]) -> Result<([u8; 32], Vec<([u8; 32], u64, u32)>)> {
+fn decode_index(mut rest: &[u8]) -> Result<([u8; 32], Vec<IndexEntry>)> {
     let scope_id: [u8; 32] = take(&mut rest, 32)?.try_into().expect("take returns 32 bytes");
     let count = take_len(&mut rest)?;
     let mut entries = Vec::with_capacity(count.min(1 << 20));
@@ -379,7 +381,7 @@ fn hex_encode(bytes: &[u8]) -> String {
 }
 
 fn hex_decode(text: &str) -> Result<Vec<u8>, &'static str> {
-    if text.len() % 2 != 0 {
+    if !text.len().is_multiple_of(2) {
         return Err("a hex field has an odd number of characters");
     }
     text.as_bytes()
@@ -409,6 +411,11 @@ pub fn sha256(bytes: &[u8]) -> [u8; 32] {
 mod tests {
     use super::*;
     use super::super::private::PRIVATE_SNAPSHOT_DOMAIN;
+
+    /// A chunk id with its plain bytes.
+    type ChunkPiece = ([u8; 32], Vec<u8>);
+    /// A change applied to a signed snapshot record.
+    type RecordChange = Box<dyn Fn(&mut SnapshotRecord)>;
     use std::io::Cursor;
 
     /// Deterministic pseudo-random bytes (xorshift), so chunk boundaries are repeatable.
@@ -476,7 +483,7 @@ mod tests {
         Ok(key.try_into().expect("wrapped key is 32 bytes"))
     }
 
-    fn sample_pack() -> (SealedPack, Vec<([u8; 32], Vec<u8>)>) {
+    fn sample_pack() -> (SealedPack, Vec<ChunkPiece>) {
         let mut builder = PackBuilder::new([3u8; 32]);
         let mut pieces = Vec::new();
         for data in [noise(1000, 1), noise(5000, 2), noise(300, 3)] {
@@ -589,7 +596,7 @@ mod tests {
         let public = signer.public();
         let signed = sample_record().sign(&signer);
 
-        let changes: Vec<Box<dyn Fn(&mut SnapshotRecord)>> = vec![
+        let changes: Vec<RecordChange> = vec![
             Box::new(|r| r.luna_id.push('x')),
             Box::new(|r| r.protection_id.push('x')),
             Box::new(|r| r.snapshot_id.push('x')),

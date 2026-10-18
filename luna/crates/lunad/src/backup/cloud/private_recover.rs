@@ -337,7 +337,7 @@ mod tests {
         let unwrap = |w: &[u8]| private::open_pack_key(&alice.x25519_secret, LUNA_ID, scope_id, w);
         let tree_pack_id = unhex32(p["tree_pack_id"].as_str().unwrap());
         let pack_bytes = unhex(p["packs"][hex(&tree_pack_id)].as_str().unwrap());
-        let tree_pack: OpenedPack = format::open_pack(&pack_bytes, &tree_pack_id, &unwrap).unwrap();
+        let tree_pack: OpenedPack = format::open_pack(&pack_bytes, &tree_pack_id, unwrap).unwrap();
         let tree_bytes = tree_pack.chunk(&snap.tree_hash).unwrap();
         let tree = private::open_tree(&alice.x25519_secret, LUNA_ID, scope_id, tree_bytes).unwrap();
         let meta = private::open_meta(&alice.x25519_secret, LUNA_ID, scope_id, &snap.meta).unwrap();

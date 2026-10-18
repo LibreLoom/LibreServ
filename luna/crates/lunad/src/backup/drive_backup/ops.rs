@@ -172,17 +172,16 @@ fn move_inner(
             continue;
         };
         // Keep the copy's own record of where its source is in step.
-        if let Some((root, layout)) = connected_target(conn, &row.target_drive) {
-            if let Some(store) = Store::existing(&root, &layout, &row.id) {
-                if let Some(mut manifest) = store.read_manifest()? {
-                    manifest.source_drive_id = row.source_drive.clone();
-                    manifest.source_drive_label = db::get_drive(conn, &row.source_drive)?
-                        .map(|d| d.label)
-                        .unwrap_or_default();
-                    manifest.source_path = row.source_path.clone();
-                    store.write_manifest(&manifest)?;
-                }
-            }
+        if let Some((root, layout)) = connected_target(conn, &row.target_drive)
+            && let Some(store) = Store::existing(&root, &layout, &row.id)
+            && let Some(mut manifest) = store.read_manifest()?
+        {
+            manifest.source_drive_id = row.source_drive.clone();
+            manifest.source_drive_label = db::get_drive(conn, &row.source_drive)?
+                .map(|d| d.label)
+                .unwrap_or_default();
+            manifest.source_path = row.source_path.clone();
+            store.write_manifest(&manifest)?;
         }
         check_stop(conn, &row)?;
     }
@@ -216,13 +215,12 @@ fn refresh_access(conn: &Connection, row: &ProtectionRow) -> anyhow::Result<()> 
         return Ok(());
     }
     db::set_protection_access(conn, &row.id, &json)?;
-    if let Some((root, layout)) = connected_target(conn, &row.target_drive) {
-        if let Some(store) = Store::existing(&root, &layout, &row.id) {
-            if let Some(mut manifest) = store.read_manifest()? {
-                manifest.access = access;
-                store.write_manifest(&manifest)?;
-            }
-        }
+    if let Some((root, layout)) = connected_target(conn, &row.target_drive)
+        && let Some(store) = Store::existing(&root, &layout, &row.id)
+        && let Some(mut manifest) = store.read_manifest()?
+    {
+        manifest.access = access;
+        store.write_manifest(&manifest)?;
     }
     Ok(())
 }

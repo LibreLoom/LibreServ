@@ -139,14 +139,6 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             window_start INTEGER NOT NULL,
             locked_until INTEGER NOT NULL DEFAULT 0
         );
-        CREATE TABLE IF NOT EXISTS backup_manifest (
-            source TEXT NOT NULL,
-            path TEXT NOT NULL,
-            size INTEGER NOT NULL,
-            mtime INTEGER NOT NULL,
-            uploaded_at INTEGER NOT NULL DEFAULT 0,
-            PRIMARY KEY (source, path)
-        );
         CREATE TABLE IF NOT EXISTS protections (
             id TEXT PRIMARY KEY,
             kind TEXT NOT NULL,                 -- 'drive' | 'cloud'
@@ -1991,6 +1983,18 @@ pub fn private_scope_of_snapshot(
         .optional()?)
 }
 
+/// How many of Luna's local snapshot rows are shared ones. Private snapshots live
+/// in the same table but Connect lists them under their own record kind, so they
+/// must not count when comparing against the shared list.
+pub fn count_shared_cloud_snapshots(conn: &Connection) -> anyhow::Result<i64> {
+    Ok(conn.query_row(
+        "SELECT COUNT(*) FROM cloud_snapshots
+         WHERE id NOT IN (SELECT snapshot_id FROM cloud_private_trees)",
+        [],
+        |r| r.get(0),
+    )?)
+}
+
 /// `commit_snapshot_tx` for a private snapshot, plus its plain tree, in one transaction.
 pub fn commit_private_snapshot_tx(
     conn: &mut Connection,
@@ -2014,43 +2018,6 @@ pub fn set_meta(conn: &Connection, key: &str, value: &str) -> anyhow::Result<()>
         "INSERT INTO meta (key, value) VALUES (?1, ?2)
          ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         params![key, value],
-    )?;
-    Ok(())
-}
-
-/// Change-detection map for one cloud backup source: object key → (size,
-/// mtime). Only files differing from their row are re-uploaded.
-pub fn backup_manifest(
-    conn: &Connection,
-    source: &str,
-) -> anyhow::Result<std::collections::HashMap<String, (u64, i64)>> {
-    let mut stmt =
-        conn.prepare_cached("SELECT path, size, mtime FROM backup_manifest WHERE source = ?1")?;
-    let rows = stmt.query_map(params![source], |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            (row.get::<_, i64>(1)? as u64, row.get::<_, i64>(2)?),
-        ))
-    })?;
-    Ok(rows.collect::<Result<_, _>>()?)
-}
-
-/// Record a file's successful cloud backup upload.
-pub fn backup_manifest_put(
-    conn: &Connection,
-    source: &str,
-    path: &str,
-    size: u64,
-    mtime: i64,
-) -> anyhow::Result<()> {
-    conn.execute(
-        "INSERT INTO backup_manifest (source, path, size, mtime, uploaded_at)
-         VALUES (?1, ?2, ?3, ?4, ?5)
-         ON CONFLICT(source, path) DO UPDATE SET
-           size = excluded.size,
-           mtime = excluded.mtime,
-           uploaded_at = excluded.uploaded_at",
-        params![source, path, size as i64, mtime, now_unix()],
     )?;
     Ok(())
 }
@@ -3282,6 +3249,18 @@ mod tests {
         );
         delete_cloud_snapshot(&conn, "ps1").unwrap();
         assert!(get_private_tree(&conn, "ps1").unwrap().is_none());
+    }
+
+    #[test]
+    fn shared_snapshot_count_ignores_private_ones() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut conn = open(&dir.path().join("luna.db")).unwrap();
+        insert_protection(&conn, &new_protection("prot", "d1", "docs")).unwrap();
+        live_pack(&conn, "pk1", "scope-a");
+        commit_private_snapshot_tx(&mut conn, &cloud_snap("ps1", "prot", 5), &["pk1".to_string()], "scope-a", b"{}").unwrap();
+        assert_eq!(count_shared_cloud_snapshots(&conn).unwrap(), 0);
+        let n: i64 = conn.query_row("SELECT COUNT(*) FROM cloud_snapshots", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 1);
     }
 
     #[test]
