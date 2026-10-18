@@ -32,6 +32,8 @@ use crate::db;
 
 type ApiError = (StatusCode, Json<Value>);
 type ApiResult = Result<Json<Value>, ApiError>;
+/// The signed-in user's x25519 public key and this Luna's signing public key.
+type CallerKeys = ([u8; 32], [u8; 32]);
 
 /// Most snapshots one private restore may send.
 const MAX_SNAPSHOTS: usize = 10_000;
@@ -160,7 +162,7 @@ fn hex_lower(bytes: &[u8]) -> String {
 
 /// The signed-in user's x25519 key and this Luna's signing key. `None` when the user has no
 /// recovery phrase on this Luna yet.
-fn load_caller(db: &crate::Db, user_id: &str) -> Result<Option<([u8; 32], [u8; 32])>, ApiError> {
+fn load_caller(db: &crate::Db, user_id: &str) -> Result<Option<CallerKeys>, ApiError> {
     let conn = db.lock().unwrap_or_else(|p| p.into_inner());
     let Some(keys) = db::get_user_keys(&conn, user_id).map_err(read_failed)? else {
         return Ok(None);
@@ -659,8 +661,8 @@ mod tests {
             send(&f.router, "GET", "/api/v1/cloud/restore-private/records/pscopes", &f.member_token, None).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
 
-        let bogus = format!("/api/v1/cloud/restore-private/records/self");
-        let (status, _) = send(&f.router, "GET", &bogus, &f.member_token, None).await;
+        let bogus = "/api/v1/cloud/restore-private/records/self";
+        let (status, _) = send(&f.router, "GET", bogus, &f.member_token, None).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
 
         let pack_uri = format!("/api/v1/cloud/restore-private/packs/{}", hex(&[5; 32]));
