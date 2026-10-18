@@ -179,7 +179,7 @@ impl Notices {
         else {
             return;
         };
-        let closing = "Luna Desktop closes while it installs, then opens again. Backup and sync pause for a moment.";
+        let closing = "Luna Desktop closes while it installs, then opens again. Uploads and sync pause for a moment.";
         let body = if notes.is_empty() {
             closing.to_string()
         } else {

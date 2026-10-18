@@ -81,7 +81,7 @@ class SettingsFragment : Fragment() {
             button.visibility = View.GONE
         } else {
             hint.text =
-                "Android can pause apps set to Optimized, so photo backup may not run. Tap Allow background backup, then choose Unrestricted (or Don't optimize) for Luna."
+                "Android can pause apps set to Optimized, so photo upload may not run. Tap Allow background upload, then choose Unrestricted (or Don't optimize) for Luna."
             button.visibility = View.VISIBLE
         }
     }

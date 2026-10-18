@@ -16,25 +16,23 @@ Nothing below needs that setup; a person can follow the briefs just as well.
 Both phase 2 and phase 3 went through an Opus review and all findings were fixed.
 Checks at fae9c307f: lunad lib 1126 passed, Go `vet` and tests clean, Connect web 160 passed, Luna web 1369 passed, `scan:colors` clean.
 
-## Phase 4 (private item backups): started, partly built
+## Phase 4 and 5: done (2026-10-18)
 
-Plan and 18 briefs: `briefs/p4-plan.md`, `briefs/p4-T1.md` … `p4-T18.md`. Wave order is in the plan.
-- **T1 done** (db tables and helpers for private scopes, empty module stubs, `for_row` call switch).
-- **T2 (access_list.rs), T3 (private crypto, format.rs), T4 (run.rs sealer refactor), T5 (Connect private gate)** were being written by agents when this was pushed. They are in the last commit marked `wip`. They were **not** verified together:
-  T2's tests could not compile until T3 added `PRIVATE_SNAPSHOT_DOMAIN` in `format.rs`.
-  First step on the new machine: run the full suites, fix whatever fails, then continue with wave 2 (T6 to T9).
-- T6 onward not started.
+| Phase | What | Commit |
+|---|---|---|
+| 4 | Private item backups: drive and cloud (owner-sealed), private restore, Connect private sessions and the Private items row | 78ac8ebe, 97088968, bf91ecc4 |
+| 5 | Dashboard Backups card, See all backups, health checks, 90-day phrase reminder, Android and desktop upload copy ("Photo upload", "Folder upload") | see git log |
 
-## Phase 5 (dashboard Backups card, See all backups, health checks, phrase reminders, desktop/Android): planned only partly
-
-`briefs/p5-plan.md` and `p5-T1.md` … `p5-T7.md` exist. The planner was stopped mid-way: **`p5-T7.md` may be incomplete or missing the later tasks**, and the plan's cross-check task (trace every web fetch to its backend route and field names) still needs a brief. Re-read `p5-plan.md` against plan.md §8 and fill the gaps.
+Each wave: Haiku agents implemented, a reviewer checked against the briefs, Haiku agents fixed the findings, then the
+orchestrator re-ran every suite before committing. Checks at the phase 5 commit: lunad lib 1212 passed, luna/web 1420 passed
+(tsc, eslint, `scan:colors` clean), Connect web 185 passed, shared/ui `lib/cloud` 47 passed, Android 76 and desktop 61 unit tests passed.
 
 ## How to test
 
-- Rust (host has no `cc`): `distrobox enter dev -- bash -lc 'cd ~/Projects/LibreServ/luna && CARGO_TARGET_DIR=target/dbx cargo test -p lunad --lib <filter>'`
-- Connect Go: `cd luna/connect`, `GOTOOLCHAIN=local` with the Go 1.27 toolchain on `PATH`, then `go vet ./... && go test ./...`
+- Rust: `export PATH=$HOME/.cargo/bin:$PATH; cd luna && cargo test -p lunad --lib <filter>` (the Mint host has gcc)
+- Connect Go (no host Go): `podman run --rm -v "$PWD":/src:Z -w /src/luna/connect -e GOFLAGS=-buildvcs=false -e GOTOOLCHAIN=local docker.io/library/golang:1.27 sh -c 'go vet ./... && go test ./...'`. `TestCheckEmailRejectsDuplicate` is flaky (about 1 run in 4).
 - Web: `cd luna/web && npx vitest run && npm run typecheck && npm run scan:colors`; same in `luna/connect/web`; `shared/ui`: `npx vitest run lib/cloud`.
-- After pulling: `npm install` in `shared/ui` and `luna/connect/web` (new crypto packages).
+- Web installs: npm is not on this machine. With pnpm use `pnpm install --node-linker=hoisted`, then replace `node_modules/@libreloom/ui` with a symlink to `shared/ui` (pnpm copies `file:` deps, and the copy goes stale and breaks vitest on extensionless imports). Redo both after any change under `shared/ui`.
 
 ## Known open items
 
@@ -43,7 +41,7 @@ Plan and 18 briefs: `briefs/p4-plan.md`, `briefs/p4-T1.md` … `p4-T18.md`. Wave
 - Overlapping purges of an unlinked Luna are possible after a crash retry; purging is idempotent.
 - `gofmt` flags `luna/connect/internal/api/handlers/admin_console.go` (was unformatted before this work).
 - The source-missing check in `run_once` has no direct test.
-- `needed` on the Luna restore card compares counts only; phase 4 should compare snapshot ids and ignore private ones.
+- `needed` on the Luna restore card compares counts only (not changed in phase 4).
 - Restore downloads every tree pack in one go (data packs are no longer downloaded).
 - Desktop and Android have no Protect screens (plan §9); check by grep before assuming.
 

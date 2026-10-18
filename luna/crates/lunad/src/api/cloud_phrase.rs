@@ -81,14 +81,25 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/cloud/phrase/check", post(check))
 }
 
+/// How long a recovery phrase can go unchecked before Luna asks the person to check it again.
+const CHECK_DUE_AFTER: i64 = 90 * 86_400;
+
+/// Whether the person should check their recovery phrase again: it is set, and neither setting
+/// it nor the last check is within the last 90 days.
+fn phrase_check_due(keys: Option<&UserKeys>, now: i64) -> bool {
+    keys.is_some_and(|k| now - k.phrase_set_at.max(k.last_checked_at) >= CHECK_DUE_AFTER)
+}
+
 async fn status(State(state): State<AppState>, Extension(user): Extension<CurrentUser>) -> ApiResult {
     let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
     let keys = db::get_user_keys(&conn, &user.id).map_err(|_| read_failed())?;
     // Null until cloud backup is set up on this Luna. Setup never happens on a read.
     let identity = identity::load(&conn).map_err(|_| read_failed())?;
+    let now = db::now_unix();
     Ok(Json(json!({
         "set": keys.is_some(),
         "set_at": keys.as_ref().map(|k| k.phrase_set_at),
+        "check_due": phrase_check_due(keys.as_ref(), now),
         "luna_id": identity.as_ref().map(|i| i.luna_id()),
         // The browser seals this key with its self key, so Connect can never swap it.
         "signing_public": identity.as_ref().map(|i| STANDARD.encode(i.public())),
@@ -274,7 +285,7 @@ mod tests {
     use serde_json::{Value, json};
     use tower::ServiceExt;
 
-    use super::{CHALLENGE_TTL, challenges, issue_challenge, take_challenge};
+    use super::{CHALLENGE_TTL, challenges, issue_challenge, phrase_check_due, take_challenge};
     use crate::backup::cloud::crypto::Signer;
     use crate::drives::DriveManager;
     use crate::drives::mount::shared_mock;
@@ -622,5 +633,35 @@ mod tests {
         let (status, list) = send(&router, "GET", "/api/v1/cloud/backups", &f.admin_token, None).await;
         assert_eq!(status, 200);
         assert_eq!(list.as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn check_due_after_90_days() {
+        let now = 100_000_000;
+        let keys = |phrase_set_at: i64, last_checked_at: i64| db::UserKeys {
+            user_id: "u1".into(),
+            x25519_public: vec![],
+            auth_public: vec![],
+            self_sealed: vec![],
+            phrase_set_at,
+            last_checked_at,
+        };
+        // Set 91 days ago and never checked: due.
+        assert!(phrase_check_due(Some(&keys(now - 91 * 86_400, 0)), now));
+        // Checked a day ago: not due, even though the phrase is old.
+        assert!(!phrase_check_due(
+            Some(&keys(now - 91 * 86_400, now - 86_400)),
+            now
+        ));
+        // Set just under 90 days ago and never checked: not due yet.
+        assert!(!phrase_check_due(
+            Some(&keys(now - 89 * 86_400, 0)),
+            now
+        ));
+    }
+
+    #[test]
+    fn check_not_due_when_no_phrase_is_set() {
+        assert!(!phrase_check_due(None, 100_000_000));
     }
 }

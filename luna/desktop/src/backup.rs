@@ -97,10 +97,10 @@ pub fn load_jobs() -> Vec<BackupJob> {
 
 pub fn save_jobs(jobs: &[BackupJob]) -> Result<(), String> {
     let dir = session::data_dir();
-    std::fs::create_dir_all(&dir).map_err(|_| "Couldn't save backup settings.".to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|_| "Couldn't save folder upload settings.".to_string())?;
     let bytes = serde_json::to_vec_pretty(jobs)
-        .map_err(|_| "Couldn't save backup settings.".to_string())?;
-    std::fs::write(jobs_path(), bytes).map_err(|_| "Couldn't save backup settings.".to_string())
+        .map_err(|_| "Couldn't save folder upload settings.".to_string())?;
+    std::fs::write(jobs_path(), bytes).map_err(|_| "Couldn't save folder upload settings.".to_string())
 }
 
 fn ledger_path(job: &BackupJob) -> PathBuf {

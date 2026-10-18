@@ -76,7 +76,7 @@ impl ShellView {
         list.set_css_classes(&["navigation-sidebar"]);
         list.set_vexpand(true);
 
-        let row_backup = nav_row("Backup", "folder-download-symbolic");
+        let row_backup = nav_row("Folder upload", "folder-download-symbolic");
         let row_sync = nav_row("Sync", "view-refresh-symbolic");
         let row_status = nav_row("Status", "view-list-symbolic");
         let row_settings = nav_row("Settings", "preferences-system-symbolic");
@@ -144,7 +144,7 @@ impl ShellView {
 
         let content_header = adw::HeaderBar::new();
         content_header.add_css_class("flat");
-        let window_title = adw::WindowTitle::new("Backup", "");
+        let window_title = adw::WindowTitle::new("Folder upload", "");
         content_header.set_title_widget(Some(&window_title));
 
         // On narrow screens the sidebar collapses; this button brings it back.
@@ -199,7 +199,7 @@ impl ShellView {
             let split = split.clone();
             move |_, row| {
                 let (name, label, page) = if row == row_backup.upcast_ref::<gtk::ListBoxRow>() {
-                    ("backup", "Backup", Page::Backup)
+                    ("backup", "Folder upload", Page::Backup)
                 } else if row == row_sync.upcast_ref::<gtk::ListBoxRow>() {
                     ("sync", "Sync", Page::Sync)
                 } else if row == row_status.upcast_ref::<gtk::ListBoxRow>() {

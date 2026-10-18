@@ -23,13 +23,13 @@ impl BackupPage {
         let outer = gtk::Box::new(gtk::Orientation::Vertical, 0);
 
         let blurb = gtk::Label::new(Some(
-            "Copy folders from this computer onto Luna. This is a one-way backup, so changes you make on Luna will not affect the files on this computer.",
+            "Copy folders from this computer onto Luna. Changes you make on Luna do not change the files on this computer.",
         ));
         blurb.set_wrap(true);
         blurb.set_halign(gtk::Align::Start);
         blurb.add_css_class("body");
 
-        let new_btn = gtk::Button::with_label("New backup");
+        let new_btn = gtk::Button::with_label("New folder upload");
         new_btn.add_css_class("pill");
         new_btn.add_css_class("suggested-action");
 
@@ -45,7 +45,7 @@ impl BackupPage {
         list.set_visible(false);
 
         let empty = gtk::Label::new(Some(
-            "No backups yet. Create one to copy folders onto Luna.",
+            "No folder uploads yet. Create one to copy folders onto Luna.",
         ));
         empty.add_css_class("dim-label");
         empty.set_margin_top(24);
@@ -167,7 +167,7 @@ fn make_refresh(
                     if no_drives {
                         empty.set_text("No drives found on Luna. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.");
                     } else {
-                        empty.set_text("No backups yet. Create one to copy folders onto Luna.");
+                        empty.set_text("No folder uploads yet. Create one to copy folders onto Luna.");
                     }
                 }
                 empty.set_visible(is_empty);
@@ -186,7 +186,7 @@ fn build_job_row(
     refresh: Rc<dyn Fn()>,
 ) -> adw::ActionRow {
     let title = if job.name.is_empty() {
-        "Backup".to_string()
+        "Folder upload".to_string()
     } else {
         job.name.clone()
     };
@@ -317,7 +317,7 @@ fn when_label(unix: i64) -> String {
 fn plain_error(raw: &str) -> String {
     let t = raw.trim();
     if t.is_empty() {
-        return "Something went wrong with this backup. Try editing it and saving again.".into();
+        return "Something went wrong with this folder upload. Try editing it and saving again.".into();
     }
     if t.contains("database for this drive is missing") {
         return t.to_string();
@@ -344,9 +344,9 @@ fn open_editor(
 ) {
     let dialog = adw::Dialog::new();
     dialog.set_title(if job.id.is_empty() {
-        "New backup"
+        "New folder upload"
     } else {
-        "Edit backup"
+        "Edit folder upload"
     });
     configure_form_dialog(&dialog, parent, true);
 
@@ -441,7 +441,7 @@ fn open_editor(
         let parent_w = parent.clone().upcast::<gtk::Widget>();
         move |_| {
             let dialog = gtk::FileDialog::builder()
-                .title("Choose a folder to back up")
+                .title("Choose a folder to upload")
                 .build();
             let window = parent_w.root().and_downcast::<gtk::Window>();
             let sources = sources.clone();
@@ -462,14 +462,14 @@ fn open_editor(
         }
     });
 
-    let src_label = gtk::Label::new(Some("Folders to back up"));
+    let src_label = gtk::Label::new(Some("Folders to upload"));
     src_label.set_halign(gtk::Align::Start);
     src_label.add_css_class("heading");
     page.append(&src_label);
     page.append(&sources_list);
     page.append(&add);
 
-    let dest_label = gtk::Label::new(Some("Select where this backup is stored on Luna"));
+    let dest_label = gtk::Label::new(Some("Select where these folders go on Luna"));
     dest_label.set_halign(gtk::Align::Start);
     dest_label.set_wrap(true);
     dest_label.add_css_class("heading");

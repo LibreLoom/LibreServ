@@ -45,7 +45,7 @@ class BackupNotifications(private val context: Context) {
         if (!allowed()) return
         val note = NotificationCompat.Builder(context, ALERT_CHANNEL)
             .setSmallIcon(android.R.drawable.stat_notify_error)
-            .setContentTitle("Luna photo backup had a problem")
+            .setContentTitle("Luna photo upload had a problem")
             .setContentText(message)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
@@ -79,7 +79,7 @@ class BackupNotifications(private val context: Context) {
             manager.createNotificationChannel(
                 NotificationChannel(
                     PROGRESS_CHANNEL,
-                    "Photo backup progress",
+                    "Photo upload progress",
                     NotificationManager.IMPORTANCE_LOW,
                 ).apply {
                     description = "Quiet progress while photos save to Luna"
@@ -89,10 +89,10 @@ class BackupNotifications(private val context: Context) {
             manager.createNotificationChannel(
                 NotificationChannel(
                     ALERT_CHANNEL,
-                    "Photo backup alerts",
+                    "Photo upload alerts",
                     NotificationManager.IMPORTANCE_DEFAULT,
                 ).apply {
-                    description = "Only when photo backup needs you to sign in again"
+                    description = "Only when photo upload needs you to sign in again"
                 }
             )
         }

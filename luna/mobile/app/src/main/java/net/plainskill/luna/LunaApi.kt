@@ -248,7 +248,7 @@ object LunaApi {
             }
         is IllegalStateException ->
             error.message
-                ?: "This phone couldn't store the sign-in safely. Photo backup can't start. Try signing in again."
+                ?: "This phone couldn't store the sign-in safely. Photo upload can't start. Try signing in again."
         else ->
             error.message
                 ?: "Something went wrong. Try again. If it keeps happening, sign out and sign in with a new access token from Luna → Settings → Security."
@@ -289,7 +289,7 @@ object LunaApi {
             }
         }
         return json.optString("upload_id").ifEmpty {
-            throw ApiException(500, "Luna started the upload but didn't return a session. Try Backup now again.")
+            throw ApiException(500, "Luna started the upload but didn't return a session. Try Upload now again.")
         }
     }
 

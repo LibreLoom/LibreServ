@@ -363,13 +363,13 @@ pub fn save_backup_job(
         }
         if j.name.trim().is_empty() {
             j.name = if dest_ref.path.is_empty() {
-                "Backup".into()
+                "Folder upload".into()
             } else {
                 dest_ref
                     .path
                     .rsplit('/')
                     .next()
-                    .unwrap_or("Backup")
+                    .unwrap_or("Folder upload")
                     .to_string()
             };
         }
@@ -400,7 +400,7 @@ pub fn start_backup_job(state: &AppState, id: &str) -> Result<(), String> {
     let job = jobs
         .iter_mut()
         .find(|j| j.id == id)
-        .ok_or_else(|| "That backup was not found.".to_string())?;
+        .ok_or_else(|| "That folder upload was not found.".to_string())?;
     if state
         .backup_handles
         .lock()

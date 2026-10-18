@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Archive, Copy, Download, FolderInput, HardDrive, Lock, Pencil, RotateCcw, Trash2 } from "lucide-react";
 import PropTypes from "prop-types";
@@ -309,13 +309,48 @@ export default function DriveFileExplorer({
   const [emptyTrashOpen, setEmptyTrashOpen] = useState(false);
   // Drive id whose Backups folder is open (null = normal file list).
   const [backupsDriveId, setBackupsDriveId] = useState(/** @type {string|null} */ (null));
-  const inBackups = !guest && backupsDriveId === driveId;
   const backupsList = useQuery({
     queryKey: ["drive-backups", driveId],
     queryFn: () => getJson(`/api/v1/drives/${driveId}/backups`),
     enabled: !guest && !!driveId,
   });
   const backupsAvailable = Array.isArray(backupsList.data) && backupsList.data.length > 0;
+  // Deep link: /drives/<id>?backups=1 opens this drive's Backups folder.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const backupsParam = searchParams.get("backups") === "1";
+  // ?backups=1 (the deep link) opens the same folder as the Backups button.
+  const inBackups = !guest && (backupsDriveId === driveId || backupsParam);
+  function leaveBackups() {
+    setBackupsDriveId(null);
+    if (!searchParams.has("backups")) return;
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete("backups");
+      return next;
+    }, { replace: true });
+  }
+  // Only the signed-in owner's private items come back, so a match means "my private folder".
+  const privateMine = useQuery({
+    queryKey: ["private-backups-mine"],
+    queryFn: () => getJson("/api/v1/private-backups/mine"),
+    enabled: !guest,
+    retry: false,
+  });
+  const notBackedUpPaths = useMemo(() => {
+    const paths = new Set();
+    for (const item of privateMine.data?.items || []) {
+      if (item.drive_id !== driveId) continue;
+      if (item.drive_backups === 0 && !item.cloud_backup) {
+        paths.add((item.path || "").replace(/^\/+|\/+$/g, ""));
+      }
+    }
+    return paths;
+  }, [privateMine.data, driveId]);
+  /** True when `fullPath` is one of the owner's private folders with no backup yet. */
+  const isNotBackedUp = useCallback(
+    (fullPath) => notBackedUpPaths.has((fullPath || "").replace(/^\/+|\/+$/g, "")),
+    [notBackedUpPaths],
+  );
 
   const drivesQuery = useQuery({ queryKey: ["drives"], queryFn: getDrives, enabled: !guest });
   const availableDrives = useMemo(() => {
@@ -816,6 +851,7 @@ export default function DriveFileExplorer({
         {showProtect && ctx.entry.kind === "dir" && !trashChild && (
           <ProtectButton
             label={ctx.displayName}
+            notBackedUp={isNotBackedUp(ctx.fullPath)}
             onClick={() => setProtectTarget({ path: ctx.fullPath })}
           />
         )}
@@ -912,7 +948,7 @@ export default function DriveFileExplorer({
     </ActionTooltipGroup>
     );
   },
-    [access.data, driveId, guest, guestCaps, source.isFile, isAdmin, showProtect, canView]);
+    [access.data, driveId, guest, guestCaps, source.isFile, isAdmin, showProtect, canView, isNotBackedUp]);
 
   return (
     <>
@@ -925,7 +961,7 @@ export default function DriveFileExplorer({
           <Spinner size="sm" decorative className="text-primary" />
         </div>
       ) : inBackups ? (
-        <BackupsFolder driveId={driveId} onExit={() => setBackupsDriveId(null)} />
+        <BackupsFolder driveId={driveId} onExit={leaveBackups} />
       ) : !canView && folderCanUpload ? (
         <UploadFilesPanel
           onUploadFiles={(files) => uploadFiles(files, path)}
@@ -1038,6 +1074,7 @@ export default function DriveFileExplorer({
               {showProtect && !trashChildFolder && (path !== "" || isAdmin) && (
                 <ProtectButton
                   label={label}
+                  notBackedUp={isNotBackedUp(path)}
                   onClick={() => setProtectTarget({ path })}
                 />
               )}
@@ -1410,7 +1447,10 @@ export default function DriveFileExplorer({
             open={protectTarget != null}
             driveId={driveId}
             path={protectTarget?.path || ""}
-            onClose={() => setProtectTarget(null)}
+            onClose={() => {
+              setProtectTarget(null);
+              queryClient.invalidateQueries({ queryKey: ["private-backups-mine"] });
+            }}
           />
         </>
       )}

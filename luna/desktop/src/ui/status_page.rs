@@ -19,7 +19,7 @@ impl StatusPage {
         let outer = gtk::Box::new(gtk::Orientation::Vertical, 0);
 
         let blurb = gtk::Label::new(Some(
-            "Backups and syncs in progress between this computer and Luna.",
+            "Uploads and syncs in progress between this computer and Luna.",
         ));
         blurb.set_wrap(true);
         blurb.set_halign(gtk::Align::Start);
@@ -94,7 +94,7 @@ impl StatusPage {
                                 continue;
                             };
                             let name = if job.name.is_empty() {
-                                "Backup"
+                                "Folder upload"
                             } else {
                                 job.name.as_str()
                             };
@@ -216,7 +216,7 @@ impl StatusPage {
 
                         if !any {
                             if let Some(text) = mismatch {
-                                empty.set_title("Backup and sync are paused");
+                                empty.set_title("Uploads and sync are paused");
                                 empty.set_description(Some(text));
                                 empty.set_icon_name(Some("dialog-warning-symbolic"));
                             } else if no_drives {

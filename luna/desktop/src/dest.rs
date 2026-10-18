@@ -77,7 +77,7 @@ pub fn validate_local_dirs(paths: &[String]) -> Result<Vec<PathBuf>, String> {
         for j in (i + 1)..out.len() {
             if local_paths_overlap(&out[i], &out[j]) {
                 return Err(
-                    "Two backup folders sit inside each other. Pick separate folders.".into(),
+                    "Two folders to upload sit inside each other. Pick separate folders.".into(),
                 );
             }
         }
@@ -188,7 +188,7 @@ pub fn check_backup_against(
         for sync_local in &existing.sync_locals {
             if local_paths_overlap(src, sync_local) {
                 return Err(
-                    "That folder is already used by Sync. Pick a different folder to back up."
+                    "That folder is already used by Sync. Pick a different folder to upload."
                         .into(),
                 );
             }
@@ -203,12 +203,12 @@ pub fn check_backup_against(
         }
         if other.path == dest.path {
             return Err(
-                "Another backup already uses this Luna folder. Choose a different folder.".into(),
+                "Another folder upload already uses this Luna folder. Choose a different folder.".into(),
             );
         }
         if paths_overlap(&other.path, &dest.path) {
             return Err(
-                "That Luna folder sits inside another backup's folder (or the other way around). Choose a separate folder."
+                "That Luna folder sits inside another folder upload's folder (or the other way around). Choose a separate folder."
                     .into(),
             );
         }
@@ -219,7 +219,7 @@ pub fn check_backup_against(
         }
         if paths_overlap(&remote.path, &dest.path) {
             return Err(
-                "That Luna folder is already used by Sync. Choose a different backup destination."
+                "That Luna folder is already used by Sync. Choose a different folder to upload to."
                     .into(),
             );
         }
@@ -236,7 +236,7 @@ pub fn check_sync_against(
     for src in &existing.backup_sources {
         if local_paths_overlap(local, src) {
             return Err(
-                "That folder overlaps a Backup folder. Pick a different place for Sync.".into(),
+                "That folder overlaps a folder upload. Pick a different place for Sync.".into(),
             );
         }
     }
@@ -271,7 +271,7 @@ pub fn check_sync_against(
         }
         if paths_overlap(&dest.path, &remote.path) {
             return Err(
-                "That Luna folder overlaps a Backup destination. Choose a different folder to sync."
+                "That Luna folder overlaps a folder upload's destination. Choose a different folder to sync."
                     .into(),
             );
         }

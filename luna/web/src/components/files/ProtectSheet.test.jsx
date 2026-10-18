@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../../context/AuthContext";
-import ProtectSheet from "./ProtectSheet";
+import ProtectSheet, { ProtectButton } from "./ProtectSheet";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import Toaster from "@libreloom/ui/components/common/Toaster.jsx";
 
@@ -165,8 +165,7 @@ function stubBackupApi({
   );
 }
 
-function renderSheet(props = {}) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+function renderSheet(props = {}, client = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
   return render(
     <ToastProvider>
     <MemoryRouter>
@@ -650,5 +649,55 @@ describe("ProtectSheet", () => {
       expect(onOldCopiesDelete).toHaveBeenCalledWith(expect.stringContaining("/api/v1/private-backups/old-copies")),
     );
     expect(await screen.findByText("Older versions will be removed")).toBeInTheDocument();
+  });
+
+  it("refreshes the private backup lists when a backup is created from the sheet", async () => {
+    const user = userEvent.setup();
+    stubBackupApi({
+      drives: [
+        { id: "d1", label: "Main", mount_point: "/mnt/main" },
+        { id: "d2", label: "Backup", mount_point: "/mnt/backup" },
+      ],
+      backups: [],
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    renderSheet({}, client);
+    const choose = await screen.findByRole("button", { name: "Choose a drive" });
+    await user.click(choose);
+    await user.click(await screen.findByRole("option", { name: "Backup" }));
+    await user.click(screen.getByRole("button", { name: "Back up" }));
+    expect(await screen.findByText("Backup started.")).toBeInTheDocument();
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["private-backups-summary"] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["private-backups-mine"] });
+  });
+
+  it("refreshes the private backup lists when a cloud backup is deleted from the sheet", async () => {
+    const user = userEvent.setup();
+    stubBackupApi({
+      drives: [{ id: "d1", label: "Main", mount_point: "/mnt/main" }],
+      connect: { connect_active: true },
+      cloudBackups: [cloudBackup({ id: "c1" })],
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    renderSheet({}, client);
+    await user.click(await screen.findByRole("button", { name: "Delete cloud backup" }));
+    const dialog = await screen.findByRole("dialog", { name: /Delete cloud backup\?/ });
+    await user.click(within(dialog).getByRole("button", { name: "Delete cloud backup" }));
+    expect(await screen.findByText("Cloud backup deleted.")).toBeInTheDocument();
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["private-backups-summary"] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["private-backups-mine"] });
+  });
+});
+
+describe("ProtectButton", () => {
+  it("shows Not backed up beside the shield and keeps the Back up label", () => {
+    const onClick = vi.fn();
+    render(<ProtectButton label="Taxes" notBackedUp onClick={onClick} />);
+    const button = screen.getByRole("button", { name: "Back up Taxes" });
+    expect(within(button).getByText("Not backed up")).toBeInTheDocument();
+    button.click();
+    expect(onClick).toHaveBeenCalledTimes(1);
   });
 });

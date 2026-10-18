@@ -10,7 +10,7 @@ import DriveFileExplorer from "./DriveFileExplorer.jsx";
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
 
-function renderExplorer() {
+function renderExplorer({ listing = [], mine = [], initialEntries = ["/"] } = {}) {
   const calls = [];
   vi.stubGlobal("fetch", vi.fn(async (url, init = {}) => {
     const u = String(url);
@@ -26,10 +26,12 @@ function renderExplorer() {
     if (u.endsWith("/api/v1/auth/status")) return json({ has_admin: true });
     if (u.endsWith("/api/v1/setup")) return json({ setup_completed: true });
     if (u.endsWith("/api/v1/drives")) return json([{ id: "d1", label: "Photos", state: "mounted" }]);
+    if (u.endsWith("/api/v1/connect/status")) return json({ connect_active: true });
+    if (u.endsWith("/api/v1/private-backups/mine")) return json({ items: mine });
     if (u.includes("/files/mkdir") || u.includes("/files/create") || u.includes("/files/upload")) {
       return json({ ok: true });
     }
-    if (u.includes("/api/v1/drives/d1/files")) return json([]);
+    if (u.includes("/api/v1/drives/d1/files?path=")) return json(listing);
     return json([]);
   }));
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -37,7 +39,7 @@ function renderExplorer() {
     <ThemeProvider>
     <ToastProvider>
       <QueryClientProvider client={client}>
-        <MemoryRouter>
+        <MemoryRouter initialEntries={initialEntries}>
           <AuthProvider>
             <DriveFileExplorer driveId="d1" driveLabel="Photos" isAdmin />
           </AuthProvider>
@@ -81,5 +83,30 @@ describe("DriveFileExplorer private folders", () => {
       expect(calls.find(([m, u]) => m === "POST" && u.endsWith("/files/mkdir"))?.[2])
         .toEqual({ path: "Taxes", private: true });
     });
+  });
+
+  it("shows Not backed up on my private folder that has no backups", async () => {
+    renderExplorer({
+      listing: [{ name: "Taxes", kind: "dir", size: 0, hidden: false }],
+      mine: [{ drive_id: "d1", path: "Taxes", name: "Taxes", drive_backups: 0, cloud_backup: false }],
+    });
+    const button = await screen.findByRole("button", { name: "Back up Taxes" });
+    expect(await within(button).findByText("Not backed up")).toBeInTheDocument();
+  });
+
+  it("does not show Not backed up once the private folder has a drive backup", async () => {
+    const calls = renderExplorer({
+      listing: [{ name: "Taxes", kind: "dir", size: 0, hidden: false }],
+      mine: [{ drive_id: "d1", path: "Taxes", name: "Taxes", drive_backups: 1, cloud_backup: false }],
+    });
+    await screen.findByRole("button", { name: "Back up Taxes" });
+    await waitFor(() => expect(calls.some(([, u]) => u.endsWith("/private-backups/mine"))).toBe(true));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(screen.queryByText("Not backed up")).not.toBeInTheDocument();
+  });
+
+  it("opens the Backups folder from ?backups=1", async () => {
+    renderExplorer({ initialEntries: ["/drives/d1?backups=1"] });
+    expect(await screen.findByRole("heading", { name: "Backups" })).toBeInTheDocument();
   });
 });

@@ -99,7 +99,7 @@ mod unix_impl {
             "[Desktop Entry]\n\
              Type=Application\n\
              Name=Luna Desktop\n\
-             Comment=Back up and sync folders with Luna\n\
+             Comment=Upload folders and sync them with Luna\n\
              Exec={exec} --background\n\
              Icon=org.libreloom.LunaDesktop\n\
              Terminal=false\n\

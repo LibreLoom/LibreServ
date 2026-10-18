@@ -44,15 +44,15 @@ class BackupFragment : Fragment() {
         val view = view ?: return
         val ctx = requireContext()
         view.findViewById<TextView>(R.id.backupStatus).text = if (BackupPrefs.backupEnabled(ctx)) {
-            "Backup is on. New photos save when the conditions in Settings are met, or when you tap Backup now."
+            "Upload is on. New photos upload when the conditions in Settings are met, or when you tap Upload now."
         } else {
-            "Backup is paused. Turn it on to save new photos automatically, or tap Backup now after you turn it on."
+            "Upload is paused. Turn it on to upload new photos automatically, or tap Upload now after you turn it on."
         }
         val at = BackupPrefs.lastBackupAt(ctx)
         view.findViewById<TextView>(R.id.lastBackup).text = if (at <= 0L) {
-            "Last backup: none yet"
+            "Last upload: none yet"
         } else {
-            "Last backup: ${DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(at))}"
+            "Last upload: ${DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(at))}"
         }
     }
 
@@ -65,7 +65,7 @@ class BackupFragment : Fragment() {
             button.visibility = View.GONE
         } else {
             hint.text =
-                "Android can pause apps set to Optimized, so photo backup may not run. Tap Allow background backup, then choose Unrestricted (or Don't optimize) for Luna."
+                "Android can pause apps set to Optimized, so photo upload may not run. Tap Allow background upload, then choose Unrestricted (or Don't optimize) for Luna."
             button.visibility = View.VISIBLE
         }
     }
@@ -87,7 +87,7 @@ class BackupFragment : Fragment() {
                     return@runOnUiThread
                 }
                 WorkScheduler.runSoon(ctx)
-                status.text = "Backup started. Open Status to watch it."
+                status.text = "Upload started. Open Status to watch it."
                 button.isEnabled = true
                 bindStatus()
             }

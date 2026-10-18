@@ -65,10 +65,10 @@ object BackupConfig {
 
     fun testForBackupNow(context: Context): Result {
         if (!BackupPrefs.setupComplete(context)) {
-            return Result(false, "Finish setup first. Luna needs a drive, a folder, and photo access before it can back up.")
+            return Result(false, "Finish setup first. Luna needs a drive, a folder, and photo access before it can upload.")
         }
         if (!BackupPrefs.backupEnabled(context)) {
-            return Result(false, "Backup is paused. Turn on Back up automatically on the Backup page, then try Backup now.")
+            return Result(false, "Upload is paused. Turn on Upload automatically on the Photo upload page, then try Upload now.")
         }
         if (!hasPhotoAccess(context)) {
             return Result(false, photosDeniedMessage())

@@ -112,7 +112,7 @@ class LoginActivity : AppCompatActivity() {
                 .setMessage(
                     "This phone is connected to ${urlLabel(current)}. " +
                         "Switch to ${urlLabel(pairing.url)}? " +
-                        "Photos will back up to the new Luna."
+                        "Photos will upload to the new Luna."
                 )
                 .setPositiveButton("Switch") { _, _ -> fillPairing(pairing) }
                 .setNegativeButton("Cancel", null)

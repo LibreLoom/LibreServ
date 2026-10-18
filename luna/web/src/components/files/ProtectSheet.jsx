@@ -46,7 +46,25 @@ function formatOnDate(unixSeconds) {
   });
 }
 
-export function ProtectButton({ label, onClick }) {
+/** Shield that opens Protect. `notBackedUp` adds a text label for a folder with no backup yet. */
+export function ProtectButton({ label, onClick, notBackedUp = false }) {
+  if (notBackedUp) {
+    return (
+      <Tooltip content="Not backed up yet">
+        <Button
+          variant="ghost"
+          surface="secondary"
+          size="sm"
+          className="rounded-pill"
+          aria-label={`Back up ${label}`}
+          onClick={onClick}
+        >
+          <Shield size={ICON_SIZE.sm} aria-hidden="true" />
+          <span className="text-sm">Not backed up</span>
+        </Button>
+      </Tooltip>
+    );
+  }
   return (
     <Tooltip content="Back up">
       <Button
@@ -129,6 +147,13 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
   const blockedCreate = isOthersPrivate || isInside;
   const showCloudSection = !isOthersPrivate && (!isInside || Boolean(cloudBackup));
 
+  // The "Private items" row in See all backups and the private item list show these,
+  // so a change made from this sheet must refresh them too.
+  const refreshPrivateSummary = () => {
+    queryClient.invalidateQueries({ queryKey: ["private-backups-summary"] });
+    queryClient.invalidateQueries({ queryKey: ["private-backups-mine"] });
+  };
+
   const createBackup = useMutation({
     mutationFn: () =>
       postJson("/api/v1/backups", {
@@ -139,6 +164,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
     onSuccess: () => {
       addToast({ type: "success", message: "Backup started." });
       queryClient.invalidateQueries({ queryKey: ["backups"] });
+      refreshPrivateSummary();
       setError(null);
       setTargetDrive("");
     },
@@ -174,6 +200,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
     // Success or failure, the row's status changed.
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["backups"] });
+      refreshPrivateSummary();
     },
   });
   const deleteBackup = useMutation({
@@ -182,6 +209,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
       addToast({ type: "success", message: "Backup deleted." });
       setDeleting(null);
       queryClient.invalidateQueries({ queryKey: ["backups"] });
+      refreshPrivateSummary();
     },
     onError: (err) => {
       haptic("error");
@@ -197,6 +225,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
       addToast({ type: "success", message: "Cloud backup started." });
       setError(null);
       queryClient.invalidateQueries({ queryKey: ["cloud-backups"] });
+      refreshPrivateSummary();
     },
     onError: (err) => {
       haptic("error");
@@ -229,6 +258,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["cloud-backups"] });
+      refreshPrivateSummary();
     },
   });
   const deleteCloud = useMutation({
@@ -237,6 +267,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
       addToast({ type: "success", message: "Cloud backup deleted." });
       setDeletingCloud(null);
       queryClient.invalidateQueries({ queryKey: ["cloud-backups"] });
+      refreshPrivateSummary();
     },
     onError: (err) => {
       haptic("error");

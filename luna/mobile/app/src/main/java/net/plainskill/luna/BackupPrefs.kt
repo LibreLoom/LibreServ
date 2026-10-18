@@ -69,7 +69,7 @@ object BackupPrefs {
         driveLabel: String? = null,
     ) {
         val p = prefs(context)
-            ?: throw IllegalStateException("This phone couldn't store the sign-in safely. Photo backup can't start.")
+            ?: throw IllegalStateException("This phone couldn't store the sign-in safely. Photo upload can't start.")
         p.edit()
             .putString("base_url", baseUrl)
             .putString("token", token)

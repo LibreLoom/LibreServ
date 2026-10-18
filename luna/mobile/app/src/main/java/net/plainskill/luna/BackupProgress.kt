@@ -32,6 +32,6 @@ object BackupProgress {
     }
 
     fun fail(message: String) {
-        idle("Backup could not finish.", message)
+        idle("Upload could not finish.", message)
     }
 }

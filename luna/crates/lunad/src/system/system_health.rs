@@ -975,7 +975,8 @@ pub fn backup_checks(conn: &Connection, now: i64) -> HashMap<String, HealthCheck
     };
 
     for row in crate::db::list_protections(conn).unwrap_or_default() {
-        if row.kind != crate::db::PROTECTION_DRIVE {
+        // Private items are only reported on their owner's line (see below).
+        if row.kind != crate::db::PROTECTION_DRIVE || !row.private_owner.is_empty() {
             continue;
         }
         let folder = folder_name(&row, &drive_label(&row.source_drive));
@@ -1050,7 +1051,7 @@ pub fn backup_checks(conn: &Connection, now: i64) -> HashMap<String, HealthCheck
     }
 
     for row in crate::db::list_protections(conn).unwrap_or_default() {
-        if row.kind != crate::db::PROTECTION_CLOUD {
+        if row.kind != crate::db::PROTECTION_CLOUD || !row.private_owner.is_empty() {
             continue;
         }
         let folder = folder_name(&row, &drive_label(&row.source_drive));
@@ -1147,7 +1148,89 @@ pub fn backup_checks(conn: &Connection, now: i64) -> HashMap<String, HealthCheck
                 .more("Without a recovery phrase, this person can't get their files back from the cloud.");
         }
     }
+
+    // Private items: one check per owner, counted but never named.
+    let mut tallies: std::collections::BTreeMap<String, (usize, usize)> =
+        std::collections::BTreeMap::new();
+    for row in crate::db::list_protections(conn).unwrap_or_default() {
+        if row.private_owner.is_empty() {
+            continue;
+        }
+        let tally = tallies.entry(row.private_owner.clone()).or_default();
+        tally.0 += 1;
+        if row_needs_look(conn, &row, now) {
+            tally.1 += 1;
+        }
+    }
+    for (owner, (total, needs_look)) in tallies {
+        let active_name = if crate::private::owner_state(conn, &owner)
+            == crate::private::OwnerState::Active
+        {
+            crate::db::get_user(conn, &owner)
+                .ok()
+                .flatten()
+                .map(|u| {
+                    if u.display_name.trim().is_empty() {
+                        u.username
+                    } else {
+                        u.display_name
+                    }
+                })
+        } else {
+            None
+        };
+        let deleted = active_name.is_none();
+        let name = active_name.unwrap_or_else(|| "a deleted user".into());
+        let start = if deleted {
+            "A deleted user".to_string()
+        } else {
+            name.clone()
+        };
+        let id = format!("private_backups_{owner}");
+        let details = json!({ "backups": total, "needs_look": needs_look });
+        if needs_look == 0 {
+            checks.add(
+                &id,
+                "backups",
+                PASSED,
+                format!("{start}'s private items are backed up."),
+                Some(details),
+            );
+            continue;
+        }
+        let message = if needs_look == 1 {
+            format!("1 of {name}'s private items needs a look.")
+        } else {
+            format!("{needs_look} of {name}'s private items need a look.")
+        };
+        let more = if deleted {
+            "An Admin can remove them on the dashboard: Backups → See all backups.".to_string()
+        } else {
+            format!("Only {name} can see which and why.")
+        };
+        checks
+            .add(&id, "backups", WARNING, message, Some(details))
+            .more(more);
+    }
     checks.0
+}
+
+/// Whether a backup row needs someone's attention. Mirrors the warnings the drive and cloud
+/// loops raise: a stopped or gone row is final, and a drive or cloud row that is failing or
+/// out of date needs a look.
+fn row_needs_look(conn: &Connection, row: &crate::db::ProtectionRow, now: i64) -> bool {
+    use crate::backup::drive_backup::state as drive_state;
+    use crate::backup::status::BackupState;
+    if row.state == "stopped" || row.state == "source_gone" {
+        return false;
+    }
+    if row.kind == crate::db::PROTECTION_DRIVE {
+        return !matches!(drive_state(row, now), BackupState::Ok);
+    }
+    (!row.last_error.is_empty()
+        && matches!(crate::backup::cloud::ops::state(row, now), BackupState::Failing))
+        || now - row.last_ok_at.max(row.created_at) >= 2 * 86_400
+        || crate::backup::cloud::ops::last_check_problem(conn, &row.id).is_some()
 }
 
 /// Setup checks plus per-drive read/write probes and SMART reads — callers
@@ -1926,6 +2009,96 @@ mod tests {
                 assert!(check.more.is_some(), "{name} has nothing one step in");
             }
         }
+    }
+
+    fn add_private_row(
+        conn: &Connection,
+        id: &str,
+        kind: &str,
+        owner: &str,
+        source_path: &str,
+        target_drive: &str,
+        created_at: i64,
+    ) {
+        crate::db::insert_protection(
+            conn,
+            &crate::db::NewProtection {
+                id,
+                kind,
+                source_drive: "a",
+                source_path,
+                target_drive,
+                private_owner: owner,
+                created_by: owner,
+                created_at,
+            },
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn private_rows_are_not_named() {
+        let (_dir, conn) = setup();
+        insert_drive(&conn, "a", "Main", "ready", "ext4", "sda", "/mnt/a");
+        insert_drive(&conn, "b", "Backup B", "ready", "ext4", "sdb", "/mnt/b");
+        crate::db::insert_user(&conn, "u1", "max", "Max", "hash", "member").unwrap();
+        let now = 10_000_000;
+        add_private_row(&conn, "p1", crate::db::PROTECTION_DRIVE, "u1", "/Diary", "b", now - 3 * 86_400);
+        add_private_row(&conn, "c1", crate::db::PROTECTION_CLOUD, "u1", "/Diary", "", now - 3 * 86_400);
+        // A cloud row whose access list names the owner with no phrase: still not named.
+        conn.execute(
+            "UPDATE protections SET access_json = '{\"users\":[\"u1\"]}' WHERE id = 'c1'",
+            [],
+        )
+        .unwrap();
+
+        let checks = backup_checks(&conn, now);
+        assert!(!checks.contains_key("drive_backup_p1"));
+        assert!(!checks.contains_key("cloud_backup_c1"));
+        assert!(!checks.keys().any(|k| k.starts_with("cloud_phrase_")));
+        let owner_checks: Vec<_> = checks
+            .keys()
+            .filter(|k| k.starts_with("private_backups_"))
+            .collect();
+        assert_eq!(owner_checks, vec!["private_backups_u1"]);
+        for (name, check) in &checks {
+            assert!(!check.message.contains("Diary"), "{name}: {}", check.message);
+            if let Some(more) = &check.more {
+                assert!(!more.contains("Diary"), "{name}: {more}");
+            }
+            if let Some(details) = &check.details {
+                assert!(!details.to_string().contains("Diary"), "{name}: {details}");
+            }
+        }
+    }
+
+    #[test]
+    fn private_problem_counts_without_naming() {
+        let (_dir, conn) = setup();
+        insert_drive(&conn, "a", "Main", "ready", "ext4", "sda", "/mnt/a");
+        insert_drive(&conn, "b", "Backup B", "ready", "ext4", "sdb", "/mnt/b");
+        crate::db::insert_user(&conn, "u1", "max", "Max", "hash", "member").unwrap();
+        let now = 10_000_000;
+        add_private_row(&conn, "p1", crate::db::PROTECTION_DRIVE, "u1", "/Diary", "b", now - 3 * 86_400);
+        add_private_row(&conn, "p2", crate::db::PROTECTION_DRIVE, "u1", "/Notes", "b", now - 60);
+        crate::db::record_protection_error(
+            &conn,
+            "p1",
+            "Luna can't find the drive Backup B, so Diary wasn't backed up.",
+            true,
+            now - 60,
+        )
+        .unwrap();
+
+        let checks = backup_checks(&conn, now);
+        let owner = &checks["private_backups_u1"];
+        assert_eq!(owner.status, WARNING);
+        assert_eq!(owner.category, "backups");
+        assert_eq!(owner.message, "1 of Max's private items needs a look.");
+        assert_eq!(owner.more.as_deref(), Some("Only Max can see which and why."));
+        assert_eq!(owner.details.as_ref().unwrap()["needs_look"], 1);
+        assert_eq!(owner.details.as_ref().unwrap()["backups"], 2);
+        assert!(!owner.message.contains("Diary"));
     }
 
     #[test]

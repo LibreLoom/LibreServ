@@ -124,7 +124,7 @@ class PhotoBackupWorkerTest {
         signInReady()
         assertEquals(ListenableWorker.Result.failure(), run())
         assertTrue(requests.isEmpty())
-        assertEquals("Backup could not finish.", BackupProgress.snapshot.heading)
+        assertEquals("Upload could not finish.", BackupProgress.snapshot.heading)
         assertEquals(BackupConfig.photosDeniedMessage(), BackupProgress.snapshot.lastError)
     }
 

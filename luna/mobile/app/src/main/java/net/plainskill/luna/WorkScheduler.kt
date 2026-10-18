@@ -38,7 +38,7 @@ object WorkScheduler {
     /** Start a backup now. No Wi-Fi/charging wait. */
     fun runSoon(context: Context) {
         if (!BackupPrefs.setupComplete(context)) return
-        BackupProgress.set(true, "Starting backup…", "Checking for new photos")
+        BackupProgress.set(true, "Starting upload…", "Checking for new photos")
         val request = OneTimeWorkRequestBuilder<PhotoBackupWorker>()
             .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             .build()
