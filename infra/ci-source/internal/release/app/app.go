@@ -60,6 +60,10 @@ type Config struct {
 	// OnEvent receives progress events.
 	OnEvent func(Event)
 
+	// TestGate runs the named ./ci profiles before a cut and returns an error if
+	// any fail, streaming their output to log. Nil skips the gate (tests).
+	TestGate func(ctx context.Context, profiles []string, log func(line string)) error
+
 	// Parts returns a unit's parts (default parts.For).
 	Parts func(unit string) []engine.Part
 	// Units lists the units "all" builds (default parts.Units).

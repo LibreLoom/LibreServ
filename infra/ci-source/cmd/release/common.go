@@ -94,6 +94,7 @@ func newApp(o appOpts) (*app.App, error) {
 	cfg.DevVersion = devVersion
 	cfg.FeedSpecs = feedSpecs
 	cfg.VersionFiles = versionFiles()
+	cfg.TestGate = ciGate(repo)
 	return app.New(cfg)
 }
 

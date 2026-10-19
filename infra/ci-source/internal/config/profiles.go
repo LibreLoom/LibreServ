@@ -124,8 +124,8 @@ var Profiles = map[string]*Profile{
 	"release": {
 		ID:          "release",
 		Name:        "Release tool",
-		Description: "The release and ci tools' own tests, including the podman integration tests",
-		TestIDs:     []string{"release-test", "release-integration"},
+		Description: "The release and ci tools' own tests, including the podman integration tests and the slow builds",
+		TestIDs:     []string{"release-test", "release-integration", "release-slow"},
 	},
 	"connect": {
 		ID:          "connect",

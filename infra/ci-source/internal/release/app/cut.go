@@ -38,6 +38,21 @@ type CutRequest struct {
 	// made from changed since the last release.
 	Rebuild         bool
 	Jobs, HeavyJobs int
+	// SkipTests skips the test gate (see Config.TestGate).
+	SkipTests bool
+}
+
+// TestProfiles are the ./ci profiles that must pass before a unit is cut: the
+// product's own tests, then the release tool's (which include the slow builds).
+func TestProfiles(unit string) []string {
+	product := "sol"
+	switch unit {
+	case "sol-connect", "luna-connect":
+		product = "connect"
+	case "luna", "luna-desktop", "luna-android":
+		product = "luna"
+	}
+	return []string{product, "release"}
 }
 
 // Check is one preflight line.
@@ -337,6 +352,16 @@ func (a *App) Cut(ctx context.Context, req CutRequest) (*CutResult, error) {
 		return nil, &PreflightError{rep}
 	}
 	_, next, _ := a.CutVersion(req)
+
+	// Tests run before the bump commit is pushed, so a failing tree is never
+	// released. A resume skips them: its bump commit is already out and passed.
+	if a.cfg.TestGate != nil && !req.Resume && !req.SkipTests {
+		profiles := TestProfiles(req.Unit)
+		a.emit.note(req.Unit, "running tests through ./ci (%s), without resource limits", strings.Join(profiles, ", "))
+		if err := a.cfg.TestGate(ctx, profiles, func(l string) { a.emit.note(req.Unit, "%s", a.Redact(l)) }); err != nil {
+			return nil, fmt.Errorf("tests failed, nothing was released: %s", a.Redact(err.Error()))
+		}
+	}
 
 	var signer publish.Signer = a.cfg.Signer
 	if signer == nil {

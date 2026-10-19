@@ -43,6 +43,12 @@ laptop.
 Bots merge to `main` daily, and only the mirror may move commits to Forgejo:
 
 1. Preflight: secrets proven, clean tree, on `main`, tag free.
+   Then the tests: `./ci run -profile <product> -session` and
+   `./ci run -profile release -session` (the product's profile is `sol`,
+   `luna` or `connect`; `release` is this tool's own tests including the slow
+   builds). `-session` means no resource limits, so they run flat out and can
+   take a long time. Any failure stops the cut before anything is pushed.
+   `--resume` and `--skip-tests` skip this step.
 2. Bump commit, pushed to origin **immediately** (fetch + rebase + retry if
    `main` moved; nothing is built yet). This SHA is the release.
 3. Build that exact SHA → sums + sign → upload → re-download and check hashes.

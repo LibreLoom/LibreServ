@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
@@ -270,5 +271,44 @@ func TestUnfinishedIsNewestFirstAndSkipsFinished(t *testing.T) {
 	}
 	if strings.Join(got, ",") != "0.3.2,0.3.3,0.3.1" {
 		t.Fatalf("order %v", got)
+	}
+}
+
+func TestCutRunsTheTestGateFirstAndStopsOnFailure(t *testing.T) {
+	w := newWorld(t)
+	before := git(t, w.origin, "rev-parse", "main")
+	var got []string
+	w.app.cfg.TestGate = func(_ context.Context, profiles []string, log func(string)) error {
+		got = profiles
+		log("✗ Something (1s)")
+		return errors.New("profile failed")
+	}
+	_, err := w.app.Cut(t.Context(), CutRequest{Unit: "fake", Channel: "stable"})
+	if err == nil || !strings.Contains(err.Error(), "tests failed, nothing was released") {
+		t.Fatalf("want a test failure, got %v", err)
+	}
+	if git(t, w.origin, "rev-parse", "main") != before {
+		t.Fatal("a bump was pushed although the tests failed")
+	}
+	if len(got) != 2 || got[1] != "release" {
+		t.Fatalf("profiles = %v", got)
+	}
+
+	// --skip-tests and --resume do not run the gate.
+	ran := false
+	w.app.cfg.TestGate = func(context.Context, []string, func(string)) error { ran = true; return nil }
+	if _, err := w.app.Cut(t.Context(), CutRequest{Unit: "fake", Channel: "stable", Dry: true, SkipTests: true}); err != nil {
+		t.Fatal(err)
+	}
+	if ran {
+		t.Fatal("SkipTests still ran the gate")
+	}
+}
+
+func TestTestProfiles(t *testing.T) {
+	for unit, want := range map[string]string{"sol": "sol", "sol-connect": "connect", "luna-connect": "connect", "luna": "luna", "luna-android": "luna", "luna-desktop": "luna"} {
+		if got := TestProfiles(unit); got[0] != want || got[1] != "release" {
+			t.Errorf("%s: %v", unit, got)
+		}
 	}
 }

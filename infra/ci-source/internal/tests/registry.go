@@ -46,6 +46,7 @@ func init() {
 	addIntegrationTests()
 	addLunaTests()
 	addReleaseTests()
+	addReleaseSlowTest()
 }
 
 func addGoTests() {
@@ -572,6 +573,21 @@ func addReleaseTests() {
 		Command:     "go test -count=1 ./internal/release/...",
 		WorkDir:     "/repo/infra/ci-source",
 		Timeout:     45 * time.Minute,
+	})
+}
+
+// release-slow is the multi-minute builds the release tool's tests skip unless
+// asked (Flatpak, Windows installer, APK, Luna OS and installer).
+func addReleaseSlowTest() {
+	DefaultRegistry.Add(&Test{
+		ID:          "release-slow",
+		Name:        "Release Tool Slow Builds",
+		Description: "Release tool multi-minute builds: Flatpak, Windows, APK, Luna OS and installer (runs on host)",
+		Type:        TestTypeIntegration,
+		Container:   "host",
+		Command:     "LIBRESERV_RELEASE_SLOW_TESTS=1 go test -count=1 -timeout 120m ./internal/release/...",
+		WorkDir:     "/repo/infra/ci-source",
+		Timeout:     150 * time.Minute,
 	})
 }
 
