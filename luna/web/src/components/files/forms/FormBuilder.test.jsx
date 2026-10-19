@@ -32,7 +32,9 @@ import FormBuilder from "./FormBuilder.jsx";
 import { driveSource, FileSourceProvider, shareSource } from "../../../lib/fileSource.jsx";
 
 vi.mock("../../share/ShareSheet.jsx", () => ({
-  default: () => <div role="dialog" aria-label="Share" />,
+  default: ({ startWithNewLink }) => (
+    <div role="dialog" aria-label={startWithNewLink ? "New link" : "Share"} />
+  ),
 }));
 
 // Guest saves go through chunked upload — putBinaryProgress is XHR-based
@@ -307,12 +309,13 @@ describe("FormBuilder editing", () => {
     await waitFor(() => expect(screen.getAllByLabelText(/^Question \d$/)).toHaveLength(3));
   });
 
-  it("offers a Collect responses button in settings that opens sharing", async () => {
+  it("Collect responses goes straight to the New link form", async () => {
     stubForm();
     mountBuilder();
     await screen.findByDisplayValue("Dish?");
     fireEvent.click(screen.getByRole("button", { name: /Collect responses/i }));
-    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "New link" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Share" })).toBeNull();
   });
 
   it("removes a question and brings it back with Undo", async () => {

@@ -77,9 +77,13 @@ ShareButton.propTypes = {
  * vocabulary; the sheet only ever offers levels valid for this subject and
  * covered by the caller's own access.
  *
+ * `startWithNewLink` opens straight into the new-link form, skipping the
+ * sheet; closing that form closes the whole thing.
+ *
  * @param {{
  *   subject: import("../../lib/access.js").ShareSubject | null,
  *   open?: boolean,
+ *   startWithNewLink?: boolean,
  *   onClose: () => void,
  *   overlayClassName?: string,
  * }} props
@@ -88,12 +92,12 @@ export default function ShareSheet(props) {
   return <ShareSheetSession key={JSON.stringify(subjectKey(props.subject))} {...props} />;
 }
 
-function ShareSheetSession({ subject, open = true, onClose, overlayClassName = undefined }) {
+function ShareSheetSession({ subject, open = true, startWithNewLink = false, onClose, overlayClassName = undefined }) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const { addToast } = useToast();
   const [error, setError] = useState(null);
-  const [creatingLink, setCreatingLink] = useState(false);
+  const [creatingLink, setCreatingLink] = useState(startWithNewLink);
   const [editingLink, setEditingLink] = useState(null);
   const [removingLink, setRemovingLink] = useState(null);
   const [linkError, setLinkError] = useState(null);
@@ -209,9 +213,13 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
       ? apiErrorMessage(stateQuery.error, "You don't have access to share this.")
       : null);
 
+  // Straight to the new-link form once the subject has loaded; the sheet
+  // itself never shows in that case.
+  const linkOnly = startWithNewLink && !!subj && !stateQuery.isError;
+
   return (
     <>
-      <ModalCard open={open} title="Sharing" onClose={onClose} overlayClassName={overlayClassName}>
+      <ModalCard open={open && !linkOnly} title="Sharing" onClose={onClose} overlayClassName={overlayClassName}>
         <div className="space-y-5" data-slot="share-sheet">
           {(subj?.name || subject?.name) && (
             <div className="rounded-large-element surface-primary p-3">
@@ -495,10 +503,14 @@ function ShareSheetSession({ subject, open = true, onClose, overlayClassName = u
           subject={subj}
           myCaps={myCaps}
           overlayClassName={overlayClassName || NESTED_OVERLAY_CLASS}
-          onClose={() => setCreatingLink(false)}
+          onClose={() => {
+            setCreatingLink(false);
+            if (linkOnly) onClose();
+          }}
           onDone={() => {
             setCreatingLink(false);
             invalidate();
+            if (linkOnly) onClose();
           }}
         />
       )}
@@ -555,6 +567,7 @@ ShareSheet.propTypes = {
     name: PropTypes.string,
   }),
   open: PropTypes.bool,
+  startWithNewLink: PropTypes.bool,
   onClose: PropTypes.func.isRequired,
   overlayClassName: PropTypes.string,
 };

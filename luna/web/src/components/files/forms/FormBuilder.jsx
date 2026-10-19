@@ -177,7 +177,8 @@ function BuilderSession({
   /** Canonical JSON on the drive — the dirty baseline. */
   const [baseline, setBaseline] = useState(/** @type {string | null} */ (null));
   const [tab, setTab] = useState(/** @type {"questions" | "responses"} */ ("questions"));
-  const [sharing, setSharing] = useState(false);
+  // "sheet" opens the Sharing sheet; "link" goes straight to a new responses link.
+  const [sharing, setSharing] = useState(/** @type {false | "sheet" | "link"} */ (false));
   const [peers, setPeers] = useState(/** @type {object[]} */ ([]));
   const [connStatus, setConnStatus] = useState(solo ? "open" : "connecting");
   const [focusHere, setFocusHere] = useState(/** @type {{ id: string, name: string }[]} */ ([]));
@@ -539,7 +540,7 @@ function BuilderSession({
               smoothResize={false}
               aria-label="Share this form"
               tooltip="Share this form"
-              onClick={() => setSharing(true)}
+              onClick={() => setSharing("sheet")}
             >
               <Share2 size={ICON_SIZE.md} aria-hidden="true" />
             </Button>
@@ -727,7 +728,7 @@ function BuilderSession({
                               variant="inverted"
                               actionLabel="Collect responses"
                               icon={Share2}
-                              onClick={() => setSharing(true)}
+                              onClick={() => setSharing("link")}
                             >
                               Collect responses
                             </CardButton>
@@ -838,6 +839,7 @@ function BuilderSession({
       {sharing && !source.guest && (
         <ShareSheet
           open
+          startWithNewLink={sharing === "link"}
           subject={{ kind: "path", driveId, path }}
           overlayClassName={NESTED_OVERLAY_CLASS}
           onClose={() => setSharing(false)}
