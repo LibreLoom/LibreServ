@@ -338,8 +338,7 @@ describe("DrivesPage", () => {
     expect(screen.getByRole("button", { name: /^Add drive$/i })).toBeEnabled();
   });
 
-  it("marks an empty card reader and lets the admin dismiss and restore it", async () => {
-    window.localStorage.removeItem("luna.dismissedDrives");
+  it("marks an empty card reader as nothing inserted", async () => {
     stubDrivesApi({
       fetch: (u) => {
         if (u.endsWith("/drives/detected")) {
@@ -353,28 +352,11 @@ describe("DrivesPage", () => {
         return null;
       },
     });
-    const { default: userEvent } = await import("@testing-library/user-event");
-    const user = userEvent.setup();
     renderPage();
     expect(await screen.findByText("Nothing inserted")).toBeInTheDocument();
     const adds = screen.getAllByRole("button", { name: /^Add drive$/i });
     expect(adds[0]).toBeDisabled();
     expect(adds[1]).toBeEnabled();
-
-    const dismiss = screen.getAllByRole("button", { name: /^Dismiss Generic STORAGE DEVICE$/i });
-    await user.click(dismiss[0]);
-    // A confirm comes first; nothing is hidden until it's accepted.
-    expect(screen.getByText("Dismiss this drive?")).toBeInTheDocument();
-    expect(screen.getByText("Nothing inserted")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /^Dismiss$/ }));
-    await waitFor(() => expect(screen.queryByText("Nothing inserted")).not.toBeInTheDocument());
-    expect(screen.getByText("32 GB")).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: /^Show 1 dismissed$/i }));
-    expect(screen.getByText("Nothing inserted")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /^Restore$/i }));
-    expect(screen.queryByRole("button", { name: /dismissed/i })).not.toBeInTheDocument();
-    window.localStorage.removeItem("luna.dismissedDrives");
   });
 
   it("shows a member the highest shared folder plus a write exception", async () => {

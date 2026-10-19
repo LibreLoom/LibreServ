@@ -1,12 +1,11 @@
 /* eslint-disable react-refresh/only-export-components -- page exports helpers used by tests */
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FolderOpen, HardDrive, PlugZap, X } from "lucide-react";
+import { FolderOpen, HardDrive, PlugZap } from "lucide-react";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
-import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import Callout from "@libreloom/ui/components/common/Callout.jsx";
@@ -105,44 +104,13 @@ function prettyFsType(fs) {
   return names[key] || fs;
 }
 
-const DISMISSED_DRIVES_KEY = "luna.dismissedDrives";
-
 /**
- * Identity for dismissing a detected drive. Includes the size so a different
- * card or disk put into the same slot isn't hidden by an old dismissal.
+ * Identity of a detected drive's media. Includes the size so a different card
+ * or disk put into the same slot gets a fresh peek.
  * @param {{ name: string, model?: string, size_bytes?: number }} drive
  */
-export function detectedDriveKey(drive) {
+function detectedDriveKey(drive) {
   return `${drive.name}|${drive.model || ""}|${drive.size_bytes || 0}`;
-}
-
-/** @returns {Set<string>} */
-function readDismissedDrives() {
-  try {
-    const raw = JSON.parse(window.localStorage.getItem(DISMISSED_DRIVES_KEY) || "[]");
-    return new Set(Array.isArray(raw) ? raw.filter((k) => typeof k === "string") : []);
-  } catch {
-    return new Set();
-  }
-}
-
-/** Dismissed unrecognized drives, remembered in this browser. */
-function useDismissedDrives() {
-  const [dismissed, setDismissed] = useState(readDismissedDrives);
-  const update = useCallback((/** @type {string} */ key, /** @type {boolean} */ hide) => {
-    setDismissed((prev) => {
-      const next = new Set(prev);
-      if (hide) next.add(key);
-      else next.delete(key);
-      try {
-        window.localStorage.setItem(DISMISSED_DRIVES_KEY, JSON.stringify([...next]));
-      } catch {
-        // Private browsing — the dismissal lasts until the page reloads.
-      }
-      return next;
-    });
-  }, []);
-  return /** @type {[Set<string>, (key: string, hide: boolean) => void]} */ ([dismissed, update]);
 }
 
 /**
@@ -328,7 +296,7 @@ function DetectedContents({ peek }) {
   );
 }
 
-function DetectedCard({ drive, onOpen, dismissed = false, leaving = false, onToggleDismiss }) {
+function DetectedCard({ drive, onOpen }) {
   // A card reader with nothing in it reports a size of 0.
   const empty = !drive.size_bytes;
   const title = drive.model || "New drive";
@@ -350,61 +318,33 @@ function DetectedCard({ drive, onOpen, dismissed = false, leaving = false, onTog
     refetchOnWindowFocus: false,
   });
   return (
-    // The row collapses to zero height as the card fades, so the cards after
-    // it slide up instead of snapping into the gap.
-    <div
-      className={`grid motion-safe:transition-[grid-template-rows,opacity,transform] motion-safe:duration-300 motion-safe:ease-in-out ${
-        leaving ? "grid-rows-[0fr] opacity-0 scale-95" : "grid-rows-[1fr] opacity-100 scale-100"
-      }`}
-      aria-hidden={leaving || undefined}
-    >
-      <div className="min-h-0 overflow-hidden">
-        <Card
-          icon={HardDrive}
-          title={title}
-          headerActions={
-            dismissed ? (
-              <Button size="sm" variant="ghost" onClick={onToggleDismiss}>Restore</Button>
-            ) : (
-              <Button
-                size="iconSm"
-                variant="ghost"
-                aria-label={`Dismiss ${title}`}
-                onClick={onToggleDismiss}
-              >
-                <X size={14} aria-hidden="true" />
-              </Button>
-            )
-          }
-        >
-          <div className="flex flex-col gap-2">
-            <ValueDisplay label="Size" value={empty ? "Nothing inserted" : formatBytes(drive.size_bytes)} />
-            {empty ? null : <DetectedContents peek={peek} />}
-            {drive.read_only ? (
-              <Callout tone="warning">Read-only: Luna can&apos;t save files to this drive.</Callout>
-            ) : null}
-            <CollapsibleSection title="Drive details" size="sm" mono pill>
-              <div className="flex flex-col gap-2" role="list" aria-label="Drive detail values">
-                <ValueDisplay label="Kind" value={kind} />
-                <ValueDisplay
-                  label={(
-                    <TermHint content="How files are arranged on this drive. Most USB sticks use exFAT so phones, Macs, and PCs can all open them.">
-                      File system
-                    </TermHint>
-                  )}
-                  value={fs || "Unknown"}
-                />
-              </div>
-            </CollapsibleSection>
+    <Card icon={HardDrive} title={title}>
+      <div className="flex flex-col gap-2">
+        <ValueDisplay label="Size" value={empty ? "Nothing inserted" : formatBytes(drive.size_bytes)} />
+        {empty ? null : <DetectedContents peek={peek} />}
+        {drive.read_only ? (
+          <Callout tone="warning">Read-only: Luna can&apos;t save files to this drive.</Callout>
+        ) : null}
+        <CollapsibleSection title="Drive details" size="sm" mono pill>
+          <div className="flex flex-col gap-2" role="list" aria-label="Drive detail values">
+            <ValueDisplay label="Kind" value={kind} />
+            <ValueDisplay
+              label={(
+                <TermHint content="How files are arranged on this drive. Most USB sticks use exFAT so phones, Macs, and PCs can all open them.">
+                  File system
+                </TermHint>
+              )}
+              value={fs || "Unknown"}
+            />
           </div>
-          <div className="mt-3">
-            <Button size="sm" variant="outline" disabled={empty} onClick={() => onOpen(drive)}>
-              Add drive
-            </Button>
-          </div>
-        </Card>
+        </CollapsibleSection>
       </div>
-    </div>
+      <div className="mt-3">
+        <Button size="sm" variant="outline" disabled={empty} onClick={() => onOpen(drive)}>
+          Add drive
+        </Button>
+      </div>
+    </Card>
   );
 }
 
@@ -509,15 +449,6 @@ export default function DrivesPage() {
   const [protectingDrive, setProtectingDrive] = useState(null);
   const protectAvailable = useCanProtect(isAdmin);
   const unknownDrives = withDevMockDetected(detected.data);
-  const [dismissedDrives, setDriveDismissed] = useDismissedDrives();
-  const [showDismissed, setShowDismissed] = useState(false);
-  const [dismissTarget, setDismissTarget] = useState(null);
-  const [leavingDrives, setLeavingDrives] = useState(() => new Set());
-  const dismissedCount = unknownDrives.filter((d) => dismissedDrives.has(detectedDriveKey(d))).length;
-  const hasWaitingDrives = unknownDrives.length > dismissedCount;
-  const shownDrives = unknownDrives.filter(
-    (d) => showDismissed || !dismissedDrives.has(detectedDriveKey(d)),
-  );
   const access = useQuery({
     queryKey: ["my-access"],
     queryFn: () => getJson("/api/v1/me/access"),
@@ -663,46 +594,26 @@ export default function DrivesPage() {
       {isAdmin && (
         <>
           <div className="mt-10 mb-4 flex items-center gap-2">
-            {hasWaitingDrives ? (
+            {unknownDrives.length > 0 ? (
               <>
                 <h2 className="font-mono text-sm text-secondary">Unrecognized drives</h2>
                 <InfoHint surface="primary" content="Luna shows what's on a drive before adding it, and changes nothing until you confirm." />
               </>
             ) : null}
-            {dismissedCount > 0 ? (
-              <Button
-                size="sm"
-                variant="ghost"
-                className="ml-auto"
-                aria-pressed={showDismissed}
-                onClick={() => setShowDismissed((v) => !v)}
-              >
-                {showDismissed ? "Hide dismissed" : `Show ${dismissedCount} dismissed`}
-              </Button>
-            ) : null}
           </div>
           <div className="grid gap-5 md:grid-cols-2">
-            {shownDrives.map((drive) => {
-              const key = detectedDriveKey(drive);
-              const isDismissed = dismissedDrives.has(key);
-              return (
-                <DetectedCard
-                  key={drive.name}
-                  drive={drive}
-                  dismissed={isDismissed}
-                  leaving={leavingDrives.has(key)}
-                  onToggleDismiss={() =>
-                    isDismissed ? setDriveDismissed(key, false) : setDismissTarget(drive)
-                  }
-                  onOpen={(d) => {
-                    inspect.reset();
-                    adopt.reset();
-                    setInspectFor(d);
-                    inspect.mutate(d);
-                  }}
-                />
-              );
-            })}
+            {unknownDrives.map((drive) => (
+              <DetectedCard
+                key={drive.name}
+                drive={drive}
+                onOpen={(d) => {
+                  inspect.reset();
+                  adopt.reset();
+                  setInspectFor(d);
+                  inspect.mutate(d);
+                }}
+              />
+            ))}
           </div>
           {!detected.isLoading && unknownDrives.length === 0 && (
             <EmptyState description="Nothing new plugged in." />
@@ -719,33 +630,6 @@ export default function DrivesPage() {
         }
         onClose={() => setSharingDrive(null)}
       />
-      <ConfirmModal
-        open={dismissTarget != null}
-        title="Dismiss this drive?"
-        confirmLabel="Dismiss"
-        onClose={() => setDismissTarget(null)}
-        onConfirm={() => {
-          const drive = dismissTarget;
-          setDismissTarget(null);
-          if (!drive) return;
-          const key = detectedDriveKey(drive);
-          setLeavingDrives((prev) => new Set(prev).add(key));
-          // Let the card finish animating out before it leaves the list.
-          setTimeout(() => {
-            setDriveDismissed(key, true);
-            setLeavingDrives((prev) => {
-              const next = new Set(prev);
-              next.delete(key);
-              return next;
-            });
-          }, 300);
-        }}
-      >
-        <p className="text-primary text-sm">
-          Luna will stop listing <InlinePill>{dismissTarget?.model || "this drive"}</InlinePill>{" "}
-          here. Nothing on it changes, and you can bring it back with Show dismissed.
-        </p>
-      </ConfirmModal>
       <ProtectSheet
         open={protectingDrive != null}
         driveId={protectingDrive?.id || ""}
