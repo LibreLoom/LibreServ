@@ -4,6 +4,9 @@
 //! `{LUNA_DATA_DIR}/mock-drives/` (see `make mock-drive`). Each folder is a
 //! plain directory (not a loop device) so Cloud Agent VMs work without root
 //! block-device setup.
+//!
+//! `LUNA_MOCK_DRIVES=only` makes the mocks the only drives: real hardware is
+//! not scanned, so a dev server never shows (or adopts) a real disk.
 
 use std::path::{Path, PathBuf};
 
@@ -26,16 +29,46 @@ pub struct MockDriveConfig {
     pub mount_readonly: Option<bool>,
 }
 
-/// Whether mock drives should appear in drive detection. Explicit opt-in
-/// only: `LUNA_MOCK_DRIVES=1`, or a debug build (where the Makefile dev flow
-/// still "just works"). Release builds must never fabricate drives on a
-/// heuristic like a data dir named `dev`.
-pub fn enabled() -> bool {
-    match std::env::var("LUNA_MOCK_DRIVES").ok().as_deref() {
-        Some("0") | Some("false") | Some("no") | Some("off") => false,
-        Some("1") | Some("true") | Some("yes") | Some("on") => true,
-        _ => cfg!(debug_assertions),
+/// How mock drives take part in drive detection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    /// No mock drives.
+    Off,
+    /// Mock drives are listed next to the real hardware.
+    On,
+    /// Mock drives are the only drives: real hardware is not scanned at all.
+    Only,
+}
+
+/// Reads `LUNA_MOCK_DRIVES` (`0|1|only`). `debug` is the fallback when it is
+/// unset, so the Makefile dev flow still "just works" in debug builds while a
+/// release build never fabricates drives on a heuristic.
+fn mode_from(value: Option<&str>, debug: bool) -> Mode {
+    match value {
+        Some("0") | Some("false") | Some("no") | Some("off") => Mode::Off,
+        Some("only") => Mode::Only,
+        Some("1") | Some("true") | Some("yes") | Some("on") => Mode::On,
+        _ if debug => Mode::On,
+        _ => Mode::Off,
     }
+}
+
+/// The active mock mode. Explicit opt-in only (see [`mode_from`]).
+pub fn mode() -> Mode {
+    mode_from(
+        std::env::var("LUNA_MOCK_DRIVES").ok().as_deref(),
+        cfg!(debug_assertions),
+    )
+}
+
+/// Whether mock drives should appear in drive detection.
+pub fn enabled() -> bool {
+    mode() != Mode::Off
+}
+
+/// Whether mock drives replace real hardware (`LUNA_MOCK_DRIVES=only`).
+pub fn only() -> bool {
+    mode() == Mode::Only
 }
 
 /// Path to dynamic mock drives directory.
@@ -138,6 +171,18 @@ pub fn scan_mock_drives() -> Vec<DetectedDrive> {
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn mock_mode_reads_the_env_value_with_a_debug_fallback() {
+        assert_eq!(mode_from(Some("only"), false), Mode::Only);
+        assert_eq!(mode_from(Some("1"), false), Mode::On);
+        assert_eq!(mode_from(Some("on"), false), Mode::On);
+        assert_eq!(mode_from(Some("0"), true), Mode::Off);
+        assert_eq!(mode_from(Some("off"), true), Mode::Off);
+        assert_eq!(mode_from(None, true), Mode::On);
+        assert_eq!(mode_from(None, false), Mode::Off);
+        assert_eq!(mode_from(Some("nonsense"), false), Mode::Off);
+    }
 
     #[test]
     fn directory_as_drive_when_present() {

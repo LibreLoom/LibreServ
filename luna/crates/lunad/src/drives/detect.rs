@@ -114,15 +114,24 @@ pub fn scan(sys_block: &Path, proc_mounts: &str) -> Vec<DetectedDrive> {
 ///
 /// This is the production scan entry point: real hardware plus, in debug
 /// builds or with `LUNA_MOCK_DRIVES=1`, directory mock drives for UI review.
+/// With `LUNA_MOCK_DRIVES=only` the mock drives are the only drives: real
+/// hardware is not scanned, so nothing real can be listed or adopted.
 pub fn scan_with_dev_mocks(sys_block: &Path, proc_mounts: &str) -> Vec<DetectedDrive> {
-    let mut drives = scan(sys_block, proc_mounts);
-    if crate::dev_mock::enabled() {
-        for mock in crate::dev_mock::scan_mock_drives() {
-            drives.retain(|d| d.name != mock.name);
-            drives.push(mock);
-        }
-        drives.sort_by(|a, b| a.name.cmp(&b.name));
+    use crate::dev_mock::{Mode, mode, scan_mock_drives};
+    match mode() {
+        Mode::Off => scan(sys_block, proc_mounts),
+        Mode::On => merge_mock_drives(scan(sys_block, proc_mounts), scan_mock_drives()),
+        Mode::Only => merge_mock_drives(Vec::new(), scan_mock_drives()),
     }
+}
+
+/// Adds `mocks` to `drives`; a mock replaces a real drive of the same name.
+fn merge_mock_drives(mut drives: Vec<DetectedDrive>, mocks: Vec<DetectedDrive>) -> Vec<DetectedDrive> {
+    for mock in mocks {
+        drives.retain(|d| d.name != mock.name);
+        drives.push(mock);
+    }
+    drives.sort_by(|a, b| a.name.cmp(&b.name));
     drives
 }
 
@@ -281,6 +290,34 @@ mod tests {
     use super::*;
     use std::fs;
     use std::path::PathBuf;
+
+    fn mock(name: &str) -> DetectedDrive {
+        DetectedDrive {
+            name: name.into(),
+            model: "Mock".into(),
+            size_bytes: 1,
+            removable: true,
+            usb: true,
+            mount_point: Some("/tmp/mock".into()),
+            fs_type: Some("exfat".into()),
+            mount_readonly: false,
+        }
+    }
+
+    #[test]
+    fn mock_drives_join_real_ones_and_replace_a_real_drive_of_the_same_name() {
+        let real = vec![mock("sda"), mock("sdb")];
+        let merged = merge_mock_drives(real, vec![mock("sdb"), mock("sdmock_a")]);
+        let names: Vec<_> = merged.iter().map(|d| d.name.as_str()).collect();
+        assert_eq!(names, ["sda", "sdb", "sdmock_a"]);
+    }
+
+    #[test]
+    fn mocks_alone_list_only_the_mocks() {
+        let merged = merge_mock_drives(Vec::new(), vec![mock("sdmock_b"), mock("sdmock_a")]);
+        let names: Vec<_> = merged.iter().map(|d| d.name.as_str()).collect();
+        assert_eq!(names, ["sdmock_a", "sdmock_b"]);
+    }
 
     fn fake_sysfs(root: &Path) -> PathBuf {
         let sys = root.join("sys/block");
