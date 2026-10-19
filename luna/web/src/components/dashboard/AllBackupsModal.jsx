@@ -236,7 +236,7 @@ export default function AllBackupsModal({ open, onClose, backups = [] }) {
             ))}
           {sections.map((group) => (
             <section key={group.ownerId ?? group.name} className="flex flex-col gap-3">
-              <h3 className="text-sm font-mono">{group.name}</h3>
+              <h3 className="text-sm font-mono">{isYours(group.ownerId) ? "You" : group.name}</h3>
               <ul className="flex flex-col gap-3">
                 {group.privateOwner && (
                   <PrivateItemsRow

@@ -103,9 +103,9 @@ describe("AllBackupsModal", () => {
 
   it("groups backups by creator with names", async () => {
     renderModal();
-    expect(await screen.findByRole("heading", { name: "Max" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "ana" })).toBeInTheDocument();
-    const maxGroup = screen.getByRole("heading", { name: "Max" }).closest("section");
+    expect(await screen.findByRole("heading", { name: "You" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "ana" })).toBeInTheDocument();
+    const maxGroup = screen.getByRole("heading", { name: "You" }).closest("section");
     expect(within(maxGroup).getByText("Photos")).toBeInTheDocument();
     expect(within(maxGroup).getByText("Old docs")).toBeInTheDocument();
   });
@@ -152,8 +152,8 @@ describe("AllBackupsModal", () => {
         ],
       },
     });
-    const maxGroup = (await screen.findByRole("heading", { name: "Max" })).closest("section");
-    expect(within(maxGroup).getByText("Private items")).toBeInTheDocument();
+    const maxGroup = (await screen.findByRole("heading", { name: "You" })).closest("section");
+    expect(await within(maxGroup).findByText("Private items")).toBeInTheDocument();
     expect(within(maxGroup).getByText("1 needs a look")).toBeInTheDocument();
     expect(within(maxGroup).getByText("Yours. Open a private folder's shield to see each one.")).toBeInTheDocument();
 
