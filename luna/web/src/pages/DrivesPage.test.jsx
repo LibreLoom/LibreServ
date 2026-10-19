@@ -239,12 +239,28 @@ describe("DrivesPage", () => {
   });
 
   it("uses a page heading for unrecognized drives, not a stacked title card", async () => {
-    stubDrivesApi();
+    stubDrivesApi({
+      fetch: (u) => {
+        if (u.endsWith("/drives/detected")) {
+          return new Response(JSON.stringify([{
+            name: "sdb", model: "Lexar USB Flash Drive", size_bytes: 8000000000,
+            removable: true, usb: true, mount_point: null, fs_type: "vfat",
+          }]), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        return null;
+      },
+    });
     renderPage();
     const heading = await screen.findByRole("heading", { name: /Unrecognized Drives/i, level: 2 });
     expect(heading.tagName).toBe("H2");
     expect(heading.closest("[data-slot=card]")).toBeNull();
+  });
+
+  it("hides the unrecognized drives heading when no drives are waiting", async () => {
+    stubDrivesApi();
+    renderPage();
     expect(await screen.findByText(/Nothing new plugged in/i)).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /Unrecognized Drives/i })).not.toBeInTheDocument();
   });
 
   it("shows useful drive details and Add drive without an Ignore action", async () => {

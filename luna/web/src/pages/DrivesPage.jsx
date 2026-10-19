@@ -514,6 +514,7 @@ export default function DrivesPage() {
   const [dismissTarget, setDismissTarget] = useState(null);
   const [leavingDrives, setLeavingDrives] = useState(() => new Set());
   const dismissedCount = unknownDrives.filter((d) => dismissedDrives.has(detectedDriveKey(d))).length;
+  const hasWaitingDrives = unknownDrives.length > dismissedCount;
   const shownDrives = unknownDrives.filter(
     (d) => showDismissed || !dismissedDrives.has(detectedDriveKey(d)),
   );
@@ -662,8 +663,12 @@ export default function DrivesPage() {
       {isAdmin && (
         <>
           <div className="mt-10 mb-4 flex items-center gap-2">
-            <h2 className="font-mono text-sm text-secondary">Unrecognized drives</h2>
-            <InfoHint surface="primary" content="Luna shows what's on a drive before adding it, and changes nothing until you confirm." />
+            {hasWaitingDrives ? (
+              <>
+                <h2 className="font-mono text-sm text-secondary">Unrecognized drives</h2>
+                <InfoHint surface="primary" content="Luna shows what's on a drive before adding it, and changes nothing until you confirm." />
+              </>
+            ) : null}
             {dismissedCount > 0 ? (
               <Button
                 size="sm"
