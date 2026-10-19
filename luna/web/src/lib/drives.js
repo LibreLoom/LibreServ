@@ -24,16 +24,12 @@ export function isWritableDrive(drive) {
 
 /**
  * Let go of a drive Luna opened read-only to show its contents, once the
- * inspect window closes. Best effort: nothing is left to clean up if the
- * drive was added or unplugged in the meantime.
+ * inspect window closes. Nothing happens for a missing drive or a demo
+ * drive. A failure is thrown so the caller can tell the person.
  * @param {{ name?: string } | null | undefined} drive
  * @returns {Promise<void>}
  */
 export async function releaseInspectedDrive(drive) {
   if (!drive?.name || isMockUnknownDrive(drive.name)) return;
-  try {
-    await postJson(`/api/v1/drives/${encodeURIComponent(drive.name)}/dismiss`, {});
-  } catch {
-    // The drive is only a read-only preview; a failed release changes nothing the person sees.
-  }
+  await postJson(`/api/v1/drives/${encodeURIComponent(drive.name)}/release`, {});
 }

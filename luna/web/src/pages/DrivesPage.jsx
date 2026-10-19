@@ -18,7 +18,6 @@ import ValueDisplay from "@libreloom/ui/components/common/ValueDisplay.jsx";
 import ShareSheet, { ShareButton } from "../components/share/ShareSheet.jsx";
 import ProtectSheet, { ProtectButton } from "../components/files/ProtectSheet";
 import InspectModal from "../components/files/InspectModal.jsx";
-import { releaseInspectedDrive } from "../lib/drives.js";
 import useCanProtect from "../hooks/useCanProtect";
 import { FileSearchButton } from "../components/files/FileSearch";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
@@ -27,6 +26,7 @@ import { useAuth } from "../context/AuthContext";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import useStrandedErrorToast from "../hooks/useStrandedErrorToast";
 import usePageTitle from "../hooks/usePageTitle.js";
+import useReleaseInspectedDrive from "../hooks/useReleaseInspectedDrive.js";
 import { apiErrorMessage, getDrives, getJson, postJson } from "../lib/api";
 import { withDevMockDetected, isMockUnknownDrive, mockInspectResult } from "../lib/devMockDrives.js";
 import { describeDriveHealth } from "../lib/driveHealth";
@@ -426,6 +426,7 @@ function driveStatusMessage(drive) {
 export default function DrivesPage() {
   usePageTitle("Drives");
   const { addToast } = useToast();
+  const releaseInspectedDrive = useReleaseInspectedDrive();
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";

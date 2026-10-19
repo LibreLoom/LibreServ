@@ -20,6 +20,7 @@ import { memberAccessRoots } from "../lib/shareTree.js";
 import { PHRASE_QUERY_KEY } from "../lib/cloudPhrase.js";
 import { readRecentItems } from "../lib/recentItems.js";
 import usePageTitle from "../hooks/usePageTitle.js";
+import useReleaseInspectedDrive from "../hooks/useReleaseInspectedDrive.js";
 import useNeedsYou from "../hooks/useNeedsYou.js";
 import { useSoftwareUpdates } from "../hooks/useSoftwareUpdates.jsx";
 import { useSystemHealthCheck } from "../hooks/useSystemHealthCheck.jsx";
@@ -33,7 +34,6 @@ import RecentsCard from "../components/dashboard/RecentsCard.jsx";
 import DriveHomeCard from "../components/dashboard/DriveHomeCard.jsx";
 import SharedAlbumsCard from "../components/dashboard/SharedAlbumsCard.jsx";
 import BackupsLine from "../components/dashboard/BackupsLine.jsx";
-import { releaseInspectedDrive } from "../lib/drives.js";
 import { isMockUnknownDrive, mockInspectResult, withDevMockDetected } from "../lib/devMockDrives.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 
@@ -60,6 +60,7 @@ function getGreeting() {
 
 export default function DashboardPage() {
   const { addToast } = useToast();
+  const releaseInspectedDrive = useReleaseInspectedDrive();
   const queryClient = useQueryClient();
   const greeting = useMemo(() => getGreeting(), []);
   usePageTitle("Dashboard");

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { MOCK_UNKNOWN_PSSD_NAME } from "./devMockDrives.js";
 import { isPresentDrive, isWritableDrive, releaseInspectedDrive } from "./drives.js";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -20,20 +21,25 @@ describe("drive state predicates", () => {
 });
 
 describe("releaseInspectedDrive", () => {
-  it("posts to the dismiss route for the device", async () => {
+  it("posts to the release route for the device", async () => {
     const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     await releaseInspectedDrive({ name: "sdb1" });
     const [url, init] = /** @type {any} */ (fetchMock.mock.calls[0]);
-    expect(String(url)).toContain("/api/v1/drives/sdb1/dismiss");
+    expect(String(url)).toContain("/api/v1/drives/sdb1/release");
     expect(init.method).toBe("POST");
   });
 
-  it("does nothing without a drive and swallows failures", async () => {
-    const fetchMock = vi.fn(async () => new Response("{}", { status: 500 }));
+  it("does nothing without a drive or for the demo drive", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     await releaseInspectedDrive(null);
+    await releaseInspectedDrive({ name: MOCK_UNKNOWN_PSSD_NAME });
     expect(fetchMock).not.toHaveBeenCalled();
-    await expect(releaseInspectedDrive({ name: "sdb1" })).resolves.toBeUndefined();
+  });
+
+  it("lets a failure through instead of hiding it", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: "nope" }), { status: 500 })));
+    await expect(releaseInspectedDrive({ name: "sdb1" })).rejects.toThrow();
   });
 });

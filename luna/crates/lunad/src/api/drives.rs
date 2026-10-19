@@ -105,7 +105,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/drives/{name}/inspect", post(inspect))
         .route("/api/v1/drives/{name}/adopt", post(adopt))
         .route("/api/v1/drives/{name}/peek", get(peek))
-        .route("/api/v1/drives/{name}/dismiss", post(dismiss))
+        .route("/api/v1/drives/{name}/release", post(release))
         .route("/api/v1/drives/{id}/eject", post(eject))
         .route("/api/v1/drives/{id}/remove", post(remove))
         .route("/api/v1/drives/{id}/health", get(drive_health))
@@ -389,16 +389,17 @@ async fn adopt(
     Ok(Json(row.into()))
 }
 
-async fn dismiss(
+async fn release(
     State(state): State<AppState>,
     Extension(user): Extension<crate::auth::CurrentUser>,
     Path(name): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     require_admin(user)?;
-    state.drive_manager.dismiss_foreign(&name).map_err(|_| {
+    state.drive_manager.release_foreign(&name).map_err(|err| {
+        tracing::warn!(error = %err, drive = %name, "could not release an inspected drive");
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't let go of this drive. Unplug it, wait a few seconds, and plug it back in.",
+            "Luna couldn't finish closing this drive. Unplug it, wait a few seconds, and plug it back in.",
         )
     })?;
     Ok(Json(serde_json::json!({ "ok": true })))
@@ -975,7 +976,7 @@ mod tests {
         assert!(!plain_raw.contains("os error"));
     }
 
-    // ---- eject / remove / dismiss over HTTP -----------------------------
+    // ---- eject / remove / release over HTTP -----------------------------
 
     use axum::http::{Method, Request, StatusCode};
 
@@ -1121,12 +1122,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn only_an_admin_can_eject_remove_or_dismiss() {
+    async fn only_an_admin_can_eject_remove_or_release() {
         let app = drive_app();
         for uri in [
             format!("/api/v1/drives/{}/eject", app.drive_id),
             format!("/api/v1/drives/{}/remove", app.drive_id),
-            "/api/v1/drives/sdz/dismiss".to_string(),
+            "/api/v1/drives/sdz/release".to_string(),
             "/api/v1/drives/sdz/inspect".to_string(),
         ] {
             let (status, body) = post(&app, &uri, &app.member).await;
@@ -1154,12 +1155,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn dismiss_lets_go_of_an_inspected_drive_and_is_harmless_otherwise() {
+    async fn release_lets_go_of_an_inspected_drive_and_is_harmless_otherwise() {
         let app = drive_app();
         // Nothing was opened for inspection: still a success, never an error.
-        let (status, body) = post(&app, "/api/v1/drives/sdy/dismiss", &app.admin).await;
+        let (status, body) = post(&app, "/api/v1/drives/sdy/release", &app.admin).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["ok"], true);
+        assert!(app.mounter.unmounts.lock().unwrap().is_empty());
         // Inspecting a drive Luna can't see is a plain 404 (no hardware in tests).
         let (status, _) = post(&app, "/api/v1/drives/no-such-device/inspect", &app.admin).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
@@ -1169,5 +1171,40 @@ mod tests {
                 || status == StatusCode::BAD_REQUEST
                 || status == StatusCode::NOT_FOUND
         );
+    }
+
+    /// Open `sdy` read-only for inspection on the mock mounter.
+    fn inspect_mount(app: &DriveApp) -> std::path::PathBuf {
+        use crate::drives::mount::Mounter;
+        let target = app._dir.path().join("mounts/foreign/sdy");
+        app.mounter.mount("/dev/sdy", &target, true).unwrap();
+        target
+    }
+
+    #[tokio::test]
+    async fn releasing_an_inspected_drive_unmounts_it_once_and_is_idempotent() {
+        use crate::drives::mount::Mounter;
+        let app = drive_app();
+        let target = inspect_mount(&app);
+        let (status, body) = post(&app, "/api/v1/drives/sdy/release", &app.admin).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(!app.mounter.is_mounted(&target));
+        assert!(!target.exists(), "the empty mount folder is removed");
+        // A second release (already let go, or drive unplugged) is still fine.
+        let (status, body) = post(&app, "/api/v1/drives/sdy/release", &app.admin).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(app.mounter.unmounts.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_failed_release_says_so_plainly_without_leaking_the_cause() {
+        let app = drive_app();
+        inspect_mount(&app);
+        *app.mounter.fail_unmount.lock().unwrap() = true;
+        let (status, body) = post(&app, "/api/v1/drives/sdy/release", &app.admin).await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        let message = body["error"].as_str().unwrap();
+        assert!(message.starts_with("Luna couldn't finish closing this drive."));
+        assert!(!message.contains("mock") && !message.contains("sdy"), "{message}");
     }
 }

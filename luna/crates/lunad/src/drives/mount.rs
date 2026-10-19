@@ -201,6 +201,7 @@ pub struct MockMounter {
     pub unmounts: std::sync::Mutex<Vec<PathBuf>>,
     pub remounts: std::sync::Mutex<Vec<(PathBuf, bool)>>,
     pub fail_mount: std::sync::Mutex<bool>,
+    pub fail_unmount: std::sync::Mutex<bool>,
     /// Paths currently considered mounted (updated by mount/unmount).
     active: std::sync::Mutex<std::collections::HashSet<PathBuf>>,
     shadows: std::sync::Mutex<std::collections::HashMap<PathBuf, PathBuf>>,
@@ -254,6 +255,9 @@ impl Mounter for MockMounter {
         // Match production: already-unmounted is success.
         if !self.is_mounted(target) {
             return Ok(());
+        }
+        if *self.fail_unmount.lock().unwrap() {
+            return Err(anyhow::anyhow!("mock unmount failure"));
         }
         self.unmounts.lock().unwrap().push(target.to_path_buf());
         self.active.lock().unwrap().remove(target);

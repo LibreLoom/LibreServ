@@ -841,7 +841,7 @@ impl DriveManager {
                     plan.set_placement(&row.id, new_name, &row.state);
                     let mut updated = row.clone();
                     updated.device = new_name.to_string();
-                    let _ = self.dismiss_foreign(new_name);
+                    let _ = self.release_foreign(new_name);
                     if self.ensure_mounted(&updated).unwrap_or(false) {
                         plan.remount_ids.push(updated.id.clone());
                     }
@@ -869,7 +869,7 @@ impl DriveManager {
                 "ejected" if rematch_name.is_some() => {
                     // Still plugged under a new kernel name — stay ejected, track name.
                     plan.set_placement(&row.id, rematch_name.unwrap(), "ejected");
-                    let _ = self.dismiss_foreign(rematch_name.unwrap());
+                    let _ = self.release_foreign(rematch_name.unwrap());
                 }
                 "missing" if present => {
                     let new_name = rematch_name.unwrap_or(row.device.as_str());
@@ -880,7 +880,7 @@ impl DriveManager {
                     } else {
                         plan.set_state(&row.id, "as_is");
                     }
-                    let _ = self.dismiss_foreign(new_name);
+                    let _ = self.release_foreign(new_name);
                     // A mount left over from before the drive was pulled points
                     // at a device that no longer exists.
                     self.detach_stale_mount(row);
@@ -1009,7 +1009,7 @@ impl DriveManager {
         }
         let mut moved = row.clone();
         moved.device = found.name.clone();
-        let _ = self.dismiss_foreign(&found.name);
+        let _ = self.release_foreign(&found.name);
         if self.ensure_mounted(&moved).unwrap_or(false) && is_this_drive(path) {
             return Some(found.name.clone());
         }
@@ -1055,11 +1055,17 @@ impl DriveManager {
         Ok(true)
     }
 
-    /// Stop looking at a foreign drive Luna mounted for inspection.
-    pub fn dismiss_foreign(&self, device_name: &str) -> anyhow::Result<()> {
+    /// Release the read-only mount Luna opened to inspect a foreign drive.
+    /// Idempotent: a drive that was never inspected, was already released, or
+    /// has been unplugged is success. If a normal unmount fails (for example
+    /// the drive was pulled out), the mount point is detached instead.
+    pub fn release_foreign(&self, device_name: &str) -> anyhow::Result<()> {
         let target = self.foreign_mount_point(device_name);
         if target.exists() {
-            self.mounter.unmount(&target)?;
+            if let Err(err) = self.mounter.unmount(&target) {
+                tracing::debug!(error = %err, "normal unmount failed; detaching instead");
+                self.mounter.detach_stale(&target)?;
+            }
             let _ = std::fs::remove_dir(&target);
         }
         Ok(())
