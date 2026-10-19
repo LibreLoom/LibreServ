@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildSystemCheckItems } from "./needsYouChecks.js";
+import { buildSystemCheckItems, warningChecks } from "./needsYouChecks.js";
 
 const NO_EXCLUSIONS = { coveredDriveLabels: [], noRouteShown: false, tokenShown: false };
 
@@ -216,5 +216,28 @@ describe("buildSystemCheckItems", () => {
         action: { label: "Open system checks", href: "/settings#about" },
       },
     ]);
+  });
+});
+
+describe("warningChecks", () => {
+  it("lists only the checks that warn, with their plain label and message", () => {
+    const found = warningChecks({
+      checks: {
+        clock_sync: { status: "warning", message: "Clock is a few minutes off.", category: "system" },
+        database: { status: "passed", message: "OK" },
+        disk_space: { status: "failed", message: "Low space" },
+      },
+    });
+    expect(found.map((check) => check.name)).toEqual(["clock_sync"]);
+    expect(found[0].message).toBe("Clock is a few minutes off.");
+    expect(typeof found[0].label).toBe("string");
+    expect(found[0].label).not.toBe("");
+  });
+
+  it("returns nothing when there are no checks, or an entry is empty", () => {
+    expect(warningChecks(null)).toEqual([]);
+    expect(warningChecks(undefined)).toEqual([]);
+    expect(warningChecks({})).toEqual([]);
+    expect(warningChecks({ checks: { clock_sync: null } })).toEqual([]);
   });
 });

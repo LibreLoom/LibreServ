@@ -21,6 +21,9 @@ import { PHRASE_QUERY_KEY } from "../lib/cloudPhrase.js";
 import { readRecentItems } from "../lib/recentItems.js";
 import usePageTitle from "../hooks/usePageTitle.js";
 import useNeedsYou from "../hooks/useNeedsYou.js";
+import { useSoftwareUpdates } from "../hooks/useSoftwareUpdates.jsx";
+import { useSystemHealthCheck } from "../hooks/useSystemHealthCheck.jsx";
+import { warningChecks } from "../lib/needsYouChecks.js";
 import useBackupRows from "../hooks/useBackupRows.js";
 import InspectModal from "../components/files/InspectModal.jsx";
 import ProtectSheet from "../components/files/ProtectSheet.jsx";
@@ -64,6 +67,11 @@ export default function DashboardPage() {
   const isAdmin = user?.role === "admin";
 
   const { items } = useNeedsYou();
+  // The same queries the two header pills read, so nothing is fetched twice. Both stay off for
+  // Members. The page reads them to know whether any pill will draw: the header turns an empty
+  // right-hand slot into a blank card when it splits on a phone.
+  const updates = useSoftwareUpdates();
+  const systemHealth = useSystemHealthCheck();
   const { rows, phrase } = useBackupRows();
   const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives });
   const detected = useQuery({
@@ -192,6 +200,26 @@ export default function DashboardPage() {
   );
   const memberHasGrants = !isAdmin && grants.length > 0;
 
+  // Mirrors when SoftwareUpdatePill and SystemHealthPill render something. Only a slot that holds a
+  // pill is passed to the header; otherwise it gets none.
+  const updateReady =
+    isAdmin && !updates.isLoading && !updates.error && Boolean(updates.data?.update_available);
+  const warningsShown =
+    isAdmin &&
+    !systemHealth.isLoading &&
+    !systemHealth.error &&
+    warningChecks(systemHealth.data).length > 0;
+  const headerPills =
+    updateReady || warningsShown ? (
+      <div
+        data-slot="header-pills"
+        className="flex items-center gap-2 flex-wrap justify-end"
+      >
+        <SoftwareUpdatePill />
+        <SystemHealthPill />
+      </div>
+    ) : undefined;
+
   return (
     <Page
       data-slot="dashboard-page"
@@ -201,12 +229,7 @@ export default function DashboardPage() {
       headerClassName="px-8 mb-10"
       headerCardClassName="group"
       leftContent={<TipPill />}
-      rightContent={
-        <div className="flex items-center gap-2 flex-wrap justify-end">
-          {isAdmin ? <SoftwareUpdatePill /> : null}
-          {isAdmin ? <SystemHealthPill /> : null}
-        </div>
-      }
+      rightContent={headerPills}
     >
       <div className="flex flex-col gap-8">
         {items.length > 0 && (

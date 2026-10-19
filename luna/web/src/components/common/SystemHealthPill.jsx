@@ -6,7 +6,7 @@ import { AlertTriangle, ChevronDown } from "lucide-react";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import { useSystemHealthCheck } from "../../hooks/useSystemHealthCheck.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
-import { displayLabel } from "../../lib/healthChecks.js";
+import { warningChecks } from "../../lib/needsYouChecks.js";
 import CheckStatusIcon from "./CheckStatusIcon.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
@@ -25,16 +25,7 @@ export default function SystemHealthPill() {
   const buttonRef = useRef(null);
   const portalRef = useRef(null);
 
-  const issues = useMemo(() => {
-    if (!data?.checks) return [];
-    return Object.entries(data.checks)
-      .filter(([, result]) => result?.status === "warning")
-      .map(([name, result]) => ({
-        name,
-        label: displayLabel(name, result),
-        message: result?.message,
-      }));
-  }, [data]);
+  const issues = useMemo(() => warningChecks(data), [data]);
 
   const updatePosition = useCallback(() => {
     if (buttonRef.current) {

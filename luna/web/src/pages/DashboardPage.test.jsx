@@ -250,6 +250,66 @@ describe("DashboardPage", () => {
       expect(document.querySelector("[data-slot=tip-pill]")).not.toBeNull();
     });
 
+    it("holds no right-hand header slot for an Admin with nothing to show", async () => {
+      const fetchMock = stubDashboardFetch();
+      renderDashboard();
+      await screen.findByText("Family photos");
+      await waitForRequests(fetchMock, [...ADMIN_REQUESTS, "/api/v1/system/updates"]);
+      expect(document.querySelector("[data-slot=header-pills]")).toBeNull();
+    });
+
+    it("holds the right-hand header slot only while a pill is in it", async () => {
+      stubWithUpdateAvailable({});
+      renderDashboard();
+      const pill = await screen.findByRole("link", { name: /Software update 0\.5\.0/ });
+      expect(pill.closest("[data-slot=header-pills]")).not.toBeNull();
+    });
+
+    it("holds the right-hand header slot when only a warning shows", async () => {
+      stubDashboardFetch({ systemChecks: WARNING_CHECKS });
+      renderDashboard();
+      const pill = await screen.findByRole("button", { name: /^1 warning\./ });
+      expect(pill.closest("[data-slot=header-pills]")).not.toBeNull();
+    });
+
+    it("holds no right-hand header slot for a Member, even when an update is ready", async () => {
+      const fetchMock = stubWithUpdateAvailable({
+        username: "jamie",
+        role: "user",
+        userId: "u2",
+        drives: [PHOTOS_DRIVE],
+        access: [ROOT_GRANT],
+        systemChecks: WARNING_CHECKS,
+      });
+      renderDashboard();
+      await screen.findByRole("link", { name: "Browse files" });
+      await waitForRequests(fetchMock, MEMBER_REQUESTS);
+      expect(document.querySelector("[data-slot=header-pills]")).toBeNull();
+    });
+
+    it("draws no empty card under the tip when the header splits and no pill shows", async () => {
+      // jsdom has no layout, so make the header's measuring say the row is too wide for the card.
+      const width = vi.spyOn(Element.prototype, "clientWidth", "get").mockReturnValue(100);
+      const needed = vi.spyOn(Element.prototype, "scrollWidth", "get").mockReturnValue(500);
+      try {
+        const fetchMock = stubDashboardFetch();
+        renderDashboard();
+        await screen.findByText("Family photos");
+        await waitForRequests(fetchMock, [...ADMIN_REQUESTS, "/api/v1/system/updates"]);
+        const split = await waitFor(() => {
+          const found = document.querySelector("[data-slot=header-card-split]");
+          expect(found).not.toBeNull();
+          return /** @type {Element} */ (found);
+        });
+        // The title card and the tip card, and nothing else.
+        expect(split.querySelectorAll("[data-slot=card]")).toHaveLength(2);
+        expect(split.querySelector("[data-slot=tip-pill]")).not.toBeNull();
+      } finally {
+        width.mockRestore();
+        needed.mockRestore();
+      }
+    });
+
     it("titles the drive column Drives above the cards for Admins", async () => {
       stubDashboardFetch();
       renderDashboard();

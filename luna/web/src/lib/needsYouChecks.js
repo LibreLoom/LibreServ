@@ -15,6 +15,26 @@ const DRIVE_SMART = /^drive_.+_smart$/;
 const DRIVE_READ_WRITE = /^drive_.+_read_write$/;
 
 /**
+ * The checks that warn (a feature that won't work). They show in the header
+ * pill, never as Needs you rows. The page also asks this to know whether the
+ * pill will draw anything, so the header never reserves room for an empty one.
+ *
+ * @param {{ checks?: Record<string, { status: string, message?: string, category?: string }> } | null | undefined} systemChecks
+ * @returns {Array<{ name: string, label: string, message?: string }>}
+ */
+export function warningChecks(systemChecks) {
+  const checks = systemChecks?.checks;
+  if (!checks || typeof checks !== "object") return [];
+  return Object.entries(checks)
+    .filter(([, result]) => result?.status === "warning")
+    .map(([name, result]) => ({
+      name,
+      label: displayLabel(name, result),
+      message: result?.message,
+    }));
+}
+
+/**
  * One "Needs you" row per failed system health check. Warnings stay in the
  * header pill. Each exclusion names the row that already covers the check.
  *
