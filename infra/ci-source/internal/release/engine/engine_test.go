@@ -246,6 +246,8 @@ func TestExportInheritsMtimes(t *testing.T) {
 		t.Errorf("new b.txt has old mtime %v", st.ModTime())
 	}
 	// Changed bytes get a fresh mtime.
+	// gitRepo made a.txt 0444; a non-root user can't rewrite it in place.
+	os.Chmod(filepath.Join(repo, "a.txt"), 0o644)
 	os.WriteFile(filepath.Join(repo, "a.txt"), []byte("two\n"), 0o644)
 	run("commit", "-q", "-am", "three")
 	d3, _, _ := ExportSource(ctx, repo, "HEAD", cache)

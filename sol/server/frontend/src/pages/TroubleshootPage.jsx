@@ -169,7 +169,7 @@ export default function TroubleshootPage() {
   // Deep link: ?issue=connect-key highlights the Connect row and opens step 1.
   useEffect(() => {
     if (issue === "connect-key") {
-      const t = setTimeout(() => connectRowRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 250);
+      const t = setTimeout(() => connectRowRef.current?.scrollIntoView?.({ behavior: "smooth", block: "center" }), 250);
       return () => clearTimeout(t);
     }
     return undefined;
