@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -26,6 +27,9 @@ func main() {
 	fuzzDuration := runCmd.String("fuzz", "5m", "Fuzz duration")
 	failFast := runCmd.Bool("fail-fast", false, "Stop on first failure")
 	outputDir := runCmd.String("output", "", "Output directory for results")
+	perf := runCmd.String("perf", "", "Performance profile (full, balanced, gentle, custom)")
+	cpus := runCmd.Float64("cpus", 0, "Cap CPU use to this many cores (0 = no cap)")
+	memory := runCmd.String("memory", "", "Cap memory, e.g. 8G or 4096M (empty = no cap)")
 
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
@@ -33,9 +37,11 @@ func main() {
 			listTests()
 		case "profiles":
 			listProfiles()
+		case "perf":
+			listPerfProfiles()
 		case "run":
 			runCmd.Parse(os.Args[2:])
-			runCLI(*profileName, *testIDs, *parallel, *fuzzDuration, *failFast, *outputDir)
+			runCLI(*profileName, *testIDs, *parallel, *fuzzDuration, *failFast, *outputDir, *perf, *cpus, *memory, flagSet(runCmd, "parallel"))
 		case "help", "-h", "--help":
 			printHelp()
 		default:
@@ -64,6 +70,7 @@ Commands:
   (none)    Launch interactive TUI
   list      List all available tests
   profiles  List all test profiles
+  perf      List performance profiles (how hard a run may push this machine)
   run       Run tests non-interactively (use flags)
   help      Show this help message
 
@@ -74,6 +81,9 @@ Run Flags:
   -fuzz <duration>    Fuzz test duration (default: 5m)
   -fail-fast          Stop on first failure
   -output <dir>       Output directory for results (JSON)
+  -perf <name>        Performance profile: full (default), balanced, gentle, custom
+  -cpus <n>           Cap CPU use to n cores (overrides -perf)
+  -memory <size>      Cap memory, e.g. 8G (overrides -perf)
 
 Examples:
   ci                           # Launch TUI
@@ -82,6 +92,8 @@ Examples:
   ci run -profile sol    # LibreServ release gate (no Luna/Connect)
   ci run -profile luna         # Luna (luna/ci.sh on the host)
   ci run -profile full         # Run full profile
+  ci run -profile quick -perf gentle   # Same tests, easy on the machine
+  ci run -profile luna -cpus 4 -memory 8G
   ci list                      # List all tests
   ci profiles                  # List all profiles`)
 }
@@ -101,7 +113,7 @@ func listProfiles() {
 	}
 }
 
-func runCLI(profileName, testIDs string, parallel int, fuzzDuration string, failFast bool, outputDir string) {
+func runCLI(profileName, testIDs string, parallel int, fuzzDuration string, failFast bool, outputDir, perf string, cpus float64, memory string, parallelSet bool) {
 	var testsToRun []string
 
 	if profileName != "" {
@@ -132,6 +144,13 @@ func runCLI(profileName, testIDs string, parallel int, fuzzDuration string, fail
 		os.Exit(1)
 	}
 
+	limits, err := resolveLimits(perf, cpus, memory, parallel, parallelSet)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		os.Exit(1)
+	}
+	parallel = limits.Parallelism
+
 	cfg := config.DefaultConfig
 	cfg.Parallelism = parallel
 	cfg.FailFast = failFast
@@ -149,7 +168,11 @@ func runCLI(profileName, testIDs string, parallel int, fuzzDuration string, fail
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	fmt.Printf("Running %d tests: %v\n", len(testsToRun), testsToRun)
-	fmt.Printf("Parallel: %d, Fail-fast: %v\n\n", parallel, failFast)
+	fmt.Printf("Parallel: %d, Fail-fast: %v\n", parallel, failFast)
+	if limits.CPUQuota > 0 || limits.MemoryLimit > 0 || limits.Nice > 0 {
+		fmt.Printf("Limits: %s\n", describeLimits(limits))
+	}
+	fmt.Println()
 
 	startTime := time.Now()
 	results := make(map[string]*tests.TestResult)
@@ -160,7 +183,7 @@ func runCLI(profileName, testIDs string, parallel int, fuzzDuration string, fail
 		executor.Cancel()
 	}()
 
-	go executor.Execute("", testsToRun, parallel, failFast, fuzzDur, 0, 0)
+	go executor.Execute("", testsToRun, parallel, failFast, fuzzDur, limits.CPUQuota, limits.MemoryLimit, limits.Nice)
 
 	passed := 0
 	failed := 0
@@ -247,4 +270,87 @@ func writeResults(results map[string]*tests.TestResult, outputDir string, durati
 	data, _ := json.MarshalIndent(summary, "", "  ")
 	os.WriteFile(outputDir+"/results.json", data, 0644)
 	fmt.Printf("Results written to %s/results.json\n", outputDir)
+}
+
+func listPerfProfiles() {
+	fmt.Print("Performance Profiles (use with: ci run -perf <name>):\n\n")
+	for _, p := range config.PerfProfiles {
+		l := p.Resolve(config.PerfLimits{Parallelism: 4})
+		fmt.Printf("  %-10s %s\n", p.ID, p.Description)
+		if l.CPUQuota > 0 || l.MemoryLimit > 0 {
+			fmt.Printf("             On this machine: %s, %d at a time\n", describeLimits(l), l.Parallelism)
+		}
+		fmt.Println()
+	}
+}
+
+// flagSet reports whether a flag was given explicitly.
+func flagSet(fs *flag.FlagSet, name string) bool {
+	set := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			set = true
+		}
+	})
+	return set
+}
+
+// resolveLimits layers a performance profile and explicit flags. No flags at
+// all means no limits, exactly as before.
+func resolveLimits(perf string, cpus float64, memory string, parallel int, parallelSet bool) (config.PerfLimits, error) {
+	cur := config.PerfLimits{Parallelism: parallel}
+	if perf != "" {
+		p := config.GetPerfProfile(perf)
+		if p == nil {
+			return cur, fmt.Errorf("unknown performance profile %q (see: ci perf)", perf)
+		}
+		cur = p.Resolve(cur)
+		if parallelSet {
+			cur.Parallelism = parallel
+		}
+	}
+	if cpus > 0 {
+		cur.CPUQuota = int64(cpus * 100000)
+	}
+	if memory != "" {
+		b, err := parseSize(memory)
+		if err != nil {
+			return cur, err
+		}
+		cur.MemoryLimit = b
+	}
+	return cur, nil
+}
+
+func parseSize(s string) (int64, error) {
+	t := strings.ToUpper(strings.TrimSpace(s))
+	t = strings.TrimSuffix(t, "B")
+	mult := int64(1)
+	switch {
+	case strings.HasSuffix(t, "G"):
+		mult, t = 1<<30, strings.TrimSuffix(t, "G")
+	case strings.HasSuffix(t, "M"):
+		mult, t = 1<<20, strings.TrimSuffix(t, "M")
+	case strings.HasSuffix(t, "K"):
+		mult, t = 1<<10, strings.TrimSuffix(t, "K")
+	}
+	n, err := strconv.ParseFloat(t, 64)
+	if err != nil || n <= 0 {
+		return 0, fmt.Errorf("invalid memory size %q (try 8G or 4096M)", s)
+	}
+	return int64(n * float64(mult)), nil
+}
+
+func describeLimits(l config.PerfLimits) string {
+	var parts []string
+	if l.CPUQuota > 0 {
+		parts = append(parts, fmt.Sprintf("%.1f cores", float64(l.CPUQuota)/100000))
+	}
+	if l.MemoryLimit > 0 {
+		parts = append(parts, fmt.Sprintf("%.1f GB memory", float64(l.MemoryLimit)/(1<<30)))
+	}
+	if l.Nice > 0 {
+		parts = append(parts, fmt.Sprintf("priority nice %d", l.Nice))
+	}
+	return strings.Join(parts, ", ")
 }

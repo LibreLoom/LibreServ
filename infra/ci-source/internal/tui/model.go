@@ -65,6 +65,8 @@ type Settings struct {
 	Notifications bool
 	CPUQuota      int64
 	MemoryLimit   int64
+	PerfProfile   string
+	Nice          int
 	ExportFormat  ExportFormat
 }
 
@@ -109,6 +111,7 @@ func InitialModel() Model {
 			Notifications: userCfg.Notifications,
 			CPUQuota:      userCfg.CPUQuota,
 			MemoryLimit:   userCfg.MemoryLimit,
+			PerfProfile:   userCfg.PerfProfile,
 			ExportFormat:  ExportAll,
 		},
 	}

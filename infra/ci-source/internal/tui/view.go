@@ -253,7 +253,7 @@ func (m *Model) startExecution() (tea.Model, tea.Cmd) {
 
 	m.StartRun()
 
-	go m.executor.Execute("", testIDs, m.settings.Parallelism, m.settings.FailFast, m.settings.FuzzDuration, m.settings.CPUQuota, m.settings.MemoryLimit)
+	go m.executor.Execute("", testIDs, m.settings.Parallelism, m.settings.FailFast, m.settings.FuzzDuration, m.settings.CPUQuota, m.settings.MemoryLimit, m.settings.Nice)
 
 	return m, tickCmd()
 }
@@ -328,6 +328,7 @@ func (m *Model) handleSettingsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			Notifications: m.settings.Notifications,
 			CPUQuota:      m.settings.CPUQuota,
 			MemoryLimit:   m.settings.MemoryLimit,
+			PerfProfile:   m.settings.PerfProfile,
 		}
 		if err := config.SaveUserConfig(cfg); err != nil {
 			m.lastError = "Failed to save: " + err.Error()
@@ -339,10 +340,13 @@ func (m *Model) handleSettingsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cursor--
 		}
 	case "down", "j":
-		if m.cursor < 5 {
+		if m.cursor < 6 {
 			m.cursor++
 		}
 	case "left", "h":
+		if m.cursor == 0 || m.cursor == 4 || m.cursor == 5 {
+			m.settings.PerfProfile = config.PerfCustom.ID
+		}
 		switch m.cursor {
 		case 0:
 			if m.settings.Parallelism > 1 {
@@ -362,6 +366,8 @@ func (m *Model) handleSettingsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			} else if m.settings.CPUQuota > 0 {
 				m.settings.CPUQuota = 0
 			}
+		case 6:
+			m.cyclePerf(-1)
 		case 5:
 			if m.settings.MemoryLimit > 512*1024*1024 {
 				m.settings.MemoryLimit -= 512 * 1024 * 1024
@@ -370,6 +376,9 @@ func (m *Model) handleSettingsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case "right", "l":
+		if m.cursor == 0 || m.cursor == 4 || m.cursor == 5 {
+			m.settings.PerfProfile = config.PerfCustom.ID
+		}
 		switch m.cursor {
 		case 0:
 			if m.settings.Parallelism < 16 {
@@ -389,6 +398,8 @@ func (m *Model) handleSettingsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.settings.MemoryLimit < 16384*1024*1024 {
 				m.settings.MemoryLimit += 512 * 1024 * 1024
 			}
+		case 6:
+			m.cyclePerf(1)
 		}
 	case " ", "enter":
 		switch m.cursor {
@@ -396,9 +407,44 @@ func (m *Model) handleSettingsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.settings.FailFast = !m.settings.FailFast
 		case 3:
 			m.settings.Notifications = !m.settings.Notifications
+		case 6:
+			m.cyclePerf(1)
 		}
 	}
 	return m, nil
+}
+
+// perfOrder is the order the Performance setting cycles through.
+func perfOrder() []string {
+	ids := make([]string, 0, len(config.PerfProfiles)+1)
+	for _, p := range config.PerfProfiles {
+		ids = append(ids, p.ID)
+	}
+	return append(ids, config.PerfCustom.ID)
+}
+
+// cyclePerf steps the Performance setting and applies the preset's limits to
+// the parallelism, CPU and memory rows. "custom" keeps whatever is set.
+func (m *Model) cyclePerf(dir int) {
+	order := perfOrder()
+	cur := 0
+	for i, id := range order {
+		if id == m.settings.PerfProfile {
+			cur = i
+		}
+	}
+	next := order[(cur+dir+len(order))%len(order)]
+	m.settings.PerfProfile = next
+	if next == config.PerfFull {
+		m.settings.Parallelism = config.DefaultConfig.Parallelism
+	}
+	l := config.GetPerfProfile(next).Resolve(config.PerfLimits{
+		Parallelism: m.settings.Parallelism,
+		CPUQuota:    m.settings.CPUQuota,
+		MemoryLimit: m.settings.MemoryLimit,
+		Nice:        m.settings.Nice,
+	})
+	m.settings.Parallelism, m.settings.CPUQuota, m.settings.MemoryLimit, m.settings.Nice = l.Parallelism, l.CPUQuota, l.MemoryLimit, l.Nice
 }
 
 func (m *Model) handleRunningKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -862,6 +908,11 @@ func (m Model) viewSettings() string {
 		memStatus = fmt.Sprintf("%.0f MB", float64(m.settings.MemoryLimit)/(1024*1024))
 	}
 
+	perfStatus := "Full (no limits)"
+	if p := config.GetPerfProfile(m.settings.PerfProfile); p != nil && p.ID != config.PerfFull {
+		perfStatus = p.Name + " - " + p.Description
+	}
+
 	settingsItems := []string{
 		fmt.Sprintf("Parallelism:     %d containers", m.settings.Parallelism),
 		fmt.Sprintf("Fuzz Duration:   %v", m.settings.FuzzDuration),
@@ -869,6 +920,7 @@ func (m Model) viewSettings() string {
 		fmt.Sprintf("Notifications:   %s", notifStatus),
 		fmt.Sprintf("CPU Limit:       %s", cpuStatus),
 		fmt.Sprintf("Memory Limit:    %s", memStatus),
+		fmt.Sprintf("Performance:     %s", perfStatus),
 	}
 
 	for i, item := range settingsItems {

@@ -16,6 +16,7 @@ type UserConfig struct {
 	Notifications bool          `json:"notifications"`
 	CPUQuota      int64         `json:"cpuQuota"`
 	MemoryLimit   int64         `json:"memoryLimit"`
+	PerfProfile   string        `json:"perfProfile"`
 }
 
 func LoadUserConfig() (*UserConfig, error) {
@@ -62,6 +63,7 @@ func defaultUserConfig() *UserConfig {
 		Notifications: true,
 		CPUQuota:      0,
 		MemoryLimit:   0,
+		PerfProfile:   PerfFull,
 	}
 }
 

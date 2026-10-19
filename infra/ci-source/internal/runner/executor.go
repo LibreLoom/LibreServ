@@ -34,7 +34,7 @@ func NewExecutor(cfg *config.Config) (*Executor, error) {
 	}, nil
 }
 
-func (e *Executor) Execute(profile string, testIDs []string, parallelism int, failFast bool, fuzzDuration time.Duration, cpuQuota int64, memoryLimit int64) *RunSummary {
+func (e *Executor) Execute(profile string, testIDs []string, parallelism int, failFast bool, fuzzDuration time.Duration, cpuQuota int64, memoryLimit int64, nice int) *RunSummary {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	e.cancelMu.Lock()
@@ -63,6 +63,7 @@ func (e *Executor) Execute(profile string, testIDs []string, parallelism int, fa
 		SkipTestChan: e.skipTestChan,
 		CPUQuota:     cpuQuota,
 		MemoryLimit:  memoryLimit,
+		Nice:         nice,
 	}
 
 	summary := e.runner.Run(ctx, opts)

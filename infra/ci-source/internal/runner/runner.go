@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -29,6 +30,7 @@ type Runner struct {
 	workers           int
 	cpuQuota          int64
 	memoryLimit       int64
+	nice              int
 	pullMutex         sync.Mutex
 	pulledImages      map[string]bool
 	streamManager     *StreamManager
@@ -62,6 +64,7 @@ type RunOptions struct {
 	SkipTestChan chan string
 	CPUQuota     int64
 	MemoryLimit  int64
+	Nice         int
 }
 
 func NewRunner(cfg *config.Config) (*Runner, error) {
@@ -145,6 +148,7 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) *RunSummary {
 	// Store resource limits for container creation
 	r.cpuQuota = opts.CPUQuota
 	r.memoryLimit = opts.MemoryLimit
+	r.nice = opts.Nice
 
 	// Pre-warm shared Go module cache for the selected Go tests. This turns
 	// the cold-cache, concurrent go-mod download storm that flakes the quick
@@ -242,6 +246,49 @@ func (r *Runner) worker(
 	}
 }
 
+// throttleHostCmd applies the run's performance limits to a host-run test
+// (containers get theirs from the container runtime). With no limits set the
+// command is left exactly as is.
+func (r *Runner) throttleHostCmd(cmd *exec.Cmd) {
+	args, env := hostThrottle(cmd.Args, r.cpuQuota, r.memoryLimit, r.nice, exec.LookPath)
+	if len(args) != len(cmd.Args) {
+		cmd.Path, cmd.Args = args[0], args
+	}
+	cmd.Env = append(cmd.Env, env...)
+}
+
+// hostThrottle wraps args in nice / ionice / a systemd user scope as the limits
+// ask, skipping any tool that isn't installed, and returns env that sizes build
+// tools (cargo, go) to the CPU cap. cpuQuota is microseconds per 100ms period.
+func hostThrottle(args []string, cpuQuota, memLimit int64, nice int, look func(string) (string, error)) ([]string, []string) {
+	var env []string
+	if nice > 0 {
+		if p, err := look("ionice"); err == nil {
+			args = append([]string{p, "-c3"}, args...)
+		}
+		if p, err := look("nice"); err == nil {
+			args = append([]string{p, "-n", strconv.Itoa(nice)}, args...)
+		}
+	}
+	if cpuQuota > 0 {
+		jobs := strconv.FormatInt((cpuQuota+99999)/100000, 10)
+		env = append(env, "CARGO_BUILD_JOBS="+jobs, "GOMAXPROCS="+jobs, "RUST_TEST_THREADS="+jobs)
+	}
+	if cpuQuota > 0 || memLimit > 0 {
+		if p, err := look("systemd-run"); err == nil {
+			scope := []string{p, "--user", "--scope", "--quiet"}
+			if cpuQuota > 0 {
+				scope = append(scope, fmt.Sprintf("-pCPUQuota=%d%%", cpuQuota/1000))
+			}
+			if memLimit > 0 {
+				scope = append(scope, fmt.Sprintf("-pMemoryMax=%d", memLimit))
+			}
+			args = append(scope, args...)
+		}
+	}
+	return args, env
+}
+
 // runHostTest executes a test command directly on the host (no container),
 // for tests whose Container is the sentinel "host". Used by podman-build,
 // which needs the host podman binary and can't reach a mounted socket under
@@ -275,6 +322,7 @@ func (r *Runner) runHostTest(ctx context.Context, t *tests.Test) *tests.TestResu
 		}
 	}
 	cmd.Env = append(os.Environ(), t.Env...)
+	r.throttleHostCmd(cmd)
 
 	out, err := cmd.CombinedOutput()
 	output := string(out)
@@ -614,6 +662,12 @@ func (r *Runner) createContainer(ctx context.Context, t *tests.Test, fuzzDuratio
 	}
 	if r.memoryLimit > 0 {
 		hostConfig.Memory = r.memoryLimit
+	}
+	// Lower priority = smaller share of CPU when the machine is contended.
+	if r.nice >= 15 {
+		hostConfig.CPUShares = 128
+	} else if r.nice > 0 {
+		hostConfig.CPUShares = 512
 	}
 
 	resp, err := r.cli.ContainerCreate(ctx, config, hostConfig, nil, nil, "")
