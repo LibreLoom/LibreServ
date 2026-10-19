@@ -10,6 +10,7 @@ import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import { ShortcutsProvider } from "@libreloom/ui/context/ShortcutsContext.jsx";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { setupGlobalErrorHandlers } from "./utils/errorReporting.js";
+import TimeFormatSync from "./components/common/TimeFormatSync.jsx";
 import Toaster from "@libreloom/ui/components/common/Toaster.jsx";
 setupGlobalErrorHandlers();
 
@@ -31,6 +32,7 @@ createRoot(document.getElementById("root")).render(
           <ThemeProvider>
             <ToastProvider>
               <ShortcutsProvider>
+                <TimeFormatSync />
                 <App />
                 <Toaster />
               </ShortcutsProvider>

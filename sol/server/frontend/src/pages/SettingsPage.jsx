@@ -88,7 +88,19 @@ export default function SettingsPage() {
     // The settings/security/notifications endpoints are admin-only; a regular
     // user only uses the client-side Appearance and read-only About sections,
     // so skip these calls instead of triggering permission errors.
-    if (!isAdmin) return;
+    if (!isAdmin) {
+      // Regular users still keep their own saved preferences (like 12-hour time).
+      try {
+        const securityData = await getSecuritySettings();
+        setSecuritySettings(securityData);
+        if (securityData && typeof securityData.use_12_hour_time === "boolean") {
+          setUse12HourTime(securityData.use_12_hour_time);
+        }
+      } catch (err) {
+        console.error("Error loading preferences:", err);
+      }
+      return;
+    }
     try {
       setError(null);
       const [settingsData, securityData, notificationsData, connectData, connectInfoData] = await Promise.all([
