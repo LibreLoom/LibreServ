@@ -213,13 +213,19 @@ function ShareSheetSession({ subject, open = true, startWithNewLink = false, onC
       ? apiErrorMessage(stateQuery.error, "You don't have access to share this.")
       : null);
 
-  // Straight to the new-link form once the subject has loaded; the sheet
-  // itself never shows in that case.
+  // Straight to the new-link form: the sheet stays hidden from the first
+  // render, while the subject loads, so no flash of it shows. It only comes
+  // back if the subject fails to load, to show that error.
   const linkOnly = startWithNewLink && !!subj && !stateQuery.isError;
 
   return (
     <>
-      <ModalCard open={open && !linkOnly} title="Sharing" onClose={onClose} overlayClassName={overlayClassName}>
+      <ModalCard
+        open={open && (!startWithNewLink || stateQuery.isError)}
+        title="Sharing"
+        onClose={onClose}
+        overlayClassName={overlayClassName}
+      >
         <div className="space-y-5" data-slot="share-sheet">
           {(subj?.name || subject?.name) && (
             <div className="rounded-large-element surface-primary p-3">

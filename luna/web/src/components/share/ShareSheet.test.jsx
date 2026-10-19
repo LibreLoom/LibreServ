@@ -99,6 +99,65 @@ describe("ShareSheet", () => {
     expect(screen.queryByText(/Private: only people you add here/)).not.toBeInTheDocument();
   });
 
+  it("opens straight to the New link form and keeps it open", async () => {
+    stubApi((path) => {
+      const base = subjectBody(path);
+      return { ...base, subject: { ...base.subject, path: "Dish.lunaform", name: "Dish.lunaform", is_file: true } };
+    });
+    const file = { kind: "path", driveId: "d1", path: "Dish.lunaform", albumId: "", name: "Dish.lunaform" };
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <ToastProvider>
+        <QueryClientProvider client={client}>
+          <MemoryRouter>
+            <AuthProvider>
+              <ShareSheet subject={file} open startWithNewLink onClose={() => {}} />
+            </AuthProvider>
+          </MemoryRouter>
+        </QueryClientProvider>
+      </ToastProvider>,
+    );
+    expect(await screen.findByRole("dialog", { name: "New link" })).toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 1000));
+    expect(screen.getByRole("dialog", { name: "New link" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Sharing" })).toBeNull();
+  });
+
+  it("keeps the New link form when it opens while the subject is still loading", async () => {
+    stubApi((path) => {
+      const base = subjectBody(path);
+      return { ...base, subject: { ...base.subject, path: "Dish.lunaform", name: "Dish.lunaform", is_file: true } };
+    });
+    const inner = globalThis.fetch;
+    vi.stubGlobal("fetch", async (url, init) => {
+      if (String(url).includes("/api/v1/access/subject")) {
+        await new Promise((r) => setTimeout(r, 300));
+      }
+      return inner(url, init);
+    });
+    const onClose = vi.fn();
+    const file = { kind: "path", driveId: "d1", path: "Dish.lunaform", albumId: "", name: "Dish.lunaform" };
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { unmount } = render(
+      <ToastProvider>
+        <QueryClientProvider client={client}>
+          <MemoryRouter>
+            <AuthProvider>
+              <ShareSheet subject={file} open startWithNewLink onClose={onClose} />
+            </AuthProvider>
+          </MemoryRouter>
+        </QueryClientProvider>
+      </ToastProvider>,
+    );
+    // Before the subject loads, the plain Sharing sheet must not show.
+    expect(screen.queryByRole("dialog", { name: "Sharing" })).toBeNull();
+    expect(await screen.findByRole("dialog", { name: "New link" })).toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 1000));
+    expect(screen.getByRole("dialog", { name: "New link" })).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+    unmount();
+  });
+
   describe("private items", () => {
     const privateBody = (path, extra = {}) => {
       const base = subjectBody(path);
