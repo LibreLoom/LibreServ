@@ -103,18 +103,18 @@ describe("BackupsLine", () => {
     expect(screen.queryByRole("button", { name: "See all backups" })).not.toBeInTheDocument();
   });
 
-  it("says all backed up with a count when every backup is fine", () => {
+  it("says all backed up when every backup is fine, with no repeated count", () => {
     renderLine(rowsOf([backup(), backup({ id: "b2", source_name: "Music", source_path: "Music" })]));
     expect(screen.getByRole("region", { name: "Backups" })).toBeInTheDocument();
     expect(screen.getByText("All backed up")).toBeInTheDocument();
-    expect(screen.getByText("2 backups")).toBeInTheDocument();
+    expect(screen.queryByText(/backups$/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "See all backups" })).toBeInTheDocument();
   });
 
-  it("counts a single backup in the singular", () => {
+  it("shows just the headline for a single backup", () => {
     renderLine(rowsOf([backup()]));
     expect(screen.getByText("All backed up")).toBeInTheDocument();
-    expect(screen.getByText("1 backup")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Backups" }).querySelectorAll("p")).toHaveLength(1);
   });
 
   it("says how many need a look, without listing them", () => {
@@ -125,7 +125,6 @@ describe("BackupsLine", () => {
       ]),
     );
     expect(screen.getByText("1 backup needs a look")).toBeInTheDocument();
-    expect(screen.getByText("2 backups")).toBeInTheDocument();
     // Problems are Needs you's job: no reason, no per-backup rows, no reminder here.
     expect(screen.queryByText("The backup drive is full.")).not.toBeInTheDocument();
     expect(screen.queryByText("Photos")).not.toBeInTheDocument();
@@ -165,12 +164,12 @@ describe("BackupsLine", () => {
         ],
       ),
     );
-    expect(screen.getByText(/3 backups · copies last tested 1 h ago/)).toBeInTheDocument();
+    expect(screen.getByText("Copies last tested 1 h ago")).toBeInTheDocument();
   });
 
   it("leaves out the last tested time when no cloud backup was checked yet", () => {
     renderLine(rowsOf([backup()], [cloudBackup({ last_checked_at: undefined })]));
-    expect(screen.getByText("2 backups")).toBeInTheDocument();
+    expect(screen.getByText("All backed up")).toBeInTheDocument();
     expect(screen.queryByText(/copies last tested/)).not.toBeInTheDocument();
   });
 

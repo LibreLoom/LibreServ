@@ -126,19 +126,20 @@ export function backupHeadline(rows) {
 }
 
 /**
- * Count line for the card, with the newest cloud check when there is one.
+ * Second line of the card: when the newest cloud copy was tested. Null when none was,
+ * since the headline already says how many backups there are.
  * @param {BackupRow[]} rows
  * @param {number} [now]
+ * @returns {string | null}
  */
 export function lastTestedLine(rows, now = Date.now()) {
-  const count = `${rows.length} ${rows.length === 1 ? "backup" : "backups"}`;
   const checks = rows
     .filter((r) => r.kind === "cloud" && r.last_checked_at)
     .map((r) => Number(r.last_checked_at));
-  if (checks.length === 0) return count;
+  if (checks.length === 0) return null;
   const ago = formatRecentAgo(Math.max(...checks) * 1000, now);
   const when = ago === "Just now" ? "just now" : ago;
-  return `${count} · copies last tested ${when}`;
+  return `Copies last tested ${when}`;
 }
 
 /**

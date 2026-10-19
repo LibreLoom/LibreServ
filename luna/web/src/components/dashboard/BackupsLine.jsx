@@ -23,7 +23,7 @@ export default function BackupsLine({ rows }) {
             <Shield size={ICON_SIZE.lg} className="shrink-0" aria-hidden="true" />
             <div className="min-w-0">
               <p className="text-base font-mono font-normal">{backupHeadline(rows)}</p>
-              <p className="text-xs">{lastTestedLine(rows)}</p>
+              {lastTestedLine(rows) && <p className="text-xs">{lastTestedLine(rows)}</p>}
             </div>
           </div>
           <Button size="sm" variant="primary" onClick={() => setShowAll(true)}>

@@ -159,28 +159,23 @@ describe("groupByCreator and backupHeadline", () => {
 });
 
 describe("lastTestedLine", () => {
-  it("shows only the count when no cloud backup was ever checked", () => {
-    expect(lastTestedLine([drive(), drive({ id: "d2" })], NOW)).toBe("2 backups");
-    expect(lastTestedLine([cloud()], NOW)).toBe("1 backup");
+  it("is empty when no cloud backup was ever checked", () => {
+    expect(lastTestedLine([drive(), drive({ id: "d2" })], NOW)).toBeNull();
+    expect(lastTestedLine([cloud({ last_checked_at: undefined })], NOW)).toBeNull();
   });
 
-  it("uses the singular for one backup", () => {
-    expect(lastTestedLine([drive()], NOW)).toBe("1 backup");
-  });
-
-  it("adds the newest cloud check when there is one", () => {
+  it("uses the newest cloud check when there is one", () => {
     const rows = [
       drive(),
       cloud({ last_checked_at: (NOW - 5 * DAY) / 1000 }),
       cloud({ id: "c2", last_checked_at: (NOW - 2 * DAY) / 1000 }),
     ];
-    expect(lastTestedLine(rows, NOW)).toBe("3 backups · copies last tested 2 days ago");
+    expect(lastTestedLine(rows, NOW)).toBe("Copies last tested 2 days ago");
   });
 
   it("reads Just now as just now", () => {
-    const rows = Array.from({ length: 9 }, (_, i) => drive({ id: `d${i}` }));
-    rows.push(cloud({ last_checked_at: NOW / 1000 - 10 }));
-    expect(lastTestedLine(rows, NOW)).toBe("10 backups · copies last tested just now");
+    const rows = [drive(), cloud({ last_checked_at: NOW / 1000 - 10 })];
+    expect(lastTestedLine(rows, NOW)).toBe("Copies last tested just now");
   });
 });
 

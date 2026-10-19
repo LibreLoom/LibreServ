@@ -782,7 +782,6 @@ describe("DashboardPage", () => {
       renderDashboard();
       const region = await screen.findByRole("region", { name: "Backups" });
       expect(within(region).getByText("All backed up")).toBeInTheDocument();
-      expect(within(region).getByText("1 backup")).toBeInTheDocument();
       expect(within(region).getByRole("button", { name: "See all backups" })).toBeInTheDocument();
     });
 
