@@ -148,7 +148,7 @@ describe("DriveHomeCard storage", () => {
     expect(screen.queryByText(/free|used|total/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Checking space/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Open this drive to see your files/i)).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Browse files" })).toHaveAttribute("href", "/drives/d1");
+    expect(screen.getByRole("link", { name: "Browse files" })).toHaveAttribute("href", "/files/d1");
   });
 
   it("asks for the summary of this drive only", async () => {
@@ -167,11 +167,11 @@ describe("DriveHomeCard shortcuts and counts", () => {
     expect(await screen.findByText("Folders")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Photos" })).toHaveAttribute(
       "href",
-      "/drives/d1?path=Photos",
+      "/files/d1?path=Photos",
     );
     expect(screen.getByRole("link", { name: "Documents" })).toHaveAttribute(
       "href",
-      "/drives/d1?path=Documents",
+      "/files/d1?path=Documents",
     );
   });
 
@@ -180,7 +180,7 @@ describe("DriveHomeCard shortcuts and counts", () => {
     renderCard();
     expect(await screen.findByRole("link", { name: "Taxes 2026" })).toHaveAttribute(
       "href",
-      "/drives/d1?path=Work%2FTaxes%202026",
+      "/files/d1?path=Work%2FTaxes%202026",
     );
   });
 
@@ -214,7 +214,7 @@ describe("DriveHomeCard open button", () => {
     renderCard({ isAdmin: true });
     expect(await screen.findByRole("link", { name: "Browse files" })).toHaveAttribute(
       "href",
-      "/drives/d1",
+      "/files/d1",
     );
   });
 
@@ -223,9 +223,9 @@ describe("DriveHomeCard open button", () => {
     renderCard({ grants: [photosDropGrant], showSeeAllShared: true });
     expect(await screen.findByRole("link", { name: "Browse files" })).toHaveAttribute(
       "href",
-      "/drives/d1?path=docs%2Fdrop",
+      "/files/d1?path=docs%2Fdrop",
     );
-    expect(screen.getAllByRole("link").every((a) => a.getAttribute("href") !== "/drives/d1")).toBe(true);
+    expect(screen.getAllByRole("link").every((a) => a.getAttribute("href") !== "/files/d1")).toBe(true);
   });
 
   it("opens a shared file with Open when the shallowest grant is a file", async () => {
@@ -244,7 +244,7 @@ describe("DriveHomeCard open button", () => {
     });
     expect(await screen.findByRole("link", { name: "Open" })).toHaveAttribute(
       "href",
-      "/drives/d1?path=docs%2Freport.pdf",
+      "/files/d1?path=docs%2Freport.pdf",
     );
   });
 
@@ -258,7 +258,7 @@ describe("DriveHomeCard open button", () => {
     });
     expect(await screen.findByRole("link", { name: "Browse files" })).toHaveAttribute(
       "href",
-      "/drives/d1?path=a",
+      "/files/d1?path=a",
     );
   });
 
@@ -269,7 +269,7 @@ describe("DriveHomeCard open button", () => {
     });
     expect(await screen.findByRole("link", { name: "Browse files" })).toHaveAttribute(
       "href",
-      "/drives/d1",
+      "/files/d1",
     );
   });
 
@@ -278,7 +278,7 @@ describe("DriveHomeCard open button", () => {
     renderCard();
     expect(await screen.findByRole("link", { name: "Browse files" })).toHaveAttribute(
       "href",
-      "/drives/d1",
+      "/files/d1",
     );
   });
 
@@ -385,13 +385,13 @@ describe("DriveHomeCard drives that are not ready", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("sends an Admin to Drives when a drive has a problem", () => {
+  it("sends an Admin to Files when a drive has a problem", () => {
     const fetchMock = stubSummary(FULL_SUMMARY);
     renderCard({ drive: notReady("failed"), isAdmin: true });
     expect(
-      screen.getByText("Luna ran into a problem with this drive. Open Drives for details."),
+      screen.getByText("Luna ran into a problem with this drive. Open Files for details."),
     ).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Open Drives" })).toHaveAttribute("href", "/drives");
+    expect(screen.getByRole("link", { name: "Open Files" })).toHaveAttribute("href", "/files");
     expect(screen.queryByRole("link", { name: "Browse files" })).not.toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -432,7 +432,7 @@ describe("DriveHomeCard when the summary fails", () => {
     expect(await screen.findByText("Open this drive to see your files.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Browse files" })).toHaveAttribute(
       "href",
-      "/drives/d1?path=docs%2Fdrop",
+      "/files/d1?path=docs%2Fdrop",
     );
   });
 

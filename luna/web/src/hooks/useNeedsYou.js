@@ -28,7 +28,7 @@ async function getJsonSkipForbidden(path) {
 
 /**
  * Every query the Needs you zone reads, with keys shared with the dashboard and
- * the Drives page so nothing is fetched twice. Admin-only requests stay disabled
+ * the Files page so nothing is fetched twice. Admin-only requests stay disabled
  * for Members.
  *
  * @returns {{ items: import("../lib/needsYou.js").NeedsYouItem[], isLoading: boolean }}

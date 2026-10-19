@@ -1,41 +1,37 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { HardDrive } from "lucide-react";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
-import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
-import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { dashboard as greetingMessages } from "../lib/greetings.jsx";
 import SystemHealthPill from "../components/common/SystemHealthPill.jsx";
 import SoftwareUpdatePill from "../components/common/SoftwareUpdatePill.jsx";
 import TipPill from "../components/common/TipPill.jsx";
-import { apiErrorMessage, getDrives, getJson, getRecents, postJson } from "../lib/api.js";
+import { getDrives, getJson, getRecents } from "../lib/api.js";
 import { KIND_ALBUM } from "../lib/access.js";
 import { memberAccessRoots } from "../lib/shareTree.js";
 import { PHRASE_QUERY_KEY } from "../lib/cloudPhrase.js";
 import { readRecentItems } from "../lib/recentItems.js";
 import usePageTitle from "../hooks/usePageTitle.js";
-import useReleaseInspectedDrive from "../hooks/useReleaseInspectedDrive.js";
 import useNeedsYou from "../hooks/useNeedsYou.js";
 import { useSoftwareUpdates } from "../hooks/useSoftwareUpdates.jsx";
 import { useSystemHealthCheck } from "../hooks/useSystemHealthCheck.jsx";
 import { warningChecks } from "../lib/needsYouChecks.js";
 import useBackupRows from "../hooks/useBackupRows.js";
-import InspectModal from "../components/files/InspectModal.jsx";
 import ProtectSheet from "../components/files/ProtectSheet.jsx";
 import RecoveryPhraseCheck from "../components/cloud/RecoveryPhraseCheck.jsx";
 import NeedsYou from "../components/dashboard/NeedsYou.jsx";
 import RecentsCard from "../components/dashboard/RecentsCard.jsx";
 import DriveHomeCard from "../components/dashboard/DriveHomeCard.jsx";
+import NewDriveCard from "../components/dashboard/NewDriveCard.jsx";
 import SharedAlbumsCard from "../components/dashboard/SharedAlbumsCard.jsx";
 import BackupsLine from "../components/dashboard/BackupsLine.jsx";
-import { isMockUnknownDrive, mockInspectResult, withDevMockDetected } from "../lib/devMockDrives.js";
-import { haptic } from "@libreloom/ui/utils/haptics.js";
+import { withDevMockDetected } from "../lib/devMockDrives.js";
 
 function getGreeting() {
   const today = new Date();
@@ -59,8 +55,6 @@ function getGreeting() {
 }
 
 export default function DashboardPage() {
-  const { addToast } = useToast();
-  const releaseInspectedDrive = useReleaseInspectedDrive();
   const queryClient = useQueryClient();
   const greeting = useMemo(() => getGreeting(), []);
   usePageTitle("Dashboard");
@@ -87,38 +81,9 @@ export default function DashboardPage() {
     enabled: !isAdmin,
   });
 
-  // Drive picker: opened by the "Add drive" button on the New drive plugged in row.
-  const [drivePickerOpen, setDrivePickerOpen] = useState(false);
-  const [inspectFor, setInspectFor] = useState(null);
   // Backup row that opened its protect sheet, and whether the recovery phrase check is open.
   const [sheet, setSheet] = useState(null);
   const [checkingPhrase, setCheckingPhrase] = useState(false);
-
-  const inspect = useMutation({
-    mutationFn: (/** @type {any} */ drive) => {
-      if (
-        isMockUnknownDrive(drive?.name)
-        && !detected.data?.some((real) => real.name === drive.name)
-      ) {
-        return Promise.resolve(mockInspectResult());
-      }
-      return postJson(`/api/v1/drives/${drive.name}/inspect`, {});
-    },
-  });
-
-  const adopt = useMutation({
-    mutationFn: (/** @type {{ drive: any, label: string, erase?: boolean }} */ { drive, label, erase }) =>
-      postJson(`/api/v1/drives/${drive.name}/adopt`, { label, erase: Boolean(erase) }),
-    onSuccess: () => {
-      addToast({ type: "success", message: "Drive added." });
-      queryClient.invalidateQueries({ queryKey: ["drives"] });
-      queryClient.invalidateQueries({ queryKey: ["drives-detected"] });
-    },
-  });
-
-  const adoptError = adopt.isError
-    ? apiErrorMessage(adopt.error, "Luna couldn't add this drive. Try again.")
-    : null;
 
   /**
    * Runs the button on a Needs you row that the page (not a link) handles.
@@ -126,12 +91,6 @@ export default function DashboardPage() {
    */
   function handleAction(item) {
     switch (item.action?.intent) {
-      case "open-drive-picker":
-        inspect.reset();
-        adopt.reset();
-        setInspectFor(null);
-        setDrivePickerOpen(true);
-        break;
       case "open-backup":
         setSheet(item.action.payload);
         break;
@@ -187,12 +146,16 @@ export default function DashboardPage() {
     albumsShared.length === 0;
 
   // What the right-hand column holds. Its heading is always there when the column is: an Admin
-  // with no drives gets no column at all (the Needs you "No drives yet" row covers it).
+  // with no drives and nothing new plugged in gets no column at all (the Needs you "No drives yet" row covers it).
   const hasRecents = recentItems.length > 0;
   const showAlbums = !isAdmin && !memberSharesLoading && albumsShared.length > 0;
   const showNothingShared = !drives.isLoading && memberHasNothingShared;
   const showDrivesColumn =
-    adopted.length > 0 || (!isAdmin && grants.length > 0) || showAlbums || showNothingShared;
+    adopted.length > 0 ||
+    (isAdmin && pluggedIn.length > 0) ||
+    (!isAdmin && grants.length > 0) ||
+    showAlbums ||
+    showNothingShared;
   // "See all shared items" lives on the first drive card that is ready (the only cards that show
   // it). An unplugged, ejected or failed first drive must not take the link with it; with no
   // ready card at all, the fallback Card below carries the link instead.
@@ -276,6 +239,8 @@ export default function DashboardPage() {
                   </div>
                 )}
 
+                {isAdmin && <NewDriveCard drives={pluggedIn} />}
+
                 {/* Shared folders with no ready drive card to hang the link on: never a dead end. */}
                 {memberHasGrants && firstReadyIndex === -1 && (
                   <Card>
@@ -299,95 +264,6 @@ export default function DashboardPage() {
           </div>
         )}
       </div>
-
-      {/* Drive picker — lists unrecognized drives so the user can choose which to set up.
-          Unmount when inspect opens so we don't stack two overlays during ModalCard exit. */}
-      {inspectFor == null && (
-        <ModalCard
-          open={drivePickerOpen}
-          onClose={() => setDrivePickerOpen(false)}
-          title="New drive detected"
-        >
-          {({ close }) => (
-            <>
-              <p className="text-primary text-sm mb-4">
-                {pluggedIn.length === 1
-                  ? "Luna found a drive that hasn't been added yet. Select it to see what's on it before adding."
-                  : "Luna found drives that haven't been added yet. Select one to see what's on it before adding."}
-              </p>
-              <ul className="space-y-3" aria-label="Drives available to add">
-                {pluggedIn.map((drive) => {
-                  const meta = [
-                    drive.size_bytes
-                      ? `${(drive.size_bytes / 1_000_000_000).toFixed(0)} GB`
-                      : null,
-                    drive.usb || drive.removable ? "USB" : null,
-                    drive.fs_type ? drive.fs_type.toUpperCase() : null,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ");
-                  return (
-                    <li key={drive.name}>
-                      <button
-                        type="button"
-                        className={[
-                          "group w-full text-left rounded-large-element surface-primary p-4",
-                          "border-2 border-transparent",
-                          "motion-safe:transition-[color,background-color,border-color]",
-                          "hover:bg-secondary hover:text-primary hover:border-primary",
-                          "focus-visible:outline-none focus-visible:border-primary",
-                        ].join(" ")}
-                        onClick={() => {
-                          haptic("selection");
-                          inspect.reset();
-                          adopt.reset();
-                          setDrivePickerOpen(false);
-                          setInspectFor(drive);
-                          inspect.mutate(drive);
-                        }}
-                      >
-                        <div className="flex items-center gap-3">
-                          <HardDrive
-                            size={18}
-                            className="shrink-0 group-hover:text-primary"
-                            aria-hidden="true"
-                          />
-                          <div className="min-w-0 flex-1">
-                            <div className="font-mono text-sm truncate">
-                              {drive.model || drive.name}
-                            </div>
-                            {meta ? (
-                              <div className="mt-0.5 text-xs group-hover:text-primary">{meta}</div>
-                            ) : null}
-                          </div>
-                          <span className="shrink-0 text-xs group-hover:text-primary">
-                            Tap to review →
-                          </span>
-                        </div>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-              <div className="mt-4">
-                <Button variant="outline" onClick={close}>Cancel</Button>
-              </div>
-            </>
-          )}
-        </ModalCard>
-      )}
-
-      {/* Inspect / adopt wizard — reuses the same component as DrivesPage */}
-      <InspectModal
-        open={inspectFor != null}
-        drive={inspectFor}
-        result={inspect.data}
-        error={inspect.isError ? "Luna couldn't look at this drive safely. Make sure it's plugged in and try again." : null}
-        onClose={() => { releaseInspectedDrive(inspectFor); setInspectFor(null); inspect.reset(); adopt.reset(); }}
-        onAdopt={(label, erase) => adopt.mutateAsync({ drive: inspectFor, label, erase })}
-        adoptError={adoptError}
-        adopting={adopt.isPending}
-      />
 
       {sheet && (
         <ProtectSheet

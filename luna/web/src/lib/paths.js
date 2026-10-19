@@ -39,8 +39,8 @@ export function parentPath(path) {
 
 /** Router href for a folder on a drive. */
 export function folderHref(driveId, folderPath) {
-  if (!folderPath) return `/drives/${driveId}`;
-  return `/drives/${driveId}?path=${encodeURIComponent(folderPath)}`;
+  if (!folderPath) return `/files/${driveId}`;
+  return `/files/${driveId}?path=${encodeURIComponent(folderPath)}`;
 }
 
 /** Router href for opening a file in its folder on a drive. */

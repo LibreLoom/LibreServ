@@ -28,18 +28,18 @@ beforeEach(() => {
 describe("recentItemFromLocation", () => {
   it("ignores routes that are not a drive browser", () => {
     expect(recentItemFromLocation({ pathname: "/" })).toBeNull();
-    expect(recentItemFromLocation({ pathname: "/drives" })).toBeNull();
+    expect(recentItemFromLocation({ pathname: "/files" })).toBeNull();
     expect(recentItemFromLocation({ pathname: "/gallery" })).toBeNull();
     expect(recentItemFromLocation({ pathname: "/settings" })).toBeNull();
   });
 
   it("records a bare drive URL as a drive", () => {
-    expect(recentItemFromLocation({ pathname: "/drives/d1" })).toEqual({
+    expect(recentItemFromLocation({ pathname: "/files/d1" })).toEqual({
       kind: "drive",
       driveId: "d1",
       path: "",
     });
-    expect(recentItemFromLocation({ pathname: "/drives/d1/" })).toEqual({
+    expect(recentItemFromLocation({ pathname: "/files/d1/" })).toEqual({
       kind: "drive",
       driveId: "d1",
       path: "",
@@ -48,11 +48,11 @@ describe("recentItemFromLocation", () => {
 
   it("records a folder when path is set", () => {
     expect(
-      recentItemFromLocation({ pathname: "/drives/d1", search: "?path=Documents" }),
+      recentItemFromLocation({ pathname: "/files/d1", search: "?path=Documents" }),
     ).toEqual({ kind: "folder", driveId: "d1", path: "Documents" });
     expect(
       recentItemFromLocation({
-        pathname: "/drives/d1",
+        pathname: "/files/d1",
         search: "?path=Documents/Office",
       }),
     ).toEqual({ kind: "folder", driveId: "d1", path: "Documents/Office" });
@@ -61,31 +61,31 @@ describe("recentItemFromLocation", () => {
   it("records an openable ?file= as a file inside its folder", () => {
     expect(
       recentItemFromLocation({
-        pathname: "/drives/d1",
+        pathname: "/files/d1",
         search: "?path=Documents&file=note.md",
       }),
     ).toEqual({ kind: "file", driveId: "d1", path: "Documents/note.md" });
     expect(
-      recentItemFromLocation({ pathname: "/drives/d1", search: "?file=pic.png" }),
+      recentItemFromLocation({ pathname: "/files/d1", search: "?file=pic.png" }),
     ).toEqual({ kind: "file", driveId: "d1", path: "pic.png" });
   });
 
-  it("records ?open= and hash file candidates the same way DrivePage does", () => {
+  it("records ?open= and hash file candidates the same way FilePage does", () => {
     expect(
       recentItemFromLocation({
-        pathname: "/drives/d1",
+        pathname: "/files/d1",
         search: "?path=Docs&open=report.docx",
       }),
     ).toEqual({ kind: "file", driveId: "d1", path: "Docs/report.docx" });
     expect(
-      recentItemFromLocation({ pathname: "/drives/d1", hash: "#song.mp3" }),
+      recentItemFromLocation({ pathname: "/files/d1", hash: "#song.mp3" }),
     ).toEqual({ kind: "file", driveId: "d1", path: "song.mp3" });
   });
 
   it("keeps a full path candidate as-is", () => {
     expect(
       recentItemFromLocation({
-        pathname: "/drives/d1",
+        pathname: "/files/d1",
         search: "?file=Documents/note.md",
       }),
     ).toEqual({ kind: "file", driveId: "d1", path: "Documents/note.md" });
@@ -94,26 +94,26 @@ describe("recentItemFromLocation", () => {
   it("falls back to the folder when the file is not openable in Luna", () => {
     expect(
       recentItemFromLocation({
-        pathname: "/drives/d1",
+        pathname: "/files/d1",
         search: "?path=Documents&file=backup.dat",
       }),
     ).toEqual({ kind: "folder", driveId: "d1", path: "Documents" });
     expect(
-      recentItemFromLocation({ pathname: "/drives/d1", search: "?file=backup.dat" }),
+      recentItemFromLocation({ pathname: "/files/d1", search: "?file=backup.dat" }),
     ).toEqual({ kind: "drive", driveId: "d1", path: "" });
   });
 
   it("ignores the skip-link hash", () => {
     expect(
-      recentItemFromLocation({ pathname: "/drives/d1", hash: "#main-content" }),
+      recentItemFromLocation({ pathname: "/files/d1", hash: "#main-content" }),
     ).toEqual({ kind: "drive", driveId: "d1", path: "" });
     // Trash browses as the `.luna-trash` folder — still not a recent item.
     expect(
-      recentItemFromLocation({ pathname: "/drives/d1", search: "?path=.luna-trash" }),
+      recentItemFromLocation({ pathname: "/files/d1", search: "?path=.luna-trash" }),
     ).toBeNull();
     expect(
       recentItemFromLocation({
-        pathname: "/drives/d1",
+        pathname: "/files/d1",
         search: "?path=.luna-trash/171-note.txt&file=171-note.txt",
       }),
     ).toBeNull();
@@ -122,7 +122,7 @@ describe("recentItemFromLocation", () => {
   it("records the folder for a search-select link", () => {
     expect(
       recentItemFromLocation({
-        pathname: "/drives/d1",
+        pathname: "/files/d1",
         search: "?path=Photos&select=Photos/beach.jpg",
       }),
     ).toEqual({ kind: "folder", driveId: "d1", path: "Photos" });
@@ -211,18 +211,18 @@ describe("recentItemHref", () => {
   it("opens a file in the viewer inside its folder", () => {
     expect(
       recentItemHref({ kind: "file", driveId: "d1", path: "Documents/note.md" }),
-    ).toBe("/drives/d1?path=Documents&file=note.md");
+    ).toBe("/files/d1?path=Documents&file=note.md");
     expect(recentItemHref({ kind: "file", driveId: "d1", path: "root.md" })).toBe(
-      "/drives/d1?file=root.md",
+      "/files/d1?file=root.md",
     );
   });
 
   it("opens folders and drives in the browser", () => {
     expect(
       recentItemHref({ kind: "folder", driveId: "d1", path: "Documents" }),
-    ).toBe("/drives/d1?path=Documents");
+    ).toBe("/files/d1?path=Documents");
     expect(recentItemHref({ kind: "drive", driveId: "d1", path: "" })).toBe(
-      "/drives/d1",
+      "/files/d1",
     );
   });
 });

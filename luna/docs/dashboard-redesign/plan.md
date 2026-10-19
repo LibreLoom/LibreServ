@@ -18,9 +18,8 @@ The dashboard holds only what the person wants to know **now**: what needs them,
 ```
 Greeting                                   [tip]          [0.4.2 ready]
 ┌ Needs you ─────────────────────────────────────────────────────────┐
-│ ⚠ Backup drive has a problem                     [Open Drives]     │
+│ ⚠ Backup drive has a problem                     [Open Files]     │
 │ ⚠ "Photos" backup didn't finish                  [Open]            │
-│ ⓘ New drive plugged in                           [Add drive]       │
 │ ⓘ Check your recovery phrase                     [Check now]       │
 └────────────────────────────────────────────────────────────────────┘
 Recents                        │ Drives
@@ -35,13 +34,13 @@ Recents                        │ Drives
 
 | Item | Source | Action | Today |
 |---|---|---|---|
-| A drive has a problem | `drive.state === "failed"` | Open Drives | "Needs a look" card |
+| A drive has a problem | `drive.state === "failed"` | Open Files | "Needs a look" card |
 | Failed system health checks | `useSystemHealthCheck`, `status === "failed"` | per check | header pill |
-| Drive health warning or failure | `/api/v1/drives/{id}/health` → `describeDriveHealth` (`warning` / `error`) | Open Drives | not on the dashboard |
+| Drive health warning or failure | `/api/v1/drives/{id}/health` → `describeDriveHealth` (`warning` / `error`) | Open Files | not on the dashboard |
 | A backup failed or its source is missing | `needsALook` rows from `lib/backupRows.js` | Open (ProtectSheet) | inside BackupsCard |
 | Device token problem | `connect.device_token_error` | Change the device token (`/settings#about`) | inside ConnectionCard |
 | No internet route (only when true) | `network.has_default_route === false` | — / Settings | ConnectionCard headline |
-| New drive plugged in | `/api/v1/drives/detected` | Add drive (picker → InspectModal) | card under drives |
+| New drive detected | `/api/v1/drives/detected` | Add drive (opens the Files page at its Unrecognized drives section) | "New drive detected" card after the drive cards, not a Needs you row |
 | Drive almost full | drive summary `free_bytes` / `total_bytes` (already fetched) | Browse files | not flagged |
 | Check your recovery phrase | `phrase.check_due` + a cloud backup exists | Check now (RecoveryPhraseCheck) | inside BackupsCard |
 | No drives yet (first run) | no adopted drives | "Plug a USB drive into Luna to get started." | separate EmptyState |
@@ -86,7 +85,7 @@ Recents                        │ Your folders
 - The Member "Shared with you" card (§4).
 
 ## 7. Unchanged
-Greeting, `TipPill`, the drive picker modal, `InspectModal` and the adopt flow (the Needs you row opens the picker).
+Greeting and `TipPill`. The drive picker modal and the Dashboard's `InspectModal` flow are gone: adding a drive happens on the Files page.
 
 ## 8. Tests and checks
 - `DashboardPage.test.jsx`: delete the uptime, network-status, remote-access and fit-or-stack tests. Rewrite the drive-card test (no counts) and the recents test (row is the link, cap of 6).
@@ -98,15 +97,15 @@ Greeting, `TipPill`, the drive picker modal, `InspectModal` and the adopt flow (
 ## Decisions recorded 2026-10-18 (implementation)
 
 - D1 Item shape: `{ id, rank, tone, title, detail?, action? }`; title segments are strings or `{ name }` (rendered as InlinePill); action has `href` or `intent`, or is absent (first-run row only).
-- D2 Ids, stable and unique: `drive-failed:<driveId>`, `check:<checkName>`, `drive-health:<driveId>`, `backup:<kind>:<id>`, `device-token`, `no-route`, `new-drive`, `drive-full:<driveId>`, `phrase-check`, `no-drives`.
+- D2 Ids, stable and unique: `drive-failed:<driveId>`, `check:<checkName>`, `drive-health:<driveId>`, `backup:<kind>:<id>`, `device-token`, `no-route`, `drive-full:<driveId>`, `phrase-check`, `no-drives`.
 - D3 Rank, lower is more urgent: drive failed 10, failed check 20, drive health 30, backup 40, device token 50, no route 60, new drive 70, almost full 80, phrase check 90, no drives 100; ties by id. Tone is `problem` for ranks 10-60 and 80, `info` otherwise.
 - D4 `buildNeedsYouItems` takes one named object and returns items sorted by rank; pure, with no React, fetching or `Date.now`.
 - D5 Admins get every applicable row; Members get only their own failing backups and the phrase reminder. A private backup not created by the viewer never shows.
 - D6 Failed checks only (`status === "failed"`), one row each, action "Open system checks" to `/settings#about`. Excludes: `backups` category, `drive_*_smart`, `network` without a no-route row, `connect`/`remote_access` without a device-token row, `drive_*_read_write` for a drive with a drive-failed or drive-health row.
-- D7 Drive health row for `warning`/`error` pills only; drive failed row when `state === "failed"`. Both action "Open Drives" to `/drives`.
+- D7 Drive health row for `warning`/`error` pills only; drive failed row when `state === "failed"`. Both action "Open Files" to `/files`.
 - D8 Backup row (Admin: any non-foreign-private; Member: own) when `needsALook`: failing, stale, or cloud source missing. Detail is `last_error`, then `check_problem`, then a short sentence. Intent `open-backup`, payload is the row.
-- D9 Device token row (`connect.device_token_error`, to `/settings#about`); no-route row (Admin, `has_default_route === false` strictly); new drive row (Admin, detected devices present, intent `open-drive-picker`, label "Add drive").
-- D10 Almost full: Admin only, state `as_is` or `readonly`, mounted, total > 0, free under 10% of total. Detail "`<free>` free of `<total>`" via the shared byte formatter; action "Browse files" to `/drives/<id>`.
+- D9 Device token row (`connect.device_token_error`, to `/settings#about`); no-route row (Admin, `has_default_route === false` strictly); no new-drive row: detected devices get the "New drive detected" card after the drive cards instead (Admin only), and "No drives yet" is hidden while one is waiting.
+- D10 Almost full: Admin only, state `as_is` or `readonly`, mounted, total > 0, free under 10% of total. Detail "`<free>` free of `<total>`" via the shared byte formatter; action "Browse files" to `/files/<id>`.
 - D11 Phrase reminder for anyone when `check_due` is true and the viewer can see a cloud backup row; intent `check-phrase`, label "Check now".
 - D12 No drives yet: Admin only, once loaded, zero drives; no action; the old EmptyState is removed.
 - D13 NeedsYou.jsx shows 5 rows with "Show N more" / "Show fewer"; null when empty; region named "Needs you" with a mono heading; status color on the icon only; `surface="primary"` buttons; `Link` for href, `onAction(item)` for intents.
@@ -116,7 +115,7 @@ Greeting, `TipPill`, the drive picker modal, `InspectModal` and the adopt flow (
 - D17 SystemHealthPill: warnings only, always the warning style, "N warning(s)"; null while loading, on error, or with none; dropdown kept.
 - D18 Removed: UptimeCard, formatUptime, ConnectionCard, RemoteAccessLink with its measuring code, connection helpers, countLine, the dashboard health query and `getHealth` if nothing else uses them, BackupsCard.jsx and its test. Kept: `useConnectActive`, `rootTerm`.
 - D19 Query keys reused so nothing is fetched twice: `["drive-summary", id]`, `["drive-health", id]`, `["connect-status"]`, `["network-status"]`, `["drives-detected"]`, `["system-health-check"]`, and the BackupsCard keys; Admin-only queries stay disabled for Members.
-- D20 Haptics: no new calls; shared primitives already fire them; drive picker unchanged.
+- D20 Haptics: no new calls; shared primitives already fire them.
 
 ### Deviations from the plan text
 

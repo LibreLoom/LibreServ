@@ -5,8 +5,7 @@
  * the user name the drive, and confirms the adopt. Nothing on the drive is
  * changed until the user clicks the final confirm button.
  *
- * Used by DrivesPage (Unrecognized Drives section) and by the Dashboard
- * "New drive plugged in" card → "Add drive" modal flow.
+ * Used by FilesPage (Unrecognized drives section).
  */
 import { useEffect, useRef, useState } from "react";
 import { File as FileIcon, Folder, Info, TriangleAlert } from "lucide-react";

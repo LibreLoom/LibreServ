@@ -242,7 +242,7 @@ object LunaApi {
         is IncompatibleException -> error.message.orEmpty()
         is java.io.IOException ->
             if (error.message == "timed out") {
-                "Luna didn't finish answering in time. Check that this phone is on the same network as Luna, and that the drive is working in Luna's Drives page, then try again."
+                "Luna didn't finish answering in time. Check that this phone is on the same network as Luna, and that the drive is working in Luna's Files page, then try again."
             } else {
                 "Luna couldn't be reached. Check the address and that this phone is on the same network as Luna, then try again."
             }

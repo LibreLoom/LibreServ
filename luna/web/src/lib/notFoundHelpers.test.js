@@ -15,7 +15,7 @@ import {
 } from "./notFoundHelpers";
 
 const knownPages = [
-  { to: "/drives", label: "Files" },
+  { to: "/files", label: "Files" },
   { to: "/gallery", label: "Photos" },
   { to: "/settings", label: "Settings" },
   { to: "/settings#users", label: "Users" },
@@ -84,8 +84,8 @@ describe("levenshteinDistance", () => {
 
 describe("scoreKnownPages", () => {
   it("ranks an exact match first with a close, zero-cost score", () => {
-    const matches = scoreKnownPages("/drives", knownPages);
-    expect(matches[0].to).toBe("/drives");
+    const matches = scoreKnownPages("/files", knownPages);
+    expect(matches[0].to).toBe("/files");
     expect(matches[0].score).toBe(0);
     expect(matches[0].isClose).toBe(true);
   });
@@ -104,7 +104,7 @@ describe("scoreKnownPages", () => {
   });
 
   it("returns every known page, scored and sorted best-first", () => {
-    const matches = scoreKnownPages("/drives", knownPages);
+    const matches = scoreKnownPages("/files", knownPages);
     expect(matches).toHaveLength(knownPages.length);
     for (let i = 1; i < matches.length; i += 1) {
       expect(matches[i - 1].score).toBeLessThanOrEqual(matches[i].score);
@@ -118,9 +118,9 @@ describe("scoreKnownPages", () => {
   });
 
   it("treats a path prefix of a known route as a close match", () => {
-    // /drives/anything is a prefix-extension of /drives.
-    const matches = scoreKnownPages("/drives/123", knownPages);
-    expect(matches[0].to).toBe("/drives");
+    // /files/anything is a prefix-extension of /drives.
+    const matches = scoreKnownPages("/files/123", knownPages);
+    expect(matches[0].to).toBe("/files");
     expect(matches[0].isClose).toBe(true);
   });
 });
@@ -154,8 +154,8 @@ describe("scoreKnownPages aliases", () => {
 describe("bestDistinctMatches", () => {
   it("keeps one suggestion per destination", () => {
     const pages = [
-      { to: "/drives", label: "Files", match: "/files" },
-      { to: "/drives", label: "Files", match: "/file" },
+      { to: "/files", label: "Files", match: "/files" },
+      { to: "/files", label: "Files", match: "/file" },
     ];
     const out = bestDistinctMatches(scoreKnownPages("/files", pages));
     expect(out).toHaveLength(1);

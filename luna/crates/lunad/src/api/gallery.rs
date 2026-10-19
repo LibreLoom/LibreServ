@@ -846,7 +846,7 @@ async fn rescan(
     if mounts.is_empty() {
         return Err(json_error(
             StatusCode::BAD_REQUEST,
-            "No drives are ready to look through. Add a drive on the Drives page first.",
+            "No drives are ready to look through. Add a drive on the Files page first.",
         ));
     }
     let mut queued = 0usize;

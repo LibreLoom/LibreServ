@@ -176,10 +176,10 @@ describe("FileSearch", () => {
     expect(screen.getByText(/Photos Drive \/ album/i)).toBeInTheDocument();
 
     const row = await screen.findByRole("link", { name: /^Open beach.jpg$/i });
-    expect(row).toHaveAttribute("href", "/drives/d1?path=album&file=beach.jpg");
+    expect(row).toHaveAttribute("href", "/files/d1?path=album&file=beach.jpg");
 
     const open = screen.getByRole("link", { name: /Go to folder for beach.jpg/i });
-    expect(open).toHaveAttribute("href", "/drives/d1?path=album&select=album%2Fbeach.jpg");
+    expect(open).toHaveAttribute("href", "/files/d1?path=album&select=album%2Fbeach.jpg");
 
     const download = screen.getByRole("link", { name: /Download beach.jpg/i });
     expect(download).toHaveAttribute(
@@ -246,7 +246,7 @@ describe("FileSearch", () => {
       target: { value: "data" },
     });
     const row = await screen.findByRole("link", { name: /Show data.bin in its folder/i });
-    expect(row).toHaveAttribute("href", "/drives/d1?path=album&select=album%2Fdata.bin");
+    expect(row).toHaveAttribute("href", "/files/d1?path=album&select=album%2Fdata.bin");
   });
 
   it("opens a folder hit into that folder", async () => {
@@ -268,7 +268,7 @@ describe("FileSearch", () => {
     const opens = await screen.findAllByRole("link", { name: /^Open album$/i });
     expect(opens.length).toBeGreaterThanOrEqual(1);
     for (const open of opens) {
-      expect(open).toHaveAttribute("href", "/drives/d1?path=album");
+      expect(open).toHaveAttribute("href", "/files/d1?path=album");
     }
     const download = screen.getByRole("link", { name: /Download album/i });
     expect(download).toHaveAttribute(

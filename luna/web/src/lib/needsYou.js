@@ -10,7 +10,7 @@ import { buildSystemCheckItems } from "./needsYouChecks.js";
  *   tone: "problem" | "info",
  *   title: Array<string | { name: string }>,
  *   detail?: string,
- *   action?: { label: string, ariaLabel?: string, href?: string, intent?: "open-drive-picker" | "open-backup" | "check-phrase", payload?: any },
+ *   action?: { label: string, ariaLabel?: string, href?: string, intent?: "open-backup" | "check-phrase", payload?: any },
  * }} NeedsYouItem
  */
 
@@ -36,7 +36,7 @@ const ALMOST_FULL_RATIO = 0.1;
 
 /**
  * Every "Needs you" row for this viewer, most urgent first (lower rank first, ties by id).
- * Admins see drive, system, network, token, new-drive and storage rows. Everyone sees
+ * Admins see drive, system, network, token and storage rows. Everyone sees
  * the backup rows they may open and the recovery phrase reminder.
  *
  * Pure: it reads only its input, never fetches, and never reads the clock.
@@ -113,9 +113,9 @@ function buildAdminItems(input) {
     }),
   );
 
-  if (Array.isArray(input.detected) && input.detected.length > 0) items.push(newDriveItem());
-
-  if (!input.drivesLoading && drives.length === 0) items.push(noDrivesItem());
+  // A drive Luna just found gets its own card on the dashboard, so "No drives yet" would contradict it.
+  const driveWaiting = Array.isArray(input.detected) && input.detected.length > 0;
+  if (!input.drivesLoading && drives.length === 0 && !driveWaiting) items.push(noDrivesItem());
 
   return items;
 }
@@ -129,8 +129,8 @@ function driveFailedItem(drive) {
     rank: 10,
     tone: "problem",
     title: [{ name: drive.label }, " ran into a problem"],
-    detail: "Open Drives to see what Luna found.",
-    action: { label: "Open Drives", href: "/drives" },
+    detail: "Open Files to see what Luna found.",
+    action: { label: "Open Files", href: "/files" },
   };
 }
 
@@ -146,7 +146,7 @@ function driveHealthItem(drive, copy) {
     tone: "problem",
     title: [{ name: drive.label }, copy.pill === "error" ? " needs attention" : " is working, with a warning"],
     detail: copy.detail,
-    action: { label: "Open Drives", href: "/drives" },
+    action: { label: "Open Files", href: "/files" },
   };
 }
 
@@ -175,7 +175,7 @@ function driveFullItem(drive, summary) {
     tone: "problem",
     title: [{ name: drive.label }, " is almost full"],
     detail: `${formatBytes(Number(summary.free_bytes))} free of ${formatBytes(Number(summary.total_bytes))}`,
-    action: { label: "Browse files", href: `/drives/${drive.id}` },
+    action: { label: "Browse files", href: `/files/${drive.id}` },
   };
 }
 
@@ -202,17 +202,6 @@ function noRouteItem() {
     title: ["Luna can't reach the internet"],
     detail: "Check that your router or modem is online.",
     action: { label: "Open system checks", href: "/settings#about" },
-  };
-}
-
-/** @returns {NeedsYouItem} */
-function newDriveItem() {
-  return {
-    id: "new-drive",
-    rank: 70,
-    tone: "info",
-    title: ["New drive plugged in"],
-    action: { label: "Add drive", intent: "open-drive-picker" },
   };
 }
 

@@ -43,7 +43,7 @@ export function forwardedHref({ drive_id: driveId, path, kind }, from, { viewerP
 
 /**
  * Old links keep working after a move or rename: when the folder or file a
- * `/drives/:id` URL names is gone, ask Luna where it went and replace the
+ * `/files/:id` URL names is gone, ask Luna where it went and replace the
  * URL with its new address. Reads FileBrowser's cached listing, so this
  * costs nothing until something is actually missing.
  *

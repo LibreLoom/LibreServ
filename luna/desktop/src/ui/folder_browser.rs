@@ -248,7 +248,7 @@ impl FolderBrowser {
                                         "Luna can't find this drive."
                                     })
                                     .subtitle(if missing_db {
-                                        "The drive is still plugged in. On the Drives page, remove this drive, then add it again."
+                                        "The drive is still plugged in. On the Files page, remove this drive, then add it again."
                                     } else {
                                         "Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in."
                                     })

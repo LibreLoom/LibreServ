@@ -18,7 +18,7 @@ import { cn } from "@libreloom/ui/lib/utils.js";
  *   tone: "problem" | "info",
  *   title: Array<string | { name: string }>,
  *   detail?: string,
- *   action?: { label: string, ariaLabel?: string, href?: string, intent?: "open-drive-picker" | "open-backup" | "check-phrase", payload?: any },
+ *   action?: { label: string, ariaLabel?: string, href?: string, intent?: "open-backup" | "check-phrase", payload?: any },
  * }} NeedsYouItem
  */
 

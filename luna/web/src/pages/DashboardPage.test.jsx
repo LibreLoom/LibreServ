@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { dashboard as greetingMessages } from "../lib/greetings.jsx";
 import {
   backupRow,
@@ -184,7 +183,7 @@ describe("DashboardPage", () => {
         || /Happy|Merry/.test(greetingBit);
       expect(known).toBe(true);
       expect(await screen.findByText("Family photos")).toBeInTheDocument();
-      expect(screen.getByRole("link", { name: "Browse files" })).toHaveAttribute("href", "/drives/d1");
+      expect(screen.getByRole("link", { name: "Browse files" })).toHaveAttribute("href", "/files/d1");
       expect(document.body).not.toHaveTextContent(/uptime|on this network|remote access/i);
       expect(document.body).not.toHaveTextContent(/What to do next|No subscription|Anywhere, free/i);
     });
@@ -409,12 +408,12 @@ describe("DashboardPage", () => {
       expect(await screen.findByText("30 GB free")).toBeInTheDocument();
       expect(screen.getByText(/34 GB used/)).toBeInTheDocument();
       expect(screen.getByRole("progressbar", { name: "53% used" })).toBeInTheDocument();
-      expect(screen.getByRole("link", { name: "Photos" })).toHaveAttribute("href", "/drives/d1?path=Photos");
+      expect(screen.getByRole("link", { name: "Photos" })).toHaveAttribute("href", "/files/d1?path=Photos");
       expect(screen.getByRole("link", { name: "Documents" })).toHaveAttribute(
         "href",
-        "/drives/d1?path=Documents",
+        "/files/d1?path=Documents",
       );
-      expect(screen.getByRole("link", { name: "Browse files" })).toHaveAttribute("href", "/drives/d1");
+      expect(screen.getByRole("link", { name: "Browse files" })).toHaveAttribute("href", "/files/d1");
       expect(screen.queryByText(/\d+ folders?/i)).not.toBeInTheDocument();
       expect(screen.queryByText(/at the/i)).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: /^root$/i })).not.toBeInTheDocument();
@@ -458,9 +457,9 @@ describe("DashboardPage", () => {
       renderDashboard();
       expect(await screen.findByRole("link", { name: "Photos" })).toHaveAttribute(
         "href",
-        "/drives/d1?path=Photos",
+        "/files/d1?path=Photos",
       );
-      expect(screen.getByRole("link", { name: "Browse files" })).toHaveAttribute("href", "/drives/d1");
+      expect(screen.getByRole("link", { name: "Browse files" })).toHaveAttribute("href", "/files/d1");
       expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
       expect(screen.queryByText(/\bfree\b/i)).not.toBeInTheDocument();
       expect(screen.queryByText(/Checking space/i)).not.toBeInTheDocument();
@@ -477,7 +476,7 @@ describe("DashboardPage", () => {
         await screen.findByText(/Unplugged\. Plug it back in when you want its files and space here\./),
       ).toBeInTheDocument();
       await waitForRequests(fetchMock, ADMIN_REQUESTS);
-      expect(screen.queryByRole("link", { name: /Open Drives/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /Open Files/i })).not.toBeInTheDocument();
       expect(screen.queryByText(/\bGB\b/)).not.toBeInTheDocument();
       expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
       expect(screen.queryByRole("region", { name: "Needs you" })).not.toBeInTheDocument();
@@ -504,9 +503,9 @@ describe("DashboardPage", () => {
       renderDashboard();
       expect(await screen.findByRole("link", { name: "Family photos" })).toHaveAttribute(
         "href",
-        "/drives/d1?path=Family%20photos",
+        "/files/d1?path=Family%20photos",
       );
-      expect(screen.getByRole("link", { name: "Sam" })).toHaveAttribute("href", "/drives/d1?path=Sam");
+      expect(screen.getByRole("link", { name: "Sam" })).toHaveAttribute("href", "/files/d1?path=Sam");
       expect(screen.getByRole("link", { name: "See all shared items" })).toHaveAttribute("href", "/shared");
     });
 
@@ -541,9 +540,9 @@ describe("DashboardPage", () => {
       renderDashboard();
       expect(await screen.findByRole("link", { name: "Browse files" })).toHaveAttribute(
         "href",
-        "/drives/d1?path=docs%2Fdrop",
+        "/files/d1?path=docs%2Fdrop",
       );
-      expect(document.querySelector('a[href="/drives/d1"]')).toBeNull();
+      expect(document.querySelector('a[href="/files/d1"]')).toBeNull();
     });
   });
 
@@ -577,53 +576,38 @@ describe("DashboardPage", () => {
       const region = await screen.findByRole("region", { name: "Needs you" });
       expect(within(region).getByText("No drives yet")).toBeInTheDocument();
       expect(within(region).getByText("Plug a USB drive into Luna to get started.")).toBeInTheDocument();
-      expect(screen.queryByRole("link", { name: /Go to Drives/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /Go to Files/i })).not.toBeInTheDocument();
       expect(screen.queryByRole("heading", { name: "Drives" })).not.toBeInTheDocument();
     });
 
-    it("flags a newly plugged-in USB drive with an Add drive button, not a link", async () => {
+    it("shows a New drive detected card with an Add drive link to the Files page, not a Needs you row", async () => {
       stubDashboardFetch({ drives: [], detected: [SANDISK] });
       renderDashboard();
-      const region = await screen.findByRole("region", { name: "Needs you" });
-      expect(await within(region).findByText("New drive plugged in")).toBeInTheDocument();
-      expect(within(region).getByRole("button", { name: /^Add drive$/ })).toBeInTheDocument();
-      expect(screen.queryByRole("link", { name: /^Add drive$/ })).not.toBeInTheDocument();
-    });
-
-    it("opens the New drive detected picker listing the drive, with a Cancel button", async () => {
-      const user = userEvent.setup();
-      stubDashboardFetch({ drives: [], detected: [SANDISK] });
-      renderDashboard();
-      await user.click(await screen.findByRole("button", { name: /^Add drive$/ }));
-      const dialog = await screen.findByRole("dialog", { name: /New drive detected/i });
-      expect(within(dialog).getByRole("button", { name: /SanDisk/ })).toBeInTheDocument();
-      expect(within(dialog).getByRole("button", { name: /^Cancel$/ })).toBeInTheDocument();
-    });
-
-    it("closes the picker with Cancel", async () => {
-      const user = userEvent.setup();
-      stubDashboardFetch({ drives: [], detected: [SANDISK] });
-      renderDashboard();
-      await user.click(await screen.findByRole("button", { name: /^Add drive$/ }));
-      const dialog = await screen.findByRole("dialog", { name: /New drive detected/i });
-      await user.click(within(dialog).getByRole("button", { name: /^Cancel$/ }));
-      await waitFor(() =>
-        expect(screen.queryByRole("dialog", { name: /New drive detected/i })).not.toBeInTheDocument(),
+      const card = await screen.findByRole("heading", { name: "New drive detected" });
+      expect(card).toBeInTheDocument();
+      expect(screen.getByText("SanDisk")).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /^Add drive$/ })).toHaveAttribute(
+        "href",
+        "/files#unrecognized-drives",
       );
+      expect(screen.queryByText("New drive plugged in")).not.toBeInTheDocument();
+      expect(screen.queryByText("No drives yet")).not.toBeInTheDocument();
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
 
-    it("opens the inspect wizard when the listed drive is picked", async () => {
-      const user = userEvent.setup();
-      stubDashboardFetch({ drives: [], detected: [SANDISK] });
+    it("puts the New drive detected card after the drive cards", async () => {
+      stubDashboardFetch({ drives: [PHOTOS_DRIVE], detected: [SANDISK] });
       renderDashboard();
-      await user.click(await screen.findByRole("button", { name: /^Add drive$/ }));
-      const dialog = await screen.findByRole("dialog", { name: /New drive detected/i });
-      await user.click(within(dialog).getByRole("button", { name: /SanDisk/ }));
-      await waitFor(() =>
-        expect(screen.queryByRole("dialog", { name: /New drive detected/i })).not.toBeInTheDocument(),
-      );
-      expect(await screen.findByText(/Add SanDisk/i)).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: /^Add this drive$/ })).toBeInTheDocument();
+      const card = await screen.findByRole("heading", { name: "New drive detected" });
+      const drive = await screen.findByText("Photos Drive");
+      expect(drive.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it("shows no New drive detected card when nothing new is plugged in", async () => {
+      stubDashboardFetch({ drives: [PHOTOS_DRIVE], detected: [] });
+      renderDashboard();
+      await screen.findByText("Photos Drive");
+      expect(screen.queryByRole("heading", { name: "New drive detected" })).not.toBeInTheDocument();
     });
   });
 
@@ -635,7 +619,7 @@ describe("DashboardPage", () => {
       expect(
         screen.getByText("Ask an Admin to share a folder, drive, or album with you."),
       ).toBeInTheDocument();
-      expect(screen.queryByRole("link", { name: /Go to Drives/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /Go to Files/i })).not.toBeInTheDocument();
       expect(screen.queryByText(/Plug a USB drive/i)).not.toBeInTheDocument();
     });
 
@@ -710,9 +694,9 @@ describe("DashboardPage", () => {
 
       const links = within(card).getAllByRole("link");
       expect(links.map((a) => a.getAttribute("href"))).toEqual([
-        "/drives/d1?path=Documents&file=note.md",
-        "/drives/d1?path=Office",
-        "/drives/d1",
+        "/files/d1?path=Documents&file=note.md",
+        "/files/d1?path=Office",
+        "/files/d1",
       ]);
       expect(within(card).queryByRole("link", { name: /^Open$/i })).not.toBeInTheDocument();
       expect(within(card).queryByText(/^(File|Folder)$/)).not.toBeInTheDocument();
@@ -788,7 +772,7 @@ describe("DashboardPage", () => {
       expect(screen.queryByText("whiteboard.excalidraw")).not.toBeInTheDocument();
       const links = within(recentsCard()).getAllByRole("link");
       expect(links).toHaveLength(1);
-      expect(links[0]).toHaveAttribute("href", "/drives/d1?file=67.excalidraw");
+      expect(links[0]).toHaveAttribute("href", "/files/d1?file=67.excalidraw");
     });
   });
 

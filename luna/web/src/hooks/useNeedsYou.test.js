@@ -157,13 +157,13 @@ describe("useNeedsYou for an Admin", () => {
     const { result } = renderNeedsYou();
 
     await waitFor(() =>
-      expect(ids(result)).toEqual(["drive-failed:d1", "backup:drive:b1", "device-token", "no-route", "new-drive"]),
+      expect(ids(result)).toEqual(["drive-failed:d1", "backup:drive:b1", "device-token", "no-route"]),
     );
-    expect(result.current.items.map((item) => item.rank)).toEqual([10, 40, 50, 60, 70]);
+    expect(result.current.items.map((item) => item.rank)).toEqual([10, 40, 50, 60]);
     expect(result.current.items[0]).toMatchObject({
       tone: "problem",
       title: [{ name: "Backup drive" }, " ran into a problem"],
-      action: { label: "Open Drives", href: "/drives" },
+      action: { label: "Open Files", href: "/files" },
     });
     expect(result.current.items[1]).toMatchObject({
       title: [{ name: "Photos" }, " backup didn't finish"],
@@ -177,10 +177,6 @@ describe("useNeedsYou for an Admin", () => {
     expect(result.current.items[3]).toMatchObject({
       detail: "Check that your router or modem is online.",
       action: { label: "Open system checks", href: "/settings#about" },
-    });
-    expect(result.current.items[4]).toMatchObject({
-      tone: "info",
-      action: { label: "Add drive", intent: "open-drive-picker" },
     });
   });
 
@@ -208,7 +204,7 @@ describe("useNeedsYou for an Admin", () => {
       rank: 30,
       tone: "problem",
       title: [{ name: "Photos" }, " is working, with a warning"],
-      action: { label: "Open Drives", href: "/drives" },
+      action: { label: "Open Files", href: "/files" },
     });
   });
 
@@ -226,7 +222,7 @@ describe("useNeedsYou for an Admin", () => {
       rank: 80,
       title: [{ name: "Photos" }, " is almost full"],
       detail: "5.0 GB free of 64 GB",
-      action: { label: "Browse files", href: "/drives/d1" },
+      action: { label: "Browse files", href: "/files/d1" },
     });
   });
 

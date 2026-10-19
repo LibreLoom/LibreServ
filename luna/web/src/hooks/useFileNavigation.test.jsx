@@ -15,44 +15,44 @@ function harness(entry, opts) {
 
 describe("useFileNavigation", () => {
   it("reads path and file params into path + viewerPath", () => {
-    const { result } = harness("/drives/d1?path=docs&file=report.pdf");
+    const { result } = harness("/files/d1?path=docs&file=report.pdf");
     expect(result.current.nav.path).toBe("docs");
     expect(result.current.nav.viewerPath).toBe("docs/report.pdf");
     expect(result.current.nav.inTrash).toBe(false);
   });
 
   it("reads trash path and select params", () => {
-    const { result } = harness("/drives/d1?path=.luna-trash&select=a/b.txt");
+    const { result } = harness("/files/d1?path=.luna-trash&select=a/b.txt");
     expect(result.current.nav.inTrash).toBe(true);
     expect(result.current.nav.path).toBe(".luna-trash");
     expect(result.current.nav.selectPath).toBe("a/b.txt");
   });
 
   it("treats the .luna-trash path as trash", () => {
-    const { result } = harness("/drives/d1?path=.luna-trash/171-docs");
+    const { result } = harness("/files/d1?path=.luna-trash/171-docs");
     expect(result.current.nav.inTrash).toBe(true);
     expect(result.current.nav.path).toBe(".luna-trash/171-docs");
   });
 
   it("opens previewable trash files but not session-backed kinds", () => {
-    const text = harness("/drives/d1?path=.luna-trash&file=171-note.txt");
+    const text = harness("/files/d1?path=.luna-trash&file=171-note.txt");
     expect(text.result.current.nav.viewerPath).toBe(".luna-trash/171-note.txt");
-    const office = harness("/drives/d1?path=.luna-trash&file=171-doc.docx");
+    const office = harness("/files/d1?path=.luna-trash&file=171-doc.docx");
     expect(office.result.current.nav.viewerPath).toBeNull();
   });
 
   it("falls back to the location hash for the viewer", () => {
-    const { result } = harness("/drives/d1?path=docs#photo.jpg");
+    const { result } = harness("/files/d1?path=docs#photo.jpg");
     expect(result.current.nav.viewerPath).toBe("docs/photo.jpg");
   });
 
   it("does not open files that the viewer cannot render", () => {
-    const { result } = harness("/drives/d1?file=weird.xyz123");
+    const { result } = harness("/files/d1?file=weird.xyz123");
     expect(result.current.nav.viewerPath).toBeNull();
   });
 
   it("onPathChange drops file and select params", () => {
-    const { result } = harness("/drives/d1?path=docs&file=a.txt&select=b.txt");
+    const { result } = harness("/files/d1?path=docs&file=a.txt&select=b.txt");
     act(() => result.current.nav.onPathChange("docs/sub"));
     expect(result.current.nav.path).toBe("docs/sub");
     expect(result.current.nav.viewerPath).toBeNull();
@@ -70,13 +70,13 @@ describe("useFileNavigation", () => {
   });
 
   it("does not crash on a malformed location hash", () => {
-    const { result } = harness("/drives/d1#%E0%A4%A");
+    const { result } = harness("/files/d1#%E0%A4%A");
     expect(result.current.nav.viewerPath).toBeNull();
     expect(result.current.nav.path).toBe("");
   });
 
   it("keeps a file-root path in place when its own row opens", () => {
-    const { result } = harness("/drives/d1?path=docs%2Freport.pdf");
+    const { result } = harness("/files/d1?path=docs%2Freport.pdf");
     expect(result.current.nav.path).toBe("docs/report.pdf");
     act(() => result.current.nav.onViewerPathChange("docs/report.pdf"));
     // The file IS the browsed path — `path` never climbs to the parent,
@@ -87,7 +87,7 @@ describe("useFileNavigation", () => {
   });
 
   it("keeps the browsed path when the opened file lives outside it", () => {
-    const { result } = harness("/drives/d1?path=docs");
+    const { result } = harness("/files/d1?path=docs");
     act(() => result.current.nav.onViewerPathChange("other/y.txt"));
     expect(result.current.nav.path).toBe("docs");
     expect(result.current.nav.viewerPath).toBe("other/y.txt");
@@ -95,7 +95,7 @@ describe("useFileNavigation", () => {
   });
 
   it("closing a hash-opened viewer clears the hash through the router", () => {
-    const { result } = harness("/drives/d1?path=docs#photo.jpg");
+    const { result } = harness("/files/d1?path=docs#photo.jpg");
     expect(result.current.nav.viewerPath).toBe("docs/photo.jpg");
     act(() => result.current.nav.onViewerPathChange(null));
     expect(result.current.nav.viewerPath).toBeNull();

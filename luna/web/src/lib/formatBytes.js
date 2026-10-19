@@ -1,4 +1,4 @@
-/** Decimal sizes (1 KB = 1000 B), matching the Drives page and the dashboard. */
+/** Decimal sizes (1 KB = 1000 B), matching the Files page and the dashboard. */
 export function formatBytes(bytes) {
   if (bytes == null || Number.isNaN(Number(bytes))) return "";
   const n = Number(bytes);

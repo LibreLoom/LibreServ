@@ -921,7 +921,7 @@ async fn list_without_drive_database_names_the_missing_database() {
         "{message}"
     );
     assert!(
-        message.contains("On the Drives page, remove this drive, then add it again."),
+        message.contains("On the Files page, remove this drive, then add it again."),
         "{message}"
     );
     assert!(

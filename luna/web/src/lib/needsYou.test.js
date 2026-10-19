@@ -128,7 +128,7 @@ function fullAdminInput(overrides = {}) {
 const ids = (items) => items.map((item) => item.id);
 
 describe("drive rows (Admin)", () => {
-  it("gives a failed drive an exact Open Drives row", () => {
+  it("gives a failed drive an exact Open Files row", () => {
     const items = buildNeedsYouItems(emptyInput({ drives: [drive({ state: "failed" })] }));
     expect(items).toStrictEqual([
       {
@@ -136,8 +136,8 @@ describe("drive rows (Admin)", () => {
         rank: 10,
         tone: "problem",
         title: [{ name: "Photos" }, " ran into a problem"],
-        detail: "Open Drives to see what Luna found.",
-        action: { label: "Open Drives", href: "/drives" },
+        detail: "Open Files to see what Luna found.",
+        action: { label: "Open Files", href: "/files" },
       },
     ]);
   });
@@ -154,7 +154,7 @@ describe("drive rows (Admin)", () => {
         tone: "problem",
         title: [{ name: "Photos" }, " is working, with a warning"],
         detail: describeDriveHealth(health).detail,
-        action: { label: "Open Drives", href: "/drives" },
+        action: { label: "Open Files", href: "/files" },
       },
     ]);
   });
@@ -171,7 +171,7 @@ describe("drive rows (Admin)", () => {
         tone: "problem",
         title: [{ name: "Photos" }, " needs attention"],
         detail: describeDriveHealth(health).detail,
-        action: { label: "Open Drives", href: "/drives" },
+        action: { label: "Open Files", href: "/files" },
       },
     ]);
   });
@@ -221,7 +221,7 @@ describe("drive rows (Admin)", () => {
         tone: "problem",
         title: [{ name: "Photos" }, " is almost full"],
         detail: `${formatBytes(4e9)} free of ${formatBytes(64e9)}`,
-        action: { label: "Browse files", href: "/drives/d1" },
+        action: { label: "Browse files", href: "/files/d1" },
       },
     ]);
   });
@@ -333,7 +333,7 @@ describe("system check rows (Admin)", () => {
     expect(ids(items)).toEqual(["drive-health:d1"]);
   });
 
-  it("keeps a failed save test for a drive whose health is fine, with Open Drives", () => {
+  it("keeps a failed save test for a drive whose health is fine, with Open Files", () => {
     const items = buildNeedsYouItems(
       emptyInput({
         drives: [drive({ id: "d1", label: "Photos", state: "as_is" })],
@@ -357,7 +357,7 @@ describe("system check rows (Admin)", () => {
         tone: "problem",
         title: ["Photos — save test"],
         detail: "Could not save a test file.",
-        action: { label: "Open Drives", href: "/drives" },
+        action: { label: "Open Files", href: "/files" },
       },
     ]);
   });
@@ -517,21 +517,14 @@ describe("device token, no route, new drive, and no drives (Admin)", () => {
     expect(buildNeedsYouItems(emptyInput({ network: { has_default_route: true } }))).toEqual([]);
   });
 
-  it("gives the new drive row an Add drive intent when a drive is detected", () => {
-    const items = buildNeedsYouItems(emptyInput({ detected: [{ id: "usb-1" }] }));
-    expect(items).toStrictEqual([
-      {
-        id: "new-drive",
-        rank: 70,
-        tone: "info",
-        title: ["New drive plugged in"],
-        action: { label: "Add drive", intent: "open-drive-picker" },
-      },
-    ]);
+  it("gives a detected drive no row of its own: the dashboard shows it as a card", () => {
+    expect(buildNeedsYouItems(emptyInput({ detected: [{ id: "usb-1" }] }))).toEqual([]);
   });
 
-  it("shows no new drive row when nothing is detected", () => {
-    expect(buildNeedsYouItems(emptyInput({ detected: [] }))).toEqual([]);
+  it("hides the no-drives row while a new drive is waiting to be added", () => {
+    expect(
+      buildNeedsYouItems(emptyInput({ drives: [], drivesLoading: false, detected: [{ id: "usb-1" }] })),
+    ).toEqual([]);
   });
 
   it("gives the no-drives row no action when there are no drives and loading is done", () => {
@@ -556,9 +549,9 @@ describe("device token, no route, new drive, and no drives (Admin)", () => {
 });
 
 describe("ordering", () => {
-  it("sorts every Admin row by rank from 10 to 90", () => {
+  it("sorts every Admin row by rank", () => {
     const items = buildNeedsYouItems(fullAdminInput());
-    expect(items.map((item) => item.rank)).toEqual([10, 20, 30, 40, 50, 60, 70, 80, 90]);
+    expect(items.map((item) => item.rank)).toEqual([10, 20, 30, 40, 50, 60, 80, 90]);
     expect(ids(items)).toEqual([
       "drive-failed:failed-drive",
       "check:disk_space",
@@ -566,7 +559,6 @@ describe("ordering", () => {
       "backup:drive:b1",
       "device-token",
       "no-route",
-      "new-drive",
       "drive-full:full-drive",
       "phrase-check",
     ]);
@@ -581,7 +573,7 @@ describe("ordering", () => {
         phrase: { check_due: true },
         connect: { device_token_error: "Revoked." },
         network: { has_default_route: false },
-        detected: [{ id: "usb-1" }],
+        detected: [],
       }),
     );
     expect(ids(items)).toEqual([
@@ -589,7 +581,6 @@ describe("ordering", () => {
       "backup:drive:b1",
       "device-token",
       "no-route",
-      "new-drive",
       "phrase-check",
       "no-drives",
     ]);
@@ -791,7 +782,7 @@ describe("purity", () => {
   it("does not change its input, even when every branch runs", () => {
     const input = deepFreeze(fullAdminInput());
     expect(() => buildNeedsYouItems(input)).not.toThrow();
-    expect(ids(buildNeedsYouItems(input))).toHaveLength(9);
+    expect(ids(buildNeedsYouItems(input))).toHaveLength(8);
   });
 
   it("does not change a Member's input either", () => {

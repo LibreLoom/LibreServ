@@ -46,7 +46,7 @@ describe("FileBrowser", () => {
       "fetch",
       vi.fn(async () => new Response(
         JSON.stringify({
-          error: "Luna's database for this drive is missing. The drive is still plugged in. On the Drives page, remove this drive, then add it again.",
+          error: "Luna's database for this drive is missing. The drive is still plugged in. On the Files page, remove this drive, then add it again.",
           code: "missing_drive_db",
         }),
         { status: 500, headers: { "Content-Type": "application/json" } },
@@ -55,7 +55,7 @@ describe("FileBrowser", () => {
     renderBrowser();
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(
-      "On the Drives page, remove this drive, then add it again.",
+      "On the Files page, remove this drive, then add it again.",
     );
     expect(alert).not.toHaveTextContent(/unplugg/i);
   });
@@ -147,13 +147,13 @@ describe("FileBrowser", () => {
     renderBrowser({ linkNavigation: true, multiSelect: false });
     expect(await screen.findByRole("link", { name: "album" })).toHaveAttribute(
       "href",
-      "/drives/d1?path=album",
+      "/files/d1?path=album",
     );
     expect(screen.getByRole("link", { name: "report.pdf" })).toHaveAttribute(
       "href",
-      "/drives/d1?file=report.pdf",
+      "/files/d1?file=report.pdf",
     );
-    expect(screen.getByRole("link", { name: "Photos" })).toHaveAttribute("href", "/drives/d1");
+    expect(screen.getByRole("link", { name: "Photos" })).toHaveAttribute("href", "/files/d1");
   });
 
   it("supports folder picker mode", async () => {
@@ -325,11 +325,11 @@ describe("FileBrowser", () => {
     renderBrowser({
       multiSelect: false,
       linkNavigation: true,
-      trashHref: "/drives/d1?view=trash",
+      trashHref: "/files/d1?view=trash",
     });
     expect(await screen.findByRole("link", { name: "Trash" })).toHaveAttribute(
       "href",
-      "/drives/d1?view=trash",
+      "/files/d1?view=trash",
     );
     expect(screen.queryByRole("link", { name: /Open trash/i })).not.toBeInTheDocument();
   });
@@ -341,11 +341,11 @@ describe("FileBrowser", () => {
     renderBrowser({
       multiSelect: false,
       linkNavigation: true,
-      backupsHref: "/drives/d1?backups=1",
+      backupsHref: "/files/d1?backups=1",
     });
     expect(await screen.findByRole("link", { name: "Backups" })).toHaveAttribute(
       "href",
-      "/drives/d1?backups=1",
+      "/files/d1?backups=1",
     );
   });
 
@@ -359,8 +359,8 @@ describe("FileBrowser", () => {
     renderBrowser({
       multiSelect: false,
       linkNavigation: true,
-      trashHref: "/drives/d1?view=trash",
-      backupsHref: "/drives/d1?backups=1",
+      trashHref: "/files/d1?view=trash",
+      backupsHref: "/files/d1?backups=1",
     });
     const STRIPE = "bg-[color-mix(in_oklab,var(--secondary)_92%,var(--primary))]";
     const trashRow = (await screen.findByRole("link", { name: "Trash" })).closest("li");
@@ -440,7 +440,7 @@ describe("FileBrowser", () => {
       path: "album",
       multiSelect: false,
       linkNavigation: true,
-      trashHref: "/drives/d1?view=trash",
+      trashHref: "/files/d1?view=trash",
     });
     expect(await screen.findByText("beach.jpg")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Trash" })).not.toBeInTheDocument();
@@ -578,7 +578,7 @@ describe("FileBrowser", () => {
       ],
     });
     const onDelete = vi.fn();
-    renderBrowser({ trashHref: "/drives/d1?view=trash", onDelete, multiSelect: true });
+    renderBrowser({ trashHref: "/files/d1?view=trash", onDelete, multiSelect: true });
     expect(await screen.findByText("old.txt")).toBeInTheDocument();
     const trashLink = screen.getByRole("link", { name: "Trash" });
     const trashRow = trashLink.closest("li");
@@ -989,12 +989,12 @@ describe("FileBrowser", () => {
     expect(screen.queryByText("171-photo.jpg")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Trash" })).toHaveAttribute(
       "href",
-      "/drives/d1?path=.luna-trash",
+      "/files/d1?path=.luna-trash",
     );
     // Up one folder returns to the drive root.
     expect(screen.getByRole("link", { name: "↑ Up one folder" })).toHaveAttribute(
       "href",
-      "/drives/d1",
+      "/files/d1",
     );
   });
 
@@ -1156,11 +1156,11 @@ describe("FileBrowser", () => {
     // The grant is the root crumb — no drive-root or ancestor links exist.
     expect(screen.queryByRole("link", { name: "Photos" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "docs" }))
-      .toHaveAttribute("href", "/drives/d1?path=docs");
+      .toHaveAttribute("href", "/files/d1?path=docs");
     expect(screen.getByRole("link", { name: "reports" }))
-      .toHaveAttribute("href", "/drives/d1?path=docs%2Freports");
+      .toHaveAttribute("href", "/files/d1?path=docs%2Freports");
     expect(screen.getByRole("link", { name: /↑ Up one folder/i }))
-      .toHaveAttribute("href", "/drives/d1?path=docs");
+      .toHaveAttribute("href", "/files/d1?path=docs");
   });
 
   it("stops Up and ancestor drops at the grant floor", async () => {
@@ -1180,7 +1180,7 @@ describe("FileBrowser", () => {
     expect(screen.queryByRole("link", { name: /↑ Up one folder/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Photos" })).not.toBeInTheDocument();
     const floorCrumb = screen.getByRole("link", { name: "docs" });
-    expect(floorCrumb).toHaveAttribute("href", "/drives/d1?path=docs");
+    expect(floorCrumb).toHaveAttribute("href", "/files/d1?path=docs");
     // The floor crumb still accepts drops into itself.
     const dataTransfer = {
       types: ["application/x-luna-paths"],
@@ -1418,7 +1418,7 @@ describe("FileBrowser inline states", () => {
     renderBrowser({
       multiSelect: false,
       linkNavigation: true,
-      trashHref: "/drives/d1?view=trash",
+      trashHref: "/files/d1?view=trash",
     });
     expect(await screen.findByRole("link", { name: "Trash" })).toBeInTheDocument();
     const title = await screen.findByText("There's nothing here.");

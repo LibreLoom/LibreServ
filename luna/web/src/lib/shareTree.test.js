@@ -123,7 +123,7 @@ describe("shareTree", () => {
       { id: "g", kind: "path", drive_id: "d1", path: "docs", caps: "view" },
     ];
     expect(memberFileHref(folderGrant, "d1", "docs/report.pdf"))
-      .toBe("/drives/d1?path=docs&file=report.pdf");
+      .toBe("/files/d1?path=docs&file=report.pdf");
 
     // File grant — `docs` 403s, so the file itself is the browsed path and
     // `?file=` carries the full path for the viewer.
@@ -131,7 +131,7 @@ describe("shareTree", () => {
       { id: "g", kind: "path", drive_id: "d1", path: "docs/report.pdf", caps: "view" },
     ];
     expect(memberFileHref(fileGrant, "d1", "docs/report.pdf"))
-      .toBe("/drives/d1?path=docs%2Freport.pdf&file=docs%2Freport.pdf");
+      .toBe("/files/d1?path=docs%2Freport.pdf&file=docs%2Freport.pdf");
   });
 
   it("routes member search hits at ungranted parents through the file root", () => {
@@ -140,17 +140,17 @@ describe("shareTree", () => {
     ];
     expect(memberSearchHref(fileGrant, {
       drive_id: "d1", path: "docs/report.pdf", kind: "file", parent: "docs",
-    })).toBe("/drives/d1?path=docs%2Freport.pdf&file=docs%2Freport.pdf");
+    })).toBe("/files/d1?path=docs%2Freport.pdf&file=docs%2Freport.pdf");
     // Folders the search returned are viewable — keep the folder link.
     expect(memberSearchHref(fileGrant, {
       drive_id: "d1", path: "docs", kind: "dir",
-    })).toBe("/drives/d1?path=docs");
+    })).toBe("/files/d1?path=docs");
     // Covered parents keep the select= deep link.
     const folderGrant = [
       { id: "g", kind: "path", drive_id: "d1", path: "docs", caps: "view" },
     ];
     expect(memberSearchHref(folderGrant, {
       drive_id: "d1", path: "docs/x.txt", kind: "file", parent: "docs",
-    })).toBe("/drives/d1?path=docs&select=docs%2Fx.txt");
+    })).toBe("/files/d1?path=docs&select=docs%2Fx.txt");
   });
 });

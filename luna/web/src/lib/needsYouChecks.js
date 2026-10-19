@@ -7,7 +7,7 @@ import { displayLabel } from "./healthChecks.js";
  *   tone: "problem" | "info",
  *   title: Array<string | { name: string }>,
  *   detail?: string,
- *   action?: { label: string, ariaLabel?: string, href?: string, intent?: "open-drive-picker" | "open-backup" | "check-phrase", payload?: any },
+ *   action?: { label: string, ariaLabel?: string, href?: string, intent?: "open-backup" | "check-phrase", payload?: any },
  * }} NeedsYouItem
  */
 
@@ -81,7 +81,7 @@ export function buildSystemCheckItems({
       // The drive's own row already says what is wrong with it.
       const label = check.details?.drive_label;
       if (typeof label === "string" && coveredDriveLabels.includes(label)) continue;
-      item.action = { label: "Open Drives", href: "/drives" };
+      item.action = { label: "Open Files", href: "/files" };
     }
 
     if (typeof check.message === "string" && check.message.trim() !== "") {

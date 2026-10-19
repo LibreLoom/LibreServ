@@ -82,10 +82,10 @@ describe("LoginPage", () => {
     }
     render(
       <ToastProvider>
-        <MemoryRouter initialEntries={["/drives/d1"]}>
+        <MemoryRouter initialEntries={["/files/d1"]}>
           <AuthProvider>
             <Routes>
-              <Route path="/drives/:id" element={<Guard />} />
+              <Route path="/files/:id" element={<Guard />} />
               <Route path="/" element={<div>LUNA HOME</div>} />
             </Routes>
           </AuthProvider>

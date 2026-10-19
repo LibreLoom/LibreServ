@@ -3,7 +3,7 @@ import { render, screen, within, fireEvent, waitFor } from "@testing-library/rea
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
-import DrivesPage, { describePeek, inspectCountLine } from "./DrivesPage";
+import FilesPage, { describePeek, inspectCountLine } from "./FilesPage";
 import FileSearch from "../components/files/FileSearch";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 
@@ -83,14 +83,14 @@ function stubDrivesApi(extra = {}) {
   }));
 }
 
-function renderPage() {
+function renderPage(initialEntry = "/files") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <ToastProvider>
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <QueryClientProvider client={client}>
         <AuthProvider>
-          <DrivesPage />
+          <FilesPage />
           {/* The overlay lives in AppShell; the page only holds its button. */}
           <FileSearch />
         </AuthProvider>
@@ -100,12 +100,12 @@ function renderPage() {
   );
 }
 
-describe("DrivesPage", () => {
+describe("FilesPage", () => {
   it("tells the user nothing is touched until they choose", async () => {
     stubDrivesApi();
     renderPage();
     expect(screen.getAllByText(/Plug a USB drive/i).length).toBeGreaterThan(0);
-    expect(await screen.findByRole("heading", { name: "Drives" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Files" })).toBeInTheDocument();
   });
 
   it("shows a header search button that opens the universal search overlay", async () => {
@@ -122,7 +122,7 @@ describe("DrivesPage", () => {
   });
 
   it("shows a mock 64GB PSSD when opted in for review", async () => {
-    window.history.replaceState({}, "", "/drives?mockUnknownDrive=1");
+    window.history.replaceState({}, "", "/files?mockUnknownDrive=1");
     stubDrivesApi();
     renderPage();
     expect(await screen.findByText("64GB PSSD")).toBeInTheDocument();
@@ -137,7 +137,7 @@ describe("DrivesPage", () => {
 
   it("previews folder and file names when adding the mock PSSD", async () => {
     const { default: userEvent } = await import("@testing-library/user-event");
-    window.history.replaceState({}, "", "/drives?mockUnknownDrive=1");
+    window.history.replaceState({}, "", "/files?mockUnknownDrive=1");
     stubDrivesApi();
     renderPage();
     const user = userEvent.setup();
@@ -191,7 +191,7 @@ describe("DrivesPage", () => {
 
   it("uses an info icon for the .luna marker note and softens the name-field focus ring", async () => {
     const { default: userEvent } = await import("@testing-library/user-event");
-    window.history.replaceState({}, "", "/drives?mockUnknownDrive=1");
+    window.history.replaceState({}, "", "/files?mockUnknownDrive=1");
     stubDrivesApi();
     renderPage();
     const user = userEvent.setup();
@@ -213,7 +213,7 @@ describe("DrivesPage", () => {
   it("animates Add-drive modal out when Add this drive succeeds", async () => {
     const { default: userEvent } = await import("@testing-library/user-event");
     const { waitFor } = await import("@testing-library/react");
-    window.history.replaceState({}, "", "/drives?mockUnknownDrive=1");
+    window.history.replaceState({}, "", "/files?mockUnknownDrive=1");
     stubDrivesApi({
       fetch: (u) => {
         if (u.includes("/adopt")) {
@@ -256,11 +256,55 @@ describe("DrivesPage", () => {
     expect(heading.closest("[data-slot=card]")).toBeNull();
   });
 
-  it("hides the unrecognized drives heading when no drives are waiting", async () => {
+  describe("opening at #unrecognized-drives", () => {
+    const originalScrollIntoView = Element.prototype.scrollIntoView;
+    afterEach(() => {
+      Element.prototype.scrollIntoView = originalScrollIntoView;
+    });
+
+    const waiting = (u) =>
+      u.endsWith("/drives/detected")
+        ? new Response(JSON.stringify([{ name: "sdb", model: "SanDisk", size_bytes: 32_000_000_000, usb: true }]), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          })
+        : null;
+
+    it("scrolls to the unrecognized drives once they have loaded", async () => {
+      const scrollIntoView = vi.fn();
+      Element.prototype.scrollIntoView = scrollIntoView;
+      stubDrivesApi({ fetch: waiting });
+      renderPage("/files#unrecognized-drives");
+      await screen.findByRole("heading", { name: /Unrecognized drives/i });
+      await waitFor(() => expect(scrollIntoView).toHaveBeenCalledTimes(1));
+      expect(/** @type {HTMLElement} */ (scrollIntoView.mock.contexts[0]).id).toBe("unrecognized-drives");
+    });
+
+    it("does not scroll when no drive is waiting", async () => {
+      const scrollIntoView = vi.fn();
+      Element.prototype.scrollIntoView = scrollIntoView;
+      stubDrivesApi();
+      renderPage("/files#unrecognized-drives");
+      expect(await screen.findByText("No drives yet")).toBeInTheDocument();
+      expect(scrollIntoView).not.toHaveBeenCalled();
+    });
+
+    it("does not scroll when opened without the hash", async () => {
+      const scrollIntoView = vi.fn();
+      Element.prototype.scrollIntoView = scrollIntoView;
+      stubDrivesApi({ fetch: waiting });
+      renderPage("/files");
+      await screen.findByRole("heading", { name: /Unrecognized drives/i });
+      expect(scrollIntoView).not.toHaveBeenCalled();
+    });
+  });
+
+  it("shows no unrecognized drives section at all when no drives are waiting", async () => {
     stubDrivesApi();
     renderPage();
-    expect(await screen.findByText(/Nothing new plugged in/i)).toBeInTheDocument();
+    expect(await screen.findByText("No drives yet")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: /Unrecognized Drives/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Nothing new plugged in/i)).not.toBeInTheDocument();
   });
 
   it("shows useful drive details and Add drive without an Ignore action", async () => {
@@ -387,8 +431,8 @@ describe("DrivesPage", () => {
     expect(screen.queryByText(/DCIM\/print/)).not.toBeInTheDocument();
     const opens = screen.getAllByRole("link", { name: "Browse files" });
     expect(opens).toHaveLength(2);
-    expect(opens[0]).toHaveAttribute("href", "/drives/d1");
-    expect(opens[1]).toHaveAttribute("href", "/drives/d1?path=DCIM");
+    expect(opens[0]).toHaveAttribute("href", "/files/d1");
+    expect(opens[1]).toHaveAttribute("href", "/files/d1?path=DCIM");
     expect(screen.queryByText(/Unrecognized Drives/i)).not.toBeInTheDocument();
   });
 
@@ -416,7 +460,7 @@ describe("DrivesPage", () => {
     renderPage();
     expect(await screen.findByText("report.pdf")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Open" }))
-      .toHaveAttribute("href", "/drives/d1?path=docs%2Freport.pdf");
+      .toHaveAttribute("href", "/files/d1?path=docs%2Freport.pdf");
   });
 
   it("shows granted folders for a household member", async () => {
@@ -681,7 +725,7 @@ describe("DrivesPage", () => {
     });
     renderPage();
     const browse = await screen.findByRole("link", { name: /Browse files/i });
-    expect(browse).toHaveAttribute("href", "/drives/d1");
+    expect(browse).toHaveAttribute("href", "/files/d1");
     expect(screen.queryByRole("link", { name: /Open files/i })).not.toBeInTheDocument();
   });
 
@@ -891,7 +935,7 @@ describe("DrivesPage", () => {
       },
     });
     renderPage();
-    expect(await screen.findByRole("link", { name: /Browse files/i })).toHaveAttribute("href", "/drives/d1");
+    expect(await screen.findByRole("link", { name: /Browse files/i })).toHaveAttribute("href", "/files/d1");
     expect(screen.queryByRole("heading", { name: /Browse Photos Drive/i })).not.toBeInTheDocument();
   });
 

@@ -127,7 +127,7 @@ describe("AuthProvider session survival", () => {
       return (
         <button
           onClick={() => {
-            login("max", "hunter22hunter").then(() => navigate("/drives"));
+            login("max", "hunter22hunter").then(() => navigate("/files"));
           }}
         >
           LOGIN AND GO
@@ -145,7 +145,7 @@ describe("AuthProvider session survival", () => {
         <AuthProvider>
           <Routes>
             <Route path="/login" element={<LoginAndGo />} />
-            <Route path="/drives" element={<Drives />} />
+            <Route path="/files" element={<Drives />} />
           </Routes>
         </AuthProvider>
       </MemoryRouter>

@@ -986,7 +986,7 @@ export default function GalleryPage() {
       addToast({
         type: "success",
         message: "Moved to Trash.",
-        description: "You can restore it from Drives → Trash.",
+        description: "You can restore it from Files → Trash.",
       });
       queryClient.invalidateQueries({ queryKey: ["gallery"] });
     },
@@ -1008,7 +1008,7 @@ export default function GalleryPage() {
       addToast({
         type: "success",
         message: items.length === 1 ? "Moved to Trash." : `Moved ${items.length} items to Trash.`,
-        description: "You can restore them from Drives → Trash.",
+        description: "You can restore them from Files → Trash.",
       });
       queryClient.invalidateQueries({ queryKey: ["gallery"] });
     },
@@ -1511,7 +1511,7 @@ export default function GalleryPage() {
           action={
             isAdmin ? (
               <Button variant="primary" asChild>
-                <Link to="/drives">Go to Drives</Link>
+                <Link to="/files">Go to Files</Link>
               </Button>
             ) : undefined
           }
@@ -2161,7 +2161,7 @@ export default function GalleryPage() {
         }}
         onConfirm={() => trashPhoto && trash.mutate(trashPhoto)}
         title="Move to trash?"
-        message="Luna will move this file to Trash on its drive. You can restore it from Drives later."
+        message="Luna will move this file to Trash on its drive. You can restore it from Files later."
         variant="danger-undoable"
         confirmLabel="Move to trash"
         loading={trash.isPending}
@@ -2177,7 +2177,7 @@ export default function GalleryPage() {
         }}
         onConfirm={() => trashBulk && trashMany.mutate(trashBulk)}
         title="Move selected to trash?"
-        message={`Luna will move ${trashBulk?.length || 0} items to Trash. You can restore them from Drives later.`}
+        message={`Luna will move ${trashBulk?.length || 0} items to Trash. You can restore them from Files later.`}
         variant="danger-undoable"
         confirmLabel="Move to trash"
         loading={trashMany.isPending}

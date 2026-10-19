@@ -36,10 +36,10 @@ function Harness({ drives = DRIVES, onDropPaths = vi.fn() }) {
 /** @param {{ drives?: any[], onDropPaths?: (driveId: string, path: string, paths: string[], sourceDriveId?: string) => void }} [opts] */
 function renderMenu({ drives, onDropPaths } = {}) {
   return render(
-    <MemoryRouter initialEntries={["/drives/d1"]}>
+    <MemoryRouter initialEntries={["/files/d1"]}>
       <Routes>
         <Route
-          path="/drives/:id"
+          path="/files/:id"
           element={<Harness drives={drives} onDropPaths={onDropPaths} />}
         />
       </Routes>
@@ -71,7 +71,7 @@ describe("DriveMenu", () => {
     // The drive being browsed is on the trigger, not in the list.
     expect(within(menu).queryByRole("menuitem", { name: "Photos Drive" })).not.toBeInTheDocument();
     fireEvent.click(within(menu).getByRole("menuitem", { name: "Spare Drive" }));
-    expect(screen.getByTestId("location").textContent).toBe("/drives/d2");
+    expect(screen.getByTestId("location").textContent).toBe("/files/d2");
   });
 
   it("dropping on a drive item moves files to its root without navigating", async () => {
@@ -84,7 +84,7 @@ describe("DriveMenu", () => {
     expect(item.className).toMatch(/ring-accent/);
     fireEvent.drop(item, { dataTransfer });
     expect(onDropPaths).toHaveBeenCalledWith("d2", "", ["docs/a.txt"], "d1");
-    expect(screen.getByTestId("location").textContent).toBe("/drives/d1");
+    expect(screen.getByTestId("location").textContent).toBe("/files/d1");
   });
 
   it("does not accept a drop on a read-only drive", async () => {
@@ -145,13 +145,13 @@ describe("DriveMenu", () => {
       fireEvent.click(screen.getByRole("button", { name: "Places: Photos Drive" }));
       const item = screen.getByRole("menuitem", { name: "Spare Drive" });
       fireEvent.dragOver(item, { dataTransfer: lunaDrag() });
-      expect(screen.getByTestId("location").textContent).toBe("/drives/d1");
+      expect(screen.getByTestId("location").textContent).toBe("/files/d1");
       // Hold past the spring-load delay — the browser navigates to the
       // drive's root so the in-flight drag can drop into a folder there.
       await act(async () => {
         await vi.advanceTimersByTimeAsync(SPRING_LOAD_MS);
       });
-      expect(screen.getByTestId("location").textContent).toBe("/drives/d2");
+      expect(screen.getByTestId("location").textContent).toBe("/files/d2");
       // The menu closes after spring-loading.
       await act(async () => {
         await vi.advanceTimersByTimeAsync(300);
@@ -177,7 +177,7 @@ describe("DriveMenu", () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(SPRING_LOAD_MS + 300);
       });
-      expect(screen.getByTestId("location").textContent).toBe("/drives/d1");
+      expect(screen.getByTestId("location").textContent).toBe("/files/d1");
     } finally {
       vi.useRealTimers();
     }
@@ -190,10 +190,10 @@ describe("DriveMenu", () => {
       { driveId: "d2", path: "shared/inbox", label: "inbox", sub: "Spare Drive", icon: "folder" },
     ]);
     render(
-      <MemoryRouter initialEntries={["/drives/d1?path=docs"]}>
+      <MemoryRouter initialEntries={["/files/d1?path=docs"]}>
         <Routes>
           <Route
-            path="/drives/:id"
+            path="/files/:id"
             element={(
               <DriveMenu
                 destinations={destinations}

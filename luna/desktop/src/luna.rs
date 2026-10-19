@@ -311,7 +311,7 @@ pub fn list_files(
                 .and_then(|v| v.get("error"))
                 .and_then(|e| e.as_str())
                 .unwrap_or(
-                    "Luna's database for this drive is missing. The drive is still plugged in. On the Drives page, remove this drive, then add it again.",
+                    "Luna's database for this drive is missing. The drive is still plugged in. On the Files page, remove this drive, then add it again.",
                 );
             return Err(msg.to_string());
         }
@@ -693,7 +693,7 @@ mod tests {
                 } else if req.contains("missing-db") {
                     (
                         500,
-                        r#"{"error":"Luna's database for this drive is missing. The drive is still plugged in. On the Drives page, remove this drive, then add it again.","code":"missing_drive_db"}"#.to_string(),
+                        r#"{"error":"Luna's database for this drive is missing. The drive is still plugged in. On the Files page, remove this drive, then add it again.","code":"missing_drive_db"}"#.to_string(),
                     )
                 } else if req.contains("/files") {
                     (
@@ -778,7 +778,7 @@ mod tests {
         let err = list_files(&base, "device-tok-456", "a", "missing-db").unwrap_err();
         assert!(err.contains("database for this drive is missing"), "{err}");
         assert!(
-            err.contains("On the Drives page, remove this drive, then add it again."),
+            err.contains("On the Files page, remove this drive, then add it again."),
             "{err}"
         );
         assert!(!err.to_ascii_lowercase().contains("unplug"), "{err}");

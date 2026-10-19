@@ -121,7 +121,7 @@ describe("buildSystemCheckItems", () => {
     expect(items).toEqual([]);
   });
 
-  it("keeps a save test for a drive with no drive row, opening Drives", () => {
+  it("keeps a save test for a drive with no drive row, opening Files", () => {
     const items = build(
       {
         drive_d2_read_write: {
@@ -139,7 +139,7 @@ describe("buildSystemCheckItems", () => {
         tone: "problem",
         title: ["Documents — save test"],
         detail: "Could not save a test file.",
-        action: { label: "Open Drives", href: "/drives" },
+        action: { label: "Open Files", href: "/files" },
       },
     ]);
   });
@@ -155,7 +155,7 @@ describe("buildSystemCheckItems", () => {
         rank: 20,
         tone: "problem",
         title: ["Drive save test"],
-        action: { label: "Open Drives", href: "/drives" },
+        action: { label: "Open Files", href: "/files" },
       },
     ]);
   });

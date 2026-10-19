@@ -41,15 +41,15 @@ describe("missingLinkTargets", () => {
 describe("forwardedHref", () => {
   const nav = { viewerPath: "old/a.pdf", selectPath: "" };
   it("browses a forwarded folder", () => {
-    expect(forwardedHref({ drive_id: "d", path: "new", kind: "dir" }, "old", nav)).toBe("/drives/d?path=new");
+    expect(forwardedHref({ drive_id: "d", path: "new", kind: "dir" }, "old", nav)).toBe("/files/d?path=new");
   });
   it("reopens a forwarded file in the viewer", () => {
     expect(forwardedHref({ drive_id: "d", path: "new/a.pdf", kind: "file" }, "old/a.pdf", nav))
-      .toBe("/drives/d?path=new&file=a.pdf");
+      .toBe("/files/d?path=new&file=a.pdf");
   });
   it("highlights a forwarded search hit", () => {
     expect(forwardedHref({ drive_id: "e", path: "new/a.pdf", kind: "file" }, "old/b.pdf", nav))
-      .toBe("/drives/e?path=new&select=new%2Fa.pdf");
+      .toBe("/files/e?path=new&select=new%2Fa.pdf");
   });
 });
 
@@ -94,15 +94,15 @@ describe("useMovedLinkForwarding", () => {
       }
       throw new Error(`unexpected ${url}`);
     });
-    const { getByTestId } = renderProbe({ path: "Taxes" }, "/drives/d1?path=Taxes");
-    await waitFor(() => expect(getByTestId("url").textContent).toBe("/drives/d1?path=Archive%2FTaxes"));
+    const { getByTestId } = renderProbe({ path: "Taxes" }, "/files/d1?path=Taxes");
+    await waitFor(() => expect(getByTestId("url").textContent).toBe("/files/d1?path=Archive%2FTaxes"));
     expect(toasts.addToast).toHaveBeenCalledTimes(1);
     expect(toasts.addToast.mock.calls[0][0]).toMatchObject({ type: "info", message: "This folder has moved." });
   });
 
   it("does nothing when the link still works", async () => {
     api.getJson.mockResolvedValue([{ name: "a.pdf" }]);
-    renderProbe({ path: "docs", viewerPath: "docs/a.pdf" }, "/drives/d1?path=docs&file=a.pdf");
+    renderProbe({ path: "docs", viewerPath: "docs/a.pdf" }, "/files/d1?path=docs&file=a.pdf");
     await waitFor(() => expect(api.getJson).toHaveBeenCalledTimes(1));
     expect(api.getJson.mock.calls.some(([u]) => u.includes("/resolve"))).toBe(false);
     expect(toasts.addToast).not.toHaveBeenCalled();
@@ -113,9 +113,9 @@ describe("useMovedLinkForwarding", () => {
       if (url.includes("/resolve")) throw Object.assign(new Error("gone"), { status: 404 });
       throw notFound();
     });
-    const { getByTestId } = renderProbe({ path: "gone" }, "/drives/d1?path=gone");
+    const { getByTestId } = renderProbe({ path: "gone" }, "/files/d1?path=gone");
     await waitFor(() => expect(api.getJson.mock.calls.some(([u]) => u.includes("/resolve"))).toBe(true));
-    expect(getByTestId("url").textContent).toBe("/drives/d1?path=gone");
+    expect(getByTestId("url").textContent).toBe("/files/d1?path=gone");
     expect(toasts.addToast).not.toHaveBeenCalled();
   });
 });

@@ -166,17 +166,17 @@ describe("sharedItemHref / shareSubjectFromRow", () => {
   };
 
   it("opens a folder at the folder", () => {
-    expect(sharedItemHref(folderRow)).toBe("/drives/d1?path=docs");
+    expect(sharedItemHref(folderRow)).toBe("/files/d1?path=docs");
   });
 
   it("opens a whole-drive grant at the drive root", () => {
-    expect(sharedItemHref({ ...folderRow, path: "" })).toBe("/drives/d1");
+    expect(sharedItemHref({ ...folderRow, path: "" })).toBe("/files/d1");
   });
 
   it("opens a file at the file itself, not its folder", () => {
     // The file path is the member's virtual root — the parent folder
     // isn't browsable, so `?path=` carries the whole file path.
-    expect(sharedItemHref(fileRow)).toBe("/drives/d1?path=docs%2Freport.pdf");
+    expect(sharedItemHref(fileRow)).toBe("/files/d1?path=docs%2Freport.pdf");
   });
 
   it("opens an album in the gallery", () => {

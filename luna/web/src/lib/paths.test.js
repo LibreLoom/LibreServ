@@ -15,7 +15,7 @@ describe("searchResultHref", () => {
         parent: "Documents",
         kind: "dir",
       }),
-    ).toBe("/drives/d1?path=Documents%2Ftaxes-2024");
+    ).toBe("/files/d1?path=Documents%2Ftaxes-2024");
   });
 
   it("opens a root folder hit with a path query", () => {
@@ -26,7 +26,7 @@ describe("searchResultHref", () => {
         parent: "",
         kind: "dir",
       }),
-    ).toBe("/drives/d1?path=album");
+    ).toBe("/files/d1?path=album");
   });
 
   it("opens a file hit in its parent and selects the file", () => {
@@ -37,7 +37,7 @@ describe("searchResultHref", () => {
         parent: "album",
         kind: "file",
       }),
-    ).toBe("/drives/d1?path=album&select=album%2Fbeach.jpg");
+    ).toBe("/files/d1?path=album&select=album%2Fbeach.jpg");
   });
 
   it("selects a root-level file without a path query", () => {
@@ -48,7 +48,7 @@ describe("searchResultHref", () => {
         parent: "",
         kind: "file",
       }),
-    ).toBe("/drives/d1?select=notes.txt");
+    ).toBe("/files/d1?select=notes.txt");
   });
 
   it("derives parent from path when parent is omitted", () => {
@@ -58,14 +58,14 @@ describe("searchResultHref", () => {
         path: "Documents/taxes.pdf",
         kind: "file",
       }),
-    ).toBe("/drives/d1?path=Documents&select=Documents%2Ftaxes.pdf");
+    ).toBe("/files/d1?path=Documents&select=Documents%2Ftaxes.pdf");
   });
 });
 
 describe("folderHref / parentPath", () => {
   it("builds drive and folder hrefs", () => {
-    expect(folderHref("d1", "")).toBe("/drives/d1");
-    expect(folderHref("d1", "album")).toBe("/drives/d1?path=album");
+    expect(folderHref("d1", "")).toBe("/files/d1");
+    expect(folderHref("d1", "album")).toBe("/files/d1?path=album");
   });
 
   it("returns parent folders", () => {
@@ -77,14 +77,14 @@ describe("folderHref / parentPath", () => {
 
 describe("fileHref", () => {
   it("builds file href at drive root", () => {
-    expect(fileHref("d1", "notes.txt")).toBe("/drives/d1?file=notes.txt");
+    expect(fileHref("d1", "notes.txt")).toBe("/files/d1?file=notes.txt");
   });
 
   it("builds file href inside a subfolder", () => {
-    expect(fileHref("d1", "Documents/taxes.pdf")).toBe("/drives/d1?path=Documents&file=taxes.pdf");
+    expect(fileHref("d1", "Documents/taxes.pdf")).toBe("/files/d1?path=Documents&file=taxes.pdf");
   });
 
   it("builds file href inside nested subfolders", () => {
-    expect(fileHref("d1", "Documents/2024/work/taxes.pdf")).toBe("/drives/d1?path=Documents%2F2024%2Fwork&file=taxes.pdf");
+    expect(fileHref("d1", "Documents/2024/work/taxes.pdf")).toBe("/files/d1?path=Documents%2F2024%2Fwork&file=taxes.pdf");
   });
 });

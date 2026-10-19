@@ -1,6 +1,6 @@
 /* eslint-disable react-refresh/only-export-components -- page exports helpers used by tests */
-import { useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { Link, useLocation } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FolderOpen, HardDrive, PlugZap } from "lucide-react";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
@@ -388,7 +388,7 @@ function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {ready && (
           <Button size="sm" variant="primary" asChild>
-            <Link to={`/drives/${drive.id}`}>Browse files</Link>
+            <Link to={`/files/${drive.id}`}>Browse files</Link>
           </Button>
         )}
         {showHealth && ready && (
@@ -423,8 +423,8 @@ function driveStatusMessage(drive) {
   return null;
 }
 
-export default function DrivesPage() {
-  usePageTitle("Drives");
+export default function FilesPage() {
+  usePageTitle("Files");
   const { addToast } = useToast();
   const releaseInspectedDrive = useReleaseInspectedDrive();
   const queryClient = useQueryClient();
@@ -450,6 +450,22 @@ export default function DrivesPage() {
   const [protectingDrive, setProtectingDrive] = useState(null);
   const protectAvailable = useCanProtect(isAdmin);
   const unknownDrives = withDevMockDetected(detected.data);
+  // The dashboard's "New drive detected" card links to #unrecognized-drives. The drives load after
+  // the page does, so the browser's own hash scrolling can't find the section; do it once it shows.
+  const location = useLocation();
+  const unrecognizedRef = useRef(/** @type {HTMLDivElement | null} */ (null));
+  const scrolledFor = useRef("");
+  const waitingCount = unknownDrives.length;
+  useEffect(() => {
+    if (location.hash !== "#unrecognized-drives" || waitingCount === 0) return;
+    if (scrolledFor.current === location.key || !unrecognizedRef.current) return;
+    scrolledFor.current = location.key;
+    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    unrecognizedRef.current.scrollIntoView({
+      behavior: reduceMotion ? "auto" : "smooth",
+      block: "start",
+    });
+  }, [location.hash, location.key, waitingCount]);
   const access = useQuery({
     queryKey: ["my-access"],
     queryFn: () => getJson("/api/v1/me/access"),
@@ -522,7 +538,7 @@ export default function DrivesPage() {
   if (user?.role === "user") {
     const grants = memberAccessRoots(access.data || []).filter((g) => g.kind !== KIND_ALBUM);
     return (
-      <Page title="Drives" titleId="drives-title" rightContent={<FileSearchButton />}>
+      <Page title="Files" titleId="files-title" rightContent={<FileSearchButton />}>
         <div className="grid gap-4 md:grid-cols-2">
           {grants.map((grant) => (
             <Card key={grant.id} icon={FolderOpen} title={grant.name || grant.drive_label}>
@@ -567,7 +583,7 @@ export default function DrivesPage() {
   }
 
   return (
-    <Page title="Drives" titleId="drives-title" rightContent={<FileSearchButton />}>
+    <Page title="Files" titleId="files-title" rightContent={<FileSearchButton />}>
       {(drives.data || []).length === 0 && (
         <Card icon={PlugZap} title="No drives yet" className="mb-6">
           <p className="text-primary text-sm">
@@ -592,15 +608,15 @@ export default function DrivesPage() {
         </div>
       )}
 
-      {isAdmin && (
+      {isAdmin && unknownDrives.length > 0 && (
         <>
-          <div className="mt-10 mb-4 flex items-center gap-2">
-            {unknownDrives.length > 0 ? (
-              <>
-                <h2 className="font-mono text-sm text-secondary">Unrecognized drives</h2>
-                <InfoHint surface="primary" content="Luna shows what's on a drive before adding it, and changes nothing until you confirm." />
-              </>
-            ) : null}
+          <div
+            id="unrecognized-drives"
+            ref={unrecognizedRef}
+            className="mt-10 mb-4 flex items-center gap-2 scroll-mt-6"
+          >
+            <h2 className="font-mono text-sm text-secondary">Unrecognized drives</h2>
+            <InfoHint surface="primary" content="Luna shows what's on a drive before adding it, and changes nothing until you confirm." />
           </div>
           <div className="grid gap-5 md:grid-cols-2">
             {unknownDrives.map((drive) => (
@@ -616,9 +632,6 @@ export default function DrivesPage() {
               />
             ))}
           </div>
-          {!detected.isLoading && unknownDrives.length === 0 && (
-            <EmptyState description="Nothing new plugged in." />
-          )}
         </>
       )}
 

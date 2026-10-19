@@ -73,9 +73,9 @@ describe("RecentsCard", () => {
     it("links each row to its file, folder or drive", () => {
       renderCard({ items: threeKinds() });
       const [file, folder, drive] = screen.getAllByRole("link");
-      expect(file).toHaveAttribute("href", "/drives/d1?path=Documents&file=note.md");
-      expect(folder).toHaveAttribute("href", "/drives/d1?path=Office");
-      expect(drive).toHaveAttribute("href", "/drives/d1");
+      expect(file).toHaveAttribute("href", "/files/d1?path=Documents&file=note.md");
+      expect(folder).toHaveAttribute("href", "/files/d1?path=Office");
+      expect(drive).toHaveAttribute("href", "/files/d1");
     });
 
     it("has no separate Open button or link", () => {
@@ -254,7 +254,7 @@ describe("RecentsCard", () => {
       renderCard({ items: threeKinds() });
       expect(screen.getByRole("link", { name: /Office/ })).toHaveAttribute(
         "href",
-        "/drives/d1?path=Office",
+        "/files/d1?path=Office",
       );
     });
   });

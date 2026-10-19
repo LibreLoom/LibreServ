@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
-import DrivePage from "./DrivePage";
+import FilePage from "./FilePage";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 
 function filesPath(url) {
@@ -155,14 +155,14 @@ function stubFilesApi(byPath) {
   return fetchMock;
 }
 
-function renderFiles(path = "/drives/d1") {
+function renderFiles(path = "/files/d1") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <ToastProvider>
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[path]}>
         <AuthProvider>
-          <Routes><Route path="/drives/:id" element={<DrivePage />} /></Routes>
+          <Routes><Route path="/files/:id" element={<FilePage />} /></Routes>
         </AuthProvider>
       </MemoryRouter>
     </QueryClientProvider>
@@ -170,7 +170,7 @@ function renderFiles(path = "/drives/d1") {
   );
 }
 
-describe("DrivePage", () => {
+describe("FilePage", () => {
   it("shows upload control and folder contents", async () => {
     stubFilesApi({
       "": [{ name: "photo.jpg", kind: "file", size: 1000, modified: 0, hidden: false }],
@@ -178,7 +178,7 @@ describe("DrivePage", () => {
     renderFiles();
     expect(await screen.findByRole("button", { name: /Upload/i })).toBeInTheDocument();
     expect(await screen.findByText(/photo.jpg/i)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Trash" })).toHaveAttribute("href", "/drives/d1?path=.luna-trash");
+    expect(screen.getByRole("link", { name: "Trash" })).toHaveAttribute("href", "/files/d1?path=.luna-trash");
     expect(screen.queryByRole("link", { name: /Open trash/i })).not.toBeInTheDocument();
     expect(screen.getAllByText("Current folder").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Sharing for photo.jpg" })).toBeInTheDocument();
@@ -209,7 +209,7 @@ describe("DrivePage", () => {
         { id: "g1", kind: "path", drive_id: "d1", path: "docs/drop", caps: "upload", name: "drop" },
       ],
     });
-    renderFiles("/drives/d1?path=docs%2Fdrop");
+    renderFiles("/files/d1?path=docs%2Fdrop");
     expect(await screen.findByText("Upload files")).toBeInTheDocument();
     // list and stat would both 403 for an upload-only grant — never fire them.
     expect(fetchMock.mock.calls.some(([u]) =>
@@ -235,7 +235,7 @@ describe("DrivePage", () => {
         },
       },
     });
-    renderFiles("/drives/d1?path=docs%2Freport.txt");
+    renderFiles("/files/d1?path=docs%2Freport.txt");
     // The row maps back onto the granted path — not a doubled joinPath.
     await waitFor(() => {
       expect(document.querySelector('[data-file-path="docs/report.txt"]')).toBeTruthy();
@@ -247,7 +247,7 @@ describe("DrivePage", () => {
     expect(screen.queryByRole("link", { name: /↑ Up one folder/i })).not.toBeInTheDocument();
     const rowLinks = screen.getAllByRole("link", { name: "report.txt" });
     expect(rowLinks.some((a) =>
-      a.getAttribute("href") === "/drives/d1?path=docs%2Freport.txt")).toBe(true);
+      a.getAttribute("href") === "/files/d1?path=docs%2Freport.txt")).toBe(true);
   });
 
   it("floors a member's breadcrumbs and Up at the granted folder", async () => {
@@ -260,15 +260,15 @@ describe("DrivePage", () => {
         { name: "q1.txt", kind: "file", size: 10, modified: 0, hidden: false },
       ],
     });
-    renderFiles("/drives/d1?path=docs%2Freports");
+    renderFiles("/files/d1?path=docs%2Freports");
     expect(await screen.findByText("q1.txt")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Photos Drive" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "docs" }))
-      .toHaveAttribute("href", "/drives/d1?path=docs");
+      .toHaveAttribute("href", "/files/d1?path=docs");
     expect(screen.getByRole("link", { name: "reports" }))
-      .toHaveAttribute("href", "/drives/d1?path=docs%2Freports");
+      .toHaveAttribute("href", "/files/d1?path=docs%2Freports");
     expect(screen.getByRole("link", { name: /↑ Up one folder/i }))
-      .toHaveAttribute("href", "/drives/d1?path=docs");
+      .toHaveAttribute("href", "/files/d1?path=docs");
   });
 
   it("points a member at Shared when the browsed folder isn't granted", async () => {
@@ -428,23 +428,23 @@ describe("DrivePage", () => {
       album: [{ name: "vacation", kind: "dir", size: 0, modified: 0, hidden: false }],
       "album/vacation": [{ name: "beach.jpg", kind: "file", size: 2000, modified: 0, hidden: false }],
     });
-    renderFiles("/drives/d1?path=album");
+    renderFiles("/files/d1?path=album");
 
     expect(await screen.findByRole("link", { name: "vacation" })).toHaveAttribute(
       "href",
-      "/drives/d1?path=album%2Fvacation",
+      "/files/d1?path=album%2Fvacation",
     );
-    expect(screen.getByRole("link", { name: "↑ Up one folder" })).toHaveAttribute("href", "/drives/d1");
+    expect(screen.getByRole("link", { name: "↑ Up one folder" })).toHaveAttribute("href", "/files/d1");
     // Breadcrumb root link back to the drive's top level.
     const rootCrumb = screen.getByRole("link", { name: "Photos Drive" });
-    expect(rootCrumb).toHaveAttribute("href", "/drives/d1");
-    expect(screen.getByRole("link", { name: "album" })).toHaveAttribute("href", "/drives/d1?path=album");
+    expect(rootCrumb).toHaveAttribute("href", "/files/d1");
+    expect(screen.getByRole("link", { name: "album" })).toHaveAttribute("href", "/files/d1?path=album");
 
     fireEvent.click(screen.getByRole("link", { name: "vacation" }));
     expect(await screen.findByText("beach.jpg")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "↑ Up one folder" })).toHaveAttribute(
       "href",
-      "/drives/d1?path=album",
+      "/files/d1?path=album",
     );
   });
 
@@ -455,7 +455,7 @@ describe("DrivePage", () => {
         { name: "beach.jpg", kind: "file", size: 2000, modified: 0, hidden: false },
       ],
     });
-    renderFiles("/drives/d1?path=album&select=album%2Fbeach.jpg");
+    renderFiles("/files/d1?path=album&select=album%2Fbeach.jpg");
     expect(await screen.findByText("beach.jpg")).toBeInTheDocument();
     await waitFor(() => {
       expect(screen.getByLabelText("Select beach.jpg")).toBeChecked();
@@ -476,7 +476,7 @@ describe("DrivePage", () => {
         });
       },
     });
-    renderFiles("/drives/d1?path=.luna-trash");
+    renderFiles("/files/d1?path=.luna-trash");
     fireEvent.click(await screen.findByRole("button", { name: "Restore photo.jpg" }));
     const restore = await screen.findByRole("dialog", { name: "Restore this?" });
     fireEvent.click(within(restore).getByRole("button", { name: "Restore" }));
@@ -498,14 +498,14 @@ describe("DrivePage", () => {
         hidden: false,
       }],
     });
-    renderFiles("/drives/d1?path=.luna-trash");
+    renderFiles("/files/d1?path=.luna-trash");
     // The regular browser renders the trash entry under its pre-trash name.
     expect(await screen.findByText("photo.jpg")).toBeInTheDocument();
     expect(screen.queryByText("171-photo.jpg")).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Trash" })).toBeInTheDocument();
     // Up and the root crumb lead back to the drive, like any folder.
-    expect(screen.getByRole("link", { name: "↑ Up one folder" })).toHaveAttribute("href", "/drives/d1");
-    expect(screen.getByRole("link", { name: "Photos Drive" })).toHaveAttribute("href", "/drives/d1");
+    expect(screen.getByRole("link", { name: "↑ Up one folder" })).toHaveAttribute("href", "/files/d1");
+    expect(screen.getByRole("link", { name: "Photos Drive" })).toHaveAttribute("href", "/files/d1");
     // Items inside trash keep the folder row minus share/protect/rename —
     // plus Restore and Delete permanently. Upload/create stay off (nothing
     // is written INTO trash).
@@ -569,7 +569,7 @@ describe("DrivePage", () => {
 
   it("shows the trash empty state through the regular browser", async () => {
     stubFilesApi({ ".luna-trash": [] });
-    renderFiles("/drives/d1?path=.luna-trash");
+    renderFiles("/files/d1?path=.luna-trash");
     expect(await screen.findByText("Trash is empty")).toBeInTheDocument();
     // Nothing to empty — the button stays disabled beside "Up one folder".
     expect(screen.getByRole("button", { name: "Empty trash" })).toBeDisabled();
@@ -587,7 +587,7 @@ describe("DrivePage", () => {
         hidden: false,
       }],
     });
-    renderFiles("/drives/d1?path=.luna-trash");
+    renderFiles("/files/d1?path=.luna-trash");
     const emptyBtn = await screen.findByRole("button", { name: "Empty trash" });
     expect(emptyBtn).toBeEnabled();
     fireEvent.click(emptyBtn);
@@ -669,7 +669,7 @@ describe("DrivePage", () => {
         return new Response(JSON.stringify(blocked ? { code: "broadens_access", error: "Confirm access" } : { id: "copy" }), { status: blocked ? 409 : 200, headers: { "Content-Type": "application/json" } });
       },
     });
-    renderFiles("/drives/d1?path=Private");
+    renderFiles("/files/d1?path=Private");
     fireEvent.click(await screen.findByLabelText("Select all in this folder"));
     fireEvent.click(screen.getByRole("button", { name: "Copy" }));
     fireEvent.click(await screen.findByRole("button", { name: "Start copying" }));
@@ -895,7 +895,7 @@ describe("DrivePage", () => {
       "album/dcim": [{ name: "shot.jpg", kind: "file", size: 12, modified: 0, hidden: false }],
     };
     stubFilesApi(grants);
-    renderFiles("/drives/d1?path=album");
+    renderFiles("/files/d1?path=album");
     expect(await screen.findByText("dcim")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Upload/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "New" })).not.toBeInTheDocument();
@@ -912,7 +912,7 @@ describe("DrivePage", () => {
       ],
       "album/dcim": [{ name: "shot.jpg", kind: "file", size: 12, modified: 0, hidden: false }],
     });
-    renderFiles("/drives/d1?path=album/dcim");
+    renderFiles("/files/d1?path=album/dcim");
     expect(await screen.findByText("shot.jpg")).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: /Upload/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "New" })).toBeInTheDocument();
@@ -935,7 +935,7 @@ describe("DrivePage", () => {
     stubFilesApi({
       "": [{ name: "notes.txt", kind: "file", size: 10, modified: 0, hidden: false }],
     });
-    renderFiles("/drives/d1?file=notes.txt");
+    renderFiles("/files/d1?file=notes.txt");
     expect(await screen.findByRole("dialog", { name: /notes.txt/i })).toBeInTheDocument();
   });
 
@@ -943,7 +943,7 @@ describe("DrivePage", () => {
     stubFilesApi({
       docs: [{ name: "notes.txt", kind: "file", size: 10, modified: 0, hidden: false }],
     });
-    renderFiles("/drives/d1?path=docs&file=notes.txt");
+    renderFiles("/files/d1?path=docs&file=notes.txt");
     expect(await screen.findByRole("dialog", { name: /notes.txt/i })).toBeInTheDocument();
   });
 
@@ -951,7 +951,7 @@ describe("DrivePage", () => {
     stubFilesApi({
       "": [{ name: "notes.txt", kind: "file", size: 10, modified: 0, hidden: false }],
     });
-    renderFiles("/drives/d1#notes.txt");
+    renderFiles("/files/d1#notes.txt");
     expect(await screen.findByRole("dialog", { name: /notes.txt/i })).toBeInTheDocument();
   });
 
@@ -959,7 +959,7 @@ describe("DrivePage", () => {
     stubFilesApi({
       "": [{ name: "data.bin", kind: "file", size: 50, modified: 0, hidden: false }],
     });
-    renderFiles("/drives/d1?file=data.bin");
+    renderFiles("/files/d1?file=data.bin");
     expect(await screen.findByText("data.bin")).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
@@ -968,7 +968,7 @@ describe("DrivePage", () => {
     stubFilesApi({
       "": [{ name: "data.bin", kind: "file", size: 50, modified: 0, hidden: false }],
     });
-    renderFiles("/drives/d1#data.bin");
+    renderFiles("/files/d1#data.bin");
     expect(await screen.findByText("data.bin")).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
@@ -977,7 +977,7 @@ describe("DrivePage", () => {
     stubFilesApi({
       "": [{ name: "notes.txt", kind: "file", size: 10, modified: 0, hidden: false }],
     });
-    renderFiles("/drives/d1?file=notes.txt");
+    renderFiles("/files/d1?file=notes.txt");
     const dialog = await screen.findByRole("dialog", { name: /notes.txt/i });
     expect(dialog).toBeInTheDocument();
     const closeBtn = within(dialog).getByRole("button", { name: "Close editor" });

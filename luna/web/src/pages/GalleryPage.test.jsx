@@ -240,7 +240,7 @@ describe("GalleryPage", () => {
     expect(screen.getByRole("radiogroup")).toBeInTheDocument();
   });
 
-  it("points Admins to Drives when there is nothing to look in", async () => {
+  it("points Admins to Files when there is nothing to look in", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url) => {
@@ -274,7 +274,7 @@ describe("GalleryPage", () => {
     );
     renderGallery();
     expect(await screen.findByText(/No drives yet/i)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Go to Drives/i })).toHaveAttribute("href", "/drives");
+    expect(screen.getByRole("link", { name: /Go to Files/i })).toHaveAttribute("href", "/files");
     expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/Search photos/i)).not.toBeInTheDocument();
     expect(document.querySelector("[data-slot=gallery-toolbar]")).toBeNull();
@@ -311,7 +311,7 @@ describe("GalleryPage", () => {
     expect(
       screen.getByText(/Ask an Admin to share a drive, folder, or album with photos/i),
     ).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /Go to Drives/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Go to Files/i })).not.toBeInTheDocument();
   });
 
   it("lets album-only Members open Albums when they have no drives", async () => {

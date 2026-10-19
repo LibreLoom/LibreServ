@@ -56,14 +56,14 @@ function folderListingError(error) {
   if (isMissingDriveDb(error)) {
     return (
       message ||
-      "Luna's database for this drive is missing, but the drive is still plugged in. Remove it on the Drives page, then add it again."
+      "Luna's database for this drive is missing, but the drive is still plugged in. Remove it on the Files page, then add it again."
     );
   }
   const code = error && "code" in error ? error.code : null;
   // A missing folder was moved, renamed, or deleted — the drive is fine.
   // (Moved folders are followed before this shows; see useMovedLinkForwarding.)
   if (code === "not_found") {
-    return "This folder isn't here anymore — it may have been deleted. Open Drives to look for it.";
+    return "This folder isn't here anymore — it may have been deleted. Open Files to look for it.";
   }
   const unplugged =
     code === "unknown_drive" ||

@@ -6,7 +6,7 @@ import LoadingBar from "@libreloom/ui/components/common/LoadingBar.jsx";
 function NavProbe() {
   const navigate = useNavigate();
   return (
-    <button type="button" onClick={() => navigate("/drives")}>
+    <button type="button" onClick={() => navigate("/files")}>
       Go
     </button>
   );
@@ -27,7 +27,7 @@ describe("LoadingBar", () => {
         <LoadingBar />
         <Routes>
           <Route path="/" element={<NavProbe />} />
-          <Route path="/drives" element={<div>Drives</div>} />
+          <Route path="/files" element={<div>Files</div>} />
         </Routes>
       </MemoryRouter>,
     );

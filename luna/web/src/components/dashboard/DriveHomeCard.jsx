@@ -73,7 +73,7 @@ export default function DriveHomeCard({
 
   // A member without view on the drive root lands on a 403 if the card
   // links there, so point their open button at the shallowest grant instead
-  // (whole-drive grants keep `/drives/{id}`). Admins always browse the root.
+  // (whole-drive grants keep `/files/{id}`). Admins always browse the root.
   const canBrowseRoot =
     isAdmin || (capsOnPath(grants, drive.id, "") & CAP.VIEW) !== 0;
   const entryGrant = grants.reduce(
@@ -81,7 +81,7 @@ export default function DriveHomeCard({
     /** @type {any} */ (null),
   );
   const deepLink = !isAdmin && !canBrowseRoot && Boolean(entryGrant);
-  const openHref = deepLink ? sharedItemHref(entryGrant) : `/drives/${drive.id}`;
+  const openHref = deepLink ? sharedItemHref(entryGrant) : `/files/${drive.id}`;
   const openLabel = deepLink ? sharedItemAction(entryGrant) : "Browse files";
 
   const openButton = (
@@ -106,12 +106,12 @@ export default function DriveHomeCard({
             : drive.state === "ejected"
               ? "Safely removed. Plug it in again when you need it."
               : isAdmin
-                ? "Luna ran into a problem with this drive. Open Drives for details."
+                ? "Luna ran into a problem with this drive. Open Files for details."
                 : "Luna ran into a problem with this drive. Ask an Admin to check it."}
         </p>
         {drive.state === "failed" && isAdmin ? (
           <Button size="sm" variant="outline" asChild>
-            <Link to="/drives">Open Drives</Link>
+            <Link to="/files">Open Files</Link>
           </Button>
         ) : null}
       </div>

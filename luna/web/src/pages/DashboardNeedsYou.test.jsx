@@ -103,7 +103,7 @@ describe("Needs you on the dashboard", () => {
   });
 
   describe("drives (Admin)", () => {
-    it("shows a failed drive as a pill and a link to Drives", async () => {
+    it("shows a failed drive as a pill and a link to Files", async () => {
       const fetchMock = stubDashboardFetch({ drives: [BACKUP_DRIVE_FAILED] });
       renderDashboard();
       await settle(fetchMock, ADMIN_QUERIES);
@@ -111,7 +111,7 @@ describe("Needs you on the dashboard", () => {
       const row = within(zone).getByRole("listitem");
       expect(within(row).getByText("Backup drive")).toHaveAttribute("data-slot", "inline-pill");
       expect(within(row).getByText("ran into a problem")).toBeInTheDocument();
-      expect(within(zone).getByRole("link", { name: "Open Drives" })).toHaveAttribute("href", "/drives");
+      expect(within(zone).getByRole("link", { name: "Open Files" })).toHaveAttribute("href", "/files");
     });
 
     it("says a drive with a worn spot is working, with a warning", async () => {
@@ -125,7 +125,7 @@ describe("Needs you on the dashboard", () => {
       expect(within(row).getByText("Family photos")).toHaveAttribute("data-slot", "inline-pill");
       expect(within(row).getByText("is working, with a warning")).toBeInTheDocument();
       expect(within(row).getByText(/repaired a few worn spots/)).toBeInTheDocument();
-      expect(within(zone).getByRole("link", { name: "Open Drives" })).toHaveAttribute("href", "/drives");
+      expect(within(zone).getByRole("link", { name: "Open Files" })).toHaveAttribute("href", "/files");
     });
 
     it("says a drive whose health report failed needs attention", async () => {
@@ -138,7 +138,7 @@ describe("Needs you on the dashboard", () => {
       const row = within(zone).getByRole("listitem");
       expect(within(row).getByText("Family photos")).toHaveAttribute("data-slot", "inline-pill");
       expect(within(row).getByText("needs attention")).toBeInTheDocument();
-      expect(within(zone).getByRole("link", { name: "Open Drives" })).toHaveAttribute("href", "/drives");
+      expect(within(zone).getByRole("link", { name: "Open Files" })).toHaveAttribute("href", "/files");
     });
 
     it("makes no row for a healthy drive", async () => {
@@ -170,7 +170,7 @@ describe("Needs you on the dashboard", () => {
       expect(within(row).getByText("Family photos")).toHaveAttribute("data-slot", "inline-pill");
       expect(within(row).getByText("is almost full")).toBeInTheDocument();
       expect(within(row).getByText("5.0 GB free of 64 GB")).toBeInTheDocument();
-      expect(within(zone).getByRole("link", { name: "Browse files" })).toHaveAttribute("href", "/drives/d1");
+      expect(within(zone).getByRole("link", { name: "Browse files" })).toHaveAttribute("href", "/files/d1");
     });
 
     it("makes no row for a drive with plenty of space", async () => {
@@ -207,17 +207,12 @@ describe("Needs you on the dashboard", () => {
       expect(screen.queryByText("No drives yet")).not.toBeInTheDocument();
     });
 
-    it("shows a New drive plugged in row whose button opens the drive picker", async () => {
+    it("gives a newly plugged-in drive a card instead of a Needs you row", async () => {
       const fetchMock = stubDashboardFetch({ detected: [NEW_DRIVE] });
       renderDashboard();
       await settle(fetchMock, ADMIN_QUERIES);
-      const zone = needsYouZone();
-      const row = within(zone).getByRole("listitem");
-      expect(within(row).getByText("New drive plugged in")).toBeInTheDocument();
-      await userEvent.click(within(row).getByRole("button", { name: "Add drive" }));
-      const dialog = await screen.findByRole("dialog");
-      expect(within(dialog).getByText("New drive detected")).toBeInTheDocument();
-      expect(within(dialog).getByText("SanDisk")).toBeInTheDocument();
+      expect(screen.queryByRole("region", { name: "Needs you" })).not.toBeInTheDocument();
+      expect(await screen.findByRole("heading", { name: "New drive detected" })).toBeInTheDocument();
     });
   });
 
@@ -399,7 +394,7 @@ describe("Needs you on the dashboard", () => {
       expect(rows).toHaveLength(2);
       expect(rows[0]).toHaveTextContent("Backup drive ran into a problem");
       expect(within(rows[1]).getByText("Family photos — save test")).toBeInTheDocument();
-      expect(within(rows[1]).getByRole("link", { name: "Open Drives" })).toHaveAttribute("href", "/drives");
+      expect(within(rows[1]).getByRole("link", { name: "Open Files" })).toHaveAttribute("href", "/files");
     });
   });
 
@@ -614,7 +609,7 @@ describe("Needs you on the dashboard", () => {
   });
 
   describe("ordering and zone frame (Admin)", () => {
-    it("orders rows by urgency: drive, backup, new drive, then the recovery phrase", async () => {
+    it("orders rows by urgency: drive, backup, then the recovery phrase", async () => {
       const fetchMock = stubDashboardFetch({
         drives: [FAMILY_PHOTOS, BACKUP_DRIVE_FAILED],
         backups: [backupRow({ state: "failing", last_error: "The backup drive is full." })],
@@ -624,12 +619,11 @@ describe("Needs you on the dashboard", () => {
       });
       renderDashboard();
       await settle(fetchMock, ADMIN_QUERIES);
-      await waitFor(() => expect(within(needsYouZone()).getAllByRole("listitem")).toHaveLength(4));
+      await waitFor(() => expect(within(needsYouZone()).getAllByRole("listitem")).toHaveLength(3));
       const rows = within(needsYouZone()).getAllByRole("listitem");
       expect(rows[0]).toHaveTextContent("Backup drive ran into a problem");
       expect(rows[1]).toHaveTextContent("Photos backup didn't finish");
-      expect(rows[2]).toHaveTextContent("New drive plugged in");
-      expect(rows[3]).toHaveTextContent("Check your recovery phrase");
+      expect(rows[2]).toHaveTextContent("Check your recovery phrase");
     });
   });
 
@@ -668,8 +662,8 @@ describe("Needs you on the dashboard", () => {
       expect(within(rows[0]).getByText("Photos")).toHaveAttribute("data-slot", "inline-pill");
       expect(within(rows[0]).getByText("backup didn't finish")).toBeInTheDocument();
       expect(within(zone).queryByText("Music")).not.toBeInTheDocument();
-      expect(screen.queryByText("New drive plugged in")).not.toBeInTheDocument();
-      expect(screen.queryByText("Open Drives")).not.toBeInTheDocument();
+      expect(screen.queryByText("New drive detected")).not.toBeInTheDocument();
+      expect(screen.queryByText("Open Files")).not.toBeInTheDocument();
       expect(screen.queryByText(/almost full/)).not.toBeInTheDocument();
       expect(screen.queryByText(/internet/)).not.toBeInTheDocument();
       expect(screen.queryByText("Storage space")).not.toBeInTheDocument();

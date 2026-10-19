@@ -149,7 +149,7 @@ pub const TRASH_API_ALIAS: &str = ".luna-trash";
 
 /// Shown when the drive row exists and the mount is there, but the
 /// `.luna-<uuid>.sqlite3` microdb is gone. This is not an unplug.
-pub const MISSING_DRIVE_DB_MSG: &str = "Luna's database for this drive is missing. The drive is still plugged in. On the Drives page, remove this drive, then add it again.";
+pub const MISSING_DRIVE_DB_MSG: &str = "Luna's database for this drive is missing. The drive is still plugged in. On the Files page, remove this drive, then add it again.";
 
 #[derive(Debug, thiserror::Error)]
 pub enum FilesError {

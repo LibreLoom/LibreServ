@@ -153,9 +153,9 @@ describe("NeedsYou", () => {
 
   describe("actions", () => {
     it("renders a link for an href action", () => {
-      renderZone([problem({ action: { label: "Open Drives", href: "/drives" } })]);
-      const link = screen.getByRole("link", { name: "Open Drives" });
-      expect(link).toHaveAttribute("href", "/drives");
+      renderZone([problem({ action: { label: "Open Files", href: "/files" } })]);
+      const link = screen.getByRole("link", { name: "Open Files" });
+      expect(link).toHaveAttribute("href", "/files");
       expect(screen.queryByRole("button")).not.toBeInTheDocument();
     });
 
@@ -169,19 +169,19 @@ describe("NeedsYou", () => {
 
     it("lets ariaLabel override the link's accessible name", () => {
       renderZone([
-        problem({ action: { label: "Open", ariaLabel: "Open Photos backup", href: "/drives" } }),
+        problem({ action: { label: "Open", ariaLabel: "Open Photos backup", href: "/files" } }),
       ]);
       expect(screen.getByRole("link", { name: "Open Photos backup" })).toHaveTextContent("Open");
       expect(screen.queryByRole("link", { name: "Open" })).not.toBeInTheDocument();
     });
 
     it("leaves aria-label off a link when ariaLabel is not given", () => {
-      renderZone([problem({ action: { label: "Open Drives", href: "/drives" } })]);
+      renderZone([problem({ action: { label: "Open Files", href: "/files" } })]);
       expect(screen.getByRole("link")).not.toHaveAttribute("aria-label");
     });
 
     it("renders a button for an intent action and calls onAction once with the item", async () => {
-      const item = info({ action: { label: "Add drive", intent: "open-drive-picker" } });
+      const item = info({ action: { label: "Add drive", intent: "open-backup" } });
       const { onAction } = renderZone([item]);
       expect(screen.queryByRole("link")).not.toBeInTheDocument();
       await userEvent.click(screen.getByRole("button", { name: "Add drive" }));
@@ -233,8 +233,8 @@ describe("NeedsYou", () => {
     });
 
     it("does not call onAction for a link", async () => {
-      const { onAction } = renderZone([problem({ action: { label: "Open Drives", href: "/drives" } })]);
-      await userEvent.click(screen.getByRole("link", { name: "Open Drives" }));
+      const { onAction } = renderZone([problem({ action: { label: "Open Files", href: "/files" } })]);
+      await userEvent.click(screen.getByRole("link", { name: "Open Files" }));
       expect(onAction).not.toHaveBeenCalled();
     });
 
@@ -252,8 +252,8 @@ describe("NeedsYou", () => {
 
     it("gives each row at most one action", () => {
       renderZone([
-        problem({ action: { label: "Open Drives", href: "/drives" } }),
-        info({ action: { label: "Add drive", intent: "open-drive-picker" } }),
+        problem({ action: { label: "Open Files", href: "/files" } }),
+        info({ action: { label: "Add drive", intent: "open-backup" } }),
         info({ id: "no-drives", rank: 100 }),
       ]);
       for (const row of screen.getAllByRole("listitem")) {
@@ -373,7 +373,7 @@ describe("NeedsYou", () => {
         problem({
           id: "drive-failed:d1",
           detail: "Plug it in again or check the cable.",
-          action: { label: "Open Drives", href: "/drives" },
+          action: { label: "Open Files", href: "/files" },
         }),
         problem({
           id: "backup:drive:b1",
@@ -382,7 +382,7 @@ describe("NeedsYou", () => {
           detail: "The last copy did not finish.",
           action: { label: "Open", ariaLabel: "Open Photos backup", intent: "open-backup" },
         }),
-        info({ action: { label: "Add drive", intent: "open-drive-picker" } }),
+        info({ action: { label: "Add drive", intent: "open-backup" } }),
         info({
           id: "no-drives",
           rank: 100,
