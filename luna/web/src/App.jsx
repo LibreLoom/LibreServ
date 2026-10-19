@@ -15,14 +15,14 @@ import RequireAdmin from "./components/auth/RequireAdmin";
 import useRecentItemsTracker from "./hooks/useRecentItemsTracker";
 
 // One chunk per page: the first paint downloads only the page being opened.
-const loadDrivesPage = () => import("./pages/DrivesPage");
-const loadDrivePage = () => import("./pages/DrivePage");
+const loadFilesPage = () => import("./pages/FilesPage");
+const loadFilePage = () => import("./pages/FilePage");
 const loadGalleryPage = () => import("./pages/GalleryPage");
 const loadSharedPage = () => import("./pages/SharedPage");
 const loadDashboardPage = () => import("./pages/DashboardPage");
 const loadSettingsPage = () => import("./pages/SettingsPage");
-const DrivesPage = lazy(loadDrivesPage);
-const DrivePage = lazy(loadDrivePage);
+const FilesPage = lazy(loadFilesPage);
+const FilePage = lazy(loadFilePage);
 const GalleryPage = lazy(loadGalleryPage);
 const SharedPage = lazy(loadSharedPage);
 const DashboardPage = lazy(loadDashboardPage);
@@ -83,7 +83,7 @@ function PageOutlet() {
 function usePreloadPages() {
   useEffect(() => {
     if (/** @type {any} */ (navigator).connection?.saveData) return undefined;
-    const loaders = [loadDrivePage, loadDrivesPage, loadGalleryPage, loadSharedPage, loadDashboardPage, loadSettingsPage];
+    const loaders = [loadFilePage, loadFilesPage, loadGalleryPage, loadSharedPage, loadDashboardPage, loadSettingsPage];
     const idle = window.requestIdleCallback
       ? (fn) => window.requestIdleCallback(fn, { timeout: 4000 })
       : (fn) => window.setTimeout(fn, 1500);
@@ -139,8 +139,8 @@ export default function App() {
               <Route path="/s/:token" element={<PublicSharePage />} />
               <Route element={<AppShell />}>
                 <Route path="/" element={<DashboardPage />} />
-                <Route path="/drives" element={<DrivesPage />} />
-                <Route path="/drives/:id" element={<DrivePage />} />
+                <Route path="/files" element={<FilesPage />} />
+                <Route path="/files/:id" element={<FilePage />} />
                 <Route path="/gallery" element={<GalleryPage />} />
                 <Route path="/shared" element={<SharedPage />} />
                 <Route path="/photos" element={<PhotosToGalleryRedirect />} />
