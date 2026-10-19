@@ -203,7 +203,8 @@ pub fn check_backup_against(
         }
         if other.path == dest.path {
             return Err(
-                "Another folder upload already uses this Luna folder. Choose a different folder.".into(),
+                "Another folder upload already uses this Luna folder. Choose a different folder."
+                    .into(),
             );
         }
         if paths_overlap(&other.path, &dest.path) {

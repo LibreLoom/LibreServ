@@ -167,7 +167,9 @@ fn make_refresh(
                     if no_drives {
                         empty.set_text("No drives found on Luna. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.");
                     } else {
-                        empty.set_text("No folder uploads yet. Create one to copy folders onto Luna.");
+                        empty.set_text(
+                            "No folder uploads yet. Create one to copy folders onto Luna.",
+                        );
                     }
                 }
                 empty.set_visible(is_empty);
@@ -317,7 +319,8 @@ fn when_label(unix: i64) -> String {
 fn plain_error(raw: &str) -> String {
     let t = raw.trim();
     if t.is_empty() {
-        return "Something went wrong with this folder upload. Try editing it and saving again.".into();
+        return "Something went wrong with this folder upload. Try editing it and saving again."
+            .into();
     }
     if t.contains("database for this drive is missing") {
         return t.to_string();
