@@ -16,7 +16,25 @@ type UserConfig struct {
 	Notifications bool          `json:"notifications"`
 	CPUQuota      int64         `json:"cpuQuota"`
 	MemoryLimit   int64         `json:"memoryLimit"`
+	Nice          int           `json:"nice"`
 	PerfProfile   string        `json:"perfProfile"`
+}
+
+// Limits resolves the universal bounds this file sets. They cap every ci run
+// on the machine together, not each run alone. The bool is false when the
+// profile is "full": no bounds, and runs do not share job slots.
+func (c *UserConfig) Limits() (PerfLimits, bool) {
+	p := GetPerfProfile(c.PerfProfile)
+	if p == nil {
+		p = GetPerfProfile(DefaultPerfProfile)
+	}
+	cur := PerfLimits{Parallelism: c.Parallelism, CPUQuota: c.CPUQuota, MemoryLimit: c.MemoryLimit, Nice: c.Nice}
+	if p.ID == PerfFull {
+		return PerfLimits{Parallelism: c.Parallelism}, false
+	}
+	l := p.Resolve(cur)
+	l.Parallelism = CapJobs(l.Parallelism, l.CPUQuota)
+	return l, true
 }
 
 func LoadUserConfig() (*UserConfig, error) {
@@ -55,6 +73,9 @@ func SaveUserConfig(cfg *UserConfig) error {
 	return os.WriteFile(path, data, 0644)
 }
 
+// NewUserConfig returns the settings used when .ci.conf doesn't exist.
+func NewUserConfig() *UserConfig { return defaultUserConfig() }
+
 func defaultUserConfig() *UserConfig {
 	return &UserConfig{
 		Parallelism:   4,
@@ -63,26 +84,38 @@ func defaultUserConfig() *UserConfig {
 		Notifications: true,
 		CPUQuota:      0,
 		MemoryLimit:   0,
-		PerfProfile:   PerfFull,
+		PerfProfile:   DefaultPerfProfile,
 	}
 }
 
+// findConfigPath is the nearest existing .ci.conf above the working directory,
+// else a new one at the repository root, so every directory ci runs from reads
+// and writes the same file.
 func findConfigPath() (string, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return "", err
 	}
 
+	root := ""
 	dir := cwd
 	for {
 		configPath := filepath.Join(dir, ConfigFileName)
 		if _, err := os.Stat(configPath); err == nil {
 			return configPath, nil
 		}
+		if root == "" {
+			if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+				root = dir
+			}
+		}
 
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return filepath.Join(cwd, ConfigFileName), nil
+			if root == "" {
+				root = cwd
+			}
+			return filepath.Join(root, ConfigFileName), nil
 		}
 		dir = parent
 	}

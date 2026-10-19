@@ -32,7 +32,8 @@ type Runner struct {
 	cpuQuota          int64
 	memoryLimit       int64
 	nice              int
-	jobs              int // jobs running at once; cpuQuota and memoryLimit are split between them
+	jobs              int       // slots the cpuQuota and memoryLimit are split between
+	pool              *SlotPool // set when the bounds are universal: jobs take machine-wide slots
 	pullMutex         sync.Mutex
 	pulledImages      map[string]bool
 	streamManager     *StreamManager
@@ -67,6 +68,10 @@ type RunOptions struct {
 	CPUQuota     int64
 	MemoryLimit  int64
 	Nice         int
+	// Universal makes the limits machine-wide: every job takes one of
+	// Parallelism shared slots, so concurrent ci runs together stay in bounds.
+	// Otherwise the limits cover this run alone.
+	Universal bool
 }
 
 func NewRunner(cfg *config.Config) (*Runner, error) {
@@ -165,7 +170,26 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) *RunSummary {
 	r.cpuQuota = opts.CPUQuota
 	r.memoryLimit = opts.MemoryLimit
 	r.nice = opts.Nice
-	r.jobs = 1 // the cache warm-up below runs one container at a time
+
+	// The limits cover the whole run (or the whole machine, when universal), so
+	// each job gets an equal share. Never plan for more jobs than the CPU budget
+	// has whole cores.
+	slots := config.CapJobs(r.workers, r.cpuQuota)
+	workerCount := min(slots, len(testList))
+	r.pool = nil
+	if opts.Universal {
+		pool, err := NewSlotPool(slots)
+		if err != nil {
+			r.outputChan <- OutputLine{Type: OutputError, Line: fmt.Sprintf("cannot share job slots with other runs (%v); limits cover this run only", err)}
+		} else {
+			r.pool = pool
+		}
+	}
+	if r.pool != nil {
+		r.jobs = slots
+	} else {
+		r.jobs = max(workerCount, 1)
+	}
 
 	// Pre-warm shared Go module cache for the selected Go tests. This turns
 	// the cold-cache, concurrent go-mod download storm that flakes the quick
@@ -186,19 +210,6 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) *RunSummary {
 	var wg sync.WaitGroup
 	results := make(chan *tests.TestResult, len(testList))
 	stopFlag := &atomicBool{}
-
-	workerCount := r.workers
-	if workerCount > len(testList) {
-		workerCount = len(testList)
-	}
-	// The CPU and memory limits cover the whole run, so each job gets an equal
-	// share. Never run more jobs than the CPU budget has whole cores.
-	if r.cpuQuota > 0 {
-		if maxJobs := int(r.cpuQuota / cpuPeriod); workerCount > maxJobs {
-			workerCount = max(maxJobs, 1)
-		}
-	}
-	r.jobs = max(workerCount, 1)
 
 	for i := 0; i < workerCount; i++ {
 		wg.Add(1)
@@ -262,13 +273,37 @@ func (r *Runner) worker(
 			continue
 		}
 
+		release, err := r.acquireSlot(ctx, t.ID)
+		if err != nil {
+			results <- &tests.TestResult{
+				TestID:    t.ID,
+				Name:      t.Name,
+				Status:    tests.StatusSkipped,
+				StartTime: time.Now(),
+				EndTime:   time.Now(),
+				Error:     "Cancelled while waiting for a free job slot",
+			}
+			continue
+		}
 		result := r.runTest(ctx, t, fuzzDuration, skipTestChan)
+		release()
 		results <- result
 
 		if failFast && result.Status == tests.StatusFailed {
 			stopFlag.Set(true)
 		}
 	}
+}
+
+// acquireSlot takes a machine-wide job slot when the bounds are universal, and
+// is a no-op otherwise.
+func (r *Runner) acquireSlot(ctx context.Context, testID string) (func(), error) {
+	if r.pool == nil {
+		return func() {}, nil
+	}
+	return r.pool.Acquire(ctx, func() {
+		r.outputChan <- OutputLine{TestID: testID, Type: OutputStatus, Line: "waiting for a free job slot (other ci runs are using them)"}
+	})
 }
 
 // cpuPeriod is the CFS period, in microseconds, that cpuQuota is measured in.
@@ -1061,7 +1096,12 @@ func (r *Runner) warmGoModuleCaches(ctx context.Context, testList []*tests.Test)
 			Description: "Pre-fetch Go modules for " + root,
 		}
 
+		release, err := r.acquireSlot(ctx, warmID)
+		if err != nil {
+			return
+		}
 		exitCode, err := r.runOneOffContainer(ctx, warmTest, warmID)
+		release()
 		if err != nil || exitCode != 0 {
 			r.outputChan <- OutputLine{TestID: warmID, Type: OutputStderr, Line: fmt.Sprintf("pre-warm failed (exit %d): %v; tests will proceed with cold cache", exitCode, err)}
 		} else {

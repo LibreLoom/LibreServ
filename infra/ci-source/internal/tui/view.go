@@ -253,7 +253,19 @@ func (m *Model) startExecution() (tea.Model, tea.Cmd) {
 
 	m.StartRun()
 
-	go m.executor.Execute("", testIDs, m.settings.Parallelism, m.settings.FailFast, m.settings.FuzzDuration, m.settings.CPUQuota, m.settings.MemoryLimit, m.settings.Nice)
+	// Universal bounds always come from the saved .ci.conf, the same file every
+	// other ci run reads; only a session-only run uses the values on screen.
+	limits := config.PerfLimits{Parallelism: m.settings.Parallelism, CPUQuota: m.settings.CPUQuota, MemoryLimit: m.settings.MemoryLimit, Nice: m.settings.Nice}
+	universal := false
+	if !m.settings.SessionOnly {
+		if cfg, err := config.LoadUserConfig(); err == nil {
+			limits, universal = cfg.Limits()
+		} else {
+			limits, universal = config.NewUserConfig().Limits()
+		}
+	}
+
+	go m.executor.Execute("", testIDs, limits.Parallelism, m.settings.FailFast, m.settings.FuzzDuration, limits.CPUQuota, limits.MemoryLimit, limits.Nice, universal)
 
 	return m, tickCmd()
 }
@@ -328,7 +340,16 @@ func (m *Model) handleSettingsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			Notifications: m.settings.Notifications,
 			CPUQuota:      m.settings.CPUQuota,
 			MemoryLimit:   m.settings.MemoryLimit,
+			Nice:          m.settings.Nice,
 			PerfProfile:   m.settings.PerfProfile,
+		}
+		if m.settings.SessionOnly {
+			// Session-only limits are never saved: keep the universal bounds already on disk.
+			saved, err := config.LoadUserConfig()
+			if err != nil || saved == nil {
+				saved = config.NewUserConfig()
+			}
+			cfg.Parallelism, cfg.CPUQuota, cfg.MemoryLimit, cfg.Nice, cfg.PerfProfile = saved.Parallelism, saved.CPUQuota, saved.MemoryLimit, saved.Nice, saved.PerfProfile
 		}
 		if err := config.SaveUserConfig(cfg); err != nil {
 			m.lastError = "Failed to save: " + err.Error()
@@ -340,7 +361,7 @@ func (m *Model) handleSettingsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cursor--
 		}
 	case "down", "j":
-		if m.cursor < 6 {
+		if m.cursor < 7 {
 			m.cursor++
 		}
 	case "left", "h":
@@ -368,6 +389,8 @@ func (m *Model) handleSettingsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		case 6:
 			m.cyclePerf(-1)
+		case 7:
+			m.settings.SessionOnly = !m.settings.SessionOnly
 		case 5:
 			if m.settings.MemoryLimit > 512*1024*1024 {
 				m.settings.MemoryLimit -= 512 * 1024 * 1024
@@ -400,6 +423,8 @@ func (m *Model) handleSettingsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		case 6:
 			m.cyclePerf(1)
+		case 7:
+			m.settings.SessionOnly = !m.settings.SessionOnly
 		}
 	case " ", "enter":
 		switch m.cursor {
@@ -409,6 +434,8 @@ func (m *Model) handleSettingsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.settings.Notifications = !m.settings.Notifications
 		case 6:
 			m.cyclePerf(1)
+		case 7:
+			m.settings.SessionOnly = !m.settings.SessionOnly
 		}
 	}
 	return m, nil
@@ -913,6 +940,11 @@ func (m Model) viewSettings() string {
 		perfStatus = p.Name + " - " + p.Description
 	}
 
+	boundsStatus := "All ci runs on this machine (saved with s)"
+	if m.settings.SessionOnly {
+		boundsStatus = "This session only (ignores the saved bounds, never saved)"
+	}
+
 	settingsItems := []string{
 		fmt.Sprintf("Parallelism:     %d containers", m.settings.Parallelism),
 		fmt.Sprintf("Fuzz Duration:   %v", m.settings.FuzzDuration),
@@ -921,6 +953,7 @@ func (m Model) viewSettings() string {
 		fmt.Sprintf("CPU Limit:       %s", cpuStatus),
 		fmt.Sprintf("Memory Limit:    %s", memStatus),
 		fmt.Sprintf("Performance:     %s", perfStatus),
+		fmt.Sprintf("Limits apply to: %s", boundsStatus),
 	}
 
 	for i, item := range settingsItems {

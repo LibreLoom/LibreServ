@@ -56,7 +56,7 @@ Not covered: code comments, logs, internal docs. Dashboard greetings (pigeons, s
 
 ## Running tests
 
-Agents run tests only through the `./ci` CLI, always in gentle performance mode (`./ci run -profile <profile> -perf gentle`), so the machine stays usable. Use another `-perf` profile only if the user says so.
+Agents run tests only through the `./ci` CLI (`./ci run -profile <profile>`). Its CPU, memory and parallelism bounds are universal: they live in `.ci.conf` (default: gentle) and cap every `./ci` run on the machine together, so parallel runs queue for job slots instead of piling up. Never pass `-session` (which ignores the universal bounds for one run) unless the user says so.
 
 ## Frontend (all web UIs)
 

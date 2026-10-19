@@ -22,3 +22,24 @@ func TestPerfResolve(t *testing.T) {
 		t.Fatal("unknown id must be nil")
 	}
 }
+
+func TestUserConfigLimits(t *testing.T) {
+	l, bounded := (&UserConfig{Parallelism: 4, PerfProfile: "full"}).Limits()
+	if bounded || l.CPUQuota != 0 || l.Parallelism != 4 {
+		t.Fatalf("full = %+v bounded=%v", l, bounded)
+	}
+	l, bounded = (&UserConfig{Parallelism: 8, PerfProfile: "gentle"}).Limits()
+	if !bounded || l.Parallelism != 2 || l.Nice != 19 || l.CPUQuota == 0 {
+		t.Fatalf("gentle = %+v bounded=%v", l, bounded)
+	}
+	l, bounded = (&UserConfig{Parallelism: 8, CPUQuota: 300000, PerfProfile: "custom"}).Limits()
+	if !bounded || l.Parallelism != 3 {
+		t.Fatalf("custom must keep its numbers and cap jobs to whole cores, got %+v", l)
+	}
+	if _, bounded = (&UserConfig{PerfProfile: "typo"}).Limits(); !bounded {
+		t.Fatal("unknown profile must fall back to the bounded default")
+	}
+	if CapJobs(0, 0) != 1 || CapJobs(4, 150000) != 1 || CapJobs(2, 0) != 2 {
+		t.Fatal("CapJobs")
+	}
+}

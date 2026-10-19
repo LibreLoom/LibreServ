@@ -27,7 +27,8 @@ func main() {
 	fuzzDuration := runCmd.String("fuzz", "5m", "Fuzz duration")
 	failFast := runCmd.Bool("fail-fast", false, "Stop on first failure")
 	outputDir := runCmd.String("output", "", "Output directory for results")
-	perf := runCmd.String("perf", "", "Performance profile (full, balanced, gentle, custom)")
+	session := runCmd.Bool("session", false, "Ignore the universal bounds in .ci.conf; use -perf/-cpus/-memory/-parallel for this run only")
+	perf := runCmd.String("perf", "", "Performance profile for this session (full, balanced, gentle, custom); needs -session")
 	cpus := runCmd.Float64("cpus", 0, "Cap CPU use to this many cores (0 = no cap)")
 	memory := runCmd.String("memory", "", "Cap memory, e.g. 8G or 4096M (empty = no cap)")
 
@@ -41,7 +42,7 @@ func main() {
 			listPerfProfiles()
 		case "run":
 			runCmd.Parse(os.Args[2:])
-			runCLI(*profileName, *testIDs, *parallel, *fuzzDuration, *failFast, *outputDir, *perf, *cpus, *memory, flagSet(runCmd, "parallel"))
+			runCLI(*profileName, *testIDs, *parallel, *fuzzDuration, *failFast, *outputDir, *session, *perf, *cpus, *memory, flagSet(runCmd, "parallel"))
 		case "help", "-h", "--help":
 			printHelp()
 		default:
@@ -77,13 +78,15 @@ Commands:
 Run Flags:
   -profile <name>     Run tests for a profile (quick, sol, luna, full, etc.)
   -tests <id,...>     Run specific test IDs (comma-separated)
-  -parallel <n>       Number of parallel containers (default: 4)
   -fuzz <duration>    Fuzz test duration (default: 5m)
   -fail-fast          Stop on first failure
   -output <dir>       Output directory for results (JSON)
-  -perf <name>        Performance profile: full (default), balanced, gentle, custom
-  -cpus <n>           Cap CPU use to n cores (overrides -perf)
-  -memory <size>      Cap memory, e.g. 8G (overrides -perf)
+  -session            Ignore the universal bounds in .ci.conf; the flags below
+                      then bound this run alone (none = unbounded)
+  -perf <name>        With -session: full, balanced, gentle, custom
+  -cpus <n>           With -session: cap CPU use to n cores
+  -memory <size>      With -session: cap memory, e.g. 8G
+  -parallel <n>       With -session: parallel containers
 
 Examples:
   ci                           # Launch TUI
@@ -92,8 +95,8 @@ Examples:
   ci run -profile sol    # LibreServ release gate (no Luna/Connect)
   ci run -profile luna         # Luna (luna/ci.sh on the host)
   ci run -profile full         # Run full profile
-  ci run -profile quick -perf gentle   # Same tests, easy on the machine
-  ci run -profile luna -cpus 4 -memory 8G
+  ci run -profile quick -session -perf balanced   # This run only, ignoring the universal bounds
+  ci run -profile luna -session -cpus 4 -memory 8G
   ci list                      # List all tests
   ci profiles                  # List all profiles`)
 }
@@ -113,7 +116,7 @@ func listProfiles() {
 	}
 }
 
-func runCLI(profileName, testIDs string, parallel int, fuzzDuration string, failFast bool, outputDir, perf string, cpus float64, memory string, parallelSet bool) {
+func runCLI(profileName, testIDs string, parallel int, fuzzDuration string, failFast bool, outputDir string, session bool, perf string, cpus float64, memory string, parallelSet bool) {
 	var testsToRun []string
 
 	if profileName != "" {
@@ -144,7 +147,7 @@ func runCLI(profileName, testIDs string, parallel int, fuzzDuration string, fail
 		os.Exit(1)
 	}
 
-	limits, err := resolveLimits(perf, cpus, memory, parallel, parallelSet)
+	limits, universal, err := resolveLimits(session, perf, cpus, memory, parallel, parallelSet)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)
@@ -170,7 +173,11 @@ func runCLI(profileName, testIDs string, parallel int, fuzzDuration string, fail
 	fmt.Printf("Running %d tests: %v\n", len(testsToRun), testsToRun)
 	fmt.Printf("Parallel: %d, Fail-fast: %v\n", parallel, failFast)
 	if limits.CPUQuota > 0 || limits.MemoryLimit > 0 || limits.Nice > 0 {
-		fmt.Printf("Limits: %s\n", describeLimits(limits))
+		scope := "this session only"
+		if universal {
+			scope = "shared by all ci runs on this machine"
+		}
+		fmt.Printf("Limits (%s): %s\n", scope, describeLimits(limits))
 	}
 	fmt.Println()
 
@@ -183,7 +190,7 @@ func runCLI(profileName, testIDs string, parallel int, fuzzDuration string, fail
 		executor.Cancel()
 	}()
 
-	go executor.Execute("", testsToRun, parallel, failFast, fuzzDur, limits.CPUQuota, limits.MemoryLimit, limits.Nice)
+	go executor.Execute("", testsToRun, parallel, failFast, fuzzDur, limits.CPUQuota, limits.MemoryLimit, limits.Nice, universal)
 
 	passed := 0
 	failed := 0
@@ -273,7 +280,7 @@ func writeResults(results map[string]*tests.TestResult, outputDir string, durati
 }
 
 func listPerfProfiles() {
-	fmt.Print("Performance Profiles (use with: ci run -perf <name>):\n\n")
+	fmt.Print("Performance Profiles (the bounds in .ci.conf; for one run only: ci run -session -perf <name>):\n\n")
 	for _, p := range config.PerfProfiles {
 		l := p.Resolve(config.PerfLimits{Parallelism: 4})
 		fmt.Printf("  %-10s %s\n", p.ID, p.Description)
@@ -295,14 +302,29 @@ func flagSet(fs *flag.FlagSet, name string) bool {
 	return set
 }
 
-// resolveLimits layers a performance profile and explicit flags. No flags at
-// all means no limits, exactly as before.
-func resolveLimits(perf string, cpus float64, memory string, parallel int, parallelSet bool) (config.PerfLimits, error) {
+// resolveLimits picks the bounds for a run. By default these are the universal
+// bounds in .ci.conf, shared by every ci run on the machine. With session set
+// they are ignored and the flags bound this run alone (none = unbounded).
+// Limit flags without session are refused so they can't quietly bypass the
+// universal bounds.
+func resolveLimits(session bool, perf string, cpus float64, memory string, parallel int, parallelSet bool) (config.PerfLimits, bool, error) {
+	if !session {
+		if perf != "" || cpus > 0 || memory != "" || parallelSet {
+			return config.PerfLimits{}, false, fmt.Errorf("-perf, -cpus, -memory and -parallel only apply with -session; without it the bounds come from %s and cover every ci run on this machine", config.ConfigFileName)
+		}
+		cfg, err := config.LoadUserConfig()
+		if err != nil {
+			return config.PerfLimits{}, false, fmt.Errorf("reading %s: %w", config.ConfigFileName, err)
+		}
+		l, bounded := cfg.Limits()
+		return l, bounded, nil
+	}
+
 	cur := config.PerfLimits{Parallelism: parallel}
 	if perf != "" {
 		p := config.GetPerfProfile(perf)
 		if p == nil {
-			return cur, fmt.Errorf("unknown performance profile %q (see: ci perf)", perf)
+			return cur, false, fmt.Errorf("unknown performance profile %q (see: ci perf)", perf)
 		}
 		cur = p.Resolve(cur)
 		if parallelSet {
@@ -315,11 +337,11 @@ func resolveLimits(perf string, cpus float64, memory string, parallel int, paral
 	if memory != "" {
 		b, err := parseSize(memory)
 		if err != nil {
-			return cur, err
+			return cur, false, err
 		}
 		cur.MemoryLimit = b
 	}
-	return cur, nil
+	return cur, false, nil
 }
 
 func parseSize(s string) (int64, error) {

@@ -67,7 +67,10 @@ type Settings struct {
 	MemoryLimit   int64
 	PerfProfile   string
 	Nice          int
-	ExportFormat  ExportFormat
+	// SessionOnly runs with the limits above for this session alone, ignoring
+	// the universal bounds saved in .ci.conf. It is never saved.
+	SessionOnly  bool
+	ExportFormat ExportFormat
 }
 
 type ExportFormat string
@@ -84,7 +87,12 @@ func InitialModel() Model {
 	profiles := config.ListProfiles()
 	allTests := tests.DefaultRegistry.List()
 
-	userCfg, _ := config.LoadUserConfig()
+	userCfg, err := config.LoadUserConfig()
+	if err != nil || userCfg == nil {
+		userCfg = config.NewUserConfig()
+	}
+	// Show the resolved numbers, so a named profile reads the same on every machine.
+	limits, _ := userCfg.Limits()
 
 	selectedTests := make(map[string]bool)
 	quickProfile := profiles[0]
@@ -105,12 +113,13 @@ func InitialModel() Model {
 		outputBuffer:    make([]runner.OutputLine, 0, 1000),
 		haltingTests:    make(map[string]bool),
 		settings: Settings{
-			Parallelism:   userCfg.Parallelism,
+			Parallelism:   limits.Parallelism,
 			FuzzDuration:  userCfg.FuzzDuration,
 			FailFast:      userCfg.FailFast,
 			Notifications: userCfg.Notifications,
-			CPUQuota:      userCfg.CPUQuota,
-			MemoryLimit:   userCfg.MemoryLimit,
+			CPUQuota:      limits.CPUQuota,
+			MemoryLimit:   limits.MemoryLimit,
+			Nice:          limits.Nice,
 			PerfProfile:   userCfg.PerfProfile,
 			ExportFormat:  ExportAll,
 		},

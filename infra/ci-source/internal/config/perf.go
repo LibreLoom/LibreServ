@@ -33,6 +33,21 @@ type PerfLimits struct {
 
 const PerfFull = "full"
 
+// DefaultPerfProfile applies when .ci.conf doesn't exist, so a fresh checkout
+// is bounded rather than free to take the whole machine.
+const DefaultPerfProfile = "gentle"
+
+// CapJobs limits n parallel jobs to the whole cores in cpuQuota (microseconds
+// per 100ms period; 0 = no CPU cap), and never below one.
+func CapJobs(n int, cpuQuota int64) int {
+	if cpuQuota > 0 {
+		if cores := int(cpuQuota / 100000); n > cores {
+			n = cores
+		}
+	}
+	return max(n, 1)
+}
+
 var PerfCustom = &PerfProfile{ID: "custom", Name: "Custom", Description: "Use the CPU, memory and parallelism settings as set"}
 
 var PerfProfiles = []*PerfProfile{
