@@ -184,6 +184,13 @@ export default function DashboardPage() {
   const showNothingShared = !drives.isLoading && memberHasNothingShared;
   const showDrivesColumn =
     adopted.length > 0 || (!isAdmin && grants.length > 0) || showAlbums || showNothingShared;
+  // "See all shared items" lives on the first drive card that is ready (the only cards that show
+  // it). An unplugged, ejected or failed first drive must not take the link with it; with no
+  // ready card at all, the fallback Card below carries the link instead.
+  const firstReadyIndex = adopted.findIndex(
+    (drive) => drive.state === "as_is" || drive.state === "readonly",
+  );
+  const memberHasGrants = !isAdmin && grants.length > 0;
 
   return (
     <Page
@@ -233,14 +240,14 @@ export default function DashboardPage() {
                         drive={drive}
                         isAdmin={isAdmin}
                         grants={grants.filter((g) => g.drive_id === drive.id)}
-                        showSeeAllShared={!isAdmin && grants.length > 0 && index === 0}
+                        showSeeAllShared={memberHasGrants && index === firstReadyIndex}
                       />
                     ))}
                   </div>
                 )}
 
-                {/* Shared folders with no drive card to hang the link on: never a dead end. */}
-                {!isAdmin && grants.length > 0 && adopted.length === 0 && (
+                {/* Shared folders with no ready drive card to hang the link on: never a dead end. */}
+                {memberHasGrants && firstReadyIndex === -1 && (
                   <Card>
                     <Button size="sm" variant="outline" asChild>
                       <Link to="/shared">See all shared items</Link>

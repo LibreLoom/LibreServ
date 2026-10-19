@@ -112,6 +112,16 @@ function requestedPaths(fetchMock) {
 }
 
 /**
+ * How many times the page asked for one path.
+ *
+ * @param {import("vitest").Mock} fetchMock
+ * @param {string} path
+ */
+function requestCount(fetchMock, path) {
+  return requestedPaths(fetchMock).filter((asked) => asked === path).length;
+}
+
+/**
  * Waits until the page has asked for each path, then lets those answers render. Keeps the
  * negative checks below from passing before the data has arrived.
  *
@@ -160,6 +170,8 @@ describe("DashboardPage", () => {
   beforeEach(() => {
     vi.unstubAllGlobals();
     window.localStorage.clear();
+    // The header tip is decided once per browser session; start each test with a fresh visit.
+    window.sessionStorage.clear();
   });
 
   describe("header and greeting", () => {
@@ -194,7 +206,29 @@ describe("DashboardPage", () => {
       expect(screen.queryByText(/Everything looks good/i)).not.toBeInTheDocument();
     });
 
-    it("shows Members no header pills, even when the system check would warn", async () => {
+    it("shows an Admin the tip, the Software update pill and the warning pill", async () => {
+      const fetchMock = stubWithUpdateAvailable({ systemChecks: WARNING_CHECKS });
+      renderDashboard();
+      expect(
+        await screen.findByRole("link", { name: /Software update 0\.5\.0 available/ }),
+      ).toHaveAttribute("href", "/settings#about");
+      expect(await screen.findByRole("button", { name: /^1 warning\./ })).toBeInTheDocument();
+      await waitForRequests(fetchMock, ADMIN_REQUESTS);
+      expect(document.querySelector("[data-slot=software-update-pill]")).not.toBeNull();
+      expect(document.querySelector("[data-slot=system-health-pill]")).not.toBeNull();
+      expect(document.querySelector("[data-slot=tip-pill]")).not.toBeNull();
+    });
+
+    it("shows an Admin the tip but no Software update pill when Luna is up to date", async () => {
+      const fetchMock = stubDashboardFetch();
+      renderDashboard();
+      await screen.findByText("Family photos");
+      await waitForRequests(fetchMock, [...ADMIN_REQUESTS, "/api/v1/system/updates"]);
+      expect(document.querySelector("[data-slot=tip-pill]")).not.toBeNull();
+      expect(document.querySelector("[data-slot=software-update-pill]")).toBeNull();
+    });
+
+    it("shows Members the tip but no update or warning pill, even when the system check would warn", async () => {
       const fetchMock = stubWithUpdateAvailable({
         username: "jamie",
         role: "user",
@@ -212,6 +246,8 @@ describe("DashboardPage", () => {
       expect(document.querySelector("[data-slot=software-update-pill]")).toBeNull();
       expect(requestedPaths(fetchMock)).not.toContain("/api/v1/system/health/check");
       expect(requestedPaths(fetchMock)).not.toContain("/api/v1/system/updates");
+      // The tip is for everyone, not just Admins.
+      expect(document.querySelector("[data-slot=tip-pill]")).not.toBeNull();
     });
 
     it("titles the drive column Drives above the cards for Admins", async () => {
@@ -236,6 +272,72 @@ describe("DashboardPage", () => {
       expect(screen.queryByRole("heading", { name: "Drives" })).not.toBeInTheDocument();
       expect(screen.queryByRole("heading", { name: "Shared with you" })).not.toBeInTheDocument();
       expect(screen.queryByText("Shared with you")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("layout", () => {
+    /** One recent file, so the Recents column has something to show. */
+    const RECENT_NOTE = [{ kind: "file", driveId: "d1", path: "Documents/note.md", at: Date.now() - 60_000 }];
+
+    /** A backup that stopped copying, so the Needs you zone has a row. */
+    const FAILING_BACKUP = backupRow({ state: "failing", last_error: "The backup drive is full." });
+
+    /** The two-column wrapper that holds Recents and Drives, found from one of their headings. */
+    const columnsAround = (/** @type {HTMLElement} */ heading) =>
+      /** @type {HTMLElement} */ (heading.closest(".grid.items-start"));
+
+    it("puts Needs you first, then Recents, then Drives, which is also the phone order", async () => {
+      stubDashboardFetch({ backups: [FAILING_BACKUP], recents: RECENT_NOTE });
+      renderDashboard();
+      const needsYou = await screen.findByRole("region", { name: "Needs you" });
+      expect(within(needsYou).getByText("backup didn't finish")).toBeInTheDocument();
+      const recents = await screen.findByRole("heading", { name: "Recents" });
+      const drives = await screen.findByRole("heading", { name: "Drives" });
+      expect(needsYou.compareDocumentPosition(recents) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(recents.compareDocumentPosition(drives) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it("keeps Needs you full width above the two columns and the backups line below them", async () => {
+      stubDashboardFetch({ backups: [FAILING_BACKUP], recents: RECENT_NOTE });
+      renderDashboard();
+      const needsYou = await screen.findByRole("region", { name: "Needs you" });
+      const recents = await screen.findByRole("heading", { name: "Recents" });
+      const drives = await screen.findByRole("heading", { name: "Drives" });
+      const backups = await screen.findByRole("region", { name: "Backups" });
+      const columns = columnsAround(recents);
+      expect(columns).toContainElement(drives);
+      expect(columns).not.toContainElement(needsYou);
+      expect(columns).not.toContainElement(backups);
+      expect(needsYou.compareDocumentPosition(columns) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(columns.compareDocumentPosition(backups) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it("sets Recents and Drives side by side on desktop when both are there", async () => {
+      stubDashboardFetch({ recents: RECENT_NOTE });
+      renderDashboard();
+      const recents = await screen.findByRole("heading", { name: "Recents" });
+      const drives = await screen.findByRole("heading", { name: "Drives" });
+      const columns = columnsAround(recents);
+      expect(columns).toContainElement(drives);
+      expect(columns).toHaveClass("grid-cols-1", "md:grid-cols-2");
+    });
+
+    it("keeps one column when only Recents is there", async () => {
+      stubDashboardFetch({ drives: [], recents: RECENT_NOTE });
+      renderDashboard();
+      const recents = await screen.findByRole("heading", { name: "Recents" });
+      expect(screen.queryByRole("heading", { name: "Drives" })).not.toBeInTheDocument();
+      expect(columnsAround(recents)).toHaveClass("grid-cols-1");
+      expect(columnsAround(recents)).not.toHaveClass("md:grid-cols-2");
+    });
+
+    it("keeps one column when only Drives is there", async () => {
+      stubDashboardFetch({ recents: [] });
+      renderDashboard();
+      const drives = await screen.findByRole("heading", { name: "Drives" });
+      expect(screen.queryByRole("heading", { name: "Recents" })).not.toBeInTheDocument();
+      expect(columnsAround(drives)).toHaveClass("grid-cols-1");
+      expect(columnsAround(drives)).not.toHaveClass("md:grid-cols-2");
     });
   });
 
@@ -648,6 +750,22 @@ describe("DashboardPage", () => {
       expect(card.compareDocumentPosition(region) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
 
+    it("shows a Member with their own healthy backup the same quiet line", async () => {
+      stubDashboardFetch({
+        username: "jamie",
+        role: "user",
+        userId: "u2",
+        drives: [PHOTOS_DRIVE],
+        access: [ROOT_GRANT],
+        backups: [backupRow({ created_by: "u2" })],
+      });
+      renderDashboard();
+      const region = await screen.findByRole("region", { name: "Backups" });
+      expect(within(region).getByText("All backed up")).toBeInTheDocument();
+      expect(within(region).getByRole("button", { name: "See all backups" })).toBeInTheDocument();
+      expect(screen.queryByRole("region", { name: "Needs you" })).not.toBeInTheDocument();
+    });
+
     it("shows no backups region when there are no backups", async () => {
       const fetchMock = stubDashboardFetch({ backups: [] });
       renderDashboard();
@@ -655,6 +773,63 @@ describe("DashboardPage", () => {
       await waitForRequests(fetchMock, ADMIN_REQUESTS);
       expect(screen.queryByRole("region", { name: "Backups" })).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "See all backups" })).not.toBeInTheDocument();
+    });
+  });
+
+  describe("requests", () => {
+    it("asks for each Admin dashboard request once, so Needs you and the cards share their data", async () => {
+      const fetchMock = stubDashboardFetch({ backups: [backupRow()] });
+      renderDashboard();
+      await screen.findByText("30 GB free");
+      const paths = [
+        ...ADMIN_REQUESTS,
+        "/api/v1/drives",
+        "/api/v1/network/status",
+        "/api/v1/connect/status",
+        "/api/v1/cloud/phrase",
+        "/api/v1/system/updates",
+        "/api/v1/drives/d1/summary",
+        "/api/v1/drives/d1/health",
+      ];
+      await waitForRequests(fetchMock, paths);
+      // Give a late second request time to show up before counting.
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      });
+      for (const path of paths) {
+        expect({ path, count: requestCount(fetchMock, path) }).toEqual({ path, count: 1 });
+      }
+    });
+
+    it("asks for each request of a Member's dashboard once and leaves out the Admin-only ones", async () => {
+      const fetchMock = stubDashboardFetch({
+        username: "jamie",
+        role: "user",
+        userId: "u2",
+        drives: [PHOTOS_DRIVE],
+        access: [ROOT_GRANT],
+        backups: [backupRow({ created_by: "u2" })],
+      });
+      renderDashboard();
+      await screen.findByRole("link", { name: "Browse files" });
+      const paths = [...MEMBER_REQUESTS, "/api/v1/drives", "/api/v1/cloud/phrase", "/api/v1/drives/d1/summary"];
+      await waitForRequests(fetchMock, paths);
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      });
+      for (const path of paths) {
+        expect({ path, count: requestCount(fetchMock, path) }).toEqual({ path, count: 1 });
+      }
+      for (const path of [
+        "/api/v1/drives/detected",
+        "/api/v1/network/status",
+        "/api/v1/connect/status",
+        "/api/v1/system/health/check",
+        "/api/v1/system/updates",
+        "/api/v1/drives/d1/health",
+      ]) {
+        expect(requestCount(fetchMock, path)).toBe(0);
+      }
     });
   });
 });
