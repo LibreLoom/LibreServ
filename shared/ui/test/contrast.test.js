@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { findContrastProblems, findSurfaceMismatches } from "./contrast.js";
+import {
+  findContrastProblems,
+  findSurfaceMismatches,
+  resetSurfaceWatch,
+  seenSurfaceMismatches,
+} from "./contrast.js";
 
 function mount(html) {
   document.body.innerHTML = html;
@@ -8,6 +13,8 @@ function mount(html) {
 
 afterEach(() => {
   document.body.innerHTML = "";
+  // These fixtures are bad on purpose; the global check must not see them.
+  resetSurfaceWatch();
 });
 
 describe("findContrastProblems", () => {
@@ -129,5 +136,23 @@ describe("findSurfaceMismatches", () => {
   it("does not judge a button on an unknown backdrop", () => {
     const root = mount(`<div class="bg-accent"><button data-variant="outline" data-surface="secondary">Go</button></div>`);
     expect(findSurfaceMismatches(root)).toHaveLength(0);
+  });
+});
+
+describe("watched surface mismatches", () => {
+  it("records a bad button that is removed before the test ends", async () => {
+    // The Drives toggle: the button shows for a moment, then the test clicks it away.
+    resetSurfaceWatch();
+    const panel = document.createElement("div");
+    panel.className = "surface-primary";
+    document.body.appendChild(panel);
+    panel.innerHTML = '<button data-variant="ghost" data-surface="secondary">Show 1 dismissed</button>';
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    panel.remove();
+
+    const seen = seenSurfaceMismatches();
+    resetSurfaceWatch();
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatch(/Show 1 dismissed/);
   });
 });

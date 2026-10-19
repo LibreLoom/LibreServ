@@ -160,9 +160,14 @@ export function findContrastProblems(root = document.body) {
  * @param {Element} [root]
  * @returns {string[]}
  */
+const SURFACE_BUTTON_SELECTOR = "button[data-surface], a[data-surface], [role=button][data-surface]";
+
 export function findSurfaceMismatches(root = document.body) {
   const problems = [];
-  for (const el of root.querySelectorAll("button[data-surface], a[data-surface], [role=button][data-surface]")) {
+  // root itself counts: the DOM watcher below checks each inserted node.
+  const buttons = [...root.querySelectorAll(SURFACE_BUTTON_SELECTOR)];
+  if (root.matches(SURFACE_BUTTON_SELECTOR)) buttons.unshift(root);
+  for (const el of buttons) {
     if (isHidden(el)) continue;
     const behind = el.parentElement ? surfaceOf(el.parentElement) : { token: null, at: null };
     if (!behind.token) continue;
@@ -179,16 +184,51 @@ export function findSurfaceMismatches(root = document.body) {
   return problems;
 }
 
+/** Button mismatches seen while the DOM changed, whether or not they are still there. */
+const seenMismatches = new Set();
+let domWatcher = null;
+
+/**
+ * Start recording button mismatches as they are inserted. The final-DOM scan
+ * alone misses a button a test shows and then hides again (a toggle that is
+ * closed before the test ends), so each inserted node is judged on arrival.
+ */
+export function watchSurfaceMismatches() {
+  if (domWatcher || typeof MutationObserver === "undefined" || typeof document === "undefined") return;
+  domWatcher = new MutationObserver((records) => {
+    for (const record of records) {
+      for (const node of record.addedNodes) {
+        if (node.nodeType !== 1 || !node.isConnected) continue;
+        for (const problem of findSurfaceMismatches(node)) seenMismatches.add(problem);
+      }
+    }
+  });
+  domWatcher.observe(document.body, { childList: true, subtree: true });
+}
+
+/** Mismatches the watcher has recorded since the last reset. */
+export function seenSurfaceMismatches() {
+  return [...seenMismatches];
+}
+
+/** Forget recorded mismatches, including ones still queued by the observer. */
+export function resetSurfaceWatch() {
+  domWatcher?.takeRecords();
+  seenMismatches.clear();
+}
+
 /**
  * Fail any test that leaves invisible text on screen. Call once from a
  * vitest setup file, after @testing-library/react is imported: vitest runs
  * afterEach hooks in reverse order, so this sees the DOM before cleanup.
  */
 export function installContrastCheck() {
+  watchSurfaceMismatches();
   afterEach(() => {
     // Node-environment test files have no DOM to check.
     if (typeof document === "undefined") return;
-    const mismatches = findSurfaceMismatches();
+    const mismatches = [...new Set([...seenMismatches, ...findSurfaceMismatches()])];
+    resetSurfaceWatch();
     if (mismatches.length > 0) {
       throw new Error(
         `Button on the wrong surface: ${mismatches.length} button(s) blend into their backdrop.\n`
