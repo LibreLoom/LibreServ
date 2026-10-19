@@ -5,8 +5,9 @@
 //! plain directory (not a loop device) so Cloud Agent VMs work without root
 //! block-device setup.
 //!
-//! `LUNA_MOCK_DRIVES=only` makes the mocks the only drives: real hardware is
-//! not scanned, so a dev server never shows (or adopts) a real disk.
+//! Debug builds (and `LUNA_MOCK_DRIVES=only`) make the mocks the only drives:
+//! real hardware is not scanned, so a dev server never shows (or adopts) a real
+//! disk. `LUNA_MOCK_DRIVES=1` lists real hardware too; `0` turns mocks off.
 
 use std::path::{Path, PathBuf};
 
@@ -41,14 +42,16 @@ pub enum Mode {
 }
 
 /// Reads `LUNA_MOCK_DRIVES` (`0|1|only`). `debug` is the fallback when it is
-/// unset, so the Makefile dev flow still "just works" in debug builds while a
-/// release build never fabricates drives on a heuristic.
+/// unset: a debug build (the Makefile dev flow) lists only mock drives, so
+/// development never touches real disks, while a release build never fabricates
+/// drives on a heuristic. `LUNA_MOCK_DRIVES=1` adds real hardware back, `0`
+/// turns the mocks off.
 fn mode_from(value: Option<&str>, debug: bool) -> Mode {
     match value {
         Some("0") | Some("false") | Some("no") | Some("off") => Mode::Off,
         Some("only") => Mode::Only,
         Some("1") | Some("true") | Some("yes") | Some("on") => Mode::On,
-        _ if debug => Mode::On,
+        _ if debug => Mode::Only,
         _ => Mode::Off,
     }
 }
@@ -179,7 +182,7 @@ mod tests {
         assert_eq!(mode_from(Some("on"), false), Mode::On);
         assert_eq!(mode_from(Some("0"), true), Mode::Off);
         assert_eq!(mode_from(Some("off"), true), Mode::Off);
-        assert_eq!(mode_from(None, true), Mode::On);
+        assert_eq!(mode_from(None, true), Mode::Only);
         assert_eq!(mode_from(None, false), Mode::Off);
         assert_eq!(mode_from(Some("nonsense"), false), Mode::Off);
     }

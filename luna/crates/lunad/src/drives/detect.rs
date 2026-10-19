@@ -112,10 +112,10 @@ pub fn scan(sys_block: &Path, proc_mounts: &str) -> Vec<DetectedDrive> {
 
 /// Scan sysfs-backed drives and append spawned dev-mock drives when active.
 ///
-/// This is the production scan entry point: real hardware plus, in debug
-/// builds or with `LUNA_MOCK_DRIVES=1`, directory mock drives for UI review.
-/// With `LUNA_MOCK_DRIVES=only` the mock drives are the only drives: real
-/// hardware is not scanned, so nothing real can be listed or adopted.
+/// This is the production scan entry point. Release builds list real hardware
+/// only. Debug builds (or `LUNA_MOCK_DRIVES=only`) list only the directory mock
+/// drives, so nothing real can be listed or adopted; `LUNA_MOCK_DRIVES=1` lists
+/// real hardware plus the mocks.
 pub fn scan_with_dev_mocks(sys_block: &Path, proc_mounts: &str) -> Vec<DetectedDrive> {
     use crate::dev_mock::{Mode, mode, scan_mock_drives};
     match mode() {

@@ -39,7 +39,7 @@ run: build
 dev: build-daemon
 	@echo "==> luna dev — daemon http://localhost:$(PORT) + UI http://localhost:3001"
 	@echo "    Tip: spawn test drives with: make mock-drive ARGS=\"spawn <name> <preset>\""
-	@echo "    Tip: make dev LUNA_MOCK_DRIVES=only lists only mock drives (no real hardware)"
+	@echo "    Tip: dev lists only mock drives. LUNA_MOCK_DRIVES=1 adds real hardware, =0 turns mocks off"
 	@[ -d "$(DATA_DIR)/eurooffice" ] || \
 	  echo "    Tip: office editing needs the EuroOffice pack: make eurooffice"
 	@[ -d "$(DATA_DIR)/drawio" ] || \
