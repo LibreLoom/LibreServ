@@ -54,6 +54,10 @@ Not covered: code comments, logs, internal docs. Dashboard greetings (pigeons, s
 | this box (for Luna) | `Luna` / `this Luna` |
 | Couldn't do that | Name the action that failed |
 
+## Running tests
+
+Agents run tests only through the `./ci` CLI, always in gentle performance mode (`./ci run -profile <profile> -perf gentle`), so the machine stays usable. Use another `-perf` profile only if the user says so.
+
 ## Frontend (all web UIs)
 
 - `.jsx`, not `.tsx` (`npm run typecheck` still checks JSDoc). Vitest + Testing Library. Imports: React → third-party → local, with `.jsx` extensions.
