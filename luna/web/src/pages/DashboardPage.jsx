@@ -1,244 +1,38 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronRight, HardDrive, History, PlugZap, TriangleAlert } from "lucide-react";
+import { HardDrive } from "lucide-react";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
-import DriveStatusPill from "../components/common/DriveStatusPill.jsx";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
-import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
-import { TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
-import { ROOT_TERM_HINT } from "../lib/rootTerm.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { dashboard as greetingMessages } from "../lib/greetings.jsx";
 import SystemHealthPill from "../components/common/SystemHealthPill.jsx";
 import SoftwareUpdatePill from "../components/common/SoftwareUpdatePill.jsx";
 import TipPill from "../components/common/TipPill.jsx";
-import { ApiError, apiErrorMessage, getDrives, getHealth, getJson, getRecents, postJson } from "../lib/api.js";
-import { folderHref as driveFolderHref } from "../lib/paths.js";
-import { CAP, KIND_ALBUM, sharedItemAction, sharedItemHref } from "../lib/access.js";
-import { capsOnPath, memberAccessRoots } from "../lib/shareTree.js";
-import {
-  formatRecentAgo,
-  readRecentItems,
-  recentItemHref,
-  recentItemLocationLine,
-  recentItemName,
-} from "../lib/recentItems.js";
-import useConnectActive from "../hooks/useConnectActive.js";
+import { apiErrorMessage, getDrives, getJson, getRecents, postJson } from "../lib/api.js";
+import { KIND_ALBUM } from "../lib/access.js";
+import { memberAccessRoots } from "../lib/shareTree.js";
+import { PHRASE_QUERY_KEY } from "../lib/cloudPhrase.js";
+import { readRecentItems } from "../lib/recentItems.js";
 import usePageTitle from "../hooks/usePageTitle.js";
+import useNeedsYou from "../hooks/useNeedsYou.js";
+import useBackupRows from "../hooks/useBackupRows.js";
 import InspectModal from "../components/files/InspectModal.jsx";
-import BackupsCard from "../components/dashboard/BackupsCard.jsx";
+import ProtectSheet from "../components/files/ProtectSheet.jsx";
+import RecoveryPhraseCheck from "../components/cloud/RecoveryPhraseCheck.jsx";
+import NeedsYou from "../components/dashboard/NeedsYou.jsx";
+import RecentsCard from "../components/dashboard/RecentsCard.jsx";
+import DriveHomeCard from "../components/dashboard/DriveHomeCard.jsx";
+import SharedAlbumsCard from "../components/dashboard/SharedAlbumsCard.jsx";
+import BackupsLine from "../components/dashboard/BackupsLine.jsx";
 import { releaseInspectedDrive } from "../lib/drives.js";
 import { isMockUnknownDrive, mockInspectResult, withDevMockDetected } from "../lib/devMockDrives.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
-
-/** Decimal sizes, matching DrivesPage. */
-function formatBytes(bytes) {
-  if (bytes == null || Number.isNaN(Number(bytes))) return "";
-  const n = Number(bytes);
-  if (n < 1000) return `${Math.round(n)} B`;
-  const kb = n / 1000;
-  if (kb < 1000) return `${kb < 10 ? kb.toFixed(1) : Math.round(kb)} KB`;
-  const mb = kb / 1000;
-  if (mb < 1000) return `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB`;
-  const gb = mb / 1000;
-  if (gb < 1000) return `${gb < 10 ? gb.toFixed(1) : Math.round(gb)} GB`;
-  const tb = gb / 1000;
-  return `${tb < 10 ? tb.toFixed(1) : Math.round(tb)} TB`;
-}
-
-function folderHref(driveId, folderPath) {
-  return driveFolderHref(driveId, folderPath);
-}
-
-function shortcutLabel(path) {
-  const parts = String(path || "")
-    .split("/")
-    .filter(Boolean);
-  return parts[parts.length - 1] || path;
-}
-
-function countLine(folders, files) {
-  if (folders == null && files == null) return null;
-  const folderN = Number(folders) || 0;
-  const fileN = Number(files) || 0;
-  const folderBit = `${folderN} folder${folderN === 1 ? "" : "s"}`;
-  const fileBit = `${fileN} file${fileN === 1 ? "" : "s"}`;
-  return (
-    <>
-      {folderBit} · {fileBit} at the{" "}
-      <TermHint content={ROOT_TERM_HINT}>root</TermHint>
-    </>
-  );
-}
-
-
-/**
- * Home drive card — storage, root-level counts, and folder shortcuts from
- * GET /api/v1/drives/{id}/summary. Never invents numbers when the drive is
- * unplugged or the summary is still loading.
- *
- * @param {{ drive: { id: string, label?: string, state: string }, isAdmin?: boolean, grants?: any[] }} props
- */
-function DriveHomeCard({ drive, isAdmin = false, grants = [] }) {
-  const ready = drive.state === "as_is" || drive.state === "readonly";
-  const summary = useQuery({
-    queryKey: ["drive-summary", drive.id],
-    queryFn: () => getJson(`/api/v1/drives/${drive.id}/summary`),
-    enabled: ready,
-    staleTime: 30_000,
-    refetchInterval: ready ? 60_000 : false,
-  });
-
-  const data = summary.data;
-  const freeLabel = formatBytes(data?.free_bytes);
-  const totalLabel = formatBytes(data?.total_bytes);
-  const usedLabel = formatBytes(data?.used_bytes);
-  const hasSpace =
-    data?.mounted &&
-    data?.total_bytes != null &&
-    Number(data.total_bytes) > 0 &&
-    freeLabel &&
-    totalLabel;
-  const usedPct = hasSpace
-    ? Math.min(100, Math.round((Number(data.used_bytes) / Number(data.total_bytes)) * 100))
-    : 0;
-  const counts = countLine(data?.folders, data?.files);
-  const shortcuts = Array.isArray(data?.shortcuts) ? data.shortcuts : [];
-
-  // A member without view on the drive root lands on a 403 if the card
-  // links there — point their open button at the shallowest grant instead
-  // (whole-drive grants keep `/drives/{id}`). Admins always browse the root.
-  const canBrowseRoot =
-    isAdmin || (capsOnPath(grants, drive.id, "") & CAP.VIEW) !== 0;
-  const entryGrant = grants.reduce((best, grant) => {
-    const depth = (p) => String(p || "").split("/").filter(Boolean).length;
-    return !best || depth(grant.path) < depth(best.path) ? grant : best;
-  }, null);
-  const openHref =
-    !isAdmin && !canBrowseRoot && entryGrant
-      ? sharedItemHref(entryGrant)
-      : `/drives/${drive.id}`;
-  const openLabel =
-    !isAdmin && !canBrowseRoot && entryGrant
-      ? sharedItemAction(entryGrant)
-      : "Browse files";
-
-  let body;
-  if (!ready) {
-    body = (
-      <div className="space-y-3">
-        <p className="text-primary text-sm">
-          {drive.state === "missing"
-            ? "Unplugged. Plug it back in when you want its files and space here."
-            : drive.state === "ejected"
-              ? "Safely removed. Plug it in again when you need it."
-              : isAdmin
-                ? "Luna ran into a problem with this drive. Open Drives for details."
-                : "Luna ran into a problem with this drive. Ask an Admin to check it."}
-        </p>
-        {drive.state === "failed" && isAdmin ? (
-          <Button size="sm" variant="outline" asChild>
-            <Link to="/drives">Open Drives</Link>
-          </Button>
-        ) : null}
-      </div>
-    );
-  } else if (summary.isError) {
-    body = (
-      <div className="space-y-3">
-        <p className="text-primary text-sm">Open this drive to see your files.</p>
-        {!isAdmin && entryGrant ? (
-          <div>
-            <Button size="sm" variant="primary" asChild>
-              <Link to={openHref}>{openLabel}</Link>
-            </Button>
-          </div>
-        ) : null}
-      </div>
-    );
-  } else {
-    body = (
-      <div className="space-y-4">
-        {hasSpace ? (
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span
-                className="inline-block h-2 w-2 rounded-full surface-primary shrink-0"
-                aria-hidden="true"
-              />
-              <span className="text-xs font-mono">
-                Storage
-              </span>
-            </div>
-            <div className="text-2xl font-mono font-normal leading-tight text-primary">
-              {freeLabel} free
-            </div>
-            <p className="text-primary text-sm mt-1">
-              {usedLabel ? `${usedLabel} used · ` : ""}
-              {totalLabel} total
-            </p>
-            <div
-              className="mt-3 h-2 rounded-pill surface-primary p-0.5 overflow-hidden"
-              role="progressbar"
-              aria-valuenow={usedPct}
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-label={`${usedPct}% used`}
-            >
-              <div
-                className="h-full rounded-pill surface-secondary motion-safe:transition-[width] motion-safe:duration-500"
-                style={{ width: `${usedPct}%` }}
-              />
-            </div>
-          </div>
-        ) : summary.isLoading ? (
-          <p className="text-primary text-sm">Checking space…</p>
-        ) : (
-          <p className="text-primary text-sm">Open this drive to see your files.</p>
-        )}
-
-        {counts ? <p className="text-primary text-sm">{counts}</p> : null}
-
-        {shortcuts.length > 0 ? (
-          <div>
-            <div className="text-xs font-mono mb-2">
-              Folders
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {shortcuts.map((path) => (
-                <Button key={path} size="sm" variant="outline" asChild>
-                  <Link to={folderHref(drive.id, path)}>{shortcutLabel(path)}</Link>
-                </Button>
-              ))}
-            </div>
-          </div>
-        ) : null}
-
-        <div>
-          <Button size="sm" variant="primary" asChild>
-            <Link to={openHref}>{openLabel}</Link>
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <Card
-      icon={HardDrive}
-      title={drive.label || "Drive"}
-      headerActions={<DriveStatusPill drive={drive} />}
-    >
-      {body}
-    </Card>
-  );
-}
 
 function getGreeting() {
   const today = new Date();
@@ -261,369 +55,6 @@ function getGreeting() {
   return greetingMessages[hoursSinceEpoch % greetingMessages.length];
 }
 
-function formatUptime(seconds) {
-  const days = Math.floor(seconds / 86400);
-  const hours = Math.floor((seconds % 86400) / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  const secs = seconds % 60;
-
-  const parts = [];
-  if (days > 0) parts.push(`${days} day${days !== 1 ? "s" : ""}`);
-  if (hours > 0) parts.push(`${hours} hour${hours !== 1 ? "s" : ""}`);
-  if (minutes > 0 && days === 0) parts.push(`${minutes} min${minutes !== 1 ? "s" : ""}`);
-  if (days === 0 && hours === 0 && secs > 0) parts.push(`${secs} sec${secs !== 1 ? "s" : ""}`);
-
-  return parts.join(" ") || "0 secs";
-}
-
-async function getJsonSkipForbidden(path) {
-  try {
-    return await getJson(path);
-  } catch (err) {
-    if (err instanceof ApiError && (err.status === 403 || err.status === 401)) {
-      return null;
-    }
-    throw err;
-  }
-}
-
-// Owns the once-a-second tick so only this card re-renders, not the dashboard.
-function UptimeCard({ serverSeconds }) {
-  const dataRef = useRef({ serverUptime: 0, fetchTime: 0 });
-  const read = useCallback(() => {
-    const { serverUptime, fetchTime } = dataRef.current;
-    if (fetchTime === 0) return "…";
-    return formatUptime(Math.floor(serverUptime + (Date.now() - fetchTime) / 1000));
-  }, []);
-  const [value, setValue] = useState(read);
-
-  useEffect(() => {
-    if (serverSeconds == null) return;
-    dataRef.current = { serverUptime: Number(serverSeconds) || 0, fetchTime: Date.now() };
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- show the fresh reading without waiting for the next tick
-    setValue(read());
-  }, [serverSeconds, read]);
-
-  useEffect(() => {
-    const interval = setInterval(() => setValue(read()), 1000);
-    return () => clearInterval(interval);
-  }, [read]);
-
-  return (
-    <Card data-slot="uptime-card">
-      <div className="flex items-center gap-2 mb-1">
-        <span
-          className="inline-block h-2 w-2 rounded-full surface-primary shrink-0"
-          aria-hidden="true"
-        />
-        <span className="text-xs font-mono">
-          Uptime
-        </span>
-      </div>
-      <div className="text-3xl font-mono font-normal leading-tight text-primary">{value}</div>
-    </Card>
-  );
-}
-
-function connectionHeadline(net) {
-  if (!net) return "Checking this network…";
-  if (!net.ethernet_connected) {
-    return "Not on a network yet";
-  }
-  if (net.has_default_route === false) {
-    return "No internet route";
-  }
-  return "On this network";
-}
-
-function connectionDetail(net) {
-  if (!net) return "Luna is checking the network connection.";
-  if (net.ethernet_connected) return "Plugged in with a cable.";
-  return "Plug Luna into your router or modem with the included RJ45 (ethernet) cable.";
-}
-
-function connectionDotClass(net) {
-  if (!net) return "bg-primary/30";
-  if (net.ethernet_connected) return "surface-primary";
-  return "bg-warning";
-}
-
-/** Extra room before collapsing a stacked remote-access card back to one pill. */
-const REMOTE_ACCESS_UNSPLIT_SLACK = 24;
-
-/**
- * Remote access settings link — single-line pill when status + hostname fit;
- * multilined card (label, then domain) when they do not (typical on mobile).
- *
- * @param {{ remoteOn: boolean, remoteDomain?: string }} props
- */
-function RemoteAccessLink({ remoteOn, remoteDomain }) {
-  const label = remoteOn ? "Remote access on" : "Remote access off";
-  const showDomain = Boolean(remoteOn && remoteDomain);
-
-  const containerRef = useRef(/** @type {HTMLDivElement | null} */ (null));
-  const probeRef = useRef(/** @type {HTMLDivElement | null} */ (null));
-  const [measuredStacked, setMeasuredStacked] = useState(false);
-  const stacked = showDomain && measuredStacked;
-
-  const remeasure = useCallback(() => {
-    const container = containerRef.current;
-    const probe = probeRef.current;
-    if (!container || !probe || !showDomain) {
-      return;
-    }
-
-    const available = container.clientWidth;
-    if (available <= 0) return;
-
-    // Natural single-line width of label + hostname + chevron (+ button pad).
-    const needed = probe.scrollWidth;
-    const overflows = needed > available;
-
-    // Secondary signal: live control already taller than a one-line button.
-    const live = container.querySelector("[data-slot=button]");
-    let wrapped = false;
-    if (live instanceof HTMLElement && live.offsetHeight > 0) {
-      const style = window.getComputedStyle(live);
-      const lineHeight = parseFloat(style.lineHeight) || 0;
-      const padY =
-        (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0);
-      if (lineHeight > 0 && live.offsetHeight > lineHeight + padY + 8) {
-        wrapped = true;
-      }
-    }
-
-    setMeasuredStacked((wasStacked) => {
-      if (wasStacked) {
-        // Only reunite when there is clear spare room and content is one line.
-        return needed + REMOTE_ACCESS_UNSPLIT_SLACK > available || wrapped;
-      }
-      return overflows || wrapped;
-    });
-  }, [showDomain]);
-
-  useEffect(() => {
-    if (!showDomain) {
-      return;
-    }
-
-    const container = containerRef.current;
-    const probe = probeRef.current;
-    if (!container) return;
-
-    const timeoutId = window.setTimeout(remeasure, 50);
-    /** @type {ResizeObserver | null} */
-    let observer = null;
-    if (typeof ResizeObserver !== "undefined") {
-      observer = new ResizeObserver(remeasure);
-      observer.observe(container);
-      if (probe) observer.observe(probe);
-    }
-    window.addEventListener("resize", remeasure);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-      observer?.disconnect();
-      window.removeEventListener("resize", remeasure);
-    };
-  }, [showDomain, stacked, remeasure, label, remoteDomain]);
-
-  return (
-    <div
-      ref={containerRef}
-      // Do NOT use overflow-x-hidden here: CSS couples axes, so a hidden X
-      // makes Y compute to auto and clips Button's hover:ring at top/bottom
-      // (only corner arcs remain). Probe is already self-clipped in a 0×0 box.
-      className="relative mt-4 w-full"
-      data-slot="remote-access-link"
-      data-stacked={stacked ? "true" : "false"}
-    >
-      {showDomain ? (
-        <div
-          className="pointer-events-none absolute left-0 top-0 z-[-1] h-0 w-0 overflow-hidden opacity-0"
-          aria-hidden="true"
-          data-slot="remote-access-probe"
-        >
-          <div
-            ref={probeRef}
-            className="flex w-max items-center gap-2 whitespace-nowrap px-4 text-sm"
-          >
-            <span>{label}</span>
-            <InlinePill>{remoteDomain}</InlinePill>
-            <ChevronRight size={16} />
-          </div>
-        </div>
-      ) : null}
-      <Button
-        size="md"
-        variant="primary"
-        asChild
-        fullWidth
-        className={cn(
-          // Button variants always include rounded-pill; cn()/twMerge must
-          // replace it with rounded-large-element when stacked (see utils.js).
-          // ring-inset keeps the hover ring inside the control so ConnectionCard's
-          // overflow-hidden height clip cannot cut it either.
-          stacked
-            ? "h-auto items-stretch justify-start rounded-large-element py-3 text-left hover:ring-inset focus-visible:ring-inset"
-            : "justify-between rounded-pill hover:ring-inset focus-visible:ring-inset",
-        )}
-      >
-        <Link to="/settings#external_services" aria-label={label}>
-          {stacked && showDomain ? (
-            <span className="flex w-full min-w-0 flex-col gap-1">
-              <span className="flex items-center justify-between gap-2">
-                <span>{label}</span>
-                <ChevronRight size={16} aria-hidden="true" className="shrink-0" />
-              </span>
-              <InlinePill className="break-words [overflow-wrap:anywhere]">
-                {remoteDomain}
-              </InlinePill>
-            </span>
-          ) : (
-            <>
-              <span className="shrink-0">{label}</span>
-              <span className="flex min-w-0 items-center gap-2">
-                {showDomain ? (
-                  <InlinePill className="truncate">{remoteDomain}</InlinePill>
-                ) : null}
-                <ChevronRight size={16} aria-hidden="true" className="shrink-0" />
-              </span>
-            </>
-          )}
-        </Link>
-      </Button>
-    </div>
-  );
-}
-
-/**
- * ConnectionCard — same metric language as UptimeCard: quiet eyebrow, live
- * dot, large mono status. Remote access is one full-width control (status +
- * hostname): a pill when it fits, a multilined card when it does not.
- *
- * @param {{
- *   net: any,
- *   isAdmin: boolean,
- *   remoteOn: boolean,
- *   remoteDomain?: string,
- *   connectActive?: boolean,
- *   deviceTokenError?: string | null,
- * }} props
- */
-function ConnectionCard({
-  net,
-  isAdmin,
-  remoteOn,
-  remoteDomain,
-  connectActive,
-  deviceTokenError,
-}) {
-  return (
-    <Card data-slot="connection-card">
-      <div className="flex items-center gap-2 mb-1">
-        <span
-          className={cn("inline-block h-2 w-2 rounded-full shrink-0", connectionDotClass(net))}
-          aria-hidden="true"
-        />
-        <span className="text-xs font-mono">
-          Connection
-        </span>
-      </div>
-      <div className="text-3xl font-mono font-normal leading-tight text-primary">
-        {connectionHeadline(net)}
-      </div>
-      <p className="text-primary text-sm mt-2">{connectionDetail(net)}</p>
-      {isAdmin && deviceTokenError ? (
-        <div className="mt-4 space-y-3">
-          <p className="flex items-start gap-2 text-sm text-primary leading-relaxed" role="alert">
-            <TriangleAlert size={16} className="mt-0.5 shrink-0 text-error" aria-hidden="true" />
-            <span>{deviceTokenError}</span>
-          </p>
-          <Button size="md" variant="primary" asChild fullWidth className="justify-between">
-            <Link to="/settings#about" aria-label="Change the device token">
-              <span>Change the device token</span>
-              <ChevronRight size={16} aria-hidden="true" />
-            </Link>
-          </Button>
-        </div>
-      ) : isAdmin && connectActive ? (
-        <RemoteAccessLink remoteOn={remoteOn} remoteDomain={remoteDomain} />
-      ) : null}
-    </Card>
-  );
-}
-
-const RECENT_KIND_LABELS = {
-  file: "File",
-  folder: "Folder",
-  drive: "Drive",
-};
-
-/**
- * Recent files/folders/drives — same layered rows as elsewhere: kind
- * eyebrow, mono name, location line, Open button. Items come from the
- * localStorage MRU that RecentItemsTracker feeds on every drive browse.
- *
- * @param {{
- *   items: Array<import("../lib/recentItems.js").RecentItem>,
- *   drives: Array<{ id: string, label?: string }>,
- * }} props
- */
-function RecentItemsCard({ items, drives }) {
-  return (
-    <Card icon={History} title="Recents">
-      <ul className="space-y-3">
-        {items.map((item) => {
-          const liveLabel = drives.find((d) => d.id === item.driveId)?.label;
-          const name = recentItemName(item, liveLabel);
-          const locationLine = recentItemLocationLine(item, liveLabel);
-          return (
-            <li
-              key={`${item.kind}:${item.driveId}:${item.path}`}
-              className="rounded-large-element surface-primary p-4 space-y-3"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span
-                      className="inline-block h-2 w-2 rounded-full surface-secondary shrink-0"
-                      aria-hidden="true"
-                    />
-                    <span className="text-xs font-mono">
-                      {RECENT_KIND_LABELS[item.kind]}
-                    </span>
-                  </div>
-                  <div className="text-xl font-mono font-normal leading-tight text-secondary truncate">
-                    {name}
-                  </div>
-                  {locationLine ? (
-                    <p className="text-secondary text-sm mt-1 break-words">
-                      {locationLine}
-                    </p>
-                  ) : null}
-                </div>
-                <time
-                  className="text-xs font-mono shrink-0"
-                  dateTime={new Date(item.at).toISOString()}
-                >
-                  {formatRecentAgo(item.at)}
-                </time>
-              </div>
-
-              <div>
-                <Button size="sm" variant="outline" surface="primary" asChild>
-                  <Link to={recentItemHref(item)}>Open</Link>
-                </Button>
-              </div>
-            </li>
-          );
-        })}
-      </ul>
-    </Card>
-  );
-}
-
 export default function DashboardPage() {
   const { addToast } = useToast();
   const queryClient = useQueryClient();
@@ -631,27 +62,14 @@ export default function DashboardPage() {
   usePageTitle("Dashboard");
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
-  const connectActive = useConnectActive();
 
-  const health = useQuery({
-    queryKey: ["health"],
-    queryFn: getHealth,
-    refetchInterval: 30_000,
-  });
+  const { items } = useNeedsYou();
+  const { rows, phrase } = useBackupRows();
   const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives });
   const detected = useQuery({
     queryKey: ["drives-detected"],
     queryFn: () => getJson("/api/v1/drives/detected"),
     refetchInterval: 5000,
-    enabled: isAdmin,
-  });
-  const network = useQuery({
-    queryKey: ["network-status"],
-    queryFn: () => getJson("/api/v1/network/status"),
-  });
-  const connect = useQuery({
-    queryKey: ["connect-status"],
-    queryFn: () => getJsonSkipForbidden("/api/v1/connect/status"),
     enabled: isAdmin,
   });
   const access = useQuery({
@@ -660,9 +78,12 @@ export default function DashboardPage() {
     enabled: !isAdmin,
   });
 
-  // "Add drive" modal state — shown when user clicks the dashboard banner button.
+  // Drive picker: opened by the "Add drive" button on the New drive plugged in row.
   const [drivePickerOpen, setDrivePickerOpen] = useState(false);
   const [inspectFor, setInspectFor] = useState(null);
+  // Backup row that opened its protect sheet, and whether the recovery phrase check is open.
+  const [sheet, setSheet] = useState(null);
+  const [checkingPhrase, setCheckingPhrase] = useState(false);
 
   const inspect = useMutation({
     mutationFn: (/** @type {any} */ drive) => {
@@ -690,6 +111,34 @@ export default function DashboardPage() {
     ? apiErrorMessage(adopt.error, "Luna couldn't add this drive. Try again.")
     : null;
 
+  /**
+   * Runs the button on a Needs you row that the page (not a link) handles.
+   * @param {import("../components/dashboard/NeedsYou.jsx").NeedsYouItem} item
+   */
+  function handleAction(item) {
+    switch (item.action?.intent) {
+      case "open-drive-picker":
+        inspect.reset();
+        adopt.reset();
+        setInspectFor(null);
+        setDrivePickerOpen(true);
+        break;
+      case "open-backup":
+        setSheet(item.action.payload);
+        break;
+      case "check-phrase":
+        setCheckingPhrase(true);
+        break;
+      default:
+        break;
+    }
+  }
+
+  function closeCheck() {
+    setCheckingPhrase(false);
+    queryClient.invalidateQueries({ queryKey: PHRASE_QUERY_KEY });
+  }
+
   const greetingBase = greeting.endsWith(", ") ? greeting.slice(0, -2) : greeting;
   const showUsername = user?.username;
   const greetingTitle = (
@@ -710,8 +159,6 @@ export default function DashboardPage() {
   const adopted = Array.isArray(drives.data) ? drives.data : [];
   // Dev mock injects a review fixture when lunad reports nothing new.
   const pluggedIn = withDevMockDetected(detected.data);
-  // Unplugged is normal — only real failures need the "Needs a look" card.
-  const attentionDrives = adopted.filter((drive) => drive.state === "failed");
   // Server-backed recents list: validates existence, follows renames, and omits dead links.
   const recentsQuery = useQuery({
     queryKey: ["recents", user?.username],
@@ -729,13 +176,14 @@ export default function DashboardPage() {
     !memberSharesLoading &&
     grants.length === 0 &&
     albumsShared.length === 0;
-  const remoteOn = Boolean(connect.data?.enabled && connect.data?.tunnel_active);
-  const remoteDomain = connect.data?.domain;
-  const deviceTokenError =
-    typeof connect.data?.device_token_error === "string" &&
-    connect.data.device_token_error.trim()
-      ? connect.data.device_token_error
-      : null;
+
+  // What the right-hand column holds. Its heading is always there when the column is: an Admin
+  // with no drives gets no column at all (the Needs you "No drives yet" row covers it).
+  const hasRecents = recentItems.length > 0;
+  const showAlbums = !isAdmin && !memberSharesLoading && albumsShared.length > 0;
+  const showNothingShared = !drives.isLoading && memberHasNothingShared;
+  const showDrivesColumn =
+    adopted.length > 0 || (!isAdmin && grants.length > 0) || showAlbums || showNothingShared;
 
   return (
     <Page
@@ -753,146 +201,73 @@ export default function DashboardPage() {
         </div>
       }
     >
-      <section
-        className="flex flex-col md:flex-row gap-8 px-8 w-full"
-        aria-label="Home overview"
-      >
-        <div className="grid grid-cols-1 gap-6 flex-1 content-start order-1 md:order-0">
-          <UptimeCard serverSeconds={health.data?.uptime_seconds} />
-          <ConnectionCard
-            net={network.data}
-            isAdmin={isAdmin}
-            remoteOn={remoteOn}
-            remoteDomain={remoteDomain}
-            connectActive={connectActive}
-            deviceTokenError={deviceTokenError}
-          />
-          <BackupsCard />
-          {recentItems.length > 0 && (
-            <RecentItemsCard items={recentItems} drives={adopted} />
-          )}
-        </div>
+      <div className="flex flex-col gap-8">
+        {items.length > 0 && (
+          <div className="px-8">
+            <NeedsYou items={items} onAction={handleAction} />
+          </div>
+        )}
 
-        <div className="flex-1 grid grid-cols-1 gap-6 content-start order-2 md:order-1">
-          {adopted.map((drive) => (
-            <DriveHomeCard
-              key={drive.id}
-              drive={drive}
-              isAdmin={isAdmin}
-              grants={grants.filter((g) => g.drive_id === drive.id)}
-            />
-          ))}
-
-          {isAdmin && pluggedIn.length > 0 && (
-            <Card icon={PlugZap} title="New drive plugged in">
-              <p className="text-primary text-sm">
-                Luna noticed a USB drive. Nothing on the drive changes until you confirm.
-              </p>
-              <div className="mt-3">
-                <Button
-                  size="sm"
-                  variant="primary"
-                  onClick={() => {
-                    inspect.reset();
-                    adopt.reset();
-                    setInspectFor(null);
-                    setDrivePickerOpen(true);
-                  }}
-                >
-                  Add drive
-                </Button>
+        {(hasRecents || showDrivesColumn) && (
+          <div
+            className={cn(
+              "grid grid-cols-1 gap-8 px-8 items-start",
+              hasRecents && showDrivesColumn && "md:grid-cols-2",
+            )}
+          >
+            {hasRecents && (
+              <div className="min-w-0">
+                <RecentsCard items={recentItems} drives={adopted} />
               </div>
-            </Card>
-          )}
+            )}
 
-          {isAdmin && attentionDrives.length > 0 && (
-            <Card icon={TriangleAlert} title="Needs a look">
-              <ul className="space-y-2">
-                {attentionDrives.map((drive) => (
-                  <li key={drive.id} className="text-primary text-sm">
-                    {drive.label} ran into a problem.
-                  </li>
-                ))}
-              </ul>
-              <div className="mt-3">
-                <Button size="sm" variant="outline" asChild>
-                  <Link to="/drives">Open Drives</Link>
-                </Button>
-              </div>
-            </Card>
-          )}
+            {showDrivesColumn && (
+              <div className="min-w-0 space-y-4">
+                <h2 className="font-mono font-normal text-lg">{isAdmin ? "Drives" : "Your folders"}</h2>
 
-          {!drives.isLoading && adopted.length === 0 && isAdmin && (
-            <EmptyState
-              icon={HardDrive}
-              title="No drives yet"
-              description="Plug a USB drive into Luna to get started."
-              action={
-                <Button size="sm" variant="primary" asChild>
-                  <Link to="/drives">Go to Drives</Link>
-                </Button>
-              }
-            />
-          )}
+                {adopted.length > 0 && (
+                  <div className="grid grid-cols-1 gap-6">
+                    {adopted.map((drive, index) => (
+                      <DriveHomeCard
+                        key={drive.id}
+                        drive={drive}
+                        isAdmin={isAdmin}
+                        grants={grants.filter((g) => g.drive_id === drive.id)}
+                        showSeeAllShared={!isAdmin && grants.length > 0 && index === 0}
+                      />
+                    ))}
+                  </div>
+                )}
 
-          {!drives.isLoading && memberHasNothingShared && (
-            <EmptyState
-              icon={HardDrive}
-              title="Nothing shared with you yet"
-              description="Ask an Admin to share a folder, drive, or album with you."
-            />
-          )}
-
-          {!isAdmin && grants.length > 0 && (
-            <Card title="Shared with you">
-              <ul className="space-y-3">
-                {grants.map((grant) => (
-                  <li key={grant.id} className="flex items-center justify-between gap-3">
-                    <span className="min-w-0">
-                      <span className="block text-primary text-sm truncate">
-                        {grant.name || grant.drive_label}
-                      </span>
-                      <span className="block text-primary text-xs truncate">
-                        {grant.path ? `${grant.drive_label} · ${grant.path}` : "Whole drive"}
-                      </span>
-                    </span>
-                    <Button size="sm" variant="primary" asChild>
-                      <Link to={sharedItemHref(grant)}>{sharedItemAction(grant)}</Link>
+                {/* Shared folders with no drive card to hang the link on: never a dead end. */}
+                {!isAdmin && grants.length > 0 && adopted.length === 0 && (
+                  <Card>
+                    <Button size="sm" variant="outline" asChild>
+                      <Link to="/shared">See all shared items</Link>
                     </Button>
-                  </li>
-                ))}
-              </ul>
-              <div className="mt-3">
-                <Button size="sm" variant="outline" asChild>
-                  <Link to="/shared">See all shared items</Link>
-                </Button>
-              </div>
-            </Card>
-          )}
+                  </Card>
+                )}
 
-          {!isAdmin && !memberSharesLoading && albumsShared.length > 0 && (
-            <Card title="Albums shared with you">
-              <ul className="space-y-3">
-                {albumsShared.slice(0, 8).map((album) => (
-                  <li key={album.id} className="flex items-center justify-between gap-3">
-                    <span className="text-primary text-sm">{album.name}</span>
-                    <Button size="sm" variant="primary" asChild>
-                      <Link to={sharedItemHref(album)}>{sharedItemAction(album)}</Link>
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-              {albumsShared.length > 8 ? (
-                <div className="mt-3">
-                  <Button size="sm" variant="outline" asChild>
-                    <Link to="/gallery#albums">See all albums</Link>
-                  </Button>
-                </div>
-              ) : null}
-            </Card>
-          )}
-        </div>
-      </section>
+                {showNothingShared && (
+                  <EmptyState
+                    icon={HardDrive}
+                    title="Nothing shared with you yet"
+                    description="Ask an Admin to share a folder, drive, or album with you."
+                  />
+                )}
+
+                {showAlbums && <SharedAlbumsCard albums={albumsShared} />}
+              </div>
+            )}
+          </div>
+        )}
+
+        {rows.length > 0 && (
+          <div className="px-8">
+            <BackupsLine rows={rows} />
+          </div>
+        )}
+      </div>
 
       {/* Drive picker — lists unrecognized drives so the user can choose which to set up.
           Unmount when inspect opens so we don't stack two overlays during ModalCard exit. */}
@@ -982,6 +357,17 @@ export default function DashboardPage() {
         adoptError={adoptError}
         adopting={adopt.isPending}
       />
+
+      {sheet && (
+        <ProtectSheet
+          driveId={sheet.source_drive}
+          path={sheet.source_path}
+          onClose={() => setSheet(null)}
+        />
+      )}
+      {checkingPhrase && phrase?.luna_id && (
+        <RecoveryPhraseCheck lunaId={phrase.luna_id} onClose={closeCheck} />
+      )}
     </Page>
   );
 }
