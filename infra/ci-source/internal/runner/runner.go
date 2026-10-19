@@ -32,7 +32,8 @@ type Runner struct {
 	cpuQuota          int64
 	memoryLimit       int64
 	nice              int
-	jobs              int       // slots the cpuQuota and memoryLimit are split between
+	jobs              int // slots the cpuQuota and memoryLimit are split between
+	lifeline          *lifeline
 	pool              *SlotPool // set when the bounds are universal: jobs take machine-wide slots
 	pullMutex         sync.Mutex
 	pulledImages      map[string]bool
@@ -105,6 +106,11 @@ func NewRunner(cfg *config.Config) (*Runner, error) {
 	}
 
 	r.cleanupOrphanedContainers()
+
+	// Without the lifeline, containers just don't stop themselves when ci dies.
+	if l, err := newLifeline(filepath.Join(repoPath, ".cache")); err == nil {
+		r.lifeline = l
+	}
 
 	return r, nil
 }
@@ -323,17 +329,6 @@ func (r *Runner) jobMemoryLimit() int64 {
 		return 0
 	}
 	return r.memoryLimit / int64(max(r.jobs, 1))
-}
-
-// containerCommand runs command under nice when the run asks for a lower
-// priority, so the build tools inside the container yield to the desktop.
-func containerCommand(command string, nice int) []string {
-	if nice <= 0 {
-		return []string{"sh", "-c", command}
-	}
-	return []string{"sh", "-c",
-		`if command -v nice >/dev/null 2>&1; then exec nice -n "$1" sh -c "$2"; else exec sh -c "$2"; fi`,
-		"sh", strconv.Itoa(nice), command}
 }
 
 // throttleHostCmd applies the run's performance limits to a host-run test
@@ -740,7 +735,7 @@ func (r *Runner) createContainer(ctx context.Context, t *tests.Test, fuzzDuratio
 
 	config := &container.Config{
 		Image:      t.Container,
-		Cmd:        containerCommand(t.Command, r.nice),
+		Cmd:        containerCommand(t.Command, r.nice, r.lifeline.name()),
 		WorkingDir: t.WorkDir,
 		Env:        env,
 		Tty:        false,
@@ -960,6 +955,7 @@ func (r *Runner) StopAllContainers() {
 
 func (r *Runner) Close() error {
 	r.StopAllContainers()
+	r.lifeline.close()
 	return r.cli.Close()
 }
 

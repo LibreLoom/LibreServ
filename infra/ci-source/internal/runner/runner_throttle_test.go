@@ -3,6 +3,8 @@ package runner
 import (
 	"errors"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"reflect"
 	"strconv"
 	"testing"
@@ -60,13 +62,40 @@ func TestJobSharesSplitTheRunLimits(t *testing.T) {
 	}
 }
 
-func TestContainerCommandNice(t *testing.T) {
-	if got := containerCommand("go test", 0); !reflect.DeepEqual(got, []string{"sh", "-c", "go test"}) {
-		t.Fatalf("no nice: %v", got)
+func TestContainerCommandArgs(t *testing.T) {
+	got := containerCommand("go test", 19, ".ci-run-7.lock")
+	want := []string{"/cache/.ci-run-7.lock", "19", "go test"}
+	if len(got) != 7 || !reflect.DeepEqual(got[4:], want) {
+		t.Fatalf("args = %v", got)
 	}
-	got := containerCommand("go test", 19)
-	if len(got) != 6 || got[4] != "19" || got[5] != "go test" {
-		t.Fatalf("nice: %v", got)
+	if got := containerCommand("x", 0, ""); got[4] != "" || got[5] != "0" {
+		t.Fatalf("no lifeline, no nice = %v", got)
+	}
+}
+
+func TestContainerCommandRunsAndPassesExitCode(t *testing.T) {
+	for code, cmd := range map[int]string{0: "true", 3: "exit 3"} {
+		args := containerCommand(cmd, 0, "")
+		if err := exec.Command(args[0], args[1:]...).Run(); code == 0 && err != nil {
+			t.Fatalf("%s: %v", cmd, err)
+		} else if ee, ok := err.(*exec.ExitError); code != 0 && (!ok || ee.ExitCode() != code) {
+			t.Fatalf("%s: want exit %d, got %v", cmd, code, err)
+		}
+	}
+}
+
+func TestLifelineIsHeldWhileRunAlive(t *testing.T) {
+	dir := t.TempDir()
+	l, err := newLifeline(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := exec.Command("flock", "-n", "-s", filepath.Join(dir, l.name()), "true").Run(); err == nil {
+		t.Fatal("lifeline should be exclusively locked while ci runs")
+	}
+	l.close()
+	if _, err := os.Stat(filepath.Join(dir, l.name())); !os.IsNotExist(err) {
+		t.Fatal("lifeline file should be removed on close")
 	}
 }
 
