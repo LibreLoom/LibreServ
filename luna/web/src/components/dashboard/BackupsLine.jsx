@@ -16,17 +16,20 @@ export default function BackupsLine({ rows }) {
   if (!rows || rows.length === 0) return null;
   return (
     <section aria-label="Backups">
-      <Card padding={false} className="p-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3 min-w-0">
-          <Shield size={ICON_SIZE.lg} className="shrink-0" aria-hidden="true" />
-          <div className="min-w-0">
-            <p className="text-base font-mono font-normal">{backupHeadline(rows)}</p>
-            <p className="text-xs">{lastTestedLine(rows)}</p>
+      <Card padding={false}>
+        {/* Layout classes go on this inner row, not on Card: Card's className lands on its height-animated clip, which would clip the row. */}
+        <div className="p-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <Shield size={ICON_SIZE.lg} className="shrink-0" aria-hidden="true" />
+            <div className="min-w-0">
+              <p className="text-base font-mono font-normal">{backupHeadline(rows)}</p>
+              <p className="text-xs">{lastTestedLine(rows)}</p>
+            </div>
           </div>
+          <Button size="sm" variant="primary" onClick={() => setShowAll(true)}>
+            See all backups
+          </Button>
         </div>
-        <Button size="sm" variant="primary" onClick={() => setShowAll(true)}>
-          See all backups
-        </Button>
       </Card>
       {showAll && <AllBackupsModal open={showAll} onClose={() => setShowAll(false)} backups={rows} />}
     </section>
