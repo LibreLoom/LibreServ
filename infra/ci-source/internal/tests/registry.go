@@ -45,6 +45,7 @@ func init() {
 	addSecurityTests()
 	addIntegrationTests()
 	addLunaTests()
+	addReleaseTests()
 }
 
 func addGoTests() {
@@ -542,6 +543,35 @@ func addIntegrationTests() {
 		Command: "podman build -t sol:test -f sol/Dockerfile .",
 		WorkDir: "/repo",
 		Timeout: 20 * time.Minute,
+	})
+}
+
+// The release tool's own tests live in infra/ci-source. The container run covers
+// everything that needs no podman; the host run adds the integration tests that
+// start real containers (a few minutes of builds), which is why it runs on the
+// host: it needs the host's podman and Go.
+func addReleaseTests() {
+	DefaultRegistry.Add(&Test{
+		ID:          "release-test",
+		Name:        "Release Tool Tests",
+		Description: "Release and ci tool unit tests (no podman)",
+		Type:        TestTypeUnit,
+		Container:   "golang:1.27-alpine",
+		Command:     "apk add --no-cache git bash && go test -short ./...",
+		WorkDir:     "/repo/infra/ci-source",
+		Timeout:     15 * time.Minute,
+		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache", "GOTOOLCHAIN=auto", "LIBRESERV_RELEASE_NO_PODMAN_TESTS=1"},
+	})
+
+	DefaultRegistry.Add(&Test{
+		ID:          "release-integration",
+		Name:        "Release Tool Integration",
+		Description: "Release tool tests that build real containers with podman (runs on host)",
+		Type:        TestTypeIntegration,
+		Container:   "host",
+		Command:     "go test -count=1 ./internal/release/...",
+		WorkDir:     "/repo/infra/ci-source",
+		Timeout:     45 * time.Minute,
 	})
 }
 

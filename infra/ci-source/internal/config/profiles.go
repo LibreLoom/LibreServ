@@ -102,7 +102,7 @@ var Profiles = map[string]*Profile{
 			"connect-fmt", "connect-vet", "connect-test", "connect-build",
 			"luna-connect-fmt", "luna-connect-vet", "luna-connect-test", "luna-connect-build",
 			"connect-web-admin-lint", "connect-web-admin-typecheck", "connect-web-admin-build", "connect-web-customer-lint", "connect-web-customer-typecheck", "connect-web-customer-build", "luna-connect-web-lint", "luna-connect-web-test", "luna-connect-web-build", "luna-connect-web-colors", "luna-connect-web-typecheck", "luna-quick-start-check", "luna-connect-deploy-test",
-			"luna-ci",
+			"luna-ci", "release-test", "release-integration",
 		},
 	},
 	"nofuzz": {
@@ -118,8 +118,14 @@ var Profiles = map[string]*Profile{
 			"connect-fmt", "connect-vet", "connect-test", "connect-build",
 			"luna-connect-fmt", "luna-connect-vet", "luna-connect-test", "luna-connect-build",
 			"connect-web-admin-lint", "connect-web-admin-typecheck", "connect-web-admin-build", "connect-web-customer-lint", "connect-web-customer-typecheck", "connect-web-customer-build", "luna-connect-web-lint", "luna-connect-web-test", "luna-connect-web-build", "luna-connect-web-colors", "luna-connect-web-typecheck", "luna-quick-start-check", "luna-connect-deploy-test",
-			"luna-ci",
+			"luna-ci", "release-test", "release-integration",
 		},
+	},
+	"release": {
+		ID:          "release",
+		Name:        "Release tool",
+		Description: "The release and ci tools' own tests, including the podman integration tests",
+		TestIDs:     []string{"release-test", "release-integration"},
 	},
 	"connect": {
 		ID:          "connect",
@@ -157,7 +163,7 @@ var Profiles = map[string]*Profile{
 			"connect-fmt", "connect-vet", "connect-test", "connect-build",
 			"luna-connect-fmt", "luna-connect-vet", "luna-connect-test", "luna-connect-build",
 			"connect-web-admin-lint", "connect-web-admin-typecheck", "connect-web-admin-build", "connect-web-customer-lint", "connect-web-customer-typecheck", "connect-web-customer-build", "luna-connect-web-lint", "luna-connect-web-test", "luna-connect-web-build", "luna-connect-web-colors", "luna-connect-web-typecheck", "luna-quick-start-check", "luna-connect-deploy-test",
-			"luna-ci",
+			"luna-ci", "release-test", "release-integration",
 		},
 	},
 }
