@@ -120,7 +120,7 @@ export default function NeedsYou({ items, onAction }) {
                   />
                   <div className="min-w-0 space-y-1">
                     <Title segments={item.title} />
-                    {item.detail && <p className="text-base">{item.detail}</p>}
+                    {item.detail && <p className="text-sm">{item.detail}</p>}
                   </div>
                 </div>
                 {item.action && (
