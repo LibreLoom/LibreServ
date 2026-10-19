@@ -5,8 +5,6 @@ import { AnimatePresence, MotionConfig, Reorder, motion as Motion, useDragContro
 import {
   ChevronDown,
   ChevronUp,
-  CornerLeftUp,
-  Folder,
   GripVertical,
   ImagePlus,
   ListChecks,
@@ -18,6 +16,7 @@ import {
 } from "lucide-react";
 import { CollabDocSync } from "../collabDocSync.js";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
+import CardButton from "@libreloom/ui/components/ui/CardButton.jsx";
 import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import ModalErrorNotice from "@libreloom/ui/components/common/ModalErrorNotice.jsx";
@@ -31,6 +30,7 @@ import ShareSheet from "../../share/ShareSheet.jsx";
 import EditorLoadingScreen from "../EditorLoadingScreen.jsx";
 import FormResponses from "./FormResponses.jsx";
 import FormInput from "../../common/forms/FormInput.jsx";
+import FileBrowser from "../FileBrowser.jsx";
 import {
   answerOptions,
   canTriggerSkip,
@@ -715,6 +715,26 @@ function BuilderSession({
                       id="form-settings-title"
                       className="px-2 pt-1 font-mono text-base font-normal text-primary"
                     >Settings</h3>
+
+                    {!source.guest && (
+                      <SettingsGroup title="Collect responses">
+                        <SettingRow
+                          title="Share this form"
+                          description="Send a link so people can fill it in. Their answers show up in Responses."
+                        >
+                          <div className="w-full sm:w-56">
+                            <CardButton
+                              variant="inverted"
+                              actionLabel="Collect responses"
+                              icon={Share2}
+                              onClick={() => setSharing(true)}
+                            >
+                              Collect responses
+                            </CardButton>
+                          </div>
+                        </SettingRow>
+                      </SettingsGroup>
+                    )}
 
                     <SettingsGroup title="Taking answers">
                       <Toggle
@@ -1751,18 +1771,10 @@ SkipRow.propTypes = {
 function PicturePicker({ driveId, formPath, startFolder, onPicked, onClose }) {
   const source = useFileSource();
   const [folder, setFolder] = useState(startFolder);
+  const [picked, setPicked] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const uploadRef = useRef(/** @type {HTMLInputElement | null} */ (null));
-  const listing = useQuery({
-    queryKey: ["form-pictures", fileSourceScope(source, driveId), folder],
-    queryFn: () => source.listDir(driveId, folder),
-  });
-  const entries = (Array.isArray(listing.data) ? listing.data : [])
-    .filter((entry) => entry && !entry.hidden)
-    .filter((entry) => entry.kind === "dir" || isImageFileName(entry.name));
-  const folders = entries.filter((e) => e.kind === "dir");
-  const pictures = entries.filter((e) => e.kind !== "dir");
 
   async function run(task) {
     setSaving(true);
@@ -1778,6 +1790,14 @@ function PicturePicker({ driveId, formPath, startFolder, onPicked, onClose }) {
     }
   }
 
+  function usePicked() {
+    if (!isImageFileName(picked.split("/").pop() ?? "")) {
+      setSaveError("Pick a JPG, PNG, GIF, or WebP picture.");
+      return;
+    }
+    run(() => source.copyFormPicture(driveId, formPath, picked));
+  }
+
   return (
     <ModalCard
       open
@@ -1791,24 +1811,9 @@ function PicturePicker({ driveId, formPath, startFolder, onPicked, onClose }) {
           Luna keeps a copy next to the form so people answering can see it.
         </p>
         <div className="flex flex-wrap items-center gap-2">
-          <p className="min-w-0 flex-1 truncate font-mono text-xs font-normal text-primary">
-            {folder || "Top folder"}
-          </p>
-          {folder ? (
-            <Button
-              variant="ghost"
-              surface="secondary"
-              size="sm"
-              disabled={saving}
-              onClick={() => setFolder(parentPath(folder) ?? "")}
-            >
-              <CornerLeftUp size={ICON_SIZE.sm} aria-hidden="true" />
-              Up
-            </Button>
-          ) : null}
           <Button
             variant="outline"
-            surface="secondary"
+            surface="primary"
             size="sm"
             disabled={saving}
             onClick={() => uploadRef.current?.click()}
@@ -1836,68 +1841,37 @@ function PicturePicker({ driveId, formPath, startFolder, onPicked, onClose }) {
             <Spinner size="sm" decorative />
             <span className="text-sm text-primary">Adding the picture</span>
           </div>
-        ) : listing.isError ? (
-          <PageNotice variant="error">Luna couldn&apos;t open that folder. Go up a folder or try again.</PageNotice>
-        ) : listing.isLoading ? (
-          <div className="flex items-center gap-2" role="status">
-            <Spinner size="sm" decorative />
-            <span className="text-sm text-primary">Opening</span>
-          </div>
-        ) : entries.length === 0 ? (
-          <p className="text-sm text-primary">No pictures in this folder. Open another one or upload a picture.</p>
         ) : (
-          <div className="max-h-80 space-y-3 overflow-y-auto inner-scrollbar">
-            {folders.length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {folders.map((entry) => (
-                  <Button
-                    key={entry.name}
-                    variant="outline"
-                    surface="secondary"
-                    size="sm"
-                    haptic="selection"
-                    onClick={() => setFolder(joinPath(folder, entry.name))}
-                  >
-                    <Folder size={ICON_SIZE.sm} aria-hidden="true" />
-                    {entry.name}
-                  </Button>
-                ))}
-              </div>
-            )}
-            {pictures.length > 0 && (
-              <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-                {pictures.map((entry, i) => {
-                  const picturePath = joinPath(folder, entry.name);
-                  return (
-                    <Motion.button
-                      key={entry.name}
-                      type="button"
-                      initial={{ opacity: 0, scale: 0.94 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      transition={{ delay: Math.min(i * 0.02, 0.3) }}
-                      whileHover={{ scale: 1.03 }}
-                      whileTap={{ scale: 0.97 }}
-                      className="group relative aspect-square overflow-hidden rounded-large-element surface-primary focus-visible:ring-2 focus-visible:ring-accent no-focus-outline"
-                      aria-label={`Use ${entry.name}`}
-                      title={entry.name}
-                      onClick={() => {
-                        haptic("selection");
-                        run(() => source.copyFormPicture(driveId, formPath, picturePath));
-                      }}
-                    >
-                      <img
-                        src={source.contentHref(driveId, picturePath)}
-                        alt=""
-                        loading="lazy"
-                        className="h-full w-full object-cover"
-                      />
-                    </Motion.button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+          <FileBrowser
+            driveId={driveId}
+            path={folder}
+            onPathChange={(nextPath) => {
+              setFolder(nextPath);
+              setPicked("");
+            }}
+            pickerMode="file"
+            selectedPath={picked || null}
+            onSelect={(ctx) => setPicked(ctx.fullPath)}
+            multiSelect={false}
+            enableDownload={false}
+            enableUploadDrop={false}
+            dense
+            surface="primary"
+          />
         )}
+        <div className="flex flex-wrap gap-3">
+          <Button
+            variant="primary"
+            surface="secondary"
+            disabled={!picked || saving}
+            onClick={usePicked}
+          >
+            Use this picture
+          </Button>
+          <Button variant="outline" surface="secondary" disabled={saving} onClick={onClose}>
+            Cancel
+          </Button>
+        </div>
       </div>
     </ModalCard>
   );

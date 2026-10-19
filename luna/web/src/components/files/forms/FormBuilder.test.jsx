@@ -31,6 +31,10 @@ import Toaster from "@libreloom/ui/components/common/Toaster.jsx";
 import FormBuilder from "./FormBuilder.jsx";
 import { driveSource, FileSourceProvider, shareSource } from "../../../lib/fileSource.jsx";
 
+vi.mock("../../share/ShareSheet.jsx", () => ({
+  default: () => <div role="dialog" aria-label="Share" />,
+}));
+
 // Guest saves go through chunked upload — putBinaryProgress is XHR-based
 // and unreachable in jsdom, so resolve it like a complete chunk would.
 vi.mock("../../../lib/api.js", async (importOriginal) => ({
@@ -301,6 +305,14 @@ describe("FormBuilder editing", () => {
     fireEvent.click(screen.getByRole("button", { name: /Add a question/i }));
     fireEvent.click(await screen.findByRole("option", { name: /Email/ }));
     await waitFor(() => expect(screen.getAllByLabelText(/^Question \d$/)).toHaveLength(3));
+  });
+
+  it("offers a Collect responses button in settings that opens sharing", async () => {
+    stubForm();
+    mountBuilder();
+    await screen.findByDisplayValue("Dish?");
+    fireEvent.click(screen.getByRole("button", { name: /Collect responses/i }));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
   });
 
   it("removes a question and brings it back with Undo", async () => {
