@@ -56,6 +56,8 @@ sol/server/backend/.env.local
 
 # Development
 dev/
+# ...except the Luna web testing harness, which is source code
+!luna/web/src/dev/
 sol/server/backend/dev/
 sol/server/backend/bin/
 # Generated dev configs hold secrets — never commit them. Each app writes one

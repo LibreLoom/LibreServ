@@ -10,6 +10,7 @@
     "lint": "eslint .",
     "test": "vitest",
     "typecheck": "tsc --noEmit",
+    "states:coverage": "node scripts/states-coverage.mjs",
     "scan:colors": "node ../../shared/ui/scripts/scan-hardcoded-colors.js && node ../../shared/ui/scripts/scan-surfaces.js src ../../shared/ui/components ../../shared/ui/lib ../../shared/ui/hooks ../../shared/ui/context ../../shared/ui/utils"
   },
   "dependencies": {

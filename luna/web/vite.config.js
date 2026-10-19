@@ -65,8 +65,47 @@ const excalidrawAssets = () => {
   };
 };
 
+
+// Testing-marathon results (dev only). The state gallery at /__states can't
+// write into the repo from the browser, so it posts here and this writes
+// testing/results.json, which is committed so collaborators share progress.
+const statesResults = () => {
+  const file = path.resolve(__dirname, "testing/results.json");
+  const read = () => {
+    try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return {}; }
+  };
+  return {
+    name: "luna-states-results",
+    apply: "serve",
+    configureServer(server) {
+      server.middlewares.use("/__states/api/results", (req, res) => {
+        res.setHeader("content-type", "application/json");
+        if (req.method === "GET") { res.end(JSON.stringify(read())); return; }
+        if (req.method !== "POST") { res.statusCode = 405; res.end("{}"); return; }
+        let raw = "";
+        req.on("data", (c) => { raw += c; });
+        req.on("end", () => {
+          try {
+            const { id, result } = JSON.parse(raw);
+            if (typeof id !== "string" || !id) throw new Error("missing id");
+            const all = read();
+            all[id] = result;
+            const sorted = Object.fromEntries(Object.entries(all).sort(([a], [b]) => a.localeCompare(b)));
+            fs.mkdirSync(path.dirname(file), { recursive: true });
+            fs.writeFileSync(file, JSON.stringify(sorted, null, 2) + "\n");
+            res.end(JSON.stringify(sorted));
+          } catch {
+            res.statusCode = 400;
+            res.end(JSON.stringify({ error: "bad result" }));
+          }
+        });
+      });
+    },
+  };
+};
+
 export default defineConfig({
-  plugins: [react(), tailwindcss(), excalidrawAssets(), sharedFonts()],
+  plugins: [react(), tailwindcss(), excalidrawAssets(), sharedFonts(), statesResults()],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
