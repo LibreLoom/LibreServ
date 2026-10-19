@@ -120,6 +120,24 @@ pub struct DriveManager {
     /// Serializes the temporary look-inside mounts (peek, inspect) so two
     /// of them never fight over one foreign mount point.
     look_lock: Arc<std::sync::Mutex<()>>,
+    /// Drives being ejected or removed right now. Background scans leave
+    /// them alone, so one mid-eject is never mounted again or re-marked.
+    closing: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
+}
+
+/// Keeps a drive out of background reconciliation until dropped.
+pub struct ClosingGuard {
+    closing: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
+    id: String,
+}
+
+impl Drop for ClosingGuard {
+    fn drop(&mut self) {
+        self.closing
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&self.id);
+    }
 }
 
 impl DriveManager {
@@ -142,7 +160,27 @@ impl DriveManager {
             foreign_base: data_dir.join("mounts/foreign"),
             adopted_base: data_dir.join("mounts/drives"),
             look_lock: Arc::new(std::sync::Mutex::new(())),
+            closing: Arc::default(),
         }
+    }
+
+    /// Mark a drive as being ejected or removed until the guard is dropped.
+    pub fn begin_closing(&self, id: &str) -> ClosingGuard {
+        self.closing
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(id.to_string());
+        ClosingGuard {
+            closing: self.closing.clone(),
+            id: id.to_string(),
+        }
+    }
+
+    fn is_closing(&self, id: &str) -> bool {
+        self.closing
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains(id)
     }
 
     /// Look at a detected device. Mounts it read-only only when it is not
@@ -592,20 +630,36 @@ impl DriveManager {
         if drive.state == "ejected" {
             return Ok(());
         }
-        if !drive.mount_point.is_empty() && self.is_ours(Path::new(&drive.mount_point)) {
-            let target = Path::new(&drive.mount_point);
-            self.mounter.unmount(target).map_err(|_| {
-                anyhow::anyhow!("Close any files open from this drive, then try again.")
+        self.eject_unmount(&drive)?;
+        db::set_drive_state(conn, id, "ejected")?;
+        Ok(())
+    }
+
+    /// The I/O half of eject: no database access, so a slow or busy USB
+    /// stick never holds the global DB lock. The caller records the new
+    /// state afterwards.
+    pub fn eject_unmount(&self, drive: &db::DriveRow) -> anyhow::Result<()> {
+        if drive.mount_point.is_empty() {
+            return Ok(());
+        }
+        let target = Path::new(&drive.mount_point);
+        if self.is_ours(target) {
+            self.mounter.unmount(target).map_err(|e| {
+                if mount::is_busy(&e) {
+                    anyhow::anyhow!("Close any files open from this drive, then try again.")
+                } else {
+                    tracing::warn!(drive = %drive.id, error = %e, "unmount failed");
+                    anyhow::anyhow!("Luna couldn't unmount this drive.")
+                }
             })?;
             let _ = std::fs::remove_dir(target);
-        } else if !drive.mount_point.is_empty() && Path::new(&drive.mount_point).is_dir() {
+        } else if target.is_dir() {
             // The OS mounted this drive, so Luna leaves the mount alone — but
             // "safe to unplug" must not be said while the kernel still holds
             // writes for it. (Luna OS never automounts; this is desktop hosts.)
-            sync_filesystem(Path::new(&drive.mount_point))
+            sync_filesystem(target)
                 .map_err(|_| anyhow::anyhow!("Luna couldn't finish writing to this drive."))?;
         }
-        db::set_drive_state(conn, id, "ejected")?;
         Ok(())
     }
 
@@ -754,6 +808,9 @@ impl DriveManager {
             if drive.state != "as_is" && drive.state != "readonly" {
                 continue;
             }
+            if self.is_closing(&drive.id) {
+                continue;
+            }
             let root = std::path::Path::new(&drive.mount_point);
             if !self.mounter.is_mounted(root) {
                 continue;
@@ -808,6 +865,9 @@ impl DriveManager {
         let mut marker_cache: HashMap<String, Vec<String>> = HashMap::new();
         let mut plan = ReconcilePlan::default();
         for row in rows {
+            if self.is_closing(&row.id) {
+                continue;
+            }
             let mut present_by_name = detected.iter().any(|d| d.name == row.device);
             // Kernel names are reused: after a stick is pulled, the next stick
             // plugged in is `sdb` again. A missing drive only counts as back
@@ -1444,8 +1504,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let dir = root.path();
         let conn = db::open(&dir.join("luna.db")).unwrap();
-        let identity =
-            crate::backup::cloud::identity::load_or_create(&conn, 1).unwrap();
+        let identity = crate::backup::cloud::identity::load_or_create(&conn, 1).unwrap();
         let mgr = DriveManager::new(mounter.clone(), dir);
         let dev = detected("sdz", None);
 

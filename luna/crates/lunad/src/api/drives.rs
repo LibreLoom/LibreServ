@@ -413,12 +413,31 @@ async fn eject(
     require_admin(user)?;
     let (st, drive) = (state.clone(), id.clone());
     closed_drive(&state, &id, move || {
-        crate::db::with_db(
+        let eject_err =
+            |e: anyhow::Error| json_error(StatusCode::BAD_REQUEST, plain_eject_error(&e));
+        // Only the row reads and writes hold the DB lock; the unmount itself
+        // can take seconds on a slow stick and must not stall other queries.
+        let row = crate::db::with_db(
             &st.db,
             || anyhow::anyhow!("db lock poisoned"),
-            |conn| st.drive_manager.eject(conn, &drive),
+            |conn| crate::db::get_drive(conn, &drive),
         )
-        .map_err(|e| json_error(StatusCode::BAD_REQUEST, plain_eject_error(&e)))
+        .map_err(eject_err)?
+        .ok_or_else(|| eject_err(anyhow::anyhow!("Luna doesn't know this drive.")))?;
+        if row.state == "ejected" {
+            return Ok(());
+        }
+        st.drive_manager.eject_unmount(&row).map_err(eject_err)?;
+        let mark_ejected = || {
+            crate::db::with_db(
+                &st.db,
+                || anyhow::anyhow!("db lock poisoned"),
+                |conn| crate::db::set_drive_state(conn, &drive, "ejected"),
+            )
+        };
+        mark_ejected()
+            .or_else(|_| mark_ejected())
+            .map_err(eject_err)
     })
     .await?;
     Ok(Json(serde_json::json!({ "ok": true })))
@@ -455,6 +474,8 @@ async fn closed_drive(
     state.ram_cache.begin_close(id);
     let (st, drive) = (state.clone(), id.to_string());
     let result = tokio::task::spawn_blocking(move || {
+        // Background scans leave this drive alone until we're done with it.
+        let _closing = st.drive_manager.begin_closing(&drive);
         flush_dirty_before_unmount(&st, &drive)?;
         // Luna's own photo and search scans keep folders of the drive open while
         // they run, which makes the unmount fail as "busy" — and the message then
@@ -1099,6 +1120,41 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn eject_waits_out_a_brief_busy_moment() {
+        let app = drive_app();
+        *app.mounter.busy_unmounts.lock().unwrap() = 1;
+        let (status, body) = post(
+            &app,
+            &format!("/api/v1/drives/{}/eject", app.drive_id),
+            &app.admin,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(drive_state(&app).as_deref(), Some("ejected"));
+    }
+
+    #[tokio::test]
+    async fn a_failed_eject_fails_fast_unless_the_drive_is_busy_and_keeps_it_ready() {
+        let app = drive_app();
+        *app.mounter.fail_unmount.lock().unwrap() = true;
+        let started = std::time::Instant::now();
+        let (status, body) = post(
+            &app,
+            &format!("/api/v1/drives/{}/eject", app.drive_id),
+            &app.admin,
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "a non-busy failure must not wait out the busy retries"
+        );
+        let message = body["error"].as_str().unwrap();
+        assert!(message.starts_with("Luna couldn't eject"), "{message}");
+        assert_eq!(drive_state(&app).as_deref(), Some("as_is"));
+    }
+
+    #[tokio::test]
     async fn remove_forgets_the_drive_and_clears_its_marker() {
         let app = drive_app();
         let mount = {
@@ -1205,6 +1261,9 @@ mod tests {
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
         let message = body["error"].as_str().unwrap();
         assert!(message.starts_with("Luna couldn't finish closing this drive."));
-        assert!(!message.contains("mock") && !message.contains("sdy"), "{message}");
+        assert!(
+            !message.contains("mock") && !message.contains("sdy"),
+            "{message}"
+        );
     }
 }

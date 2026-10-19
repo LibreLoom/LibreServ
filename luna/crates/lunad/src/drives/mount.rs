@@ -9,6 +9,24 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 
+/// An unmount that failed only because something still has files open on
+/// the drive. Waiting and trying again can work; other failures won't.
+#[derive(Debug)]
+pub struct MountBusy;
+
+impl std::fmt::Display for MountBusy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("mount is busy")
+    }
+}
+
+impl std::error::Error for MountBusy {}
+
+/// True when `err` is (or wraps) [`MountBusy`].
+pub fn is_busy(err: &anyhow::Error) -> bool {
+    err.downcast_ref::<MountBusy>().is_some()
+}
+
 pub trait Mounter: Send + Sync {
     /// Mount `device` at `target`. Implementations create `target`.
     fn mount(&self, device: &str, target: &Path, read_only: bool) -> anyhow::Result<()>;
@@ -90,6 +108,9 @@ impl Mounter for CommandMounter {
             let stderr = String::from_utf8_lossy(&out.stderr);
             if already_unmounted_stderr(&stderr) {
                 return Ok(());
+            }
+            if stderr.to_ascii_lowercase().contains("busy") {
+                return Err(anyhow::Error::new(MountBusy));
             }
             return Err(anyhow::anyhow!("unmount failed: {}", stderr.trim()));
         }
@@ -202,6 +223,8 @@ pub struct MockMounter {
     pub remounts: std::sync::Mutex<Vec<(PathBuf, bool)>>,
     pub fail_mount: std::sync::Mutex<bool>,
     pub fail_unmount: std::sync::Mutex<bool>,
+    /// Unmounts that fail as "busy" before one succeeds (counts down).
+    pub busy_unmounts: std::sync::Mutex<u32>,
     /// Paths currently considered mounted (updated by mount/unmount).
     active: std::sync::Mutex<std::collections::HashSet<PathBuf>>,
     shadows: std::sync::Mutex<std::collections::HashMap<PathBuf, PathBuf>>,
@@ -258,6 +281,13 @@ impl Mounter for MockMounter {
         }
         if *self.fail_unmount.lock().unwrap() {
             return Err(anyhow::anyhow!("mock unmount failure"));
+        }
+        {
+            let mut busy = self.busy_unmounts.lock().unwrap();
+            if *busy > 0 {
+                *busy -= 1;
+                return Err(anyhow::Error::new(MountBusy));
+            }
         }
         self.unmounts.lock().unwrap().push(target.to_path_buf());
         self.active.lock().unwrap().remove(target);
