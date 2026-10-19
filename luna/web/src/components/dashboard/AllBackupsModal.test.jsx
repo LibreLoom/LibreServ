@@ -139,8 +139,17 @@ describe("AllBackupsModal", () => {
     renderModal();
     // Wait for user names to load so the group (and its rows) are not remounted mid-click.
     await screen.findByRole("heading", { name: "ana" });
-    await userEvent.click(screen.getByRole("button", { name: "Open protection for Music" }));
+    await userEvent.click(screen.getByRole("button", { name: "Details for Music" }));
     await waitFor(() => expect(screen.getByTestId("protect-sheet")).toHaveTextContent("d1:Music"));
+  });
+
+  it("runs an active backup from its row", async () => {
+    const { fetchMock } = renderModal();
+    await screen.findByRole("heading", { name: "ana" });
+    await userEvent.click(screen.getAllByRole("button", { name: "Back up now" })[0]);
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some(([url, init]) => String(url).endsWith("/run") && init?.method === "POST")).toBe(true),
+    );
   });
 
   it("a private items row per owner with a combined status and no names of items", async () => {

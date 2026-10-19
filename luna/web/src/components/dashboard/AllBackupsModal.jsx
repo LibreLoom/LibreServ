@@ -12,7 +12,7 @@ import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.j
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
-import { apiErrorMessage, deleteJson, getJson } from "../../lib/api";
+import { apiErrorMessage, deleteJson, getJson, postJson } from "../../lib/api";
 import {
   groupByCreator,
   needsALook,
@@ -68,7 +68,7 @@ function CopiesLink({ backup }) {
   );
 }
 
-function BackupRow({ backup, onOpen }) {
+function BackupRow({ backup, onOpen, onRun, running }) {
   const active = backup.status === "active";
   return (
     <li>
@@ -87,15 +87,27 @@ function BackupRow({ backup, onOpen }) {
         }
       >
         {active && (
-          <Button
-            variant="outline"
-            surface="primary"
-            size="sm"
-            aria-label={`Open protection for ${backup.source_name}`}
-            onClick={() => onOpen(backup)}
-          >
-            Open
-          </Button>
+          <>
+            <Button
+              variant="outline"
+              surface="primary"
+              size="sm"
+              loading={running}
+              disabled={running}
+              onClick={() => onRun(backup)}
+            >
+              Back up now
+            </Button>
+            <Button
+              variant="outline"
+              surface="primary"
+              size="sm"
+              aria-label={`Details for ${backup.source_name}`}
+              onClick={() => onOpen(backup)}
+            >
+              Details
+            </Button>
+          </>
         )}
       </BackupItem>
     </li>
@@ -187,6 +199,35 @@ export default function AllBackupsModal({ open, onClose, backups = [] }) {
     },
   });
 
+  // Same endpoints as the protection sheet's "Back up now".
+  const runNow = useMutation({
+    mutationFn: (/** @type {{ backup: any }} */ { backup }) =>
+      postJson(
+        backup.kind === "cloud" ? `/api/v1/cloud/backups/${backup.id}/run` : `/api/v1/backups/${backup.id}/run`,
+        {},
+      ),
+    onSuccess: (res, { backup }) => {
+      const what = backup.kind === "cloud" ? "Cloud backup" : "Backup";
+      if (res?.problem) {
+        toast.addToast({ type: "error", message: `${what} did not run`, description: res.problem });
+        return;
+      }
+      toast.addToast({
+        type: "success",
+        message: res?.done ? `${what} is up to date.` : "Luna is still copying. The status updates when it finishes.",
+      });
+      queryClient.invalidateQueries({ queryKey: ["backups"] });
+      queryClient.invalidateQueries({ queryKey: ["cloud-backups"] });
+    },
+    onError: (err) => {
+      toast.addToast({
+        type: "error",
+        message: "Could not start the backup",
+        description: apiErrorMessage(err, "Try again in a moment."),
+      });
+    },
+  });
+
   // Sections by creator; each owner's private items row joins the section of its owner.
   const sections = groupByCreator(filterBackups(backups, filter), users.data).map((g) => ({
     ...g,
@@ -247,7 +288,13 @@ export default function AllBackupsModal({ open, onClose, backups = [] }) {
                   />
                 )}
                 {group.items.map((b) => (
-                  <BackupRow key={b.id} backup={b} onOpen={setSheet} />
+                  <BackupRow
+                    key={b.id}
+                    backup={b}
+                    onOpen={setSheet}
+                    onRun={(backup) => runNow.mutate({ backup })}
+                    running={runNow.isPending && runNow.variables?.backup.id === b.id}
+                  />
                 ))}
               </ul>
             </section>

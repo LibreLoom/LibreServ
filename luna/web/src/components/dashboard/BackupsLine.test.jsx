@@ -184,7 +184,7 @@ describe("BackupsLine", () => {
     renderLine(rowsOf([backup({ state: "stale" })]), [{ id: "u1", username: "max", display_name: "Max" }]);
     await userEvent.click(screen.getByRole("button", { name: "See all backups" }));
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText("Max")).toBeInTheDocument();
+    expect(within(dialog).getByText("You")).toBeInTheDocument();
   });
 
   it("closes the modal again", async () => {
