@@ -77,7 +77,7 @@ func (p *PerfProfile) resolve(cur PerfLimits, cpus int, memBytes int64) PerfLimi
 		}
 	}
 	if p.MemPercent > 0 && memBytes > 0 {
-		out.MemoryLimit = memBytes / 100 * int64(p.MemPercent)
+		out.MemoryLimit = memBytes * int64(p.MemPercent) / 100
 	}
 	out.Nice = p.Nice
 	return out
