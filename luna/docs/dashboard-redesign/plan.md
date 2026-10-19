@@ -1,6 +1,6 @@
 # Dashboard redesign — plan (2026-10-18)
 
-Status: approved, not started. Rebuilds `luna/web/src/pages/DashboardPage.jsx`.
+Status: implemented (2026-10-18). Rebuilds `luna/web/src/pages/DashboardPage.jsx`.
 
 ## 1. Principle
 The dashboard holds only what the person wants to know **now**: what needs them, what they were just working on, and the way back into their files. Anything that is fine or rarely changes stays off the page.
@@ -94,3 +94,33 @@ Greeting, `TipPill`, the drive picker modal, `InspectModal` and the adopt flow (
 - Move the problem/reminder tests from `BackupsCard.test.jsx` to the new zone.
 - Copy follows the plain-language rules in the root `AGENTS.md`. Shared primitives already fire haptics.
 - `npm run scan:colors`, then `./ci run -profile luna`.
+
+## Decisions recorded 2026-10-18 (implementation)
+
+- D1 Item shape: `{ id, rank, tone, title, detail?, action? }`; title segments are strings or `{ name }` (rendered as InlinePill); action has `href` or `intent`, or is absent (first-run row only).
+- D2 Ids, stable and unique: `drive-failed:<driveId>`, `check:<checkName>`, `drive-health:<driveId>`, `backup:<kind>:<id>`, `device-token`, `no-route`, `new-drive`, `drive-full:<driveId>`, `phrase-check`, `no-drives`.
+- D3 Rank, lower is more urgent: drive failed 10, failed check 20, drive health 30, backup 40, device token 50, no route 60, new drive 70, almost full 80, phrase check 90, no drives 100; ties by id. Tone is `problem` for ranks 10-60 and 80, `info` otherwise.
+- D4 `buildNeedsYouItems` takes one named object and returns items sorted by rank; pure, with no React, fetching or `Date.now`.
+- D5 Admins get every applicable row; Members get only their own failing backups and the phrase reminder. A private backup not created by the viewer never shows.
+- D6 Failed checks only (`status === "failed"`), one row each, action "Open system checks" to `/settings#about`. Excludes: `backups` category, `drive_*_smart`, `network` without a no-route row, `connect`/`remote_access` without a device-token row, `drive_*_read_write` for a drive with a drive-failed or drive-health row.
+- D7 Drive health row for `warning`/`error` pills only; drive failed row when `state === "failed"`. Both action "Open Drives" to `/drives`.
+- D8 Backup row (Admin: any non-foreign-private; Member: own) when `needsALook`: failing, stale, or cloud source missing. Detail is `last_error`, then `check_problem`, then a short sentence. Intent `open-backup`, payload is the row.
+- D9 Device token row (`connect.device_token_error`, to `/settings#about`); no-route row (Admin, `has_default_route === false` strictly); new drive row (Admin, detected devices present, intent `open-drive-picker`, label "Add drive").
+- D10 Almost full: Admin only, state `as_is` or `readonly`, mounted, total > 0, free under 10% of total. Detail "`<free>` free of `<total>`" via the shared byte formatter; action "Browse files" to `/drives/<id>`.
+- D11 Phrase reminder for anyone when `check_due` is true and the viewer can see a cloud backup row; intent `check-phrase`, label "Check now".
+- D12 No drives yet: Admin only, once loaded, zero drives; no action; the old EmptyState is removed.
+- D13 NeedsYou.jsx shows 5 rows with "Show N more" / "Show fewer"; null when empty; region named "Needs you" with a mono heading; status color on the icon only; `surface="primary"` buttons; `Link` for href, `onAction(item)` for intents.
+- D14 BackupsLine hidden when there are no rows; shows `backupHeadline` and `lastTestedLine` plus "See all backups" (AllBackupsModal); sits at the bottom of the page.
+- D15 DriveHomeCard: no counts line; storage only when usable space is returned, otherwise omitted; shortcuts as pills; Members get "See all shared items" when they have grants; heading "Drives" (Admin) or "Your folders" (Member).
+- D16 RecentsCard: server items capped at 6, each row a single Link (name, location, time ago); null when empty; heading "Recents".
+- D17 SystemHealthPill: warnings only, always the warning style, "N warning(s)"; null while loading, on error, or with none; dropdown kept.
+- D18 Removed: UptimeCard, formatUptime, ConnectionCard, RemoteAccessLink with its measuring code, connection helpers, countLine, the dashboard health query and `getHealth` if nothing else uses them, BackupsCard.jsx and its test. Kept: `useConnectActive`, `rootTerm`.
+- D19 Query keys reused so nothing is fetched twice: `["drive-summary", id]`, `["drive-health", id]`, `["connect-status"]`, `["network-status"]`, `["drives-detected"]`, `["system-health-check"]`, and the BackupsCard keys; Admin-only queries stay disabled for Members.
+- D20 Haptics: no new calls; shared primitives already fire them; drive picker unchanged.
+
+### Deviations from the plan text
+
+- Members keep the recovery-phrase reminder (their own key).
+- Needs you shows 5 rows then a Show more toggle.
+- Backup-category and drive smart checks are not repeated as failed-check rows.
+- Almost full means under 10% free.
