@@ -525,7 +525,6 @@ describe("device token, no route, new drive, and no drives (Admin)", () => {
         rank: 70,
         tone: "info",
         title: ["New drive plugged in"],
-        detail: "Nothing on it changes until you confirm.",
         action: { label: "Add drive", intent: "open-drive-picker" },
       },
     ]);

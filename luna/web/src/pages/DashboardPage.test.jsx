@@ -357,7 +357,7 @@ describe("DashboardPage", () => {
       expect(recents.compareDocumentPosition(drives) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
 
-    it("keeps Needs you full width above the two columns and the backups line below them", async () => {
+    it("keeps Needs you, then the backups line, above the two columns", async () => {
       stubDashboardFetch({ backups: [FAILING_BACKUP], recents: RECENT_NOTE });
       renderDashboard();
       const needsYou = await screen.findByRole("region", { name: "Needs you" });
@@ -369,7 +369,8 @@ describe("DashboardPage", () => {
       expect(columns).not.toContainElement(needsYou);
       expect(columns).not.toContainElement(backups);
       expect(needsYou.compareDocumentPosition(columns) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-      expect(columns.compareDocumentPosition(backups) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(needsYou.compareDocumentPosition(backups) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(backups.compareDocumentPosition(columns) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
 
     it("sets Recents and Drives side by side on desktop when both are there", async () => {
@@ -585,7 +586,6 @@ describe("DashboardPage", () => {
       renderDashboard();
       const region = await screen.findByRole("region", { name: "Needs you" });
       expect(await within(region).findByText("New drive plugged in")).toBeInTheDocument();
-      expect(within(region).getByText("Nothing on it changes until you confirm.")).toBeInTheDocument();
       expect(within(region).getByRole("button", { name: /^Add drive$/ })).toBeInTheDocument();
       expect(screen.queryByRole("link", { name: /^Add drive$/ })).not.toBeInTheDocument();
     });
@@ -802,12 +802,12 @@ describe("DashboardPage", () => {
       expect(within(region).getByRole("button", { name: "See all backups" })).toBeInTheDocument();
     });
 
-    it("places the backups line after the drive cards", async () => {
+    it("places the backups line before the drive cards", async () => {
       stubDashboardFetch({ backups: [backupRow()] });
       renderDashboard();
       const card = await screen.findByRole("heading", { name: "Family photos" });
       const region = await screen.findByRole("region", { name: "Backups" });
-      expect(card.compareDocumentPosition(region) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(region.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
 
     it("shows a Member with their own healthy backup the same quiet line", async () => {

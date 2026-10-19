@@ -288,6 +288,25 @@ describe("RecentsCard", () => {
       expect(name).toHaveClass("font-mono", "font-normal");
       expect(name.className).not.toMatch(/font-(medium|semibold|bold)/);
     });
+
+    it("carries the location as a pill and a kind icon", () => {
+      renderCard({ items: threeKinds() });
+      const links = screen.getAllByRole("link");
+      // File and folder rows wear the drive + folder pill.
+      const pillTexts = links.map((link) => {
+        const pill = link.querySelector("[data-slot='inline-pill']");
+        return pill ? pill.textContent : null;
+      });
+      expect(pillTexts[0]).toBe("Family photos · Documents");
+      expect(pillTexts[1]).toBe("Family photos");
+      expect(pillTexts[2]).toBeNull();
+      // Each row carries its kind's glyph, already hidden from reading order.
+      for (const link of links) {
+        const glyph = link.querySelector("svg");
+        expect(glyph).not.toBeNull();
+        expect(glyph).toHaveAttribute("aria-hidden", "true");
+      }
+    });
   });
 
   describe("all states together", () => {

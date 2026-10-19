@@ -238,6 +238,12 @@ export default function DashboardPage() {
           </div>
         )}
 
+        {rows.length > 0 && (
+          <div className="px-8">
+            <BackupsLine rows={rows} />
+          </div>
+        )}
+
         {(hasRecents || showDrivesColumn) && (
           <div
             className={cn(
@@ -289,12 +295,6 @@ export default function DashboardPage() {
                 {showAlbums && <SharedAlbumsCard albums={albumsShared} />}
               </div>
             )}
-          </div>
-        )}
-
-        {rows.length > 0 && (
-          <div className="px-8">
-            <BackupsLine rows={rows} />
           </div>
         )}
       </div>

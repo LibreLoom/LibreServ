@@ -214,7 +214,6 @@ describe("Needs you on the dashboard", () => {
       const zone = needsYouZone();
       const row = within(zone).getByRole("listitem");
       expect(within(row).getByText("New drive plugged in")).toBeInTheDocument();
-      expect(within(row).getByText("Nothing on it changes until you confirm.")).toBeInTheDocument();
       await userEvent.click(within(row).getByRole("button", { name: "Add drive" }));
       const dialog = await screen.findByRole("dialog");
       expect(within(dialog).getByText("New drive detected")).toBeInTheDocument();

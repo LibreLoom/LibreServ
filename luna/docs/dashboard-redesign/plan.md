@@ -110,7 +110,7 @@ Greeting, `TipPill`, the drive picker modal, `InspectModal` and the adopt flow (
 - D11 Phrase reminder for anyone when `check_due` is true and the viewer can see a cloud backup row; intent `check-phrase`, label "Check now".
 - D12 No drives yet: Admin only, once loaded, zero drives; no action; the old EmptyState is removed.
 - D13 NeedsYou.jsx shows 5 rows with "Show N more" / "Show fewer"; null when empty; region named "Needs you" with a mono heading; status color on the icon only; `surface="primary"` buttons; `Link` for href, `onAction(item)` for intents.
-- D14 BackupsLine hidden when there are no rows; shows `backupHeadline` and `lastTestedLine` plus "See all backups" (AllBackupsModal); sits at the bottom of the page.
+- D14 BackupsLine hidden when there are no rows; shows `backupHeadline` and `lastTestedLine` plus "See all backups" (AllBackupsModal); sits below the Needs you zone, above Recents/Drives.
 - D15 DriveHomeCard: no counts line; storage only when usable space is returned, otherwise omitted; shortcuts as pills; Members get "See all shared items" when they have grants; heading "Drives" (Admin) or "Your folders" (Member).
 - D16 RecentsCard: server items capped at 6, each row a single Link (name, location, time ago); null when empty; heading "Recents".
 - D17 SystemHealthPill: warnings only, always the warning style, "N warning(s)"; null while loading, on error, or with none; dropdown kept.
