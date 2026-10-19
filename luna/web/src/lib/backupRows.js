@@ -24,9 +24,6 @@ import { formatRecentAgo } from "./recentItems";
  * }} BackupRow
  */
 
-/** Most rows the card lists before "See all backups". */
-export const CARD_PROBLEM_LIMIT = 3;
-
 /**
  * Turns drive and cloud backup lists into one list of rows, most urgent first.
  * Private backups are kept; the caller decides how to show them.

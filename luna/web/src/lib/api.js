@@ -355,10 +355,6 @@ async function request(path, options = {}) {
   }
 }
 
-export function getHealth() {
-  return getJson("/api/v1/health");
-}
-
 export function getDrives() {
   return getJson("/api/v1/drives");
 }
