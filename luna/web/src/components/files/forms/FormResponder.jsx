@@ -590,7 +590,8 @@ function DoneScreen({ title, editLink, canEdit, editCount, canRespondAgain, limi
           animate={{ scale: 1, opacity: 1 }}
           transition={{ type: "spring", stiffness: 420, damping: 18, delay: 0.05 }}
         >
-          <CheckCircle2 size={ICON_SIZE.xl} className="mx-auto text-success" aria-hidden="true" />
+          {/* Hero mark for the done screen, sized per page (above the shared ICON_SIZE scale). */}
+          <CheckCircle2 size={64} className="mx-auto text-success" aria-hidden="true" />
         </Motion.div>
         <h1 className="font-mono text-2xl text-secondary">{title}</h1>
         {editLink && (
