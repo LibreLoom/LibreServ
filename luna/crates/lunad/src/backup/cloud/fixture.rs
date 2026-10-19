@@ -269,7 +269,12 @@ fn build_private() -> Result<Value> {
             path: path.to_string(),
             size,
             mtime: 1_700_000_000,
-            chunks: vec![ChunkRef { id, pack: data_pack.id, offset, len }],
+            chunks: vec![ChunkRef {
+                id,
+                pack: data_pack.id,
+                offset,
+                len,
+            }],
         });
     }
     let tree = Tree { entries };
@@ -298,7 +303,9 @@ fn build_private() -> Result<Value> {
         tree_hash,
         meta: meta_sealed,
     };
-    let signed = snapshot.sign_with(&signer, private::PRIVATE_SNAPSHOT_DOMAIN).to_bytes();
+    let signed = snapshot
+        .sign_with(&signer, private::PRIVATE_SNAPSHOT_DOMAIN)
+        .to_bytes();
 
     // Alice's scope record, signed by Luna, with the dedup key sealed to her.
     let scope_record = ScopeRecord {
@@ -358,8 +365,14 @@ fn check_private(fx: &Value) -> Result<()> {
     let scope = field(p, "scope")?;
     let snapshot_id = field(p, "snapshot_id")?;
     let dedup_key = unhex32(field(p, "dedup_key")?)?;
-    ensure!(field(p, "owner_user_id")? == "alice", "private section has another owner");
-    ensure!(private::scope_of(&dedup_key).1 == scope, "private scope does not match its dedup key");
+    ensure!(
+        field(p, "owner_user_id")? == "alice",
+        "private section has another owner"
+    );
+    ensure!(
+        private::scope_of(&dedup_key).1 == scope,
+        "private scope does not match its dedup key"
+    );
     let alice = crypto::derive(&unhex32_16(field(fx, "alice_entropy")?)?, LUNA_ID);
     let bob = crypto::derive(&unhex32_16(field(fx, "bob_entropy")?)?, LUNA_ID);
 
@@ -367,7 +380,9 @@ fn check_private(fx: &Value) -> Result<()> {
     let scope_record =
         SignedScope::from_bytes(&record(p, "pscopes", scope)?)?.verify(&luna_public)?;
     ensure!(
-        scope_record.luna_id == LUNA_ID && scope_record.scope == scope && scope_record.user_id == "alice",
+        scope_record.luna_id == LUNA_ID
+            && scope_record.scope == scope
+            && scope_record.user_id == "alice",
         "scope record is for another owner"
     );
     ensure!(
@@ -375,16 +390,30 @@ fn check_private(fx: &Value) -> Result<()> {
             && scope_record.auth_public == alice.auth_public,
         "scope record holds other keys"
     );
-    let opened = private::open_dedup(&alice.x25519_secret, LUNA_ID, scope, &scope_record.sealed_dedup)?;
+    let opened = private::open_dedup(
+        &alice.x25519_secret,
+        LUNA_ID,
+        scope,
+        &scope_record.sealed_dedup,
+    )?;
     ensure!(opened == dedup_key, "alice opened a different dedup key");
     ensure!(
-        private::open_dedup(&bob.x25519_secret, LUNA_ID, scope, &scope_record.sealed_dedup).is_err(),
+        private::open_dedup(
+            &bob.x25519_secret,
+            LUNA_ID,
+            scope,
+            &scope_record.sealed_dedup
+        )
+        .is_err(),
         "bob opened alice's private dedup key"
     );
 
     // Snapshot record: signed under the private snapshot domain.
-    let signed =
-        SignedRecord::from_bytes(&record(p, "psnapshots", &private::psnapshot_name(scope, snapshot_id))?)?;
+    let signed = SignedRecord::from_bytes(&record(
+        p,
+        "psnapshots",
+        &private::psnapshot_name(scope, snapshot_id),
+    )?)?;
     let snap = signed.verify_with(&luna_public, private::PRIVATE_SNAPSHOT_DOMAIN)?;
     ensure!(
         snap.protection_id == field(p, "protection_id")? && snap.snapshot_id == snapshot_id,
@@ -392,7 +421,8 @@ fn check_private(fx: &Value) -> Result<()> {
     );
 
     // Packs and tree: alice's secret unwraps the pack keys.
-    let unwrap = |wrapped: &[u8]| private::open_pack_key(&alice.x25519_secret, LUNA_ID, scope, wrapped);
+    let unwrap =
+        |wrapped: &[u8]| private::open_pack_key(&alice.x25519_secret, LUNA_ID, scope, wrapped);
     let mut packs: HashMap<[u8; 32], OpenedPack> = HashMap::new();
     for pack_field in ["tree_pack_id", "data_pack_id"] {
         let id = unhex32(field(p, pack_field)?)?;
@@ -406,14 +436,20 @@ fn check_private(fx: &Value) -> Result<()> {
     let tree_bytes = packs[&snap.tree_pack_id]
         .chunk(&snap.tree_hash)
         .ok_or_else(|| anyhow!("tree pack does not hold the tree"))?;
-    ensure!(format::sha256(tree_bytes) == snap.tree_hash, "tree hash does not match");
+    ensure!(
+        format::sha256(tree_bytes) == snap.tree_hash,
+        "tree hash does not match"
+    );
     let tree = private::open_tree(&alice.x25519_secret, LUNA_ID, scope, tree_bytes)?;
 
     // Files: every chunk matches its id and the bytes equal the expected files.
     let expected = p["expected"]["files"]
         .as_object()
         .ok_or_else(|| anyhow!("private section has no expected files"))?;
-    ensure!(tree.entries.len() == expected.len(), "private file count differs");
+    ensure!(
+        tree.entries.len() == expected.len(),
+        "private file count differs"
+    );
     for entry in &tree.entries {
         let mut body = Vec::new();
         for chunk in &entry.chunks {
@@ -423,7 +459,11 @@ fn check_private(fx: &Value) -> Result<()> {
             let bytes = pack
                 .chunk(&chunk.id)
                 .ok_or_else(|| anyhow!("chunk missing for {}", entry.path))?;
-            ensure!(crypto::chunk_id(&dedup_key, bytes) == chunk.id, "chunk id differs for {}", entry.path);
+            ensure!(
+                crypto::chunk_id(&dedup_key, bytes) == chunk.id,
+                "chunk id differs for {}",
+                entry.path
+            );
             body.extend_from_slice(bytes);
         }
         let want = expected
@@ -435,7 +475,10 @@ fn check_private(fx: &Value) -> Result<()> {
 
     // Metadata: decrypts to the expected values.
     let meta = private::open_meta(&alice.x25519_secret, LUNA_ID, scope, &snap.meta)?;
-    ensure!(serde_json::to_value(&meta)? == p["expected"]["meta"], "private metadata differs");
+    ensure!(
+        serde_json::to_value(&meta)? == p["expected"]["meta"],
+        "private metadata differs"
+    );
 
     // Connect open: alice's auth key signs the challenge under the private open domain.
     let challenge = unhex32(field(p, "challenge")?)?;

@@ -8,7 +8,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::Deserialize;
 
-use super::crypto::{pack_id, Signer};
+use super::crypto::{Signer, pack_id};
 
 /// Largest pack Connect accepts.
 pub const MAX_PACK_BYTES: usize = 64 * 1024 * 1024;
@@ -23,8 +23,7 @@ const JSON_TIMEOUT: Duration = Duration::from_secs(20);
 /// Pack uploads and downloads can be up to 64 MB on a slow line.
 const PACK_TIMEOUT: Duration = Duration::from_secs(300);
 
-const UNREACHABLE_MSG: &str =
-    "Luna could not reach Luna Connect. Check this Luna's internet connection. Luna will try again.";
+const UNREACHABLE_MSG: &str = "Luna could not reach Luna Connect. Check this Luna's internet connection. Luna will try again.";
 const SERVER_MSG: &str =
     "Luna Connect could not save or load your backup right now. Luna will try again.";
 const REFUSED_MSG: &str = "Luna Connect refused that request.";
@@ -692,14 +691,21 @@ mod tests {
         let mut msg = LUNA.as_bytes().to_vec();
         msg.push(0);
         msg.extend_from_slice(ts.as_bytes());
-        assert!(crate::backup::cloud::crypto::verify(&public, "move", &msg, &sig));
+        assert!(crate::backup::cloud::crypto::verify(
+            &public, "move", &msg, &sig
+        ));
         // The signature covers the timestamp, so a changed time must not verify.
         let mut later = LUNA.as_bytes().to_vec();
         later.push(0);
         later.extend_from_slice((ts.parse::<u64>().unwrap() + 1).to_string().as_bytes());
-        assert!(!crate::backup::cloud::crypto::verify(&public, "move", &later, &sig));
+        assert!(!crate::backup::cloud::crypto::verify(
+            &public, "move", &later, &sig
+        ));
         // The timestamp is Luna's clock in seconds, close to now.
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
         assert!(ts.parse::<u64>().unwrap().abs_diff(now) < 60);
     }
 
@@ -727,7 +733,10 @@ mod tests {
         )));
         assert!(head.contains("x-luna-scope: photos"));
         assert!(head.contains(&format!("x-luna-id: {LUNA}")));
-        assert!(head.contains(&format!("authorization: bearer {}", TOKEN.to_ascii_lowercase())));
+        assert!(head.contains(&format!(
+            "authorization: bearer {}",
+            TOKEN.to_ascii_lowercase()
+        )));
         assert!(seen[0].ends_with(&format!("body={}", bytes.len())));
     }
 
@@ -735,7 +744,9 @@ mod tests {
     fn http_507_is_full() {
         let bytes = b"sealed pack";
         let (base, server) = serve(vec![(507, r#"{"error":"Your cloud storage is full."}"#)]);
-        let err = http(&base).put_pack(&id_of(bytes), None, bytes).unwrap_err();
+        let err = http(&base)
+            .put_pack(&id_of(bytes), None, bytes)
+            .unwrap_err();
         server.join().unwrap();
         assert_eq!(err, StoreError::Full);
     }
@@ -747,7 +758,9 @@ mod tests {
             400,
             r#"{"error":"This pack's checksum does not match its contents."}"#,
         )]);
-        let err = http(&base).put_pack(&id_of(bytes), None, bytes).unwrap_err();
+        let err = http(&base)
+            .put_pack(&id_of(bytes), None, bytes)
+            .unwrap_err();
         server.join().unwrap();
         assert_eq!(
             err,
@@ -792,16 +805,15 @@ mod tests {
                 quota_bytes: 0
             }
         );
-        assert!(matches!(
-            store.usage(),
-            Err(StoreError::Unavailable(_))
-        ));
+        assert!(matches!(store.usage(), Err(StoreError::Unavailable(_))));
         server.join().unwrap();
     }
 
     #[test]
     fn http_unreachable_is_unavailable() {
-        let err = http("http://127.0.0.1:1").get_pack(&id_of(b"x")).unwrap_err();
+        let err = http("http://127.0.0.1:1")
+            .get_pack(&id_of(b"x"))
+            .unwrap_err();
         assert!(matches!(err, StoreError::Unavailable(_)));
     }
 }

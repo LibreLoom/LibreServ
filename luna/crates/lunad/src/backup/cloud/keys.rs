@@ -6,7 +6,7 @@
 //! Each recipient gets their own sealed copy of the version's keys, and one signed record lists
 //! who the version was sealed to, so a browser can check it before trusting anything.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use rand_core::{OsRng, RngCore};
 use rusqlite::Connection;
 use serde_json::json;
@@ -94,7 +94,12 @@ fn key_copy_message(aad: &[u8], sealed: &[u8]) -> Vec<u8> {
 }
 
 /// Signed bytes for the recipient list: the same binding as the key copies, plus the sorted list.
-fn recipients_message(luna_id: &str, protection_id: &str, version: i64, users: &[String]) -> Vec<u8> {
+fn recipients_message(
+    luna_id: &str,
+    protection_id: &str,
+    version: i64,
+    users: &[String],
+) -> Vec<u8> {
     crypto::canonical(&[
         ("luna_id", luna_id.as_bytes()),
         ("protection_id", protection_id.as_bytes()),
@@ -115,7 +120,12 @@ fn readers_json(conn: &Connection, recipients: &Recipients) -> Result<serde_json
     let mut readers = Vec::with_capacity(recipients.users.len());
     for user in &recipients.users {
         let public = db::get_user_keys(conn, user)?
-            .map(|keys| keys.x25519_public.iter().map(|b| format!("{b:02x}")).collect::<String>())
+            .map(|keys| {
+                keys.x25519_public
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect::<String>()
+            })
             .unwrap_or_default();
         readers.push(json!({ "user_id": user, "x25519_public": public }));
     }
@@ -230,7 +240,12 @@ pub fn open_key(
     let (sealed, sig_bytes) = record.split_at(record.len() - KEY_COPY_SIG_LEN);
     let mut signature = [0u8; KEY_COPY_SIG_LEN];
     signature.copy_from_slice(sig_bytes);
-    if !crypto::verify(luna_public, KEY_COPY_DOMAIN, &key_copy_message(&aad, sealed), &signature) {
+    if !crypto::verify(
+        luna_public,
+        KEY_COPY_DOMAIN,
+        &key_copy_message(&aad, sealed),
+        &signature,
+    ) {
         bail!("This backup key copy was not made by this Luna. It may have been changed.");
     }
     let plain = crypto::open(user_secret, &aad, sealed)?;
@@ -407,7 +422,9 @@ mod tests {
         recipients: &Recipients,
         pubs: &HashMap<String, [u8; 32]>,
     ) -> Result<()> {
-        publish_key(store, signer, LUNA, PROTECTION, key, recipients, |u| pubs.get(u).copied())
+        publish_key(store, signer, LUNA, PROTECTION, key, recipients, |u| {
+            pubs.get(u).copied()
+        })
     }
 
     #[test]
@@ -424,7 +441,8 @@ mod tests {
         let (_dir, conn) = conn();
         let v1 = ensure_key(&conn, PROTECTION, &set(&["a"]), 10).unwrap();
         let record = recipients_meta_key(PROTECTION, 1);
-        conn.execute("DELETE FROM meta WHERE key = ?1", [record.as_str()]).unwrap();
+        conn.execute("DELETE FROM meta WHERE key = ?1", [record.as_str()])
+            .unwrap();
 
         let v2 = ensure_key(&conn, PROTECTION, &set(&["a"]), 20).unwrap();
         assert_eq!(v2.version, 2);
@@ -443,7 +461,10 @@ mod tests {
         assert_ne!(removed.dedup_key, v1.dedup_key);
         let added = ensure_key(&conn, PROTECTION, &set(&["a", "c"]), 30).unwrap();
         assert_eq!(added.version, 3);
-        assert_eq!(db::latest_backup_key(&conn, PROTECTION).unwrap(), Some(added));
+        assert_eq!(
+            db::latest_backup_key(&conn, PROTECTION).unwrap(),
+            Some(added)
+        );
     }
 
     #[test]
@@ -462,7 +483,10 @@ mod tests {
         let v1 = ensure_key(&conn, PROTECTION, &set(&["alice"]), 10).unwrap();
 
         // Same user, same phrase: same version.
-        assert_eq!(ensure_key(&conn, PROTECTION, &set(&["alice"]), 20).unwrap(), v1);
+        assert_eq!(
+            ensure_key(&conn, PROTECTION, &set(&["alice"]), 20).unwrap(),
+            v1
+        );
 
         // Same user, new phrase (new X25519 key): new version.
         alice_row.x25519_public = user_keys("alice-new").x25519_public.to_vec();
@@ -496,24 +520,67 @@ mod tests {
             .get_record(KEYS_KIND, &key_record_name(PROTECTION, 2, "alice"))
             .unwrap()
             .unwrap();
-        let (key, dedup) =
-            open_key(&sealed, &alice.x25519_secret, &signer.public(), LUNA, PROTECTION, 2, "alice").unwrap();
+        let (key, dedup) = open_key(
+            &sealed,
+            &alice.x25519_secret,
+            &signer.public(),
+            LUNA,
+            PROTECTION,
+            2,
+            "alice",
+        )
+        .unwrap();
         assert_eq!(key.to_vec(), v2.key);
         assert_eq!(dedup.to_vec(), v2.dedup_key);
 
-        assert!(store
-            .get_record(KEYS_KIND, &key_record_name(PROTECTION, 2, "bob"))
-            .unwrap()
-            .is_none());
+        assert!(
+            store
+                .get_record(KEYS_KIND, &key_record_name(PROTECTION, 2, "bob"))
+                .unwrap()
+                .is_none()
+        );
         // Bob's old copy stays for version 1 only.
         let old = store
             .get_record(KEYS_KIND, &key_record_name(PROTECTION, 1, "bob"))
             .unwrap()
             .unwrap();
-        assert!(open_key(&old, &bob.x25519_secret, &signer.public(), LUNA, PROTECTION, 1, "bob").is_ok());
+        assert!(
+            open_key(
+                &old,
+                &bob.x25519_secret,
+                &signer.public(),
+                LUNA,
+                PROTECTION,
+                1,
+                "bob"
+            )
+            .is_ok()
+        );
         // A copy cannot be opened under another version or user id.
-        assert!(open_key(&old, &bob.x25519_secret, &signer.public(), LUNA, PROTECTION, 2, "bob").is_err());
-        assert!(open_key(&sealed, &bob.x25519_secret, &signer.public(), LUNA, PROTECTION, 2, "alice").is_err());
+        assert!(
+            open_key(
+                &old,
+                &bob.x25519_secret,
+                &signer.public(),
+                LUNA,
+                PROTECTION,
+                2,
+                "bob"
+            )
+            .is_err()
+        );
+        assert!(
+            open_key(
+                &sealed,
+                &bob.x25519_secret,
+                &signer.public(),
+                LUNA,
+                PROTECTION,
+                2,
+                "alice"
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -529,7 +596,15 @@ mod tests {
         let name = key_record_name(PROTECTION, 1, "alice");
         let record = store.get_record(KEYS_KIND, &name).unwrap().unwrap();
         let open = |bytes: &[u8], public: &[u8; 32]| {
-            open_key(bytes, &alice.x25519_secret, public, LUNA, PROTECTION, 1, "alice")
+            open_key(
+                bytes,
+                &alice.x25519_secret,
+                public,
+                LUNA,
+                PROTECTION,
+                1,
+                "alice",
+            )
         };
 
         // The stored copy opens with Luna's public key.
@@ -571,7 +646,9 @@ mod tests {
         let altered = String::from_utf8(bytes.clone())
             .unwrap()
             .replace("\"alice\"", "\"mallory\"");
-        assert!(verify_recipients(altered.as_bytes(), &signer.public(), LUNA, PROTECTION, 1).is_none());
+        assert!(
+            verify_recipients(altered.as_bytes(), &signer.public(), LUNA, PROTECTION, 1).is_none()
+        );
     }
 
     #[test]
@@ -589,7 +666,10 @@ mod tests {
     fn user_part_is_a_safe_record_name() {
         let part = user_record_part("Alice Smith@example");
         assert_eq!(part.len(), 32);
-        assert!(part.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+        assert!(
+            part.chars()
+                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+        );
     }
 
     #[test]
@@ -599,12 +679,25 @@ mod tests {
         let alice = user_keys("alice");
         let bob = user_keys("bob");
         let users = vec![
-            ("alice".to_string(), alice.x25519_public, alice.auth_public, vec![7u8; 48]),
-            ("bob".to_string(), bob.x25519_public, bob.auth_public, vec![8u8; 48]),
+            (
+                "alice".to_string(),
+                alice.x25519_public,
+                alice.auth_public,
+                vec![7u8; 48],
+            ),
+            (
+                "bob".to_string(),
+                bob.x25519_public,
+                bob.auth_public,
+                vec![8u8; 48],
+            ),
         ];
         publish_user_list(&store, &signer, LUNA, &users).unwrap();
 
-        let bytes = store.get_record(USERS_KIND, USERS_LIST_NAME).unwrap().unwrap();
+        let bytes = store
+            .get_record(USERS_KIND, USERS_LIST_NAME)
+            .unwrap()
+            .unwrap();
         let listed = verify_user_list(&bytes, &signer.public(), LUNA).unwrap();
         assert_eq!(listed.len(), 2);
         assert_eq!(listed[0].user_id, "alice");
@@ -638,8 +731,18 @@ mod tests {
         let signer = crypto::Signer::generate();
         let alice = user_keys("alice");
         let users = vec![
-            ("alice".to_string(), alice.x25519_public, alice.auth_public, vec![7u8; 48]),
-            ("alice-again".to_string(), alice.x25519_public, alice.auth_public, vec![7u8; 48]),
+            (
+                "alice".to_string(),
+                alice.x25519_public,
+                alice.auth_public,
+                vec![7u8; 48],
+            ),
+            (
+                "alice-again".to_string(),
+                alice.x25519_public,
+                alice.auth_public,
+                vec![7u8; 48],
+            ),
         ];
         assert!(publish_user_list(&store, &signer, LUNA, &users).is_err());
     }

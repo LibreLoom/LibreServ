@@ -1539,7 +1539,10 @@ pub fn insert_pending_pack(
 
 /// Record the real byte size of a pack once it is sealed, so storage totals are not zero.
 pub fn record_pack_size(conn: &Connection, id: &str, size: i64) -> anyhow::Result<()> {
-    conn.execute("UPDATE cloud_packs SET size = ?2 WHERE id = ?1", params![id, size])?;
+    conn.execute(
+        "UPDATE cloud_packs SET size = ?2 WHERE id = ?1",
+        params![id, size],
+    )?;
     Ok(())
 }
 
@@ -1553,9 +1556,8 @@ pub fn set_pack_live(conn: &Connection, id: &str, size: i64) -> anyhow::Result<(
 
 /// Ids of packs in one scope with the given state.
 pub fn list_packs(conn: &Connection, scope: &str, state: &str) -> anyhow::Result<Vec<String>> {
-    let mut stmt = conn.prepare(
-        "SELECT id FROM cloud_packs WHERE scope = ?1 AND state = ?2 ORDER BY id",
-    )?;
+    let mut stmt =
+        conn.prepare("SELECT id FROM cloud_packs WHERE scope = ?1 AND state = ?2 ORDER BY id")?;
     let rows = stmt
         .query_map(params![scope, state], |r| r.get(0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -1703,9 +1705,8 @@ pub fn end_run(conn: &Connection, id: &str, now: i64) -> anyhow::Result<()> {
 
 /// Ids of runs in one scope that have not ended yet.
 pub fn open_runs(conn: &Connection, scope: &str) -> anyhow::Result<Vec<String>> {
-    let mut stmt = conn.prepare(
-        "SELECT id FROM cloud_runs WHERE scope = ?1 AND ended_at = 0 ORDER BY id",
-    )?;
+    let mut stmt =
+        conn.prepare("SELECT id FROM cloud_runs WHERE scope = ?1 AND ended_at = 0 ORDER BY id")?;
     let rows = stmt
         .query_map(params![scope], |r| r.get(0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -1885,7 +1886,10 @@ pub fn get_private_scope(conn: &Connection, scope: &str) -> anyhow::Result<Optio
 }
 
 /// The owner's newest scope that is still `active`.
-pub fn active_private_scope(conn: &Connection, owner: &str) -> anyhow::Result<Option<PrivateScope>> {
+pub fn active_private_scope(
+    conn: &Connection,
+    owner: &str,
+) -> anyhow::Result<Option<PrivateScope>> {
     let sql = format!(
         "SELECT {PRIVATE_SCOPE_COLUMNS} FROM cloud_private_scopes
          WHERE owner = ?1 AND state = 'active' ORDER BY created_at DESC LIMIT 1"
@@ -2537,10 +2541,18 @@ mod tests {
         assert_eq!((state.as_str(), marked_at), ("marked", 500));
         assert!(find_chunk(&conn, "s", b"chunk-a").unwrap().is_none());
         let live: String = conn
-            .query_row("SELECT state FROM cloud_packs WHERE id = 'committed'", [], |r| r.get(0))
+            .query_row(
+                "SELECT state FROM cloud_packs WHERE id = 'committed'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(live, "live", "committed packs are left alone");
-        assert_eq!(recover_interrupted_runs(&conn, 600).unwrap(), 0, "nothing left to end");
+        assert_eq!(
+            recover_interrupted_runs(&conn, 600).unwrap(),
+            0,
+            "nothing left to end"
+        );
     }
 
     #[test]
@@ -2955,9 +2967,11 @@ mod tests {
     }
 
     fn pack_state(conn: &Connection, id: &str) -> String {
-        conn.query_row("SELECT state FROM cloud_packs WHERE id = ?1", params![id], |r| {
-            r.get(0)
-        })
+        conn.query_row(
+            "SELECT state FROM cloud_packs WHERE id = ?1",
+            params![id],
+            |r| r.get(0),
+        )
         .unwrap()
     }
 
@@ -3045,12 +3059,18 @@ mod tests {
         );
         assert!(find_chunk(&conn, "other", &[1]).unwrap().is_none());
         // No snapshot uses p1, so marking it hides its chunks from dedup.
-        assert_eq!(mark_unused_packs_tx(&mut conn, "s", 1000).unwrap(), vec!["p1"]);
+        assert_eq!(
+            mark_unused_packs_tx(&mut conn, "s", 1000).unwrap(),
+            vec!["p1"]
+        );
         assert!(find_chunk(&conn, "s", &[1]).unwrap().is_none());
         // A deleting pack is hidden too.
         commit_snapshot_tx(&mut conn, &cloud_snap("snap1", "prot", 1), &["p1".into()]).unwrap();
-        conn.execute("UPDATE cloud_packs SET state = 'deleting' WHERE id = 'p1'", [])
-            .unwrap();
+        conn.execute(
+            "UPDATE cloud_packs SET state = 'deleting' WHERE id = 'p1'",
+            [],
+        )
+        .unwrap();
         assert!(find_chunk(&conn, "s", &[1]).unwrap().is_none());
     }
 
@@ -3061,7 +3081,10 @@ mod tests {
         live_pack(&conn, "p1", "s");
         live_pack(&conn, "p2", "s");
         commit_snapshot_tx(&mut conn, &cloud_snap("snap1", "prot", 1), &["p1".into()]).unwrap();
-        assert_eq!(mark_unused_packs_tx(&mut conn, "s", 1000).unwrap(), vec!["p2"]);
+        assert_eq!(
+            mark_unused_packs_tx(&mut conn, "s", 1000).unwrap(),
+            vec!["p2"]
+        );
         assert_eq!(pack_state(&conn, "p2"), "marked");
 
         // A new snapshot that uses marked p2 brings it back to live.
@@ -3072,7 +3095,11 @@ mod tests {
         )
         .unwrap();
         assert_eq!(pack_state(&conn, "p2"), "live");
-        assert!(mark_unused_packs_tx(&mut conn, "s", 2000).unwrap().is_empty());
+        assert!(
+            mark_unused_packs_tx(&mut conn, "s", 2000)
+                .unwrap()
+                .is_empty()
+        );
         assert!(deletable_packs(&conn, "s", 1_000_000).unwrap().is_empty());
         assert_eq!(list_cloud_snapshots(&conn, "prot").unwrap().len(), 2);
     }
@@ -3082,8 +3109,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut conn = open(&dir.path().join("luna.db")).unwrap();
         live_pack(&conn, "p1", "s");
-        conn.execute("UPDATE cloud_packs SET state = 'deleting' WHERE id = 'p1'", [])
-            .unwrap();
+        conn.execute(
+            "UPDATE cloud_packs SET state = 'deleting' WHERE id = 'p1'",
+            [],
+        )
+        .unwrap();
         let err = commit_snapshot_tx(&mut conn, &cloud_snap("snap1", "prot", 1), &["p1".into()]);
         assert!(err.is_err());
         assert!(list_cloud_snapshots(&conn, "prot").unwrap().is_empty());
@@ -3113,9 +3143,20 @@ mod tests {
         let mut conn = open(&dir.path().join("luna.db")).unwrap();
         live_pack(&conn, "p1", "s");
         mark_unused_packs_tx(&mut conn, "s", 1000).unwrap();
-        assert!(deletable_packs(&conn, "s", 1000 + 86399).unwrap().is_empty());
-        assert_eq!(deletable_packs(&conn, "s", 1000 + 86400).unwrap(), vec!["p1"]);
-        assert!(deletable_packs(&conn, "other", 1000 + 86400).unwrap().is_empty());
+        assert!(
+            deletable_packs(&conn, "s", 1000 + 86399)
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            deletable_packs(&conn, "s", 1000 + 86400).unwrap(),
+            vec!["p1"]
+        );
+        assert!(
+            deletable_packs(&conn, "other", 1000 + 86400)
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -3126,9 +3167,16 @@ mod tests {
         start_run(&conn, "old", "prot", "s", 500).unwrap();
         mark_unused_packs_tx(&mut conn, "s", 1000).unwrap();
         // The run started before the mark and is still open, so it may still use p1.
-        assert!(deletable_packs(&conn, "s", 1000 + 86400).unwrap().is_empty());
+        assert!(
+            deletable_packs(&conn, "s", 1000 + 86400)
+                .unwrap()
+                .is_empty()
+        );
         end_run(&conn, "old", 1500).unwrap();
-        assert_eq!(deletable_packs(&conn, "s", 1000 + 86400).unwrap(), vec!["p1"]);
+        assert_eq!(
+            deletable_packs(&conn, "s", 1000 + 86400).unwrap(),
+            vec!["p1"]
+        );
     }
 
     #[test]
@@ -3139,7 +3187,10 @@ mod tests {
         mark_unused_packs_tx(&mut conn, "s", 1000).unwrap();
         start_run(&conn, "later", "prot", "s", 2000).unwrap();
         start_run(&conn, "elsewhere", "prot2", "other", 500).unwrap();
-        assert_eq!(deletable_packs(&conn, "s", 1000 + 86400).unwrap(), vec!["p1"]);
+        assert_eq!(
+            deletable_packs(&conn, "s", 1000 + 86400).unwrap(),
+            vec!["p1"]
+        );
     }
 
     #[test]
@@ -3257,9 +3308,18 @@ mod tests {
         let mut conn = open(&dir.path().join("luna.db")).unwrap();
         insert_protection(&conn, &new_protection("prot", "d1", "docs")).unwrap();
         live_pack(&conn, "pk1", "scope-a");
-        commit_private_snapshot_tx(&mut conn, &cloud_snap("ps1", "prot", 5), &["pk1".to_string()], "scope-a", b"{}").unwrap();
+        commit_private_snapshot_tx(
+            &mut conn,
+            &cloud_snap("ps1", "prot", 5),
+            &["pk1".to_string()],
+            "scope-a",
+            b"{}",
+        )
+        .unwrap();
         assert_eq!(count_shared_cloud_snapshots(&conn).unwrap(), 0);
-        let n: i64 = conn.query_row("SELECT COUNT(*) FROM cloud_snapshots", [], |r| r.get(0)).unwrap();
+        let n: i64 = conn
+            .query_row("SELECT COUNT(*) FROM cloud_snapshots", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(n, 1);
     }
 
@@ -3270,8 +3330,14 @@ mod tests {
         insert_protection(&conn, &new_protection("prot", "d1", "docs")).unwrap();
         insert_private_scope(&conn, &private_scope("scope-a", "u1", 1)).unwrap();
         live_pack(&conn, "pk1", "scope-a");
-        commit_private_snapshot_tx(&mut conn, &cloud_snap("ps1", "prot", 5), &["pk1".to_string()], "scope-a", b"{}")
-            .unwrap();
+        commit_private_snapshot_tx(
+            &mut conn,
+            &cloud_snap("ps1", "prot", 5),
+            &["pk1".to_string()],
+            "scope-a",
+            b"{}",
+        )
+        .unwrap();
 
         delete_private_scope(&conn, "scope-a").unwrap();
         assert!(get_private_scope(&conn, "scope-a").unwrap().is_none());

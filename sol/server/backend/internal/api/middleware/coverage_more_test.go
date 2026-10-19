@@ -15,8 +15,10 @@ import (
 
 func TestLeakyBucketRefillAndExhaustion(t *testing.T) {
 	bucket := NewLeakyBucket(2, 60)
-	if !bucket.Allow() || !bucket.Allow() {
-		t.Fatal("initial burst tokens were not available")
+	for i := 0; i < 2; i++ {
+		if !bucket.Allow() {
+			t.Fatal("initial burst tokens were not available")
+		}
 	}
 	if bucket.Allow() {
 		t.Fatal("exhausted bucket allowed another request")

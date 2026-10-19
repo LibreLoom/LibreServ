@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use std::io::Read;
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -41,7 +41,8 @@ const SNAPSHOT_DOMAIN: &str = "snapshot";
 pub fn chunks(data: &mut impl Read, mut f: impl FnMut(&[u8]) -> Result<()>) -> Result<()> {
     let chunker = fastcdc::v2020::StreamCDC::new(data, CHUNK_MIN, CHUNK_AVG, CHUNK_MAX);
     for chunk in chunker {
-        let chunk = chunk.map_err(|e| anyhow!("Could not split a file into pieces for backup: {e}"))?;
+        let chunk =
+            chunk.map_err(|e| anyhow!("Could not split a file into pieces for backup: {e}"))?;
         f(&chunk.data)?;
     }
     Ok(())
@@ -56,7 +57,11 @@ pub struct PackBuilder {
 
 impl PackBuilder {
     pub fn new(scope_id: [u8; 32]) -> Self {
-        Self { scope_id, plain: Vec::new(), entries: Vec::new() }
+        Self {
+            scope_id,
+            plain: Vec::new(),
+            entries: Vec::new(),
+        }
     }
 
     /// Append one chunk and return where it sits in the pack's plain body.
@@ -91,7 +96,8 @@ impl PackBuilder {
 
         // Layout: version (1) ‖ wrapped key len (u32 BE) ‖ wrapped key ‖ index len (u32 BE) ‖
         // sealed index ‖ sealed body (the body runs to the end of the pack).
-        let mut bytes = Vec::with_capacity(1 + 4 + wrapped.len() + 4 + sealed_index.len() + body.len());
+        let mut bytes =
+            Vec::with_capacity(1 + 4 + wrapped.len() + 4 + sealed_index.len() + body.len());
         bytes.push(PACK_VERSION);
         push_len(&mut bytes, wrapped.len());
         bytes.extend_from_slice(&wrapped);
@@ -168,7 +174,11 @@ pub fn open_pack(
         }
         map.insert(chunk_id, (offset, len));
     }
-    Ok(OpenedPack { scope_id, plain, index: map })
+    Ok(OpenedPack {
+        scope_id,
+        plain,
+        index: map,
+    })
 }
 
 fn encode_index(scope_id: &[u8; 32], entries: &[([u8; 32], u64, u32)]) -> Vec<u8> {
@@ -184,13 +194,25 @@ fn encode_index(scope_id: &[u8; 32], entries: &[([u8; 32], u64, u32)]) -> Vec<u8
 }
 
 fn decode_index(mut rest: &[u8]) -> Result<([u8; 32], Vec<IndexEntry>)> {
-    let scope_id: [u8; 32] = take(&mut rest, 32)?.try_into().expect("take returns 32 bytes");
+    let scope_id: [u8; 32] = take(&mut rest, 32)?
+        .try_into()
+        .expect("take returns 32 bytes");
     let count = take_len(&mut rest)?;
     let mut entries = Vec::with_capacity(count.min(1 << 20));
     for _ in 0..count {
-        let chunk_id: [u8; 32] = take(&mut rest, 32)?.try_into().expect("take returns 32 bytes");
-        let offset = u64::from_be_bytes(take(&mut rest, 8)?.try_into().expect("take returns 8 bytes"));
-        let len = u32::from_be_bytes(take(&mut rest, 4)?.try_into().expect("take returns 4 bytes"));
+        let chunk_id: [u8; 32] = take(&mut rest, 32)?
+            .try_into()
+            .expect("take returns 32 bytes");
+        let offset = u64::from_be_bytes(
+            take(&mut rest, 8)?
+                .try_into()
+                .expect("take returns 8 bytes"),
+        );
+        let len = u32::from_be_bytes(
+            take(&mut rest, 4)?
+                .try_into()
+                .expect("take returns 4 bytes"),
+        );
         entries.push((chunk_id, offset, len));
     }
     if !rest.is_empty() {
@@ -253,7 +275,8 @@ pub fn encrypt_tree(tree: &Tree, key: &[u8; 32]) -> Vec<u8> {
 
 pub fn decrypt_tree(sealed: &[u8], key: &[u8; 32]) -> Result<Tree> {
     let json = crypto::decrypt(key, TREE_AAD, sealed)?;
-    serde_json::from_slice(&json).map_err(|_| anyhow!("This backup's file list could not be read. It may be damaged."))
+    serde_json::from_slice(&json)
+        .map_err(|_| anyhow!("This backup's file list could not be read. It may be damaged."))
 }
 
 /// What a recovery needs to rebuild a backup's row: its name, where it came from, and who started it.
@@ -276,7 +299,8 @@ pub fn encrypt_meta(meta: &BackupMeta, key: &[u8; 32]) -> Vec<u8> {
 
 pub fn decrypt_meta(sealed: &[u8], key: &[u8; 32]) -> Result<BackupMeta> {
     let json = crypto::decrypt(key, META_AAD, sealed)?;
-    serde_json::from_slice(&json).map_err(|_| anyhow!("This backup's details could not be read. It may be damaged."))
+    serde_json::from_slice(&json)
+        .map_err(|_| anyhow!("This backup's details could not be read. It may be damaged."))
 }
 
 /// One signed record per snapshot. Luna signs it so Connect cannot roll back, swap or regroup backups.
@@ -319,7 +343,10 @@ impl SnapshotRecord {
     /// Sign under `domain`. Private snapshots use their own domain so a shared signature never passes for one.
     pub fn sign_with(self, signer: &Signer, domain: &str) -> SignedRecord {
         let signature = signer.sign(domain, &self.signed_bytes());
-        SignedRecord { record: self, signature }
+        SignedRecord {
+            record: self,
+            signature,
+        }
     }
 }
 
@@ -340,7 +367,9 @@ impl SignedRecord {
     /// Check the signature made under `domain` against `public`.
     pub fn verify_with(&self, public: &[u8; 32], domain: &str) -> Result<SnapshotRecord> {
         if !crypto::verify(public, domain, &self.record.signed_bytes(), &self.signature) {
-            bail!("This snapshot's signature does not match. It was changed, or signed by a different key.");
+            bail!(
+                "This snapshot's signature does not match. It was changed, or signed by a different key."
+            );
         }
         Ok(self.record.clone())
     }
@@ -350,7 +379,8 @@ impl SignedRecord {
     }
 
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
-        serde_json::from_slice(bytes).map_err(|_| anyhow!("This snapshot record could not be read. It may be damaged."))
+        serde_json::from_slice(bytes)
+            .map_err(|_| anyhow!("This snapshot record could not be read. It may be damaged."))
     }
 }
 
@@ -363,7 +393,9 @@ pub(crate) mod hex_fixed {
         s.serialize_str(&super::hex_encode(value.as_ref()))
     }
 
-    pub fn deserialize<'de, D: Deserializer<'de>, T: TryFrom<Vec<u8>>>(d: D) -> Result<T, D::Error> {
+    pub fn deserialize<'de, D: Deserializer<'de>, T: TryFrom<Vec<u8>>>(
+        d: D,
+    ) -> Result<T, D::Error> {
         let text = String::deserialize(d)?;
         let bytes = super::hex_decode(&text).map_err(D::Error::custom)?;
         T::try_from(bytes).map_err(|_| D::Error::custom("a hex field has the wrong length"))
@@ -409,8 +441,8 @@ pub fn sha256(bytes: &[u8]) -> [u8; 32] {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::private::PRIVATE_SNAPSHOT_DOMAIN;
+    use super::*;
 
     /// A chunk id with its plain bytes.
     type ChunkPiece = ([u8; 32], Vec<u8>);
@@ -537,8 +569,18 @@ mod tests {
                 size: 2048,
                 mtime: 1_700_000_000,
                 chunks: vec![
-                    ChunkRef { id: [1u8; 32], pack: [9u8; 32], offset: 0, len: 1024 },
-                    ChunkRef { id: [2u8; 32], pack: [9u8; 32], offset: 1024, len: 1024 },
+                    ChunkRef {
+                        id: [1u8; 32],
+                        pack: [9u8; 32],
+                        offset: 0,
+                        len: 1024,
+                    },
+                    ChunkRef {
+                        id: [2u8; 32],
+                        pack: [9u8; 32],
+                        offset: 1024,
+                        len: 1024,
+                    },
                 ],
             }],
         };
@@ -623,6 +665,11 @@ mod tests {
         let signed = sample_record().sign_with(&signer, PRIVATE_SNAPSHOT_DOMAIN);
 
         assert!(signed.verify(&public).is_err());
-        assert_eq!(signed.verify_with(&public, PRIVATE_SNAPSHOT_DOMAIN).unwrap(), sample_record());
+        assert_eq!(
+            signed
+                .verify_with(&public, PRIVATE_SNAPSHOT_DOMAIN)
+                .unwrap(),
+            sample_record()
+        );
     }
 }

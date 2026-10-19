@@ -7,8 +7,8 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::MutexGuard;
 
-use anyhow::{bail, Result};
-use rusqlite::{params, Connection, OptionalExtension};
+use anyhow::{Result, bail};
+use rusqlite::{Connection, OptionalExtension, params};
 
 use super::crypto::Signer;
 use crate::db;
@@ -54,7 +54,10 @@ pub fn load(conn: &Connection) -> Result<Option<Identity>> {
     let Ok(seed) = <[u8; 32]>::try_from(row.signing_seed.as_slice()) else {
         bail!("The cloud signing key stored on this Luna is damaged. Contact your Admin.");
     };
-    Ok(Some(Identity { luna_id: row.luna_id, signer: Signer::from_seed(seed) }))
+    Ok(Some(Identity {
+        luna_id: row.luna_id,
+        signer: Signer::from_seed(seed),
+    }))
 }
 
 /// The stored identity, or a new one minted and saved now. A new identity is copied
@@ -111,7 +114,13 @@ pub fn load_or_create_connected(
         match recovered {
             Some((luna_id, seed, created_at)) => {
                 db::set_cloud_identity(&conn, &luna_id, &seed, created_at)?;
-                (Identity { luna_id, signer: Signer::from_seed(seed) }, false)
+                (
+                    Identity {
+                        luna_id,
+                        signer: Signer::from_seed(seed),
+                    },
+                    false,
+                )
             }
             None => {
                 let luna_id = mint_luna_id();
@@ -142,7 +151,10 @@ fn known_luna_id(roots: &[PathBuf], connect: &ConnectService) -> Result<Option<S
         _ => {}
     }
     let account_ids = match connect.list_luna_ids() {
-        Ok(rows) => rows.into_iter().map(|row| row.luna_id).collect::<BTreeSet<_>>(),
+        Ok(rows) => rows
+            .into_iter()
+            .map(|row| row.luna_id)
+            .collect::<BTreeSet<_>>(),
         Err(e) => {
             tracing::warn!(error = %e, "could not ask Luna Connect which Luna ids are on this account");
             bail!(AMBIGUOUS_MSG);
@@ -189,7 +201,11 @@ fn drive_luna_ids(roots: &[PathBuf]) -> Vec<String> {
 
 /// Send this Luna's signing public key to Luna Connect. Best-effort: a failure is logged only.
 fn register_public(connect: &ConnectService, identity: &Identity) {
-    let hex: String = identity.public().iter().map(|b| format!("{b:02x}")).collect();
+    let hex: String = identity
+        .public()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
     if let Err(e) = connect.register_signing_public(&identity.luna_id, &hex) {
         tracing::warn!(error = %e, "could not register this Luna's signing key with Luna Connect");
     }
@@ -243,7 +259,9 @@ fn find_drive_copy(roots: &[PathBuf], luna_id: &str) -> Option<([u8; 32], i64)> 
                 continue;
             }
         };
-        let Some((seed, created_at)) = row else { continue };
+        let Some((seed, created_at)) = row else {
+            continue;
+        };
         let Ok(seed) = <[u8; 32]>::try_from(seed.as_slice()) else {
             tracing::warn!(root = %root.display(), "a drive holds a damaged cloud signing key copy");
             continue;
@@ -306,7 +324,10 @@ mod tests {
         assert_eq!(first.luna_id(), second.luna_id());
         assert_eq!(first.public(), second.public());
         let stored = db::get_cloud_identity(&conn).unwrap().unwrap();
-        assert_eq!(stored.created_at, 100, "a second call must not mint or re-stamp");
+        assert_eq!(
+            stored.created_at, 100,
+            "a second call must not mint or re-stamp"
+        );
     }
 
     #[test]
@@ -316,7 +337,10 @@ mod tests {
         let id = load_or_create(&conn, 1).unwrap().luna_id;
         let rest = id.strip_prefix("luna-").expect("starts with luna-");
         assert_eq!(rest.len(), 26);
-        assert!(rest.bytes().all(|b| BASE32.contains(&b)), "{rest} is not lowercase base32");
+        assert!(
+            rest.bytes().all(|b| BASE32.contains(&b)),
+            "{rest} is not lowercase base32"
+        );
     }
 
     #[test]
@@ -336,8 +360,18 @@ mod tests {
         let conn = db::open(&dir.path().join("luna.db")).unwrap();
         let identity = load_or_create(&conn, 1).unwrap();
         let sig = identity.sign("test-domain", b"hello");
-        assert!(crypto::verify(&identity.public(), "test-domain", b"hello", &sig));
-        assert!(!crypto::verify(&identity.public(), "other-domain", b"hello", &sig));
+        assert!(crypto::verify(
+            &identity.public(),
+            "test-domain",
+            b"hello",
+            &sig
+        ));
+        assert!(!crypto::verify(
+            &identity.public(),
+            "other-domain",
+            b"hello",
+            &sig
+        ));
     }
 
     #[test]
@@ -360,14 +394,27 @@ mod tests {
         std::fs::create_dir_all(root).unwrap();
         let prefix = luna_core::marker::pick_prefix(root).unwrap();
         drive_db::create(root, &luna_core::marker::Marker::new(id, "Photos"), &prefix).unwrap();
-        db::upsert_drive(conn, id, "Photos", "as_is", "ext4", "sdb", root.to_str().unwrap())
-            .unwrap();
+        db::upsert_drive(
+            conn,
+            id,
+            "Photos",
+            "as_is",
+            "ext4",
+            "sdb",
+            root.to_str().unwrap(),
+        )
+        .unwrap();
     }
 
     fn copies(root: &Path) -> Vec<String> {
         let drive = drive_db::open(root).unwrap();
-        let mut stmt = drive.prepare("SELECT luna_id FROM cloud_signing_keys ORDER BY luna_id").unwrap();
-        stmt.query_map([], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect()
+        let mut stmt = drive
+            .prepare("SELECT luna_id FROM cloud_signing_keys ORDER BY luna_id")
+            .unwrap();
+        stmt.query_map([], |r| r.get(0))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect()
     }
 
     #[test]
@@ -403,7 +450,11 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(seed, first.signer.seed().to_vec(), "an existing copy is not overwritten");
+        assert_eq!(
+            seed,
+            first.signer.seed().to_vec(),
+            "an existing copy is not overwritten"
+        );
     }
 
     #[test]
@@ -436,15 +487,29 @@ mod tests {
         // The system DB was lost: a fresh Luna knows the id and finds the key on the drive.
         let fresh_path = dir.path().join("fresh.db");
         let fresh = db::open(&fresh_path).unwrap();
-        db::upsert_drive(&fresh, "d1", "Photos", "as_is", "ext4", "sdb", root.to_str().unwrap())
-            .unwrap();
+        db::upsert_drive(
+            &fresh,
+            "d1",
+            "Photos",
+            "as_is",
+            "ext4",
+            "sdb",
+            root.to_str().unwrap(),
+        )
+        .unwrap();
         drop(fresh);
         let (url, _seen) = fake_connect(&listing(&[&owner.luna_id]), 2);
         let connect = connect_to(&dir.path().join("connect"), &url);
         let back = load_or_create_connected(&db_at(&fresh_path), &connect, 9).unwrap();
         assert_eq!(back.luna_id, owner.luna_id);
         assert_eq!(back.public(), owner.public());
-        assert_eq!(load(&db_at(&fresh_path).lock().unwrap()).unwrap().unwrap().public(), owner.public());
+        assert_eq!(
+            load(&db_at(&fresh_path).lock().unwrap())
+                .unwrap()
+                .unwrap()
+                .public(),
+            owner.public()
+        );
     }
 
     #[test]
@@ -473,11 +538,21 @@ mod tests {
         let get_body = get_body.to_string();
         std::thread::spawn(move || {
             for _ in 0..count {
-                let Ok((mut stream, _)) = listener.accept() else { return };
+                let Ok((mut stream, _)) = listener.accept() else {
+                    return;
+                };
                 let mut buf = [0u8; 4096];
                 let n = stream.read(&mut buf).unwrap_or(0);
-                let line = String::from_utf8_lossy(&buf[..n]).lines().next().unwrap_or("").to_string();
-                let body = if line.starts_with("GET") { get_body.clone() } else { "{\"ok\":true}".to_string() };
+                let line = String::from_utf8_lossy(&buf[..n])
+                    .lines()
+                    .next()
+                    .unwrap_or("")
+                    .to_string();
+                let body = if line.starts_with("GET") {
+                    get_body.clone()
+                } else {
+                    "{\"ok\":true}".to_string()
+                };
                 log.lock().unwrap().push(line);
                 let resp = format!(
                     "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -496,7 +571,11 @@ mod tests {
 
     /// Like `fake_connect`, for `count` requests, but before answering each one it checks
     /// whether `db` can be locked. A lock held during the request shows up as `false`.
-    fn fake_connect_probing(get_body: &str, count: usize, db: Arc<crate::Db>) -> (String, Arc<Mutex<Vec<bool>>>) {
+    fn fake_connect_probing(
+        get_body: &str,
+        count: usize,
+        db: Arc<crate::Db>,
+    ) -> (String, Arc<Mutex<Vec<bool>>>) {
         use std::io::{Read, Write};
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
@@ -505,10 +584,16 @@ mod tests {
         let get_body = get_body.to_string();
         std::thread::spawn(move || {
             for _ in 0..count {
-                let Ok((mut stream, _)) = listener.accept() else { return };
+                let Ok((mut stream, _)) = listener.accept() else {
+                    return;
+                };
                 let mut buf = [0u8; 4096];
                 let n = stream.read(&mut buf).unwrap_or(0);
-                let line = String::from_utf8_lossy(&buf[..n]).lines().next().unwrap_or("").to_string();
+                let line = String::from_utf8_lossy(&buf[..n])
+                    .lines()
+                    .next()
+                    .unwrap_or("")
+                    .to_string();
                 // Try the lock from another thread, so a held lock cannot block this thread for good.
                 let (tx, rx) = std::sync::mpsc::channel();
                 let probe = db.clone();
@@ -516,9 +601,15 @@ mod tests {
                     let _guard = probe.lock();
                     let _ = tx.send(());
                 });
-                let free = rx.recv_timeout(std::time::Duration::from_millis(500)).is_ok();
+                let free = rx
+                    .recv_timeout(std::time::Duration::from_millis(500))
+                    .is_ok();
                 log.lock().unwrap().push(free);
-                let body = if line.starts_with("GET") { get_body.clone() } else { "{\"ok\":true}".to_string() };
+                let body = if line.starts_with("GET") {
+                    get_body.clone()
+                } else {
+                    "{\"ok\":true}".to_string()
+                };
                 let resp = format!(
                     "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                     body.len()
@@ -562,18 +653,29 @@ mod tests {
 
         // The system DB was lost: the Luna is empty, but Connect and the drive still know it.
         let fresh = db::open(&dir.path().join("fresh.db")).unwrap();
-        db::upsert_drive(&fresh, "d1", "Photos", "as_is", "ext4", "sdb", root.to_str().unwrap())
-            .unwrap();
+        db::upsert_drive(
+            &fresh,
+            "d1",
+            "Photos",
+            "as_is",
+            "ext4",
+            "sdb",
+            root.to_str().unwrap(),
+        )
+        .unwrap();
         let (url, seen) = fake_connect(&listing(&[&owner.luna_id]), 2);
         let connect = connect_to(&dir.path().join("connect"), &url);
 
-        let back = load_or_create_connected(&db_at(&dir.path().join("fresh.db")), &connect, 9).unwrap();
+        let back =
+            load_or_create_connected(&db_at(&dir.path().join("fresh.db")), &connect, 9).unwrap();
         assert_eq!(back.luna_id, owner.luna_id);
         assert_eq!(back.public(), owner.public());
         assert_eq!(load(&fresh).unwrap().unwrap().public(), owner.public());
         let lines = seen.lock().unwrap().clone();
         assert!(
-            lines.iter().any(|l| l.starts_with("POST") && l.contains("/signing-public")),
+            lines
+                .iter()
+                .any(|l| l.starts_with("POST") && l.contains("/signing-public")),
             "{lines:?}"
         );
     }
@@ -587,7 +689,8 @@ mod tests {
         let connect = connect_to(&dir.path().join("connect"), &url);
 
         // No drive holds a key copy, so the account's ids are not this Luna's: a new one is minted.
-        let made = load_or_create_connected(&db_at(&dir.path().join("luna.db")), &connect, 1).unwrap();
+        let made =
+            load_or_create_connected(&db_at(&dir.path().join("luna.db")), &connect, 1).unwrap();
         assert_ne!(made.luna_id, other);
         assert_eq!(load(&conn).unwrap().unwrap().luna_id, made.luna_id);
     }
@@ -604,12 +707,21 @@ mod tests {
         copy_to_drive_at(&root, &second, 2).unwrap();
 
         let fresh = db::open(&dir.path().join("fresh.db")).unwrap();
-        db::upsert_drive(&fresh, "d1", "Photos", "as_is", "ext4", "sdb", root.to_str().unwrap())
-            .unwrap();
+        db::upsert_drive(
+            &fresh,
+            "d1",
+            "Photos",
+            "as_is",
+            "ext4",
+            "sdb",
+            root.to_str().unwrap(),
+        )
+        .unwrap();
         let (url, _seen) = fake_connect(&listing(&[&second.luna_id]), 2);
         let connect = connect_to(&dir.path().join("connect"), &url);
 
-        let back = load_or_create_connected(&db_at(&dir.path().join("fresh.db")), &connect, 9).unwrap();
+        let back =
+            load_or_create_connected(&db_at(&dir.path().join("fresh.db")), &connect, 9).unwrap();
         assert_eq!(back.luna_id, second.luna_id);
         assert_ne!(back.luna_id, first.luna_id);
     }
@@ -623,11 +735,20 @@ mod tests {
         let owner = load_or_create(&owner_conn, 1).unwrap();
 
         let fresh = db::open(&dir.path().join("fresh.db")).unwrap();
-        db::upsert_drive(&fresh, "d1", "Photos", "as_is", "ext4", "sdb", root.to_str().unwrap())
-            .unwrap();
+        db::upsert_drive(
+            &fresh,
+            "d1",
+            "Photos",
+            "as_is",
+            "ext4",
+            "sdb",
+            root.to_str().unwrap(),
+        )
+        .unwrap();
         let connect = connect_to(&dir.path().join("connect"), &unreachable_url());
 
-        let back = load_or_create_connected(&db_at(&dir.path().join("fresh.db")), &connect, 9).unwrap();
+        let back =
+            load_or_create_connected(&db_at(&dir.path().join("fresh.db")), &connect, 9).unwrap();
         assert_eq!(back.luna_id, owner.luna_id);
         assert_eq!(back.public(), owner.public());
     }
@@ -644,11 +765,21 @@ mod tests {
         copy_to_drive_at(&root, &second, 2).unwrap();
 
         let fresh = db::open(&dir.path().join("fresh.db")).unwrap();
-        db::upsert_drive(&fresh, "d1", "Photos", "as_is", "ext4", "sdb", root.to_str().unwrap())
-            .unwrap();
+        db::upsert_drive(
+            &fresh,
+            "d1",
+            "Photos",
+            "as_is",
+            "ext4",
+            "sdb",
+            root.to_str().unwrap(),
+        )
+        .unwrap();
         let connect = connect_to(&dir.path().join("connect"), &unreachable_url());
 
-        let err = load_or_create_connected(&db_at(&dir.path().join("fresh.db")), &connect, 9).err().unwrap();
+        let err = load_or_create_connected(&db_at(&dir.path().join("fresh.db")), &connect, 9)
+            .err()
+            .unwrap();
         assert!(err.to_string().contains("Contact your Admin"), "{err}");
         assert!(load(&fresh).unwrap().is_none());
         assert_ne!(first.luna_id, second.luna_id);
@@ -660,7 +791,8 @@ mod tests {
         let conn = db::open(&dir.path().join("luna.db")).unwrap();
         let connect = connect_to(&dir.path().join("connect"), &unreachable_url());
 
-        let made = load_or_create_connected(&db_at(&dir.path().join("luna.db")), &connect, 1).unwrap();
+        let made =
+            load_or_create_connected(&db_at(&dir.path().join("luna.db")), &connect, 1).unwrap();
         assert_eq!(load(&conn).unwrap().unwrap().luna_id, made.luna_id);
     }
 
@@ -675,8 +807,16 @@ mod tests {
         let second = load_or_create(&second_conn, 2).unwrap();
         copy_to_drive_at(&root, &second, 2).unwrap();
         let fresh = db::open(&dir.path().join("luna.db")).unwrap();
-        db::upsert_drive(&fresh, "d1", "Photos", "as_is", "ext4", "sdb", root.to_str().unwrap())
-            .unwrap();
+        db::upsert_drive(
+            &fresh,
+            "d1",
+            "Photos",
+            "as_is",
+            "ext4",
+            "sdb",
+            root.to_str().unwrap(),
+        )
+        .unwrap();
         drop(fresh);
 
         // Two drive copies: one Connect lookup (to narrow them), then the registration.
@@ -688,8 +828,14 @@ mod tests {
         assert_eq!(made.luna_id, second.luna_id);
         let probes = probes.lock().unwrap().clone();
         assert_eq!(probes.len(), 2, "one lookup and one registration");
-        assert!(probes.iter().all(|free| *free), "the DB lock was held during a Connect request: {probes:?}");
-        assert_eq!(load(&db.lock().unwrap()).unwrap().unwrap().luna_id, made.luna_id);
+        assert!(
+            probes.iter().all(|free| *free),
+            "the DB lock was held during a Connect request: {probes:?}"
+        );
+        assert_eq!(
+            load(&db.lock().unwrap()).unwrap().unwrap().luna_id,
+            made.luna_id
+        );
     }
 
     #[test]

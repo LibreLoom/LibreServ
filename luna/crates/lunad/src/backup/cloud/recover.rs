@@ -9,15 +9,15 @@
 
 use std::collections::HashMap;
 
-use anyhow::{anyhow, Result};
-use rusqlite::{params, Connection, OptionalExtension};
+use anyhow::{Result, anyhow};
+use rusqlite::{Connection, OptionalExtension, params};
 
 use super::crypto;
 use super::format::{self, BackupMeta, SignedRecord, SnapshotRecord};
-use crate::backup::access_list::AccessList;
 use super::identity::Identity;
 use super::run::PACK_KEY_WRAP_AAD;
 use super::store::CloudStore;
+use crate::backup::access_list::AccessList;
 use crate::db::{self, BackupKey, SnapshotInsert};
 
 const SNAPSHOT_KIND: &str = "snapshots";
@@ -72,9 +72,18 @@ pub fn rebuild_snapshot_index(
 }
 
 /// Fetch, verify and decrypt every snapshot record on the store. Makes no database changes.
-pub fn fetch_recoverable(store: &dyn CloudStore, identity: &Identity, keys: &[BackupKey]) -> Result<Prepared> {
-    let names = store.list_records(SNAPSHOT_KIND).map_err(|e| anyhow!("{e}"))?;
-    let mut out = Prepared { skipped: 0, snapshots: Vec::new() };
+pub fn fetch_recoverable(
+    store: &dyn CloudStore,
+    identity: &Identity,
+    keys: &[BackupKey],
+) -> Result<Prepared> {
+    let names = store
+        .list_records(SNAPSHOT_KIND)
+        .map_err(|e| anyhow!("{e}"))?;
+    let mut out = Prepared {
+        skipped: 0,
+        snapshots: Vec::new(),
+    };
     for name in names {
         let bytes = match store.get_record(SNAPSHOT_KIND, &name) {
             Ok(Some(bytes)) => bytes,
@@ -93,7 +102,10 @@ pub fn fetch_recoverable(store: &dyn CloudStore, identity: &Identity, keys: &[Ba
 
 /// Write fetched snapshots into the index. Snapshots already indexed are counted and left alone.
 pub fn write_recovered(conn: &mut Connection, prepared: Prepared, now: i64) -> Result<Recovered> {
-    let mut out = Recovered { skipped: prepared.skipped, ..Recovered::default() };
+    let mut out = Recovered {
+        skipped: prepared.skipped,
+        ..Recovered::default()
+    };
     for snapshot in prepared.snapshots {
         if already_indexed(conn, &snapshot.record.snapshot_id)? {
             out.already_indexed += 1;
@@ -106,15 +118,20 @@ pub fn write_recovered(conn: &mut Connection, prepared: Prepared, now: i64) -> R
 }
 
 /// Check one record and fetch its tree. `None` means the record is skipped.
-fn fetch_one(store: &dyn CloudStore, identity: &Identity, keys: &[BackupKey], bytes: Vec<u8>) -> Option<PreparedSnapshot> {
+fn fetch_one(
+    store: &dyn CloudStore,
+    identity: &Identity,
+    keys: &[BackupKey],
+    bytes: Vec<u8>,
+) -> Option<PreparedSnapshot> {
     let signed = SignedRecord::from_bytes(&bytes).ok()?;
     let record = signed.verify(&identity.public()).ok()?;
     if record.luna_id != identity.luna_id() {
         return None;
     }
-    let key = keys
-        .iter()
-        .find(|k| k.protection_id == record.protection_id && k.version == i64::from(record.key_version))?;
+    let key = keys.iter().find(|k| {
+        k.protection_id == record.protection_id && k.version == i64::from(record.key_version)
+    })?;
     let tree_key = <[u8; 32]>::try_from(key.key.as_slice()).ok()?;
     let dedup_key = <[u8; 32]>::try_from(key.dedup_key.as_slice()).ok()?;
 
@@ -151,7 +168,15 @@ fn fetch_one(store: &dyn CloudStore, identity: &Identity, keys: &[BackupKey], by
 
 /// Write one prepared snapshot, its packs, chunks, protection row and backup key in one transaction.
 fn write_snapshot(conn: &mut Connection, snapshot: PreparedSnapshot, now: i64) -> Result<()> {
-    let PreparedSnapshot { record_bytes, record, tree_pack_size, scope, tree, meta, key } = snapshot;
+    let PreparedSnapshot {
+        record_bytes,
+        record,
+        tree_pack_size,
+        scope,
+        tree,
+        meta,
+        key,
+    } = snapshot;
     let tree_pack_id = hex(&record.tree_pack_id);
     let index_row = SnapshotInsert {
         id: record.snapshot_id.clone(),
@@ -196,7 +221,10 @@ fn write_snapshot(conn: &mut Connection, snapshot: PreparedSnapshot, now: i64) -
             },
         )?;
         // A shared backup is visible to every Admin, so the standing Admins entry comes back with it.
-        let access = AccessList { users: Vec::new(), admins: true };
+        let access = AccessList {
+            users: Vec::new(),
+            admins: true,
+        };
         db::set_protection_access(&tx, &record.protection_id, &serde_json::to_string(&access)?)?;
     }
     if !backup_key_exists(&tx, &key.protection_id, key.version)? {
@@ -232,7 +260,14 @@ fn index_tree_chunks(
                  VALUES (?1, ?2, 'live', ?3, ?4, 0, ?5)",
                 params![pack_id, scope, RECOVERED_RUN, size, now],
             )?;
-            db::insert_chunk(tx, scope, &chunk.id, &pack_id, chunk.offset as i64, i64::from(chunk.len))?;
+            db::insert_chunk(
+                tx,
+                scope,
+                &chunk.id,
+                &pack_id,
+                chunk.offset as i64,
+                i64::from(chunk.len),
+            )?;
             tx.execute(
                 "INSERT OR IGNORE INTO cloud_snapshot_packs (snapshot_id, pack_id) VALUES (?1, ?2)",
                 params![snapshot_id, pack_id],
@@ -302,8 +337,21 @@ mod tests {
     }
 
     /// Write one snapshot of an empty tree the way a backup run does.
-    fn put_snapshot(store: &MemoryStore, signer: &Identity, snapshot_id: &str, luna_id: &str) -> [u8; 32] {
-        put_snapshot_with_tree(store, signer, snapshot_id, luna_id, &format::Tree { entries: Vec::new() })
+    fn put_snapshot(
+        store: &MemoryStore,
+        signer: &Identity,
+        snapshot_id: &str,
+        luna_id: &str,
+    ) -> [u8; 32] {
+        put_snapshot_with_tree(
+            store,
+            signer,
+            snapshot_id,
+            luna_id,
+            &format::Tree {
+                entries: Vec::new(),
+            },
+        )
     }
 
     /// The meta a backup run seals into each snapshot record.
@@ -326,7 +374,14 @@ mod tests {
         luna_id: &str,
         tree: &format::Tree,
     ) -> [u8; 32] {
-        put_snapshot_with_meta(store, signer, snapshot_id, luna_id, tree, sealed_meta(&TREE_KEY))
+        put_snapshot_with_meta(
+            store,
+            signer,
+            snapshot_id,
+            luna_id,
+            tree,
+            sealed_meta(&TREE_KEY),
+        )
     }
 
     /// Write one snapshot with the given sealed meta bytes.
@@ -342,8 +397,11 @@ mod tests {
         let tree_hash = format::sha256(&tree_bytes);
         let mut builder = format::PackBuilder::new(scope_id());
         builder.add(tree_hash, &tree_bytes);
-        let pack = builder.finish(|pack_key| crypto::encrypt(&TREE_KEY, PACK_KEY_WRAP_AAD, pack_key));
-        store.put_pack(&pack.id, Some("scope"), &pack.bytes).unwrap();
+        let pack =
+            builder.finish(|pack_key| crypto::encrypt(&TREE_KEY, PACK_KEY_WRAP_AAD, pack_key));
+        store
+            .put_pack(&pack.id, Some("scope"), &pack.bytes)
+            .unwrap();
         let record = SnapshotRecord {
             luna_id: luna_id.into(),
             protection_id: "p1".into(),
@@ -355,7 +413,9 @@ mod tests {
             meta,
         };
         let signed = record.sign(signer.signer()).to_bytes();
-        store.put_record(SNAPSHOT_KIND, snapshot_id, &signed).unwrap();
+        store
+            .put_record(SNAPSHOT_KIND, snapshot_id, &signed)
+            .unwrap();
         pack.id
     }
 
@@ -373,9 +433,17 @@ mod tests {
         let fresh_dir = tempfile::tempdir().unwrap();
         let mut fresh = db::open(&fresh_dir.path().join("luna.db")).unwrap();
 
-        let out = rebuild_snapshot_index(&mut fresh, &store, &id, &[backup_key(TREE_KEY)], NOW).unwrap();
+        let out =
+            rebuild_snapshot_index(&mut fresh, &store, &id, &[backup_key(TREE_KEY)], NOW).unwrap();
 
-        assert_eq!(out, Recovered { snapshots: 2, already_indexed: 0, skipped: 0 });
+        assert_eq!(
+            out,
+            Recovered {
+                snapshots: 2,
+                already_indexed: 0,
+                skipped: 0
+            }
+        );
         assert_eq!(count(&fresh, "cloud_snapshots"), 2);
         assert_eq!(count(&fresh, "cloud_snapshot_packs"), 2);
         let (state, scope): (String, String) = fresh
@@ -397,22 +465,37 @@ mod tests {
         let mut data = format::PackBuilder::new(scope_id());
         let (offset, len) = data.add(chunk_id, b"file bytes");
         let data_pack = data.finish(|k| crypto::encrypt(&TREE_KEY, PACK_KEY_WRAP_AAD, k));
-        store.put_pack(&data_pack.id, Some("scope"), &data_pack.bytes).unwrap();
+        store
+            .put_pack(&data_pack.id, Some("scope"), &data_pack.bytes)
+            .unwrap();
         let tree = format::Tree {
             entries: vec![format::TreeEntry {
                 path: "a.txt".into(),
                 size: 10,
                 mtime: NOW,
-                chunks: vec![format::ChunkRef { id: chunk_id, pack: data_pack.id, offset, len }],
+                chunks: vec![format::ChunkRef {
+                    id: chunk_id,
+                    pack: data_pack.id,
+                    offset,
+                    len,
+                }],
             }],
         };
         put_snapshot_with_tree(&store, &id, "snap-a", id.luna_id(), &tree);
         let fresh_dir = tempfile::tempdir().unwrap();
         let mut fresh = db::open(&fresh_dir.path().join("luna.db")).unwrap();
 
-        let out = rebuild_snapshot_index(&mut fresh, &store, &id, &[backup_key(TREE_KEY)], NOW).unwrap();
+        let out =
+            rebuild_snapshot_index(&mut fresh, &store, &id, &[backup_key(TREE_KEY)], NOW).unwrap();
 
-        assert_eq!(out, Recovered { snapshots: 1, already_indexed: 0, skipped: 0 });
+        assert_eq!(
+            out,
+            Recovered {
+                snapshots: 1,
+                already_indexed: 0,
+                skipped: 0
+            }
+        );
         let (pack, at, size): (String, i64, i64) = fresh
             .query_row(
                 "SELECT pack_id, offset, len FROM cloud_chunks WHERE chunk_id = ?1",
@@ -453,13 +536,23 @@ mod tests {
         // Signed by this Luna, but naming another Luna id.
         put_snapshot(&store, &id, "wrong-luna", "some-other-luna");
         // Not a snapshot record at all.
-        store.put_record(SNAPSHOT_KIND, "junk", b"not a record").unwrap();
+        store
+            .put_record(SNAPSHOT_KIND, "junk", b"not a record")
+            .unwrap();
         let fresh_dir = tempfile::tempdir().unwrap();
         let mut fresh = db::open(&fresh_dir.path().join("luna.db")).unwrap();
 
-        let out = rebuild_snapshot_index(&mut fresh, &store, &id, &[backup_key(TREE_KEY)], NOW).unwrap();
+        let out =
+            rebuild_snapshot_index(&mut fresh, &store, &id, &[backup_key(TREE_KEY)], NOW).unwrap();
 
-        assert_eq!(out, Recovered { snapshots: 0, already_indexed: 0, skipped: 3 });
+        assert_eq!(
+            out,
+            Recovered {
+                snapshots: 0,
+                already_indexed: 0,
+                skipped: 3
+            }
+        );
         assert_eq!(count(&fresh, "cloud_snapshots"), 0);
         assert_eq!(count(&fresh, "cloud_packs"), 0);
     }
@@ -472,11 +565,21 @@ mod tests {
         let fresh_dir = tempfile::tempdir().unwrap();
         let mut fresh = db::open(&fresh_dir.path().join("luna.db")).unwrap();
         // The right key bytes with a wrong dedup key: its scope does not match the pack's.
-        let wrong = BackupKey { dedup_key: vec![4; 32], ..backup_key(TREE_KEY) };
+        let wrong = BackupKey {
+            dedup_key: vec![4; 32],
+            ..backup_key(TREE_KEY)
+        };
 
         let out = rebuild_snapshot_index(&mut fresh, &store, &id, &[wrong], NOW).unwrap();
 
-        assert_eq!(out, Recovered { snapshots: 0, already_indexed: 0, skipped: 1 });
+        assert_eq!(
+            out,
+            Recovered {
+                snapshots: 0,
+                already_indexed: 0,
+                skipped: 1
+            }
+        );
         assert_eq!(count(&fresh, "cloud_snapshots"), 0);
         assert_eq!(count(&fresh, "cloud_packs"), 0);
     }
@@ -491,17 +594,48 @@ mod tests {
 
         // No key: the tree cannot be opened, so nothing is indexed.
         let none = rebuild_snapshot_index(&mut fresh, &store, &id, &[], NOW).unwrap();
-        assert_eq!(none, Recovered { snapshots: 0, already_indexed: 0, skipped: 1 });
+        assert_eq!(
+            none,
+            Recovered {
+                snapshots: 0,
+                already_indexed: 0,
+                skipped: 1
+            }
+        );
 
         // A wrong key fails the same way.
-        let wrong = rebuild_snapshot_index(&mut fresh, &store, &id, &[backup_key([1; 32])], NOW).unwrap();
-        assert_eq!(wrong, Recovered { snapshots: 0, already_indexed: 0, skipped: 1 });
+        let wrong =
+            rebuild_snapshot_index(&mut fresh, &store, &id, &[backup_key([1; 32])], NOW).unwrap();
+        assert_eq!(
+            wrong,
+            Recovered {
+                snapshots: 0,
+                already_indexed: 0,
+                skipped: 1
+            }
+        );
         assert_eq!(count(&fresh, "cloud_snapshots"), 0);
 
-        let first = rebuild_snapshot_index(&mut fresh, &store, &id, &[backup_key(TREE_KEY)], NOW).unwrap();
-        assert_eq!(first, Recovered { snapshots: 1, already_indexed: 0, skipped: 0 });
-        let again = rebuild_snapshot_index(&mut fresh, &store, &id, &[backup_key(TREE_KEY)], NOW).unwrap();
-        assert_eq!(again, Recovered { snapshots: 0, already_indexed: 1, skipped: 0 });
+        let first =
+            rebuild_snapshot_index(&mut fresh, &store, &id, &[backup_key(TREE_KEY)], NOW).unwrap();
+        assert_eq!(
+            first,
+            Recovered {
+                snapshots: 1,
+                already_indexed: 0,
+                skipped: 0
+            }
+        );
+        let again =
+            rebuild_snapshot_index(&mut fresh, &store, &id, &[backup_key(TREE_KEY)], NOW).unwrap();
+        assert_eq!(
+            again,
+            Recovered {
+                snapshots: 0,
+                already_indexed: 1,
+                skipped: 0
+            }
+        );
         assert_eq!(count(&fresh, "cloud_snapshots"), 1);
         assert_eq!(count(&fresh, "cloud_snapshot_packs"), 1);
     }
@@ -516,16 +650,28 @@ mod tests {
         let mut fresh = db::open(&fresh_dir.path().join("luna.db")).unwrap();
 
         // Two snapshots share one key version: the key is written once.
-        let out = rebuild_snapshot_index(&mut fresh, &store, &id, &[backup_key(TREE_KEY)], NOW).unwrap();
+        let out =
+            rebuild_snapshot_index(&mut fresh, &store, &id, &[backup_key(TREE_KEY)], NOW).unwrap();
 
-        assert_eq!(out, Recovered { snapshots: 2, already_indexed: 0, skipped: 0 });
-        let row = db::get_protection(&fresh, "p1").unwrap().expect("protection restored");
+        assert_eq!(
+            out,
+            Recovered {
+                snapshots: 2,
+                already_indexed: 0,
+                skipped: 0
+            }
+        );
+        let row = db::get_protection(&fresh, "p1")
+            .unwrap()
+            .expect("protection restored");
         assert_eq!(row.kind, db::PROTECTION_CLOUD);
         assert_eq!(row.source_drive, "drive-a");
         assert_eq!(row.source_path, "/Photos");
         assert_eq!(row.created_by, "user-7");
         assert_eq!(row.created_at, NOW);
-        let key = db::latest_backup_key(&fresh, "p1").unwrap().expect("backup key restored");
+        let key = db::latest_backup_key(&fresh, "p1")
+            .unwrap()
+            .expect("backup key restored");
         assert_eq!(key.version, 1);
         assert_eq!(key.key, TREE_KEY.to_vec());
         assert_eq!(count(&fresh, "backup_keys"), 1);
@@ -565,14 +711,31 @@ mod tests {
     fn skips_a_snapshot_whose_meta_does_not_open_with_its_key() {
         let (_dir, id) = fixture();
         let store = MemoryStore::new();
-        let tree = format::Tree { entries: Vec::new() };
-        put_snapshot_with_meta(&store, &id, "snap-a", id.luna_id(), &tree, sealed_meta(&[4; 32]));
+        let tree = format::Tree {
+            entries: Vec::new(),
+        };
+        put_snapshot_with_meta(
+            &store,
+            &id,
+            "snap-a",
+            id.luna_id(),
+            &tree,
+            sealed_meta(&[4; 32]),
+        );
         let fresh_dir = tempfile::tempdir().unwrap();
         let mut fresh = db::open(&fresh_dir.path().join("luna.db")).unwrap();
 
-        let out = rebuild_snapshot_index(&mut fresh, &store, &id, &[backup_key(TREE_KEY)], NOW).unwrap();
+        let out =
+            rebuild_snapshot_index(&mut fresh, &store, &id, &[backup_key(TREE_KEY)], NOW).unwrap();
 
-        assert_eq!(out, Recovered { snapshots: 0, already_indexed: 0, skipped: 1 });
+        assert_eq!(
+            out,
+            Recovered {
+                snapshots: 0,
+                already_indexed: 0,
+                skipped: 1
+            }
+        );
         assert_eq!(count(&fresh, "cloud_snapshots"), 0);
         assert!(db::get_protection(&fresh, "p1").unwrap().is_none());
         assert_eq!(count(&fresh, "backup_keys"), 0);
@@ -593,12 +756,24 @@ mod tests {
             )
             .unwrap();
 
-        let out = rebuild_snapshot_index(&mut fresh, &store, &id, &[backup_key(TREE_KEY)], NOW).unwrap();
+        let out =
+            rebuild_snapshot_index(&mut fresh, &store, &id, &[backup_key(TREE_KEY)], NOW).unwrap();
 
-        assert_eq!(out, Recovered { snapshots: 1, already_indexed: 0, skipped: 0 });
+        assert_eq!(
+            out,
+            Recovered {
+                snapshots: 1,
+                already_indexed: 0,
+                skipped: 0
+            }
+        );
         assert_eq!(count(&fresh, "cloud_snapshots"), 1);
         let run: String = fresh
-            .query_row("SELECT run_id FROM cloud_packs WHERE id = ?1", params![hex(&pack)], |r| r.get(0))
+            .query_row(
+                "SELECT run_id FROM cloud_packs WHERE id = ?1",
+                params![hex(&pack)],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(run, "older-run");
     }
@@ -615,7 +790,13 @@ mod tests {
 
         let row = db::get_protection(&fresh, "p1").unwrap().unwrap();
         let access: AccessList = serde_json::from_str(&row.access_json).unwrap();
-        assert_eq!(access, AccessList { users: Vec::new(), admins: true });
+        assert_eq!(
+            access,
+            AccessList {
+                users: Vec::new(),
+                admins: true
+            }
+        );
     }
 
     #[test]
@@ -632,7 +813,9 @@ mod tests {
             },
             &TREE_KEY,
         );
-        let tree = format::Tree { entries: Vec::new() };
+        let tree = format::Tree {
+            entries: Vec::new(),
+        };
         put_snapshot_with_meta(&store, &id, "snap-a", id.luna_id(), &tree, meta);
         let fresh_dir = tempfile::tempdir().unwrap();
         let mut fresh = db::open(&fresh_dir.path().join("luna.db")).unwrap();

@@ -3,7 +3,7 @@
 //! instead of on a drive.
 
 use anyhow::bail;
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 
 use crate::backup::access_list::{self, AccessList};
 use crate::backup::cloud::check;
@@ -13,12 +13,12 @@ use crate::backup::cloud::private::snapshot_record_ref;
 use crate::backup::cloud::private_check;
 use crate::backup::cloud::private_run;
 use crate::backup::cloud::retention;
-use crate::net::connect::ConnectService;
 use crate::backup::cloud::run::{self, CloudOutcome};
 use crate::backup::cloud::store::{CloudStore, StoreError};
 use crate::backup::drive_backup::{self, Refused};
 use crate::backup::status::{self, BackupState, Record};
 use crate::db::{self, ProtectionRow};
+use crate::net::connect::ConnectService;
 
 /// Shown on every cloud backup while Luna Connect is not set up for this Luna.
 pub const NOT_SET_UP: &str =
@@ -183,7 +183,7 @@ fn check_new_backup(
         Ok(_) => {
             return Err(Refused(
                 "Only folders and whole drives can be backed up.".into(),
-            ))
+            ));
         }
         Err(_) => return Err(Refused("Luna can't find this folder.".into())),
     }
@@ -195,7 +195,10 @@ fn check_new_backup(
     }
 
     // The creator's own key copy is what lets them see this backup later, so they need a phrase.
-    if db::get_user_keys(conn, &user.id).map_err(|_| save_refused())?.is_none() {
+    if db::get_user_keys(conn, &user.id)
+        .map_err(|_| save_refused())?
+        .is_none()
+    {
         return Err(Refused(
             "Set up your recovery phrase before you back up to the cloud.".into(),
         ));
@@ -245,7 +248,9 @@ pub fn run(
             Ok(()) => out,
             Err(err) => {
                 tracing::warn!(error = %err, id, "could not tidy old cloud copies");
-                problem_outcome("Luna couldn't remove old copies. It will try again on the next run.")
+                problem_outcome(
+                    "Luna couldn't remove old copies. It will try again on the next run.",
+                )
             }
         },
         Ok(out) => out,
@@ -271,7 +276,9 @@ pub fn run(
 fn note_card_marker(db: &crate::Db, problem: Option<&str>) -> anyhow::Result<()> {
     let conn = lock(db);
     match problem {
-        Some(message) if message.contains(CARD_REQUIRED_PREFIX) => db::set_meta(&conn, CARD_MARKER, "1"),
+        Some(message) if message.contains(CARD_REQUIRED_PREFIX) => {
+            db::set_meta(&conn, CARD_MARKER, "1")
+        }
         Some(_) => Ok(()),
         None => db::set_meta(&conn, CARD_MARKER, ""),
     }
@@ -327,7 +334,12 @@ pub fn publish_users(
 /// Run every active cloud backup, then tidy every pack scope. `store` is `None`
 /// when Luna Connect is not set up: each backup records that problem instead.
 /// True when any backup's state changed (so the health cache must be refreshed).
-pub fn run_all(db: &crate::Db, store: Option<&dyn CloudStore>, connect: &ConnectService, now: i64) -> bool {
+pub fn run_all(
+    db: &crate::Db,
+    store: Option<&dyn CloudStore>,
+    connect: &ConnectService,
+    now: i64,
+) -> bool {
     let before = active_states(db, now);
     match store {
         None => {
@@ -437,7 +449,12 @@ fn active_states(db: &crate::Db, now: i64) -> Vec<(String, BackupState)> {
 }
 
 /// Save a run's result on the row: a success refreshes the access list too.
-pub(crate) fn record(db: &crate::Db, id: &str, now: i64, outcome: &CloudOutcome) -> anyhow::Result<()> {
+pub(crate) fn record(
+    db: &crate::Db,
+    id: &str,
+    now: i64,
+    outcome: &CloudOutcome,
+) -> anyhow::Result<()> {
     let conn = lock(db);
     let Some(row) = db::get_protection(&conn, id)? else {
         return Ok(());
@@ -509,7 +526,10 @@ pub fn delete(db: &crate::Db, id: &str, store: &dyn CloudStore, now: i64) -> any
         params![id],
     )?;
     // With no cloud backup left, no run can be refused for a card, so the marker goes too.
-    if !db::list_protections(&conn)?.iter().any(|p| p.kind == db::PROTECTION_CLOUD) {
+    if !db::list_protections(&conn)?
+        .iter()
+        .any(|p| p.kind == db::PROTECTION_CLOUD)
+    {
         db::set_meta(&conn, CARD_MARKER, "")?;
     }
     Ok(())
@@ -680,12 +700,12 @@ pub fn check_all(db: &crate::Db, store: &dyn CloudStore, now: i64) {
 mod tests {
     use super::*;
     use crate::auth::CurrentUser;
-    use crate::backup::cloud::store::{MemoryStore, Usage};
-    use luna_core::marker::{pick_prefix, Marker};
-    use std::fs;
-    use std::path::PathBuf;
     use crate::backup::cloud::crypto;
     use crate::backup::cloud::private::{OLD_PHRASE_GRACE, PSCOPES_KIND, PSNAPSHOTS_KIND};
+    use crate::backup::cloud::store::{MemoryStore, Usage};
+    use luna_core::marker::{Marker, pick_prefix};
+    use std::fs;
+    use std::path::PathBuf;
 
     const NOW: i64 = 1_800_000_000;
 
@@ -719,11 +739,23 @@ mod tests {
         fs::create_dir_all(root.join("Docs")).unwrap();
         let prefix = pick_prefix(&root).unwrap();
         drop(
-            crate::drives::drive_db::create(&root, &Marker::new(src.to_string(), "Photos"), &prefix)
-                .unwrap(),
+            crate::drives::drive_db::create(
+                &root,
+                &Marker::new(src.to_string(), "Photos"),
+                &prefix,
+            )
+            .unwrap(),
         );
-        db::upsert_drive(&conn, &src, "Photos", "as_is", "ext4", &src, root.to_str().unwrap())
-            .unwrap();
+        db::upsert_drive(
+            &conn,
+            &src,
+            "Photos",
+            "as_is",
+            "ext4",
+            &src,
+            root.to_str().unwrap(),
+        )
+        .unwrap();
         fs::write(root.join("Docs").join("a.txt"), "hello").unwrap();
         let connect = ConnectService::new(&dir.path().join("connect"), None);
         Setup {
@@ -740,7 +772,9 @@ mod tests {
     }
 
     fn make_backup(s: &Setup) -> String {
-        create(&s.db, &s.connect, &s.admin, &s.src, "Docs").unwrap().id
+        create(&s.db, &s.connect, &s.admin, &s.src, "Docs")
+            .unwrap()
+            .id
     }
 
     #[test]
@@ -766,8 +800,13 @@ mod tests {
     fn create_needs_the_creators_recovery_phrase() {
         let s = setup();
         crate::db::delete_user_keys(&lock(&s.db), "admin").unwrap();
-        let err = create(&s.db, &s.connect, &s.admin, &s.src, "Docs").err().unwrap();
-        assert_eq!(err.0, "Set up your recovery phrase before you back up to the cloud.");
+        let err = create(&s.db, &s.connect, &s.admin, &s.src, "Docs")
+            .err()
+            .unwrap();
+        assert_eq!(
+            err.0,
+            "Set up your recovery phrase before you back up to the cloud."
+        );
         crate::db::set_user_keys(
             &lock(&s.db),
             &crate::db::UserKeys {
@@ -822,7 +861,12 @@ mod tests {
     struct ListRefused(MemoryStore);
 
     impl CloudStore for ListRefused {
-        fn put_pack(&self, id: &[u8; 32], scope: Option<&str>, bytes: &[u8]) -> Result<(), StoreError> {
+        fn put_pack(
+            &self,
+            id: &[u8; 32],
+            scope: Option<&str>,
+            bytes: &[u8],
+        ) -> Result<(), StoreError> {
             self.0.put_pack(id, scope, bytes)
         }
         fn get_pack(&self, id: &[u8; 32]) -> Result<Vec<u8>, StoreError> {
@@ -833,7 +877,9 @@ mod tests {
         }
         fn put_record(&self, kind: &str, name: &str, bytes: &[u8]) -> Result<(), StoreError> {
             if kind == "users" || kind == USER_RECORD_KIND {
-                return Err(StoreError::Unavailable("Could not reach Luna Connect.".into()));
+                return Err(StoreError::Unavailable(
+                    "Could not reach Luna Connect.".into(),
+                ));
             }
             self.0.put_record(kind, name, bytes)
         }
@@ -898,7 +944,12 @@ mod tests {
     const NO_CARD_MSG: &str = "Add a payment card at connect.luna.libreloom.org so we can store your cloud backup. It costs $8 per terabyte each month.";
 
     impl CloudStore for NoCard {
-        fn put_pack(&self, _id: &[u8; 32], _scope: Option<&str>, _bytes: &[u8]) -> Result<(), StoreError> {
+        fn put_pack(
+            &self,
+            _id: &[u8; 32],
+            _scope: Option<&str>,
+            _bytes: &[u8],
+        ) -> Result<(), StoreError> {
             Err(StoreError::Rejected(NO_CARD_MSG.into()))
         }
         fn get_pack(&self, id: &[u8; 32]) -> Result<Vec<u8>, StoreError> {
@@ -930,8 +981,23 @@ mod tests {
         let id = make_backup(&s);
         assert!(card_on_file(&s.db), "no run yet: nothing refused");
 
-        let refused = run(&s.db, &id, &NoCard(MemoryStore::new()), &s.connect, "", false, NOW);
-        assert!(refused.problem.as_deref().unwrap_or("").contains(CARD_REQUIRED_PREFIX), "{refused:?}");
+        let refused = run(
+            &s.db,
+            &id,
+            &NoCard(MemoryStore::new()),
+            &s.connect,
+            "",
+            false,
+            NOW,
+        );
+        assert!(
+            refused
+                .problem
+                .as_deref()
+                .unwrap_or("")
+                .contains(CARD_REQUIRED_PREFIX),
+            "{refused:?}"
+        );
         assert!(!card_on_file(&s.db));
 
         let ok = run(&s.db, &id, &MemoryStore::new(), &s.connect, "", false, NOW);
@@ -972,10 +1038,26 @@ mod tests {
     fn other_refusals_leave_the_card_marker_alone() {
         let s = setup();
         let id = make_backup(&s);
-        run(&s.db, &id, &NoCard(MemoryStore::new()), &s.connect, "", false, NOW);
+        run(
+            &s.db,
+            &id,
+            &NoCard(MemoryStore::new()),
+            &s.connect,
+            "",
+            false,
+            NOW,
+        );
         assert!(!card_on_file(&s.db));
 
-        let outcome = run(&s.db, &id, &ListRefused(MemoryStore::new()), &s.connect, "", false, NOW);
+        let outcome = run(
+            &s.db,
+            &id,
+            &ListRefused(MemoryStore::new()),
+            &s.connect,
+            "",
+            false,
+            NOW,
+        );
         assert_eq!(outcome.problem.as_deref(), Some(USER_LIST_FAILED));
         assert!(!card_on_file(&s.db));
     }
@@ -1098,11 +1180,23 @@ mod tests {
         fs::create_dir_all(&root).unwrap();
         let prefix = pick_prefix(&root).unwrap();
         drop(
-            crate::drives::drive_db::create(&root, &Marker::new("drive-src".to_string(), "Photos"), &prefix)
-                .unwrap(),
+            crate::drives::drive_db::create(
+                &root,
+                &Marker::new("drive-src".to_string(), "Photos"),
+                &prefix,
+            )
+            .unwrap(),
         );
-        db::upsert_drive(&conn, "drive-src", "Photos", "as_is", "ext4", "drive-src", root.to_str().unwrap())
-            .unwrap();
+        db::upsert_drive(
+            &conn,
+            "drive-src",
+            "Photos",
+            "as_is",
+            "ext4",
+            "drive-src",
+            root.to_str().unwrap(),
+        )
+        .unwrap();
         let connect = ConnectService::new(&dir.path().join("connect"), None);
         PrivateSetup {
             _dir: dir,
@@ -1135,11 +1229,16 @@ mod tests {
     }
 
     fn private_backup(s: &PrivateSetup, path: &str) -> String {
-        create(&s.db, &s.connect, &s.owner, "drive-src", path).unwrap().id
+        create(&s.db, &s.connect, &s.owner, "drive-src", path)
+            .unwrap()
+            .id
     }
 
     fn active_scope(db: &crate::Db) -> String {
-        db::active_private_scope(&lock(db), "owner").unwrap().unwrap().scope
+        db::active_private_scope(&lock(db), "owner")
+            .unwrap()
+            .unwrap()
+            .scope
     }
 
     fn snapshot_count(db: &crate::Db, scope: &str) -> usize {
@@ -1167,7 +1266,9 @@ mod tests {
         private_item(&s, "Docs");
         // The Admin has no Read access to a private item, so the Read check refuses first;
         // the owner-only message is not reached for an Admin.
-        let err = create(&s.db, &s.connect, &s.admin, "drive-src", "Docs").err().unwrap();
+        let err = create(&s.db, &s.connect, &s.admin, "drive-src", "Docs")
+            .err()
+            .unwrap();
         assert_eq!(err.0, "You need Read access to this folder to back it up.");
     }
 
@@ -1176,8 +1277,13 @@ mod tests {
         let s = private_setup();
         let disk = private_item(&s, "Docs");
         fs::create_dir_all(disk.join("Inner")).unwrap();
-        let err = create(&s.db, &s.connect, &s.owner, "drive-src", "Docs/Inner").err().unwrap();
-        assert_eq!(err.0, "Back up the private item itself, not a folder inside it.");
+        let err = create(&s.db, &s.connect, &s.owner, "drive-src", "Docs/Inner")
+            .err()
+            .unwrap();
+        assert_eq!(
+            err.0,
+            "Back up the private item itself, not a folder inside it."
+        );
     }
 
     #[test]
@@ -1201,8 +1307,14 @@ mod tests {
         let docs = private_backup(&s, "Docs");
         let notes = private_backup(&s, "Notes");
         let store = MemoryStore::new();
-        assert_eq!(run(&s.db, &docs, &store, &s.connect, "owner", false, NOW).problem, None);
-        assert_eq!(run(&s.db, &notes, &store, &s.connect, "owner", false, NOW + 1).problem, None);
+        assert_eq!(
+            run(&s.db, &docs, &store, &s.connect, "owner", false, NOW).problem,
+            None
+        );
+        assert_eq!(
+            run(&s.db, &notes, &store, &s.connect, "owner", false, NOW + 1).problem,
+            None
+        );
         let scope = active_scope(&s.db);
         assert_eq!(snapshot_count(&s.db, &scope), 2);
 
@@ -1213,7 +1325,11 @@ mod tests {
 
         let report = check(&s.db, &notes, &store, check::Sample::All, NOW + 3 * DAY).unwrap();
         assert_eq!(report.problem, None);
-        assert!(report.missing_packs.is_empty(), "{:?}", report.missing_packs);
+        assert!(
+            report.missing_packs.is_empty(),
+            "{:?}",
+            report.missing_packs
+        );
     }
 
     #[test]
@@ -1222,17 +1338,27 @@ mod tests {
         private_item(&s, "Docs");
         let id = private_backup(&s, "Docs");
         let store = MemoryStore::new();
-        assert_eq!(run(&s.db, &id, &store, &s.connect, "owner", false, NOW).problem, None);
+        assert_eq!(
+            run(&s.db, &id, &store, &s.connect, "owner", false, NOW).problem,
+            None
+        );
         let old = active_scope(&s.db);
 
         rotate_owner_keys(&s);
         let t2 = NOW + DAY;
-        assert_eq!(run(&s.db, &id, &store, &s.connect, "owner", false, t2).problem, None);
+        assert_eq!(
+            run(&s.db, &id, &store, &s.connect, "owner", false, t2).problem,
+            None
+        );
         assert_ne!(active_scope(&s.db), old);
 
         let retire_at = t2 + OLD_PHRASE_GRACE;
         sweep(&s.db, &store, retire_at - 1);
-        assert_eq!(snapshot_count(&s.db, &old), 1, "old copies must stay until 30 days");
+        assert_eq!(
+            snapshot_count(&s.db, &old),
+            1,
+            "old copies must stay until 30 days"
+        );
 
         sweep(&s.db, &store, retire_at);
         assert_eq!(snapshot_count(&s.db, &old), 0);
@@ -1255,14 +1381,23 @@ mod tests {
         private_item(&s, "Docs");
         let id = private_backup(&s, "Docs");
         let store = MemoryStore::new();
-        assert_eq!(run(&s.db, &id, &store, &s.connect, "owner", false, NOW).problem, None);
+        assert_eq!(
+            run(&s.db, &id, &store, &s.connect, "owner", false, NOW).problem,
+            None
+        );
         let old = active_scope(&s.db);
         rotate_owner_keys(&s);
         let t2 = NOW + DAY;
-        assert_eq!(run(&s.db, &id, &store, &s.connect, "owner", false, t2).problem, None);
+        assert_eq!(
+            run(&s.db, &id, &store, &s.connect, "owner", false, t2).problem,
+            None
+        );
         assert_eq!(snapshot_count(&s.db, &old), 1);
 
-        assert_eq!(old_phrase_copies(&lock(&s.db), "owner"), Some((1, t2 + OLD_PHRASE_GRACE)));
+        assert_eq!(
+            old_phrase_copies(&lock(&s.db), "owner"),
+            Some((1, t2 + OLD_PHRASE_GRACE))
+        );
         retire_old_phrase_now(&lock(&s.db), "owner", t2).unwrap();
         assert_eq!(old_phrase_copies(&lock(&s.db), "owner"), Some((1, t2)));
         sweep(&s.db, &store, t2 + 1);
@@ -1277,13 +1412,22 @@ mod tests {
         let id = private_backup(&s, "Docs");
         let store = MemoryStore::new();
         assert_eq!(old_phrase_copies(&lock(&s.db), "owner"), None);
-        assert_eq!(run(&s.db, &id, &store, &s.connect, "owner", false, NOW).problem, None);
+        assert_eq!(
+            run(&s.db, &id, &store, &s.connect, "owner", false, NOW).problem,
+            None
+        );
         assert_eq!(old_phrase_copies(&lock(&s.db), "owner"), None);
 
         rotate_owner_keys(&s);
         let t2 = NOW + DAY;
-        assert_eq!(run(&s.db, &id, &store, &s.connect, "owner", false, t2).problem, None);
-        assert_eq!(old_phrase_copies(&lock(&s.db), "owner"), Some((1, t2 + OLD_PHRASE_GRACE)));
+        assert_eq!(
+            run(&s.db, &id, &store, &s.connect, "owner", false, t2).problem,
+            None
+        );
+        assert_eq!(
+            old_phrase_copies(&lock(&s.db), "owner"),
+            Some((1, t2 + OLD_PHRASE_GRACE))
+        );
         assert_eq!(old_phrase_copies(&lock(&s.db), "admin"), None);
 
         sweep(&s.db, &store, t2 + OLD_PHRASE_GRACE);
@@ -1295,7 +1439,9 @@ mod tests {
         let s = private_setup();
         fs::create_dir_all(s.root.join("Shared")).unwrap();
         fs::write(s.root.join("Shared").join("a.txt"), "hello").unwrap();
-        let shared = create(&s.db, &s.connect, &s.admin, "drive-src", "Shared").unwrap().id;
+        let shared = create(&s.db, &s.connect, &s.admin, "drive-src", "Shared")
+            .unwrap()
+            .id;
         private_item(&s, "Docs");
         let private = private_backup(&s, "Docs");
         {
@@ -1305,7 +1451,19 @@ mod tests {
         }
         on_grants_changed(&lock(&s.db), "drive-src");
         let conn = lock(&s.db);
-        assert_ne!(db::get_protection(&conn, &shared).unwrap().unwrap().access_json, "stale");
-        assert_eq!(db::get_protection(&conn, &private).unwrap().unwrap().access_json, "keep-me");
+        assert_ne!(
+            db::get_protection(&conn, &shared)
+                .unwrap()
+                .unwrap()
+                .access_json,
+            "stale"
+        );
+        assert_eq!(
+            db::get_protection(&conn, &private)
+                .unwrap()
+                .unwrap()
+                .access_json,
+            "keep-me"
+        );
     }
 }

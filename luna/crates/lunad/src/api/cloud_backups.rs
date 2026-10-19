@@ -48,10 +48,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/cloud/backups/{id}/check", post(check))
 }
 
-async fn list(
-    State(state): State<AppState>,
-    Extension(user): Extension<CurrentUser>,
-) -> ApiResult {
+async fn list(State(state): State<AppState>, Extension(user): Extension<CurrentUser>) -> ApiResult {
     let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
     let rows = db::list_protections(&conn).map_err(|_| read_failed())?;
     let now = db::now_unix();
@@ -94,8 +91,14 @@ async fn create(
         }
     }
     // Connect and the drives are reached with no DB lock held.
-    let row = ops::create(&state.db, &state.connect, &user, &body.source_drive_id, &body.source_path)
-        .map_err(|Refused(msg)| json_error(refusal_status(&msg), msg))?;
+    let row = ops::create(
+        &state.db,
+        &state.connect,
+        &user,
+        &body.source_drive_id,
+        &body.source_path,
+    )
+    .map_err(|Refused(msg)| json_error(refusal_status(&msg), msg))?;
     // An existing backup of this folder comes back as it is, so only people
     // on its access list may see it or start it.
     if !ops::visible_to(&row, &user) {
@@ -213,7 +216,15 @@ async fn run(
     let started_by = user.id.clone();
     let job = tokio::task::spawn_blocking(move || {
         let store = connect_store(&connect, &db)?;
-        Some(ops::run(&db, &id, &store, &connect, &started_by, accept_missing, db::now_unix()))
+        Some(ops::run(
+            &db,
+            &id,
+            &store,
+            &connect,
+            &started_by,
+            accept_missing,
+            db::now_unix(),
+        ))
     });
     // A big first copy can take hours. Answer when it's quick; otherwise say
     // it's not done and let the backup's state tell the rest.
@@ -313,7 +324,12 @@ fn find_backup(conn: &Connection, id: &str) -> Result<ProtectionRow, ApiError> {
 
 /// "Back up anyway" on a source that looks gone is for people who may delete the backup,
 /// the same rule as a drive backup's "Run anyway". Anyone else's request is ignored.
-fn accept_missing_allowed(conn: &Connection, row: &ProtectionRow, user: &CurrentUser, wants: bool) -> bool {
+fn accept_missing_allowed(
+    conn: &Connection,
+    row: &ProtectionRow,
+    user: &CurrentUser,
+    wants: bool,
+) -> bool {
     wants && can_delete(conn, row, user)
 }
 
@@ -436,9 +452,9 @@ fn folder_name(source_path: &str, drive_label: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use axum::Router;
-    use crate::backup::cloud::ops;
     use super::run_answer;
+    use crate::backup::cloud::ops;
+    use axum::Router;
     use axum::body::Body;
     use axum::http::Request;
     use serde_json::Value;
@@ -560,11 +576,25 @@ mod tests {
         seed(&f.state, "c-member", &member_only);
         seed(&f.state, "c-admin", r#"{"users":[],"admins":true}"#);
 
-        let (status, body) = send(&f.router, "GET", "/api/v1/cloud/backups", &f.member_token, None).await;
+        let (status, body) = send(
+            &f.router,
+            "GET",
+            "/api/v1/cloud/backups",
+            &f.member_token,
+            None,
+        )
+        .await;
         assert_eq!(status, 200);
         assert_eq!(ids(&body), vec!["c-member".to_string()]);
 
-        let (_, body) = send(&f.router, "GET", "/api/v1/cloud/backups", &f.admin_token, None).await;
+        let (_, body) = send(
+            &f.router,
+            "GET",
+            "/api/v1/cloud/backups",
+            &f.admin_token,
+            None,
+        )
+        .await;
         assert_eq!(ids(&body), vec!["c-admin".to_string()]);
     }
 
@@ -616,11 +646,25 @@ mod tests {
             ..CloudOutcome::default()
         };
         ops::record(&f.state.db, "c-held", 100, &held).unwrap();
-        let (_, body) = send(&f.router, "GET", "/api/v1/cloud/backups", &f.admin_token, None).await;
+        let (_, body) = send(
+            &f.router,
+            "GET",
+            "/api/v1/cloud/backups",
+            &f.admin_token,
+            None,
+        )
+        .await;
         assert_eq!(body[0]["source_missing"], true);
 
         ops::record(&f.state.db, "c-held", 200, &CloudOutcome::default()).unwrap();
-        let (_, body) = send(&f.router, "GET", "/api/v1/cloud/backups", &f.admin_token, None).await;
+        let (_, body) = send(
+            &f.router,
+            "GET",
+            "/api/v1/cloud/backups",
+            &f.admin_token,
+            None,
+        )
+        .await;
         assert_eq!(body[0]["source_missing"], false);
     }
 

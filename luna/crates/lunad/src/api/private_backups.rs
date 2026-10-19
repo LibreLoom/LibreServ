@@ -61,12 +61,11 @@ async fn item(
             "Luna can't find this folder.",
         ));
     }
-    let (private, inside, owner) =
-        match access_list::private_source(&conn, &query.drive, &path) {
-            PrivateSource::OwnItem { owner } => (true, false, owner),
-            PrivateSource::Inside => (false, true, String::new()),
-            PrivateSource::Shared => (false, false, String::new()),
-        };
+    let (private, inside, owner) = match access_list::private_source(&conn, &query.drive, &path) {
+        PrivateSource::OwnItem { owner } => (true, false, owner),
+        PrivateSource::Inside => (false, true, String::new()),
+        PrivateSource::Shared => (false, false, String::new()),
+    };
     Ok(Json(json!({
         "private": private,
         "inside_private": inside,
@@ -116,7 +115,10 @@ async fn mine(State(state): State<AppState>, Extension(user): Extension<CurrentU
 
 /// One line per owner of private backups: an Admin sees every owner, anyone
 /// else only themselves. Never paths, item names or sizes.
-async fn summary(State(state): State<AppState>, Extension(user): Extension<CurrentUser>) -> ApiResult {
+async fn summary(
+    State(state): State<AppState>,
+    Extension(user): Extension<CurrentUser>,
+) -> ApiResult {
     let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
     let now = db::now_unix();
     let rows = db::list_protections(&conn)
@@ -126,7 +128,10 @@ async fn summary(State(state): State<AppState>, Extension(user): Extension<Curre
         if user.role != "admin" && row.private_owner != user.id {
             continue;
         }
-        by_owner.entry(row.private_owner.clone()).or_default().push(row);
+        by_owner
+            .entry(row.private_owner.clone())
+            .or_default()
+            .push(row);
     }
     let owners: Vec<Value> = by_owner
         .iter()
@@ -178,8 +183,9 @@ async fn remove_owner(
             "Luna is copying one of these backups right now. Remove them when the copy finishes.",
         ));
     }
-    let (cloud, local): (Vec<ProtectionRow>, Vec<ProtectionRow>) =
-        rows.into_iter().partition(|r| r.kind == db::PROTECTION_CLOUD);
+    let (cloud, local): (Vec<ProtectionRow>, Vec<ProtectionRow>) = rows
+        .into_iter()
+        .partition(|r| r.kind == db::PROTECTION_CLOUD);
     let mut removed = 0usize;
 
     if !cloud.is_empty() {
@@ -394,7 +400,10 @@ mod tests {
         let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();
-        (status, serde_json::from_slice(&bytes).unwrap_or(Value::Null))
+        (
+            status,
+            serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+        )
     }
 
     #[tokio::test]
@@ -434,7 +443,13 @@ mod tests {
         make_private(&f.state, &dir, "Private", &f.owner_id, "b-private");
         make_private(&f.state, &dir, "Theirs", &f.stranger_id, "b-theirs");
 
-        let (status, body) = send(&f.router, "GET", "/api/v1/private-backups/mine", &f.owner_token).await;
+        let (status, body) = send(
+            &f.router,
+            "GET",
+            "/api/v1/private-backups/mine",
+            &f.owner_token,
+        )
+        .await;
         assert_eq!(status, StatusCode::OK, "{body}");
         let items = body["items"].as_array().unwrap();
         assert_eq!(items.len(), 1, "{body}");
@@ -452,11 +467,23 @@ mod tests {
         make_private(&f.state, &dir, "Private", &f.owner_id, "b-private");
         make_private(&f.state, &dir, "Theirs", &f.stranger_id, "b-theirs");
 
-        let (status, body) = send(&f.router, "GET", "/api/v1/private-backups/summary", &f.admin_token).await;
+        let (status, body) = send(
+            &f.router,
+            "GET",
+            "/api/v1/private-backups/summary",
+            &f.admin_token,
+        )
+        .await;
         assert_eq!(status, StatusCode::OK, "{body}");
         assert_eq!(body["owners"].as_array().unwrap().len(), 2, "{body}");
 
-        let (status, body) = send(&f.router, "GET", "/api/v1/private-backups/summary", &f.owner_token).await;
+        let (status, body) = send(
+            &f.router,
+            "GET",
+            "/api/v1/private-backups/summary",
+            &f.owner_token,
+        )
+        .await;
         assert_eq!(status, StatusCode::OK, "{body}");
         let owners = body["owners"].as_array().unwrap();
         assert_eq!(owners.len(), 1, "{body}");

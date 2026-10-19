@@ -913,14 +913,7 @@ mod tests {
         seed_cloud_backup(&h);
         let actor = second_admin_without_phrase(&h);
         let uri = format!("/api/v1/users/{}", h.admin_id);
-        let (status, body) = send(
-            &h,
-            "PATCH",
-            &uri,
-            &actor,
-            Some(json!({ "role": "user" })),
-        )
-        .await;
+        let (status, body) = send(&h, "PATCH", &uri, &actor, Some(json!({ "role": "user" }))).await;
         assert_eq!(status, 409, "{body}");
         assert_eq!(
             body["error"],
@@ -947,8 +940,15 @@ mod tests {
         give_phrase(&h, &h.admin_id);
         seed_cloud_backup(&h);
         let actor = second_admin_without_phrase(&h);
-        let sam_id = h.state.auth.list_users().unwrap().into_iter()
-            .find(|u| u.username == "sam").unwrap().id;
+        let sam_id = h
+            .state
+            .auth
+            .list_users()
+            .unwrap()
+            .into_iter()
+            .find(|u| u.username == "sam")
+            .unwrap()
+            .id;
         give_phrase(&h, &sam_id);
         let uri = format!("/api/v1/users/{}", h.admin_id);
         let (status, body) = send(&h, "DELETE", &uri, &actor, None).await;
@@ -962,18 +962,18 @@ mod tests {
         give_phrase(&h, &h.admin_id);
         seed_cloud_backup(&h);
         let actor = second_admin_without_phrase(&h);
-        let sam_id = h.state.auth.list_users().unwrap().into_iter()
-            .find(|u| u.username == "sam").unwrap().id;
+        let sam_id = h
+            .state
+            .auth
+            .list_users()
+            .unwrap()
+            .into_iter()
+            .find(|u| u.username == "sam")
+            .unwrap()
+            .id;
         give_phrase(&h, &sam_id);
         let uri = format!("/api/v1/users/{}", h.admin_id);
-        let (status, body) = send(
-            &h,
-            "PATCH",
-            &uri,
-            &actor,
-            Some(json!({ "role": "user" })),
-        )
-        .await;
+        let (status, body) = send(&h, "PATCH", &uri, &actor, Some(json!({ "role": "user" }))).await;
         assert_eq!(status, 200, "{body}");
         assert_eq!(user_row(&h, &h.admin_id).unwrap().role, "user");
     }
@@ -984,14 +984,7 @@ mod tests {
         give_phrase(&h, &h.admin_id);
         let actor = second_admin_without_phrase(&h);
         let uri = format!("/api/v1/users/{}", h.admin_id);
-        let (status, body) = send(
-            &h,
-            "PATCH",
-            &uri,
-            &actor,
-            Some(json!({ "role": "user" })),
-        )
-        .await;
+        let (status, body) = send(&h, "PATCH", &uri, &actor, Some(json!({ "role": "user" }))).await;
         assert_eq!(status, 200, "{body}");
     }
 

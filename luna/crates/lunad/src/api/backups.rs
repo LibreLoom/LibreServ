@@ -522,7 +522,14 @@ mod tests {
     async fn private_row_is_hidden_from_admin_and_marked_private_for_owner() {
         let f = fixture();
         let owner_only = format!(r#"{{"users":["{}"],"admins":false}}"#, f.member_id);
-        seed_owned(&f.state, "mine-private", "notes", &owner_only, &f.member_id, &f.member_id);
+        seed_owned(
+            &f.state,
+            "mine-private",
+            "notes",
+            &owner_only,
+            &f.member_id,
+            &f.member_id,
+        );
 
         let (status, body) = send(&f.router, "GET", "/api/v1/backups", &f.member_token, None).await;
         assert_eq!(status, axum::http::StatusCode::OK);
@@ -546,15 +553,26 @@ mod tests {
     async fn admin_can_delete_a_deleted_owners_private_backup_but_not_a_live_owners() {
         let f = fixture();
         let owner_only = format!(r#"{{"users":["{}"],"admins":false}}"#, f.member_id);
-        seed_owned(&f.state, "live-owner", "live", &owner_only, &f.member_id, &f.member_id);
-        seed_owned(&f.state, "gone-owner", "gone", &owner_only, "gone-user", "gone-user");
+        seed_owned(
+            &f.state,
+            "live-owner",
+            "live",
+            &owner_only,
+            &f.member_id,
+            &f.member_id,
+        );
+        seed_owned(
+            &f.state,
+            "gone-owner",
+            "gone",
+            &owner_only,
+            "gone-user",
+            "gone-user",
+        );
         {
             let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
-            conn.execute(
-                "INSERT INTO deleted_users (id) VALUES ('gone-user')",
-                [],
-            )
-            .unwrap();
+            conn.execute("INSERT INTO deleted_users (id) VALUES ('gone-user')", [])
+                .unwrap();
         }
 
         let (status, _) = send(

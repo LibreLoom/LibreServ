@@ -434,9 +434,27 @@ mod tests {
     fn private_list_has_grants_on_the_item_only() {
         let (dir, conn) = setup();
         mounted(&dir, &conn);
-        grant(&conn, "g1", "drive-a", KIND_PATH, "Family/Vault", "u-bob", CAP_VIEW);
-        grant(&conn, "g2", "drive-a", KIND_PATH, "Family", "u-cat", CAP_VIEW);
-        grant(&conn, "g3", "drive-a", KIND_PATH, "Family/Vault", "u-root", CAP_VIEW);
+        grant(
+            &conn,
+            "g1",
+            "drive-a",
+            KIND_PATH,
+            "Family/Vault",
+            "u-bob",
+            CAP_VIEW,
+        );
+        grant(
+            &conn, "g2", "drive-a", KIND_PATH, "Family", "u-cat", CAP_VIEW,
+        );
+        grant(
+            &conn,
+            "g3",
+            "drive-a",
+            KIND_PATH,
+            "Family/Vault",
+            "u-root",
+            CAP_VIEW,
+        );
         let list = for_private(&conn, "drive-a", "Family/Vault", "u-ann").unwrap();
         assert_eq!(list.users, vec!["u-ann", "u-bob", "u-root"]);
         assert!(!list.admins);
@@ -480,7 +498,14 @@ mod tests {
             Some("This folder now belongs to someone else.")
         );
 
-        let inside = private_row(&conn, "p3", "drive", "drive-a", "Family/Vault/Deep", "u-ann");
+        let inside = private_row(
+            &conn,
+            "p3",
+            "drive",
+            "drive-a",
+            "Family/Vault/Deep",
+            "u-ann",
+        );
         assert_eq!(
             private_stop_reason(&conn, &inside),
             Some("This private item is now inside another private item.")
@@ -500,7 +525,9 @@ mod tests {
     fn shared_row_is_unchanged() {
         let (dir, conn) = setup();
         mounted(&dir, &conn);
-        grant(&conn, "g1", "drive-a", KIND_PATH, "Photos", "u-ann", CAP_VIEW);
+        grant(
+            &conn, "g1", "drive-a", KIND_PATH, "Photos", "u-ann", CAP_VIEW,
+        );
         let row = private_row(&conn, "s1", "drive", "drive-a", "Photos/2024", "");
         assert_eq!(
             for_row(&conn, &row).unwrap(),

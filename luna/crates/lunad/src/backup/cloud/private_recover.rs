@@ -7,12 +7,12 @@
 
 use std::collections::HashSet;
 
-use anyhow::{bail, Result};
-use rusqlite::{params, Connection, OptionalExtension};
+use anyhow::{Result, bail};
+use rusqlite::{Connection, OptionalExtension, params};
 
 use super::format::{SignedRecord, Tree};
 use super::private::{
-    self, ScopeRecord, SignedScope, PRIVATE_SNAPSHOT_DOMAIN, PSCOPES_KIND, PSNAPSHOTS_KIND,
+    self, PRIVATE_SNAPSHOT_DOMAIN, PSCOPES_KIND, PSNAPSHOTS_KIND, ScopeRecord, SignedScope,
 };
 use super::store::CloudStore;
 use crate::backup::access_list::{self, PrivateSource};
@@ -241,7 +241,11 @@ pub fn write_private_index(
 
         tx.execute(
             "INSERT INTO cloud_private_trees (snapshot_id, scope, tree) VALUES (?1, ?2, ?3)",
-            params![snap.snapshot_id, scope.scope, serde_json::to_vec(&snap.tree)?],
+            params![
+                snap.snapshot_id,
+                scope.scope,
+                serde_json::to_vec(&snap.tree)?
+            ],
         )?;
         written += 1;
     }
@@ -316,15 +320,18 @@ mod tests {
         let luna_public = unhex32(fx["signing_public"].as_str().unwrap());
         let scope_id = p["scope"].as_str().unwrap();
         let snapshot_id = p["snapshot_id"].as_str().unwrap();
-        let entropy: [u8; 16] = unhex(fx["alice_entropy"].as_str().unwrap()).try_into().unwrap();
+        let entropy: [u8; 16] = unhex(fx["alice_entropy"].as_str().unwrap())
+            .try_into()
+            .unwrap();
         let alice = crypto::derive(&entropy, LUNA_ID);
 
         let scope = SignedScope::from_bytes(&fixture_record(&fx["private"], "pscopes", scope_id))
             .unwrap()
             .verify(&luna_public)
             .unwrap();
-        let dedup = private::open_dedup(&alice.x25519_secret, LUNA_ID, scope_id, &scope.sealed_dedup)
-            .unwrap();
+        let dedup =
+            private::open_dedup(&alice.x25519_secret, LUNA_ID, scope_id, &scope.sealed_dedup)
+                .unwrap();
 
         let raw = fixture_record(
             &fx["private"],
@@ -332,7 +339,9 @@ mod tests {
             &private::psnapshot_name(scope_id, snapshot_id),
         );
         let signed = SignedRecord::from_bytes(&raw).unwrap();
-        let snap = signed.verify_with(&luna_public, PRIVATE_SNAPSHOT_DOMAIN).unwrap();
+        let snap = signed
+            .verify_with(&luna_public, PRIVATE_SNAPSHOT_DOMAIN)
+            .unwrap();
 
         let unwrap = |w: &[u8]| private::open_pack_key(&alice.x25519_secret, LUNA_ID, scope_id, w);
         let tree_pack_id = unhex32(p["tree_pack_id"].as_str().unwrap());
@@ -384,7 +393,9 @@ mod tests {
         assert_eq!(written, 1);
         assert_eq!(count(&conn, "cloud_snapshots"), 1);
 
-        let scope = db::get_private_scope(&conn, &d.scope.scope).unwrap().unwrap();
+        let scope = db::get_private_scope(&conn, &d.scope.scope)
+            .unwrap()
+            .unwrap();
         assert_eq!(scope.state, "recovered");
         assert_eq!(scope.owner, "alice");
 
@@ -411,7 +422,10 @@ mod tests {
             NOW,
         )
         .unwrap_err();
-        assert!(err.to_string().contains("don't match the key your browser sent"));
+        assert!(
+            err.to_string()
+                .contains("don't match the key your browser sent")
+        );
         assert_eq!(count(&conn, "cloud_snapshots"), 0);
         assert_eq!(count(&conn, "cloud_private_scopes"), 0);
     }
@@ -419,11 +433,9 @@ mod tests {
     #[test]
     fn other_phrase_is_refused() {
         let d = decrypt_fixture();
-        let bob_entropy: [u8; 16] = unhex(
-            fixture()["bob_entropy"].as_str().unwrap(),
-        )
-        .try_into()
-        .unwrap();
+        let bob_entropy: [u8; 16] = unhex(fixture()["bob_entropy"].as_str().unwrap())
+            .try_into()
+            .unwrap();
         let bob = crypto::derive(&bob_entropy, LUNA_ID);
         let (_dir, mut conn) = setup();
         let err = write_private_index(
@@ -449,17 +461,19 @@ mod tests {
         let mut forged = d.snapshot.clone();
         forged.record = serde_json::to_vec(&signed).unwrap();
         let (_dir, mut conn) = setup();
-        assert!(write_private_index(
-            &mut conn,
-            &d.luna_public,
-            "alice",
-            &d.alice.x25519_public,
-            &d.scope,
-            &d.dedup,
-            vec![forged],
-            NOW,
-        )
-        .is_err());
+        assert!(
+            write_private_index(
+                &mut conn,
+                &d.luna_public,
+                "alice",
+                &d.alice.x25519_public,
+                &d.scope,
+                &d.dedup,
+                vec![forged],
+                NOW,
+            )
+            .is_err()
+        );
         assert_eq!(count(&conn, "cloud_snapshots"), 0);
         assert_eq!(count(&conn, "cloud_private_scopes"), 0);
     }
@@ -515,7 +529,11 @@ mod tests {
         let fx = fixture();
         let scope_id = fx["private"]["scope"].as_str().unwrap();
         store
-            .put_record(PSCOPES_KIND, scope_id, &fixture_record(&fx["private"], "pscopes", scope_id))
+            .put_record(
+                PSCOPES_KIND,
+                scope_id,
+                &fixture_record(&fx["private"], "pscopes", scope_id),
+            )
             .unwrap();
         let mine = caller_scopes(&store, &d.luna_public, &d.alice.x25519_public).unwrap();
         assert_eq!(mine.len(), 1);

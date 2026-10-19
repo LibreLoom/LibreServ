@@ -1716,9 +1716,17 @@ mod tests {
                 mtime: 0,
             },
         ];
-        let outcome = sync_target(&target, &r, "Photos", walked, &access, SyncOptions::default(), NOW)
-            .unwrap()
-            .unwrap();
+        let outcome = sync_target(
+            &target,
+            &r,
+            "Photos",
+            walked,
+            &access,
+            SyncOptions::default(),
+            NOW,
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(outcome.copied, 1);
         assert!(outcome.notes.is_empty());
     }
@@ -1808,9 +1816,17 @@ mod tests {
         .unwrap();
         let roomy = with_limits(&s, drive_store::FsLimits::default());
         let walked = scope::walk(&docs(&s)).unwrap();
-        sync_target(&roomy, &r, "Photos", walked, &access, SyncOptions::default(), NOW)
-            .unwrap()
-            .unwrap();
+        sync_target(
+            &roomy,
+            &r,
+            "Photos",
+            walked,
+            &access,
+            SyncOptions::default(),
+            NOW,
+        )
+        .unwrap()
+        .unwrap();
 
         // The file grows past a 5-byte limit, like a FAT drive's file cap.
         write(&doc, "much longer than five bytes");
@@ -1822,9 +1838,17 @@ mod tests {
             },
         );
         let walked = scope::walk(&docs(&s)).unwrap();
-        let outcome = sync_target(&small, &r, "Photos", walked, &access, SyncOptions::default(), NOW)
-            .unwrap()
-            .unwrap();
+        let outcome = sync_target(
+            &small,
+            &r,
+            "Photos",
+            walked,
+            &access,
+            SyncOptions::default(),
+            NOW,
+        )
+        .unwrap()
+        .unwrap();
         assert!(
             outcome.notes.iter().any(|n| n.contains("a.txt")),
             "{:?}",
@@ -1855,16 +1879,32 @@ mod tests {
             },
         );
         let walked = scope::walk(&docs(&s)).unwrap();
-        sync_target(&ci, &r, "Photos", walked, &access, SyncOptions::default(), NOW)
-            .unwrap()
-            .unwrap();
+        sync_target(
+            &ci,
+            &r,
+            "Photos",
+            walked,
+            &access,
+            SyncOptions::default(),
+            NOW,
+        )
+        .unwrap()
+        .unwrap();
 
         // Same name with different capitals, same content.
         fs::rename(&doc, docs(&s).join("Notes.txt")).unwrap();
         let walked = scope::walk(&docs(&s)).unwrap();
-        sync_target(&ci, &r, "Photos", walked, &access, SyncOptions::default(), NOW)
-            .unwrap()
-            .unwrap();
+        sync_target(
+            &ci,
+            &r,
+            "Photos",
+            walked,
+            &access,
+            SyncOptions::default(),
+            NOW,
+        )
+        .unwrap()
+        .unwrap();
 
         let files = store(&s, &id).current_files().unwrap();
         assert_eq!(files.len(), 1, "{files:?}");
@@ -1915,7 +1955,10 @@ mod tests {
         crate::private::create(&s.src_root, "Docs", "admin").unwrap();
         let conn = s.db.lock().unwrap();
         let err = create(&conn, &s.admin, &s.src, "Docs/Sub", &s.tgt).unwrap_err();
-        assert_eq!(err.0, "Back up the private item itself, from its own shield.");
+        assert_eq!(
+            err.0,
+            "Back up the private item itself, from its own shield."
+        );
     }
 
     #[test]

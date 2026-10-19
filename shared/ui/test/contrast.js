@@ -199,7 +199,7 @@ export function watchSurfaceMismatches() {
     for (const record of records) {
       for (const node of record.addedNodes) {
         if (node.nodeType !== 1 || !node.isConnected) continue;
-        for (const problem of findSurfaceMismatches(node)) seenMismatches.add(problem);
+        for (const problem of findSurfaceMismatches(/** @type {HTMLElement} */ (node))) seenMismatches.add(problem);
       }
     }
   });

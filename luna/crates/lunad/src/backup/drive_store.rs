@@ -650,7 +650,11 @@ fn remove_file_if_exists(path: &Path) -> io::Result<bool> {
 /// mtime. Nothing is visible at `dst` until the caller persists the temp
 /// file; dropping it removes it. A source that no longer exists comes back
 /// as `NotFound`, so the caller can skip the file.
-fn stage_copy(src: &Path, src_meta: &fs::Metadata, dst: &Path) -> io::Result<tempfile::NamedTempFile> {
+fn stage_copy(
+    src: &Path,
+    src_meta: &fs::Metadata,
+    dst: &Path,
+) -> io::Result<tempfile::NamedTempFile> {
     let mut src_file = fs::File::open(src).map_err(|e| {
         if e.kind() == ErrorKind::NotFound {
             io::Error::new(ErrorKind::NotFound, "The file is no longer in the source.")
@@ -1082,7 +1086,10 @@ mod tests {
         assert_eq!(store.free_space_by_thinning(&mut m, NOW).unwrap(), 0);
         assert!(versions.join(format!("{}/gone.txt", NOW - 6 * d)).exists());
         assert!(m.deleted.contains_key("gone.txt"));
-        assert_eq!(fs::read(store.current_dir().join("keep.txt")).unwrap(), b"now");
+        assert_eq!(
+            fs::read(store.current_dir().join("keep.txt")).unwrap(),
+            b"now"
+        );
     }
 
     #[test]
@@ -1097,7 +1104,10 @@ mod tests {
         // deleted entry must stay.
         let s = source(src_dir.path(), "waiting.txt", b"now", 1_700_000_000);
         store.put("waiting.txt", &s, &meta(&s), NOW).unwrap();
-        let p = store.versions_dir().join((NOW - 80 * d).to_string()).join("waiting.txt");
+        let p = store
+            .versions_dir()
+            .join((NOW - 80 * d).to_string())
+            .join("waiting.txt");
         fs::create_dir_all(p.parent().unwrap()).unwrap();
         fs::write(p.clone(), b"old").unwrap();
 
@@ -1107,7 +1117,10 @@ mod tests {
         assert_eq!(store.free_space_by_thinning(&mut m, NOW).unwrap(), 3);
         assert!(!p.exists());
         assert!(m.deleted.contains_key("waiting.txt"));
-        assert_eq!(fs::read(store.current_dir().join("waiting.txt")).unwrap(), b"now");
+        assert_eq!(
+            fs::read(store.current_dir().join("waiting.txt")).unwrap(),
+            b"now"
+        );
     }
 
     #[test]

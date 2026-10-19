@@ -256,5 +256,4 @@ mod tests {
             .unwrap();
         assert_eq!(response.status(), axum::http::StatusCode::FORBIDDEN);
     }
-
 }

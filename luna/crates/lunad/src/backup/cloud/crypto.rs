@@ -4,7 +4,7 @@
 //! The browser port reads `vectors.json` next to this file, so changing any output here is a
 //! format change.
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use bip39::{Language, Mnemonic};
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{Key, XChaCha20Poly1305, XNonce};
@@ -47,7 +47,8 @@ fn hkdf_32(ikm: &[u8], salt: Option<&[u8]>, info: &[u8]) -> [u8; 32] {
     let hk = Hkdf::<Sha256>::new(salt, ikm);
     let mut out = [0u8; 32];
     // 32 bytes is always a valid output length for HKDF-SHA256.
-    hk.expand(info, &mut out).expect("32 bytes is a valid HKDF-SHA256 output length");
+    hk.expand(info, &mut out)
+        .expect("32 bytes is a valid HKDF-SHA256 output length");
     out
 }
 
@@ -63,9 +64,17 @@ pub fn derive(entropy: &[u8; 16], luna_id: &str) -> UserKeys {
     let self_key = hkdf_32(entropy, Some(DERIVE_SALT), &derive_info(b"self", luna_id));
 
     let auth_secret = hkdf_32(entropy, Some(DERIVE_SALT), &derive_info(b"auth", luna_id));
-    let auth_public = SigningKey::from_bytes(&auth_secret).verifying_key().to_bytes();
+    let auth_public = SigningKey::from_bytes(&auth_secret)
+        .verifying_key()
+        .to_bytes();
 
-    UserKeys { x25519_secret, x25519_public, self_key, auth_secret, auth_public }
+    UserKeys {
+        x25519_secret,
+        x25519_public,
+        self_key,
+        auth_secret,
+        auth_public,
+    }
 }
 
 /// Seal `msg` so only the holder of the secret half of `recipient_public` can open it.
@@ -83,7 +92,10 @@ pub fn seal(recipient_public: &[u8; 32], aad: &[u8], msg: &[u8]) -> Result<Vec<u
 pub fn check_public_key(public: &[u8; 32]) -> Result<()> {
     // Multiplying a low-order point by a clamped scalar gives the identity (all zeros).
     let probe = StaticSecret::from([0x42u8; 32]);
-    if !probe.diffie_hellman(&PublicKey::from(*public)).was_contributory() {
+    if !probe
+        .diffie_hellman(&PublicKey::from(*public))
+        .was_contributory()
+    {
         bail!("This recovery key is not valid. Set up the recovery phrase again.");
     }
     Ok(())
@@ -165,9 +177,14 @@ pub fn decrypt(key: &[u8; 32], aad: &[u8], sealed: &[u8]) -> Result<Vec<u8>> {
     if sealed.len() < NONCE_LEN + TAG_LEN {
         bail!("This encrypted data is too short to be valid.");
     }
-    let nonce: [u8; NONCE_LEN] = sealed[..NONCE_LEN].try_into().expect("slice has NONCE_LEN bytes");
-    aead_decrypt(key, &nonce, aad, &sealed[NONCE_LEN..])
-        .map_err(|_| anyhow::anyhow!("This encrypted data could not be opened. It was changed, or the key is wrong."))
+    let nonce: [u8; NONCE_LEN] = sealed[..NONCE_LEN]
+        .try_into()
+        .expect("slice has NONCE_LEN bytes");
+    aead_decrypt(key, &nonce, aad, &sealed[NONCE_LEN..]).map_err(|_| {
+        anyhow::anyhow!(
+            "This encrypted data could not be opened. It was changed, or the key is wrong."
+        )
+    })
 }
 
 fn aead_encrypt(key: &[u8; 32], nonce: &[u8; NONCE_LEN], aad: &[u8], msg: &[u8]) -> Vec<u8> {
@@ -201,7 +218,9 @@ impl Signer {
     }
 
     pub fn from_seed(seed: [u8; 32]) -> Self {
-        Self { key: SigningKey::from_bytes(&seed) }
+        Self {
+            key: SigningKey::from_bytes(&seed),
+        }
     }
 
     pub fn seed(&self) -> [u8; 32] {
@@ -223,7 +242,8 @@ pub fn verify(public: &[u8; 32], domain: &str, msg: &[u8], sig: &[u8; 64]) -> bo
     let Ok(key) = VerifyingKey::from_bytes(public) else {
         return false;
     };
-    key.verify_strict(&signed_bytes(domain, msg), &Signature::from_bytes(sig)).is_ok()
+    key.verify_strict(&signed_bytes(domain, msg), &Signature::from_bytes(sig))
+        .is_ok()
 }
 
 fn signed_bytes(domain: &str, msg: &[u8]) -> Vec<u8> {
@@ -237,8 +257,8 @@ fn signed_bytes(domain: &str, msg: &[u8]) -> Vec<u8> {
 
 /// Chunk id = HMAC-SHA256(dedup key, chunk). Equal chunks in one backup get one id.
 pub fn chunk_id(dedup_key: &[u8; 32], chunk: &[u8]) -> [u8; 32] {
-    let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(dedup_key)
-        .expect("HMAC accepts keys of any length");
+    let mut mac =
+        <Hmac<Sha256> as Mac>::new_from_slice(dedup_key).expect("HMAC accepts keys of any length");
     mac.update(chunk);
     mac.finalize().into_bytes().into()
 }
@@ -268,7 +288,10 @@ fn push_len_prefixed(out: &mut Vec<u8>, bytes: &[u8]) {
 pub fn phrase_to_entropy(words: &str) -> Result<[u8; 16]> {
     let words: Vec<String> = words.split_whitespace().map(str::to_lowercase).collect();
     if words.len() != 12 {
-        bail!("Your recovery phrase has {} words. It needs exactly 12.", words.len());
+        bail!(
+            "Your recovery phrase has {} words. It needs exactly 12.",
+            words.len()
+        );
     }
     for word in &words {
         if Language::English.find_word(word).is_none() {
@@ -276,12 +299,13 @@ pub fn phrase_to_entropy(words: &str) -> Result<[u8; 16]> {
         }
     }
     let phrase = words.join(" ");
-    let mnemonic = Mnemonic::parse_in_normalized(Language::English, &phrase)
-        .map_err(|_| anyhow::anyhow!("These 12 words don't form a valid recovery phrase. Check each word."))?;
+    let mnemonic = Mnemonic::parse_in_normalized(Language::English, &phrase).map_err(|_| {
+        anyhow::anyhow!("These 12 words don't form a valid recovery phrase. Check each word.")
+    })?;
     let entropy = mnemonic.to_entropy();
-    entropy
-        .try_into()
-        .map_err(|_| anyhow::anyhow!("These 12 words don't form a valid recovery phrase. Check each word."))
+    entropy.try_into().map_err(|_| {
+        anyhow::anyhow!("These 12 words don't form a valid recovery phrase. Check each word.")
+    })
 }
 
 /// The 12 English words for 16 bytes of entropy.
@@ -295,7 +319,7 @@ pub fn entropy_to_phrase(entropy: &[u8; 16]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     const LUNA_ID: &str = "luna-test-1";
 
@@ -327,7 +351,12 @@ mod tests {
             ("version", &[0, 0, 0, 2]),
         ]);
         let record = b"snapshot record";
-        let pack = encrypt_inner(&keys.self_key, [0x33; NONCE_LEN], b"pack-aad", b"pack bytes");
+        let pack = encrypt_inner(
+            &keys.self_key,
+            [0x33; NONCE_LEN],
+            b"pack-aad",
+            b"pack bytes",
+        );
         json!({
             "entropy": hex(&entropy()),
             "luna_id": LUNA_ID,
@@ -363,7 +392,10 @@ mod tests {
     #[test]
     #[ignore = "prints vectors.json; run with --ignored --nocapture to regenerate"]
     fn print_vectors() {
-        println!("{}", serde_json::to_string_pretty(&build_vectors()).unwrap());
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&build_vectors()).unwrap()
+        );
     }
 
     #[test]
@@ -476,7 +508,10 @@ mod tests {
     #[test]
     fn all_zero_entropy_matches_bip39_vector() {
         let phrase = entropy_to_phrase(&[0u8; 16]);
-        assert_eq!(phrase, "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about");
+        assert_eq!(
+            phrase,
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+        );
         assert_eq!(phrase_to_entropy(&phrase).unwrap(), [0u8; 16]);
     }
 
@@ -492,13 +527,24 @@ mod tests {
         let good = entropy_to_phrase(&entropy());
         let unknown = good.replacen("abandon", "lunaxyz", 1);
         let err = phrase_to_entropy(&unknown).unwrap_err().to_string();
-        assert!(err.starts_with("That word isn't on the recovery phrase list: lunaxyz"), "{err}");
+        assert!(
+            err.starts_with("That word isn't on the recovery phrase list: lunaxyz"),
+            "{err}"
+        );
 
         let bad_checksum = "abandon ".repeat(11) + "abandon";
         let err = phrase_to_entropy(&bad_checksum).unwrap_err().to_string();
-        assert_eq!(err, "These 12 words don't form a valid recovery phrase. Check each word.");
+        assert_eq!(
+            err,
+            "These 12 words don't form a valid recovery phrase. Check each word."
+        );
 
-        let short = phrase_to_entropy("abandon abandon").unwrap_err().to_string();
-        assert_eq!(short, "Your recovery phrase has 2 words. It needs exactly 12.");
+        let short = phrase_to_entropy("abandon abandon")
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            short,
+            "Your recovery phrase has 2 words. It needs exactly 12."
+        );
     }
 }

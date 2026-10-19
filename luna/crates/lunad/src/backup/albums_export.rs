@@ -3,7 +3,7 @@
 //! are left out, and favorites are not backed up.
 
 use anyhow::Result;
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 
 use crate::access::{normalize_subject_path, path_contains};

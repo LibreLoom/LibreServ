@@ -722,7 +722,11 @@ mod tests {
         on_moved(&conn, &src, "Docs", &src, "Papers");
         let after = db::get_protection(&conn, &row.id).unwrap().unwrap();
         assert_eq!(after.state, "active", "{}", after.stop_reason);
-        assert!(after.source_path.ends_with("Papers"), "{}", after.source_path);
+        assert!(
+            after.source_path.ends_with("Papers"),
+            "{}",
+            after.source_path
+        );
         assert_eq!(after.private_owner, "u1");
         assert_eq!(stop_reason(&conn, &after), None);
     }

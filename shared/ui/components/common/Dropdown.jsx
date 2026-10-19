@@ -252,7 +252,7 @@ export default function Dropdown({
         event.preventDefault();
         haptic("light");
         openMenu();
-        setActiveIndex(event.key === "ArrowDown" ? (enabledIndexes[0] ?? -1) : (enabledIndexes.at(-1) ?? -1));
+        setActiveIndex(event.key === "ArrowDown" ? (enabledIndexes[0] ?? -1) : (enabledIndexes[enabledIndexes.length - 1] ?? -1));
       }
       return;
     }

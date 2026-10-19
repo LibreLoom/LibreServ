@@ -17,9 +17,9 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::AppState;
+use crate::api::cloud_backups::connect_store;
 use crate::api::response::json_error;
 use crate::auth::CurrentUser;
-use crate::api::cloud_backups::connect_store;
 use crate::backup::cloud::{crypto, identity, ops};
 use crate::db::{self, UserKeys};
 
@@ -49,7 +49,13 @@ pub(crate) fn issue_challenge(user_id: &str, now: i64) -> [u8; 32] {
     let mut bytes = [0u8; 32];
     getrandom::getrandom(&mut bytes).expect("system randomness");
     let mut map = challenges().lock().unwrap_or_else(|p| p.into_inner());
-    map.insert(user_id.to_string(), Challenge { bytes, expires_at: now + CHALLENGE_TTL });
+    map.insert(
+        user_id.to_string(),
+        Challenge {
+            bytes,
+            expires_at: now + CHALLENGE_TTL,
+        },
+    );
     bytes
 }
 
@@ -90,7 +96,10 @@ fn phrase_check_due(keys: Option<&UserKeys>, now: i64) -> bool {
     keys.is_some_and(|k| now - k.phrase_set_at.max(k.last_checked_at) >= CHECK_DUE_AFTER)
 }
 
-async fn status(State(state): State<AppState>, Extension(user): Extension<CurrentUser>) -> ApiResult {
+async fn status(
+    State(state): State<AppState>,
+    Extension(user): Extension<CurrentUser>,
+) -> ApiResult {
     let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
     let keys = db::get_user_keys(&conn, &user.id).map_err(|_| read_failed())?;
     // Null until cloud backup is set up on this Luna. Setup never happens on a read.
@@ -108,7 +117,10 @@ async fn status(State(state): State<AppState>, Extension(user): Extension<Curren
 
 /// Makes this Luna's cloud identity if it has none yet, and returns it. Any signed-in person may
 /// call it: a fresh Luna has no identity until someone sets up cloud backup.
-async fn mint_identity(State(state): State<AppState>, Extension(_user): Extension<CurrentUser>) -> ApiResult {
+async fn mint_identity(
+    State(state): State<AppState>,
+    Extension(_user): Extension<CurrentUser>,
+) -> ApiResult {
     let identity = ensure_identity(&state).await?;
     Ok(Json(json!({
         "luna_id": identity.luna_id(),
@@ -223,7 +235,10 @@ async fn check(
     let keys = db::get_user_keys(&conn, &user.id)
         .map_err(|_| read_failed())?
         .ok_or_else(|| {
-            json_error(StatusCode::BAD_REQUEST, "No recovery phrase is set for your account yet.")
+            json_error(
+                StatusCode::BAD_REQUEST,
+                "No recovery phrase is set for your account yet.",
+            )
         })?;
     let auth_public = <[u8; 32]>::try_from(keys.auth_public.as_slice()).map_err(|_| bad_keys())?;
     let proven = decode_signature(&body.signature)
@@ -234,8 +249,14 @@ async fn check(
             "Those words don't match the recovery phrase set for your account.",
         ));
     }
-    db::set_user_keys(&conn, &UserKeys { last_checked_at: now, ..keys })
-        .map_err(|_| save_failed())?;
+    db::set_user_keys(
+        &conn,
+        &UserKeys {
+            last_checked_at: now,
+            ..keys
+        },
+    )
+    .map_err(|_| save_failed())?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -356,7 +377,10 @@ mod tests {
         let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();
-        (status, serde_json::from_slice(&bytes).unwrap_or(Value::Null))
+        (
+            status,
+            serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+        )
     }
 
     /// A set-phrase body for `signer` (the auth key) and some made-up public keys.
@@ -373,9 +397,18 @@ mod tests {
     }
 
     async fn fetch_challenge(router: &Router, token: &str) -> Vec<u8> {
-        let (status, body) = send(router, "POST", "/api/v1/cloud/phrase/challenge", token, None).await;
+        let (status, body) = send(
+            router,
+            "POST",
+            "/api/v1/cloud/phrase/challenge",
+            token,
+            None,
+        )
+        .await;
         assert_eq!(status, 200);
-        STANDARD.decode(body["challenge"].as_str().unwrap()).unwrap()
+        STANDARD
+            .decode(body["challenge"].as_str().unwrap())
+            .unwrap()
     }
 
     fn sign_challenge(signer: &Signer, challenge: &[u8]) -> String {
@@ -385,7 +418,14 @@ mod tests {
     #[tokio::test]
     async fn get_reports_unset_then_set() {
         let f = fixture();
-        let (status, body) = send(&f.router, "GET", "/api/v1/cloud/phrase", &f.admin_token, None).await;
+        let (status, body) = send(
+            &f.router,
+            "GET",
+            "/api/v1/cloud/phrase",
+            &f.admin_token,
+            None,
+        )
+        .await;
         assert_eq!(status, 200);
         assert_eq!(body["set"], json!(false));
         assert!(body["set_at"].is_null());
@@ -404,7 +444,14 @@ mod tests {
         .await;
         assert_eq!(status, 200);
 
-        let (_, body) = send(&f.router, "GET", "/api/v1/cloud/phrase", &f.admin_token, None).await;
+        let (_, body) = send(
+            &f.router,
+            "GET",
+            "/api/v1/cloud/phrase",
+            &f.admin_token,
+            None,
+        )
+        .await;
         assert_eq!(body["set"], json!(true));
         assert!(body["set_at"].as_i64().unwrap() > 0);
     }
@@ -415,9 +462,21 @@ mod tests {
         let signer = Signer::generate();
         let mut bad = set_body(&signer, None);
         bad["auth_public"] = json!(STANDARD.encode([1u8; 5]));
-        let (status, body) = send(&f.router, "PUT", "/api/v1/cloud/phrase", &f.admin_token, Some(bad)).await;
+        let (status, body) = send(
+            &f.router,
+            "PUT",
+            "/api/v1/cloud/phrase",
+            &f.admin_token,
+            Some(bad),
+        )
+        .await;
         assert_eq!(status, 400);
-        assert!(body["error"].as_str().unwrap().contains("could not be read"));
+        assert!(
+            body["error"]
+                .as_str()
+                .unwrap()
+                .contains("could not be read")
+        );
     }
 
     #[tokio::test]
@@ -425,11 +484,25 @@ mod tests {
         let f = fixture();
         let old = Signer::generate();
         let new = Signer::generate();
-        let (status, _) = send(&f.router, "PUT", "/api/v1/cloud/phrase", &f.admin_token, Some(set_body(&old, None))).await;
+        let (status, _) = send(
+            &f.router,
+            "PUT",
+            "/api/v1/cloud/phrase",
+            &f.admin_token,
+            Some(set_body(&old, None)),
+        )
+        .await;
         assert_eq!(status, 200);
 
         // No old-phrase signature is needed. The new keys replace the old ones.
-        let (status, _) = send(&f.router, "PUT", "/api/v1/cloud/phrase", &f.admin_token, Some(set_body(&new, None))).await;
+        let (status, _) = send(
+            &f.router,
+            "PUT",
+            "/api/v1/cloud/phrase",
+            &f.admin_token,
+            Some(set_body(&new, None)),
+        )
+        .await;
         assert_eq!(status, 200);
         let stored = {
             let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
@@ -443,7 +516,14 @@ mod tests {
     async fn check_accepts_right_and_refuses_wrong_words_and_expired_challenges() {
         let f = fixture();
         let signer = Signer::generate();
-        send(&f.router, "PUT", "/api/v1/cloud/phrase", &f.admin_token, Some(set_body(&signer, None))).await;
+        send(
+            &f.router,
+            "PUT",
+            "/api/v1/cloud/phrase",
+            &f.admin_token,
+            Some(set_body(&signer, None)),
+        )
+        .await;
 
         let challenge = fetch_challenge(&f.router, &f.admin_token).await;
         let (status, body) = send(
@@ -505,9 +585,23 @@ mod tests {
         let signer = Signer::generate();
         let mut bad = set_body(&signer, None);
         bad["x25519_public"] = json!(STANDARD.encode([0u8; 32]));
-        let (status, _) = send(&f.router, "PUT", "/api/v1/cloud/phrase", &f.admin_token, Some(bad)).await;
+        let (status, _) = send(
+            &f.router,
+            "PUT",
+            "/api/v1/cloud/phrase",
+            &f.admin_token,
+            Some(bad),
+        )
+        .await;
         assert_eq!(status, 400);
-        let (_, body) = send(&f.router, "GET", "/api/v1/cloud/phrase", &f.admin_token, None).await;
+        let (_, body) = send(
+            &f.router,
+            "GET",
+            "/api/v1/cloud/phrase",
+            &f.admin_token,
+            None,
+        )
+        .await;
         assert_eq!(body["set"], json!(false));
     }
 
@@ -516,22 +610,55 @@ mod tests {
         let f = fixture();
         // set_body uses the same x25519 key (7s) for everyone.
         let admin_signer = Signer::generate();
-        send(&f.router, "PUT", "/api/v1/cloud/phrase", &f.admin_token, Some(set_body(&admin_signer, None))).await;
+        send(
+            &f.router,
+            "PUT",
+            "/api/v1/cloud/phrase",
+            &f.admin_token,
+            Some(set_body(&admin_signer, None)),
+        )
+        .await;
 
         let member_signer = Signer::generate();
-        let (status, body) = send(&f.router, "PUT", "/api/v1/cloud/phrase", &f.member_token, Some(set_body(&member_signer, None))).await;
+        let (status, body) = send(
+            &f.router,
+            "PUT",
+            "/api/v1/cloud/phrase",
+            &f.member_token,
+            Some(set_body(&member_signer, None)),
+        )
+        .await;
         assert_eq!(status, 409);
-        assert!(body["error"].as_str().unwrap().contains("already used by another account"));
+        assert!(
+            body["error"]
+                .as_str()
+                .unwrap()
+                .contains("already used by another account")
+        );
     }
 
     #[tokio::test]
     async fn another_user_cannot_touch_your_phrase() {
         let f = fixture();
         let admin_signer = Signer::generate();
-        send(&f.router, "PUT", "/api/v1/cloud/phrase", &f.admin_token, Some(set_body(&admin_signer, None))).await;
+        send(
+            &f.router,
+            "PUT",
+            "/api/v1/cloud/phrase",
+            &f.admin_token,
+            Some(set_body(&admin_signer, None)),
+        )
+        .await;
 
         // The member sees no phrase of their own, and writes only their own record.
-        let (_, body) = send(&f.router, "GET", "/api/v1/cloud/phrase", &f.member_token, None).await;
+        let (_, body) = send(
+            &f.router,
+            "GET",
+            "/api/v1/cloud/phrase",
+            &f.member_token,
+            None,
+        )
+        .await;
         assert_eq!(body["set"], json!(false));
 
         // The member's change attempt cannot use the admin's key: it is judged against the
@@ -540,7 +667,14 @@ mod tests {
         let member_signer = Signer::generate();
         let mut member_body = set_body(&member_signer, None);
         member_body["x25519_public"] = json!(STANDARD.encode([9u8; 32]));
-        let (status, _) = send(&f.router, "PUT", "/api/v1/cloud/phrase", &f.member_token, Some(member_body)).await;
+        let (status, _) = send(
+            &f.router,
+            "PUT",
+            "/api/v1/cloud/phrase",
+            &f.member_token,
+            Some(member_body),
+        )
+        .await;
         assert_eq!(status, 200);
 
         // The member's challenge cannot prove the admin's phrase.
@@ -564,15 +698,31 @@ mod tests {
     #[tokio::test]
     async fn identity_endpoint_mints_one_luna_id_and_signing_key_for_any_signed_in_user() {
         let f = fixture();
-        let (status, first) = send(&f.router, "POST", "/api/v1/cloud/identity", &f.member_token, None).await;
+        let (status, first) = send(
+            &f.router,
+            "POST",
+            "/api/v1/cloud/identity",
+            &f.member_token,
+            None,
+        )
+        .await;
         assert_eq!(status, 200);
         let luna_id = first["luna_id"].as_str().unwrap().to_string();
         assert!(!luna_id.is_empty());
-        let public = STANDARD.decode(first["signing_public"].as_str().unwrap()).unwrap();
+        let public = STANDARD
+            .decode(first["signing_public"].as_str().unwrap())
+            .unwrap();
         assert_eq!(public.len(), 32);
 
         // A second call returns the same identity rather than minting another.
-        let (status, second) = send(&f.router, "POST", "/api/v1/cloud/identity", &f.admin_token, None).await;
+        let (status, second) = send(
+            &f.router,
+            "POST",
+            "/api/v1/cloud/identity",
+            &f.admin_token,
+            None,
+        )
+        .await;
         assert_eq!(status, 200);
         assert_eq!(second["luna_id"], json!(luna_id));
         assert_eq!(second["signing_public"], first["signing_public"]);
@@ -595,8 +745,16 @@ mod tests {
         );
         {
             let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
-            db::upsert_drive(&conn, "d1", "Photos", "as_is", "ext4", "d1", root.to_str().unwrap())
-                .unwrap();
+            db::upsert_drive(
+                &conn,
+                "d1",
+                "Photos",
+                "as_is",
+                "ext4",
+                "d1",
+                root.to_str().unwrap(),
+            )
+            .unwrap();
         }
 
         // The backups routes sit beside the phrase routes, as they do in the real app.
@@ -610,12 +768,26 @@ mod tests {
             .with_state(f.state.clone());
 
         // Step 1: the app asks for an identity before anything else.
-        let (status, _) = send(&router, "POST", "/api/v1/cloud/identity", &f.admin_token, None).await;
+        let (status, _) = send(
+            &router,
+            "POST",
+            "/api/v1/cloud/identity",
+            &f.admin_token,
+            None,
+        )
+        .await;
         assert_eq!(status, 200);
 
         // Step 2: the Admin sets the recovery phrase (keys) on a fresh Luna.
         let signer = Signer::generate();
-        let (status, _) = send(&router, "PUT", "/api/v1/cloud/phrase", &f.admin_token, Some(set_body(&signer, None))).await;
+        let (status, _) = send(
+            &router,
+            "PUT",
+            "/api/v1/cloud/phrase",
+            &f.admin_token,
+            Some(set_body(&signer, None)),
+        )
+        .await;
         assert_eq!(status, 200);
 
         // Step 3: the first backup starts with no files, drives or Connect set up.
@@ -630,7 +802,14 @@ mod tests {
         assert_eq!(status, 200, "create refused: {body}");
         assert!(body["id"].as_str().is_some_and(|id| !id.is_empty()));
 
-        let (status, list) = send(&router, "GET", "/api/v1/cloud/backups", &f.admin_token, None).await;
+        let (status, list) = send(
+            &router,
+            "GET",
+            "/api/v1/cloud/backups",
+            &f.admin_token,
+            None,
+        )
+        .await;
         assert_eq!(status, 200);
         assert_eq!(list.as_array().unwrap().len(), 1);
     }
@@ -654,10 +833,7 @@ mod tests {
             now
         ));
         // Set just under 90 days ago and never checked: not due yet.
-        assert!(!phrase_check_due(
-            Some(&keys(now - 89 * 86_400, 0)),
-            now
-        ));
+        assert!(!phrase_check_due(Some(&keys(now - 89 * 86_400, 0)), now));
     }
 
     #[test]

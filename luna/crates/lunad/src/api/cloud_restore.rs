@@ -73,12 +73,18 @@ fn require_admin(user: &CurrentUser) -> Result<(), ApiError> {
     if user.role == "admin" {
         Ok(())
     } else {
-        Err(json_error(StatusCode::FORBIDDEN, "Only an Admin can bring back cloud backups."))
+        Err(json_error(
+            StatusCode::FORBIDDEN,
+            "Only an Admin can bring back cloud backups.",
+        ))
     }
 }
 
 fn not_set_up() -> ApiError {
-    json_error(StatusCode::CONFLICT, "Set up Luna Connect first, in Settings → Luna Connect.")
+    json_error(
+        StatusCode::CONFLICT,
+        "Set up Luna Connect first, in Settings → Luna Connect.",
+    )
 }
 
 fn unreachable_connect(err: impl std::fmt::Display) -> ApiError {
@@ -91,7 +97,10 @@ fn unreachable_connect(err: impl std::fmt::Display) -> ApiError {
 
 fn read_failed(err: impl std::fmt::Display) -> ApiError {
     tracing::warn!(error = %err, "could not read the cloud backup index");
-    json_error(StatusCode::INTERNAL_SERVER_ERROR, "Luna could not read its cloud backup index. Try again.")
+    json_error(
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "Luna could not read its cloud backup index. Try again.",
+    )
 }
 
 fn unreadable_keys() -> ApiError {
@@ -105,7 +114,10 @@ fn finish(joined: Result<Result<Value, ApiError>, tokio::task::JoinError>) -> Ap
     match joined {
         Ok(Ok(value)) => Ok(Json(value)),
         Ok(Err(err)) => Err(err),
-        Err(_) => Err(json_error(StatusCode::INTERNAL_SERVER_ERROR, "Luna could not finish that. Try again.")),
+        Err(_) => Err(json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna could not finish that. Try again.",
+        )),
     }
 }
 
@@ -113,11 +125,17 @@ fn valid_kind(kind: &str) -> Result<(), ApiError> {
     if RECORD_KINDS.contains(&kind) {
         Ok(())
     } else {
-        Err(json_error(StatusCode::BAD_REQUEST, "Luna can't share that kind of backup record."))
+        Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "Luna can't share that kind of backup record.",
+        ))
     }
 }
 
-async fn status(State(state): State<AppState>, Extension(user): Extension<CurrentUser>) -> ApiResult {
+async fn status(
+    State(state): State<AppState>,
+    Extension(user): Extension<CurrentUser>,
+) -> ApiResult {
     require_admin(&user)?;
     let db = state.db.clone();
     let connect = state.connect.clone();
@@ -132,7 +150,10 @@ async fn status(State(state): State<AppState>, Extension(user): Extension<Curren
                 "indexed_snapshots": 0,
             }));
         };
-        let cloud = store.list_records(SNAPSHOT_KIND).map_err(unreachable_connect)?.len() as i64;
+        let cloud = store
+            .list_records(SNAPSHOT_KIND)
+            .map_err(unreachable_connect)?
+            .len() as i64;
         let conn = db.lock().unwrap_or_else(|p| p.into_inner());
         let indexed = crate::db::count_shared_cloud_snapshots(&conn).map_err(read_failed)?;
         let identity = identity::load(&conn).map_err(read_failed)?;
@@ -183,9 +204,12 @@ async fn restore(
         let store = connect_store(&connect, &db).ok_or_else(not_set_up)?;
         let identity = {
             let conn = db.lock().unwrap_or_else(|p| p.into_inner());
-            identity::load(&conn)
-                .map_err(read_failed)?
-                .ok_or_else(|| json_error(StatusCode::CONFLICT, "Luna has no cloud backup identity yet."))?
+            identity::load(&conn).map_err(read_failed)?.ok_or_else(|| {
+                json_error(
+                    StatusCode::CONFLICT,
+                    "Luna has no cloud backup identity yet.",
+                )
+            })?
         };
         let r = restore_with_store(&db, &store, &identity, &user_id, &body, db::now_unix())?;
         Ok(json!({
@@ -208,7 +232,9 @@ fn parse_keys(body: &RestoreBody, now: i64) -> Result<Vec<db::BackupKey>, ApiErr
         .map(|k| {
             let id_ok = !k.protection_id.is_empty()
                 && k.protection_id.len() <= 64
-                && k.protection_id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
+                && k.protection_id
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
             if !id_ok || k.version < 1 {
                 return Err(unreadable_keys());
             }
@@ -370,11 +396,18 @@ mod tests {
         let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
         let state = AppState::new(conn, drive_manager, dir.path());
         let auth = state.auth.clone();
-        let admin = auth.register("Max", "Max", "hunter22hunter1", "admin").unwrap();
-        let member = auth.register("Jamie", "Jamie", "hunter22hunter1", "user").unwrap();
+        let admin = auth
+            .register("Max", "Max", "hunter22hunter1", "admin")
+            .unwrap();
+        let member = auth
+            .register("Jamie", "Jamie", "hunter22hunter1", "user")
+            .unwrap();
         let router = Router::new()
             .merge(super::router())
-            .layer(axum::middleware::from_fn_with_state(state.clone(), crate::auth::guard))
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                crate::auth::guard,
+            ))
             .with_state(state.clone());
         Fixture {
             admin_token: auth.issue(&admin).unwrap(),
@@ -405,10 +438,19 @@ mod tests {
             }
             None => Body::empty(),
         };
-        let response = router.clone().oneshot(builder.body(body).unwrap()).await.unwrap();
+        let response = router
+            .clone()
+            .oneshot(builder.body(body).unwrap())
+            .await
+            .unwrap();
         let status = response.status();
-        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        (status, serde_json::from_slice(&bytes).unwrap_or(Value::Null))
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        (
+            status,
+            serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+        )
     }
 
     /// The keys the browser would POST for one backup key and dedup key.
@@ -446,8 +488,12 @@ mod tests {
 
     fn owner_of(f: &Fixture, row: &str) -> String {
         let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
-        conn.query_row("SELECT created_by FROM protections WHERE id = ?1", params![row], |r| r.get(0))
-            .unwrap()
+        conn.query_row(
+            "SELECT created_by FROM protections WHERE id = ?1",
+            params![row],
+            |r| r.get(0),
+        )
+        .unwrap()
     }
 
     /// Publish the signed users list the way Luna Connect would hold it: one old account whose
@@ -479,7 +525,12 @@ mod tests {
     }
 
     impl CloudStore for ProbeStore {
-        fn put_pack(&self, id: &[u8; 32], scope: Option<&str>, bytes: &[u8]) -> Result<(), StoreError> {
+        fn put_pack(
+            &self,
+            id: &[u8; 32],
+            scope: Option<&str>,
+            bytes: &[u8],
+        ) -> Result<(), StoreError> {
             self.inner.put_pack(id, scope, bytes)
         }
         fn get_pack(&self, id: &[u8; 32]) -> Result<Vec<u8>, StoreError> {
@@ -511,14 +562,22 @@ mod tests {
     /// Write one snapshot of an empty tree the way a backup run does: a sealed tree pack, then a
     /// signed record.
     fn put_snapshot(store: &MemoryStore, signer: &Identity, snapshot_id: &str) {
-        let tree_bytes = format::encrypt_tree(&format::Tree { entries: Vec::new() }, &TREE_KEY);
+        let tree_bytes = format::encrypt_tree(
+            &format::Tree {
+                entries: Vec::new(),
+            },
+            &TREE_KEY,
+        );
         let tree_hash = format::sha256(&tree_bytes);
         // The pack's scope must be derived from the dedup key the tests POST (see `body`).
         let scope = crypto::chunk_id(&[3u8; 32], b"luna-scope-v1");
         let mut builder = format::PackBuilder::new(scope);
         builder.add(tree_hash, &tree_bytes);
-        let pack = builder.finish(|pack_key| crypto::encrypt(&TREE_KEY, PACK_KEY_WRAP_AAD, pack_key));
-        store.put_pack(&pack.id, Some("scope"), &pack.bytes).unwrap();
+        let pack =
+            builder.finish(|pack_key| crypto::encrypt(&TREE_KEY, PACK_KEY_WRAP_AAD, pack_key));
+        store
+            .put_pack(&pack.id, Some("scope"), &pack.bytes)
+            .unwrap();
         let meta = BackupMeta {
             name: "Photos".into(),
             source_drive: "drive-a".into(),
@@ -560,7 +619,12 @@ mod tests {
         assert_eq!(records.len(), 2);
         assert_eq!(records[0]["name"], "a-record");
         assert_eq!(records[1]["name"], "b-record");
-        assert_eq!(STANDARD.decode(records[0]["data"].as_str().unwrap()).unwrap(), b"one");
+        assert_eq!(
+            STANDARD
+                .decode(records[0]["data"].as_str().unwrap())
+                .unwrap(),
+            b"one"
+        );
 
         let refused = records_with_store(&store, "bogus").unwrap_err();
         assert_eq!(refused.0, StatusCode::BAD_REQUEST);
@@ -573,14 +637,26 @@ mod tests {
         let store = MemoryStore::new();
         put_snapshot(&store, &id, "snap-a");
 
-        let wrong = restore_with_store(&f.state.db, &store, &id, &f.admin_id, &body([1; 32]), NOW).unwrap();
-        assert_eq!((wrong.snapshots, wrong.already_indexed, wrong.skipped), (0, 0, 1));
+        let wrong =
+            restore_with_store(&f.state.db, &store, &id, &f.admin_id, &body([1; 32]), NOW).unwrap();
+        assert_eq!(
+            (wrong.snapshots, wrong.already_indexed, wrong.skipped),
+            (0, 0, 1)
+        );
 
-        let first = restore_with_store(&f.state.db, &store, &id, &f.admin_id, &body(TREE_KEY), NOW).unwrap();
-        assert_eq!((first.snapshots, first.already_indexed, first.skipped), (1, 0, 0));
+        let first = restore_with_store(&f.state.db, &store, &id, &f.admin_id, &body(TREE_KEY), NOW)
+            .unwrap();
+        assert_eq!(
+            (first.snapshots, first.already_indexed, first.skipped),
+            (1, 0, 0)
+        );
 
-        let again = restore_with_store(&f.state.db, &store, &id, &f.admin_id, &body(TREE_KEY), NOW).unwrap();
-        assert_eq!((again.snapshots, again.already_indexed, again.skipped), (0, 1, 0));
+        let again = restore_with_store(&f.state.db, &store, &id, &f.admin_id, &body(TREE_KEY), NOW)
+            .unwrap();
+        assert_eq!(
+            (again.snapshots, again.already_indexed, again.skipped),
+            (0, 1, 0)
+        );
     }
 
     #[test]
@@ -589,9 +665,14 @@ mod tests {
         let id = load_identity(&f);
         let inner = MemoryStore::new();
         put_snapshot(&inner, &id, "snap-a");
-        let store = ProbeStore { inner, db: f.state.db.clone(), probes: AtomicUsize::new(0) };
+        let store = ProbeStore {
+            inner,
+            db: f.state.db.clone(),
+            probes: AtomicUsize::new(0),
+        };
 
-        let r = restore_with_store(&f.state.db, &store, &id, &f.admin_id, &body(TREE_KEY), NOW).unwrap();
+        let r = restore_with_store(&f.state.db, &store, &id, &f.admin_id, &body(TREE_KEY), NOW)
+            .unwrap();
         assert_eq!(r.snapshots, 1);
         assert!(store.probes.load(Ordering::SeqCst) >= 1);
     }
@@ -629,8 +710,15 @@ mod tests {
 
         let challenge = issue_challenge(&f.admin_id, NOW);
         let sig = STANDARD.encode(old_auth.sign(CHECK_DOMAIN, &challenge));
-        restore_with_store(&f.state.db, &store, &id, &f.admin_id, &signed_body(&["old-user"], sig), NOW)
-            .unwrap();
+        restore_with_store(
+            &f.state.db,
+            &store,
+            &id,
+            &f.admin_id,
+            &signed_body(&["old-user"], sig),
+            NOW,
+        )
+        .unwrap();
 
         assert_eq!(owner_of(&f, "old-row"), f.admin_id);
     }
@@ -662,30 +750,64 @@ mod tests {
         let imposter = crypto::Signer::from_seed([6u8; 32]);
         let challenge = issue_challenge(&f.admin_id, NOW);
         let sig = STANDARD.encode(imposter.sign(CHECK_DOMAIN, &challenge));
-        restore_with_store(&f.state.db, &store, &id, &f.admin_id, &signed_body(&["old-user"], sig), NOW)
-            .unwrap();
+        restore_with_store(
+            &f.state.db,
+            &store,
+            &id,
+            &f.admin_id,
+            &signed_body(&["old-user"], sig),
+            NOW,
+        )
+        .unwrap();
         assert_eq!(owner_of(&f, "old-row"), "old-user");
 
         // The right key, but its challenge was spent by the attempt above, so it cannot be replayed.
         let sig = STANDARD.encode(old_auth.sign(CHECK_DOMAIN, &challenge));
-        restore_with_store(&f.state.db, &store, &id, &f.admin_id, &signed_body(&["old-user"], sig), NOW)
-            .unwrap();
+        restore_with_store(
+            &f.state.db,
+            &store,
+            &id,
+            &f.admin_id,
+            &signed_body(&["old-user"], sig),
+            NOW,
+        )
+        .unwrap();
         assert_eq!(owner_of(&f, "old-row"), "old-user");
     }
 
     #[tokio::test]
     async fn members_are_refused_on_every_route() {
         let f = fixture();
-        let (status, _) = send(&f.router, "GET", "/api/v1/cloud/restore", &f.member_token, None).await;
+        let (status, _) = send(
+            &f.router,
+            "GET",
+            "/api/v1/cloud/restore",
+            &f.member_token,
+            None,
+        )
+        .await;
         assert_eq!(status, StatusCode::FORBIDDEN);
-        let (status, _) =
-            send(&f.router, "GET", "/api/v1/cloud/restore/records/self", &f.member_token, None).await;
+        let (status, _) = send(
+            &f.router,
+            "GET",
+            "/api/v1/cloud/restore/records/self",
+            &f.member_token,
+            None,
+        )
+        .await;
         assert_eq!(status, StatusCode::FORBIDDEN);
         let valid = json!({ "keys": [{
             "protection_id": "p1", "version": 1,
             "key": STANDARD.encode([9u8; 32]), "dedup_key": STANDARD.encode([3u8; 32]),
         }] });
-        let (status, _) = send(&f.router, "POST", "/api/v1/cloud/restore", &f.member_token, Some(valid)).await;
+        let (status, _) = send(
+            &f.router,
+            "POST",
+            "/api/v1/cloud/restore",
+            &f.member_token,
+            Some(valid),
+        )
+        .await;
         assert_eq!(status, StatusCode::FORBIDDEN);
     }
 
@@ -697,14 +819,28 @@ mod tests {
             "protection_id": "p1", "version": 1,
             "key": "AAAA", "dedup_key": STANDARD.encode([3u8; 32]),
         }] });
-        let (status, _) = send(&f.router, "POST", "/api/v1/cloud/restore", &f.admin_token, Some(bad)).await;
+        let (status, _) = send(
+            &f.router,
+            "POST",
+            "/api/v1/cloud/restore",
+            &f.admin_token,
+            Some(bad),
+        )
+        .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]
     async fn status_says_no_restore_is_needed_without_connect() {
         let f = fixture();
-        let (status, out) = send(&f.router, "GET", "/api/v1/cloud/restore", &f.admin_token, None).await;
+        let (status, out) = send(
+            &f.router,
+            "GET",
+            "/api/v1/cloud/restore",
+            &f.admin_token,
+            None,
+        )
+        .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(out["needed"], false);
         assert_eq!(out["cloud_snapshots"], 0);

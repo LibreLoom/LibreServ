@@ -9,7 +9,7 @@ use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex, MutexGuard};
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use rand_core::{OsRng, RngCore};
 use rusqlite::Connection;
 
@@ -32,7 +32,8 @@ const PACK_FLUSH_BYTES: usize = 8 << 20;
 
 /// Shown when a run is held because its source drive or folder is gone.
 const NO_ADMIN_PHRASE: &str = "Waiting for an Admin to set up the recovery phrase.";
-pub(crate) const SOURCE_MISSING: &str = "The source looks missing or unplugged. Plug the drive back in, then try again.";
+pub(crate) const SOURCE_MISSING: &str =
+    "The source looks missing or unplugged. Plug the drive back in, then try again.";
 
 /// Shown when a run is held because it could not be compared with the last copy.
 pub(crate) const CHECK_FAILED: &str = "Luna couldn't compare this folder with the last cloud copy, so it paused this backup. Try again, or choose Back up anyway if the folder looks right.";
@@ -52,7 +53,10 @@ pub struct CloudOutcome {
 
 /// The folder on disk for a backup's logical path. A private item's disk name differs from its path.
 pub(crate) fn source_root(drive_root: &Path, source_path: &str) -> PathBuf {
-    drive_root.join(crate::private::disk_rel(drive_root, source_path.trim_start_matches('/')))
+    drive_root.join(crate::private::disk_rel(
+        drive_root,
+        source_path.trim_start_matches('/'),
+    ))
 }
 
 /// Runs one backup for `protection_id` against `store` and returns what happened.
@@ -80,7 +84,15 @@ pub fn run_once(
     if Layout::detect(&drive_root).is_none() {
         return Ok(problem_outcome(SOURCE_MISSING));
     }
-    run_with_root(db, protection_id, &root, store, started_by, accept_missing, now)
+    run_with_root(
+        db,
+        protection_id,
+        &root,
+        store,
+        started_by,
+        accept_missing,
+        now,
+    )
 }
 
 /// The run itself, reading from `root` instead of resolving the drive. Tests use this.
@@ -107,7 +119,7 @@ fn run_with_root(
                 return Ok(CloudOutcome {
                     source_missing: true,
                     ..problem_outcome(SOURCE_MISSING)
-                })
+                });
             }
             Ok(false) => {}
             Err(err) => {
@@ -140,10 +152,18 @@ fn run_with_root(
 
 /// True when most files in the previous snapshot are gone from `root`. The previous snapshot's
 /// file list is read back from the cloud. A protection with no earlier snapshot is never held.
-fn source_looks_missing(db: &crate::Db, protection_id: &str, root: &Path, store: &dyn CloudStore) -> Result<bool> {
+fn source_looks_missing(
+    db: &crate::Db,
+    protection_id: &str,
+    root: &Path,
+    store: &dyn CloudStore,
+) -> Result<bool> {
     let (record, tree_key) = {
         let conn = lock(db);
-        let Some(last) = db::list_cloud_snapshots(&conn, protection_id)?.into_iter().next() else {
+        let Some(last) = db::list_cloud_snapshots(&conn, protection_id)?
+            .into_iter()
+            .next()
+        else {
             return Ok(false);
         };
         let Some(identity) = identity::load(&conn)? else {
@@ -170,7 +190,11 @@ fn source_looks_missing(db: &crate::Db, protection_id: &str, root: &Path, store:
 
 /// True when most files of the last tree are gone from `root`. An empty tree is never missing.
 pub(crate) fn most_files_missing(tree: &Tree, root: &Path) -> bool {
-    let missing = tree.entries.iter().filter(|e| !root.join(&e.path).is_file()).count();
+    let missing = tree
+        .entries
+        .iter()
+        .filter(|e| !root.join(&e.path).is_file())
+        .count();
     !tree.entries.is_empty() && missing * 2 > tree.entries.len()
 }
 
@@ -182,9 +206,19 @@ pub(crate) trait Sealer: Send + Sync {
     /// The tree as stored in its tree pack. Its SHA-256 is the record's tree_hash.
     fn seal_tree(&self, tree: &Tree) -> Result<Vec<u8>>;
     /// Sign the record; returns (record kind, record name, bytes) for `put_record`.
-    fn finish_record(&self, record: SnapshotRecord, signer: &Signer) -> (&'static str, String, Vec<u8>);
+    fn finish_record(
+        &self,
+        record: SnapshotRecord,
+        signer: &Signer,
+    ) -> (&'static str, String, Vec<u8>);
     /// Commit the snapshot locally, in one transaction.
-    fn commit(&self, conn: &mut Connection, snap: &db::SnapshotInsert, pack_ids: &[String], tree: &Tree) -> Result<()>;
+    fn commit(
+        &self,
+        conn: &mut Connection,
+        snap: &db::SnapshotInsert,
+        pack_ids: &[String],
+        tree: &Tree,
+    ) -> Result<()>;
 }
 
 /// Seals a shared backup with its backup key, exactly as runs always have.
@@ -201,12 +235,22 @@ impl Sealer for SharedSealer {
         Ok(format::encrypt_tree(tree, &self.key_bytes))
     }
 
-    fn finish_record(&self, record: SnapshotRecord, signer: &Signer) -> (&'static str, String, Vec<u8>) {
+    fn finish_record(
+        &self,
+        record: SnapshotRecord,
+        signer: &Signer,
+    ) -> (&'static str, String, Vec<u8>) {
         let name = record.snapshot_id.clone();
         ("snapshots", name, record.sign(signer).to_bytes())
     }
 
-    fn commit(&self, conn: &mut Connection, snap: &db::SnapshotInsert, pack_ids: &[String], _tree: &Tree) -> Result<()> {
+    fn commit(
+        &self,
+        conn: &mut Connection,
+        snap: &db::SnapshotInsert,
+        pack_ids: &[String],
+        _tree: &Tree,
+    ) -> Result<()> {
         db::commit_snapshot_tx(conn, snap, pack_ids)
     }
 }
@@ -263,7 +307,9 @@ fn prepare(
         }
     }
     // Only an Admin can open a key copy in a disaster, so nothing uploads until one can.
-    let admin_ready = users.iter().any(|u| u.role == "admin" && ids.contains(&u.id));
+    let admin_ready = users
+        .iter()
+        .any(|u| u.role == "admin" && ids.contains(&u.id));
     if !admin_ready {
         return Err(anyhow!(NO_ADMIN_PHRASE));
     }
@@ -299,7 +345,13 @@ fn prepare(
     // The person who set the backup up, not whoever triggered this run. Their name goes in the
     // encrypted metadata so the Connect page can group by person without seeing names.
     let started_by_name = db::get_user(&conn, &row.created_by)?
-        .map(|user| if user.display_name.is_empty() { user.username } else { user.display_name })
+        .map(|user| {
+            if user.display_name.is_empty() {
+                user.username
+            } else {
+                user.display_name
+            }
+        })
         .unwrap_or_default();
     let meta = format::encrypt_meta(
         &BackupMeta {
@@ -476,10 +528,11 @@ pub(crate) fn copy_and_commit(
 
     // Chunk ids per file; they become `ChunkRef`s once the last pack is flushed.
     let mut drafts = Vec::new();
-    let files = scope::walk(root).map_err(|e| anyhow!("Could not read the folder being backed up: {e}"))?;
+    let files =
+        scope::walk(root).map_err(|e| anyhow!("Could not read the folder being backed up: {e}"))?;
     for entry in &files {
-        let mut file = File::open(&entry.abs)
-            .map_err(|e| anyhow!("Could not open {}: {e}", entry.rel))?;
+        let mut file =
+            File::open(&entry.abs).map_err(|e| anyhow!("Could not open {}: {e}", entry.rel))?;
         let mut chunk_ids = Vec::new();
         format::chunks(&mut file, |plain| {
             chunk_ids.push(copy.chunk(plain)?);
@@ -495,7 +548,12 @@ pub(crate) fn copy_and_commit(
                 .iter()
                 .map(|id| copy.locate(id))
                 .collect::<Result<Vec<_>>>()?;
-            Ok(TreeEntry { path, size, mtime, chunks })
+            Ok(TreeEntry {
+                path,
+                size,
+                mtime,
+                chunks,
+            })
         })
         .collect::<Result<Vec<_>>>()?;
 
@@ -575,8 +633,14 @@ pub(crate) fn copy_and_commit(
 
 /// Read a snapshot's tree: fetch its tree pack, open it with `tree_key`, and decrypt the tree.
 /// The tree chunk id is the record's `tree_hash`, so the record and the backup key are enough.
-pub fn read_tree(store: &dyn CloudStore, record: &SnapshotRecord, tree_key: &[u8; 32]) -> Result<Tree> {
-    let bytes = store.get_pack(&record.tree_pack_id).map_err(|e| anyhow!("{e}"))?;
+pub fn read_tree(
+    store: &dyn CloudStore,
+    record: &SnapshotRecord,
+    tree_key: &[u8; 32],
+) -> Result<Tree> {
+    let bytes = store
+        .get_pack(&record.tree_pack_id)
+        .map_err(|e| anyhow!("{e}"))?;
     let unwrap = |wrapped: &[u8]| -> Result<[u8; 32]> {
         let plain = crypto::decrypt(tree_key, PACK_KEY_WRAP_AAD, wrapped)?;
         <[u8; 32]>::try_from(plain.as_slice())
@@ -587,7 +651,9 @@ pub fn read_tree(store: &dyn CloudStore, record: &SnapshotRecord, tree_key: &[u8
         .chunk(&record.tree_hash)
         .ok_or_else(|| anyhow!("This backup's file list is missing from its backup file."))?;
     if format::sha256(sealed) != record.tree_hash {
-        return Err(anyhow!("This backup's file list does not match its fingerprint. It may be damaged."));
+        return Err(anyhow!(
+            "This backup's file list does not match its fingerprint. It may be damaged."
+        ));
     }
     format::decrypt_tree(sealed, tree_key)
 }
@@ -617,7 +683,10 @@ impl RunSlot {
 
 impl Drop for RunSlot {
     fn drop(&mut self) {
-        RUNNING.lock().unwrap_or_else(|p| p.into_inner()).remove(&self.0);
+        RUNNING
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(&self.0);
     }
 }
 
@@ -727,7 +796,11 @@ mod tests {
         assert_eq!(held.snapshot_id, None);
         assert_eq!(store.list_records("snapshots").unwrap().len(), 1);
         let open_runs: i64 = lock(&db)
-            .query_row("SELECT COUNT(*) FROM cloud_runs WHERE ended_at = 0", [], |r| r.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM cloud_runs WHERE ended_at = 0",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(open_runs, 0);
     }
@@ -758,7 +831,10 @@ mod tests {
         run_with_root(&db, "p7", &src, &store, "user-1", false, 100).unwrap();
 
         lock(&db)
-            .execute("UPDATE cloud_snapshots SET record = x'00' WHERE protection_id = 'p7'", [])
+            .execute(
+                "UPDATE cloud_snapshots SET record = x'00' WHERE protection_id = 'p7'",
+                [],
+            )
             .unwrap();
         let held = run_with_root(&db, "p7", &src, &store, "user-1", false, 200).unwrap();
         assert_eq!(held.problem.as_deref(), Some(CHECK_FAILED));
@@ -782,7 +858,12 @@ mod tests {
         let newest = db::latest_backup_key(&lock(&db), "p9").unwrap().unwrap();
         db::insert_backup_key(
             &lock(&db),
-            &BackupKey { version: newest.version + 1, key: vec![7; 32], dedup_key: vec![8; 32], ..newest },
+            &BackupKey {
+                version: newest.version + 1,
+                key: vec![7; 32],
+                dedup_key: vec![8; 32],
+                ..newest
+            },
         )
         .unwrap();
 
@@ -926,7 +1007,10 @@ mod tests {
 
         let conn = lock(&db);
         let identity = identity::load(&conn).unwrap().unwrap();
-        let bytes = store.get_record("snapshots", &snapshot_id).unwrap().unwrap();
+        let bytes = store
+            .get_record("snapshots", &snapshot_id)
+            .unwrap()
+            .unwrap();
         let record = format::SignedRecord::from_bytes(&bytes)
             .unwrap()
             .verify(&identity.public())
@@ -959,7 +1043,10 @@ mod tests {
 
         let conn = lock(&db);
         let identity = identity::load(&conn).unwrap().unwrap();
-        let bytes = store.get_record("snapshots", &snapshot_id).unwrap().unwrap();
+        let bytes = store
+            .get_record("snapshots", &snapshot_id)
+            .unwrap()
+            .unwrap();
         let record = format::SignedRecord::from_bytes(&bytes)
             .unwrap()
             .verify(&identity.public())
@@ -999,7 +1086,10 @@ mod tests {
         let snapshot_id = out.snapshot_id.unwrap();
 
         let conn = lock(&db);
-        let bytes = store.get_record("snapshots", &snapshot_id).unwrap().unwrap();
+        let bytes = store
+            .get_record("snapshots", &snapshot_id)
+            .unwrap()
+            .unwrap();
         let record = format::SignedRecord::from_bytes(&bytes).unwrap();
         let identity = identity::load(&conn).unwrap().unwrap();
         let record = record.verify(&identity.public()).unwrap();
@@ -1026,7 +1116,10 @@ mod tests {
 
         let conn = lock(&db);
         let identity = identity::load(&conn).unwrap().unwrap();
-        let bytes = store.get_record("snapshots", &snapshot_id).unwrap().unwrap();
+        let bytes = store
+            .get_record("snapshots", &snapshot_id)
+            .unwrap()
+            .unwrap();
         let record = format::SignedRecord::from_bytes(&bytes).unwrap();
         assert!(record.verify(&identity.public()).is_ok());
 
@@ -1083,7 +1176,9 @@ mod tests {
 
     #[test]
     fn shared_sealer_names_snapshots_records() {
-        let sealer = SharedSealer { key_bytes: [7u8; 32] };
+        let sealer = SharedSealer {
+            key_bytes: [7u8; 32],
+        };
         let record = SnapshotRecord {
             luna_id: "luna-1".into(),
             protection_id: "p1".into(),

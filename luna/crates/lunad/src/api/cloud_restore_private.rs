@@ -21,9 +21,7 @@ use crate::api::response::json_error;
 use crate::auth::CurrentUser;
 use crate::backup::cloud::format::Tree;
 use crate::backup::cloud::identity;
-use crate::backup::cloud::private::{
-    PSCOPES_KIND, PSNAPSHOTS_KIND, ScopeRecord, SignedScope,
-};
+use crate::backup::cloud::private::{PSCOPES_KIND, PSNAPSHOTS_KIND, ScopeRecord, SignedScope};
 use crate::backup::cloud::private_recover::{
     PlainMeta, PrivateSnapshotIn, caller_scopes, caller_tree_packs, write_private_index,
 };
@@ -79,11 +77,17 @@ struct Parsed {
 }
 
 fn not_set_up() -> ApiError {
-    json_error(StatusCode::CONFLICT, "Set up Luna Connect first, in Settings → Luna Connect.")
+    json_error(
+        StatusCode::CONFLICT,
+        "Set up Luna Connect first, in Settings → Luna Connect.",
+    )
 }
 
 fn no_phrase() -> ApiError {
-    json_error(StatusCode::BAD_REQUEST, "Set up your recovery phrase on this Luna first.")
+    json_error(
+        StatusCode::BAD_REQUEST,
+        "Set up your recovery phrase on this Luna first.",
+    )
 }
 
 fn unreachable_connect(err: impl std::fmt::Display) -> ApiError {
@@ -96,7 +100,10 @@ fn unreachable_connect(err: impl std::fmt::Display) -> ApiError {
 
 fn read_failed(err: impl std::fmt::Display) -> ApiError {
     tracing::warn!(error = %err, "could not read the private backup index");
-    json_error(StatusCode::INTERNAL_SERVER_ERROR, "Luna could not read its private backup index. Try again.")
+    json_error(
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "Luna could not read its private backup index. Try again.",
+    )
 }
 
 fn unreadable() -> ApiError {
@@ -114,7 +121,10 @@ fn finish(joined: Result<Result<Value, ApiError>, tokio::task::JoinError>) -> Ap
     match joined {
         Ok(Ok(value)) => Ok(Json(value)),
         Ok(Err(err)) => Err(err),
-        Err(_) => Err(json_error(StatusCode::INTERNAL_SERVER_ERROR, "Luna could not finish that. Try again.")),
+        Err(_) => Err(json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna could not finish that. Try again.",
+        )),
     }
 }
 
@@ -122,7 +132,10 @@ fn valid_private_kind(kind: &str) -> Result<(), ApiError> {
     if kind == PSCOPES_KIND || kind == PSNAPSHOTS_KIND {
         Ok(())
     } else {
-        Err(json_error(StatusCode::BAD_REQUEST, "Luna can't share that kind of backup record."))
+        Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "Luna can't share that kind of backup record.",
+        ))
     }
 }
 
@@ -141,7 +154,10 @@ fn decode_key(s: &str) -> Result<[u8; 32], ApiError> {
 
 /// A scope id is 16 bytes written as 32 lowercase hex characters.
 fn valid_scope(scope: &str) -> bool {
-    scope.len() == 32 && scope.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    scope.len() == 32
+        && scope
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 /// Decodes a pack id from the URL: 64 hex characters, in any case.
@@ -168,13 +184,19 @@ fn load_caller(db: &crate::Db, user_id: &str) -> Result<Option<CallerKeys>, ApiE
         return Ok(None);
     };
     let caller = fixed32(&keys.x25519_public)?;
-    let identity = identity::load(&conn)
-        .map_err(read_failed)?
-        .ok_or_else(|| json_error(StatusCode::CONFLICT, "Luna has no cloud backup identity yet."))?;
+    let identity = identity::load(&conn).map_err(read_failed)?.ok_or_else(|| {
+        json_error(
+            StatusCode::CONFLICT,
+            "Luna has no cloud backup identity yet.",
+        )
+    })?;
     Ok(Some((caller, identity.public())))
 }
 
-async fn status(State(state): State<AppState>, Extension(user): Extension<CurrentUser>) -> ApiResult {
+async fn status(
+    State(state): State<AppState>,
+    Extension(user): Extension<CurrentUser>,
+) -> ApiResult {
     let db = state.db.clone();
     let connect = state.connect.clone();
     let user_id = user.id.clone();
@@ -188,7 +210,11 @@ async fn status(State(state): State<AppState>, Extension(user): Extension<Curren
 
 /// Says whether Connect holds a private scope for this user that this Luna has not indexed yet.
 /// Without Connect, a phrase, or a reachable Connect, nothing is needed.
-fn status_with(db: &crate::Db, user_id: &str, store: Option<&dyn CloudStore>) -> Result<Value, ApiError> {
+fn status_with(
+    db: &crate::Db,
+    user_id: &str,
+    store: Option<&dyn CloudStore>,
+) -> Result<Value, ApiError> {
     let (caller, luna_public, luna_id, signing_public) = {
         let conn = db.lock().unwrap_or_else(|p| p.into_inner());
         let keys = db::get_user_keys(&conn, user_id).map_err(read_failed)?;
@@ -223,7 +249,10 @@ fn status_with(db: &crate::Db, user_id: &str, store: Option<&dyn CloudStore>) ->
     let conn = db.lock().unwrap_or_else(|p| p.into_inner());
     let mut needed = false;
     for scope in &scopes {
-        if db::get_private_scope(&conn, &scope.scope).map_err(read_failed)?.is_none() {
+        if db::get_private_scope(&conn, &scope.scope)
+            .map_err(read_failed)?
+            .is_none()
+        {
             needed = true;
         }
     }
@@ -301,9 +330,14 @@ async fn pack(
     })
     .await;
     match answer {
-        Ok(Ok(bytes)) => Ok(([(header::CONTENT_TYPE, "application/octet-stream")], bytes).into_response()),
+        Ok(Ok(bytes)) => {
+            Ok(([(header::CONTENT_TYPE, "application/octet-stream")], bytes).into_response())
+        }
         Ok(Err(err)) => Err(err),
-        Err(_) => Err(json_error(StatusCode::INTERNAL_SERVER_ERROR, "Luna could not finish that. Try again.")),
+        Err(_) => Err(json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna could not finish that. Try again.",
+        )),
     }
 }
 
@@ -352,7 +386,11 @@ async fn restore(
 
 /// Checks the shape of the body and decodes the dedup key and snapshot records.
 fn parse_body(body: RestoreBody) -> Result<Parsed, ApiError> {
-    let RestoreBody { scope, dedup_key, snapshots } = body;
+    let RestoreBody {
+        scope,
+        dedup_key,
+        snapshots,
+    } = body;
     if !valid_scope(&scope) || snapshots.is_empty() || snapshots.len() > MAX_SNAPSHOTS {
         return Err(unreadable());
     }
@@ -374,7 +412,11 @@ fn parse_body(body: RestoreBody) -> Result<Parsed, ApiError> {
             })
         })
         .collect::<Result<Vec<_>, ApiError>>()?;
-    Ok(Parsed { scope, dedup, snapshots })
+    Ok(Parsed {
+        scope,
+        dedup,
+        snapshots,
+    })
 }
 
 /// Loads the scope record from Connect, checks it under this Luna's key, and writes the index.
@@ -388,14 +430,28 @@ fn restore_with_store(
     parsed: Parsed,
     now: i64,
 ) -> Result<usize, ApiError> {
-    let Parsed { scope, dedup, snapshots } = parsed;
+    let Parsed {
+        scope,
+        dedup,
+        snapshots,
+    } = parsed;
     let bytes = store
         .get_record(PSCOPES_KIND, &scope)
         .map_err(unreachable_connect)?
-        .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna can't find that private backup on Luna Connect."))?;
+        .ok_or_else(|| {
+            json_error(
+                StatusCode::NOT_FOUND,
+                "Luna can't find that private backup on Luna Connect.",
+            )
+        })?;
     let record = SignedScope::from_bytes(&bytes)
         .and_then(|signed| signed.verify(luna_public))
-        .map_err(|_| json_error(StatusCode::BAD_REQUEST, "This private backup's record can't be checked. It may be damaged."))?;
+        .map_err(|_| {
+            json_error(
+                StatusCode::BAD_REQUEST,
+                "This private backup's record can't be checked. It may be damaged.",
+            )
+        })?;
     let mut conn = db.lock().unwrap_or_else(|p| p.into_inner());
     write_private_index(
         &mut conn,
@@ -424,7 +480,9 @@ mod tests {
     use crate::backup::cloud::crypto;
     use crate::backup::cloud::format::SnapshotRecord;
     use crate::backup::cloud::identity::{self, Identity};
-    use crate::backup::cloud::private::{self, PRIVATE_SNAPSHOT_DOMAIN, PSCOPES_KIND, PSNAPSHOTS_KIND};
+    use crate::backup::cloud::private::{
+        self, PRIVATE_SNAPSHOT_DOMAIN, PSCOPES_KIND, PSNAPSHOTS_KIND,
+    };
     use crate::backup::cloud::store::{CloudStore, MemoryStore};
     use crate::drives::DriveManager;
     use crate::drives::mount::shared_mock;
@@ -449,11 +507,18 @@ mod tests {
         let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
         let state = AppState::new(conn, drive_manager, dir.path());
         let auth = state.auth.clone();
-        let admin = auth.register("Max", "Max", "hunter22hunter1", "admin").unwrap();
-        let member = auth.register("Jamie", "Jamie", "hunter22hunter1", "user").unwrap();
+        let admin = auth
+            .register("Max", "Max", "hunter22hunter1", "admin")
+            .unwrap();
+        let member = auth
+            .register("Jamie", "Jamie", "hunter22hunter1", "user")
+            .unwrap();
         let router = Router::new()
             .merge(super::router())
-            .layer(axum::middleware::from_fn_with_state(state.clone(), crate::auth::guard))
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                crate::auth::guard,
+            ))
             .with_state(state.clone());
         Fixture {
             member_token: auth.issue(&member).unwrap(),
@@ -483,10 +548,19 @@ mod tests {
             }
             None => Body::empty(),
         };
-        let response = router.clone().oneshot(builder.body(body).unwrap()).await.unwrap();
+        let response = router
+            .clone()
+            .oneshot(builder.body(body).unwrap())
+            .await
+            .unwrap();
         let status = response.status();
-        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        (status, serde_json::from_slice(&bytes).unwrap_or(Value::Null))
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        (
+            status,
+            serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+        )
     }
 
     fn load_identity(f: &Fixture) -> Identity {
@@ -524,7 +598,13 @@ mod tests {
     }
 
     /// Write a signed private snapshot record the way a private backup run does.
-    fn put_private_snapshot(store: &MemoryStore, id: &Identity, scope: &str, snapshot_id: &str, tree_pack_id: [u8; 32]) {
+    fn put_private_snapshot(
+        store: &MemoryStore,
+        id: &Identity,
+        scope: &str,
+        snapshot_id: &str,
+        tree_pack_id: [u8; 32],
+    ) {
         let record = SnapshotRecord {
             luna_id: id.luna_id().into(),
             protection_id: "p1".into(),
@@ -535,9 +615,15 @@ mod tests {
             tree_hash: [0; 32],
             meta: vec![1, 2, 3],
         };
-        let signed = record.sign_with(id.signer(), PRIVATE_SNAPSHOT_DOMAIN).to_bytes();
+        let signed = record
+            .sign_with(id.signer(), PRIVATE_SNAPSHOT_DOMAIN)
+            .to_bytes();
         store
-            .put_record(PSNAPSHOTS_KIND, &private::psnapshot_name(scope, snapshot_id), &signed)
+            .put_record(
+                PSNAPSHOTS_KIND,
+                &private::psnapshot_name(scope, snapshot_id),
+                &signed,
+            )
             .unwrap();
     }
 
@@ -600,13 +686,16 @@ mod tests {
         put_private_snapshot(&store, &id, &theirs.scope, "snap-2", [6; 32]);
         let luna_public = id.public();
 
-        let out = records_with_store(&store, &luna_public, &me.x25519_public, PSCOPES_KIND).unwrap();
+        let out =
+            records_with_store(&store, &luna_public, &me.x25519_public, PSCOPES_KIND).unwrap();
         assert_eq!(names(&out), vec![mine.scope.clone()]);
 
-        let out = records_with_store(&store, &luna_public, &me.x25519_public, PSNAPSHOTS_KIND).unwrap();
+        let out =
+            records_with_store(&store, &luna_public, &me.x25519_public, PSNAPSHOTS_KIND).unwrap();
         assert_eq!(names(&out), vec![format!("{}.snap-1", mine.scope)]);
 
-        let refused = records_with_store(&store, &luna_public, &me.x25519_public, "self").unwrap_err();
+        let refused =
+            records_with_store(&store, &luna_public, &me.x25519_public, "self").unwrap_err();
         assert_eq!(refused.0, StatusCode::BAD_REQUEST);
     }
 
@@ -630,21 +719,35 @@ mod tests {
         put_private_snapshot(&store, &id, &mine.scope, "snap-1", mine_pack);
         put_private_snapshot(&store, &id, &theirs.scope, "snap-2", theirs_pack);
         // A pack that no snapshot names at all.
-        store.put_pack(&mine_pack, Some(&mine.scope), b"mine").unwrap();
-        store.put_pack(&theirs_pack, Some(&theirs.scope), b"theirs").unwrap();
-        store.put_pack(&stray_pack, Some(&mine.scope), b"stray").unwrap();
+        store
+            .put_pack(&mine_pack, Some(&mine.scope), b"mine")
+            .unwrap();
+        store
+            .put_pack(&theirs_pack, Some(&theirs.scope), b"theirs")
+            .unwrap();
+        store
+            .put_pack(&stray_pack, Some(&mine.scope), b"stray")
+            .unwrap();
         let luna_public = id.public();
         let caller = me.x25519_public;
 
         let bytes = pack_with_store(&store, &luna_public, &caller, &hex(&mine_pack)).unwrap();
         assert_eq!(bytes, b"mine");
         // Upper-case ids name the same pack.
-        let bytes = pack_with_store(&store, &luna_public, &caller, &hex(&mine_pack).to_uppercase()).unwrap();
+        let bytes = pack_with_store(
+            &store,
+            &luna_public,
+            &caller,
+            &hex(&mine_pack).to_uppercase(),
+        )
+        .unwrap();
         assert_eq!(bytes, b"mine");
 
-        let refused = pack_with_store(&store, &luna_public, &caller, &hex(&theirs_pack)).unwrap_err();
+        let refused =
+            pack_with_store(&store, &luna_public, &caller, &hex(&theirs_pack)).unwrap_err();
         assert_eq!(refused.0, StatusCode::NOT_FOUND);
-        let refused = pack_with_store(&store, &luna_public, &caller, &hex(&stray_pack)).unwrap_err();
+        let refused =
+            pack_with_store(&store, &luna_public, &caller, &hex(&stray_pack)).unwrap_err();
         assert_eq!(refused.0, StatusCode::NOT_FOUND);
         let refused = pack_with_store(&store, &luna_public, &caller, "not-hex").unwrap_err();
         assert_eq!(refused.0, StatusCode::NOT_FOUND);
@@ -653,12 +756,25 @@ mod tests {
     #[tokio::test]
     async fn routes_refuse_without_a_phrase_and_status_is_quiet_without_connect() {
         let f = fixture();
-        let (status, out) = send(&f.router, "GET", "/api/v1/cloud/restore-private", &f.member_token, None).await;
+        let (status, out) = send(
+            &f.router,
+            "GET",
+            "/api/v1/cloud/restore-private",
+            &f.member_token,
+            None,
+        )
+        .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(out["needed"], false);
 
-        let (status, _) =
-            send(&f.router, "GET", "/api/v1/cloud/restore-private/records/pscopes", &f.member_token, None).await;
+        let (status, _) = send(
+            &f.router,
+            "GET",
+            "/api/v1/cloud/restore-private/records/pscopes",
+            &f.member_token,
+            None,
+        )
+        .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
 
         let bogus = "/api/v1/cloud/restore-private/records/self";
@@ -680,8 +796,14 @@ mod tests {
                 "tree": { "entries": [] },
             }],
         });
-        let (status, _) =
-            send(&f.router, "POST", "/api/v1/cloud/restore-private", &f.member_token, Some(body)).await;
+        let (status, _) = send(
+            &f.router,
+            "POST",
+            "/api/v1/cloud/restore-private",
+            &f.member_token,
+            Some(body),
+        )
+        .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
     }
 
@@ -700,8 +822,14 @@ mod tests {
                 "tree": { "entries": [] },
             }],
         });
-        let (status, _) =
-            send(&f.router, "POST", "/api/v1/cloud/restore-private", &f.member_token, Some(body)).await;
+        let (status, _) = send(
+            &f.router,
+            "POST",
+            "/api/v1/cloud/restore-private",
+            &f.member_token,
+            Some(body),
+        )
+        .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
 
         // A scope id that is not 32 hex characters is refused too.
@@ -710,8 +838,14 @@ mod tests {
             "dedup_key": STANDARD.encode([3u8; 32]),
             "snapshots": [],
         });
-        let (status, _) =
-            send(&f.router, "POST", "/api/v1/cloud/restore-private", &f.member_token, Some(body)).await;
+        let (status, _) = send(
+            &f.router,
+            "POST",
+            "/api/v1/cloud/restore-private",
+            &f.member_token,
+            Some(body),
+        )
+        .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
     }
 }

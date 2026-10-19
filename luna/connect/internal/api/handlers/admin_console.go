@@ -300,18 +300,18 @@ WHERE 1=1`
 			hostname = subdomain + "." + zone
 		}
 		item := map[string]any{
-			"id":              id,
-			"kind":            kind,
-			"status":          status,
-			"hint":            hint,
-			"account_id":      acctID,
-			"account_email":   email,
-			"device_hostname": hostname,
-			"order_ref":       orderRef,
-			"created_at":      created,
-			"can_revoke":      status == "unbound",
-			"can_reveal":      false,
-			"device_code_prefix":    "",
+			"id":                 id,
+			"kind":               kind,
+			"status":             status,
+			"hint":               hint,
+			"account_id":         acctID,
+			"account_email":      email,
+			"device_hostname":    hostname,
+			"order_ref":          orderRef,
+			"created_at":         created,
+			"can_revoke":         status == "unbound",
+			"can_reveal":         false,
+			"device_code_prefix": "",
 		}
 		// The full device token never ships in a list response; reveal goes
 		// through GET /admin/device-codes/{id}/reveal for a single row.
@@ -369,8 +369,8 @@ func (h AdminConsoleHandler) RevealDeviceCode(w http.ResponseWriter, r *http.Req
 		return
 	}
 	JSON(w, http.StatusOK, map[string]any{
-		"code":         code,
-		"code_hint":    hint,
+		"code":               code,
+		"code_hint":          hint,
 		"device_code_prefix": security.DeviceCodePrefix(code),
 	})
 }

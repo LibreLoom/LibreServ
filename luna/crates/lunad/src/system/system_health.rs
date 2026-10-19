@@ -1072,7 +1072,10 @@ pub fn backup_checks(conn: &Connection, now: i64) -> HashMap<String, HealthCheck
                 Some(details),
             );
         } else if !row.last_error.is_empty()
-            && matches!(crate::backup::cloud::ops::state(&row, now), BackupState::Failing)
+            && matches!(
+                crate::backup::cloud::ops::state(&row, now),
+                BackupState::Failing
+            )
         {
             checks
                 .add(
@@ -1115,15 +1118,13 @@ pub fn backup_checks(conn: &Connection, now: i64) -> HashMap<String, HealthCheck
             checks.add(&name, "backups", PASSED, message, Some(details));
         }
 
-        let access: crate::backup::access_list::AccessList = if row.access_json.trim().is_empty()
-        {
+        let access: crate::backup::access_list::AccessList = if row.access_json.trim().is_empty() {
             Default::default()
         } else {
             serde_json::from_str(&row.access_json).unwrap_or_default()
         };
         for user in crate::db::list_users(conn).unwrap_or_default() {
-            let listed = access.users.contains(&user.id)
-                || (access.admins && user.role == "admin");
+            let listed = access.users.contains(&user.id) || (access.admins && user.role == "admin");
             let has_phrase = crate::db::get_user_keys(conn, &user.id)
                 .ok()
                 .flatten()
@@ -1163,22 +1164,18 @@ pub fn backup_checks(conn: &Connection, now: i64) -> HashMap<String, HealthCheck
         }
     }
     for (owner, (total, needs_look)) in tallies {
-        let active_name = if crate::private::owner_state(conn, &owner)
-            == crate::private::OwnerState::Active
-        {
-            crate::db::get_user(conn, &owner)
-                .ok()
-                .flatten()
-                .map(|u| {
+        let active_name =
+            if crate::private::owner_state(conn, &owner) == crate::private::OwnerState::Active {
+                crate::db::get_user(conn, &owner).ok().flatten().map(|u| {
                     if u.display_name.trim().is_empty() {
                         u.username
                     } else {
                         u.display_name
                     }
                 })
-        } else {
-            None
-        };
+            } else {
+                None
+            };
         let deleted = active_name.is_none();
         let name = active_name.unwrap_or_else(|| "a deleted user".into());
         let start = if deleted {
@@ -1228,7 +1225,10 @@ fn row_needs_look(conn: &Connection, row: &crate::db::ProtectionRow, now: i64) -
         return !matches!(drive_state(row, now), BackupState::Ok);
     }
     (!row.last_error.is_empty()
-        && matches!(crate::backup::cloud::ops::state(row, now), BackupState::Failing))
+        && matches!(
+            crate::backup::cloud::ops::state(row, now),
+            BackupState::Failing
+        ))
         || now - row.last_ok_at.max(row.created_at) >= 2 * 86_400
         || crate::backup::cloud::ops::last_check_problem(conn, &row.id).is_some()
 }
@@ -2043,8 +2043,24 @@ mod tests {
         insert_drive(&conn, "b", "Backup B", "ready", "ext4", "sdb", "/mnt/b");
         crate::db::insert_user(&conn, "u1", "max", "Max", "hash", "member").unwrap();
         let now = 10_000_000;
-        add_private_row(&conn, "p1", crate::db::PROTECTION_DRIVE, "u1", "/Diary", "b", now - 3 * 86_400);
-        add_private_row(&conn, "c1", crate::db::PROTECTION_CLOUD, "u1", "/Diary", "", now - 3 * 86_400);
+        add_private_row(
+            &conn,
+            "p1",
+            crate::db::PROTECTION_DRIVE,
+            "u1",
+            "/Diary",
+            "b",
+            now - 3 * 86_400,
+        );
+        add_private_row(
+            &conn,
+            "c1",
+            crate::db::PROTECTION_CLOUD,
+            "u1",
+            "/Diary",
+            "",
+            now - 3 * 86_400,
+        );
         // A cloud row whose access list names the owner with no phrase: still not named.
         conn.execute(
             "UPDATE protections SET access_json = '{\"users\":[\"u1\"]}' WHERE id = 'c1'",
@@ -2062,7 +2078,11 @@ mod tests {
             .collect();
         assert_eq!(owner_checks, vec!["private_backups_u1"]);
         for (name, check) in &checks {
-            assert!(!check.message.contains("Diary"), "{name}: {}", check.message);
+            assert!(
+                !check.message.contains("Diary"),
+                "{name}: {}",
+                check.message
+            );
             if let Some(more) = &check.more {
                 assert!(!more.contains("Diary"), "{name}: {more}");
             }
@@ -2079,8 +2099,24 @@ mod tests {
         insert_drive(&conn, "b", "Backup B", "ready", "ext4", "sdb", "/mnt/b");
         crate::db::insert_user(&conn, "u1", "max", "Max", "hash", "member").unwrap();
         let now = 10_000_000;
-        add_private_row(&conn, "p1", crate::db::PROTECTION_DRIVE, "u1", "/Diary", "b", now - 3 * 86_400);
-        add_private_row(&conn, "p2", crate::db::PROTECTION_DRIVE, "u1", "/Notes", "b", now - 60);
+        add_private_row(
+            &conn,
+            "p1",
+            crate::db::PROTECTION_DRIVE,
+            "u1",
+            "/Diary",
+            "b",
+            now - 3 * 86_400,
+        );
+        add_private_row(
+            &conn,
+            "p2",
+            crate::db::PROTECTION_DRIVE,
+            "u1",
+            "/Notes",
+            "b",
+            now - 60,
+        );
         crate::db::record_protection_error(
             &conn,
             "p1",
@@ -2095,7 +2131,10 @@ mod tests {
         assert_eq!(owner.status, WARNING);
         assert_eq!(owner.category, "backups");
         assert_eq!(owner.message, "1 of Max's private items needs a look.");
-        assert_eq!(owner.more.as_deref(), Some("Only Max can see which and why."));
+        assert_eq!(
+            owner.more.as_deref(),
+            Some("Only Max can see which and why.")
+        );
         assert_eq!(owner.details.as_ref().unwrap()["needs_look"], 1);
         assert_eq!(owner.details.as_ref().unwrap()["backups"], 2);
         assert!(!owner.message.contains("Diary"));

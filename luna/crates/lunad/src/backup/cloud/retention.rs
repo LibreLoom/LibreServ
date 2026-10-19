@@ -5,9 +5,9 @@ use std::collections::HashSet;
 use std::sync::MutexGuard;
 
 use anyhow::{anyhow, bail};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 
-use crate::backup::cloud::private::{snapshot_record_ref, PSCOPES_KIND};
+use crate::backup::cloud::private::{PSCOPES_KIND, snapshot_record_ref};
 use crate::backup::cloud::store::{CloudStore, StoreError};
 use crate::backup::drive_store::keep_versions;
 use crate::db;
@@ -282,7 +282,13 @@ mod tests {
     }
 
     /// Store a snapshot record and commit its row with the packs it uses.
-    fn add_snapshot(db: &crate::Db, store: &MemoryStore, id: &str, created_at: i64, packs: &[[u8; 32]]) {
+    fn add_snapshot(
+        db: &crate::Db,
+        store: &MemoryStore,
+        id: &str,
+        created_at: i64,
+        packs: &[[u8; 32]],
+    ) {
         store.put_record("snapshots", id, b"record").unwrap();
         let snap = SnapshotInsert {
             id: id.into(),
@@ -337,7 +343,11 @@ mod tests {
         }
         // A private snapshot, 40 days old, whose record lives under the private kind.
         store
-            .put_record(PSNAPSHOTS_KIND, &format!("{PSCOPE}.priv-1"), b"private record")
+            .put_record(
+                PSNAPSHOTS_KIND,
+                &format!("{PSCOPE}.priv-1"),
+                b"private record",
+            )
             .unwrap();
         // A decoy: a standard record that happens to share the private snapshot's id.
         store.put_record("snapshots", "priv-1", b"decoy").unwrap();
@@ -358,8 +368,16 @@ mod tests {
         let out = thin(&db, "p1", PSCOPE, &store, NOW).unwrap();
 
         assert_eq!(out.snapshots_removed, 1);
-        assert!(store.get_record(PSNAPSHOTS_KIND, &format!("{PSCOPE}.priv-1")).unwrap().is_none());
-        assert!(store.get_record("snapshots", "priv-1").unwrap().is_some(), "decoy must stay");
+        assert!(
+            store
+                .get_record(PSNAPSHOTS_KIND, &format!("{PSCOPE}.priv-1"))
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            store.get_record("snapshots", "priv-1").unwrap().is_some(),
+            "decoy must stay"
+        );
         assert!(store.get_record("snapshots", "latest").unwrap().is_some());
         assert_eq!(snapshot_ids(&db), ["latest"]);
     }
@@ -380,7 +398,12 @@ mod tests {
         assert_eq!(out.snapshots_removed, 2);
         // Oldest per bucket survives: week-old (3 days) over week-young, and month.
         assert_eq!(snapshot_ids(&db), ["latest", "month", "week-old"]);
-        assert!(store.get_record("snapshots", "week-young").unwrap().is_none());
+        assert!(
+            store
+                .get_record("snapshots", "week-young")
+                .unwrap()
+                .is_none()
+        );
         assert!(store.get_record("snapshots", "too-old").unwrap().is_none());
         assert!(store.get_record("snapshots", "month").unwrap().is_some());
     }
@@ -511,7 +534,11 @@ mod tests {
             .unwrap();
         }
         store
-            .put_record(PSNAPSHOTS_KIND, &format!("{PSCOPE}.priv-1"), b"private record")
+            .put_record(
+                PSNAPSHOTS_KIND,
+                &format!("{PSCOPE}.priv-1"),
+                b"private record",
+            )
             .unwrap();
         {
             let snap = SnapshotInsert {
@@ -528,16 +555,20 @@ mod tests {
 
         retire_old_phrases(&db, &store, NOW + 1000 * DAY).unwrap();
 
-        assert!(store
-            .get_record(PSNAPSHOTS_KIND, &format!("{PSCOPE}.priv-1"))
-            .unwrap()
-            .is_some());
+        assert!(
+            store
+                .get_record(PSNAPSHOTS_KIND, &format!("{PSCOPE}.priv-1"))
+                .unwrap()
+                .is_some()
+        );
         let conn = db.lock().unwrap();
         assert_eq!(db::private_snapshot_ids(&conn, PSCOPE).unwrap(), ["priv-1"]);
-        assert!(db::list_private_scopes(&conn, None)
-            .unwrap()
-            .iter()
-            .any(|s| s.scope == PSCOPE));
+        assert!(
+            db::list_private_scopes(&conn, None)
+                .unwrap()
+                .iter()
+                .any(|s| s.scope == PSCOPE)
+        );
     }
 
     #[test]
@@ -558,7 +589,11 @@ mod tests {
         assert!(packs_in_state(&db, "deleting").is_empty());
         let conn = db.lock().unwrap();
         let rows: i64 = conn
-            .query_row("SELECT COUNT(*) FROM cloud_packs WHERE id = ?1", params![hex(&unused)], |r| r.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM cloud_packs WHERE id = ?1",
+                params![hex(&unused)],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(rows, 0);
     }

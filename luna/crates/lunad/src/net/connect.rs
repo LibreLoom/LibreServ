@@ -875,12 +875,7 @@ impl ConnectService {
     /// one has its signing key registered (`GET /api/v1/storage/luna-ids`).
     pub fn list_luna_ids(&self) -> Result<Vec<ConnectLunaId>, ConnectError> {
         let token = self.token()?;
-        let reply = self.call_json_status(
-            "GET",
-            "/api/v1/storage/luna-ids",
-            Some(&token),
-            None,
-        )?;
+        let reply = self.call_json_status("GET", "/api/v1/storage/luna-ids", Some(&token), None)?;
         let rows = reply
             .get("luna_ids")
             .and_then(Value::as_array)
@@ -2342,9 +2337,11 @@ mod tests {
         let service = ConnectService::new(dir.path(), Some(url));
         service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
         let key = "ab".repeat(32);
-        assert!(service
-            .register_signing_public("luna-ABCDEFGHJKMNPQRSTVWXYZ2345", &key)
-            .is_ok());
+        assert!(
+            service
+                .register_signing_public("luna-ABCDEFGHJKMNPQRSTVWXYZ2345", &key)
+                .is_ok()
+        );
     }
 
     #[test]
@@ -2354,9 +2351,11 @@ mod tests {
         let service = ConnectService::new(dir.path(), Some(url));
         service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
         let key = "ab".repeat(32);
-        assert!(service
-            .register_signing_public("luna-ABCDEFGHJKMNPQRSTVWXYZ2345", &key)
-            .is_err());
+        assert!(
+            service
+                .register_signing_public("luna-ABCDEFGHJKMNPQRSTVWXYZ2345", &key)
+                .is_err()
+        );
     }
 
     fn seed_claim(service: &ConnectService) {

@@ -299,9 +299,9 @@ impl Sealer for PrivateSealer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backup::cloud::store::MemoryStore;
     use crate::backup::cloud::format;
     use crate::backup::cloud::private::PSCOPES_KIND;
+    use crate::backup::cloud::store::MemoryStore;
     use rand_core::{OsRng, RngCore};
 
     /// A database with an owner (with recovery-phrase keys unless `owner_keys` is false) and an

@@ -69,14 +69,6 @@ func TestSystemCheckUpdatesNoFeedYet(t *testing.T) {
 	}
 }
 
-type recordingAudit struct {
-	actions []string
-}
-
-func (a *recordingAudit) Log(ctx interface{}, action, actorID, target, result, message string, meta map[string]interface{}) {
-	a.actions = append(a.actions, action)
-}
-
 // Adapt to shared.AuditLogger signature used by handlers — discover at compile time.
 func TestSystemRestartNow(t *testing.T) {
 	checker := system.NewUpdateChecker(config.UpdatesConfig{})

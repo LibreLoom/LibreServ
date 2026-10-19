@@ -3,7 +3,7 @@
 //! A private backup is sealed to its owner's X25519 key, so Luna itself never holds the owner's
 //! secret. Every sealed value binds its purpose, Luna and scope through `aad`.
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
@@ -159,7 +159,10 @@ impl ScopeRecord {
 
     pub fn sign(self, signer: &Signer) -> SignedScope {
         let signature = signer.sign(SCOPE_RECORD_DOMAIN, &self.signed_bytes());
-        SignedScope { record: self, signature }
+        SignedScope {
+            record: self,
+            signature,
+        }
     }
 }
 
@@ -234,16 +237,12 @@ pub fn publish_scope(
     scope: &db::PrivateScope,
     auth_public: &[u8; 32],
 ) -> Result<()> {
-    let owner_public: [u8; 32] = scope
-        .x25519_public
-        .as_slice()
-        .try_into()
-        .map_err(|_| anyhow!("This private backup's key is the wrong length. It may be damaged."))?;
-    let dedup: [u8; 32] = scope
-        .dedup_key
-        .as_slice()
-        .try_into()
-        .map_err(|_| anyhow!("This private backup's key is the wrong length. It may be damaged."))?;
+    let owner_public: [u8; 32] = scope.x25519_public.as_slice().try_into().map_err(|_| {
+        anyhow!("This private backup's key is the wrong length. It may be damaged.")
+    })?;
+    let dedup: [u8; 32] = scope.dedup_key.as_slice().try_into().map_err(|_| {
+        anyhow!("This private backup's key is the wrong length. It may be damaged.")
+    })?;
     let sealed_dedup = seal_dedup(&owner_public, luna_id, &scope.scope, &dedup)?;
     let record = ScopeRecord {
         luna_id: luna_id.to_string(),
@@ -310,19 +309,31 @@ mod tests {
 
         let pack_key = [3u8; 32];
         let wrapped = seal_pack_key(&public, "luna-x", &scope, &pack_key).unwrap();
-        assert_eq!(open_pack_key(&secret, "luna-x", &scope, &wrapped).unwrap(), pack_key);
+        assert_eq!(
+            open_pack_key(&secret, "luna-x", &scope, &wrapped).unwrap(),
+            pack_key
+        );
 
         let tree = Tree { entries: vec![] };
         let sealed_tree = seal_tree(&public, "luna-x", &scope, &tree).unwrap();
-        assert_eq!(open_tree(&secret, "luna-x", &scope, &sealed_tree).unwrap(), tree);
+        assert_eq!(
+            open_tree(&secret, "luna-x", &scope, &sealed_tree).unwrap(),
+            tree
+        );
 
         let meta = sample_meta();
         let sealed_meta = seal_meta(&public, "luna-x", &scope, &meta).unwrap();
-        assert_eq!(open_meta(&secret, "luna-x", &scope, &sealed_meta).unwrap(), meta);
+        assert_eq!(
+            open_meta(&secret, "luna-x", &scope, &sealed_meta).unwrap(),
+            meta
+        );
 
         let dedup = [4u8; 32];
         let sealed_dedup = seal_dedup(&public, "luna-x", &scope, &dedup).unwrap();
-        assert_eq!(open_dedup(&secret, "luna-x", &scope, &sealed_dedup).unwrap(), dedup);
+        assert_eq!(
+            open_dedup(&secret, "luna-x", &scope, &sealed_dedup).unwrap(),
+            dedup
+        );
     }
 
     #[test]
@@ -338,8 +349,13 @@ mod tests {
     #[test]
     fn scope_record_signs_and_verifies() {
         let signer = Signer::generate();
-        let sealed = seal_dedup(&keys().x25519_public, "luna-x", &scope_of(&[9u8; 32]).1, &[9u8; 32])
-            .unwrap();
+        let sealed = seal_dedup(
+            &keys().x25519_public,
+            "luna-x",
+            &scope_of(&[9u8; 32]).1,
+            &[9u8; 32],
+        )
+        .unwrap();
         let signed = sample_scope_record(sealed).sign(&signer);
 
         let verified = signed.verify(&signer.public()).unwrap();
@@ -425,8 +441,14 @@ mod tests {
 
         publish_scope(&store, &signer, "luna-x", &scope, &keys.auth_public).unwrap();
 
-        assert_eq!(store.list_records(PSCOPES_KIND).unwrap(), vec![scope.scope.clone()]);
-        let bytes = store.get_record(PSCOPES_KIND, &scope.scope).unwrap().unwrap();
+        assert_eq!(
+            store.list_records(PSCOPES_KIND).unwrap(),
+            vec![scope.scope.clone()]
+        );
+        let bytes = store
+            .get_record(PSCOPES_KIND, &scope.scope)
+            .unwrap()
+            .unwrap();
         let record = SignedScope::from_bytes(&bytes)
             .unwrap()
             .verify(&signer.public())
@@ -434,7 +456,13 @@ mod tests {
         assert_eq!(record.user_id, "owner");
         assert_eq!(record.created_at, 42);
         assert_eq!(
-            open_dedup(&keys.x25519_secret, "luna-x", &scope.scope, &record.sealed_dedup).unwrap(),
+            open_dedup(
+                &keys.x25519_secret,
+                "luna-x",
+                &scope.scope,
+                &record.sealed_dedup
+            )
+            .unwrap(),
             dedup
         );
     }

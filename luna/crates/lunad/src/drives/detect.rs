@@ -126,7 +126,10 @@ pub fn scan_with_dev_mocks(sys_block: &Path, proc_mounts: &str) -> Vec<DetectedD
 }
 
 /// Adds `mocks` to `drives`; a mock replaces a real drive of the same name.
-fn merge_mock_drives(mut drives: Vec<DetectedDrive>, mocks: Vec<DetectedDrive>) -> Vec<DetectedDrive> {
+fn merge_mock_drives(
+    mut drives: Vec<DetectedDrive>,
+    mocks: Vec<DetectedDrive>,
+) -> Vec<DetectedDrive> {
     for mock in mocks {
         drives.retain(|d| d.name != mock.name);
         drives.push(mock);

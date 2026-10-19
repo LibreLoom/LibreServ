@@ -6,9 +6,9 @@
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use rand_core::{OsRng, RngCore};
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 
 use super::crypto;
 use super::format::{self, ChunkRef, OpenedPack, SignedRecord, SnapshotRecord};
@@ -69,7 +69,8 @@ pub fn check(
 
     // Every snapshot: verify its record, then open its tree pack.
     for snap in &plan.snapshots {
-        let Some(record) = load_record(store, snap, protection_id, &plan.public, &plan.luna_id)? else {
+        let Some(record) = load_record(store, snap, protection_id, &plan.public, &plan.luna_id)?
+        else {
             report.bad_records.push(snap.id.clone());
             continue;
         };
@@ -96,7 +97,15 @@ pub fn check(
             .as_slice()
             .try_into()
             .map_err(|_| anyhow!("The backup key for this cloud backup is damaged."))?;
-        if examine_pack(store, &snap.tree_pack_id, &unwrap, &mut report, &mut examined)?.is_none() {
+        if examine_pack(
+            store,
+            &snap.tree_pack_id,
+            &unwrap,
+            &mut report,
+            &mut examined,
+        )?
+        .is_none()
+        {
             continue;
         }
         // The tree chunk is found by the record's `tree_hash`, so no pack chunk listing is needed.
@@ -131,14 +140,18 @@ pub fn check(
     report.problem = summarise(&report);
     {
         let conn = db.lock().unwrap_or_else(|p| p.into_inner());
-        db::set_meta(&conn, &format!("cloud_checked:{protection_id}"), &now.to_string())?;
+        db::set_meta(
+            &conn,
+            &format!("cloud_checked:{protection_id}"),
+            &now.to_string(),
+        )?;
     }
     Ok(report)
 }
 
 fn read_plan(conn: &Connection, protection_id: &str) -> Result<Plan> {
-    let identity = identity::load(conn)?
-        .ok_or_else(|| anyhow!("Luna's cloud identity is missing."))?;
+    let identity =
+        identity::load(conn)?.ok_or_else(|| anyhow!("Luna's cloud identity is missing."))?;
     let snapshots = db::list_cloud_snapshots(conn, protection_id)?;
     let keys = db::list_backup_keys(conn, protection_id)?;
 
@@ -236,7 +249,9 @@ fn unwrap_with(keys: &[BackupKey]) -> impl Fn(&[u8]) -> Result<[u8; 32]> + '_ {
                 return Ok(pack_key);
             }
         }
-        Err(anyhow!("A backup file could not be opened with this Luna's keys."))
+        Err(anyhow!(
+            "A backup file could not be opened with this Luna's keys."
+        ))
     }
 }
 
@@ -330,7 +345,12 @@ mod tests {
     }
 
     impl CloudStore for CorruptStore {
-        fn put_pack(&self, id: &[u8; 32], scope: Option<&str>, bytes: &[u8]) -> Result<(), StoreError> {
+        fn put_pack(
+            &self,
+            id: &[u8; 32],
+            scope: Option<&str>,
+            bytes: &[u8],
+        ) -> Result<(), StoreError> {
             self.inner.put_pack(id, scope, bytes)
         }
         fn get_pack(&self, id: &[u8; 32]) -> Result<Vec<u8>, StoreError> {
@@ -407,7 +427,11 @@ mod tests {
         extra: &[ChunkRef],
     ) -> ([u8; 32], [u8; 32]) {
         let mut conn = db.lock().unwrap_or_else(|p| p.into_inner());
-        let luna_id = identity::load(&conn).unwrap().unwrap().luna_id().to_string();
+        let luna_id = identity::load(&conn)
+            .unwrap()
+            .unwrap()
+            .luna_id()
+            .to_string();
         let seed: [u8; 32] = db::get_cloud_identity(&conn)
             .unwrap()
             .unwrap()
@@ -448,10 +472,20 @@ mod tests {
         let tree_pack = tree_builder.finish(|pk| crypto::encrypt(&key, AAD, pk));
 
         for sealed in [&data, &tree_pack] {
-            store.put_pack(&sealed.id, Some(&scope), &sealed.bytes).unwrap();
+            store
+                .put_pack(&sealed.id, Some(&scope), &sealed.bytes)
+                .unwrap();
             db::insert_pending_pack(&conn, &hex(&sealed.id), &scope, "run-1", now).unwrap();
         }
-        db::insert_chunk(&conn, &scope, &cid, &hex(&data.id), offset as i64, len as i64).unwrap();
+        db::insert_chunk(
+            &conn,
+            &scope,
+            &cid,
+            &hex(&data.id),
+            offset as i64,
+            len as i64,
+        )
+        .unwrap();
         db::insert_chunk(
             &conn,
             &scope,
@@ -536,7 +570,12 @@ mod tests {
 
         let report = check(&db, "p1", &store, Sample::All, 200).unwrap();
         assert_eq!(report.missing_packs, vec![hex(&data_id)]);
-        assert!(report.problem.unwrap().contains("missing from Luna Connect"));
+        assert!(
+            report
+                .problem
+                .unwrap()
+                .contains("missing from Luna Connect")
+        );
     }
 
     #[test]
@@ -598,7 +637,10 @@ mod tests {
         };
         let chunks = [chunk(0xaa), chunk(0xbb), chunk(0xaa)];
         let listed: HashSet<String> = [hex(&[0xaa; 32])].into();
-        assert_eq!(unlisted_packs(&chunks, &listed), BTreeSet::from([hex(&[0xbb; 32])]));
+        assert_eq!(
+            unlisted_packs(&chunks, &listed),
+            BTreeSet::from([hex(&[0xbb; 32])])
+        );
     }
 
     /// Re-sign the stored record for `snap-1` after `edit`, as this Luna's identity would.
@@ -613,7 +655,10 @@ mod tests {
         let signer = Signer::from_seed(seed);
         let public = identity::load(&conn).unwrap().unwrap().public();
         let bytes = store.get_record("snapshots", "snap-1").unwrap().unwrap();
-        let mut record = SignedRecord::from_bytes(&bytes).unwrap().verify(&public).unwrap();
+        let mut record = SignedRecord::from_bytes(&bytes)
+            .unwrap()
+            .verify(&public)
+            .unwrap();
         edit(&mut record);
         store
             .put_record("snapshots", "snap-1", &record.sign(&signer).to_bytes())

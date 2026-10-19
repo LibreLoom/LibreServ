@@ -339,7 +339,7 @@ export default function Navbar({ brand, items, user, onLogout, menuItems = [], s
     const which = focusMenuItemRef.current;
     focusMenuItemRef.current = null;
     const items = userMenuItems();
-    (which === "last" ? items.at(-1) : items[0])?.focus();
+    (which === "last" ? items[items.length - 1] : items[0])?.focus();
   }, [isUserMenuOpen]);
 
   /** The user menu's items, in order. */
@@ -366,7 +366,7 @@ export default function Navbar({ brand, items, user, onLogout, menuItems = [], s
         setIsUserMenuOpen(true);
       } else {
         const items = userMenuItems();
-        (toEnd ? items.at(-1) : items[0])?.focus();
+        (toEnd ? items[items.length - 1] : items[0])?.focus();
       }
       return;
     }

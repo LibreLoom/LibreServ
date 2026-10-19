@@ -547,14 +547,28 @@ mod tests {
     #[tokio::test]
     async fn status_says_whether_a_card_is_on_file() {
         let h = harness(true);
-        let (_, before) = send(&h, Method::GET, "/api/v1/connect/status", h.member.as_deref(), None).await;
+        let (_, before) = send(
+            &h,
+            Method::GET,
+            "/api/v1/connect/status",
+            h.member.as_deref(),
+            None,
+        )
+        .await;
         assert_eq!(before["card_on_file"], true);
 
         {
             let conn = h.state.db.lock().unwrap_or_else(|p| p.into_inner());
             db::set_meta(&conn, "cloud_payment_required", "1").unwrap();
         }
-        let (_, after) = send(&h, Method::GET, "/api/v1/connect/status", h.member.as_deref(), None).await;
+        let (_, after) = send(
+            &h,
+            Method::GET,
+            "/api/v1/connect/status",
+            h.member.as_deref(),
+            None,
+        )
+        .await;
         assert_eq!(after["card_on_file"], false);
     }
 }

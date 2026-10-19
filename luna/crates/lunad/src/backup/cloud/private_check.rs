@@ -41,20 +41,29 @@ pub fn check(
 
     // Re-publish the scope record if Connect lost it. Needs the owner's keys and a local scope row.
     if let (Some(scope), Some(auth_public)) = (&job.scope, &job.auth_public) {
-        let present = store.get_record(PSCOPES_KIND, &scope.scope).map_err(store_err)?;
+        let present = store
+            .get_record(PSCOPES_KIND, &scope.scope)
+            .map_err(store_err)?;
         if present.is_none() {
             private::publish_scope(store, &job.signer, &job.luna_id, scope, auth_public)?;
         }
     }
 
     let name = private::psnapshot_name(&job.scope_name, &job.snapshot_id);
-    let record_ok = match store.get_record(PSNAPSHOTS_KIND, &name).map_err(store_err)? {
+    let record_ok = match store
+        .get_record(PSNAPSHOTS_KIND, &name)
+        .map_err(store_err)?
+    {
         None => false,
         Some(stored) => {
             stored == job.record
                 && SignedRecord::from_bytes(&stored)
                     .ok()
-                    .and_then(|signed| signed.verify_with(&job.public, PRIVATE_SNAPSHOT_DOMAIN).ok())
+                    .and_then(|signed| {
+                        signed
+                            .verify_with(&job.public, PRIVATE_SNAPSHOT_DOMAIN)
+                            .ok()
+                    })
                     .is_some()
         }
     };
@@ -80,12 +89,16 @@ pub fn check(
                 report.packs_checked += 1;
                 if format::sha256(&bytes) != raw {
                     report.damaged_packs.push(id.clone());
-                    report.problem.get_or_insert_with(|| PACK_PROBLEM.to_string());
+                    report
+                        .problem
+                        .get_or_insert_with(|| PACK_PROBLEM.to_string());
                 }
             }
             Err(StoreError::NotFound) => {
                 report.missing_packs.push(id.clone());
-                report.problem.get_or_insert_with(|| PACK_PROBLEM.to_string());
+                report
+                    .problem
+                    .get_or_insert_with(|| PACK_PROBLEM.to_string());
             }
             Err(e) => return Err(anyhow!("{e}")),
         }
@@ -129,7 +142,8 @@ fn read_job(db: &crate::Db, protection_id: &str) -> Result<Option<Job>> {
         .try_into()
         .map_err(|_| anyhow!("Luna's cloud identity is damaged."))?;
 
-    let mut stmt = conn.prepare("SELECT pack_id FROM cloud_snapshot_packs WHERE snapshot_id = ?1")?;
+    let mut stmt =
+        conn.prepare("SELECT pack_id FROM cloud_snapshot_packs WHERE snapshot_id = ?1")?;
     let pack_ids = stmt
         .query_map([&snap.id], |r| r.get::<_, String>(0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -272,7 +286,12 @@ mod tests {
     }
 
     impl CloudStore for CorruptStore {
-        fn put_pack(&self, id: &[u8; 32], scope: Option<&str>, bytes: &[u8]) -> Result<(), StoreError> {
+        fn put_pack(
+            &self,
+            id: &[u8; 32],
+            scope: Option<&str>,
+            bytes: &[u8],
+        ) -> Result<(), StoreError> {
             self.inner.put_pack(id, scope, bytes)
         }
         fn get_pack(&self, id: &[u8; 32]) -> Result<Vec<u8>, StoreError> {
@@ -328,7 +347,9 @@ mod tests {
         let snapshot_id = backup(&db, &src, &store);
 
         let name = record_name(&db, &snapshot_id);
-        store.put_record(PSNAPSHOTS_KIND, &name, b"changed").unwrap();
+        store
+            .put_record(PSNAPSHOTS_KIND, &name, b"changed")
+            .unwrap();
 
         let report = check(&db, "p1", &store, Sample::All, 200).unwrap();
         assert_eq!(report.problem.as_deref(), Some(SNAPSHOT_PROBLEM));
