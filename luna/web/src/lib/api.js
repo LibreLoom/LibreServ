@@ -6,7 +6,7 @@
 // ("This page expired.") — or, with the Vite proxy rewriting Host, the
 // Origin guard returns "Luna blocked this request because it came from another website."
 
-
+import { withDevMockAdopted } from "./devMockDrives.js";
 
 function readCookie(name) {
   if (typeof document === "undefined") return "";
@@ -355,8 +355,8 @@ async function request(path, options = {}) {
   }
 }
 
-export function getDrives() {
-  return getJson("/api/v1/drives");
+export async function getDrives() {
+  return withDevMockAdopted(await getJson("/api/v1/drives"));
 }
 
 export function getRecents() {
