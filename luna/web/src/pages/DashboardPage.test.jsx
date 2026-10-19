@@ -1,618 +1,660 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router-dom";
-import { AuthProvider } from "../context/AuthContext";
 import { dashboard as greetingMessages } from "../lib/greetings.jsx";
-import DashboardPage from "./DashboardPage";
-import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
-import { readRecentItems } from "../lib/recentItems.js";
+import {
+  backupRow,
+  jsonResponse,
+  renderDashboard,
+  stubDashboardFetch,
+} from "../test/dashboardHarness.jsx";
 
-function jsonResponse(body, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json" },
+vi.mock("../components/files/ProtectSheet.jsx", () => ({
+  default: ({ driveId, path }) => <div data-testid="protect-sheet">{`${driveId}:${path}`}</div>,
+}));
+
+vi.mock("../components/cloud/RecoveryPhraseCheck.jsx", () => ({
+  default: ({ lunaId, onClose }) => (
+    <div data-testid="phrase-check">
+      <span>{lunaId}</span>
+      <button onClick={onClose}>Close check</button>
+    </div>
+  ),
+}));
+
+const PHOTOS_DRIVE = { id: "d1", label: "Photos Drive", state: "as_is", device: "sda1", fs_type: "exfat" };
+
+const SANDISK = { name: "sdb", model: "SanDisk", size_bytes: 32_000_000_000, usb: true, fs_type: "exfat" };
+
+/** A whole-drive share: the Member can browse the drive root. */
+const ROOT_GRANT = {
+  id: "g-root",
+  kind: "path",
+  drive_id: "d1",
+  drive_label: "Photos Drive",
+  path: "",
+  name: "Photos Drive",
+  caps: "view",
+};
+
+/** A folder share below the root: the Member cannot browse the root. */
+const WORK_GRANT = {
+  id: "g-work",
+  kind: "path",
+  drive_id: "d1",
+  drive_label: "Photos Drive",
+  path: "Work",
+  name: "Work",
+  caps: "view",
+};
+
+/** A single shared file. */
+const FILE_GRANT = {
+  id: "g-file",
+  kind: "path",
+  drive_id: "d1",
+  drive_label: "Photos Drive",
+  path: "docs/report.pdf",
+  name: "report.pdf",
+  is_file: true,
+  caps: "view",
+};
+
+const WARNING_CHECKS = {
+  overall_pass: true,
+  checks: {
+    clock_sync: {
+      status: "warning",
+      message: "Clock is a few minutes off.",
+      category: "system",
+      details: {},
+    },
+  },
+};
+
+const FAILED_CHECKS = {
+  overall_pass: false,
+  checks: {
+    clock_sync: {
+      status: "failed",
+      message: "Clock could not be read.",
+      category: "system",
+      details: {},
+    },
+  },
+};
+
+/** Requests every Admin view of the dashboard makes before it is settled. */
+const ADMIN_REQUESTS = [
+  "/api/v1/me/recents",
+  "/api/v1/drives/detected",
+  "/api/v1/system/health/check",
+  "/api/v1/backups",
+  "/api/v1/cloud/backups",
+];
+
+/** Requests every Member view of the dashboard makes before it is settled. */
+const MEMBER_REQUESTS = [
+  "/api/v1/me/recents",
+  "/api/v1/me/access",
+  "/api/v1/backups",
+  "/api/v1/cloud/backups",
+];
+
+/** @param {unknown} url */
+function pathOf(url) {
+  return new URL(String(url), "http://localhost").pathname;
+}
+
+/** @param {import("vitest").Mock} fetchMock */
+function requestedPaths(fetchMock) {
+  return fetchMock.mock.calls.map(([url]) => pathOf(url));
+}
+
+/**
+ * Waits until the page has asked for each path, then lets those answers render. Keeps the
+ * negative checks below from passing before the data has arrived.
+ *
+ * @param {import("vitest").Mock} fetchMock
+ * @param {string[]} paths
+ */
+async function waitForRequests(fetchMock, paths) {
+  await waitFor(() => {
+    const asked = requestedPaths(fetchMock);
+    for (const path of paths) expect(asked).toContain(path);
+  });
+  await act(async () => {
+    for (let i = 0; i < 3; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
   });
 }
 
 /**
- * @param {object} [opts]
- * @param {string} [opts.username]
- * @param {string} [opts.role]
- * @param {number} [opts.uptime]
- * @param {any} [opts.drives]
- * @param {any} [opts.detected]
- * @param {any} [opts.network]
- * @param {any} [opts.connect]
- * @param {boolean} [opts.connectActive]
- * @param {any} [opts.jobs]
- * @param {any} [opts.access]
- * @param {any} [opts.albums]
- * @param {any} [opts.recents]
- * @param {Record<string, any>} [opts.summaries]
+ * Stubs the dashboard endpoints, then answers Software updates as available. Used to prove the
+ * Member header never shows the update pill.
+ *
+ * @param {Record<string, any>} opts
+ * @returns {import("vitest").Mock}
  */
-function stubFetch({
-  username = "max",
-  role = "admin",
-  uptime = 7200,
-  drives = [{ id: "d1", label: "Family photos", state: "as_is", device: "sda1", fs_type: "exfat" }],
-  detected = [],
-  network = { ethernet_connected: true, wifi_connected: false, has_default_route: true },
-  /** @type {any} */
-  connect = { enabled: true, tunnel_active: true, domain: "luna.example" },
-  connectActive = false,
-  jobs = [],
-  access = [],
-  albums = [],
-  recents = undefined,
-  summaries = {
-    d1: {
-      id: "d1",
-      mounted: true,
-      total_bytes: 64_000_000_000,
-      free_bytes: 12_000_000_000,
-      used_bytes: 52_000_000_000,
-      folders: 3,
-      files: 12,
-      shortcuts: ["Photos", "Documents"],
-    },
-  },
-} = {}) {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (url) => {
-      const u = String(url);
-      if (u.endsWith("/api/v1/me/recents")) {
-        if (recents !== undefined) return jsonResponse(recents);
-        return jsonResponse(readRecentItems(username));
-      }
-      if (u.endsWith("/api/v1/auth/me")) {
-        return jsonResponse({ id: "1", username, role });
-      }
-      if (u.endsWith("/api/v1/auth/status")) {
-        return jsonResponse({ has_admin: role === "admin", connect_active: connectActive });
-      }
-      if (u.endsWith("/api/v1/setup")) {
-        return jsonResponse({ name: "Luna", setup_completed: true });
-      }
-      if (u.endsWith("/api/v1/health")) {
-        return jsonResponse({ status: "ok", uptime_seconds: uptime });
-      }
-      if (u.endsWith("/api/v1/drives/detected")) return jsonResponse(detected);
-      if (u.endsWith("/api/v1/drives")) return jsonResponse(drives);
-      const summaryMatch = u.match(/\/api\/v1\/drives\/([^/]+)\/summary$/);
-      if (summaryMatch) {
-        const id = summaryMatch[1];
-        if (summaries[id]) return jsonResponse(summaries[id]);
-        return jsonResponse({
-          id,
-          mounted: false,
-          total_bytes: null,
-          free_bytes: null,
-          used_bytes: null,
-          folders: null,
-          files: null,
-          shortcuts: [],
-        });
-      }
-      if (u.includes("/api/v1/network/status")) {
-        if (network === 403) return jsonResponse({ error: "nope" }, 403);
-        return jsonResponse(network);
-      }
-      if (u.includes("/api/v1/connect/status")) {
-        if (connect === 403) return jsonResponse({ error: "nope" }, 403);
-        return jsonResponse(connect);
-      }
-      if (u.includes("/api/v1/jobs")) return jsonResponse(jobs);
-      if (u.endsWith("/api/v1/me/access")) return jsonResponse(access);
-      if (u.includes("/api/v1/gallery/albums")) return jsonResponse(albums);
-      const inspectMatch = u.match(/\/api\/v1\/drives\/([^/]+)\/inspect$/);
-      if (inspectMatch) {
-        return jsonResponse({
-          device: inspectMatch[1],
-          model: "SanDisk",
-          fs_type: "exfat",
-          readable: true,
-          writable: true,
-          needs_erase: false,
-          has_marker: false,
-          folders: 1,
-          files: 2,
-          entries: [
-            { kind: "folder", name: "Photos" },
-            { kind: "file", name: "readme.txt" },
-          ],
-        });
-      }
-      return jsonResponse({}, 404);
-    }),
-  );
+function stubWithUpdateAvailable(opts) {
+  const base = stubDashboardFetch(opts);
+  const fetchMock = vi.fn(async (/** @type {any} */ url, /** @type {any} */ init) => {
+    if (pathOf(url) === "/api/v1/system/updates") {
+      return jsonResponse({ update_available: true, latest_version: "0.5.0" });
+    }
+    return base(url, init);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
 }
 
-function renderPage() {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  });
-  return render(
-    <ToastProvider>
-    <MemoryRouter>
-      <QueryClientProvider client={client}>
-        <AuthProvider>
-          <DashboardPage />
-        </AuthProvider>
-      </QueryClientProvider>
-    </MemoryRouter>
-    </ToastProvider>,
+/** The Recents card, found by its heading. */
+function recentsCard() {
+  return /** @type {HTMLElement} */ (
+    screen.getByRole("heading", { name: "Recents" }).closest("[data-slot=card]")
   );
 }
 
 describe("DashboardPage", () => {
   beforeEach(() => {
+    vi.unstubAllGlobals();
     window.localStorage.clear();
   });
 
-  it("greets the signed-in user and shows uptime and drives", async () => {
-    stubFetch({ connectActive: true });
-    renderPage();
-    const heading = await screen.findByRole("heading", { name: /max/i });
-    expect(heading).toBeInTheDocument();
-    const greetingBit = heading.textContent.replace(/,?\s*max\s*$/i, "").trim();
-    const known = greetingMessages.some((g) => g.replace(/,\s*$/, "").trim() === greetingBit)
-      || /Happy|Merry/.test(greetingBit);
-    expect(known).toBe(true);
-    expect(await screen.findByText(/2 hours/i)).toBeInTheDocument();
-    expect(screen.getByText("Family photos")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Browse files/i })).toHaveAttribute("href", "/drives/d1");
-    expect(screen.getByText(/On this network/i)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Remote access on/i })).toHaveAttribute(
-      "href",
-      "/settings#external_services",
-    );
-    expect(screen.getByRole("link", { name: /Remote access on/i }).textContent).toContain(
-      "luna.example",
-    );
-    expect(screen.queryByText(/What to do next/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/No subscription/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Anywhere, free/i)).not.toBeInTheDocument();
-  });
-
-  it("helps Admins when there are no drives yet", async () => {
-    stubFetch({ drives: [] });
-    renderPage();
-    expect(await screen.findByText(/No drives yet/i)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Go to Drives/i })).toHaveAttribute("href", "/drives");
-    expect(screen.queryByText(/No subscription/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/free forever/i)).not.toBeInTheDocument();
-  });
-
-  it("tells Members to ask an Admin when nothing is shared yet", async () => {
-    stubFetch({ username: "jamie", role: "user", drives: [], access: [], albums: [] });
-    renderPage();
-    expect(await screen.findByText(/Nothing shared with you yet/i)).toBeInTheDocument();
-    expect(
-      screen.getByText(/Ask an Admin to share a folder, drive, or album with you/i),
-    ).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /Go to Drives/i })).not.toBeInTheDocument();
-    expect(screen.queryByText(/Plug a USB drive/i)).not.toBeInTheDocument();
-  });
-
-  it("shows shared albums for Members with no folder grants", async () => {
-    stubFetch({
-      username: "jamie",
-      role: "user",
-      drives: [],
-      access: [
-        {
-          id: "m1",
-          kind: "album",
-          drive_id: "d1",
-          drive_label: "Photos Drive",
-          album_id: "al1",
-          name: "Beach day",
-          caps: "view",
-        },
-      ],
+  describe("header and greeting", () => {
+    it("greets the signed-in user and shows the drive card without uptime or network text", async () => {
+      stubDashboardFetch();
+      renderDashboard();
+      const heading = await screen.findByRole("heading", { name: /max/i });
+      const greetingBit = heading.textContent.replace(/,?\s*max\s*$/i, "").trim();
+      const known = greetingMessages.some((g) => g.replace(/,\s*$/, "").trim() === greetingBit)
+        || /Happy|Merry/.test(greetingBit);
+      expect(known).toBe(true);
+      expect(await screen.findByText("Family photos")).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Browse files" })).toHaveAttribute("href", "/drives/d1");
+      expect(document.body).not.toHaveTextContent(/uptime|on this network|remote access/i);
+      expect(document.body).not.toHaveTextContent(/What to do next|No subscription|Anywhere, free/i);
     });
-    renderPage();
-    expect(await screen.findByText(/Albums shared with you/i)).toBeInTheDocument();
-    expect(screen.getByText("Beach day")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /^View album$/i })).toHaveAttribute(
-      "href",
-      "/gallery#albums/d1/al1",
-    );
-    expect(screen.queryByText(/Nothing shared with you yet/i)).not.toBeInTheDocument();
-  });
 
-  it("opens a shared file at the file and links to all shared items", async () => {
-    stubFetch({
-      username: "jamie",
-      role: "user",
-      drives: [],
-      access: [
-        {
-          id: "m2",
-          kind: "path",
-          drive_id: "d1",
-          drive_label: "Photos Drive",
-          path: "docs/report.pdf",
-          name: "report.pdf",
-          is_file: true,
-          caps: "view",
-        },
-      ],
+    it("shows a warning pill to Admins when a system check warns", async () => {
+      stubDashboardFetch({ systemChecks: WARNING_CHECKS });
+      renderDashboard();
+      expect(await screen.findByRole("button", { name: /^1 warning\./ })).toBeInTheDocument();
+      expect(screen.queryByText(/Everything looks good/i)).not.toBeInTheDocument();
     });
-    renderPage();
-    expect(await screen.findByText("Shared with you")).toBeInTheDocument();
-    expect(screen.getByText("report.pdf")).toBeInTheDocument();
-    const open = screen.getAllByRole("link", { name: /^Open$/i })
-      .find((a) => a.closest("li")?.textContent?.includes("report.pdf"));
-    expect(open).toHaveAttribute("href", "/drives/d1?path=docs%2Freport.pdf");
-    expect(screen.getByRole("link", { name: /See all shared items/i }))
-      .toHaveAttribute("href", "/shared");
-  });
 
-  it("deep-links a member's drive card to their grant when the root isn't browsable", async () => {
-    stubFetch({
-      username: "jamie",
-      role: "user",
-      drives: [{ id: "d1", label: "Photos Drive", state: "as_is", device: "sda1", fs_type: "exfat" }],
-      access: [
-        {
-          id: "m3",
-          kind: "path",
-          drive_id: "d1",
-          drive_label: "Photos Drive",
-          path: "docs/drop",
-          name: "drop",
-          caps: "upload",
-        },
-      ],
-      summaries: {
-        d1: {
-          id: "d1",
-          mounted: true,
-          total_bytes: 64_000_000_000,
-          free_bytes: 12_000_000_000,
-          used_bytes: 52_000_000_000,
-          folders: 0,
-          files: 0,
-          shortcuts: [],
-        },
-      },
+    it("shows no warning pill when the only system problem is a failed check", async () => {
+      const fetchMock = stubDashboardFetch({ systemChecks: FAILED_CHECKS });
+      renderDashboard();
+      await screen.findByText("Family photos");
+      await waitForRequests(fetchMock, ADMIN_REQUESTS);
+      expect(screen.queryByRole("button", { name: /warning/i })).not.toBeInTheDocument();
+      expect(screen.queryByText(/\d+ warnings?/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Everything looks good/i)).not.toBeInTheDocument();
     });
-    renderPage();
-    // The drive root would 403 for this member — the card's open button
-    // lands on their drop folder instead.
-    const open = await screen.findAllByRole("link", { name: /Browse files|Open/i });
-    expect(open.some((a) =>
-      a.getAttribute("href") === "/drives/d1?path=docs%2Fdrop")).toBe(true);
-    expect(open.every((a) => a.getAttribute("href") !== "/drives/d1")).toBe(true);
-  });
 
-  it("flags a newly plugged-in USB for admins", async () => {
-    stubFetch({
-      drives: [],
-      detected: [{ name: "sdb", model: "SanDisk", size_bytes: 32_000_000_000 }],
+    it("shows Members no header pills, even when the system check would warn", async () => {
+      const fetchMock = stubWithUpdateAvailable({
+        username: "jamie",
+        role: "user",
+        userId: "u2",
+        drives: [PHOTOS_DRIVE],
+        access: [ROOT_GRANT],
+        systemChecks: WARNING_CHECKS,
+      });
+      renderDashboard();
+      await screen.findByRole("link", { name: "Browse files" });
+      await waitForRequests(fetchMock, MEMBER_REQUESTS);
+      expect(screen.queryByRole("button", { name: /warning/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /Software update/i })).not.toBeInTheDocument();
+      expect(document.querySelector("[data-slot=system-health-pill]")).toBeNull();
+      expect(document.querySelector("[data-slot=software-update-pill]")).toBeNull();
+      expect(requestedPaths(fetchMock)).not.toContain("/api/v1/system/health/check");
+      expect(requestedPaths(fetchMock)).not.toContain("/api/v1/system/updates");
     });
-    renderPage();
-    expect(await screen.findByText(/New drive plugged in/i)).toBeInTheDocument();
-    // "Add drive" must be a button (opens modal) — not a navigation link.
-    const addBtn = screen.getByRole("button", { name: /^Add drive$/i });
-    expect(addBtn).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /^Add drive$/i })).not.toBeInTheDocument();
-    expect(screen.getByText(/Nothing on the drive changes until you confirm/i)).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /Look inside/i })).not.toBeInTheDocument();
-  });
 
-  it("opens a drive-picker modal when 'Add drive' is clicked", async () => {
-    const user = userEvent.setup();
-    stubFetch({
-      drives: [],
-      detected: [{ name: "sdb", model: "SanDisk", size_bytes: 32_000_000_000, usb: true, fs_type: "exfat" }],
+    it("titles the drive column Drives above the cards for Admins", async () => {
+      stubDashboardFetch();
+      renderDashboard();
+      const heading = await screen.findByRole("heading", { name: "Drives" });
+      const card = await screen.findByRole("heading", { name: "Family photos" });
+      expect(heading.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(screen.queryByRole("heading", { name: "Your folders" })).not.toBeInTheDocument();
     });
-    renderPage();
-    const addBtn = await screen.findByRole("button", { name: /^Add drive$/i });
-    await user.click(addBtn);
-    // Modal should open listing the drive
-    expect(await screen.findByText(/New drive detected/i)).toBeInTheDocument();
-    expect(screen.getByText("SanDisk")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Cancel$/i })).toBeInTheDocument();
-  });
 
-  it("opens the inspect wizard when a listed drive is selected", async () => {
-    const user = userEvent.setup();
-    stubFetch({
-      drives: [],
-      detected: [{ name: "sdb", model: "SanDisk", size_bytes: 32_000_000_000, usb: true, fs_type: "exfat" }],
+    it("titles the drive column Your folders for Members and has no Shared with you card", async () => {
+      stubDashboardFetch({
+        username: "jamie",
+        role: "user",
+        userId: "u2",
+        drives: [PHOTOS_DRIVE],
+        access: [FILE_GRANT],
+      });
+      renderDashboard();
+      expect(await screen.findByRole("heading", { name: "Your folders" })).toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "Drives" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "Shared with you" })).not.toBeInTheDocument();
+      expect(screen.queryByText("Shared with you")).not.toBeInTheDocument();
     });
-    renderPage();
-    await user.click(await screen.findByRole("button", { name: /^Add drive$/i }));
-    expect(await screen.findByText(/New drive detected/i)).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: /SanDisk/i }));
-    // Picker unmounts; shared InspectModal opens for setup.
-    expect(screen.queryByText(/New drive detected/i)).not.toBeInTheDocument();
-    expect(await screen.findByText(/Add SanDisk/i)).toBeInTheDocument();
-    expect(await screen.findByText(/Photos/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Add this drive$/i })).toBeInTheDocument();
   });
 
-  it("loads network status for a household member, not only an admin", async () => {
-    stubFetch({ username: "sam", role: "user", connect: 403 });
-    renderPage();
-    expect(await screen.findByText(/On this network/i)).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /Remote access/i })).not.toBeInTheDocument();
-    expect(screen.queryByText(/What to do next/i)).not.toBeInTheDocument();
-  });
+  describe("drive cards", () => {
+    it("shows free space, used space, a usage bar and folder shortcuts with no root counts", async () => {
+      stubDashboardFetch();
+      renderDashboard();
+      expect(await screen.findByText("30 GB free")).toBeInTheDocument();
+      expect(screen.getByText(/34 GB used/)).toBeInTheDocument();
+      expect(screen.getByRole("progressbar", { name: "53% used" })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Photos" })).toHaveAttribute("href", "/drives/d1?path=Photos");
+      expect(screen.getByRole("link", { name: "Documents" })).toHaveAttribute(
+        "href",
+        "/drives/d1?path=Documents",
+      );
+      expect(screen.getByRole("link", { name: "Browse files" })).toHaveAttribute("href", "/drives/d1");
+      expect(screen.queryByText(/\d+ folders?/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/at the/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /^root$/i })).not.toBeInTheDocument();
+    });
 
-  it("shows remote access as a single link when it is off", async () => {
-    stubFetch({ connectActive: true, connect: { enabled: false, tunnel_active: false } });
-    renderPage();
-    expect(await screen.findByRole("link", { name: /Remote access off/i })).toHaveAttribute(
-      "href",
-      "/settings#external_services",
-    );
-    expect(screen.queryByRole("link", { name: /^Remote access$/i })).not.toBeInTheDocument();
-    const wrap = document.querySelector("[data-slot=remote-access-link]");
-    expect(wrap).toHaveAttribute("data-stacked", "false");
-    expect(document.querySelector("[data-slot=remote-access-probe]")).toBeNull();
-  });
-
-  it("hides remote access when Luna Connect is inactive on the device", async () => {
-    stubFetch({ connectActive: false });
-    renderPage();
-    expect(await screen.findByText(/On this network/i)).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /Remote access/i })).not.toBeInTheDocument();
-  });
-
-  describe("remote access fit-or-stack", () => {
-    /** @type {ResizeObserverCallback[]} */
-    let observers = [];
-    /** @type {{ clientWidth: number }} */
-    let remoteContainer;
-    /** @type {{ scrollWidth: number }} */
-    let remoteProbe;
-
-    beforeEach(() => {
-      observers = [];
-      remoteContainer = { clientWidth: 900 };
-      remoteProbe = { scrollWidth: 200 };
-
-      Object.defineProperty(HTMLElement.prototype, "clientWidth", {
-        configurable: true,
-        get() {
-          if (this.getAttribute?.("data-slot") === "remote-access-link") {
-            return remoteContainer.clientWidth;
-          }
-          return 1200;
+    it("keeps the root counts off the drive card even when the summary reports them", async () => {
+      stubDashboardFetch({
+        summaries: {
+          d1: {
+            id: "d1",
+            mounted: true,
+            total_bytes: 64_000_000_000,
+            free_bytes: 30_000_000_000,
+            used_bytes: 34_000_000_000,
+            folders: 3,
+            files: 12,
+            shortcuts: ["Photos"],
+          },
         },
       });
-      Object.defineProperty(HTMLElement.prototype, "scrollWidth", {
-        configurable: true,
-        get() {
-          // Inner w-max row of the clipped remote-access probe.
-          if (this.parentElement?.getAttribute?.("data-slot") === "remote-access-probe") {
-            return remoteProbe.scrollWidth;
-          }
-          return 200;
+      renderDashboard();
+      expect(await screen.findByText("30 GB free")).toBeInTheDocument();
+      expect(screen.queryByText(/\d+ folders?/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/12 files/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/at the/i)).not.toBeInTheDocument();
+    });
+
+    it("leaves the storage block out when the drive reports no space", async () => {
+      stubDashboardFetch({
+        summaries: {
+          d1: {
+            id: "d1",
+            mounted: false,
+            total_bytes: null,
+            free_bytes: null,
+            used_bytes: null,
+            shortcuts: ["Photos"],
+          },
         },
       });
-
-      globalThis.ResizeObserver = class {
-        /** @param {ResizeObserverCallback} cb */
-        constructor(cb) {
-          observers.push(cb);
-        }
-        observe() {}
-        disconnect() {}
-        unobserve() {}
-      };
+      renderDashboard();
+      expect(await screen.findByRole("link", { name: "Photos" })).toHaveAttribute(
+        "href",
+        "/drives/d1?path=Photos",
+      );
+      expect(screen.getByRole("link", { name: "Browse files" })).toHaveAttribute("href", "/drives/d1");
+      expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+      expect(screen.queryByText(/\bfree\b/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Checking space/i)).not.toBeInTheDocument();
     });
 
-    afterEach(() => {
-      vi.useRealTimers();
-      // @ts-expect-error cleanup test polyfill
-      delete HTMLElement.prototype.clientWidth;
-      // @ts-expect-error cleanup test polyfill
-      delete HTMLElement.prototype.scrollWidth;
+    it("shows the Unplugged copy for a missing drive, with no storage and no Needs you row", async () => {
+      const fetchMock = stubDashboardFetch({
+        drives: [{ id: "d2", label: "Travel stick", state: "missing" }],
+        summaries: {},
+      });
+      renderDashboard();
+      expect(await screen.findByText("Travel stick")).toBeInTheDocument();
+      expect(
+        await screen.findByText(/Unplugged\. Plug it back in when you want its files and space here\./),
+      ).toBeInTheDocument();
+      await waitForRequests(fetchMock, ADMIN_REQUESTS);
+      expect(screen.queryByRole("link", { name: /Open Drives/i })).not.toBeInTheDocument();
+      expect(screen.queryByText(/\bGB\b/)).not.toBeInTheDocument();
+      expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+      expect(screen.queryByRole("region", { name: "Needs you" })).not.toBeInTheDocument();
     });
 
-    it("keeps a single-line pill when status and hostname fit", async () => {
-      remoteContainer = { clientWidth: 900 };
-      remoteProbe = { scrollWidth: 200 };
-      stubFetch({
-        connectActive: true,
-        connect: {
-          enabled: true,
-          tunnel_active: true,
-          domain: "max.luna.servers.libreloom.org",
+    it("shows a Member's drive card with shortcuts and a See all shared items link", async () => {
+      stubDashboardFetch({
+        username: "jamie",
+        role: "user",
+        userId: "u2",
+        drives: [PHOTOS_DRIVE],
+        access: [WORK_GRANT],
+        summaries: {
+          d1: {
+            id: "d1",
+            mounted: true,
+            total_bytes: 64_000_000_000,
+            free_bytes: 30_000_000_000,
+            used_bytes: 34_000_000_000,
+            shortcuts: ["Family photos", "Sam"],
+          },
         },
       });
-      const { container } = renderPage();
-      expect(await screen.findByRole("link", { name: /Remote access on/i })).toBeInTheDocument();
+      renderDashboard();
+      expect(await screen.findByRole("link", { name: "Family photos" })).toHaveAttribute(
+        "href",
+        "/drives/d1?path=Family%20photos",
+      );
+      expect(screen.getByRole("link", { name: "Sam" })).toHaveAttribute("href", "/drives/d1?path=Sam");
+      expect(screen.getByRole("link", { name: "See all shared items" })).toHaveAttribute("href", "/shared");
+    });
 
-      vi.useFakeTimers();
-      await act(async () => {
-        vi.advanceTimersByTime(60);
-        observers.forEach((cb) => cb([], /** @type {ResizeObserver} */ ({})));
+    it("opens a Member's drive at their deep-linked folder when the drive root is not browsable", async () => {
+      stubDashboardFetch({
+        username: "jamie",
+        role: "user",
+        userId: "u2",
+        drives: [PHOTOS_DRIVE],
+        access: [
+          {
+            id: "m3",
+            kind: "path",
+            drive_id: "d1",
+            drive_label: "Photos Drive",
+            path: "docs/drop",
+            name: "drop",
+            caps: "upload",
+          },
+        ],
+        summaries: {
+          d1: {
+            id: "d1",
+            mounted: true,
+            total_bytes: 64_000_000_000,
+            free_bytes: 30_000_000_000,
+            used_bytes: 34_000_000_000,
+            shortcuts: [],
+          },
+        },
       });
+      renderDashboard();
+      expect(await screen.findByRole("link", { name: "Browse files" })).toHaveAttribute(
+        "href",
+        "/drives/d1?path=docs%2Fdrop",
+      );
+      expect(document.querySelector('a[href="/drives/d1"]')).toBeNull();
+    });
+  });
 
-      const wrap = container.querySelector("[data-slot=remote-access-link]");
-      expect(wrap).toHaveAttribute("data-stacked", "false");
-      const link = screen.getByRole("link", { name: /Remote access on/i });
-      expect(link.className).toMatch(/rounded-pill/);
-      expect(link.className).not.toMatch(/rounded-large-element/);
-      expect(link.className).toMatch(/hover:ring-inset/);
-      expect(link.querySelector(".flex-col")).toBeNull();
-      // Visible link + aria-hidden measure probe both render the hostname.
-      expect(screen.getAllByText("max.luna.servers.libreloom.org").length).toBeGreaterThanOrEqual(1);
+  describe("Needs you", () => {
+    it("shows no Needs you zone for a healthy Admin", async () => {
+      const fetchMock = stubDashboardFetch();
+      renderDashboard();
+      await screen.findByRole("link", { name: "Browse files" });
+      await waitForRequests(fetchMock, ADMIN_REQUESTS);
+      expect(screen.queryByRole("region", { name: "Needs you" })).not.toBeInTheDocument();
+      expect(screen.queryByText(/Everything looks good/i)).not.toBeInTheDocument();
     });
 
-    it("stacks into a multilined card when hostname cannot fit beside the status", async () => {
-      remoteContainer = { clientWidth: 280 };
-      remoteProbe = { scrollWidth: 520 };
-      stubFetch({
-        connectActive: true,
-        connect: {
-          enabled: true,
-          tunnel_active: true,
-          domain: "max.luna.servers.libreloom.org",
-        },
+    it("shows no Needs you zone for a Member with a healthy world", async () => {
+      const fetchMock = stubDashboardFetch({
+        username: "jamie",
+        role: "user",
+        userId: "u2",
+        drives: [PHOTOS_DRIVE],
+        access: [ROOT_GRANT],
       });
-      const { container } = renderPage();
-      expect(await screen.findByRole("link", { name: /Remote access on/i })).toBeInTheDocument();
+      renderDashboard();
+      await screen.findByRole("link", { name: "Browse files" });
+      await waitForRequests(fetchMock, MEMBER_REQUESTS);
+      expect(screen.queryByRole("region", { name: "Needs you" })).not.toBeInTheDocument();
+    });
 
-      vi.useFakeTimers();
-      await act(async () => {
-        vi.advanceTimersByTime(60);
-        observers.forEach((cb) => cb([], /** @type {ResizeObserver} */ ({})));
+    it("explains the first run with No drives yet and no button when Admin has no drives", async () => {
+      stubDashboardFetch({ drives: [] });
+      renderDashboard();
+      const region = await screen.findByRole("region", { name: "Needs you" });
+      expect(within(region).getByText("No drives yet")).toBeInTheDocument();
+      expect(within(region).getByText("Plug a USB drive into Luna to get started.")).toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /Go to Drives/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "Drives" })).not.toBeInTheDocument();
+    });
+
+    it("flags a newly plugged-in USB drive with an Add drive button, not a link", async () => {
+      stubDashboardFetch({ drives: [], detected: [SANDISK] });
+      renderDashboard();
+      const region = await screen.findByRole("region", { name: "Needs you" });
+      expect(await within(region).findByText("New drive plugged in")).toBeInTheDocument();
+      expect(within(region).getByText("Nothing on it changes until you confirm.")).toBeInTheDocument();
+      expect(within(region).getByRole("button", { name: /^Add drive$/ })).toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /^Add drive$/ })).not.toBeInTheDocument();
+    });
+
+    it("opens the New drive detected picker listing the drive, with a Cancel button", async () => {
+      const user = userEvent.setup();
+      stubDashboardFetch({ drives: [], detected: [SANDISK] });
+      renderDashboard();
+      await user.click(await screen.findByRole("button", { name: /^Add drive$/ }));
+      const dialog = await screen.findByRole("dialog", { name: /New drive detected/i });
+      expect(within(dialog).getByRole("button", { name: /SanDisk/ })).toBeInTheDocument();
+      expect(within(dialog).getByRole("button", { name: /^Cancel$/ })).toBeInTheDocument();
+    });
+
+    it("closes the picker with Cancel", async () => {
+      const user = userEvent.setup();
+      stubDashboardFetch({ drives: [], detected: [SANDISK] });
+      renderDashboard();
+      await user.click(await screen.findByRole("button", { name: /^Add drive$/ }));
+      const dialog = await screen.findByRole("dialog", { name: /New drive detected/i });
+      await user.click(within(dialog).getByRole("button", { name: /^Cancel$/ }));
+      await waitFor(() =>
+        expect(screen.queryByRole("dialog", { name: /New drive detected/i })).not.toBeInTheDocument(),
+      );
+    });
+
+    it("opens the inspect wizard when the listed drive is picked", async () => {
+      const user = userEvent.setup();
+      stubDashboardFetch({ drives: [], detected: [SANDISK] });
+      renderDashboard();
+      await user.click(await screen.findByRole("button", { name: /^Add drive$/ }));
+      const dialog = await screen.findByRole("dialog", { name: /New drive detected/i });
+      await user.click(within(dialog).getByRole("button", { name: /SanDisk/ }));
+      await waitFor(() =>
+        expect(screen.queryByRole("dialog", { name: /New drive detected/i })).not.toBeInTheDocument(),
+      );
+      expect(await screen.findByText(/Add SanDisk/i)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^Add this drive$/ })).toBeInTheDocument();
+    });
+  });
+
+  describe("Members", () => {
+    it("tells Members to ask an Admin when nothing is shared yet", async () => {
+      stubDashboardFetch({ username: "jamie", role: "user", userId: "u2", drives: [], access: [] });
+      renderDashboard();
+      expect(await screen.findByText("Nothing shared with you yet")).toBeInTheDocument();
+      expect(
+        screen.getByText("Ask an Admin to share a folder, drive, or album with you."),
+      ).toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /Go to Drives/i })).not.toBeInTheDocument();
+      expect(screen.queryByText(/Plug a USB drive/i)).not.toBeInTheDocument();
+    });
+
+    it("shows albums shared with a Member and no nothing-shared message", async () => {
+      stubDashboardFetch({
+        username: "jamie",
+        role: "user",
+        userId: "u2",
+        drives: [],
+        access: [
+          {
+            id: "m1",
+            kind: "album",
+            drive_id: "d1",
+            drive_label: "Photos Drive",
+            album_id: "al1",
+            name: "Beach day",
+            caps: "view",
+          },
+        ],
       });
+      renderDashboard();
+      expect(await screen.findByText(/Albums shared with you/i)).toBeInTheDocument();
+      expect(screen.getByText("Beach day")).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /^View album$/i })).toHaveAttribute(
+        "href",
+        "/gallery#albums/d1/al1",
+      );
+      expect(screen.queryByText(/Nothing shared with you yet/i)).not.toBeInTheDocument();
+    });
 
-      const wrap = container.querySelector("[data-slot=remote-access-link]");
-      expect(wrap).toHaveAttribute("data-stacked", "true");
-      // Wrapper must stay overflow-visible so hover:ring is not axis-coupled clipped.
-      expect(wrap?.className).not.toMatch(/overflow-x-hidden|overflow-hidden/);
-      const link = screen.getByRole("link", { name: /Remote access on/i });
-      // Must be a card radius — rounded-pill must not remain (twMerge conflict bug).
-      expect(link.className).toMatch(/rounded-large-element/);
-      expect(link.className).not.toMatch(/rounded-pill/);
-      expect(link.className).toMatch(/items-stretch/);
-      expect(link.className).toMatch(/hover:ring-inset/);
-      // Label and domain are in a column (not a cramped single-line pill).
-      expect(link.querySelector(".flex-col")).toBeTruthy();
-      const host = link.querySelector(".font-mono");
-      expect(host?.className).toMatch(/break-words/);
-      expect(host?.className).not.toMatch(/break-all/);
-      expect(link.textContent).toContain("max.luna.servers.libreloom.org");
-      const probe = container.querySelector("[data-slot=remote-access-probe]");
-      expect(probe?.className).toMatch(/\bw-0\b/);
-      expect(probe?.className).toMatch(/overflow-hidden/);
+    it("gives a Member with a share but no drive card a See all shared items link", async () => {
+      stubDashboardFetch({
+        username: "jamie",
+        role: "user",
+        userId: "u2",
+        drives: [],
+        access: [WORK_GRANT],
+      });
+      renderDashboard();
+      expect(await screen.findByRole("link", { name: /See all shared items/i })).toHaveAttribute(
+        "href",
+        "/shared",
+      );
+      expect(screen.queryByText(/Nothing shared with you yet/i)).not.toBeInTheDocument();
     });
   });
 
-  it("shows storage, root counts, and folder shortcuts on drive cards", async () => {
-    stubFetch();
-    renderPage();
-    expect(await screen.findByText(/12 GB free/i)).toBeInTheDocument();
-    expect(screen.getByText(/52 GB used/i)).toBeInTheDocument();
-    expect(screen.getByText(/3 folders · 12 files at the/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^root$/i })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Photos" })).toHaveAttribute(
-      "href",
-      "/drives/d1?path=Photos",
-    );
-    expect(screen.getByRole("link", { name: "Documents" })).toHaveAttribute(
-      "href",
-      "/drives/d1?path=Documents",
-    );
-    expect(screen.getByRole("progressbar", { name: /81% used/i })).toBeInTheDocument();
-  });
+  describe("Recents", () => {
+    it("lists recent files, folders and drives as one link each, with no kind labels", async () => {
+      const now = Date.now();
+      window.localStorage.setItem(
+        "luna.recentItems.max",
+        JSON.stringify([
+          { kind: "file", driveId: "d1", driveLabel: "Family photos", path: "Documents/note.md", at: now - 5 * 60_000 },
+          { kind: "folder", driveId: "d1", path: "Office", at: now - 3 * 3_600_000 },
+          { kind: "drive", driveId: "d1", path: "", at: now - 2 * 86_400_000 },
+        ]),
+      );
+      const fetchMock = stubDashboardFetch();
+      renderDashboard();
+      expect(await screen.findByRole("heading", { name: "Recents" })).toBeInTheDocument();
+      await waitForRequests(fetchMock, ADMIN_REQUESTS);
 
-  it("does not invent storage numbers for an unplugged drive", async () => {
-    stubFetch({
-      drives: [{ id: "d2", label: "Travel stick", state: "missing" }],
-      summaries: {},
+      const card = recentsCard();
+      expect(within(card).getByText("note.md")).toBeInTheDocument();
+      expect(within(card).getByText("Family photos · Documents")).toBeInTheDocument();
+      expect(within(card).getByText("Office")).toBeInTheDocument();
+      expect(within(card).getByText("5 min ago")).toBeInTheDocument();
+      expect(within(card).getByText("3 h ago")).toBeInTheDocument();
+      expect(within(card).getByText("2 days ago")).toBeInTheDocument();
+
+      const links = within(card).getAllByRole("link");
+      expect(links.map((a) => a.getAttribute("href"))).toEqual([
+        "/drives/d1?path=Documents&file=note.md",
+        "/drives/d1?path=Office",
+        "/drives/d1",
+      ]);
+      expect(within(card).queryByRole("link", { name: /^Open$/i })).not.toBeInTheDocument();
+      expect(within(card).queryByText(/^(File|Folder)$/)).not.toBeInTheDocument();
     });
-    renderPage();
-    expect(
-      await screen.findByText(/Unplugged\. Plug it back in when you want/i),
-    ).toBeInTheDocument();
-    expect(screen.queryByText(/Needs a look/i)).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /Open Drives/i })).not.toBeInTheDocument();
-    expect(screen.queryByText(/GB free/i)).not.toBeInTheDocument();
-    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
-  });
 
-  it("lists recent files, folders, and drives with Open links", async () => {
-    const now = Date.now();
-    window.localStorage.setItem(
-      "luna.recentItems.max",
-      JSON.stringify([
-        {
-          kind: "file",
-          driveId: "d1",
-          driveLabel: "Family photos",
-          path: "Documents/note.md",
-          at: now - 5 * 60_000,
-        },
-        {
-          kind: "folder",
-          driveId: "d1",
-          path: "Office",
-          at: now - 3 * 3_600_000,
-        },
-        {
-          kind: "drive",
-          driveId: "d1",
-          path: "",
-          at: now - 2 * 86_400_000,
-        },
-      ]),
-    );
-    stubFetch();
-    renderPage();
-    expect(await screen.findByText("Recents")).toBeInTheDocument();
-    expect(screen.getByText("note.md")).toBeInTheDocument();
-    expect(screen.getByText("Family photos · Documents")).toBeInTheDocument();
-    expect(screen.getByText("Office")).toBeInTheDocument();
-    expect(screen.getByText("File")).toBeInTheDocument();
-    expect(screen.getByText("Folder")).toBeInTheDocument();
-    expect(screen.getByText("5 min ago")).toBeInTheDocument();
-    expect(screen.getByText("3 h ago")).toBeInTheDocument();
-    expect(screen.getByText("2 days ago")).toBeInTheDocument();
-    const opens = screen.getAllByRole("link", { name: /^Open$/i });
-    expect(opens[0]).toHaveAttribute("href", "/drives/d1?path=Documents&file=note.md");
-    expect(opens[1]).toHaveAttribute("href", "/drives/d1?path=Office");
-    expect(opens[2]).toHaveAttribute("href", "/drives/d1");
-  });
-
-  it("hides the Recents card when there is nothing to resume", async () => {
-    stubFetch();
-    renderPage();
-    await screen.findByText(/On this network/i);
-    expect(screen.queryByText("Recents")).not.toBeInTheDocument();
-  });
-
-  it("shows a member's own recents, not another user's", async () => {
-    window.localStorage.setItem(
-      "luna.recentItems.max",
-      JSON.stringify([
-        { kind: "file", driveId: "d1", path: "secret.md", at: Date.now() },
-      ]),
-    );
-    stubFetch({ username: "jamie", role: "user" });
-    renderPage();
-    await screen.findByText(/On this network/i);
-    expect(screen.queryByText("Recents")).not.toBeInTheDocument();
-    expect(screen.queryByText("secret.md")).not.toBeInTheDocument();
-  });
-
-  it("shows renamed files instead of old name and with no duplicates", async () => {
-    stubFetch({
-      recents: [
-        {
-          kind: "file",
-          driveId: "d1",
-          path: "67.excalidraw",
-          at: Date.now() - 60_000,
-        },
-      ],
+    it("shows at most six recent items", async () => {
+      const now = Date.now();
+      const recents = Array.from({ length: 8 }, (_, i) => ({
+        kind: "file",
+        driveId: "d1",
+        path: `Docs/file${i + 1}.txt`,
+        at: now - (i + 1) * 60_000,
+      }));
+      stubDashboardFetch({ recents });
+      renderDashboard();
+      expect(await screen.findByText("file1.txt")).toBeInTheDocument();
+      const card = recentsCard();
+      expect(within(card).getAllByRole("link")).toHaveLength(6);
+      expect(within(card).getByText("file6.txt")).toBeInTheDocument();
+      expect(within(card).queryByText("file7.txt")).not.toBeInTheDocument();
+      expect(within(card).queryByText("file8.txt")).not.toBeInTheDocument();
     });
-    renderPage();
-    expect(await screen.findByText("Recents")).toBeInTheDocument();
-    expect(screen.getByText("67.excalidraw")).toBeInTheDocument();
-    expect(screen.queryByText("whiteboard.excalidraw")).not.toBeInTheDocument();
-    const opens = screen.getAllByRole("link", { name: /^Open$/i });
-    expect(opens).toHaveLength(1);
-    expect(opens[0]).toHaveAttribute("href", "/drives/d1?file=67.excalidraw");
+
+    it("hides the Recents card when there is nothing to resume", async () => {
+      const fetchMock = stubDashboardFetch();
+      renderDashboard();
+      await screen.findByRole("link", { name: "Browse files" });
+      await waitForRequests(fetchMock, ADMIN_REQUESTS);
+      expect(screen.queryByRole("heading", { name: "Recents" })).not.toBeInTheDocument();
+    });
+
+    it("hides the Recents card when the server list is empty", async () => {
+      const fetchMock = stubDashboardFetch({ recents: [] });
+      renderDashboard();
+      await screen.findByRole("link", { name: "Browse files" });
+      await waitForRequests(fetchMock, ADMIN_REQUESTS);
+      expect(screen.queryByRole("heading", { name: "Recents" })).not.toBeInTheDocument();
+    });
+
+    it("shows a Member their own recents, not another user's", async () => {
+      const now = Date.now();
+      window.localStorage.setItem(
+        "luna.recentItems.max",
+        JSON.stringify([{ kind: "file", driveId: "d1", path: "secret.md", at: now }]),
+      );
+      window.localStorage.setItem(
+        "luna.recentItems.jamie",
+        JSON.stringify([{ kind: "file", driveId: "d1", path: "Recipes.docx", at: now }]),
+      );
+      stubDashboardFetch({
+        username: "jamie",
+        role: "user",
+        userId: "u2",
+        drives: [PHOTOS_DRIVE],
+        access: [ROOT_GRANT],
+      });
+      renderDashboard();
+      expect(await screen.findByText("Recipes.docx")).toBeInTheDocument();
+      expect(screen.queryByText("secret.md")).not.toBeInTheDocument();
+    });
+
+    it("shows a renamed file under its new name once, with a single link", async () => {
+      const now = Date.now();
+      window.localStorage.setItem(
+        "luna.recentItems.max",
+        JSON.stringify([{ kind: "file", driveId: "d1", path: "whiteboard.excalidraw", at: now }]),
+      );
+      stubDashboardFetch({
+        recents: [{ kind: "file", driveId: "d1", path: "67.excalidraw", at: now - 60_000 }],
+      });
+      renderDashboard();
+      expect(await screen.findByText("67.excalidraw")).toBeInTheDocument();
+      expect(screen.queryByText("whiteboard.excalidraw")).not.toBeInTheDocument();
+      const links = within(recentsCard()).getAllByRole("link");
+      expect(links).toHaveLength(1);
+      expect(links[0]).toHaveAttribute("href", "/drives/d1?file=67.excalidraw");
+    });
   });
 
-  it("omits deleted or unavailable files from recents", async () => {
-    stubFetch({ recents: [] });
-    renderPage();
-    await screen.findByText(/On this network/i);
-    expect(screen.queryByText("Recents")).not.toBeInTheDocument();
-    expect(screen.queryByText("whiteboard.excalidraw")).not.toBeInTheDocument();
+  describe("Backups line", () => {
+    it("shows All backed up and a See all backups button when every backup is healthy", async () => {
+      stubDashboardFetch({ backups: [backupRow()] });
+      renderDashboard();
+      const region = await screen.findByRole("region", { name: "Backups" });
+      expect(within(region).getByText("All backed up")).toBeInTheDocument();
+      expect(within(region).getByText("1 backup")).toBeInTheDocument();
+      expect(within(region).getByRole("button", { name: "See all backups" })).toBeInTheDocument();
+    });
+
+    it("places the backups line after the drive cards", async () => {
+      stubDashboardFetch({ backups: [backupRow()] });
+      renderDashboard();
+      const card = await screen.findByRole("heading", { name: "Family photos" });
+      const region = await screen.findByRole("region", { name: "Backups" });
+      expect(card.compareDocumentPosition(region) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it("shows no backups region when there are no backups", async () => {
+      const fetchMock = stubDashboardFetch({ backups: [] });
+      renderDashboard();
+      await screen.findByRole("link", { name: "Browse files" });
+      await waitForRequests(fetchMock, ADMIN_REQUESTS);
+      expect(screen.queryByRole("region", { name: "Backups" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "See all backups" })).not.toBeInTheDocument();
+    });
   });
 });
