@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Shield } from "lucide-react";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { backupHeadline, lastTestedLine } from "../../lib/backupRows.js";
 import AllBackupsModal from "./AllBackupsModal.jsx";
@@ -15,7 +16,7 @@ export default function BackupsLine({ rows }) {
   if (!rows || rows.length === 0) return null;
   return (
     <section aria-label="Backups">
-      <div className="surface-secondary rounded-large-element p-4 flex flex-wrap items-center justify-between gap-3">
+      <Card padding={false} className="p-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <Shield size={ICON_SIZE.lg} className="shrink-0" aria-hidden="true" />
           <div className="min-w-0">
@@ -26,7 +27,7 @@ export default function BackupsLine({ rows }) {
         <Button size="sm" variant="primary" onClick={() => setShowAll(true)}>
           See all backups
         </Button>
-      </div>
+      </Card>
       {showAll && <AllBackupsModal open={showAll} onClose={() => setShowAll(false)} backups={rows} />}
     </section>
   );

@@ -180,6 +180,11 @@ describe("BackupsLine", () => {
     expect(screen.queryByText("All backups")).not.toBeInTheDocument();
   });
 
+  it("pops in like the other dashboard cards", () => {
+    const { container } = renderLine(rowsOf([backup()]), [{ id: "u1", username: "max", display_name: "Max" }]);
+    expect(container.querySelector(".pop-in")).not.toBeNull();
+  });
+
   it("opens the all backups modal", async () => {
     renderLine(rowsOf([backup({ state: "stale" })]), [{ id: "u1", username: "max", display_name: "Max" }]);
     await userEvent.click(screen.getByRole("button", { name: "See all backups" }));
