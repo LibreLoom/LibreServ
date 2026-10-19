@@ -2,7 +2,9 @@ package runner
 
 import (
 	"errors"
+	"os"
 	"reflect"
+	"strconv"
 	"testing"
 )
 
@@ -41,5 +43,40 @@ func TestHostThrottleSkipsMissingTools(t *testing.T) {
 	args, _ := hostThrottle([]string{"sh"}, 100000, 0, 10, fakeLook())
 	if !reflect.DeepEqual(args, []string{"sh"}) {
 		t.Fatalf("args = %v", args)
+	}
+}
+
+func TestJobSharesSplitTheRunLimits(t *testing.T) {
+	r := &Runner{cpuQuota: 320000, memoryLimit: 8 << 30, jobs: 2}
+	if got := r.jobCPUQuota(); got != 160000 {
+		t.Fatalf("cpu share = %d", got)
+	}
+	if got := r.jobMemoryLimit(); got != 4<<30 {
+		t.Fatalf("memory share = %d", got)
+	}
+	r = &Runner{jobs: 2}
+	if r.jobCPUQuota() != 0 || r.jobMemoryLimit() != 0 {
+		t.Fatal("no limits should stay unlimited")
+	}
+}
+
+func TestContainerCommandNice(t *testing.T) {
+	if got := containerCommand("go test", 0); !reflect.DeepEqual(got, []string{"sh", "-c", "go test"}) {
+		t.Fatalf("no nice: %v", got)
+	}
+	got := containerCommand("go test", 19)
+	if len(got) != 6 || got[4] != "19" || got[5] != "go test" {
+		t.Fatalf("nice: %v", got)
+	}
+}
+
+func TestOwnerAlive(t *testing.T) {
+	if !ownerAlive(strconv.Itoa(os.Getpid())) {
+		t.Fatal("this process should count as alive")
+	}
+	for _, bad := range []string{"", "x", "0", "-1", "2147483646"} {
+		if ownerAlive(bad) {
+			t.Fatalf("%q should not count as alive", bad)
+		}
 	}
 }

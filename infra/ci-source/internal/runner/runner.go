@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
@@ -31,6 +32,7 @@ type Runner struct {
 	cpuQuota          int64
 	memoryLimit       int64
 	nice              int
+	jobs              int // jobs running at once; cpuQuota and memoryLimit are split between them
 	pullMutex         sync.Mutex
 	pulledImages      map[string]bool
 	streamManager     *StreamManager
@@ -102,6 +104,20 @@ func NewRunner(cfg *config.Config) (*Runner, error) {
 	return r, nil
 }
 
+// ownerLabel records the pid of the ci process that created a container, so a
+// second ci running alongside only cleans up containers whose owner is gone.
+const ownerLabel = "sol.ci.owner"
+
+// ownerAlive reports whether the ci process with this pid is still running.
+func ownerAlive(pid string) bool {
+	n, err := strconv.Atoi(pid)
+	if err != nil || n <= 0 {
+		return false
+	}
+	err = syscall.Kill(n, 0)
+	return err == nil || err == syscall.EPERM
+}
+
 func (r *Runner) cleanupOrphanedContainers() {
 	ctx := context.Background()
 	containers, err := r.cli.ContainerList(ctx, container.ListOptions{All: true})
@@ -110,7 +126,7 @@ func (r *Runner) cleanupOrphanedContainers() {
 	}
 
 	for _, c := range containers {
-		if c.Labels["sol.ci"] == "true" {
+		if c.Labels["sol.ci"] == "true" && !ownerAlive(c.Labels[ownerLabel]) {
 			r.cli.ContainerStop(ctx, c.ID, container.StopOptions{Timeout: intPtr(1)})
 			r.cli.ContainerRemove(ctx, c.ID, container.RemoveOptions{Force: true})
 		}
@@ -149,6 +165,7 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) *RunSummary {
 	r.cpuQuota = opts.CPUQuota
 	r.memoryLimit = opts.MemoryLimit
 	r.nice = opts.Nice
+	r.jobs = 1 // the cache warm-up below runs one container at a time
 
 	// Pre-warm shared Go module cache for the selected Go tests. This turns
 	// the cold-cache, concurrent go-mod download storm that flakes the quick
@@ -174,6 +191,14 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) *RunSummary {
 	if workerCount > len(testList) {
 		workerCount = len(testList)
 	}
+	// The CPU and memory limits cover the whole run, so each job gets an equal
+	// share. Never run more jobs than the CPU budget has whole cores.
+	if r.cpuQuota > 0 {
+		if maxJobs := int(r.cpuQuota / cpuPeriod); workerCount > maxJobs {
+			workerCount = max(maxJobs, 1)
+		}
+	}
+	r.jobs = max(workerCount, 1)
 
 	for i := 0; i < workerCount; i++ {
 		wg.Add(1)
@@ -246,11 +271,41 @@ func (r *Runner) worker(
 	}
 }
 
+// cpuPeriod is the CFS period, in microseconds, that cpuQuota is measured in.
+const cpuPeriod = 100000
+
+// jobCPUQuota is one job's share of the run's CPU limit (0 = unlimited).
+func (r *Runner) jobCPUQuota() int64 {
+	if r.cpuQuota <= 0 {
+		return 0
+	}
+	return max(r.cpuQuota/int64(max(r.jobs, 1)), 10000)
+}
+
+// jobMemoryLimit is one job's share of the run's memory limit (0 = unlimited).
+func (r *Runner) jobMemoryLimit() int64 {
+	if r.memoryLimit <= 0 {
+		return 0
+	}
+	return r.memoryLimit / int64(max(r.jobs, 1))
+}
+
+// containerCommand runs command under nice when the run asks for a lower
+// priority, so the build tools inside the container yield to the desktop.
+func containerCommand(command string, nice int) []string {
+	if nice <= 0 {
+		return []string{"sh", "-c", command}
+	}
+	return []string{"sh", "-c",
+		`if command -v nice >/dev/null 2>&1; then exec nice -n "$1" sh -c "$2"; else exec sh -c "$2"; fi`,
+		"sh", strconv.Itoa(nice), command}
+}
+
 // throttleHostCmd applies the run's performance limits to a host-run test
 // (containers get theirs from the container runtime). With no limits set the
 // command is left exactly as is.
 func (r *Runner) throttleHostCmd(cmd *exec.Cmd) {
-	args, env := hostThrottle(cmd.Args, r.cpuQuota, r.memoryLimit, r.nice, exec.LookPath)
+	args, env := hostThrottle(cmd.Args, r.jobCPUQuota(), r.jobMemoryLimit(), r.nice, exec.LookPath)
 	if len(args) != len(cmd.Args) {
 		cmd.Path, cmd.Args = args[0], args
 	}
@@ -616,6 +671,12 @@ func (r *Runner) createContainer(ctx context.Context, t *tests.Test, fuzzDuratio
 	if t.Type == tests.TestTypeFuzz && fuzzDuration > 0 {
 		env = append(env, fmt.Sprintf("FUZZ_DURATION=%s", fuzzDuration))
 	}
+	// Size build tools to this job's CPU share; they would otherwise start one
+	// worker per host core and just wait on the container's quota.
+	if q := r.jobCPUQuota(); q > 0 {
+		cores := strconv.FormatInt(max((q+cpuPeriod-1)/cpuPeriod, 1), 10)
+		env = append(env, "GOMAXPROCS="+cores, "CARGO_BUILD_JOBS="+cores, "RUST_TEST_THREADS="+cores)
+	}
 
 	cacheDir := filepath.Join(r.repoPath, ".cache")
 	os.MkdirAll(cacheDir, 0755)
@@ -644,11 +705,11 @@ func (r *Runner) createContainer(ctx context.Context, t *tests.Test, fuzzDuratio
 
 	config := &container.Config{
 		Image:      t.Container,
-		Cmd:        []string{"sh", "-c", t.Command},
+		Cmd:        containerCommand(t.Command, r.nice),
 		WorkingDir: t.WorkDir,
 		Env:        env,
 		Tty:        false,
-		Labels:     map[string]string{"sol.ci": "true"},
+		Labels:     map[string]string{"sol.ci": "true", ownerLabel: strconv.Itoa(os.Getpid())},
 	}
 
 	hostConfig := &container.HostConfig{
@@ -656,12 +717,12 @@ func (r *Runner) createContainer(ctx context.Context, t *tests.Test, fuzzDuratio
 	}
 
 	// Apply resource limits if configured
-	if r.cpuQuota > 0 {
-		hostConfig.CPUQuota = r.cpuQuota
-		hostConfig.CPUPeriod = 100000 // Default period (100ms)
+	if q := r.jobCPUQuota(); q > 0 {
+		hostConfig.CPUQuota = q
+		hostConfig.CPUPeriod = cpuPeriod
 	}
-	if r.memoryLimit > 0 {
-		hostConfig.Memory = r.memoryLimit
+	if m := r.jobMemoryLimit(); m > 0 {
+		hostConfig.Memory = m
 	}
 	// Lower priority = smaller share of CPU when the machine is contended.
 	if r.nice >= 15 {
