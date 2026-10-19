@@ -395,7 +395,12 @@ func (r *Runner) runHostTest(ctx context.Context, t *tests.Test) *tests.TestResu
 		defer cancel()
 	}
 
-	cmd := exec.CommandContext(testCtx, "sh", "-c", t.Command)
+	guarded := hostCommand(t.Command, r.lifeline.hostPath())
+	cmd := exec.CommandContext(testCtx, guarded[0], guarded[1:]...)
+	// Its own process group, so a timeout or a dead ci stops everything the
+	// test started, not just the shell.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.Dir = r.repoPath
 	if t.WorkDir != "" {
 		if rel, ok := strings.CutPrefix(t.WorkDir, "/repo"); ok {

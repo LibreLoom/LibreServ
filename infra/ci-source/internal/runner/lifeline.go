@@ -37,6 +37,14 @@ func newLifeline(cacheDir string) (*lifeline, error) {
 	return &lifeline{f: f, path: path}, nil
 }
 
+// hostPath is the lock file's full path, for tests that run on the host.
+func (l *lifeline) hostPath() string {
+	if l == nil {
+		return ""
+	}
+	return l.path
+}
+
 // name is the file's name; inside a container it is /cache/<name>.
 func (l *lifeline) name() string {
 	if l == nil {
@@ -95,4 +103,27 @@ if [ -n "$lock" ] && command -v flock >/dev/null 2>&1; then
 fi
 wait $child`
 	return []string{"sh", "-c", script, "sh", lock, fmt.Sprint(nice), command}
+}
+
+// hostCommand wraps a host-run test so it stops itself within a few seconds of
+// the ci process disappearing, like containerCommand does for containers. The
+// wrapper must be started as the leader of its own process group
+// (SysProcAttr.Setpgid): a watchdog in a session of its own then stops that
+// whole group, including anything the test started, such as podman builds.
+// Without flock or setsid on the host the command runs unguarded.
+func hostCommand(command, lockPath string) []string {
+	if lockPath == "" {
+		return []string{"sh", "-c", command}
+	}
+	const script = `lock=$1; shift
+if command -v flock >/dev/null 2>&1 && command -v setsid >/dev/null 2>&1; then
+  pg=$$
+  "$@" &
+  child=$!
+  setsid sh -c 'while kill -0 "$1" 2>/dev/null; do sleep 3; flock -n -s "$2" true && { kill -TERM "-$3"; sleep 5; kill -KILL "-$3"; break; }; done' sh "$child" "$lock" "$pg" &
+  wait $child
+else
+  exec "$@"
+fi`
+	return []string{"sh", "-c", script, "sh", lockPath, "sh", "-c", command}
 }

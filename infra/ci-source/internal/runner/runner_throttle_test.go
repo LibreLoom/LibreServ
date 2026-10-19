@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 	"reflect"
 	"strconv"
+	"syscall"
 	"testing"
+	"time"
 )
 
 func fakeLook(have ...string) func(string) (string, error) {
@@ -107,5 +109,40 @@ func TestOwnerAlive(t *testing.T) {
 		if ownerAlive(bad) {
 			t.Fatalf("%q should not count as alive", bad)
 		}
+	}
+}
+
+func TestHostCommandStopsWhenCiIsGone(t *testing.T) {
+	for _, tool := range []string{"flock", "setsid"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skip(tool + " not installed")
+		}
+	}
+	dir := t.TempDir()
+	l, err := newLifeline(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	args := hostCommand("sleep 60 & wait", l.hostPath())
+	cmd := exec.Command(args[0], args[1:]...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+
+	select {
+	case <-done:
+		t.Fatal("test stopped although ci still holds the lifeline")
+	case <-time.After(5 * time.Second):
+	}
+	// Dropping the lock stands in for ci being killed.
+	l.f.Close()
+	select {
+	case <-done:
+	case <-time.After(15 * time.Second):
+		syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		t.Fatal("test kept running after ci was gone")
 	}
 }
