@@ -170,7 +170,7 @@ describe("backup details sheet", () => {
     const [row] = await backupSource("d1").listDir("d1", ".luna-backups");
     renderSheet(".luna-backups/b1", { ...row, name: "Trips" });
     expect(await screen.findByText("Folder backup")).toBeInTheDocument();
-    expect(screen.getByText("Up to date")).toBeInTheDocument();
+    expect(screen.getByText("Backup successful")).toBeInTheDocument();
     expect(screen.getByText("Backups on Backup drive")).toBeInTheDocument();
     expect(screen.getByText("Photo drive / Pictures / Trips")).toBeInTheDocument();
     expect(screen.getByText(/Earlier versions of changed files aren't counted/)).toBeInTheDocument();

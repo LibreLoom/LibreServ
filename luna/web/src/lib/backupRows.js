@@ -73,7 +73,8 @@ export function backupStatus(b) {
   if (b.state === "failing") return { label: "Last copy failed", variant: "error" };
   if (b.state === "stale") return { label: "Not copied in a day", variant: "warning" };
   if (b.kind === "cloud" && b.check_problem) return { label: "Check failed", variant: "warning" };
-  return { label: "Up to date", variant: "success" };
+  if (!b.last_ok_at) return { label: "No copy yet", variant: "default" };
+  return { label: "Backup successful", variant: "success" };
 }
 
 /** What a backup copies, in words: "Folder backup", "Drive backup" or "Cloud backup". */

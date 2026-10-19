@@ -114,7 +114,8 @@ describe("backupStatus", () => {
   });
 
   it("labels drive rows in plain words", () => {
-    expect(backupStatus(drive()).label).toBe("Up to date");
+    expect(backupStatus(drive({ last_ok_at: 1000 })).label).toBe("Backup successful");
+    expect(backupStatus(drive()).label).toBe("No copy yet");
     expect(backupStatus(drive({ state: "failing" }))).toEqual({ label: "Last copy failed", variant: "error" });
     expect(backupStatus(drive({ status: "stopped" })).label).toBe("Stopped");
     expect(backupStatus(drive({ status: "source_gone" })).label).toBe("Original is gone");

@@ -23,7 +23,7 @@ describe("BackupItem", () => {
     );
     expect(screen.getByText("Photos")).toBeInTheDocument();
     expect(screen.getByText("Folder backup")).toBeInTheDocument();
-    expect(screen.getByText("Up to date")).toBeInTheDocument();
+    expect(screen.getByText("Backup successful")).toBeInTheDocument();
     expect(screen.getByText("Backup drive")).toBeInTheDocument();
     expect(screen.getByText("Private")).toBeInTheDocument();
     expect(screen.getByText("Last copy 5 min ago")).toBeInTheDocument();
