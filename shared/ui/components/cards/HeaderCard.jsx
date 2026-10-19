@@ -55,9 +55,16 @@ export default function HeaderCard({
 
   const containerRef = useRef(/** @type {HTMLDivElement | null} */ (null));
   const probeRef = useRef(/** @type {HTMLDivElement | null} */ (null));
+  const leftProbeRef = useRef(/** @type {HTMLDivElement | null} */ (null));
+  const rightProbeRef = useRef(/** @type {HTMLDivElement | null} */ (null));
   const titleRef = useRef(/** @type {HTMLHeadingElement | null} */ (null));
   const [measuredSplit, setMeasuredSplit] = useState(false);
   const split = hasSides && measuredSplit;
+  // A side prop is usually an element that may render nothing (a tip chip with
+  // no tip). `Boolean(leftContent)` cannot see that, so the slot is measured:
+  // an empty slot never becomes its own card in the split view.
+  const [leftEmpty, setLeftEmpty] = useState(false);
+  const [rightEmpty, setRightEmpty] = useState(false);
   const [isMultiline, setIsMultiline] = useState(false);
 
   /** Where each moving element sat after the last layout, relative to the card. */
@@ -111,6 +118,12 @@ export default function HeaderCard({
 
     const available = container.clientWidth - CARD_PAD_X;
     if (available <= 0) return;
+
+    /** Whether this side slot actually put something on screen. */
+    const slotEmpty = (slot) =>
+      !slot || (slot.childElementCount === 0 && slot.textContent.trim() === "");
+    setLeftEmpty(slotEmpty(leftProbeRef.current));
+    setRightEmpty(slotEmpty(rightProbeRef.current));
 
     const needed = probe.scrollWidth;
     setMeasuredSplit((wasSplit) => {
@@ -186,12 +199,19 @@ export default function HeaderCard({
         className="flex w-max items-center whitespace-nowrap"
         style={{ gap: ROW_GAP }}
       >
-        {hasLeft ? <div className="shrink-0">{leftContent}</div> : null}
+        {hasLeft ? (
+          <div ref={leftProbeRef} className="shrink-0">
+            {leftContent}
+          </div>
+        ) : null}
         <div className="font-mono text-2xl font-normal tracking-tight shrink-0">
           {title}
         </div>
         {hasRight ? (
-          <div className={cn("shrink-0 flex items-center gap-3", rightContentClassName)}>
+          <div
+            ref={rightProbeRef}
+            className={cn("shrink-0 flex items-center gap-3", rightContentClassName)}
+          >
             {rightContent}
             {children}
           </div>
@@ -215,14 +235,14 @@ export default function HeaderCard({
             </h1>
           </div>
         </Card>
-        {hasLeft ? (
+        {hasLeft && !leftEmpty ? (
           <Card className={baseCardClass}>
             <div className="flex items-center justify-center text-center min-h-10">
               {leftContent}
             </div>
           </Card>
         ) : null}
-        {hasRight ? (
+        {hasRight && !rightEmpty ? (
           <Card className={baseCardClass}>
             <div
               className={cn(

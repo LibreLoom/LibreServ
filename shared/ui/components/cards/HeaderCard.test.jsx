@@ -112,6 +112,35 @@ describe("HeaderCard auto-split", () => {
     expect(screen.getAllByText("Everything looks good").length).toBeGreaterThanOrEqual(1);
   });
 
+  it("skips a split side card whose element renders nothing", async () => {
+    vi.useFakeTimers();
+    defaultContainer = { clientWidth: 280, scrollWidth: 280 };
+    defaultProbe = { clientWidth: 500, scrollWidth: 500 };
+
+    /** Stands in for a chip that renders null (e.g. a tip with nothing to show). */
+    function EmptyTip() {
+      return null;
+    }
+
+    const { container } = render(
+      <HeaderCard
+        title="Hello there, long greeting"
+        leftContent={<EmptyTip />}
+        rightContent={<span>Everything looks good</span>}
+      />,
+    );
+
+    await act(async () => {
+      vi.advanceTimersByTime(60);
+      observers.forEach((cb) => cb([], /** @type {ResizeObserver} */ ({})));
+    });
+
+    const splitRoot = container.querySelector("[data-slot=header-card-split]");
+    expect(splitRoot).toBeTruthy();
+    // Title card + right card. The empty left slot must not add a third card.
+    expect(splitRoot?.querySelectorAll("[data-slot=card-clip]").length).toBe(2);
+  });
+
   it("stays a single card when there is no side chrome", () => {
     const { container } = render(<HeaderCard title="Drives" />);
     expect(container.querySelector("[data-slot=header-card-combined]")).toBeTruthy();
