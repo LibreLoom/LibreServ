@@ -153,7 +153,7 @@ export function openPack(bytes, idHex, backupKey) {
 
 /**
  * Open a pack like openPack, but unwrap its pack key with a caller-supplied function. Private
- * items use this: their pack keys are sealed to the owner's X25519 key, not the backup key.
+ * items use this: their pack keys are sealed to the owner's sealing key, not the backup key.
  * @param {Uint8Array} bytes the whole pack
  * @param {string} idHex the pack id, lowercase hex (SHA-256 of bytes)
  * @param {(wrapped: Uint8Array) => Uint8Array} unwrapKey returns the 32-byte pack key; throws if it cannot

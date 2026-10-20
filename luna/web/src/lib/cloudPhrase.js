@@ -96,7 +96,7 @@ export function buildPhraseBody(entropy, { lunaId, userId, signingPublic }) {
     ["purpose", encoder.encode("signing-public")],
   ]);
   const body = {
-    x25519_public: toBase64(keys.x25519Public),
+    seal_public: toBase64(keys.sealPublic),
     auth_public: toBase64(keys.authPublic),
     self_sealed: toBase64(encrypt(keys.selfKey, aad, signingBytes)),
   };

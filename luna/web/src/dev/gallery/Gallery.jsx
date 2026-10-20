@@ -61,7 +61,7 @@ export default function Gallery() {
         setSnap(c.snapshot());
         unsubRef.current = c.subscribe(() => setSnap(c.snapshot()));
       } else if (tries++ < 40) {
-        timerRef.current = setTimeout(attach, 100);
+        timerRef.current = window.setTimeout(attach, 100);
       }
     };
     attach();

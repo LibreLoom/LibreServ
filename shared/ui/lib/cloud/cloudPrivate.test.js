@@ -108,15 +108,15 @@ describe('cloudPrivate', () => {
 
 	it('openPrivateMeta throws DAMAGED with the wrong scope', () => {
 		const snap = verifySnapshot(snapBytes, [signingPublic], lunaId, PRIVATE_SNAPSHOT_DOMAIN);
-		expect(() => openPrivateMeta(snap.meta, alice.x25519Secret, lunaId, 'ffffffffffffffffffffffffffffffff')).toThrow(
+		expect(() => openPrivateMeta(snap.meta, alice.sealSecret, lunaId, 'ffffffffffffffffffffffffffffffff')).toThrow(
 			DAMAGED,
 		);
 	});
 
 	it('readTreeWith reads the private tree and files through the private keys', async () => {
 		const snap = verifySnapshot(snapBytes, [signingPublic], lunaId, PRIVATE_SNAPSHOT_DOMAIN);
-		const unwrap = privateUnwrap(alice.x25519Secret, lunaId, p.scope);
-		const tree = readTreeWith(packBytes(p.tree_pack_id), snap, unwrap, openPrivateTreeBytes(alice.x25519Secret, lunaId, p.scope));
+		const unwrap = privateUnwrap(alice.sealSecret, lunaId, p.scope);
+		const tree = readTreeWith(packBytes(p.tree_pack_id), snap, unwrap, openPrivateTreeBytes(alice.sealSecret, lunaId, p.scope));
 		expect(tree.map((e) => e.path).sort()).toEqual(['b.bin', 'docs/a.txt']);
 
 		const readPack = makePackReaderWith(async (idHex) => packBytes(idHex), unwrap);
@@ -129,9 +129,9 @@ describe('cloudPrivate', () => {
 
 	it('readTreeWith throws CHANGED for a flipped tree pack byte', () => {
 		const snap = verifySnapshot(snapBytes, [signingPublic], lunaId, PRIVATE_SNAPSHOT_DOMAIN);
-		const unwrap = privateUnwrap(alice.x25519Secret, lunaId, p.scope);
+		const unwrap = privateUnwrap(alice.sealSecret, lunaId, p.scope);
 		expect(() =>
-			readTreeWith(flipByte(packBytes(p.tree_pack_id), 60), snap, unwrap, openPrivateTreeBytes(alice.x25519Secret, lunaId, p.scope)),
+			readTreeWith(flipByte(packBytes(p.tree_pack_id), 60), snap, unwrap, openPrivateTreeBytes(alice.sealSecret, lunaId, p.scope)),
 		).toThrow(CHANGED);
 	});
 

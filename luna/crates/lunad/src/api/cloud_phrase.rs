@@ -69,7 +69,7 @@ pub(crate) fn take_challenge(user_id: &str, now: i64) -> Option<[u8; 32]> {
 
 #[derive(Deserialize)]
 struct SetBody {
-    x25519_public: String,
+    seal_public: String,
     auth_public: String,
     self_sealed: String,
 }
@@ -158,15 +158,15 @@ async fn set_phrase(
     Extension(user): Extension<CurrentUser>,
     Json(body): Json<SetBody>,
 ) -> ApiResult {
-    let x25519_public = decode_key(&body.x25519_public)?;
-    let auth_public = decode_key(&body.auth_public)?;
+    let seal_public: crypto::SealPublic = decode_key(&body.seal_public)?;
+    let auth_public: [u8; 32] = decode_key(&body.auth_public)?;
     let self_sealed = STANDARD
         .decode(body.self_sealed.trim())
         .ok()
         .filter(|bytes| !bytes.is_empty())
         .ok_or_else(bad_keys)?;
     let now = db::now_unix();
-    crypto::check_public_key(&x25519_public).map_err(|_| bad_keys())?;
+    crypto::check_public_key(&seal_public).map_err(|_| bad_keys())?;
     // A fresh Luna has no identity yet; setting the phrase is the first thing that needs one.
     ensure_identity(&state).await?;
 
@@ -175,7 +175,7 @@ async fn set_phrase(
     let key_taken = db::list_user_keys(&conn)
         .map_err(|_| read_failed())?
         .iter()
-        .any(|keys| keys.user_id != user.id && keys.x25519_public == x25519_public);
+        .any(|keys| keys.user_id != user.id && keys.seal_public == seal_public);
     if key_taken {
         return Err(json_error(
             StatusCode::CONFLICT,
@@ -189,7 +189,7 @@ async fn set_phrase(
         &conn,
         &UserKeys {
             user_id: user.id.clone(),
-            x25519_public: x25519_public.to_vec(),
+            seal_public: seal_public.to_vec(),
             auth_public: auth_public.to_vec(),
             self_sealed,
             phrase_set_at: now,
@@ -260,12 +260,12 @@ async fn check(
     Ok(Json(json!({ "ok": true })))
 }
 
-/// Decode a base64 public key, which must be exactly 32 bytes.
-fn decode_key(text: &str) -> Result<[u8; 32], ApiError> {
+/// Decode a base64 public key, which must be exactly `N` bytes.
+fn decode_key<const N: usize>(text: &str) -> Result<[u8; N], ApiError> {
     STANDARD
         .decode(text.trim())
         .ok()
-        .and_then(|bytes| <[u8; 32]>::try_from(bytes.as_slice()).ok())
+        .and_then(|bytes| <[u8; N]>::try_from(bytes.as_slice()).ok())
         .ok_or_else(bad_keys)
 }
 
@@ -383,10 +383,16 @@ mod tests {
         )
     }
 
+    /// A real sealing public key (X25519 and ML-KEM) for a recovery phrase made of `n` bytes.
+    fn seal_key_b64(n: u8) -> String {
+        let keys = crate::backup::cloud::crypto::derive(&[n; 16], "luna-test-1");
+        STANDARD.encode(keys.seal_public)
+    }
+
     /// A set-phrase body for `signer` (the auth key) and some made-up public keys.
     fn set_body(signer: &Signer, signature: Option<String>) -> Value {
         let mut body = json!({
-            "x25519_public": STANDARD.encode([7u8; 32]),
+            "seal_public": seal_key_b64(7),
             "auth_public": STANDARD.encode(signer.public()),
             "self_sealed": STANDARD.encode(b"sealed"),
         });
@@ -580,11 +586,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn low_order_x25519_key_is_refused() {
+    async fn low_order_x25519_half_is_refused() {
         let f = fixture();
         let signer = Signer::generate();
         let mut bad = set_body(&signer, None);
-        bad["x25519_public"] = json!(STANDARD.encode([0u8; 32]));
+        // The X25519 half is the identity point; the ML-KEM half is a real key.
+        let mut key = STANDARD.decode(seal_key_b64(7)).unwrap();
+        key[..32].fill(0);
+        bad["seal_public"] = json!(STANDARD.encode(key));
         let (status, _) = send(
             &f.router,
             "PUT",
@@ -606,9 +615,47 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn x25519_key_already_used_by_another_user_is_refused() {
+    async fn invalid_mlkem_key_is_refused() {
         let f = fixture();
-        // set_body uses the same x25519 key (7s) for everyone.
+        let signer = Signer::generate();
+        let mut bad = set_body(&signer, None);
+        // A key of the right length whose ML-KEM half fails the FIPS 203 check.
+        let mut key = STANDARD.decode(seal_key_b64(7)).unwrap();
+        key[32] = 0xff;
+        key[33] |= 0x0f;
+        bad["seal_public"] = json!(STANDARD.encode(key));
+        let (status, _) = send(
+            &f.router,
+            "PUT",
+            "/api/v1/cloud/phrase",
+            &f.admin_token,
+            Some(bad),
+        )
+        .await;
+        assert_eq!(status, 400);
+    }
+
+    #[tokio::test]
+    async fn a_short_x25519_only_key_is_refused() {
+        let f = fixture();
+        let signer = Signer::generate();
+        let mut bad = set_body(&signer, None);
+        bad["seal_public"] = json!(STANDARD.encode([7u8; 32]));
+        let (status, _) = send(
+            &f.router,
+            "PUT",
+            "/api/v1/cloud/phrase",
+            &f.admin_token,
+            Some(bad),
+        )
+        .await;
+        assert_eq!(status, 400);
+    }
+
+    #[tokio::test]
+    async fn sealing_key_already_used_by_another_user_is_refused() {
+        let f = fixture();
+        // set_body uses the same sealing key (7s) for everyone.
         let admin_signer = Signer::generate();
         send(
             &f.router,
@@ -663,10 +710,10 @@ mod tests {
 
         // The member's change attempt cannot use the admin's key: it is judged against the
         // member's own (empty) record, so it is a first set, and the admin keeps theirs.
-        // The member uses their own X25519 key: the admin's key is already registered.
+        // The member uses their own sealing key: the admin's key is already registered.
         let member_signer = Signer::generate();
         let mut member_body = set_body(&member_signer, None);
-        member_body["x25519_public"] = json!(STANDARD.encode([9u8; 32]));
+        member_body["seal_public"] = json!(seal_key_b64(9));
         let (status, _) = send(
             &f.router,
             "PUT",
@@ -819,7 +866,7 @@ mod tests {
         let now = 100_000_000;
         let keys = |phrase_set_at: i64, last_checked_at: i64| db::UserKeys {
             user_id: "u1".into(),
-            x25519_public: vec![],
+            seal_public: vec![],
             auth_public: vec![],
             self_sealed: vec![],
             phrase_set_at,

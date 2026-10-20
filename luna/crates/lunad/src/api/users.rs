@@ -868,7 +868,7 @@ mod tests {
             &conn,
             &db::UserKeys {
                 user_id: user_id.to_string(),
-                x25519_public: vec![1; 32],
+                seal_public: vec![1; 32],
                 auth_public: vec![2; 32],
                 self_sealed: vec![3; 48],
                 phrase_set_at: 1,

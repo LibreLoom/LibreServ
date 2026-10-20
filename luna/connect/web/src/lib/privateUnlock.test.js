@@ -56,7 +56,7 @@ describe("openPrivateScope", () => {
     expect(backup.versions).toHaveLength(1);
     expect(backup.versions[0].snapshotId).toBe(priv.snapshot_id);
     expect(backup.private.scope).toBe(priv.scope);
-    expect(backup.private.x25519Secret).toHaveLength(32);
+    expect(backup.private.sealSecret).toHaveLength(96);
     expect(backup.private.dedupKey).toEqual(hexToBytes(priv.dedup_key));
   });
 

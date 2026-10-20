@@ -256,7 +256,7 @@ impl Sealer for SharedSealer {
 }
 
 /// Recipients and their keys, plus the key version to publish, kept for a key version that is new.
-type Publish = (Recipients, HashMap<String, [u8; 32]>, BackupKey);
+type Publish = (Recipients, HashMap<String, crypto::SealPublic>, BackupKey);
 
 /// Everything a run needs that does not change while it copies.
 pub(crate) struct RunContext {
@@ -294,9 +294,9 @@ fn prepare(
         .map_err(|_| anyhow!("Luna's cloud identity is damaged."))?;
     let access = access_list::for_row(&conn, &row)?;
 
-    let user_pub: HashMap<String, [u8; 32]> = db::list_user_keys(&conn)?
+    let user_pub: HashMap<String, crypto::SealPublic> = db::list_user_keys(&conn)?
         .into_iter()
-        .filter_map(|k| Some((k.user_id, k.x25519_public.as_slice().try_into().ok()?)))
+        .filter_map(|k| Some((k.user_id, k.seal_public.as_slice().try_into().ok()?)))
         .collect();
     let users = db::list_users(&conn)?;
     let mut ids = Vec::new();
@@ -737,7 +737,7 @@ mod tests {
             &conn,
             &db::UserKeys {
                 user_id: "owner".into(),
-                x25519_public: keys.x25519_public.to_vec(),
+                seal_public: keys.seal_public.to_vec(),
                 auth_public: keys.auth_public.to_vec(),
                 self_sealed: vec![3; 48],
                 phrase_set_at: 1,
@@ -911,7 +911,7 @@ mod tests {
             &lock(&db),
             &db::UserKeys {
                 user_id: "owner".into(),
-                x25519_public: keys.x25519_public.to_vec(),
+                seal_public: keys.seal_public.to_vec(),
                 auth_public: keys.auth_public.to_vec(),
                 self_sealed: vec![3; 48],
                 phrase_set_at: 2,

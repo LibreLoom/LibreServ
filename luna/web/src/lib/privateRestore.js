@@ -61,7 +61,7 @@ export async function restorePrivateFromPhrase(words, { lunaId, signingPublic })
 
   // The signed snapshot record bytes, keyed by record name, so Luna gets the original signed bytes.
   const rawSnapshotRecords = new Map(psnapshots.map((r) => [r.name, r.data]));
-  const { x25519Secret } = derive(entropy, lunaId);
+  const { sealSecret } = derive(entropy, lunaId);
   const packCache = new Map();
   let restored = 0;
 
@@ -75,8 +75,8 @@ export async function restorePrivateFromPhrase(words, { lunaId, signingPublic })
     });
     if (views.length === 0) continue;
 
-    const unwrapKey = privateUnwrap(x25519Secret, lunaId, found.scope);
-    const openTreeBytes = openPrivateTreeBytes(x25519Secret, lunaId, found.scope);
+    const unwrapKey = privateUnwrap(sealSecret, lunaId, found.scope);
+    const openTreeBytes = openPrivateTreeBytes(sealSecret, lunaId, found.scope);
     const snapshots = [];
     for (const snap of views) {
       const recordBytes = rawSnapshotRecords.get(`${found.scope}.${snap.snapshotId}`);

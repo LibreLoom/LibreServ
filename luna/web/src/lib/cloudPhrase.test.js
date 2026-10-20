@@ -22,9 +22,9 @@ describe("buildPhraseBody", () => {
       signingPublic: toBase64(SIGNING_PUBLIC),
     });
 
-    expect(fromBase64(body.x25519_public)).toHaveLength(32);
+    expect(fromBase64(body.seal_public)).toHaveLength(1216);
     expect(fromBase64(body.auth_public)).toHaveLength(32);
-    expect(fromBase64(body.x25519_public)).toEqual(keys.x25519Public);
+    expect(fromBase64(body.seal_public)).toEqual(keys.sealPublic);
     expect(fromBase64(body.auth_public)).toEqual(keys.authPublic);
     expect(body).not.toHaveProperty("signature");
 

@@ -224,7 +224,7 @@ mod tests {
             &conn,
             &db::UserKeys {
                 user_id: "owner".into(),
-                x25519_public: keys.x25519_public.to_vec(),
+                seal_public: keys.seal_public.to_vec(),
                 auth_public: keys.auth_public.to_vec(),
                 self_sealed: vec![3; 48],
                 phrase_set_at: 1,

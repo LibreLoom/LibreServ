@@ -147,13 +147,13 @@ export function groupByStarter(backups, privateOwners = []) {
  */
 export async function loadTree(source, backup, version) {
   if (backup.private) {
-    const { x25519Secret, scope, source: privateSource } = backup.private;
+    const { sealSecret, scope, source: privateSource } = backup.private;
     const treePack = await privateSource.getPack(version.treePackId);
     return readTreeWith(
       treePack,
       version,
-      privateUnwrap(x25519Secret, source.lunaId, scope),
-      openPrivateTreeBytes(x25519Secret, source.lunaId, scope),
+      privateUnwrap(sealSecret, source.lunaId, scope),
+      openPrivateTreeBytes(sealSecret, source.lunaId, scope),
     );
   }
   const treePack = await source.getPack(version.treePackId);

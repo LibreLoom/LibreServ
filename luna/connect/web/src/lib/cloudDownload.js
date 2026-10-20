@@ -13,8 +13,8 @@ import { saveBlob } from "./download.js";
  */
 function readerFor(source, backup, version) {
   if (backup.private) {
-    const { source: privateSource, x25519Secret, scope, dedupKey } = backup.private;
-    const unwrapKey = privateUnwrap(x25519Secret, privateSource.lunaId, scope);
+    const { source: privateSource, sealSecret, scope, dedupKey } = backup.private;
+    const unwrapKey = privateUnwrap(sealSecret, privateSource.lunaId, scope);
     return { reader: makePackReaderWith(privateSource.getPack, unwrapKey), dedupKey };
   }
   const keys = backup.keys[version.keyVersion];

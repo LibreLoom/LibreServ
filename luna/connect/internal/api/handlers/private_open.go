@@ -65,27 +65,30 @@ func scopePart(userID string) string {
 	return hex.EncodeToString(sum[:16])
 }
 
+// sealPublicLen is a user's public sealing key: X25519 public key (32) then ML-KEM-768 encapsulation key (1184).
+const sealPublicLen = 32 + 1184
+
 // scopeRecord is the verified contents of a pscopes/<scope> record.
 type scopeRecord struct {
-	LunaID       string
-	Scope        string
-	UserID       string
-	X25519Public []byte
-	AuthPublic   []byte
-	CreatedAt    int64
-	SealedDedup  []byte
+	LunaID      string
+	Scope       string
+	UserID      string
+	SealPublic  []byte
+	AuthPublic  []byte
+	CreatedAt   int64
+	SealedDedup []byte
 }
 
 // scopeRecordWire is the pscopes JSON: {"record":{...},"signature":"<hex>"}.
 type scopeRecordWire struct {
 	Record struct {
-		LunaID       string `json:"luna_id"`
-		Scope        string `json:"scope"`
-		UserID       string `json:"user_id"`
-		X25519Public string `json:"x25519_public"`
-		AuthPublic   string `json:"auth_public"`
-		CreatedAt    int64  `json:"created_at"`
-		SealedDedup  string `json:"sealed_dedup"`
+		LunaID      string `json:"luna_id"`
+		Scope       string `json:"scope"`
+		UserID      string `json:"user_id"`
+		SealPublic  string `json:"seal_public"`
+		AuthPublic  string `json:"auth_public"`
+		CreatedAt   int64  `json:"created_at"`
+		SealedDedup string `json:"sealed_dedup"`
 	} `json:"record"`
 	Signature string `json:"signature"`
 }
@@ -96,7 +99,7 @@ func parseScopeRecord(data []byte, lunaSigningHex string) (scopeRecord, bool) {
 	if err := json.Unmarshal(data, &w); err != nil {
 		return scopeRecord{}, false
 	}
-	x25519, err1 := hex.DecodeString(w.Record.X25519Public)
+	sealPublic, err1 := hex.DecodeString(w.Record.SealPublic)
 	auth, err2 := hex.DecodeString(w.Record.AuthPublic)
 	sealed, err3 := hex.DecodeString(w.Record.SealedDedup)
 	sig, err4 := hex.DecodeString(w.Signature)
@@ -104,7 +107,7 @@ func parseScopeRecord(data []byte, lunaSigningHex string) (scopeRecord, bool) {
 	if err1 != nil || err2 != nil || err3 != nil || err4 != nil || err5 != nil {
 		return scopeRecord{}, false
 	}
-	if len(x25519) != 32 || len(auth) != 32 {
+	if len(sealPublic) != sealPublicLen || len(auth) != 32 {
 		return scopeRecord{}, false
 	}
 	var created [8]byte
@@ -113,7 +116,7 @@ func parseScopeRecord(data []byte, lunaSigningHex string) (scopeRecord, bool) {
 		[2][]byte{[]byte("luna_id"), []byte(w.Record.LunaID)},
 		[2][]byte{[]byte("scope"), []byte(w.Record.Scope)},
 		[2][]byte{[]byte("user_id"), []byte(w.Record.UserID)},
-		[2][]byte{[]byte("x25519_public"), x25519},
+		[2][]byte{[]byte("seal_public"), sealPublic},
 		[2][]byte{[]byte("auth_public"), auth},
 		[2][]byte{[]byte("created_at"), created[:]},
 		[2][]byte{[]byte("sealed_dedup"), sealed},
@@ -122,13 +125,13 @@ func parseScopeRecord(data []byte, lunaSigningHex string) (scopeRecord, bool) {
 		return scopeRecord{}, false
 	}
 	return scopeRecord{
-		LunaID:       w.Record.LunaID,
-		Scope:        w.Record.Scope,
-		UserID:       w.Record.UserID,
-		X25519Public: x25519,
-		AuthPublic:   auth,
-		CreatedAt:    w.Record.CreatedAt,
-		SealedDedup:  sealed,
+		LunaID:      w.Record.LunaID,
+		Scope:       w.Record.Scope,
+		UserID:      w.Record.UserID,
+		SealPublic:  sealPublic,
+		AuthPublic:  auth,
+		CreatedAt:   w.Record.CreatedAt,
+		SealedDedup: sealed,
 	}, true
 }
 

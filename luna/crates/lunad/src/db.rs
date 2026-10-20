@@ -168,7 +168,7 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
         );
         CREATE TABLE IF NOT EXISTS user_keys (
             user_id TEXT PRIMARY KEY,
-            x25519_public BLOB NOT NULL,
+            seal_public BLOB NOT NULL,
             auth_public BLOB NOT NULL,
             self_sealed BLOB NOT NULL,
             phrase_set_at INTEGER NOT NULL,
@@ -226,7 +226,7 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
         CREATE TABLE IF NOT EXISTS cloud_private_scopes (
             scope TEXT PRIMARY KEY,
             owner TEXT NOT NULL,
-            x25519_public BLOB NOT NULL,
+            seal_public BLOB NOT NULL,
             dedup_key BLOB NOT NULL,
             state TEXT NOT NULL DEFAULT 'active',
             retire_after INTEGER NOT NULL DEFAULT 0,
@@ -1402,7 +1402,7 @@ pub fn set_cloud_identity(
 #[derive(Debug, Clone, PartialEq)]
 pub struct UserKeys {
     pub user_id: String,
-    pub x25519_public: Vec<u8>,
+    pub seal_public: Vec<u8>,
     pub auth_public: Vec<u8>,
     pub self_sealed: Vec<u8>,
     pub phrase_set_at: i64,
@@ -1410,12 +1410,12 @@ pub struct UserKeys {
 }
 
 const USER_KEYS_COLUMNS: &str =
-    "user_id, x25519_public, auth_public, self_sealed, phrase_set_at, last_checked_at";
+    "user_id, seal_public, auth_public, self_sealed, phrase_set_at, last_checked_at";
 
 fn user_keys_from_row(r: &rusqlite::Row) -> rusqlite::Result<UserKeys> {
     Ok(UserKeys {
         user_id: r.get(0)?,
-        x25519_public: r.get(1)?,
+        seal_public: r.get(1)?,
         auth_public: r.get(2)?,
         self_sealed: r.get(3)?,
         phrase_set_at: r.get(4)?,
@@ -1437,11 +1437,11 @@ pub fn get_user_keys(conn: &Connection, user_id: &str) -> anyhow::Result<Option<
 pub fn set_user_keys(conn: &Connection, keys: &UserKeys) -> anyhow::Result<()> {
     conn.execute(
         "INSERT OR REPLACE INTO user_keys
-            (user_id, x25519_public, auth_public, self_sealed, phrase_set_at, last_checked_at)
+            (user_id, seal_public, auth_public, self_sealed, phrase_set_at, last_checked_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         params![
             keys.user_id,
-            keys.x25519_public,
+            keys.seal_public,
             keys.auth_public,
             keys.self_sealed,
             keys.phrase_set_at,
@@ -1839,7 +1839,7 @@ pub fn deletable_packs(conn: &Connection, scope: &str, now: i64) -> anyhow::Resu
 pub struct PrivateScope {
     pub scope: String,
     pub owner: String,
-    pub x25519_public: Vec<u8>,
+    pub seal_public: Vec<u8>,
     pub dedup_key: Vec<u8>,
     pub state: String,
     pub retire_after: i64,
@@ -1847,13 +1847,13 @@ pub struct PrivateScope {
 }
 
 const PRIVATE_SCOPE_COLUMNS: &str =
-    "scope, owner, x25519_public, dedup_key, state, retire_after, created_at";
+    "scope, owner, seal_public, dedup_key, state, retire_after, created_at";
 
 fn private_scope_from_row(r: &rusqlite::Row) -> rusqlite::Result<PrivateScope> {
     Ok(PrivateScope {
         scope: r.get(0)?,
         owner: r.get(1)?,
-        x25519_public: r.get(2)?,
+        seal_public: r.get(2)?,
         dedup_key: r.get(3)?,
         state: r.get(4)?,
         retire_after: r.get(5)?,
@@ -1863,12 +1863,12 @@ fn private_scope_from_row(r: &rusqlite::Row) -> rusqlite::Result<PrivateScope> {
 
 pub fn insert_private_scope(conn: &Connection, s: &PrivateScope) -> anyhow::Result<()> {
     conn.execute(
-        "INSERT INTO cloud_private_scopes (scope, owner, x25519_public, dedup_key, state, retire_after, created_at)
+        "INSERT INTO cloud_private_scopes (scope, owner, seal_public, dedup_key, state, retire_after, created_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![
             s.scope,
             s.owner,
-            s.x25519_public,
+            s.seal_public,
             s.dedup_key,
             s.state,
             s.retire_after,
@@ -2993,7 +2993,7 @@ mod tests {
         let conn = open(&dir.path().join("luna.db")).unwrap();
         let keys = UserKeys {
             user_id: "u1".into(),
-            x25519_public: vec![1; 32],
+            seal_public: vec![1; 32],
             auth_public: vec![2; 32],
             self_sealed: vec![3; 48],
             phrase_set_at: 5,
@@ -3238,7 +3238,7 @@ mod tests {
         PrivateScope {
             scope: scope.into(),
             owner: owner.into(),
-            x25519_public: vec![7; 32],
+            seal_public: vec![7; 32],
             dedup_key: vec![9; 32],
             state: "active".into(),
             retire_after: 0,

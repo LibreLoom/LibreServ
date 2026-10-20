@@ -143,8 +143,8 @@ fn prepare(db: &crate::Db, protection_id: &str, now: i64) -> Result<Prepared> {
         return Err(anyhow!(NO_OWNER));
     }
     let keys = db::get_user_keys(&conn, &owner)?.ok_or_else(|| anyhow!(NO_PHRASE))?;
-    let owner_public: [u8; 32] = keys
-        .x25519_public
+    let owner_public: crypto::SealPublic = keys
+        .seal_public
         .as_slice()
         .try_into()
         .map_err(|_| anyhow!(NO_PHRASE))?;
@@ -251,7 +251,7 @@ fn publish_and_copy(
 /// Seals a private backup to its owner. Owner keys are checked before this is built, so the
 /// `expect` below cannot fire.
 struct PrivateSealer {
-    owner_public: [u8; 32],
+    owner_public: crypto::SealPublic,
     luna_id: String,
     scope: String,
 }
@@ -317,7 +317,7 @@ mod tests {
                 &conn,
                 &db::UserKeys {
                     user_id: "owner".into(),
-                    x25519_public: keys.x25519_public.to_vec(),
+                    seal_public: keys.seal_public.to_vec(),
                     auth_public: keys.auth_public.to_vec(),
                     self_sealed: vec![3; 48],
                     phrase_set_at: 1,
@@ -407,7 +407,7 @@ mod tests {
             .unwrap();
 
         let keys = crypto::derive(&[7u8; 16], "luna-test");
-        let secret = keys.x25519_secret;
+        let secret = keys.seal_secret;
         let bytes = store.get_pack(&record.tree_pack_id).unwrap();
         let pack = format::open_pack(&bytes, &record.tree_pack_id, |wrapped| {
             private::open_pack_key(&secret, &luna_id, &scope, wrapped)
@@ -476,7 +476,7 @@ mod tests {
                 &conn,
                 &db::UserKeys {
                     user_id: "owner".into(),
-                    x25519_public: new_keys.x25519_public.to_vec(),
+                    seal_public: new_keys.seal_public.to_vec(),
                     auth_public: new_keys.auth_public.to_vec(),
                     self_sealed: vec![4; 48],
                     phrase_set_at: 2,
@@ -491,7 +491,7 @@ mod tests {
         let conn = lock(&db);
         let new_scope = db::active_private_scope(&conn, "owner").unwrap().unwrap();
         assert_ne!(new_scope.scope, old_scope);
-        assert_eq!(new_scope.x25519_public, new_keys.x25519_public.to_vec());
+        assert_eq!(new_scope.seal_public, new_keys.seal_public.to_vec());
         let old = db::get_private_scope(&conn, &old_scope).unwrap().unwrap();
         assert_eq!(old.state, "old_phrase");
         let row = db::get_protection(&conn, "p1").unwrap().unwrap();

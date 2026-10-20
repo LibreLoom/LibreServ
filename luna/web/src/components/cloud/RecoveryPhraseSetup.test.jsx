@@ -98,7 +98,7 @@ describe("RecoveryPhraseSetup", () => {
     expect(sent.method).toBe("PUT");
     expect(sent.path).toBe("/api/v1/cloud/phrase");
     expect(sent.body).not.toHaveProperty("signature");
-    expect(fromBase64(sent.body.x25519_public)).toHaveLength(32);
+    expect(fromBase64(sent.body.seal_public)).toHaveLength(1216);
     expect(fromBase64(sent.body.auth_public)).toHaveLength(32);
     const keys = derive(phraseToEntropy(words.join(" ")), LUNA_ID);
     const aad = canonical([

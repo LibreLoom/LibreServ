@@ -42,7 +42,7 @@ func privFixture(t *testing.T) (d Deps, acct string, lunaPriv ed25519.PrivateKey
 // privWriteScope stores pscopes/<scope> for userID, signed by signWith.
 func privWriteScope(t *testing.T, d Deps, acct, scope, userID string, authPub ed25519.PublicKey, signWith ed25519.PrivateKey) {
 	t.Helper()
-	x25519 := bytes.Repeat([]byte{7}, 32)
+	sealPublic := bytes.Repeat([]byte{7}, sealPublicLen)
 	sealed := []byte("sealed")
 	created := time.Now().Unix()
 	var c [8]byte
@@ -51,7 +51,7 @@ func privWriteScope(t *testing.T, d Deps, acct, scope, userID string, authPub ed
 		[2][]byte{[]byte("luna_id"), []byte(privTestLuna)},
 		[2][]byte{[]byte("scope"), []byte(scope)},
 		[2][]byte{[]byte("user_id"), []byte(userID)},
-		[2][]byte{[]byte("x25519_public"), x25519},
+		[2][]byte{[]byte("seal_public"), sealPublic},
 		[2][]byte{[]byte("auth_public"), authPub},
 		[2][]byte{[]byte("created_at"), c[:]},
 		[2][]byte{[]byte("sealed_dedup"), sealed},
@@ -60,7 +60,7 @@ func privWriteScope(t *testing.T, d Deps, acct, scope, userID string, authPub ed
 	data, err := json.Marshal(map[string]any{
 		"record": map[string]any{
 			"luna_id": privTestLuna, "scope": scope, "user_id": userID,
-			"x25519_public": hex.EncodeToString(x25519), "auth_public": hex.EncodeToString(authPub),
+			"seal_public": hex.EncodeToString(sealPublic), "auth_public": hex.EncodeToString(authPub),
 			"created_at": created, "sealed_dedup": hex.EncodeToString(sealed),
 		},
 		"signature": hex.EncodeToString(sig),

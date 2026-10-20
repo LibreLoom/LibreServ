@@ -178,9 +178,9 @@ fn build() -> Result<Value> {
         &recipients,
         |user| {
             Some(if user == "alice" {
-                alice.x25519_public
+                alice.seal_public
             } else {
-                bob.x25519_public
+                bob.seal_public
             })
         },
     )?;
@@ -248,7 +248,7 @@ fn build_private() -> Result<Value> {
     let (scope_id, scope) = private::scope_of(&PRIVATE_DEDUP);
     let files = file_contents();
     let wrap = |pack_key: &[u8; 32]| -> Vec<u8> {
-        private::seal_pack_key(&alice.x25519_public, LUNA_ID, &scope, pack_key)
+        private::seal_pack_key(&alice.seal_public, LUNA_ID, &scope, pack_key)
             .expect("seal the private pack key")
     };
 
@@ -278,7 +278,7 @@ fn build_private() -> Result<Value> {
         });
     }
     let tree = Tree { entries };
-    let tree_bytes = private::seal_tree(&alice.x25519_public, LUNA_ID, &scope, &tree)?;
+    let tree_bytes = private::seal_tree(&alice.seal_public, LUNA_ID, &scope, &tree)?;
     let tree_hash = format::sha256(&tree_bytes);
     let mut tree_builder = PackBuilder::new(scope_id);
     tree_builder.add(tree_hash, &tree_bytes);
@@ -292,7 +292,7 @@ fn build_private() -> Result<Value> {
         started_by: "alice".into(),
         started_by_name: "Alice".into(),
     };
-    let meta_sealed = private::seal_meta(&alice.x25519_public, LUNA_ID, &scope, &meta)?;
+    let meta_sealed = private::seal_meta(&alice.seal_public, LUNA_ID, &scope, &meta)?;
     let snapshot = SnapshotRecord {
         luna_id: LUNA_ID.into(),
         protection_id: PRIVATE_PROTECTION.into(),
@@ -312,10 +312,10 @@ fn build_private() -> Result<Value> {
         luna_id: LUNA_ID.into(),
         scope: scope.clone(),
         user_id: "alice".into(),
-        x25519_public: alice.x25519_public,
+        seal_public: alice.seal_public,
         auth_public: alice.auth_public,
         created_at: PRIVATE_CREATED_AT,
-        sealed_dedup: private::seal_dedup(&alice.x25519_public, LUNA_ID, &scope, &PRIVATE_DEDUP)?,
+        sealed_dedup: private::seal_dedup(&alice.seal_public, LUNA_ID, &scope, &PRIVATE_DEDUP)?,
     };
     let scope_bytes = scope_record.sign(&signer).to_bytes();
 
@@ -386,25 +386,19 @@ fn check_private(fx: &Value) -> Result<()> {
         "scope record is for another owner"
     );
     ensure!(
-        scope_record.x25519_public == alice.x25519_public
+        scope_record.seal_public == alice.seal_public
             && scope_record.auth_public == alice.auth_public,
         "scope record holds other keys"
     );
     let opened = private::open_dedup(
-        &alice.x25519_secret,
+        &alice.seal_secret,
         LUNA_ID,
         scope,
         &scope_record.sealed_dedup,
     )?;
     ensure!(opened == dedup_key, "alice opened a different dedup key");
     ensure!(
-        private::open_dedup(
-            &bob.x25519_secret,
-            LUNA_ID,
-            scope,
-            &scope_record.sealed_dedup
-        )
-        .is_err(),
+        private::open_dedup(&bob.seal_secret, LUNA_ID, scope, &scope_record.sealed_dedup).is_err(),
         "bob opened alice's private dedup key"
     );
 
@@ -422,7 +416,7 @@ fn check_private(fx: &Value) -> Result<()> {
 
     // Packs and tree: alice's secret unwraps the pack keys.
     let unwrap =
-        |wrapped: &[u8]| private::open_pack_key(&alice.x25519_secret, LUNA_ID, scope, wrapped);
+        |wrapped: &[u8]| private::open_pack_key(&alice.seal_secret, LUNA_ID, scope, wrapped);
     let mut packs: HashMap<[u8; 32], OpenedPack> = HashMap::new();
     for pack_field in ["tree_pack_id", "data_pack_id"] {
         let id = unhex32(field(p, pack_field)?)?;
@@ -440,7 +434,7 @@ fn check_private(fx: &Value) -> Result<()> {
         format::sha256(tree_bytes) == snap.tree_hash,
         "tree hash does not match"
     );
-    let tree = private::open_tree(&alice.x25519_secret, LUNA_ID, scope, tree_bytes)?;
+    let tree = private::open_tree(&alice.seal_secret, LUNA_ID, scope, tree_bytes)?;
 
     // Files: every chunk matches its id and the bytes equal the expected files.
     let expected = p["expected"]["files"]
@@ -474,7 +468,7 @@ fn check_private(fx: &Value) -> Result<()> {
     }
 
     // Metadata: decrypts to the expected values.
-    let meta = private::open_meta(&alice.x25519_secret, LUNA_ID, scope, &snap.meta)?;
+    let meta = private::open_meta(&alice.seal_secret, LUNA_ID, scope, &snap.meta)?;
     ensure!(
         serde_json::to_value(&meta)? == p["expected"]["meta"],
         "private metadata differs"
@@ -528,7 +522,7 @@ fn check(fx: &Value) -> Result<()> {
         )?;
         let (key, dedup) = keys::open_key(
             &copy,
-            &user_keys.x25519_secret,
+            &user_keys.seal_secret,
             &luna_public,
             LUNA_ID,
             protection,

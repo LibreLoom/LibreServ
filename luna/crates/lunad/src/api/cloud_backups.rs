@@ -777,7 +777,7 @@ mod tests {
                 &db::PrivateScope {
                     scope: "aa".repeat(16),
                     owner: owner.clone(),
-                    x25519_public: vec![0; 32],
+                    seal_public: vec![0; 32],
                     dedup_key: vec![0; 32],
                     state: "old_phrase".to_string(),
                     retire_after: 1_900_000_000,

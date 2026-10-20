@@ -12,7 +12,7 @@ use rusqlite::Connection;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
-use super::crypto;
+use super::crypto::{self, SealPublic, SealSecret};
 use super::store::CloudStore;
 use crate::db::{self, BackupKey};
 
@@ -37,8 +37,8 @@ pub(crate) const USERS_LIST_NAME: &str = "list";
 /// Signature domain for the user list.
 const USERS_DOMAIN: &str = "users";
 
-/// One user as given to `publish_user_list`: `(user id, X25519 public key, auth public key, self-sealed signing key)`.
-type UserListEntry = (String, [u8; 32], [u8; 32], Vec<u8>);
+/// One user as given to `publish_user_list`: `(user id, sealing public key, auth public key, self-sealed signing key)`.
+type UserListEntry = (String, SealPublic, [u8; 32], Vec<u8>);
 
 /// The users who may read a shared backup, sorted and without duplicates.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -114,20 +114,20 @@ fn random_32() -> [u8; 32] {
     out
 }
 
-/// The recipient list as saved in meta: each user with the hex of their X25519 public key.
+/// The recipient list as saved in meta: each user with the hex of their sealing public key (X25519 and ML-KEM).
 /// A user with no recovery phrase gets an empty key, so a change to "no phrase" also counts.
 fn readers_json(conn: &Connection, recipients: &Recipients) -> Result<serde_json::Value> {
     let mut readers = Vec::with_capacity(recipients.users.len());
     for user in &recipients.users {
         let public = db::get_user_keys(conn, user)?
             .map(|keys| {
-                keys.x25519_public
+                keys.seal_public
                     .iter()
                     .map(|b| format!("{b:02x}"))
                     .collect::<String>()
             })
             .unwrap_or_default();
-        readers.push(json!({ "user_id": user, "x25519_public": public }));
+        readers.push(json!({ "user_id": user, "seal_public": public }));
     }
     Ok(serde_json::Value::Array(readers))
 }
@@ -175,7 +175,7 @@ pub fn ensure_key(
 }
 
 /// Seal `key` and `dedup_key` to every recipient and store the copies, then store the signed
-/// recipient list. `user_pub` gives each user's X25519 public key, or `None` if they have none.
+/// recipient list. `user_pub` gives each user's sealing public key (X25519 and ML-KEM), or `None` if they have none.
 pub fn publish_key(
     store: &dyn CloudStore,
     signer: &crypto::Signer,
@@ -183,7 +183,7 @@ pub fn publish_key(
     protection_id: &str,
     key: &BackupKey,
     recipients: &Recipients,
-    user_pub: impl Fn(&str) -> Option<[u8; 32]>,
+    user_pub: impl Fn(&str) -> Option<SealPublic>,
 ) -> Result<()> {
     if key.key.len() != 32 || key.dedup_key.len() != 32 {
         bail!("The backup key is damaged and cannot be shared.");
@@ -226,7 +226,7 @@ pub fn publish_key(
 /// by this Luna is refused before anything is decrypted.
 pub fn open_key(
     record: &[u8],
-    user_secret: &[u8; 32],
+    user_secret: &SealSecret,
     luna_public: &[u8; 32],
     luna_id: &str,
     protection_id: &str,
@@ -305,7 +305,7 @@ fn hex_decode(hex: &str) -> Option<Vec<u8>> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ListedUser {
     pub user_id: String,
-    pub x25519_public: [u8; 32],
+    pub seal_public: SealPublic,
     pub auth_public: [u8; 32],
     /// The browser's sealed copy of the user's signing public key.
     pub self_sealed: Vec<u8>,
@@ -320,8 +320,9 @@ fn user_list_message(luna_id: &str, users_text: &str) -> Vec<u8> {
 }
 
 /// Store the signed list of every user's recovery keys, so a browser on Connect can check it.
-/// `users` holds `(user id, X25519 public key, auth public key, self-sealed signing key)`.
-/// The list is one record, keyed by each user's X25519 public key. Two users may not share one.
+/// `users` holds `(user id, sealing public key, auth public key, self-sealed signing key)`.
+/// The list is one record, keyed by each user's sealing public key (X25519 and ML-KEM together).
+/// Signing the list therefore also signs every ML-KEM key in it. Two users may not share one.
 ///
 /// Connect keeps this record and the next cloud run republishes it, so a failure here is only
 /// a delay, not a loss.
@@ -332,11 +333,11 @@ pub fn publish_user_list(
     users: &[UserListEntry],
 ) -> Result<()> {
     let mut map = serde_json::Map::new();
-    for (user_id, x25519_public, auth_public, self_sealed) in users {
+    for (user_id, seal_public, auth_public, self_sealed) in users {
         if self_sealed.is_empty() {
             bail!("The recovery copy for user {user_id} is empty.");
         }
-        let key = hex_encode(x25519_public);
+        let key = hex_encode(seal_public);
         if map.contains_key(&key) {
             bail!("Two users share the same recovery key.");
         }
@@ -372,7 +373,7 @@ pub fn verify_user_list(bytes: &[u8], public: &[u8; 32], luna_id: &str) -> Optio
     }
     let mut listed = Vec::new();
     for (key, entry) in users_value.as_object()? {
-        let x25519_public: [u8; 32] = hex_decode(key)?.try_into().ok()?;
+        let seal_public: SealPublic = hex_decode(key)?.try_into().ok()?;
         let auth_public: [u8; 32] = hex_decode(entry.get("auth_public")?.as_str()?)?
             .try_into()
             .ok()?;
@@ -382,7 +383,7 @@ pub fn verify_user_list(bytes: &[u8], public: &[u8; 32], luna_id: &str) -> Optio
         }
         listed.push(ListedUser {
             user_id: entry.get("user_id")?.as_str()?.to_string(),
-            x25519_public,
+            seal_public,
             auth_public,
             self_sealed,
         });
@@ -420,7 +421,7 @@ mod tests {
         signer: &crypto::Signer,
         key: &BackupKey,
         recipients: &Recipients,
-        pubs: &HashMap<String, [u8; 32]>,
+        pubs: &HashMap<String, SealPublic>,
     ) -> Result<()> {
         publish_key(store, signer, LUNA, PROTECTION, key, recipients, |u| {
             pubs.get(u).copied()
@@ -473,7 +474,7 @@ mod tests {
         let v1_keys = user_keys("alice");
         let mut alice_row = db::UserKeys {
             user_id: "alice".into(),
-            x25519_public: v1_keys.x25519_public.to_vec(),
+            seal_public: v1_keys.seal_public.to_vec(),
             auth_public: vec![2; 32],
             self_sealed: vec![3; 48],
             phrase_set_at: 5,
@@ -488,8 +489,8 @@ mod tests {
             v1
         );
 
-        // Same user, new phrase (new X25519 key): new version.
-        alice_row.x25519_public = user_keys("alice-new").x25519_public.to_vec();
+        // Same user, new phrase (new sealing key): new version.
+        alice_row.seal_public = user_keys("alice-new").seal_public.to_vec();
         db::set_user_keys(&conn, &alice_row).unwrap();
         let v2 = ensure_key(&conn, PROTECTION, &set(&["alice"]), 30).unwrap();
         assert_eq!(v2.version, 2);
@@ -504,8 +505,8 @@ mod tests {
         let alice = user_keys("alice");
         let bob = user_keys("bob");
         let pubs = HashMap::from([
-            ("alice".to_string(), alice.x25519_public),
-            ("bob".to_string(), bob.x25519_public),
+            ("alice".to_string(), alice.seal_public),
+            ("bob".to_string(), bob.seal_public),
         ]);
 
         let v1_recipients = set(&["alice", "bob"]);
@@ -522,7 +523,7 @@ mod tests {
             .unwrap();
         let (key, dedup) = open_key(
             &sealed,
-            &alice.x25519_secret,
+            &alice.seal_secret,
             &signer.public(),
             LUNA,
             PROTECTION,
@@ -547,7 +548,7 @@ mod tests {
         assert!(
             open_key(
                 &old,
-                &bob.x25519_secret,
+                &bob.seal_secret,
                 &signer.public(),
                 LUNA,
                 PROTECTION,
@@ -560,7 +561,7 @@ mod tests {
         assert!(
             open_key(
                 &old,
-                &bob.x25519_secret,
+                &bob.seal_secret,
                 &signer.public(),
                 LUNA,
                 PROTECTION,
@@ -572,7 +573,7 @@ mod tests {
         assert!(
             open_key(
                 &sealed,
-                &bob.x25519_secret,
+                &bob.seal_secret,
                 &signer.public(),
                 LUNA,
                 PROTECTION,
@@ -589,7 +590,7 @@ mod tests {
         let store = MemoryStore::new();
         let signer = crypto::Signer::generate();
         let alice = user_keys("alice");
-        let pubs = HashMap::from([("alice".to_string(), alice.x25519_public)]);
+        let pubs = HashMap::from([("alice".to_string(), alice.seal_public)]);
         let recipients = set(&["alice"]);
         let key = ensure_key(&conn, PROTECTION, &recipients, 10).unwrap();
         publish(&store, &signer, &key, &recipients, &pubs).unwrap();
@@ -598,7 +599,7 @@ mod tests {
         let open = |bytes: &[u8], public: &[u8; 32]| {
             open_key(
                 bytes,
-                &alice.x25519_secret,
+                &alice.seal_secret,
                 public,
                 LUNA,
                 PROTECTION,
@@ -626,7 +627,7 @@ mod tests {
         let store = MemoryStore::new();
         let signer = crypto::Signer::generate();
         let alice = user_keys("alice");
-        let pubs = HashMap::from([("alice".to_string(), alice.x25519_public)]);
+        let pubs = HashMap::from([("alice".to_string(), alice.seal_public)]);
         let recipients = set(&["alice"]);
         let key = ensure_key(&conn, PROTECTION, &recipients, 10).unwrap();
         publish(&store, &signer, &key, &recipients, &pubs).unwrap();
@@ -681,13 +682,13 @@ mod tests {
         let users = vec![
             (
                 "alice".to_string(),
-                alice.x25519_public,
+                alice.seal_public,
                 alice.auth_public,
                 vec![7u8; 48],
             ),
             (
                 "bob".to_string(),
-                bob.x25519_public,
+                bob.seal_public,
                 bob.auth_public,
                 vec![8u8; 48],
             ),
@@ -701,7 +702,7 @@ mod tests {
         let listed = verify_user_list(&bytes, &signer.public(), LUNA).unwrap();
         assert_eq!(listed.len(), 2);
         assert_eq!(listed[0].user_id, "alice");
-        assert_eq!(listed[0].x25519_public, alice.x25519_public);
+        assert_eq!(listed[0].seal_public, alice.seal_public);
         assert_eq!(listed[0].auth_public, alice.auth_public);
         assert_eq!(listed[0].self_sealed, vec![7u8; 48]);
         assert_eq!(listed[1].user_id, "bob");
@@ -733,13 +734,13 @@ mod tests {
         let users = vec![
             (
                 "alice".to_string(),
-                alice.x25519_public,
+                alice.seal_public,
                 alice.auth_public,
                 vec![7u8; 48],
             ),
             (
                 "alice-again".to_string(),
-                alice.x25519_public,
+                alice.seal_public,
                 alice.auth_public,
                 vec![7u8; 48],
             ),

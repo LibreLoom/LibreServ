@@ -19,6 +19,7 @@ use crate::AppState;
 use crate::api::cloud_backups::connect_store;
 use crate::api::response::json_error;
 use crate::auth::CurrentUser;
+use crate::backup::cloud::crypto::{SEAL_PUBLIC_LEN, SealPublic};
 use crate::backup::cloud::format::Tree;
 use crate::backup::cloud::identity;
 use crate::backup::cloud::private::{PSCOPES_KIND, PSNAPSHOTS_KIND, ScopeRecord, SignedScope};
@@ -30,8 +31,8 @@ use crate::db;
 
 type ApiError = (StatusCode, Json<Value>);
 type ApiResult = Result<Json<Value>, ApiError>;
-/// The signed-in user's x25519 public key and this Luna's signing public key.
-type CallerKeys = ([u8; 32], [u8; 32]);
+/// The signed-in user's sealing public key and this Luna's signing public key.
+type CallerKeys = (SealPublic, [u8; 32]);
 
 /// Most snapshots one private restore may send.
 const MAX_SNAPSHOTS: usize = 10_000;
@@ -140,14 +141,14 @@ fn valid_private_kind(kind: &str) -> Result<(), ApiError> {
 }
 
 /// A key the database holds, as the fixed-size array the crypto code wants.
-fn fixed32(bytes: &[u8]) -> Result<[u8; 32], ApiError> {
-    <[u8; 32]>::try_from(bytes).map_err(|_| read_failed("a stored key has the wrong length"))
+fn fixed<const N: usize>(bytes: &[u8]) -> Result<[u8; N], ApiError> {
+    <[u8; N]>::try_from(bytes).map_err(|_| read_failed("a stored key has the wrong length"))
 }
 
 /// The browser's base64 32-byte key.
 fn decode_key(s: &str) -> Result<[u8; 32], ApiError> {
     match STANDARD.decode(s) {
-        Ok(bytes) => fixed32(&bytes).map_err(|_| unreadable()),
+        Ok(bytes) => fixed::<32>(&bytes).map_err(|_| unreadable()),
         Err(_) => Err(unreadable()),
     }
 }
@@ -176,14 +177,14 @@ fn hex_lower(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// The signed-in user's x25519 key and this Luna's signing key. `None` when the user has no
+/// The signed-in user's sealing key and this Luna's signing key. `None` when the user has no
 /// recovery phrase on this Luna yet.
 fn load_caller(db: &crate::Db, user_id: &str) -> Result<Option<CallerKeys>, ApiError> {
     let conn = db.lock().unwrap_or_else(|p| p.into_inner());
     let Some(keys) = db::get_user_keys(&conn, user_id).map_err(read_failed)? else {
         return Ok(None);
     };
-    let caller = fixed32(&keys.x25519_public)?;
+    let caller = fixed::<SEAL_PUBLIC_LEN>(&keys.seal_public)?;
     let identity = identity::load(&conn).map_err(read_failed)?.ok_or_else(|| {
         json_error(
             StatusCode::CONFLICT,
@@ -219,7 +220,7 @@ fn status_with(
         let conn = db.lock().unwrap_or_else(|p| p.into_inner());
         let keys = db::get_user_keys(&conn, user_id).map_err(read_failed)?;
         let identity = identity::load(&conn).map_err(read_failed)?;
-        let caller = keys.and_then(|k| <[u8; 32]>::try_from(k.x25519_public.as_slice()).ok());
+        let caller = keys.and_then(|k| SealPublic::try_from(k.seal_public.as_slice()).ok());
         match identity {
             Some(id) => (
                 caller,
@@ -283,7 +284,7 @@ async fn records(
 fn records_with_store(
     store: &dyn CloudStore,
     luna_public: &[u8; 32],
-    caller: &[u8; 32],
+    caller: &SealPublic,
     kind: &str,
 ) -> Result<Value, ApiError> {
     valid_private_kind(kind)?;
@@ -345,7 +346,7 @@ async fn pack(
 fn pack_with_store(
     store: &dyn CloudStore,
     luna_public: &[u8; 32],
-    caller: &[u8; 32],
+    caller: &SealPublic,
     id: &str,
 ) -> Result<Vec<u8>, ApiError> {
     let id_bytes = parse_pack_id(id).ok_or_else(pack_missing)?;
@@ -426,7 +427,7 @@ fn restore_with_store(
     store: &dyn CloudStore,
     luna_public: &[u8; 32],
     user_id: &str,
-    caller: &[u8; 32],
+    caller: &SealPublic,
     parsed: Parsed,
     now: i64,
 ) -> Result<usize, ApiError> {
@@ -475,6 +476,8 @@ mod tests {
     use base64::engine::general_purpose::STANDARD;
     use serde_json::{Value, json};
     use tower::ServiceExt;
+
+    use super::SealPublic;
 
     use super::{pack_with_store, records_with_store, status_with};
     use crate::backup::cloud::crypto;
@@ -568,14 +571,14 @@ mod tests {
         identity::load_or_create(&conn, NOW).unwrap()
     }
 
-    /// Give a user a recovery phrase on this Luna: their x25519 public key is stored.
-    fn set_keys(f: &Fixture, user: &str, x25519: &[u8; 32]) {
+    /// Give a user a recovery phrase on this Luna: their sealing public key is stored.
+    fn set_keys(f: &Fixture, user: &str, x25519: &SealPublic) {
         let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
         db::set_user_keys(
             &conn,
             &db::UserKeys {
                 user_id: user.into(),
-                x25519_public: x25519.to_vec(),
+                seal_public: x25519.to_vec(),
                 auth_public: vec![4; 32],
                 self_sealed: vec![1; 8],
                 phrase_set_at: NOW,
@@ -585,11 +588,11 @@ mod tests {
         .unwrap();
     }
 
-    fn scope_for(owner: &str, x25519: &[u8; 32], dedup: [u8; 32]) -> db::PrivateScope {
+    fn scope_for(owner: &str, x25519: &SealPublic, dedup: [u8; 32]) -> db::PrivateScope {
         db::PrivateScope {
             scope: private::scope_of(&dedup).1,
             owner: owner.into(),
-            x25519_public: x25519.to_vec(),
+            seal_public: x25519.to_vec(),
             dedup_key: dedup.to_vec(),
             state: "active".into(),
             retire_after: 0,
@@ -645,9 +648,9 @@ mod tests {
         let f = fixture();
         let id = load_identity(&f);
         let me = crypto::derive(&[7; 16], id.luna_id());
-        set_keys(&f, &f.member_id, &me.x25519_public);
+        set_keys(&f, &f.member_id, &me.seal_public);
         let store = MemoryStore::new();
-        let scope = scope_for(&f.member_id, &me.x25519_public, DEDUP_A);
+        let scope = scope_for(&f.member_id, &me.seal_public, DEDUP_A);
         private::publish_scope(&store, id.signer(), id.luna_id(), &scope, &[4; 32]).unwrap();
 
         let out = status_with(&f.state.db, &f.member_id, Some(&store)).unwrap();
@@ -678,24 +681,23 @@ mod tests {
         let me = crypto::derive(&[7; 16], id.luna_id());
         let other = crypto::derive(&[8; 16], id.luna_id());
         let store = MemoryStore::new();
-        let mine = scope_for(&f.member_id, &me.x25519_public, DEDUP_A);
-        let theirs = scope_for(&f.admin_id, &other.x25519_public, DEDUP_B);
+        let mine = scope_for(&f.member_id, &me.seal_public, DEDUP_A);
+        let theirs = scope_for(&f.admin_id, &other.seal_public, DEDUP_B);
         private::publish_scope(&store, id.signer(), id.luna_id(), &mine, &[4; 32]).unwrap();
         private::publish_scope(&store, id.signer(), id.luna_id(), &theirs, &[5; 32]).unwrap();
         put_private_snapshot(&store, &id, &mine.scope, "snap-1", [5; 32]);
         put_private_snapshot(&store, &id, &theirs.scope, "snap-2", [6; 32]);
         let luna_public = id.public();
 
-        let out =
-            records_with_store(&store, &luna_public, &me.x25519_public, PSCOPES_KIND).unwrap();
+        let out = records_with_store(&store, &luna_public, &me.seal_public, PSCOPES_KIND).unwrap();
         assert_eq!(names(&out), vec![mine.scope.clone()]);
 
         let out =
-            records_with_store(&store, &luna_public, &me.x25519_public, PSNAPSHOTS_KIND).unwrap();
+            records_with_store(&store, &luna_public, &me.seal_public, PSNAPSHOTS_KIND).unwrap();
         assert_eq!(names(&out), vec![format!("{}.snap-1", mine.scope)]);
 
         let refused =
-            records_with_store(&store, &luna_public, &me.x25519_public, "self").unwrap_err();
+            records_with_store(&store, &luna_public, &me.seal_public, "self").unwrap_err();
         assert_eq!(refused.0, StatusCode::BAD_REQUEST);
     }
 
@@ -706,8 +708,8 @@ mod tests {
         let me = crypto::derive(&[7; 16], id.luna_id());
         let other = crypto::derive(&[8; 16], id.luna_id());
         let store = MemoryStore::new();
-        let mine = scope_for(&f.member_id, &me.x25519_public, DEDUP_A);
-        let theirs = scope_for(&f.admin_id, &other.x25519_public, DEDUP_B);
+        let mine = scope_for(&f.member_id, &me.seal_public, DEDUP_A);
+        let theirs = scope_for(&f.admin_id, &other.seal_public, DEDUP_B);
         private::publish_scope(&store, id.signer(), id.luna_id(), &mine, &[4; 32]).unwrap();
         private::publish_scope(&store, id.signer(), id.luna_id(), &theirs, &[5; 32]).unwrap();
         // Pack ids are the hash of their bytes, so the test names each pack by its own hash.
@@ -729,7 +731,7 @@ mod tests {
             .put_pack(&stray_pack, Some(&mine.scope), b"stray")
             .unwrap();
         let luna_public = id.public();
-        let caller = me.x25519_public;
+        let caller = me.seal_public;
 
         let bytes = pack_with_store(&store, &luna_public, &caller, &hex(&mine_pack)).unwrap();
         assert_eq!(bytes, b"mine");

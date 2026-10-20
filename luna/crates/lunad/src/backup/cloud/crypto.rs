@@ -1,6 +1,9 @@
 //! Cloud backup crypto: recovery phrase to keys, sealing to public keys, authenticated
 //! encryption, signatures, and chunk/pack ids. Only well-known crates provide the primitives
-//! (RustCrypto for HKDF, HMAC, SHA-256 and XChaCha20-Poly1305; dalek for X25519 and Ed25519).
+//! (RustCrypto for HKDF, HMAC, SHA-256, XChaCha20-Poly1305 and ML-KEM; dalek for X25519 and Ed25519).
+//!
+//! Sealing is hybrid: a copy opens only with both the X25519 secret and the ML-KEM-768 secret, so
+//! it stays safe if either one is broken later (for example by a quantum computer).
 //! The browser port reads `vectors.json` next to this file, so changing any output here is a
 //! format change.
 
@@ -11,6 +14,8 @@ use chacha20poly1305::{Key, XChaCha20Poly1305, XNonce};
 use ed25519_dalek::{Signature, Signer as _, SigningKey, VerifyingKey};
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
+use ml_kem::kem::{Decapsulate, KeyExport};
+use ml_kem::{B32, DecapsulationKey768, EncapsulationKey768, Seed};
 use rand_core::{OsRng, RngCore};
 use sha2::{Digest, Sha256};
 use x25519_dalek::{PublicKey, StaticSecret};
@@ -20,15 +25,29 @@ const DERIVE_SALT: &[u8] = b"luna-backup-v1";
 /// Prefix for the bytes a signature covers, so a signature for one purpose never passes for another.
 const SIG_PREFIX: &[u8] = b"luna-sig-v1\0";
 /// HKDF label for the key that seals a copy to a user's public key.
-const SEAL_INFO: &[u8] = b"luna-seal-v1";
+const SEAL_INFO: &[u8] = b"luna-seal-v2";
 const NONCE_LEN: usize = 24;
 const TAG_LEN: usize = 16;
-const PUBLIC_LEN: usize = 32;
+/// X25519 public key length.
+const X25519_LEN: usize = 32;
+/// ML-KEM-768 encapsulation (public) key length.
+const MLKEM_PUBLIC_LEN: usize = 1184;
+/// ML-KEM-768 ciphertext length.
+const MLKEM_CT_LEN: usize = 1088;
+/// ML-KEM-768 key seed length (FIPS 203 `d` then `z`).
+const MLKEM_SEED_LEN: usize = 64;
+/// A user's public sealing key: X25519 public key (32) ‖ ML-KEM-768 encapsulation key (1184).
+pub const SEAL_PUBLIC_LEN: usize = X25519_LEN + MLKEM_PUBLIC_LEN;
+/// A user's secret sealing key: clamped X25519 secret (32) ‖ ML-KEM-768 seed (64).
+pub const SEAL_SECRET_LEN: usize = X25519_LEN + MLKEM_SEED_LEN;
+
+pub type SealPublic = [u8; SEAL_PUBLIC_LEN];
+pub type SealSecret = [u8; SEAL_SECRET_LEN];
 
 /// Keys derived from one recovery phrase and one Luna id.
 pub struct UserKeys {
-    pub x25519_secret: [u8; 32],
-    pub x25519_public: [u8; 32],
+    pub seal_secret: SealSecret,
+    pub seal_public: SealPublic,
     pub self_key: [u8; 32],
     pub auth_secret: [u8; 32],
     pub auth_public: [u8; 32],
@@ -43,16 +62,35 @@ fn derive_info(label: &[u8], luna_id: &str) -> Vec<u8> {
     info
 }
 
-fn hkdf_32(ikm: &[u8], salt: Option<&[u8]>, info: &[u8]) -> [u8; 32] {
+fn hkdf_n<const N: usize>(ikm: &[u8], salt: Option<&[u8]>, info: &[u8]) -> [u8; N] {
     let hk = Hkdf::<Sha256>::new(salt, ikm);
-    let mut out = [0u8; 32];
-    // 32 bytes is always a valid output length for HKDF-SHA256.
+    let mut out = [0u8; N];
+    // HKDF-SHA256 allows up to 8160 bytes of output; every caller asks for 64 or fewer.
     hk.expand(info, &mut out)
-        .expect("32 bytes is a valid HKDF-SHA256 output length");
+        .expect("output length is within the HKDF-SHA256 limit");
     out
 }
 
+fn hkdf_32(ikm: &[u8], salt: Option<&[u8]>, info: &[u8]) -> [u8; 32] {
+    hkdf_n::<32>(ikm, salt, info)
+}
+
+/// The ML-KEM-768 key for a 64-byte seed.
+fn mlkem_key(seed: &[u8; MLKEM_SEED_LEN]) -> DecapsulationKey768 {
+    DecapsulationKey768::from_seed(Seed::from(*seed))
+}
+
+/// Split a public sealing key into its X25519 and ML-KEM halves.
+fn split_public(public: &SealPublic) -> (&[u8; X25519_LEN], &[u8; MLKEM_PUBLIC_LEN]) {
+    let (x, k) = public.split_at(X25519_LEN);
+    (
+        x.try_into().expect("first half is X25519_LEN bytes"),
+        k.try_into().expect("second half is MLKEM_PUBLIC_LEN bytes"),
+    )
+}
+
 /// Derive the user's keys from the 16 bytes of recovery phrase entropy.
+/// Every key comes from the same entropy, so the phrase's 128 bits cap the strength of all of them.
 pub fn derive(entropy: &[u8; 16], luna_id: &str) -> UserKeys {
     let mut x25519_secret = hkdf_32(entropy, Some(DERIVE_SALT), &derive_info(b"x25519", luna_id));
     // Clamp as X25519 does, so the stored secret and its public key always agree.
@@ -60,6 +98,16 @@ pub fn derive(entropy: &[u8; 16], luna_id: &str) -> UserKeys {
     x25519_secret[31] &= 127;
     x25519_secret[31] |= 64;
     let x25519_public = PublicKey::from(&StaticSecret::from(x25519_secret)).to_bytes();
+    let mlkem_seed =
+        hkdf_n::<MLKEM_SEED_LEN>(entropy, Some(DERIVE_SALT), &derive_info(b"mlkem", luna_id));
+    let mlkem_public = mlkem_key(&mlkem_seed).encapsulation_key().to_bytes();
+
+    let mut seal_secret = [0u8; SEAL_SECRET_LEN];
+    seal_secret[..X25519_LEN].copy_from_slice(&x25519_secret);
+    seal_secret[X25519_LEN..].copy_from_slice(&mlkem_seed);
+    let mut seal_public = [0u8; SEAL_PUBLIC_LEN];
+    seal_public[..X25519_LEN].copy_from_slice(&x25519_public);
+    seal_public[X25519_LEN..].copy_from_slice(&mlkem_public);
 
     let self_key = hkdf_32(entropy, Some(DERIVE_SALT), &derive_info(b"self", luna_id));
 
@@ -69,8 +117,8 @@ pub fn derive(entropy: &[u8; 16], luna_id: &str) -> UserKeys {
         .to_bytes();
 
     UserKeys {
-        x25519_secret,
-        x25519_public,
+        seal_secret,
+        seal_public,
         self_key,
         auth_secret,
         auth_public,
@@ -78,83 +126,140 @@ pub fn derive(entropy: &[u8; 16], luna_id: &str) -> UserKeys {
 }
 
 /// Seal `msg` so only the holder of the secret half of `recipient_public` can open it.
-/// Layout: ephemeral public key (32) ‖ nonce (24) ‖ ciphertext and tag.
-pub fn seal(recipient_public: &[u8; 32], aad: &[u8], msg: &[u8]) -> Result<Vec<u8>> {
+/// Layout: ephemeral X25519 public key (32) ‖ ML-KEM ciphertext (1088) ‖ nonce (24) ‖ ciphertext and tag.
+pub fn seal(recipient_public: &SealPublic, aad: &[u8], msg: &[u8]) -> Result<Vec<u8>> {
     let mut eph_secret = [0u8; 32];
     OsRng.fill_bytes(&mut eph_secret);
+    let mut m = [0u8; 32];
+    OsRng.fill_bytes(&mut m);
     let mut nonce = [0u8; NONCE_LEN];
     OsRng.fill_bytes(&mut nonce);
-    seal_inner(eph_secret, nonce, recipient_public, aad, msg)
+    seal_inner(eph_secret, m, nonce, recipient_public, aad, msg)
 }
 
-/// Check that a recipient public key is not a low-order point. Such a key makes every
-/// shared secret the same (all zeros), so anything sealed to it could be opened by anyone.
-pub fn check_public_key(public: &[u8; 32]) -> Result<()> {
+/// Check that a recipient public key is usable: its X25519 half is not a low-order point (such a
+/// key makes every shared secret the same, so anything sealed to it could be opened by anyone),
+/// and its ML-KEM half passes the FIPS 203 encapsulation key check.
+pub fn check_public_key(public: &SealPublic) -> Result<()> {
+    let (x, k) = split_public(public);
     // Multiplying a low-order point by a clamped scalar gives the identity (all zeros).
     let probe = StaticSecret::from([0x42u8; 32]);
     if !probe
-        .diffie_hellman(&PublicKey::from(*public))
+        .diffie_hellman(&PublicKey::from(*x))
         .was_contributory()
     {
-        bail!("This recovery key is not valid. Set up the recovery phrase again.");
+        bail!("{BAD_KEY}");
     }
+    EncapsulationKey768::new(&(*k).into()).map_err(|_| anyhow::anyhow!("{BAD_KEY}"))?;
     Ok(())
 }
 
-/// `seal` with the ephemeral secret and nonce supplied by the caller (used by the vectors).
+const BAD_KEY: &str = "This recovery key is not valid. Set up the recovery phrase again.";
+
+/// `seal` with the ephemeral secret, ML-KEM message and nonce supplied by the caller (used by the vectors).
 fn seal_inner(
     eph_secret: [u8; 32],
+    m: [u8; 32],
     nonce: [u8; NONCE_LEN],
-    recipient_public: &[u8; 32],
+    recipient_public: &SealPublic,
     aad: &[u8],
     msg: &[u8],
 ) -> Result<Vec<u8>> {
+    check_public_key(recipient_public)?;
+    let (x_public, k_public) = split_public(recipient_public);
+
     let eph = StaticSecret::from(eph_secret);
     let eph_public = PublicKey::from(&eph).to_bytes();
-    let shared = eph.diffie_hellman(&PublicKey::from(*recipient_public));
-    // A low-order recipient key gives an all-zero shared secret. Refuse to seal to it.
-    if !shared.was_contributory() {
-        bail!("This recovery key is not valid. Set up the recovery phrase again.");
+    let shared_x = eph.diffie_hellman(&PublicKey::from(*x_public));
+    if !shared_x.was_contributory() {
+        bail!("{BAD_KEY}");
     }
-    let key = seal_key(shared.as_bytes(), &eph_public, recipient_public);
+    let ek =
+        EncapsulationKey768::new(&(*k_public).into()).map_err(|_| anyhow::anyhow!("{BAD_KEY}"))?;
+    let (mlkem_ct, shared_k) = ek.encapsulate_deterministic(&B32::from(m));
+    let key = seal_key(
+        shared_x.as_bytes(),
+        shared_k.as_slice(),
+        &eph_public,
+        recipient_public,
+        mlkem_ct.as_slice(),
+    );
 
-    let mut out = Vec::with_capacity(PUBLIC_LEN + NONCE_LEN + msg.len() + TAG_LEN);
+    let mut out = Vec::with_capacity(X25519_LEN + MLKEM_CT_LEN + NONCE_LEN + msg.len() + TAG_LEN);
     out.extend_from_slice(&eph_public);
+    out.extend_from_slice(mlkem_ct.as_slice());
     out.extend_from_slice(&nonce);
     out.extend_from_slice(&aead_encrypt(&key, &nonce, aad, msg));
     Ok(out)
 }
 
-/// Open a sealed copy with the recipient's X25519 secret.
-pub fn open(secret: &[u8; 32], aad: &[u8], sealed: &[u8]) -> Result<Vec<u8>> {
-    if sealed.len() < PUBLIC_LEN + NONCE_LEN + TAG_LEN {
+/// Open a sealed copy with the recipient's secret sealing key.
+pub fn open(secret: &SealSecret, aad: &[u8], sealed: &[u8]) -> Result<Vec<u8>> {
+    const HEAD: usize = X25519_LEN + MLKEM_CT_LEN + NONCE_LEN;
+    if sealed.len() < HEAD + TAG_LEN {
         bail!("This sealed copy is too short to be valid.");
     }
-    let mut eph_public = [0u8; PUBLIC_LEN];
-    eph_public.copy_from_slice(&sealed[..PUBLIC_LEN]);
-    let nonce: [u8; NONCE_LEN] = sealed[PUBLIC_LEN..PUBLIC_LEN + NONCE_LEN]
+    let eph_public: [u8; X25519_LEN] = sealed[..X25519_LEN]
+        .try_into()
+        .expect("slice has X25519_LEN bytes");
+    let mlkem_ct = &sealed[X25519_LEN..X25519_LEN + MLKEM_CT_LEN];
+    let nonce: [u8; NONCE_LEN] = sealed[X25519_LEN + MLKEM_CT_LEN..HEAD]
         .try_into()
         .expect("slice has NONCE_LEN bytes");
-    let body = &sealed[PUBLIC_LEN + NONCE_LEN..];
+    let body = &sealed[HEAD..];
 
-    let secret = StaticSecret::from(*secret);
-    let recipient_public = PublicKey::from(&secret).to_bytes();
-    let shared = secret.diffie_hellman(&PublicKey::from(eph_public));
-    if !shared.was_contributory() {
+    let x_secret = StaticSecret::from(
+        <[u8; X25519_LEN]>::try_from(&secret[..X25519_LEN])
+            .expect("first half is X25519_LEN bytes"),
+    );
+    let seed: [u8; MLKEM_SEED_LEN] = secret[X25519_LEN..]
+        .try_into()
+        .expect("second half is MLKEM_SEED_LEN bytes");
+    let dk = mlkem_key(&seed);
+
+    let mut recipient_public = [0u8; SEAL_PUBLIC_LEN];
+    recipient_public[..X25519_LEN].copy_from_slice(PublicKey::from(&x_secret).as_bytes());
+    recipient_public[X25519_LEN..].copy_from_slice(&dk.encapsulation_key().to_bytes());
+
+    let shared_x = x_secret.diffie_hellman(&PublicKey::from(eph_public));
+    if !shared_x.was_contributory() {
         bail!("This sealed copy is not valid.");
     }
-    let key = seal_key(shared.as_bytes(), &eph_public, &recipient_public);
+    let ct = ml_kem::kem::Ciphertext::<ml_kem::MlKem768>::try_from(mlkem_ct)
+        .map_err(|_| anyhow::anyhow!("This sealed copy is not valid."))?;
+    // ML-KEM never fails here: a wrong ciphertext gives an unrelated secret and the open fails below.
+    let shared_k = dk.decapsulate(&ct);
+    let key = seal_key(
+        shared_x.as_bytes(),
+        shared_k.as_slice(),
+        &eph_public,
+        &recipient_public,
+        mlkem_ct,
+    );
     aead_decrypt(&key, &nonce, aad, body)
         .map_err(|_| anyhow::anyhow!("This sealed copy could not be opened. It was changed, or it was sealed to a different key."))
 }
 
-/// HKDF over the X25519 shared secret, bound to both public keys.
-fn seal_key(shared: &[u8; 32], eph_public: &[u8; 32], recipient_public: &[u8; 32]) -> [u8; 32] {
-    let mut info = Vec::with_capacity(SEAL_INFO.len() + 2 * PUBLIC_LEN);
+/// HKDF over both shared secrets, bound to the ephemeral key, the ML-KEM ciphertext and the
+/// recipient's whole public key (the ML-KEM half by its SHA-256).
+fn seal_key(
+    shared_x: &[u8; 32],
+    shared_k: &[u8],
+    eph_public: &[u8; X25519_LEN],
+    recipient_public: &SealPublic,
+    mlkem_ct: &[u8],
+) -> [u8; 32] {
+    let (recipient_x, recipient_k) = split_public(recipient_public);
+    let mut ikm = Vec::with_capacity(64);
+    ikm.extend_from_slice(shared_x);
+    ikm.extend_from_slice(shared_k);
+    let mut info = Vec::with_capacity(SEAL_INFO.len() + 2 * X25519_LEN + MLKEM_CT_LEN + 32);
     info.extend_from_slice(SEAL_INFO);
     info.extend_from_slice(eph_public);
-    info.extend_from_slice(recipient_public);
-    hkdf_32(shared, None, &info)
+    info.extend_from_slice(recipient_x);
+    info.extend_from_slice(mlkem_ct);
+    info.extend_from_slice(&Sha256::digest(recipient_k));
+    hkdf_32(&ikm, None, &info)
 }
 
 /// Encrypt with a random nonce. Layout: nonce (24) ‖ ciphertext and tag.
@@ -336,9 +441,10 @@ mod tests {
         let keys = derive(&entropy(), LUNA_ID);
         let signer = Signer::from_seed(std::array::from_fn(|i| 0x40 + i as u8));
         let dedup_key = [0xa5u8; 32];
-        let recipient_public = keys.x25519_public;
+        let recipient_public = keys.seal_public;
         let sealed = seal_inner(
             [0x11; 32],
+            [0x55; 32],
             [0x22; NONCE_LEN],
             &recipient_public,
             b"aad",
@@ -361,8 +467,8 @@ mod tests {
             "entropy": hex(&entropy()),
             "luna_id": LUNA_ID,
             "phrase": entropy_to_phrase(&entropy()),
-            "x25519_secret": hex(&keys.x25519_secret),
-            "x25519_public": hex(&keys.x25519_public),
+            "seal_secret": hex(&keys.seal_secret),
+            "seal_public": hex(&keys.seal_public),
             "self_key": hex(&keys.self_key),
             "auth_secret": hex(&keys.auth_secret),
             "auth_public": hex(&keys.auth_public),
@@ -374,6 +480,7 @@ mod tests {
             "signature": hex(&signer.sign("snapshot", record)),
             "seal": {
                 "ephemeral_secret": hex(&[0x11; 32]),
+                "mlkem_message": hex(&[0x55; 32]),
                 "nonce": hex(&[0x22; NONCE_LEN]),
                 "aad": hex(b"aad"),
                 "msg": hex(b"backup key bytes"),
@@ -408,57 +515,92 @@ mod tests {
     fn derive_is_deterministic_and_bound_to_luna_id() {
         let a = derive(&entropy(), LUNA_ID);
         let b = derive(&entropy(), LUNA_ID);
-        assert_eq!(a.x25519_public, b.x25519_public);
+        assert_eq!(a.seal_public, b.seal_public);
         assert_eq!(a.self_key, b.self_key);
         let other = derive(&entropy(), "luna-test-2");
-        assert_ne!(a.x25519_public, other.x25519_public);
+        assert_ne!(a.seal_public, other.seal_public);
         assert_ne!(a.self_key, other.self_key);
         assert_ne!(a.auth_public, other.auth_public);
     }
 
     #[test]
-    fn x25519_secret_is_clamped() {
+    fn seal_secret_is_clamped() {
         let k = derive(&entropy(), LUNA_ID);
-        assert_eq!(k.x25519_secret[0] & 7, 0);
-        assert_eq!(k.x25519_secret[31] & 0x80, 0);
-        assert_eq!(k.x25519_secret[31] & 0x40, 0x40);
+        assert_eq!(k.seal_secret[0] & 7, 0);
+        assert_eq!(k.seal_secret[31] & 0x80, 0);
+        assert_eq!(k.seal_secret[31] & 0x40, 0x40);
     }
 
     #[test]
     fn seal_open_round_trip() {
         let k = derive(&entropy(), LUNA_ID);
-        let sealed = seal(&k.x25519_public, b"aad", b"hello").unwrap();
-        assert_eq!(open(&k.x25519_secret, b"aad", &sealed).unwrap(), b"hello");
+        let sealed = seal(&k.seal_public, b"aad", b"hello").unwrap();
+        assert_eq!(open(&k.seal_secret, b"aad", &sealed).unwrap(), b"hello");
     }
 
     #[test]
     fn seal_refuses_low_order_recipient_keys() {
+        let k = derive(&entropy(), LUNA_ID);
         // All zeros is the identity point, and so is the order-2 point u = 1.
         for low_order in [[0u8; 32], {
             let mut one = [0u8; 32];
             one[0] = 1;
             one
         }] {
-            assert!(seal(&low_order, b"aad", b"key").is_err());
-            assert!(check_public_key(&low_order).is_err());
+            let mut bad = k.seal_public;
+            bad[..32].copy_from_slice(&low_order);
+            assert!(seal(&bad, b"aad", b"key").is_err());
+            assert!(check_public_key(&bad).is_err());
         }
+        assert!(check_public_key(&k.seal_public).is_ok());
+        assert!(seal(&k.seal_public, b"aad", b"key").is_ok());
+    }
+
+    #[test]
+    fn seal_refuses_an_invalid_mlkem_public_key() {
         let k = derive(&entropy(), LUNA_ID);
-        assert!(check_public_key(&k.x25519_public).is_ok());
-        assert!(seal(&k.x25519_public, b"aad", b"key").is_ok());
+        // A coefficient of 0xfff is not below the modulus, so FIPS 203 rejects the key.
+        let mut bad = k.seal_public;
+        bad[32] = 0xff;
+        bad[33] |= 0x0f;
+        assert!(check_public_key(&bad).is_err());
+        assert!(seal(&bad, b"aad", b"key").is_err());
+    }
+
+    #[test]
+    fn a_copy_needs_both_secrets_to_open() {
+        let k = derive(&entropy(), LUNA_ID);
+        let other = derive(&[9u8; 16], LUNA_ID);
+        let sealed = seal(&k.seal_public, b"aad", b"hello").unwrap();
+        // Right X25519 secret with someone else's ML-KEM seed, and the other way round.
+        let mut only_x = k.seal_secret;
+        only_x[32..].copy_from_slice(&other.seal_secret[32..]);
+        let mut only_k = other.seal_secret;
+        only_k[32..].copy_from_slice(&k.seal_secret[32..]);
+        assert!(open(&only_x, b"aad", &sealed).is_err());
+        assert!(open(&only_k, b"aad", &sealed).is_err());
+        assert_eq!(open(&k.seal_secret, b"aad", &sealed).unwrap(), b"hello");
+    }
+
+    #[test]
+    fn sealed_copy_has_the_documented_layout() {
+        let k = derive(&entropy(), LUNA_ID);
+        let sealed = seal(&k.seal_public, b"aad", b"hello").unwrap();
+        assert_eq!(sealed.len(), 32 + 1088 + 24 + 5 + 16);
     }
 
     #[test]
     fn open_rejects_wrong_key_aad_and_tampering() {
         let k = derive(&entropy(), LUNA_ID);
         let other = derive(&[9u8; 16], LUNA_ID);
-        let sealed = seal(&k.x25519_public, b"aad", b"hello").unwrap();
-        assert!(open(&other.x25519_secret, b"aad", &sealed).is_err());
-        assert!(open(&k.x25519_secret, b"other", &sealed).is_err());
+        let sealed = seal(&k.seal_public, b"aad", b"hello").unwrap();
+        assert!(open(&other.seal_secret, b"aad", &sealed).is_err());
+        assert!(open(&k.seal_secret, b"other", &sealed).is_err());
         let mut tampered = sealed.clone();
         let last = tampered.len() - 1;
         tampered[last] ^= 1;
-        assert!(open(&k.x25519_secret, b"aad", &tampered).is_err());
-        assert!(open(&k.x25519_secret, b"aad", &sealed[..10]).is_err());
+        assert!(open(&k.seal_secret, b"aad", &tampered).is_err());
+        assert!(open(&k.seal_secret, b"aad", &sealed[..10]).is_err());
     }
 
     #[test]

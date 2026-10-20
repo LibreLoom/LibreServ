@@ -133,9 +133,9 @@ export function verifyRecipients(bytes, signingPublic, lunaId, protectionId, ver
 }
 
 /**
- * Check a key copy's signature, then open it with this user's X25519 secret.
+ * Check a key copy's signature, then open it with this user's secret sealing key.
  * @param {Uint8Array} record sealed bytes followed by the 64-byte signature
- * @param {Uint8Array} x25519Secret
+ * @param {Uint8Array} sealSecret
  * @param {Uint8Array} signingPublic
  * @param {string} lunaId
  * @param {string} protectionId
@@ -143,7 +143,7 @@ export function verifyRecipients(bytes, signingPublic, lunaId, protectionId, ver
  * @param {string} userId
  * @returns {{ key: Uint8Array, dedupKey: Uint8Array } | null}
  */
-export function openKeyCopy(record, x25519Secret, signingPublic, lunaId, protectionId, version, userId) {
+export function openKeyCopy(record, sealSecret, signingPublic, lunaId, protectionId, version, userId) {
 	if (record.length <= SIG_LEN) return null;
 	const sealed = record.slice(0, record.length - SIG_LEN);
 	const sig = record.slice(record.length - SIG_LEN);
@@ -154,7 +154,7 @@ export function openKeyCopy(record, x25519Secret, signingPublic, lunaId, protect
 	]);
 	if (!verify(signingPublic, 'key-copy', msg, sig)) return null;
 	try {
-		const plain = open(x25519Secret, aad, sealed);
+		const plain = open(sealSecret, aad, sealed);
 		if (plain.length !== 2 * KEY_LEN) return null;
 		return { key: plain.slice(0, KEY_LEN), dedupKey: plain.slice(KEY_LEN) };
 	} catch {
@@ -233,7 +233,7 @@ export function findMyKeys({ lunaId, entropy, self, recipients, keys, pscopes = 
 			if (!data) continue;
 			let opened = null;
 			for (const pub of signingPublics) {
-				opened = openKeyCopy(data, k.x25519Secret, pub, lunaId, protectionId, version, uid);
+				opened = openKeyCopy(data, k.sealSecret, pub, lunaId, protectionId, version, uid);
 				if (opened) break;
 			}
 			if (opened) {
