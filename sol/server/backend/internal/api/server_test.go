@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"net/http"
@@ -9,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	handlersauth "gt.plainskill.net/LibreLoom/Sol/internal/api/handlers/auth"
+	"gt.plainskill.net/LibreLoom/Sol/internal/api/middleware"
 	"gt.plainskill.net/LibreLoom/Sol/internal/apps"
 	"gt.plainskill.net/LibreLoom/Sol/internal/auth"
 	"gt.plainskill.net/LibreLoom/Sol/internal/config"
@@ -49,16 +52,18 @@ func TestNewServerRouterSmoke(t *testing.T) {
 	if err != nil {
 		t.Fatalf("apps manager: %v", err)
 	}
+	oidcHandler := handlersauth.NewOIDCHandler(db, manager, authSvc, "https://issuer.example.test", logger)
 
 	srv := NewServer(ServerConfig{
-		Host:            "127.0.0.1",
-		Port:            0,
-		DevMode:         true,
-		DB:              db,
-		AppManager:      manager,
-		AuthService:     authSvc,
-		SetupService:    setupSvc,
-		SettingsService: settingsSvc,
+		Host:             "127.0.0.1",
+		Port:             0,
+		DevMode:          true,
+		DB:               db,
+		AppManager:       manager,
+		AuthService:      authSvc,
+		SetupService:     setupSvc,
+		SettingsService:  settingsSvc,
+		OIDCAdminHandler: oidcHandler,
 	})
 	if srv == nil || srv.Router() == nil {
 		t.Fatal("expected server and router")
@@ -91,6 +96,34 @@ func TestNewServerRouterSmoke(t *testing.T) {
 		srv.Router().ServeHTTP(rec, req)
 		if rec.Code >= 500 {
 			t.Fatalf("POST %s => %d %s", path, rec.Code, rec.Body.String())
+		}
+	}
+
+	// Who may open an app is an Admin's job. A plain account must not be
+	// able to grant itself access, nor read the access list.
+	plainUser := context.WithValue(context.Background(), middleware.UserContextKey, &middleware.User{
+		ID:       "user-1",
+		Username: "lin",
+		Role:     "user",
+	})
+	for _, tc := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/api/v1/apps/app-1/oidc"},
+		{http.MethodGet, "/api/v1/apps/app-1/oidc/access"},
+		{http.MethodPost, "/api/v1/apps/app-1/oidc/access"},
+		{http.MethodDelete, "/api/v1/apps/app-1/oidc/access/user-1"},
+		{http.MethodGet, "/api/v1/apps/app-1/oidc/restricted"},
+		{http.MethodPut, "/api/v1/apps/app-1/oidc/restricted"},
+	} {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(`{"user_id":"user-1"}`))
+		req.Header.Set("Content-Type", "application/json")
+		req = req.WithContext(plainUser)
+		srv.Router().ServeHTTP(rec, req)
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("%s %s => %d, want 403", tc.method, tc.path, rec.Code)
 		}
 	}
 }

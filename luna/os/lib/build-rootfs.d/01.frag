@@ -152,7 +152,10 @@ start_pre() {
         eerror "Check that the data partition exists and is labelled LUNA_DATA"
         return 1
     fi
-    mkdir -p /var/lib/luna/logs
+    # The data dir holds the device token, the signing key, and the database.
+    # Create it owner-only, the way lunad itself insists on.
+    mkdir -m 0700 -p /var/lib/luna/logs
+    chmod 0700 /var/lib/luna /var/lib/luna/logs
 }
 INIT
 chmod +x "$ROOTFS/etc/init.d/luna"

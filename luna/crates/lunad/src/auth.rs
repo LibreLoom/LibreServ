@@ -143,6 +143,21 @@ impl AuthService {
         password: &str,
         requested_role: &str,
     ) -> Result<UserRow, AuthError> {
+        self.register_with_breach_check(username, display_name, password, requested_role)
+            .map(|(user, _)| user)
+    }
+
+    /// Create a user and say whether the breach service could answer.
+    ///
+    /// A service that cannot answer leaves the password unchecked — the
+    /// caller reports that instead of letting it pass silently.
+    pub fn register_with_breach_check(
+        &self,
+        username: &str,
+        display_name: &str,
+        password: &str,
+        requested_role: &str,
+    ) -> Result<(UserRow, crate::hibp::BreachCheck), AuthError> {
         let username = normalize_username(username)?;
         let display_name = display_name.trim();
         if display_name.is_empty() || display_name.len() > 80 {
@@ -151,8 +166,11 @@ impl AuthService {
         if let Err(err) = crate::password::validate_password(password) {
             return Err(AuthError::PasswordPolicy(err.message().into()));
         }
-        if let Err(err) = crate::hibp::ensure_password_not_breached(password) {
-            return Err(AuthError::PasswordPolicy(err.message().into()));
+        let breach = crate::hibp::check_password_breach(password);
+        if breach == crate::hibp::BreachCheck::Breached {
+            return Err(AuthError::PasswordPolicy(
+                crate::hibp::BREACHED_PASSWORD_MESSAGE.into(),
+            ));
         }
 
         let conn = self
@@ -177,11 +195,12 @@ impl AuthService {
         let id = Uuid::new_v4().to_string();
         db::insert_user(&conn, &id, &username, display_name, &hash, &role)
             .map_err(AuthError::Db)?;
-        db::get_user(&conn, &id)
+        let user = db::get_user(&conn, &id)
             .map_err(AuthError::Db)?
             .ok_or(AuthError::Db(anyhow::anyhow!(
                 "user not found after insert"
-            )))
+            )))?;
+        Ok((user, breach))
     }
 
     pub fn login(&self, username: &str, password: &str) -> Result<(UserRow, String), AuthError> {
@@ -552,8 +571,10 @@ impl AuthService {
         if let Err(err) = crate::password::validate_password(password) {
             return Err(AuthError::PasswordPolicy(err.message().into()));
         }
-        if let Err(err) = crate::hibp::ensure_password_not_breached(password) {
-            return Err(AuthError::PasswordPolicy(err.message().into()));
+        if crate::hibp::check_password_breach(password) == crate::hibp::BreachCheck::Breached {
+            return Err(AuthError::PasswordPolicy(
+                crate::hibp::BREACHED_PASSWORD_MESSAGE.into(),
+            ));
         }
         let hash = hash_password(password)?;
         let conn = self

@@ -96,6 +96,11 @@ func main() {
 		slog.Error("failed to initialize secrets", "error", err)
 		os.Exit(1)
 	}
+	// Refuse weak secrets before opening the database or starting background work.
+	if err := ensureStrongCSRFSecret(cfg); err != nil {
+		slog.Error(err.Error())
+		os.Exit(1)
+	}
 
 	db, err := database.Open(cfg.Database.Path)
 	if err != nil {
@@ -641,6 +646,18 @@ func main() {
 		_ = setupPortal.Stop()
 	}
 	_ = runtimeClient.Close()
+}
+
+// ensureStrongCSRFSecret refuses a CSRF secret too short to sign tokens with.
+// It runs after ensureSecrets, so a secret Sol generated itself always passes.
+func ensureStrongCSRFSecret(cfg *config.Config) error {
+	if err := security.ValidateCSRFSecret(cfg.Auth.CSRFSecret); err != nil {
+		return fmt.Errorf(
+			"auth.csrf_secret is too weak — every request that changes something is signed with it. Set SOL_AUTH_CSRF_SECRET or auth.csrf_secret in config to a random value of at least 32 bytes (openssl rand -hex 32): %w",
+			err,
+		)
+	}
+	return nil
 }
 
 // ensureSecrets autogenerates JWT/CSRF/cloud-encryption secrets if missing and persists them.
