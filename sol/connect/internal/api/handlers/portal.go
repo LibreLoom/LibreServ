@@ -1133,6 +1133,20 @@ func (h *PortalHandler) activeSubscriptionInfo(ctx context.Context, deviceID str
 	return info
 }
 
+// deviceOwnedBy verifies the device exists and belongs to the given account.
+func (h *PortalHandler) deviceOwnedBy(ctx context.Context, deviceID, accountID string) error {
+	var owner string
+	err := h.db.QueryRowContext(ctx,
+		"SELECT account_id FROM devices WHERE id = $1", deviceID).Scan(&owner)
+	if err != nil {
+		return err
+	}
+	if owner != accountID {
+		return fmt.Errorf("device %s belongs to account %s, not %s", deviceID, owner, accountID)
+	}
+	return nil
+}
+
 // Subscribe creates a subscription for a device.
 func (h *PortalHandler) Subscribe(w http.ResponseWriter, r *http.Request) {
 	accountID := middleware.GetCustomerDeviceID(r.Context())
@@ -1150,6 +1164,15 @@ func (h *PortalHandler) Subscribe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Paid plans go through Stripe checkout (the plan-change flow when an
+	// active subscription already exists) — they are never granted directly
+	// by this endpoint. When Stripe is disabled (self-hosted or dev), the
+	// plan applies locally like it does in checkout's direct path.
+	if catalog.IsPaidPlan(req.PlanID) && config.C.Stripe.Enabled {
+		JSONError(w, http.StatusBadRequest, "choose this plan from the Plans page, where payment is set up first")
+		return
+	}
+
 	deviceID := req.DeviceID
 	if deviceID == "" {
 		err := h.db.QueryRowContext(r.Context(),
@@ -1158,6 +1181,14 @@ func (h *PortalHandler) Subscribe(w http.ResponseWriter, r *http.Request) {
 			JSONError(w, http.StatusBadRequest, "no device linked to your account")
 			return
 		}
+	}
+
+	// A subscription only ever applies to one of the signed-in account's own
+	// devices — a caller-supplied device_id that belongs to another account
+	// must not change that account's plan.
+	if err := h.deviceOwnedBy(r.Context(), deviceID, accountID); err != nil {
+		JSONError(w, http.StatusBadRequest, "that device is not on your account")
+		return
 	}
 
 	_, err := h.db.ExecContext(r.Context(),
@@ -1295,6 +1326,13 @@ func (h *PortalHandler) ChangePlan(w http.ResponseWriter, r *http.Request) {
 			JSONError(w, http.StatusBadRequest, "no device linked to your account")
 			return
 		}
+	}
+
+	// A plan change reaches another account's subscription and Stripe price
+	// otherwise — the target device must belong to the signed-in account.
+	if err := h.deviceOwnedBy(r.Context(), deviceID, accountID); err != nil {
+		JSONError(w, http.StatusBadRequest, "that device is not on your account")
+		return
 	}
 
 	// If the target plan is paid and Stripe is enabled, we need a checkout session
