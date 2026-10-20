@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -10,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	handlersauth "gt.plainskill.net/LibreLoom/Sol/internal/api/handlers/auth"
@@ -26,118 +26,102 @@ import (
 
 // The Prometheus collectors are registered on the default registry, so a test
 // binary may build only ONE server. Every test in this package therefore
-// shares the one that TestMain builds.
-//
-// TestMain owns it because the fixture outlives any single test: a
-// t.Cleanup would belong to whichever test happened to build the fixture,
-// and that test's end would delete the folders while the other tests were
-// still using them.
+// shares this one.
 var (
-	sharedRouter http.Handler
-	sharedAuth   *auth.Service
+	sharedServerOnce sync.Once
+	sharedRouter     http.Handler
+	sharedAuth       *auth.Service
+	sharedDB         *database.DB
 )
-
-func TestMain(m *testing.M) {
-	code, err := runTests(m)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "test fixture: %v\n", err)
-		os.Exit(1)
-	}
-	os.Exit(code)
-}
-
-// runTests builds the shared server, runs the tests, and tears the fixture
-// down.
-func runTests(m *testing.M) (int, error) {
-	dir, err := os.MkdirTemp("", "sol-api-test")
-	if err != nil {
-		return 0, fmt.Errorf("temp dir: %w", err)
-	}
-	defer func() { _ = os.RemoveAll(dir) }()
-
-	cfg := &config.Config{
-		Server: config.ServerConfig{Host: "127.0.0.1", Port: 0, Mode: "development"},
-		Auth:   config.AuthConfig{JWTSecret: "test-jwt-secret-at-least-32-bytes!!", CSRFSecret: "csrf-secret"},
-		Apps:   config.AppsConfig{DataPath: filepath.Join(dir, "apps"), CatalogPath: filepath.Join(dir, "catalog")},
-		CORS:   config.CORSConfig{},
-		Network: config.NetworkConfig{
-			Caddy:  config.CaddyConfig{Mode: "disabled"},
-			Tunnel: config.TunnelConfig{},
-		},
-	}
-	config.SetTestConfig(cfg)
-	// The apps manager wants both folders to exist.
-	for _, sub := range []string{"apps", "catalog"} {
-		if err := os.MkdirAll(filepath.Join(dir, sub), 0o755); err != nil {
-			return 0, fmt.Errorf("mkdir %s: %w", sub, err)
-		}
-	}
-
-	db, err := database.Open(filepath.Join(dir, "api.db"))
-	if err != nil {
-		return 0, fmt.Errorf("open db: %w", err)
-	}
-	defer func() { _ = db.Close() }()
-	if err := db.Migrate(); err != nil {
-		return 0, fmt.Errorf("migrate: %w", err)
-	}
-
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	authSvc := auth.NewService(db, cfg.Auth.JWTSecret, logger)
-	sharedAuth = authSvc
-	setupSvc := setup.NewService(db)
-	settingsSvc := settings.NewService(db.SQL())
-	manager, err := apps.NewManager(cfg.Apps.CatalogPath, cfg.Apps.DataPath, nil, db, nil, nil, nil)
-	if err != nil {
-		return 0, fmt.Errorf("apps manager: %w", err)
-	}
-	oidcHandler := handlersauth.NewOIDCHandler(db, manager, authSvc, "https://issuer.example.test", logger)
-	// The backup handlers read through this service, so the fixture needs a
-	// real one: an admin request must reach the handler, not a nil pointer.
-	backupService := storage.NewBackupService(db, nil, filepath.Join(dir, "backups"), cfg.Apps.DataPath)
-
-	// The first account makes the setup guard let requests through — the same
-	// thing finishing the wizard does.
-	admin := &models.User{
-		ID:           "admin-1",
-		Username:     "ada",
-		PasswordHash: "not-a-real-hash",
-		Role:         "admin",
-	}
-	if err := authSvc.CreateUser(context.Background(), admin); err != nil {
-		return 0, fmt.Errorf("create admin: %w", err)
-	}
-
-	srv := NewServer(ServerConfig{
-		Host:             "127.0.0.1",
-		Port:             0,
-		DevMode:          true,
-		DB:               db,
-		AppManager:       manager,
-		AuthService:      authSvc,
-		SetupService:     setupSvc,
-		SettingsService:  settingsSvc,
-		OIDCAdminHandler: oidcHandler,
-		BackupService:    backupService,
-	})
-	if srv == nil || srv.Router() == nil {
-		return 0, fmt.Errorf("expected server and router")
-	}
-	sharedRouter = srv.Router()
-
-	return m.Run(), nil
-}
 
 // testServer returns the shared router and the auth service behind it.
 //
 // The setup guard runs before Auth on the protected group, so a test that
 // never finishes setup gets 403 from the guard and proves nothing about a
-// role check. The first admin account created by the fixture is what the
-// guard looks for.
+// role check. The first admin account created here is what the guard looks
+// for — the same thing finishing the wizard does.
 func testServer(t *testing.T) (http.Handler, *auth.Service) {
 	t.Helper()
-	if sharedRouter == nil || sharedAuth == nil {
-		t.Fatal("no server: the fixture did not build")
+
+	sharedServerOnce.Do(func() {
+		dir, err := os.MkdirTemp("", "sol-api-test")
+		if err != nil {
+			t.Fatalf("temp dir: %v", err)
+		}
+		t.Cleanup(func() { _ = os.RemoveAll(dir) })
+
+		cfg := &config.Config{
+			Server: config.ServerConfig{Host: "127.0.0.1", Port: 0, Mode: "development"},
+			Auth:   config.AuthConfig{JWTSecret: "test-jwt-secret-at-least-32-bytes!!", CSRFSecret: "csrf-secret"},
+			Apps:   config.AppsConfig{DataPath: filepath.Join(dir, "apps"), CatalogPath: filepath.Join(dir, "catalog")},
+			CORS:   config.CORSConfig{},
+			Network: config.NetworkConfig{
+				Caddy:  config.CaddyConfig{Mode: "disabled"},
+				Tunnel: config.TunnelConfig{},
+			},
+		}
+		config.SetTestConfig(cfg)
+		// The apps manager wants both folders to exist.
+		for _, sub := range []string{"apps", "catalog"} {
+			if err := os.MkdirAll(filepath.Join(dir, sub), 0o755); err != nil {
+				t.Fatalf("mkdir %s: %v", sub, err)
+			}
+		}
+
+		db, err := database.Open(filepath.Join(dir, "api.db"))
+		if err != nil {
+			t.Fatalf("open db: %v", err)
+		}
+		if err := db.Migrate(); err != nil {
+			t.Fatalf("migrate: %v", err)
+		}
+		sharedDB = db
+
+		logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+		authSvc := auth.NewService(db, cfg.Auth.JWTSecret, logger)
+		sharedAuth = authSvc
+		setupSvc := setup.NewService(db)
+		settingsSvc := settings.NewService(db.SQL())
+		manager, err := apps.NewManager(cfg.Apps.CatalogPath, cfg.Apps.DataPath, nil, db, nil, nil, nil)
+		if err != nil {
+			t.Fatalf("apps manager: %v", err)
+		}
+		oidcHandler := handlersauth.NewOIDCHandler(db, manager, authSvc, "https://issuer.example.test", logger)
+		// The backup handlers read through this service, so the fixture needs a
+		// real one: an admin request must reach the handler, not a nil pointer.
+		backupService := storage.NewBackupService(db, nil, filepath.Join(dir, "backups"), cfg.Apps.DataPath)
+
+		// The first account makes the setup guard let requests through.
+		admin := &models.User{
+			ID:           "admin-1",
+			Username:     "ada",
+			PasswordHash: "not-a-real-hash",
+			Role:         "admin",
+		}
+		if err := authSvc.CreateUser(context.Background(), admin); err != nil {
+			t.Fatalf("create admin: %v", err)
+		}
+
+		srv := NewServer(ServerConfig{
+			Host:             "127.0.0.1",
+			Port:             0,
+			DevMode:          true,
+			DB:               db,
+			AppManager:       manager,
+			AuthService:      authSvc,
+			SetupService:     setupSvc,
+			SettingsService:  settingsSvc,
+			OIDCAdminHandler: oidcHandler,
+			BackupService:    backupService,
+		})
+		if srv == nil || srv.Router() == nil {
+			t.Fatal("expected server and router")
+		}
+		sharedRouter = srv.Router()
+	})
+
+	if sharedRouter == nil {
+		t.Fatal("no server")
 	}
 	return sharedRouter, sharedAuth
 }
