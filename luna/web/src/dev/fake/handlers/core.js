@@ -57,8 +57,16 @@ post("/api/v1/setup", ({ world, body }) => {
   return world.setup;
 }, { public: true });
 // world.preflight can be a list of answers: each run gets the next one, the last repeats.
+// Calls within 1.5 s count as one run (React dev mode asks twice on mount).
 get("/api/v1/setup/preflight", ({ world }) => {
-  const result = Array.isArray(world.preflight) ? (world.preflight.length > 1 ? world.preflight.shift() : world.preflight[0]) : world.preflight;
+  let result = world.preflight;
+  if (Array.isArray(result)) {
+    const now = Date.now();
+    if (world.preflightRun === undefined) world.preflightRun = 0;
+    else if (now - (world.preflightAt ?? 0) > 1500) world.preflightRun += 1;
+    world.preflightAt = now;
+    result = result[Math.min(world.preflightRun, result.length - 1)];
+  }
   return json(result, result.healthy ? 200 : 503);
 }, { public: true });
 post("/api/v1/setup/fetch-mag", () => ({}), { public: true });
