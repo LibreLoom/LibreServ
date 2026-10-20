@@ -67,7 +67,7 @@ import {
   setFormTitle,
 } from "../../../lib/formYDoc.js";
 import { fileSourceScope, requireOk, useFileSource } from "../../../lib/fileSource.jsx";
-import { joinPath, parentPath } from "../../../lib/paths.js";
+import { parentPath } from "../../../lib/paths.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";

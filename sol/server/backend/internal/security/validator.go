@@ -58,6 +58,11 @@ type SecurityIssue struct {
 	Recommendation string
 }
 
+// MinCSRFSecretLength is the shortest CSRF secret Sol accepts. CSRF tokens
+// are HMAC-SHA256 signatures over the user id, a timestamp, and a nonce, so
+// a key shorter than the hash output weakens every signature it makes.
+const MinCSRFSecretLength = 32
+
 type ValidationResult struct {
 	Issues    []SecurityIssue
 	Passed    bool
@@ -249,15 +254,35 @@ func validateRuntime(cfg *config.Config, result *ValidationResult) {
 }
 
 func validateCSRF(cfg *config.Config, result *ValidationResult) {
-	if cfg.Auth.CSRFSecret != "" && len(cfg.Auth.CSRFSecret) < 32 {
+	// An empty secret is a different finding (validateSecrets): Sol writes a
+	// fresh one on first start, so only a secret that is there but too short
+	// is a misconfiguration — and one that must not reach production.
+	if err := ValidateCSRFSecret(cfg.Auth.CSRFSecret); err != nil {
 		result.Issues = append(result.Issues, SecurityIssue{
-			Severity:       "HIGH",
+			Severity:       "CRITICAL",
 			Category:       "CSRF",
-			Message:        "CSRF secret is shorter than 32 bytes",
-			Recommendation: "Use a cryptographically secure secret of at least 32 bytes",
+			Message:        fmt.Sprintf("CSRF secret is shorter than %d bytes", MinCSRFSecretLength),
+			Recommendation: "Use a cryptographically secure secret of at least 32 bytes (SOL_AUTH_CSRF_SECRET or auth.csrf_secret)",
 		})
 		result.Passed = false
 	}
+}
+
+// ValidateCSRFSecret reports whether secret is strong enough to sign CSRF
+// tokens. An empty secret is not an error here: Sol generates and persists
+// one on first start (see ensureSecrets).
+func ValidateCSRFSecret(secret string) error {
+	if secret == "" {
+		return nil
+	}
+	if len(secret) < MinCSRFSecretLength {
+		return fmt.Errorf(
+			"the CSRF secret is %d bytes long; it must be at least %d bytes",
+			len(secret),
+			MinCSRFSecretLength,
+		)
+	}
+	return nil
 }
 
 func isLikelyHardcoded(secret string) bool {
@@ -339,15 +364,19 @@ func ValidateProductionReadiness() error {
 	}
 
 	failedCritical := false
+	var blocking []string
 	for _, issue := range result.Issues {
 		if issue.Severity == "CRITICAL" {
 			failedCritical = true
-			break
+			blocking = append(blocking, fmt.Sprintf("%s (%s)", issue.Message, issue.Recommendation))
 		}
 	}
 
 	if failedCritical {
-		return fmt.Errorf("critical security issues detected. Please review the warnings above")
+		return fmt.Errorf(
+			"critical security issues detected: %s. Please review the warnings above",
+			strings.Join(blocking, "; "),
+		)
 	}
 
 	return nil

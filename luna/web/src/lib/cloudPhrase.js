@@ -1,9 +1,9 @@
 import { getJson, postJson, putJson } from "./api";
-import { canonical, derive, encrypt, sign } from "@libreloom/ui/lib/cloud/backupCrypto.js";
+import { canonical, derive, encrypt, SIG_PUBLIC_LEN, sign } from "@libreloom/ui/lib/cloud/backupCrypto.js";
 
 /**
  * Cloud recovery phrase: the API calls and the key steps behind it.
- * The 12 words never leave the browser. Only public keys, a sealed copy of the
+ * The recovery words never leave the browser. Only public keys, a sealed copy of the
  * signing public key, and signatures are sent (see luna/crates/lunad/src/api/cloud_phrase.rs).
  */
 
@@ -29,7 +29,7 @@ export function fromBase64(text) {
   return Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
 }
 
-/** GET: `{ set, set_at, luna_id, signing_public }` (`signing_public` is base64, 32 bytes). */
+/** GET: `{ set, set_at, luna_id, signing_public }` (`signing_public` is base64, Ed25519 and ML-DSA keys together). */
 export function getPhraseStatus() {
   return getJson(PHRASE_PATH);
 }
@@ -60,7 +60,7 @@ export function savePhrase(body) {
 /**
  * Ask the server for a fresh challenge and sign it with the auth key that
  * `entropy` derives. Returns the base64 signature.
- * @param {Uint8Array} entropy 16 bytes of phrase entropy
+ * @param {Uint8Array} entropy 16 or 32 bytes of phrase entropy (12 or 24 words)
  * @param {string} lunaId
  * @returns {Promise<string>}
  */
@@ -80,13 +80,13 @@ export async function signFreshChallenge(entropy, lunaId) {
  * this Luna, this user, and the purpose. Luna only checks that the field is non-empty
  * base64; it does not open it.
  *
- * @param {Uint8Array} entropy 16 bytes of phrase entropy
+ * @param {Uint8Array} entropy 16 or 32 bytes of phrase entropy (12 or 24 words)
  * @param {{ lunaId: string, userId: string, signingPublic: Uint8Array | string }} opts
- *   `signingPublic` is 32 bytes, or base64 of 32 bytes.
+ *   `signingPublic` is the signing public key (Ed25519 and ML-DSA), or its base64.
  */
 export function buildPhraseBody(entropy, { lunaId, userId, signingPublic }) {
   const signingBytes = typeof signingPublic === "string" ? fromBase64(signingPublic) : signingPublic;
-  if (!signingBytes || signingBytes.length !== 32) {
+  if (!signingBytes || signingBytes.length !== SIG_PUBLIC_LEN) {
     throw new Error("Luna's signing key is missing. Reload the page and try again.");
   }
   const keys = derive(entropy, lunaId);
@@ -96,7 +96,7 @@ export function buildPhraseBody(entropy, { lunaId, userId, signingPublic }) {
     ["purpose", encoder.encode("signing-public")],
   ]);
   const body = {
-    x25519_public: toBase64(keys.x25519Public),
+    seal_public: toBase64(keys.sealPublic),
     auth_public: toBase64(keys.authPublic),
     self_sealed: toBase64(encrypt(keys.selfKey, aad, signingBytes)),
   };

@@ -16,6 +16,11 @@ import {
 	phraseToEntropy,
 	seal,
 	sealWith,
+	checkPublicKey,
+	SEAL_PUBLIC_LEN,
+	SEAL_SECRET_LEN,
+	SIG_LEN,
+	SIG_PUBLIC_LEN,
 	sign,
 	signerPublic,
 	verify,
@@ -29,8 +34,8 @@ const KEYS = derive(ENTROPY, LUNA_ID);
 describe('vectors.json (byte for byte)', () => {
 	it('derives the same phrase and keys', () => {
 		expect(entropyToPhrase(ENTROPY)).toBe(vectors.phrase);
-		expect(bytesToHex(KEYS.x25519Secret)).toBe(vectors.x25519_secret);
-		expect(bytesToHex(KEYS.x25519Public)).toBe(vectors.x25519_public);
+		expect(bytesToHex(KEYS.sealSecret)).toBe(vectors.seal_secret);
+		expect(bytesToHex(KEYS.sealPublic)).toBe(vectors.seal_public);
 		expect(bytesToHex(KEYS.selfKey)).toBe(vectors.self_key);
 		expect(bytesToHex(KEYS.authSecret)).toBe(vectors.auth_secret);
 		expect(bytesToHex(KEYS.authPublic)).toBe(vectors.auth_public);
@@ -65,13 +70,29 @@ describe('vectors.json (byte for byte)', () => {
 		const s = vectors.seal;
 		const sealed = sealWith(
 			hex(s.ephemeral_secret),
+			hex(s.mlkem_message),
 			hex(s.nonce),
-			KEYS.x25519Public,
+			KEYS.sealPublic,
 			hex(s.aad),
 			hex(s.msg),
 		);
 		expect(bytesToHex(sealed)).toBe(s.sealed);
-		expect(open(KEYS.x25519Secret, hex(s.aad), hex(s.sealed))).toEqual(hex(s.msg));
+		expect(open(KEYS.sealSecret, hex(s.aad), hex(s.sealed))).toEqual(hex(s.msg));
+	});
+
+	it('reproduces the 24-word vector', () => {
+		const long = vectors.long;
+		expect(entropyToPhrase(hex(long.entropy))).toBe(long.phrase);
+		expect(phraseToEntropy(long.phrase)).toEqual(hex(long.entropy));
+		const keys = derive(hex(long.entropy), LUNA_ID);
+		expect(bytesToHex(keys.sealSecret)).toBe(long.seal_secret);
+		expect(bytesToHex(keys.sealPublic)).toBe(long.seal_public);
+		expect(bytesToHex(keys.selfKey)).toBe(long.self_key);
+		expect(bytesToHex(keys.authPublic)).toBe(long.auth_public);
+	});
+
+	it('refuses entropy of any other length', () => {
+		expect(() => derive(new Uint8Array(20), LUNA_ID)).toThrow('16 or 32 bytes');
 	});
 
 	it('reproduces the encrypt vector', () => {
@@ -84,32 +105,65 @@ describe('vectors.json (byte for byte)', () => {
 
 describe('seal and open', () => {
 	it('round trips with random keys', () => {
-		const sealed = seal(KEYS.x25519Public, utf8ToBytes('aad'), utf8ToBytes('hello'));
-		expect(open(KEYS.x25519Secret, utf8ToBytes('aad'), sealed)).toEqual(utf8ToBytes('hello'));
+		const sealed = seal(KEYS.sealPublic, utf8ToBytes('aad'), utf8ToBytes('hello'));
+		expect(open(KEYS.sealSecret, utf8ToBytes('aad'), sealed)).toEqual(utf8ToBytes('hello'));
 	});
 
 	it('rejects the wrong key, wrong aad, tampering and short input', () => {
 		const other = derive(new Uint8Array(16).fill(9), LUNA_ID);
 		const aad = utf8ToBytes('aad');
-		const sealed = seal(KEYS.x25519Public, aad, utf8ToBytes('hello'));
-		expect(() => open(other.x25519Secret, aad, sealed)).toThrow(
+		const sealed = seal(KEYS.sealPublic, aad, utf8ToBytes('hello'));
+		expect(() => open(other.sealSecret, aad, sealed)).toThrow(
 			'This sealed copy could not be opened. It was changed, or it was sealed to a different key.',
 		);
-		expect(() => open(KEYS.x25519Secret, utf8ToBytes('other'), sealed)).toThrow(
-			/could not be opened/,
-		);
+		expect(() => open(KEYS.sealSecret, utf8ToBytes('other'), sealed)).toThrow(/could not be opened/);
 		const tampered = sealed.slice();
 		tampered[tampered.length - 1] ^= 1;
-		expect(() => open(KEYS.x25519Secret, aad, tampered)).toThrow(/could not be opened/);
-		expect(() => open(KEYS.x25519Secret, aad, sealed.slice(0, 10))).toThrow(
-			'This sealed copy is too short to be valid.',
-		);
+		expect(() => open(KEYS.sealSecret, aad, tampered)).toThrow(/could not be opened/);
+		expect(() => open(KEYS.sealSecret, aad, sealed.slice(0, 10))).toThrow('This sealed copy is too short to be valid.');
 	});
 
-	it('refuses to seal to a low-order public key', () => {
-		expect(() => seal(new Uint8Array(32), utf8ToBytes('aad'), utf8ToBytes('x'))).toThrow(
-			'This sealed copy is not valid.',
-		);
+	it('seals and opens with a 24-word phrase', () => {
+		const long = derive(new Uint8Array(32).fill(5), LUNA_ID);
+		const sealed = seal(long.sealPublic, utf8ToBytes('aad'), utf8ToBytes('hello'));
+		expect(open(long.sealSecret, utf8ToBytes('aad'), sealed)).toEqual(utf8ToBytes('hello'));
+	});
+
+	it('refuses to seal to an unusable public key', () => {
+		const bad = 'This recovery key is not valid. Set up the recovery phrase again.';
+		const aad = utf8ToBytes('aad');
+		const msg = utf8ToBytes('x');
+		// Too short: an X25519-only key.
+		expect(() => seal(new Uint8Array(32), aad, msg)).toThrow(bad);
+		// X25519 half is the identity point.
+		const lowOrder = KEYS.sealPublic.slice();
+		lowOrder.fill(0, 0, 32);
+		expect(() => seal(lowOrder, aad, msg)).toThrow(bad);
+		// ML-KEM half fails the FIPS 203 modulus check.
+		const badKem = KEYS.sealPublic.slice();
+		badKem[32] = 0xff;
+		badKem[33] |= 0x0f;
+		expect(() => seal(badKem, aad, msg)).toThrow(bad);
+		expect(() => checkPublicKey(KEYS.sealPublic)).not.toThrow();
+	});
+
+	it('needs both secrets to open a copy', () => {
+		const other = derive(new Uint8Array(16).fill(9), LUNA_ID);
+		const aad = utf8ToBytes('aad');
+		const sealed = seal(KEYS.sealPublic, aad, utf8ToBytes('hello'));
+		const onlyX = KEYS.sealSecret.slice();
+		onlyX.set(other.sealSecret.slice(32), 32);
+		const onlyK = other.sealSecret.slice();
+		onlyK.set(KEYS.sealSecret.slice(32), 32);
+		expect(() => open(onlyX, aad, sealed)).toThrow(/could not be opened/);
+		expect(() => open(onlyK, aad, sealed)).toThrow(/could not be opened/);
+	});
+
+	it('has the documented layout', () => {
+		const sealed = seal(KEYS.sealPublic, utf8ToBytes('aad'), utf8ToBytes('hello'));
+		expect(sealed.length).toBe(32 + 1088 + 24 + 5 + 16);
+		expect(KEYS.sealPublic.length).toBe(SEAL_PUBLIC_LEN);
+		expect(KEYS.sealSecret.length).toBe(SEAL_SECRET_LEN);
 	});
 });
 
@@ -129,38 +183,66 @@ describe('encrypt and decrypt', () => {
 });
 
 describe('signatures', () => {
+	const seed = new Uint8Array(32).fill(3);
+	const msg = utf8ToBytes('record');
+
 	it('verify only under their domain and message', () => {
-		const seed = new Uint8Array(32).fill(3);
 		const pub = signerPublic(seed);
-		const msg = utf8ToBytes('record');
 		const sig = sign(seed, 'snapshot', msg);
+		expect(pub.length).toBe(SIG_PUBLIC_LEN);
+		expect(sig.length).toBe(SIG_LEN);
 		expect(verify(pub, 'snapshot', msg, sig)).toBe(true);
 		expect(verify(pub, 'other', msg, sig)).toBe(false);
 		expect(verify(pub, 'snapshot', utf8ToBytes('changed'), sig)).toBe(false);
 		expect(verify(signerPublic(new Uint8Array(32).fill(4)), 'snapshot', msg, sig)).toBe(false);
+	});
+
+	it('are deterministic', () => {
+		expect(sign(seed, 'snapshot', msg)).toEqual(sign(seed, 'snapshot', msg));
+	});
+
+	it('need both the Ed25519 and the ML-DSA half to verify', () => {
+		const pub = signerPublic(seed);
+		const sig = sign(seed, 'snapshot', msg);
+		const edBad = sig.slice();
+		edBad[0] ^= 1;
+		const mlBad = sig.slice();
+		mlBad[mlBad.length - 1] ^= 1;
+		const mlZero = sig.slice();
+		mlZero.fill(0, 64);
+		expect(verify(pub, 'snapshot', msg, edBad)).toBe(false);
+		expect(verify(pub, 'snapshot', msg, mlBad)).toBe(false);
+		expect(verify(pub, 'snapshot', msg, mlZero)).toBe(false);
+		expect(verify(pub, 'snapshot', msg, sig.slice(0, 64))).toBe(false);
+
+		const other = signerPublic(new Uint8Array(32).fill(4));
+		const mixedMl = pub.slice();
+		mixedMl.set(other.slice(32), 32);
+		const mixedEd = pub.slice();
+		mixedEd.set(other.slice(0, 32), 0);
+		expect(verify(mixedMl, 'snapshot', msg, sig)).toBe(false);
+		expect(verify(mixedEd, 'snapshot', msg, sig)).toBe(false);
 	});
 });
 
 describe('derive', () => {
 	it('is bound to the Luna id', () => {
 		const other = derive(ENTROPY, 'luna-test-2');
-		expect(other.x25519Public).not.toEqual(KEYS.x25519Public);
+		expect(other.sealPublic).not.toEqual(KEYS.sealPublic);
 		expect(other.selfKey).not.toEqual(KEYS.selfKey);
 		expect(other.authPublic).not.toEqual(KEYS.authPublic);
 	});
 
 	it('clamps the X25519 secret', () => {
-		expect(KEYS.x25519Secret[0] & 7).toBe(0);
-		expect(KEYS.x25519Secret[31] & 0x80).toBe(0);
-		expect(KEYS.x25519Secret[31] & 0x40).toBe(0x40);
+		expect(KEYS.sealSecret[0] & 7).toBe(0);
+		expect(KEYS.sealSecret[31] & 0x80).toBe(0);
+		expect(KEYS.sealSecret[31] & 0x40).toBe(0x40);
 	});
 });
 
 describe('canonical and ids', () => {
 	it('is length prefixed and unambiguous', () => {
-		expect(canonical([['ab', utf8ToBytes('c')]])).not.toEqual(
-			canonical([['a', utf8ToBytes('bc')]]),
-		);
+		expect(canonical([['ab', utf8ToBytes('c')]])).not.toEqual(canonical([['a', utf8ToBytes('bc')]]));
 	});
 
 	it('gives chunk ids that depend on the key and the chunk', () => {
@@ -188,19 +270,17 @@ describe('recovery phrase', () => {
 
 	it('gives plain error sentences', () => {
 		const unknown = vectors.phrase.replace('abandon', 'lunaxyz');
-		expect(() => phraseToEntropy(unknown)).toThrow(
-			"That word isn't on the recovery phrase list: lunaxyz",
-		);
+		expect(() => phraseToEntropy(unknown)).toThrow("That word isn't on the recovery phrase list: lunaxyz");
 		expect(() => phraseToEntropy('abandon '.repeat(11) + 'abandon')).toThrow(
 			"These 12 words don't form a valid recovery phrase. Check each word.",
 		);
-		expect(() => phraseToEntropy('abandon abandon')).toThrow(
-			'Your recovery phrase has 2 words. It needs exactly 12.',
-		);
+		expect(() => phraseToEntropy('abandon abandon')).toThrow('Your recovery phrase has 2 words. It needs 12 or 24.');
 	});
 
 	it('makes 16 random bytes', () => {
 		expect(newEntropy()).toHaveLength(16);
+		expect(newEntropy(24)).toHaveLength(32);
+		expect(() => newEntropy(18)).toThrow('12 or 24');
 		expect(newEntropy()).not.toEqual(newEntropy());
 	});
 });

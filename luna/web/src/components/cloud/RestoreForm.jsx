@@ -4,7 +4,7 @@ import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 
 /**
- * Text box for the 12-word recovery phrase. A layered field: it sits on a card (secondary), so it
+ * Text box for the recovery phrase (12 or 24 words). A layered field: it sits on a card (secondary), so it
  * takes the primary surface and reads as an inset.
  * @param {{
  *   value: string,
@@ -70,7 +70,7 @@ export default function RestoreForm({ words, onWords, onSubmit, error = "", pend
         value={words}
         onChange={onWords}
         fieldRef={fieldRef}
-        placeholder="12 words, with spaces between them"
+        placeholder="Your recovery words, with spaces between them"
       />
       <p className="text-primary text-sm">
         Only type your recovery phrase on this Luna or on <InlinePill>connect.luna.libreloom.org</InlinePill>.

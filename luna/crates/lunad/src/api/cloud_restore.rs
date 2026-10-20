@@ -499,7 +499,12 @@ mod tests {
     /// Publish the signed users list the way Luna Connect would hold it: one old account whose
     /// auth key is `auth`.
     fn publish_old_user(store: &MemoryStore, id: &Identity, old_user: &str, auth: &crypto::Signer) {
-        let users = [(old_user.to_string(), [4u8; 32], auth.public(), vec![1u8; 8])];
+        let users = [(
+            old_user.to_string(),
+            [4u8; crypto::SEAL_PUBLIC_LEN],
+            auth.public(),
+            vec![1u8; 8],
+        )];
         keys::publish_user_list(store, id.signer(), id.luna_id(), &users).unwrap();
     }
 

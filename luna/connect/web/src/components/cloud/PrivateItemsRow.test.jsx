@@ -9,7 +9,7 @@ function makeBackup(overrides = {}) {
     startedBy: "u1",
     startedByName: "Alex",
     keys: {},
-    private: { scope: "s1", x25519Secret: new Uint8Array(32), dedupKey: new Uint8Array(32), source: {} },
+    private: { scope: "s1", sealSecret: new Uint8Array(32), dedupKey: new Uint8Array(32), source: {} },
     versions: [
       { snapshotId: "v2", createdAt: 1700000500, treePackId: "t2", keyVersion: 1 },
       { snapshotId: "v1", createdAt: 1700000000, treePackId: "t1", keyVersion: 1 },

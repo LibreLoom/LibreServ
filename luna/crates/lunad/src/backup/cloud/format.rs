@@ -10,7 +10,7 @@ use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use super::crypto::{self, Signer};
+use super::crypto::{self, SigBytes, SigPublic, Signer};
 
 /// One pack index entry: the chunk id, its offset in the pack and its length.
 type IndexEntry = ([u8; 32], u64, u32);
@@ -355,17 +355,17 @@ impl SnapshotRecord {
 pub struct SignedRecord {
     pub record: SnapshotRecord,
     #[serde(with = "hex_fixed")]
-    pub signature: [u8; 64],
+    pub signature: SigBytes,
 }
 
 impl SignedRecord {
     /// Check the signature against `public` and return the record only if it holds.
-    pub fn verify(&self, public: &[u8; 32]) -> Result<SnapshotRecord> {
+    pub fn verify(&self, public: &SigPublic) -> Result<SnapshotRecord> {
         self.verify_with(public, SNAPSHOT_DOMAIN)
     }
 
     /// Check the signature made under `domain` against `public`.
-    pub fn verify_with(&self, public: &[u8; 32], domain: &str) -> Result<SnapshotRecord> {
+    pub fn verify_with(&self, public: &SigPublic, domain: &str) -> Result<SnapshotRecord> {
         if !crypto::verify(public, domain, &self.record.signed_bytes(), &self.signature) {
             bail!(
                 "This snapshot's signature does not match. It was changed, or signed by a different key."

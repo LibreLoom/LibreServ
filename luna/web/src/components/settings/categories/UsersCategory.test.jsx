@@ -24,6 +24,7 @@ function stubFetch({
   orphans = { owners: [], offline_drives: [] },
   cleaned = [],
   cleanupResult = { ok: true, skipped_readonly: [], failed_drives: [], offline_drives: [] },
+  createResponse = { id: "3", username: "new", display_name: "New", role: "user" },
   users = [
     { id: "1", username: "demouser", display_name: "Demo", role: "admin" },
     { id: "2", username: "alex", display_name: "Alex", role: "user" },
@@ -60,7 +61,7 @@ function stubFetch({
         return jsonResponse({ ok: true });
       }
       if (u.endsWith("/api/v1/users") && init?.method === "POST") {
-        return jsonResponse({ id: "3", username: "new", display_name: "New", role: "user" });
+        return jsonResponse(createResponse);
       }
       return jsonResponse({}, 404);
     }),
@@ -311,6 +312,35 @@ describe("UsersCategory", () => {
       password: "hunter22hunter1",
       role: "admin",
     });
+  });
+
+  // When Luna could not reach the breach service, the password went unchecked.
+  // The Admin has to hear that instead of the change passing silently.
+  it("says when a new password could not be checked against known breaches", async () => {
+    stubFetch({
+      createResponse: {
+        id: "3",
+        username: "jamie",
+        display_name: "Jamie",
+        role: "user",
+        warning:
+          "Luna couldn't check this password against known data breaches, so it was allowed. Please choose a different password if you can.",
+      },
+    });
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByRole("link", { name: /Edit Alex/i });
+    await user.click(await screen.findByRole("button", { name: /^Add user$/i }));
+    const dialog = await screen.findByRole("dialog");
+    await user.type(within(dialog).getByLabelText(/^Name$/i), "Jamie");
+    await user.type(within(dialog).getByLabelText(/Username/i), "jamie");
+    await user.type(within(dialog).getByLabelText(/^Password/i), "hunter22hunter1");
+    await user.click(within(dialog).getByRole("button", { name: /^Add user$/i }));
+
+    expect(
+      await screen.findByText(/couldn't check this password against known data breaches/i),
+    ).toBeInTheDocument();
   });
 
   it("adds users from a plus row at the end of the list, styled like a user row", async () => {

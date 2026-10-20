@@ -145,16 +145,35 @@ async fn create(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     require_admin(&admin)?;
     let role = body.role.as_deref().unwrap_or("user");
-    let user = state
-        .auth
-        .register(
-            &body.username,
-            body.display_name.as_deref().unwrap_or(&body.username),
-            &body.password,
-            role,
+    let auth = state.auth.clone();
+    let username = body.username.clone();
+    let display_name = body
+        .display_name
+        .clone()
+        .unwrap_or_else(|| body.username.clone());
+    let password = body.password.clone();
+    let role = role.to_owned();
+    let (user, breach) = tokio::task::spawn_blocking(move || {
+        auth.register_with_breach_check(&username, &display_name, &password, &role)
+    })
+    .await
+    .map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't add that person. Try again.",
         )
-        .map_err(map_err)?;
-    Ok(Json(user_json(&user)))
+    })?
+    .map_err(map_err)?;
+    let mut response = user_json(&user);
+    if breach == crate::hibp::BreachCheck::Unavailable
+        && let Some(object) = response.as_object_mut()
+    {
+        object.insert(
+            "warning".to_string(),
+            json!(crate::hibp::BREACH_CHECK_UNAVAILABLE_MESSAGE),
+        );
+    }
+    Ok(Json(response))
 }
 
 async fn update(
@@ -168,30 +187,38 @@ async fn update(
     // network call must run neither inside it nor on the async worker. Failing
     // validation here also rejects before any other field is half-applied.
     let mut new_hash = None;
+    // True when the breach service could not answer, so the password was
+    // allowed unchecked. The Admin is told about it in the response.
+    let mut breach_check_unavailable = false;
     if let Some(password) = body.password.clone() {
-        new_hash = Some(
-            tokio::task::spawn_blocking(move || {
-                if let Err(e) = crate::password::validate_password(&password) {
-                    return Err(json_error(StatusCode::BAD_REQUEST, e.message()));
-                }
-                if let Err(e) = crate::hibp::ensure_password_not_breached(&password) {
-                    return Err(json_error(StatusCode::BAD_REQUEST, e.message()));
-                }
-                crate::auth::hash_password(&password).map_err(|_| {
-                    json_error(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        "Luna could not save the new password. Try again.",
-                    )
-                })
-            })
-            .await
-            .map_err(|_| {
+        let (hash, unavailable) = tokio::task::spawn_blocking(move || {
+            if let Err(e) = crate::password::validate_password(&password) {
+                return Err(json_error(StatusCode::BAD_REQUEST, e.message()));
+            }
+            let breach = crate::hibp::check_password_breach(&password);
+            if breach == crate::hibp::BreachCheck::Breached {
+                return Err(json_error(
+                    StatusCode::BAD_REQUEST,
+                    crate::hibp::BREACHED_PASSWORD_MESSAGE,
+                ));
+            }
+            let hash = crate::auth::hash_password(&password).map_err(|_| {
                 json_error(
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    "Luna could not save the user change. Try again.",
+                    "Luna could not save the new password. Try again.",
                 )
-            })??,
-        );
+            })?;
+            Ok((hash, breach == crate::hibp::BreachCheck::Unavailable))
+        })
+        .await
+        .map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna could not save the user change. Try again.",
+            )
+        })??;
+        new_hash = Some(hash);
+        breach_check_unavailable = unavailable;
     }
 
     let conn = lock_db(&state)?;
@@ -274,7 +301,14 @@ async fn update(
     let updated = crate::db::get_user(&conn, &id)
         .map_err(|_| map_err(AuthError::Db(anyhow::anyhow!("db"))))?
         .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that person."))?;
-    Ok(Json(user_json(&updated)))
+    let mut response = user_json(&updated);
+    if breach_check_unavailable && let Some(object) = response.as_object_mut() {
+        object.insert(
+            "warning".to_string(),
+            json!(crate::hibp::BREACH_CHECK_UNAVAILABLE_MESSAGE),
+        );
+    }
+    Ok(Json(response))
 }
 
 async fn remove(
@@ -868,7 +902,7 @@ mod tests {
             &conn,
             &db::UserKeys {
                 user_id: user_id.to_string(),
-                x25519_public: vec![1; 32],
+                seal_public: vec![1; 32],
                 auth_public: vec![2; 32],
                 self_sealed: vec![3; 48],
                 phrase_set_at: 1,

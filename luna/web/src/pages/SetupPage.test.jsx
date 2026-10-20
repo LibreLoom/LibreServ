@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import SetupPage from "./SetupPage";
 import { AuthProvider } from "../context/AuthContext";
+import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 
 function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -91,9 +92,11 @@ function renderSetup(initialEntry = "/setup") {
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[initialEntry]}>
-        <AuthProvider>
-          <SetupPage />
-        </AuthProvider>
+        <ToastProvider>
+          <AuthProvider>
+            <SetupPage />
+          </AuthProvider>
+        </ToastProvider>
       </MemoryRouter>
     </QueryClientProvider>
   );

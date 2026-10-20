@@ -8,7 +8,7 @@ import { phraseToEntropy } from "@libreloom/ui/lib/cloud/backupCrypto.js";
 import { checkPhrase, signFreshChallenge } from "../../lib/cloudPhrase";
 
 /**
- * Asks for the 12 words and proves them to Luna by signing a fresh challenge.
+ * Asks for the recovery words (12 or 24) and proves them to Luna by signing a fresh challenge.
  * Without `onVerified` it shows the result inline ("Check my words").
  * With `onVerified` it hands the verified key material to the caller ("Change").
  */
@@ -17,7 +17,7 @@ export default function RecoveryPhraseCheck({
   onClose,
   onVerified = null,
   title = "Check my words",
-  intro = "Type your 12 words in order, with a space between each one.",
+  intro = "Type your recovery words in order, with a space between each one.",
   submitLabel = "Check",
 }) {
   const [words, setWords] = useState("");
@@ -56,7 +56,7 @@ export default function RecoveryPhraseCheck({
     <ModalCard open title={title} onClose={onClose} size="md">
       <form onSubmit={submit} className="space-y-4">
         <p className="text-primary text-sm">{intro}</p>
-        <PhraseField value={words} onChange={setWords} label="Your 12 words" />
+        <PhraseField value={words} onChange={setWords} label="Your recovery words" />
         {error && <PageNotice variant="error">{error}</PageNotice>}
         {matched && <PageNotice variant="info" surface="primary">Your words match your recovery phrase.</PageNotice>}
         <div className="flex justify-end">

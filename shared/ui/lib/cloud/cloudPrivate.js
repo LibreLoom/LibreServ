@@ -2,7 +2,17 @@
 // can open. Browser side of luna/crates/lunad/src/backup/cloud/private.rs. Every signature is checked
 // before a key is used.
 import { bytesToHex, hexToBytes, utf8ToBytes } from '@noble/hashes/utils.js';
-import { canonical, chunkId, derive, open, sign, verify } from './backupCrypto.js';
+import {
+	canonical,
+	chunkId,
+	derive,
+	open,
+	SEAL_PUBLIC_LEN,
+	SIG_LEN,
+	SIG_PUBLIC_LEN,
+	sign,
+	verify,
+} from './backupCrypto.js';
 import { DAMAGED, verifySnapshot } from './cloudFormat.js';
 
 export const PSCOPES_KIND = 'pscopes';
@@ -17,7 +27,6 @@ const META_PURPOSE = 'luna-private-meta-v1';
 const DEDUP_PURPOSE = 'luna-private-dedup-v1';
 const SCOPE_PURPOSE = 'luna-scope-v1';
 const KEY_LEN = 32;
-const SIG_LEN = 64;
 
 /** @param {Uint8Array} a @param {Uint8Array} b */
 function sameBytes(a, b) {
@@ -52,28 +61,28 @@ export function scopeOf(dedupKey) {
 
 /**
  * Unwrap a private pack key, for `openPackWith` in cloudFormat.js.
- * @param {Uint8Array} x25519Secret
+ * @param {Uint8Array} sealSecret
  * @param {string} lunaId
  * @param {string} scope
  * @returns {(wrapped: Uint8Array) => Uint8Array}
  */
-export function privateUnwrap(x25519Secret, lunaId, scope) {
+export function privateUnwrap(sealSecret, lunaId, scope) {
 	const aad = privateAad(PACK_KEY_PURPOSE, lunaId, scope);
-	return (wrapped) => open(x25519Secret, aad, wrapped);
+	return (wrapped) => open(sealSecret, aad, wrapped);
 }
 
 /**
  * Open a private tree's sealed JSON, for `readTreeWith` in cloudFormat.js.
- * @param {Uint8Array} x25519Secret
+ * @param {Uint8Array} sealSecret
  * @param {string} lunaId
  * @param {string} scope
  * @returns {(sealed: Uint8Array) => Uint8Array}
  */
-export function openPrivateTreeBytes(x25519Secret, lunaId, scope) {
+export function openPrivateTreeBytes(sealSecret, lunaId, scope) {
 	const aad = privateAad(TREE_PURPOSE, lunaId, scope);
 	return (sealed) => {
 		try {
-			return open(x25519Secret, aad, sealed);
+			return open(sealSecret, aad, sealed);
 		} catch {
 			throw new Error(DAMAGED);
 		}
@@ -83,15 +92,15 @@ export function openPrivateTreeBytes(x25519Secret, lunaId, scope) {
 /**
  * Read a private backup's name and who started it.
  * @param {Uint8Array} sealed the snapshot record's meta
- * @param {Uint8Array} x25519Secret
+ * @param {Uint8Array} sealSecret
  * @param {string} lunaId
  * @param {string} scope
  * @returns {{ name: string, sourceDrive: string, sourcePath: string, startedBy: string, startedByName: string }}
  */
-export function openPrivateMeta(sealed, x25519Secret, lunaId, scope) {
+export function openPrivateMeta(sealed, sealSecret, lunaId, scope) {
 	let parsed;
 	try {
-		const plain = open(x25519Secret, privateAad(META_PURPOSE, lunaId, scope), sealed);
+		const plain = open(sealSecret, privateAad(META_PURPOSE, lunaId, scope), sealed);
 		parsed = JSON.parse(new TextDecoder().decode(plain));
 	} catch {
 		throw new Error(DAMAGED);
@@ -110,15 +119,15 @@ export function openPrivateMeta(sealed, x25519Secret, lunaId, scope) {
 /**
  * Open a scope's sealed dedup key.
  * @param {Uint8Array} sealed
- * @param {Uint8Array} x25519Secret
+ * @param {Uint8Array} sealSecret
  * @param {string} lunaId
  * @param {string} scope
  * @returns {Uint8Array} 32 bytes
  */
-export function openPrivateDedup(sealed, x25519Secret, lunaId, scope) {
+export function openPrivateDedup(sealed, sealSecret, lunaId, scope) {
 	let plain;
 	try {
-		plain = open(x25519Secret, privateAad(DEDUP_PURPOSE, lunaId, scope), sealed);
+		plain = open(sealSecret, privateAad(DEDUP_PURPOSE, lunaId, scope), sealed);
 	} catch {
 		throw new Error(DAMAGED);
 	}
@@ -131,7 +140,7 @@ export function openPrivateDedup(sealed, x25519Secret, lunaId, scope) {
  * @param {Uint8Array} bytes JSON {record, signature}
  * @param {Uint8Array[]} signingPublics
  * @param {string} lunaId
- * @returns {{ lunaId: string, scope: string, userId: string, x25519Public: Uint8Array, authPublic: Uint8Array, createdAt: number, sealedDedup: Uint8Array } | null}
+ * @returns {{ lunaId: string, scope: string, userId: string, sealPublic: Uint8Array, authPublic: Uint8Array, createdAt: number, sealedDedup: Uint8Array } | null}
  */
 export function verifyScopeRecord(bytes, signingPublics, lunaId) {
 	try {
@@ -140,10 +149,10 @@ export function verifyScopeRecord(bytes, signingPublics, lunaId) {
 		if (rec.luna_id !== lunaId) return null;
 		if (typeof rec.scope !== 'string' || typeof rec.user_id !== 'string') return null;
 		if (!Number.isSafeInteger(rec.created_at)) return null;
-		const x25519Public = hexToBytes(rec.x25519_public);
+		const sealPublic = hexToBytes(rec.seal_public);
 		const authPublic = hexToBytes(rec.auth_public);
 		const sealedDedup = hexToBytes(rec.sealed_dedup);
-		if (x25519Public.length !== KEY_LEN || authPublic.length !== KEY_LEN) return null;
+		if (sealPublic.length !== SEAL_PUBLIC_LEN || authPublic.length !== SIG_PUBLIC_LEN) return null;
 		const sig = hexToBytes(signed.signature);
 		if (sig.length !== SIG_LEN) return null;
 		const createdAt = new Uint8Array(8);
@@ -152,7 +161,7 @@ export function verifyScopeRecord(bytes, signingPublics, lunaId) {
 			['luna_id', utf8ToBytes(rec.luna_id)],
 			['scope', utf8ToBytes(rec.scope)],
 			['user_id', utf8ToBytes(rec.user_id)],
-			['x25519_public', x25519Public],
+			['seal_public', sealPublic],
 			['auth_public', authPublic],
 			['created_at', createdAt],
 			['sealed_dedup', sealedDedup],
@@ -163,7 +172,7 @@ export function verifyScopeRecord(bytes, signingPublics, lunaId) {
 			lunaId: rec.luna_id,
 			scope: rec.scope,
 			userId: rec.user_id,
-			x25519Public,
+			sealPublic,
 			authPublic,
 			createdAt: rec.created_at,
 			sealedDedup,
@@ -194,7 +203,7 @@ export function privateOpenMessage(lunaId, scope, challenge) {
  * @param {string} lunaId
  * @param {string} scope
  * @param {Uint8Array} challenge 32 bytes
- * @returns {Uint8Array} 64-byte signature
+ * @returns {Uint8Array} signature (Ed25519 and ML-DSA)
  */
 export function signPrivateOpen(authSecret, lunaId, scope, challenge) {
 	return sign(authSecret, PRIVATE_OPEN_DOMAIN, privateOpenMessage(lunaId, scope, challenge));
@@ -214,10 +223,10 @@ export function findMyPrivateScopes({ lunaId, entropy, pscopes = [], signingPubl
 			rec = verifyScopeRecord(r.data, [pub], lunaId);
 			if (rec) break;
 		}
-		if (!rec || r.name !== rec.scope || !sameBytes(rec.x25519Public, k.x25519Public)) continue;
+		if (!rec || r.name !== rec.scope || !sameBytes(rec.sealPublic, k.sealPublic)) continue;
 		let dedupKey;
 		try {
-			dedupKey = openPrivateDedup(rec.sealedDedup, k.x25519Secret, lunaId, rec.scope);
+			dedupKey = openPrivateDedup(rec.sealedDedup, k.sealSecret, lunaId, rec.scope);
 		} catch {
 			continue;
 		}
@@ -242,7 +251,7 @@ export function readPrivateSnapshots({ lunaId, entropy, scope, psnapshots = [], 
 		if (!snap || r.name !== `${scope}.${snap.snapshotId}`) continue;
 		let meta;
 		try {
-			meta = openPrivateMeta(snap.meta, k.x25519Secret, lunaId, scope);
+			meta = openPrivateMeta(snap.meta, k.sealSecret, lunaId, scope);
 		} catch {
 			continue;
 		}

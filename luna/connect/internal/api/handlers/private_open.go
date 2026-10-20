@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"crypto/ed25519"
+	"crypto/mldsa"
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
@@ -50,13 +51,29 @@ func lunaCanonical(fields ...[2][]byte) []byte {
 	return buf.Bytes()
 }
 
-// lunaVerify checks Ed25519 over "luna-sig-v1\x00" + domain + "\x00" + msg.
+// Luna's public signing key is an Ed25519 public key followed by an ML-DSA-65 public key, and a
+// signature is an Ed25519 signature followed by an ML-DSA-65 signature.
+const (
+	lunaSigPublicLen   = ed25519.PublicKeySize + mldsaPublicKeySize
+	lunaSigLen         = ed25519.SignatureSize + mldsaSignatureSize
+	mldsaPublicKeySize = 1952
+	mldsaSignatureSize = 3309
+)
+
+// lunaVerify checks a Luna signature over "luna-sig-v2\x00" + domain + "\x00" + msg. Both the
+// Ed25519 half and the ML-DSA-65 half (empty context) must verify.
 func lunaVerify(pub []byte, domain string, msg, sig []byte) bool {
-	if len(pub) != ed25519.PublicKeySize || len(sig) != ed25519.SignatureSize {
+	if len(pub) != lunaSigPublicLen || len(sig) != lunaSigLen {
 		return false
 	}
-	signed := append([]byte("luna-sig-v1\x00"+domain+"\x00"), msg...)
-	return ed25519.Verify(pub, signed, sig)
+	signed := append([]byte("luna-sig-v2\x00"+domain+"\x00"), msg...)
+	edOK := ed25519.Verify(pub[:ed25519.PublicKeySize], signed, sig[:ed25519.SignatureSize])
+	mlKey, err := mldsa.NewPublicKey(mldsa.MLDSA65(), pub[ed25519.PublicKeySize:])
+	if err != nil {
+		return false
+	}
+	mlOK := mldsa.Verify(mlKey, signed, sig[ed25519.SignatureSize:], nil) == nil
+	return edOK && mlOK
 }
 
 // scopePart is the share-link value for one user: hex(sha256(userID)[:16]).
@@ -65,27 +82,30 @@ func scopePart(userID string) string {
 	return hex.EncodeToString(sum[:16])
 }
 
+// sealPublicLen is a user's public sealing key: X25519 public key (32) then ML-KEM-768 encapsulation key (1184).
+const sealPublicLen = 32 + 1184
+
 // scopeRecord is the verified contents of a pscopes/<scope> record.
 type scopeRecord struct {
-	LunaID       string
-	Scope        string
-	UserID       string
-	X25519Public []byte
-	AuthPublic   []byte
-	CreatedAt    int64
-	SealedDedup  []byte
+	LunaID      string
+	Scope       string
+	UserID      string
+	SealPublic  []byte
+	AuthPublic  []byte
+	CreatedAt   int64
+	SealedDedup []byte
 }
 
 // scopeRecordWire is the pscopes JSON: {"record":{...},"signature":"<hex>"}.
 type scopeRecordWire struct {
 	Record struct {
-		LunaID       string `json:"luna_id"`
-		Scope        string `json:"scope"`
-		UserID       string `json:"user_id"`
-		X25519Public string `json:"x25519_public"`
-		AuthPublic   string `json:"auth_public"`
-		CreatedAt    int64  `json:"created_at"`
-		SealedDedup  string `json:"sealed_dedup"`
+		LunaID      string `json:"luna_id"`
+		Scope       string `json:"scope"`
+		UserID      string `json:"user_id"`
+		SealPublic  string `json:"seal_public"`
+		AuthPublic  string `json:"auth_public"`
+		CreatedAt   int64  `json:"created_at"`
+		SealedDedup string `json:"sealed_dedup"`
 	} `json:"record"`
 	Signature string `json:"signature"`
 }
@@ -96,7 +116,7 @@ func parseScopeRecord(data []byte, lunaSigningHex string) (scopeRecord, bool) {
 	if err := json.Unmarshal(data, &w); err != nil {
 		return scopeRecord{}, false
 	}
-	x25519, err1 := hex.DecodeString(w.Record.X25519Public)
+	sealPublic, err1 := hex.DecodeString(w.Record.SealPublic)
 	auth, err2 := hex.DecodeString(w.Record.AuthPublic)
 	sealed, err3 := hex.DecodeString(w.Record.SealedDedup)
 	sig, err4 := hex.DecodeString(w.Signature)
@@ -104,7 +124,7 @@ func parseScopeRecord(data []byte, lunaSigningHex string) (scopeRecord, bool) {
 	if err1 != nil || err2 != nil || err3 != nil || err4 != nil || err5 != nil {
 		return scopeRecord{}, false
 	}
-	if len(x25519) != 32 || len(auth) != 32 {
+	if len(sealPublic) != sealPublicLen || len(auth) != lunaSigPublicLen {
 		return scopeRecord{}, false
 	}
 	var created [8]byte
@@ -113,7 +133,7 @@ func parseScopeRecord(data []byte, lunaSigningHex string) (scopeRecord, bool) {
 		[2][]byte{[]byte("luna_id"), []byte(w.Record.LunaID)},
 		[2][]byte{[]byte("scope"), []byte(w.Record.Scope)},
 		[2][]byte{[]byte("user_id"), []byte(w.Record.UserID)},
-		[2][]byte{[]byte("x25519_public"), x25519},
+		[2][]byte{[]byte("seal_public"), sealPublic},
 		[2][]byte{[]byte("auth_public"), auth},
 		[2][]byte{[]byte("created_at"), created[:]},
 		[2][]byte{[]byte("sealed_dedup"), sealed},
@@ -122,13 +142,13 @@ func parseScopeRecord(data []byte, lunaSigningHex string) (scopeRecord, bool) {
 		return scopeRecord{}, false
 	}
 	return scopeRecord{
-		LunaID:       w.Record.LunaID,
-		Scope:        w.Record.Scope,
-		UserID:       w.Record.UserID,
-		X25519Public: x25519,
-		AuthPublic:   auth,
-		CreatedAt:    w.Record.CreatedAt,
-		SealedDedup:  sealed,
+		LunaID:      w.Record.LunaID,
+		Scope:       w.Record.Scope,
+		UserID:      w.Record.UserID,
+		SealPublic:  sealPublic,
+		AuthPublic:  auth,
+		CreatedAt:   w.Record.CreatedAt,
+		SealedDedup: sealed,
 	}, true
 }
 
@@ -280,6 +300,9 @@ WHERE token_hash = ? AND account_id = ? AND luna_id = ? AND link_id = ? AND expi
 // PrivateHandler serves the HTTP side; T14 wires the routes.
 type PrivateHandler struct{ Deps }
 
+// privateOpenBodyLimit leaves room for the hex of a hybrid signature (twice lunaSigLen) plus the scope and challenge.
+const privateOpenBodyLimit = 2*lunaSigLen + 1024
+
 type privateOpenBody struct {
 	Scope     string `json:"scope"`
 	Challenge string `json:"challenge"`
@@ -289,7 +312,7 @@ type privateOpenBody struct {
 // readPrivateOpen decodes the open body, writing the 400 itself when it cannot be read.
 func readPrivateOpen(w http.ResponseWriter, r *http.Request) (privateOpenBody, bool) {
 	var body privateOpenBody
-	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&body); err != nil {
+	if err := json.NewDecoder(io.LimitReader(r.Body, privateOpenBodyLimit)).Decode(&body); err != nil {
 		JSONError(w, http.StatusBadRequest, "That request could not be read. Try again.")
 		return body, false
 	}

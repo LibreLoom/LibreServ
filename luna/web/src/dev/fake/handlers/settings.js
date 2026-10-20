@@ -2,6 +2,7 @@
 // identity and restore, private-folder cleanup.
 import { del, fail, get, post, put } from "../engine.js";
 import { nextId } from "../world.js";
+import { SIG_PUBLIC_LEN } from "@libreloom/ui/lib/cloud/backupCrypto.js";
 
 const nowSec = () => Math.floor(Date.now() / 1000);
 const b64 = (n) => btoa(String.fromCharCode(...new Uint8Array(n).fill(7)));
@@ -49,7 +50,7 @@ del("/api/v1/connect/device-token", ({ world }) => {
 // ── Cloud identity, recovery phrase, restore ────────────────────────────────
 post("/api/v1/cloud/identity", ({ world }) => {
   world.phrase.luna_id ||= "luna-1";
-  world.phrase.signing_public ||= b64(32);
+  world.phrase.signing_public ||= b64(SIG_PUBLIC_LEN);
   return { luna_id: world.phrase.luna_id, signing_public: world.phrase.signing_public };
 });
 post("/api/v1/cloud/phrase/challenge", () => ({ challenge: b64(32) }));
@@ -64,7 +65,7 @@ put("/api/v1/cloud/phrase", ({ world }) => {
   return { set: true, set_at: world.phrase.set_at };
 });
 
-const restoreStatus = (world) => world.restore ?? { needed: false, luna_id: "luna-1", signing_public: b64(32), cloud_snapshots: 0, indexed_snapshots: 0 };
+const restoreStatus = (world) => world.restore ?? { needed: false, luna_id: "luna-1", signing_public: b64(SIG_PUBLIC_LEN), cloud_snapshots: 0, indexed_snapshots: 0 };
 get("/api/v1/cloud/restore", ({ world }) => restoreStatus(world));
 // No signed records on file: any phrase fails with "no backups open with these words".
 get("/api/v1/cloud/restore/records/:kind", () => ({ records: [] }));
@@ -73,7 +74,7 @@ post("/api/v1/cloud/restore", ({ world }) => {
   world.restore = { ...r, needed: false, indexed_snapshots: r.cloud_snapshots };
   return { snapshots: r.cloud_snapshots, already_indexed: 0, skipped: 0 };
 });
-get("/api/v1/cloud/restore-private", ({ world }) => world.restorePrivate ?? { needed: false, luna_id: "luna-1", signing_public: b64(32), scopes: 0 });
+get("/api/v1/cloud/restore-private", ({ world }) => world.restorePrivate ?? { needed: false, luna_id: "luna-1", signing_public: b64(SIG_PUBLIC_LEN), scopes: 0 });
 get("/api/v1/cloud/restore-private/records/:kind", () => ({ records: [] }));
 post("/api/v1/cloud/restore-private", () => ({ restored: 0 }));
 

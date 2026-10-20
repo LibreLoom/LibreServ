@@ -8,7 +8,7 @@ use anyhow::{Result, anyhow};
 use rand_core::{OsRng, RngCore};
 
 use super::check::{CheckReport, Sample};
-use super::crypto::Signer;
+use super::crypto::{SigPublic, Signer};
 use super::format::{self, SignedRecord};
 use super::identity;
 use super::private::{self, PRIVATE_SNAPSHOT_DOMAIN, PSCOPES_KIND, PSNAPSHOTS_KIND};
@@ -115,8 +115,8 @@ struct Job {
     tree_pack_id: String,
     pack_ids: Vec<String>,
     scope: Option<db::PrivateScope>,
-    auth_public: Option<[u8; 32]>,
-    public: [u8; 32],
+    auth_public: Option<SigPublic>,
+    public: SigPublic,
     luna_id: String,
     signer: Signer,
 }
@@ -224,7 +224,7 @@ mod tests {
             &conn,
             &db::UserKeys {
                 user_id: "owner".into(),
-                x25519_public: keys.x25519_public.to_vec(),
+                seal_public: keys.seal_public.to_vec(),
                 auth_public: keys.auth_public.to_vec(),
                 self_sealed: vec![3; 48],
                 phrase_set_at: 1,

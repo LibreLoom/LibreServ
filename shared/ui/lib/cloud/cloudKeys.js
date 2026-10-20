@@ -2,7 +2,7 @@
 // luna/crates/lunad/src/backup/cloud/keys.rs. Every signature is checked before a key is used.
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex, hexToBytes, utf8ToBytes } from '@noble/hashes/utils.js';
-import { canonical, decrypt, derive, open, verify } from './backupCrypto.js';
+import { canonical, decrypt, derive, open, SIG_LEN, SIG_PUBLIC_LEN, verify } from './backupCrypto.js';
 import { findMyPrivateScopes } from './cloudPrivate.js';
 
 /** @typedef {{ name: string, data: Uint8Array }} RecordEntry */
@@ -15,7 +15,6 @@ const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 const VERSION = '(0|[1-9][0-9]*)';
 const KEY_NAME = new RegExp(`^(${UUID})\\.${VERSION}\\.([0-9a-f]{32})$`);
 const RECIPIENTS_NAME = new RegExp(`^(${UUID})\\.${VERSION}$`);
-const SIG_LEN = 64;
 const KEY_LEN = 32;
 
 /** @param {Uint8Array} a @param {Uint8Array} b */
@@ -93,12 +92,12 @@ export function keyCopyAad(lunaId, protectionId, version, userId) {
  * @param {string} lunaId
  * @param {string} userId
  * @param {Uint8Array} data
- * @returns {Uint8Array | null} the 32-byte signing public key, or null when it does not open
+ * @returns {Uint8Array | null} the signing public key (Ed25519 and ML-DSA), or null when it does not open
  */
 export function openSelfRecord(selfKey, lunaId, userId, data) {
 	try {
 		const publicKey = decrypt(selfKey, selfSealedAad(lunaId, userId), data);
-		return publicKey.length === KEY_LEN ? publicKey : null;
+		return publicKey.length === SIG_PUBLIC_LEN ? publicKey : null;
 	} catch {
 		return null;
 	}
@@ -133,9 +132,9 @@ export function verifyRecipients(bytes, signingPublic, lunaId, protectionId, ver
 }
 
 /**
- * Check a key copy's signature, then open it with this user's X25519 secret.
- * @param {Uint8Array} record sealed bytes followed by the 64-byte signature
- * @param {Uint8Array} x25519Secret
+ * Check a key copy's signature, then open it with this user's secret sealing key.
+ * @param {Uint8Array} record sealed bytes followed by the signature
+ * @param {Uint8Array} sealSecret
  * @param {Uint8Array} signingPublic
  * @param {string} lunaId
  * @param {string} protectionId
@@ -143,7 +142,7 @@ export function verifyRecipients(bytes, signingPublic, lunaId, protectionId, ver
  * @param {string} userId
  * @returns {{ key: Uint8Array, dedupKey: Uint8Array } | null}
  */
-export function openKeyCopy(record, x25519Secret, signingPublic, lunaId, protectionId, version, userId) {
+export function openKeyCopy(record, sealSecret, signingPublic, lunaId, protectionId, version, userId) {
 	if (record.length <= SIG_LEN) return null;
 	const sealed = record.slice(0, record.length - SIG_LEN);
 	const sig = record.slice(record.length - SIG_LEN);
@@ -154,7 +153,7 @@ export function openKeyCopy(record, x25519Secret, signingPublic, lunaId, protect
 	]);
 	if (!verify(signingPublic, 'key-copy', msg, sig)) return null;
 	try {
-		const plain = open(x25519Secret, aad, sealed);
+		const plain = open(sealSecret, aad, sealed);
 		if (plain.length !== 2 * KEY_LEN) return null;
 		return { key: plain.slice(0, KEY_LEN), dedupKey: plain.slice(KEY_LEN) };
 	} catch {
@@ -233,7 +232,7 @@ export function findMyKeys({ lunaId, entropy, self, recipients, keys, pscopes = 
 			if (!data) continue;
 			let opened = null;
 			for (const pub of signingPublics) {
-				opened = openKeyCopy(data, k.x25519Secret, pub, lunaId, protectionId, version, uid);
+				opened = openKeyCopy(data, k.sealSecret, pub, lunaId, protectionId, version, uid);
 				if (opened) break;
 			}
 			if (opened) {

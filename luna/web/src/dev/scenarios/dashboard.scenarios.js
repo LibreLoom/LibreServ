@@ -70,7 +70,7 @@ export default [
       w.cloudBackups = [cloudBackup({ last_checked_at: at(200 * DAY), last_ok_at: at(HOUR) })];
       w.phrase = { ...w.phrase, check_due: true };
     },
-    check: [NEEDS, "Row asks you to check your recovery phrase", "The check opens and accepts any 12 words"],
+    check: [NEEDS, "Row asks you to check your recovery phrase", "The check opens and accepts any 12 or 24 words"],
   },
   {
     id: "dashboard/no-phrase",

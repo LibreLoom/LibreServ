@@ -311,13 +311,20 @@ pub fn publish_users(
     let listed = users
         .iter()
         .map(|user| {
-            let x25519: [u8; 32] = user.x25519_public.as_slice().try_into().map_err(|_| {
-                anyhow::anyhow!("The recovery key for user {} is damaged.", user.user_id)
-            })?;
-            let auth: [u8; 32] = user.auth_public.as_slice().try_into().map_err(|_| {
-                anyhow::anyhow!("The recovery key for user {} is damaged.", user.user_id)
-            })?;
-            Ok((user.user_id.clone(), x25519, auth, user.self_sealed.clone()))
+            let seal_public: super::crypto::SealPublic =
+                user.seal_public.as_slice().try_into().map_err(|_| {
+                    anyhow::anyhow!("The recovery key for user {} is damaged.", user.user_id)
+                })?;
+            let auth: super::crypto::SigPublic =
+                user.auth_public.as_slice().try_into().map_err(|_| {
+                    anyhow::anyhow!("The recovery key for user {} is damaged.", user.user_id)
+                })?;
+            Ok((
+                user.user_id.clone(),
+                seal_public,
+                auth,
+                user.self_sealed.clone(),
+            ))
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
     keys::publish_user_list(store, identity.signer(), identity.luna_id(), &listed)?;
@@ -726,8 +733,8 @@ mod tests {
             &conn,
             &crate::db::UserKeys {
                 user_id: "admin".into(),
-                x25519_public: vec![5; 32],
-                auth_public: vec![6; 32],
+                seal_public: real_seal_public(5),
+                auth_public: real_auth_public(6),
                 self_sealed: vec![3; 48],
                 phrase_set_at: 1,
                 last_checked_at: 0,
@@ -811,8 +818,8 @@ mod tests {
             &lock(&s.db),
             &crate::db::UserKeys {
                 user_id: "admin".into(),
-                x25519_public: vec![5; 32],
-                auth_public: vec![6; 32],
+                seal_public: real_seal_public(5),
+                auth_public: real_auth_public(6),
                 self_sealed: vec![3; 48],
                 phrase_set_at: 2,
                 last_checked_at: 0,
@@ -906,8 +913,8 @@ mod tests {
             &conn,
             &db::UserKeys {
                 user_id: "admin".into(),
-                x25519_public: vec![1; 32],
-                auth_public: vec![2; 32],
+                seal_public: real_seal_public(1),
+                auth_public: real_auth_public(2),
                 self_sealed: b"sealed copy".to_vec(),
                 phrase_set_at: NOW,
                 last_checked_at: 0,
@@ -1144,11 +1151,25 @@ mod tests {
         connect: ConnectService,
     }
 
+    /// A real sealing public key (X25519 and ML-KEM), which the run code checks before sealing to it.
+    fn real_seal_public(seed: u8) -> Vec<u8> {
+        crypto::derive(&[seed; 16], "luna-test")
+            .seal_public
+            .to_vec()
+    }
+
+    /// A real signing public key (Ed25519 and ML-DSA) for a recovery phrase made of `seed` bytes.
+    fn real_auth_public(seed: u8) -> Vec<u8> {
+        crypto::derive(&[seed; 16], "luna-test")
+            .auth_public
+            .to_vec()
+    }
+
     fn owner_keys(seed: u8) -> db::UserKeys {
         let keys = crypto::derive(&[seed; 16], "luna-test");
         db::UserKeys {
             user_id: "owner".into(),
-            x25519_public: keys.x25519_public.to_vec(),
+            seal_public: keys.seal_public.to_vec(),
             auth_public: keys.auth_public.to_vec(),
             self_sealed: vec![3; 48],
             phrase_set_at: 1,
@@ -1168,8 +1189,8 @@ mod tests {
             &conn,
             &db::UserKeys {
                 user_id: "admin".into(),
-                x25519_public: vec![5; 32],
-                auth_public: vec![6; 32],
+                seal_public: real_seal_public(5),
+                auth_public: real_auth_public(6),
                 self_sealed: vec![3; 48],
                 phrase_set_at: 1,
                 last_checked_at: 0,

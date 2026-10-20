@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"bytes"
-	"crypto/ed25519"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
@@ -143,11 +142,11 @@ func lookupLuna(d Deps, accountID, lunaID string) (boundDevice, signingHex strin
 // message is the domain prefix, the Luna id, a zero byte and X-Luna-Ts.
 func lunaSigValid(r *http.Request, signingHex, lunaID string, now time.Time) bool {
 	pub, err := hex.DecodeString(signingHex)
-	if err != nil || len(pub) != ed25519.PublicKeySize {
+	if err != nil || len(pub) != lunaSigPublicLen {
 		return false
 	}
 	sig, err := base64.StdEncoding.DecodeString(strings.TrimSpace(r.Header.Get("X-Luna-Sig")))
-	if err != nil || len(sig) != ed25519.SignatureSize {
+	if err != nil || len(sig) != lunaSigLen {
 		return false
 	}
 	ts := strings.TrimSpace(r.Header.Get("X-Luna-Ts"))
@@ -158,8 +157,7 @@ func lunaSigValid(r *http.Request, signingHex, lunaID string, now time.Time) boo
 	if skew := now.Unix() - sentAt; skew < -storageSigWindow || skew > storageSigWindow {
 		return false
 	}
-	msg := []byte("luna-sig-v1\x00move\x00" + lunaID + "\x00" + ts)
-	return ed25519.Verify(pub, msg, sig)
+	return lunaVerify(pub, "move", []byte(lunaID+"\x00"+ts), sig)
 }
 
 // authorizeLuna lets the calling device use a Luna's storage. A PUT (write) claims an
@@ -211,7 +209,7 @@ func keepLuna(d Deps, accountID, lunaID string) {
 // device. Once a key is set, only the device that owns the Luna can change the owner.
 func setSigningPublic(d Deps, w http.ResponseWriter, accountID, lunaID, deviceID, keyHex string) bool {
 	keyHex = strings.ToLower(strings.TrimSpace(keyHex))
-	if pub, err := hex.DecodeString(keyHex); err != nil || len(pub) != ed25519.PublicKeySize {
+	if pub, err := hex.DecodeString(keyHex); err != nil || len(pub) != lunaSigPublicLen {
 		JSONError(w, http.StatusBadRequest, "That signing key is not valid. Update Luna and try again.")
 		return false
 	}
@@ -599,7 +597,7 @@ func (h StorageHandler) ListLunaIDs(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, map[string]any{"luna_ids": lunas})
 }
 
-// SetSigningPublic registers a Luna's signing key from the request body (64 hex characters).
+// SetSigningPublic registers a Luna's signing key from the request body (hex of its Ed25519 and ML-DSA public keys).
 func (h StorageHandler) SetSigningPublic(w http.ResponseWriter, r *http.Request) {
 	accountID, ok := storageAccount(w, r)
 	if !ok {
@@ -610,7 +608,7 @@ func (h StorageHandler) SetSigningPublic(w http.ResponseWriter, r *http.Request)
 		JSONError(w, http.StatusBadRequest, "That Luna ID is not valid. Update Luna and try again.")
 		return
 	}
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 256))
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 2*lunaSigPublicLen+64))
 	if err != nil {
 		JSONError(w, http.StatusBadRequest, "Could not read that signing key. Try again.")
 		return

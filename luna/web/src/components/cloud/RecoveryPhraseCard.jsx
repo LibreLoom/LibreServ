@@ -95,7 +95,7 @@ export default function RecoveryPhraseCard() {
         <SettingsRow
           stack
           label="Recovery phrase"
-          description="Not set. Cloud backups are locked with 12 words only you know. Only people with a recovery phrase for that backup can open it."
+          description="Not set. Cloud backups are locked with recovery words only you know. Only people with a recovery phrase for that backup can open it."
           hideDivider={!startError}
         >
           <Button variant="primary" size="sm" disabled={!userId || starting} loading={starting} onClick={() => openSetup(false)}>
@@ -127,7 +127,7 @@ export default function RecoveryPhraseCard() {
         <SettingsRow
           stack
           hideDivider={!startError}
-          label="Lost your 12 words?"
+          label="Lost your recovery words?"
           description="Get a new phrase without the old one. Your old phrase stops working for you, and backups sealed with it can then be opened only by others who have access to them."
         >
           <Button variant="outline" size="sm" disabled={!userId || starting} onClick={() => openSetup(true)}>
@@ -148,7 +148,7 @@ export default function RecoveryPhraseCard() {
         headerActions={
           <InfoHint
             label="What the recovery phrase is"
-            content="12 words that open your cloud backups."
+            content="The 12 or 24 words that open your cloud backups."
           />
         }
       >
@@ -170,7 +170,7 @@ export default function RecoveryPhraseCard() {
         <RecoveryPhraseCheck
           lunaId={lunaId}
           title="Enter your current words"
-          intro="Enter your current 12 words first. Then you can set new ones."
+          intro="Enter your current recovery words first. Then you can set new ones."
           submitLabel="Continue"
           onClose={close}
           onVerified={() => setDialog({ kind: "setup", replacing: true })}

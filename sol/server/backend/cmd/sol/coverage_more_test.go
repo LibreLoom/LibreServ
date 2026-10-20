@@ -207,3 +207,22 @@ func TestEnsureSecretsCompleteAndGenerated(t *testing.T) {
 		}
 	}
 }
+
+func TestEnsureStrongCSRFSecret(t *testing.T) {
+	long := strings.Repeat("a", 32)
+	if err := ensureStrongCSRFSecret(&config.Config{
+		Auth: config.AuthConfig{CSRFSecret: long},
+	}); err != nil {
+		t.Fatalf("a 32-byte secret must pass: %v", err)
+	}
+
+	err := ensureStrongCSRFSecret(&config.Config{
+		Auth: config.AuthConfig{CSRFSecret: "short"},
+	})
+	if err == nil {
+		t.Fatal("a short CSRF secret must not start the server")
+	}
+	if !strings.Contains(err.Error(), "auth.csrf_secret") {
+		t.Errorf("the error must name the setting to fix, got: %v", err)
+	}
+}

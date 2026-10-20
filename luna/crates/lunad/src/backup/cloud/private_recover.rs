@@ -10,6 +10,7 @@ use std::collections::HashSet;
 use anyhow::{Result, bail};
 use rusqlite::{Connection, OptionalExtension, params};
 
+use super::crypto::SigPublic;
 use super::format::{SignedRecord, Tree};
 use super::private::{
     self, PRIVATE_SNAPSHOT_DOMAIN, PSCOPES_KIND, PSNAPSHOTS_KIND, ScopeRecord, SignedScope,
@@ -43,8 +44,8 @@ pub struct PrivateSnapshotIn {
 /// signature (or cannot be read) is left out, so it never reaches the index.
 pub fn caller_scopes(
     store: &dyn CloudStore,
-    luna_public: &[u8; 32],
-    caller_public: &[u8; 32],
+    luna_public: &SigPublic,
+    caller_public: &super::crypto::SealPublic,
 ) -> Result<Vec<ScopeRecord>> {
     let mut out = Vec::new();
     for name in store.list_records(PSCOPES_KIND)? {
@@ -54,7 +55,7 @@ pub fn caller_scopes(
         let Ok(record) = SignedScope::from_bytes(&bytes).and_then(|s| s.verify(luna_public)) else {
             continue;
         };
-        if &record.x25519_public == caller_public {
+        if &record.seal_public == caller_public {
             out.push(record);
         }
     }
@@ -64,7 +65,7 @@ pub fn caller_scopes(
 /// The hex ids of the tree packs of every verified snapshot in `scopes`.
 pub fn caller_tree_packs(
     store: &dyn CloudStore,
-    luna_public: &[u8; 32],
+    luna_public: &SigPublic,
     scopes: &[ScopeRecord],
 ) -> Result<HashSet<String>> {
     let mut out = HashSet::new();
@@ -97,9 +98,9 @@ pub fn caller_tree_packs(
 #[allow(clippy::too_many_arguments)]
 pub fn write_private_index(
     conn: &mut Connection,
-    luna_public: &[u8; 32],
+    luna_public: &SigPublic,
     caller: &str,
-    caller_public: &[u8; 32],
+    caller_public: &super::crypto::SealPublic,
     scope: &ScopeRecord,
     dedup_key: &[u8; 32],
     snapshots: Vec<PrivateSnapshotIn>,
@@ -108,7 +109,7 @@ pub fn write_private_index(
     if private::scope_of(dedup_key).1 != scope.scope {
         bail!("These private backups don't match the key your browser sent. Start again.");
     }
-    if &scope.x25519_public != caller_public {
+    if &scope.seal_public != caller_public {
         bail!("These private backups belong to another recovery phrase.");
     }
 
@@ -119,7 +120,7 @@ pub fn write_private_index(
             &db::PrivateScope {
                 scope: scope.scope.clone(),
                 owner: caller.to_string(),
-                x25519_public: scope.x25519_public.to_vec(),
+                seal_public: scope.seal_public.to_vec(),
                 dedup_key: dedup_key.to_vec(),
                 state: "recovered".to_string(),
                 retire_after: 0,
@@ -307,7 +308,7 @@ mod tests {
 
     /// Everything the browser would decrypt for the fixture's private backup.
     struct Decrypted {
-        luna_public: [u8; 32],
+        luna_public: SigPublic,
         alice: crypto::UserKeys,
         scope: ScopeRecord,
         dedup: [u8; 32],
@@ -317,7 +318,9 @@ mod tests {
     fn decrypt_fixture() -> Decrypted {
         let fx = fixture();
         let p = &fx["private"];
-        let luna_public = unhex32(fx["signing_public"].as_str().unwrap());
+        let luna_public: SigPublic = unhex(fx["signing_public"].as_str().unwrap())
+            .try_into()
+            .unwrap();
         let scope_id = p["scope"].as_str().unwrap();
         let snapshot_id = p["snapshot_id"].as_str().unwrap();
         let entropy: [u8; 16] = unhex(fx["alice_entropy"].as_str().unwrap())
@@ -329,9 +332,8 @@ mod tests {
             .unwrap()
             .verify(&luna_public)
             .unwrap();
-        let dedup =
-            private::open_dedup(&alice.x25519_secret, LUNA_ID, scope_id, &scope.sealed_dedup)
-                .unwrap();
+        let dedup = private::open_dedup(&alice.seal_secret, LUNA_ID, scope_id, &scope.sealed_dedup)
+            .unwrap();
 
         let raw = fixture_record(
             &fx["private"],
@@ -343,13 +345,13 @@ mod tests {
             .verify_with(&luna_public, PRIVATE_SNAPSHOT_DOMAIN)
             .unwrap();
 
-        let unwrap = |w: &[u8]| private::open_pack_key(&alice.x25519_secret, LUNA_ID, scope_id, w);
+        let unwrap = |w: &[u8]| private::open_pack_key(&alice.seal_secret, LUNA_ID, scope_id, w);
         let tree_pack_id = unhex32(p["tree_pack_id"].as_str().unwrap());
         let pack_bytes = unhex(p["packs"][hex(&tree_pack_id)].as_str().unwrap());
         let tree_pack: OpenedPack = format::open_pack(&pack_bytes, &tree_pack_id, unwrap).unwrap();
         let tree_bytes = tree_pack.chunk(&snap.tree_hash).unwrap();
-        let tree = private::open_tree(&alice.x25519_secret, LUNA_ID, scope_id, tree_bytes).unwrap();
-        let meta = private::open_meta(&alice.x25519_secret, LUNA_ID, scope_id, &snap.meta).unwrap();
+        let tree = private::open_tree(&alice.seal_secret, LUNA_ID, scope_id, tree_bytes).unwrap();
+        let meta = private::open_meta(&alice.seal_secret, LUNA_ID, scope_id, &snap.meta).unwrap();
 
         Decrypted {
             luna_public,
@@ -383,7 +385,7 @@ mod tests {
             &mut conn,
             &d.luna_public,
             "alice",
-            &d.alice.x25519_public,
+            &d.alice.seal_public,
             &d.scope,
             &d.dedup,
             vec![d.snapshot.clone()],
@@ -415,7 +417,7 @@ mod tests {
             &mut conn,
             &d.luna_public,
             "alice",
-            &d.alice.x25519_public,
+            &d.alice.seal_public,
             &d.scope,
             &[0x44; 32],
             vec![d.snapshot.clone()],
@@ -442,7 +444,7 @@ mod tests {
             &mut conn,
             &d.luna_public,
             "bob",
-            &bob.x25519_public,
+            &bob.seal_public,
             &d.scope,
             &d.dedup,
             vec![d.snapshot.clone()],
@@ -466,7 +468,7 @@ mod tests {
                 &mut conn,
                 &d.luna_public,
                 "alice",
-                &d.alice.x25519_public,
+                &d.alice.seal_public,
                 &d.scope,
                 &d.dedup,
                 vec![forged],
@@ -486,15 +488,14 @@ mod tests {
             &mut conn,
             &d.luna_public,
             "alice",
-            &d.alice.x25519_public,
+            &d.alice.seal_public,
             &d.scope,
             &d.dedup,
             vec![d.snapshot.clone()],
             NOW,
         )
         .unwrap();
-        let (_, is_new) =
-            private::ensure_scope(&conn, "alice", &d.alice.x25519_public, NOW).unwrap();
+        let (_, is_new) = private::ensure_scope(&conn, "alice", &d.alice.seal_public, NOW).unwrap();
         assert!(is_new);
     }
 
@@ -506,7 +507,7 @@ mod tests {
             &mut conn,
             &d.luna_public,
             "alice",
-            &d.alice.x25519_public,
+            &d.alice.seal_public,
             &d.scope,
             &d.dedup,
             vec![d.snapshot.clone()],
@@ -535,9 +536,14 @@ mod tests {
                 &fixture_record(&fx["private"], "pscopes", scope_id),
             )
             .unwrap();
-        let mine = caller_scopes(&store, &d.luna_public, &d.alice.x25519_public).unwrap();
+        let mine = caller_scopes(&store, &d.luna_public, &d.alice.seal_public).unwrap();
         assert_eq!(mine.len(), 1);
-        let theirs = caller_scopes(&store, &d.luna_public, &[9u8; 32]).unwrap();
+        let theirs = caller_scopes(
+            &store,
+            &d.luna_public,
+            &[9u8; crate::backup::cloud::crypto::SEAL_PUBLIC_LEN],
+        )
+        .unwrap();
         assert!(theirs.is_empty());
         let _ = identity::load_or_create;
     }

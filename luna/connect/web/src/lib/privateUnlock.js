@@ -3,7 +3,7 @@ import { derive } from "@libreloom/ui/lib/cloud/backupCrypto.js";
 import { PSNAPSHOTS_KIND, readPrivateSnapshots, signPrivateOpen } from "@libreloom/ui/lib/cloud/cloudPrivate.js";
 
 /** @typedef {import("./cloudSource.js").CloudSource} CloudSource */
-/** @typedef {{ scope: string, x25519Secret: Uint8Array, dedupKey: Uint8Array, source: CloudSource }} PrivateKeys */
+/** @typedef {{ scope: string, sealSecret: Uint8Array, dedupKey: Uint8Array, source: CloudSource }} PrivateKeys */
 
 const OPEN_FAILED = "Could not open your private items. Try again.";
 
@@ -46,7 +46,7 @@ export async function openPrivateScope(source, entropy, lunaId, scopeInfo, signi
     byProtection.set(snap.protectionId, list);
   }
 
-  const privateKeys = { scope, x25519Secret: k.x25519Secret, dedupKey, source: tokenSource };
+  const privateKeys = { scope, sealSecret: k.sealSecret, dedupKey, source: tokenSource };
   const backups = [];
   for (const [protectionId, list] of byProtection) {
     const newest = list[0];

@@ -153,13 +153,13 @@ describe("private backups", () => {
   async function openPrivate(source) {
     const [backup] = await openPrivateScope(source, entropy(), fixture.luna_id, scopeInfo(), [hexToBytes(fixture.signing_public)]);
     const version = backup.versions[0];
-    const { x25519Secret, scope } = backup.private;
+    const { sealSecret, scope } = backup.private;
     const treeBytes = await backup.private.source.getPack(version.treePackId);
     const entries = readTreeWith(
       treeBytes,
       { treePackId: version.treePackId, treeHash: version.treeHash },
-      privateUnwrap(x25519Secret, fixture.luna_id, scope),
-      openPrivateTreeBytes(x25519Secret, fixture.luna_id, scope),
+      privateUnwrap(sealSecret, fixture.luna_id, scope),
+      openPrivateTreeBytes(sealSecret, fixture.luna_id, scope),
     );
     return { backup, version, entries };
   }

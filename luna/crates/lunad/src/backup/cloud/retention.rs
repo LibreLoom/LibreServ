@@ -332,7 +332,7 @@ mod tests {
                 &db::PrivateScope {
                     scope: PSCOPE.into(),
                     owner: "owner".into(),
-                    x25519_public: vec![5; 32],
+                    seal_public: vec![5; 32],
                     dedup_key: vec![6; 32],
                     state: "active".into(),
                     retire_after: 0,
@@ -524,7 +524,7 @@ mod tests {
                 &db::PrivateScope {
                     scope: PSCOPE.into(),
                     owner: "owner".into(),
-                    x25519_public: vec![5; 32],
+                    seal_public: vec![5; 32],
                     dedup_key: vec![6; 32],
                     state: "old_phrase".into(),
                     retire_after: 0,

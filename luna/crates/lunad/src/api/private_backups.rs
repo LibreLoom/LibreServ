@@ -532,7 +532,7 @@ mod tests {
         let scope = |name: &str, owner: &str| db::PrivateScope {
             scope: name.to_string(),
             owner: owner.to_string(),
-            x25519_public: vec![1; 32],
+            seal_public: vec![1; 32],
             dedup_key: vec![2; 32],
             state: "old_phrase".to_string(),
             retire_after: 12_345,

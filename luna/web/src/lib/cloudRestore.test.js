@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { derive, entropyToPhrase, sign } from "@libreloom/ui/lib/cloud/backupCrypto.js";
+import { derive, entropyToPhrase, SIG_PUBLIC_LEN, sign } from "@libreloom/ui/lib/cloud/backupCrypto.js";
 import { NO_BACKUPS, SIGNING_MISMATCH } from "@libreloom/ui/lib/cloud/cloudKeys.js";
 import { hexToBytes } from "@noble/hashes/utils.js";
 import fixture from "../../../crates/lunad/src/backup/cloud/fixture.json";
@@ -137,7 +137,7 @@ describe("restoreFromPhrase", () => {
 
   it("rejects a signing key mismatch and sends nothing", async () => {
     const phrase = entropyToPhrase(hexToBytes(fixture.alice_entropy));
-    const wrongKey = toBase64(new Uint8Array(32).fill(1));
+    const wrongKey = toBase64(new Uint8Array(SIG_PUBLIC_LEN).fill(1));
 
     await expect(restoreFromPhrase(phrase, { ...CTX, signingPublic: wrongKey })).rejects.toThrow(SIGNING_MISMATCH);
     expect(postJsonMock).not.toHaveBeenCalled();
