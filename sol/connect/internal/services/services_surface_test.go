@@ -129,16 +129,17 @@ func TestProvisioningDeviceAndRouteHelpers(t *testing.T) {
 	if got := svc.deviceHostname("missing", "sub"); got != "" {
 		t.Fatalf("missing device hostname = %q", got)
 	}
+	base := svc.deviceHostname(deviceID, svc.deviceSubdomainPrefix(deviceID))
 	if err := svc.RegisterRoute(deviceID, ""); err == nil {
 		t.Fatal("empty route registered")
 	}
-	if err := svc.RegisterRoute(deviceID, "app.my-device.free.servers.libreloom.org"); err == nil {
+	if err := svc.RegisterRoute(deviceID, "app."+base); err == nil {
 		t.Fatal("route without tunnel registered")
 	}
 	if err := svc.UnregisterRoute(deviceID, ""); err == nil {
 		t.Fatal("empty route unregistered")
 	}
-	if err := svc.UnregisterRoute(deviceID, "app.my-device.free.servers.libreloom.org"); err != nil {
+	if err := svc.UnregisterRoute(deviceID, "app."+base); err != nil {
 		t.Fatalf("UnregisterRoute without providers: %v", err)
 	}
 	routes, err := svc.listRouteHostnames(deviceID)
@@ -153,5 +154,62 @@ func TestProvisioningDeviceAndRouteHelpers(t *testing.T) {
 	}
 	if got := mustJSON(map[string]string{"a": "b"}); got != `{"a":"b"}` {
 		t.Fatalf("mustJSON = %q", got)
+	}
+}
+
+func routeScopeTest(t *testing.T, svc *ProvisioningService) {
+	t.Helper()
+	db := svc.db
+	a := serviceDevice(t, db, "one")
+	b := serviceDevice(t, db, "one")
+
+	baseA := svc.deviceHostname(a, svc.deviceSubdomainPrefix(a))
+	baseB := svc.deviceHostname(b, svc.deviceSubdomainPrefix(b))
+	if baseA == baseB {
+		t.Fatalf("test devices collision: %q", baseA)
+	}
+
+	// Another device's hostnames are out of bounds — a device must not be
+	// able to publish or tear down addresses its plan does not control.
+	if err := svc.RegisterRoute(a, baseB); err == nil {
+		t.Fatal("another device's base hostname was accepted")
+	}
+	if err := svc.RegisterRoute(a, "app."+baseB); err == nil {
+		t.Fatal("another device's app hostname was accepted")
+	}
+	if err := svc.RegisterRoute(a, strings.ToUpper("app."+baseA)); err == nil {
+		t.Fatal("uppercase hostname was rejected elsewhere than normalized")
+	}
+	for _, bad := range []string{
+		baseA, // the device's own base hostname is not an app route
+		"..app." + baseA,
+		"a-b c." + baseA,
+		"x y z." + baseA,
+		"-app." + baseA,
+		"post." + baseA + ".evil.example.com",
+		strings.Repeat("l", 64) + "." + baseA,
+	} {
+		if err := svc.RegisterRoute(a, bad); err == nil {
+			t.Fatalf("route %q was accepted", bad)
+		}
+		if err := svc.UnregisterRoute(a, bad); err == nil {
+			t.Fatalf("unregister %q was accepted", bad)
+		}
+	}
+
+	// Nothing was written to the shared route table.
+	for _, d := range []string{a, b} {
+		routes, err := svc.listRouteHostnames(d)
+		if err != nil || len(routes) != 0 {
+			t.Fatalf("routes of %s = %#v, %v", d, routes, err)
+		}
+	}
+
+	// A route one label under the device's own base hostname still
+	// normalizes and passes validation; it only fails later because no
+	// tunnel is provisioned in this test.
+	err := svc.RegisterRoute(a, "nextcloud."+baseA)
+	if err == nil || !strings.Contains(err.Error(), "tunnel") {
+		t.Fatalf("valid own route = %v, want tunnel error", err)
 	}
 }
