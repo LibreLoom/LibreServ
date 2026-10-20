@@ -107,7 +107,7 @@ describe("BackupsLine", () => {
     renderLine(rowsOf([backup(), backup({ id: "b2", source_name: "Music", source_path: "Music" })]));
     expect(screen.getByRole("region", { name: "Backups" })).toBeInTheDocument();
     expect(screen.getByText("All backed up")).toBeInTheDocument();
-    expect(screen.queryByText(/backups$/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^\d+ backups?$/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "See all backups" })).toBeInTheDocument();
   });
 
