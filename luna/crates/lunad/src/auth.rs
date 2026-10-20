@@ -567,11 +567,19 @@ impl AuthService {
 
     /// Local-console recovery only: set a new password for the first admin.
     /// Never exposed on the network.
-    pub fn reset_admin_password(&self, password: &str) -> Result<UserRow, AuthError> {
+    ///
+    /// Returns the breach check alongside the user: a service that could not
+    /// answer leaves the password unchecked, and the caller says so on the
+    /// console rather than letting it pass in silence.
+    pub fn reset_admin_password(
+        &self,
+        password: &str,
+    ) -> Result<(UserRow, crate::hibp::BreachCheck), AuthError> {
         if let Err(err) = crate::password::validate_password(password) {
             return Err(AuthError::PasswordPolicy(err.message().into()));
         }
-        if crate::hibp::check_password_breach(password) == crate::hibp::BreachCheck::Breached {
+        let breach = crate::hibp::check_password_breach(password);
+        if breach == crate::hibp::BreachCheck::Breached {
             return Err(AuthError::PasswordPolicy(
                 crate::hibp::BREACHED_PASSWORD_MESSAGE.into(),
             ));
@@ -589,9 +597,10 @@ impl AuthService {
         // token for this admin must stop working.
         db::bump_user_token_version(&conn, &admin.id).map_err(AuthError::Db)?;
         db::revoke_device_tokens_for_user(&conn, &admin.id).map_err(AuthError::Db)?;
-        db::get_user(&conn, &admin.id)
+        let user = db::get_user(&conn, &admin.id)
             .map_err(AuthError::Db)?
-            .ok_or(AuthError::Db(anyhow::anyhow!("admin missing after reset")))
+            .ok_or(AuthError::Db(anyhow::anyhow!("admin missing after reset")))?;
+        Ok((user, breach))
     }
 }
 

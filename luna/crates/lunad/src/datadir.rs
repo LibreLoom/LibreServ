@@ -178,17 +178,51 @@ pub fn prepare(path: &Path, owner_uid: u32) -> anyhow::Result<()> {
 
 /// The full path of a data directory, so the parent check sees the real
 /// directories even when the configured path is relative.
+///
+/// The path is also resolved through any symlink in it. A data directory
+/// that is a link points somewhere else, and it is that place — and the
+/// parent of that place — that another account could rename. Checking the
+/// link's own parents would miss exactly the case this module exists for.
 fn absolute(path: &Path) -> anyhow::Result<std::path::PathBuf> {
-    if path.is_absolute() {
-        return Ok(path.to_path_buf());
+    let path = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        let current = std::env::current_dir().map_err(|err| {
+            anyhow::anyhow!(
+                "could not work out the current folder for the data directory {}: {err}",
+                path.display()
+            )
+        })?;
+        current.join(path)
+    };
+    Ok(resolve_symlinks(&path))
+}
+
+/// Resolve the symlinks in the longest part of the path that exists.
+///
+/// A path that does not exist yet cannot be resolved as a whole, so the
+/// deepest existing ancestor is resolved and the rest is put back on. That
+/// way a data directory that does not exist yet under a symlinked parent
+/// still gets the real parent checked.
+fn resolve_symlinks(path: &Path) -> std::path::PathBuf {
+    let mut current = path;
+    let mut tail: Vec<&std::ffi::OsStr> = Vec::new();
+    // Walk up until something exists that can be resolved.
+    while std::fs::symlink_metadata(current).is_err() {
+        let Some(name) = current.file_name() else {
+            break;
+        };
+        let Some(parent) = current.parent() else {
+            break;
+        };
+        tail.push(name);
+        current = parent;
     }
-    let current = std::env::current_dir().map_err(|err| {
-        anyhow::anyhow!(
-            "could not work out the current folder for the data directory {}: {err}",
-            path.display()
-        )
-    })?;
-    Ok(current.join(path))
+    let mut resolved = std::fs::canonicalize(current).unwrap_or_else(|_| current.to_path_buf());
+    for name in tail.iter().rev() {
+        resolved.push(name);
+    }
+    resolved
 }
 
 /// Check every directory above the data directory.
@@ -392,6 +426,61 @@ mod tests {
         let resolved = absolute(&root.path().join(relative)).unwrap();
         assert!(resolved.is_absolute());
         assert!(resolved.ends_with(relative));
+    }
+
+    /// A data directory that is a symlink points somewhere else, and it is
+    /// the parent of THAT place that could rename it. The check has to
+    /// follow the link.
+    #[cfg(unix)]
+    #[test]
+    fn follows_a_symlinked_data_directory_to_its_real_parent() {
+        let root = tempfile::tempdir().unwrap();
+        // The real parent, and the data directory inside it.
+        let real_parent = root.path().join("real");
+        std::fs::create_dir(&real_parent).unwrap();
+        let real_data = real_parent.join("luna");
+        std::fs::create_dir(&real_data).unwrap();
+
+        // A link to it, from a folder that is perfectly safe.
+        let link_parent = root.path().join("link-parent");
+        std::fs::create_dir(&link_parent).unwrap();
+        let link = link_parent.join("luna");
+        std::os::unix::fs::symlink(&real_data, &link).unwrap();
+
+        // The link's own parent is safe, but the real parent is not — so
+        // the real parent is what decides.
+        std::fs::set_permissions(&real_parent, std::fs::Permissions::from_mode(0o777)).unwrap();
+
+        let error = prepare(&link, current_uid()).unwrap_err();
+
+        assert!(is_ownership_error(&error), "unexpected error: {error}");
+        // The message names the directory that is actually the problem.
+        assert!(
+            error
+                .to_string()
+                .contains(&real_parent.display().to_string()),
+            "the error must name the real parent, got: {error}"
+        );
+    }
+
+    /// A symlink to a safe place is fine: the check follows the link and
+    /// finds nothing wrong there.
+    #[cfg(unix)]
+    #[test]
+    fn accepts_a_symlinked_data_directory_in_a_safe_place() {
+        let root = tempfile::tempdir().unwrap();
+        let real_parent = root.path().join("real");
+        std::fs::create_dir(&real_parent).unwrap();
+        let real_data = real_parent.join("luna");
+        std::fs::create_dir(&real_data).unwrap();
+
+        let link = root.path().join("luna-link");
+        std::os::unix::fs::symlink(&real_data, &link).unwrap();
+
+        prepare(&link, current_uid()).unwrap();
+
+        // The real directory is the one that got secured.
+        assert_eq!(mode(&real_data), DATA_DIR_MODE);
     }
 
     #[test]
