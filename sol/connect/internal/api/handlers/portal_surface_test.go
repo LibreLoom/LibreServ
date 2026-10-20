@@ -281,3 +281,45 @@ func TestPortalDomainValidationErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestPortalPlansOnlyReachOwnDevices(t *testing.T) {
+	db := database.OpenTestDB(t)
+	mine := activateDevice(t, db, "free")
+	theirs := activateDevice(t, db, "free")
+	myAccount := accountForDevice(t, db, mine)
+	h := NewPortalHandler(db)
+
+	// A caller-supplied device that belongs to another account must not pull
+	// that account's plan to itself — neither by subscribing nor by asking
+	// for a plan change.
+	for _, tt := range []struct {
+		body string
+		fn   func(http.ResponseWriter, *http.Request)
+	}{
+		{`{"plan_id":"free","device_id":"` + theirs + `"}`, h.Subscribe},
+		{`{"plan_id":"lite","device_id":"` + theirs + `"}`, h.Subscribe},
+		{`{"plan_id":"free","device_id":"` + theirs + `"}`, h.ChangePlan},
+		{`{"plan_id":"lite","device_id":"` + theirs + `"}`, h.ChangePlan},
+		{`{"plan_id":"free","device_id":"dev-new"}`, h.Subscribe},
+	} {
+		got := portalRequest(t, h, myAccount, http.MethodPost, "/portal/plan", tt.body, tt.fn)
+		if got.Code != http.StatusBadRequest {
+			t.Errorf("%s: %d %s, want 400", tt.body, got.Code, got.Body.String())
+		}
+	}
+
+	var planID string
+	if err := db.QueryRow(`SELECT plan_id FROM devices WHERE id = $1`, theirs).Scan(&planID); err != nil {
+		t.Fatal(err)
+	}
+	if planID != "free" {
+		t.Fatalf("other device's plan moved to %q", planID)
+	}
+
+	// The device's own plan still reachable under the signed-in account.
+	own := portalRequest(t, h, myAccount, http.MethodPost, "/portal/subscribe",
+		`{"plan_id":"free","device_id":"`+mine+`"}`, h.Subscribe)
+	if own.Code != http.StatusOK {
+		t.Fatalf("own device subscribe = %d: %s", own.Code, own.Body.String())
+	}
+}
