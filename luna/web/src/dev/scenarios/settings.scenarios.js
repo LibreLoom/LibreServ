@@ -254,7 +254,7 @@ export default [
       w.phrase = { ...w.phrase, check_due: true };
       w.phraseWrong = true;
     },
-    check: ["Any valid-looking 12 words is refused with a plain message", "The reminder stays until a check succeeds"],
+    check: ["Any valid-looking 12 or 24 words are refused with a plain message", "The reminder stays until a check succeeds"],
   },
   {
     id: "settings/phrase-not-set",
@@ -266,7 +266,7 @@ export default [
       w.connectActive = true;
       w.phrase = { set: false, set_at: 0, luna_id: "", signing_public: "", check_due: false };
     },
-    check: ["Creating the phrase shows 12 words once", "Confirming them marks the phrase as set"],
+    check: ["Creating the phrase shows 12 words (or 24 if chosen) once", "Confirming them marks the phrase as set"],
   },
   {
     id: "settings/restore-needed",
@@ -278,7 +278,7 @@ export default [
       w.connectActive = true;
       w.restore = { needed: true, luna_id: "luna-1", signing_public: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=", cloud_snapshots: 14, indexed_snapshots: 0 };
     },
-    check: ["Restore card explains 14 versions were found", "Any 12 words are refused with 'doesn't open any backups' (the fake has none)", "Words with a typo are refused before anything is sent"],
+    check: ["Restore card explains 14 versions were found", "Any 12 or 24 words are refused with 'doesn't open any backups' (the fake has none)", "Words with a typo are refused before anything is sent"],
   },
   {
     id: "settings/restore-private-needed",

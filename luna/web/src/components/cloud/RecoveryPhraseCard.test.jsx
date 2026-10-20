@@ -41,7 +41,7 @@ describe("RecoveryPhraseCard", () => {
     stubStatus({ set: false, set_at: null, luna_id: "luna-1" });
     renderCard();
 
-    expect(await screen.findByText(/Cloud backups are locked with 12 words only you know/)).toBeInTheDocument();
+    expect(await screen.findByText(/Cloud backups are locked with recovery words only you know/)).toBeInTheDocument();
     expect(screen.getByText(/^Not set\./)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Set up" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Change" })).toBeNull();
@@ -95,7 +95,7 @@ describe("RecoveryPhraseCard", () => {
     await user.click(screen.getByRole("button", { name: "Get a new phrase" }));
 
     expect(await screen.findByRole("heading", { name: "Set a new recovery phrase" })).toBeInTheDocument();
-    expect(screen.queryByText("Enter your current 12 words first. Then you can set new ones.")).toBeNull();
+    expect(screen.queryByText("Enter your current recovery words first. Then you can set new ones.")).toBeNull();
   });
 
   it("shows an error and stays put when Luna cannot create its identity", async () => {

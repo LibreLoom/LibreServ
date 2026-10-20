@@ -3,7 +3,7 @@ import { canonical, derive, encrypt, sign } from "@libreloom/ui/lib/cloud/backup
 
 /**
  * Cloud recovery phrase: the API calls and the key steps behind it.
- * The 12 words never leave the browser. Only public keys, a sealed copy of the
+ * The recovery words never leave the browser. Only public keys, a sealed copy of the
  * signing public key, and signatures are sent (see luna/crates/lunad/src/api/cloud_phrase.rs).
  */
 
@@ -60,7 +60,7 @@ export function savePhrase(body) {
 /**
  * Ask the server for a fresh challenge and sign it with the auth key that
  * `entropy` derives. Returns the base64 signature.
- * @param {Uint8Array} entropy 16 bytes of phrase entropy
+ * @param {Uint8Array} entropy 16 or 32 bytes of phrase entropy (12 or 24 words)
  * @param {string} lunaId
  * @returns {Promise<string>}
  */
@@ -80,7 +80,7 @@ export async function signFreshChallenge(entropy, lunaId) {
  * this Luna, this user, and the purpose. Luna only checks that the field is non-empty
  * base64; it does not open it.
  *
- * @param {Uint8Array} entropy 16 bytes of phrase entropy
+ * @param {Uint8Array} entropy 16 or 32 bytes of phrase entropy (12 or 24 words)
  * @param {{ lunaId: string, userId: string, signingPublic: Uint8Array | string }} opts
  *   `signingPublic` is 32 bytes, or base64 of 32 bytes.
  */

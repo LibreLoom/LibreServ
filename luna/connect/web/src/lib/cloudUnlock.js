@@ -11,7 +11,7 @@ import { unlockPrivate } from "./privateUnlock.js";
 /**
  * Open everything the phrase can open on this source: shared backups, then private backups.
  * @param {import("./cloudSource.js").CloudSource} source
- * @param {string} words  12 words as typed
+ * @param {string} words  12 or 24 words as typed
  * @param {{ requireLatest?: boolean }} [opts] requireLatest (share links): keep a shared backup only if the phrase opens its newest key version
  * @returns {Promise<{ userIds: string[], backups: CloudBackup[], privateOwners: string[] }>} privateOwners: user ids of every verified private scope on this Luna, owner or not
  */

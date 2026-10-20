@@ -634,7 +634,7 @@ describe("Member view", () => {
       rank: 90,
       tone: "info",
       title: ["Check your recovery phrase"],
-      detail: "It's been a while. Make sure your 12 words still open your cloud backups.",
+      detail: "It's been a while. Make sure your recovery words still open your cloud backups.",
       action: { label: "Check now", intent: "check-phrase" },
     });
   });

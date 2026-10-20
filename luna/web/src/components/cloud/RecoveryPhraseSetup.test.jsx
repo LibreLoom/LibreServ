@@ -30,7 +30,7 @@ function renderSetup(props = {}) {
   return { onClose };
 }
 
-/** The 12 words shown on screen, in order. */
+/** The words shown on screen, in order. */
 function shownWords() {
   return within(screen.getByRole("list")).getAllByRole("listitem").map((li) => li.textContent.trim().replace(/^\d+\.\s*/, ""));
 }
@@ -60,6 +60,50 @@ describe("RecoveryPhraseSetup", () => {
     setItem.mockRestore();
   });
 
+  it("lets you choose 24 words, shows a fresh phrase, and saves keys made from all 24", async () => {
+    const user = userEvent.setup();
+    const sent = {};
+    vi.stubGlobal("fetch", vi.fn(async (path, options = {}) => {
+      sent.body = JSON.parse(options.body);
+      return new Response(JSON.stringify({ set: true, set_at: 1 }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }));
+    const { onClose } = renderSetup();
+    const twelve = shownWords();
+    expect(screen.getByText("12 words are enough for most people.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("radio", { name: "24 words" }));
+    const words = shownWords();
+    expect(words).toHaveLength(24);
+    expect(words.slice(0, 12)).not.toEqual(twelve);
+    expect(screen.getByText(/Write these 24 words down in order/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "I wrote them down" }));
+    await answerCheck(user, words);
+    await user.click(screen.getByRole("button", { name: "Save recovery phrase" }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    const entropy = phraseToEntropy(words.join(" "));
+    expect(entropy).toHaveLength(32);
+    expect(fromBase64(sent.body.seal_public)).toEqual(derive(entropy, LUNA_ID).sealPublic);
+  });
+
+  it("asks for check words from anywhere in a 24-word phrase", async () => {
+    const user = userEvent.setup();
+    // Cycle low, middle, high so each pick of three positions is distinct.
+    const values = [0, 0.5, 0.99];
+    let n = 0;
+    const random = vi.spyOn(Math, "random").mockImplementation(() => values[n++ % 3]);
+    renderSetup();
+    await user.click(screen.getByRole("radio", { name: "24 words" }));
+    await user.click(screen.getByRole("button", { name: "I wrote them down" }));
+    const labels = screen.getAllByRole("textbox").map((i) => i.closest("label").textContent);
+    expect(labels.some((l) => /Word (1[3-9]|2\d)/.test(l))).toBe(true);
+    random.mockRestore();
+  });
+
   it("rejects a wrong word at the confirm step without saving", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn();
@@ -75,7 +119,7 @@ describe("RecoveryPhraseSetup", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("saves with 32-byte base64 public keys and no signature for a first set-up", async () => {
+  it("saves with base64 public keys and no signature for a first set-up", async () => {
     const user = userEvent.setup();
     const sent = {};
     vi.stubGlobal("fetch", vi.fn(async (path, options = {}) => {

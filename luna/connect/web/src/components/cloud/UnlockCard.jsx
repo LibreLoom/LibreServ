@@ -53,7 +53,7 @@ export function UnlockCard({ title = "Your backups are locked", description, onU
           rows={3}
           value={words}
           onChange={(e) => setWords(e.target.value)}
-          placeholder="12 words, with spaces between them"
+          placeholder="Your recovery words, with spaces between them"
           autoComplete="off"
           autoCapitalize="none"
           spellCheck={false}

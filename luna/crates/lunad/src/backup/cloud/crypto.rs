@@ -89,9 +89,14 @@ fn split_public(public: &SealPublic) -> (&[u8; X25519_LEN], &[u8; MLKEM_PUBLIC_L
     )
 }
 
-/// Derive the user's keys from the 16 bytes of recovery phrase entropy.
-/// Every key comes from the same entropy, so the phrase's 128 bits cap the strength of all of them.
-pub fn derive(entropy: &[u8; 16], luna_id: &str) -> UserKeys {
+/// Derive the user's keys from the recovery phrase entropy: 16 bytes (12 words) or 32 bytes (24 words).
+/// Every key comes from the same entropy, so the phrase's strength (128 or 256 bits) caps the
+/// strength of all of them.
+pub fn derive(entropy: &[u8], luna_id: &str) -> UserKeys {
+    assert!(
+        matches!(entropy.len(), 16 | 32),
+        "recovery phrase entropy is 16 or 32 bytes"
+    );
     let mut x25519_secret = hkdf_32(entropy, Some(DERIVE_SALT), &derive_info(b"x25519", luna_id));
     // Clamp as X25519 does, so the stored secret and its public key always agree.
     x25519_secret[0] &= 248;
@@ -389,12 +394,12 @@ fn push_len_prefixed(out: &mut Vec<u8>, bytes: &[u8]) {
     out.extend_from_slice(bytes);
 }
 
-/// Read 12 English recovery words (case and extra spaces ignored) into their 16 bytes of entropy.
-pub fn phrase_to_entropy(words: &str) -> Result<[u8; 16]> {
+/// Read 12 or 24 English recovery words (case and extra spaces ignored) into their 16 or 32 bytes of entropy.
+pub fn phrase_to_entropy(words: &str) -> Result<Vec<u8>> {
     let words: Vec<String> = words.split_whitespace().map(str::to_lowercase).collect();
-    if words.len() != 12 {
+    if words.len() != 12 && words.len() != 24 {
         bail!(
-            "Your recovery phrase has {} words. It needs exactly 12.",
+            "Your recovery phrase has {} words. It needs 12 or 24.",
             words.len()
         );
     }
@@ -404,20 +409,18 @@ pub fn phrase_to_entropy(words: &str) -> Result<[u8; 16]> {
         }
     }
     let phrase = words.join(" ");
+    let count = words.len();
     let mnemonic = Mnemonic::parse_in_normalized(Language::English, &phrase).map_err(|_| {
-        anyhow::anyhow!("These 12 words don't form a valid recovery phrase. Check each word.")
+        anyhow::anyhow!("These {count} words don't form a valid recovery phrase. Check each word.")
     })?;
-    let entropy = mnemonic.to_entropy();
-    entropy.try_into().map_err(|_| {
-        anyhow::anyhow!("These 12 words don't form a valid recovery phrase. Check each word.")
-    })
+    Ok(mnemonic.to_entropy())
 }
 
-/// The 12 English words for 16 bytes of entropy.
-pub fn entropy_to_phrase(entropy: &[u8; 16]) -> String {
-    // 16 bytes is always a valid BIP39 entropy length.
+/// The 12 or 24 English words for 16 or 32 bytes of entropy.
+pub fn entropy_to_phrase(entropy: &[u8]) -> String {
+    // 16 and 32 bytes are valid BIP39 entropy lengths.
     Mnemonic::from_entropy_in(Language::English, entropy)
-        .expect("16 bytes is a valid BIP39 entropy length")
+        .expect("16 or 32 bytes is a valid BIP39 entropy length")
         .to_string()
 }
 
@@ -463,7 +466,17 @@ mod tests {
             b"pack-aad",
             b"pack bytes",
         );
+        let long_entropy: [u8; 32] = std::array::from_fn(|i| i as u8);
+        let long_keys = derive(&long_entropy, LUNA_ID);
         json!({
+            "long": {
+                "entropy": hex(&long_entropy),
+                "phrase": entropy_to_phrase(&long_entropy),
+                "seal_secret": hex(&long_keys.seal_secret),
+                "seal_public": hex(&long_keys.seal_public),
+                "self_key": hex(&long_keys.self_key),
+                "auth_public": hex(&long_keys.auth_public),
+            },
             "entropy": hex(&entropy()),
             "luna_id": LUNA_ID,
             "phrase": entropy_to_phrase(&entropy()),
@@ -654,14 +667,46 @@ mod tests {
             phrase,
             "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
         );
-        assert_eq!(phrase_to_entropy(&phrase).unwrap(), [0u8; 16]);
+        assert_eq!(phrase_to_entropy(&phrase).unwrap(), vec![0u8; 16]);
     }
 
     #[test]
     fn phrase_round_trips_and_ignores_case_and_spacing() {
         let phrase = entropy_to_phrase(&entropy());
         let messy = format!("  {}  ", phrase.to_uppercase().replace(' ', "   "));
-        assert_eq!(phrase_to_entropy(&messy).unwrap(), entropy());
+        assert_eq!(phrase_to_entropy(&messy).unwrap(), entropy().to_vec());
+    }
+
+    #[test]
+    fn twenty_four_word_phrase_round_trips_and_derives_its_own_keys() {
+        let long: [u8; 32] = std::array::from_fn(|i| i as u8);
+        let phrase = entropy_to_phrase(&long);
+        assert_eq!(phrase.split(' ').count(), 24);
+        assert_eq!(phrase_to_entropy(&phrase).unwrap(), long.to_vec());
+        let k = derive(&long, LUNA_ID);
+        let short = derive(&entropy(), LUNA_ID);
+        assert_ne!(k.seal_public, short.seal_public);
+        let sealed = seal(&k.seal_public, b"aad", b"hello").unwrap();
+        assert_eq!(open(&k.seal_secret, b"aad", &sealed).unwrap(), b"hello");
+    }
+
+    #[test]
+    fn phrase_of_the_wrong_length_or_checksum_is_refused_plainly() {
+        let long = entropy_to_phrase(&[7u8; 32]);
+        let err = phrase_to_entropy(&long.replace("  ", " "))
+            .map(|_| ())
+            .err();
+        assert!(err.is_none());
+        let eighteen = vec!["abandon"; 18].join(" ");
+        assert_eq!(
+            phrase_to_entropy(&eighteen).unwrap_err().to_string(),
+            "Your recovery phrase has 18 words. It needs 12 or 24."
+        );
+        let bad_long = vec!["abandon"; 24].join(" ");
+        assert_eq!(
+            phrase_to_entropy(&bad_long).unwrap_err().to_string(),
+            "These 24 words don't form a valid recovery phrase. Check each word."
+        );
     }
 
     #[test]
@@ -686,7 +731,7 @@ mod tests {
             .to_string();
         assert_eq!(
             short,
-            "Your recovery phrase has 2 words. It needs exactly 12."
+            "Your recovery phrase has 2 words. It needs 12 or 24."
         );
     }
 }
