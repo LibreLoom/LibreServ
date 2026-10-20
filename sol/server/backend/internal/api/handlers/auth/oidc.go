@@ -1,9 +1,11 @@
 package auth
 
 import (
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -138,6 +140,9 @@ type GrantAccessRequest struct {
 	UserID string `json:"user_id"`
 }
 
+// errNoSuchUser marks a grant for an account that does not exist.
+var errNoSuchUser = errors.New("no such user")
+
 // GrantAccess grants a user access to an app instance.
 func (h *OIDCHandler) GrantAccess(w http.ResponseWriter, r *http.Request) {
 	instanceID := chi.URLParam(r, "instanceId")
@@ -152,11 +157,11 @@ func (h *OIDCHandler) GrantAccess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err := h.db.SQL().Exec(`
-		INSERT OR IGNORE INTO app_access (user_id, instance_id)
-		VALUES (?, ?)
-	`, req.UserID, instanceID)
-	if err != nil {
+	if err := h.grantAccess(r.Context(), req.UserID, instanceID); err != nil {
+		if errors.Is(err, errNoSuchUser) {
+			JSONError(w, http.StatusNotFound, "We couldn't find that person.")
+			return
+		}
 		h.logger.Error("Failed to grant access", "error", err, "user_id", req.UserID, "instance_id", instanceID)
 		JSONError(w, http.StatusInternalServerError, "We couldn't grant access. Please try again.")
 		return
@@ -165,6 +170,44 @@ func (h *OIDCHandler) GrantAccess(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, map[string]string{
 		"message": "Access granted.",
 	})
+}
+
+// grantAccess adds one person to an app instance's access list.
+//
+// The person has to exist: an access row means "this account may open this
+// app", so a row for an account that is gone grants nothing while still
+// sitting in the access list. Looking the account up and adding the row
+// share one transaction, so an account deleted in between cannot leave the
+// list pointing at nobody.
+func (h *OIDCHandler) grantAccess(ctx context.Context, userID, instanceID string) error {
+	tx, err := h.db.SQL().BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("starting the access transaction: %w", err)
+	}
+	// Rollback after a successful commit is a no-op; this only unwinds the
+	// paths that return early.
+	defer func() { _ = tx.Rollback() }()
+
+	var found int
+	err = tx.QueryRowContext(ctx, `SELECT 1 FROM users WHERE id = ?`, userID).Scan(&found)
+	if errors.Is(err, sql.ErrNoRows) {
+		return errNoSuchUser
+	}
+	if err != nil {
+		return fmt.Errorf("looking up the user: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT OR IGNORE INTO app_access (user_id, instance_id)
+		VALUES (?, ?)
+	`, userID, instanceID); err != nil {
+		return fmt.Errorf("adding the access row: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("saving the access row: %w", err)
+	}
+	return nil
 }
 
 // RevokeAccess revokes a user's access to an app instance.

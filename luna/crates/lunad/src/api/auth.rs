@@ -69,6 +69,9 @@ async fn update_me(
     // (AuthService calls would deadlock) and neither argon2 nor the breach
     // check's network call may run while it is held — or on the async worker.
     let mut new_hash = None;
+    // True when the breach service could not answer, so the password was
+    // allowed unchecked. The person is told about it in the response.
+    let mut breach_check_unavailable = false;
     if let Some(new_password) = body.new_password.clone() {
         let current_password = body.current_password.clone().unwrap_or_default();
         let stored_hash = {
@@ -88,39 +91,43 @@ async fn update_me(
                 .ok_or_else(|| json_error(StatusCode::UNAUTHORIZED, "Sign in to Luna first."))?
                 .password_hash
         };
-        new_hash = Some(
-            tokio::task::spawn_blocking(move || {
-                let parsed =
-                    argon2::password_hash::PasswordHash::new(&stored_hash).map_err(|_| {
-                        json_error(
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            "Luna couldn't do that. Try again.",
-                        )
-                    })?;
-                auth::verify_password_hash(&current_password, &parsed).map_err(|_| {
-                    json_error(StatusCode::FORBIDDEN, "That's not your current password.")
-                })?;
-                if let Err(e) = crate::password::validate_password(&new_password) {
-                    return Err(json_error(StatusCode::BAD_REQUEST, e.message()));
-                }
-                if let Err(e) = crate::hibp::ensure_password_not_breached(&new_password) {
-                    return Err(json_error(StatusCode::BAD_REQUEST, e.message()));
-                }
-                auth::hash_password(&new_password).map_err(|_| {
-                    json_error(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        "Luna couldn't save that. Try again.",
-                    )
-                })
-            })
-            .await
-            .map_err(|_| {
+        let (hash, unavailable) = tokio::task::spawn_blocking(move || {
+            let parsed = argon2::password_hash::PasswordHash::new(&stored_hash).map_err(|_| {
                 json_error(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "Luna couldn't do that. Try again.",
                 )
-            })??,
-        );
+            })?;
+            auth::verify_password_hash(&current_password, &parsed).map_err(|_| {
+                json_error(StatusCode::FORBIDDEN, "That's not your current password.")
+            })?;
+            if let Err(e) = crate::password::validate_password(&new_password) {
+                return Err(json_error(StatusCode::BAD_REQUEST, e.message()));
+            }
+            let breach = crate::hibp::check_password_breach(&new_password);
+            if breach == crate::hibp::BreachCheck::Breached {
+                return Err(json_error(
+                    StatusCode::BAD_REQUEST,
+                    crate::hibp::BREACHED_PASSWORD_MESSAGE,
+                ));
+            }
+            let hash = auth::hash_password(&new_password).map_err(|_| {
+                json_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Luna couldn't save that. Try again.",
+                )
+            })?;
+            Ok((hash, breach == crate::hibp::BreachCheck::Unavailable))
+        })
+        .await
+        .map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't do that. Try again.",
+            )
+        })??;
+        new_hash = Some(hash);
+        breach_check_unavailable = unavailable;
     }
 
     let conn = state.db.lock().map_err(|_| {
@@ -155,7 +162,7 @@ async fn update_me(
     }
 
     let row = crate::db::get_user(&conn, &user.id).ok().flatten();
-    Ok(Json(json!({
+    let mut response = json!({
         "ok": true,
         "id": user.id,
         "username": user.username,
@@ -167,7 +174,14 @@ async fn update_me(
         } else {
             "Saved."
         },
-    })))
+    });
+    if breach_check_unavailable && let Some(object) = response.as_object_mut() {
+        object.insert(
+            "warning".to_string(),
+            json!(crate::hibp::BREACH_CHECK_UNAVAILABLE_MESSAGE),
+        );
+    }
+    Ok(Json(response))
 }
 
 async fn register(
@@ -217,8 +231,8 @@ async fn register(
         .clone()
         .unwrap_or_else(|| body.username.clone());
     let password = body.password.clone();
-    let user = tokio::task::spawn_blocking(move || {
-        auth.register(&username, &display_name, &password, "user")
+    let (user, breach) = tokio::task::spawn_blocking(move || {
+        auth.register_with_breach_check(&username, &display_name, &password, "user")
     })
     .await
     .map_err(|_| {
@@ -233,12 +247,21 @@ async fn register(
         let connect = state.connect.clone();
         let _ = tokio::task::spawn_blocking(move || connect.clear_first_user_secret()).await;
     }
-    Ok(Json(json!({
+    let mut response = json!({
         "id": user.id,
         "username": user.username,
         "display_name": user.display_name,
         "role": user.role,
-    })))
+    });
+    if breach == crate::hibp::BreachCheck::Unavailable
+        && let Some(object) = response.as_object_mut()
+    {
+        object.insert(
+            "warning".to_string(),
+            json!(crate::hibp::BREACH_CHECK_UNAVAILABLE_MESSAGE),
+        );
+    }
+    Ok(Json(response))
 }
 
 async fn login(
