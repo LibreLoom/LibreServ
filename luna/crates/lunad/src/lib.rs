@@ -51,6 +51,7 @@ pub mod auth;
 pub mod backup;
 pub mod budget;
 pub mod config;
+pub mod datadir;
 pub mod db;
 pub mod dev_mock;
 pub mod drives;

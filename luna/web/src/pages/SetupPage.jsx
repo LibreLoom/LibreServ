@@ -23,6 +23,7 @@ import {
   stripDeviceCodeFromSearch,
 } from "../lib/deviceCodeParam.js";
 import { useAuth } from "../context/AuthContext";
+import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { useAnimatedHeight } from "@libreloom/ui/hooks/useAnimatedHeight.jsx";
 import useSetupProgress from "../hooks/useSetupProgress";
 import useConnectActive from "../hooks/useConnectActive";
@@ -328,6 +329,7 @@ FormField.propTypes = {
 
 function AccountStep({ hasAdmin, onContinue, connectActive }) {
   const { user, register, login } = useAuth();
+  const { addToast } = useToast();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const needsDeviceToken = isPublicLunaHost() && connectActive;
@@ -491,7 +493,13 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
     setFieldError(null);
     try {
       const displayName = form.display_name.trim() || form.username.trim();
-      await register(form.username.trim(), displayName, pw, needsDeviceToken ? form.setup_secret.trim() : undefined);
+      const created = await register(form.username.trim(), displayName, pw, needsDeviceToken ? form.setup_secret.trim() : undefined);
+      // Luna could not check the password against known breaches (no
+      // internet, or the breach service is down). The account is created —
+      // say so, so the first password is not an unchecked one by accident.
+      if (created?.warning) {
+        addToast({ type: "info", message: created.warning, duration: 10000 });
+      }
       await login(form.username.trim(), pw);
       onContinue();
     } catch (err) {

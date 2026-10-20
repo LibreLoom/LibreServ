@@ -249,8 +249,15 @@ function ProfileCard() {
       current_password: currentPassword,
       new_password: newPassword,
     }),
-    onSuccess: () => {
-      addToast({ type: "success", message: "Password changed. Sign in again with your new password." });
+    onSuccess: (data) => {
+      // When the breach service could not answer, Luna allowed the password
+      // unchecked and says so — the person should hear it, not guess it.
+      addToast({
+        type: data?.warning ? "info" : "success",
+        message: "Password changed. Sign in again with your new password.",
+        description: data?.warning || undefined,
+        duration: data?.warning ? 10000 : undefined,
+      });
       // Sign-in replaces this page in place, so the URL stays on Settings.
       endSession?.();
     },
