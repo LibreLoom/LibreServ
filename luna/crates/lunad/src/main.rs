@@ -56,32 +56,26 @@ async fn async_main() -> anyhow::Result<()> {
         .init();
 
     let mut cfg = Config::from_env().overlay_from_args();
-    if let Err(e) = std::fs::create_dir_all(&cfg.data_dir) {
+    // The data dir holds device tokens, session secrets, the user database,
+    // and the binaries the daemon runs — so it must belong to the account the
+    // daemon runs as, and to nobody else. Preparing it also keeps it
+    // owner-only, even when it already existed with looser permissions.
+    if let Err(e) = lunad::datadir::prepare(&cfg.data_dir, lunad::datadir::current_uid()) {
         // Fail closed: a silent scratch dir under a shared /tmp would expose
         // device tokens, session secrets, and the user database. Only a dev
         // who opts in with LUNA_ALLOW_TMP_DATA=1 gets the fallback.
-        if std::env::var("LUNA_ALLOW_TMP_DATA").ok().as_deref() != Some("1") {
+        if lunad::datadir::is_ownership_error(&e)
+            || std::env::var("LUNA_ALLOW_TMP_DATA").ok().as_deref() != Some("1")
+        {
             return Err(anyhow::anyhow!(
-                "could not create data dir {}: {e}",
+                "could not prepare the data dir {}: {e}",
                 cfg.data_dir.display()
             ));
         }
         let fallback = std::env::temp_dir().join("luna-data");
-        std::fs::create_dir_all(&fallback)
-            .map_err(|_| anyhow::anyhow!("could not create data dir: {e}"))?;
-        #[cfg(unix)]
-        verify_owned_scratch_dir(&fallback)?;
+        lunad::datadir::prepare(&fallback, lunad::datadir::current_uid())?;
         tracing::warn!(data_dir = %cfg.data_dir.display(), fallback = %fallback.display(), "data dir unusable, using scratch dir");
         cfg.data_dir = fallback;
-    }
-    // The data dir holds device tokens, session secrets, and luna.db — keep
-    // it owner-only even when it already existed with looser permissions.
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&cfg.data_dir, std::fs::Permissions::from_mode(0o700)).map_err(
-            |e| anyhow::anyhow!("could not secure data dir {}: {e}", cfg.data_dir.display()),
-        )?;
     }
     let conn = db::open(&cfg.db_path())?;
     // Nothing is uploading yet, so any cloud backup run left open by a crash or restart is over.
@@ -764,22 +758,6 @@ async fn touch_io_activity(
         state.touch_io_activity();
     }
     next.run(req).await
-}
-
-/// The LUNA_ALLOW_TMP_DATA fallback must belong to this process and stay
-/// owner-only — /tmp is shared, so a foreign or group-writable scratch dir
-/// would leak tokens just like the original bug did.
-#[cfg(unix)]
-fn verify_owned_scratch_dir(dir: &std::path::Path) -> anyhow::Result<()> {
-    use std::os::unix::fs::{MetadataExt, PermissionsExt};
-    if std::fs::metadata(dir)?.uid() != unsafe { libc::geteuid() } {
-        return Err(anyhow::anyhow!(
-            "scratch data dir {} is owned by a different user",
-            dir.display()
-        ));
-    }
-    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
-    Ok(())
 }
 
 // OpenRC/systemd stop lunad with SIGTERM, not SIGINT — without terminate()

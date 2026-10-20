@@ -328,6 +328,9 @@ func (s *Server) setupRoutes() {
 				// OIDC client management (admin only)
 				if s.oidcAdminHandler != nil {
 					r.Route("/{instanceId}/oidc", func(r chi.Router) {
+						// Everything here decides who may open the app or
+						// shows how it is set up — an Admin's job.
+						r.Use(middleware.RequireRole("admin"))
 						r.Get("/", s.oidcAdminHandler.GetOIDCClient)
 						r.Get("/access", s.oidcAdminHandler.ListAccess)
 						r.Post("/access", s.oidcAdminHandler.GrantAccess)

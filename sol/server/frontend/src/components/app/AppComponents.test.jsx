@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const {
   apiMock,
   authRequestMock,
+  authState,
   clipboardState,
   clipboardCopyMock,
   copyWithFeedbackMock,
@@ -13,6 +14,7 @@ const {
 } = vi.hoisted(() => ({
   apiMock: vi.fn(),
   authRequestMock: vi.fn(),
+  authState: { me: { id: "admin-1", username: "Ada", role: "admin" } },
   clipboardState: { ok: true },
   clipboardCopyMock: vi.fn(),
   copyWithFeedbackMock: vi.fn(),
@@ -22,7 +24,7 @@ const {
 
 vi.mock("../../lib/api.js", () => ({ default: apiMock }));
 vi.mock("../../hooks/useAuth.jsx", () => ({
-  useAuth: () => ({ request: authRequestMock }),
+  useAuth: () => ({ request: authRequestMock, me: authState.me }),
 }));
 vi.mock("@libreloom/ui/context/ToastContext.jsx", () => ({
   useToast: () => toastMock,
@@ -167,6 +169,7 @@ const jsonResponse = (data, ok = true) => ({
 beforeEach(() => {
   apiMock.mockReset();
   authRequestMock.mockReset();
+  authState.me = { id: "admin-1", username: "Ada", role: "admin" };
   clipboardCopyMock.mockReset();
   copyWithFeedbackMock.mockReset();
   eventSources.length = 0;
@@ -244,6 +247,34 @@ describe("app component coverage", () => {
       screen.getByRole("button", { name: "Require Sol login" }),
     );
     expect(toastMock.error).toHaveBeenCalledWith("access failed");
+  });
+
+  // Managing who reaches an app is an Admin's job. A non-Admin must not see
+  // an empty list that reads like "nobody has access".
+  it("hides the access panel from non-admins", async () => {
+    authState.me = { id: "user-2", username: "Lin", role: "user" };
+    apiMock.mockImplementation(async (path) => {
+      if (path.endsWith("/oidc/access")) {
+        return jsonResponse([
+          { user_id: "one", username: "Ada", email: "ada@example.test" },
+        ]);
+      }
+      if (path === "/users") return jsonResponse({ data: [] });
+      return jsonResponse({});
+    });
+    render(
+      <AccessControlSection
+        instanceId="app-3"
+        accessModel="internal"
+        appName="Notes"
+      />,
+    );
+
+    expect(screen.queryByText("Access control")).not.toBeInTheDocument();
+    expect(screen.queryByText("Who can sign in")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Connected — sign-in is ready"),
+    ).not.toBeInTheDocument();
   });
 
   it("renders, reveals, and copies grouped exposed information", async () => {

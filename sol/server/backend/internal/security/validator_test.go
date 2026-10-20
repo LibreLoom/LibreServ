@@ -129,7 +129,7 @@ func TestValidateConfig_ShortCSRFSecret(t *testing.T) {
 		}
 		var found bool
 		for _, issue := range result.Issues {
-			if issue.Category == "CSRF" && issue.Severity == "HIGH" && strings.Contains(issue.Message, "shorter than 32") {
+			if issue.Category == "CSRF" && issue.Severity == "CRITICAL" && strings.Contains(issue.Message, "shorter than 32") {
 				found = true
 			}
 		}
@@ -137,6 +137,43 @@ func TestValidateConfig_ShortCSRFSecret(t *testing.T) {
 			t.Error("expected short CSRF secret issue")
 		}
 	})
+}
+
+// A short CSRF secret signs every state-changing request, so it must stop a
+// production start — not only print a warning.
+func TestValidateProductionReadiness_ShortCSRFSecretIsRefused(t *testing.T) {
+	cfg := secureConfig()
+	cfg.Auth.CSRFSecret = "short"
+	withConfig(cfg, func() {
+		err := ValidateProductionReadiness()
+		if err == nil {
+			t.Fatal("expected a short CSRF secret to stop a production start")
+		}
+		if !strings.Contains(err.Error(), "CSRF secret is shorter than 32 bytes") {
+			t.Errorf("error should name the CSRF secret, got: %v", err)
+		}
+	})
+}
+
+func TestValidateProductionReadiness_LongEnoughCSRFSecretStarts(t *testing.T) {
+	cfg := secureConfig()
+	withConfig(cfg, func() {
+		if err := ValidateProductionReadiness(); err != nil {
+			t.Fatalf("secure config should start: %v", err)
+		}
+	})
+}
+
+func TestValidateCSRFSecret(t *testing.T) {
+	if err := ValidateCSRFSecret(""); err != nil {
+		t.Errorf("an empty secret is generated on first start, not an error: %v", err)
+	}
+	if err := ValidateCSRFSecret("short"); err == nil {
+		t.Error("a short secret must be refused")
+	}
+	if err := ValidateCSRFSecret(strings.Repeat("a", 32)); err != nil {
+		t.Errorf("32 bytes must be accepted: %v", err)
+	}
 }
 
 func TestValidateConfig_HardcodedSecret(t *testing.T) {

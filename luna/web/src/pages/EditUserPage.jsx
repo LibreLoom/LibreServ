@@ -123,8 +123,15 @@ function EditUserForm({ target }) {
 
   const save = useMutation({
     mutationFn: () => patchJson(`/api/v1/users/${target.id}`, changes),
-    onSuccess: () => {
-      addToast({ type: "success", message: `Saved changes to ${nameClean}.` });
+    onSuccess: (data) => {
+      // A password Luna could not check against known breaches is reported,
+      // not silently accepted.
+      addToast({
+        type: data?.warning ? "info" : "success",
+        message: `Saved changes to ${nameClean}.`,
+        description: data?.warning || undefined,
+        duration: data?.warning ? 10000 : undefined,
+      });
       queryClient.invalidateQueries({ queryKey: ["users"] });
       navigate(USERS_PATH);
     },

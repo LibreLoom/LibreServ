@@ -129,13 +129,16 @@ impl Gesture {
 
 pub trait PasswordPrompt {
     fn prompt_new_password(&mut self) -> Result<String, String>;
+    /// Say something on the console. The default does nothing, so a prompt
+    /// that cannot write stays quiet rather than failing the recovery.
+    fn report(&mut self, _message: &str) {}
 }
 
 /// Blocking loop: read keys, and on a match ask for a new admin password.
-pub fn run_loop(
+pub fn run_loop<P: PasswordPrompt + ?Sized>(
     auth: Arc<AuthService>,
     keys: impl Iterator<Item = u16>,
-    mut prompt: impl PasswordPrompt,
+    prompt: &mut P,
     mut now: impl FnMut() -> Instant,
 ) {
     let mut gesture = Gesture::new();
@@ -143,10 +146,21 @@ pub fn run_loop(
         match gesture.feed(code, now()) {
             FeedResult::Matched => match prompt.prompt_new_password() {
                 Ok(password) => match auth.reset_admin_password(&password) {
-                    Ok(user) => {
+                    Ok((user, breach)) => {
                         tracing::info!(username = %user.username, "admin password reset from local keyboard");
+                        prompt.report("Password updated. Sign in on your phone or computer.");
+                        // The breach service could not answer, so this
+                        // password was never checked. Say so where the person
+                        // is looking: the console.
+                        if breach == crate::hibp::BreachCheck::Unavailable {
+                            tracing::warn!("admin password reset without a breach check");
+                            prompt.report(crate::hibp::BREACH_CHECK_UNAVAILABLE_MESSAGE);
+                        }
                     }
-                    Err(e) => tracing::warn!(error = %e, "console password reset failed"),
+                    Err(e) => {
+                        tracing::warn!(error = %e, "console password reset failed");
+                        prompt.report(&e.to_string());
+                    }
                 },
                 Err(e) => tracing::warn!(error = %e, "console password prompt failed"),
             },
@@ -304,8 +318,14 @@ impl PasswordPrompt for ConsolePrompt {
             let _ = writeln!(tty, "Use at least 8 characters. Nothing was changed.");
             return Err("password too short".into());
         }
-        let _ = writeln!(tty, "Password updated. Sign in on your phone or computer.");
         Ok(first)
+    }
+
+    /// Say the outcome on the console, where the person is looking.
+    fn report(&mut self, message: &str) {
+        if let Ok(mut tty) = open_console() {
+            let _ = writeln!(tty, "{message}");
+        }
     }
 }
 
@@ -420,6 +440,7 @@ mod tests {
     struct ScriptedPrompt {
         password: String,
         calls: usize,
+        reported: Vec<String>,
     }
 
     impl PasswordPrompt for ScriptedPrompt {
@@ -427,6 +448,47 @@ mod tests {
             self.calls += 1;
             Ok(self.password.clone())
         }
+
+        fn report(&mut self, message: &str) {
+            self.reported.push(message.to_string());
+        }
+    }
+
+    /// The console must say when the breach service could not answer, so the
+    /// person knows the password was never checked.
+    #[test]
+    fn console_says_when_the_breach_check_could_not_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let data_dir = dir.path().to_path_buf();
+        let conn = db::open(&data_dir.join("luna.db")).unwrap();
+        let secret = crate::secrets::ensure_jwt_secret(&data_dir, &conn).unwrap();
+        let auth = Arc::new(AuthService::new(
+            Arc::new(crate::Db::new(conn)),
+            secret,
+            data_dir,
+        ));
+        auth.register("Max", "Max", "old-password12", "user")
+            .unwrap();
+
+        // The breach service is unreachable in tests, so the check cannot run.
+        let mut prompt = ScriptedPrompt {
+            password: "brand-new-12".into(),
+            calls: 0,
+            reported: Vec::new(),
+        };
+        let t0 = Instant::now();
+        run_loop(auth.clone(), seq().into_iter(), &mut prompt, || t0);
+
+        assert!(
+            prompt
+                .reported
+                .iter()
+                .any(|m| m.contains("couldn't check this password")),
+            "the console must say the password was not checked, got: {:?}",
+            prompt.reported
+        );
+        // The reset still happened: an offline Luna must stay recoverable.
+        auth.login("max", "brand-new-12").unwrap();
     }
 
     #[test]
@@ -444,12 +506,13 @@ mod tests {
             .unwrap();
         let old_session = auth.login("max", "old-password12").unwrap().1;
 
-        let prompt = ScriptedPrompt {
+        let mut prompt = ScriptedPrompt {
             password: "brand-new-12".into(),
             calls: 0,
+            reported: Vec::new(),
         };
         let t0 = Instant::now();
-        run_loop(auth.clone(), seq().into_iter(), prompt, || t0);
+        run_loop(auth.clone(), seq().into_iter(), &mut prompt, || t0);
         assert!(
             auth.verify(&old_session).is_err(),
             "USB recovery must kill stolen browser sessions"

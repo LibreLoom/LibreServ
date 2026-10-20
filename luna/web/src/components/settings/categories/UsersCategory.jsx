@@ -40,8 +40,15 @@ export default function UsersCategory() {
 
   const createMutation = useMutation({
     mutationFn: (body) => postJson("/api/v1/users", body),
-    onSuccess: () => {
-      addToast({ type: "success", message: "User added." });
+    onSuccess: (data) => {
+      // A password Luna could not check against known breaches is reported,
+      // not silently accepted.
+      addToast({
+        type: data?.warning ? "info" : "success",
+        message: "User added.",
+        description: data?.warning || undefined,
+        duration: data?.warning ? 10000 : undefined,
+      });
       setCreating(false);
       setError(null);
       queryClient.invalidateQueries({ queryKey: ["users"] });

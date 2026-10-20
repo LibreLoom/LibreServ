@@ -18,6 +18,7 @@ import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import api from "../../lib/api";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
+import { useAuth } from "../../hooks/useAuth";
 
 /**
  * AccessControlSection — manages who can reach an app.
@@ -28,6 +29,10 @@ import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
  * External apps: optional restricted-access toggle (Caddy forward_auth) +
  * user access list.
  *
+ * Only an Admin manages this — the server refuses everyone else, so the
+ * panel is hidden for the rest rather than showing an empty list that looks
+ * like "nobody has access".
+ *
  * @param {object} props
  * @param {string} props.instanceId
  * @param {"internal"|"external"} props.accessModel
@@ -35,6 +40,8 @@ import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
  */
 export default function AccessControlSection({ instanceId, accessModel, appName }) {
   const toast = useToast();
+  const { me } = useAuth();
+  const isAdmin = me?.role === "admin";
   const isInternal = accessModel === "internal";
 
   const [oidcConfigured, setOidcConfigured] = useState(false);
@@ -49,7 +56,7 @@ export default function AccessControlSection({ instanceId, accessModel, appName 
   const [selectedUser, setSelectedUser] = useState("");
 
   const loadOIDCStatus = useCallback(async () => {
-    if (!isInternal) return;
+    if (!isInternal || !isAdmin) return;
     setOidcLoading(true);
     try {
       const res = await api(`/apps/${instanceId}/oidc`);
@@ -60,10 +67,10 @@ export default function AccessControlSection({ instanceId, accessModel, appName 
     } finally {
       setOidcLoading(false);
     }
-  }, [instanceId, isInternal]);
+  }, [instanceId, isInternal, isAdmin]);
 
   const loadRestricted = useCallback(async () => {
-    if (isInternal) return;
+    if (isInternal || !isAdmin) return;
     setRestrictedLoading(true);
     try {
       const res = await api(`/apps/${instanceId}/oidc/restricted`);
@@ -74,9 +81,10 @@ export default function AccessControlSection({ instanceId, accessModel, appName 
     } finally {
       setRestrictedLoading(false);
     }
-  }, [instanceId, isInternal]);
+  }, [instanceId, isInternal, isAdmin]);
 
   const loadAccess = useCallback(async () => {
+    if (!isAdmin) return;
     setAccessLoading(true);
     try {
       const res = await api(`/apps/${instanceId}/oidc/access`);
@@ -87,9 +95,10 @@ export default function AccessControlSection({ instanceId, accessModel, appName 
     } finally {
       setAccessLoading(false);
     }
-  }, [instanceId]);
+  }, [instanceId, isAdmin]);
 
   const loadUsers = useCallback(async () => {
+    if (!isAdmin) return;
     try {
       const res = await api("/users");
       const data = await res.json();
@@ -97,7 +106,7 @@ export default function AccessControlSection({ instanceId, accessModel, appName 
     } catch {
       setAllUsers([]);
     }
-  }, []);
+  }, [isAdmin]);
 
   useEffect(() => {
     loadOIDCStatus();
@@ -153,6 +162,11 @@ export default function AccessControlSection({ instanceId, accessModel, appName 
       value: u.id,
       label: `${u.username}${u.email ? ` (${u.email})` : ""}`,
     }));
+
+  // Managing who reaches an app is an Admin's job. The server says so too,
+  // so the panel stays away instead of showing an empty list that reads
+  // like "nobody has access".
+  if (!isAdmin) return null;
 
   return (
     <section className={cn("mt-8")} data-slot="access-control-section">
