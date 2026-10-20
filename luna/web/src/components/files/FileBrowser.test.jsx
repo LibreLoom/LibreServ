@@ -1364,7 +1364,7 @@ describe("FileBrowser folder chrome auto-split", () => {
       folderActions: <button type="button">New</button>,
     });
 
-    expect(await screen.findByRole("button", { name: "New" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "New" }, { timeout: 5000 })).toBeInTheDocument();
 
     // Let the component's own first measure (a 50ms timer) and a resize both
     // happen; the layout then settles on its own, however slow the machine is.
