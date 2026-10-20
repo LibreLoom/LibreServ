@@ -10,7 +10,7 @@ use std::sync::MutexGuard;
 use anyhow::{Result, bail};
 use rusqlite::{Connection, OptionalExtension, params};
 
-use super::crypto::Signer;
+use super::crypto::{SigBytes, SigPublic, Signer};
 use crate::db;
 use crate::drives::drive_db;
 use crate::net::connect::ConnectService;
@@ -31,12 +31,12 @@ impl Identity {
     }
 
     /// The signing public key, which Connect and browsers check signatures with.
-    pub fn public(&self) -> [u8; 32] {
+    pub fn public(&self) -> SigPublic {
         self.signer.public()
     }
 
     /// Sign `msg` under `domain`. See `crypto::Signer::sign`.
-    pub fn sign(&self, domain: &str, msg: &[u8]) -> [u8; 64] {
+    pub fn sign(&self, domain: &str, msg: &[u8]) -> SigBytes {
         self.signer.sign(domain, msg)
     }
 

@@ -682,7 +682,7 @@ mod tests {
         };
         let ts = field("x-luna-ts");
         let sig_hex = field("x-luna-sig");
-        let sig: [u8; 64] = (0..128)
+        let sig: crate::backup::cloud::crypto::SigBytes = (0..sig_hex.len())
             .step_by(2)
             .map(|i| u8::from_str_radix(&sig_hex[i..i + 2], 16).unwrap())
             .collect::<Vec<u8>>()

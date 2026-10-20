@@ -9,6 +9,7 @@ import { hkdf } from '@noble/hashes/hkdf.js';
 import { hmac } from '@noble/hashes/hmac.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { concatBytes, utf8ToBytes } from '@noble/hashes/utils.js';
+import { ml_dsa65 } from '@noble/post-quantum/ml-dsa.js';
 import { ml_kem768 } from '@noble/post-quantum/ml-kem.js';
 import { entropyToMnemonic, mnemonicToEntropy } from '@scure/bip39';
 import { wordlist } from '@scure/bip39/wordlists/english.js';
@@ -18,7 +19,21 @@ import { wordlist } from '@scure/bip39/wordlists/english.js';
 /** Fixed HKDF salt for deriving keys from a recovery phrase. */
 const DERIVE_SALT = utf8ToBytes('luna-backup-v1');
 /** Prefix for the bytes a signature covers, so a signature for one purpose never passes for another. */
-const SIG_PREFIX = utf8ToBytes('luna-sig-v1\0');
+const SIG_PREFIX = utf8ToBytes('luna-sig-v2\0');
+/** HKDF label that turns a 32-byte signing seed into the ML-DSA seed beside the Ed25519 key. */
+const MLDSA_SEED_INFO = utf8ToBytes('luna-mldsa-v1');
+/** Ed25519 public key length. */
+const ED_PUBLIC_LEN = 32;
+/** ML-DSA-65 public key length. */
+const MLDSA_PUBLIC_LEN = 1952;
+/** Ed25519 signature length. */
+const ED_SIG_LEN = 64;
+/** ML-DSA-65 signature length. */
+const MLDSA_SIG_LEN = 3309;
+/** A public signing key: Ed25519 public key (32) | ML-DSA-65 public key (1952). */
+export const SIG_PUBLIC_LEN = ED_PUBLIC_LEN + MLDSA_PUBLIC_LEN;
+/** A signature: Ed25519 signature (64) | ML-DSA-65 signature (3309). Valid only if both halves verify. */
+export const SIG_LEN = ED_SIG_LEN + MLDSA_SIG_LEN;
 /** HKDF label for the key that seals a copy to a user's public key. */
 const SEAL_INFO = utf8ToBytes('luna-seal-v2');
 const NONCE_LEN = 24;
@@ -93,7 +108,7 @@ export function derive(entropy, lunaId) {
 	const sealPublic = cat(x25519.getPublicKey(x25519Secret), mlkemKeys(mlkemSeed).publicKey);
 	const selfKey = hkdf32(entropy, DERIVE_SALT, deriveInfo(utf8ToBytes('self'), lunaId));
 	const authSecret = hkdf32(entropy, DERIVE_SALT, deriveInfo(utf8ToBytes('auth'), lunaId));
-	const authPublic = ed25519.getPublicKey(authSecret);
+	const authPublic = signerPublic(authSecret);
 	return { sealSecret, sealPublic, selfKey, authSecret, authPublic };
 }
 
@@ -278,39 +293,52 @@ function signedBytes(domain, msg) {
 	return cat(SIG_PREFIX, utf8ToBytes(domain), Uint8Array.of(0), msg);
 }
 
+/** The ML-DSA key pair that goes with a 32-byte Ed25519 signing seed. @param {Bytes} seed */
+function mldsaKeys(seed) {
+	return ml_dsa65.keygen(hkdf32(seed, undefined, MLDSA_SEED_INFO));
+}
+
 /**
- * Public key for an Ed25519 signing seed.
+ * Public signing key for a 32-byte signing seed: Ed25519 public key | ML-DSA-65 public key.
  * @param {Bytes} seed 32 bytes
- * @returns {Bytes}
+ * @returns {Bytes} SIG_PUBLIC_LEN bytes
  */
 export function signerPublic(seed) {
-	return ed25519.getPublicKey(seed);
+	return cat(ed25519.getPublicKey(seed), mldsaKeys(seed).publicKey);
 }
 
 /**
- * Sign `msg` under `domain` with an Ed25519 seed. Matches `Signer::sign` in Rust.
+ * Sign `msg` under `domain` with a 32-byte signing seed. Matches `Signer::sign` in Rust: both
+ * signatures are deterministic, so the same input always gives the same bytes.
  * @param {Bytes} seed 32 bytes
  * @param {string} domain
  * @param {Bytes} msg
- * @returns {Bytes} 64-byte signature
+ * @returns {Bytes} SIG_LEN bytes
  */
 export function sign(seed, domain, msg) {
-	return ed25519.sign(signedBytes(domain, msg), seed);
+	const signed = signedBytes(domain, msg);
+	const mldsa = ml_dsa65.sign(signed, mldsaKeys(seed).secretKey, { extraEntropy: false });
+	return cat(ed25519.sign(signed, seed), mldsa);
 }
 
 /**
- * Check a signature made by `sign` with the same `domain`. Strict, like `verify_strict` in Rust.
- * @param {Bytes} publicKey 32 bytes
+ * Check a signature made by `sign` with the same `domain`. Both halves must verify. Strict, like
+ * `verify_strict` in Rust.
+ * @param {Bytes} publicKey SIG_PUBLIC_LEN bytes
  * @param {string} domain
  * @param {Bytes} msg
- * @param {Bytes} sig 64 bytes
+ * @param {Bytes} sig SIG_LEN bytes
  * @returns {boolean}
  */
 export function verify(publicKey, domain, msg, sig) {
+	if (publicKey.length !== SIG_PUBLIC_LEN || sig.length !== SIG_LEN) return false;
+	const signed = signedBytes(domain, msg);
 	try {
-		return ed25519.verify(sig, signedBytes(domain, msg), publicKey, {
+		const edOk = ed25519.verify(sig.slice(0, ED_SIG_LEN), signed, publicKey.slice(0, ED_PUBLIC_LEN), {
 			zip215: false,
 		});
+		const mldsaOk = ml_dsa65.verify(sig.slice(ED_SIG_LEN), signed, publicKey.slice(ED_PUBLIC_LEN));
+		return edOk && mldsaOk;
 	} catch {
 		return false;
 	}

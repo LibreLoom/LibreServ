@@ -14,6 +14,10 @@ use chacha20poly1305::{Key, XChaCha20Poly1305, XNonce};
 use ed25519_dalek::{Signature, Signer as _, SigningKey, VerifyingKey};
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
+use ml_dsa::{
+    EncodedSignature, EncodedVerifyingKey, Keypair, MlDsa65, Signature as MlSignature,
+    SigningKey as MlSigningKey, VerifyingKey as MlVerifyingKey,
+};
 use ml_kem::kem::{Decapsulate, KeyExport};
 use ml_kem::{B32, DecapsulationKey768, EncapsulationKey768, Seed};
 use rand_core::{OsRng, RngCore};
@@ -23,7 +27,24 @@ use x25519_dalek::{PublicKey, StaticSecret};
 /// Fixed HKDF salt for deriving keys from a recovery phrase.
 const DERIVE_SALT: &[u8] = b"luna-backup-v1";
 /// Prefix for the bytes a signature covers, so a signature for one purpose never passes for another.
-const SIG_PREFIX: &[u8] = b"luna-sig-v1\0";
+const SIG_PREFIX: &[u8] = b"luna-sig-v2\0";
+/// HKDF label that turns a 32-byte signing seed into the ML-DSA seed beside the Ed25519 key.
+const MLDSA_SEED_INFO: &[u8] = b"luna-mldsa-v1";
+/// Ed25519 public key length.
+const ED_PUBLIC_LEN: usize = 32;
+/// ML-DSA-65 public key length.
+const MLDSA_PUBLIC_LEN: usize = 1952;
+/// Ed25519 signature length.
+const ED_SIG_LEN: usize = 64;
+/// ML-DSA-65 signature length.
+const MLDSA_SIG_LEN: usize = 3309;
+/// A public signing key: Ed25519 public key (32) ‖ ML-DSA-65 public key (1952).
+pub const SIG_PUBLIC_LEN: usize = ED_PUBLIC_LEN + MLDSA_PUBLIC_LEN;
+/// A signature: Ed25519 signature (64) ‖ ML-DSA-65 signature (3309). Valid only if both halves verify.
+pub const SIG_LEN: usize = ED_SIG_LEN + MLDSA_SIG_LEN;
+
+pub type SigPublic = [u8; SIG_PUBLIC_LEN];
+pub type SigBytes = [u8; SIG_LEN];
 /// HKDF label for the key that seals a copy to a user's public key.
 const SEAL_INFO: &[u8] = b"luna-seal-v2";
 const NONCE_LEN: usize = 24;
@@ -50,7 +71,7 @@ pub struct UserKeys {
     pub seal_public: SealPublic,
     pub self_key: [u8; 32],
     pub auth_secret: [u8; 32],
-    pub auth_public: [u8; 32],
+    pub auth_public: SigPublic,
 }
 
 /// HKDF info: label, a zero byte, then the Luna id.
@@ -117,9 +138,7 @@ pub fn derive(entropy: &[u8], luna_id: &str) -> UserKeys {
     let self_key = hkdf_32(entropy, Some(DERIVE_SALT), &derive_info(b"self", luna_id));
 
     let auth_secret = hkdf_32(entropy, Some(DERIVE_SALT), &derive_info(b"auth", luna_id));
-    let auth_public = SigningKey::from_bytes(&auth_secret)
-        .verifying_key()
-        .to_bytes();
+    let auth_public = Signer::from_seed(auth_secret).public();
 
     UserKeys {
         seal_secret,
@@ -315,9 +334,17 @@ fn aead_decrypt(
     cipher.decrypt(&XNonce::from(*nonce), Payload { msg: body, aad })
 }
 
-/// An Ed25519 signing key. Its secret is never shown to a person; it lives in Luna's database and drives.
+/// The ML-DSA seed that goes with a 32-byte Ed25519 signing seed.
+fn mldsa_seed(seed: &[u8; 32]) -> [u8; 32] {
+    hkdf_32(seed, None, MLDSA_SEED_INFO)
+}
+
+/// A signing key: an Ed25519 key and an ML-DSA-65 key, both made from one 32-byte seed. Its secret is
+/// never shown to a person; it lives in Luna's database and drives. A signature carries both
+/// halves and is valid only if both verify, so a forger must break Ed25519 and ML-DSA.
 pub struct Signer {
     key: SigningKey,
+    mldsa: MlSigningKey<MlDsa65>,
 }
 
 impl Signer {
@@ -330,6 +357,7 @@ impl Signer {
     pub fn from_seed(seed: [u8; 32]) -> Self {
         Self {
             key: SigningKey::from_bytes(&seed),
+            mldsa: MlSigningKey::<MlDsa65>::from_seed(&mldsa_seed(&seed).into()),
         }
     }
 
@@ -337,23 +365,57 @@ impl Signer {
         self.key.to_bytes()
     }
 
-    pub fn public(&self) -> [u8; 32] {
-        self.key.verifying_key().to_bytes()
+    pub fn public(&self) -> SigPublic {
+        let mut out = [0u8; SIG_PUBLIC_LEN];
+        out[..ED_PUBLIC_LEN].copy_from_slice(&self.key.verifying_key().to_bytes());
+        out[ED_PUBLIC_LEN..].copy_from_slice(&self.mldsa.verifying_key().encode());
+        out
     }
 
     /// Sign `msg` under `domain`. The signed bytes are `SIG_PREFIX ‖ domain ‖ 0x00 ‖ msg`.
-    pub fn sign(&self, domain: &str, msg: &[u8]) -> [u8; 64] {
-        self.key.sign(&signed_bytes(domain, msg)).to_bytes()
+    /// Both signatures are deterministic, so the same input always gives the same bytes.
+    pub fn sign(&self, domain: &str, msg: &[u8]) -> SigBytes {
+        let signed = signed_bytes(domain, msg);
+        let mut out = [0u8; SIG_LEN];
+        out[..ED_SIG_LEN].copy_from_slice(&self.key.sign(&signed).to_bytes());
+        let mldsa = self
+            .mldsa
+            .expanded_key()
+            .sign_deterministic(&signed, b"")
+            .expect("an empty context is always allowed");
+        out[ED_SIG_LEN..].copy_from_slice(&mldsa.encode());
+        out
     }
 }
 
-/// Check a signature made by `Signer::sign` with the same `domain`.
-pub fn verify(public: &[u8; 32], domain: &str, msg: &[u8], sig: &[u8; 64]) -> bool {
-    let Ok(key) = VerifyingKey::from_bytes(public) else {
+/// Check a signature made by `Signer::sign` with the same `domain`. Both halves must verify.
+pub fn verify(public: &SigPublic, domain: &str, msg: &[u8], sig: &SigBytes) -> bool {
+    let signed = signed_bytes(domain, msg);
+    let ed_public: [u8; ED_PUBLIC_LEN] = public[..ED_PUBLIC_LEN]
+        .try_into()
+        .expect("first half is ED_PUBLIC_LEN bytes");
+    let Ok(ed_key) = VerifyingKey::from_bytes(&ed_public) else {
         return false;
     };
-    key.verify_strict(&signed_bytes(domain, msg), &Signature::from_bytes(sig))
-        .is_ok()
+    let ed_sig: [u8; ED_SIG_LEN] = sig[..ED_SIG_LEN]
+        .try_into()
+        .expect("first half is ED_SIG_LEN bytes");
+    let ed_ok = ed_key
+        .verify_strict(&signed, &Signature::from_bytes(&ed_sig))
+        .is_ok();
+
+    let Ok(encoded_key) = EncodedVerifyingKey::<MlDsa65>::try_from(&public[ED_PUBLIC_LEN..]) else {
+        return false;
+    };
+    let Ok(encoded_sig) = EncodedSignature::<MlDsa65>::try_from(&sig[ED_SIG_LEN..]) else {
+        return false;
+    };
+    let Some(mldsa_sig) = MlSignature::<MlDsa65>::decode(&encoded_sig) else {
+        return false;
+    };
+    let mldsa_ok = MlVerifyingKey::<MlDsa65>::decode(&encoded_key)
+        .verify_with_context(&signed, b"", &mldsa_sig);
+    ed_ok && mldsa_ok
 }
 
 fn signed_bytes(domain: &str, msg: &[u8]) -> Vec<u8> {
@@ -635,6 +697,46 @@ mod tests {
         assert!(!verify(&public, "snapshot", b"changed", &sig));
         let stranger = Signer::from_seed([4u8; 32]).public();
         assert!(!verify(&stranger, "snapshot", b"record", &sig));
+    }
+
+    #[test]
+    fn a_signature_needs_both_halves_to_verify() {
+        let signer = Signer::from_seed([3u8; 32]);
+        let public = signer.public();
+        let sig = signer.sign("snapshot", b"record");
+        assert_eq!(sig.len(), SIG_LEN);
+        assert_eq!(public.len(), SIG_PUBLIC_LEN);
+        assert!(verify(&public, "snapshot", b"record", &sig));
+
+        // Corrupt only the Ed25519 half, then only the ML-DSA half.
+        let mut ed_bad = sig;
+        ed_bad[0] ^= 1;
+        assert!(!verify(&public, "snapshot", b"record", &ed_bad));
+        let mut ml_bad = sig;
+        ml_bad[SIG_LEN - 1] ^= 1;
+        assert!(!verify(&public, "snapshot", b"record", &ml_bad));
+        let mut ml_zero = sig;
+        ml_zero[ED_SIG_LEN..].fill(0);
+        assert!(!verify(&public, "snapshot", b"record", &ml_zero));
+
+        // A key whose ML-DSA half belongs to someone else does not verify either.
+        let other = Signer::from_seed([4u8; 32]).public();
+        let mut mixed = public;
+        mixed[ED_PUBLIC_LEN..].copy_from_slice(&other[ED_PUBLIC_LEN..]);
+        assert!(!verify(&mixed, "snapshot", b"record", &sig));
+        let mut mixed_ed = public;
+        mixed_ed[..ED_PUBLIC_LEN].copy_from_slice(&other[..ED_PUBLIC_LEN]);
+        assert!(!verify(&mixed_ed, "snapshot", b"record", &sig));
+    }
+
+    #[test]
+    fn signing_is_deterministic() {
+        let signer = Signer::from_seed([3u8; 32]);
+        assert_eq!(
+            signer.sign("snapshot", b"record"),
+            signer.sign("snapshot", b"record")
+        );
+        assert_eq!(signer.public(), Signer::from_seed([3u8; 32]).public());
     }
 
     #[test]

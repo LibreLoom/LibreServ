@@ -10,7 +10,7 @@ use anyhow::{Result, anyhow};
 use rand_core::{OsRng, RngCore};
 use rusqlite::{Connection, params};
 
-use super::crypto;
+use super::crypto::{self, SigPublic};
 use super::format::{self, ChunkRef, OpenedPack, SignedRecord, SnapshotRecord};
 use super::identity;
 use super::run::{self, PACK_KEY_WRAP_AAD};
@@ -42,7 +42,7 @@ pub enum Sample {
 
 /// What the check needs from the database, read in one short lock.
 struct Plan {
-    public: [u8; 32],
+    public: SigPublic,
     keys: Vec<BackupKey>,
     snapshots: Vec<SnapshotInsert>,
     /// Snapshot id -> the pack ids listed for it.
@@ -184,7 +184,7 @@ fn load_record(
     store: &dyn CloudStore,
     snap: &SnapshotInsert,
     protection_id: &str,
-    public: &[u8; 32],
+    public: &SigPublic,
     luna_id: &str,
 ) -> Result<Option<SnapshotRecord>> {
     let bytes = match store.get_record("snapshots", &snap.id) {

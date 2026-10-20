@@ -7,7 +7,7 @@ use anyhow::{Result, anyhow, bail};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
-use crate::backup::cloud::crypto::{self, SealPublic, SealSecret, Signer};
+use crate::backup::cloud::crypto::{self, SealPublic, SealSecret, SigBytes, SigPublic, Signer};
 use crate::backup::cloud::format::{self, BackupMeta, Tree};
 use crate::backup::cloud::store::CloudStore;
 use crate::db;
@@ -138,7 +138,7 @@ pub struct ScopeRecord {
     #[serde(with = "format::hex_fixed")]
     pub seal_public: SealPublic,
     #[serde(with = "format::hex_fixed")]
-    pub auth_public: [u8; 32],
+    pub auth_public: SigPublic,
     pub created_at: i64,
     #[serde(with = "format::hex_fixed")]
     pub sealed_dedup: Vec<u8>,
@@ -170,12 +170,12 @@ impl ScopeRecord {
 pub struct SignedScope {
     pub record: ScopeRecord,
     #[serde(with = "format::hex_fixed")]
-    pub signature: [u8; 64],
+    pub signature: SigBytes,
 }
 
 impl SignedScope {
     /// Check the signature against Luna's public signing key and return the record.
-    pub fn verify(&self, luna_public: &[u8; 32]) -> Result<ScopeRecord> {
+    pub fn verify(&self, luna_public: &SigPublic) -> Result<ScopeRecord> {
         if !crypto::verify(
             luna_public,
             SCOPE_RECORD_DOMAIN,
@@ -235,7 +235,7 @@ pub fn publish_scope(
     signer: &Signer,
     luna_id: &str,
     scope: &db::PrivateScope,
-    auth_public: &[u8; 32],
+    auth_public: &SigPublic,
 ) -> Result<()> {
     let owner_public: SealPublic = scope.seal_public.as_slice().try_into().map_err(|_| {
         anyhow!("This private backup's key is the wrong length. It may be damaged.")

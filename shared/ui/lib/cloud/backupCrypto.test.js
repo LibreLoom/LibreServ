@@ -19,6 +19,8 @@ import {
 	checkPublicKey,
 	SEAL_PUBLIC_LEN,
 	SEAL_SECRET_LEN,
+	SIG_LEN,
+	SIG_PUBLIC_LEN,
 	sign,
 	signerPublic,
 	verify,
@@ -181,15 +183,45 @@ describe('encrypt and decrypt', () => {
 });
 
 describe('signatures', () => {
+	const seed = new Uint8Array(32).fill(3);
+	const msg = utf8ToBytes('record');
+
 	it('verify only under their domain and message', () => {
-		const seed = new Uint8Array(32).fill(3);
 		const pub = signerPublic(seed);
-		const msg = utf8ToBytes('record');
 		const sig = sign(seed, 'snapshot', msg);
+		expect(pub.length).toBe(SIG_PUBLIC_LEN);
+		expect(sig.length).toBe(SIG_LEN);
 		expect(verify(pub, 'snapshot', msg, sig)).toBe(true);
 		expect(verify(pub, 'other', msg, sig)).toBe(false);
 		expect(verify(pub, 'snapshot', utf8ToBytes('changed'), sig)).toBe(false);
 		expect(verify(signerPublic(new Uint8Array(32).fill(4)), 'snapshot', msg, sig)).toBe(false);
+	});
+
+	it('are deterministic', () => {
+		expect(sign(seed, 'snapshot', msg)).toEqual(sign(seed, 'snapshot', msg));
+	});
+
+	it('need both the Ed25519 and the ML-DSA half to verify', () => {
+		const pub = signerPublic(seed);
+		const sig = sign(seed, 'snapshot', msg);
+		const edBad = sig.slice();
+		edBad[0] ^= 1;
+		const mlBad = sig.slice();
+		mlBad[mlBad.length - 1] ^= 1;
+		const mlZero = sig.slice();
+		mlZero.fill(0, 64);
+		expect(verify(pub, 'snapshot', msg, edBad)).toBe(false);
+		expect(verify(pub, 'snapshot', msg, mlBad)).toBe(false);
+		expect(verify(pub, 'snapshot', msg, mlZero)).toBe(false);
+		expect(verify(pub, 'snapshot', msg, sig.slice(0, 64))).toBe(false);
+
+		const other = signerPublic(new Uint8Array(32).fill(4));
+		const mixedMl = pub.slice();
+		mixedMl.set(other.slice(32), 32);
+		const mixedEd = pub.slice();
+		mixedEd.set(other.slice(0, 32), 0);
+		expect(verify(mixedMl, 'snapshot', msg, sig)).toBe(false);
+		expect(verify(mixedEd, 'snapshot', msg, sig)).toBe(false);
 	});
 });
 

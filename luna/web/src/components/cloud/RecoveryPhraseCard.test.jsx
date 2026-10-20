@@ -5,8 +5,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import RecoveryPhraseCard from "./RecoveryPhraseCard.jsx";
 import { toBase64 } from "../../lib/cloudPhrase";
+import { SIG_PUBLIC_LEN } from "@libreloom/ui/lib/cloud/backupCrypto.js";
 
-const SIGNING_PUBLIC = new Uint8Array(32).map((_, i) => i + 7);
+const SIGNING_PUBLIC = new Uint8Array(SIG_PUBLIC_LEN).map((_, i) => (i + 7) % 256);
 
 function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });

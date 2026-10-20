@@ -463,7 +463,7 @@ func TestShareUserLinkPrivateItems(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	token, _, err := openPrivateSession(d, s, linkID, "main", ch, privSign(authPriv, "main", ch), now)
+	token, _, err := openPrivateSession(d, s, linkID, "main", ch, privSign(t, authPriv, "main", ch), now)
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
@@ -534,7 +534,7 @@ func TestShareOpenThroughRoute(t *testing.T) {
 		t.Fatalf("challenge body %q: %v", rec.Body.String(), err)
 	}
 
-	openBody := `{"scope":"main","challenge":"` + ch.Challenge + `","signature":"` + privSign(authPriv, "main", ch.Challenge) + `"}`
+	openBody := `{"scope":"main","challenge":"` + ch.Challenge + `","signature":"` + privSign(t, authPriv, "main", ch.Challenge) + `"}`
 	rec = do(http.MethodPost, "/api/v1/share/private/open", openBody, nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("open status %d: %s", rec.Code, rec.Body.String())

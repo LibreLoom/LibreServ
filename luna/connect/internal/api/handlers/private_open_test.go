@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"bytes"
-	"crypto/ed25519"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -19,28 +18,23 @@ import (
 const privTestLuna = "luna-private"
 
 // privFixture makes an account with one Luna whose signing key is lunaPriv, and an auth key pair.
-func privFixture(t *testing.T) (d Deps, acct string, lunaPriv ed25519.PrivateKey, authPub ed25519.PublicKey, authPriv ed25519.PrivateKey) {
+func privFixture(t *testing.T) (d Deps, acct string, lunaPriv hybridKey, authPub []byte, authPriv hybridKey) {
 	t.Helper()
 	d = testDeps(t)
 	acct = cloudAccount(t, d, "private@example.com")
 	cloudLuna(t, d, acct, privTestLuna, "Home")
-	lpub, lpriv, err := ed25519.GenerateKey(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	authPub, authPriv, err = ed25519.GenerateKey(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	lpriv := newHybridKey(t)
+	authPriv = newHybridKey(t)
+	authPub = authPriv.pub
 	if _, err := d.DB.Exec(`UPDATE luna_ids SET signing_public = ? WHERE account_id = ? AND luna_id = ?`,
-		hex.EncodeToString(lpub), acct, privTestLuna); err != nil {
+		lpriv.pubHex(), acct, privTestLuna); err != nil {
 		t.Fatal(err)
 	}
 	return d, acct, lpriv, authPub, authPriv
 }
 
 // privWriteScope stores pscopes/<scope> for userID, signed by signWith.
-func privWriteScope(t *testing.T, d Deps, acct, scope, userID string, authPub ed25519.PublicKey, signWith ed25519.PrivateKey) {
+func privWriteScope(t *testing.T, d Deps, acct, scope, userID string, authPub []byte, signWith hybridKey) {
 	t.Helper()
 	sealPublic := bytes.Repeat([]byte{7}, sealPublicLen)
 	sealed := []byte("sealed")
@@ -56,7 +50,7 @@ func privWriteScope(t *testing.T, d Deps, acct, scope, userID string, authPub ed
 		[2][]byte{[]byte("created_at"), c[:]},
 		[2][]byte{[]byte("sealed_dedup"), sealed},
 	)
-	sig := ed25519.Sign(signWith, append([]byte("luna-sig-v1\x00"+privateScopeDomain+"\x00"), msg...))
+	sig := signWith.sign(t, privateScopeDomain, msg)
 	data, err := json.Marshal(map[string]any{
 		"record": map[string]any{
 			"luna_id": privTestLuna, "scope": scope, "user_id": userID,
@@ -72,14 +66,14 @@ func privWriteScope(t *testing.T, d Deps, acct, scope, userID string, authPub ed
 }
 
 // privSign signs a challenge for scope the way the client's auth key does.
-func privSign(priv ed25519.PrivateKey, scope, challengeHex string) string {
+func privSign(t *testing.T, priv hybridKey, scope, challengeHex string) string {
 	challenge, _ := hex.DecodeString(challengeHex)
 	msg := lunaCanonical(
 		[2][]byte{[]byte("luna_id"), []byte(privTestLuna)},
 		[2][]byte{[]byte("scope"), []byte(scope)},
 		[2][]byte{[]byte("challenge"), challenge},
 	)
-	return hex.EncodeToString(ed25519.Sign(priv, append([]byte("luna-sig-v1\x00"+privateOpenDomain+"\x00"), msg...)))
+	return hex.EncodeToString(priv.sign(t, privateOpenDomain, msg))
 }
 
 // privShareLink inserts a share link and returns its id (the linkID that resolveShare reports).
@@ -110,7 +104,7 @@ func TestPrivateOpenWithGoodSignature(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	token, expiresAt, err := openPrivateSession(d, s, "", "main", ch, privSign(authPriv, "main", ch), now)
+	token, expiresAt, err := openPrivateSession(d, s, "", "main", ch, privSign(t, authPriv, "main", ch), now)
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
@@ -129,7 +123,7 @@ func TestPrivateChallengeIsSingleUse(t *testing.T) {
 	s := readScope{AccountID: acct, LunaID: privTestLuna}
 	now := time.Now()
 	ch, _ := newPrivateChallenge(d, s, "", now)
-	sig := privSign(authPriv, "main", ch)
+	sig := privSign(t, authPriv, "main", ch)
 	if _, _, err := openPrivateSession(d, s, "", "main", ch, sig, now); err != nil {
 		t.Fatalf("first open: %v", err)
 	}
@@ -145,19 +139,19 @@ func TestPrivateChallengeExpires(t *testing.T) {
 	now := time.Now()
 	ch, _ := newPrivateChallenge(d, s, "", now)
 	late := now.Add((privateChallengeTTL + 1) * time.Second)
-	if _, _, err := openPrivateSession(d, s, "", "main", ch, privSign(authPriv, "main", ch), late); !errors.Is(err, errPrivateDenied) {
+	if _, _, err := openPrivateSession(d, s, "", "main", ch, privSign(t, authPriv, "main", ch), late); !errors.Is(err, errPrivateDenied) {
 		t.Fatalf("expired challenge err = %v; want denied", err)
 	}
 }
 
 func TestPrivateOpenRejectsForgedScopeRecord(t *testing.T) {
 	d, acct, _, authPub, authPriv := privFixture(t)
-	_, otherPriv, _ := ed25519.GenerateKey(nil)
+	otherPriv := newHybridKey(t)
 	privWriteScope(t, d, acct, "main", "user_a", authPub, otherPriv)
 	s := readScope{AccountID: acct, LunaID: privTestLuna}
 	now := time.Now()
 	ch, _ := newPrivateChallenge(d, s, "", now)
-	if _, _, err := openPrivateSession(d, s, "", "main", ch, privSign(authPriv, "main", ch), now); !errors.Is(err, errPrivateDenied) {
+	if _, _, err := openPrivateSession(d, s, "", "main", ch, privSign(t, authPriv, "main", ch), now); !errors.Is(err, errPrivateDenied) {
 		t.Fatalf("forged record err = %v; want denied", err)
 	}
 }
@@ -165,11 +159,11 @@ func TestPrivateOpenRejectsForgedScopeRecord(t *testing.T) {
 func TestPrivateOpenWrongAuthKey(t *testing.T) {
 	d, acct, lunaPriv, authPub, _ := privFixture(t)
 	privWriteScope(t, d, acct, "main", "user_a", authPub, lunaPriv)
-	_, wrongPriv, _ := ed25519.GenerateKey(nil)
+	wrongPriv := newHybridKey(t)
 	s := readScope{AccountID: acct, LunaID: privTestLuna}
 	now := time.Now()
 	ch, _ := newPrivateChallenge(d, s, "", now)
-	if _, _, err := openPrivateSession(d, s, "", "main", ch, privSign(wrongPriv, "main", ch), now); !errors.Is(err, errPrivateDenied) {
+	if _, _, err := openPrivateSession(d, s, "", "main", ch, privSign(t, wrongPriv, "main", ch), now); !errors.Is(err, errPrivateDenied) {
 		t.Fatalf("wrong key err = %v; want denied", err)
 	}
 }
@@ -180,7 +174,7 @@ func TestPrivateSessionExpires(t *testing.T) {
 	s := readScope{AccountID: acct, LunaID: privTestLuna}
 	now := time.Now()
 	ch, _ := newPrivateChallenge(d, s, "", now)
-	token, _, err := openPrivateSession(d, s, "", "main", ch, privSign(authPriv, "main", ch), now)
+	token, _, err := openPrivateSession(d, s, "", "main", ch, privSign(t, authPriv, "main", ch), now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,12 +193,12 @@ func TestShareUserLinkOnlyOpensItsUser(t *testing.T) {
 	now := time.Now()
 
 	ch, _ := newPrivateChallenge(d, s, linkID, now)
-	if _, _, err := openPrivateSession(d, s, linkID, "other", ch, privSign(authPriv, "other", ch), now); !errors.Is(err, errPrivateDenied) {
+	if _, _, err := openPrivateSession(d, s, linkID, "other", ch, privSign(t, authPriv, "other", ch), now); !errors.Is(err, errPrivateDenied) {
 		t.Fatalf("other user's scope err = %v; want denied", err)
 	}
 
 	ch, _ = newPrivateChallenge(d, s, linkID, now)
-	token, _, err := openPrivateSession(d, s, linkID, "main", ch, privSign(authPriv, "main", ch), now)
+	token, _, err := openPrivateSession(d, s, linkID, "main", ch, privSign(t, authPriv, "main", ch), now)
 	if err != nil {
 		t.Fatalf("own scope: %v", err)
 	}
@@ -220,7 +214,7 @@ func TestShareBackupLinkNeverOpens(t *testing.T) {
 	s := readScope{AccountID: acct, LunaID: privTestLuna, Kind: "backup", Value: "backup-1"}
 	now := time.Now()
 	ch, _ := newPrivateChallenge(d, s, linkID, now)
-	if _, _, err := openPrivateSession(d, s, linkID, "main", ch, privSign(authPriv, "main", ch), now); !errors.Is(err, errPrivateDenied) {
+	if _, _, err := openPrivateSession(d, s, linkID, "main", ch, privSign(t, authPriv, "main", ch), now); !errors.Is(err, errPrivateDenied) {
 		t.Fatalf("backup link err = %v; want denied", err)
 	}
 }

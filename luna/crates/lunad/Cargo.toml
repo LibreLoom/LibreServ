@@ -54,6 +54,7 @@ hkdf = "0.12"
 hmac = "0.12"
 x25519-dalek = { version = "2", features = ["static_secrets"] }
 ml-kem = { version = "0.3.3", features = ["hazmat"] }
+ml-dsa = "0.1.1"
 # Cloud backup chunking (backup/cloud/format.rs): content-defined chunk boundaries.
 fastcdc = "3"
 

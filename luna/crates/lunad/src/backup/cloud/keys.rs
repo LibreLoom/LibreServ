@@ -12,7 +12,7 @@ use rusqlite::Connection;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
-use super::crypto::{self, SealPublic, SealSecret};
+use super::crypto::{self, SealPublic, SealSecret, SigBytes, SigPublic};
 use super::store::CloudStore;
 use crate::db::{self, BackupKey};
 
@@ -27,7 +27,7 @@ const RECIPIENTS_DOMAIN: &str = "recipients";
 const KEY_COPY_DOMAIN: &str = "key-copy";
 
 /// Length of the Ed25519 signature stored after each sealed key copy.
-const KEY_COPY_SIG_LEN: usize = 64;
+const KEY_COPY_SIG_LEN: usize = crypto::SIG_LEN;
 /// Meta key prefix for the recipient list each key version was created for.
 const META_PREFIX: &str = "cloud_recipients";
 /// Record kind for the signed list of every user's recovery keys on this Luna.
@@ -38,7 +38,7 @@ pub(crate) const USERS_LIST_NAME: &str = "list";
 const USERS_DOMAIN: &str = "users";
 
 /// One user as given to `publish_user_list`: `(user id, sealing public key, auth public key, self-sealed signing key)`.
-type UserListEntry = (String, SealPublic, [u8; 32], Vec<u8>);
+type UserListEntry = (String, SealPublic, SigPublic, Vec<u8>);
 
 /// The users who may read a shared backup, sorted and without duplicates.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -227,7 +227,7 @@ pub fn publish_key(
 pub fn open_key(
     record: &[u8],
     user_secret: &SealSecret,
-    luna_public: &[u8; 32],
+    luna_public: &SigPublic,
     luna_id: &str,
     protection_id: &str,
     version: i64,
@@ -263,7 +263,7 @@ pub fn open_key(
 /// signature is valid for this Luna, backup and version, and `None` otherwise.
 pub fn verify_recipients(
     bytes: &[u8],
-    public: &[u8; 32],
+    public: &SigPublic,
     luna_id: &str,
     protection_id: &str,
     version: i64,
@@ -271,16 +271,16 @@ pub fn verify_recipients(
     let body: serde_json::Value = serde_json::from_slice(bytes).ok()?;
     let users: Vec<String> = serde_json::from_value(body.get("users")?.clone()).ok()?;
     let hex = body.get("signature")?.as_str()?;
-    let sig = decode_hex_64(hex)?;
+    let sig = decode_hex_sig(hex)?;
     let message = recipients_message(luna_id, protection_id, version, &users);
     crypto::verify(public, RECIPIENTS_DOMAIN, &message, &sig).then_some(users)
 }
 
-fn decode_hex_64(hex: &str) -> Option<[u8; 64]> {
-    if hex.len() != 128 {
+fn decode_hex_sig(hex: &str) -> Option<SigBytes> {
+    if hex.len() != crypto::SIG_LEN * 2 {
         return None;
     }
-    let mut out = [0u8; 64];
+    let mut out = [0u8; crypto::SIG_LEN];
     for (i, byte) in out.iter_mut().enumerate() {
         *byte = u8::from_str_radix(hex.get(i * 2..i * 2 + 2)?, 16).ok()?;
     }
@@ -306,7 +306,7 @@ fn hex_decode(hex: &str) -> Option<Vec<u8>> {
 pub struct ListedUser {
     pub user_id: String,
     pub seal_public: SealPublic,
-    pub auth_public: [u8; 32],
+    pub auth_public: SigPublic,
     /// The browser's sealed copy of the user's signing public key.
     pub self_sealed: Vec<u8>,
 }
@@ -363,10 +363,14 @@ pub fn publish_user_list(
 
 /// Check a signed user list read back from the store. Returns the listed users, sorted by user id,
 /// if the signature is valid for this Luna and `public`, and `None` otherwise.
-pub fn verify_user_list(bytes: &[u8], public: &[u8; 32], luna_id: &str) -> Option<Vec<ListedUser>> {
+pub fn verify_user_list(
+    bytes: &[u8],
+    public: &SigPublic,
+    luna_id: &str,
+) -> Option<Vec<ListedUser>> {
     let body: serde_json::Value = serde_json::from_slice(bytes).ok()?;
     let users_value = body.get("users")?.clone();
-    let sig = decode_hex_64(body.get("signature")?.as_str()?)?;
+    let sig = decode_hex_sig(body.get("signature")?.as_str()?)?;
     let message = user_list_message(luna_id, &users_value.to_string());
     if !crypto::verify(public, USERS_DOMAIN, &message, &sig) {
         return None;
@@ -374,7 +378,7 @@ pub fn verify_user_list(bytes: &[u8], public: &[u8; 32], luna_id: &str) -> Optio
     let mut listed = Vec::new();
     for (key, entry) in users_value.as_object()? {
         let seal_public: SealPublic = hex_decode(key)?.try_into().ok()?;
-        let auth_public: [u8; 32] = hex_decode(entry.get("auth_public")?.as_str()?)?
+        let auth_public: SigPublic = hex_decode(entry.get("auth_public")?.as_str()?)?
             .try_into()
             .ok()?;
         let self_sealed = hex_decode(entry.get("self_sealed")?.as_str()?)?;
@@ -596,7 +600,7 @@ mod tests {
         publish(&store, &signer, &key, &recipients, &pubs).unwrap();
         let name = key_record_name(PROTECTION, 1, "alice");
         let record = store.get_record(KEYS_KIND, &name).unwrap().unwrap();
-        let open = |bytes: &[u8], public: &[u8; 32]| {
+        let open = |bytes: &[u8], public: &SigPublic| {
             open_key(
                 bytes,
                 &alice.seal_secret,

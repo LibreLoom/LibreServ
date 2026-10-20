@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use anyhow::{Result, anyhow, ensure};
 use serde_json::{Map, Value, json};
 
-use super::crypto::{self, Signer};
+use super::crypto::{self, SigBytes, Signer};
 use super::format::{
     self, BackupMeta, ChunkRef, OpenedPack, PackBuilder, SignedRecord, SnapshotRecord, Tree,
     TreeEntry,
@@ -79,6 +79,12 @@ fn unhex32(s: &str) -> Result<[u8; 32]> {
     unhex(s)?
         .try_into()
         .map_err(|_| anyhow!("expected 32 bytes in fixture"))
+}
+
+fn unhex_sig_public(s: &str) -> Result<crypto::SigPublic> {
+    unhex(s)?
+        .try_into()
+        .map_err(|_| anyhow!("expected a signing public key in fixture"))
 }
 
 fn field<'a>(v: &'a Value, key: &str) -> Result<&'a str> {
@@ -361,7 +367,7 @@ fn build_private() -> Result<Value> {
 /// Open the private section with alice's secret only, the way Connect and the browser will.
 fn check_private(fx: &Value) -> Result<()> {
     let p = &fx["private"];
-    let luna_public = unhex32(field(fx, "signing_public")?)?;
+    let luna_public = unhex_sig_public(field(fx, "signing_public")?)?;
     let scope = field(p, "scope")?;
     let snapshot_id = field(p, "snapshot_id")?;
     let dedup_key = unhex32(field(p, "dedup_key")?)?;
@@ -476,7 +482,7 @@ fn check_private(fx: &Value) -> Result<()> {
 
     // Connect open: alice's auth key signs the challenge under the private open domain.
     let challenge = unhex32(field(p, "challenge")?)?;
-    let sig: [u8; 64] = unhex(field(p, "open_signature")?)?
+    let sig: SigBytes = unhex(field(p, "open_signature")?)?
         .try_into()
         .map_err(|_| anyhow!("expected 64 bytes in fixture"))?;
     ensure!(
@@ -493,7 +499,7 @@ fn check_private(fx: &Value) -> Result<()> {
 
 /// Check the fixture the way the browser will: every step opens with Rust's own code.
 fn check(fx: &Value) -> Result<()> {
-    let luna_public = unhex32(field(fx, "signing_public")?)?;
+    let luna_public = unhex_sig_public(field(fx, "signing_public")?)?;
     let backup_key = unhex32(field(fx, "backup_key")?)?;
     let dedup_key = unhex32(field(fx, "dedup_key")?)?;
     let protection = field(fx, "protection_id")?;

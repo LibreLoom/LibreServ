@@ -4,12 +4,12 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import RecoveryPhraseSetup from "./RecoveryPhraseSetup.jsx";
-import { canonical, decrypt, derive, phraseToEntropy } from "@libreloom/ui/lib/cloud/backupCrypto.js";
+import { canonical, decrypt, derive, phraseToEntropy, SIG_PUBLIC_LEN } from "@libreloom/ui/lib/cloud/backupCrypto.js";
 import { fromBase64, toBase64 } from "../../lib/cloudPhrase";
 
 const LUNA_ID = "luna-1";
 const USER_ID = "42";
-const SIGNING_PUBLIC = new Uint8Array(32).map((_, i) => i + 100);
+const SIGNING_PUBLIC = new Uint8Array(SIG_PUBLIC_LEN).map((_, i) => (i + 100) % 256);
 
 function renderSetup(props = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -143,7 +143,7 @@ describe("RecoveryPhraseSetup", () => {
     expect(sent.path).toBe("/api/v1/cloud/phrase");
     expect(sent.body).not.toHaveProperty("signature");
     expect(fromBase64(sent.body.seal_public)).toHaveLength(1216);
-    expect(fromBase64(sent.body.auth_public)).toHaveLength(32);
+    expect(fromBase64(sent.body.auth_public)).toHaveLength(SIG_PUBLIC_LEN);
     const keys = derive(phraseToEntropy(words.join(" ")), LUNA_ID);
     const aad = canonical([
       ["luna_id", new TextEncoder().encode(LUNA_ID)],

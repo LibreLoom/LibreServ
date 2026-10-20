@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { canonical, decrypt, derive, newEntropy, verify } from "@libreloom/ui/lib/cloud/backupCrypto.js";
+import { canonical, decrypt, derive, newEntropy, SIG_PUBLIC_LEN, verify } from "@libreloom/ui/lib/cloud/backupCrypto.js";
 import { buildPhraseBody, createIdentity, fromBase64, signFreshChallenge, toBase64 } from "./cloudPhrase";
 
 const LUNA_ID = "luna-test-1";
@@ -10,10 +10,10 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const SIGNING_PUBLIC = new Uint8Array(32).map((_, i) => i + 1);
+const SIGNING_PUBLIC = new Uint8Array(SIG_PUBLIC_LEN).map((_, i) => (i + 1) % 256);
 
 describe("buildPhraseBody", () => {
-  it("sends 32-byte public keys and a self_sealed copy of the signing public key", () => {
+  it("sends public keys and a self_sealed copy of the signing public key", () => {
     const entropy = newEntropy();
     const keys = derive(entropy, LUNA_ID);
     const body = buildPhraseBody(entropy, {
@@ -23,7 +23,7 @@ describe("buildPhraseBody", () => {
     });
 
     expect(fromBase64(body.seal_public)).toHaveLength(1216);
-    expect(fromBase64(body.auth_public)).toHaveLength(32);
+    expect(fromBase64(body.auth_public)).toHaveLength(SIG_PUBLIC_LEN);
     expect(fromBase64(body.seal_public)).toEqual(keys.sealPublic);
     expect(fromBase64(body.auth_public)).toEqual(keys.authPublic);
     expect(body).not.toHaveProperty("signature");

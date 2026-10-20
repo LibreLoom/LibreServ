@@ -315,9 +315,10 @@ pub fn publish_users(
                 user.seal_public.as_slice().try_into().map_err(|_| {
                     anyhow::anyhow!("The recovery key for user {} is damaged.", user.user_id)
                 })?;
-            let auth: [u8; 32] = user.auth_public.as_slice().try_into().map_err(|_| {
-                anyhow::anyhow!("The recovery key for user {} is damaged.", user.user_id)
-            })?;
+            let auth: super::crypto::SigPublic =
+                user.auth_public.as_slice().try_into().map_err(|_| {
+                    anyhow::anyhow!("The recovery key for user {} is damaged.", user.user_id)
+                })?;
             Ok((
                 user.user_id.clone(),
                 seal_public,
@@ -733,7 +734,7 @@ mod tests {
             &crate::db::UserKeys {
                 user_id: "admin".into(),
                 seal_public: real_seal_public(5),
-                auth_public: vec![6; 32],
+                auth_public: real_auth_public(6),
                 self_sealed: vec![3; 48],
                 phrase_set_at: 1,
                 last_checked_at: 0,
@@ -818,7 +819,7 @@ mod tests {
             &crate::db::UserKeys {
                 user_id: "admin".into(),
                 seal_public: real_seal_public(5),
-                auth_public: vec![6; 32],
+                auth_public: real_auth_public(6),
                 self_sealed: vec![3; 48],
                 phrase_set_at: 2,
                 last_checked_at: 0,
@@ -913,7 +914,7 @@ mod tests {
             &db::UserKeys {
                 user_id: "admin".into(),
                 seal_public: real_seal_public(1),
-                auth_public: vec![2; 32],
+                auth_public: real_auth_public(2),
                 self_sealed: b"sealed copy".to_vec(),
                 phrase_set_at: NOW,
                 last_checked_at: 0,
@@ -1157,6 +1158,13 @@ mod tests {
             .to_vec()
     }
 
+    /// A real signing public key (Ed25519 and ML-DSA) for a recovery phrase made of `seed` bytes.
+    fn real_auth_public(seed: u8) -> Vec<u8> {
+        crypto::derive(&[seed; 16], "luna-test")
+            .auth_public
+            .to_vec()
+    }
+
     fn owner_keys(seed: u8) -> db::UserKeys {
         let keys = crypto::derive(&[seed; 16], "luna-test");
         db::UserKeys {
@@ -1182,7 +1190,7 @@ mod tests {
             &db::UserKeys {
                 user_id: "admin".into(),
                 seal_public: real_seal_public(5),
-                auth_public: vec![6; 32],
+                auth_public: real_auth_public(6),
                 self_sealed: vec![3; 48],
                 phrase_set_at: 1,
                 last_checked_at: 0,

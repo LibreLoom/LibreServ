@@ -522,7 +522,7 @@ func TestCloudPrivateScopesAndSnapshotsNeedSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	token, _, err := openPrivateSession(d, s, "", "main", ch, privSign(authPriv, "main", ch), now)
+	token, _, err := openPrivateSession(d, s, "", "main", ch, privSign(t, authPriv, "main", ch), now)
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
@@ -561,7 +561,7 @@ func TestCloudPrivatePackNeedsSessionForItsScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	otherToken, _, err := openPrivateSession(d, s, "", "other", ch, privSign(authPriv, "other", ch), now)
+	otherToken, _, err := openPrivateSession(d, s, "", "other", ch, privSign(t, authPriv, "other", ch), now)
 	if err != nil {
 		t.Fatalf("open other: %v", err)
 	}
@@ -573,7 +573,7 @@ func TestCloudPrivatePackNeedsSessionForItsScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	token, _, err := openPrivateSession(d, s, "", "main", ch, privSign(authPriv, "main", ch), now)
+	token, _, err := openPrivateSession(d, s, "", "main", ch, privSign(t, authPriv, "main", ch), now)
 	if err != nil {
 		t.Fatalf("open main: %v", err)
 	}

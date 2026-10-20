@@ -8,7 +8,7 @@ use anyhow::{Result, anyhow};
 use rand_core::{OsRng, RngCore};
 
 use super::check::{CheckReport, Sample};
-use super::crypto::Signer;
+use super::crypto::{SigPublic, Signer};
 use super::format::{self, SignedRecord};
 use super::identity;
 use super::private::{self, PRIVATE_SNAPSHOT_DOMAIN, PSCOPES_KIND, PSNAPSHOTS_KIND};
@@ -115,8 +115,8 @@ struct Job {
     tree_pack_id: String,
     pack_ids: Vec<String>,
     scope: Option<db::PrivateScope>,
-    auth_public: Option<[u8; 32]>,
-    public: [u8; 32],
+    auth_public: Option<SigPublic>,
+    public: SigPublic,
     luna_id: String,
     signer: Signer,
 }

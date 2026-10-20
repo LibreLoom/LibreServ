@@ -2,7 +2,17 @@
 // can open. Browser side of luna/crates/lunad/src/backup/cloud/private.rs. Every signature is checked
 // before a key is used.
 import { bytesToHex, hexToBytes, utf8ToBytes } from '@noble/hashes/utils.js';
-import { canonical, chunkId, derive, open, SEAL_PUBLIC_LEN, sign, verify } from './backupCrypto.js';
+import {
+	canonical,
+	chunkId,
+	derive,
+	open,
+	SEAL_PUBLIC_LEN,
+	SIG_LEN,
+	SIG_PUBLIC_LEN,
+	sign,
+	verify,
+} from './backupCrypto.js';
 import { DAMAGED, verifySnapshot } from './cloudFormat.js';
 
 export const PSCOPES_KIND = 'pscopes';
@@ -17,7 +27,6 @@ const META_PURPOSE = 'luna-private-meta-v1';
 const DEDUP_PURPOSE = 'luna-private-dedup-v1';
 const SCOPE_PURPOSE = 'luna-scope-v1';
 const KEY_LEN = 32;
-const SIG_LEN = 64;
 
 /** @param {Uint8Array} a @param {Uint8Array} b */
 function sameBytes(a, b) {
@@ -143,7 +152,7 @@ export function verifyScopeRecord(bytes, signingPublics, lunaId) {
 		const sealPublic = hexToBytes(rec.seal_public);
 		const authPublic = hexToBytes(rec.auth_public);
 		const sealedDedup = hexToBytes(rec.sealed_dedup);
-		if (sealPublic.length !== SEAL_PUBLIC_LEN || authPublic.length !== KEY_LEN) return null;
+		if (sealPublic.length !== SEAL_PUBLIC_LEN || authPublic.length !== SIG_PUBLIC_LEN) return null;
 		const sig = hexToBytes(signed.signature);
 		if (sig.length !== SIG_LEN) return null;
 		const createdAt = new Uint8Array(8);
@@ -194,7 +203,7 @@ export function privateOpenMessage(lunaId, scope, challenge) {
  * @param {string} lunaId
  * @param {string} scope
  * @param {Uint8Array} challenge 32 bytes
- * @returns {Uint8Array} 64-byte signature
+ * @returns {Uint8Array} signature (Ed25519 and ML-DSA)
  */
 export function signPrivateOpen(authSecret, lunaId, scope, challenge) {
 	return sign(authSecret, PRIVATE_OPEN_DOMAIN, privateOpenMessage(lunaId, scope, challenge));

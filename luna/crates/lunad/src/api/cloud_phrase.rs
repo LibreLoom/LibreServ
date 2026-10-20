@@ -159,7 +159,7 @@ async fn set_phrase(
     Json(body): Json<SetBody>,
 ) -> ApiResult {
     let seal_public: crypto::SealPublic = decode_key(&body.seal_public)?;
-    let auth_public: [u8; 32] = decode_key(&body.auth_public)?;
+    let auth_public: crypto::SigPublic = decode_key(&body.auth_public)?;
     let self_sealed = STANDARD
         .decode(body.self_sealed.trim())
         .ok()
@@ -240,7 +240,8 @@ async fn check(
                 "No recovery phrase is set for your account yet.",
             )
         })?;
-    let auth_public = <[u8; 32]>::try_from(keys.auth_public.as_slice()).map_err(|_| bad_keys())?;
+    let auth_public =
+        crypto::SigPublic::try_from(keys.auth_public.as_slice()).map_err(|_| bad_keys())?;
     let proven = decode_signature(&body.signature)
         .is_some_and(|sig| crypto::verify(&auth_public, CHECK_DOMAIN, &challenge, &sig));
     if !proven {
@@ -270,9 +271,9 @@ fn decode_key<const N: usize>(text: &str) -> Result<[u8; N], ApiError> {
 }
 
 /// Decode a base64 signature, which must be exactly 64 bytes.
-pub(crate) fn decode_signature(text: &str) -> Option<[u8; 64]> {
+pub(crate) fn decode_signature(text: &str) -> Option<crypto::SigBytes> {
     let bytes = STANDARD.decode(text.trim()).ok()?;
-    <[u8; 64]>::try_from(bytes.as_slice()).ok()
+    <crypto::SigBytes>::try_from(bytes.as_slice()).ok()
 }
 
 fn bad_keys() -> ApiError {
@@ -759,7 +760,7 @@ mod tests {
         let public = STANDARD
             .decode(first["signing_public"].as_str().unwrap())
             .unwrap();
-        assert_eq!(public.len(), 32);
+        assert_eq!(public.len(), crate::backup::cloud::crypto::SIG_PUBLIC_LEN);
 
         // A second call returns the same identity rather than minting another.
         let (status, second) = send(

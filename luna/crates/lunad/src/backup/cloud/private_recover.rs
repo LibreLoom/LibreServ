@@ -10,6 +10,7 @@ use std::collections::HashSet;
 use anyhow::{Result, bail};
 use rusqlite::{Connection, OptionalExtension, params};
 
+use super::crypto::SigPublic;
 use super::format::{SignedRecord, Tree};
 use super::private::{
     self, PRIVATE_SNAPSHOT_DOMAIN, PSCOPES_KIND, PSNAPSHOTS_KIND, ScopeRecord, SignedScope,
@@ -43,7 +44,7 @@ pub struct PrivateSnapshotIn {
 /// signature (or cannot be read) is left out, so it never reaches the index.
 pub fn caller_scopes(
     store: &dyn CloudStore,
-    luna_public: &[u8; 32],
+    luna_public: &SigPublic,
     caller_public: &super::crypto::SealPublic,
 ) -> Result<Vec<ScopeRecord>> {
     let mut out = Vec::new();
@@ -64,7 +65,7 @@ pub fn caller_scopes(
 /// The hex ids of the tree packs of every verified snapshot in `scopes`.
 pub fn caller_tree_packs(
     store: &dyn CloudStore,
-    luna_public: &[u8; 32],
+    luna_public: &SigPublic,
     scopes: &[ScopeRecord],
 ) -> Result<HashSet<String>> {
     let mut out = HashSet::new();
@@ -97,7 +98,7 @@ pub fn caller_tree_packs(
 #[allow(clippy::too_many_arguments)]
 pub fn write_private_index(
     conn: &mut Connection,
-    luna_public: &[u8; 32],
+    luna_public: &SigPublic,
     caller: &str,
     caller_public: &super::crypto::SealPublic,
     scope: &ScopeRecord,
@@ -307,7 +308,7 @@ mod tests {
 
     /// Everything the browser would decrypt for the fixture's private backup.
     struct Decrypted {
-        luna_public: [u8; 32],
+        luna_public: SigPublic,
         alice: crypto::UserKeys,
         scope: ScopeRecord,
         dedup: [u8; 32],
@@ -317,7 +318,9 @@ mod tests {
     fn decrypt_fixture() -> Decrypted {
         let fx = fixture();
         let p = &fx["private"];
-        let luna_public = unhex32(fx["signing_public"].as_str().unwrap());
+        let luna_public: SigPublic = unhex(fx["signing_public"].as_str().unwrap())
+            .try_into()
+            .unwrap();
         let scope_id = p["scope"].as_str().unwrap();
         let snapshot_id = p["snapshot_id"].as_str().unwrap();
         let entropy: [u8; 16] = unhex(fx["alice_entropy"].as_str().unwrap())

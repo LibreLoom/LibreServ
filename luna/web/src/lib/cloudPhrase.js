@@ -1,5 +1,5 @@
 import { getJson, postJson, putJson } from "./api";
-import { canonical, derive, encrypt, sign } from "@libreloom/ui/lib/cloud/backupCrypto.js";
+import { canonical, derive, encrypt, SIG_PUBLIC_LEN, sign } from "@libreloom/ui/lib/cloud/backupCrypto.js";
 
 /**
  * Cloud recovery phrase: the API calls and the key steps behind it.
@@ -29,7 +29,7 @@ export function fromBase64(text) {
   return Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
 }
 
-/** GET: `{ set, set_at, luna_id, signing_public }` (`signing_public` is base64, 32 bytes). */
+/** GET: `{ set, set_at, luna_id, signing_public }` (`signing_public` is base64, Ed25519 and ML-DSA keys together). */
 export function getPhraseStatus() {
   return getJson(PHRASE_PATH);
 }
@@ -82,11 +82,11 @@ export async function signFreshChallenge(entropy, lunaId) {
  *
  * @param {Uint8Array} entropy 16 or 32 bytes of phrase entropy (12 or 24 words)
  * @param {{ lunaId: string, userId: string, signingPublic: Uint8Array | string }} opts
- *   `signingPublic` is 32 bytes, or base64 of 32 bytes.
+ *   `signingPublic` is the signing public key (Ed25519 and ML-DSA), or its base64.
  */
 export function buildPhraseBody(entropy, { lunaId, userId, signingPublic }) {
   const signingBytes = typeof signingPublic === "string" ? fromBase64(signingPublic) : signingPublic;
-  if (!signingBytes || signingBytes.length !== 32) {
+  if (!signingBytes || signingBytes.length !== SIG_PUBLIC_LEN) {
     throw new Error("Luna's signing key is missing. Reload the page and try again.");
   }
   const keys = derive(entropy, lunaId);

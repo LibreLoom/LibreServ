@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Result, anyhow};
 use rusqlite::Connection;
 
-use super::crypto::{self, Signer};
+use super::crypto::{self, SigPublic, Signer};
 use super::format::{BackupMeta, SnapshotRecord, Tree};
 use super::identity;
 use super::private::{self, PRIVATE_SNAPSHOT_DOMAIN, PSNAPSHOTS_KIND};
@@ -129,7 +129,7 @@ fn source_looks_missing(db: &crate::Db, protection_id: &str, root: &Path) -> Res
 struct Prepared {
     ctx: RunContext,
     scope: db::PrivateScope,
-    auth_public: [u8; 32],
+    auth_public: SigPublic,
 }
 
 /// Checks the owner and Luna's identity, makes the owner's scope if missing, and opens the run.
@@ -149,7 +149,7 @@ fn prepare(db: &crate::Db, protection_id: &str, now: i64) -> Result<Prepared> {
         .try_into()
         .map_err(|_| anyhow!(NO_PHRASE))?;
     crypto::check_public_key(&owner_public).map_err(|_| anyhow!(NO_PHRASE))?;
-    let auth_public: [u8; 32] = keys
+    let auth_public: SigPublic = keys
         .auth_public
         .as_slice()
         .try_into()
