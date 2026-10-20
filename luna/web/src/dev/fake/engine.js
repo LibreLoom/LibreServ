@@ -76,7 +76,8 @@ export function installFake({ world, scenario, now }) {
 
   freezeClock(now);
 
-  const isFake = (path) => path.startsWith("/api/") || path === "/health";
+  // /s/... data calls are the public share pages; page loads are not fetches, so never caught here.
+  const isFake = (path) => path.startsWith("/api/") || path === "/health" || path.startsWith("/s/");
 
   async function dispatch(method, rawUrl, body, headers = {}) {
     const url = new URL(rawUrl, window.location.origin);

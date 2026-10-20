@@ -127,8 +127,7 @@ post("/api/v1/me/recents", ({ world, body }) => {
   world.recents = [{ ...body, at: Math.floor(Date.now() / 1000) }, ...world.recents].slice(0, 12);
   return {};
 });
-get("/api/v1/me/access", ({ world }) => world.access);
-get("/api/v1/gallery/albums", ({ world }) => world.albums);
+// /api/v1/me/access and /api/v1/gallery/albums live in access.js and gallery.js.
 get("/api/v1/private-backups/summary", ({ world }) => world.privateSummary);
 get("/api/v1/private-backups/item", () => ({ private: false, inside_private: false, mine: false, owner_name: "" }));
 
