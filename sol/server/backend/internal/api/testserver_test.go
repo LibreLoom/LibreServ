@@ -35,8 +35,6 @@ import (
 var (
 	sharedRouter http.Handler
 	sharedAuth   *auth.Service
-	sharedDB     *database.DB
-	sharedDir    string
 )
 
 func TestMain(m *testing.M) {
@@ -55,7 +53,6 @@ func runTests(m *testing.M) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("temp dir: %w", err)
 	}
-	sharedDir = dir
 	defer func() { _ = os.RemoveAll(dir) }()
 
 	cfg := &config.Config{
@@ -80,7 +77,6 @@ func runTests(m *testing.M) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("open db: %w", err)
 	}
-	sharedDB = db
 	defer func() { _ = db.Close() }()
 	if err := db.Migrate(); err != nil {
 		return 0, fmt.Errorf("migrate: %w", err)
