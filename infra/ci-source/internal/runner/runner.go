@@ -312,9 +312,6 @@ func (r *Runner) acquireSlot(ctx context.Context, testID string) (func(), error)
 	})
 }
 
-// cpuPeriod is the CFS period, in microseconds, that cpuQuota is measured in.
-const cpuPeriod = 100000
-
 // jobCPUQuota is one job's share of the run's CPU limit (0 = unlimited).
 func (r *Runner) jobCPUQuota() int64 {
 	if r.cpuQuota <= 0 {
@@ -334,44 +331,13 @@ func (r *Runner) jobMemoryLimit() int64 {
 // throttleHostCmd applies the run's performance limits to a host-run test
 // (containers get theirs from the container runtime). With no limits set the
 // command is left exactly as is.
-func (r *Runner) throttleHostCmd(cmd *exec.Cmd) {
-	args, env := hostThrottle(cmd.Args, r.jobCPUQuota(), r.jobMemoryLimit(), r.nice, exec.LookPath)
+func (r *Runner) throttleHostCmd(cmd *exec.Cmd) (warning string) {
+	args, env, warning := hostThrottle(cmd.Args, r.jobCPUQuota(), r.jobMemoryLimit(), r.nice, exec.LookPath)
 	if len(args) != len(cmd.Args) {
 		cmd.Path, cmd.Args = args[0], args
 	}
 	cmd.Env = append(cmd.Env, env...)
-}
-
-// hostThrottle wraps args in nice / ionice / a systemd user scope as the limits
-// ask, skipping any tool that isn't installed, and returns env that sizes build
-// tools (cargo, go) to the CPU cap. cpuQuota is microseconds per 100ms period.
-func hostThrottle(args []string, cpuQuota, memLimit int64, nice int, look func(string) (string, error)) ([]string, []string) {
-	var env []string
-	if nice > 0 {
-		if p, err := look("ionice"); err == nil {
-			args = append([]string{p, "-c3"}, args...)
-		}
-		if p, err := look("nice"); err == nil {
-			args = append([]string{p, "-n", strconv.Itoa(nice)}, args...)
-		}
-	}
-	if cpuQuota > 0 {
-		jobs := strconv.FormatInt((cpuQuota+99999)/100000, 10)
-		env = append(env, "CARGO_BUILD_JOBS="+jobs, "GOMAXPROCS="+jobs, "RUST_TEST_THREADS="+jobs)
-	}
-	if cpuQuota > 0 || memLimit > 0 {
-		if p, err := look("systemd-run"); err == nil {
-			scope := []string{p, "--user", "--scope", "--quiet"}
-			if cpuQuota > 0 {
-				scope = append(scope, fmt.Sprintf("-pCPUQuota=%d%%", cpuQuota/1000))
-			}
-			if memLimit > 0 {
-				scope = append(scope, fmt.Sprintf("-pMemoryMax=%d", memLimit))
-			}
-			args = append(scope, args...)
-		}
-	}
-	return args, env
+	return warning
 }
 
 // runHostTest executes a test command directly on the host (no container),
@@ -412,7 +378,9 @@ func (r *Runner) runHostTest(ctx context.Context, t *tests.Test) *tests.TestResu
 		}
 	}
 	cmd.Env = append(os.Environ(), t.Env...)
-	r.throttleHostCmd(cmd)
+	if warning := r.throttleHostCmd(cmd); warning != "" {
+		r.outputChan <- OutputLine{TestID: t.ID, Type: OutputStatus, Line: warning}
+	}
 
 	out, err := cmd.CombinedOutput()
 	output := string(out)
@@ -708,10 +676,7 @@ func (r *Runner) createContainer(ctx context.Context, t *tests.Test, fuzzDuratio
 	}
 	// Size build tools to this job's CPU share; they would otherwise start one
 	// worker per host core and just wait on the container's quota.
-	if q := r.jobCPUQuota(); q > 0 {
-		cores := strconv.FormatInt(max((q+cpuPeriod-1)/cpuPeriod, 1), 10)
-		env = append(env, "GOMAXPROCS="+cores, "CARGO_BUILD_JOBS="+cores, "RUST_TEST_THREADS="+cores)
-	}
+	env = append(env, parallelismEnv(r.jobCPUQuota())...)
 
 	cacheDir := filepath.Join(r.repoPath, ".cache")
 	os.MkdirAll(cacheDir, 0755)

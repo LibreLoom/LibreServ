@@ -6,6 +6,12 @@ const unmounted = (id) => ({ id, mounted: false, total_bytes: null, free_bytes: 
 const healthy = () => ({ available: true, overall: "passed", reallocated_sectors: 0, temperature_c: 30 });
 const isAdmin = (u) => u?.role === "admin";
 const needAdmin = (u) => (isAdmin(u) ? null : fail(403, "Only an Admin can do this."));
+/** Same rule as the real server: 12+ characters with a letter and a number. */
+const badPassword = (pw) =>
+  pw !== undefined && !(String(pw).length >= 12 && /[a-zA-Z]/.test(pw) && /[0-9]/.test(pw))
+    ? fail(400, "Password must be at least 12 characters with a letter and a number.")
+    : null;
+const lastAdmin = (world, id) => world.users.filter((u) => u.role === "admin").every((u) => u.id === id);
 
 // ── Auth ────────────────────────────────────────────────────────────────────
 get("/api/v1/auth/me", ({ user }) => json(user), { public: true });
@@ -21,6 +27,9 @@ post("/api/v1/auth/login", ({ world, body }) => {
 post("/api/v1/auth/logout", ({ world }) => { world.sessionUserId = null; return {}; }, { public: true });
 
 post("/api/v1/auth/register", ({ world, body }) => {
+  if (!world.hasAdmin && world.setupSecret && body.setup_secret !== world.setupSecret) return fail(403, "That device token isn't right.");
+  const weak = badPassword(body.password);
+  if (weak) return weak;
   if (world.users.some((u) => u.username === body.username)) return fail(409, "That username is taken.");
   const created = makeUser({ username: body.username, display_name: body.display_name, role: world.hasAdmin ? "user" : "admin" });
   world.users.push(created);
@@ -28,10 +37,13 @@ post("/api/v1/auth/register", ({ world, body }) => {
   return created;
 }, { public: true });
 
-patch("/api/v1/auth/me", ({ user, body, world }) => {
+patch("/api/v1/auth/me", ({ user, body }) => {
+  if (body.new_password !== undefined) {
+    if (body.current_password === "wrong" || !body.current_password) return fail(403, "Your current password isn't right.");
+    const weak = badPassword(body.new_password);
+    if (weak) return weak;
+  }
   if (body.display_name !== undefined) user.display_name = body.display_name;
-  if (body.new_password !== undefined && body.current_password === "wrong") return fail(403, "Your current password isn't right.");
-  if (body.new_password !== undefined) world.sessionUserId = user.id;
   return user;
 });
 post("/api/v1/auth/revoke-sessions", ({ world }) => { world.sessionUserId = null; return {}; });
@@ -44,7 +56,11 @@ post("/api/v1/setup", ({ world, body }) => {
   if (body.name) world.name = body.name;
   return world.setup;
 }, { public: true });
-get("/api/v1/setup/preflight", ({ world }) => json(world.preflight, world.preflight.healthy ? 200 : 503), { public: true });
+// world.preflight can be a list of answers: each run gets the next one, the last repeats.
+get("/api/v1/setup/preflight", ({ world }) => {
+  const result = Array.isArray(world.preflight) ? (world.preflight.length > 1 ? world.preflight.shift() : world.preflight[0]) : world.preflight;
+  return json(result, result.healthy ? 200 : 503);
+}, { public: true });
 post("/api/v1/setup/fetch-mag", () => ({}), { public: true });
 
 // ── Users ───────────────────────────────────────────────────────────────────
@@ -54,6 +70,8 @@ post("/api/v1/users", ({ world, user, body }) => {
   const denied = needAdmin(user);
   if (denied) return denied;
   if (world.users.some((u) => u.username === body.username)) return fail(409, "That username is taken.");
+  const weak = badPassword(body.password);
+  if (weak) return weak;
   const created = makeUser({ username: body.username, display_name: body.display_name, role: body.role || "user" });
   world.users.push(created);
   return created;
@@ -64,17 +82,28 @@ patch("/api/v1/users/:id", ({ world, user, params, body }) => {
   if (denied) return denied;
   const target = world.users.find((u) => u.id === params.id);
   if (!target) return fail(404, "That user no longer exists.");
-  Object.assign(target, body);
+  const weak = badPassword(body.password);
+  if (weak) return weak;
+  if (body.role === "user" && target.role === "admin" && lastAdmin(world, target.id)) return fail(409, "Luna needs at least one Admin.");
+  const { password: _password, ...changes } = body;
+  Object.assign(target, changes);
   return target;
 });
 del("/api/v1/users/:id", ({ world, user, params }) => {
   const denied = needAdmin(user);
   if (denied) return denied;
   if (params.id === user.id) return fail(409, "You can't remove yourself.");
+  const target = world.users.find((u) => u.id === params.id);
+  if (!target) return fail(404, "That user no longer exists.");
+  if (target.role === "admin" && lastAdmin(world, target.id)) return fail(409, "Luna needs at least one Admin.");
   world.users = world.users.filter((u) => u.id !== params.id);
   return {};
 });
-post("/api/v1/users/:id/adopt-private", () => ({}));
+post("/api/v1/users/:id/adopt-private", ({ world }) => {
+  const count = world.ownerless ?? 0;
+  world.ownerless = 0;
+  return { count };
+});
 
 // ── Drives ──────────────────────────────────────────────────────────────────
 get("/api/v1/drives", ({ world }) => world.drives);
@@ -124,7 +153,7 @@ get("/api/v1/connect/status", ({ world, user }) => (isAdmin(user) ? world.connec
 // ── Dashboard data ──────────────────────────────────────────────────────────
 get("/api/v1/me/recents", ({ world }) => world.recents);
 post("/api/v1/me/recents", ({ world, body }) => {
-  world.recents = [{ ...body, at: Math.floor(Date.now() / 1000) }, ...world.recents].slice(0, 12);
+  world.recents = [{ ...body, at: Date.now() }, ...world.recents].slice(0, 12);
   return {};
 });
 // /api/v1/me/access and /api/v1/gallery/albums live in access.js and gallery.js.
@@ -145,10 +174,16 @@ post("/api/v1/cloud/backups/:id/check", ({ world, params }) => {
   if (b) { b.last_checked_at = Math.floor(Date.now() / 1000); b.check_problem = ""; }
   return {};
 });
-post("/api/v1/cloud/backups/:id/run", ({ world, params }) => {
+post("/api/v1/cloud/backups/:id/run", ({ world, params, query }) => {
   const b = world.cloudBackups.find((x) => x.id === params.id);
-  if (b) b.last_ok_at = Math.floor(Date.now() / 1000) - 0 * HOUR;
-  return {};
+  if (!b) return fail(404, "That backup no longer exists.");
+  if (b.source_missing && query.accept_missing !== "true") {
+    return { done: false, source_missing: true, problem: "The folder this backup copies is gone. Run it anyway to remove the cloud copy too, or stop the backup." };
+  }
+  b.last_ok_at = Math.floor(Date.now() / 1000);
+  b.state = "ok";
+  b.last_error = "";
+  return { done: true };
 });
 del("/api/v1/cloud/backups/:id", ({ world, params }) => { world.cloudBackups = world.cloudBackups.filter((b) => b.id !== params.id); return {}; });
 get("/api/v1/cloud/phrase", ({ world }) => world.phrase);

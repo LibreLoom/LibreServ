@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -25,26 +26,44 @@ func fakeLook(have ...string) func(string) (string, error) {
 
 func TestHostThrottleNoLimitsIsUnchanged(t *testing.T) {
 	in := []string{"sh", "-c", "x"}
-	args, env := hostThrottle(in, 0, 0, 0, fakeLook("nice", "ionice", "systemd-run"))
+	args, env, _ := hostThrottle(in, 0, 0, 0, fakeLook("nice", "ionice", "systemd-run"))
 	if !reflect.DeepEqual(args, in) || len(env) != 0 {
 		t.Fatalf("got %v %v", args, env)
 	}
 }
 
 func TestHostThrottleWraps(t *testing.T) {
-	args, env := hostThrottle([]string{"sh", "-c", "x"}, 250000, 1<<30, 19, fakeLook("nice", "ionice", "systemd-run"))
+	args, env, _ := hostThrottle([]string{"sh", "-c", "x"}, 250000, 1<<30, 19, fakeLook("nice", "ionice", "systemd-run"))
 	want := []string{"/bin/systemd-run", "--user", "--scope", "--quiet", "-pCPUQuota=250%", "-pMemoryMax=1073741824",
 		"/bin/nice", "-n", "19", "/bin/ionice", "-c3", "sh", "-c", "x"}
 	if !reflect.DeepEqual(args, want) {
 		t.Fatalf("args = %v", args)
 	}
-	if env[0] != "CARGO_BUILD_JOBS=3" {
-		t.Fatalf("env = %v", env)
+	have := map[string]bool{}
+	for _, e := range env {
+		have[e] = true
+	}
+	for _, want := range []string{"CARGO_BUILD_JOBS=3", "GOMAXPROCS=3", "VITEST_MAX_WORKERS=3"} {
+		if !have[want] {
+			t.Fatalf("env missing %s: %v", want, env)
+		}
+	}
+	nested := false
+	for _, e := range env {
+		if strings.HasPrefix(e, "CONTAINERS_CONF_OVERRIDE=") {
+			nested = true
+		}
+	}
+	if !nested {
+		t.Fatalf("nested podman containers are not kept inside the scope: %v", env)
 	}
 }
 
 func TestHostThrottleSkipsMissingTools(t *testing.T) {
-	args, _ := hostThrottle([]string{"sh"}, 100000, 0, 10, fakeLook())
+	args, _, warn := hostThrottle([]string{"sh"}, 100000, 0, 10, fakeLook())
+	if warn == "" {
+		t.Fatal("expected a warning that the test is not capped")
+	}
 	if !reflect.DeepEqual(args, []string{"sh"}) {
 		t.Fatalf("args = %v", args)
 	}
@@ -144,5 +163,28 @@ func TestHostCommandStopsWhenCiIsGone(t *testing.T) {
 	case <-time.After(15 * time.Second):
 		syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 		t.Fatal("test kept running after ci was gone")
+	}
+}
+
+// A container started by a bounded host command must land in that command's
+// cgroup, or the command's limits do not cover it.
+func TestNestedPodmanStaysInScope(t *testing.T) {
+	for _, tool := range []string{"systemd-run", "podman"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skip(tool + " not installed")
+		}
+	}
+	if exec.Command("podman", "image", "exists", "alpine").Run() != nil {
+		t.Skip("alpine image not cached")
+	}
+	script := `own=$(cut -d: -f3 /proc/self/cgroup); inner=$(podman run --rm alpine cat /proc/self/cgroup 2>&1 | head -1); ` +
+		`id=$(podman run -d alpine sleep 5); pid=$(podman inspect "$id" --format '{{.State.Pid}}'); c=$(cut -d: -f3 /proc/$pid/cgroup); podman rm -f "$id" >/dev/null; ` +
+		`[ "$c" = "$own" ] && echo same || echo "different: $c vs $own"`
+	args, env, _ := hostThrottle([]string{"sh", "-c", script}, 100000, 1<<30, 0, exec.LookPath)
+	cmd := exec.Command(args[0], args[1:]...)
+	cmd.Env = append(os.Environ(), env...)
+	out, err := cmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(out), "same") {
+		t.Fatalf("container left the scope: %v %s", err, out)
 	}
 }

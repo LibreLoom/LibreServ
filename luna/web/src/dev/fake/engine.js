@@ -37,6 +37,12 @@ export const json = (body, status = 200) => new Res(status, body);
 export const fail = (status, error, code, extra = {}) =>
   new Res(status, { error, ...(code ? { code } : {}), ...extra });
 export const empty = (status = 204) => new Res(status, undefined);
+/** A non-JSON answer (file contents): `bytes` is a string, Uint8Array or Blob. */
+export const raw = (bytes, type = "application/octet-stream", status = 200, headers = {}) => {
+  const res = new Res(status, undefined, { "Content-Type": type, ...headers });
+  res.bytes = bytes;
+  return res;
+};
 
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -142,13 +148,20 @@ export function installFake({ world, scenario, now }) {
         parsed = {};
       }
 
-      let out = await hit.handler({ world: state.world, user, params, query, body: parsed, raw, headers, method, path, url, fake: control });
+      let out;
+      try {
+        out = await hit.handler({ world: state.world, user, params, query, body: parsed, raw, headers, method, path, url, fake: control });
+      } catch (err) {
+        if (!(err instanceof Res)) throw err; // handlers may `throw fail(...)`
+        out = err;
+      }
       if (!(out instanceof Res)) out = new Res(200, out === undefined ? {} : out);
       entry.status = out.status;
       emit();
       return {
         status: out.status,
         text: out.body === undefined ? "" : JSON.stringify(out.body),
+        bytes: out.bytes,
         headers: out.headers,
       };
     } finally {
@@ -172,7 +185,7 @@ export function installFake({ world, scenario, now }) {
       if (err instanceof NetworkError) throw new TypeError("Failed to fetch");
       throw err;
     });
-    return new Response(result.status === 204 ? null : result.text, {
+    return new Response(result.status === 204 ? null : (result.bytes ?? result.text), {
       status: result.status,
       headers: { "Content-Type": "application/json", ...result.headers },
     });
