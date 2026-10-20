@@ -367,8 +367,11 @@ func (s *Server) setupRoutes() {
 			r.Get("/apps/{appID}/metrics", monitoringHandler.GetAppMetrics)
 			r.Get("/apps/{appID}/metrics/history", monitoringHandler.GetMetricsHistory)
 
-			// Backups - system and database backup management
+			// Backups - system and database backup management.
+			// Restores overwrite the live database and repository recovery keys
+			// decrypt every app's backups — Admins only.
 			r.Route("/backups", func(r chi.Router) {
+				r.Use(middleware.RequireRole("admin"))
 				r.Use(middleware.RateLimit([]middleware.RateRule{
 					{Prefix: "/api/v1/backups", Limit: 20, Window: time.Minute, ByUser: true},
 				}))

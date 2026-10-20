@@ -126,4 +126,29 @@ func TestNewServerRouterSmoke(t *testing.T) {
 			t.Errorf("%s %s => %d, want 403", tc.method, tc.path, rec.Code)
 		}
 	}
+
+	// Restoring a database overwrites the live one, and repository recovery
+	// keys decrypt every app's backups. Both belong to Admins alone; a plain
+	// account must not reach them.
+	for _, tc := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/api/v1/backups"},
+		{http.MethodPost, "/api/v1/backups"},
+		{http.MethodPost, "/api/v1/backups/database/upload-restore"},
+		{http.MethodPost, "/api/v1/backups/database/backup-1/restore"},
+		{http.MethodGet, "/api/v1/backups/repos/repo-1/recovery-key"},
+		{http.MethodPost, "/api/v1/backups/repos"},
+		{http.MethodDelete, "/api/v1/backups/backup-1"},
+	} {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(`{}`))
+		req.Header.Set("Content-Type", "application/json")
+		req = req.WithContext(plainUser)
+		srv.Router().ServeHTTP(rec, req)
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("%s %s => %d, want 403", tc.method, tc.path, rec.Code)
+		}
+	}
 }
