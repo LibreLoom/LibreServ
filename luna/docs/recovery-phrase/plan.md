@@ -123,7 +123,7 @@ The leak closes over days instead of never, and no backup waits on it.
   - Until the old packs are deleted, Connect holds both: up to twice the backup's size, which counts against storage and the $8/TB bill. If storage fills, the move pauses. It never deletes old copies to make room (same rule as Protect plan §5 "Space").
 - **Status:** the backup row and the card show `Moving to your new phrase · 40%`. That's not a problem state, so no toast and nothing in Needs you.
 - **A second leak mid-move** starts another version. The move then targets the newest version, and packs already moved move again.
-- **Private items (phase 5):** Luna can't open private packs. Unchanged files still on the drive: Luna packs them again from the source files into the new scope. Older versions and deleted files that exist only in the cloud can't be moved by Luna. They stay sealed to the old scope key, which someone who already used the old words may hold. See §6, question 2.
+- **Private items (phase 5):** Luna can't open private packs. Unchanged files still on the drive: Luna packs them again from the source files into the new scope. Older versions and deleted files that exist only in the cloud can't be moved by Luna. They stay sealed to the old scope key, which someone who already used the old words may hold. So the Leaked flow ends with an optional step: `Delete older private versions`, which names what's lost (earlier versions and deleted files that exist only in the cloud). Skipping it keeps them, and the copy says the old words may still open them.
 - **Before phase 5:** §4.2 already removes old private copies at once in Leaked, so there's nothing private to move.
 
 ## 5. The hard part: keeping private history
@@ -147,12 +147,11 @@ Restore after database loss (`private_recover.rs`) and the Connect browser (`con
 ## 6. Questions for you
 
 1. **Last Admin with a phrase loses their words.** Protect plan §5 step 7 says block it, but blocking leaves them stuck. With §4's re-sealing, nothing shared is lost anymore: Luna re-seals every version to the new phrase. Proposal: allow it with no extra warning, and keep the block only on demote and remove.
-2. **Leaked: private versions that exist only in the cloud.** Luna can't move them (§4.4), so the old scope key keeps opening them for anyone who already used the old words. Options: (a) the owner's browser downloads, opens and seals them again, which is heavy and only works while that browser stays open; (b) offer `Delete older private versions` in the Leaked flow, saying what's lost; (c) leave them and say so. Proposal: (b), with (c) as the default when the owner skips it.
 
-3. **Password re-entry for Change too**, or is proving the old words enough? Proposal: the old words are enough.
-4. **"Delete now" for old-phrase copies on the card**, or only on the shield sheet where it already shows? Proposal: both.
+2. **Password re-entry for Change too**, or is proving the old words enough? Proposal: the old words are enough.
+3. **"Delete now" for old-phrase copies on the card**, or only on the shield sheet where it already shows? Proposal: both.
 
-Decided 2026-10-20: Lost keeps the dedup key and uploads nothing again; Leaked starts a fresh key version and dedup key, and moves old packs in the background (§4, §4.4).
+Decided 2026-10-20: Lost keeps the dedup key and uploads nothing again; Leaked starts a fresh key version and dedup key, and moves old packs in the background (§4, §4.4). Private versions only in the cloud, which Luna can't move, get an optional `Delete older private versions` step in the Leaked flow; if the owner skips it, they stay and the copy says so (§4.4).
 
 ## 7. Around the card
 
