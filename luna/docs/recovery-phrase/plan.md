@@ -149,9 +149,10 @@ Restore after database loss (`private_recover.rs`) and the Connect browser (`con
 1. **Last Admin with a phrase loses their words.** Protect plan §5 step 7 says block it, but blocking leaves them stuck. With §4's re-sealing, nothing shared is lost anymore: Luna re-seals every version to the new phrase. Proposal: allow it with no extra warning, and keep the block only on demote and remove.
 2. **Leaked: private versions that exist only in the cloud.** Luna can't move them (§4.4), so the old scope key keeps opening them for anyone who already used the old words. Options: (a) the owner's browser downloads, opens and seals them again, which is heavy and only works while that browser stays open; (b) offer `Delete older private versions` in the Leaked flow, saying what's lost; (c) leave them and say so. Proposal: (b), with (c) as the default when the owner skips it.
 
-Decided 2026-10-20: Lost keeps the dedup key and uploads nothing again; Leaked starts a fresh key version and dedup key, and moves old packs in the background (§4, §4.4).
 3. **Password re-entry for Change too**, or is proving the old words enough? Proposal: the old words are enough.
 4. **"Delete now" for old-phrase copies on the card**, or only on the shield sheet where it already shows? Proposal: both.
+
+Decided 2026-10-20: Lost keeps the dedup key and uploads nothing again; Leaked starts a fresh key version and dedup key, and moves old packs in the background (§4, §4.4).
 
 ## 7. Around the card
 
@@ -159,6 +160,14 @@ Decided 2026-10-20: Lost keeps the dedup key and uploads nothing again; Leaked s
 - **Dashboard.** With the gate in place, `dashboard/no-phrase` can't happen for new backups. Drop the scenario. The `check-phrase` intent opens the redesigned check.
 - **Copy fixes.** `NO_PHRASE` stays "Settings → Cloud backup", which becomes true. Rename `Check my words` to `Check my phrase` everywhere.
 - **Last-Admin guard.** Per §6 question 1.
+
+## 7a. Before implementation
+
+- **Update `docs/protect-rebuild/plan.md` first.** It still says a lost phrase gets a fresh dedup key and a new private scope with no shared history kept (§5 "Lost phrase"), that replacing the last Admin's phrase is blocked (§5 step 7), and that old key versions are never re-sealed (2026-10-17). Agents read that doc as the source of truth, so it must point here.
+- **Fix the gallery `#` URL bug** (§1) before writing any scenario in §9.
+- **Linking a Luna to Connect lives in About → Advanced** (`UpdateSourceCard` → `ConnectDeviceCodeForm`). The new Luna Connect category shows only once a token exists, so linking stays there. Decide whether that's fine, or whether Luna Connect should always show to Admins with a "Link this Luna" state.
+- **Check before phase 3:** the Connect store can delete `keys/` records (needed for "old-phrase copies deleted at once").
+- **Check before phase 4:** `run.rs` can build a tree whose chunks come from two dedup keys (§4.4).
 
 ## 8. Phases
 
