@@ -4,6 +4,7 @@ import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.j
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { useShortcut } from "@libreloom/ui/context/ShortcutsContext.jsx";
 import { scenarios } from "../scenarios/registry.js";
+import { scenarioFrameUrl } from "./frameUrl.js";
 import { loadResults, saveResult } from "./results.js";
 
 const VIEWPORTS = {
@@ -154,7 +155,7 @@ export default function Gallery() {
   if (!scenario) return <p className="p-8 surface-primary">No scenarios yet.</p>;
 
   const vp = VIEWPORTS[viewport];
-  const frameSrc = `${scenario.url}${scenario.url.includes("?") ? "&" : "?"}__mock=${encodeURIComponent(scenario.id)}`;
+  const frameSrc = scenarioFrameUrl(scenario.url, scenario.id);
   const status = results[scenario.id]?.status || "untested";
 
   return (
