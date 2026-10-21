@@ -500,8 +500,13 @@ var routeLabelRe = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
 // devices may only publish addresses inside the subdomain their own plan
 // controls. Returns the normalized lowercase hostname.
 func (s *ProvisioningService) checkRouteHostname(deviceID, hostname string) (string, error) {
+	// The input is normalized, and so is the base: whether the stored
+	// subdomain carries upper-case letters or not (the generator is
+	// mixed-case), DNS names are case-insensitive and the suffix match
+	// below is case-sensitive. Without this a case-variant of a route
+	// under the device's *own* base would be refused as foreign.
 	hostname = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(hostname), "."))
-	base := s.deviceHostname(deviceID, s.deviceSubdomainPrefix(deviceID))
+	base := strings.ToLower(s.deviceHostname(deviceID, s.deviceSubdomainPrefix(deviceID)))
 	if base == "" {
 		return "", fmt.Errorf("no base hostname is ready for this device yet")
 	}
@@ -625,10 +630,26 @@ func (s *ProvisioningService) UnregisterRoute(deviceID, hostname string) error {
 	}
 
 	// The same confinement as registration: a device only ever removes
-	// addresses its own plan controls.
-	hostname, err := s.checkRouteHostname(deviceID, hostname)
+	// addresses its own plan controls. One exception: a route this device
+	// has already registered stays removable even after the plan moved the
+	// base hostname — otherwise a free→paid or paid→free move would strand
+	// its device_routes rows in the tunnel ingress forever. The lookup is
+	// by this device's own rows, so another device's hostnames remain
+	// untouchable. The original argument stays untouched for the lookup:
+	// a refused call returns "" from checkRouteHostname, so reading it
+	// back would search for an empty hostname and never fire.
+	norm, err := s.checkRouteHostname(deviceID, hostname)
 	if err != nil {
-		return err
+		lookup := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(hostname), "."))
+		var one string
+		dbErr := s.db.QueryRow("SELECT hostname FROM device_routes WHERE device_id = $1 AND hostname = $2",
+			deviceID, lookup).Scan(&one)
+		if dbErr != nil {
+			return err
+		}
+		hostname = lookup
+	} else {
+		hostname = norm
 	}
 
 	// Delete the DNS record
