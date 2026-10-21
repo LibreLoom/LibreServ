@@ -28,6 +28,11 @@ export default function Gallery() {
   const [frameKey, setFrameKey] = useState(0);
   const [snap, setSnap] = useState(null);
   const [drafts, setDrafts] = useState({});
+  const [framePath, setFramePath] = useState("");
+  const [advance, setAdvance] = useState(() => {
+    try { return localStorage.getItem("luna.statesAdvance") !== "off"; } catch { return true; }
+  });
+  const [editingPath, setEditingPath] = useState(false);
   const frameRef = useRef(null);
   const unsubRef = useRef(null);
   const timerRef = useRef(0);
@@ -49,6 +54,27 @@ export default function Gallery() {
   }, []);
 
   const control = () => frameRef.current?.contentWindow?.__lunaFake;
+
+  // Show where the app is now, since the frame has no address bar of its own.
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      if (editingPath) return;
+      const l = frameRef.current?.contentWindow?.location;
+      if (l) setFramePath(`${l.pathname}${l.search}${l.hash}`);
+    }, 400);
+    return () => window.clearInterval(id);
+  }, [editingPath]);
+
+  // Move inside the running app without a reload, so the fake data stays.
+  const goToPath = (e) => {
+    e.preventDefault();
+    const w = frameRef.current?.contentWindow;
+    if (!w) return;
+    const next = framePath.startsWith("/") ? framePath : `/${framePath}`;
+    w.history.pushState({}, "", next);
+    w.dispatchEvent(new PopStateEvent("popstate"));
+    setEditingPath(false);
+  };
 
   // The frame's load event fires before the async mock boot has installed the
   // fake, so wait for it to appear.
@@ -108,8 +134,9 @@ export default function Gallery() {
     try {
       await saveResult(scenario.id, result);
       setResults((r) => ({ ...r, [scenario.id]: result }));
-      addToast({ type: "success", message: status === "fail" ? "Marked as a problem." : "Saved." });
-      if (status !== "fail") step(1);
+      const moving = advance && status !== "fail";
+      addToast({ type: "success", message: status === "fail" ? "Marked as a problem." : moving ? "Saved. Next scenario." : "Saved." });
+      if (moving) step(1);
     } catch {
       addToast({ type: "error", message: "Couldn't save the result.", description: "Is the dev server still running?" });
     }
@@ -200,6 +227,18 @@ export default function Gallery() {
           <Button variant="outline" surface="primary" size="sm" onClick={() => setFrameKey((k) => k + 1)}>Reload (fresh data)</Button>
           <a className="text-sm underline" href={frameSrc} target="_blank" rel="noreferrer">Open on its own</a>
         </div>
+        <form onSubmit={goToPath} className="flex items-center gap-2">
+          <input
+            aria-label="Address inside the app"
+            className="min-w-0 grow rounded-pill border border-accent bg-transparent px-4 py-1.5 text-sm focus:border-accent"
+            placeholder="/files"
+            value={framePath}
+            onFocus={() => setEditingPath(true)}
+            onBlur={() => setEditingPath(false)}
+            onChange={(e) => setFramePath(e.target.value)}
+          />
+          <Button type="submit" variant="outline" surface="primary" size="sm">Go</Button>
+        </form>
         <div className="flex min-h-0 grow justify-center overflow-auto rounded-large-element border border-accent p-2">
           <iframe
             key={`${scenario.id}:${frameKey}`}
@@ -242,6 +281,17 @@ export default function Gallery() {
             <Button variant="accent" surface="primary" size="sm" disabled={!note.trim()} onClick={() => record("fail")}>Problem</Button>
             <Button variant="outline" surface="primary" size="sm" onClick={() => record("skip")}>Skip</Button>
             <Button variant="outline" surface="primary" size="sm" onClick={() => record("retest")}>Fixed, retest</Button>
+            <label className="flex w-full items-center gap-2 pt-1 text-xs">
+              <input
+                type="checkbox"
+                checked={advance}
+                onChange={(e) => {
+                  setAdvance(e.target.checked);
+                  try { localStorage.setItem("luna.statesAdvance", e.target.checked ? "on" : "off"); } catch { /* storage blocked */ }
+                }}
+              />
+              Go to the next scenario after Passed, Skip or Fixed
+            </label>
           </div>
         </section>
 
