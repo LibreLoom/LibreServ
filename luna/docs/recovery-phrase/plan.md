@@ -229,7 +229,7 @@ All decided 2026-10-20:
 ## 7a. Before implementation
 
 - **Done 2026-10-20:** `docs/protect-rebuild/plan.md` points here, and the gallery `#` URL bug is fixed.
-- **Linking a Luna to Connect lives in About → Advanced** (`UpdateSourceCard` → `ConnectDeviceCodeForm`). The new Luna Connect category shows only once a token exists, so linking stays there. Decide whether that's fine, or whether Luna Connect should always show to Admins with a "Link this Luna" state. Doesn't block phase 1.
+- **Linking a Luna to Connect stays in About → Advanced** (`UpdateSourceCard` → `ConnectDeviceCodeForm`); decided 2026-10-20. The Luna Connect category shows only once a token exists.
 
 ## 8. Phases
 
