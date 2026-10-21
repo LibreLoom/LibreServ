@@ -188,3 +188,72 @@ func TestNestedPodmanStaysInScope(t *testing.T) {
 		t.Fatalf("container left the scope: %v %s", err, out)
 	}
 }
+
+func TestBuildFlags(t *testing.T) {
+	if got := buildFlags(160000, 4<<30); got != "--cpu-period=100000 --cpu-quota=160000 --memory=4294967296" {
+		t.Fatalf("flags = %q", got)
+	}
+	if got := buildFlags(0, 1<<20); got != "--memory=1048576" {
+		t.Fatalf("memory only = %q", got)
+	}
+	if got := buildFlags(0, 0); got != "" {
+		t.Fatalf("no limits = %q", got)
+	}
+}
+
+func TestHostThrottlePutsPodmanShimFirst(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("PATH", "/usr/bin")
+	_, env, _ := hostThrottle([]string{"sh"}, 160000, 1<<30, 0, fakeLook("systemd-run"))
+	have := map[string]bool{}
+	for _, e := range env {
+		have[e] = true
+	}
+	if !strings.HasPrefix(env[slicesIndexPrefix(env, "PATH=")], "PATH="+filepath.Join(os.Getenv("XDG_CACHE_HOME"), "libreserv-ci", "bin")+":/usr/bin") {
+		t.Fatalf("shim not first on PATH: %v", env)
+	}
+	if !have["LIBRESERV_CI_BUILD_FLAGS=--cpu-period=100000 --cpu-quota=160000 --memory=1073741824"] {
+		t.Fatalf("build flags missing: %v", env)
+	}
+}
+
+func slicesIndexPrefix(env []string, p string) int {
+	for i, e := range env {
+		if strings.HasPrefix(e, p) {
+			return i
+		}
+	}
+	return -1
+}
+
+// The shim must add the job's flags to builds only, and pass every other
+// podman invocation through untouched.
+func TestPodmanShimInjectsFlagsIntoBuildOnly(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	shim := podmanShim()
+	if shim == "" {
+		t.Fatal("shim not written")
+	}
+	fake := t.TempDir()
+	if err := os.WriteFile(filepath.Join(fake, "podman"), []byte("#!/bin/sh\nprintf '%s\\n' \"$*\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ args, want string }{
+		{"build -t x .", "build --cpu-quota=7 --memory=9 -t x ."},
+		{"--log-level=info build -t x .", "--log-level=info build --cpu-quota=7 --memory=9 -t x ."},
+		{"image build .", "image build --cpu-quota=7 --memory=9 ."},
+		{"run --rm build", "run --rm build"},
+		{"run -t x build", "run -t x build"},
+		{"ps -a", "ps -a"},
+	} {
+		cmd := exec.Command("sh", "-c", "podman "+c.args)
+		cmd.Env = append(os.Environ(), "PATH="+shim+":"+fake+":"+os.Getenv("PATH"), "LIBRESERV_CI_BUILD_FLAGS=--cpu-quota=7 --memory=9")
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("%q: %v", c.args, err)
+		}
+		if got := strings.TrimSpace(string(out)); got != c.want {
+			t.Errorf("podman %s\n got  %q\n want %q", c.args, got, c.want)
+		}
+	}
+}
