@@ -42,12 +42,15 @@ export default function Gallery() {
   const setNote = (v) => setDrafts((d) => ({ ...d, [scenario.id]: v }));
 
   useEffect(() => { loadResults().then(setResults); }, []);
+  const selectedRef = useRef(selectedId);
+  useEffect(() => { selectedRef.current = selectedId; }, [selectedId]);
   useEffect(() => { window.location.hash = encodeURIComponent(selectedId || ""); }, [selectedId]);
   // Follow the address bar too, so a pasted or edited link opens that scenario.
   useEffect(() => {
     const onHash = () => {
       const id = hashId();
-      if (id && scenarios.some((s) => s.id === id)) { setSelectedId(id); setFrameKey((k) => k + 1); setSnap(null); }
+      // Our own hash update lands here too; only a pasted or edited link should reload.
+      if (id && id !== selectedRef.current && scenarios.some((s) => s.id === id)) { setSelectedId(id); setFrameKey((k) => k + 1); setSnap(null); }
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
@@ -134,8 +137,8 @@ export default function Gallery() {
     try {
       await saveResult(scenario.id, result);
       setResults((r) => ({ ...r, [scenario.id]: result }));
-      const moving = advance && status !== "fail";
-      addToast({ type: "success", message: status === "fail" ? "Marked as a problem." : moving ? "Saved. Next scenario." : "Saved." });
+      const moving = advance;
+      addToast({ type: "success", message: `${status === "fail" ? "Marked as a problem." : "Saved."}${moving ? " Next scenario." : ""}` });
       if (moving) step(1);
     } catch {
       addToast({ type: "error", message: "Couldn't save the result.", description: "Is the dev server still running?" });
@@ -290,7 +293,7 @@ export default function Gallery() {
                   try { localStorage.setItem("luna.statesAdvance", e.target.checked ? "on" : "off"); } catch { /* storage blocked */ }
                 }}
               />
-              Go to the next scenario after Passed, Skip or Fixed
+              Go to the next scenario after marking a result
             </label>
           </div>
         </section>
