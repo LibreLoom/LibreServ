@@ -79,7 +79,7 @@ People replace a phrase for three different reasons, and each needs different ha
 
 1. Enter the current words (the redesigned check, §3).
 2. One question, two `CardButton`s: **"Why are you changing it?"**
-   - `I want a new phrase`: "Your current words stop working. Nothing uploads again."
+   - `I want a new phrase`: "Your current words stop working. Nothing uploads again." Before phase 5, it says instead: "Your current words stop working. Your private items back up again from the start." (§4.2: a change retires the private scope until then.)
    - `Someone else may have seen it`: "Your old words stop working right away. Luna then moves your cloud backups to the new phrase in the background, which can take days. Until it finishes, someone who already used your old words could still open files that haven't changed."
 3. Show and confirm the new words (today's `RecoveryPhraseSetup`).
 4. Save (§4.5). Toast: `Recovery phrase changed.`
@@ -155,13 +155,15 @@ Phase 5 adds `rescoped` to `change` and `leaked` (§5).
 **In one SQLite transaction:**
 1. Save the new user keys (`set_user_keys`, as today: the new phrase shows "Not checked yet" until its first check).
 2. For every shared version whose saved reader list (`cloud_recipients:<backup>:<version>` meta) includes this person: replace their `seal_public` in that meta. `ensure_key` then sees the same readers, so a `change` or `lost` starts no new version.
-3. `leaked` only: start version N+1 for each of those backups, reusing version N's dedup key (a new `keys::start_version_keeping_dedup`).
+3. `leaked` only: mark each of those backups to rotate (`cloud_rotate:<backup>` meta, "keep dedup"). The save does **not** create version N+1 itself: a run publishes sealed copies to every recipient only when `ensure_key` starts the version during that run (`run.rs`, `is_new`). So `ensure_key` reads the mark, starts N+1 with version N's dedup key, and clears the mark, and the run then publishes N+1 to everyone on the backup, Admins included, through the path that already works. The save queues a run for each marked backup so the leak closes within minutes, not at the next 6-hour run.
 4. Queue a re-seal job for this person.
 5. Private, before phase 5: `change` and `lost` retire the active scope (30-day grace, as today). `leaked` retires it with no grace.
 
-**After the transaction, in the background (the same pattern as today's `publish_users`):** the re-seal job writes a sealed, signed copy of every version key this person is on, plus the new user list. Each copy replaces the old phrase's copy under the same name. The job is retried on every run until it finishes. Until then, `GET /api/v1/cloud/phrase` reports `resealing: true`, and the card says "Updating your cloud backups to the new phrase…".
+**After the transaction, in the background (the same pattern as today's `publish_users`):** the re-seal job writes a sealed, signed copy of every version key this person is on, plus the new user list. "Every version this person is on" = every version whose saved reader list includes them. That matches the copies they hold today: removing someone from a backup starts a new version without them, and keeps their copies of older versions (`keys.rs` test: "Bob's old copy stays for version 1 only"). If removal ever starts deleting old copies, this set must skip versions they were removed from. Each copy replaces the old phrase's copy under the same name. The job is retried on every run until it finishes. Until then, `GET /api/v1/cloud/phrase` reports `resealing: true`, and the card says "Updating your cloud backups to the new phrase…".
 
-**Check before building:** whether Connect's store keeps old object versions when a record is overwritten (B2 buckets keep every version by default). If it does, "replaced" isn't true until those versions are purged, and the store must delete prior versions on overwrite for `keys/` and `pscopes/`.
+**Checks before building:**
+- Whether `verify_password_for_user` counts toward the sign-in lockout (it should).
+- Whether Connect's store keeps old object versions when a record is overwritten (B2 buckets keep every version by default). If it does, "replaced" isn't true until those versions are purged, and the store must delete prior versions on overwrite for `keys/` and `pscopes/`.
 
 ## 5. Phase 5: one key pair per private scope
 
@@ -199,7 +201,7 @@ All decided 2026-10-20:
 
 ### Still open
 
-1. **Leaked keeps the dedup key.** Earlier I proposed a fresh dedup key for Leaked. The run can't do "unchanged files stay where they are" with a fresh one: every chunk id changes, so everything uploads at once. Keeping it is safe for the reasons in §4. Needs your OK.
+1. **Leaked keeps the dedup key, and readers learn to open packs from several versions.** These come as a pair. Earlier I proposed a fresh dedup key for Leaked, but the run can't do "unchanged files stay where they are" with a fresh one: every chunk id changes, so everything uploads at once. Keeping it is safe for the reasons in §4. It does mean the reader change you passed on for Lost comes back for Leaked, in phase 3: Luna, `shared/ui` and Connect web open each pack with the key version that sealed it (§4.4). The alternative is a fresh dedup key and a full upload at once after a leak, with no reader change. Needs your OK.
 2. **Lost, but maybe found.** Someone who lost their words and fears they were found can't choose Leaked, since it asks for the old words. Proposal: the Lost confirm asks "Could someone else have found them?", and Yes gets Leaked's treatment (new version, background move, old private copies removed at once instead of after 30 days).
 
 ## 7. Around the card
@@ -221,7 +223,7 @@ Each phase ships on its own and leaves Luna working.
 
 1. **Placement and card states:** remove External services, add the Cloud backup and Luna Connect categories, the status fields, the card table in §3, the copy fixes. Web, plus a small status change in `cloud_phrase.rs`.
 2. **Gate:** phrase before the first cloud backup (ProtectSheet inline setup, plus the 409 on create).
-3. **The three cases:** the save in §4.5 (modes, proof, the transaction, the re-seal job), the two-button question, the Lost confirm, the check redesign, and readers that open each pack with the version that sealed it (§4.4). Private items follow §4.2. Leaked starts its new version here, but old packs stay under the old key until phase 4, so the Leaked copy in this phase says: "Files you change from now on are locked to the new phrase. Older copies stay locked to the old one."
+3. **The three cases:** the save in §4.5 (modes, proof, the transaction, the re-seal job), the two-button question, the Lost confirm, the check redesign, and readers that open each pack with the version that sealed it (§4.4). Private items follow §4.2. Leaked starts its new version here, but old packs stay under the old key until phase 4, so the Leaked copy in this phase says: "Your old words stop working right away. Files you add or change from now on open only with the new phrase. Older copies still open for anyone who already used your old words."
 4. **Leaked background move** for shared backups (§4.4): the pack move on the idle trickle, snapshot rewrites, the `Moving to your new phrase` status, the pause when storage fills. The Leaked copy switches to the §4.1 wording.
 5. **Private history:** the per-scope key pair (§5), the browser re-seal in the change flow, the Connect and restore readers, the test vectors, `Delete older private versions`. The §4.2 lines go away.
 
