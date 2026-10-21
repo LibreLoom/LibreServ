@@ -1555,6 +1555,18 @@ func (h *PortalHandler) CreateCheckoutSession(w http.ResponseWriter, r *http.Req
 		}
 	}
 
+	// A checkout only ever links one of the signed-in account's own
+	// devices — a caller-supplied device_id that belongs to another
+	// account would let the Stripe webhook stamp this subscription onto
+	// that account's device. The account-reference fallback above repeats
+	// this account's own id, so it stays allowed.
+	if refID != accountID {
+		if err := h.deviceOwnedBy(r.Context(), refID, accountID); err != nil {
+			JSONError(w, http.StatusBadRequest, "that device is not on your account")
+			return
+		}
+	}
+
 	successURL := config.C.Server.BaseURL + "/onboarding?checkout=success"
 	cancelURL := config.C.Server.BaseURL + "/onboarding?checkout=cancelled"
 

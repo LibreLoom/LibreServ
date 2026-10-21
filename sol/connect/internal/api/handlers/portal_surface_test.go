@@ -323,3 +323,64 @@ func TestPortalPlansOnlyReachOwnDevices(t *testing.T) {
 		t.Fatalf("own device subscribe = %d: %s", own.Code, own.Body.String())
 	}
 }
+
+// With Stripe on, a paid plan is never granted directly by
+// /portal/subscribe — the existing cases all pin the switch off, where
+// applying locally is by design, so the guard itself had no test.
+func TestSubscribePaidPlanWantsCheckoutWithStripeOn(t *testing.T) {
+	db := database.OpenTestDB(t)
+	mine := activateDevice(t, db, "free")
+	accountID := accountForDevice(t, db, mine)
+	h := NewPortalHandler(db)
+
+	withStripeTestConfig(t)
+	got := portalRequest(t, h, accountID, http.MethodPost, "/portal/subscribe",
+		`{"plan_id":"lite","device_id":"`+mine+`"}`, h.Subscribe)
+	if got.Code != http.StatusBadRequest || !strings.Contains(got.Body.String(), "Plans page") {
+		t.Fatalf("paid plan with Stripe on = %d: %s", got.Code, got.Body.String())
+	}
+
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM subscriptions WHERE device_id = $1 AND plan_id = 'lite'`, mine).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatal("a lite subscription row appeared without payment")
+	}
+}
+
+// /portal/checkout hands the Stripe session the plan's target device as
+// client_reference_id — the webhook later stamps the subscription onto that
+// device. It must refuse a caller-supplied device that belongs to another
+// account, the same as subscribe and change-plan.
+func TestPortalCheckoutOnlyLinksOwnDevices(t *testing.T) {
+	db := database.OpenTestDB(t)
+	mine := activateDevice(t, db, "free")
+	theirs := activateDevice(t, db, "free")
+	myAccount := accountForDevice(t, db, mine)
+	h := NewPortalHandler(db)
+
+	withStripeTestConfig(t)
+	foreign := portalRequest(t, h, myAccount, http.MethodPost, "/portal/checkout",
+		`{"plan_id":"one","device_id":"`+theirs+`"}`, h.CreateCheckoutSession)
+	if foreign.Code != http.StatusBadRequest {
+		t.Fatalf("foreign device checkout = %d: %s", foreign.Code, foreign.Body.String())
+	}
+
+	var planID string
+	if err := db.QueryRow(`SELECT plan_id FROM devices WHERE id = $1`, theirs).Scan(&planID); err != nil {
+		t.Fatal(err)
+	}
+	if planID != "free" {
+		t.Fatalf("other device's plan moved to %q", planID)
+	}
+
+	// The signed-in account's own device gets past the ownership gate; with
+	// no live Stripe key the session call itself fails here, which is what
+	// reaching it looks like in a test.
+	paid := portalRequest(t, h, myAccount, http.MethodPost, "/portal/checkout",
+		`{"plan_id":"one","device_id":"`+mine+`"}`, h.CreateCheckoutSession)
+	if paid.Code == http.StatusBadRequest {
+		t.Fatalf("own device checkout refused: %s", paid.Body.String())
+	}
+}
