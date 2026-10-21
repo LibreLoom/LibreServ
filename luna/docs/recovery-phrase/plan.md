@@ -60,23 +60,26 @@ People replace a phrase for three different reasons, and each needs different ha
 | Entry | `Change phrase` → "I want a new phrase" | `Change phrase` → "Someone else may have seen it" | `Lost your recovery phrase?` → `Get a new phrase` |
 | Proof | Old words | Old words | Luna password |
 | Older shared versions | Re-sealed to the new phrase | Re-sealed to the new phrase | Re-sealed to the new phrase |
-| New shared data | Same key version, nothing uploads again | New key version | New key version |
-| Private history | Kept | Kept (phase 4) | **Lost.** Old copies stay 30 days in case the words turn up |
+| New shared data | Same key version | New key version, **fresh** dedup key | New key version, **same** dedup key |
+| Uploads again | Nothing | New and changed files right away; everything else moves to the new key in the background (§4.4) | Nothing |
+| Private history | Kept | Kept (phase 5) | **Lost.** Old copies stay 30 days in case the words turn up |
 | New private data | Same scope | New scope | New scope |
 | Old-phrase copies on Connect | Deleted | Deleted at once | Shared: deleted at once. Private: kept 30 days |
 | Can't be undone | — | Anything already opened or downloaded with the old words | — |
 
 **Why each row:**
 - Older shared versions are re-sealed in all three cases. Luna holds those keys anyway (§1), so this gives nobody anything new. If the old phrase leaked, whoever has it could already open those versions; re-sealing only gives the owner their access back. So losing a phrase costs **private history only**, and the Lost confirm can say exactly that.
-- New key versions (and a new private scope) for Leaked and Lost, because someone else may hold the old words. New data is then sealed only to the new phrase. A lost phrase on paper can be found, so Lost counts as possibly leaked.
-- Deleting old-phrase copies "at once" stops a leaked phrase from opening anything new on Connect. It can't take back what was already downloaded, and the Leaked confirm says so.
+- **Lost keeps the dedup key** (decided 2026-10-20). Most lost phrases aren't in anyone else's hands, and a full re-upload is a steep price for a maybe. A new key version still seals new data only to the new phrase, and deleting the old phrase's shared copies at once means the old words alone can't fetch any key from Connect. Nobody new joins, and every current reader already holds the current version's key, so new snapshots can safely point at existing packs. The 2026-10-17 fresh-dedup rule still applies when someone joins.
+- **Leaked gets a fresh key version and a fresh dedup key, but nothing waits on a full re-upload** (decided 2026-10-20). See §4.4.
+- Deleting old-phrase copies "at once" stops the old words from fetching any key from Connect from then on. Whoever already used them to fetch a key keeps it. That's what the background move in §4.4 closes, and what the Leaked confirm has to be honest about.
+- Also true, and worth one line in the Leaked copy: the words alone don't reach Connect. Opening a backup there takes the Admin's Connect sign-in or a share link as well.
 
 ### 4.1 Change phrase (I still have my words)
 
 1. Enter the current words (the redesigned check). The browser signs a fresh challenge with the **old** auth key.
 2. One question, two `CardButton`s: **"Why are you changing it?"**
    - `I want a new phrase`: "Your current words stay safe. Nothing uploads again."
-   - `Someone else may have seen it`: "Luna locks new backups to the new phrase and removes the old phrase's copies. Anything already opened with the old words can't be taken back. Your shared cloud backups upload again, which can take days."
+   - `Someone else may have seen it`: "Your old words stop working right away. Luna then moves your cloud backups to the new phrase in the background, which can take days. Until it finishes, someone who already used your old words could still open files that haven't changed."
 3. Show and confirm the new words (today's `RecoveryPhraseSetup`).
 4. `PUT /api/v1/cloud/phrase` with `{ mode: "change" | "leaked", old_signature, …new keys }`. Luna checks `old_signature` against the stored `auth_public` in the same request, so the proof can't be replayed for something else.
 5. In the same transaction as the key save, Luna rewrites what the two automatic rules compare (§1), or they undo a "change" on the next run:
@@ -84,23 +87,44 @@ People replace a phrase for three different reasons, and each needs different ha
    - Private: §5.
 6. Toast: `Recovery phrase changed.`
 
-### 4.2 Leaked, before phase 4
+### 4.2 Leaked, before phase 5
 
-Until private scopes have their own key pair (§5), private history can't move to the new phrase. A leaked phrase would keep opening it for the 30-day grace, so in the Leaked case **old private copies are removed at once**. The step-2 copy for Leaked adds: "Older versions of your private items can't be kept." Once phase 4 lands, this line goes away.
+Until private scopes have their own key pair (§5), private history can't move to the new phrase. A leaked phrase would keep opening it for the 30-day grace, so in the Leaked case **old private copies are removed at once**. The step-2 copy for Leaked adds: "Older versions of your private items can't be kept." Once phase 5 lands, this line goes away.
 
-A plain "change" before phase 4 keeps today's behavior: private history retires with the 30-day grace, and the step-2 copy says so.
+A plain "change" before phase 5 keeps today's behavior: private history retires with the 30-day grace, and the step-2 copy says so.
 
 ### 4.3 Get a new phrase (lost words)
 
 1. Collapsible row → `Get a new phrase` opens a ConfirmModal (`warning` haptic) that names what's lost:
    - "Private items backed up with your old phrase can't be opened. Luna keeps them for 30 days in case you find the words, then removes them."
-   - "Your shared cloud backups stay open to you. They upload again from the start, which can take days."
+   - "Your shared cloud backups stay open to you with the new phrase. Nothing uploads again."
    - When `last_phrase_admin` is set: a line about what that means (§6, question 1).
 2. Re-enter your Luna password (`password` field in the same modal). The PUT sends `{ mode: "lost", password, …new keys }`. This stops a walk-up phrase swap.
 3. Show and confirm the new words.
 4. Toast: `New recovery phrase saved.` The card then shows the old-phrase copies row.
 
 `PUT` with no `mode` stays allowed only when no phrase is set yet (first setup).
+
+### 4.4 Leaked: moving old packs to the new key in the background
+
+The leak closes over days instead of never, and no backup waits on it.
+
+- **Right away:** the next run backs up new and changed files under the new key version and its fresh dedup key. Unchanged files keep pointing at their existing packs, so the run is as fast as any other. Check before building: the run's incremental path (`run.rs`) must let a tree hold chunk ids from two dedup keys until the move finishes, and Luna's local index must keep the old key's chunk map that long.
+- **In the background, on the idle trickle:** for every pack a retained snapshot still points at that's sealed under a pre-leak version, Luna:
+  1. opens it with the old version key (Luna holds it),
+  2. packs the chunks again under the new version,
+  3. uploads it,
+  4. rewrites every retained snapshot tree that points at it and re-signs those snapshot records,
+  5. marks the old pack for the normal mark-then-delete cleanup.
+
+  Newest snapshot first, since current files matter most; older retained copies after.
+- **Costs, said out loud:**
+  - It uploads everything again anyway, just slowly and without blocking anything.
+  - Until the old packs are deleted, Connect holds both: up to twice the backup's size, which counts against storage and the $8/TB bill. If storage fills, the move pauses. It never deletes old copies to make room (same rule as Protect plan §5 "Space").
+- **Status:** the backup row and the card show `Moving to your new phrase · 40%`. That's not a problem state, so no toast and nothing in Needs you.
+- **A second leak mid-move** starts another version. The move then targets the newest version, and packs already moved move again.
+- **Private items (phase 5):** Luna can't open private packs. Unchanged files still on the drive: Luna packs them again from the source files into the new scope. Older versions and deleted files that exist only in the cloud can't be moved by Luna. They stay sealed to the old scope key, which someone who already used the old words may hold. See §6, question 2.
+- **Before phase 5:** §4.2 already removes old private copies at once in Leaked, so there's nothing private to move.
 
 ## 5. The hard part: keeping private history
 
@@ -123,7 +147,9 @@ Restore after database loss (`private_recover.rs`) and the Connect browser (`con
 ## 6. Questions for you
 
 1. **Last Admin with a phrase loses their words.** Protect plan §5 step 7 says block it, but blocking leaves them stuck. With §4's re-sealing, nothing shared is lost anymore: Luna re-seals every version to the new phrase. Proposal: allow it with no extra warning, and keep the block only on demote and remove.
-2. **Do Leaked and Lost need a full re-upload?** The 2026-10-17 decision gives every new key version a fresh dedup key, so newcomers can't open old versions through shared packs. In Leaked and Lost nobody new joins: every current reader already holds the current version's key, and the person replacing their phrase gets it re-sealed (§4). Reusing the current version's dedup key there would point new snapshots at that version's existing packs, so nothing uploads again. The old phrase could only open packs it could already open. Proposal: keep the dedup key for these two, and keep a fresh one when someone joins.
+2. **Leaked: private versions that exist only in the cloud.** Luna can't move them (§4.4), so the old scope key keeps opening them for anyone who already used the old words. Options: (a) the owner's browser downloads, opens and seals them again, which is heavy and only works while that browser stays open; (b) offer `Delete older private versions` in the Leaked flow, saying what's lost; (c) leave them and say so. Proposal: (b), with (c) as the default when the owner skips it.
+
+Decided 2026-10-20: Lost keeps the dedup key and uploads nothing again; Leaked starts a fresh key version and dedup key, and moves old packs in the background (§4, §4.4).
 3. **Password re-entry for Change too**, or is proving the old words enough? Proposal: the old words are enough.
 4. **"Delete now" for old-phrase copies on the card**, or only on the shield sheet where it already shows? Proposal: both.
 
@@ -138,8 +164,9 @@ Restore after database loss (`private_recover.rs`) and the Connect browser (`con
 
 1. **Placement and card states:** remove External services, add the Cloud backup and Luna Connect categories, the status fields, the card table in §3, the copy fixes. Web, plus a small status change in `cloud_phrase.rs`.
 2. **Gate:** phrase before the first cloud backup (ProtectSheet inline setup, plus the 409 on create).
-3. **The three cases:** the `mode` field, old-signature proof, password re-entry, the two-button question, the Lost confirm, the check redesign. Luna re-seals every shared version to the new phrase and rewrites its reader list in the save's transaction. Leaked and Lost start new key versions; a plain change doesn't. Private items follow §4.2 in this phase.
-4. **Private history:** the per-scope private key pair (format change, plus recover and Connect updates); `ensure_scope` stops retiring on key mismatch.
+3. **The three cases:** the `mode` field, old-signature proof, password re-entry, the two-button question, the Lost confirm, the check redesign. Luna re-seals every shared version to the new phrase and rewrites its reader list in the save's transaction. Leaked and Lost start new key versions (Lost with the same dedup key); a plain change doesn't. Private items follow §4.2 in this phase.
+4. **Leaked background move** for shared backups (§4.4): mixed-dedup trees, the pack move on the idle trickle, snapshot rewrites, the `Moving to your new phrase` status.
+5. **Private history:** the per-scope private key pair (format change, plus recover and Connect updates); `ensure_scope` stops retiring on key mismatch; the private half of the Leaked move.
 
 ## 9. Gallery scenarios to add
 
@@ -150,6 +177,8 @@ Fix the gallery's `#` URL bug (§1) first, or none of these load their seed.
 - `settings/phrase-set-check-due`: pill `Check due`, check is the primary action.
 - `settings/phrase-change`: old words, then "I want a new phrase", then new words. Wrong old words are refused.
 - `settings/phrase-leaked`: old words, then "Someone else may have seen it". The copy says what can't be taken back.
+- `settings/phrase-leaked-moving`: a backup row and the card show `Moving to your new phrase · 40%`, with no problem state.
+- `settings/phrase-leaked-moving-full`: Connect storage fills mid-move. The move pauses and says what to do; nothing old is deleted.
 - `settings/phrase-lost`: the confirm names what's lost, needs the password, then shows the old-phrase copies row.
 - `files/cloud-backup-no-phrase`: "Back up to the cloud" opens setup first.
 - Drop `dashboard/no-phrase` (§7).
