@@ -52,6 +52,7 @@ Not covered: code comments, logs, internal docs. Dashboard greetings (pigeons, s
 | Apps and helper tools | `Apps and access tokens` |
 | Luna is asking this drive how it feels | `Checking this drive's health` |
 | this box (for Luna) | `Luna` / `this Luna` |
+| recovery words / your words / old words / Check my words | `recovery phrase` / `your phrase` / `old phrase` / `Check my phrase` ("words" only for its length or one position: `12 words`, `word 3`) |
 | Couldn't do that | Name the action that failed |
 
 ## Running tests
