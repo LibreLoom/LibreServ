@@ -16,5 +16,5 @@ export default defineConfig({
     fs: { allow: ["../../.."] },
     proxy: { "/api": { target: "http://localhost:8092", changeOrigin: true } },
   },
-  test: { environment: "jsdom", globals: true },
+  test: { environment: "jsdom", globals: true, setupFiles: ["./src/test/setup.js"] },
 });
