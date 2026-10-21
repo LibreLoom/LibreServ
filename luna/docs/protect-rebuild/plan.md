@@ -110,11 +110,11 @@ Storage on the target drive, under Luna's namespace: `.luna-<uuid>-backups/<prot
 6. Every few months: "Check your recovery phrase": type all 12 words; the browser derives the keys and signs a challenge from Luna with the auth key. Nothing secret leaves the browser.
 7. Removing, demoting or deleting the last Admin who has a phrase is blocked until another Admin sets one up. Replacing their phrase is allowed (decided 2026-10-20, recovery-phrase plan §6 decision 1).
 
-### Replacing a phrase (new, leaked or lost)
-Superseded by `luna/docs/recovery-phrase/plan.md` §4, which handles three cases differently. In all three, Luna re-seals every shared key version the person is on to the new phrase (it keeps them all in `backup_keys`).
-- **New phrase** (old phrase in hand and safe): everything re-sealed, same key version, nothing uploads again.
-- **Leaked:** new key version that keeps the dedup key (proposed, recovery-phrase plan §6); new and changed files upload under it right away, old packs move to it in the background; optional "Delete older private versions".
-- **Lost** ("Get a new phrase", needs the Luna password): no new key version, nothing uploads again, older shared versions re-sealed to the new phrase; private history sealed to the old phrase is lost, kept 30 days in case the phrase turns up.
+### Replacing a phrase
+Superseded by `luna/docs/recovery-phrase/plan.md` §4. Two independent questions: do you still have your phrase (only decides the proof: old phrase or Luna password), and could someone else have it. In every case Luna re-seals every shared key version the person is on to the new phrase (it keeps them all in `backup_keys`).
+- **Nobody else can have it:** same key version, nothing uploads again.
+- **Someone may have it:** new key version that keeps the dedup key; new and changed files upload under it right away, old packs move to it in the background.
+- **Private history:** kept across a change when you have your phrase (once private scopes get their own key pair); lost when you don't, kept 30 days unless someone may have it.
 
 ### Cleanup
 - Luna knows from its index which chunks are unused. Shared packs: rebuild partly dead ones freely, since Luna holds the keys.
@@ -199,7 +199,7 @@ Decided: no gate on Members starting cloud backups; only the Admin signs in to C
 Nothing open.
 
 ## Decisions recorded 2026-10-17 (phase 2 review)
-- A new key version (recipient set changed) gets a fresh dedup key, so the next run re-uploads everything. Deliberate: a kept dedup key would let newly added people open old versions. This supersedes "dedup key re-wrapped on every new version" above. Exceptions: a lost phrase starts no new key version at all (decided 2026-10-20), and a leaked phrase's new version keeps the dedup key (proposed); see recovery-phrase plan §4.
+- A new key version (recipient set changed) gets a fresh dedup key, so the next run re-uploads everything. Deliberate: a kept dedup key would let newly added people open old versions. This supersedes "dedup key re-wrapped on every new version" above. Exceptions (decided 2026-10-20): replacing a phrase nobody else can have starts no new key version at all, and replacing one someone else may have starts a version that keeps the dedup key; see recovery-phrase plan §4.
 - Old key versions are never sealed to anyone new, and someone removed from a backup gets no new copies. Corrected 2026-10-20: Luna does hold every version (`backup_keys` rows go only when the backup is deleted; see `db::list_backup_keys`) and re-seals all of them to a person's new phrase when they replace it (recovery-phrase plan §4). Removing the original Admin can leave retained older copies unopenable by others; the last-Admin guard only covers new versions.
 - Restore after DB loss needs the browser: a person enters their phrase, opens key copies, and sends keys to Luna so `rebuild_snapshot_index` can run. That flow (recover.rs wiring) belongs to phase 3.
 - Identity: candidates come from drive key copies; Connect's luna-ids list only breaks ties. Requests carry X-Luna-Ts / X-Luna-Sig (domain "move") so a Luna can move to a new device.
