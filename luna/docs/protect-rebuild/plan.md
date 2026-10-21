@@ -112,9 +112,9 @@ Storage on the target drive, under Luna's namespace: `.luna-<uuid>-backups/<prot
 
 ### Replacing a phrase (new, leaked or lost)
 Superseded by `luna/docs/recovery-phrase/plan.md` §4, which handles three cases differently. In all three, Luna re-seals every shared key version the person is on to the new phrase (it keeps them all in `backup_keys`).
-- **New phrase** (old words in hand and safe): everything re-sealed, same key version, nothing uploads again.
+- **New phrase** (old phrase in hand and safe): everything re-sealed, same key version, nothing uploads again.
 - **Leaked:** new key version that keeps the dedup key (proposed, recovery-phrase plan §6); new and changed files upload under it right away, old packs move to it in the background; optional "Delete older private versions".
-- **Lost** ("Get a new phrase", needs the Luna password): no new key version, nothing uploads again, older shared versions re-sealed to the new phrase; private history sealed to the old phrase is lost, kept 30 days in case the words turn up.
+- **Lost** ("Get a new phrase", needs the Luna password): no new key version, nothing uploads again, older shared versions re-sealed to the new phrase; private history sealed to the old phrase is lost, kept 30 days in case the phrase turns up.
 
 ### Cleanup
 - Luna knows from its index which chunks are unused. Shared packs: rebuild partly dead ones freely, since Luna holds the keys.
