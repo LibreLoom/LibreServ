@@ -570,7 +570,7 @@ func addReleaseTests() {
 		Description: "Release tool tests that build real containers with podman (runs on host)",
 		Type:        TestTypeIntegration,
 		Container:   "host",
-		Command:     "go test -count=1 ./internal/release/...",
+		Command:     "go test -count=1 -timeout 45m ./internal/release/...",
 		WorkDir:     "/repo/infra/ci-source",
 		Timeout:     45 * time.Minute,
 	})
