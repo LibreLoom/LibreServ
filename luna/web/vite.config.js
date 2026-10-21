@@ -148,6 +148,10 @@ export default defineConfig({
     host: "0.0.0.0",
     open: false,
     allowedHosts: true,
+    // The state gallery's results file is data the dev server writes itself.
+    // Watching it lets @tailwindcss/vite (which scans every non-ignored file
+    // for class names) answer each save with a silent full-reload of every page.
+    watch: { ignored: ["**/testing/results.json"] },
     fs: {
       // Repo root: serves the symlinked @libreloom/ui package (shared/ui/)
       allow: ["../.."],
