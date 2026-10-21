@@ -121,9 +121,12 @@ func PlanName(id string) string {
 	return "Connect Free"
 }
 
-// IsPaidPlan returns true if the plan requires payment.
+// IsPaidPlan returns true if the plan requires payment. Derived from the
+// plan's own price rather than a hand-maintained list, so a paid plan
+// added to the catalog cannot slip past every paid-plan guard here.
 func IsPaidPlan(planID string) bool {
-	return planID == "lite" || planID == "one"
+	p := PlanByID(planID)
+	return p != nil && p.PriceMonthlyCents > 0
 }
 
 // HasHumanSupport returns true if the plan includes human support.
