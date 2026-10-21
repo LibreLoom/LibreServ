@@ -173,9 +173,9 @@ Phase 5 adds `rescoped` when the proof is the old phrase (§5).
 
 **After the transaction, in the background (the same pattern as today's `publish_users`):** the re-seal job writes a sealed, signed copy of every version key this person is on, plus the new user list. "Every version this person is on" = every version whose saved reader list includes them. That matches the copies they hold today: removing someone from a backup starts a new version without them, and keeps their copies of older versions (`keys.rs` test: "Bob's old copy stays for version 1 only"). If removal ever starts deleting old copies, this set must skip versions they were removed from. Each copy replaces the old phrase's copy under the same name. The job is retried on every run until it finishes. Until then, `GET /api/v1/cloud/phrase` reports `resealing: true`, and the card says "Updating your cloud backups to the new phrase…".
 
-**Checks before building:**
-- Whether `verify_password_for_user` counts toward the sign-in lockout (it should).
-- Whether Connect's store keeps old object versions when a record is overwritten (B2 buckets keep every version by default). If it does, "replaced" isn't true until those versions are purged, and the store must delete prior versions on overwrite for `keys/` and `pscopes/`.
+**Checked 2026-10-20, and what phase 3 adds because of it:**
+- **Password re-entry has no lockout.** `auth.verify_password_for_user` (`auth.rs`) only compares the hash; the per-account lockout lives in the login path (`login_user_key` in `api/auth.rs`). Phase 3 runs the password proof through the same per-account bucket, so the lost flow can't be used to guess passwords. (`api/search.rs` calls the same function and has the same gap; fix it there too.)
+- **Connect's B2 buckets keep every old version.** `providers.CreateBucket` (`connect/internal/providers/b2.go`) sets no lifecycle rules, and an upload to an existing name adds a new version on B2 instead of replacing it. So an old phrase's sealed copies would stay in the bucket, out of sight but not gone, and every overwrite is billed forever. Phase 3 (Connect side): create buckets with B2's "keep only the last version" lifecycle rule (`daysFromHidingToDeleting: 1`, no `daysFromUploadingToHiding`), and apply it to existing buckets with `b2_update_bucket`. "Replaced" is then true within a day. The local store already overwrites in place.
 
 ## 5. Phase 5: one key pair per private scope
 
@@ -230,7 +230,6 @@ All decided 2026-10-20:
 
 - **Done 2026-10-20:** `docs/protect-rebuild/plan.md` points here, and the gallery `#` URL bug is fixed.
 - **Linking a Luna to Connect lives in About → Advanced** (`UpdateSourceCard` → `ConnectDeviceCodeForm`). The new Luna Connect category shows only once a token exists, so linking stays there. Decide whether that's fine, or whether Luna Connect should always show to Admins with a "Link this Luna" state. Doesn't block phase 1.
-- **Check before phase 3:** whether overwriting a record on Connect leaves old versions behind (§4.5).
 
 ## 8. Phases
 
