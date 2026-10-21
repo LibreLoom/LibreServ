@@ -110,7 +110,7 @@ export default defineConfig({
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
-    dedupe: ["react", "react-dom", "react-router-dom", "lucide-react", "@noble/ciphers", "@noble/curves", "@noble/hashes", "@scure/bip39"],
+    dedupe: ["react", "react-dom", "react-router-dom", "lucide-react", "@noble/ciphers", "@noble/curves", "@noble/hashes", "@noble/post-quantum", "@scure/bip39"],
   },
   publicDir: "public",
   build: {

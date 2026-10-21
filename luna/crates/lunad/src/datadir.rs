@@ -71,7 +71,7 @@ pub fn prepare(path: &Path, owner_uid: u32) -> anyhow::Result<()> {
     }
 
     #[cfg(unix)]
-    match std::fs::DirBuilder::new().mode(DATA_DIR_MODE).create(&path) {
+    match std::fs::DirBuilder::new().mode(DATA_DIR_MODE).create(path) {
         Ok(()) => {}
         // It was already there — that is the normal case, not a failure.
         Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {}
@@ -107,7 +107,7 @@ pub fn prepare(path: &Path, owner_uid: u32) -> anyhow::Result<()> {
         // The directory has to belong to the account the daemon runs as. A
         // directory owned by somebody else would hand that person the device
         // token, the signing key, and the database.
-        let meta = std::fs::metadata(&path)?;
+        let meta = std::fs::metadata(path)?;
         if meta.uid() != owner_uid {
             return Err(OwnershipError(format!(
                 "the data directory {} belongs to another account (uid {}), so Luna cannot keep its secrets in it. Make the folder owned by the account Luna runs as, or point LUNA_DATA_DIR at a private folder of your own",
@@ -116,7 +116,7 @@ pub fn prepare(path: &Path, owner_uid: u32) -> anyhow::Result<()> {
             )).into());
         }
         // Owner-only, even when it already existed with looser permissions.
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(DATA_DIR_MODE))?;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(DATA_DIR_MODE))?;
     }
     #[cfg(not(unix))]
     let _ = owner_uid;
