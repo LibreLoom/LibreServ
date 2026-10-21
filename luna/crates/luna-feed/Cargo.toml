@@ -3,7 +3,7 @@ name = "luna-feed"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-rust-version = "1.99"
+rust-version = "1.98"
 description = "Luna signed update feed rules (Format 1) and checked download"
 
 # No `workspace = true` inheritance on purpose: Luna Desktop (outside the luna
