@@ -16,7 +16,7 @@ Planning only. Nothing here is built yet.
   - `private::ensure_scope` compares the active scope's `seal_public` with the owner's key. A difference retires the scope as `old_phrase` (removed after 30 days).
 - **After a replacement, only the newest shared version is sealed to the new phrase** (`run.rs` `publish_and_copy` → `keys::publish_key`). The person loses their own access to older versions, though Admins and others on the backup keep theirs.
 - **Luna keeps every shared key version.** `backup_keys` rows are never deleted (`db::list_backup_keys`), so Luna can re-seal older versions to someone's new key itself.
-- **No last-Admin guard on replacement.** Protect plan §5 step 7 says replacing the last Admin's phrase is blocked. `users.rs` guards only demote and remove; `set_phrase` has no check.
+- **No last-Admin guard on replacement.** Protect plan §5 step 7 says replacing the last Admin's phrase is blocked. `users.rs` guards only demote and remove; `set_phrase` has no check. That's now the intended rule (§6, decision 1).
 - **Already built, and the card can reuse it:** the 90-day `check_due`, old-phrase copies with their 30-day grace (`old_phrase_copies` on backup rows, `remove_old_copies` in `private_backups.rs`), the Member-before-Admin hold, and `RecoveryPhraseCheck` with `onVerified`.
 
 ## 2. Where it lives
@@ -48,7 +48,7 @@ Title `Recovery phrase`, `KeyRound` icon. InfoHint: "The 12 or 24 words that ope
 | Lost words | Collapsible row: `Lost your recovery phrase?` | `Get a new phrase` (accent, §4.3) |
 
 - "Not set" copy for a Member while no Admin has a phrase adds one line: "Shared backups also wait for an Admin to set up theirs."
-- Status additions to `GET /api/v1/cloud/phrase`: `last_checked_at`, `admin_has_phrase`, `old_phrase_copies {count, removed_at}` (move it here from the backup rows, or keep both), `last_phrase_admin` (am I the only Admin with a phrase).
+- Status additions to `GET /api/v1/cloud/phrase`: `last_checked_at`, `admin_has_phrase`, `old_phrase_copies {count, removed_at}` (move it here from the backup rows, or keep both).
 - **Check my phrase** gets the first-class redesign asked for in `dashboard/check-overdue`: title `Check my phrase`, one word box per position (paste spreads across boxes, BIP39 autocomplete, a word turns invalid when it isn't on the list), a 12/24 switch, and a clear right/wrong outcome. The same component serves the first step of a change, and the dashboard reminder.
 
 ## 4. Three reasons to replace a phrase
@@ -98,7 +98,6 @@ A plain "change" before phase 5 keeps today's behavior: private history retires 
 1. Collapsible row → `Get a new phrase` opens a ConfirmModal (`warning` haptic) that names what's lost:
    - "Private items backed up with your old phrase can't be opened. Luna keeps them for 30 days in case you find the words, then removes them."
    - "Your shared cloud backups stay open to you with the new phrase. Nothing uploads again."
-   - When `last_phrase_admin` is set: a line about what that means (§6, question 1).
 2. Re-enter your Luna password (`password` field in the same modal). The PUT sends `{ mode: "lost", password, …new keys }`. This stops a walk-up phrase swap.
 3. Show and confirm the new words.
 4. Toast: `New recovery phrase saved.` The card then shows the old-phrase copies row.
@@ -144,21 +143,21 @@ Proposal: **one key pair per private scope.**
 
 Restore after database loss (`private_recover.rs`) and the Connect browser (`connect/web` `privateUnlock.js`) gain one step: open the scope key first, then the packs.
 
-## 6. Questions for you
+## 6. Decisions
 
-1. **Last Admin with a phrase loses their words.** Protect plan §5 step 7 says block it, but blocking leaves them stuck. With §4's re-sealing, nothing shared is lost anymore: Luna re-seals every version to the new phrase. Proposal: allow it with no extra warning, and keep the block only on demote and remove.
+All decided 2026-10-20:
 
-2. **Password re-entry for Change too**, or is proving the old words enough? Proposal: the old words are enough.
-3. **"Delete now" for old-phrase copies on the card**, or only on the shield sheet where it already shows? Proposal: both.
-
-Decided 2026-10-20: Lost keeps the dedup key and uploads nothing again; Leaked starts a fresh key version and dedup key, and moves old packs in the background (§4, §4.4). Private versions only in the cloud, which Luna can't move, get an optional `Delete older private versions` step in the Leaked flow; if the owner skips it, they stay and the copy says so (§4.4).
+1. **Last Admin with a phrase loses their words:** allowed, with no extra warning. With §4's re-sealing nothing shared is lost. The block stays only on demoting or removing that Admin.
+2. **Change needs no password:** proving the old words is enough. Lost still asks for the Luna password.
+3. **"Delete now" for old-phrase copies:** on both the card and the shield sheet.
+4. **Lost** keeps the dedup key and uploads nothing again. **Leaked** starts a fresh key version and dedup key, and moves old packs in the background (§4, §4.4). Private versions only in the cloud, which Luna can't move, get an optional `Delete older private versions` step in the Leaked flow; if the owner skips it, they stay and the copy says so (§4.4).
 
 ## 7. Around the card
 
 - **Phrase before the first cloud backup.** In `ProtectSheet`, "Back up to the cloud" with no phrase opens `RecoveryPhraseSetup` inline and creates the backup after the phrase is saved. Server side, `POST /api/v1/cloud/backups` refuses with 409 `needs_phrase` when the caller has none, so the held-without-phrase state can't be created. Shared backups started by a Member while no Admin has a phrase still wait, with today's copy.
 - **Dashboard.** With the gate in place, `dashboard/no-phrase` can't happen for new backups. Drop the scenario. The `check-phrase` intent opens the redesigned check.
 - **Copy fixes.** `NO_PHRASE` stays "Settings → Cloud backup", which becomes true. Rename `Check my words` to `Check my phrase` everywhere.
-- **Last-Admin guard.** Per §6 question 1.
+- **Last-Admin guard.** No change: replacing a phrase stays allowed, and `users.rs` keeps blocking demote and remove (§6, decision 1).
 
 ## 7a. Before implementation
 
