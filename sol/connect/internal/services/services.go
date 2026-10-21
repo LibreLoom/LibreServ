@@ -625,10 +625,22 @@ func (s *ProvisioningService) UnregisterRoute(deviceID, hostname string) error {
 	}
 
 	// The same confinement as registration: a device only ever removes
-	// addresses its own plan controls.
+	// addresses its own plan controls. One exception: a route this device
+	// has already registered stays removable even after the plan moved the
+	// base hostname — otherwise a free→paid or paid→free move would strand
+	// its device_routes rows in the tunnel ingress forever. The lookup is
+	// by this device's own rows, so another device's hostnames remain
+	// untouchable.
 	hostname, err := s.checkRouteHostname(deviceID, hostname)
 	if err != nil {
-		return err
+		lookup := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(hostname), "."))
+		var one string
+		dbErr := s.db.QueryRow("SELECT hostname FROM device_routes WHERE device_id = $1 AND hostname = $2",
+			deviceID, lookup).Scan(&one)
+		if dbErr != nil {
+			return err
+		}
+		hostname = lookup
 	}
 
 	// Delete the DNS record

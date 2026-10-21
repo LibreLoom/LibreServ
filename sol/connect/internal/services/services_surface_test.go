@@ -157,6 +157,13 @@ func TestProvisioningDeviceAndRouteHelpers(t *testing.T) {
 	}
 }
 
+// TestProvisioningRouteScope wires the route suite in above into a test
+// binary: without this it is a helper that nothing calls.
+func TestProvisioningRouteScope(t *testing.T) {
+	db := database.OpenTestDB(t)
+	routeScopeTest(t, NewProvisioningService(db))
+}
+
 func routeScopeTest(t *testing.T, svc *ProvisioningService) {
 	t.Helper()
 	db := svc.db
@@ -171,30 +178,66 @@ func routeScopeTest(t *testing.T, svc *ProvisioningService) {
 
 	// Another device's hostnames are out of bounds — a device must not be
 	// able to publish or tear down addresses its plan does not control.
-	if err := svc.RegisterRoute(a, baseB); err == nil {
-		t.Fatal("another device's base hostname was accepted")
+	// The message is asserted so a refusal from a later, unrelated stage
+	// (say, the tunnel lookup) cannot stand in for the scope check.
+	for _, hostname := range []string{baseB, "app." + baseB} {
+		_, err := svc.checkRouteHostname(a, hostname)
+		if err == nil || !strings.Contains(err.Error(), "routes live under") {
+			t.Fatalf("foreign hostname %q => %v, want a scope refusal", hostname, err)
+		}
+		if err := svc.RegisterRoute(a, hostname); err == nil || !strings.Contains(err.Error(), "routes live under") {
+			t.Fatalf("register of foreign %q => %v", hostname, err)
+		}
+		if err := svc.UnregisterRoute(a, hostname); err == nil || !strings.Contains(err.Error(), "routes live under") {
+			t.Fatalf("unregister of foreign %q => %v", hostname, err)
+		}
 	}
-	if err := svc.RegisterRoute(a, "app."+baseB); err == nil {
-		t.Fatal("another device's app hostname was accepted")
+
+	// A hostname is normalized (lowercased, trailing root dot dropped)
+	// before it is scoped, so a case-variant of the device's own valid
+	// route is accepted and comes back lowercase — not refused as foreign.
+	for _, spelling := range []string{
+		"APP." + baseA,
+		"app." + strings.ToUpper(baseA),
+		"app." + baseA + ".",
+	} {
+		got, err := svc.checkRouteHostname(a, spelling)
+		if err != nil || got != "app."+baseA {
+			t.Fatalf("spelling %q => %q, %v, want normalized %q", spelling, got, err, "app."+baseA)
+		}
 	}
-	if err := svc.RegisterRoute(a, strings.ToUpper("app."+baseA)); err == nil {
-		t.Fatal("uppercase hostname was rejected elsewhere than normalized")
+
+	// The device's own base hostname is not an app route.
+	_, err := svc.checkRouteHostname(a, baseA)
+	if err == nil || !strings.Contains(err.Error(), "routes live under") {
+		t.Fatalf("own base hostname => %v, want a scope refusal", err)
+	}
+
+	// A hostname that is not under the base at all, and route labels that
+	// are not one strict DNS label, are each refused by their own message.
+	_, err = svc.checkRouteHostname(a, "post."+baseA+".evil.example.com")
+	if err == nil || !strings.Contains(err.Error(), "routes live under") {
+		t.Fatalf("hostname beyond the base => %v, want a scope refusal", err)
 	}
 	for _, bad := range []string{
-		baseA, // the device's own base hostname is not an app route
-		"..app." + baseA,
-		"a-b c." + baseA,
-		"x y z." + baseA,
-		"-app." + baseA,
-		"post." + baseA + ".evil.example.com",
-		strings.Repeat("l", 64) + "." + baseA,
+		"..app." + baseA,                      // empty label
+		"a-b c." + baseA,                      // space
+		"x y z." + baseA,                      // spaces
+		"-app." + baseA,                       // leading hyphen
+		strings.Repeat("l", 64) + "." + baseA, // over 63 characters
 	} {
-		if err := svc.RegisterRoute(a, bad); err == nil {
-			t.Fatalf("route %q was accepted", bad)
+		_, err := svc.checkRouteHostname(a, bad)
+		if err == nil || !strings.Contains(err.Error(), "route names use lowercase letters, digits, and hyphens") {
+			t.Fatalf("route label %q => %v, want a label refusal", bad, err)
 		}
-		if err := svc.UnregisterRoute(a, bad); err == nil {
-			t.Fatalf("unregister %q was accepted", bad)
-		}
+	}
+
+	// A route one label under the device's own base hostname normalizes
+	// and passes the scope check; in this test it only fails later, at the
+	// tunnel lookup, and the tunnel message proves it got that far.
+	err = svc.RegisterRoute(a, "nextcloud."+baseA)
+	if err == nil || !strings.Contains(err.Error(), "no tunnel is provisioned") {
+		t.Fatalf("valid own route = %v, want tunnel error", err)
 	}
 
 	// Nothing was written to the shared route table.
@@ -205,11 +248,28 @@ func routeScopeTest(t *testing.T, svc *ProvisioningService) {
 		}
 	}
 
-	// A route one label under the device's own base hostname still
-	// normalizes and passes validation; it only fails later because no
-	// tunnel is provisioned in this test.
-	err := svc.RegisterRoute(a, "nextcloud."+baseA)
-	if err == nil || !strings.Contains(err.Error(), "tunnel") {
-		t.Fatalf("valid own route = %v, want tunnel error", err)
+	// A plan move changes the base hostname; a route this device
+	// registered under its previous plan must still be one it can take
+	// down — register it in the route table and make sure.
+	stale := "nextcloud.old-plan.servers.libreloom.org"
+	if _, err := db.Exec(`INSERT INTO device_routes (id, device_id, hostname) VALUES ($1, $2, $3)`,
+		"route-scope-stale", a, stale); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.UnregisterRoute(a, stale); err != nil {
+		t.Fatalf("unregister of a route the device registered itself => %v", err)
+	}
+	if routes, err := svc.listRouteHostnames(a); err != nil || len(routes) != 0 {
+		t.Fatalf("stale routes of %s = %#v, %v", a, routes, err)
+	}
+
+	// What the device did not register itself stays untouchable: a second
+	// device asks to remove the same stale hostname and is refused as
+	// foreign.
+	if err := svc.UnregisterRoute(b, stale); err == nil || !strings.Contains(err.Error(), "routes live under") {
+		t.Fatalf("another device's stale route => %v, want a scope refusal", err)
+	}
+	if routes, err := svc.listRouteHostnames(b); err != nil || len(routes) != 0 {
+		t.Fatalf("routes of %s = %#v, %v", b, routes, err)
 	}
 }
