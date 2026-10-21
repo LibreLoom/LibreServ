@@ -75,7 +75,7 @@ Storage on the target drive, under Luna's namespace: `.luna-<uuid>-backups/<prot
 - **User key pair** (one per user): hybrid X25519 + ML-KEM-768, derived from that user's recovery phrase via HKDF with `info` = Luna id + purpose label. Luna stores only the public half.
 - **Backup key** (one per shared backup): random. Luna holds it, and seals a copy on Connect to the public key of every user on that backup's saved access list (Admins are always on it, since they can read every non-private file).
   - A new access list on a successful run, or a grant change while the source is healthy: Luna re-seals the copies. Seconds, nothing re-uploaded.
-  - **Someone removed from a list:** (precisely: the recipient set, everyone on the list with a phrase plus current Admins with a phrase, loses any key, for any reason: removal, demotion, deleted account, or a replaced phrase) the backup starts a new **key version** for every later pack and tree, sealed only to the current list; their sealed copies and share links are deleted. Copy says plainly what's true: what they could open before can't be taken back; everything backed up after their removal is closed to them, even if they kept an old key.
+  - **Someone removed from a list:** (precisely: the recipient set, everyone on the list with a phrase plus current Admins with a phrase, loses any key, for any reason: removal, demotion, or deleted account) the backup starts a new **key version** for every later pack and tree, sealed only to the current list; their sealed copies and share links are deleted. Copy says plainly what's true: what they could open before can't be taken back; everything backed up after their removal is closed to them, even if they kept an old key. A plain phrase change doesn't start a new key version; for a leaked or lost phrase see `luna/docs/recovery-phrase/plan.md` §4.
   - **Someone added to a list** gets only what's backed up from then on (user decision, 2026-10-16): adding a recipient also starts a new key version, and the newcomer is sealed only that version and later ones. Earlier versions and files deleted before they joined stay closed to them in the cloud.
   - A run seals each pack and its tree under the key version current at that moment; if the version changed mid-run, the commit seals under the new one.
   - The shared dedup key is stored wrapped under each key version and re-wrapped on every new version.
@@ -108,11 +108,13 @@ Storage on the target drive, under Luna's namespace: `.luna-<uuid>-backups/<prot
 4. Show the words. Offer **Print** and **Download**.
 5. Confirm 3 random words while the phrase is still on screen. Public keys and the self-sealed blob upload only after that, and backup starts only after that. Luna never stores the words or anything per word.
 6. Every few months: "Check your recovery phrase": type all 12 words; the browser derives the keys and signs a challenge from Luna with the auth key. Nothing secret leaves the browser.
-7. Removing, demoting or deleting the last Admin who has a phrase, or replacing their phrase, is blocked until another Admin sets one up.
+7. Removing, demoting or deleting the last Admin who has a phrase is blocked until another Admin sets one up. Replacing their phrase is allowed (decided 2026-10-20, recovery-phrase plan §6 decision 1).
 
-### Lost phrase
-- "Get a new phrase" (needs the person signed in to Luna): new key pair; Luna re-seals every backup key they're on (seconds). The old phrase may be in someone else's hands, so this counts as losing a key: every backup they're on starts a new key version, and their private items get a new dedup key that never points at old-phrase packs.
-- Their private items: Luna starts fresh private backups under the new key from the source files. The old private backup (sealed to the lost phrase) is treated as fully deleted the moment the fresh one starts: it's shown as "Sealed with your old phrase" and removed after 30 days, in case the phrase turns up. The owner can delete them sooner, after a prompt saying what's lost: earlier versions and deleted files that only existed in the old backup.
+### Replacing a phrase (new, leaked or lost)
+Superseded by `luna/docs/recovery-phrase/plan.md` §4, which handles three cases differently. In all three, Luna re-seals every shared key version the person is on to the new phrase (it keeps them all in `backup_keys`).
+- **New phrase** (old words in hand and safe): everything re-sealed, same key version, nothing uploads again.
+- **Leaked:** new key version with a fresh dedup key; new and changed files upload under it right away, old packs move to it in the background; optional "Delete older private versions".
+- **Lost** ("Get a new phrase", needs the Luna password): new key version with the **same** dedup key, nothing uploads again, older shared versions re-sealed to the new phrase; private history sealed to the old phrase is lost, kept 30 days in case the words turn up.
 
 ### Cleanup
 - Luna knows from its index which chunks are unused. Shared packs: rebuild partly dead ones freely, since Luna holds the keys.
@@ -197,7 +199,7 @@ Decided: no gate on Members starting cloud backups; only the Admin signs in to C
 Nothing open.
 
 ## Decisions recorded 2026-10-17 (phase 2 review)
-- A new key version (recipient set changed) gets a fresh dedup key, so the next run re-uploads everything. Deliberate: a kept dedup key would let newly added people open old versions. This supersedes "dedup key re-wrapped on every new version" above.
-- Old key versions are never re-sealed (Luna can't open them without a phrase). Removing the original Admin can leave retained older copies unopenable by others; the last-Admin guard only covers new versions.
+- A new key version (recipient set changed) gets a fresh dedup key, so the next run re-uploads everything. Deliberate: a kept dedup key would let newly added people open old versions. This supersedes "dedup key re-wrapped on every new version" above. Exception: a lost phrase starts a new key version but keeps the dedup key (decided 2026-10-20, recovery-phrase plan §4).
+- Old key versions are never sealed to anyone new, and someone removed from a backup gets no new copies. Corrected 2026-10-20: Luna does hold every version (`backup_keys` rows go only when the backup is deleted; see `db::list_backup_keys`) and re-seals all of them to a person's new phrase when they replace it (recovery-phrase plan §4). Removing the original Admin can leave retained older copies unopenable by others; the last-Admin guard only covers new versions.
 - Restore after DB loss needs the browser: a person enters their phrase, opens key copies, and sends keys to Luna so `rebuild_snapshot_index` can run. That flow (recover.rs wiring) belongs to phase 3.
 - Identity: candidates come from drive key copies; Connect's luna-ids list only breaks ties. Requests carry X-Luna-Ts / X-Luna-Sig (domain "move") so a Luna can move to a new device.
