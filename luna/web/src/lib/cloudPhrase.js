@@ -1,5 +1,6 @@
 import { apiErrorMessage, getJson, postJson, putJson } from "./api";
 import { canonical, derive, encrypt, phraseToEntropy, SIG_PUBLIC_LEN, sign } from "@libreloom/ui/lib/cloud/backupCrypto.js";
+import { openScopeSecret, sealScopeSecret } from "@libreloom/ui/lib/cloud/cloudPrivate.js";
 
 /**
  * Cloud recovery phrase: the API calls and the key steps behind it.
@@ -127,19 +128,55 @@ export async function checkPhraseWords(phrase, lunaId) {
 }
 
 /**
+ * Re-seals every private scope this phrase can open to the new phrase (plan §5). Reads the list
+ * from GET /cloud/phrase/scopes. A scope that won't open is left out, and Luna keeps it for 30
+ * days. Throws when the list can't be read, because a save without it would retire every scope.
+ * @param {Uint8Array} oldEntropy the phrase being replaced
+ * @param {string} lunaId
+ * @param {Uint8Array} newSealPublic the new phrase's public sealing key
+ * @returns {Promise<Array<{ scope: string, sealed_scope_secret: string }>>}
+ */
+export async function resealScopes(oldEntropy, lunaId, newSealPublic) {
+  const unreadable = "Could not read your private backups. Try again.";
+  let reply;
+  try {
+    reply = await getJson(`${PHRASE_PATH}/scopes`);
+  } catch {
+    throw new Error(unreadable);
+  }
+  if (!reply || !Array.isArray(reply.scopes)) throw new Error(unreadable);
+  const oldSealSecret = derive(oldEntropy, lunaId).sealSecret;
+  const out = [];
+  for (const entry of reply.scopes) {
+    let scopeSecret;
+    try {
+      scopeSecret = openScopeSecret(fromBase64(entry.sealed_scope_secret), oldSealSecret, lunaId, entry.scope);
+    } catch {
+      continue;
+    }
+    const sealed = sealScopeSecret(scopeSecret, newSealPublic, lunaId, entry.scope);
+    out.push({ scope: entry.scope, sealed_scope_secret: toBase64(sealed) });
+  }
+  return out;
+}
+
+/**
  * Body for a replacement (PUT). `proof` is `{ oldEntropy }` (you still have the old phrase,
  * which signs a fresh `phrase-replace` challenge) or `{ password }` (you lost it, and the
  * Luna password is checked on the server). `exposed` is the "Could someone else have your
- * phrase?" answer.
+ * phrase?" answer. With the old phrase, `rescoped` carries the private scopes re-sealed to the new one.
  * @param {{ proof: { oldEntropy: Uint8Array } | { password: string }, exposed: boolean, newPhrase: string, lunaId: string, userId: string, signingPublic: string }} opts
  */
 export async function buildReplaceBody({ proof, exposed, newPhrase, lunaId, userId, signingPublic }) {
+  const newEntropy = phraseToEntropy(newPhrase);
   /** @type {Record<string, any>} */
   const body = {
-    ...buildPhraseBody(phraseToEntropy(newPhrase), { lunaId, userId, signingPublic }),
+    ...buildPhraseBody(newEntropy, { lunaId, userId, signingPublic }),
     exposed: Boolean(exposed),
   };
   if ("oldEntropy" in proof) {
+    // Re-seal before signing: the challenge is single use and expires after five minutes.
+    body.rescoped = await resealScopes(proof.oldEntropy, lunaId, derive(newEntropy, lunaId).sealPublic);
     body.proof = "old_signature";
     body.signature = await signFreshChallenge(proof.oldEntropy, lunaId, REPLACE_DOMAIN);
   } else {

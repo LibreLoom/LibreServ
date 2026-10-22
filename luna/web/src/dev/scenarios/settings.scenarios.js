@@ -363,8 +363,10 @@ export default [
     check: [
       "Current phrase is accepted, then 'Could someone else have your phrase?' appears",
       "'Someone may have it' says the old phrase stops working right away, that Luna moves cloud backups to the new phrase over days, and what stays open until then",
-      "The Connect note and the older-private-items line appear under it",
+      "The Connect note appears under it, with no older-private-items line under either answer",
       "After confirming the new phrase, the toast says 'Recovery phrase changed.' and the card shows 'Updating your cloud backups to the new phrase…'",
+      "A last step 'Delete older private versions?' names earlier versions and files deleted from the drive that exist only in the cloud, and says Cancel keeps them and the old phrase may still open them",
+      "'Delete older versions' shows the toast 'Older private versions deleted.'; Cancel closes with nothing deleted",
     ],
   },
   {

@@ -166,7 +166,13 @@ fn prepare(db: &crate::Db, protection_id: &str, now: i64) -> Result<Prepared> {
         .map_err(|_| anyhow!("Luna's cloud identity is damaged."))?;
     let luna_id = identity.luna_id().to_string();
 
-    let (scope, _) = private::ensure_scope(&conn, &owner, &owner_public, now)?;
+    let (scope, _) = private::ensure_scope(&conn, &luna_id, &owner, &owner_public, now)?;
+    // Everything in the backup is sealed to the scope's own key, never to the owner's.
+    let scope_public: crypto::SealPublic = scope
+        .scope_public
+        .as_slice()
+        .try_into()
+        .map_err(|_| anyhow!("This private backup's key is damaged."))?;
     let dedup: [u8; 32] = scope
         .dedup_key
         .as_slice()
@@ -193,7 +199,7 @@ fn prepare(db: &crate::Db, protection_id: &str, now: i64) -> Result<Prepared> {
         })
         .unwrap_or_default();
     let meta = private::seal_meta(
-        &owner_public,
+        &scope_public,
         &luna_id,
         &scope.scope,
         &BackupMeta {
@@ -218,7 +224,7 @@ fn prepare(db: &crate::Db, protection_id: &str, now: i64) -> Result<Prepared> {
         signer: Signer::from_seed(seed),
         meta,
         sealer: Box::new(PrivateSealer {
-            owner_public,
+            scope_public,
             luna_id,
             scope: scope.scope.clone(),
         }),
@@ -248,22 +254,22 @@ fn publish_and_copy(
     copy_and_commit(db, &prepared.ctx, root, store, now)
 }
 
-/// Seals a private backup to its owner. Owner keys are checked before this is built, so the
+/// Seals a private backup to its scope's key. The scope key is checked before this is built, so the
 /// `expect` below cannot fire.
 struct PrivateSealer {
-    owner_public: crypto::SealPublic,
+    scope_public: crypto::SealPublic,
     luna_id: String,
     scope: String,
 }
 
 impl Sealer for PrivateSealer {
     fn wrap_pack_key(&self, pack_key: &[u8; 32]) -> Vec<u8> {
-        private::seal_pack_key(&self.owner_public, &self.luna_id, &self.scope, pack_key)
-            .expect("owner key checked when the phrase was set")
+        private::seal_pack_key(&self.scope_public, &self.luna_id, &self.scope, pack_key)
+            .expect("scope key checked when the scope was made")
     }
 
     fn seal_tree(&self, tree: &Tree) -> Result<Vec<u8>> {
-        private::seal_tree(&self.owner_public, &self.luna_id, &self.scope, tree)
+        private::seal_tree(&self.scope_public, &self.luna_id, &self.scope, tree)
     }
 
     fn finish_record(
@@ -387,7 +393,7 @@ mod tests {
     }
 
     #[test]
-    fn owner_secret_opens_the_tree() {
+    fn owner_phrase_opens_the_scope_then_the_tree() {
         let dir = tempfile::tempdir().unwrap();
         let db = setup(dir.path(), true);
         let src = source(dir.path());
@@ -406,14 +412,24 @@ mod tests {
             .verify_with(&identity.public(), PRIVATE_SNAPSHOT_DOMAIN)
             .unwrap();
 
+        // The owner's phrase opens the scope's secret key, and only that key opens the packs.
         let keys = crypto::derive(&[7u8; 16], "luna-test");
-        let secret = keys.seal_secret;
+        let owner_secret = keys.seal_secret;
+        let scope_row = db::get_private_scope(&conn, &scope).unwrap().unwrap();
+        let secret = private::open_scope_secret(
+            &owner_secret,
+            &luna_id,
+            &scope,
+            &scope_row.sealed_scope_secret,
+        )
+        .unwrap();
         let bytes = store.get_pack(&record.tree_pack_id).unwrap();
         let pack = format::open_pack(&bytes, &record.tree_pack_id, |wrapped| {
             private::open_pack_key(&secret, &luna_id, &scope, wrapped)
         })
         .unwrap();
         let sealed = pack.chunk(&record.tree_hash).unwrap();
+        assert!(private::open_tree(&owner_secret, &luna_id, &scope, sealed).is_err());
         let tree = private::open_tree(&secret, &luna_id, &scope, sealed).unwrap();
         assert_eq!(tree.entries.len(), 2);
         let local = db::get_private_tree(&conn, &snapshot_id).unwrap().unwrap();
@@ -460,7 +476,7 @@ mod tests {
     }
 
     #[test]
-    fn new_phrase_starts_a_new_scope() {
+    fn new_phrase_does_not_retire_the_scope_by_itself() {
         let dir = tempfile::tempdir().unwrap();
         let db = setup(dir.path(), true);
         let src = source(dir.path());
@@ -486,16 +502,18 @@ mod tests {
             .unwrap();
         }
 
+        // The save (not the run) decides what happens to the scope, so the run keeps using it.
         let second = run_with_root(&db, "p1", &src, &store, false, 200).unwrap();
         assert_eq!(second.problem, None);
         let conn = lock(&db);
-        let new_scope = db::active_private_scope(&conn, "owner").unwrap().unwrap();
-        assert_ne!(new_scope.scope, old_scope);
-        assert_eq!(new_scope.seal_public, new_keys.seal_public.to_vec());
-        let old = db::get_private_scope(&conn, &old_scope).unwrap().unwrap();
-        assert_eq!(old.state, "old_phrase");
-        let row = db::get_protection(&conn, "p1").unwrap().unwrap();
-        assert_eq!(row.id, "p1");
+        let still = db::active_private_scope(&conn, "owner").unwrap().unwrap();
+        assert_eq!(still.scope, old_scope);
+        assert_eq!(still.state, "active");
+        assert_eq!(
+            still.seal_public,
+            crypto::derive(&[7u8; 16], "luna-test").seal_public.to_vec()
+        );
+        assert_ne!(new_keys.seal_public.to_vec(), still.seal_public);
     }
 
     #[test]

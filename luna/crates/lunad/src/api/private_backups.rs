@@ -38,6 +38,10 @@ pub fn router() -> Router<AppState> {
             "/api/v1/private-backups/old-copies",
             delete(remove_old_copies),
         )
+        .route(
+            "/api/v1/private-backups/older-versions",
+            delete(remove_older_versions),
+        )
 }
 
 #[derive(Deserialize)]
@@ -245,6 +249,21 @@ async fn remove_old_copies(
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Luna couldn't remove your old copies. Try again.",
+        )
+    })?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+/// Removes the signed-in person's older private versions, kept after a phrase change, at once.
+async fn remove_older_versions(
+    State(state): State<AppState>,
+    Extension(user): Extension<CurrentUser>,
+) -> ApiResult {
+    let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
+    ops::retire_older_versions_now(&conn, &user.id, db::now_unix()).map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't delete your older private versions. Try again.",
         )
     })?;
     Ok(Json(json!({ "ok": true })))
@@ -527,12 +546,69 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn older_versions_are_removed_at_once_and_only_the_owners_history() {
+        let f = fixture();
+        let scope = |name: &str, owner: &str, state: &str| db::PrivateScope {
+            scope: name.to_string(),
+            owner: owner.to_string(),
+            seal_public: vec![1; 32],
+            scope_public: vec![3; 32],
+            sealed_scope_secret: vec![4; 16],
+            dedup_key: vec![2; 32],
+            state: state.to_string(),
+            retire_after: 0,
+            created_at: 0,
+        };
+        {
+            let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+            db::insert_private_scope(&conn, &scope("owner-history", &f.owner_id, "history"))
+                .unwrap();
+            db::insert_private_scope(&conn, &scope("owner-active", &f.owner_id, "active")).unwrap();
+            db::insert_private_scope(&conn, &scope("stranger-history", &f.stranger_id, "history"))
+                .unwrap();
+        }
+
+        let before = db::now_unix();
+        let (status, body) = send(
+            &f.router,
+            "DELETE",
+            "/api/v1/private-backups/older-versions",
+            &f.owner_token,
+        )
+        .await;
+        let after = db::now_unix();
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body, serde_json::json!({ "ok": true }));
+
+        let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+        let history = db::get_private_scope(&conn, "owner-history")
+            .unwrap()
+            .unwrap();
+        assert_eq!(history.state, "old_phrase");
+        assert!((before..=after).contains(&history.retire_after));
+        assert_eq!(
+            db::get_private_scope(&conn, "owner-active")
+                .unwrap()
+                .unwrap()
+                .state,
+            "active"
+        );
+        let stranger = db::get_private_scope(&conn, "stranger-history")
+            .unwrap()
+            .unwrap();
+        assert_eq!(stranger.state, "history");
+        assert_eq!(stranger.retire_after, 0);
+    }
+
+    #[tokio::test]
     async fn old_copies_sets_retire_after_now() {
         let f = fixture();
         let scope = |name: &str, owner: &str| db::PrivateScope {
             scope: name.to_string(),
             owner: owner.to_string(),
             seal_public: vec![1; 32],
+            scope_public: vec![5; 32],
+            sealed_scope_secret: vec![6; 16],
             dedup_key: vec![2; 32],
             state: "old_phrase".to_string(),
             retire_after: 12_345,

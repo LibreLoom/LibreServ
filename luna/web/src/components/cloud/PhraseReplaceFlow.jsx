@@ -21,16 +21,10 @@ const MAY_HAVE_IT =
 const CONNECT_NOTE =
   "Your old phrase alone does not open backups on Connect. That also takes your Connect sign-in or a share link.";
 
-/** Private-history lines (plan 4.2 and 4.3) that go away once phase 5 lands. */
-const PRIVATE_LINES = {
-  change: {
-    safe: "Older versions of your private items stay with your old phrase for 30 days, then Luna removes them. Your private items back up again from the start.",
-    exposed: "Older versions of your private items can't be kept.",
-  },
-  lost: {
-    safe: "Luna keeps your older private items for 30 days in case you find your phrase, then removes them.",
-    exposed: "Luna removes your older private items now.",
-  },
+/** Private-history lines for the lost flow (plan 4.3): without the old phrase, Luna can't keep them. */
+const LOST_PRIVATE_LINES = {
+  safe: "Luna keeps your older private items for 30 days in case you find your phrase, then removes them.",
+  exposed: "Luna removes your older private items now.",
 };
 
 function pickPositions(count) {
@@ -70,6 +64,9 @@ Answer.propTypes = {
  * `onProve(proof)` gets `{ phrase }` (change) or `{ password }` (lost) and may resolve false
  * to refuse it; `error` is the caller's inline message (wrong password, locked out, save failed).
  * The new phrase and the password live only in this component's state.
+ * After a saved change with "Someone may have it" the caller sets `saved`, and the flow ends with
+ * the optional "Delete older private versions" step: `onRetire()` deletes, `onClose` skips.
+ * `retireError` is that step's inline message; the caller owns the call and the success toast.
  */
 export default function PhraseReplaceFlow({
   kind,
@@ -79,7 +76,10 @@ export default function PhraseReplaceFlow({
   onSave,
   busy = false,
   error = "",
-  privateHistoryMode = "before-phase-5",
+  saved = false,
+  onRetire = () => {},
+  retiring = false,
+  retireError = "",
 }) {
   const lost = kind === "lost";
   const [step, setStep] = useState(lost ? "warn" : "check");
@@ -108,8 +108,7 @@ export default function PhraseReplaceFlow({
   }, [open, lost]);
 
   const words = useMemo(() => (entropy ? entropyToPhrase(entropy).split(" ") : []), [entropy]);
-  const privateLine =
-    privateHistoryMode === "before-phase-5" ? PRIVATE_LINES[lost ? "lost" : "change"] : null;
+  const privateLine = lost ? LOST_PRIVATE_LINES : null;
   const shownError = localError || error;
 
   function fail(message) {
@@ -199,6 +198,30 @@ export default function PhraseReplaceFlow({
     }
     setLocalError("");
     onSave({ exposed, newPhrase: words.join(" ") });
+  }
+
+  if (saved) {
+    return (
+      <ConfirmModal
+        open={open}
+        onClose={onClose}
+        onConfirm={() => onRetire()}
+        variant="warning"
+        title="Delete older private versions?"
+        confirmLabel="Delete older versions"
+        loading={retiring}
+        error={retireError || null}
+      >
+        <div className="space-y-2">
+          <p className="text-primary text-sm">
+            This deletes earlier versions of your private items, and files you deleted that exist only in the cloud. They can't be brought back.
+          </p>
+          <p className="text-primary text-sm">
+            If you cancel, Luna keeps them, and your old phrase may still open them.
+          </p>
+        </div>
+      </ConfirmModal>
+    );
   }
 
   if (step === "warn") {
@@ -353,5 +376,8 @@ PhraseReplaceFlow.propTypes = {
   onSave: PropTypes.func.isRequired,
   busy: PropTypes.bool,
   error: PropTypes.string,
-  privateHistoryMode: PropTypes.oneOf(["before-phase-5"]),
+  saved: PropTypes.bool,
+  onRetire: PropTypes.func,
+  retiring: PropTypes.bool,
+  retireError: PropTypes.string,
 };

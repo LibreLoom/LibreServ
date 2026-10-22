@@ -797,6 +797,8 @@ mod tests {
                     scope: "aa".repeat(16),
                     owner: owner.clone(),
                     seal_public: vec![0; 32],
+                    scope_public: vec![5; 32],
+                    sealed_scope_secret: vec![6; 16],
                     dedup_key: vec![0; 32],
                     state: "old_phrase".to_string(),
                     retire_after: 1_900_000_000,

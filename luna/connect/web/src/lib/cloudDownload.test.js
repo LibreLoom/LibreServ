@@ -6,7 +6,7 @@ import { loadTree, unlockBackups } from "./cloudUnlock.js";
 import { ZIP_TOO_BIG } from "./zip.js";
 import { saveBlob } from "./download.js";
 import { derive, entropyToPhrase, verify } from "@libreloom/ui/lib/cloud/backupCrypto.js";
-import { openPrivateTreeBytes, privateOpenMessage, privateUnwrap } from "@libreloom/ui/lib/cloud/cloudPrivate.js";
+import { findMyPrivateScopes, openPrivateTreeBytes, privateOpenMessage, privateUnwrap } from "@libreloom/ui/lib/cloud/cloudPrivate.js";
 import { NO_KEY, readTreeWith } from "@libreloom/ui/lib/cloud/cloudFormat.js";
 import { openPrivateScope } from "./privateUnlock.js";
 
@@ -172,7 +172,14 @@ describe("packs sealed under older key versions", () => {
 describe("private backups", () => {
   const priv = fixture.private;
   const entropy = () => hexToBytes(fixture.alice_entropy);
-  const scopeInfo = () => ({ scope: priv.scope, dedupKey: hexToBytes(priv.dedup_key) });
+  // The scope's own key, opened from the phrase the way the browser does it.
+  const scopeInfo = () =>
+    findMyPrivateScopes({
+      lunaId: fixture.luna_id,
+      entropy: entropy(),
+      pscopes: [{ name: priv.scope, data: hexToBytes(priv.records.pscopes[0].data) }],
+      signingPublics: [hexToBytes(fixture.signing_public)],
+    })[0];
 
   /** A private session that opens only with alice's signed challenge; packs and records come from the fixture. */
   function privateSource() {

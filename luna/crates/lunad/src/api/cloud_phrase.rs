@@ -89,6 +89,15 @@ struct SetBody {
     /// For `password`: the person's Luna password.
     #[serde(default)]
     password: Option<String>,
+    /// For `old_signature`: each private scope's secret key, re-sealed to the new phrase (plan §5).
+    #[serde(default)]
+    rescoped: Vec<RescopedBody>,
+}
+
+#[derive(Deserialize)]
+struct RescopedBody {
+    scope: String,
+    sealed_scope_secret: String,
 }
 
 #[derive(Deserialize)]
@@ -102,6 +111,48 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/cloud/identity", post(mint_identity))
         .route("/api/v1/cloud/phrase/challenge", post(challenge))
         .route("/api/v1/cloud/phrase/check", post(check))
+        .route("/api/v1/cloud/phrase/scopes", get(scopes))
+}
+
+/// The signed-in person's private scopes, each with its secret key sealed to their phrase. The
+/// browser opens each with the old phrase and re-seals it to the new one when a phrase is changed.
+async fn scopes(
+    State(state): State<AppState>,
+    Extension(user): Extension<CurrentUser>,
+) -> ApiResult {
+    let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
+    let scopes = db::list_private_scopes(&conn, Some(&user.id)).map_err(|_| read_failed())?;
+    let out: Vec<Value> = scopes
+        .iter()
+        .map(|scope| {
+            json!({
+                "scope": scope.scope,
+                "sealed_scope_secret": STANDARD.encode(&scope.sealed_scope_secret),
+            })
+        })
+        .collect();
+    Ok(Json(json!({ "scopes": out })))
+}
+
+/// Length of a sealed copy of a scope's secret key.
+const SEALED_SCOPE_SECRET_LEN: usize = crypto::sealed_len(crypto::SEAL_SECRET_LEN);
+
+/// Decodes the `rescoped` list: one entry per scope, each a sealed scope secret of the right size.
+fn parse_rescoped(entries: &[RescopedBody]) -> Result<Vec<(String, Vec<u8>)>, ApiError> {
+    let mut seen = HashSet::new();
+    let mut out = Vec::with_capacity(entries.len());
+    for entry in entries {
+        let sealed = STANDARD
+            .decode(entry.sealed_scope_secret.trim())
+            .ok()
+            .filter(|bytes| bytes.len() == SEALED_SCOPE_SECRET_LEN)
+            .ok_or_else(bad_keys)?;
+        if !seen.insert(entry.scope.clone()) {
+            return Err(bad_keys());
+        }
+        out.push((entry.scope.clone(), sealed));
+    }
+    Ok(out)
 }
 
 /// How long a recovery phrase can go unchecked before Luna asks the person to check it again.
@@ -248,6 +299,14 @@ async fn set_phrase(
 ) -> ApiResult {
     let seal_public: crypto::SealPublic = decode_key(&body.seal_public)?;
     let auth_public: crypto::SigPublic = decode_key(&body.auth_public)?;
+    let rescoped = parse_rescoped(&body.rescoped)?;
+    if !rescoped.is_empty() && body.proof.as_deref() != Some("old_signature") {
+        // Only the old phrase can open the scopes, so only that proof can re-seal them.
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "Luna can only re-seal private backups when you prove the old phrase.",
+        ));
+    }
     let self_sealed = STANDARD
         .decode(body.self_sealed.trim())
         .ok()
@@ -328,51 +387,58 @@ async fn set_phrase(
         ));
     }
     // All or nothing: the new keys, the readers' lists, the rotation marks, the re-seal job and the
-    // private scope move together.
-    let marked = (|| -> anyhow::Result<Vec<String>> {
-        let tx = conn.transaction()?;
-        db::set_user_keys(
-            &tx,
-            &UserKeys {
-                user_id: user.id.clone(),
-                seal_public: seal_public.to_vec(),
-                auth_public: auth_public.to_vec(),
-                self_sealed,
-                phrase_set_at: now,
-                last_checked_at: 0,
-            },
-        )?;
-        let mut marked = Vec::new();
-        if old_keys.is_some() {
-            if exposed {
-                marked = keys::current_backups_of(&tx, &user.id)?;
-            }
-            keys::replace_reader(&tx, &user.id, &seal_public)?;
-            for backup in &marked {
-                keys::mark_rotate(&tx, backup)?;
-            }
-            keys::queue_reseal(&tx, &user.id)?;
-            // Private copies were sealed to the old phrase. Keep them 30 days in case it turns up,
-            // or remove them at once when someone else may have it.
-            if let Some(active) = db::active_private_scope(&tx, &user.id)? {
-                let retire_after = if exposed {
-                    now
+    // private scopes move together.
+    let (marked, settled, rescope_failed) =
+        (|| -> anyhow::Result<(Vec<String>, private::Settled, usize)> {
+            let tx = conn.transaction()?;
+            db::set_user_keys(
+                &tx,
+                &UserKeys {
+                    user_id: user.id.clone(),
+                    seal_public: seal_public.to_vec(),
+                    auth_public: auth_public.to_vec(),
+                    self_sealed,
+                    phrase_set_at: now,
+                    last_checked_at: 0,
+                },
+            )?;
+            let mut marked = Vec::new();
+            let mut settled = private::Settled::default();
+            if old_keys.is_some() {
+                if exposed {
+                    marked = keys::current_backups_of(&tx, &user.id)?;
+                }
+                keys::replace_reader(&tx, &user.id, &seal_public)?;
+                for backup in &marked {
+                    keys::mark_rotate(&tx, backup)?;
+                }
+                keys::queue_reseal(&tx, &user.id)?;
+                // Private scopes: with the old phrase they are re-sealed and kept; with the password
+                // the browser cannot open them, so they retire (at once when someone may have the phrase).
+                if body.proof.as_deref() == Some("old_signature") {
+                    settled = private::settle_scopes(
+                        &tx,
+                        &user.id,
+                        &seal_public,
+                        &rescoped,
+                        exposed,
+                        now,
+                    )?;
                 } else {
-                    now + private::OLD_PHRASE_GRACE
-                };
-                db::set_private_scope_state(&tx, &active.scope, "old_phrase", retire_after)?;
+                    private::retire_scopes_without_key(&tx, &user.id, exposed, now)?;
+                }
+                if exposed && body.proof.as_deref() != Some("old_signature") {
+                    ops::retire_old_phrase_now(&tx, &user.id, now)?;
+                }
             }
-            if exposed {
-                ops::retire_old_phrase_now(&tx, &user.id, now)?;
-            }
-        }
-        tx.commit()?;
-        Ok(marked)
-    })()
-    .map_err(|err| {
-        tracing::warn!(error = %err, "could not save the recovery phrase");
-        save_failed()
-    })?;
+            tx.commit()?;
+            let failed = settled.failed;
+            Ok((marked, settled, failed))
+        })()
+        .map_err(|err| {
+            tracing::warn!(error = %err, "could not save the recovery phrase");
+            save_failed()
+        })?;
     let resealing = keys::resealing_pending(&conn, &user.id).unwrap_or(false);
     drop(conn);
 
@@ -388,6 +454,10 @@ async fn set_phrase(
         if let Err(err) = ops::publish_users(&db, &store, &connect, now) {
             tracing::warn!(error = %err, "could not send recovery keys to Luna Connect");
         }
+        if let Err(err) = ops::publish_resealed_scopes(&db, &store, &settled.resealed, &auth_public)
+        {
+            tracing::warn!(error = %err, "could not send re-sealed private scopes to Luna Connect");
+        }
         for result in keys::reseal_pending(&db, &store) {
             if let Err(err) = result {
                 tracing::warn!(error = %err, "could not re-seal cloud backup keys to the new phrase");
@@ -397,9 +467,13 @@ async fn set_phrase(
             ops::run(&db, &backup, &store, &connect, "", false, db::now_unix());
         }
     });
-    Ok(Json(
-        json!({ "set": true, "set_at": now, "resealing": resealing }),
-    ))
+    Ok(Json(json!({
+        "set": true,
+        "set_at": now,
+        "resealing": resealing,
+        // Private backups that were not re-sealed to the new phrase. They keep 30 days, then go.
+        "rescope_failed": rescope_failed,
+    })))
 }
 
 async fn challenge(Extension(user): Extension<CurrentUser>) -> ApiResult {
@@ -762,9 +836,36 @@ mod tests {
                 scope: scope.to_string(),
                 owner: owner.to_string(),
                 seal_public: vec![0; 32],
+                scope_public: vec![5; 32],
+                sealed_scope_secret: vec![6; 16],
                 dedup_key: vec![0; 32],
                 state: "active".to_string(),
                 retire_after: 0,
+                created_at: 0,
+            },
+        )
+        .unwrap();
+    }
+
+    fn seed_scope_with_state(
+        f: &Fixture,
+        owner: &str,
+        scope: &str,
+        state: &str,
+        retire_after: i64,
+    ) {
+        let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+        db::insert_private_scope(
+            &conn,
+            &db::PrivateScope {
+                scope: scope.to_string(),
+                owner: owner.to_string(),
+                seal_public: vec![0; 32],
+                scope_public: vec![5; 32],
+                sealed_scope_secret: vec![6; 16],
+                dedup_key: vec![0; 32],
+                state: state.to_string(),
+                retire_after,
                 created_at: 0,
             },
         )
@@ -902,10 +1003,252 @@ mod tests {
             serde_json::from_str(&meta(&f, "cloud_recipients:theirs:1").unwrap()).unwrap();
         assert_eq!(theirs[0]["seal_public"], json!(hex_of_seal(9)));
 
+        // The browser sent no re-sealed scope, so it keeps the 30 days like any scope it cannot keep.
         let scope = scope_of(&f, "scope-1");
         assert_eq!(scope.state, "old_phrase");
-        assert!(scope.retire_after <= db::now_unix());
-        assert!(scope.retire_after > 0);
+        let wait = scope.retire_after - db::now_unix();
+        assert!((29 * 86_400..=30 * 86_400).contains(&wait), "{wait}");
+    }
+
+    /// A `rescoped` entry: the scope's secret key sealed to the sealing key made from `seal_n`.
+    fn rescoped_entry(scope: &str, seal_n: u8) -> Value {
+        let owner = crate::backup::cloud::crypto::derive(&[seal_n; 16], "luna-test-1");
+        let (secret, _) = crate::backup::cloud::crypto::new_scope_keys();
+        let sealed = crate::backup::cloud::private::seal_scope_secret(
+            &owner.seal_public,
+            "luna-test-1",
+            scope,
+            &secret,
+        )
+        .unwrap();
+        json!({ "scope": scope, "sealed_scope_secret": STANDARD.encode(sealed) })
+    }
+
+    /// The seal public key `seal_n` stands for, as stored on a scope row.
+    fn seal_bytes(seal_n: u8) -> Vec<u8> {
+        STANDARD.decode(seal_key_b64(seal_n)).unwrap()
+    }
+
+    #[tokio::test]
+    async fn exposed_replacement_keeps_private_history_re_sealed_and_starts_no_new_scope() {
+        let f = fixture();
+        let old = Signer::generate();
+        let new = Signer::generate();
+        set_first(&f, &f.admin_token, &old, 7).await;
+        seed_active_scope(&f, &f.admin_id, "scope-1");
+        // Older history from an earlier change: not counted or touched by this save.
+        seed_scope_with_state(&f, &f.admin_id, "scope-old", "old_phrase", 12_345);
+
+        let challenge = fetch_challenge(&f.router, &f.admin_token).await;
+        let mut body = replace_body(
+            &new,
+            8,
+            sign_under(&old, REPLACE_DOMAIN, &challenge),
+            Some(true),
+        );
+        body["rescoped"] = json!([rescoped_entry("scope-1", 8)]);
+        let (status, reply) = send(&f.router, "PUT", PUT, &f.admin_token, Some(body)).await;
+        assert_eq!(status, 200, "{reply}");
+        assert_eq!(reply["rescope_failed"], json!(0));
+
+        let kept = scope_of(&f, "scope-1");
+        assert_eq!(kept.state, "history");
+        assert_eq!(kept.retire_after, 0);
+        assert_eq!(kept.seal_public, seal_bytes(8));
+        assert_eq!(kept.scope_public, vec![5; 32]);
+        assert_ne!(kept.sealed_scope_secret, vec![6; 16]);
+        // Nothing is active any more, so the next run starts a new scope for new data.
+        let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+        assert!(
+            db::active_private_scope(&conn, &f.admin_id)
+                .unwrap()
+                .is_none()
+        );
+        drop(conn);
+        let untouched = scope_of(&f, "scope-old");
+        assert_eq!(untouched.state, "old_phrase");
+        assert_eq!(untouched.retire_after, 12_345);
+    }
+
+    #[tokio::test]
+    async fn change_without_exposure_keeps_the_active_scope_and_re_seals_it() {
+        let f = fixture();
+        let old = Signer::generate();
+        let new = Signer::generate();
+        set_first(&f, &f.admin_token, &old, 7).await;
+        seed_active_scope(&f, &f.admin_id, "scope-1");
+
+        let challenge = fetch_challenge(&f.router, &f.admin_token).await;
+        let mut body = replace_body(
+            &new,
+            8,
+            sign_under(&old, REPLACE_DOMAIN, &challenge),
+            Some(false),
+        );
+        body["rescoped"] = json!([rescoped_entry("scope-1", 8)]);
+        let (status, reply) = send(&f.router, "PUT", PUT, &f.admin_token, Some(body)).await;
+        assert_eq!(status, 200, "{reply}");
+        assert_eq!(reply["rescope_failed"], json!(0));
+
+        let kept = scope_of(&f, "scope-1");
+        assert_eq!(kept.state, "active");
+        assert_eq!(kept.retire_after, 0);
+        assert_eq!(kept.seal_public, seal_bytes(8));
+        let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+        assert_eq!(
+            db::active_private_scope(&conn, &f.admin_id)
+                .unwrap()
+                .unwrap()
+                .scope,
+            "scope-1"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_scope_that_could_not_be_re_sealed_retires_with_the_grace_and_is_counted() {
+        let f = fixture();
+        let old = Signer::generate();
+        let new = Signer::generate();
+        set_first(&f, &f.admin_token, &old, 7).await;
+        seed_active_scope(&f, &f.admin_id, "scope-1");
+        seed_active_scope(&f, &f.admin_id, "scope-2");
+
+        let challenge = fetch_challenge(&f.router, &f.admin_token).await;
+        let mut body = replace_body(
+            &new,
+            8,
+            sign_under(&old, REPLACE_DOMAIN, &challenge),
+            Some(false),
+        );
+        body["rescoped"] = json!([rescoped_entry("scope-1", 8)]);
+        let (status, reply) = send(&f.router, "PUT", PUT, &f.admin_token, Some(body)).await;
+        assert_eq!(status, 200, "{reply}");
+        assert_eq!(reply["rescope_failed"], json!(1));
+
+        assert_eq!(scope_of(&f, "scope-1").state, "active");
+        let failed = scope_of(&f, "scope-2");
+        assert_eq!(failed.state, "old_phrase");
+        let wait = failed.retire_after - db::now_unix();
+        assert!((29 * 86_400..=30 * 86_400).contains(&wait), "{wait}");
+    }
+
+    #[tokio::test]
+    async fn bad_rescoped_entries_refuse_the_whole_save_and_change_nothing() {
+        let f = fixture();
+        let old = Signer::generate();
+        let new = Signer::generate();
+        set_first(&f, &f.admin_token, &old, 7).await;
+        seed_active_scope(&f, &f.admin_id, "scope-1");
+        seed_active_scope(&f, &f.member_id, "member-scope");
+
+        // Someone else's scope in the list.
+        let challenge = fetch_challenge(&f.router, &f.admin_token).await;
+        let mut body = replace_body(
+            &new,
+            8,
+            sign_under(&old, REPLACE_DOMAIN, &challenge),
+            Some(false),
+        );
+        body["rescoped"] = json!([
+            rescoped_entry("scope-1", 8),
+            rescoped_entry("member-scope", 8)
+        ]);
+        let (status, _) = send(&f.router, "PUT", PUT, &f.admin_token, Some(body)).await;
+        assert_ne!(status, 200);
+        assert_eq!(stored_auth(&f, &f.admin_id), old.public().to_vec());
+        assert_eq!(scope_of(&f, "scope-1").seal_public, vec![0; 32]);
+        assert_eq!(scope_of(&f, "member-scope").seal_public, vec![0; 32]);
+
+        // A sealed secret of the wrong size.
+        let challenge = fetch_challenge(&f.router, &f.admin_token).await;
+        let mut body = replace_body(
+            &new,
+            8,
+            sign_under(&old, REPLACE_DOMAIN, &challenge),
+            Some(false),
+        );
+        body["rescoped"] =
+            json!([{ "scope": "scope-1", "sealed_scope_secret": STANDARD.encode([1u8; 10]) }]);
+        let (status, _) = send(&f.router, "PUT", PUT, &f.admin_token, Some(body)).await;
+        assert_eq!(status, 400);
+        assert_eq!(stored_auth(&f, &f.admin_id), old.public().to_vec());
+        assert_eq!(scope_of(&f, "scope-1").state, "active");
+    }
+
+    #[tokio::test]
+    async fn only_the_old_phrase_proof_can_re_seal_scopes() {
+        let f = fixture();
+        let old = Signer::generate();
+        let new = Signer::generate();
+        set_first(&f, &f.admin_token, &old, 7).await;
+        seed_active_scope(&f, &f.admin_id, "scope-1");
+
+        let mut body = replace_body(
+            &new,
+            8,
+            json!({ "proof": "password", "password": "hunter22hunter1" }),
+            Some(false),
+        );
+        body["rescoped"] = json!([rescoped_entry("scope-1", 8)]);
+        let (status, _) = send(&f.router, "PUT", PUT, &f.admin_token, Some(body)).await;
+        assert_eq!(status, 400);
+        assert_eq!(stored_auth(&f, &f.admin_id), old.public().to_vec());
+    }
+
+    #[tokio::test]
+    async fn lost_phrase_retires_private_scopes_with_the_grace_or_at_once() {
+        let f = fixture();
+        let old = Signer::generate();
+        let new = Signer::generate();
+        set_first(&f, &f.admin_token, &old, 7).await;
+        seed_active_scope(&f, &f.admin_id, "scope-1");
+        seed_scope_with_state(&f, &f.admin_id, "scope-h", "history", 0);
+
+        let (status, _) = send(
+            &f.router,
+            "PUT",
+            PUT,
+            &f.admin_token,
+            Some(replace_body(
+                &new,
+                8,
+                json!({ "proof": "password", "password": "hunter22hunter1" }),
+                Some(false),
+            )),
+        )
+        .await;
+        assert_eq!(status, 200);
+        for id in ["scope-1", "scope-h"] {
+            let wait = scope_of(&f, id).retire_after - db::now_unix();
+            assert_eq!(scope_of(&f, id).state, "old_phrase");
+            assert!((29 * 86_400..=30 * 86_400).contains(&wait), "{id}: {wait}");
+        }
+    }
+
+    #[tokio::test]
+    async fn scopes_endpoint_lists_only_the_callers_scopes_with_their_sealed_keys() {
+        let f = fixture();
+        seed_active_scope(&f, &f.admin_id, "scope-1");
+        seed_active_scope(&f, &f.member_id, "member-scope");
+
+        let (status, body) = send(
+            &f.router,
+            "GET",
+            "/api/v1/cloud/phrase/scopes",
+            &f.admin_token,
+            None,
+        )
+        .await;
+        assert_eq!(status, 200);
+        let scopes = body["scopes"].as_array().unwrap();
+        assert_eq!(scopes.len(), 1);
+        assert_eq!(scopes[0]["scope"], json!("scope-1"));
+        assert_eq!(
+            STANDARD
+                .decode(scopes[0]["sealed_scope_secret"].as_str().unwrap())
+                .unwrap(),
+            vec![6u8; 16]
+        );
     }
 
     #[tokio::test]
@@ -1524,6 +1867,8 @@ mod tests {
                 scope: scope.to_string(),
                 owner: owner.to_string(),
                 seal_public: vec![0; 32],
+                scope_public: vec![5; 32],
+                sealed_scope_secret: vec![6; 16],
                 dedup_key: vec![0; 32],
                 state: "old_phrase".to_string(),
                 retire_after,

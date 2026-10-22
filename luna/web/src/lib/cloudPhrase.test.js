@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { canonical, decrypt, derive, entropyToPhrase, newEntropy, phraseToEntropy, SIG_PUBLIC_LEN, verify } from "@libreloom/ui/lib/cloud/backupCrypto.js";
+import { openScopeSecret, sealScopeSecret } from "@libreloom/ui/lib/cloud/cloudPrivate.js";
 import {
   buildPhraseBody,
   checkPhraseWords,
@@ -103,11 +104,13 @@ describe("signFreshChallenge", () => {
 /** Routes the phrase endpoints for one test. `handlers` maps "METHOD /path" to a [status, body] or a function. */
 function routePhrase(handlers) {
   const calls = [];
+  // No private scopes unless a test says otherwise.
+  const routes = { "GET /api/v1/cloud/phrase/scopes": [200, { scopes: [] }], ...handlers };
   const fetchMock = vi.fn(async (url, options = {}) => {
     const method = options.method ?? "GET";
     const key = `${method} ${String(url)}`;
     calls.push({ key, body: options.body ? JSON.parse(options.body) : null });
-    const handler = handlers[key];
+    const handler = routes[key];
     const [status, body] = typeof handler === "function" ? handler(calls.at(-1)) : handler;
     return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
   });
@@ -233,6 +236,58 @@ describe("replacePhrase", () => {
     expect(put.password).toBe("hunter2 long");
     expect(put.exposed).toBe(true);
     expect(put).not.toHaveProperty("signature");
+  });
+
+  it("re-seals each scope the old phrase opens to the new phrase, skips one it cannot open, and sends them as rescoped", async () => {
+    const oldEntropy = newEntropy();
+    const oldKeys = derive(oldEntropy, LUNA_ID);
+    const secret = new Uint8Array(96).map((_, i) => (i * 5) % 256);
+    const otherKeys = derive(newEntropy(), LUNA_ID);
+    const { calls } = routePhrase({
+      "GET /api/v1/cloud/phrase/scopes": [200, {
+        scopes: [
+          { scope: "scope-1", sealed_scope_secret: toBase64(sealScopeSecret(secret, oldKeys.sealPublic, LUNA_ID, "scope-1")) },
+          { scope: "scope-2", sealed_scope_secret: toBase64(sealScopeSecret(secret, otherKeys.sealPublic, LUNA_ID, "scope-2")) },
+        ],
+      }],
+      "POST /api/v1/cloud/phrase/challenge": challengeReply,
+      "PUT /api/v1/cloud/phrase": [200, { set: true, set_at: 1 }],
+    });
+
+    await replacePhrase({ ...common, proof: { oldEntropy }, exposed: false });
+
+    const put = calls.find((c) => c.key === "PUT /api/v1/cloud/phrase").body;
+    expect(put.rescoped).toHaveLength(1);
+    expect(put.rescoped[0].scope).toBe("scope-1");
+    const opened = openScopeSecret(
+      fromBase64(put.rescoped[0].sealed_scope_secret),
+      derive(phraseToEntropy(newPhrase), LUNA_ID).sealSecret,
+      LUNA_ID,
+      "scope-1",
+    );
+    expect(opened).toEqual(secret);
+  });
+
+  it("reads the scopes before it signs the challenge, so the challenge is still fresh", async () => {
+    const { calls } = routePhrase({
+      "POST /api/v1/cloud/phrase/challenge": challengeReply,
+      "PUT /api/v1/cloud/phrase": [200, { set: true, set_at: 1 }],
+    });
+    await replacePhrase({ ...common, proof: { oldEntropy: newEntropy() }, exposed: false });
+    const keys = calls.map((c) => c.key);
+    expect(keys.indexOf("GET /api/v1/cloud/phrase/scopes")).toBeLessThan(keys.indexOf("POST /api/v1/cloud/phrase/challenge"));
+  });
+
+  it("stops the save when the scopes cannot be read: no PUT, so no private scope is retired by mistake", async () => {
+    const { calls } = routePhrase({
+      "GET /api/v1/cloud/phrase/scopes": [500, { error: "down" }],
+      "POST /api/v1/cloud/phrase/challenge": challengeReply,
+      "PUT /api/v1/cloud/phrase": [200, { set: true, set_at: 1 }],
+    });
+    await expect(replacePhrase({ ...common, proof: { oldEntropy: newEntropy() }, exposed: true })).rejects.toThrow(
+      "Could not read your private backups. Try again.",
+    );
+    expect(calls.filter((c) => c.key.startsWith("PUT"))).toHaveLength(0);
   });
 
   it("never writes the phrase or keys to browser storage", async () => {

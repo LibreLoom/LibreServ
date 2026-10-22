@@ -25,6 +25,7 @@ const DEDUP_KEY: [u8; 32] = [0x22; 32];
 const PRIVATE_PROTECTION: &str = "99999999-8888-4777-8666-555555555555";
 const PRIVATE_SNAPSHOT_ID: &str = "fedcba9876543210fedcba9876543210";
 const PRIVATE_DEDUP: [u8; 32] = [0x33; 32];
+const SCOPE_SEED: [u8; 32] = [0x55; 32];
 const CHALLENGE: [u8; 32] = [0x44; 32];
 const PRIVATE_CREATED_AT: i64 = 1_760_000_000;
 const FIXTURE_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/backup/cloud/fixture.json");
@@ -252,9 +253,10 @@ fn build_private() -> Result<Value> {
     let alice = crypto::derive(&alice_entropy(), LUNA_ID);
     let signer = signer();
     let (scope_id, scope) = private::scope_of(&PRIVATE_DEDUP);
+    let (scope_secret, scope_public) = crypto::scope_keys_from_seed(&SCOPE_SEED);
     let files = file_contents();
     let wrap = |pack_key: &[u8; 32]| -> Vec<u8> {
-        private::seal_pack_key(&alice.seal_public, LUNA_ID, &scope, pack_key)
+        private::seal_pack_key(&scope_public, LUNA_ID, &scope, pack_key)
             .expect("seal the private pack key")
     };
 
@@ -284,7 +286,7 @@ fn build_private() -> Result<Value> {
         });
     }
     let tree = Tree { entries };
-    let tree_bytes = private::seal_tree(&alice.seal_public, LUNA_ID, &scope, &tree)?;
+    let tree_bytes = private::seal_tree(&scope_public, LUNA_ID, &scope, &tree)?;
     let tree_hash = format::sha256(&tree_bytes);
     let mut tree_builder = PackBuilder::new(scope_id);
     tree_builder.add(tree_hash, &tree_bytes);
@@ -298,7 +300,7 @@ fn build_private() -> Result<Value> {
         started_by: "alice".into(),
         started_by_name: "Alice".into(),
     };
-    let meta_sealed = private::seal_meta(&alice.seal_public, LUNA_ID, &scope, &meta)?;
+    let meta_sealed = private::seal_meta(&scope_public, LUNA_ID, &scope, &meta)?;
     let snapshot = SnapshotRecord {
         luna_id: LUNA_ID.into(),
         protection_id: PRIVATE_PROTECTION.into(),
@@ -313,7 +315,8 @@ fn build_private() -> Result<Value> {
         .sign_with(&signer, private::PRIVATE_SNAPSHOT_DOMAIN)
         .to_bytes();
 
-    // Alice's scope record, signed by Luna, with the dedup key sealed to her.
+    // Alice's scope record, signed by Luna. The scope's secret key is sealed to alice; the dedup key
+    // is sealed to the scope's own key.
     let scope_record = ScopeRecord {
         luna_id: LUNA_ID.into(),
         scope: scope.clone(),
@@ -321,7 +324,14 @@ fn build_private() -> Result<Value> {
         seal_public: alice.seal_public,
         auth_public: alice.auth_public,
         created_at: PRIVATE_CREATED_AT,
-        sealed_dedup: private::seal_dedup(&alice.seal_public, LUNA_ID, &scope, &PRIVATE_DEDUP)?,
+        scope_public,
+        sealed_scope_secret: private::seal_scope_secret(
+            &alice.seal_public,
+            LUNA_ID,
+            &scope,
+            &scope_secret,
+        )?,
+        sealed_dedup: private::seal_dedup(&scope_public, LUNA_ID, &scope, &PRIVATE_DEDUP)?,
     };
     let scope_bytes = scope_record.sign(&signer).to_bytes();
 
@@ -386,6 +396,10 @@ fn check_private(fx: &Value) -> Result<()> {
     let scope_record =
         SignedScope::from_bytes(&record(p, "pscopes", scope)?)?.verify(&luna_public)?;
     ensure!(
+        scope_record.scope_public == crypto::scope_keys_from_seed(&SCOPE_SEED).1,
+        "scope record holds another scope key"
+    );
+    ensure!(
         scope_record.luna_id == LUNA_ID
             && scope_record.scope == scope
             && scope_record.user_id == "alice",
@@ -396,16 +410,34 @@ fn check_private(fx: &Value) -> Result<()> {
             && scope_record.auth_public == alice.auth_public,
         "scope record holds other keys"
     );
-    let opened = private::open_dedup(
+    // Alice's phrase opens the scope's secret key; only that key opens the dedup key.
+    let scope_secret = private::open_scope_secret(
         &alice.seal_secret,
         LUNA_ID,
         scope,
-        &scope_record.sealed_dedup,
+        &scope_record.sealed_scope_secret,
     )?;
+    ensure!(
+        private::open_scope_secret(
+            &bob.seal_secret,
+            LUNA_ID,
+            scope,
+            &scope_record.sealed_scope_secret
+        )
+        .is_err(),
+        "bob opened alice's scope key"
+    );
+    let opened = private::open_dedup(&scope_secret, LUNA_ID, scope, &scope_record.sealed_dedup)?;
     ensure!(opened == dedup_key, "alice opened a different dedup key");
     ensure!(
-        private::open_dedup(&bob.seal_secret, LUNA_ID, scope, &scope_record.sealed_dedup).is_err(),
-        "bob opened alice's private dedup key"
+        private::open_dedup(
+            &alice.seal_secret,
+            LUNA_ID,
+            scope,
+            &scope_record.sealed_dedup
+        )
+        .is_err(),
+        "alice's own key opened the scope's dedup key directly"
     );
 
     // Snapshot record: signed under the private snapshot domain.
@@ -421,8 +453,7 @@ fn check_private(fx: &Value) -> Result<()> {
     );
 
     // Packs and tree: alice's secret unwraps the pack keys.
-    let unwrap =
-        |wrapped: &[u8]| private::open_pack_key(&alice.seal_secret, LUNA_ID, scope, wrapped);
+    let unwrap = |wrapped: &[u8]| private::open_pack_key(&scope_secret, LUNA_ID, scope, wrapped);
     let mut packs: HashMap<[u8; 32], OpenedPack> = HashMap::new();
     for pack_field in ["tree_pack_id", "data_pack_id"] {
         let id = unhex32(field(p, pack_field)?)?;
@@ -440,7 +471,7 @@ fn check_private(fx: &Value) -> Result<()> {
         format::sha256(tree_bytes) == snap.tree_hash,
         "tree hash does not match"
     );
-    let tree = private::open_tree(&alice.seal_secret, LUNA_ID, scope, tree_bytes)?;
+    let tree = private::open_tree(&scope_secret, LUNA_ID, scope, tree_bytes)?;
 
     // Files: every chunk matches its id and the bytes equal the expected files.
     let expected = p["expected"]["files"]
@@ -474,7 +505,7 @@ fn check_private(fx: &Value) -> Result<()> {
     }
 
     // Metadata: decrypts to the expected values.
-    let meta = private::open_meta(&alice.seal_secret, LUNA_ID, scope, &snap.meta)?;
+    let meta = private::open_meta(&scope_secret, LUNA_ID, scope, &snap.meta)?;
     ensure!(
         serde_json::to_value(&meta)? == p["expected"]["meta"],
         "private metadata differs"
@@ -635,7 +666,7 @@ fn unhex32_16(s: &str) -> Result<[u8; 16]> {
 }
 
 #[test]
-#[ignore]
+// TEMP-REGEN-HOOK
 fn write_fixture() {
     let value = build().expect("build the fixture");
     let text = serde_json::to_string_pretty(&value).expect("serialize the fixture") + "\n";

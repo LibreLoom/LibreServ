@@ -594,10 +594,16 @@ mod tests {
     }
 
     fn scope_for(owner: &str, x25519: &SealPublic, dedup: [u8; 32]) -> db::PrivateScope {
+        let scope = private::scope_of(&dedup).1;
+        let (secret, scope_public) = crypto::new_scope_keys();
+        let sealed_scope_secret =
+            private::seal_scope_secret(x25519, "luna-test", &scope, &secret).unwrap();
         db::PrivateScope {
-            scope: private::scope_of(&dedup).1,
+            scope,
             owner: owner.into(),
             seal_public: x25519.to_vec(),
+            scope_public: scope_public.to_vec(),
+            sealed_scope_secret,
             dedup_key: dedup.to_vec(),
             state: "active".into(),
             retire_after: 0,

@@ -9,7 +9,7 @@ use crate::backup::access_list::{self, AccessList};
 use crate::backup::cloud::check;
 use crate::backup::cloud::identity;
 use crate::backup::cloud::keys;
-use crate::backup::cloud::private::snapshot_record_ref;
+use crate::backup::cloud::private::{self, snapshot_record_ref};
 use crate::backup::cloud::private_check;
 use crate::backup::cloud::private_run;
 use crate::backup::cloud::retention;
@@ -427,6 +427,46 @@ pub fn old_phrase_copies(conn: &Connection, owner: &str) -> Option<(usize, i64)>
 pub fn retire_old_phrase_now(conn: &Connection, owner: &str, now: i64) -> anyhow::Result<()> {
     for scope in db::list_private_scopes(conn, Some(owner))? {
         if scope.state == "old_phrase" {
+            db::set_private_scope_state(conn, &scope.scope, "old_phrase", now)?;
+        }
+    }
+    Ok(())
+}
+
+/// Sends the records of the scopes that were re-sealed to the new phrase, signed under the new
+/// keys. A failure here is only logged: the records are sent again with the next save.
+pub fn publish_resealed_scopes(
+    db: &crate::Db,
+    store: &dyn CloudStore,
+    scopes: &[String],
+    auth_public: &super::crypto::SigPublic,
+) -> anyhow::Result<()> {
+    let identity = identity::load(&lock(db))?
+        .ok_or_else(|| anyhow::anyhow!("Luna's cloud identity is missing."))?;
+    let rows = {
+        let conn = lock(db);
+        scopes
+            .iter()
+            .filter_map(|scope| db::get_private_scope(&conn, scope).transpose())
+            .collect::<anyhow::Result<Vec<_>>>()?
+    };
+    for row in &rows {
+        private::publish_scope(
+            store,
+            identity.signer(),
+            identity.luna_id(),
+            row,
+            auth_public,
+        )?;
+    }
+    Ok(())
+}
+
+/// Lets `owner`'s older private versions (kept after a phrase change) be removed by the next sweep,
+/// at once and without the 30-day grace. Only the owner's `history` scopes are affected.
+pub fn retire_older_versions_now(conn: &Connection, owner: &str, now: i64) -> anyhow::Result<()> {
+    for scope in db::list_private_scopes(conn, Some(owner))? {
+        if scope.state == "history" {
             db::set_private_scope_state(conn, &scope.scope, "old_phrase", now)?;
         }
     }
@@ -1266,8 +1306,12 @@ mod tests {
         db::private_snapshot_ids(&lock(db), scope).unwrap().len()
     }
 
-    fn rotate_owner_keys(s: &PrivateSetup) {
-        db::set_user_keys(&lock(&s.db), &owner_keys(8)).unwrap();
+    /// Replaces the owner's phrase the way a lost-phrase save does: the new keys are set and the
+    /// active scope keeps its 30 days.
+    fn rotate_owner_keys(s: &PrivateSetup, now: i64) {
+        let conn = lock(&s.db);
+        db::set_user_keys(&conn, &owner_keys(8)).unwrap();
+        private::retire_scopes_without_key(&conn, "owner", false, now).unwrap();
     }
 
     #[test]
@@ -1365,8 +1409,8 @@ mod tests {
         );
         let old = active_scope(&s.db);
 
-        rotate_owner_keys(&s);
         let t2 = NOW + DAY;
+        rotate_owner_keys(&s, t2);
         assert_eq!(
             run(&s.db, &id, &store, &s.connect, "owner", false, t2).problem,
             None
@@ -1407,8 +1451,8 @@ mod tests {
             None
         );
         let old = active_scope(&s.db);
-        rotate_owner_keys(&s);
         let t2 = NOW + DAY;
+        rotate_owner_keys(&s, t2);
         assert_eq!(
             run(&s.db, &id, &store, &s.connect, "owner", false, t2).problem,
             None
@@ -1439,8 +1483,8 @@ mod tests {
         );
         assert_eq!(old_phrase_copies(&lock(&s.db), "owner"), None);
 
-        rotate_owner_keys(&s);
         let t2 = NOW + DAY;
+        rotate_owner_keys(&s, t2);
         assert_eq!(
             run(&s.db, &id, &store, &s.connect, "owner", false, t2).problem,
             None

@@ -93,18 +93,30 @@ export default function RecoveryPhraseCard() {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleteError, setDeleteError] = useState("");
   const [replaceError, setReplaceError] = useState("");
+  const [savedExposed, setSavedExposed] = useState(false);
+  const [retireError, setRetireError] = useState("");
   const secrets = useRef({ oldEntropy: null, password: "" });
 
   const replace = useMutation({
     mutationFn: (/** @type {any} */ vars) =>
       replacePhrase({ proof: vars.proof, exposed: vars.exposed, newPhrase: vars.newPhrase, lunaId, userId, signingPublic }),
-    onSuccess: (_data, { kind }) => {
+    onSuccess: (data, { kind, exposed }) => {
+      const failed = Number(data?.rescope_failed) || 0;
       addToast({
         type: "success",
         message: kind === "change" ? "Recovery phrase changed." : "New recovery phrase saved.",
+        ...(failed > 0 && {
+          description: `${failed} ${failed === 1 ? "private backup" : "private backups"} could not be kept. Luna removes ${failed === 1 ? "its" : "their"} older versions after 30 days.`,
+        }),
       });
-      closeReplace();
       queryClient.invalidateQueries({ queryKey: PHRASE_QUERY_KEY });
+      // Changing with "Someone may have it" ends with the optional delete step, so stay open.
+      if (kind === "change" && exposed) {
+        secrets.current = { oldEntropy: null, password: "" };
+        setSavedExposed(true);
+        return;
+      }
+      closeReplace();
     },
     // Refused or failed: the message stays inline in the open dialog, with no toast and no retry.
     onError: (err, { proof }) => setReplaceError(replaceErrorMessage(err, "oldEntropy" in proof ? "old" : "password")),
@@ -115,6 +127,18 @@ export default function RecoveryPhraseCard() {
     queryFn: getPhraseStatus,
     // Poll only while Luna is re-sealing; stop as soon as status says it is done.
     refetchInterval: (query) => (query.state.data?.resealing ? RESEAL_POLL_MS : false),
+  });
+
+  const retireOlder = useMutation({
+    mutationFn: () => deleteJson("/api/v1/private-backups/older-versions"),
+    onSuccess: () => {
+      addToast({ type: "success", message: "Older private versions deleted." });
+      queryClient.invalidateQueries({ queryKey: PHRASE_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: ["cloud-backups"] });
+      closeReplace();
+    },
+    // The open modal owns the error: no toast.
+    onError: (err) => setRetireError(apiErrorMessage(err, "Could not delete the older private versions. Try again.")),
   });
 
   const deleteOldCopies = useMutation({
@@ -141,6 +165,8 @@ export default function RecoveryPhraseCard() {
   function closeReplace() {
     secrets.current = { oldEntropy: null, password: "" };
     setReplaceError("");
+    setSavedExposed(false);
+    setRetireError("");
     setDialog(null);
   }
 
@@ -339,6 +365,10 @@ export default function RecoveryPhraseCard() {
           onSave={saveReplace}
           busy={replace.isPending}
           error={replaceError}
+          saved={savedExposed}
+          onRetire={() => { setRetireError(""); retireOlder.mutate(); }}
+          retiring={retireOlder.isPending}
+          retireError={retireError}
         />
       )}
     </>

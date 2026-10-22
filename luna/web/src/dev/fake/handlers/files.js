@@ -690,6 +690,7 @@ get("/api/v1/private-backups/item", ({ world, user, query }) => {
   return { private: false, inside_private: false, mine: false, owner_name: "" };
 });
 del("/api/v1/private-backups/old-copies", () => ({}));
+del("/api/v1/private-backups/older-versions", () => ({ ok: true }));
 del("/api/v1/private-backups/owners/:id", ({ world, params }) => {
   world.privateSummary = { ...world.privateSummary, owners: (world.privateSummary?.owners || []).filter((o) => String(o.id ?? o.owner_id) !== params.id) };
   return {};

@@ -64,15 +64,17 @@ describe("PhraseReplaceFlow, change", () => {
     expect(screen.getByText("Someone may have it", { selector: "button *, button" })).toBeInTheDocument();
   });
 
-  it("shows the phase 3 'may have it' text, the Connect note and the private line for each answer", async () => {
+  it("shows the 'may have it' text and the Connect note, with no interim private-history lines", async () => {
     const user = userEvent.setup();
     setup();
     await pasteOldPhrase(user);
     await screen.findByText("Could someone else have your phrase?");
     expect(screen.getByText(MAY_HAVE_IT)).toBeInTheDocument();
     expect(screen.getByText(/old phrase alone does not open backups on Connect/)).toBeInTheDocument();
-    expect(screen.getByText(/stay with your old phrase for 30 days, then Luna removes them/)).toBeInTheDocument();
-    expect(screen.getByText("Older versions of your private items can't be kept.")).toBeInTheDocument();
+    expect(screen.queryByText(/stay with your old phrase for 30 days/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/back up again from the start/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Older versions of your private items can't be kept.")).not.toBeInTheDocument();
+    expect(screen.queryByText(/private items/)).not.toBeInTheDocument();
   });
 
   it("answer 'No' saves exposed: false with the new phrase shown", async () => {
@@ -136,14 +138,6 @@ describe("PhraseReplaceFlow, change", () => {
     expect(screen.getByText("Could not save your recovery phrase. Try again.")).toBeInTheDocument();
   });
 
-  it("omits the private lines when the mode is not before-phase-5", async () => {
-    const user = userEvent.setup();
-    setup({ privateHistoryMode: "after-phase-5" });
-    await pasteOldPhrase(user);
-    await screen.findByText("Could someone else have your phrase?");
-    expect(screen.queryByText(/private items/)).not.toBeInTheDocument();
-  });
-
   it("never writes the new phrase to the console", async () => {
     const user = userEvent.setup();
     const spies = [vi.spyOn(console, "log"), vi.spyOn(console, "info"), vi.spyOn(console, "warn"), vi.spyOn(console, "error"), vi.spyOn(console, "debug")].map((spy) => spy.mockImplementation(() => {}));
@@ -165,6 +159,57 @@ describe("PhraseReplaceFlow, change", () => {
     rerender(<PhraseReplaceFlow kind="change" open={false} onProve={onProve} onSave={onSave} onClose={onClose} />);
     rerender(<PhraseReplaceFlow kind="change" onProve={onProve} onSave={onSave} onClose={onClose} />);
     expect(await screen.findByText("Enter your current phrase")).toBeInTheDocument();
+  });
+});
+
+describe("PhraseReplaceFlow, delete older private versions", () => {
+  const baseProps = { kind: "change", onProve: async () => true, onSave: () => {}, onClose: () => {} };
+
+  it("is not shown before the save, whatever the answer", async () => {
+    const user = userEvent.setup();
+    setup();
+    await pasteOldPhrase(user);
+    await user.click(await screen.findByRole("button", { name: /Someone may have it/ }));
+    expect(screen.queryByText("Delete older private versions?")).not.toBeInTheDocument();
+  });
+
+  it("names what is lost and says skipping keeps them", () => {
+    render(<PhraseReplaceFlow {...baseProps} saved onRetire={vi.fn()} />);
+    expect(screen.getByText("Delete older private versions?")).toBeInTheDocument();
+    expect(screen.getByText(/earlier versions of your private items, and files you deleted that exist only in the cloud/)).toBeInTheDocument();
+    expect(screen.getByText(/Luna keeps them, and your old phrase may still open them/)).toBeInTheDocument();
+  });
+
+  it("deleting calls onRetire once", async () => {
+    const user = userEvent.setup();
+    const onRetire = vi.fn();
+    render(<PhraseReplaceFlow {...baseProps} saved onRetire={onRetire} />);
+    await user.click(screen.getByRole("button", { name: "Delete older versions" }));
+    expect(onRetire).toHaveBeenCalledTimes(1);
+  });
+
+  it("skipping closes without calling onRetire", async () => {
+    const user = userEvent.setup();
+    const onRetire = vi.fn();
+    const onClose = vi.fn();
+    render(<PhraseReplaceFlow {...baseProps} onClose={onClose} saved onRetire={onRetire} />);
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(onRetire).not.toHaveBeenCalled();
+  });
+
+  it("shows the caller's error inline in the modal", () => {
+    render(<PhraseReplaceFlow {...baseProps} saved onRetire={vi.fn()} retireError="Could not delete the older private versions. Try again." />);
+    expect(screen.getByText("Could not delete the older private versions. Try again.")).toBeInTheDocument();
+    expect(screen.getByText("Delete older private versions?")).toBeInTheDocument();
+  });
+
+  it("does not call onRetire again while deleting", async () => {
+    const user = userEvent.setup();
+    const onRetire = vi.fn();
+    render(<PhraseReplaceFlow {...baseProps} saved retiring onRetire={onRetire} />);
+    await user.click(screen.getByRole("button", { name: /Processing/ }));
+    expect(onRetire).not.toHaveBeenCalled();
   });
 });
 
@@ -198,6 +243,14 @@ describe("PhraseReplaceFlow, lost", () => {
     expect(screen.getByText(/Luna keeps your older private items for 30 days/)).toBeInTheDocument();
     expect(screen.getByText("Luna removes your older private items now.")).toBeInTheDocument();
     expect(screen.getByText(MAY_HAVE_IT)).toBeInTheDocument();
+  });
+
+  it.each(["No, it's just lost", "Someone may have it"])("never offers the delete step in the lost flow (%s)", async (label) => {
+    const user = userEvent.setup();
+    lost();
+    await toQuestion(user);
+    await user.click(screen.getByRole("button", { name: label }));
+    expect(screen.queryByText("Delete older private versions?")).not.toBeInTheDocument();
   });
 
   it("password field is a password input, autocomplete off, cleared after submit", async () => {

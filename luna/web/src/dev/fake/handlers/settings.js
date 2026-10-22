@@ -60,9 +60,11 @@ post("/api/v1/cloud/phrase/check", ({ world }) => {
   world.phrase.last_checked_at = nowSec();
   return { ok: true };
 });
+// No private scopes in the gallery, so nothing to re-seal and nothing that fails to re-seal.
+get("/api/v1/cloud/phrase/scopes", () => ({ scopes: [] }));
 put("/api/v1/cloud/phrase", ({ world }) => {
   world.phrase = { ...world.phrase, set: true, set_at: nowSec() };
-  return { set: true, set_at: world.phrase.set_at };
+  return { set: true, set_at: world.phrase.set_at, rescope_failed: 0 };
 });
 
 const restoreStatus = (world) => world.restore ?? { needed: false, luna_id: "luna-1", signing_public: b64(SIG_PUBLIC_LEN), cloud_snapshots: 0, indexed_snapshots: 0 };

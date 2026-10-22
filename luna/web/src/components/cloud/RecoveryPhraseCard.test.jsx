@@ -6,7 +6,9 @@ import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import Toaster from "@libreloom/ui/components/common/Toaster.jsx";
 import RecoveryPhraseCard from "./RecoveryPhraseCard.jsx";
 import { toBase64 } from "../../lib/cloudPhrase";
-import { entropyToPhrase, newEntropy, SIG_PUBLIC_LEN } from "@libreloom/ui/lib/cloud/backupCrypto.js";
+import { derive, entropyToPhrase, newEntropy, phraseToEntropy, SIG_PUBLIC_LEN } from "@libreloom/ui/lib/cloud/backupCrypto.js";
+import { openScopeSecret, sealScopeSecret } from "@libreloom/ui/lib/cloud/cloudPrivate.js";
+import { fromBase64 } from "../../lib/cloudPhrase";
 
 const SIGNING_PUBLIC = new Uint8Array(SIG_PUBLIC_LEN).map((_, i) => (i + 7) % 256);
 
@@ -221,7 +223,13 @@ const CHALLENGE = toBase64(new Uint8Array(32).map((_, i) => 100 + i));
  * `status` and `put` may be functions of the calls so far (for state that changes after a save).
  */
 function routePhraseApi(/** @type {any} */ options = {}) {
-  const { status = SET_STATUS, check = [200, { ok: true }], put = [200, { set: true, set_at: 1 }] } = options;
+  const {
+    status = SET_STATUS,
+    check = [200, { ok: true }],
+    put = [200, { set: true, set_at: 1 }],
+    scopes = [200, { scopes: [] }],
+    retire = [200, { ok: true }],
+  } = options;
   const calls = [];
   const fetchMock = vi.fn(async (path, options = {}) => {
     const method = options.method ?? "GET";
@@ -233,6 +241,8 @@ function routePhraseApi(/** @type {any} */ options = {}) {
     else if (key === "POST /api/v1/cloud/phrase/challenge") reply = [200, { challenge: CHALLENGE }];
     else if (key === "POST /api/v1/cloud/phrase/check") reply = check;
     else if (key === "PUT /api/v1/cloud/phrase") reply = typeof put === "function" ? put(calls) : put;
+    else if (key === "GET /api/v1/cloud/phrase/scopes") reply = scopes;
+    else if (key === "DELETE /api/v1/private-backups/older-versions") reply = retire;
     else reply = [404, { error: "not in this test" }];
     const [code, payload] = reply;
     return jsonResponse(payload, code);
@@ -485,3 +495,97 @@ describe("RecoveryPhraseCard, signing key stays in memory", () => {
     setItem.mockRestore();
   });
 });
+
+describe("RecoveryPhraseCard, private scopes on a phrase change", () => {
+  const OLD_PHRASE = entropyToPhrase(newEntropy(12));
+
+  /** A scope secret sealed to the phrase's sealing key, as Luna holds it. */
+  function sealedFor(phrase, scope, secret) {
+    const { sealPublic } = derive(phraseToEntropy(phrase), "luna-1");
+    return toBase64(sealScopeSecret(secret, sealPublic, "luna-1", scope));
+  }
+
+  it("re-seals each scope the old phrase opens to the new phrase and sends it as rescoped", async () => {
+    const user = userEvent.setup();
+    const secret = new Uint8Array(96).map((_, i) => (i * 3) % 256);
+    const api = routePhraseApi({
+      scopes: [200, { scopes: [{ scope: "scope-1", sealed_scope_secret: sealedFor(OLD_PHRASE, "scope-1", secret) }] }],
+    });
+    renderCard();
+    await user.click(await screen.findByRole("button", { name: "Change phrase" }));
+    await typePhraseAndContinue(user, OLD_PHRASE);
+    await user.click(await screen.findByText("No, it's only mine"));
+    const newPhrase = await confirmShownPhrase(user);
+
+    expect(await screen.findByText("Recovery phrase changed.")).toBeInTheDocument();
+    const [put] = api.puts();
+    expect(put.rescoped).toHaveLength(1);
+    expect(put.rescoped[0].scope).toBe("scope-1");
+    const opened = openScopeSecret(
+      fromBase64(put.rescoped[0].sealed_scope_secret),
+      derive(phraseToEntropy(newPhrase), "luna-1").sealSecret,
+      "luna-1",
+      "scope-1",
+    );
+    expect(opened).toEqual(secret);
+    // The scopes are read before the challenge is signed, so the challenge is still fresh.
+    const keys = api.calls.map((c) => c.key);
+    expect(keys.indexOf("GET /api/v1/cloud/phrase/scopes")).toBeLessThan(keys.indexOf("POST /api/v1/cloud/phrase/challenge"));
+  });
+
+  it("does not save when the list of scopes cannot be read", async () => {
+    const user = userEvent.setup();
+    const api = routePhraseApi({ scopes: [500, { error: "down" }] });
+    renderCard();
+    await user.click(await screen.findByRole("button", { name: "Change phrase" }));
+    await typePhraseAndContinue(user, OLD_PHRASE);
+    await user.click(await screen.findByText("No, it's only mine"));
+    await confirmShownPhrase(user);
+
+    expect(await screen.findByText("Could not read your private backups. Try again.")).toBeInTheDocument();
+    expect(api.puts()).toHaveLength(0);
+  });
+
+  it("toasts how many private backups could not be kept", async () => {
+    const user = userEvent.setup();
+    routePhraseApi({ put: [200, { set: true, set_at: 1, rescope_failed: 2 }] });
+    renderCard();
+    await user.click(await screen.findByRole("button", { name: "Change phrase" }));
+    await typePhraseAndContinue(user, OLD_PHRASE);
+    await user.click(await screen.findByText("No, it's only mine"));
+    await confirmShownPhrase(user);
+
+    expect(await screen.findByText("2 private backups could not be kept. Luna removes their older versions after 30 days.")).toBeInTheDocument();
+  });
+
+  it("deletes older private versions through DELETE /api/v1/private-backups/older-versions", async () => {
+    const user = userEvent.setup();
+    const api = routePhraseApi();
+    renderCard();
+    await user.click(await screen.findByRole("button", { name: "Change phrase" }));
+    await typePhraseAndContinue(user, OLD_PHRASE);
+    await user.click(await screen.findByText("Someone may have it"));
+    await confirmShownPhrase(user);
+
+    expect(await screen.findByText("Delete older private versions?")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Delete older versions" }));
+    await waitFor(() =>
+      expect(api.calls.map((c) => c.key)).toContain("DELETE /api/v1/private-backups/older-versions"));
+    expect(await screen.findByText("Older private versions deleted.")).toBeInTheDocument();
+  });
+
+  it("keeps the step open and shows the error when deleting older versions fails", async () => {
+    const user = userEvent.setup();
+    routePhraseApi({ retire: [500, { error: "Luna couldn't delete your older private versions. Try again." }] });
+    renderCard();
+    await user.click(await screen.findByRole("button", { name: "Change phrase" }));
+    await typePhraseAndContinue(user, OLD_PHRASE);
+    await user.click(await screen.findByText("Someone may have it"));
+    await confirmShownPhrase(user);
+    await user.click(await screen.findByRole("button", { name: "Delete older versions" }));
+
+    expect(await screen.findByText("Luna couldn't delete your older private versions. Try again.")).toBeInTheDocument();
+    expect(screen.getByText("Delete older private versions?")).toBeInTheDocument();
+  });
+});
+

@@ -1,4 +1,4 @@
-import { phraseToEntropy, derive } from "@libreloom/ui/lib/cloud/backupCrypto.js";
+import { phraseToEntropy } from "@libreloom/ui/lib/cloud/backupCrypto.js";
 import {
   PSCOPES_KIND,
   PSNAPSHOTS_KIND,
@@ -61,14 +61,15 @@ export async function restorePrivateFromPhrase(words, { lunaId, signingPublic })
 
   // The signed snapshot record bytes, keyed by record name, so Luna gets the original signed bytes.
   const rawSnapshotRecords = new Map(psnapshots.map((r) => [r.name, r.data]));
-  const { sealSecret } = derive(entropy, lunaId);
   const packCache = new Map();
   let restored = 0;
 
   for (const found of scopes) {
+    // Each scope has its own key; the phrase opened it in findMyPrivateScopes.
+    const { sealSecret } = found;
     const views = readPrivateSnapshots({
       lunaId,
-      entropy,
+      sealSecret,
       scope: found.scope,
       psnapshots,
       signingPublics,

@@ -227,6 +227,8 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             scope TEXT PRIMARY KEY,
             owner TEXT NOT NULL,
             seal_public BLOB NOT NULL,
+            scope_public BLOB NOT NULL,
+            sealed_scope_secret BLOB NOT NULL,
             dedup_key BLOB NOT NULL,
             state TEXT NOT NULL DEFAULT 'active',
             retire_after INTEGER NOT NULL DEFAULT 0,
@@ -1834,46 +1836,68 @@ pub fn deletable_packs(conn: &Connection, scope: &str, now: i64) -> anyhow::Resu
     Ok(rows)
 }
 
-/// A private scope: one owner's private items, sealed to that owner's key.
+/// A private scope: one owner's private items. Its items are sealed to `scope_public`, and its
+/// secret key is kept only sealed to the owner (`sealed_scope_secret`). `seal_public` is the owner's
+/// key at the time it was last sealed to, and changes when the owner's phrase is replaced.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PrivateScope {
     pub scope: String,
     pub owner: String,
     pub seal_public: Vec<u8>,
+    pub scope_public: Vec<u8>,
+    pub sealed_scope_secret: Vec<u8>,
     pub dedup_key: Vec<u8>,
     pub state: String,
     pub retire_after: i64,
     pub created_at: i64,
 }
 
-const PRIVATE_SCOPE_COLUMNS: &str =
-    "scope, owner, seal_public, dedup_key, state, retire_after, created_at";
+const PRIVATE_SCOPE_COLUMNS: &str = "scope, owner, seal_public, scope_public, sealed_scope_secret, dedup_key, state, retire_after, created_at";
 
 fn private_scope_from_row(r: &rusqlite::Row) -> rusqlite::Result<PrivateScope> {
     Ok(PrivateScope {
         scope: r.get(0)?,
         owner: r.get(1)?,
         seal_public: r.get(2)?,
-        dedup_key: r.get(3)?,
-        state: r.get(4)?,
-        retire_after: r.get(5)?,
-        created_at: r.get(6)?,
+        scope_public: r.get(3)?,
+        sealed_scope_secret: r.get(4)?,
+        dedup_key: r.get(5)?,
+        state: r.get(6)?,
+        retire_after: r.get(7)?,
+        created_at: r.get(8)?,
     })
 }
 
 pub fn insert_private_scope(conn: &Connection, s: &PrivateScope) -> anyhow::Result<()> {
     conn.execute(
-        "INSERT INTO cloud_private_scopes (scope, owner, seal_public, dedup_key, state, retire_after, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        "INSERT INTO cloud_private_scopes (scope, owner, seal_public, scope_public, sealed_scope_secret, dedup_key, state, retire_after, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
             s.scope,
             s.owner,
             s.seal_public,
+            s.scope_public,
+            s.sealed_scope_secret,
             s.dedup_key,
             s.state,
             s.retire_after,
             s.created_at
         ],
+    )?;
+    Ok(())
+}
+
+/// Re-seals a scope's secret key to the owner's new sealing key. The scope's own key pair and its
+/// data stay as they are.
+pub fn set_private_scope_seal(
+    conn: &Connection,
+    scope: &str,
+    owner_public: &[u8],
+    sealed_scope_secret: &[u8],
+) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE cloud_private_scopes SET seal_public = ?2, sealed_scope_secret = ?3 WHERE scope = ?1",
+        params![scope, owner_public, sealed_scope_secret],
     )?;
     Ok(())
 }
@@ -3239,6 +3263,8 @@ mod tests {
             scope: scope.into(),
             owner: owner.into(),
             seal_public: vec![7; 32],
+            scope_public: vec![5; 32],
+            sealed_scope_secret: vec![6; 16],
             dedup_key: vec![9; 32],
             state: "active".into(),
             retire_after: 0,
