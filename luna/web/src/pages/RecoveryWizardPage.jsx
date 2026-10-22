@@ -7,6 +7,7 @@ import FormInput from "../components/common/forms/FormInput";
 import usePageTitle from "../hooks/usePageTitle.js";
 import { passwordPolicyError } from "@libreloom/ui/lib/passwordPolicy.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
+import { isValidUsername, USERNAME_POLICY_HINT } from "../lib/usernamePolicy.js";
 
 const SELECTORS = [
   ["g-admin", "All Admin accounts"],
@@ -14,6 +15,7 @@ const SELECTORS = [
   ["g-all", "All accounts"],
   ["u", "One existing account"],
   ["n", "Create a new Admin account"],
+  ["f", "Use an account or create it if missing"],
 ];
 
 function normalizedToken(value) {
@@ -32,7 +34,7 @@ export default function RecoveryWizardPage() {
   const [errorField, setErrorField] = useState("");
   const [downloaded, setDownloaded] = useState(false);
 
-  const selector = selectorType === "u" || selectorType === "n"
+  const selector = selectorType === "u" || selectorType === "n" || selectorType === "f"
     ? `${selectorType}-${username.trim().toLowerCase()}`
     : selectorType;
   const filename = useMemo(() => hasToken && token.trim()
@@ -56,8 +58,8 @@ export default function RecoveryWizardPage() {
       setErrorField("device-token");
       return;
     }
-    if ((selectorType === "u" || selectorType === "n") && !/^[a-zA-Z0-9._-]{1,64}$/.test(username.trim())) {
-      setError("Enter a username using letters, numbers, dots, hyphens, or underscores.");
+    if ((selectorType === "u" || selectorType === "n" || selectorType === "f") && !isValidUsername(username)) {
+      setError(USERNAME_POLICY_HINT);
       setErrorField("username");
       return;
     }
@@ -114,10 +116,14 @@ export default function RecoveryWizardPage() {
                     </label>
                   ))}
                 </fieldset>
-                {(selectorType === "u" || selectorType === "n") && (
+                {(selectorType === "u" || selectorType === "n" || selectorType === "f") && (
                   <div className="mt-4">
                     <FormInput label="Username" name="recovery-username" value={username} onChange={(e) => { clearFeedback(); setUsername(e.target.value); }} autoComplete="username" surface="primary" required shake={errorField === "username" ? error : null} />
-                    <p className="text-secondary text-sm">{selectorType === "u" ? "Use the existing Luna username." : "Luna creates this Admin account when it starts with the recovery drive."}</p>
+                    <p className="text-secondary text-sm">
+                      {selectorType === "u" && "Use the existing Luna username."}
+                      {selectorType === "n" && "Luna creates this Admin account when it starts with the recovery drive."}
+                      {selectorType === "f" && "Luna changes the password if this account exists. Otherwise, it creates a new Admin account."}
+                    </p>
                   </div>
                 )}
               </section>

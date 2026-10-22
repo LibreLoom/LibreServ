@@ -70,6 +70,27 @@ describe("RecoveryWizardPage", () => {
     expect(await createObjectURL.mock.calls[0][0].text()).toBe('{"user":"n-casey","password":"recoveryPassword123"}');
   });
 
+  it("encodes the fallback selector for an existing or new Admin account", async () => {
+    renderPage();
+    fireEvent.click(screen.getByLabelText("Use an account or create it if missing"));
+    fireEvent.change(screen.getByLabelText(/^Username/), { target: { value: "Jordan-1" } });
+    fireEvent.click(screen.getByLabelText("This Luna has a device token"));
+    fillPasswords();
+    fireEvent.click(screen.getByRole("button", { name: "Download recovery file" }));
+    expect(await createObjectURL.mock.calls[0][0].text()).toBe('{"user":"f-jordan-1","password":"recoveryPassword123"}');
+  });
+
+  it.each(["ab", "a".repeat(33), "bad name"])("rejects username %s", (username) => {
+    renderPage();
+    fireEvent.click(screen.getByLabelText("Create a new Admin account"));
+    fireEvent.change(screen.getByLabelText(/^Username/), { target: { value: username } });
+    fireEvent.click(screen.getByLabelText("This Luna has a device token"));
+    fillPasswords();
+    fireEvent.click(screen.getByRole("button", { name: "Download recovery file" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("3-32 letters, numbers");
+    expect(clicked).not.toHaveBeenCalled();
+  });
+
   it("rejects weak or mismatched passwords and invalid token without downloading", () => {
     renderPage();
     fireEvent.change(screen.getByLabelText(/^Device token/), { target: { value: "bad" } });
