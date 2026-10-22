@@ -453,6 +453,19 @@ describe("AppDetailPage", () => {
     expect(screen.getByRole("dialog", { name: "Logs" })).toBeVisible();
   });
 
+  it("shows the saved reason when app setup failed", () => {
+    testState.app = {
+      ...installedApp,
+      error: "Could not finish app setup: setup script exited with status 17.",
+      status: "error",
+    };
+    render(<AppDetailPage />);
+
+    expect(screen.getByText(
+      "Could not finish app setup: setup script exited with status 17.",
+    )).toBeVisible();
+  });
+
   it("renders loading, failure, and missing-app states", () => {
     testState.appLoading = true;
     testState.showLoading = true;

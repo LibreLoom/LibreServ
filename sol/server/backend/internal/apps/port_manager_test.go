@@ -3,6 +3,7 @@ package apps
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"gt.plainskill.net/LibreLoom/Sol/internal/database"
@@ -79,5 +80,70 @@ func TestPortManagerPendingIsRespected(t *testing.T) {
 
 	if p1 == p2 {
 		t.Fatalf("batch allocations must not return same port: p1=%d p2=%d", p1, p2)
+	}
+}
+
+func TestReserveIfAvailableIsAtomic(t *testing.T) {
+	pm := NewPortManager(nil, nil, 19501)
+	const port = 19519
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	successes := 0
+	for n := 0; n < 16; n++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			if err := pm.ReserveIfAvailable(port, string(rune('a'+n))); err == nil {
+				mu.Lock()
+				successes++
+				mu.Unlock()
+			}
+		}(n)
+	}
+	wg.Wait()
+
+	if successes != 1 {
+		t.Fatalf("exactly one install should reserve port %d, got %d", port, successes)
+	}
+}
+
+func TestReserveIfAvailableForOwnerIsAtomic(t *testing.T) {
+	pm := NewPortManager(nil, nil, 19501)
+	const port = 19519
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	successes := 0
+	for n := 0; n < 16; n++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			if pm.ReserveIfAvailableForOwner(port, string(rune('a'+n))) {
+				mu.Lock()
+				successes++
+				mu.Unlock()
+			}
+		}(n)
+	}
+	wg.Wait()
+
+	if successes != 1 {
+		t.Fatalf("exactly one install should claim deployment port %d, got %d", port, successes)
+	}
+}
+
+func TestReleaseIfOwnedDoesNotReleaseAnotherInstall(t *testing.T) {
+	pm := NewPortManager(nil, nil, 19501)
+	pm.Reserve(19519, "install-one")
+
+	if pm.ReleaseIfOwned(19519, "install-two") {
+		t.Fatal("should not release a port owned by another install")
+	}
+	if got := pm.GetUsedPorts()[19519]; got != "install-one" {
+		t.Fatalf("port owner changed after failed release: got %q", got)
+	}
+	if !pm.ReleaseIfOwned(19519, "install-one") {
+		t.Fatal("expected owner to release its port")
 	}
 }

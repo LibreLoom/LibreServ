@@ -278,17 +278,14 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallR
 				}
 			}
 			if userSet {
-				if current > 0 && !i.portManager.IsAvailable(current) {
-					_ = os.RemoveAll(installPath)
-					return &InstallResult{
-						Success: false,
-						Error:   fmt.Sprintf("port %d is already in use", current),
-					}, fmt.Errorf("port %d is already in use", current)
-				}
-				// Reserve immediately to close the TOCTOU window between
-				// IsAvailable and the batch Reserve below.
 				if current > 0 {
-					i.portManager.Reserve(current, instanceID)
+					if err := i.portManager.ReserveIfAvailable(current, instanceID); err != nil {
+						_ = os.RemoveAll(installPath)
+						return &InstallResult{
+							Success: false,
+							Error:   fmt.Sprintf("port %d is already in use", current),
+						}, err
+					}
 				}
 			} else {
 				// User didn't set it — auto-allocate
@@ -337,7 +334,7 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallR
 					break
 				}
 			}
-			if i.portManager.IsAvailableForOwner(depPort.Host, instanceID) {
+			if i.portManager.ReserveIfAvailableForOwner(depPort.Host, instanceID) {
 				continue // Port is available, use catalog default
 			}
 
@@ -365,6 +362,27 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallR
 			if allocatedPort, ok := originalToAllocated[configuredPort]; ok {
 				config[field.Name] = allocatedPort
 				i.logger.Info("Updated config for re-allocated port", "field", field.Name, "original", configuredPort, "allocated", allocatedPort)
+			}
+		}
+
+		for originalPort := range originalToAllocated {
+			stillUsed := false
+			for _, field := range appDef.Configuration {
+				if field.Type == "port" && toInt(config[field.Name]) == originalPort {
+					stillUsed = true
+					break
+				}
+			}
+			if !stillUsed {
+				for _, depPort := range appDef.Deployment.Ports {
+					if depPort.Host == originalPort {
+						stillUsed = true
+						break
+					}
+				}
+			}
+			if !stillUsed {
+				i.portManager.ReleaseIfOwned(originalPort, instanceID)
 			}
 		}
 

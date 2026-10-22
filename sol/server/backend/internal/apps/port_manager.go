@@ -172,6 +172,26 @@ func (pm *PortManager) IsAvailableForOwner(port int, instanceID string) bool {
 	return pm.isPortFreeAtOSLocked(port)
 }
 
+// ReserveIfAvailableForOwner atomically checks and claims an unreserved port,
+// or accepts a reservation already held by this install. It also confirms the
+// port is free at the OS level.
+func (pm *PortManager) ReserveIfAvailableForOwner(port int, instanceID string) bool {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
+	if port <= 0 || port > MaxPort || port <= WellKnownPortMax || port == pm.serverPort {
+		return false
+	}
+	if owner, used := pm.usedPorts[port]; used && owner != instanceID {
+		return false
+	}
+	if !pm.isPortFreeAtOSLocked(port) {
+		return false
+	}
+	pm.usedPorts[port] = instanceID
+	return true
+}
+
 // IsPortFreeAtOS checks if a port is available at the OS level by attempting to bind to it.
 func (pm *PortManager) IsPortFreeAtOS(port int) bool {
 	pm.mu.RLock()
@@ -257,12 +277,39 @@ func (pm *PortManager) Reserve(port int, instanceID string) {
 	pm.usedPorts[port] = instanceID
 }
 
+// ReserveIfAvailable atomically checks a requested port and records its owner.
+// Unlike IsAvailable followed by Reserve, a competing install cannot claim the
+// same port between the availability check and reservation.
+func (pm *PortManager) ReserveIfAvailable(port int, instanceID string) error {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
+	if !pm.isAvailableLocked(port) || !pm.isPortFreeAtOSLocked(port) {
+		return fmt.Errorf("port %d is already in use", port)
+	}
+	pm.usedPorts[port] = instanceID
+	return nil
+}
+
 // Release removes a port from the used set.
 func (pm *PortManager) Release(port int) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
 	delete(pm.usedPorts, port)
+}
+
+// ReleaseIfOwned removes a reservation only if it still belongs to the
+// specified install. This prevents cleanup from deleting a later owner's port.
+func (pm *PortManager) ReleaseIfOwned(port int, instanceID string) bool {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
+	if owner, used := pm.usedPorts[port]; !used || owner != instanceID {
+		return false
+	}
+	delete(pm.usedPorts, port)
+	return true
 }
 
 // ReleaseAll removes all ports associated with an instance.
