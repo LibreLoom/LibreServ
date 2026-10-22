@@ -26,3 +26,6 @@ __pycache__/
 # EuroOffice pack + converted doc bundles — installed/generated, never commit
 eurooffice/
 office_bundles/
+
+# Test run output from the web test harness
+/web/testing/results.json
