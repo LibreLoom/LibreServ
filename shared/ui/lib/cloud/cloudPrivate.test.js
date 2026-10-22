@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js';
 import fixture from '../../../../luna/crates/lunad/src/backup/cloud/fixture.json';
 import { CHANGED, DAMAGED, makePackReaderWith, readFile, readTreeWith, verifySnapshot } from './cloudFormat.js';
-import { derive } from './backupCrypto.js';
+import { derive, SIG_LEN } from './backupCrypto.js';
 import {
 	findMyPrivateScopes,
 	openPrivateMeta,
@@ -137,7 +137,7 @@ describe('cloudPrivate', () => {
 
 	it('signPrivateOpen signs the fixture challenge the same way as the Rust side', () => {
 		const sig = signPrivateOpen(alice.authSecret, lunaId, p.scope, challenge);
-		expect(sig).toHaveLength(64);
+		expect(sig).toHaveLength(SIG_LEN);
 		expect(bytesToHex(sig)).toBe(p.open_signature);
 	});
 });

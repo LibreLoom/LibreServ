@@ -104,12 +104,17 @@ export function derive(entropy, lunaId) {
 	x25519Secret[31] &= 127;
 	x25519Secret[31] |= 64;
 	const mlkemSeed = hkdf(sha256, entropy, DERIVE_SALT, deriveInfo(utf8ToBytes('mlkem'), lunaId), MLKEM_SEED_LEN);
-	const sealSecret = cat(x25519Secret, mlkemSeed);
-	const sealPublic = cat(x25519.getPublicKey(x25519Secret), mlkemKeys(mlkemSeed).publicKey);
-	const selfKey = hkdf32(entropy, DERIVE_SALT, deriveInfo(utf8ToBytes('self'), lunaId));
-	const authSecret = hkdf32(entropy, DERIVE_SALT, deriveInfo(utf8ToBytes('auth'), lunaId));
-	const authPublic = signerPublic(authSecret);
-	return { sealSecret, sealPublic, selfKey, authSecret, authPublic };
+	try {
+		const sealSecret = cat(x25519Secret, mlkemSeed);
+		const sealPublic = cat(x25519.getPublicKey(x25519Secret), mlkemKeys(mlkemSeed).publicKey);
+		const selfKey = hkdf32(entropy, DERIVE_SALT, deriveInfo(utf8ToBytes('self'), lunaId));
+		const authSecret = hkdf32(entropy, DERIVE_SALT, deriveInfo(utf8ToBytes('auth'), lunaId));
+		const authPublic = signerPublic(authSecret);
+		return { sealSecret, sealPublic, selfKey, authSecret, authPublic };
+	} finally {
+		x25519Secret.fill(0);
+		mlkemSeed.fill(0);
+	}
 }
 
 /**

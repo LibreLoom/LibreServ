@@ -99,11 +99,14 @@ export function openPrivateTreeBytes(sealSecret, lunaId, scope) {
  */
 export function openPrivateMeta(sealed, sealSecret, lunaId, scope) {
 	let parsed;
+	let plain;
 	try {
-		const plain = open(sealSecret, privateAad(META_PURPOSE, lunaId, scope), sealed);
+		plain = open(sealSecret, privateAad(META_PURPOSE, lunaId, scope), sealed);
 		parsed = JSON.parse(new TextDecoder().decode(plain));
 	} catch {
 		throw new Error(DAMAGED);
+	} finally {
+		plain?.fill(0);
 	}
 	const fields = [parsed?.name, parsed?.source_drive, parsed?.source_path, parsed?.started_by, parsed?.started_by_name];
 	if (!fields.every((f) => typeof f === 'string')) throw new Error(DAMAGED);
@@ -131,7 +134,10 @@ export function openPrivateDedup(sealed, sealSecret, lunaId, scope) {
 	} catch {
 		throw new Error(DAMAGED);
 	}
-	if (plain.length !== KEY_LEN) throw new Error(DAMAGED);
+	if (plain.length !== KEY_LEN) {
+		plain.fill(0);
+		throw new Error(DAMAGED);
+	}
 	return plain;
 }
 
@@ -216,24 +222,33 @@ export function signPrivateOpen(authSecret, lunaId, scope, challenge) {
  */
 export function findMyPrivateScopes({ lunaId, entropy, pscopes = [], signingPublics }) {
 	const k = derive(entropy, lunaId);
-	const found = [];
-	for (const r of pscopes) {
-		let rec = null;
-		for (const pub of signingPublics) {
-			rec = verifyScopeRecord(r.data, [pub], lunaId);
-			if (rec) break;
-		}
-		if (!rec || r.name !== rec.scope || !sameBytes(rec.sealPublic, k.sealPublic)) continue;
-		let dedupKey;
-		try {
-			dedupKey = openPrivateDedup(rec.sealedDedup, k.sealSecret, lunaId, rec.scope);
-		} catch {
-			continue;
-		}
-		if (scopeOf(dedupKey) !== rec.scope) continue;
-		found.push({ scope: rec.scope, userId: rec.userId, createdAt: rec.createdAt, dedupKey });
+	try {
+		const found = [];
+		for (const r of pscopes) {
+			let rec = null;
+			for (const pub of signingPublics) {
+				rec = verifyScopeRecord(r.data, [pub], lunaId);
+				if (rec) break;
+			}
+			if (!rec || r.name !== rec.scope || !sameBytes(rec.sealPublic, k.sealPublic)) continue;
+			let dedupKey;
+			try {
+				dedupKey = openPrivateDedup(rec.sealedDedup, k.sealSecret, lunaId, rec.scope);
+			} catch {
+				continue;
+			}
+	if (scopeOf(dedupKey) !== rec.scope) {
+		dedupKey.fill(0);
+		continue;
 	}
-	return found.sort((a, b) => b.createdAt - a.createdAt);
+			found.push({ scope: rec.scope, userId: rec.userId, createdAt: rec.createdAt, dedupKey });
+		}
+		return found.sort((a, b) => b.createdAt - a.createdAt);
+	} finally {
+		k.sealSecret.fill(0);
+		k.selfKey.fill(0);
+		k.authSecret.fill(0);
+	}
 }
 
 /**
@@ -244,6 +259,7 @@ export function findMyPrivateScopes({ lunaId, entropy, pscopes = [], signingPubl
  */
 export function readPrivateSnapshots({ lunaId, entropy, scope, psnapshots = [], signingPublics }) {
 	const k = derive(entropy, lunaId);
+	try {
 	const out = [];
 	for (const r of psnapshots) {
 		if (!r.name.startsWith(`${scope}.`)) continue;
@@ -258,4 +274,9 @@ export function readPrivateSnapshots({ lunaId, entropy, scope, psnapshots = [], 
 		out.push({ ...snap, sealedMeta: snap.meta, meta });
 	}
 	return out.sort((a, b) => b.createdAt - a.createdAt);
+	} finally {
+		k.sealSecret.fill(0);
+		k.selfKey.fill(0);
+		k.authSecret.fill(0);
+	}
 }

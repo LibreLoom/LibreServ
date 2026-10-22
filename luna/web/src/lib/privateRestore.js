@@ -50,58 +50,68 @@ async function fetchPack(treePackId, cache) {
  */
 export async function restorePrivateFromPhrase(words, { lunaId, signingPublic }) {
   const entropy = phraseToEntropy(words);
-  const signingPublics = [fromBase64(signingPublic)];
-  const [pscopes, psnapshots] = await Promise.all([
-    fetchRecords(PSCOPES_KIND),
-    fetchRecords(PSNAPSHOTS_KIND),
-  ]);
+  let scopes = [];
+  let keys;
+  try {
+    const signingPublics = [fromBase64(signingPublic)];
+    const [pscopes, psnapshots] = await Promise.all([
+      fetchRecords(PSCOPES_KIND),
+      fetchRecords(PSNAPSHOTS_KIND),
+    ]);
 
-  const scopes = findMyPrivateScopes({ lunaId, entropy, pscopes, signingPublics });
-  if (scopes.length === 0) throw new Error(NOT_FOUND_MESSAGE);
+    scopes = findMyPrivateScopes({ lunaId, entropy, pscopes, signingPublics });
+    if (scopes.length === 0) throw new Error(NOT_FOUND_MESSAGE);
 
-  // The signed snapshot record bytes, keyed by record name, so Luna gets the original signed bytes.
-  const rawSnapshotRecords = new Map(psnapshots.map((r) => [r.name, r.data]));
-  const { sealSecret } = derive(entropy, lunaId);
-  const packCache = new Map();
-  let restored = 0;
+    // The signed snapshot record bytes, keyed by record name, so Luna gets the original signed bytes.
+    const rawSnapshotRecords = new Map(psnapshots.map((r) => [r.name, r.data]));
+    keys = derive(entropy, lunaId);
+    const packCache = new Map();
+    let restored = 0;
 
-  for (const found of scopes) {
-    const views = readPrivateSnapshots({
-      lunaId,
-      entropy,
-      scope: found.scope,
-      psnapshots,
-      signingPublics,
-    });
-    if (views.length === 0) continue;
-
-    const unwrapKey = privateUnwrap(sealSecret, lunaId, found.scope);
-    const openTreeBytes = openPrivateTreeBytes(sealSecret, lunaId, found.scope);
-    const snapshots = [];
-    for (const snap of views) {
-      const recordBytes = rawSnapshotRecords.get(`${found.scope}.${snap.snapshotId}`);
-      const treePack = await fetchPack(snap.treePackId, packCache);
-      const tree = readRawTreeWith(treePack, snap, unwrapKey, openTreeBytes);
-      snapshots.push({
-        snapshot_id: snap.snapshotId,
-        protection_id: snap.protectionId,
-        record: toBase64(recordBytes),
-        meta: {
-          name: snap.meta.name,
-          source_drive: snap.meta.sourceDrive,
-          source_path: snap.meta.sourcePath,
-        },
-        tree,
+    for (const found of scopes) {
+      const views = readPrivateSnapshots({
+        lunaId,
+        entropy,
+        scope: found.scope,
+        psnapshots,
+        signingPublics,
       });
+      if (views.length === 0) continue;
+
+      const unwrapKey = privateUnwrap(keys.sealSecret, lunaId, found.scope);
+      const openTreeBytes = openPrivateTreeBytes(keys.sealSecret, lunaId, found.scope);
+      const snapshots = [];
+      for (const snap of views) {
+        const recordBytes = rawSnapshotRecords.get(`${found.scope}.${snap.snapshotId}`);
+        const treePack = await fetchPack(snap.treePackId, packCache);
+        const tree = readRawTreeWith(treePack, snap, unwrapKey, openTreeBytes);
+        snapshots.push({
+          snapshot_id: snap.snapshotId,
+          protection_id: snap.protectionId,
+          record: toBase64(recordBytes),
+          meta: {
+            name: snap.meta.name,
+            source_drive: snap.meta.sourceDrive,
+            source_path: snap.meta.sourcePath,
+          },
+          tree,
+        });
+      }
+
+      const data = await postJson(PRIVATE_RESTORE_PATH, {
+        scope: found.scope,
+        dedup_key: toBase64(found.dedupKey),
+        snapshots,
+      });
+      restored += data.restored ?? snapshots.length;
     }
 
-    const data = await postJson(PRIVATE_RESTORE_PATH, {
-      scope: found.scope,
-      dedup_key: toBase64(found.dedupKey),
-      snapshots,
-    });
-    restored += data.restored ?? snapshots.length;
+    return { restored };
+  } finally {
+    entropy.fill(0);
+    keys?.sealSecret.fill(0);
+    keys?.selfKey.fill(0);
+    keys?.authSecret.fill(0);
+    for (const found of scopes) found.dedupKey.fill(0);
   }
-
-  return { restored };
 }

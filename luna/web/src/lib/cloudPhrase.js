@@ -97,15 +97,20 @@ export function buildPhraseBody(entropy, { lunaId, userId, signingPublic }) {
     throw new Error("Luna's signing key is missing. Reload the page and try again.");
   }
   const keys = derive(entropy, lunaId);
-  const aad = canonical([
-    ["luna_id", encoder.encode(lunaId)],
-    ["user_id", encoder.encode(userId)],
-    ["purpose", encoder.encode("signing-public")],
-  ]);
-  const body = {
-    seal_public: toBase64(keys.sealPublic),
-    auth_public: toBase64(keys.authPublic),
-    self_sealed: toBase64(encrypt(keys.selfKey, aad, signingBytes)),
-  };
-  return body;
+  try {
+    const aad = canonical([
+      ["luna_id", encoder.encode(lunaId)],
+      ["user_id", encoder.encode(userId)],
+      ["purpose", encoder.encode("signing-public")],
+    ]);
+    return {
+      seal_public: toBase64(keys.sealPublic),
+      auth_public: toBase64(keys.authPublic),
+      self_sealed: toBase64(encrypt(keys.selfKey, aad, signingBytes)),
+    };
+  } finally {
+    keys.sealSecret.fill(0);
+    keys.selfKey.fill(0);
+    keys.authSecret.fill(0);
+  }
 }
