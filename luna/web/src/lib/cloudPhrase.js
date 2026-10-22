@@ -42,9 +42,11 @@ export function createIdentity() {
   return postJson("/api/v1/cloud/identity", {});
 }
 
-/** POST: `{ challenge }` (base64, 32 bytes, single-use). */
-export function requestChallenge() {
-  return postJson(`${PHRASE_PATH}/challenge`, {});
+/** POST: `{ challenge }` (base64, 32 bytes, single-use).
+ * @param {{ signal?: AbortSignal }} [options]
+ */
+export function requestChallenge(options = {}) {
+  return postJson(`${PHRASE_PATH}/challenge`, {}, options);
 }
 
 /** POST: `{ ok: true }` when the signature proves the phrase. */
@@ -62,12 +64,17 @@ export function savePhrase(body) {
  * `entropy` derives. Returns the base64 signature.
  * @param {Uint8Array} entropy 16 or 32 bytes of phrase entropy (12 or 24 words)
  * @param {string} lunaId
+ * @param {AbortSignal} [signal]
  * @returns {Promise<string>}
  */
-export async function signFreshChallenge(entropy, lunaId) {
+export async function signFreshChallenge(entropy, lunaId, signal) {
   const { authSecret } = derive(entropy, lunaId);
-  const { challenge } = await requestChallenge();
-  return toBase64(sign(authSecret, CHECK_DOMAIN, fromBase64(challenge)));
+  try {
+    const { challenge } = await requestChallenge({ signal });
+    return toBase64(sign(authSecret, CHECK_DOMAIN, fromBase64(challenge)));
+  } finally {
+    authSecret.fill(0);
+  }
 }
 
 /**

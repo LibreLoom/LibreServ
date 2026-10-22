@@ -6,8 +6,9 @@
 //! POSTs the plain backup keys back. The phrase never reaches Luna. Luna only serves public keys,
 //! sealed records, and the backup keys the browser has already opened and checked.
 
+use axum::body::Body;
 use axum::extract::{Extension, Path, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderValue, Response, StatusCode, header};
 use axum::routing::get;
 use axum::{Json, Router};
 use base64::Engine;
@@ -15,6 +16,8 @@ use base64::engine::general_purpose::STANDARD;
 use rusqlite::params;
 use serde::Deserialize;
 use serde_json::{Value, json};
+use std::convert::Infallible;
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::AppState;
 use crate::api::cloud_backups::connect_store;
@@ -24,7 +27,9 @@ use crate::auth::CurrentUser;
 use crate::backup::cloud::crypto;
 use crate::backup::cloud::identity::{self, Identity};
 use crate::backup::cloud::keys::{self, USERS_KIND, USERS_LIST_NAME};
-use crate::backup::cloud::recover::{self, Recovered};
+use crate::backup::cloud::recover;
+#[cfg(test)]
+use crate::backup::cloud::recover::Recovered;
 use crate::backup::cloud::store::CloudStore;
 use crate::db;
 
@@ -193,17 +198,23 @@ async fn records(
 async fn restore(
     State(state): State<AppState>,
     Extension(user): Extension<CurrentUser>,
-    Json(body): Json<RestoreBody>,
-) -> ApiResult {
+    Json(mut body): Json<RestoreBody>,
+) -> Result<Response<Body>, ApiError> {
     require_admin(&user)?;
-    parse_keys(&body, 0)?;
+    let parsed_keys = parse_keys(&body, 0);
+    for key in &mut body.keys {
+        key.key.zeroize();
+        key.dedup_key.zeroize();
+    }
+    let keys = parsed_keys?;
     let db = state.db.clone();
+    let setup_db = db.clone();
     let connect = state.connect.clone();
     let user_id = user.id.clone();
-    let answer = tokio::task::spawn_blocking(move || -> Result<Value, ApiError> {
-        let store = connect_store(&connect, &db).ok_or_else(not_set_up)?;
+    let (store, identity) = tokio::task::spawn_blocking(move || {
+        let store = connect_store(&connect, &setup_db).ok_or_else(not_set_up)?;
         let identity = {
-            let conn = db.lock().unwrap_or_else(|p| p.into_inner());
+            let conn = setup_db.lock().unwrap_or_else(|p| p.into_inner());
             identity::load(&conn).map_err(read_failed)?.ok_or_else(|| {
                 json_error(
                     StatusCode::CONFLICT,
@@ -211,42 +222,131 @@ async fn restore(
                 )
             })?
         };
-        let r = restore_with_store(&db, &store, &identity, &user_id, &body, db::now_unix())?;
-        Ok(json!({
-            "snapshots": r.snapshots,
-            "already_indexed": r.already_indexed,
-            "skipped": r.skipped,
-        }))
+        Ok::<_, ApiError>((store, identity))
     })
-    .await;
-    finish(answer)
+    .await
+    .map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna could not start the cloud backup restore. Try again.",
+        )
+    })??;
+    let (tx, rx) = tokio::sync::mpsc::channel::<String>(1);
+    tokio::task::spawn_blocking(move || {
+        let now = db::now_unix();
+        let result = recover::fetch_incrementally(
+            &store,
+            &identity,
+            keys.as_slice(),
+            |snapshot| {
+                if tx.is_closed() {
+                    anyhow::bail!("restore client disconnected")
+                }
+                let conn = db.lock().unwrap_or_else(|p| p.into_inner());
+                if recover::already_indexed(&conn, &snapshot.record.snapshot_id)? {
+                    Ok(recover::RestoreDisposition::AlreadyIndexed)
+                } else {
+                    let mut conn = conn;
+                    recover::write_snapshot_for_restore(&mut conn, snapshot, now)?;
+                    Ok(recover::RestoreDisposition::Written)
+                }
+            },
+            |processed, total, counts| {
+                let event = json!({"type":"progress", "processed":processed, "total":total,
+                    "snapshots":counts.snapshots, "already_indexed":counts.already_indexed,
+                    "skipped":counts.skipped})
+                .to_string();
+                tx.blocking_send(event)
+                    .map_err(|_| anyhow::anyhow!("restore client disconnected"))
+            },
+        );
+        match result {
+            Ok(counts) => {
+                if tx.is_closed() {
+                    return;
+                }
+                let relink = proven_old_accounts(&store, &identity, &user_id, &body, now);
+                let conn = db.lock().unwrap_or_else(|p| p.into_inner());
+                let mut relink_failed = false;
+                for old in relink {
+                    match db::get_user(&conn, &old) {
+                        Ok(Some(_)) => continue,
+                        Err(err) => {
+                            tracing::warn!(error = %err, "could not check an old cloud backup owner");
+                            relink_failed = true;
+                            break;
+                        }
+                        Ok(None) => {}
+                    }
+                    if let Err(err) = conn.execute(
+                        "UPDATE protections SET created_by = ?1 WHERE created_by = ?2",
+                        params![user_id, old],
+                    ) {
+                        tracing::warn!(error = %err, "could not re-link an old cloud backup owner");
+                        relink_failed = true;
+                        break;
+                    }
+                }
+                if relink_failed {
+                    let _ = tx.blocking_send(json!({"type":"error", "message":"Luna restored the backup list but could not re-link every old account. Try again."}).to_string());
+                    return;
+                }
+                let done = json!({"type":"done", "snapshots":counts.snapshots,
+                    "already_indexed":counts.already_indexed, "skipped":counts.skipped})
+                .to_string();
+                let _ = tx.blocking_send(done);
+            }
+            Err(err) => {
+                tracing::warn!(error = %err, "could not rebuild the cloud backup index");
+                let event = json!({"type":"error", "message":"Luna couldn't finish restoring your backup list. Some versions may already be back; try again to continue."}).to_string();
+                let _ = tx.blocking_send(event);
+            }
+        }
+    });
+    let stream = futures_util::stream::unfold(rx, |mut rx| async move {
+        rx.recv()
+            .await
+            .map(|event| (Ok::<_, Infallible>(format!("data: {event}\n\n")), rx))
+    });
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("text/event-stream"),
+        )
+        .header(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"))
+        .header("x-accel-buffering", HeaderValue::from_static("no"))
+        .body(Body::from_stream(stream))
+        .expect("valid restore stream response"))
 }
 
 /// Checks the keys the browser sent and turns them into backup keys.
-fn parse_keys(body: &RestoreBody, now: i64) -> Result<Vec<db::BackupKey>, ApiError> {
+fn parse_keys(body: &RestoreBody, now: i64) -> Result<Zeroizing<Vec<db::BackupKey>>, ApiError> {
     if body.keys.is_empty() || body.keys.len() > MAX_KEYS {
         return Err(unreadable_keys());
     }
-    body.keys
-        .iter()
-        .map(|k| {
-            let id_ok = !k.protection_id.is_empty()
-                && k.protection_id.len() <= 64
-                && k.protection_id
-                    .bytes()
-                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
-            if !id_ok || k.version < 1 {
-                return Err(unreadable_keys());
-            }
-            Ok(db::BackupKey {
-                protection_id: k.protection_id.clone(),
-                version: k.version,
-                key: decode_32(&k.key)?,
-                dedup_key: decode_32(&k.dedup_key)?,
-                created_at: now,
-            })
-        })
-        .collect()
+    let mut parsed = Zeroizing::new(Vec::with_capacity(body.keys.len()));
+    for key in &body.keys {
+        let id_ok = !key.protection_id.is_empty()
+            && key.protection_id.len() <= 64
+            && key
+                .protection_id
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
+        if !id_ok || key.version < 1 {
+            return Err(unreadable_keys());
+        }
+        let mut backup_key = Zeroizing::new(decode_32(&key.key)?);
+        let mut dedup_key = Zeroizing::new(decode_32(&key.dedup_key)?);
+        parsed.push(db::BackupKey {
+            protection_id: key.protection_id.clone(),
+            version: key.version,
+            key: std::mem::take(&mut *backup_key),
+            dedup_key: std::mem::take(&mut *dedup_key),
+            created_at: now,
+        });
+    }
+    Ok(parsed)
 }
 
 fn decode_32(s: &str) -> Result<Vec<u8>, ApiError> {
@@ -272,6 +372,7 @@ fn records_with_store(store: &dyn CloudStore, kind: &str) -> Result<Value, ApiEr
 
 /// Rebuilds the snapshot index from the store, then re-links backups made under old accounts.
 /// Every store read happens with the database lock free. The lock is taken only for the writes.
+#[cfg(test)]
 fn restore_with_store(
     db: &crate::Db,
     store: &dyn CloudStore,
@@ -288,10 +389,24 @@ fn restore_with_store(
             "Luna could not read its cloud backups from Luna Connect. Try again.",
         )
     };
-    let prepared = recover::fetch_recoverable(store, identity, &keys).map_err(index_failed)?;
+    let r = recover::fetch_incrementally(
+        store,
+        identity,
+        keys.as_slice(),
+        |snapshot| {
+            let mut conn = db.lock().unwrap_or_else(|p| p.into_inner());
+            if recover::already_indexed(&conn, &snapshot.record.snapshot_id)? {
+                Ok(recover::RestoreDisposition::AlreadyIndexed)
+            } else {
+                recover::write_snapshot_for_restore(&mut conn, snapshot, now)?;
+                Ok(recover::RestoreDisposition::Written)
+            }
+        },
+        |_processed, _total, _progress| Ok(()),
+    )
+    .map_err(index_failed)?;
     let relink = proven_old_accounts(store, identity, user_id, body, now);
-    let mut conn = db.lock().unwrap_or_else(|p| p.into_inner());
-    let r = recover::write_recovered(&mut conn, prepared, now).map_err(index_failed)?;
+    let conn = db.lock().unwrap_or_else(|p| p.into_inner());
     // Only old accounts are re-linked. A current user's backups stay theirs.
     for old in &relink {
         if db::get_user(&conn, old).map_err(read_failed)?.is_some() {
@@ -447,10 +562,17 @@ mod tests {
         let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();
-        (
-            status,
-            serde_json::from_slice(&bytes).unwrap_or(Value::Null),
-        )
+        let parsed = if let Ok(value) = serde_json::from_slice(&bytes) {
+            value
+        } else {
+            String::from_utf8_lossy(&bytes)
+                .lines()
+                .filter_map(|line| line.strip_prefix("data: "))
+                .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+                .find(|value| value["type"] == "done" || value["type"] == "error")
+                .unwrap_or(Value::Null)
+        };
+        (status, parsed)
     }
 
     /// The keys the browser would POST for one backup key and dedup key.

@@ -9,6 +9,7 @@ use anyhow::{Result, anyhow, bail};
 use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use zeroize::Zeroizing;
 
 use super::crypto::{self, SigBytes, SigPublic, Signer};
 
@@ -158,7 +159,7 @@ pub fn open_pack(
     }
     let wrapped_len = take_len(&mut rest)?;
     let wrapped = take(&mut rest, wrapped_len)?;
-    let pack_key = unwrap_key(wrapped)?;
+    let pack_key = Zeroizing::new(unwrap_key(wrapped)?);
     let index_len = take_len(&mut rest)?;
     let sealed_index = take(&mut rest, index_len)?;
 

@@ -11,6 +11,7 @@ use std::collections::HashMap;
 
 use anyhow::{Result, anyhow};
 use rusqlite::{Connection, OptionalExtension, params};
+use zeroize::Zeroizing;
 
 use super::crypto;
 use super::format::{self, BackupMeta, SignedRecord, SnapshotRecord};
@@ -34,15 +35,6 @@ pub struct Recovered {
     pub skipped: u32,
 }
 
-/// Records fetched and checked from Connect, ready to write. Built without a database connection,
-/// so the network work can finish before any database lock is taken.
-pub struct Prepared {
-    /// Records that could not be read, verified, opened, or matched to a backup key.
-    pub skipped: u32,
-    /// Snapshots that passed every check.
-    pub snapshots: Vec<PreparedSnapshot>,
-}
-
 /// One snapshot's fetched and decrypted parts.
 pub struct PreparedSnapshot {
     /// The signed record bytes, kept as the index's copy of the snapshot.
@@ -55,7 +47,7 @@ pub struct PreparedSnapshot {
     pub tree: format::Tree,
     pub meta: BackupMeta,
     /// The backup key this snapshot was opened with.
-    pub key: BackupKey,
+    pub key: Zeroizing<BackupKey>,
 }
 
 /// Rebuild the snapshot index from the snapshot records on the store.
@@ -67,52 +59,64 @@ pub fn rebuild_snapshot_index(
     keys: &[BackupKey],
     now: i64,
 ) -> Result<Recovered> {
-    let prepared = fetch_recoverable(store, identity, keys)?;
-    write_recovered(conn, prepared, now)
+    fetch_incrementally(
+        store,
+        identity,
+        keys,
+        |snapshot| {
+            if already_indexed(conn, &snapshot.record.snapshot_id)? {
+                Ok(RestoreDisposition::AlreadyIndexed)
+            } else {
+                write_snapshot_for_restore(conn, snapshot, now)?;
+                Ok(RestoreDisposition::Written)
+            }
+        },
+        |_processed, _total, _counts| Ok(()),
+    )
 }
 
-/// Fetch, verify and decrypt every snapshot record on the store. Makes no database changes.
-pub fn fetch_recoverable(
+/// Fetch and verify one snapshot at a time, handing it to the caller for an independent write.
+/// Each tree pack (bounded by the store's per-pack limit) and decrypted tree are dropped before the next one;
+/// chunk data packs are indexed from tree references but never fetched. `CloudStore::list_records`
+/// still returns every snapshot name at once, so name-list memory grows with the snapshot count.
+/// The callback reports completed records, including records that could not be verified.
+pub enum RestoreDisposition {
+    Written,
+    AlreadyIndexed,
+}
+
+pub fn fetch_incrementally(
     store: &dyn CloudStore,
     identity: &Identity,
     keys: &[BackupKey],
-) -> Result<Prepared> {
-    let names = store
+    mut handle: impl FnMut(PreparedSnapshot) -> Result<RestoreDisposition>,
+    mut progress: impl FnMut(u32, u32, &Recovered) -> Result<()>,
+) -> Result<Recovered> {
+    let mut names = store
         .list_records(SNAPSHOT_KIND)
         .map_err(|e| anyhow!("{e}"))?;
-    let mut out = Prepared {
-        skipped: 0,
-        snapshots: Vec::new(),
-    };
-    for name in names {
-        let bytes = match store.get_record(SNAPSHOT_KIND, &name) {
-            Ok(Some(bytes)) => bytes,
-            _ => {
-                out.skipped += 1;
-                continue;
-            }
+    names.sort();
+    let total = names.len().min(u32::MAX as usize) as u32;
+    let mut out = Recovered::default();
+    for (index, name) in names.into_iter().enumerate() {
+        let processed = index.saturating_add(1).min(u32::MAX as usize) as u32;
+        let bytes = store
+            .get_record(SNAPSHOT_KIND, &name)
+            .map_err(|e| anyhow!("{e}"))?;
+        let Some(bytes) = bytes else {
+            out.skipped += 1;
+            progress(processed, total, &out)?;
+            continue;
         };
-        match fetch_one(store, identity, keys, bytes) {
-            Some(snapshot) => out.snapshots.push(snapshot),
+        let snapshot = fetch_one(store, identity, keys, bytes)?;
+        match snapshot {
+            Some(snapshot) => match handle(snapshot)? {
+                RestoreDisposition::AlreadyIndexed => out.already_indexed += 1,
+                RestoreDisposition::Written => out.snapshots += 1,
+            },
             None => out.skipped += 1,
         }
-    }
-    Ok(out)
-}
-
-/// Write fetched snapshots into the index. Snapshots already indexed are counted and left alone.
-pub fn write_recovered(conn: &mut Connection, prepared: Prepared, now: i64) -> Result<Recovered> {
-    let mut out = Recovered {
-        skipped: prepared.skipped,
-        ..Recovered::default()
-    };
-    for snapshot in prepared.snapshots {
-        if already_indexed(conn, &snapshot.record.snapshot_id)? {
-            out.already_indexed += 1;
-        } else {
-            write_snapshot(conn, snapshot, now)?;
-            out.snapshots += 1;
-        }
+        progress(processed, total, &out)?;
     }
     Ok(out)
 }
@@ -123,51 +127,73 @@ fn fetch_one(
     identity: &Identity,
     keys: &[BackupKey],
     bytes: Vec<u8>,
-) -> Option<PreparedSnapshot> {
-    let signed = SignedRecord::from_bytes(&bytes).ok()?;
-    let record = signed.verify(&identity.public()).ok()?;
+) -> Result<Option<PreparedSnapshot>> {
+    let Some(signed) = SignedRecord::from_bytes(&bytes).ok() else {
+        return Ok(None);
+    };
+    let Some(record) = signed.verify(&identity.public()).ok() else {
+        return Ok(None);
+    };
     if record.luna_id != identity.luna_id() {
-        return None;
+        return Ok(None);
     }
-    let key = keys.iter().find(|k| {
+    let Some(key) = keys.iter().find(|k| {
         k.protection_id == record.protection_id && k.version == i64::from(record.key_version)
-    })?;
-    let tree_key = <[u8; 32]>::try_from(key.key.as_slice()).ok()?;
-    let dedup_key = <[u8; 32]>::try_from(key.dedup_key.as_slice()).ok()?;
+    }) else {
+        return Ok(None);
+    };
+    let Ok(tree_key) = <[u8; 32]>::try_from(key.key.as_slice()) else {
+        return Ok(None);
+    };
+    let tree_key = Zeroizing::new(tree_key);
+    let Ok(dedup_key) = <[u8; 32]>::try_from(key.dedup_key.as_slice()) else {
+        return Ok(None);
+    };
+    let dedup_key = Zeroizing::new(dedup_key);
 
     // The tree pack must open with this key and hold the tree the record names.
-    let pack_bytes = store.get_pack(&record.tree_pack_id).ok()?;
+    let pack_bytes = store.get_pack(&record.tree_pack_id)?;
     let unwrap = |wrapped: &[u8]| -> Result<[u8; 32]> {
-        let plain = crypto::decrypt(&tree_key, PACK_KEY_WRAP_AAD, wrapped)?;
+        let plain = Zeroizing::new(crypto::decrypt(&tree_key, PACK_KEY_WRAP_AAD, wrapped)?);
         <[u8; 32]>::try_from(plain.as_slice()).map_err(|_| anyhow!("pack key"))
     };
-    let pack = format::open_pack(&pack_bytes, &record.tree_pack_id, unwrap).ok()?;
+    let Ok(pack) = format::open_pack(&pack_bytes, &record.tree_pack_id, unwrap) else {
+        return Ok(None);
+    };
     let sealed = match pack.chunk(&record.tree_hash) {
         Some(sealed) if format::sha256(sealed) == record.tree_hash => sealed,
-        _ => return None,
+        _ => return Ok(None),
     };
-    let tree = format::decrypt_tree(sealed, &tree_key).ok()?;
-    let meta = format::decrypt_meta(&record.meta, &tree_key).ok()?;
+    let Ok(tree) = format::decrypt_tree(sealed, &tree_key) else {
+        return Ok(None);
+    };
+    let Ok(meta) = format::decrypt_meta(&record.meta, &tree_key) else {
+        return Ok(None);
+    };
 
     // The pack's scope tag is derived from the dedup key, so a wrong dedup key cannot match it.
     let expected_scope = hex(&crypto::chunk_id(&dedup_key, b"luna-scope-v1")[..16]);
     let scope = hex(&pack.scope_id()[..16]);
     if scope != expected_scope {
-        return None;
+        return Ok(None);
     }
-    Some(PreparedSnapshot {
+    Ok(Some(PreparedSnapshot {
         record_bytes: bytes,
         tree_pack_size: pack_bytes.len() as i64,
         scope,
         record,
         tree,
         meta,
-        key: key.clone(),
-    })
+        key: Zeroizing::new(key.clone()),
+    }))
 }
 
 /// Write one prepared snapshot, its packs, chunks, protection row and backup key in one transaction.
-fn write_snapshot(conn: &mut Connection, snapshot: PreparedSnapshot, now: i64) -> Result<()> {
+pub(crate) fn write_snapshot_for_restore(
+    conn: &mut Connection,
+    snapshot: PreparedSnapshot,
+    now: i64,
+) -> Result<()> {
     let PreparedSnapshot {
         record_bytes,
         record,
@@ -288,7 +314,7 @@ fn backup_key_exists(conn: &Connection, protection_id: &str, version: i64) -> Re
     Ok(found.is_some())
 }
 
-fn already_indexed(conn: &Connection, snapshot_id: &str) -> Result<bool> {
+pub(crate) fn already_indexed(conn: &Connection, snapshot_id: &str) -> Result<bool> {
     let found: Option<i64> = conn
         .query_row(
             "SELECT 1 FROM cloud_snapshots WHERE id = ?1",
@@ -334,6 +360,68 @@ mod tests {
             dedup_key: DEDUP_KEY.to_vec(),
             created_at: NOW,
         }
+    }
+
+    #[test]
+    fn incremental_restore_keeps_only_one_tree_and_retry_finishes_partial_writes() {
+        let (_dir, identity) = fixture();
+        let store = MemoryStore::new();
+        // Exercise a larger listing while still proving that only the current snapshot reaches
+        // the write callback. The provider names sort with the failed record second.
+        for n in 1..=128 {
+            put_snapshot(
+                &store,
+                &identity,
+                &format!("snapshot-{n:03}"),
+                identity.luna_id(),
+            );
+        }
+        let db_dir = tempfile::tempdir().unwrap();
+        let mut conn = db::open(&db_dir.path().join("restore.db")).unwrap();
+        let key = backup_key(TREE_KEY);
+        let mut processed = Vec::new();
+        let first = fetch_incrementally(
+            &store,
+            &identity,
+            std::slice::from_ref(&key),
+            |snapshot| {
+                if snapshot.record.snapshot_id == "snapshot-002" {
+                    anyhow::bail!("injected failure after one committed snapshot")
+                }
+                if already_indexed(&conn, &snapshot.record.snapshot_id)? {
+                    Ok(RestoreDisposition::AlreadyIndexed)
+                } else {
+                    write_snapshot_for_restore(&mut conn, snapshot, NOW)?;
+                    Ok(RestoreDisposition::Written)
+                }
+            },
+            |done, total, _| {
+                processed.push((done, total));
+                Ok(())
+            },
+        );
+        assert!(first.is_err());
+        assert_eq!(processed, vec![(1, 128)]);
+        assert_eq!(db::count_shared_cloud_snapshots(&conn).unwrap(), 1);
+
+        let recovered = fetch_incrementally(
+            &store,
+            &identity,
+            &[key],
+            |snapshot| {
+                if already_indexed(&conn, &snapshot.record.snapshot_id)? {
+                    Ok(RestoreDisposition::AlreadyIndexed)
+                } else {
+                    write_snapshot_for_restore(&mut conn, snapshot, NOW)?;
+                    Ok(RestoreDisposition::Written)
+                }
+            },
+            |_done, _total, _| Ok(()),
+        )
+        .unwrap();
+        assert_eq!(recovered.snapshots, 127);
+        assert_eq!(recovered.already_indexed, 1);
+        assert_eq!(db::count_shared_cloud_snapshots(&conn).unwrap(), 128);
     }
 
     /// Write one snapshot of an empty tree the way a backup run does.

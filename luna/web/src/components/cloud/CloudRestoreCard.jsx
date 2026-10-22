@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CloudDownload } from "lucide-react";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
@@ -24,8 +24,12 @@ export default function CloudRestoreCard() {
   const queryClient = useQueryClient();
   const { addToast } = useToast();
   const fieldRef = useRef(null);
+  const restoreAbortRef = useRef(null);
   const [words, setWords] = useState("");
   const [error, setError] = useState("");
+  const [progress, setProgress] = useState(null);
+
+  useEffect(() => () => restoreAbortRef.current?.abort(), []);
 
   const restore = useQuery({
     queryKey: RESTORE_QUERY_KEY,
@@ -39,19 +43,24 @@ export default function CloudRestoreCard() {
   });
 
   const restoreMutation = useMutation({
-    mutationFn: (/** @type {string} */ text) =>
-      restoreFromPhrase(text, {
+    mutationFn: (/** @type {string} */ text) => {
+      const controller = new AbortController();
+      restoreAbortRef.current = controller;
+      return restoreFromPhrase(text, {
         lunaId: restore.data.luna_id,
         signingPublic: restore.data.signing_public,
         userId: String(user.id),
         phraseSet: Boolean(phrase.data?.set),
-      }),
-    onSuccess: ({ snapshots }) => {
+      }, setProgress, controller.signal);
+    },
+    onSuccess: ({ snapshots, alreadyIndexed }) => {
       setError("");
+      setProgress(null);
       setWords("");
+      const found = snapshots + alreadyIndexed;
       addToast({
         type: "success",
-        message: snapshots === 1 ? "Found 1 backup version" : `Found ${snapshots} backup versions`,
+        message: found === 1 ? "Found 1 backup version" : `Found ${found} backup versions`,
       });
       queryClient.invalidateQueries({ queryKey: RESTORE_QUERY_KEY });
       queryClient.invalidateQueries({ queryKey: PHRASE_QUERY_KEY });
@@ -59,10 +68,18 @@ export default function CloudRestoreCard() {
     },
     onError: (err) => {
       setWords("");
-      setError(apiErrorMessage(err, "Could not bring back your cloud backups. Try again."));
-      // shakeElement fires the error haptic, so no separate haptic call here.
-      shakeElement(fieldRef.current);
+      setProgress(null);
+      setError(err?.name === "AbortError"
+        ? "Restore stopped. Some backup versions may already be back; you can safely try again."
+        : apiErrorMessage(err, "Could not bring back your cloud backups. Try again."));
+      queryClient.invalidateQueries({ queryKey: RESTORE_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: ["cloud-backups"] });
+      if (err?.name !== "AbortError") {
+        // shakeElement fires the error haptic, so no separate haptic call here.
+        shakeElement(fieldRef.current);
+      }
     },
+    onSettled: () => { restoreAbortRef.current = null; },
   });
 
   if (!isAdmin || restore.isPending || restore.isError || !restore.data?.needed) return null;
@@ -105,6 +122,8 @@ export default function CloudRestoreCard() {
           onSubmit={submit}
           error={error}
           pending={restoreMutation.isPending}
+          progress={progress}
+          onCancel={() => restoreAbortRef.current?.abort()}
           submitLabel="Find my backups"
           fieldRef={fieldRef}
         />

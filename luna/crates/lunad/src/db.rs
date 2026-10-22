@@ -1476,6 +1476,13 @@ pub struct BackupKey {
     pub created_at: i64,
 }
 
+impl zeroize::Zeroize for BackupKey {
+    fn zeroize(&mut self) {
+        self.key.zeroize();
+        self.dedup_key.zeroize();
+    }
+}
+
 pub fn insert_backup_key(conn: &Connection, k: &BackupKey) -> anyhow::Result<()> {
     conn.execute(
         "INSERT INTO backup_keys (protection_id, version, key, dedup_key, created_at)
