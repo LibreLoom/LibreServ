@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Cloud, HardDrive, Shield } from "lucide-react";
 import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
@@ -13,6 +13,9 @@ import IconCircle from "@libreloom/ui/components/ui/IconCircle.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import { InfoHint, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { deleteJson, getDrives, getJson, postJson, apiErrorMessage } from "../../lib/api";
+import { createIdentity, getPhraseStatus, PHRASE_QUERY_KEY } from "../../lib/cloudPhrase";
+import { useOptionalAuth } from "../../context/AuthContext";
+import RecoveryPhraseSetup from "../cloud/RecoveryPhraseSetup.jsx";
 import { formatRecentAgo } from "../../lib/recentItems.js";
 import { useAnimatedHeight } from "@libreloom/ui/hooks/useAnimatedHeight.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
@@ -118,6 +121,12 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
   // Set when a cloud run stopped because the source looks missing; holds the backup id for "Back up anyway".
   const [missingSourceId, setMissingSourceId] = useState(null);
   const [confirmingOldCopies, setConfirmingOldCopies] = useState(false);
+  // Set while the recovery phrase setup is open: Luna's identity for the setup to seal against.
+  const [phraseSetup, setPhraseSetup] = useState(null);
+  const [startingCloud, setStartingCloud] = useState(false);
+  const startingCloudRef = useRef(false);
+  const auth = useOptionalAuth();
+  const userId = auth?.user?.id != null ? String(auth.user.id) : "";
   const objectPath = pathKey(path);
 
   const { outerRef: cloudOuterRef, innerRef: cloudInnerRef } = useAnimatedHeight();
@@ -252,10 +261,66 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
       refreshPrivateSummary();
     },
     onError: (err) => {
+      // The server wants a recovery phrase first: ask for one instead of showing an error.
+      if (/** @type {any} */ (err)?.code === "needs_phrase") {
+        openPhraseSetup();
+        return;
+      }
       haptic("error");
       setError(apiErrorMessage(err));
     },
   });
+
+  /** Open the phrase setup, creating Luna's identity first when a fresh Luna has none. */
+  async function openPhraseSetup() {
+    try {
+      /** @type {any} */
+      let status = queryClient.getQueryData(PHRASE_QUERY_KEY);
+      if (!status?.luna_id || !status?.signing_public) {
+        /** @type {any} */
+        const fresh = await queryClient.fetchQuery({ queryKey: PHRASE_QUERY_KEY, queryFn: getPhraseStatus, staleTime: 0 });
+        status = fresh;
+        if (!fresh.luna_id || !fresh.signing_public) {
+          const created = await createIdentity();
+          status = { ...fresh, luna_id: created.luna_id, signing_public: created.signing_public };
+          queryClient.setQueryData(PHRASE_QUERY_KEY, status);
+        }
+      }
+      setError(null);
+      setPhraseSetup({ lunaId: status.luna_id, signingPublic: status.signing_public });
+    } catch (err) {
+      haptic("error");
+      setError(apiErrorMessage(err, "Could not set up Luna's keys. Try again."));
+    }
+  }
+
+  /** "Back up to the cloud": with no phrase yet, set one up first; then create the backup. */
+  async function startCloudBackup() {
+    if (startingCloudRef.current || createCloud.isPending) return;
+    startingCloudRef.current = true;
+    setStartingCloud(true);
+    try {
+      /** @type {any} */
+      let status = queryClient.getQueryData(PHRASE_QUERY_KEY);
+      if (!status?.set) {
+        try {
+          status = await queryClient.fetchQuery({ queryKey: PHRASE_QUERY_KEY, queryFn: getPhraseStatus, staleTime: 0 });
+        } catch (err) {
+          haptic("error");
+          setError(apiErrorMessage(err, "Could not check your recovery phrase. Try again."));
+          return;
+        }
+      }
+      if (status.set) {
+        createCloud.mutate();
+      } else {
+        await openPhraseSetup();
+      }
+    } finally {
+      startingCloudRef.current = false;
+      setStartingCloud(false);
+    }
+  }
   const runCloud = useMutation({
     mutationFn: (/** @type {{id: string, acceptMissing?: boolean}} */ { id, acceptMissing = false }) =>
       postJson(`/api/v1/cloud/backups/${id}/run${acceptMissing ? "?accept_missing=true" : ""}`, {}),
@@ -592,9 +657,9 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                   variant="secondary"
                   surface="primary"
                   fullWidth
-                  loading={createCloud.isPending}
-                  disabled={createCloud.isPending}
-                  onClick={() => createCloud.mutate()}
+                  loading={createCloud.isPending || startingCloud}
+                  disabled={createCloud.isPending || startingCloud}
+                  onClick={startCloudBackup}
                 >
                   Back up to the cloud
                 </Button>
@@ -604,6 +669,18 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
           )}
         </div>
       </ModalCard>
+
+      {phraseSetup && (
+        <RecoveryPhraseSetup
+          lunaId={phraseSetup.lunaId}
+          userId={userId}
+          signingPublic={phraseSetup.signingPublic}
+          onClose={() => setPhraseSetup(null)}
+          onSaved={() => {
+            if (!createCloud.isPending) createCloud.mutate();
+          }}
+        />
+      )}
 
       <ConfirmModal
         open={deleting != null}

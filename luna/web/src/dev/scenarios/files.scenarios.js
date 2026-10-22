@@ -326,6 +326,16 @@ export default [
     check: ["Documents shows a cloud backup row with last backed up time", "Photos offers to start one", "Older versions option asks first"],
   },
   {
+    id: "files/cloud-backup-no-phrase", area: A, title: "Cloud backup before a recovery phrase", url: "/files/d1",
+    seed: (w) => {
+      demo(w);
+      w.connect = { enabled: true, card_on_file: true };
+      w.connectActive = true;
+      w.phrase = { set: false, set_at: 0, luna_id: "", signing_public: "", check_due: false };
+    },
+    check: ["Open Protect on Documents and choose Back up to the cloud", "The recovery phrase setup opens first", "Closing it leaves the sheet as it was, with no backup started", "Saving the phrase starts the cloud backup"],
+  },
+  {
     id: "files/protect-cloud-no-card", area: A, title: "Cloud backup, no payment card", url: "/files/d1",
     seed: (w) => { demo(w); w.connect = { enabled: true, card_on_file: false }; w.connectActive = true; },
     check: ["Says a card is needed, and where to add it"],

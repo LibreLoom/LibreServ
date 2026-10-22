@@ -11,7 +11,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::AppState;
-use crate::api::response::json_error;
+use crate::api::response::{json_error, json_error_code};
 use crate::auth::CurrentUser;
 use crate::backup::cloud::check::{CheckReport, Sample};
 use crate::backup::cloud::crypto::Signer;
@@ -24,6 +24,8 @@ use crate::db::{self, ProtectionRow};
 use crate::net::connect::ConnectService;
 use crate::private::{self, OwnerState};
 
+/// Machine code for "this person has no recovery phrase, so no cloud backup yet".
+const NEEDS_PHRASE_CODE: &str = "needs_phrase";
 /// How long Run and Check wait for the job before answering "not done yet".
 const RUN_WAIT: Duration = Duration::from_secs(15);
 /// Backups are checked once a day by the scheduler.
@@ -87,6 +89,18 @@ async fn create(
             return Err(json_error(
                 StatusCode::FORBIDDEN,
                 "You need Read access to this folder to back it up.",
+            ));
+        }
+        // A backup is sealed to the caller's phrase, so no phrase means no backup. This runs
+        // before anything is written or queued, so a refused request leaves nothing behind.
+        let has_phrase = db::get_user_keys(&conn, &user.id)
+            .map_err(|_| read_failed())?
+            .is_some();
+        if !has_phrase {
+            return Err(json_error_code(
+                StatusCode::CONFLICT,
+                NEEDS_PHRASE_CODE,
+                "Set up your recovery phrase in Settings → Cloud backup first.",
             ));
         }
     }
@@ -470,6 +484,7 @@ mod tests {
         _dir: tempfile::TempDir,
         state: AppState,
         router: Router,
+        admin_id: String,
         admin_token: String,
         member_id: String,
         member_token: String,
@@ -497,6 +512,7 @@ mod tests {
         Fixture {
             admin_token: auth.issue(&admin).unwrap(),
             member_token: auth.issue(&member).unwrap(),
+            admin_id: admin.id.clone(),
             member_id: member.id.clone(),
             _dir: dir,
             state,
@@ -853,5 +869,204 @@ mod tests {
         .await;
         assert_eq!(status, 403);
         assert_eq!(body["error"], "Only an Admin can back up a whole drive.");
+    }
+
+    /// Give `user_id` a recovery phrase's public keys, as setting one would.
+    fn give_phrase(state: &AppState, user_id: &str) {
+        let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
+        db::set_user_keys(
+            &conn,
+            &db::UserKeys {
+                user_id: user_id.to_string(),
+                seal_public: vec![1; 32],
+                auth_public: vec![2; 32],
+                self_sealed: vec![3; 48],
+                phrase_set_at: 1,
+                last_checked_at: 0,
+            },
+        )
+        .unwrap();
+    }
+
+    /// A connected drive "d1" with a folder "Docs", so a backup of it can be created.
+    fn seed_drive(f: &Fixture) {
+        let root = f._dir.path().join("drive-d1");
+        std::fs::create_dir_all(&root).unwrap();
+        let prefix = luna_core::marker::pick_prefix(&root).unwrap();
+        drop(
+            crate::drives::drive_db::create(
+                &root,
+                &luna_core::marker::Marker::new("d1".to_string(), "Photos"),
+                &prefix,
+            )
+            .unwrap(),
+        );
+        std::fs::create_dir_all(root.join("Docs")).unwrap();
+        let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+        db::upsert_drive(
+            &conn,
+            "d1",
+            "Photos",
+            "as_is",
+            "ext4",
+            "d1",
+            root.to_str().unwrap(),
+        )
+        .unwrap();
+    }
+
+    /// Let the Member read the "Docs" folder, so they may back it up.
+    fn grant_member_docs(f: &Fixture) {
+        let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+        db::insert_access_member(
+            &conn,
+            &db::AccessMemberRow {
+                id: "grant-docs".into(),
+                subject_kind: crate::access::KIND_PATH.into(),
+                drive_id: "d1".into(),
+                path: "Docs".into(),
+                album_id: String::new(),
+                user_id: f.member_id.clone(),
+                caps: crate::access::CAP_VIEW,
+                created_by: f.admin_id.clone(),
+            },
+        )
+        .unwrap();
+    }
+
+    /// Rows in the protections table, of any kind.
+    fn protection_count(state: &AppState) -> i64 {
+        let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
+        conn.query_row("SELECT COUNT(*) FROM protections", [], |r| r.get(0))
+            .unwrap()
+    }
+
+    fn whole_drive_body() -> Option<&'static str> {
+        Some(r#"{"source_drive_id":"d1","source_path":""}"#)
+    }
+
+    #[tokio::test]
+    async fn admin_without_a_phrase_is_refused_before_anything_is_written() {
+        let f = fixture();
+        seed_drive(&f);
+        let (status, body) = send(
+            &f.router,
+            "POST",
+            "/api/v1/cloud/backups",
+            &f.admin_token,
+            whole_drive_body(),
+        )
+        .await;
+        assert_eq!(status, 409);
+        assert_eq!(body["code"], "needs_phrase");
+        assert_eq!(
+            body["error"],
+            "Set up your recovery phrase in Settings → Cloud backup first."
+        );
+        assert_eq!(protection_count(&f.state), 0, "no backup row was written");
+        let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+        assert!(
+            crate::backup::cloud::identity::load(&conn)
+                .unwrap()
+                .is_none(),
+            "no cloud identity was minted"
+        );
+    }
+
+    #[tokio::test]
+    async fn admin_with_a_phrase_creates_the_backup() {
+        let f = fixture();
+        seed_drive(&f);
+        give_phrase(&f.state, &f.admin_id);
+        let (status, body) = send(
+            &f.router,
+            "POST",
+            "/api/v1/cloud/backups",
+            &f.admin_token,
+            whole_drive_body(),
+        )
+        .await;
+        assert_eq!(status, 200, "create refused: {body}");
+        assert!(body["id"].as_str().is_some_and(|id| !id.is_empty()));
+        assert_eq!(protection_count(&f.state), 1);
+    }
+
+    #[tokio::test]
+    async fn member_without_a_phrase_is_refused_for_a_shared_folder() {
+        let f = fixture();
+        seed_drive(&f);
+        grant_member_docs(&f);
+        let (status, body) = send(
+            &f.router,
+            "POST",
+            "/api/v1/cloud/backups",
+            &f.member_token,
+            Some(r#"{"source_drive_id":"d1","source_path":"Docs"}"#),
+        )
+        .await;
+        assert_eq!(status, 409);
+        assert_eq!(body["code"], "needs_phrase");
+        assert_eq!(protection_count(&f.state), 0);
+    }
+
+    #[tokio::test]
+    async fn a_phrase_belonging_to_someone_else_does_not_count() {
+        let f = fixture();
+        seed_drive(&f);
+        // The Member has a phrase; the Admin asking does not.
+        give_phrase(&f.state, &f.member_id);
+        let (status, body) = send(
+            &f.router,
+            "POST",
+            "/api/v1/cloud/backups",
+            &f.admin_token,
+            whole_drive_body(),
+        )
+        .await;
+        assert_eq!(status, 409);
+        assert_eq!(body["code"], "needs_phrase");
+        assert_eq!(protection_count(&f.state), 0);
+    }
+
+    #[tokio::test]
+    async fn no_phrase_and_no_access_still_answers_forbidden_first() {
+        let f = fixture();
+        seed_drive(&f);
+        // The Member has neither a phrase nor access to Docs: the no-access answer comes first,
+        // so they never learn a backup of it is possible.
+        let (status, body) = send(
+            &f.router,
+            "POST",
+            "/api/v1/cloud/backups",
+            &f.member_token,
+            Some(r#"{"source_drive_id":"d1","source_path":"Docs"}"#),
+        )
+        .await;
+        assert_eq!(status, 403);
+        assert_eq!(
+            body["error"],
+            "You need Read access to this folder to back it up."
+        );
+        assert_eq!(protection_count(&f.state), 0);
+    }
+
+    #[tokio::test]
+    async fn member_with_a_phrase_creates_a_shared_backup_held_while_no_admin_has_one() {
+        let f = fixture();
+        seed_drive(&f);
+        grant_member_docs(&f);
+        give_phrase(&f.state, &f.member_id);
+        // No Admin has a phrase, so the backup waits with today's hold copy rather than being refused.
+        let (status, body) = send(
+            &f.router,
+            "POST",
+            "/api/v1/cloud/backups",
+            &f.member_token,
+            Some(r#"{"source_drive_id":"d1","source_path":"Docs"}"#),
+        )
+        .await;
+        assert_eq!(status, 200, "create refused: {body}");
+        assert!(body["id"].as_str().is_some_and(|id| !id.is_empty()));
+        assert_eq!(protection_count(&f.state), 1);
     }
 }

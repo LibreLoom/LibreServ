@@ -70,17 +70,7 @@ export default [
       w.cloudBackups = [cloudBackup({ last_checked_at: at(200 * DAY), last_ok_at: at(HOUR) })];
       w.phrase = { ...w.phrase, check_due: true };
     },
-    check: [NEEDS, "Row asks you to check your recovery phrase", "The check opens and accepts any 12 or 24 words"],
-  },
-  {
-    id: "dashboard/no-phrase",
-    area: "Dashboard",
-    title: "Cloud backup but no recovery phrase yet",
-    seed: (w) => {
-      w.cloudBackups = [cloudBackup()];
-      w.phrase = { set: false, set_at: 0, luna_id: "", signing_public: "", check_due: false };
-    },
-    check: ["Dashboard still loads", "Settings → Cloud backup explains how to set the phrase up"],
+    check: [NEEDS, "Row asks you to check your recovery phrase", "Check now opens the Check my phrase dialog", "It accepts any 12 or 24 words and the row clears"],
   },
   {
     id: "dashboard/drive-failed",
