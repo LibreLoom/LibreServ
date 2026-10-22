@@ -14,9 +14,8 @@ const CATEGORIES = [
 ];
 
 /** Categories visible to a user with the given admin status. */
-export function visibleCategories(isAdmin, connectActive = false) {
+export function visibleCategories(isAdmin) {
   return CATEGORIES.filter((c) => {
-    if (!connectActive && c.id === "external_services") return false;
     return isAdmin || !c.adminOnly;
   });
 }

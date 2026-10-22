@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -105,6 +106,9 @@ func (s *Server) setupRoutes() {
 	connectivityHandler := handlersnetwork.NewConnectivityHandler(s.ddnsService, s.appManager, s.caddyManager)
 	wifiHandler := handlersnetwork.NewWifiHandler(wifi.Auto())
 	tunnelHandler := handlersnetwork.NewTunnelHandler(s.tunnelService, s.settingsService, s.connectClient)
+	tailscaleService := network.NewTailscaleService(filepath.Dir(config.Get().Database.Path), config.Get().Server.Port)
+	tailscaleHandler := handlersnetwork.NewTailscaleHandler(tailscaleService)
+	factoryResetHandler.SetTailscale(tailscaleService)
 	reportHandler := handlerssystem.NewReportHandler(s.reportService)
 	mappingHandler := handlersnetwork.NewMappingHandler(s.upnpClient)
 	plansHandler := handlersservices.NewPlansHandler(s.reportService, s.appManager, s.pathStateStore)
@@ -606,6 +610,17 @@ func (s *Server) setupRoutes() {
 				r.Post("/enable", tunnelHandler.Enable)
 				r.Post("/disable", tunnelHandler.Disable)
 				r.Post("/delete", tunnelHandler.Delete)
+			})
+
+			// Tailscale access is separate from Connect and the ordinary public network plan.
+			r.Route("/network/tailscale", func(r chi.Router) {
+				r.Use(middleware.RequireRole("admin"))
+				r.Get("/status", tailscaleHandler.Status)
+				r.Post("/connect", tailscaleHandler.Connect)
+				r.Post("/reconnect", tailscaleHandler.Reconnect)
+				r.Post("/serve", tailscaleHandler.Serve)
+				r.Post("/disable", tailscaleHandler.Disable)
+				r.Post("/forget", tailscaleHandler.Forget)
 			})
 
 			// Audit logs (admin only)

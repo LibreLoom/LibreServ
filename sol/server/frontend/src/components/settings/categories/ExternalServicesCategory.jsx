@@ -18,6 +18,7 @@ import BackupServiceModal from "../../connect/BackupServiceModal.jsx";
 import TunnelServiceModal from "../../connect/TunnelServiceModal.jsx";
 import AIServiceModal from "../../connect/AIServiceModal.jsx";
 import { getConnectUsage } from "../../../lib/connect-api.js";
+import TailscaleCard from "./TailscaleCard.jsx";
 
 function formatGB(value) {
   if (value === 0) return null;
@@ -224,6 +225,7 @@ export default function ExternalServicesCategory({
 
   return (
     <div className="space-y-4" data-slot="external-services-category">
+      <TailscaleCard />
       <p className="text-sm px-1">
         A server needs a few things from the outside world — a way to send email,
         a domain name to reach it, and a place to store backups. Here are all the

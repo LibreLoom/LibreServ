@@ -635,6 +635,19 @@ fn https_proxy_sets_secure_cookie_http_does_not() {
 }
 
 #[test]
+fn public_headers_do_not_identify_a_tailscale_proxy() {
+    let mut headers = HeaderMap::new();
+    headers.insert("host", "luna-demo.ts.net".parse().unwrap());
+    headers.insert("tailscale-funnel-request", "?1".parse().unwrap());
+    headers.insert(
+        "tailscale-user-login",
+        "fake@example.invalid".parse().unwrap(),
+    );
+    headers.insert("x-forwarded-for", "100.100.10.2".parse().unwrap());
+    assert!(!is_tailscale_proxy_headers(&headers));
+}
+
+#[test]
 fn csrf_origin_parsing_matches_authority() {
     assert!(origin_matches_host(
         "https://luna.local",

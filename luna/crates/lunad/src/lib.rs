@@ -136,6 +136,7 @@ pub struct AppState {
     pub form_respond_limiter: Arc<crate::rate_limit::RateLimiter>,
     pub share_auth: Arc<crate::rate_limit::ShareAuthGuard>,
     pub data_dir: std::path::PathBuf,
+    pub http_port: u16,
     pub updates: std::sync::Arc<crate::system::updates::UpdateService>,
     pub health_cache: crate::system::system_health::HealthCache,
     pub ram_cache: crate::drives::ram_cache::RamCache,
@@ -207,6 +208,7 @@ impl AppState {
             )),
             share_auth: Arc::new(crate::rate_limit::ShareAuthGuard::new(db)),
             data_dir: data_dir.to_path_buf(),
+            http_port: 8090,
             updates,
             health_cache: crate::system::system_health::HealthCache::default(),
             ram_cache: crate::drives::ram_cache::RamCache::new(),
@@ -220,6 +222,11 @@ impl AppState {
 
     pub fn with_connect(mut self, connect: Arc<crate::net::connect::ConnectService>) -> Self {
         self.connect = connect;
+        self
+    }
+
+    pub fn with_http_port(mut self, port: u16) -> Self {
+        self.http_port = port;
         self
     }
 

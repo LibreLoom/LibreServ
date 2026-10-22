@@ -212,11 +212,11 @@ describe("SettingsPage", () => {
     expect(screen.getByRole("button", { name: /^About$/i })).toBeTruthy();
   });
 
-  it("hides External services when Luna Connect is inactive on the device", async () => {
+  it("keeps remote access settings available when Luna Connect is inactive", async () => {
     stubFetch("admin", false);
     renderPage();
     await screen.findByText("max");
-    expect(screen.queryByRole("button", { name: /External services/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /External services/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /^About$/i })).toBeTruthy();
   });
 
@@ -288,7 +288,7 @@ describe("SettingsPage", () => {
   // going quietly missing from search.
   it("indexes every category", async () => {
     stubFetch("admin", true);
-    const categories = visibleCategories(true, true);
+    const categories = visibleCategories(true);
     expect(categories.length).toBeGreaterThan(0);
     const errors = [];
     const index = await buildSettingsIndex(

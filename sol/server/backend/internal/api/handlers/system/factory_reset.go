@@ -10,6 +10,7 @@ import (
 	"gt.plainskill.net/LibreLoom/Sol/internal/api/middleware"
 	"gt.plainskill.net/LibreLoom/Sol/internal/auth"
 	"gt.plainskill.net/LibreLoom/Sol/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/network"
 	"gt.plainskill.net/LibreLoom/Sol/internal/setup"
 )
 
@@ -17,7 +18,10 @@ type FactoryResetHandler struct {
 	db           *database.DB
 	setupService *setup.Service
 	authService  *auth.Service
+	tailscale    *network.TailscaleService
 }
+
+func (h *FactoryResetHandler) SetTailscale(service *network.TailscaleService) { h.tailscale = service }
 
 func NewFactoryResetHandler(db *database.DB, setupSvc *setup.Service, authSvc *auth.Service) *FactoryResetHandler {
 	return &FactoryResetHandler{
@@ -58,6 +62,13 @@ func (h *FactoryResetHandler) FactoryReset(w http.ResponseWriter, r *http.Reques
 	if err := auth.VerifyPassword(user.PasswordHash, req.Password); err != nil {
 		JSONError(w, http.StatusBadRequest, "Incorrect password. Please try again.")
 		return
+	}
+	// A new setup must never inherit the old owner's Tailscale device identity.
+	if h.tailscale != nil {
+		if _, err := h.tailscale.Forget(); err != nil {
+			JSONError(w, http.StatusInternalServerError, "Sol could not turn off Tailscale before factory reset.")
+			return
+		}
 	}
 
 	err = h.db.WithTransaction(r.Context(), func(tx *sql.Tx) error {

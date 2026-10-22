@@ -24,7 +24,7 @@ function stubFetch({
   orphans = { owners: [], offline_drives: [] },
   cleaned = [],
   cleanupResult = { ok: true, skipped_readonly: [], failed_drives: [], offline_drives: [] },
-  createResponse = { id: "3", username: "new", display_name: "New", role: "user" },
+  createResponse = /** @type {{ id: string, username: string, display_name: string, role: string, warning?: string }} */ ({ id: "3", username: "new", display_name: "New", role: "user" }),
   users = [
     { id: "1", username: "demouser", display_name: "Demo", role: "admin" },
     { id: "2", username: "alex", display_name: "Alex", role: "user" },

@@ -30,6 +30,10 @@ RESTIC_VERSION="0.19.1"
 # Upstream SHA256 of restic_${RESTIC_VERSION}_linux_{amd64,arm64}.bz2 (from restic SHA256SUMS).
 RESTIC_SHA256_LINUX_AMD64="f415415624dcc452f2a02b8c33641791a8c6d6d3b65bbb3543fcf9a25151585c"
 RESTIC_SHA256_LINUX_ARM64="a5f64aaab53d51e311fa3829124c5b703f2d14cf187d8640b6be3b2b49376465"
+TAILSCALE_VERSION="1.104.2"
+TAILSCALE_SHA256_AMD64="512f613ed7d04fc7282f7dc5bd76aa105aae28168fbb9357eb749ebcbc29f0ae"
+TAILSCALE_SHA256_ARM64="5776aaa901b5ef1916e66be5bb54b9f481cd399c9c28db123a8cab620efa237b"
+TAILSCALE_INSTALL_DIR="/usr/local/lib/sol/tailscale/${TAILSCALE_VERSION}"
 
 # Baked-in Sol minisign public key (keys/sol.minisign.pub). Do not fetch this from Forgejo.
 RELEASE_MINISIGN_PUB='untrusted comment: minisign public key 48EB64CB69EA36CD
@@ -114,7 +118,7 @@ check_root() {
 check_dependencies() {
     local missing=()
 
-    for cmd in curl openssl sha256sum; do
+    for cmd in curl openssl sha256sum tar timeout; do
         if ! command -v "$cmd" >/dev/null 2>&1; then
             missing+=("$cmd")
         fi
@@ -570,6 +574,49 @@ download_restic() {
     log_info "restic ${RESTIC_VERSION} verified and installed to ${restic_path}"
 }
 
+# Install pinned Tailscale static binaries for native Sol installations. The
+# daemon's identity remains in DATA_DIR, so replacing these files on upgrade
+# cannot carry a node identity into another installation.
+install_tailscale() {
+    local arch sha url tmp archive extracted
+    case "$(uname -m)" in
+        x86_64) arch="amd64"; sha="$TAILSCALE_SHA256_AMD64" ;;
+        aarch64|arm64) arch="arm64"; sha="$TAILSCALE_SHA256_ARM64" ;;
+        *)
+            log_error "Tailscale remote access is not available for this Sol processor type."
+            return 1
+            ;;
+    esac
+    url="https://pkgs.tailscale.com/stable/tailscale_${TAILSCALE_VERSION}_${arch}.tgz"
+    tmp="$(mktemp -d /tmp/sol-tailscale.XXXXXX)"
+    archive="${tmp}/tailscale.tgz"
+    if ! curl -fsSL "${CURL_SECURE[@]}" "$url" -o "$archive"; then
+        rm -rf "$tmp"
+        log_error "Could not download the pinned Tailscale service."
+        return 1
+    fi
+    if [ "$(sha256sum "$archive" | awk '{print $1}')" != "$sha" ]; then
+        rm -rf "$tmp"
+        log_error "The downloaded Tailscale service did not pass its integrity check."
+        return 1
+    fi
+    if ! tar -xzf "$archive" -C "$tmp"; then
+        rm -rf "$tmp"
+        log_error "Could not unpack the pinned Tailscale service."
+        return 1
+    fi
+    extracted="${tmp}/tailscale_${TAILSCALE_VERSION}_${arch}"
+    if [ ! -x "${extracted}/tailscale" ] || [ ! -x "${extracted}/tailscaled" ]; then
+        rm -rf "$tmp"
+        log_error "The Tailscale download did not contain its client and service."
+        return 1
+    fi
+    install -d -m 755 "$TAILSCALE_INSTALL_DIR"
+    install -m 755 "${extracted}/tailscale" "${TAILSCALE_INSTALL_DIR}/tailscale"
+    install -m 755 "${extracted}/tailscaled" "${TAILSCALE_INSTALL_DIR}/tailscaled"
+    rm -rf "$tmp"
+}
+
 # Create catalog directory for repo-based apps
 create_catalog_dir() {
     CATALOG_DIR="${INSTALL_DIR}/catalog"
@@ -864,6 +911,8 @@ do_upgrade() {
         INSTALL_VERSION="$LATEST_RELEASE"
     fi
 
+    install_tailscale
+
     if ! download_binary; then
         log_error "Download or verification failed. Leaving the previous binary in place."
         if [ -f "${BACKUP_BINARY}" ]; then
@@ -877,7 +926,6 @@ do_upgrade() {
         rm -f "${BACKUP_BINARY}"
         exit 1
     fi
-
     create_catalog_dir
     download_restic
 
@@ -897,19 +945,76 @@ do_upgrade() {
 }
 
 # Uninstall Sol
+# A saved PID alone is insufficient after a reboot or PID reuse.
+tailscale_pid_matches() {
+    local ts_pid="$1" ts_state="$2" ts_executable=""
+    [[ "$ts_pid" =~ ^[0-9]+$ ]] && [ "$ts_pid" -gt 1 ] && [ -r "/proc/${ts_pid}/cmdline" ] || return 1
+    IFS= read -r -d '' ts_executable < "/proc/${ts_pid}/cmdline" || return 1
+    [ "${ts_executable##*/}" = tailscaled ] || return 1
+    tr '\0' '\n' < "/proc/${ts_pid}/cmdline" | grep -Fxq -- "$ts_state"
+}
+
 do_uninstall() {
     check_root
     log_warn "Uninstalling Sol..."
-    log_info "Data in ${DATA_DIR} will be preserved"
+    log_info "Files, apps, and backups in ${DATA_DIR} will be preserved"
 
     log_info "Stopping service..."
     run_systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
     run_systemctl disable "${SERVICE_NAME}" 2>/dev/null || true
 
+    # Stop any private or public listener before removing the product CLI.
+    # Forget the remote identity after stopping it, so reinstalling cannot
+    # silently restore a previously public Funnel listener.
+    local ts_cli="${TAILSCALE_INSTALL_DIR}/tailscale"
+    local ts_socket="${DATA_DIR}/tailscale/tailscaled.sock"
+    local ts_state="${DATA_DIR}/tailscale/tailscaled.state"
+    # systemd normally stops the entire process group. If the daemon survived,
+    # stop that exact managed process and confirm exit before removing files.
+    # Keep binaries and state available for recovery if it cannot be stopped.
+    if [ -f "${DATA_DIR}/tailscale/tailscaled.pid" ]; then
+        local ts_pid
+        ts_pid="$(cat "${DATA_DIR}/tailscale/tailscaled.pid")"
+        if tailscale_pid_matches "$ts_pid" "$ts_state"; then
+            if ! kill "$ts_pid" 2>/dev/null; then
+                log_error "Could not stop Tailscale. Sol files were kept; uninstall was not completed."
+                return 1
+            fi
+            local ts_wait
+            for ts_wait in {1..50}; do
+                if ! tailscale_pid_matches "$ts_pid" "$ts_state"; then
+                    break
+                fi
+                sleep 0.1
+            done
+            if tailscale_pid_matches "$ts_pid" "$ts_state"; then
+                log_error "Tailscale is still running. Sol files were kept; uninstall was not completed."
+                return 1
+            fi
+        fi
+    fi
+    if [ -S "$ts_socket" ]; then
+        # A reachable socket without the recorded managed PID is not ours to
+        # kill. Do not remove the client needed to diagnose that condition.
+        if [ ! -x "$ts_cli" ] || ! command -v timeout >/dev/null 2>&1; then
+            log_error "Could not verify that Tailscale stopped. Sol files were kept."
+            return 1
+        fi
+        local ts_status=0
+        timeout -k 1 3 "$ts_cli" --socket "$ts_socket" status --json >/dev/null 2>&1 || ts_status=$?
+        if [ "$ts_status" -eq 0 ] || [ "$ts_status" -eq 124 ] || [ "$ts_status" -eq 137 ]; then
+            log_error "A Tailscale service is still using Sol's connection. Sol files were kept."
+            return 1
+        fi
+    fi
+    log_info "Forgetting Tailscale's saved remote connection"
+    rm -rf "${DATA_DIR}/tailscale"
+
     log_info "Removing files..."
     rm -f "/etc/systemd/system/${SERVICE_NAME}.service"
     rm -f "${BIN_DIR}/sol"
     rm -rf "${INSTALL_DIR}"
+    rm -rf "/usr/local/lib/sol/tailscale"
 
     run_systemctl daemon-reload
 
@@ -933,6 +1038,7 @@ do_install() {
     create_directories
 
     prompt_version
+    install_tailscale
     download_binary
     create_catalog_dir
     download_restic

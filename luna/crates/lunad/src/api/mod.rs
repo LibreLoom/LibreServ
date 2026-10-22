@@ -17,6 +17,7 @@ pub mod public_limits;
 pub mod response;
 pub mod search;
 pub mod setup;
+pub mod tailscale;
 pub mod updates;
 pub mod users;
 
@@ -51,6 +52,7 @@ pub fn router() -> Router<AppState> {
         .merge(forms::router())
         .merge(network::router())
         .merge(setup::router())
+        .merge(tailscale::router())
         .merge(drives::router())
         .merge(collab::router())
         .merge(files::router())

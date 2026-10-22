@@ -790,8 +790,8 @@ pub(crate) fn setup_wizard_open(state: &AppState) -> bool {
 /// context (after finishing setup, and after every login).
 /// Forwarding headers a client can invent. Trusted only from a loopback
 /// peer — the Connect tunnel or an on-box proxy — same rule `client_ip`
-/// applies. The guard strips them for every other peer so downstream code
-/// (`client_ip`, `request_is_https`, origin labels) can't be fooled.
+/// applies. Tailscale Serve/Funnel also arrives from loopback; there we ignore
+/// client-supplied CF-Connecting-IP, X-Real-IP, and Forwarded values.
 const FORWARDING_HEADERS: &[&str] = &[
     "cf-connecting-ip",
     "x-real-ip",
@@ -799,6 +799,10 @@ const FORWARDING_HEADERS: &[&str] = &[
     "x-forwarded-proto",
     "forwarded",
 ];
+
+fn is_tailscale_proxy_headers(headers: &HeaderMap) -> bool {
+    headers.get("x-luna-tailscale").is_some_and(|v| v == "1")
+}
 
 pub async fn guard(State(state): State<AppState>, req: Request, next: Next) -> Response {
     let path = req.uri().path().to_string();
@@ -808,6 +812,13 @@ pub async fn guard(State(state): State<AppState>, req: Request, next: Next) -> R
         .extensions()
         .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
         .is_some_and(|c| c.0.ip().is_loopback());
+    let tailscale_peer = req
+        .extensions()
+        .get::<crate::net::tailscale_proxy::TailscalePeer>()
+        .is_some();
+    if !tailscale_peer {
+        req.headers_mut().remove("x-luna-tailscale");
+    }
     if !trusted_peer {
         let h = req.headers_mut();
         for name in FORWARDING_HEADERS {
@@ -1007,6 +1018,7 @@ pub fn client_origin_label(
         ip_opt = Some(a.ip());
     }
 
+    let is_tailscale = is_tailscale_proxy_headers(headers);
     let is_tunnel = headers.get("cf-connecting-ip").is_some()
         || headers
             .get(axum::http::header::HOST)
@@ -1026,7 +1038,9 @@ pub fn client_origin_label(
             };
             let matches_local_wan = local_wan.map(|w| w == ip).unwrap_or(false);
 
-            if is_tunnel {
+            if is_tailscale {
+                format!("Remote via Tailscale ({ip})")
+            } else if is_tunnel {
                 if matches_local_wan {
                     format!("Home network (via Connect tunnel · {ip})")
                 } else if private {
@@ -1041,7 +1055,9 @@ pub fn client_origin_label(
             }
         }
         None => {
-            if is_tunnel {
+            if is_tailscale {
+                "Remote via Tailscale".to_string()
+            } else if is_tunnel {
                 "Remote via Connect".to_string()
             } else {
                 "Home network".to_string()

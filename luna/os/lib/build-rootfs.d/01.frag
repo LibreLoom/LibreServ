@@ -13,6 +13,12 @@ mkdir -p "$ROOTFS/usr/local/bin" "$ROOTFS/usr/local/sbin"
 luna_cloudflared_download "$ROOTFS/usr/local/bin/cloudflared" \
     || { echo "error: pinned cloudflared download failed" >&2; exit 1; }
 
+# Keep the remote-access daemon current even when Alpine's package is older.
+# shellcheck source=../../shared/scripts/tailscale-bake.sh
+. "$ROOT/../shared/scripts/tailscale-bake.sh"
+libreloom_install_tailscale "$ROOTFS/usr/local/bin" "$ARCH" \
+    || { echo "error: pinned Tailscale download failed" >&2; exit 1; }
+
 # Run whichever lunad is newer: the daemon-only OTA binary on the data
 # partition, or the one baked into this OS image. A stale daemon-only update
 # must never shadow a newer OS, so both report `--version` and the higher

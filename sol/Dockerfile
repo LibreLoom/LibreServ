@@ -30,7 +30,11 @@ RUN VERSION=${VERSION} make build
 
 # Stage 3: Final Image
 FROM alpine:3.22
-RUN apk add --no-cache ca-certificates docker-cli docker-compose restic
+# Ship a current pinned static Tailscale release, verified against upstream
+# hashes. The managed daemon never uses a distro service or baked identity.
+RUN apk add --no-cache ca-certificates docker-cli docker-compose restic curl
+COPY shared/scripts/tailscale-bake.sh /tmp/tailscale-bake.sh
+RUN . /tmp/tailscale-bake.sh && libreloom_install_tailscale /usr/local/bin "$(apk --print-arch)" && rm /tmp/tailscale-bake.sh
 
 # Least-resources tuning: collect garbage earlier so the Go heap stays small
 # (slightly more GC CPU, much lower idle/peak RSS on small boxes).
@@ -48,6 +52,7 @@ COPY --from=frontend-builder /repo/sol/server/backend/OS/dist /app/OS/dist
 COPY sol/server/backend/configs /app/configs
 # Use example config as default (env vars override specific settings at runtime)
 RUN cp /app/configs/sol.yaml.example /app/configs/sol.yaml
+RUN sed -i 's|path: ./dev/data/sol.db|path: /app/data/sol.db|' /app/configs/sol.yaml
 
 # Ensure data directories are writable by sol user
 RUN mkdir -p /app/data /app/configs && chown -R sol:sol /app

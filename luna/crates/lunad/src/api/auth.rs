@@ -424,9 +424,10 @@ async fn status(State(state): State<AppState>) -> Json<Value> {
 /// The client IP security decisions key on. `CF-Connecting-IP`,
 /// `X-Real-IP`, and `X-Forwarded-For` are honored only when the TCP peer is
 /// loopback — that is the Luna Connect tunnel or an on-box proxy forwarding
-/// the real address. From any other peer those headers are the caller
-/// inventing an identity (a spoofed "192.168.x.x" must not buy LAN trust
-/// or a fresh lockout bucket).
+/// the real address. Tailscale Serve/Funnel uses its replaced X-Forwarded-For
+/// value and ignores other client-supplied proxy headers. From any other peer
+/// those headers are the caller inventing an identity (a spoofed
+/// "192.168.x.x" must not buy LAN trust or a fresh lockout bucket).
 pub(crate) fn client_ip(addr: &std::net::SocketAddr, headers: &HeaderMap) -> std::net::IpAddr {
     if addr.ip().is_loopback() {
         if let Some(ip) = headers
@@ -452,7 +453,11 @@ pub(crate) fn client_ip(addr: &std::net::SocketAddr, headers: &HeaderMap) -> std
 fn ip_is_lan(ip: std::net::IpAddr) -> bool {
     match ip {
         std::net::IpAddr::V4(v4) => v4.is_loopback() || v4.is_private() || v4.is_link_local(),
-        std::net::IpAddr::V6(v6) => v6.is_loopback() || (v6.segments()[0] & 0xfe00) == 0xfc00,
+        std::net::IpAddr::V6(v6) => {
+            v6.is_loopback()
+                || ((v6.segments()[0] & 0xfe00) == 0xfc00
+                    && v6.octets()[..6] != [0xfd, 0x7a, 0x11, 0x5c, 0xa1, 0xe0])
+        }
     }
 }
 
@@ -592,7 +597,7 @@ mod tests {
     }
 
     fn addr(ip: &str) -> SocketAddr {
-        format!("{ip}:40000").parse().unwrap()
+        SocketAddr::new(ip.parse().unwrap(), 40000)
     }
 
     fn headers(pairs: &[(&str, &str)]) -> HeaderMap {
@@ -634,6 +639,27 @@ mod tests {
             client_ip(&addr("127.0.0.1"), &h),
             "127.0.0.1".parse::<std::net::IpAddr>().unwrap()
         );
+    }
+
+    #[test]
+    fn spoofed_tailscale_headers_do_not_override_connect_client() {
+        let h = headers(&[
+            ("cf-connecting-ip", "203.0.113.7"),
+            ("tailscale-funnel-request", "?1"),
+            ("tailscale-user-login", "fake@example.invalid"),
+            ("x-forwarded-for", "192.168.1.9"),
+        ]);
+        let peer = addr("127.0.0.1");
+        assert_eq!(
+            client_ip(&peer, &h),
+            "203.0.113.7".parse::<std::net::IpAddr>().unwrap()
+        );
+        assert!(!is_lan_request(&peer, &h));
+        assert!(!is_lan_request(
+            &addr("fd7a:115c:a1e0::1234"),
+            &HeaderMap::new()
+        ));
+        assert!(is_lan_request(&addr("fd12:3456::1234"), &HeaderMap::new()));
     }
 
     #[test]

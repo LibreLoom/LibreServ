@@ -593,6 +593,50 @@ func addReleaseSlowTest() {
 
 func addLunaTests() {
 	DefaultRegistry.Add(&Test{
+		ID:          "tailscale-packaging",
+		Name:        "Tailscale Packaging",
+		Description: "Verify pinned upstream archives, checksum rejection and OS wiring",
+		Type:        TestTypeUnit,
+		Container:   "host",
+		Command:     "sh shared/scripts/tailscale-bake_test.sh",
+		WorkDir:     "/repo",
+		Timeout:     5 * time.Minute,
+	})
+	DefaultRegistry.Add(&Test{
+		ID:          "luna-daemon-check",
+		Name:        "Luna Daemon Checks",
+		Description: "Check Luna Rust code without OS, desktop or Android toolchains",
+		Type:        TestTypeUnit,
+		Container:   "host",
+		Command:     "cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace ${LUNA_RUST_TEST_FILTER:-}",
+		WorkDir:     "/repo/luna",
+		Timeout:     15 * time.Minute,
+	})
+	DefaultRegistry.Add(&Test{
+		ID:          "luna-web-typecheck",
+		Name:        "Luna Web Typecheck",
+		Description: "Check Luna web JSX types independently of OS builds",
+		Type:        TestTypeUnit,
+		Container:   "host",
+		Command:     "npm run typecheck",
+		WorkDir:     "/repo/luna/web",
+		Timeout:     5 * time.Minute,
+	})
+	// Keep the web checks independently runnable on development machines that
+	// do not have Luna's OS cross-compiler or Android SDK installed.
+	DefaultRegistry.Add(&Test{
+		ID:          "luna-web-check",
+		Name:        "Luna Web Checks",
+		Description: "Run Luna web tests, lint, typecheck and build without OS toolchains",
+		Type:        TestTypeUnit,
+		Container:   "host",
+		// Optional file filters keep focused regression runs within ./ci's
+		// universal limits; the default still runs the entire web test suite.
+		Command: "web_check_result=0; npm test -- --run ${LUNA_WEB_TEST_FILES:-} || web_check_result=1; npm run lint || web_check_result=1; npm run typecheck || web_check_result=1; npm run build || web_check_result=1; exit \"$web_check_result\"",
+		WorkDir: "/repo/luna/web",
+		Timeout: 20 * time.Minute,
+	})
+	DefaultRegistry.Add(&Test{
 		ID:          "luna-ci",
 		Name:        "Luna CI",
 		Description: "Run luna/ci.sh (fmt, clippy, tests, web, desktop, mobile)",

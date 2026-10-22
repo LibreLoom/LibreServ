@@ -4,6 +4,8 @@
 //! `/sys/class/net` and the kernel routing table from `/proc/net/route`. That
 //! is enough for the setup wizard's connection check on Luna OS.
 
+pub mod tailscale;
+
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -283,3 +285,5 @@ mod tests {
 
 pub mod connect;
 pub mod dhcp;
+
+pub mod tailscale_proxy;

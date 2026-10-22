@@ -86,6 +86,8 @@ assert_file_has "$BUILD" 'evdev' "rootfs must load evdev for /dev/input/event*"
 assert_file_has "$BUILD" 'atkbd' "rootfs must load atkbd for PS/2 keyboards"
 assert_file_has "$BUILD" ' alpine-base openrc linux-lts kmod ' \
 	"rootfs must install kmod so gzipped .ko.gz modules load"
+assert_file_has "$BUILD" 'libreloom_install_tailscale "$ROOTFS/usr/local/bin" "$ARCH"' \
+	"Luna OS must package the verified upstream Tailscale client and daemon"
 assert_file_has "$BUILD" 'linux-firmware-none' \
 	"rootfs must use linux-firmware-none instead of the full firmware meta package"
 assert_file_has "$BUILD" 'virtio_net' \

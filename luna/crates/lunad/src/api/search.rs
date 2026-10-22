@@ -221,6 +221,24 @@ async fn factory_reset(
         })?;
     let connect = state.connect.clone();
     let _ = tokio::task::spawn_blocking(move || connect.deactivate()).await;
+    let tailscale_dir = state.data_dir.clone();
+    let tailscale_port = state.http_port;
+    let forgotten = tokio::task::spawn_blocking(move || {
+        crate::net::tailscale::forget(&tailscale_dir, tailscale_port)
+    })
+    .await
+    .map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't turn off Tailscale before reset.",
+        )
+    })?;
+    if forgotten.is_err() {
+        return Err(json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't turn off Tailscale before reset.",
+        ));
+    }
     let conn = state.db.lock().map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
