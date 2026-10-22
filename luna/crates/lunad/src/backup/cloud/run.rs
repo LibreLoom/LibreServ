@@ -112,7 +112,7 @@ pub(crate) fn run_with_root(
     };
 
     // Finish any re-seal owed after a phrase change. Best effort: a failure never holds this backup.
-    for result in keys::reseal_pending(db, store) {
+    for result in keys::reseal_pending_holding(db, store, Some(protection_id)) {
         match result {
             Ok(report) if report.done => {}
             Ok(report) => tracing::warn!(

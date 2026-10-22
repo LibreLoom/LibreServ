@@ -9,6 +9,7 @@ import {
   LOCKED_OUT_MESSAGE,
   normalizePhraseStatus,
   replaceErrorMessage,
+  replaceMessage,
   replacePhrase,
   REPLACE_DOMAIN,
   signFreshChallenge,
@@ -211,7 +212,15 @@ describe("replacePhrase", () => {
     expect(put.proof).toBe("old_signature");
     expect(put.exposed).toBe(false);
     expect(put).not.toHaveProperty("password");
-    expect(verify(authPublic, REPLACE_DOMAIN, CHALLENGE, fromBase64(put.signature))).toBe(true);
+    const signature = fromBase64(put.signature);
+    expect(verify(authPublic, REPLACE_DOMAIN, replaceMessage(CHALLENGE, put), signature)).toBe(true);
+    // The signature covers the new keys: it does not hold for a request with any value swapped.
+    const other = toBase64(new Uint8Array(32).fill(9));
+    for (const changed of [{ seal_public: other }, { auth_public: other }, { self_sealed: other }, { exposed: true }]) {
+      expect(verify(authPublic, REPLACE_DOMAIN, replaceMessage(CHALLENGE, { ...put, ...changed }), signature)).toBe(false);
+    }
+    // And it is not the plain challenge any more.
+    expect(verify(authPublic, REPLACE_DOMAIN, CHALLENGE, signature)).toBe(false);
     expect(put.auth_public).toBe(toBase64(derive(phraseToEntropy(newPhrase), LUNA_ID).authPublic));
   });
 

@@ -528,9 +528,11 @@ describe("RecoveryPhraseCard, private scopes on a phrase change", () => {
       "scope-1",
     );
     expect(opened).toEqual(secret);
-    // The scopes are read before the challenge is signed, so the challenge is still fresh.
+    // The first challenge belongs to checking the old phrase. The scopes are read before the
+    // replace challenge (the last one) is asked for, so that challenge is still fresh when signed.
     const keys = api.calls.map((c) => c.key);
-    expect(keys.indexOf("GET /api/v1/cloud/phrase/scopes")).toBeLessThan(keys.indexOf("POST /api/v1/cloud/phrase/challenge"));
+    expect(keys.indexOf("GET /api/v1/cloud/phrase/scopes")).toBeLessThan(keys.lastIndexOf("POST /api/v1/cloud/phrase/challenge"));
+    expect(keys.lastIndexOf("POST /api/v1/cloud/phrase/challenge")).toBeLessThan(keys.indexOf("PUT /api/v1/cloud/phrase"));
   });
 
   it("does not save when the list of scopes cannot be read", async () => {

@@ -863,6 +863,33 @@ describe("ProtectButton", () => {
       expect(await screen.findAllByRole("dialog", { name: "Phrase setup" })).toHaveLength(1);
     });
 
+    it("keeps the cloud backup button off and opens no setup when Luna has no signed-in account", async () => {
+      const user = userEvent.setup();
+      const onCloudCreate = vi.fn();
+      const onIdentity = vi.fn();
+      stubBackupApi({ connect: connected, phrase: noPhrase, onCloudCreate, onIdentity });
+      const base = globalThis.fetch;
+      // A clean "not signed in" answer: the sheet has no account to seal the phrase to.
+      vi.stubGlobal("fetch", vi.fn(async (url, init) => {
+        const u = typeof url === "string" ? url : url?.url || String(url);
+        if (u.includes("/auth/me")) return json(null);
+        return base(url, init);
+      }));
+      renderSheet();
+      const button = await screen.findByRole("button", { name: "Back up to the cloud" });
+      expect(button).toBeDisabled();
+      await user.click(button);
+      expect(screen.queryByRole("dialog", { name: "Phrase setup" })).not.toBeInTheDocument();
+      expect(onIdentity).not.toHaveBeenCalled();
+      expect(onCloudCreate).not.toHaveBeenCalled();
+    });
+
+    it("enables the cloud backup button for a signed-in account with no phrase", async () => {
+      stubBackupApi({ connect: connected, phrase: noPhrase });
+      renderSheet();
+      expect(await screen.findByRole("button", { name: "Back up to the cloud" })).toBeEnabled();
+    });
+
     it("shows an error in the sheet when the phrase status cannot be loaded", async () => {
       const user = userEvent.setup();
       const onCloudCreate = vi.fn();

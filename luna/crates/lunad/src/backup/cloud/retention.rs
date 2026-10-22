@@ -71,6 +71,16 @@ pub fn thin(
         out.packs_marked = db::mark_unused_packs_tx(&mut conn, scope, now)?.len() as u32;
     }
 
+    // A rewritten snapshot whose new record is not in the cloud yet still points at its old tree
+    // pack there. Nothing is deleted until that record is out; the next pass tries again.
+    let pending = {
+        let conn = lock(db)?;
+        super::rewrap::record_upload_pending(&conn)?
+    };
+    if pending {
+        return Ok(out);
+    }
+
     // Marked packs past their wait, plus any left `deleting` by an earlier pass.
     let candidates = {
         let conn = lock(db)?;

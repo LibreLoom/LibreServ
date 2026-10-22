@@ -633,6 +633,9 @@ pub struct ResealReport {
     pub copies: usize,
     /// `(backup id, version)` pairs whose key row is missing. Nothing is written while any are missing.
     pub missing: Vec<(String, i64)>,
+    /// Backups that were copying right now. Nothing is written while any are busy; the job stays
+    /// pending and is tried again, so a run can never write a copy sealed to the old key after this.
+    pub busy: Vec<String>,
 }
 
 /// Re-seal every version key `user_id` is a reader on, to their current phrase. Each copy is
@@ -646,6 +649,64 @@ pub struct ResealReport {
 ///
 /// The database lock is held only for reads and the final clear, never for store calls.
 pub fn reseal_user(db: &crate::Db, store: &dyn CloudStore, user_id: &str) -> Result<ResealReport> {
+    reseal_user_holding(db, store, user_id, None)
+}
+
+/// Like [`reseal_user`], for a caller that already holds the run slot of `held` (a running backup
+/// that re-seals at its start). Every other backup the user is on is locked here, the same lock a
+/// run takes, for the whole re-seal. A run therefore cannot publish a copy sealed to the old key
+/// after the re-seal wrote the new one. If any of those backups is copying, nothing is written.
+pub(crate) fn reseal_user_holding(
+    db: &crate::Db,
+    store: &dyn CloudStore,
+    user_id: &str,
+    held: Option<&str>,
+) -> Result<ResealReport> {
+    let backups: std::collections::BTreeSet<String> = {
+        let conn = db.lock().unwrap_or_else(|p| p.into_inner());
+        if db::get_meta(&conn, &reseal_meta_key(user_id))?.is_none() {
+            return Ok(ResealReport {
+                user_id: user_id.to_string(),
+                done: true,
+                copies: 0,
+                missing: Vec::new(),
+                busy: Vec::new(),
+            });
+        }
+        reader_versions(&conn, user_id)?
+            .into_iter()
+            .map(|(backup, _)| backup)
+            .filter(|backup| Some(backup.as_str()) != held)
+            .collect()
+    };
+    let mut slots = Vec::new();
+    let mut busy = Vec::new();
+    for backup in &backups {
+        match super::run::RunSlot::take(db, backup) {
+            Some(slot) => slots.push(slot),
+            None => busy.push(backup.clone()),
+        }
+    }
+    if !busy.is_empty() {
+        return Ok(ResealReport {
+            user_id: user_id.to_string(),
+            done: false,
+            copies: 0,
+            missing: Vec::new(),
+            busy,
+        });
+    }
+    // `slots` stays alive until the copies are written and the job is cleared.
+    let report = reseal_user_locked(db, store, user_id);
+    drop(slots);
+    report
+}
+
+fn reseal_user_locked(
+    db: &crate::Db,
+    store: &dyn CloudStore,
+    user_id: &str,
+) -> Result<ResealReport> {
     let (records, list, pending) = {
         let conn = db.lock().unwrap_or_else(|p| p.into_inner());
         let Some(pending) = db::get_meta(&conn, &reseal_meta_key(user_id))? else {
@@ -654,6 +715,7 @@ pub fn reseal_user(db: &crate::Db, store: &dyn CloudStore, user_id: &str) -> Res
                 done: true,
                 copies: 0,
                 missing: Vec::new(),
+                busy: Vec::new(),
             });
         };
         let keys = db::get_user_keys(&conn, user_id)?
@@ -692,6 +754,7 @@ pub fn reseal_user(db: &crate::Db, store: &dyn CloudStore, user_id: &str) -> Res
                 done: false,
                 copies: 0,
                 missing,
+                busy: Vec::new(),
             });
         }
         let list = user_list_record(identity.signer(), identity.luna_id(), &listed_users(&conn)?)?;
@@ -718,17 +781,27 @@ pub fn reseal_user(db: &crate::Db, store: &dyn CloudStore, user_id: &str) -> Res
         done: true,
         copies,
         missing: Vec::new(),
+        busy: Vec::new(),
     })
 }
 
 /// Retry every pending re-seal. A failure for one user does not stop the others. Each result is
 /// returned so the caller can report the ones that are not done.
 pub fn reseal_pending(db: &crate::Db, store: &dyn CloudStore) -> Vec<Result<ResealReport>> {
+    reseal_pending_holding(db, store, None)
+}
+
+/// [`reseal_pending`] for a caller that already holds the run slot of backup `held`.
+pub(crate) fn reseal_pending_holding(
+    db: &crate::Db,
+    store: &dyn CloudStore,
+    held: Option<&str>,
+) -> Vec<Result<ResealReport>> {
     let listed = pending_resealers(&db.lock().unwrap_or_else(|p| p.into_inner()));
     match listed {
         Ok(users) => users
             .iter()
-            .map(|user| reseal_user(db, store, user))
+            .map(|user| reseal_user_holding(db, store, user, held))
             .collect(),
         Err(err) => vec![Err(err)],
     }
@@ -1752,5 +1825,94 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(verify_user_list(&list, &identity.signer().public(), identity.luna_id()).is_some());
+    }
+
+    #[test]
+    fn reseal_waits_for_a_copying_backup_then_finishes() {
+        let (_dir, db) = shared_db();
+        let store = MemoryStore::new();
+        let bob = user_keys("bob");
+        let bob_new = user_keys("bob-new");
+        let identity = identity::load(&locked(&db)).unwrap().unwrap();
+        let v1 = {
+            let conn = locked(&db);
+            set_phrase(&conn, "bob", &bob);
+            let v1 = ensure_key(&conn, PROTECTION, &set(&["bob"]), 10).unwrap();
+            set_phrase(&conn, "bob", &bob_new);
+            replace_reader(&conn, "bob", &bob_new.seal_public).unwrap();
+            queue_reseal(&conn, "bob").unwrap();
+            v1
+        };
+        // A run is copying this backup, so the re-seal writes nothing and stays pending.
+        let slot = super::super::run::RunSlot::take(&db, PROTECTION).unwrap();
+        let report = reseal_pending(&db, &store).pop().unwrap().unwrap();
+        assert!(!report.done);
+        assert_eq!(report.busy, vec![PROTECTION.to_string()]);
+        assert!(resealing_pending(&locked(&db), "bob").unwrap());
+        assert!(
+            store
+                .get_record(KEYS_KIND, &key_record_name(PROTECTION, 1, "bob"))
+                .unwrap()
+                .is_none()
+        );
+        // The running backup itself may re-seal at its start, since it already holds its own slot.
+        let report = reseal_pending_holding(&db, &store, Some(PROTECTION))
+            .pop()
+            .unwrap()
+            .unwrap();
+        assert!(report.done);
+        assert_eq!(report.copies, 1);
+        drop(slot);
+        // Once the backup is free, the slot is free again and nothing is left to do.
+        assert!(!resealing_pending(&locked(&db), "bob").unwrap());
+        assert!(super::super::run::RunSlot::take(&db, PROTECTION).is_some());
+        let copy = store
+            .get_record(KEYS_KIND, &key_record_name(PROTECTION, 1, "bob"))
+            .unwrap()
+            .unwrap();
+        assert!(
+            open_key(
+                &copy,
+                &bob_new.seal_secret,
+                &identity.signer().public(),
+                identity.luna_id(),
+                PROTECTION,
+                1,
+                "bob"
+            )
+            .is_ok()
+        );
+        assert_eq!(v1.version, 1);
+    }
+
+    #[test]
+    fn reseal_until_done_retries_after_the_backup_frees_up() {
+        let (_dir, db) = shared_db();
+        let store = MemoryStore::new();
+        let bob = user_keys("bob");
+        let bob_new = user_keys("bob-new");
+        {
+            let conn = locked(&db);
+            set_phrase(&conn, "bob", &bob);
+            ensure_key(&conn, PROTECTION, &set(&["bob"]), 10).unwrap();
+            set_phrase(&conn, "bob", &bob_new);
+            replace_reader(&conn, "bob", &bob_new.seal_public).unwrap();
+            queue_reseal(&conn, "bob").unwrap();
+        }
+        let slot = super::super::run::RunSlot::take(&db, PROTECTION).unwrap();
+        assert!(!crate::backup::cloud::ops::reseal_until_done(
+            &db,
+            &store,
+            2,
+            std::time::Duration::from_millis(1)
+        ));
+        drop(slot);
+        assert!(crate::backup::cloud::ops::reseal_until_done(
+            &db,
+            &store,
+            2,
+            std::time::Duration::from_millis(1)
+        ));
+        assert!(!resealing_pending(&locked(&db), "bob").unwrap());
     }
 }

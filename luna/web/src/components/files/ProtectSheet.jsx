@@ -273,6 +273,12 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
 
   /** Open the phrase setup, creating Luna's identity first when a fresh Luna has none. */
   async function openPhraseSetup() {
+    // The setup seals the phrase to Luna's account, so it cannot open without one.
+    if (!userId) {
+      haptic("error");
+      setError("Could not open the recovery phrase setup. Reload the page and try again.");
+      return;
+    }
     try {
       /** @type {any} */
       let status = queryClient.getQueryData(PHRASE_QUERY_KEY);
@@ -658,7 +664,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                   surface="primary"
                   fullWidth
                   loading={createCloud.isPending || startingCloud}
-                  disabled={createCloud.isPending || startingCloud}
+                  disabled={!userId || createCloud.isPending || startingCloud}
                   onClick={startCloudBackup}
                 >
                   Back up to the cloud

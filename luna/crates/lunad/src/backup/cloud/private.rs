@@ -231,9 +231,8 @@ impl SignedScope {
 
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
         serde_json::from_slice(bytes).map_err(|e| {
-            anyhow!(
-                "TEMPDIAG This private backup's record could not be read. It may be damaged. {e}"
-            )
+            tracing::warn!(error = %e, "could not parse a private backup's scope record");
+            anyhow!("This private backup's record could not be read. It may be damaged.")
         })
     }
 }
@@ -491,6 +490,19 @@ mod tests {
 
         let round_tripped = SignedScope::from_bytes(&signed.to_bytes()).unwrap();
         assert_eq!(round_tripped, signed);
+    }
+
+    #[test]
+    fn unreadable_scope_record_gives_a_plain_error() {
+        let err = SignedScope::from_bytes(b"{not json")
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            err,
+            "This private backup's record could not be read. It may be damaged."
+        );
+        assert!(!err.contains("TEMPDIAG"));
+        assert!(!err.contains("expected"));
     }
 
     #[test]

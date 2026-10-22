@@ -101,11 +101,7 @@ Both flows ask it the same way, as two `CardButton`s: **"Could someone else have
 4. Save (§4.5). Toast: `Recovery phrase changed.`
 5. "Someone may have it" only (phase 5): an optional last step, `Delete older private versions` (§4.4).
 
-**Private items before phase 5.** Until private scopes have their own key pair (§5), private history can't move to a new phrase:
-- "No": private history retires with the 30-day grace, as today. The copy adds: "Older versions of your private items stay with your old phrase for 30 days, then Luna removes them. Your private items back up again from the start."
-- "Someone may have it": old private copies are removed **at once**. The copy adds: "Older versions of your private items can't be kept."
-
-Once phase 5 lands, both lines go away.
+**Private items.** Each private scope has its own key pair (§5), so private history moves to the new phrase like everything else: the browser re-seals every scope's secret in the same step. A scope it can't re-seal retires with the 30-day grace, and the toast says how many.
 
 ### 4.3 Get a new phrase (you lost it)
 
@@ -161,7 +157,7 @@ One endpoint, `PUT /api/v1/cloud/phrase`:
 Phase 5 adds `rescoped` when the proof is the old phrase (§5).
 
 **Proof:**
-- Old phrase: the browser calls `POST /api/v1/cloud/phrase/challenge`, then signs the challenge with the **old** auth key under a new domain, `phrase-replace`. The PUT takes the challenge (`take_challenge`, single use) and verifies against the stored `auth_public`. A separate domain means a phrase-check signature can never be replayed as a replacement.
+- Old phrase: the browser calls `POST /api/v1/cloud/phrase/challenge`, then signs the challenge with the **old** auth key under a new domain, `phrase-replace`. It signs the challenge together with the new `seal_public`, `auth_public`, a hash of `self_sealed` and `exposed`, so a copied request can't be resent with other keys. The PUT takes the challenge (`take_challenge`, single use) and verifies against the stored `auth_public`. A separate domain means a phrase-check signature can never be replayed as a replacement.
 - Password: `auth.verify_password_for_user` (`auth.rs`). A wrong password should count toward the same lockout as a wrong sign-in; check that it does.
 
 **In one SQLite transaction:**

@@ -13,6 +13,7 @@ use crate::backup::cloud::private::{self, snapshot_record_ref};
 use crate::backup::cloud::private_check;
 use crate::backup::cloud::private_run;
 use crate::backup::cloud::retention;
+use crate::backup::cloud::rewrap;
 use crate::backup::cloud::run::{self, CloudOutcome};
 use crate::backup::cloud::store::{CloudStore, StoreError};
 use crate::backup::drive_backup::{self, Refused};
@@ -382,7 +383,7 @@ fn tidy(db: &crate::Db, id: &str, store: &dyn CloudStore, now: i64) -> anyhow::R
 
 /// Packs nothing uses any more in any scope are marked and later deleted. This
 /// also finishes the pack clean-up of backups deleted earlier.
-fn sweep(db: &crate::Db, store: &dyn CloudStore, now: i64) {
+pub(super) fn sweep(db: &crate::Db, store: &dyn CloudStore, now: i64) {
     let scopes = {
         let conn = lock(db);
         scopes_of(&conn, None)
@@ -390,6 +391,11 @@ fn sweep(db: &crate::Db, store: &dyn CloudStore, now: i64) {
     if let Err(err) = retention::retire_old_phrases(db, store, now) {
         tracing::warn!(error = %err, "could not remove old-phrase private backups");
     }
+    // Move older packs to the newest key a few steps at a time. Each step takes its backup's run
+    // lock and does nothing while the store is full. This also finishes any new record that did
+    // not reach the cloud, which has to happen before the clean-up below may delete anything.
+    rewrap::trickle(db, Some(store), now);
+    publish_pending_scopes(db, store);
     match scopes {
         Ok(scopes) => {
             for scope in scopes {
@@ -433,33 +439,203 @@ pub fn retire_old_phrase_now(conn: &Connection, owner: &str, now: i64) -> anyhow
     Ok(())
 }
 
-/// Sends the records of the scopes that were re-sealed to the new phrase, signed under the new
-/// keys. A failure here is only logged: the records are sent again with the next save.
-pub fn publish_resealed_scopes(
+/// Finishes every pending re-seal of cloud backup keys, trying again while a backup is copying
+/// (a re-seal waits for it) or the store fails. Gives up after `attempts` tries, `pause` apart; the
+/// next run retries too. Returns true once nothing is pending.
+pub fn reseal_until_done(
     db: &crate::Db,
     store: &dyn CloudStore,
-    scopes: &[String],
-    auth_public: &super::crypto::SigPublic,
-) -> anyhow::Result<()> {
-    let identity = identity::load(&lock(db))?
-        .ok_or_else(|| anyhow::anyhow!("Luna's cloud identity is missing."))?;
-    let rows = {
+    attempts: u32,
+    pause: std::time::Duration,
+) -> bool {
+    for attempt in 0..attempts {
+        let mut all_done = true;
+        for result in keys::reseal_pending(db, store) {
+            match result {
+                Ok(report) if report.done => {}
+                Ok(report) => {
+                    all_done = false;
+                    tracing::warn!(
+                        user = %report.user_id,
+                        busy = report.busy.len(),
+                        missing = report.missing.len(),
+                        "a cloud re-seal is waiting; it will be tried again"
+                    );
+                }
+                Err(err) => {
+                    all_done = false;
+                    tracing::warn!(error = %err, "could not re-seal cloud backup keys to the new phrase");
+                }
+            }
+        }
+        if all_done {
+            return true;
+        }
+        if attempt + 1 < attempts {
+            std::thread::sleep(pause);
+        }
+    }
+    false
+}
+
+/// Starts a run for each backup a phrase save marked to rotate, so new files are shut off from the
+/// old phrase within minutes instead of at the next scheduled run. A failed run is only logged:
+/// the mark stays, and the next run starts the new key version.
+pub fn run_marked(
+    db: &crate::Db,
+    store: &dyn CloudStore,
+    connect: &ConnectService,
+    backups: &[String],
+    now: i64,
+) {
+    for backup in backups {
+        let outcome = run(db, backup, store, connect, "", false, now);
+        if let Some(problem) = outcome.problem {
+            tracing::warn!(backup = %backup, problem, "could not start the run for a new phrase");
+        }
+    }
+}
+
+const SCOPE_PUBLISH_PREFIX: &str = "pscope_publish";
+
+/// Remembers that these scopes' `pscopes/<scope>` records must be sent again (after a phrase
+/// change re-sealed them). Any state counts: active, history and old-phrase scopes alike. The mark
+/// is kept until the record is in the cloud, so a failed send is retried by the next sweep.
+pub fn queue_scope_publish(conn: &Connection, scopes: &[String]) -> anyhow::Result<()> {
+    for scope in scopes {
+        // The value counts the requests, so a send that was already in flight can tell that the
+        // scope was queued again while it ran and must leave the new mark in place.
+        let key = format!("{SCOPE_PUBLISH_PREFIX}:{scope}");
+        let next = db::get_meta(conn, &key)?
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(0)
+            .wrapping_add(1);
+        db::set_meta(conn, &key, &next.to_string())?;
+    }
+    Ok(())
+}
+
+/// What one pass over the pending scope records did.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct ScopePublishReport {
+    pub published: usize,
+    /// Records that could not be sent; they stay pending.
+    pub failed: usize,
+}
+
+/// Sends every pending scope record, signed under the owner's current keys. One failing scope
+/// never stops the others. A scope that no longer exists, or whose owner has no phrase, has
+/// nothing to send and is dropped from the list.
+pub fn publish_pending_scopes(db: &crate::Db, store: &dyn CloudStore) -> ScopePublishReport {
+    let mut report = ScopePublishReport::default();
+    let pending: Vec<(String, String)> = {
         let conn = lock(db);
-        scopes
-            .iter()
-            .filter_map(|scope| db::get_private_scope(&conn, scope).transpose())
-            .collect::<anyhow::Result<Vec<_>>>()?
+        let listed = (|| -> anyhow::Result<Vec<(String, String)>> {
+            let mut stmt =
+                conn.prepare("SELECT key, value FROM meta WHERE key GLOB ?1 ORDER BY key")?;
+            let keys = stmt
+                .query_map([format!("{SCOPE_PUBLISH_PREFIX}:*")], |r| {
+                    Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(keys)
+        })();
+        match listed {
+            Ok(keys) => keys,
+            Err(err) => {
+                tracing::warn!(error = %err, "could not list the private backup records to send");
+                report.failed += 1;
+                return report;
+            }
+        }
     };
-    for row in &rows {
-        private::publish_scope(
+    if pending.is_empty() {
+        return report;
+    }
+    let identity = match identity::load(&lock(db)) {
+        Ok(Some(identity)) => identity,
+        other => {
+            if let Err(err) = other {
+                tracing::warn!(error = %err, "could not load Luna's cloud identity");
+            }
+            report.failed = pending.len();
+            return report;
+        }
+    };
+    for (key, mark) in pending {
+        let scope_name = key[SCOPE_PUBLISH_PREFIX.len() + 1..].to_string();
+        // Only the mark that was read before sending is removed. If the scope was queued again
+        // meanwhile (a second phrase change), the new mark stays and the next sweep sends it.
+        let clear = || {
+            let conn = lock(db);
+            let _ = conn.execute(
+                "DELETE FROM meta WHERE key = ?1 AND value = ?2",
+                [&key, &mark],
+            );
+        };
+        let loaded = {
+            let conn = lock(db);
+            db::get_private_scope(&conn, &scope_name).and_then(|row| match row {
+                None => Ok(None),
+                Some(row) => Ok(db::get_user_keys(&conn, &row.owner)?.map(|k| (row, k))),
+            })
+        };
+        let (row, user_keys) = match loaded {
+            Ok(Some(found)) => found,
+            Ok(None) => {
+                clear();
+                continue;
+            }
+            Err(err) => {
+                tracing::warn!(error = %err, scope = %scope_name, "could not read a private backup to send");
+                report.failed += 1;
+                continue;
+            }
+        };
+        let Ok(auth_public) =
+            <super::crypto::SigPublic>::try_from(user_keys.auth_public.as_slice())
+        else {
+            tracing::warn!(scope = %scope_name, "a person's saved sign-in key is damaged");
+            report.failed += 1;
+            continue;
+        };
+        match private::publish_scope(
             store,
             identity.signer(),
             identity.luna_id(),
-            row,
-            auth_public,
-        )?;
+            &row,
+            &auth_public,
+        ) {
+            Ok(()) => {
+                clear();
+                report.published += 1;
+            }
+            Err(err) => {
+                tracing::warn!(error = %err, scope = %scope_name, "could not send a private backup record to Luna Connect");
+                report.failed += 1;
+            }
+        }
     }
-    Ok(())
+    report
+}
+
+/// Retries [`publish_pending_scopes`] up to `attempts` times, `pause` apart, until nothing is
+/// pending. Returns true once every record is sent; the next sweep retries otherwise.
+pub fn publish_scopes_until_done(
+    db: &crate::Db,
+    store: &dyn CloudStore,
+    attempts: u32,
+    pause: std::time::Duration,
+) -> bool {
+    for attempt in 0..attempts {
+        if publish_pending_scopes(db, store).failed == 0 {
+            return true;
+        }
+        if attempt + 1 < attempts {
+            std::thread::sleep(pause);
+        }
+    }
+    false
 }
 
 /// Lets `owner`'s older private versions (kept after a phrase change) be removed by the next sweep,
@@ -549,6 +725,9 @@ pub fn delete(db: &crate::Db, id: &str, store: &dyn CloudStore, now: i64) -> any
         let conn = lock(db);
         db::delete_cloud_snapshot(&conn, &snap.id)?;
     }
+    // Its snapshots are gone, so no record upload can still be pending for it. Left behind, a
+    // marker would hold back every pack cleanup, including the one just below.
+    rewrap::forget_backup(&lock(db), id)?;
 
     // Key and recipient records are named "<backup id>.…". The kinds match
     // `keys::KEYS_KIND` and `keys::RECIPIENTS_KIND`.
@@ -567,6 +746,7 @@ pub fn delete(db: &crate::Db, id: &str, store: &dyn CloudStore, now: i64) -> any
 
     let conn = lock(db);
     db::delete_protection(&conn, id)?;
+    rewrap::forget_backup(&conn, id)?;
     db::set_meta(&conn, &deleted_key(id), &now.to_string())?;
     conn.execute(
         "DELETE FROM backup_keys WHERE protection_id = ?1",
@@ -1133,6 +1313,43 @@ mod tests {
     }
 
     #[test]
+    fn delete_forgets_pending_record_uploads_and_a_stray_marker_never_blocks_cleanup() {
+        let s = setup();
+        let id = make_backup(&s);
+        let other = "no-such-backup";
+        {
+            let conn = lock(&s.db);
+            for key in [
+                format!("rewrap_resync:{id}:snap-1"),
+                format!("cloud_move:{id}"),
+                format!("cloud_move_paused:{id}"),
+            ] {
+                db::set_meta(&conn, &key, "1:5").unwrap();
+            }
+            // A marker left by an earlier bug for a backup that is already gone.
+            db::set_meta(&conn, &format!("rewrap_resync:{other}:snap-9"), "1").unwrap();
+            // While the backup exists its own marker counts as pending.
+            assert!(rewrap::record_upload_pending(&conn).unwrap());
+        }
+        delete(&s.db, &id, &MemoryStore::new(), NOW).unwrap();
+        let conn = lock(&s.db);
+        for key in [
+            format!("rewrap_resync:{id}:snap-1"),
+            format!("cloud_move:{id}"),
+            format!("cloud_move_paused:{id}"),
+        ] {
+            assert!(db::get_meta(&conn, &key).unwrap().is_none(), "{key}");
+        }
+        // The stray marker stays, but does not hold back pack cleanup.
+        assert!(
+            db::get_meta(&conn, &format!("rewrap_resync:{other}:snap-9"))
+                .unwrap()
+                .is_some()
+        );
+        assert!(!rewrap::record_upload_pending(&conn).unwrap());
+    }
+
+    #[test]
     fn delete_refuses_while_copying() {
         let s = setup();
         let id = make_backup(&s);
@@ -1529,6 +1746,251 @@ mod tests {
                 .unwrap()
                 .access_json,
             "keep-me"
+        );
+    }
+    /// Fails `put_record` for scope names listed in `fail`, while `allow` is false.
+    struct ScopeFlaky {
+        inner: MemoryStore,
+        fail: Vec<String>,
+        allow: std::sync::atomic::AtomicBool,
+    }
+
+    impl CloudStore for ScopeFlaky {
+        fn put_pack(&self, id: &[u8; 32], scope: Option<&str>, b: &[u8]) -> Result<(), StoreError> {
+            self.inner.put_pack(id, scope, b)
+        }
+        fn get_pack(&self, id: &[u8; 32]) -> Result<Vec<u8>, StoreError> {
+            self.inner.get_pack(id)
+        }
+        fn delete_pack(&self, id: &[u8; 32]) -> Result<(), StoreError> {
+            self.inner.delete_pack(id)
+        }
+        fn put_record(&self, kind: &str, name: &str, b: &[u8]) -> Result<(), StoreError> {
+            if !self.allow.load(std::sync::atomic::Ordering::SeqCst)
+                && kind == PSCOPES_KIND
+                && self.fail.iter().any(|f| f == name)
+            {
+                return Err(StoreError::Unavailable(
+                    "Could not reach Luna Connect.".into(),
+                ));
+            }
+            self.inner.put_record(kind, name, b)
+        }
+        fn get_record(&self, kind: &str, name: &str) -> Result<Option<Vec<u8>>, StoreError> {
+            self.inner.get_record(kind, name)
+        }
+        fn delete_record(&self, kind: &str, name: &str) -> Result<(), StoreError> {
+            self.inner.delete_record(kind, name)
+        }
+        fn list_records(&self, kind: &str) -> Result<Vec<String>, StoreError> {
+            self.inner.list_records(kind)
+        }
+        fn usage(&self) -> Result<Usage, StoreError> {
+            self.inner.usage()
+        }
+    }
+
+    fn scope_row(name: &str, state: &str) -> db::PrivateScope {
+        let (_, scope_public) = crypto::new_scope_keys();
+        db::PrivateScope {
+            scope: name.to_string(),
+            owner: "owner".into(),
+            seal_public: owner_keys(7).seal_public,
+            scope_public: scope_public.to_vec(),
+            sealed_scope_secret: vec![9; 40],
+            dedup_key: vec![1; 32],
+            state: state.to_string(),
+            retire_after: 0,
+            created_at: 5,
+        }
+    }
+
+    #[test]
+    fn pending_scope_records_continue_past_a_failure_and_retry_later() {
+        let p = private_setup();
+        {
+            let conn = lock(&p.db);
+            for (name, state) in [
+                ("s-bad", "active"),
+                ("s-hist", "history"),
+                ("s-old", "old_phrase"),
+            ] {
+                db::insert_private_scope(&conn, &scope_row(name, state)).unwrap();
+            }
+            queue_scope_publish(
+                &conn,
+                &[
+                    "s-bad".to_string(),
+                    "s-hist".to_string(),
+                    "s-old".to_string(),
+                ],
+            )
+            .unwrap();
+        }
+        let store = ScopeFlaky {
+            inner: MemoryStore::new(),
+            fail: vec!["s-bad".into()],
+            allow: std::sync::atomic::AtomicBool::new(false),
+        };
+        // The first scope fails; the history and old-phrase ones are still sent.
+        let report = publish_pending_scopes(&p.db, &store);
+        assert_eq!(
+            report,
+            ScopePublishReport {
+                published: 2,
+                failed: 1
+            }
+        );
+        assert!(
+            store
+                .inner
+                .get_record(PSCOPES_KIND, "s-hist")
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            store
+                .inner
+                .get_record(PSCOPES_KIND, "s-old")
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            store
+                .inner
+                .get_record(PSCOPES_KIND, "s-bad")
+                .unwrap()
+                .is_none()
+        );
+        // Only the failed one stays pending, and a later pass finishes it.
+        assert!(!publish_scopes_until_done(
+            &p.db,
+            &store,
+            2,
+            std::time::Duration::from_millis(1)
+        ));
+        store.allow.store(true, std::sync::atomic::Ordering::SeqCst);
+        assert!(publish_scopes_until_done(
+            &p.db,
+            &store,
+            2,
+            std::time::Duration::from_millis(1)
+        ));
+        assert!(
+            store
+                .inner
+                .get_record(PSCOPES_KIND, "s-bad")
+                .unwrap()
+                .is_some()
+        );
+        assert_eq!(
+            publish_pending_scopes(&p.db, &store),
+            ScopePublishReport::default()
+        );
+    }
+
+    /// Queues `scope` again while its first record is being sent, like a second phrase change.
+    struct RequeueDuringSend<'a> {
+        inner: MemoryStore,
+        db: &'a crate::Db,
+        scope: String,
+        done: std::sync::atomic::AtomicBool,
+    }
+
+    impl CloudStore for RequeueDuringSend<'_> {
+        fn put_pack(&self, id: &[u8; 32], scope: Option<&str>, b: &[u8]) -> Result<(), StoreError> {
+            self.inner.put_pack(id, scope, b)
+        }
+        fn get_pack(&self, id: &[u8; 32]) -> Result<Vec<u8>, StoreError> {
+            self.inner.get_pack(id)
+        }
+        fn delete_pack(&self, id: &[u8; 32]) -> Result<(), StoreError> {
+            self.inner.delete_pack(id)
+        }
+        fn put_record(&self, kind: &str, name: &str, b: &[u8]) -> Result<(), StoreError> {
+            if kind == PSCOPES_KIND && !self.done.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                queue_scope_publish(&lock(self.db), std::slice::from_ref(&self.scope)).unwrap();
+            }
+            self.inner.put_record(kind, name, b)
+        }
+        fn get_record(&self, kind: &str, name: &str) -> Result<Option<Vec<u8>>, StoreError> {
+            self.inner.get_record(kind, name)
+        }
+        fn delete_record(&self, kind: &str, name: &str) -> Result<(), StoreError> {
+            self.inner.delete_record(kind, name)
+        }
+        fn list_records(&self, kind: &str) -> Result<Vec<String>, StoreError> {
+            self.inner.list_records(kind)
+        }
+        fn usage(&self) -> Result<Usage, StoreError> {
+            self.inner.usage()
+        }
+    }
+
+    #[test]
+    fn a_scope_queued_again_during_a_send_is_sent_again() {
+        let p = private_setup();
+        {
+            let conn = lock(&p.db);
+            db::insert_private_scope(&conn, &scope_row("s-1", "active")).unwrap();
+            queue_scope_publish(&conn, &["s-1".to_string()]).unwrap();
+        }
+        let store = RequeueDuringSend {
+            inner: MemoryStore::new(),
+            db: &p.db,
+            scope: "s-1".into(),
+            done: std::sync::atomic::AtomicBool::new(false),
+        };
+        let report = publish_pending_scopes(&p.db, &store);
+        assert_eq!(report.published, 1);
+        // The new request survived the first send, so the next sweep sends the newer record.
+        assert!(
+            db::get_meta(&lock(&p.db), "pscope_publish:s-1")
+                .unwrap()
+                .is_some()
+        );
+        let report = publish_pending_scopes(&p.db, &store);
+        assert_eq!(report.published, 1);
+        assert!(
+            db::get_meta(&lock(&p.db), "pscope_publish:s-1")
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn pending_scope_record_for_a_missing_scope_is_dropped() {
+        let p = private_setup();
+        queue_scope_publish(&lock(&p.db), &["gone".to_string()]).unwrap();
+        let store = MemoryStore::new();
+        let report = publish_pending_scopes(&p.db, &store);
+        assert_eq!(report, ScopePublishReport::default());
+        assert!(store.get_record(PSCOPES_KIND, "gone").unwrap().is_none());
+        assert!(
+            db::get_meta(&lock(&p.db), "pscope_publish:gone")
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn pending_scope_records_wait_when_the_identity_is_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        queue_scope_publish(&conn, &["s-1".to_string()]).unwrap();
+        let db = crate::Db::new(conn);
+        let report = publish_pending_scopes(&db, &MemoryStore::new());
+        assert_eq!(
+            report,
+            ScopePublishReport {
+                published: 0,
+                failed: 1
+            }
+        );
+        assert!(
+            db::get_meta(&lock(&db), "pscope_publish:s-1")
+                .unwrap()
+                .is_some()
         );
     }
 }

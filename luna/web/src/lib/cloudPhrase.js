@@ -1,5 +1,5 @@
 import { apiErrorMessage, getJson, postJson, putJson } from "./api";
-import { canonical, derive, encrypt, phraseToEntropy, SIG_PUBLIC_LEN, sign } from "@libreloom/ui/lib/cloud/backupCrypto.js";
+import { canonical, derive, encrypt, packId, phraseToEntropy, SIG_PUBLIC_LEN, sign } from "@libreloom/ui/lib/cloud/backupCrypto.js";
 import { openScopeSecret, sealScopeSecret } from "@libreloom/ui/lib/cloud/cloudPrivate.js";
 
 /**
@@ -107,6 +107,36 @@ export async function signFreshChallenge(entropy, lunaId, domain = CHECK_DOMAIN)
 }
 
 /**
+ * The bytes the old phrase signs to replace itself: the challenge plus every new value in the
+ * request, so a copied request can't be sent again with someone else's keys. Must match
+ * `replace_message` in cloud_phrase.rs.
+ * @param {Uint8Array} challenge
+ * @param {{ seal_public: string, auth_public: string, self_sealed: string, exposed: boolean }} body
+ */
+export function replaceMessage(challenge, body) {
+  return canonical([
+    ["challenge", challenge],
+    ["seal_public", fromBase64(body.seal_public)],
+    ["auth_public", fromBase64(body.auth_public)],
+    ["self_sealed_hash", packId(fromBase64(body.self_sealed))],
+    ["exposed", Uint8Array.of(body.exposed ? 1 : 0)],
+  ]);
+}
+
+/**
+ * Signs a replacement: asks for a fresh challenge and signs it together with the new values.
+ * @param {Uint8Array} entropy the phrase being replaced
+ * @param {string} lunaId
+ * @param {{ seal_public: string, auth_public: string, self_sealed: string, exposed: boolean }} body
+ * @returns {Promise<string>} base64 signature
+ */
+export async function signReplacement(entropy, lunaId, body) {
+  const { authSecret } = derive(entropy, lunaId);
+  const { challenge } = await requestChallenge();
+  return toBase64(sign(authSecret, REPLACE_DOMAIN, replaceMessage(fromBase64(challenge), body)));
+}
+
+/**
  * Proves the phrase to the server ("Check my phrase", and the first step of a change).
  * Resolves the entropy when Luna accepts it, or null when the phrase is refused.
  * A lockout throws LOCKED_OUT_MESSAGE; any other failure throws a plain message.
@@ -162,7 +192,7 @@ export async function resealScopes(oldEntropy, lunaId, newSealPublic) {
 
 /**
  * Body for a replacement (PUT). `proof` is `{ oldEntropy }` (you still have the old phrase,
- * which signs a fresh `phrase-replace` challenge) or `{ password }` (you lost it, and the
+ * which signs a fresh `phrase-replace` challenge together with the new keys) or `{ password }` (you lost it, and the
  * Luna password is checked on the server). `exposed` is the "Could someone else have your
  * phrase?" answer. With the old phrase, `rescoped` carries the private scopes re-sealed to the new one.
  * @param {{ proof: { oldEntropy: Uint8Array } | { password: string }, exposed: boolean, newPhrase: string, lunaId: string, userId: string, signingPublic: string }} opts
@@ -178,7 +208,7 @@ export async function buildReplaceBody({ proof, exposed, newPhrase, lunaId, user
     // Re-seal before signing: the challenge is single use and expires after five minutes.
     body.rescoped = await resealScopes(proof.oldEntropy, lunaId, derive(newEntropy, lunaId).sealPublic);
     body.proof = "old_signature";
-    body.signature = await signFreshChallenge(proof.oldEntropy, lunaId, REPLACE_DOMAIN);
+    body.signature = await signReplacement(proof.oldEntropy, lunaId, /** @type {any} */ (body));
   } else {
     body.proof = "password";
     body.password = proof.password;

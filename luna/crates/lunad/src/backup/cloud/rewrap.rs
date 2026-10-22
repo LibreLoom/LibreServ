@@ -405,6 +405,34 @@ fn resync_prefix(protection_id: &str) -> String {
     format!("rewrap_resync:{protection_id}:")
 }
 
+/// True while any rewritten snapshot's new record has not reached the cloud yet. Until it has,
+/// the cloud record still names the old tree pack, so cleanup must not delete any pack.
+/// A marker whose backup no longer exists can never be uploaded, so it never counts.
+pub fn record_upload_pending(conn: &Connection) -> Result<bool> {
+    Ok(conn
+        .query_row(
+            "SELECT 1 FROM meta WHERE substr(key, 1, 14) = 'rewrap_resync:' \
+             AND EXISTS (SELECT 1 FROM protections p \
+                         WHERE substr(meta.key, 15, length(p.id) + 1) = p.id || ':') \
+             LIMIT 1",
+            [],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some())
+}
+
+/// Forgets everything the move kept for a backup that is being deleted: its pending record
+/// uploads and its counters.
+pub fn forget_backup(conn: &Connection, protection_id: &str) -> Result<()> {
+    let prefix = resync_prefix(protection_id);
+    conn.execute(
+        "DELETE FROM meta WHERE substr(key, 1, length(?1)) = ?1",
+        params![prefix],
+    )?;
+    finish_counters(conn, protection_id)
+}
+
 /// Uploads the local record of every snapshot whose rewrite was committed but whose new record
 /// never reached the cloud (a crash or an upload failure after the commit). The local row is the
 /// truth, so the cloud copy is made to match it. A marker is cleared only after its upload worked.
@@ -876,6 +904,7 @@ mod tests {
     struct Faulty {
         inner: MemoryStore,
         full: AtomicBool,
+        fail_records: AtomicBool,
         corrupt: Mutex<Vec<[u8; 32]>>,
         deletes: AtomicUsize,
     }
@@ -885,6 +914,7 @@ mod tests {
             Self {
                 inner: MemoryStore::new(),
                 full: AtomicBool::new(false),
+                fail_records: AtomicBool::new(false),
                 corrupt: Mutex::new(Vec::new()),
                 deletes: AtomicUsize::new(0),
             }
@@ -917,6 +947,9 @@ mod tests {
             self.inner.delete_pack(id)
         }
         fn put_record(&self, kind: &str, name: &str, bytes: &[u8]) -> Result<(), StoreError> {
+            if self.fail_records.load(Ordering::SeqCst) {
+                return Err(StoreError::Unavailable("records are down".into()));
+            }
             self.inner.put_record(kind, name, bytes)
         }
         fn get_record(&self, kind: &str, name: &str) -> Result<Option<Vec<u8>>, StoreError> {
@@ -1637,5 +1670,135 @@ mod tests {
         assert_eq!(status(&run::lock(&db), "rw").unwrap(), None);
         assert_eq!(status_json(&run::lock(&db), "rw"), Value::Null);
         assert_eq!(status_for_luna(&run::lock(&db)), Value::Null);
+    }
+
+    fn tree_pack_ids(db: &crate::Db) -> Vec<String> {
+        snapshots(db).into_iter().map(|s| s.tree_pack_id).collect()
+    }
+
+    #[test]
+    fn cleanup_deletes_nothing_while_a_new_record_is_not_in_the_cloud() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = setup(dir.path());
+        let src = source(dir.path());
+        let store = MemoryStore::new();
+        build(&db, &src, &store);
+
+        let now = step_until_rewrite_is_next(&db, &store, 400);
+        let before = tree_pack_ids(&db);
+        CRASH_AFTER_UPLOAD.with(|c| c.set(true));
+        assert!(step(&db, "rw", &store, now + 10).is_err());
+        let after = tree_pack_ids(&db);
+        let replaced: Vec<&String> = before.iter().filter(|id| !after.contains(id)).collect();
+        assert_eq!(replaced.len(), 1, "one tree pack was replaced");
+        let old_id = run::unhex(replaced[0]).unwrap();
+        assert!(
+            run::lock(&db)
+                .query_row(
+                    "SELECT state FROM cloud_packs WHERE id = ?1",
+                    params![replaced[0]],
+                    |r| r.get::<_, String>(0)
+                )
+                .unwrap()
+                == "marked"
+        );
+        assert!(record_upload_pending(&run::lock(&db)).unwrap());
+
+        // A day and more later, the cloud record still names the old tree pack. Cleanup waits.
+        let late = now + 10 * 86_400;
+        let out =
+            crate::backup::cloud::retention::thin(&db, "", &scope_for(&db), &store, late).unwrap();
+        assert_eq!(out.packs_deleted, 0);
+        assert!(
+            store.get_pack(&old_id).is_ok(),
+            "the old tree pack must stay"
+        );
+
+        // The next step publishes the record first. Only then may cleanup delete the old pack.
+        step(&db, "rw", &store, late + 1).unwrap();
+        assert!(!record_upload_pending(&run::lock(&db)).unwrap());
+        for snap in snapshots(&db) {
+            assert_eq!(
+                store.get_record("snapshots", &snap.id).unwrap().as_deref(),
+                Some(&snap.record[..])
+            );
+        }
+        crate::backup::cloud::retention::thin(&db, "", &scope_for(&db), &store, late + 2).unwrap();
+        crate::backup::cloud::retention::thin(&db, "", &scope_for(&db), &store, late + 3 + 86_400)
+            .unwrap();
+        assert!(
+            store.get_pack(&old_id).is_err(),
+            "now the old pack is cleaned up"
+        );
+    }
+
+    fn scope_for(db: &crate::Db) -> String {
+        let conn = run::lock(db);
+        let target = load_target(&conn, "rw").unwrap().unwrap();
+        scope_of(&target.dedup_key).1
+    }
+
+    #[test]
+    fn a_failed_record_upload_blocks_cleanup_until_it_works() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = setup(dir.path());
+        let src = source(dir.path());
+        let store = Faulty::new();
+        build(&db, &src, &store);
+        let now = step_until_rewrite_is_next(&db, &store, 400);
+        CRASH_AFTER_UPLOAD.with(|c| c.set(true));
+        assert!(step(&db, "rw", &store, now + 10).is_err());
+
+        store.fail_records.store(true, Ordering::SeqCst);
+        assert!(resync_records(&db, "rw", &store).is_err());
+        assert!(
+            record_upload_pending(&run::lock(&db)).unwrap(),
+            "a marker stays until its upload worked"
+        );
+        crate::backup::cloud::ops::sweep(&db, &store, now + 10 * 86_400);
+        assert_eq!(store.deletes.load(Ordering::SeqCst), 0);
+
+        store.fail_records.store(false, Ordering::SeqCst);
+        resync_records(&db, "rw", &store).unwrap();
+        assert!(!record_upload_pending(&run::lock(&db)).unwrap());
+    }
+
+    #[test]
+    fn the_sweep_runs_the_move_and_pauses_without_deleting_when_full() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = setup(dir.path());
+        let src = source(dir.path());
+        let store = Faulty::new();
+        build(&db, &src, &store);
+
+        store.full.store(true, Ordering::SeqCst);
+        let late = 400 + 10 * 86_400;
+        crate::backup::cloud::ops::sweep(&db, &store, late);
+        assert!(status(&run::lock(&db), "rw").unwrap().unwrap().paused_full);
+        assert_eq!(store.deletes.load(Ordering::SeqCst), 0);
+        assert!(snapshots(&db).iter().any(|s| s.key_version == 1));
+
+        store.full.store(false, Ordering::SeqCst);
+        for i in 0..50 {
+            crate::backup::cloud::ops::sweep(&db, &store, late + i * 10);
+        }
+        for snap in snapshots(&db) {
+            assert_eq!(snap.key_version, 2);
+        }
+        assert_eq!(status(&run::lock(&db), "rw").unwrap(), None);
+    }
+
+    #[test]
+    fn the_sweep_skips_a_backup_that_is_running() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = setup(dir.path());
+        let src = source(dir.path());
+        let store = MemoryStore::new();
+        build(&db, &src, &store);
+        let before = pack_states(&db);
+        let slot = RunSlot::take(&db, "rw").unwrap();
+        crate::backup::cloud::ops::sweep(&db, &store, 500);
+        assert_eq!(pack_states(&db), before);
+        drop(slot);
     }
 }
