@@ -158,6 +158,20 @@ func (pm *PortManager) IsAvailable(port int) bool {
 	return pm.isPortFreeAtOSLocked(port)
 }
 
+// IsAvailableForOwner allows a deployment mapping to reuse a port already
+// reserved by the same install while still checking the OS and other owners.
+func (pm *PortManager) IsAvailableForOwner(port int, instanceID string) bool {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	if owner, used := pm.usedPorts[port]; used && owner != instanceID {
+		return false
+	}
+	if port <= 0 || port > MaxPort || port <= WellKnownPortMax || port == pm.serverPort {
+		return false
+	}
+	return pm.isPortFreeAtOSLocked(port)
+}
+
 // IsPortFreeAtOS checks if a port is available at the OS level by attempting to bind to it.
 func (pm *PortManager) IsPortFreeAtOS(port int) bool {
 	pm.mu.RLock()

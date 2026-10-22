@@ -497,11 +497,15 @@ func main() {
 
 	// Start local SMTP relay — apps send to localhost, the relay forwards
 	// to the configured upstream (Connect SMTP or user-configured SMTP).
-	smtpRelay := email.NewRelay()
-	if err := smtpRelay.Start(); err != nil {
-		slog.Warn("failed to start SMTP relay, apps will not be able to send email", "error", err)
+	if os.Getenv("SOL_SMTP_RELAY_DISABLED") != "true" {
+		smtpRelay := email.NewRelay()
+		if err := smtpRelay.Start(); err != nil {
+			slog.Warn("failed to start SMTP relay, apps will not be able to send email", "error", err)
+		} else {
+			defer smtpRelay.Stop()
+		}
 	} else {
-		defer smtpRelay.Stop()
+		slog.Info("local SMTP relay disabled by environment")
 	}
 	server := api.NewServer(api.ServerConfig{
 		Host:             cfg.Server.Host,

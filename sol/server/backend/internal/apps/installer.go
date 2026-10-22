@@ -146,6 +146,12 @@ type InstallResult struct {
 	Error   string        `json:"error,omitempty"`
 }
 
+func cloneAppDefinitionForInstall(src *AppDefinition) *AppDefinition {
+	clone := *src
+	clone.Deployment.Ports = append([]PortMapping(nil), src.Deployment.Ports...)
+	return &clone
+}
+
 // Install installs an app from the catalog (async - returns immediately with installing status)
 func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallResult, error) {
 	i.logger.Info("Installing app", "app_id", opts.AppID)
@@ -154,8 +160,17 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallR
 	if err != nil {
 		return &InstallResult{Success: false, Error: err.Error()}, err
 	}
+	// Deployment definitions are catalog-owned and shared across installs.
+	// Port allocation is instance-specific, so never mutate that shared slice.
+	appDef = cloneAppDefinitionForInstall(appDef)
 
 	instanceID := generateInstanceID()
+	installCommitted := false
+	defer func() {
+		if !installCommitted && i.portManager != nil {
+			i.portManager.ReleaseAll(instanceID)
+		}
+	}()
 
 	appName := opts.Name
 	if appName == "" {
@@ -214,7 +229,11 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallR
 
 	config = i.generateAutoValues(appDef, config)
 	// Auto-provision OIDC credentials for internal-access apps
-	if appDef.AccessModel == AccessModelInternal && i.oidcProvisioner != nil {
+	if appDef.AccessModel == AccessModelInternal {
+		if i.oidcProvisioner == nil {
+			_ = os.RemoveAll(installPath)
+			return &InstallResult{Success: false, Error: "internal access setup is unavailable"}, fmt.Errorf("OIDC provisioning is required for internal app %q but no provisioner is configured", appDef.ID)
+		}
 		appName := opts.Name
 		if appName == "" {
 			appName = appDef.Name
@@ -227,6 +246,8 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallR
 		clientID, clientSecret, issuerURL, err := i.oidcProvisioner(instanceID, appName, redirectPath)
 		if err != nil {
 			i.logger.Warn("Failed to provision OIDC client", "error", err, "instance_id", instanceID)
+			_ = os.RemoveAll(installPath)
+			return &InstallResult{Success: false, Error: "could not set up internal app access"}, fmt.Errorf("provision OIDC client: %w", err)
 		} else {
 			config["oidc_client_id"] = clientID
 			config["oidc_client_secret"] = clientSecret
@@ -304,7 +325,19 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallR
 			if depPort.Host == 0 {
 				continue // Skip ports with no host mapping
 			}
-			if i.portManager.IsAvailable(depPort.Host) {
+			// A port config field is the user's chosen host port for a matching
+			// catalog mapping. Align deployment metadata before availability checks
+			// so the already-reserved config port is recognized as this install's.
+			for _, field := range appDef.Configuration {
+				if field.Type == "port" && toInt(field.Default) == depPort.Host {
+					if configured := toInt(config[field.Name]); configured > 0 {
+						depPort.Host = configured
+						appDef.Deployment.Ports[idx].Host = configured
+					}
+					break
+				}
+			}
+			if i.portManager.IsAvailableForOwner(depPort.Host, instanceID) {
 				continue // Port is available, use catalog default
 			}
 
@@ -320,18 +353,18 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallR
 		}
 
 		// Update config fields for any re-allocated ports
-		// Match by checking if the field's default value matches the original port
+		// Match by checking the value used for this install before deployment remap.
 		for _, field := range appDef.Configuration {
 			if field.Type != "port" {
 				continue
 			}
-			fieldDefault := toInt(field.Default)
-			if fieldDefault == 0 {
+			configuredPort := toInt(config[field.Name])
+			if configuredPort == 0 {
 				continue
 			}
-			if allocatedPort, ok := originalToAllocated[fieldDefault]; ok {
+			if allocatedPort, ok := originalToAllocated[configuredPort]; ok {
 				config[field.Name] = allocatedPort
-				i.logger.Info("Updated config for re-allocated port", "field", field.Name, "original", fieldDefault, "allocated", allocatedPort)
+				i.logger.Info("Updated config for re-allocated port", "field", field.Name, "original", configuredPort, "allocated", allocatedPort)
 			}
 		}
 
@@ -343,7 +376,14 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallR
 		}
 	}
 
-	manifest, _ := LoadManifest(appDef.CatalogPath)
+	manifest, err := LoadManifest(appDef.CatalogPath)
+	if err != nil {
+		if i.portManager != nil {
+			i.portManager.ReleaseAll(instanceID)
+		}
+		_ = os.RemoveAll(installPath)
+		return &InstallResult{Success: false, Error: "could not read app version information"}, fmt.Errorf("load app manifest: %w", err)
+	}
 	if manifest != nil {
 		if latest := manifest.LatestApproved(); latest != nil {
 			config["version"] = latest.Tag
@@ -441,6 +481,7 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallR
 		_ = os.RemoveAll(installPath)
 		return &InstallResult{Success: false, Error: "failed to save app record"}, err
 	}
+	installCommitted = true
 
 	// Capture domainConfig for the goroutine to avoid race condition
 	// The API handler will clear i.domainConfig immediately after Install() returns
@@ -577,8 +618,10 @@ func (i *Installer) completeInstall(ctx context.Context, appDef *AppDefinition, 
 
 	outputCh <- ScriptOutput{Type: "stdout", Content: "Running setup script...\n"}
 	if err := i.RunSystemSetup(ctx, appDef, instanceID, config, installedApp); err != nil {
-		i.logger.Warn("system-setup failed", "error", err)
-		outputCh <- ScriptOutput{Type: "stderr", Content: "Warning: setup script failed: " + err.Error() + "\n"}
+		i.logger.Error("system-setup failed", "error", err)
+		i.handleInstallFailure(instanceID, installedApp.Path, "Could not finish app setup: "+err.Error(), domainConfig)
+		outputCh <- ScriptOutput{Type: "error", Error: "Could not finish app setup: " + err.Error()}
+		return
 	}
 
 	i.logger.Info("App installed successfully", "app_id", appDef.ID, "instance_id", instanceID)
@@ -599,6 +642,12 @@ func (i *Installer) updateAppStatus(instanceID string, status AppStatus, errMsg 
 // handleInstallFailure cleans up after a failed install
 func (i *Installer) handleInstallFailure(instanceID, installPath, errMsg string, domainConfig *DomainConfig) {
 	ctx := context.Background()
+	if i.monitor != nil {
+		i.monitor.UnregisterApp(instanceID)
+	}
+	if i.metricsCache != nil {
+		i.metricsCache.UpdateStatus(instanceID, StatusError)
+	}
 
 	// Mark as error in DB (keep the record so frontend can show the error message)
 	if err := i.updateAppStatus(instanceID, StatusError, errMsg); err != nil {
@@ -1200,9 +1249,8 @@ func (i *Installer) RunSystemSetup(ctx context.Context, appDef *AppDefinition, i
 	}
 
 	scriptPath := filepath.Join(appDef.CatalogPath, setupScript)
-	if _, err := os.Stat(scriptPath); os.IsNotExist(err) {
-		i.logger.Debug("system-setup script not found, skipping", "script", setupScript)
-		return nil
+	if _, err := os.Stat(scriptPath); err != nil {
+		return fmt.Errorf("required setup script %q is unavailable: %w", setupScript, err)
 	}
 
 	i.logger.Info("Running system-setup", "app_id", appDef.ID, "instance_id", instanceID)
@@ -1212,11 +1260,12 @@ func (i *Installer) RunSystemSetup(ctx context.Context, appDef *AppDefinition, i
 	result, err := executor.ExecuteAt(ctx, instanceID, scriptPath, filepath.Join(i.appsDataDir, instanceID), config)
 	if err != nil {
 		i.logger.Warn("system-setup failed", "app_id", appDef.ID, "error", err)
-		return nil
+		return err
 	}
 
 	if !result.Success {
 		i.logger.Warn("system-setup returned non-zero exit code", "app_id", appDef.ID, "exit_code", result.ExitCode)
+		return fmt.Errorf("setup script exited with status %d", result.ExitCode)
 	} else {
 		i.logger.Info("system-setup completed successfully", "app_id", appDef.ID)
 	}
