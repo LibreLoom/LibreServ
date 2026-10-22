@@ -1987,16 +1987,16 @@ pub fn private_scope_of_snapshot(
         .optional()?)
 }
 
-/// How many of Luna's local snapshot rows are shared ones. Private snapshots live
-/// in the same table but Connect lists them under their own record kind, so they
-/// must not count when comparing against the shared list.
-pub fn count_shared_cloud_snapshots(conn: &Connection) -> anyhow::Result<i64> {
-    Ok(conn.query_row(
-        "SELECT COUNT(*) FROM cloud_snapshots
+/// IDs of Luna's indexed shared snapshots. Private snapshots live in the same table but
+/// Connect lists them under a separate, scope-protected record kind.
+pub fn list_shared_cloud_snapshot_ids(conn: &Connection) -> anyhow::Result<Vec<String>> {
+    let mut stmt = conn.prepare(
+        "SELECT id FROM cloud_snapshots
          WHERE id NOT IN (SELECT snapshot_id FROM cloud_private_trees)",
-        [],
-        |r| r.get(0),
-    )?)
+    )?;
+    Ok(stmt
+        .query_map([], |row| row.get(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
 /// `commit_snapshot_tx` for a private snapshot, plus its plain tree, in one transaction.
@@ -3303,7 +3303,7 @@ mod tests {
     }
 
     #[test]
-    fn shared_snapshot_count_ignores_private_ones() {
+    fn shared_snapshot_ids_ignore_private_ones() {
         let dir = tempfile::tempdir().unwrap();
         let mut conn = open(&dir.path().join("luna.db")).unwrap();
         insert_protection(&conn, &new_protection("prot", "d1", "docs")).unwrap();
@@ -3316,11 +3316,16 @@ mod tests {
             b"{}",
         )
         .unwrap();
-        assert_eq!(count_shared_cloud_snapshots(&conn).unwrap(), 0);
+        assert!(list_shared_cloud_snapshot_ids(&conn).unwrap().is_empty());
+        insert_cloud_snapshot(&conn, &cloud_snap("shared-1", "prot", 6)).unwrap();
+        assert_eq!(
+            list_shared_cloud_snapshot_ids(&conn).unwrap(),
+            vec!["shared-1"]
+        );
         let n: i64 = conn
             .query_row("SELECT COUNT(*) FROM cloud_snapshots", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(n, 1);
+        assert_eq!(n, 2);
     }
 
     #[test]
