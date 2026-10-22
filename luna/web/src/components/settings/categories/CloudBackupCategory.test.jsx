@@ -53,6 +53,21 @@ const sampleBackup = {
 describe("CloudBackupCategory", () => {
   afterEach(() => vi.unstubAllGlobals());
 
+  it("shows the recovery phrase card first, then the backup list", async () => {
+    stubApi({ connected: true, backups: [sampleBackup] });
+    renderCard();
+    const phrase = await screen.findByText("Recovery phrase");
+    const list = await screen.findByText("Cloud backup");
+    expect(phrase.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("does not include the Luna Connect card", async () => {
+    stubApi({ connected: true });
+    renderCard();
+    await screen.findByText("Cloud backup");
+    expect(screen.queryByText("Open Luna Connect")).toBeNull();
+  });
+
   it("explains how to get started before this Luna is linked", async () => {
     stubApi({ connected: false });
     renderCard();

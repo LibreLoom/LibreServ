@@ -203,17 +203,21 @@ export default [
   },
   // ── Cloud backup & restore ────────────────────────────────────────────────
   {
-    id: "settings/cloud-off",
+    id: "settings/connect-off",
     area: "Settings: Cloud backup",
-    title: "Connect is off",
-    url: "/settings#external_services",
-    check: ["Cloud backup explains it needs Luna Connect and where to turn it on"],
+    title: "Luna Connect is off",
+    url: "/settings",
+    check: [
+      "Neither Cloud backup nor Luna Connect is in the sidebar",
+      "No Cloud backup or Luna Connect card appears anywhere on the page",
+      "Settings opens on Appearance",
+    ],
   },
   {
     id: "settings/cloud-backups",
     area: "Settings: Cloud backup",
     title: "Cloud backups: ok, source missing, check problem",
-    url: "/settings#external_services",
+    url: "/settings#cloud_backup",
     seed: (w) => {
       w.connect = { enabled: true, connect_active: true, card_on_file: true };
       w.connectActive = true;
@@ -229,7 +233,7 @@ export default [
     id: "settings/cloud-no-card",
     area: "Settings: Cloud backup",
     title: "Connect on but no payment card",
-    url: "/settings#external_services",
+    url: "/settings#cloud_backup",
     seed: (w) => { w.connect = { enabled: true, connect_active: true, card_on_file: false }; w.connectActive = true; w.cloudBackups = [cloudBackup()]; },
     check: ["Says a card is needed before backing up, and where to add it"],
   },
@@ -237,7 +241,7 @@ export default [
     id: "settings/cloud-run-fails",
     area: "Settings: Cloud backup",
     title: "Running a cloud backup fails",
-    url: "/settings#external_services",
+    url: "/settings#cloud_backup",
     seed: (w) => { w.connect = { enabled: true, connect_active: true, card_on_file: true }; w.connectActive = true; w.cloudBackups = [cloudBackup()]; },
     faults: [{ match: "POST /api/v1/cloud/backups", mode: "500", message: "Couldn't reach the cloud." }],
     check: ["Problem stays on the backup card, not a toast"],
@@ -246,7 +250,7 @@ export default [
     id: "settings/phrase-check-wrong",
     area: "Settings: Cloud backup",
     title: "Recovery phrase check with the wrong words",
-    url: "/settings#external_services",
+    url: "/settings#cloud_backup",
     seed: (w) => {
       w.connect = { enabled: true, connect_active: true, card_on_file: true };
       w.connectActive = true;
@@ -260,7 +264,7 @@ export default [
     id: "settings/phrase-not-set",
     area: "Settings: Cloud backup",
     title: "Setting up a recovery phrase for the first time",
-    url: "/settings#external_services",
+    url: "/settings#cloud_backup",
     seed: (w) => {
       w.connect = { enabled: true, connect_active: true, card_on_file: true };
       w.connectActive = true;
@@ -272,7 +276,7 @@ export default [
     id: "settings/restore-needed",
     area: "Settings: Cloud backup",
     title: "Restore: Luna lost its list of cloud backups",
-    url: "/settings#external_services",
+    url: "/settings#cloud_backup",
     seed: (w) => {
       w.connect = { enabled: true, connect_active: true, card_on_file: true };
       w.connectActive = true;
@@ -284,7 +288,7 @@ export default [
     id: "settings/restore-private-needed",
     area: "Settings: Cloud backup",
     title: "Restore: private backups list lost",
-    url: "/settings#external_services",
+    url: "/settings#cloud_backup",
     seed: (w) => {
       w.connect = { enabled: true, connect_active: true, card_on_file: true };
       w.connectActive = true;
@@ -292,19 +296,53 @@ export default [
     },
     check: ["Private restore card appears with the number of private areas", "Wrong words give the 'check each word' message"],
   },
+  {
+    id: "settings/phrase-member-not-set",
+    area: "Settings: Cloud backup",
+    title: "Member, Connect on, no recovery phrase",
+    url: "/settings#cloud_backup",
+    seed: (w) => {
+      asMember(w);
+      w.connect = { enabled: true, connect_active: true, card_on_file: true };
+      w.connectActive = true;
+      w.phrase = { set: false, set_at: 0, luna_id: "", signing_public: "", check_due: false, admin_has_phrase: false };
+    },
+    check: [
+      "Sam sees Cloud backup in the sidebar and no Luna Connect or Users",
+      "The recovery phrase card shows, with a button to set up a phrase",
+      "With no Admin phrase, a line says shared backups wait until an Admin sets one",
+    ],
+  },
+  {
+    id: "settings/phrase-set-check-due",
+    area: "Settings: Cloud backup",
+    title: "Recovery phrase check is due",
+    url: "/settings#cloud_backup",
+    seed: (w) => {
+      w.connect = { enabled: true, connect_active: true, card_on_file: true };
+      w.connectActive = true;
+      w.cloudBackups = [cloudBackup()];
+      w.phrase = { ...w.phrase, check_due: true };
+    },
+    check: [
+      "The recovery phrase card shows a 'Check due' pill",
+      "Check is the main button on the card",
+      "Check opens the check and accepts any 12 or 24 words",
+    ],
+  },
   // ── Remote / Connect / About ──────────────────────────────────────────────
   {
     id: "settings/remote-off",
-    area: "Settings: About",
+    area: "Settings: Luna Connect",
     title: "Remote access off",
-    url: "/settings#external_services",
+    url: "/settings#luna_connect",
     check: ["Explains what turning it on does", "Entering a device token ('bad' is refused) turns it on"],
   },
   {
     id: "settings/remote-on",
-    area: "Settings: About",
+    area: "Settings: Luna Connect",
     title: "Remote access on",
-    url: "/settings#external_services",
+    url: "/settings#luna_connect",
     seed: (w) => { w.connect = { enabled: true, connect_active: true, card_on_file: true }; w.connectActive = true; },
     check: ["Shows it is connected", "Removing the device token turns it off after confirming"],
   },
@@ -364,13 +402,14 @@ export default [
     faults: [{ match: "POST /api/v1/system/factory-reset", mode: "500" }],
     check: ["Says it didn't work and nothing was erased"],
   },
-  // ── External services ─────────────────────────────────────────────────────
+  // ── Luna Connect (Admin) ──────────────────────────────────────────────────
   {
-    id: "settings/external-services",
-    area: "Settings: External services",
-    title: "External services",
-    url: "/settings#external_services",
-    check: ["Each service explains what it is for", "Page loads for an Admin"],
+    id: "settings/luna-connect-admin",
+    area: "Settings: Luna Connect",
+    title: "Luna Connect for an Admin",
+    url: "/settings#luna_connect",
+    seed: (w) => { w.connect = { enabled: true, connect_active: true, card_on_file: true }; w.connectActive = true; },
+    check: ["Luna Connect category shows for an Admin, with the remote access card", "Cloud backup is also in the sidebar, above Luna Connect"],
   },
   // ── Whole-page ────────────────────────────────────────────────────────────
   {
@@ -379,7 +418,7 @@ export default [
     title: "Member sees fewer categories",
     url: "/settings",
     seed: asMember,
-    check: ["No Users, About or External services", "/settings#users falls back to an allowed page"],
+    check: ["No Users or About, and no Cloud backup or Luna Connect while Connect is off", "/settings#users falls back to an allowed page"],
   },
   {
     id: "settings/search",

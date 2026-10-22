@@ -8,16 +8,16 @@ import { phraseToEntropy } from "@libreloom/ui/lib/cloud/backupCrypto.js";
 import { checkPhrase, signFreshChallenge } from "../../lib/cloudPhrase";
 
 /**
- * Asks for the recovery words (12 or 24) and proves them to Luna by signing a fresh challenge.
- * Without `onVerified` it shows the result inline ("Check my words").
+ * Asks for the recovery phrase (12 or 24 words) and proves them to Luna by signing a fresh challenge.
+ * Without `onVerified` it shows the result inline ("Check my phrase").
  * With `onVerified` it hands the verified key material to the caller ("Change").
  */
 export default function RecoveryPhraseCheck({
   lunaId,
   onClose,
   onVerified = null,
-  title = "Check my words",
-  intro = "Type your recovery words in order, with a space between each one.",
+  title = "Check my phrase",
+  intro = "Type your recovery phrase in order, with a space between each one.",
   submitLabel = "Check",
 }) {
   const [words, setWords] = useState("");
@@ -46,7 +46,7 @@ export default function RecoveryPhraseCheck({
         setMatched(true);
       }
     } catch (err) {
-      setError(apiErrorMessage(err, "Could not check your words. Try again."));
+      setError(apiErrorMessage(err, "Could not check your phrase. Try again."));
     } finally {
       setChecking(false);
     }
@@ -56,9 +56,9 @@ export default function RecoveryPhraseCheck({
     <ModalCard open title={title} onClose={onClose} size="md">
       <form onSubmit={submit} className="space-y-4">
         <p className="text-primary text-sm">{intro}</p>
-        <PhraseField value={words} onChange={setWords} label="Your recovery words" />
+        <PhraseField value={words} onChange={setWords} label="Your recovery phrase" />
         {error && <PageNotice variant="error">{error}</PageNotice>}
-        {matched && <PageNotice variant="info" surface="primary">Your words match your recovery phrase.</PageNotice>}
+        {matched && <PageNotice variant="info" surface="primary">Your phrase matches your recovery phrase.</PageNotice>}
         <div className="flex justify-end">
           <Button type="submit" variant="primary" size="sm" loading={checking} disabled={checking || !words.trim()}>
             {submitLabel}

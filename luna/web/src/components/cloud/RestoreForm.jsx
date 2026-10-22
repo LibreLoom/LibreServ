@@ -70,7 +70,7 @@ export default function RestoreForm({ words, onWords, onSubmit, error = "", pend
         value={words}
         onChange={onWords}
         fieldRef={fieldRef}
-        placeholder="Your recovery words, with spaces between them"
+        placeholder="Your recovery phrase, with spaces between the words"
       />
       <p className="text-primary text-sm">
         Only type your recovery phrase on this Luna or on <InlinePill>connect.luna.libreloom.org</InlinePill>.

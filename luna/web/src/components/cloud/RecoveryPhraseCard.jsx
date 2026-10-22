@@ -1,13 +1,16 @@
 import { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertCircle, KeyRound } from "lucide-react";
+import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
+import CollapsibleSection from "@libreloom/ui/components/common/CollapsibleSection.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
 import SettingsRow from "@libreloom/ui/components/settings/SettingsRow.jsx";
 import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
+import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { useOptionalAuth } from "../../context/AuthContext";
-import { apiErrorMessage } from "../../lib/api";
+import { apiErrorMessage, deleteJson } from "../../lib/api";
 import { createIdentity, getPhraseStatus, PHRASE_QUERY_KEY } from "../../lib/cloudPhrase";
 import RecoveryPhraseCheck from "./RecoveryPhraseCheck.jsx";
 import RecoveryPhraseSetup from "./RecoveryPhraseSetup.jsx";
@@ -22,13 +25,24 @@ function StartError({ children }) {
   );
 }
 
-function formatSetAt(unixSeconds) {
+function formatDate(unixSeconds, withYear = true) {
   if (!unixSeconds) return "";
   return new Date(unixSeconds * 1000).toLocaleDateString(undefined, {
-    year: "numeric",
+    ...(withYear ? { year: "numeric" } : {}),
     month: "long",
     day: "numeric",
   });
+}
+
+/** Status pill. The tint carries the state; the text stays neutral. */
+function StatusPill({ tone, children }) {
+  return (
+    <span
+      className={`inline-block shrink-0 rounded-chip border-2 px-3 py-1 text-xs text-primary ${tone}`}
+    >
+      {children}
+    </span>
+  );
 }
 
 /**
@@ -44,6 +58,21 @@ export default function RecoveryPhraseCard() {
   const [dialog, setDialog] = useState(null);
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState("");
+  const { addToast } = useToast();
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+
+  const deleteOldCopies = useMutation({
+    mutationFn: () => deleteJson("/api/v1/private-backups/old-copies"),
+    onSuccess: () => {
+      setConfirmingDelete(false);
+      setDeleteError("");
+      addToast({ type: "success", message: "Backups made with your old phrase were deleted." });
+      queryClient.invalidateQueries({ queryKey: PHRASE_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: ["cloud-backups"] });
+    },
+    onError: (err) => setDeleteError(apiErrorMessage(err, "Could not delete those backups. Try again.")),
+  });
 
   const status = useQuery({
     queryKey: PHRASE_QUERY_KEY,
@@ -80,38 +109,52 @@ export default function RecoveryPhraseCard() {
     setDialog({ kind: "setup", replacing });
   }
 
+  const isMember = auth?.user?.role !== undefined && auth.user.role !== "admin";
+  const oldCopies = status.data?.old_phrase_copies;
+  const checkDue = Boolean(status.data?.check_due);
+
   let body;
   if (status.isPending) {
     body = <p className="px-4 py-3 text-primary text-sm">Checking your recovery phrase…</p>;
   } else if (status.isError) {
-    body = (
-      <p className="px-4 py-3 text-primary text-sm">
-        {apiErrorMessage(status.error, "Could not load your recovery phrase status. Try again later.")}
-      </p>
-    );
+    body = <p className="px-4 py-3 text-primary text-sm">Could not load your recovery phrase. Try again later.</p>;
   } else if (!isSet) {
     body = (
       <>
         <SettingsRow
           stack
           label="Recovery phrase"
-          description="Not set. Cloud backups are locked with recovery words only you know. Only people with a recovery phrase for that backup can open it."
+          description="Cloud backups of your files can start once you set one up."
           hideDivider={!startError}
         >
-          <Button variant="primary" size="sm" disabled={!userId || starting} loading={starting} onClick={() => openSetup(false)}>
-            Set up
-          </Button>
+          <div className="flex flex-wrap items-center gap-3">
+            <StatusPill tone="bg-warning/20 border-warning/30">Not set up</StatusPill>
+            <Button variant="primary" size="sm" disabled={!userId || starting} loading={starting} onClick={() => openSetup(false)}>
+              Set up
+            </Button>
+          </div>
         </SettingsRow>
+        {isMember && status.data?.admin_has_phrase === false && (
+          <p className="px-4 pb-3 text-primary text-sm">Shared backups also wait for an Admin to set up theirs.</p>
+        )}
         {startError && <StartError>{startError}</StartError>}
       </>
     );
   } else {
+    const setOn = formatDate(status.data?.set_at);
+    const checkedAt = status.data?.last_checked_at;
+    const checked = checkedAt ? `Last checked ${formatDate(checkedAt, false)}` : "Not checked yet";
     body = (
       <>
-        <SettingsRow stack label="Recovery phrase" description={`Set on ${formatSetAt(status.data?.set_at)}`}>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" onClick={() => setDialog({ kind: "check" })}>
-              Check my words
+        <SettingsRow stack label="Recovery phrase" description={`Set up on ${setOn} · ${checked}`}>
+          <div className="flex flex-wrap items-center gap-2">
+            {checkDue ? (
+              <StatusPill tone="bg-warning/20 border-warning/30">Check due</StatusPill>
+            ) : (
+              <StatusPill tone="bg-success/20 border-success/30">Ready</StatusPill>
+            )}
+            <Button variant={checkDue ? "primary" : "outline"} size="sm" onClick={() => setDialog({ kind: "check" })}>
+              Check my phrase
             </Button>
             <Button
               variant="outline"
@@ -120,20 +163,31 @@ export default function RecoveryPhraseCard() {
               loading={starting}
               onClick={() => openSetup(true)}
             >
-              Change
+              Change phrase
             </Button>
           </div>
         </SettingsRow>
-        <SettingsRow
-          stack
-          hideDivider={!startError}
-          label="Lost your recovery words?"
-          description="Get a new phrase without the old one. Your old phrase stops working for you, and backups sealed with it can then be opened only by others who have access to them."
-        >
-          <Button variant="outline" size="sm" disabled={!userId || starting} onClick={() => openSetup(true)}>
-            Get a new phrase
-          </Button>
-        </SettingsRow>
+        {oldCopies?.count > 0 && (
+          <SettingsRow
+            stack
+            label="Old phrase backups"
+            description={`Backups made with your old phrase · removed on ${formatDate(oldCopies.removed_at, false)}`}
+          >
+            <Button variant="outline" size="sm" onClick={() => setConfirmingDelete(true)}>
+              Delete now
+            </Button>
+          </SettingsRow>
+        )}
+        <div className="px-4 py-3">
+          <CollapsibleSection title="Lost your recovery phrase?" surface="secondary">
+            <p className="mb-3 text-primary text-sm">
+              Get a new phrase without the old one. Your old phrase stops working for you, and backups sealed with it can then be opened only by others who have access to them.
+            </p>
+            <Button variant="accent" size="sm" disabled={!userId || starting} onClick={() => openSetup(true)}>
+              Get a new phrase
+            </Button>
+          </CollapsibleSection>
+        </div>
         {startError && <StartError>{startError}</StartError>}
       </>
     );
@@ -148,12 +202,30 @@ export default function RecoveryPhraseCard() {
         headerActions={
           <InfoHint
             label="What the recovery phrase is"
-            content="The 12 or 24 words that open your cloud backups."
+            content="The 12 or 24 words that open your cloud backups. Luna never sees them."
           />
         }
       >
         {body}
       </SettingsCard>
+
+      <ConfirmModal
+        open={confirmingDelete}
+        variant="danger"
+        title="Delete backups made with your old phrase?"
+        confirmLabel="Delete now"
+        loading={deleteOldCopies.isPending}
+        onClose={() => {
+          setConfirmingDelete(false);
+          setDeleteError("");
+        }}
+        onConfirm={() => deleteOldCopies.mutate()}
+      >
+        <p className="text-primary text-sm">
+          These backups can only be opened with your old phrase. Deleting them removes them from the cloud for good. Backups made with your new phrase stay.
+        </p>
+        {deleteError && <p role="alert" className="mt-2 text-primary text-sm">{deleteError}</p>}
+      </ConfirmModal>
 
       {dialog?.kind === "setup" && (
         <RecoveryPhraseSetup
@@ -169,8 +241,8 @@ export default function RecoveryPhraseCard() {
       {dialog?.kind === "change" && (
         <RecoveryPhraseCheck
           lunaId={lunaId}
-          title="Enter your current words"
-          intro="Enter your current recovery words first. Then you can set new ones."
+          title="Enter your current phrase"
+          intro="Enter your current recovery phrase first. Then you can set a new one."
           submitLabel="Continue"
           onClose={close}
           onVerified={() => setDialog({ kind: "setup", replacing: true })}

@@ -4,7 +4,7 @@
 //! The phrase itself never reaches Luna. The browser derives the keys from it and sends only
 //! the public parts, plus a signature made with the auth key when it proves the phrase.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, OnceLock};
 
 use axum::extract::{Extension, State};
@@ -13,6 +13,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
+use rusqlite::Connection;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -104,15 +105,68 @@ async fn status(
     let keys = db::get_user_keys(&conn, &user.id).map_err(|_| read_failed())?;
     // Null until cloud backup is set up on this Luna. Setup never happens on a read.
     let identity = identity::load(&conn).map_err(|_| read_failed())?;
+    let admin_has_phrase = admin_has_phrase(&conn).map_err(|_| read_failed())?;
+    let old_copies = old_phrase_copies(&conn, &user.id).map_err(|_| read_failed())?;
     let now = db::now_unix();
     Ok(Json(json!({
         "set": keys.is_some(),
         "set_at": keys.as_ref().map(|k| k.phrase_set_at),
         "check_due": phrase_check_due(keys.as_ref(), now),
+        // 0 means the phrase has never been checked (or is not set).
+        "last_checked_at": keys.as_ref().map_or(0, |k| k.last_checked_at),
+        "admin_has_phrase": admin_has_phrase,
+        "old_phrase_copies": {
+            "count": old_copies.count,
+            "removed_at": old_copies.removed_at,
+        },
         "luna_id": identity.as_ref().map(|i| i.luna_id()),
         // The browser seals this key with its self key, so Connect can never swap it.
         "signing_public": identity.as_ref().map(|i| STANDARD.encode(i.public())),
     })))
+}
+
+/// Whether at least one Admin has a recovery phrase set. Members are not counted.
+fn admin_has_phrase(conn: &Connection) -> anyhow::Result<bool> {
+    let admin_ids: HashSet<String> = db::list_admins(conn)?
+        .into_iter()
+        .map(|admin| admin.id)
+        .collect();
+    Ok(db::list_user_keys(conn)?
+        .iter()
+        .any(|keys| admin_ids.contains(&keys.user_id)))
+}
+
+/// Private copies a person still holds from before they changed their phrase.
+struct OldPhraseCopies {
+    count: usize,
+    /// When the first of them is removed, or `None` when there are none (or no removal time).
+    removed_at: Option<i64>,
+}
+
+/// Counts `owner`'s old-phrase copies and finds the earliest removal time. Reads only the
+/// owner's own scopes, the same source the backup rows use for `old_phrase_copies`.
+fn old_phrase_copies(conn: &Connection, owner: &str) -> anyhow::Result<OldPhraseCopies> {
+    let mut copies = OldPhraseCopies {
+        count: 0,
+        removed_at: None,
+    };
+    let scopes = db::list_private_scopes(conn, Some(owner))?;
+    for scope in scopes.iter().filter(|s| s.state == "old_phrase") {
+        let n = db::private_snapshot_ids(conn, &scope.scope)?.len();
+        if n == 0 {
+            continue;
+        }
+        copies.count += n;
+        // A retire time of 0 means the sweep has no removal time for this scope.
+        if scope.retire_after > 0 {
+            copies.removed_at = Some(
+                copies
+                    .removed_at
+                    .map_or(scope.retire_after, |at| at.min(scope.retire_after)),
+            );
+        }
+    }
+    Ok(copies)
 }
 
 /// Makes this Luna's cloud identity if it has none yet, and returns it. Any signed-in person may
@@ -247,7 +301,7 @@ async fn check(
     if !proven {
         return Err(json_error(
             StatusCode::BAD_REQUEST,
-            "Those words don't match the recovery phrase set for your account.",
+            "That doesn't match the recovery phrase set for your account.",
         ));
     }
     db::set_user_keys(
@@ -318,6 +372,7 @@ mod tests {
         state: AppState,
         router: Router,
         admin_id: String,
+        member_id: String,
         admin_token: String,
         member_token: String,
     }
@@ -345,6 +400,7 @@ mod tests {
             admin_token: auth.issue(&admin).unwrap(),
             member_token: auth.issue(&member).unwrap(),
             admin_id: admin.id.clone(),
+            member_id: member.id.clone(),
             _dir: dir,
             state,
             router,
@@ -558,7 +614,7 @@ mod tests {
         assert_eq!(status, 400);
         assert_eq!(
             body["error"],
-            json!("Those words don't match the recovery phrase set for your account.")
+            json!("That doesn't match the recovery phrase set for your account.")
         );
         let (status, _) = send(
             &f.router,
@@ -860,6 +916,268 @@ mod tests {
         .await;
         assert_eq!(status, 200);
         assert_eq!(list.as_array().unwrap().len(), 1);
+    }
+
+    /// Reads the status as `token`, asserting a 200.
+    async fn status_of(router: &Router, token: &str) -> Value {
+        let (status, body) = send(router, "GET", "/api/v1/cloud/phrase", token, None).await;
+        assert_eq!(status, 200);
+        body
+    }
+
+    /// Makes an old-phrase scope for `owner` with one copy per id in `snapshot_ids`.
+    fn seed_old_copies(
+        state: &AppState,
+        owner: &str,
+        scope: &str,
+        retire_after: i64,
+        snapshot_ids: &[&str],
+    ) {
+        let mut conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
+        let protection = format!("p-{scope}");
+        db::insert_protection(
+            &conn,
+            &db::NewProtection {
+                id: &protection,
+                kind: db::PROTECTION_CLOUD,
+                source_drive: "d1",
+                // Unique per scope: the protections table allows one row per source path.
+                source_path: &protection,
+                target_drive: "",
+                private_owner: owner,
+                created_by: owner,
+                created_at: 0,
+            },
+        )
+        .unwrap();
+        db::insert_private_scope(
+            &conn,
+            &db::PrivateScope {
+                scope: scope.to_string(),
+                owner: owner.to_string(),
+                seal_public: vec![0; 32],
+                dedup_key: vec![0; 32],
+                state: "old_phrase".to_string(),
+                retire_after,
+                created_at: 0,
+            },
+        )
+        .unwrap();
+        for id in snapshot_ids {
+            db::commit_private_snapshot_tx(
+                &mut conn,
+                &db::SnapshotInsert {
+                    id: id.to_string(),
+                    protection_id: protection.clone(),
+                    created_at: 0,
+                    key_version: 0,
+                    tree_pack_id: "tree-pack".to_string(),
+                    record: Vec::new(),
+                },
+                &[],
+                scope,
+                b"{}",
+            )
+            .unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn status_without_a_phrase_reports_never_checked_and_no_copies() {
+        let f = fixture();
+        let body = status_of(&f.router, &f.admin_token).await;
+        assert_eq!(body["set"], json!(false));
+        assert_eq!(body["last_checked_at"], json!(0));
+        assert_eq!(body["admin_has_phrase"], json!(false));
+        assert_eq!(
+            body["old_phrase_copies"],
+            json!({ "count": 0, "removed_at": null })
+        );
+    }
+
+    #[tokio::test]
+    async fn status_after_setting_a_phrase_is_never_checked_until_checked() {
+        let f = fixture();
+        let signer = Signer::generate();
+        send(
+            &f.router,
+            "PUT",
+            "/api/v1/cloud/phrase",
+            &f.admin_token,
+            Some(set_body(&signer, None)),
+        )
+        .await;
+        let body = status_of(&f.router, &f.admin_token).await;
+        assert_eq!(body["set"], json!(true));
+        assert_eq!(body["last_checked_at"], json!(0));
+        assert_eq!(body["admin_has_phrase"], json!(true));
+
+        // A passed check moves last_checked_at to the time of the check.
+        let before = db::now_unix();
+        let challenge = fetch_challenge(&f.router, &f.admin_token).await;
+        let (status, _) = send(
+            &f.router,
+            "POST",
+            "/api/v1/cloud/phrase/check",
+            &f.admin_token,
+            Some(json!({ "signature": sign_challenge(&signer, &challenge) })),
+        )
+        .await;
+        assert_eq!(status, 200);
+        let after = db::now_unix();
+        let body = status_of(&f.router, &f.admin_token).await;
+        let checked = body["last_checked_at"].as_i64().unwrap();
+        assert!(
+            (before..=after).contains(&checked),
+            "last_checked_at {checked} not within {before}..={after}"
+        );
+    }
+
+    #[tokio::test]
+    async fn member_sees_whether_an_admin_has_a_phrase_but_not_their_own_state() {
+        let f = fixture();
+        send(
+            &f.router,
+            "PUT",
+            "/api/v1/cloud/phrase",
+            &f.admin_token,
+            Some(set_body(&Signer::generate(), None)),
+        )
+        .await;
+        let body = status_of(&f.router, &f.member_token).await;
+        assert_eq!(body["set"], json!(false));
+        assert_eq!(body["last_checked_at"], json!(0));
+        assert_eq!(body["admin_has_phrase"], json!(true));
+    }
+
+    #[tokio::test]
+    async fn member_only_phrase_does_not_count_as_an_admin_phrase() {
+        let f = fixture();
+        let mut member_body = set_body(&Signer::generate(), None);
+        member_body["seal_public"] = json!(seal_key_b64(9));
+        let (status, _) = send(
+            &f.router,
+            "PUT",
+            "/api/v1/cloud/phrase",
+            &f.member_token,
+            Some(member_body),
+        )
+        .await;
+        assert_eq!(status, 200);
+        let body = status_of(&f.router, &f.admin_token).await;
+        assert_eq!(body["set"], json!(false));
+        assert_eq!(body["admin_has_phrase"], json!(false));
+        let body = status_of(&f.router, &f.member_token).await;
+        assert_eq!(body["admin_has_phrase"], json!(false));
+    }
+
+    #[tokio::test]
+    async fn old_phrase_copies_are_counted_with_the_earliest_removal_time() {
+        let f = fixture();
+        let owner = f.admin_id.clone();
+        seed_old_copies(
+            &f.state,
+            &owner,
+            &"aa".repeat(16),
+            1_900_000_000,
+            &["s-a1", "s-a2"],
+        );
+        seed_old_copies(&f.state, &owner, &"bb".repeat(16), 1_800_000_000, &["s-b1"]);
+        // A scope with no copies in it adds nothing.
+        seed_old_copies(&f.state, &owner, &"cc".repeat(16), 1_700_000_000, &[]);
+        let body = status_of(&f.router, &f.admin_token).await;
+        assert_eq!(
+            body["old_phrase_copies"],
+            json!({ "count": 3, "removed_at": 1_800_000_000i64 })
+        );
+    }
+
+    #[tokio::test]
+    async fn old_phrase_copies_without_a_removal_time_report_null() {
+        let f = fixture();
+        let owner = f.admin_id.clone();
+        seed_old_copies(&f.state, &owner, &"dd".repeat(16), 0, &["s-d1"]);
+        let body = status_of(&f.router, &f.admin_token).await;
+        assert_eq!(
+            body["old_phrase_copies"],
+            json!({ "count": 1, "removed_at": null })
+        );
+    }
+
+    #[tokio::test]
+    async fn old_phrase_copies_are_only_the_callers_own() {
+        let f = fixture();
+        let admin_id = f.admin_id.clone();
+        let member_id = f.member_id.clone();
+        seed_old_copies(
+            &f.state,
+            &admin_id,
+            &"ee".repeat(16),
+            1_900_000_000,
+            &["s-e1"],
+        );
+        seed_old_copies(
+            &f.state,
+            &member_id,
+            &"ff".repeat(16),
+            1_800_000_000,
+            &["s-f1", "s-f2"],
+        );
+        let body = status_of(&f.router, &f.admin_token).await;
+        assert_eq!(
+            body["old_phrase_copies"],
+            json!({ "count": 1, "removed_at": 1_900_000_000i64 })
+        );
+        let body = status_of(&f.router, &f.member_token).await;
+        assert_eq!(
+            body["old_phrase_copies"],
+            json!({ "count": 2, "removed_at": 1_800_000_000i64 })
+        );
+    }
+
+    #[tokio::test]
+    async fn status_refuses_with_a_read_error_when_the_keys_cannot_be_read() {
+        let f = fixture();
+        {
+            let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+            conn.execute_batch("DROP TABLE user_keys").unwrap();
+        }
+        let (status, body) = send(
+            &f.router,
+            "GET",
+            "/api/v1/cloud/phrase",
+            &f.admin_token,
+            None,
+        )
+        .await;
+        assert_eq!(status, 500);
+        assert_eq!(
+            body["error"],
+            json!("Could not read your recovery phrase details. Try again.")
+        );
+    }
+
+    #[tokio::test]
+    async fn status_refuses_with_a_read_error_when_old_copies_cannot_be_read() {
+        let f = fixture();
+        {
+            let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+            conn.execute_batch("DROP TABLE cloud_private_scopes")
+                .unwrap();
+        }
+        let (status, body) = send(
+            &f.router,
+            "GET",
+            "/api/v1/cloud/phrase",
+            &f.admin_token,
+            None,
+        )
+        .await;
+        assert_eq!(status, 500);
+        assert_eq!(
+            body["error"],
+            json!("Could not read your recovery phrase details. Try again.")
+        );
     }
 
     #[test]

@@ -104,6 +104,20 @@ describe("RecoveryPhraseSetup", () => {
     random.mockRestore();
   });
 
+  it("names the actual positions it asks for in the confirm sentence", async () => {
+    const user = userEvent.setup();
+    const values = [0, 0.5, 0.99];
+    let n = 0;
+    const random = vi.spyOn(Math, "random").mockImplementation(() => values[n++ % 3]);
+    renderSetup();
+    await user.click(screen.getByRole("button", { name: "I wrote them down" }));
+    const nums = screen.getAllByRole("textbox").map((i) => Number(i.closest("label").textContent.replace("Word ", "")));
+    const expected = `Type words ${nums[0]}, ${nums[1]} and ${nums[2]} of your phrase to confirm you wrote it down.`;
+    expect(screen.getByText(expected)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Back to the phrase" })).toBeInTheDocument();
+    random.mockRestore();
+  });
+
   it("rejects a wrong word at the confirm step without saving", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn();
@@ -115,7 +129,7 @@ describe("RecoveryPhraseSetup", () => {
     await user.type(first, "definitely-not-a-word");
     await user.click(screen.getByRole("button", { name: "Save recovery phrase" }));
 
-    expect(await screen.findByText(/doesn't match. Check your list/)).toBeInTheDocument();
+    expect(await screen.findByText(/doesn't match. Check your phrase/)).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

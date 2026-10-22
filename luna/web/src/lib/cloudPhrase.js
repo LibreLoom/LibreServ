@@ -29,9 +29,33 @@ export function fromBase64(text) {
   return Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
 }
 
-/** GET: `{ set, set_at, luna_id, signing_public }` (`signing_public` is base64, Ed25519 and ML-DSA keys together). */
-export function getPhraseStatus() {
-  return getJson(PHRASE_PATH);
+/**
+ * Fills in every status field with a safe default, so the card never reads an undefined.
+ * @param {any} raw GET reply
+ */
+export function normalizePhraseStatus(raw) {
+  const r = raw && typeof raw === "object" ? raw : {};
+  const copies = r.old_phrase_copies && typeof r.old_phrase_copies === "object" ? r.old_phrase_copies : {};
+  const count = Number(copies.count);
+  return {
+    ...r,
+    set: Boolean(r.set),
+    set_at: Number(r.set_at) || 0,
+    check_due: Boolean(r.check_due),
+    last_checked_at: Number(r.last_checked_at) || 0,
+    admin_has_phrase: Boolean(r.admin_has_phrase),
+    luna_id: r.luna_id ?? null,
+    signing_public: r.signing_public ?? null,
+    old_phrase_copies: {
+      count: Number.isFinite(count) && count > 0 ? count : 0,
+      removed_at: Number(copies.removed_at) || 0,
+    },
+  };
+}
+
+/** GET: `{ set, set_at, check_due, last_checked_at, admin_has_phrase, old_phrase_copies {count, removed_at}, luna_id, signing_public }` (`signing_public` is base64, Ed25519 and ML-DSA keys together). */
+export async function getPhraseStatus() {
+  return normalizePhraseStatus(await getJson(PHRASE_PATH));
 }
 
 /**

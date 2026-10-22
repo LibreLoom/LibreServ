@@ -160,7 +160,7 @@ export default [
     title: "Member with no drives and no albums",
     url: "/gallery",
     seed: (w) => { asMember(w); w.photos = []; },
-    check: ["Plain message that nothing is shared with them yet", "No Rescan or Upload offered", "No red errors"],
+    check: ["Plain message that nothing is shared with them yet", "No Rescan or Upload offered", "No error messages"],
   },
 
   // ── Filters and search ───────────────────────────────────────────────────

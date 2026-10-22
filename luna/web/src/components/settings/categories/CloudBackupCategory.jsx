@@ -178,6 +178,8 @@ export default function CloudBackupCategory() {
 
   return (
     <>
+      <RecoveryPhraseCard />
+
       <SettingsCard
         icon={Cloud}
         title="Cloud backup"
@@ -249,7 +251,6 @@ export default function CloudBackupCategory() {
 
       <CloudRestoreCard />
       <PrivateRestoreCard />
-      <RecoveryPhraseCard />
     </>
   );
 }

@@ -3,7 +3,7 @@ import { buildBackupItems, buildPhraseItem, visibleBackupRows } from "./needsYou
 
 const MISSING = "The folder or drive this backs up is not available right now.";
 const FALLBACK = "The last copy did not finish. Open it to see what went wrong.";
-const PHRASE_DETAIL = "It's been a while. Make sure your recovery words still open your cloud backups.";
+const PHRASE_DETAIL = "It's been a while. Make sure your recovery phrase still opens your cloud backups.";
 
 /** @returns {any} */
 function drive(overrides = {}) {

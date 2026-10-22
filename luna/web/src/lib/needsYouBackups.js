@@ -15,7 +15,7 @@ import { needsALook } from "./backupRows.js";
 
 const MISSING_SOURCE_DETAIL = "The folder or drive this backs up is not available right now.";
 const FALLBACK_DETAIL = "The last copy did not finish. Open it to see what went wrong.";
-const PHRASE_DETAIL = "It's been a while. Make sure your recovery words still open your cloud backups.";
+const PHRASE_DETAIL = "It's been a while. Make sure your recovery phrase still opens your cloud backups.";
 
 /**
  * A viewer sees their own rows. An Admin also sees everyone's rows, except a private row

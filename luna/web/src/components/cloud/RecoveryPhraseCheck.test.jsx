@@ -12,6 +12,23 @@ afterEach(() => {
 });
 
 describe("RecoveryPhraseCheck", () => {
+  it("uses phrase wording for its title, intro and field label", () => {
+    render(<RecoveryPhraseCheck lunaId={LUNA_ID} onClose={() => {}} />);
+    expect(screen.getByText("Check my phrase")).toBeInTheDocument();
+    expect(screen.getByText("Type your recovery phrase in order, with a space between each one.")).toBeInTheDocument();
+  });
+
+  it("shows a length message and does not contact Luna when the phrase is too short", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    render(<RecoveryPhraseCheck lunaId={LUNA_ID} onClose={() => {}} />);
+    await user.type(screen.getByRole("textbox"), "one two three");
+    await user.click(screen.getByRole("button", { name: "Check" }));
+    expect(await screen.findByText(/needs 12 or 24/)).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("signs a fresh challenge with the words and reports a match", async () => {
     const user = userEvent.setup();
     const entropy = newEntropy();
@@ -37,7 +54,7 @@ describe("RecoveryPhraseCheck", () => {
     await user.type(screen.getByRole("textbox"), entropyToPhrase(entropy));
     await user.click(screen.getByRole("button", { name: "Check" }));
 
-    expect(await screen.findByText("Your words match your recovery phrase.")).toBeInTheDocument();
+    expect(await screen.findByText("Your phrase matches your recovery phrase.")).toBeInTheDocument();
     expect(posted).toHaveLength(1);
     expect(posted[0].url).toBe("/api/v1/cloud/phrase/check");
     expect(verify(authPublic, "phrase-check", challenge, fromBase64(posted[0].body.signature))).toBe(true);

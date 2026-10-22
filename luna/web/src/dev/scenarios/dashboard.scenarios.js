@@ -80,7 +80,7 @@ export default [
       w.cloudBackups = [cloudBackup()];
       w.phrase = { set: false, set_at: 0, luna_id: "", signing_public: "", check_due: false };
     },
-    check: ["Dashboard still loads", "Settings → Security / Devices explains how to set the phrase up"],
+    check: ["Dashboard still loads", "Settings → Cloud backup explains how to set the phrase up"],
   },
   {
     id: "dashboard/drive-failed",

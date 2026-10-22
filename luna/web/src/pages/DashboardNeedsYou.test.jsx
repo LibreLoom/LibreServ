@@ -547,7 +547,7 @@ describe("Needs you on the dashboard", () => {
       const row = within(zone).getByRole("listitem");
       expect(within(row).getByText("Check your recovery phrase")).toBeInTheDocument();
       expect(
-        within(row).getByText("It's been a while. Make sure your recovery words still open your cloud backups."),
+        within(row).getByText("It's been a while. Make sure your recovery phrase still opens your cloud backups."),
       ).toBeInTheDocument();
       await userEvent.click(within(row).getByRole("button", { name: "Check now" }));
       expect(screen.getByTestId("phrase-check")).toHaveTextContent("luna-1");

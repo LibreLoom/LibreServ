@@ -15,6 +15,12 @@ const LENGTH_OPTIONS = [
   { value: "24", label: "24 words" },
 ];
 
+/** "words 3, 7 and 11" from 0-based positions. */
+function positionsSentence(positions) {
+  const nums = positions.map((p) => p + 1);
+  return `words ${nums.slice(0, -1).join(", ")} and ${nums[nums.length - 1]}`;
+}
+
 /** Three distinct word positions (0-based), sorted, picked at random from `count` words. */
 function pickCheckPositions(count) {
   const positions = new Set();
@@ -70,7 +76,7 @@ export default function RecoveryPhraseSetup({
       await navigator.clipboard.writeText(words.join(" "));
       setCopied(true);
     } catch {
-      setError("Could not copy. Select the words and copy them by hand.");
+      setError("Could not copy. Select the phrase and copy it by hand.");
     }
   }
 
@@ -115,7 +121,7 @@ export default function RecoveryPhraseSetup({
     setError("");
     const wrong = positions.findIndex((pos, i) => answers[i].trim().toLowerCase() !== words[pos]);
     if (wrong !== -1) {
-      setError(`Word ${positions[wrong] + 1} doesn't match. Check your list and try again.`);
+      setError(`Word ${positions[wrong] + 1} doesn't match. Check your phrase and try again.`);
       return;
     }
     setSaving(true);
@@ -183,7 +189,7 @@ export default function RecoveryPhraseSetup({
         </div>
       ) : (
         <form onSubmit={save} className="space-y-4">
-          <p className="text-primary text-sm">Type these words from your list to confirm you wrote them down.</p>
+          <p className="text-primary text-sm">Type {positionsSentence(positions)} of your phrase to confirm you wrote it down.</p>
           {positions.map((pos, i) => (
             <label key={pos} className="block space-y-1">
               <span className="text-primary text-sm">Word {pos + 1}</span>
@@ -201,7 +207,7 @@ export default function RecoveryPhraseSetup({
           {error && <ErrorNotice>{error}</ErrorNotice>}
           <div className="flex flex-wrap justify-end gap-2">
             <Button variant="outline" size="sm" onClick={() => { setError(""); setStep("show"); }} disabled={saving}>
-              Back to the words
+              Back to the phrase
             </Button>
             <Button type="submit" variant="primary" size="sm" loading={saving} disabled={saving}>
               Save recovery phrase
