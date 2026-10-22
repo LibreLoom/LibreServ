@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "test": "vitest",
+    "test:e2e:recovery": "playwright test --config playwright.recovery.config.js",
     "typecheck": "tsc --noEmit",
     "states:coverage": "node scripts/states-coverage.mjs",
     "scan:colors": "node ../../shared/ui/scripts/scan-hardcoded-colors.js && node ../../shared/ui/scripts/scan-surfaces.js src ../../shared/ui/components ../../shared/ui/lib ../../shared/ui/hooks ../../shared/ui/context ../../shared/ui/utils"
@@ -52,6 +53,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
+    "@playwright/test": "1.64.1",
     "@tailwindcss/vite": "^4.3.2",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",

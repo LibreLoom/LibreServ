@@ -5,7 +5,7 @@ import Button from "@libreloom/ui/components/ui/Button.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import FormInput from "../components/common/forms/FormInput";
 import usePageTitle from "../hooks/usePageTitle.js";
-import { passwordPolicyError } from "@libreloom/ui/lib/passwordPolicy.js";
+import { MIN_PASSWORD_LENGTH } from "@libreloom/ui/lib/passwordPolicy.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { isValidUsername, USERNAME_POLICY_HINT } from "../lib/usernamePolicy.js";
 
@@ -20,6 +20,17 @@ const SELECTORS = [
 
 function normalizedToken(value) {
   return value.trim().replace(/[-_ ]/g, "").toUpperCase().replace(/[ILO]/g, (char) => ({ I: "1", L: "1", O: "0" })[char]);
+}
+
+function recoveryPasswordPolicyError(password) {
+  if (!password) return "Enter a password.";
+  if (new TextEncoder().encode(password).length < MIN_PASSWORD_LENGTH) {
+    return "Passwords need at least 12 characters. Accented letters and some symbols count as more than one.";
+  }
+  if (!/[a-z]/i.test(password) || !/[0-9]/.test(password)) {
+    return "Passwords need an English letter and a number.";
+  }
+  return null;
 }
 
 export default function RecoveryWizardPage() {
@@ -63,7 +74,7 @@ export default function RecoveryWizardPage() {
       setErrorField("username");
       return;
     }
-    const passwordError = passwordPolicyError(password);
+    const passwordError = recoveryPasswordPolicyError(password);
     if (passwordError) { setError(passwordError); setErrorField("password"); return; }
     if (password !== confirm) { setError("The passwords do not match."); setErrorField("confirm"); return; }
 
@@ -118,7 +129,7 @@ export default function RecoveryWizardPage() {
                 </fieldset>
                 {(selectorType === "u" || selectorType === "n" || selectorType === "f") && (
                   <div className="mt-4">
-                    <FormInput label="Username" name="recovery-username" value={username} onChange={(e) => { clearFeedback(); setUsername(e.target.value); }} autoComplete="username" surface="primary" required shake={errorField === "username" ? error : null} />
+                    <FormInput label="Username" name="recovery-username" value={username} onChange={(e) => { clearFeedback(); setUsername(e.target.value); }} autoComplete="username" surface="primary" required error={errorField === "username" ? error : undefined} />
                     <p className="text-secondary text-sm">
                       {selectorType === "u" && "Use the existing Luna username."}
                       {selectorType === "n" && "Luna creates this Admin account when it starts with the recovery drive."}
@@ -136,7 +147,7 @@ export default function RecoveryWizardPage() {
                   This Luna has a device token
                 </label>
                 {!hasToken && <p className="mt-2 text-secondary text-sm">Leave this unchecked if your Luna has no device token.</p>}
-                {hasToken && <div className="mt-4"><FormInput label="Device token" name="device-token" value={token} onChange={(e) => { clearFeedback(); setToken(e.target.value); }} autoComplete="off" surface="primary" required hint="Enter the token exactly as it appears on the recovery card." shake={errorField === "device-token" ? error : null} /></div>}
+                {hasToken && <div className="mt-4"><FormInput label="Device token" name="device-token" value={token} onChange={(e) => { clearFeedback(); setToken(e.target.value); }} autoComplete="off" surface="primary" required hint="Enter the token exactly as it appears on the recovery card." error={errorField === "device-token" ? error : undefined} /></div>}
                 <p className="mt-3 text-secondary text-sm">
                   File name: {hasToken && !token.trim()
                     ? "Enter your device token to see the file name."
@@ -146,17 +157,17 @@ export default function RecoveryWizardPage() {
 
               <section className="mt-4 rounded-large-element surface-primary p-4 sm:p-5">
                 <h2 className="text-primary font-mono text-lg font-normal">Set a new password</h2>
-                <p className="mt-1 text-secondary text-sm">Use at least 12 characters, with a letter and a number.</p>
+                <p className="mt-1 text-secondary text-sm">Use at least 12 characters, with an English letter and a number. Accented letters and some symbols count as more than one.</p>
                 <div className="mt-4">
-                  <FormInput label="New password" name="recovery-password" type="password" value={password} onChange={(e) => { clearFeedback(); setPassword(e.target.value); }} autoComplete="new-password" surface="primary" required shake={errorField === "password" ? error : null} />
-                  <FormInput label="Confirm new password" name="recovery-confirm" type="password" value={confirm} onChange={(e) => { clearFeedback(); setConfirm(e.target.value); }} autoComplete="new-password" surface="primary" required shake={errorField === "confirm" ? error : null} />
+                  <FormInput label="New password" name="recovery-password" type="password" value={password} onChange={(e) => { clearFeedback(); setPassword(e.target.value); }} autoComplete="new-password" surface="primary" required error={errorField === "password" ? error : undefined} />
+                  <FormInput label="Confirm new password" name="recovery-confirm" type="password" value={confirm} onChange={(e) => { clearFeedback(); setConfirm(e.target.value); }} autoComplete="new-password" surface="primary" required error={errorField === "confirm" ? error : undefined} />
                 </div>
                 <p className="text-secondary text-sm">The selected accounts will be signed out on their other devices.</p>
               </section>
 
               {error && <p className="mt-4 rounded-large-element bg-error/20 border border-error/30 p-3 text-primary" role="alert">{error}</p>}
               {downloaded && <div className="mt-4 rounded-large-element bg-success/20 border border-success/30 p-3 text-primary" role="status"><p>Your recovery file downloaded as <InlinePill>{filename}</InlinePill>.</p></div>}
-              <Button type="submit" variant="secondary" surface="secondary" fullWidth className="mt-5">Download recovery file</Button>
+              <Button type="submit" variant="primary" surface="secondary" fullWidth className="mt-5">Download recovery file</Button>
             </form>
 
             <section className="mt-6 border-t border-secondary/30 pt-5">

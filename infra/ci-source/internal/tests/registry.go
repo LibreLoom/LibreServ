@@ -289,6 +289,40 @@ func addConnectWebTests() {
 	})
 
 	DefaultRegistry.Add(&Test{
+		ID:          "luna-web-test",
+		Name:        "Luna Recovery Wizard Unit Tests",
+		Description: "Run the password recovery wizard unit and regression tests",
+		Type:        TestTypeUnit,
+		Container:   "node:20-alpine",
+		Command:     "npm install --no-audit --no-fund && npm test -- --run src/pages/RecoveryWizardPage.test.jsx",
+		WorkDir:     "/repo/luna/web",
+		Timeout:     10 * time.Minute,
+	})
+
+	DefaultRegistry.Add(&Test{
+		ID:          "luna-web-colors",
+		Name:        "Luna Web Color Scan",
+		Description: "Scan Luna web pages for hardcoded colors and surface mismatches",
+		Type:        TestTypeUnit,
+		Container:   "node:20-alpine",
+		Command:     "npm install --no-audit --no-fund && node ../../shared/ui/scripts/scan-hardcoded-colors.js src/pages && node ../../shared/ui/scripts/scan-surfaces.js src/pages",
+		WorkDir:     "/repo/luna/web",
+		Timeout:     10 * time.Minute,
+	})
+
+	DefaultRegistry.Add(&Test{
+		ID:          "luna-web-e2e",
+		Name:        "Luna Recovery Browser E2E",
+		Description: "Exercise recovery file creation and downloads in Chromium",
+		Type:        TestTypeUnit,
+		Container:   "mcr.microsoft.com/playwright:v1.64.1-noble",
+		Command:     "npm ci --no-audit --no-fund && npm run test:e2e:recovery",
+		WorkDir:     "/repo/luna/web",
+		Timeout:     10 * time.Minute,
+		Env:         []string{"PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1"},
+	})
+
+	DefaultRegistry.Add(&Test{
 		ID:          "luna-connect-web-test",
 		Name:        "Luna Connect Web Unit Tests",
 		Description: "Run Vitest unit tests for the Luna Connect web frontend",

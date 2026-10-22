@@ -13,7 +13,7 @@ import sharedFonts from "../../shared/ui/vite/sharedFonts.js";
 // mutations. Requests that sent no Origin (curl, device tokens) stay
 // Origin-less, since lunad passes those through untouched.
 const lunaProxy = (extra = {}) => ({
-  target: "http://localhost:8090",
+  target: process.env.VITE_LUNAD_TARGET || "http://localhost:8090",
   changeOrigin: false,
   configure: (proxy) => {
     proxy.on("proxyReq", (proxyReq, req) => {

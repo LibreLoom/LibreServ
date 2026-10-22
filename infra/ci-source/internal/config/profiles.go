@@ -147,8 +147,8 @@ var Profiles = map[string]*Profile{
 	"luna": {
 		ID:          "luna",
 		Name:        "Luna",
-		Description: "Luna daemon, web, desktop, and mobile CI (luna/ci.sh)",
-		TestIDs:     []string{"luna-ci"},
+		Description: "Luna daemon, web, desktop, and mobile CI (luna/ci.sh), with focused web browser and color checks",
+		TestIDs:     []string{"luna-web-colors", "luna-web-e2e", "luna-ci"},
 	},
 	"nightly": {
 		ID:          "nightly",
