@@ -11,6 +11,7 @@ import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { useOptionalAuth } from "../../context/AuthContext";
 import { apiErrorMessage, deleteJson } from "../../lib/api";
+import { movingPercent } from "../../lib/movingPercent.js";
 import {
   checkPhraseWords,
   createIdentity,
@@ -25,6 +26,24 @@ import RecoveryPhraseSetup from "./RecoveryPhraseSetup.jsx";
 
 /** How often the card asks for status while Luna re-seals backups to the new phrase. */
 const RESEAL_POLL_MS = 5000;
+
+/**
+ * Neutral status for backups moving to a new phrase. Hidden when `moving` is null.
+ * When Connect storage is full it adds what happened and what to do, inline (no toast).
+ */
+export function MovingNote({ moving, className = "" }) {
+  if (!moving) return null;
+  return (
+    <div className={`space-y-1 text-sm ${className}`}>
+      <p>{`Moving to your new phrase · ${movingPercent(moving)}%`}</p>
+      {moving.paused_full && (
+        <p>
+          Connect storage is full, so the move is paused. Nothing old was deleted. Free up space or add storage on Luna Connect to continue.
+        </p>
+      )}
+    </div>
+  );
+}
 
 /** Error line for a failed start: the icon carries the red, the words stay neutral text. */
 function StartError({ children }) {
@@ -232,6 +251,7 @@ export default function RecoveryPhraseCard() {
               Change phrase
             </Button>
           </div>
+          <MovingNote moving={status.data?.moving} className="mt-3 text-primary" />
           {status.data?.resealing && (
             <p className="mt-3 text-primary text-sm">Updating your cloud backups to the new phrase…</p>
           )}

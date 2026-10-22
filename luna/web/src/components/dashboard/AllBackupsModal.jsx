@@ -19,6 +19,7 @@ import {
   privateGroups,
 } from "../../lib/backupRows.js";
 import { useAuth } from "../../context/AuthContext.jsx";
+import { MovingNote } from "../cloud/RecoveryPhraseCard.jsx";
 import BackupItem from "../protect/BackupItem.jsx";
 import ProtectSheet from "../files/ProtectSheet.jsx";
 import { BACKUPS_PATH, folderHref } from "../../lib/paths.js";
@@ -76,12 +77,15 @@ function BackupRow({ backup, onOpen, onRun, running }) {
         backup={backup}
         surface="primary"
         note={
-          !active && (
+          (!active || backup.moving) && (
             <>
-              {backup.stop_reason && <p>{backup.stop_reason}</p>}
-              <p>
-                <CopiesLink backup={backup} />
-              </p>
+              {backup.moving && <MovingNote moving={backup.moving} />}
+              {!active && backup.stop_reason && <p>{backup.stop_reason}</p>}
+              {!active && (
+                <p>
+                  <CopiesLink backup={backup} />
+                </p>
+              )}
             </>
           )
         }

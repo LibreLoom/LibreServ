@@ -26,7 +26,7 @@ use crate::files;
 /// Wraps each pack's random key under the backup key.
 pub(super) const PACK_KEY_WRAP_AAD: &[u8] = b"luna-pack-key-wrap-v1";
 /// Domain for deriving the opaque scope id that stands in for a protection.
-const SCOPE_DOMAIN: &[u8] = b"luna-scope-v1";
+pub(crate) const SCOPE_DOMAIN: &[u8] = b"luna-scope-v1";
 /// A pack is uploaded once its plain bytes reach this size.
 const PACK_FLUSH_BYTES: usize = 8 << 20;
 
@@ -96,7 +96,7 @@ pub fn run_once(
 }
 
 /// The run itself, reading from `root` instead of resolving the drive. Tests use this.
-fn run_with_root(
+pub(crate) fn run_with_root(
     db: &crate::Db,
     protection_id: &str,
     root: &Path,
@@ -749,7 +749,7 @@ pub(crate) fn hex(bytes: &[u8]) -> String {
 }
 
 /// Lowercase hex (as the database stores pack ids) back to the 32-byte id.
-fn unhex(text: &str) -> Result<[u8; 32]> {
+pub(crate) fn unhex(text: &str) -> Result<[u8; 32]> {
     if text.len() != 64 || !text.is_ascii() {
         return Err(anyhow!("Backup pack id {text} is not valid."));
     }

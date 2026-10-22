@@ -17,6 +17,7 @@ use crate::backup::cloud::check::{CheckReport, Sample};
 use crate::backup::cloud::crypto::Signer;
 use crate::backup::cloud::identity;
 use crate::backup::cloud::ops::{self, NOT_SET_UP};
+use crate::backup::cloud::rewrap;
 use crate::backup::cloud::run::CloudOutcome;
 use crate::backup::cloud::store::HttpStore;
 use crate::backup::drive_backup::{self, Refused};
@@ -390,6 +391,8 @@ fn backup_json(conn: &Connection, row: &ProtectionRow, user: &CurrentUser, now: 
         "old_phrase_copies": old_phrase_copies_json(conn, row, user),
         "running": drive_backup::is_running(&row.id),
         "notes": row.notes.lines().filter(|l| !l.trim().is_empty()).collect::<Vec<_>>(),
+        // `{percent, paused_full}` while older packs move to the newest recovery phrase, else null.
+        "moving": rewrap::status_json(conn, &row.id),
     })
 }
 

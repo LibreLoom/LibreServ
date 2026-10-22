@@ -362,7 +362,7 @@ export default [
     seed: (w) => setPhrase(w),
     check: [
       "Current phrase is accepted, then 'Could someone else have your phrase?' appears",
-      "'Someone may have it' says the old phrase stops working right away and what can't be taken back",
+      "'Someone may have it' says the old phrase stops working right away, that Luna moves cloud backups to the new phrase over days, and what stays open until then",
       "The Connect note and the older-private-items line appear under it",
       "After confirming the new phrase, the toast says 'Recovery phrase changed.' and the card shows 'Updating your cloud backups to the new phrase…'",
     ],
@@ -402,6 +402,38 @@ export default [
       "The card says 'Updating your cloud backups to the new phrase…' under the phrase row",
       "No problem pill or toast appears while it runs",
       "Status is re-read every few seconds and the line goes away when it finishes",
+    ],
+  },
+  {
+    id: "settings/phrase-moving",
+    area: "Settings: Cloud backup",
+    title: "Cloud backups moving to the new phrase in the background",
+    url: "/settings#cloud_backup",
+    seed: (w) => {
+      setPhrase(w);
+      w.phrase.moving = { percent: 40.9, paused_full: false };
+      w.cloudBackups = [cloudBackup({ moving: { percent: 40.9, paused_full: false } })];
+    },
+    check: [
+      "The card says 'Moving to your new phrase · 40%' under the phrase row",
+      "The cloud backup row in All backups says the same",
+      "Nothing shows a problem: no warning pill, no toast, no Needs you entry",
+    ],
+  },
+  {
+    id: "settings/phrase-moving-full",
+    area: "Settings: Cloud backup",
+    title: "Move paused because Connect storage is full",
+    url: "/settings#cloud_backup",
+    seed: (w) => {
+      setPhrase(w);
+      w.phrase.moving = { percent: 40, paused_full: true };
+      w.cloudBackups = [cloudBackup({ moving: { percent: 40, paused_full: true } })];
+    },
+    check: [
+      "The card and the backup row say Connect storage is full and the move is paused",
+      "They say nothing old was deleted and to free up space or add storage",
+      "The message stays inline: no toast and no error pill",
     ],
   },
   // ── Remote / Connect / About ──────────────────────────────────────────────

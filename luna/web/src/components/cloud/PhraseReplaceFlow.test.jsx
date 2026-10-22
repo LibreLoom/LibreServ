@@ -5,7 +5,7 @@ import PhraseReplaceFlow from "./PhraseReplaceFlow.jsx";
 import { entropyToPhrase, newEntropy } from "@libreloom/ui/lib/cloud/backupCrypto.js";
 
 const MAY_HAVE_IT =
-  "Your old phrase stops working right away. Files you add or change from now on open only with the new phrase. Older copies still open for anyone who already used your old phrase.";
+  "Your old phrase stops working right away. Luna then moves your cloud backups to the new phrase in the background, which can take days. Until it finishes, someone who already used your old phrase could still open files that haven't changed.";
 
 function setup(props = {}) {
   const onProve = props.onProve || vi.fn(async () => true);

@@ -470,7 +470,7 @@ fn is_lan_request(addr: &std::net::SocketAddr, headers: &HeaderMap) -> bool {
 
 /// Per-account lockout bucket for `login` — namespaced so it never shares a
 /// key with the IP-keyed buckets (an address can never look like `login-user:*`).
-fn login_user_key(username: &str) -> String {
+pub(crate) fn login_user_key(username: &str) -> String {
     format!(
         "login-user:{}",
         username

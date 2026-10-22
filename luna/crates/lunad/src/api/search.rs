@@ -202,6 +202,16 @@ async fn factory_reset(
             "Type your current password to confirm this reset.",
         ));
     }
+    // Same per-account tries as signing in, so a signed-in session can't be used to guess the password.
+    if !state
+        .login_limiter
+        .allow(&crate::api::auth::login_user_key(&user.username))
+    {
+        return Err(json_error(
+            StatusCode::TOO_MANY_REQUESTS,
+            "Too many tries. Wait a few minutes and try again.",
+        ));
+    }
     // Argon2 verification is CPU-bound — off the async worker.
     let auth = state.auth.clone();
     let (user_id, password) = (user.id.clone(), body.password.clone());

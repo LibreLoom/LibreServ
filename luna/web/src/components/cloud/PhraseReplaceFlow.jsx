@@ -17,7 +17,7 @@ const LENGTH_OPTIONS = [
 ];
 
 const MAY_HAVE_IT =
-  "Your old phrase stops working right away. Files you add or change from now on open only with the new phrase. Older copies still open for anyone who already used your old phrase.";
+  "Your old phrase stops working right away. Luna then moves your cloud backups to the new phrase in the background, which can take days. Until it finishes, someone who already used your old phrase could still open files that haven't changed.";
 const CONNECT_NOTE =
   "Your old phrase alone does not open backups on Connect. That also takes your Connect sign-in or a share link.";
 

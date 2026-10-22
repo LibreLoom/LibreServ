@@ -22,7 +22,7 @@ use crate::api::auth::login_user_key;
 use crate::api::cloud_backups::connect_store;
 use crate::api::response::json_error;
 use crate::auth::CurrentUser;
-use crate::backup::cloud::{crypto, identity, keys, ops, private};
+use crate::backup::cloud::{crypto, identity, keys, ops, private, rewrap};
 use crate::db::{self, UserKeys};
 
 /// How long a challenge stays good after it is issued.
@@ -138,6 +138,8 @@ async fn status(
         },
         // True while Luna is still re-sealing this person's cloud backup keys to the new phrase.
         "resealing": resealing,
+        // `{percent, paused_full}` while any backup's older packs are moving to the newest key, else null.
+        "moving": rewrap::status_for_luna(&conn),
         "luna_id": identity.as_ref().map(|i| i.luna_id()),
         // The browser seals this key with its self key, so Connect can never swap it.
         "signing_public": identity.as_ref().map(|i| STANDARD.encode(i.public())),
