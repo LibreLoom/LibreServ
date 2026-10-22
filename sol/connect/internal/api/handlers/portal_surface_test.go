@@ -291,20 +291,25 @@ func TestPortalPlansOnlyReachOwnDevices(t *testing.T) {
 
 	// A caller-supplied device that belongs to another account must not pull
 	// that account's plan to itself — neither by subscribing nor by asking
-	// for a plan change.
+	// for a plan change. A device that does not exist is a different refusal
+	// from one that belongs to someone else.
 	for _, tt := range []struct {
 		body string
 		fn   func(http.ResponseWriter, *http.Request)
+		want int
 	}{
-		{`{"plan_id":"free","device_id":"` + theirs + `"}`, h.Subscribe},
-		{`{"plan_id":"lite","device_id":"` + theirs + `"}`, h.Subscribe},
-		{`{"plan_id":"free","device_id":"` + theirs + `"}`, h.ChangePlan},
-		{`{"plan_id":"lite","device_id":"` + theirs + `"}`, h.ChangePlan},
-		{`{"plan_id":"free","device_id":"dev-new"}`, h.Subscribe},
+		{`{"plan_id":"free","device_id":"` + theirs + `"}`, h.Subscribe, http.StatusForbidden},
+		{`{"plan_id":"lite","device_id":"` + theirs + `"}`, h.Subscribe, http.StatusForbidden},
+		{`{"plan_id":"free","device_id":"` + theirs + `"}`, h.ChangePlan, http.StatusForbidden},
+		{`{"plan_id":"lite","device_id":"` + theirs + `"}`, h.ChangePlan, http.StatusForbidden},
+		{`{"plan_id":"free","device_id":"dev-new"}`, h.Subscribe, http.StatusNotFound},
 	} {
 		got := portalRequest(t, h, myAccount, http.MethodPost, "/portal/plan", tt.body, tt.fn)
-		if got.Code != http.StatusBadRequest {
-			t.Errorf("%s: %d %s, want 400", tt.body, got.Code, got.Body.String())
+		if got.Code != tt.want {
+			t.Errorf("%s: %d %s, want %d", tt.body, got.Code, got.Body.String(), tt.want)
+		}
+		if !strings.Contains(got.Body.String(), "not on your account") {
+			t.Errorf("%s: %s, want the ownership sentence", tt.body, got.Body.String())
 		}
 	}
 
@@ -363,8 +368,11 @@ func TestPortalCheckoutOnlyLinksOwnDevices(t *testing.T) {
 	withStripeTestConfig(t)
 	foreign := portalRequest(t, h, myAccount, http.MethodPost, "/portal/checkout",
 		`{"plan_id":"one","device_id":"`+theirs+`"}`, h.CreateCheckoutSession)
-	if foreign.Code != http.StatusBadRequest {
+	if foreign.Code != http.StatusForbidden {
 		t.Fatalf("foreign device checkout = %d: %s", foreign.Code, foreign.Body.String())
+	}
+	if !strings.Contains(foreign.Body.String(), "not on your account") {
+		t.Fatalf("foreign device checkout = %s, want the ownership sentence", foreign.Body.String())
 	}
 
 	var planID string
@@ -373,5 +381,45 @@ func TestPortalCheckoutOnlyLinksOwnDevices(t *testing.T) {
 	}
 	if planID != "free" {
 		t.Fatalf("other device's plan moved to %q", planID)
+	}
+}
+
+// A database outage must never be reported as "that device is not on your
+// account" or "no device linked" — neither is a fact about the account, and
+// the customer would chase the wrong thing. Every portal handler that looks a
+// device up answers a broken database with a 500 that says the check failed.
+func TestPortalDeviceLookupOutageIsNotADeviceFact(t *testing.T) {
+	db := database.OpenTestDB(t)
+	mine := activateDevice(t, db, "free")
+	accountID := accountForDevice(t, db, mine)
+	h := NewPortalHandler(db)
+
+	// Stripe on, so checkout reaches the ownership check instead of taking the
+	// direct (device-less) path.
+	withStripeTestConfig(t)
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tt := range []struct {
+		name string
+		body string
+		fn   func(http.ResponseWriter, *http.Request)
+	}{
+		{"subscribe", `{"plan_id":"free","device_id":"` + mine + `"}`, h.Subscribe},
+		{"change-plan", `{"plan_id":"free","device_id":"` + mine + `"}`, h.ChangePlan},
+		{"checkout", `{"plan_id":"one","device_id":"` + mine + `"}`, h.CreateCheckoutSession},
+		{"cancel", `{}`, h.Cancel},
+		{"resume", `{}`, h.ResumeSubscription},
+		{"usage", ``, h.GetUsage},
+		{"billing", ``, h.GetBilling},
+	} {
+		got := portalRequest(t, h, accountID, http.MethodPost, "/portal/x", tt.body, tt.fn)
+		if got.Code != http.StatusInternalServerError {
+			t.Errorf("%s during an outage = %d: %s, want 500", tt.name, got.Code, got.Body.String())
+		}
+		if body := got.Body.String(); strings.Contains(body, "not on your account") || strings.Contains(body, "no device linked") {
+			t.Errorf("%s during an outage blamed the account: %s", tt.name, body)
+		}
 	}
 }
