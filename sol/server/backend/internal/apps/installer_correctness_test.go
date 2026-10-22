@@ -98,6 +98,50 @@ func TestStreamExecutionCancellationStopsScriptProcessGroup(t *testing.T) {
 	}
 }
 
+func TestStreamExecutionTimeoutStopsDescendantHoldingOutputPipe(t *testing.T) {
+	base := t.TempDir()
+	installPath := filepath.Join(base, "instance")
+	scriptPath := filepath.Join(installPath, "scripts", "leave-child-running")
+	if err := os.MkdirAll(filepath.Dir(scriptPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// The background child inherits the script's output pipes. The script exits
+	// immediately, so the stream can finish only after the context timeout kills
+	// the process group and closes those inherited pipes.
+	if err := os.WriteFile(scriptPath, []byte("#!/bin/sh\nsleep 30 &\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	executor := NewScriptExecutorWithCatalog(slog.Default(), nil, base, "")
+	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	defer cancel()
+	outputs, err := executor.StreamExecuteAt(ctx, "instance", scriptPath, installPath, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan []ScriptOutput, 1)
+	go func() {
+		var got []ScriptOutput
+		for output := range outputs {
+			got = append(got, output)
+		}
+		done <- got
+	}()
+	select {
+	case got := <-done:
+		foundTimeout := false
+		for _, output := range got {
+			if output.Type == "error" && strings.Contains(output.Error, "too long") {
+				foundTimeout = true
+			}
+		}
+		if !foundTimeout {
+			t.Fatalf("stream did not report timeout: %+v", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out script left a descendant holding the output pipe")
+	}
+}
+
 func TestInstallFailsWhenRequiredOIDCProvisioningFails(t *testing.T) {
 	for _, provisionerErr := range []error{nil, errors.New("fixture OIDC provider unavailable")} {
 		t.Run(map[bool]string{true: "configured provisioner fails", false: "provisioner missing"}[provisionerErr != nil], func(t *testing.T) {
