@@ -49,3 +49,43 @@ func TestOIDCRoutesNeedAdmin(t *testing.T) {
 		}
 	}
 }
+
+// Restoring a database overwrites the live one, and repository recovery
+// keys decrypt every app's backups. Both belong to Admins alone; a plain
+// account must not reach them.
+func TestBackupRoutesNeedAdmin(t *testing.T) {
+	router, authSvc := testServer(t)
+
+	plainToken, plainCSRF := signInAs(t, authSvc, "user-3", "lin-backups", "user")
+	adminToken, adminCSRF := signInAs(t, authSvc, "admin-4", "ada-backups", "admin")
+
+	routes := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/api/v1/backups"},
+		{http.MethodPost, "/api/v1/backups"},
+		{http.MethodPost, "/api/v1/backups/database/upload-restore"},
+		{http.MethodPost, "/api/v1/backups/database/backup-1/restore"},
+		{http.MethodGet, "/api/v1/backups/repos/repo-1/recovery-key"},
+		{http.MethodPost, "/api/v1/backups/repos"},
+		{http.MethodDelete, "/api/v1/backups/backup-1"},
+	}
+	for _, tc := range routes {
+		rec := do(t, router, tc.method, tc.path, plainToken, plainCSRF, `{}`)
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("%s %s as a plain account => %d, want 403", tc.method, tc.path, rec.Code)
+		}
+	}
+	// As an Admin: the role check let the request through to the handler.
+	// The handler's own answer is not what this test is about — a backup
+	// that does not exist is a 500 from the handler's side, and that is the
+	// handler's business. What matters here is that the request was not
+	// refused by the role check.
+	for _, tc := range routes {
+		rec := do(t, router, tc.method, tc.path, adminToken, adminCSRF, `{}`)
+		if rec.Code == http.StatusForbidden {
+			t.Errorf("%s %s as an Admin => %d, want it past the role check", tc.method, tc.path, rec.Code)
+		}
+	}
+}

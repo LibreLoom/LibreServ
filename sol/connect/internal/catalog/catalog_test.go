@@ -44,4 +44,12 @@ func TestPaidAndSupportPlans(t *testing.T) {
 			t.Errorf("HasHumanSupport(%q) = %v", tt.id, got)
 		}
 	}
+	// IsPaidPlan derives paid status from the plan's price, not an id list:
+	// pin the sentinel coupling so a re-priced catalog cannot silently
+	// change plan gating.
+	for id, wantPrice := range map[string]int{"free": 0, "lite": 600, "one": 2500} {
+		if got := PlanByID(id).PriceMonthlyCents; got != wantPrice {
+			t.Errorf("%s price = %d, want %d (IsPaidPlan tracks this)", id, got, wantPrice)
+		}
+	}
 }

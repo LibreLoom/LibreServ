@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strings"
 	"time"
 
@@ -489,6 +490,37 @@ func (s *ProvisioningService) deviceHostname(deviceID, sub string) string {
 	return strings.Replace(plan.Limits.Domain, "*", sub, 1)
 }
 
+// routeLabelRe accepts one DNS label for an app route: lowercase letters,
+// digits, and interior hyphens, 1-63 characters.
+var routeLabelRe = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
+
+// checkRouteHostname confines a route to the device's own base hostname:
+// exactly one extra label in front of it. Without this check a device could
+// register or tear down another device's hostnames in the shared zone, so
+// devices may only publish addresses inside the subdomain their own plan
+// controls. Returns the normalized lowercase hostname.
+func (s *ProvisioningService) checkRouteHostname(deviceID, hostname string) (string, error) {
+	// The input is normalized, and so is the base: whether the stored
+	// subdomain carries upper-case letters or not (the generator is
+	// mixed-case), DNS names are case-insensitive and the suffix match
+	// below is case-sensitive. Without this a case-variant of a route
+	// under the device's *own* base would be refused as foreign.
+	hostname = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(hostname), "."))
+	base := strings.ToLower(s.deviceHostname(deviceID, s.deviceSubdomainPrefix(deviceID)))
+	if base == "" {
+		return "", fmt.Errorf("no base hostname is ready for this device yet")
+	}
+	suffix := "." + base
+	if hostname == base || !strings.HasSuffix(hostname, suffix) {
+		return "", fmt.Errorf("routes live under <app>.%s", base)
+	}
+	label := strings.TrimSuffix(hostname, suffix)
+	if !routeLabelRe.MatchString(label) {
+		return "", fmt.Errorf("route names use lowercase letters, digits, and hyphens")
+	}
+	return hostname, nil
+}
+
 // RegisterRoute adds a public hostname to the device's tunnel and creates a
 // DNS CNAME pointing to the tunnel. Cloudflare auto-provisions an SSL cert
 // for the hostname as a tunnel public hostname — no ACM needed.
@@ -498,6 +530,13 @@ func (s *ProvisioningService) deviceHostname(deviceID, sub string) string {
 func (s *ProvisioningService) RegisterRoute(deviceID, hostname string) error {
 	if hostname == "" {
 		return fmt.Errorf("hostname is required")
+	}
+
+	// Confine the route to this device's own subdomain before anything on
+	// the shared zone is touched.
+	hostname, err := s.checkRouteHostname(deviceID, hostname)
+	if err != nil {
+		return err
 	}
 
 	// Look up the device's tunnel credentials
@@ -588,6 +627,29 @@ func (s *ProvisioningService) RegisterRoute(deviceID, hostname string) error {
 func (s *ProvisioningService) UnregisterRoute(deviceID, hostname string) error {
 	if hostname == "" {
 		return fmt.Errorf("hostname is required")
+	}
+
+	// The same confinement as registration: a device only ever removes
+	// addresses its own plan controls. One exception: a route this device
+	// has already registered stays removable even after the plan moved the
+	// base hostname — otherwise a free→paid or paid→free move would strand
+	// its device_routes rows in the tunnel ingress forever. The lookup is
+	// by this device's own rows, so another device's hostnames remain
+	// untouchable. The original argument stays untouched for the lookup:
+	// a refused call returns "" from checkRouteHostname, so reading it
+	// back would search for an empty hostname and never fire.
+	norm, err := s.checkRouteHostname(deviceID, hostname)
+	if err != nil {
+		lookup := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(hostname), "."))
+		var one string
+		dbErr := s.db.QueryRow("SELECT hostname FROM device_routes WHERE device_id = $1 AND hostname = $2",
+			deviceID, lookup).Scan(&one)
+		if dbErr != nil {
+			return err
+		}
+		hostname = lookup
+	} else {
+		hostname = norm
 	}
 
 	// Delete the DNS record

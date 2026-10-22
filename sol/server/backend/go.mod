@@ -2,7 +2,7 @@ module gt.plainskill.net/LibreLoom/Sol
 
 go 1.27.0
 
-toolchain go1.27.1
+toolchain go1.27.2
 
 replace (
 	github.com/sagikazarmark/locafero => github.com/sagikazarmark/locafero v0.7.0
