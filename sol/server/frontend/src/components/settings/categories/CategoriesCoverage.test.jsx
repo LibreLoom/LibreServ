@@ -734,15 +734,16 @@ describe("settings category coverage", () => {
           ],
         });
       }
-      if (path === "/backups/repos") return jsonResponse({ repos: [] });
+      if (path === "/backups/repos") return jsonResponse({ repositories: [] });
       return jsonResponse({ ok: true });
     });
     window.URL.createObjectURL = vi.fn(() => "blob:backup");
     window.URL.revokeObjectURL = vi.fn();
     vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
-    render(<BackupsCategory connectStatus={{ services: {} }} />);
+    render(<BackupsCategory />);
 
     expect(await screen.findByText("2 of 1 apps backed up")).toBeVisible();
+    expect(screen.getByText("Off-site backup storage")).toBeVisible();
     expect(screen.getByText("Copies from apps that are no longer installed")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Notes backups" }));
     expect(screen.getByText(/Automatic backups on/)).toBeVisible();
@@ -793,6 +794,45 @@ describe("settings category coverage", () => {
       "/backups/database/upload-restore",
       expect.objectContaining({ method: "POST" }),
     );
+  });
+
+  it("hides the off-site setup card when the API has a destination", async () => {
+    requestMock.mockImplementation(async (path) => {
+      if (path === "/backups") return jsonResponse({ backups: [] });
+      if (path === "/apps") return jsonResponse({ apps: [{ id: "notes", name: "Notes" }] });
+      if (path === "/backups/schedules") return jsonResponse({ schedules: [] });
+      if (path === "/backups/repos") return jsonResponse({ repositories: [{ id: "dest-1", repo_type: "s3", repo_path: "s3:bucket" }] });
+      return jsonResponse({});
+    });
+    render(<BackupsCategory />);
+    await screen.findByRole("button", { name: /Notes backups/ });
+    await waitFor(() => expect(requestMock).toHaveBeenCalledWith("/backups/repos"));
+    await waitFor(() => expect(screen.queryByText("Off-site backup storage")).not.toBeInTheDocument());
+  });
+
+  it("keeps the off-site setup card when the only destination is on this device", async () => {
+    requestMock.mockImplementation(async (path) => {
+      if (path === "/backups") return jsonResponse({ backups: [] });
+      if (path === "/apps") return jsonResponse({ apps: [] });
+      if (path === "/backups/schedules") return jsonResponse({ schedules: [] });
+      if (path === "/backups/repos") return jsonResponse({ repositories: [{ id: "dest-1", repo_type: "local", repo_path: "/backups" }] });
+      return jsonResponse({});
+    });
+    render(<BackupsCategory />);
+    expect(await screen.findByText("Off-site backup storage")).toBeVisible();
+  });
+
+  it("keeps the off-site check visible for SFTP because its location may be on this network", async () => {
+    requestMock.mockImplementation(async (path) => {
+      if (path === "/backups") return jsonResponse({ backups: [] });
+      if (path === "/apps") return jsonResponse({ apps: [] });
+      if (path === "/backups/schedules") return jsonResponse({ schedules: [] });
+      if (path === "/backups/repos") return jsonResponse({ repositories: [{ id: "dest-1", repo_type: "sftp", repo_path: "sftp:backup@server:/backups" }] });
+      return jsonResponse({});
+    });
+    render(<BackupsCategory />);
+    expect(await screen.findByText("Off-site backup storage")).toBeVisible();
+    expect(screen.getByText(/confirm the SFTP server is somewhere else/)).toBeVisible();
   });
 
   it("renders general and about settings and saves an update source", async () => {

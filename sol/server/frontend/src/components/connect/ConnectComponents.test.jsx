@@ -90,10 +90,12 @@ vi.mock("@libreloom/ui/components/ui/Button.jsx", () => ({
     title,
     tooltip,
     type = /** @type {"button"|"reset"|"submit"} */ ("button"),
+    ...rest
   }) => (
     <button
+      {...rest}
       type={type}
-      aria-label={title || (typeof tooltip === "string" ? tooltip : undefined)}
+      aria-label={rest["aria-label"] || title || (typeof tooltip === "string" ? tooltip : undefined)}
       disabled={disabled || loading}
       onClick={onClick}
     >
@@ -469,6 +471,36 @@ describe("connect component coverage", () => {
       "connected",
       "csrf",
     );
+  });
+
+  it("validates, creates, refreshes, confirms, and deletes a backup destination", async () => {
+    const user = userEvent.setup();
+    const destination = { id: "disposable", repo_type: "s3", repo_path: "s3:s3.amazonaws.com/disposable" };
+    apiMock
+      .mockResolvedValueOnce(jsonResponse({ repositories: [] }))
+      .mockResolvedValueOnce(jsonResponse(destination))
+      .mockResolvedValueOnce(jsonResponse({ repositories: [destination] }))
+      .mockResolvedValueOnce(jsonResponse({ status: "deleted" }))
+      .mockResolvedValueOnce(jsonResponse({ repositories: [] }));
+    render(<BackupServiceModal open service={{ state: "disabled" }} repos={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: /Add Destination/ }));
+    await user.click(screen.getByRole("button", { name: "Save destination" }));
+    expect(screen.getByText("Enter a backup destination.")).toBeVisible();
+
+    await user.type(screen.getByPlaceholderText("s3:s3.amazonaws.com/bucket"), destination.repo_path);
+    await user.type(screen.getByLabelText("Access key"), "disposable-access-key");
+    await user.type(screen.getByLabelText("Secret key"), "disposable-secret-key");
+    await user.type(screen.getByLabelText("Region"), "us-east-1");
+    await user.click(screen.getByRole("button", { name: "Save destination" }));
+
+    expect(apiMock).toHaveBeenCalledWith("/backups/repos", expect.objectContaining({ method: "POST" }));
+    expect(await screen.findByText(destination.repo_path)).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Delete s3 destination" }));
+    expect(await screen.findByRole("dialog", { name: "Delete this backup destination?" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Delete destination" }));
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith("/backups/repos/disposable", expect.objectContaining({ method: "DELETE" })));
+    expect(await screen.findByText("No custom backup destinations configured yet.")).toBeVisible();
   });
 
   it("falls back to provided backup destinations and reports save errors", async () => {

@@ -42,7 +42,7 @@ function backupAgeState(lastBackupAt) {
   return "stale";
 }
 
-export default function BackupsCategory({ connectStatus = null }) {
+export default function BackupsCategory() {
   const { request } = useAuth();
   const { addToast } = useToast();
 
@@ -102,11 +102,11 @@ export default function BackupsCategory({ connectStatus = null }) {
       const backupsData = await backupsRes.json();
       const appsData = await appsRes.json();
       const schedulesData = await schedulesRes.json();
-      const reposData = reposRes.ok ? await reposRes.json() : { repos: [] };
+      const reposData = reposRes.ok ? await reposRes.json() : { repositories: [] };
       setBackups(backupsData.backups || []);
       setApps(appsData.apps || []);
       setSchedules(schedulesData.schedules || []);
-      setRepos(reposData.repos || []);
+      setRepos(reposData.repositories || []);
     } catch (err) {
       console.error("Failed to load data:", err);
       setLoadError(err.message);
@@ -640,14 +640,12 @@ export default function BackupsCategory({ connectStatus = null }) {
         </SettingsCard>
       )}
 
-      {/* Hide "Set up in External services" CTA once any backup destination is
-          configured: local-only repos via /backups/repos, or Cloud Backup
-          managed by Connect. Both mean there is already off-site storage. */}
-      {!loading && !loadError && repos.length === 0 && !["connected", "byo"].includes(connectStatus?.services?.backup?.state) && (
+      {/* S3 and B2 are remote services; an SFTP host may still be on this network. */}
+      {!loading && !loadError && !repos.some((repo) => ["s3", "b2"].includes(repo.repo_type)) && (
         <SettingsCard icon={CloudOff} title="Keep a copy somewhere else" padding={false} index={3}>
           <SettingsRow
             label="Off-site backup storage"
-            description="Backups stored only on this device are lost if it breaks, burns, or walks away. Connect cloud storage and copies go there automatically."
+            description="No S3 or B2 destination is set. A folder or SFTP server on this network could be lost with this server; use S3 or B2, or confirm the SFTP server is somewhere else."
             hideDivider
           >
             <Button variant="outline" surface="secondary" size="sm" asChild>
