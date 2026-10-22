@@ -49,7 +49,7 @@ func respondDeviceLookupError(w http.ResponseWriter, r *http.Request, err error)
 	case errors.Is(err, errDeviceNotOwned):
 		JSONError(w, http.StatusForbidden, "that device is not on your account")
 	default:
-		slog.Error("portal: could not check device ownership", "error", err, "path", r.URL.Path)
+		slog.Error("portal: could not look up device", "error", err, "path", r.URL.Path)
 		JSONError(w, http.StatusInternalServerError, "could not check that device right now")
 	}
 }

@@ -418,8 +418,12 @@ func TestPortalDeviceLookupOutageIsNotADeviceFact(t *testing.T) {
 		if got.Code != http.StatusInternalServerError {
 			t.Errorf("%s during an outage = %d: %s, want 500", tt.name, got.Code, got.Body.String())
 		}
-		if body := got.Body.String(); strings.Contains(body, "not on your account") || strings.Contains(body, "no device linked") {
+		body := got.Body.String()
+		if strings.Contains(body, "not on your account") || strings.Contains(body, "no device linked") {
 			t.Errorf("%s during an outage blamed the account: %s", tt.name, body)
+		}
+		if !strings.Contains(body, "could not check that device right now") {
+			t.Errorf("%s during an outage = %s, want the failed-check sentence", tt.name, body)
 		}
 	}
 }

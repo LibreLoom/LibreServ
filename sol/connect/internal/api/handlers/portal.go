@@ -993,7 +993,7 @@ func (h *PortalHandler) GetUsage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "could not retrieve usage")
+		respondDeviceLookupError(w, r, err)
 		return
 	}
 
@@ -1032,7 +1032,7 @@ func (h *PortalHandler) GetBilling(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "could not retrieve billing")
+		respondDeviceLookupError(w, r, err)
 		return
 	}
 
