@@ -18,16 +18,20 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::AppState;
+use crate::api::auth::login_user_key;
 use crate::api::cloud_backups::connect_store;
 use crate::api::response::json_error;
 use crate::auth::CurrentUser;
-use crate::backup::cloud::{crypto, identity, ops};
+use crate::backup::cloud::{crypto, identity, keys, ops, private};
 use crate::db::{self, UserKeys};
 
 /// How long a challenge stays good after it is issued.
 const CHALLENGE_TTL: i64 = 5 * 60;
 /// Domain the browser signs the challenge under. Must match the web side.
 pub(crate) const CHECK_DOMAIN: &str = "phrase-check";
+/// Domain the browser signs a replacement challenge under. A different domain from
+/// `CHECK_DOMAIN`, so a phrase-check signature can never be replayed as a replacement.
+pub(crate) const REPLACE_DOMAIN: &str = "phrase-replace";
 
 type ApiError = (StatusCode, Json<Value>);
 type ApiResult = Result<Json<Value>, ApiError>;
@@ -73,6 +77,18 @@ struct SetBody {
     seal_public: String,
     auth_public: String,
     self_sealed: String,
+    /// How the person proves it is them. Needed whenever a phrase is already set.
+    #[serde(default)]
+    proof: Option<String>,
+    /// "Could someone else have your phrase?" Needed whenever a phrase is already set.
+    #[serde(default)]
+    exposed: Option<bool>,
+    /// For `old_signature`: the old auth key's signature over the replacement challenge.
+    #[serde(default)]
+    signature: Option<String>,
+    /// For `password`: the person's Luna password.
+    #[serde(default)]
+    password: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -107,6 +123,7 @@ async fn status(
     let identity = identity::load(&conn).map_err(|_| read_failed())?;
     let admin_has_phrase = admin_has_phrase(&conn).map_err(|_| read_failed())?;
     let old_copies = old_phrase_copies(&conn, &user.id).map_err(|_| read_failed())?;
+    let resealing = keys::resealing_pending(&conn, &user.id).map_err(|_| read_failed())?;
     let now = db::now_unix();
     Ok(Json(json!({
         "set": keys.is_some(),
@@ -119,6 +136,8 @@ async fn status(
             "count": old_copies.count,
             "removed_at": old_copies.removed_at,
         },
+        // True while Luna is still re-sealing this person's cloud backup keys to the new phrase.
+        "resealing": resealing,
         "luna_id": identity.as_ref().map(|i| i.luna_id()),
         // The browser seals this key with its self key, so Connect can never swap it.
         "signing_public": identity.as_ref().map(|i| STANDARD.encode(i.public())),
@@ -207,6 +226,19 @@ async fn ensure_identity(state: &AppState) -> Result<identity::Identity, ApiErro
     }
 }
 
+/// How a replacement is proven: the old phrase's signature, or the Luna password.
+enum Proof {
+    OldSignature(Box<crypto::SigBytes>),
+    Password(String),
+}
+
+fn proof_refused() -> ApiError {
+    json_error(
+        StatusCode::FORBIDDEN,
+        "Luna could not confirm it is you. Check your old phrase or password and try again.",
+    )
+}
+
 async fn set_phrase(
     State(state): State<AppState>,
     Extension(user): Extension<CurrentUser>,
@@ -221,10 +253,67 @@ async fn set_phrase(
         .ok_or_else(bad_keys)?;
     let now = db::now_unix();
     crypto::check_public_key(&seal_public).map_err(|_| bad_keys())?;
+
+    // Prove it is the same person before anything else changes. The old keys are read first and
+    // the lock is dropped, because the password check takes the lock itself.
+    let old_keys = {
+        let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
+        db::get_user_keys(&conn, &user.id).map_err(|_| read_failed())?
+    };
+    let mut exposed = false;
+    if let Some(old) = &old_keys {
+        exposed = body.exposed.ok_or_else(|| {
+            json_error(
+                StatusCode::BAD_REQUEST,
+                "Say whether someone else could have your old phrase.",
+            )
+        })?;
+        let proof = match body.proof.as_deref() {
+            Some("old_signature") => Proof::OldSignature(Box::new(
+                body.signature
+                    .as_deref()
+                    .and_then(decode_signature)
+                    .ok_or_else(proof_refused)?,
+            )),
+            Some("password") => Proof::Password(body.password.clone().unwrap_or_default()),
+            // No proof, or an unknown one, is the same refusal as a wrong one.
+            _ => return Err(proof_refused()),
+        };
+        match proof {
+            Proof::OldSignature(signature) => {
+                // Taking the challenge removes it, so a second try needs a fresh one. A missing or
+                // used challenge is refused like a wrong signature.
+                let challenge = take_challenge(&user.id, now).ok_or_else(proof_refused)?;
+                let old_auth = crypto::SigPublic::try_from(old.auth_public.as_slice())
+                    .map_err(|_| bad_keys())?;
+                if !crypto::verify(&old_auth, REPLACE_DOMAIN, &challenge, &signature) {
+                    return Err(proof_refused());
+                }
+            }
+            Proof::Password(password) => {
+                // The same per-account tries as signing in, so this can't be used to guess.
+                if !state.login_limiter.allow(&login_user_key(&user.username)) {
+                    return Err(json_error(
+                        StatusCode::TOO_MANY_REQUESTS,
+                        "Too many tries. Wait a few minutes and try again.",
+                    ));
+                }
+                let auth = state.auth.clone();
+                let user_id = user.id.clone();
+                tokio::task::spawn_blocking(move || {
+                    auth.verify_password_for_user(&user_id, &password)
+                })
+                .await
+                .map_err(|_| save_failed())?
+                .map_err(|_| proof_refused())?;
+            }
+        }
+    }
+
     // A fresh Luna has no identity yet; setting the phrase is the first thing that needs one.
     ensure_identity(&state).await?;
 
-    let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
+    let mut conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
     // Two accounts with the same key would share sealed copies, so a key can belong to only one user.
     let key_taken = db::list_user_keys(&conn)
         .map_err(|_| read_failed())?
@@ -236,25 +325,58 @@ async fn set_phrase(
             "This recovery key is already used by another account. Set up the recovery phrase again.",
         ));
     }
-    // Setting or replacing a phrase needs only this user's Luna sign-in. The phrase itself is not
-    // checked here, so the new phrase counts as unchecked until the user checks it.
-    // Sealed copies made for the old key stay unreadable: the next backup starts a new key version.
-    db::set_user_keys(
-        &conn,
-        &UserKeys {
-            user_id: user.id.clone(),
-            seal_public: seal_public.to_vec(),
-            auth_public: auth_public.to_vec(),
-            self_sealed,
-            phrase_set_at: now,
-            last_checked_at: 0,
-        },
-    )
-    .map_err(|_| save_failed())?;
+    // All or nothing: the new keys, the readers' lists, the rotation marks, the re-seal job and the
+    // private scope move together.
+    let marked = (|| -> anyhow::Result<Vec<String>> {
+        let tx = conn.transaction()?;
+        db::set_user_keys(
+            &tx,
+            &UserKeys {
+                user_id: user.id.clone(),
+                seal_public: seal_public.to_vec(),
+                auth_public: auth_public.to_vec(),
+                self_sealed,
+                phrase_set_at: now,
+                last_checked_at: 0,
+            },
+        )?;
+        let mut marked = Vec::new();
+        if old_keys.is_some() {
+            if exposed {
+                marked = keys::current_backups_of(&tx, &user.id)?;
+            }
+            keys::replace_reader(&tx, &user.id, &seal_public)?;
+            for backup in &marked {
+                keys::mark_rotate(&tx, backup)?;
+            }
+            keys::queue_reseal(&tx, &user.id)?;
+            // Private copies were sealed to the old phrase. Keep them 30 days in case it turns up,
+            // or remove them at once when someone else may have it.
+            if let Some(active) = db::active_private_scope(&tx, &user.id)? {
+                let retire_after = if exposed {
+                    now
+                } else {
+                    now + private::OLD_PHRASE_GRACE
+                };
+                db::set_private_scope_state(&tx, &active.scope, "old_phrase", retire_after)?;
+            }
+            if exposed {
+                ops::retire_old_phrase_now(&tx, &user.id, now)?;
+            }
+        }
+        tx.commit()?;
+        Ok(marked)
+    })()
+    .map_err(|err| {
+        tracing::warn!(error = %err, "could not save the recovery phrase");
+        save_failed()
+    })?;
+    let resealing = keys::resealing_pending(&conn, &user.id).unwrap_or(false);
     drop(conn);
 
-    // Send the new keys to Luna Connect in the background, so the save never waits on the network.
-    // A failure here is only logged: the next cloud backup sends them again.
+    // Send the new keys to Luna Connect and finish the re-seal in the background, so the save never
+    // waits on the network. Then start a run for each backup marked to rotate, so new files are shut
+    // off from the old phrase within minutes. A failure here is only logged: the next run retries.
     let connect = state.connect.clone();
     let db = state.db.clone();
     tokio::task::spawn_blocking(move || {
@@ -264,8 +386,18 @@ async fn set_phrase(
         if let Err(err) = ops::publish_users(&db, &store, &connect, now) {
             tracing::warn!(error = %err, "could not send recovery keys to Luna Connect");
         }
+        for result in keys::reseal_pending(&db, &store) {
+            if let Err(err) = result {
+                tracing::warn!(error = %err, "could not re-seal cloud backup keys to the new phrase");
+            }
+        }
+        for backup in marked {
+            ops::run(&db, &backup, &store, &connect, "", false, db::now_unix());
+        }
     });
-    Ok(Json(json!({ "set": true, "set_at": now })))
+    Ok(Json(
+        json!({ "set": true, "set_at": now, "resealing": resealing }),
+    ))
 }
 
 async fn challenge(Extension(user): Extension<CurrentUser>) -> ApiResult {
@@ -361,7 +493,10 @@ mod tests {
     use serde_json::{Value, json};
     use tower::ServiceExt;
 
-    use super::{CHALLENGE_TTL, challenges, issue_challenge, phrase_check_due, take_challenge};
+    use super::{
+        CHALLENGE_TTL, CHECK_DOMAIN, REPLACE_DOMAIN, challenges, issue_challenge, phrase_check_due,
+        take_challenge,
+    };
     use crate::backup::cloud::crypto::Signer;
     use crate::drives::DriveManager;
     use crate::drives::mount::shared_mock;
@@ -542,37 +677,468 @@ mod tests {
         );
     }
 
+    const PUT: &str = "/api/v1/cloud/phrase";
+
+    /// A replacement body: new keys (sealing key made from `seal_n`, auth key `new`) plus a proof.
+    fn replace_body(new: &Signer, seal_n: u8, proof: Value, exposed: Option<bool>) -> Value {
+        let mut body = set_body(new, None);
+        body["seal_public"] = json!(seal_key_b64(seal_n));
+        if let Some(exposed) = exposed {
+            body["exposed"] = json!(exposed);
+        }
+        for (key, value) in proof.as_object().unwrap() {
+            body[key] = value.clone();
+        }
+        body
+    }
+
+    fn sign_under(signer: &Signer, domain: &str, challenge: &[u8]) -> Value {
+        json!({ "proof": "old_signature", "signature": STANDARD.encode(signer.sign(domain, challenge)) })
+    }
+
+    async fn set_first(f: &Fixture, token: &str, signer: &Signer, seal_n: u8) {
+        let mut body = set_body(signer, None);
+        body["seal_public"] = json!(seal_key_b64(seal_n));
+        let (status, _) = send(&f.router, "PUT", PUT, token, Some(body)).await;
+        assert_eq!(status, 200);
+    }
+
+    fn hex_of_seal(seal_n: u8) -> String {
+        STANDARD
+            .decode(seal_key_b64(seal_n))
+            .unwrap()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect()
+    }
+
+    /// A cloud backup at key version 1 whose readers are `readers` (user id, sealing key number).
+    fn seed_backup(f: &Fixture, id: &str, readers: &[(&str, u8)]) {
+        let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+        db::insert_protection(
+            &conn,
+            &db::NewProtection {
+                id,
+                kind: db::PROTECTION_CLOUD,
+                source_drive: "d1",
+                source_path: id,
+                target_drive: "",
+                private_owner: "",
+                created_by: &f.admin_id,
+                created_at: 0,
+            },
+        )
+        .unwrap();
+        db::insert_backup_key(
+            &conn,
+            &db::BackupKey {
+                protection_id: id.to_string(),
+                version: 1,
+                key: vec![1; 32],
+                dedup_key: vec![2; 32],
+                created_at: 0,
+            },
+        )
+        .unwrap();
+        let list: Vec<Value> = readers
+            .iter()
+            .map(|(user, n)| json!({ "user_id": user, "seal_public": hex_of_seal(*n) }))
+            .collect();
+        db::set_meta(
+            &conn,
+            &format!("cloud_recipients:{id}:1"),
+            &Value::Array(list).to_string(),
+        )
+        .unwrap();
+    }
+
+    fn seed_active_scope(f: &Fixture, owner: &str, scope: &str) {
+        let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+        db::insert_private_scope(
+            &conn,
+            &db::PrivateScope {
+                scope: scope.to_string(),
+                owner: owner.to_string(),
+                seal_public: vec![0; 32],
+                dedup_key: vec![0; 32],
+                state: "active".to_string(),
+                retire_after: 0,
+                created_at: 0,
+            },
+        )
+        .unwrap();
+    }
+
+    fn scope_of(f: &Fixture, scope: &str) -> db::PrivateScope {
+        let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+        db::get_private_scope(&conn, scope).unwrap().unwrap()
+    }
+
+    fn meta(f: &Fixture, key: &str) -> Option<String> {
+        let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+        db::get_meta(&conn, key).unwrap()
+    }
+
+    fn stored_auth(f: &Fixture, user_id: &str) -> Vec<u8> {
+        let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+        db::get_user_keys(&conn, user_id)
+            .unwrap()
+            .unwrap()
+            .auth_public
+    }
+
     #[tokio::test]
-    async fn replacing_the_phrase_needs_only_a_luna_sign_in() {
+    async fn replacing_a_phrase_needs_a_proof_and_an_answer() {
         let f = fixture();
         let old = Signer::generate();
         let new = Signer::generate();
+        set_first(&f, &f.admin_token, &old, 7).await;
+
+        // No proof at all.
         let (status, _) = send(
             &f.router,
             "PUT",
-            "/api/v1/cloud/phrase",
+            PUT,
             &f.admin_token,
-            Some(set_body(&old, None)),
+            Some(replace_body(&new, 8, json!({}), Some(false))),
+        )
+        .await;
+        assert_eq!(status, 403);
+        assert_eq!(stored_auth(&f, &f.admin_id), old.public().to_vec());
+
+        // A proof but no answer to "could someone else have it?".
+        let challenge = fetch_challenge(&f.router, &f.admin_token).await;
+        let (status, _) = send(
+            &f.router,
+            "PUT",
+            PUT,
+            &f.admin_token,
+            Some(replace_body(
+                &new,
+                8,
+                sign_under(&old, REPLACE_DOMAIN, &challenge),
+                None,
+            )),
+        )
+        .await;
+        assert_eq!(status, 400);
+        assert_eq!(stored_auth(&f, &f.admin_id), old.public().to_vec());
+    }
+
+    #[tokio::test]
+    async fn old_phrase_signature_replaces_the_phrase_without_exposure() {
+        let f = fixture();
+        let old = Signer::generate();
+        let new = Signer::generate();
+        set_first(&f, &f.admin_token, &old, 7).await;
+        seed_backup(&f, "b1", &[(&f.admin_id, 7)]);
+        seed_active_scope(&f, &f.admin_id, "scope-1");
+
+        let challenge = fetch_challenge(&f.router, &f.admin_token).await;
+        let (status, body) = send(
+            &f.router,
+            "PUT",
+            PUT,
+            &f.admin_token,
+            Some(replace_body(
+                &new,
+                8,
+                sign_under(&old, REPLACE_DOMAIN, &challenge),
+                Some(false),
+            )),
+        )
+        .await;
+        assert_eq!(status, 200);
+        assert_eq!(body["resealing"], json!(true));
+        assert_eq!(stored_auth(&f, &f.admin_id), new.public().to_vec());
+
+        // The reader list names the new key, so no new version starts, and nothing is marked.
+        let readers: Value =
+            serde_json::from_str(&meta(&f, "cloud_recipients:b1:1").unwrap()).unwrap();
+        assert_eq!(readers[0]["seal_public"], json!(hex_of_seal(8)));
+        assert!(meta(&f, "cloud_rotate:b1").is_none());
+
+        // Private copies stay 30 days.
+        let scope = scope_of(&f, "scope-1");
+        assert_eq!(scope.state, "old_phrase");
+        let wait = scope.retire_after - db::now_unix();
+        assert!((29 * 86_400..=30 * 86_400).contains(&wait), "{wait}");
+
+        let status = status_of(&f.router, &f.admin_token).await;
+        assert_eq!(status["resealing"], json!(true));
+    }
+
+    #[tokio::test]
+    async fn exposed_replacement_marks_backups_and_retires_private_copies_at_once() {
+        let f = fixture();
+        let old = Signer::generate();
+        let new = Signer::generate();
+        set_first(&f, &f.admin_token, &old, 7).await;
+        seed_backup(&f, "mine", &[(&f.admin_id, 7)]);
+        // Someone else's backup: not touched.
+        seed_backup(&f, "theirs", &[(&f.member_id, 9)]);
+        seed_active_scope(&f, &f.admin_id, "scope-1");
+
+        let challenge = fetch_challenge(&f.router, &f.admin_token).await;
+        let (status, _) = send(
+            &f.router,
+            "PUT",
+            PUT,
+            &f.admin_token,
+            Some(replace_body(
+                &new,
+                8,
+                sign_under(&old, REPLACE_DOMAIN, &challenge),
+                Some(true),
+            )),
+        )
+        .await;
+        assert_eq!(status, 200);
+        assert!(meta(&f, "cloud_rotate:mine").is_some());
+        assert!(meta(&f, "cloud_rotate:theirs").is_none());
+        let theirs: Value =
+            serde_json::from_str(&meta(&f, "cloud_recipients:theirs:1").unwrap()).unwrap();
+        assert_eq!(theirs[0]["seal_public"], json!(hex_of_seal(9)));
+
+        let scope = scope_of(&f, "scope-1");
+        assert_eq!(scope.state, "old_phrase");
+        assert!(scope.retire_after <= db::now_unix());
+        assert!(scope.retire_after > 0);
+    }
+
+    #[tokio::test]
+    async fn a_replacement_signature_is_single_use() {
+        let f = fixture();
+        let old = Signer::generate();
+        let new = Signer::generate();
+        let newer = Signer::generate();
+        set_first(&f, &f.admin_token, &old, 7).await;
+
+        let challenge = fetch_challenge(&f.router, &f.admin_token).await;
+        let proof = sign_under(&old, REPLACE_DOMAIN, &challenge);
+        let (status, _) = send(
+            &f.router,
+            "PUT",
+            PUT,
+            &f.admin_token,
+            Some(replace_body(&new, 8, proof.clone(), Some(false))),
         )
         .await;
         assert_eq!(status, 200);
 
-        // No old-phrase signature is needed. The new keys replace the old ones.
+        // Replaying it fails, even though it was signed by the (then) current key's challenge.
         let (status, _) = send(
             &f.router,
             "PUT",
-            "/api/v1/cloud/phrase",
+            PUT,
             &f.admin_token,
-            Some(set_body(&new, None)),
+            Some(replace_body(&newer, 10, proof, Some(false))),
+        )
+        .await;
+        assert_eq!(status, 403);
+        assert_eq!(stored_auth(&f, &f.admin_id), new.public().to_vec());
+    }
+
+    #[tokio::test]
+    async fn a_wrong_or_other_domain_signature_is_refused_and_changes_nothing() {
+        let f = fixture();
+        let old = Signer::generate();
+        let new = Signer::generate();
+        set_first(&f, &f.admin_token, &old, 7).await;
+        seed_backup(&f, "b1", &[(&f.admin_id, 7)]);
+
+        // A phrase-check signature must not work as a replacement.
+        let challenge = fetch_challenge(&f.router, &f.admin_token).await;
+        let (status, _) = send(
+            &f.router,
+            "PUT",
+            PUT,
+            &f.admin_token,
+            Some(replace_body(
+                &new,
+                8,
+                sign_under(&old, CHECK_DOMAIN, &challenge),
+                Some(true),
+            )),
+        )
+        .await;
+        assert_eq!(status, 403);
+
+        // A signature from some other key.
+        let stranger = Signer::generate();
+        let challenge = fetch_challenge(&f.router, &f.admin_token).await;
+        let (status, _) = send(
+            &f.router,
+            "PUT",
+            PUT,
+            &f.admin_token,
+            Some(replace_body(
+                &new,
+                8,
+                sign_under(&stranger, REPLACE_DOMAIN, &challenge),
+                Some(true),
+            )),
+        )
+        .await;
+        assert_eq!(status, 403);
+
+        // No challenge was asked for (or it was already used).
+        let (status, _) = send(
+            &f.router,
+            "PUT",
+            PUT,
+            &f.admin_token,
+            Some(replace_body(
+                &new,
+                8,
+                sign_under(&old, REPLACE_DOMAIN, &[0u8; 32]),
+                Some(true),
+            )),
+        )
+        .await;
+        assert_eq!(status, 403);
+
+        // Nothing moved.
+        assert_eq!(stored_auth(&f, &f.admin_id), old.public().to_vec());
+        assert!(meta(&f, "cloud_rotate:b1").is_none());
+        assert!(
+            !status_of(&f.router, &f.admin_token).await["resealing"]
+                .as_bool()
+                .unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn the_luna_password_can_replace_a_lost_phrase() {
+        let f = fixture();
+        let old = Signer::generate();
+        let new = Signer::generate();
+        set_first(&f, &f.admin_token, &old, 7).await;
+
+        let (status, _) = send(
+            &f.router,
+            "PUT",
+            PUT,
+            &f.admin_token,
+            Some(replace_body(
+                &new,
+                8,
+                json!({ "proof": "password", "password": "not-it-at-all" }),
+                Some(false),
+            )),
+        )
+        .await;
+        assert_eq!(status, 403);
+        assert_eq!(stored_auth(&f, &f.admin_id), old.public().to_vec());
+
+        let (status, _) = send(
+            &f.router,
+            "PUT",
+            PUT,
+            &f.admin_token,
+            Some(replace_body(
+                &new,
+                8,
+                json!({ "proof": "password", "password": "hunter22hunter1" }),
+                Some(false),
+            )),
         )
         .await;
         assert_eq!(status, 200);
-        let stored = {
-            let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
-            db::get_user_keys(&conn, &f.admin_id).unwrap().unwrap()
-        };
-        assert_eq!(stored.auth_public, new.public().to_vec());
-        assert_eq!(stored.last_checked_at, 0);
+        assert_eq!(stored_auth(&f, &f.admin_id), new.public().to_vec());
+    }
+
+    #[tokio::test]
+    async fn guessing_the_password_locks_out_like_signing_in() {
+        let f = fixture();
+        let old = Signer::generate();
+        let new = Signer::generate();
+        set_first(&f, &f.admin_token, &old, 7).await;
+
+        for _ in 0..10 {
+            let (status, _) = send(
+                &f.router,
+                "PUT",
+                PUT,
+                &f.admin_token,
+                Some(replace_body(
+                    &new,
+                    8,
+                    json!({ "proof": "password", "password": "wrong-guess" }),
+                    Some(false),
+                )),
+            )
+            .await;
+            assert_eq!(status, 403);
+        }
+        // Even the right password is refused while locked.
+        let (status, _) = send(
+            &f.router,
+            "PUT",
+            PUT,
+            &f.admin_token,
+            Some(replace_body(
+                &new,
+                8,
+                json!({ "proof": "password", "password": "hunter22hunter1" }),
+                Some(false),
+            )),
+        )
+        .await;
+        assert_eq!(status, 429);
+        assert_eq!(stored_auth(&f, &f.admin_id), old.public().to_vec());
+
+        // It is the same bucket as signing in, so the lockout is shared.
+        assert!(
+            !f.state
+                .login_limiter
+                .allow(&crate::api::auth::login_user_key("Max"))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_member_replaces_only_their_own_phrase() {
+        let f = fixture();
+        let admin_old = Signer::generate();
+        let member_old = Signer::generate();
+        let member_new = Signer::generate();
+        set_first(&f, &f.admin_token, &admin_old, 7).await;
+        set_first(&f, &f.member_token, &member_old, 9).await;
+        seed_backup(&f, "shared", &[(&f.admin_id, 7), (&f.member_id, 9)]);
+
+        let (status, _) = send(
+            &f.router,
+            "PUT",
+            PUT,
+            &f.member_token,
+            Some(replace_body(
+                &member_new,
+                11,
+                json!({ "proof": "password", "password": "hunter22hunter1" }),
+                Some(true),
+            )),
+        )
+        .await;
+        assert_eq!(status, 200);
+        assert_eq!(stored_auth(&f, &f.member_id), member_new.public().to_vec());
+        assert_eq!(stored_auth(&f, &f.admin_id), admin_old.public().to_vec());
+
+        let readers: Value =
+            serde_json::from_str(&meta(&f, "cloud_recipients:shared:1").unwrap()).unwrap();
+        assert_eq!(readers[0]["seal_public"], json!(hex_of_seal(7)));
+        assert_eq!(readers[1]["seal_public"], json!(hex_of_seal(11)));
+        assert!(meta(&f, "cloud_rotate:shared").is_some());
+        // The Admin has nothing pending.
+        assert!(
+            !status_of(&f.router, &f.admin_token).await["resealing"]
+                .as_bool()
+                .unwrap()
+        );
+        assert!(
+            status_of(&f.router, &f.member_token).await["resealing"]
+                .as_bool()
+                .unwrap()
+        );
     }
 
     #[tokio::test]

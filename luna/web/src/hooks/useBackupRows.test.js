@@ -162,6 +162,7 @@ describe("useBackupRows", () => {
       ...status,
       last_checked_at: 0,
       admin_has_phrase: false,
+      resealing: false,
       old_phrase_copies: { count: 0, removed_at: 0 },
     });
   });

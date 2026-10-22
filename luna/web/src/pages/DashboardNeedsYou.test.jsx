@@ -14,9 +14,9 @@ vi.mock("../components/files/ProtectSheet.jsx", () => ({
 }));
 
 vi.mock("../components/cloud/RecoveryPhraseCheck.jsx", () => ({
-  default: ({ lunaId, onClose }) => (
+  default: ({ verify, onClose }) => (
     <div data-testid="phrase-check">
-      <span>{lunaId}</span>
+      <span>{typeof verify === "function" ? "verify ready" : "no verify"}</span>
       <button onClick={onClose}>Close check</button>
     </div>
   ),
@@ -550,7 +550,7 @@ describe("Needs you on the dashboard", () => {
         within(row).getByText("It's been a while. Make sure your recovery phrase still opens your cloud backups."),
       ).toBeInTheDocument();
       await userEvent.click(within(row).getByRole("button", { name: "Check now" }));
-      expect(screen.getByTestId("phrase-check")).toHaveTextContent("luna-1");
+      expect(screen.getByTestId("phrase-check")).toHaveTextContent("verify ready");
       await userEvent.click(screen.getByRole("button", { name: "Close check" }));
       expect(screen.queryByTestId("phrase-check")).not.toBeInTheDocument();
     });

@@ -1,6 +1,18 @@
+import { SIG_PUBLIC_LEN } from "@libreloom/ui/lib/cloud/backupCrypto.js";
 import { cloudBackup, DAY, DEFAULT_NOW, drive, HOUR, summary, user } from "../fake/world.js";
 
 const at = (s) => Math.floor(DEFAULT_NOW / 1000) - s;
+
+/** Luna's signing public key, base64, the right length for the replace flow to build keys. */
+const SIGNING_PUBLIC = btoa(String.fromCharCode(...new Uint8Array(SIG_PUBLIC_LEN).fill(7)));
+
+/** A phrase that is set and checked, with Luna's signing key present so a replacement can be built. */
+const setPhrase = (w, extra = {}) => {
+  w.connect = { enabled: true, connect_active: true, card_on_file: true };
+  w.connectActive = true;
+  w.cloudBackups = [cloudBackup()];
+  w.phrase = { set: true, set_at: at(90 * DAY), luna_id: "luna-1", signing_public: SIGNING_PUBLIC, check_due: false, last_checked_at: at(DAY), ...extra };
+};
 
 const asMember = (w) => {
   w.users.push(user({ id: "u2", username: "sam", display_name: "Sam", role: "user" }));
@@ -328,6 +340,68 @@ export default [
       "The recovery phrase card shows a 'Check due' pill",
       "Check is the main button on the card",
       "Check opens the check and accepts any 12 or 24 words",
+    ],
+  },
+  {
+    id: "settings/phrase-change",
+    area: "Settings: Cloud backup",
+    title: "Changing the phrase with the wrong old phrase",
+    url: "/settings#cloud_backup",
+    seed: (w) => { setPhrase(w); w.phraseWrong = true; },
+    check: [
+      "Change phrase asks for the current phrase first",
+      "Any 12 or 24 words are refused inline (That is not the recovery phrase set up on this Luna), and the dialog stays on the check",
+      "Nothing is saved and no toast appears",
+    ],
+  },
+  {
+    id: "settings/phrase-change-exposed",
+    area: "Settings: Cloud backup",
+    title: "Changing the phrase because someone may have it",
+    url: "/settings#cloud_backup",
+    seed: (w) => setPhrase(w),
+    check: [
+      "Current phrase is accepted, then 'Could someone else have your phrase?' appears",
+      "'Someone may have it' says the old phrase stops working right away and what can't be taken back",
+      "The Connect note and the older-private-items line appear under it",
+      "After confirming the new phrase, the toast says 'Recovery phrase changed.' and the card shows 'Updating your cloud backups to the new phrase…'",
+    ],
+  },
+  {
+    id: "settings/phrase-lost-exposed",
+    area: "Settings: Cloud backup",
+    title: "Lost phrase that may have been found",
+    url: "/settings#cloud_backup",
+    seed: (w) => setPhrase(w),
+    check: [
+      "'Get a new phrase' confirm names the private items that can't be opened",
+      "After 'Someone may have it', the private line says Luna removes your older private items now",
+      "Asks for the Luna password, then the new phrase, then the toast 'New recovery phrase saved.'",
+    ],
+  },
+  {
+    id: "settings/phrase-lost",
+    area: "Settings: Cloud backup",
+    title: "Lost phrase, nobody else has it",
+    url: "/settings#cloud_backup",
+    seed: (w) => setPhrase(w, { old_phrase_copies: { count: 2, removed_at: at(-30 * DAY) } }),
+    check: [
+      "Under 'Lost your recovery phrase?', 'Get a new phrase' confirm says private items backed up with the old phrase can't be opened, and shared backups stay open",
+      "'No, it's just lost' says the private line: Luna keeps them for 30 days",
+      "Asks for the Luna password; a wrong one is refused inline, not with a toast",
+      "After saving, the 'Old phrase backups' row shows with its removal date and Delete now",
+    ],
+  },
+  {
+    id: "settings/phrase-resealing",
+    area: "Settings: Cloud backup",
+    title: "Cloud backups still moving to the new phrase",
+    url: "/settings#cloud_backup",
+    seed: (w) => setPhrase(w, { resealing: true }),
+    check: [
+      "The card says 'Updating your cloud backups to the new phrase…' under the phrase row",
+      "No problem pill or toast appears while it runs",
+      "Status is re-read every few seconds and the line goes away when it finishes",
     ],
   },
   // ── Remote / Connect / About ──────────────────────────────────────────────

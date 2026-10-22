@@ -1,5 +1,5 @@
-import { getJson, postJson, putJson } from "./api";
-import { canonical, derive, encrypt, SIG_PUBLIC_LEN, sign } from "@libreloom/ui/lib/cloud/backupCrypto.js";
+import { apiErrorMessage, getJson, postJson, putJson } from "./api";
+import { canonical, derive, encrypt, phraseToEntropy, SIG_PUBLIC_LEN, sign } from "@libreloom/ui/lib/cloud/backupCrypto.js";
 
 /**
  * Cloud recovery phrase: the API calls and the key steps behind it.
@@ -14,6 +14,15 @@ export const PHRASE_QUERY_KEY = ["cloud-phrase"];
 
 /** Must match CHECK_DOMAIN in cloud_phrase.rs. */
 const CHECK_DOMAIN = "phrase-check";
+
+/** Must match the phrase-replace domain in cloud_phrase.rs. A check signature can never be replayed as a replacement. */
+export const REPLACE_DOMAIN = "phrase-replace";
+
+/** Shown when Luna stops taking tries for a while (HTTP 429). */
+export const LOCKED_OUT_MESSAGE = "Too many wrong tries. Wait a few minutes, then try again.";
+
+/** Refused by the server (HTTP 403 for a wrong proof; 400 for a phrase that doesn't match today). */
+const REFUSED_STATUSES = new Set([400, 403]);
 
 const encoder = new TextEncoder();
 
@@ -46,6 +55,7 @@ export function normalizePhraseStatus(raw) {
     admin_has_phrase: Boolean(r.admin_has_phrase),
     luna_id: r.luna_id ?? null,
     signing_public: r.signing_public ?? null,
+    resealing: Boolean(r.resealing),
     old_phrase_copies: {
       count: Number.isFinite(count) && count > 0 ? count : 0,
       removed_at: Number(copies.removed_at) || 0,
@@ -82,16 +92,84 @@ export function savePhrase(body) {
 }
 
 /**
- * Ask the server for a fresh challenge and sign it with the auth key that
- * `entropy` derives. Returns the base64 signature.
+ * Ask the server for a fresh challenge (single use, so never reused) and sign it with the
+ * auth key that `entropy` derives, under `domain`. Returns the base64 signature.
  * @param {Uint8Array} entropy 16 or 32 bytes of phrase entropy (12 or 24 words)
  * @param {string} lunaId
+ * @param {string} [domain]
  * @returns {Promise<string>}
  */
-export async function signFreshChallenge(entropy, lunaId) {
+export async function signFreshChallenge(entropy, lunaId, domain = CHECK_DOMAIN) {
   const { authSecret } = derive(entropy, lunaId);
   const { challenge } = await requestChallenge();
-  return toBase64(sign(authSecret, CHECK_DOMAIN, fromBase64(challenge)));
+  return toBase64(sign(authSecret, domain, fromBase64(challenge)));
+}
+
+/**
+ * Proves the phrase to the server ("Check my phrase", and the first step of a change).
+ * Resolves the entropy when Luna accepts it, or null when the phrase is refused.
+ * A lockout throws LOCKED_OUT_MESSAGE; any other failure throws a plain message.
+ * @param {string} phrase the typed words
+ * @param {string} lunaId
+ * @returns {Promise<Uint8Array | null>}
+ */
+export async function checkPhraseWords(phrase, lunaId) {
+  const entropy = phraseToEntropy(phrase);
+  const signature = await signFreshChallenge(entropy, lunaId);
+  try {
+    await checkPhrase(signature);
+    return entropy;
+  } catch (err) {
+    if (REFUSED_STATUSES.has(err?.status)) return null;
+    if (err?.status === 429) throw new Error(LOCKED_OUT_MESSAGE);
+    throw new Error(apiErrorMessage(err, "Could not check your phrase. Try again."));
+  }
+}
+
+/**
+ * Body for a replacement (PUT). `proof` is `{ oldEntropy }` (you still have the old phrase,
+ * which signs a fresh `phrase-replace` challenge) or `{ password }` (you lost it, and the
+ * Luna password is checked on the server). `exposed` is the "Could someone else have your
+ * phrase?" answer.
+ * @param {{ proof: { oldEntropy: Uint8Array } | { password: string }, exposed: boolean, newPhrase: string, lunaId: string, userId: string, signingPublic: string }} opts
+ */
+export async function buildReplaceBody({ proof, exposed, newPhrase, lunaId, userId, signingPublic }) {
+  /** @type {Record<string, any>} */
+  const body = {
+    ...buildPhraseBody(phraseToEntropy(newPhrase), { lunaId, userId, signingPublic }),
+    exposed: Boolean(exposed),
+  };
+  if ("oldEntropy" in proof) {
+    body.proof = "old_signature";
+    body.signature = await signFreshChallenge(proof.oldEntropy, lunaId, REPLACE_DOMAIN);
+  } else {
+    body.proof = "password";
+    body.password = proof.password;
+  }
+  return body;
+}
+
+/**
+ * Saves a replacement. Throws; the caller shows the message from `replaceErrorMessage`.
+ * @param {Parameters<typeof buildReplaceBody>[0]} opts
+ */
+export async function replacePhrase(opts) {
+  return savePhrase(await buildReplaceBody(opts));
+}
+
+/**
+ * The line to show inline when a replacement is refused. Nothing is retried.
+ * @param {any} err
+ * @param {"old" | "password"} proofKind
+ */
+export function replaceErrorMessage(err, proofKind) {
+  if (err?.status === 429) return LOCKED_OUT_MESSAGE;
+  if (err?.status === 403) {
+    return proofKind === "password"
+      ? "That is not your Luna password. Try again."
+      : "Luna did not accept your old phrase. Start again from Change phrase.";
+  }
+  return apiErrorMessage(err, "Could not save your new phrase. Try again.");
 }
 
 /**

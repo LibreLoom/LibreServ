@@ -15,7 +15,7 @@ import TipPill from "../components/common/TipPill.jsx";
 import { getDrives, getJson, getRecents } from "../lib/api.js";
 import { KIND_ALBUM } from "../lib/access.js";
 import { memberAccessRoots } from "../lib/shareTree.js";
-import { PHRASE_QUERY_KEY } from "../lib/cloudPhrase.js";
+import { checkPhraseWords, PHRASE_QUERY_KEY } from "../lib/cloudPhrase.js";
 import { readRecentItems } from "../lib/recentItems.js";
 import usePageTitle from "../hooks/usePageTitle.js";
 import useNeedsYou from "../hooks/useNeedsYou.js";
@@ -273,7 +273,10 @@ export default function DashboardPage() {
         />
       )}
       {checkingPhrase && phrase?.luna_id && (
-        <RecoveryPhraseCheck lunaId={phrase.luna_id} onClose={closeCheck} />
+        <RecoveryPhraseCheck
+          verify={(words) => checkPhraseWords(words, phrase.luna_id).then(Boolean)}
+          onClose={closeCheck}
+        />
       )}
     </Page>
   );

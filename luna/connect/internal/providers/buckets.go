@@ -8,6 +8,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/security"
@@ -18,6 +19,10 @@ type BucketProvisioner struct {
 	DB        *database.DB
 	Providers *Service
 	B2        *B2Client
+
+	// keepLastDone remembers the buckets whose keep-last-version rule is known to be set, so the
+	// check against B2 happens once per bucket per process, not on every request.
+	keepLastDone sync.Map
 }
 
 // DeviceBucket is the persisted mapping for a device's private B2 bucket.
@@ -59,6 +64,7 @@ func (p *BucketProvisioner) EnsureDeviceBucket(deviceID string) (*DeviceBucket, 
 	if existing, err := p.load(deviceID); err != nil {
 		return nil, err
 	} else if existing != nil {
+		p.ensureKeepLast(existing)
 		return existing, nil
 	}
 
@@ -123,6 +129,32 @@ ON CONFLICT(device_id) DO NOTHING`,
 		revokeNew()
 	}
 	return existing, nil
+}
+
+// ensureKeepLast gives a bucket provisioned before the keep-last-version rule existed that rule,
+// so an old phrase's replaced key copies are deleted a day after they are hidden. Best effort and
+// logged: a failure never blocks the backup, and it is tried again on the next request.
+func (p *BucketProvisioner) ensureKeepLast(b *DeviceBucket) {
+	if _, done := p.keepLastDone.Load(b.DeviceID); done {
+		return
+	}
+	prov, err := p.Providers.FindEnabled("backup")
+	if err != nil || prov == nil {
+		return
+	}
+	masterID, masterKey := prov.Credential("account_id", ""), prov.Credential("application_key", "")
+	if strings.TrimSpace(masterID) == "" || strings.TrimSpace(masterKey) == "" {
+		return
+	}
+	b2 := p.B2
+	if b2 == nil {
+		b2 = NewB2Client(nil)
+	}
+	if err := b2.EnsureKeepLastVersionByName(masterID, masterKey, b.BucketName); err != nil {
+		slog.Warn("backup bucket: could not set keep-last-version on an existing bucket", "bucket", b.BucketName, "error", err)
+		return
+	}
+	p.keepLastDone.Store(b.DeviceID, struct{}{})
 }
 
 // ReleaseBuckets deletes the B2 bucket and key of every Luna that matches. lunaSlot "" matches

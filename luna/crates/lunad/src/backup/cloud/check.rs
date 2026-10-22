@@ -10,10 +10,10 @@ use anyhow::{Result, anyhow};
 use rand_core::{OsRng, RngCore};
 use rusqlite::{Connection, params};
 
-use super::crypto::{self, SigPublic};
+use super::crypto::SigPublic;
 use super::format::{self, ChunkRef, OpenedPack, SignedRecord, SnapshotRecord};
 use super::identity;
-use super::run::{self, PACK_KEY_WRAP_AAD};
+use super::run;
 use super::store::{CloudStore, StoreError};
 use crate::db::{self, BackupKey, SnapshotInsert};
 
@@ -236,23 +236,9 @@ fn examine_pack(
     }
 }
 
-/// Unwrap a pack's key with any of the protection's backup keys.
+/// Unwrap a pack's key with any of the protection's backup keys, newest version first.
 fn unwrap_with(keys: &[BackupKey]) -> impl Fn(&[u8]) -> Result<[u8; 32]> + '_ {
-    move |wrapped: &[u8]| {
-        for k in keys {
-            let Ok(key) = <[u8; 32]>::try_from(k.key.as_slice()) else {
-                continue;
-            };
-            if let Ok(plain) = crypto::decrypt(&key, PACK_KEY_WRAP_AAD, wrapped)
-                && let Ok(pack_key) = <[u8; 32]>::try_from(plain.as_slice())
-            {
-                return Ok(pack_key);
-            }
-        }
-        Err(anyhow!(
-            "A backup file could not be opened with this Luna's keys."
-        ))
-    }
+    run::unwrap_newest_first(keys)
 }
 
 /// The packs a tree names for its chunks that the snapshot does not list.
@@ -331,7 +317,7 @@ fn parse_id(s: &str) -> Option<[u8; 32]> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backup::cloud::crypto::Signer;
+    use crate::backup::cloud::crypto::{self, Signer};
     use crate::backup::cloud::format::{PackBuilder, Tree, TreeEntry};
     use crate::backup::cloud::identity;
     use crate::backup::cloud::store::MemoryStore;
