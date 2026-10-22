@@ -61,6 +61,7 @@ describe("LoginPage", () => {
     expect(screen.getByText("Luna")).toBeInTheDocument();
     expect(screen.getByText("Sign in to continue.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Login" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Create a USB recovery file" })).toHaveAttribute("href", "/recover");
   });
 
   it("logs in and returns to the page the user wanted", async () => {
