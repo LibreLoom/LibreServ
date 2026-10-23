@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -14,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -23,9 +25,9 @@ import (
 func (s *BackupService) GetRepository(ctx context.Context, repoID string) (*BackupRepository, error) {
 	var repo BackupRepository
 	err := s.db.QueryRow(`
-	SELECT id, COALESCE(app_id, ''), repo_type, repo_path, password, credentials, COALESCE(is_system, 0), COALESCE(connect_managed, 0), connect_managed IS NOT NULL, COALESCE(limit_upload_kbps, 0), COALESCE(limit_download_kbps, 0), created_at, updated_at
+	SELECT id, COALESCE(app_id, ''), repo_type, repo_path, password, credentials, COALESCE(is_system, 0), COALESCE(connect_managed, 0), COALESCE(limit_upload_kbps, 0), COALESCE(limit_download_kbps, 0), created_at, updated_at
 	FROM backup_repositories WHERE id = ?
-	`, repoID).Scan(&repo.ID, &repo.AppID, &repo.RepoType, &repo.RepoPath, &repo.Password, &repo.Credentials, &repo.IsSystem, &repo.ConnectManaged, &repo.ConnectManagedKnown, &repo.LimitUploadKbps, &repo.LimitDownloadKbps, &repo.CreatedAt, &repo.UpdatedAt)
+	`, repoID).Scan(&repo.ID, &repo.AppID, &repo.RepoType, &repo.RepoPath, &repo.Password, &repo.Credentials, &repo.IsSystem, &repo.ConnectManaged, &repo.LimitUploadKbps, &repo.LimitDownloadKbps, &repo.CreatedAt, &repo.UpdatedAt)
 
 	if err != nil {
 		return nil, fmt.Errorf("backup repository not found: %w", err)
@@ -44,7 +46,7 @@ func (s *BackupService) AppExists(ctx context.Context, appID string) (bool, erro
 
 func (s *BackupService) ListRepositories(ctx context.Context) ([]BackupRepository, error) {
 	rows, err := s.db.Query(`
-		SELECT id, COALESCE(app_id, ''), repo_type, repo_path, password, credentials, COALESCE(is_system, 0), COALESCE(connect_managed, 0), connect_managed IS NOT NULL, COALESCE(limit_upload_kbps, 0), COALESCE(limit_download_kbps, 0), created_at, updated_at
+		SELECT id, COALESCE(app_id, ''), repo_type, repo_path, password, credentials, COALESCE(is_system, 0), COALESCE(connect_managed, 0), COALESCE(limit_upload_kbps, 0), COALESCE(limit_download_kbps, 0), created_at, updated_at
 		FROM backup_repositories ORDER BY created_at DESC
 	`)
 	if err != nil {
@@ -55,7 +57,7 @@ func (s *BackupService) ListRepositories(ctx context.Context) ([]BackupRepositor
 	var repos []BackupRepository
 	for rows.Next() {
 		var repo BackupRepository
-		if err := rows.Scan(&repo.ID, &repo.AppID, &repo.RepoType, &repo.RepoPath, &repo.Password, &repo.Credentials, &repo.IsSystem, &repo.ConnectManaged, &repo.ConnectManagedKnown, &repo.LimitUploadKbps, &repo.LimitDownloadKbps, &repo.CreatedAt, &repo.UpdatedAt); err != nil {
+		if err := rows.Scan(&repo.ID, &repo.AppID, &repo.RepoType, &repo.RepoPath, &repo.Password, &repo.Credentials, &repo.IsSystem, &repo.ConnectManaged, &repo.LimitUploadKbps, &repo.LimitDownloadKbps, &repo.CreatedAt, &repo.UpdatedAt); err != nil {
 			slog.Warn("failed to scan backup repository row", "error", err)
 			continue
 		}
@@ -70,9 +72,9 @@ func (s *BackupService) ListRepositories(ctx context.Context) ([]BackupRepositor
 func (s *BackupService) GetRepositoryForApp(ctx context.Context, appID string) (*BackupRepository, error) {
 	var repo BackupRepository
 	err := s.db.QueryRow(`
-		SELECT id, COALESCE(app_id, ''), repo_type, repo_path, password, credentials, COALESCE(is_system, 0), COALESCE(connect_managed, 0), connect_managed IS NOT NULL, COALESCE(limit_upload_kbps, 0), COALESCE(limit_download_kbps, 0), created_at, updated_at
+		SELECT id, COALESCE(app_id, ''), repo_type, repo_path, password, credentials, COALESCE(is_system, 0), COALESCE(connect_managed, 0), COALESCE(limit_upload_kbps, 0), COALESCE(limit_download_kbps, 0), created_at, updated_at
 		FROM backup_repositories WHERE app_id = ? ORDER BY created_at DESC, id DESC LIMIT 1
-	`, appID).Scan(&repo.ID, &repo.AppID, &repo.RepoType, &repo.RepoPath, &repo.Password, &repo.Credentials, &repo.IsSystem, &repo.ConnectManaged, &repo.ConnectManagedKnown, &repo.LimitUploadKbps, &repo.LimitDownloadKbps, &repo.CreatedAt, &repo.UpdatedAt)
+	`, appID).Scan(&repo.ID, &repo.AppID, &repo.RepoType, &repo.RepoPath, &repo.Password, &repo.Credentials, &repo.IsSystem, &repo.ConnectManaged, &repo.LimitUploadKbps, &repo.LimitDownloadKbps, &repo.CreatedAt, &repo.UpdatedAt)
 
 	if err != nil {
 		return nil, fmt.Errorf("no repository configured for app %s: %w", appID, err)
@@ -85,10 +87,13 @@ func (s *BackupService) GetRepositoryForApp(ctx context.Context, appID string) (
 func (s *BackupService) GetDefaultRepository(ctx context.Context) (*BackupRepository, error) {
 	var repo BackupRepository
 	err := s.db.QueryRow(`
-		SELECT id, COALESCE(app_id, ''), repo_type, repo_path, password, credentials, COALESCE(is_system, 0), COALESCE(connect_managed, 0), connect_managed IS NOT NULL, COALESCE(limit_upload_kbps, 0), COALESCE(limit_download_kbps, 0), created_at, updated_at
-		FROM backup_repositories WHERE app_id IS NULL AND COALESCE(is_system, 0) = 0
+		SELECT id, COALESCE(app_id, ''), repo_type, repo_path, password, credentials, COALESCE(is_system, 0), COALESCE(connect_managed, 0), COALESCE(limit_upload_kbps, 0), COALESCE(limit_download_kbps, 0), created_at, updated_at
+		FROM backup_repositories
+		WHERE app_id IS NULL
+		  AND COALESCE(is_system, 0) = 0
+		  AND NOT EXISTS (SELECT 1 FROM backups WHERE backups.repo_id = backup_repositories.id AND backups.app_id IS NULL)
 		ORDER BY created_at DESC LIMIT 1
-	`).Scan(&repo.ID, &repo.AppID, &repo.RepoType, &repo.RepoPath, &repo.Password, &repo.Credentials, &repo.IsSystem, &repo.ConnectManaged, &repo.ConnectManagedKnown, &repo.LimitUploadKbps, &repo.LimitDownloadKbps, &repo.CreatedAt, &repo.UpdatedAt)
+	`).Scan(&repo.ID, &repo.AppID, &repo.RepoType, &repo.RepoPath, &repo.Password, &repo.Credentials, &repo.IsSystem, &repo.ConnectManaged, &repo.LimitUploadKbps, &repo.LimitDownloadKbps, &repo.CreatedAt, &repo.UpdatedAt)
 
 	if err != nil {
 		return nil, fmt.Errorf("no default repository configured: %w", err)
@@ -97,17 +102,19 @@ func (s *BackupService) GetDefaultRepository(ctx context.Context) (*BackupReposi
 }
 
 func (s *BackupService) DeleteRepository(ctx context.Context, repoID string) error {
-	var isSystem bool
-	var connectManaged sql.NullBool
-	err := s.db.QueryRowContext(ctx, `SELECT COALESCE(is_system, 0), connect_managed FROM backup_repositories WHERE id = ?`, repoID).Scan(&isSystem, &connectManaged)
+	var isSystem, connectManaged bool
+	err := s.db.QueryRowContext(ctx, `SELECT COALESCE(is_system, 0), COALESCE(connect_managed, 0) FROM backup_repositories WHERE id = ?`, repoID).Scan(&isSystem, &connectManaged)
 	if err != nil {
 		return fmt.Errorf("failed to load backup repository: %w", err)
 	}
-	if isSystem || !connectManaged.Valid || connectManaged.Bool {
+	if isSystem || connectManaged {
 		return ErrBackupRepositoryNotDeletable
 	}
-	result, err := s.db.ExecContext(ctx, `DELETE FROM backup_repositories WHERE id = ? AND COALESCE(is_system, 0) = 0 AND connect_managed = 0`, repoID)
+	result, err := s.db.ExecContext(ctx, `DELETE FROM backup_repositories WHERE id = ? AND COALESCE(is_system, 0) = 0 AND COALESCE(connect_managed, 0) = 0 AND NOT EXISTS (SELECT 1 FROM backups WHERE repo_id = ?)`, repoID, repoID)
 	if err != nil {
+		if strings.Contains(err.Error(), "backup repository still has saved backups") {
+			return ErrBackupRepositoryHasBackups
+		}
 		return fmt.Errorf("failed to delete backup repository: %w", err)
 	}
 	deleted, err := result.RowsAffected()
@@ -115,6 +122,10 @@ func (s *BackupService) DeleteRepository(ctx context.Context, repoID string) err
 		return fmt.Errorf("check deleted backup repository: %w", err)
 	}
 	if deleted == 0 {
+		var hasBackups bool
+		if err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM backups WHERE repo_id = ?)`, repoID).Scan(&hasBackups); err == nil && hasBackups {
+			return ErrBackupRepositoryHasBackups
+		}
 		return fmt.Errorf("failed to delete backup repository: %w", sql.ErrNoRows)
 	}
 	slog.Info("Backup repository deleted", "repo_id", repoID)
@@ -189,6 +200,15 @@ func (s *BackupService) getOrCreateRepoForApp(ctx context.Context, appID string)
 	}
 
 	if err := s.CreateRepository(ctx, repo); err != nil {
+		if errors.Is(err, ErrAppBackupRepositoryExists) {
+			winner, lookupErr := s.GetRepositoryForApp(ctx, appID)
+			if lookupErr == nil && winner != nil {
+				return s.buildRepoConfigFromRepository(winner), winner.ID, nil
+			}
+			if lookupErr != nil {
+				return nil, "", fmt.Errorf("app repository was created concurrently but could not be loaded: %w", lookupErr)
+			}
+		}
 		return nil, "", err
 	}
 

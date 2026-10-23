@@ -329,6 +329,9 @@ export default function BackupsCategory() {
   }
 
   const heroTone = stats.protectedApps === 0 ? "warning" : stats.staleApps > 0 ? "warning" : "success";
+  const hasS3CompatibleDestination = repos.some((repo) => ["s3", "b2"].includes(repo.repo_type));
+  const hasCustomS3CompatibleDestination = repos.some((repo) => repo.connect_managed !== true && ["s3", "b2"].includes(repo.repo_type));
+  const hasConnectManagedDestination = repos.some((repo) => repo.connect_managed === true && ["s3", "b2"].includes(repo.repo_type));
 
   return (
     <div className="space-y-4" data-slot="backups-category">
@@ -644,18 +647,20 @@ export default function BackupsCategory() {
       {!loading && !loadError && (
         <SettingsCard icon={CloudOff} title="Keep a copy somewhere else" padding={false} index={3}>
           <SettingsRow
-            label={repos.some((repo) => ["s3", "b2"].includes(repo.repo_type)) ? "Check your backup location" : "Off-site backup storage"}
-            description={repos.some((repo) => ["s3", "b2"].includes(repo.repo_type))
-              ? "An S3 or B2 destination is configured. Confirm it is hosted somewhere else; a custom S3-compatible server on this network could be lost with this Sol."
-              : "No S3 or B2 destination is set. A folder or SFTP server on this network could be lost with this Sol; use S3 or B2, or confirm the SFTP server is somewhere else."}
+            label={hasCustomS3CompatibleDestination ? "Check your backup location" : hasConnectManagedDestination ? "Connect backup storage" : "Off-site backup storage"}
+            description={hasCustomS3CompatibleDestination
+                ? "An S3 or B2 destination is configured. Confirm it is hosted somewhere else; a custom S3-compatible server on this network could be lost with this Sol."
+                : hasConnectManagedDestination
+                  ? "Connect provisions this S3-compatible backup destination. Confirm with your server admin that its storage provider is hosted somewhere else."
+                : "No S3 or B2 destination is set. A folder or SFTP server on this network could be lost with this Sol; use S3 or B2, or confirm the SFTP server is somewhere else."}
             hideDivider
           >
-            <Button variant="outline" surface="secondary" size="sm" asChild>
-              <a href="#external_services">
-                {repos.some((repo) => ["s3", "b2"].includes(repo.repo_type)) ? "Review in External services" : "Set up in External services"}
-                <ArrowRight size={ICON_SIZE.sm} aria-hidden="true" />
-              </a>
-            </Button>
+              <Button variant="outline" surface="secondary" size="sm" asChild>
+                <a href="#external_services">
+                  {hasS3CompatibleDestination ? "Review in External services" : "Set up in External services"}
+                  <ArrowRight size={ICON_SIZE.sm} aria-hidden="true" />
+                </a>
+              </Button>
           </SettingsRow>
         </SettingsCard>
       )}

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -43,12 +43,12 @@ vi.mock("react-router-dom", async (importOriginal) => {
   };
 });
 vi.mock("@libreloom/ui/components/cards/ModalCard.jsx", () => ({
-  default: ({ children, onClose, title }) => (
+  default: ({ children, onClose, title, open = true }) => open ? (
     <div role="dialog" aria-label={typeof title === "string" ? title : "Email"}>
       <button type="button" onClick={onClose}>Close modal</button>
       {typeof children === "function" ? children({ close: onClose }) : children}
     </div>
-  ),
+  ) : null,
 }));
 vi.mock("@libreloom/ui/components/cards/Card.jsx", () => ({
   default: ({ children, headerActions, title }) => (
@@ -537,21 +537,49 @@ describe("connect component coverage", () => {
     expect(apiMock.mock.calls.filter(([path, options]) => path === "/backups/repos" && options?.method === "POST")).toHaveLength(1);
   });
 
-  it("keeps unmarked legacy destinations visible without offering deletion", async () => {
-    const legacyRepo = { id: "legacy", app_id: "", connect_managed: false, connect_managed_known: false, repo_type: "s3", repo_path: "s3:legacy.example/backups" };
-    apiMock.mockImplementation((path) => Promise.resolve(path === "/apps"
-      ? jsonResponse({ apps: [{ id: "notes", name: "Notes" }] })
-      : jsonResponse({ repositories: [legacyRepo] })));
+  it("shows delete failures in the confirmation and lets the user retry", async () => {
+    const user = userEvent.setup();
+    let deleteCalls = 0;
+    const destination = { id: "retained", app_id: "notes", is_system: false, connect_managed: false, repo_type: "local", repo_path: "/tmp/retained" };
+    apiMock.mockImplementation((path, options = {}) => {
+      if (path === "/apps") return Promise.resolve(jsonResponse({ apps: [{ id: "notes", name: "Notes" }] }));
+      if (path === "/backups/repos/retained" && options.method === "DELETE") {
+        deleteCalls += 1;
+        return Promise.resolve(deleteCalls === 1
+          ? { ok: false, status: 409, json: vi.fn().mockResolvedValue({ error: "This destination still has saved backups. Delete those backups first to keep them available for restore." }) }
+          : jsonResponse({ status: "deleted" }));
+      }
+      return Promise.resolve(jsonResponse({ repositories: [destination] }));
+    });
     render(<BackupServiceModal open service={{ state: "byo" }} repos={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
 
-    expect(await screen.findByText("Existing backup destination")).toBeVisible();
-    expect(screen.getByText(/saved before Sol could identify its owner/)).toBeVisible();
-    expect(screen.queryByRole("button", { name: "Delete s3 destination" })).not.toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: "Delete local destination" }));
+    const confirmation = await screen.findByRole("dialog", { name: "Delete this backup destination?" });
+    await user.click(screen.getByRole("button", { name: "Delete destination" }));
+    expect(await within(confirmation).findByRole("status")).toHaveTextContent(/This destination still has saved backups/);
+    expect(confirmation).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Delete destination" }));
+    await waitFor(() => expect(deleteCalls).toBe(2));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Delete this backup destination?" })).not.toBeInTheDocument());
+  });
+
+  it("treats destinations without ownership metadata as custom and keeps system rows hidden", async () => {
+    const unmarkedRepo = { id: "legacy", app_id: "", connect_managed: false, repo_type: "s3", repo_path: "s3:legacy.example/backups" };
+    apiMock.mockImplementation((path) => Promise.resolve(path === "/apps"
+      ? jsonResponse({ apps: [{ id: "notes", name: "Notes" }] })
+      : jsonResponse({ repositories: [unmarkedRepo, { id: "system", is_system: true, repo_type: "local", repo_path: "/tmp/system" }] })));
+    render(<BackupServiceModal open service={{ state: "byo" }} repos={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
+
+    expect(await screen.findByText("s3:legacy.example/backups")).toBeVisible();
+    expect(screen.queryByText("Existing backup destination")).not.toBeInTheDocument();
+    expect(screen.queryByText("/tmp/system")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete s3 destination" })).toBeVisible();
   });
 
   it("does not show system repositories as user-managed destinations", async () => {
-    const systemRepo = { id: "system", app_id: "", is_system: true, connect_managed: false, connect_managed_known: true, repo_type: "local", repo_path: "/tmp/system-backup" };
-    const customRepo = { id: "custom", app_id: "notes", is_system: false, connect_managed: false, connect_managed_known: true, repo_type: "local", repo_path: "/tmp/custom-backup" };
+    const systemRepo = { id: "system", app_id: "", is_system: true, connect_managed: false, repo_type: "local", repo_path: "/tmp/system-backup" };
+    const customRepo = { id: "custom", app_id: "notes", is_system: false, connect_managed: false, repo_type: "local", repo_path: "/tmp/custom-backup" };
     apiMock.mockImplementation((path) => Promise.resolve(path === "/apps"
       ? jsonResponse({ apps: [{ id: "notes", name: "Notes" }] })
       : jsonResponse({ repositories: [systemRepo, customRepo] })));
@@ -616,7 +644,6 @@ describe("connect component coverage", () => {
             app_id: "app",
             name: "Fallback storage",
             connect_managed: false,
-            connect_managed_known: true,
             repo_type: "s3",
             repo_path: "fallback",
           },

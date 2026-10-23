@@ -811,6 +811,36 @@ describe("settings category coverage", () => {
     expect(screen.getByText(/Confirm it is hosted somewhere else/)).toBeVisible();
   });
 
+  it("identifies Connect-managed S3 storage while still asking admins to confirm where it is hosted", async () => {
+    requestMock.mockImplementation(async (path) => {
+      if (path === "/backups") return jsonResponse({ backups: [] });
+      if (path === "/apps") return jsonResponse({ apps: [] });
+      if (path === "/backups/schedules") return jsonResponse({ schedules: [] });
+      if (path === "/backups/repos") return jsonResponse({ repositories: [{ id: "connect-dest", repo_type: "s3", repo_path: "s3:connect-bucket", connect_managed: true }] });
+      return jsonResponse({});
+    });
+    render(<BackupsCategory />);
+    expect(await screen.findByText("Connect backup storage")).toBeVisible();
+    expect(screen.getByText(/Connect provisions this S3-compatible backup destination/)).toBeVisible();
+    expect(screen.getByText(/Confirm with your server admin that its storage provider is hosted somewhere else/)).toBeVisible();
+  });
+
+  it("keeps the custom location warning when Connect and custom S3 destinations both exist", async () => {
+    requestMock.mockImplementation(async (path) => {
+      if (path === "/backups") return jsonResponse({ backups: [] });
+      if (path === "/apps") return jsonResponse({ apps: [] });
+      if (path === "/backups/schedules") return jsonResponse({ schedules: [] });
+      if (path === "/backups/repos") return jsonResponse({ repositories: [
+        { id: "connect-dest", repo_type: "s3", repo_path: "s3:connect-bucket", connect_managed: true },
+        { id: "custom-dest", repo_type: "s3", repo_path: "s3:lan-bucket", connect_managed: false },
+      ] });
+      return jsonResponse({});
+    });
+    render(<BackupsCategory />);
+    expect(await screen.findByText("Check your backup location")).toBeVisible();
+    expect(screen.getByText(/a custom S3-compatible server on this network could be lost/)).toBeVisible();
+  });
+
   it("keeps the off-site setup card when the only destination is on this device", async () => {
     requestMock.mockImplementation(async (path) => {
       if (path === "/backups") return jsonResponse({ backups: [] });

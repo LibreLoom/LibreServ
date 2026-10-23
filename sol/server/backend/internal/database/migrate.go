@@ -453,6 +453,9 @@ func (d *DB) reconcileSchema() error {
 		"idx_path_state_app":                         `CREATE INDEX IF NOT EXISTS idx_path_state_app ON path_state(app_id)`,
 		"trg_backup_repositories_one_per_app_insert": `CREATE TRIGGER IF NOT EXISTS trg_backup_repositories_one_per_app_insert BEFORE INSERT ON backup_repositories WHEN NEW.app_id IS NOT NULL AND EXISTS (SELECT 1 FROM backup_repositories WHERE app_id = NEW.app_id) BEGIN SELECT RAISE(ABORT, 'app already has backup repository'); END`,
 		"trg_backup_repositories_one_per_app_update": `CREATE TRIGGER IF NOT EXISTS trg_backup_repositories_one_per_app_update BEFORE UPDATE OF app_id ON backup_repositories WHEN NEW.app_id IS NOT NULL AND EXISTS (SELECT 1 FROM backup_repositories WHERE app_id = NEW.app_id AND id != OLD.id) BEGIN SELECT RAISE(ABORT, 'app already has backup repository'); END`,
+		"trg_backup_repositories_referenced_delete":  `CREATE TRIGGER IF NOT EXISTS trg_backup_repositories_referenced_delete BEFORE DELETE ON backup_repositories WHEN EXISTS (SELECT 1 FROM backups WHERE repo_id = OLD.id) BEGIN SELECT RAISE(ABORT, 'backup repository still has saved backups'); END`,
+		"trg_backups_repository_insert":              `CREATE TRIGGER IF NOT EXISTS trg_backups_repository_insert BEFORE INSERT ON backups WHEN NEW.repo_id IS NOT NULL AND NEW.repo_id != '' AND NOT EXISTS (SELECT 1 FROM backup_repositories WHERE id = NEW.repo_id) BEGIN SELECT RAISE(ABORT, 'backup repository does not exist'); END`,
+		"trg_backups_repository_update":              `CREATE TRIGGER IF NOT EXISTS trg_backups_repository_update BEFORE UPDATE OF repo_id ON backups WHEN NEW.repo_id IS NOT NULL AND NEW.repo_id != '' AND NOT EXISTS (SELECT 1 FROM backup_repositories WHERE id = NEW.repo_id) BEGIN SELECT RAISE(ABORT, 'backup repository does not exist'); END`,
 	}
 	for idx, ddl := range missingIndexes {
 		var exists bool

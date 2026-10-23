@@ -67,9 +67,9 @@ func (s *BackupService) getOrCreateSystemRepo(ctx context.Context) (*restic.Repo
 func (s *BackupService) getSystemRepository(ctx context.Context) (*BackupRepository, error) {
 	var repo BackupRepository
 	err := s.db.QueryRow(`
-		SELECT id, COALESCE(app_id, ''), repo_type, repo_path, password, credentials, COALESCE(is_system, 0), COALESCE(connect_managed, 0), connect_managed IS NOT NULL, COALESCE(limit_upload_kbps, 0), COALESCE(limit_download_kbps, 0), created_at, updated_at
+		SELECT id, COALESCE(app_id, ''), repo_type, repo_path, password, credentials, COALESCE(is_system, 0), COALESCE(connect_managed, 0), COALESCE(limit_upload_kbps, 0), COALESCE(limit_download_kbps, 0), created_at, updated_at
 		FROM backup_repositories WHERE is_system = 1 LIMIT 1
-	`).Scan(&repo.ID, &repo.AppID, &repo.RepoType, &repo.RepoPath, &repo.Password, &repo.Credentials, &repo.IsSystem, &repo.ConnectManaged, &repo.ConnectManagedKnown, &repo.LimitUploadKbps, &repo.LimitDownloadKbps, &repo.CreatedAt, &repo.UpdatedAt)
+	`).Scan(&repo.ID, &repo.AppID, &repo.RepoType, &repo.RepoPath, &repo.Password, &repo.Credentials, &repo.IsSystem, &repo.ConnectManaged, &repo.LimitUploadKbps, &repo.LimitDownloadKbps, &repo.CreatedAt, &repo.UpdatedAt)
 
 	if err != nil {
 		return nil, fmt.Errorf("system repository not found: %w", err)

@@ -90,9 +90,7 @@ export default function BackupServiceModal({ open, onClose, onSaved, service, re
   // The backend marks Connect-owned repositories explicitly; app assignment is
   // independent because unassigned repositories are backup defaults.
   const connectRepo = freshRepos.find((r) => r.connect_managed) || null;
-  const legacyRepos = freshRepos.filter((r) => r.connect_managed !== true && r.connect_managed_known === false);
-  const legacyDefaultRepo = legacyRepos.find((r) => !r.app_id) || null;
-  const customRepos = freshRepos.filter((r) => r.is_system !== true && r.connect_managed !== true && r.connect_managed_known !== false);
+  const customRepos = freshRepos.filter((r) => r.is_system !== true && r.connect_managed !== true);
   const appsWithoutDestination = installedApps.filter((app) =>
     !freshRepos.some((repo) => repo.connect_managed !== true && repo.app_id === app.id)
   );
@@ -283,9 +281,7 @@ export default function BackupServiceModal({ open, onClose, onSaved, service, re
                     Backup recovery key
                   </p>
                   <p className="text-xs">
-                    {legacyDefaultRepo
-                      ? "An older backup destination has an unknown owner, so its recovery key is not shown here."
-                      : "Your recovery key will appear here once Connect storage is provisioned. Without this key, you cannot restore your backups on a new server."}
+                    Your recovery key will appear here once Connect storage is provisioned. Without this key, you cannot restore your backups on a new server.
                   </p>
                 </div>
               )}
@@ -317,13 +313,6 @@ export default function BackupServiceModal({ open, onClose, onSaved, service, re
               No custom backup destinations configured yet.
             </p>
           )}
-          {legacyRepos.map((repo, i) => (
-            <div key={repo.id || `legacy-${i}`} className="p-3 rounded-large-element surface-primary border-2 border-secondary/10 space-y-1">
-              <p className="text-sm text-secondary">Existing backup destination</p>
-              <p className="text-xs"><InlinePill>{repo.repo_path}</InlinePill></p>
-              <p className="text-xs">This destination was saved before Sol could identify its owner. It is kept safe and can’t be removed here.</p>
-            </div>
-          ))}
         </div>
 
         {error && (
@@ -363,7 +352,7 @@ export default function BackupServiceModal({ open, onClose, onSaved, service, re
       </div>
       )}
     </ModalCard>
-    <ConfirmModal open={!!deleteTarget} onClose={() => setDeleteTarget(null)} onConfirm={deleteRepo} icon={Trash2} title="Delete this backup destination?" message="This removes the saved destination. Backups already stored there are not deleted." variant="danger" confirmLabel="Delete destination" loading={repoPending} />
+    <ConfirmModal open={!!deleteTarget} onClose={() => { setDeleteTarget(null); setError(null); }} onConfirm={deleteRepo} icon={Trash2} title="Delete this backup destination?" message="This removes the saved destination. Backups already stored there are not deleted. A destination with saved backups cannot be removed." error={deleteTarget && error ? error : undefined} variant="danger" confirmLabel="Delete destination" loading={repoPending} />
     </>
   );
 }

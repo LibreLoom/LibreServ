@@ -125,7 +125,7 @@ func TestBackupRepositoryCRUDEncryptionAndLookup(t *testing.T) {
 		t.Fatalf("repo config = %+v", cfg)
 	}
 	appRepo, err := svc.GetRepositoryForApp(ctx, "app-1")
-	if err != nil || appRepo.ID != repo.ID || !appRepo.ConnectManagedKnown || appRepo.ConnectManaged {
+	if err != nil || appRepo.ID != repo.ID || appRepo.ConnectManaged {
 		t.Fatalf("app repo = %+v, %v", appRepo, err)
 	}
 	gotCfg, id, err := svc.getRepoForApp(ctx, "app-1")
@@ -195,25 +195,6 @@ func TestBackupRepositoryCRUDEncryptionAndLookup(t *testing.T) {
 	if err != nil || len(repos) != 3 {
 		t.Fatalf("repositories = %+v, %v", repos, err)
 	}
-	if _, err := svc.db.Exec(`INSERT INTO backup_repositories (id, repo_type, repo_path, password, credentials, connect_managed) VALUES ('legacy-unmarked', 'local', '/tmp/legacy', 'encrypted', '', NULL)`); err != nil {
-		t.Fatalf("insert legacy repository: %v", err)
-	}
-	repos, err = svc.ListRepositories(ctx)
-	if err != nil || len(repos) != 4 {
-		t.Fatalf("repositories including legacy entry = %+v, %v", repos, err)
-	}
-	var foundLegacy bool
-	for _, listed := range repos {
-		if listed.ID == "legacy-unmarked" {
-			foundLegacy = !listed.ConnectManaged && !listed.ConnectManagedKnown
-		}
-	}
-	if !foundLegacy {
-		t.Fatal("legacy repository ownership should remain unknown")
-	}
-	if err := svc.DeleteRepository(ctx, "legacy-unmarked"); !errors.Is(err, ErrBackupRepositoryNotDeletable) {
-		t.Fatalf("delete legacy repository error = %v", err)
-	}
 	if _, err := svc.GetRepository(ctx, "missing"); err == nil {
 		t.Fatal("expected missing repository error")
 	}
@@ -260,6 +241,32 @@ func TestBackupRepositoryValidationAndAutoCreation(t *testing.T) {
 	}
 }
 
+func TestDeleteRepositoryKeepsRepositoryReferencedByBackup(t *testing.T) {
+	svc, dir := newStorageService(t)
+	ctx := context.Background()
+	insertStorageApp(t, svc, "retained-app", filepath.Join(dir, "apps", "retained-app"))
+	repo := &BackupRepository{ID: "retained-repo", AppID: "retained-app", RepoType: "local", RepoPath: "/tmp/retained", Password: "recovery-key", CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	if err := svc.CreateRepository(ctx, repo); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.db.Exec(`INSERT INTO backups (id, app_id, type, path, repo_id, format) VALUES ('retained-backup', 'retained-app', 'app', '/tmp/backup-record', ?, 'restic')`, repo.ID); err != nil {
+		t.Fatalf("insert retained backup: %v", err)
+	}
+	if err := svc.DeleteRepository(ctx, repo.ID); !errors.Is(err, ErrBackupRepositoryHasBackups) {
+		t.Fatalf("delete referenced repository error = %v", err)
+	}
+	if _, err := svc.getRepoByBackup(ctx, &Backup{ID: "retained-backup", RepoID: repo.ID}); err != nil {
+		t.Fatalf("retained backup lost its repository: %v", err)
+	}
+	key, err := svc.GetRepositoryRecoveryKey(ctx, repo.ID)
+	if err != nil || key != repo.Password {
+		t.Fatalf("retained backup recovery key = %q, %v", key, err)
+	}
+	if _, err := svc.db.Exec(`INSERT INTO backups (id, app_id, type, path, repo_id) VALUES ('missing-repo-backup', 'retained-app', 'app', '/tmp/missing', 'missing-repo')`); err == nil {
+		t.Fatal("backup record referencing a missing repository was accepted")
+	}
+}
+
 func TestBackupRepositoryConcurrentCreateEnforcesOnePerApp(t *testing.T) {
 	svc, dir := newStorageService(t)
 	insertStorageApp(t, svc, "concurrent-app", filepath.Join(dir, "apps", "concurrent-app"))
@@ -296,6 +303,48 @@ func TestBackupRepositoryConcurrentCreateEnforcesOnePerApp(t *testing.T) {
 	}
 	if successes != 1 || count != 1 {
 		t.Fatalf("concurrent creates: %d successes, %d repositories; want exactly one", successes, count)
+	}
+}
+
+func TestGetOrCreateRepositoryUsesConcurrentWinner(t *testing.T) {
+	svc, dir := newStorageService(t)
+	insertStorageApp(t, svc, "get-or-create-race", filepath.Join(dir, "apps", "get-or-create-race"))
+	start := make(chan struct{})
+	ids := make(chan string, 8)
+	errs := make(chan error, 8)
+	var workers sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			<-start
+			_, id, err := svc.getOrCreateRepoForApp(context.Background(), "get-or-create-race")
+			ids <- id
+			errs <- err
+		}()
+	}
+	close(start)
+	workers.Wait()
+	close(ids)
+	close(errs)
+	var winner string
+	for id := range ids {
+		if id == "" {
+			t.Fatal("concurrent caller returned no repository")
+		}
+		if winner != "" && id != winner {
+			t.Fatalf("concurrent callers returned different repositories: %q and %q", winner, id)
+		}
+		winner = id
+	}
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent caller failed: %v", err)
+		}
+	}
+	var count int
+	if err := svc.db.QueryRow(`SELECT COUNT(*) FROM backup_repositories WHERE app_id = 'get-or-create-race'`).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("repository count = %d, %v; want one", count, err)
 	}
 }
 

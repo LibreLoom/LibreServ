@@ -70,10 +70,9 @@ func TestBackupHandlersListRepositoriesReportsConnectOwnership(t *testing.T) {
 	rec := callBackupHandler(t, handler.ListRepositories, httptest.NewRequest(http.MethodGet, "/backups/repos", nil), http.StatusOK)
 	var response struct {
 		Repositories []struct {
-			ID                  string `json:"id"`
-			IsSystem            bool   `json:"is_system"`
-			ConnectManaged      bool   `json:"connect_managed"`
-			ConnectManagedKnown bool   `json:"connect_managed_known"`
+			ID             string `json:"id"`
+			IsSystem       bool   `json:"is_system"`
+			ConnectManaged bool   `json:"connect_managed"`
 		} `json:"repositories"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
@@ -86,9 +85,9 @@ func TestBackupHandlersListRepositoriesReportsConnectOwnership(t *testing.T) {
 	for _, listed := range response.Repositories {
 		switch listed.ID {
 		case "connect-repo":
-			foundConnect = listed.ConnectManaged && listed.ConnectManagedKnown && !listed.IsSystem
+			foundConnect = listed.ConnectManaged && !listed.IsSystem
 		case "system-repo":
-			foundSystem = listed.IsSystem && !listed.ConnectManaged && listed.ConnectManagedKnown
+			foundSystem = listed.IsSystem && !listed.ConnectManaged
 		}
 	}
 	if !foundConnect || !foundSystem || strings.Contains(rec.Body.String(), "system-secret") {
@@ -140,6 +139,26 @@ func TestBackupHandlersListGetDeleteAndValidation(t *testing.T) {
 	callBackupHandler(t, handler.DownloadBackup, requestWithJobParam(http.MethodGet, "/backups/missing/download", "backupID", "missing"), http.StatusInternalServerError)
 
 	callBackupHandler(t, handler.DeleteBackup, requestWithJobParam(http.MethodDelete, "/backups/backup-1", "backupID", "backup-1"), http.StatusOK)
+}
+
+func TestBackupHandlerExplainsDestinationCannotBeDeletedWhileBackupsRemain(t *testing.T) {
+	handler, service, db, dir := newBackupHandlerTest(t)
+	if _, err := db.Exec(`INSERT INTO apps (id, name, type, path, status) VALUES ('retained-app', 'App', 'repo', ?, 'stopped')`, filepath.Join(dir, "apps", "retained-app")); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.CreateRepository(context.Background(), &storage.BackupRepository{ID: "retained-repo", AppID: "retained-app", RepoType: "local", RepoPath: "/tmp/retained", Password: "key", CreatedAt: time.Now(), UpdatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO backups (id, app_id, type, path, repo_id, format) VALUES ('retained-backup', 'retained-app', 'app', '/tmp/backup', 'retained-repo', 'restic')`); err != nil {
+		t.Fatal(err)
+	}
+	rec := callBackupHandler(t, handler.DeleteRepository,
+		requestWithJobParam(http.MethodDelete, "/backups/repos/retained-repo", "repoID", "retained-repo"),
+		http.StatusConflict,
+	)
+	if !strings.Contains(rec.Body.String(), "This destination still has saved backups") {
+		t.Fatalf("delete error response = %s", rec.Body)
+	}
 }
 
 func TestBackupHandlersDatabaseBackupAndUpload(t *testing.T) {
