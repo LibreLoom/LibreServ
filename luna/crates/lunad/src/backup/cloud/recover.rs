@@ -402,7 +402,7 @@ mod tests {
         );
         assert!(first.is_err());
         assert_eq!(processed, vec![(1, 128)]);
-        assert_eq!(db::count_shared_cloud_snapshots(&conn).unwrap(), 1);
+        assert_eq!(db::list_cloud_snapshots(&conn, "p1").unwrap().len(), 1);
 
         let recovered = fetch_incrementally(
             &store,
@@ -421,7 +421,7 @@ mod tests {
         .unwrap();
         assert_eq!(recovered.snapshots, 127);
         assert_eq!(recovered.already_indexed, 1);
-        assert_eq!(db::count_shared_cloud_snapshots(&conn).unwrap(), 128);
+        assert_eq!(db::list_cloud_snapshots(&conn, "p1").unwrap().len(), 128);
     }
 
     /// Write one snapshot of an empty tree the way a backup run does.

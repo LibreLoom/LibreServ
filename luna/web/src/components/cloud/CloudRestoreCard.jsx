@@ -53,16 +53,33 @@ export default function CloudRestoreCard() {
         phraseSet: Boolean(phrase.data?.set),
       }, setProgress, controller.signal);
     },
-    onSuccess: ({ snapshots, alreadyIndexed }) => {
+    onSuccess: ({ snapshots, alreadyIndexed, warning }) => {
       setError("");
       setProgress(null);
       setWords("");
       const found = snapshots + alreadyIndexed;
-      addToast({
-        type: "success",
-        message: found === 1 ? "Found 1 backup version" : `Found ${found} backup versions`,
-      });
-      queryClient.invalidateQueries({ queryKey: RESTORE_QUERY_KEY });
+      addToast(warning
+        ? {
+          type: "warning",
+          message: "Backup list restored with a warning",
+          description: warning,
+        }
+        : {
+          type: "success",
+          message: found === 1 ? "Found 1 backup version" : `Found ${found} backup versions`,
+        });
+      // Keep the form available when ownership relinking failed. The server persists that
+      // retry state separately from snapshot counts and clears it after a successful retry.
+      if (warning) {
+        queryClient.setQueryData(RESTORE_QUERY_KEY, (current) => current && ({
+          ...current,
+          needed: true,
+          relink_pending: true,
+          indexed_snapshots: Math.min(current.cloud_snapshots, current.indexed_snapshots + snapshots),
+        }));
+      } else {
+        queryClient.invalidateQueries({ queryKey: RESTORE_QUERY_KEY });
+      }
       queryClient.invalidateQueries({ queryKey: PHRASE_QUERY_KEY });
       queryClient.invalidateQueries({ queryKey: ["cloud-backups"] });
     },
@@ -108,7 +125,9 @@ export default function CloudRestoreCard() {
     <SettingsCard icon={CloudDownload} title="Bring back cloud backups">
       <div className="space-y-3">
         <p className="text-primary text-sm">
-          Luna lost its list of cloud backups. Enter your recovery phrase to find them again.
+          {restore.data.relink_pending
+            ? "Luna restored the backup list, but some backups are still linked to an old account. Enter your recovery phrase again to finish reconnecting them."
+            : "Luna lost its list of cloud backups. Enter your recovery phrase to find them again."}
         </p>
         <p className="text-primary text-sm">
           {cloudCount === 1 ? "1 version is" : `${cloudCount} versions are`} in the cloud,{" "}

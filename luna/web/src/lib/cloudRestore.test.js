@@ -149,6 +149,23 @@ describe("restoreFromPhrase", () => {
     expect(savePhraseMock).not.toHaveBeenCalled();
   });
 
+  it("saves a missing phrase and returns a relink warning after metadata restore completes", async () => {
+    const phrase = entropyToPhrase(hexToBytes(fixture.alice_entropy));
+    const warning = "Luna restored the backup list, but some backups are still linked to an old account. Try again to finish reconnecting them.";
+    apiFetchMock.mockResolvedValueOnce(new Response(
+      `data: ${JSON.stringify({ type: "done", snapshots: 1, already_indexed: 2, skipped: 0, warning })}\n\n`,
+      { headers: { "Content-Type": "text/event-stream" } },
+    ));
+
+    await expect(restoreFromPhrase(phrase, { ...CTX, phraseSet: false })).resolves.toEqual({
+      snapshots: 1,
+      alreadyIndexed: 2,
+      skipped: 0,
+      warning,
+    });
+    expect(savePhraseMock).toHaveBeenCalledTimes(1);
+  });
+
   it("explains when saving the phrase fails after the backups came back", async () => {
     const phrase = entropyToPhrase(hexToBytes(fixture.alice_entropy));
     savePhraseMock.mockRejectedValueOnce(new Error("network"));

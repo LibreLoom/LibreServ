@@ -132,6 +132,40 @@ describe("CloudRestoreCard", () => {
     expect(field).toHaveValue("");
   });
 
+  it("shows a warning when metadata returns but old accounts could not all be reconnected", async () => {
+    const user = userEvent.setup();
+    getRestoreStatusMock
+      .mockResolvedValueOnce({ ...STATUS, relink_pending: true })
+      .mockResolvedValueOnce({ ...STATUS, needed: false, relink_pending: false });
+    restoreFromPhraseMock.mockResolvedValueOnce({
+      snapshots: 2,
+      alreadyIndexed: 1,
+      skipped: 0,
+      warning: "Some backups are still linked to an old account. Try again to finish reconnecting them.",
+    });
+    renderCard();
+    await user.type(await screen.findByLabelText("Recovery phrase"), "one two three");
+    await user.click(screen.getByRole("button", { name: "Find my backups" }));
+    expect(await screen.findByText("Backup list restored with a warning")).toBeInTheDocument();
+    expect(screen.getByText(/still linked to an old account/)).toBeInTheDocument();
+    expect(screen.getByText(/2 are on Luna/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Recovery phrase")).toBeInTheDocument();
+    expect(getRestoreStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the retry form when relinking is still pending after all versions are indexed", async () => {
+    getRestoreStatusMock.mockResolvedValue({
+      ...STATUS,
+      needed: true,
+      relink_pending: true,
+      cloud_snapshots: 1,
+      indexed_snapshots: 1,
+    });
+    renderCard();
+    expect(await screen.findByText(/restored the backup list, but some backups are still linked/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Recovery phrase")).toBeInTheDocument();
+  });
+
   it("shows the server's incremental restore progress while work is running", async () => {
     /** @type {(value: { snapshots: number, alreadyIndexed: number, skipped: number }) => void} */
     let finish = () => {};

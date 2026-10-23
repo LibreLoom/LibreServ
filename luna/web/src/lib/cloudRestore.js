@@ -10,7 +10,7 @@ const RECORD_KINDS = ["self", "recipients", "keys"];
 
 /**
  * Whether Luna has lost its list of cloud backups, and how many versions exist.
- * @returns {Promise<{ needed: boolean, luna_id: string, signing_public: string, cloud_snapshots: number, indexed_snapshots: number }>}
+ * @returns {Promise<{ needed: boolean, relink_pending?: boolean, luna_id: string, signing_public: string, cloud_snapshots: number, indexed_snapshots: number }>}
  */
 export function getRestoreStatus() {
   return getJson(RESTORE_PATH);
@@ -29,7 +29,7 @@ async function fetchRecords(kind, signal) {
  * @param {{ lunaId: string, signingPublic: string, userId: string, phraseSet: boolean }} ctx
  * @param {(progress: { processed: number, total: number, snapshots: number, already_indexed: number, skipped: number }) => void} [onProgress]
  * @param {AbortSignal} [signal]
- * @returns {Promise<{ snapshots: number, alreadyIndexed: number, skipped: number }>}
+ * @returns {Promise<{ snapshots: number, alreadyIndexed: number, skipped: number, warning?: string }>}
  */
 export async function restoreFromPhrase(words, { lunaId, signingPublic, userId, phraseSet }, onProgress = () => {}, signal) {
   const entropy = phraseToEntropy(words);
@@ -123,6 +123,7 @@ export async function restoreFromPhrase(words, { lunaId, signingPublic, userId, 
       snapshots: result.snapshots ?? 0,
       alreadyIndexed: result.already_indexed ?? 0,
       skipped: result.skipped ?? 0,
+      ...(result.warning ? { warning: result.warning } : {}),
     };
   } catch (err) {
     if (signal?.aborted) throw new DOMException("Restore stopped", "AbortError");

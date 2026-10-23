@@ -27,9 +27,7 @@ use crate::auth::CurrentUser;
 use crate::backup::cloud::crypto;
 use crate::backup::cloud::identity::{self, Identity};
 use crate::backup::cloud::keys::{self, USERS_KIND, USERS_LIST_NAME};
-use crate::backup::cloud::recover;
-#[cfg(test)]
-use crate::backup::cloud::recover::Recovered;
+use crate::backup::cloud::recover::{self, Recovered};
 use crate::backup::cloud::store::CloudStore;
 use crate::db;
 
@@ -44,6 +42,16 @@ const SNAPSHOT_KIND: &str = "snapshots";
 const MAX_KEYS: usize = 10_000;
 /// Longest old account id that may be re-linked.
 const MAX_OLD_USER_ID: usize = 128;
+/// Snapshot metadata is restored even if some backups cannot be re-linked to their current owner.
+const RELINK_WARNING: &str = "Luna restored the backup list, but some backups are still linked to an old account. Try again to finish reconnecting them.";
+/// Keep the recovery form available after snapshot metadata is restored but account relinking fails.
+const RELINK_PENDING_META: &str = "cloud_restore_relink_pending";
+/// Old owner IDs remain here until proof and local relinking both succeed.
+const RELINK_PENDING_IDS_META: &str = "cloud_restore_relink_pending_ids";
+
+fn restore_needed(cloud_snapshots: i64, indexed_snapshots: i64, relink_pending: bool) -> bool {
+    cloud_snapshots > indexed_snapshots || relink_pending
+}
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -166,8 +174,15 @@ async fn status(
             Some(id) => (json!(id.luna_id()), json!(STANDARD.encode(id.public()))),
             None => (Value::Null, Value::Null),
         };
+        let relink_pending = db::get_meta(&conn, RELINK_PENDING_META)
+            .map_err(read_failed)?
+            .as_deref()
+            == Some("true");
         Ok(json!({
-            "needed": cloud > indexed,
+            // PR210 should preserve this extra recovery condition when it replaces the snapshot
+            // count comparison with ID-based detection.
+            "needed": restore_needed(cloud, indexed, relink_pending),
+            "relink_pending": relink_pending,
             "luna_id": luna_id,
             "signing_public": signing_public,
             "cloud_snapshots": cloud,
@@ -265,35 +280,9 @@ async fn restore(
                 if tx.is_closed() {
                     return;
                 }
-                let relink = proven_old_accounts(&store, &identity, &user_id, &body, now);
-                let conn = db.lock().unwrap_or_else(|p| p.into_inner());
-                let mut relink_failed = false;
-                for old in relink {
-                    match db::get_user(&conn, &old) {
-                        Ok(Some(_)) => continue,
-                        Err(err) => {
-                            tracing::warn!(error = %err, "could not check an old cloud backup owner");
-                            relink_failed = true;
-                            break;
-                        }
-                        Ok(None) => {}
-                    }
-                    if let Err(err) = conn.execute(
-                        "UPDATE protections SET created_by = ?1 WHERE created_by = ?2",
-                        params![user_id, old],
-                    ) {
-                        tracing::warn!(error = %err, "could not re-link an old cloud backup owner");
-                        relink_failed = true;
-                        break;
-                    }
-                }
-                if relink_failed {
-                    let _ = tx.blocking_send(json!({"type":"error", "message":"Luna restored the backup list but could not re-link every old account. Try again."}).to_string());
-                    return;
-                }
-                let done = json!({"type":"done", "snapshots":counts.snapshots,
-                    "already_indexed":counts.already_indexed, "skipped":counts.skipped})
-                .to_string();
+                let relink_failed =
+                    relink_proven_accounts(&db, &store, &identity, &user_id, &body, now);
+                let done = restore_done_event(&counts, relink_failed).to_string();
                 let _ = tx.blocking_send(done);
             }
             Err(err) => {
@@ -368,6 +357,133 @@ fn records_with_store(store: &dyn CloudStore, kind: &str) -> Result<Value, ApiEr
         }
     }
     Ok(json!({ "records": out }))
+}
+
+/// Re-link old owners when possible, but keep a completed metadata restore successful when this
+/// separate ownership repair fails. A retry is safe because snapshot writes are idempotent.
+fn relink_old_accounts(
+    conn: &rusqlite::Connection,
+    relink: &[String],
+    user_id: &str,
+) -> std::collections::HashSet<String> {
+    let mut failed = std::collections::HashSet::new();
+    for old in relink {
+        match db::get_user(conn, old) {
+            Ok(Some(_)) => continue,
+            Err(err) => {
+                tracing::warn!(error = %err, "could not check an old cloud backup owner");
+                failed.insert(old.clone());
+                continue;
+            }
+            Ok(None) => {}
+        }
+        if let Err(err) = conn.execute(
+            "UPDATE protections SET created_by = ?1 WHERE created_by = ?2",
+            params![user_id, old],
+        ) {
+            tracing::warn!(error = %err, "could not re-link an old cloud backup owner");
+            failed.insert(old.clone());
+        }
+    }
+    failed
+}
+
+fn relink_proven_accounts(
+    db: &crate::Db,
+    store: &dyn CloudStore,
+    identity: &Identity,
+    user_id: &str,
+    body: &RestoreBody,
+    now: i64,
+) -> bool {
+    let relink = proven_old_accounts(store, identity, user_id, body, now);
+    let requested: std::collections::BTreeSet<String> = body
+        .old_user_ids
+        .iter()
+        .filter(|old| !old.is_empty() && old.len() <= MAX_OLD_USER_ID)
+        .cloned()
+        .collect();
+    let mut conn = db.lock().unwrap_or_else(|p| p.into_inner());
+    let prior_pending = match db::get_meta(&conn, RELINK_PENDING_META) {
+        Ok(value) => value.as_deref() == Some("true"),
+        Err(err) => {
+            tracing::warn!(error = %err, "could not read cloud backup relink status");
+            true
+        }
+    };
+    let (saved_ids, ids_read_failed) = match db::get_meta(&conn, RELINK_PENDING_IDS_META) {
+        Ok(value) => (value, false),
+        Err(err) => {
+            tracing::warn!(error = %err, "could not read pending cloud backup owners");
+            (None, true)
+        }
+    };
+    let mut pending_ids: std::collections::BTreeSet<String> = match saved_ids.as_deref() {
+        Some(value) => match serde_json::from_str(value) {
+            Ok(ids) => ids,
+            Err(err) => {
+                tracing::warn!(error = %err, "could not read pending cloud backup owners");
+                std::collections::BTreeSet::new()
+            }
+        },
+        None => std::collections::BTreeSet::new(),
+    };
+    // A pre-ID marker or malformed ID list has unknown owners. Keep it set rather than
+    // claiming that an unrelated request repaired accounts whose IDs are no longer present.
+    let unknown_pending = ids_read_failed || prior_pending && pending_ids.is_empty();
+    for old in &requested {
+        if !relink.iter().any(|proven| proven == old) {
+            pending_ids.insert(old.clone());
+        }
+    }
+    let relink_failures = relink_old_accounts(&conn, &relink, user_id);
+    for old in &relink_failures {
+        pending_ids.insert(old.clone());
+    }
+    for old in &requested {
+        if relink.iter().any(|proven| proven == old) && !relink_failures.contains(old) {
+            pending_ids.remove(old);
+        }
+    }
+    let relink_failed = unknown_pending || !pending_ids.is_empty();
+    let tx = match conn.transaction() {
+        Ok(tx) => tx,
+        Err(err) => {
+            tracing::warn!(error = %err, "could not save cloud backup relink status");
+            return true;
+        }
+    };
+    let pending_json = match serde_json::to_string(&pending_ids) {
+        Ok(value) => value,
+        Err(err) => {
+            tracing::warn!(error = %err, "could not encode pending cloud backup owners");
+            return true;
+        }
+    };
+    if let Err(err) = db::set_meta(&tx, RELINK_PENDING_IDS_META, &pending_json)
+        .and_then(|()| {
+            db::set_meta(
+                &tx,
+                RELINK_PENDING_META,
+                if relink_failed { "true" } else { "false" },
+            )
+        })
+        .and_then(|()| tx.commit().map_err(Into::into))
+    {
+        tracing::warn!(error = %err, "could not save cloud backup relink status");
+        return true;
+    }
+    relink_failed
+}
+
+fn restore_done_event(counts: &Recovered, relink_failed: bool) -> Value {
+    json!({
+        "type": "done",
+        "snapshots": counts.snapshots,
+        "already_indexed": counts.already_indexed,
+        "skipped": counts.skipped,
+        "warning": relink_failed.then_some(RELINK_WARNING),
+    })
 }
 
 /// Rebuilds the snapshot index from the store, then re-links backups made under old accounts.
@@ -479,12 +595,16 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
-    use super::{KeyIn, RestoreBody, records_with_store, restore_with_store};
+    use super::{
+        KeyIn, RELINK_WARNING, RestoreBody, parse_keys, records_with_store, relink_proven_accounts,
+        restore_done_event, restore_needed, restore_with_store,
+    };
     use crate::api::cloud_phrase::{CHECK_DOMAIN, issue_challenge};
     use crate::backup::cloud::crypto;
     use crate::backup::cloud::format::{self, BackupMeta, SnapshotRecord};
     use crate::backup::cloud::identity::{self, Identity};
     use crate::backup::cloud::keys;
+    use crate::backup::cloud::recover;
     use crate::backup::cloud::store::{CloudStore, MemoryStore, StoreError, Usage};
     use crate::drives::DriveManager;
     use crate::drives::mount::shared_mock;
@@ -824,6 +944,231 @@ mod tests {
 
         assert_eq!(owner_of(&f, "old-row"), f.admin_id);
         assert_eq!(owner_of(&f, "mine-row"), f.member_id);
+    }
+
+    #[test]
+    fn relink_failure_keeps_metadata_restore_complete_and_reports_warning() {
+        let f = fixture();
+        let id = load_identity(&f);
+        let store = MemoryStore::new();
+        put_snapshot(&store, &id, "snap-a");
+        let old_auth = crypto::Signer::from_seed([5u8; 32]);
+        publish_old_user(&store, &id, "old-user", &old_auth);
+        insert_old_row(&f);
+        {
+            let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+            conn.execute_batch(
+                "CREATE TRIGGER fail_old_account_relink
+                 BEFORE UPDATE OF created_by ON protections
+                 WHEN OLD.created_by = 'old-user'
+                 BEGIN SELECT RAISE(ABORT, 'injected relink failure'); END;",
+            )
+            .unwrap();
+        }
+
+        let challenge = issue_challenge(&f.admin_id, NOW);
+        let signature = STANDARD.encode(old_auth.sign(CHECK_DOMAIN, &challenge));
+        let restore = signed_body(&["old-user"], signature);
+        let keys = parse_keys(&restore, NOW).unwrap();
+        let counts = recover::fetch_incrementally(
+            &store,
+            &id,
+            keys.as_slice(),
+            |snapshot| {
+                let mut conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+                recover::write_snapshot_for_restore(&mut conn, snapshot, NOW)?;
+                Ok(recover::RestoreDisposition::Written)
+            },
+            |_processed, _total, _counts| Ok(()),
+        )
+        .unwrap();
+        assert_eq!(counts.snapshots, 1);
+
+        let relink_failed =
+            relink_proven_accounts(&f.state.db, &store, &id, &f.admin_id, &restore, NOW);
+        let event = restore_done_event(&counts, relink_failed);
+
+        assert!(relink_failed);
+        assert_eq!(event["type"], "done");
+        assert_eq!(event["snapshots"], 1);
+        assert_eq!(event["warning"], RELINK_WARNING);
+        assert_eq!(
+            db::get_meta(
+                &f.state.db.lock().unwrap_or_else(|p| p.into_inner()),
+                super::RELINK_PENDING_META,
+            )
+            .unwrap()
+            .as_deref(),
+            Some("true")
+        );
+        assert!(restore_needed(1, 1, true));
+        assert_eq!(owner_of(&f, "old-row"), "old-user");
+        let unproven_retry = signed_body(&["old-user"], String::new());
+        assert!(relink_proven_accounts(
+            &f.state.db,
+            &store,
+            &id,
+            &f.admin_id,
+            &unproven_retry,
+            NOW,
+        ));
+        assert_eq!(
+            db::get_meta(
+                &f.state.db.lock().unwrap_or_else(|p| p.into_inner()),
+                super::RELINK_PENDING_META,
+            )
+            .unwrap()
+            .as_deref(),
+            Some("true")
+        );
+        {
+            let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+            assert!(recover::already_indexed(&conn, "snap-a").unwrap());
+            conn.execute_batch("DROP TRIGGER fail_old_account_relink;")
+                .unwrap();
+        }
+
+        let retry_challenge = issue_challenge(&f.admin_id, NOW);
+        let retry_signature = STANDARD.encode(old_auth.sign(CHECK_DOMAIN, &retry_challenge));
+        let retry_body = signed_body(&["old-user"], retry_signature);
+        let retry_keys = parse_keys(&retry_body, NOW).unwrap();
+        let retry = recover::fetch_incrementally(
+            &store,
+            &id,
+            retry_keys.as_slice(),
+            |snapshot| {
+                let mut conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+                if recover::already_indexed(&conn, &snapshot.record.snapshot_id)? {
+                    Ok(recover::RestoreDisposition::AlreadyIndexed)
+                } else {
+                    recover::write_snapshot_for_restore(&mut conn, snapshot, NOW)?;
+                    Ok(recover::RestoreDisposition::Written)
+                }
+            },
+            |_processed, _total, _counts| Ok(()),
+        )
+        .unwrap();
+        assert_eq!((retry.snapshots, retry.already_indexed), (0, 1));
+        let retry_relink_failed =
+            relink_proven_accounts(&f.state.db, &store, &id, &f.admin_id, &retry_body, NOW);
+        assert!(!retry_relink_failed);
+        assert_eq!(
+            restore_done_event(&retry, retry_relink_failed)["warning"],
+            Value::Null
+        );
+        assert_eq!(owner_of(&f, "old-row"), f.admin_id);
+        assert_eq!(
+            db::get_meta(
+                &f.state.db.lock().unwrap_or_else(|p| p.into_inner()),
+                super::RELINK_PENDING_META,
+            )
+            .unwrap()
+            .as_deref(),
+            Some("false")
+        );
+        assert!(!restore_needed(1, 1, false));
+    }
+
+    #[test]
+    fn missing_account_proof_keeps_relink_retry_available() {
+        let f = fixture();
+        let id = load_identity(&f);
+        let store = MemoryStore::new();
+        let restore = signed_body(&["old-user"], String::new());
+
+        assert!(relink_proven_accounts(
+            &f.state.db,
+            &store,
+            &id,
+            &f.admin_id,
+            &restore,
+            NOW,
+        ));
+        let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+        assert_eq!(
+            db::get_meta(&conn, super::RELINK_PENDING_META)
+                .unwrap()
+                .as_deref(),
+            Some("true")
+        );
+        assert!(restore_needed(1, 1, true));
+    }
+
+    #[test]
+    fn partial_account_proof_keeps_relink_retry_available() {
+        let f = fixture();
+        let id = load_identity(&f);
+        let store = MemoryStore::new();
+        let old_auth = crypto::Signer::from_seed([5u8; 32]);
+        publish_old_user(&store, &id, "old-user-a", &old_auth);
+        {
+            let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+            insert_protection(&conn, "old-row", "/Old", "old-user-a");
+        }
+
+        let challenge = issue_challenge(&f.admin_id, NOW);
+        let signature = STANDARD.encode(old_auth.sign(CHECK_DOMAIN, &challenge));
+        let restore = signed_body(&["old-user-a", "old-user-b"], signature);
+        assert!(relink_proven_accounts(
+            &f.state.db,
+            &store,
+            &id,
+            &f.admin_id,
+            &restore,
+            NOW,
+        ));
+
+        assert_eq!(owner_of(&f, "old-row"), f.admin_id);
+        let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+        assert_eq!(
+            db::get_meta(&conn, super::RELINK_PENDING_META)
+                .unwrap()
+                .as_deref(),
+            Some("true")
+        );
+        assert!(restore_needed(1, 1, true));
+    }
+
+    #[test]
+    fn a_retry_with_a_different_account_set_keeps_earlier_pending_owner() {
+        let f = fixture();
+        let id = load_identity(&f);
+        let store = MemoryStore::new();
+        let first = signed_body(&["old-user-a"], String::new());
+        assert!(relink_proven_accounts(
+            &f.state.db,
+            &store,
+            &id,
+            &f.admin_id,
+            &first,
+            NOW,
+        ));
+
+        let new_auth = crypto::Signer::from_seed([6u8; 32]);
+        publish_old_user(&store, &id, "old-user-b", &new_auth);
+        let challenge = issue_challenge(&f.admin_id, NOW);
+        let signature = STANDARD.encode(new_auth.sign(CHECK_DOMAIN, &challenge));
+        let retry = signed_body(&["old-user-b"], signature);
+        assert!(relink_proven_accounts(
+            &f.state.db,
+            &store,
+            &id,
+            &f.admin_id,
+            &retry,
+            NOW,
+        ));
+
+        let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+        assert_eq!(
+            db::get_meta(&conn, super::RELINK_PENDING_IDS_META).unwrap(),
+            Some(r#"["old-user-a"]"#.to_string())
+        );
+        assert_eq!(
+            db::get_meta(&conn, super::RELINK_PENDING_META)
+                .unwrap()
+                .as_deref(),
+            Some("true")
+        );
     }
 
     #[test]
