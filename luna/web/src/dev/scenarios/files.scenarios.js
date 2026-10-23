@@ -280,17 +280,17 @@ export default [
     check: ["Folder is listed but marked private", "Opening it says it is private and whose it is — not a blank list or raw error", "Search never shows its contents", "Protect sheet says only the owner can back it up"],
   },
   {
-    id: "files/private-orphaned", area: A, title: "Private folders of a removed person", url: "/settings/users",
+    id: "files/private-orphaned", area: A, title: "Private folders of a removed person", url: "/settings#users",
     seed: (w) => { demo(w); addDir(w, "d1", "Ex's secrets", { private: true, owner: "u9", ownerName: "Jo (removed)" }); addFile(w, "d1", "Ex's secrets/y.txt", { text: "y" }); addDir(w, "d1", "Ex's other", { private: true, owner: "u9" }); },
     check: ["Users page offers to clean up leftover private folders for Jo", "Delete asks first and says the files go for good", "Afterwards the folders are gone from Files"],
   },
   {
-    id: "files/private-orphaned-readonly", area: A, title: "Orphaned private folders on a read-only drive", url: "/settings/users",
+    id: "files/private-orphaned-readonly", area: A, title: "Orphaned private folders on a read-only drive", url: "/settings#users",
     seed: (w) => { demo(w); w.drives[0].state = "readonly"; addDir(w, "d1", "Left behind", { private: true, owner: "u9", ownerName: "Jo (removed)" }); },
     check: ["Cleanup warns that the drive is read-only and some content remains", "Toast is a warning, not a success"],
   },
   {
-    id: "files/private-ownerless", area: A, title: "Private folders that belong to nobody", url: "/settings/users",
+    id: "files/private-ownerless", area: A, title: "Private folders that belong to nobody", url: "/settings#users",
     seed: (w) => { demo(w); w.users.push(user({ id: "u2", username: "sam", display_name: "Sam" })); addDir(w, "d1", "Imported A", { private: true }); addDir(w, "d1", "Imported B", { private: true }); },
     check: ["Admin sees '2 private folders have no owner' and can give them to someone", "After giving, the notice disappears"],
   },
