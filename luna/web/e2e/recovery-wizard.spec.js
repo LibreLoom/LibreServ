@@ -4,6 +4,26 @@ import { readFile } from "node:fs/promises";
 const PASSWORD = "recoveryPassword123";
 const DEVICE_TOKEN = "ABCD-EFGH-JKLM-NPQR";
 
+async function expectReadableText(locator) {
+  const ratio = await locator.evaluate((element) => {
+    const surface = element.closest(".surface-primary, .surface-secondary");
+    const ownBackground = getComputedStyle(element).backgroundColor;
+    const ownChannels = ownBackground.match(/[\d.]+/g) ?? [];
+    const hasOpaqueBackground = ownChannels.length === 3 || Number(ownChannels[3]) > 0;
+    const luminance = (color) => {
+      const [red, green, blue] = color.match(/[\d.]+/g).slice(0, 3).map(Number).map((channel) => {
+        const value = channel / 255;
+        return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+    };
+    const foreground = luminance(getComputedStyle(element).color);
+    const background = luminance(hasOpaqueBackground ? ownBackground : getComputedStyle(surface).backgroundColor);
+    return (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05);
+  });
+  expect(ratio).toBeGreaterThanOrEqual(4.5);
+}
+
 async function fillPassword(page, password = PASSWORD) {
   await page.locator("#recovery-password").fill(password);
   await page.locator("#recovery-confirm").fill(password);
@@ -39,6 +59,52 @@ test("downloads the tokenless filename when no token is configured", async ({ pa
   await fillPassword(page);
 
   await downloadFile(page, "g-admin", PASSWORD, "luna-recover.luna");
+});
+
+test("keeps recovery instructions and section headings readable in light and dark themes", async ({ page }) => {
+  for (const theme of ["light", "dark"]) {
+    await page.evaluate((value) => localStorage.setItem("theme", value), theme);
+    await page.reload();
+    await expect(page.getByRole("heading", { name: "Create a password recovery file" })).toBeVisible();
+    await expect.poll(() => page.locator("html").evaluate((html) => html.classList.contains("dark"))).toBe(theme === "dark");
+
+    await page.keyboard.press("Tab");
+    const skipLink = page.getByRole("link", { name: "Skip to main content" });
+    await expect(skipLink).toBeFocused();
+    await expectReadableText(skipLink);
+
+    for (const locator of [
+      page.getByText("The file contains your new password in readable text."),
+      page.getByRole("heading", { name: "Choose the account" }),
+      page.getByText("This Luna has a device token", { exact: true }),
+      page.getByRole("heading", { name: "Device token" }),
+      page.getByRole("heading", { name: "Set a new password" }),
+      page.getByText("A recovery file does not change the password while Luna is already running."),
+    ]) {
+      await expectReadableText(locator);
+    }
+  }
+});
+
+test("keeps recovery credentials in the local download", async ({ page }) => {
+  const requests = [];
+  page.on("request", (request) => requests.push({
+    method: request.method(),
+    url: request.url(),
+    body: request.postData(),
+  }));
+
+  await page.locator("#device-token").fill(DEVICE_TOKEN);
+  await fillPassword(page);
+  await downloadFile(page, "g-admin", PASSWORD, "luna-recover-abcdefghjk1mnpqr.luna");
+
+  const localOrigin = new URL(page.url()).origin;
+  expect(requests.every(({ url }) => new URL(url).origin === localOrigin)).toBe(true);
+  expect(requests.filter(({ method }) => method !== "GET")).toEqual([]);
+  expect(requests.every(({ url, body }) =>
+    !url.includes(PASSWORD) && !url.includes(DEVICE_TOKEN) &&
+    !body?.includes(PASSWORD) && !body?.includes(DEVICE_TOKEN)
+  )).toBe(true);
 });
 
 test("encodes every daemon account selector in the downloaded file", async ({ page }) => {

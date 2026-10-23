@@ -113,11 +113,12 @@ export default function RecoveryWizardPage() {
             <div className="my-5 h-px bg-accent" />
             <h1 className="text-center text-primary font-mono text-xl font-normal">Create a password recovery file</h1>
             <p className="mt-3 text-primary">This page creates a recovery file on this device. It does not send your password to Luna or another service.</p>
-            <p className="mt-2 text-secondary text-sm">The file contains your new password in readable text. Keep the drive private until Luna has started again.</p>
+            <p className="mt-2 text-sm">The file contains your new password in readable text. Keep the drive private until Luna has started again.</p>
             <form onSubmit={handleSubmit} className="mt-6" noValidate>
               <section className="rounded-large-element surface-primary p-4 sm:p-5">
-                <h2 className="text-primary font-mono text-lg font-normal">Choose the account</h2>
-                <p className="mt-1 text-secondary text-sm">The selected account or group will use the new password.</p>
+                <h2 className="font-mono text-lg font-normal">Choose the account</h2>
+                <p className="mt-1 text-secondary text-sm">The recovery file targets the account or group you choose.</p>
+                <p className="mt-1 text-secondary text-sm">Group choices need at least one matching account. Creating a new Admin account requires a username Luna does not already use.</p>
                 <fieldset className="mt-4 space-y-3">
                   <legend className="sr-only">Account to recover</legend>
                   {SELECTORS.map(([value, label]) => (
@@ -140,9 +141,9 @@ export default function RecoveryWizardPage() {
               </section>
 
               <section className="mt-4 rounded-large-element surface-primary p-4 sm:p-5">
-                <h2 className="text-primary font-mono text-lg font-normal">Device token</h2>
+                <h2 className="font-mono text-lg font-normal">Device token</h2>
                 <p className="mt-1 text-secondary text-sm">A device token ties this file to your Luna. Find it on the printed recovery card.</p>
-                <label className="mt-4 flex items-center gap-3 text-primary">
+                <label className="mt-4 flex items-center gap-3">
                   <input type="checkbox" checked={hasToken} onChange={(e) => { haptic("selection"); clearFeedback(); setHasToken(e.target.checked); }} />
                   This Luna has a device token
                 </label>
@@ -156,7 +157,7 @@ export default function RecoveryWizardPage() {
               </section>
 
               <section className="mt-4 rounded-large-element surface-primary p-4 sm:p-5">
-                <h2 className="text-primary font-mono text-lg font-normal">Set a new password</h2>
+                <h2 className="font-mono text-lg font-normal">Set a new password</h2>
                 <p className="mt-1 text-secondary text-sm">Use at least 12 characters, with an English letter and a number. Accented letters and some symbols count as more than one.</p>
                 <div className="mt-4">
                   <FormInput label="New password" name="recovery-password" type="password" value={password} onChange={(e) => { clearFeedback(); setPassword(e.target.value); }} autoComplete="new-password" surface="primary" required error={errorField === "password" ? error : undefined} />
@@ -178,7 +179,7 @@ export default function RecoveryWizardPage() {
                 <li>Turn Luna off, plug in the drive, then turn Luna on. Luna checks the file once during startup, before it accepts connections.</li>
                 <li>After recovery, remove the drive. Luna tries to rename the file so it will not reset the password again on the next startup.</li>
               </ol>
-              <p className="mt-3 text-secondary text-sm">A recovery file does not change the password while Luna is already running. It works only during startup.</p>
+              <p className="mt-3 text-sm">A recovery file does not change the password while Luna is already running. It works only during startup.</p>
             </section>
             <p className="mt-6 text-center text-sm"><Link className="text-primary underline decoration-accent underline-offset-4" to="/login">Back to sign in</Link></p>
           </div>

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import RecoveryWizardPage from "./RecoveryWizardPage.jsx";
@@ -19,7 +19,6 @@ function deviceTokenInput() {
 describe("RecoveryWizardPage", () => {
   let clicked;
   let createObjectURL;
-  afterEach(() => cleanup());
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.spyOn(window, "setTimeout").mockImplementation(() => 0);
