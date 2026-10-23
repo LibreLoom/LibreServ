@@ -167,7 +167,7 @@ describe("RecoveryPhraseSetup", () => {
     expect(decrypt(keys.selfKey, aad, fromBase64(sent.body.self_sealed))).toEqual(SIGNING_PUBLIC);
   });
 
-  it("replaces a phrase without asking for the old one", async () => {
+  it("saves a new phrase without asking for the old one", async () => {
     const user = userEvent.setup();
     const sent = { paths: [] };
     vi.stubGlobal("fetch", vi.fn(async (path, options = {}) => {
@@ -178,8 +178,8 @@ describe("RecoveryPhraseSetup", () => {
         headers: { "Content-Type": "application/json" },
       });
     }));
-    const { onClose } = renderSetup({ replacing: true });
-    expect(screen.getByRole("heading", { name: "Set a new recovery phrase" })).toBeInTheDocument();
+    const { onClose } = renderSetup();
+    expect(screen.getByRole("heading", { name: "Set up your recovery phrase" })).toBeInTheDocument();
     const words = shownWords();
 
     await user.click(screen.getByRole("button", { name: "I wrote them down" }));

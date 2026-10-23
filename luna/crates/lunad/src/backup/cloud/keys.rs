@@ -235,6 +235,13 @@ fn reader_versions(conn: &Connection, user_id: &str) -> Result<Vec<(String, i64)
         let Ok(version) = version.parse::<i64>() else {
             continue;
         };
+        // A deleted backup has no keys to re-seal. A reader list left behind must not count its
+        // versions as missing, which would block every later re-seal.
+        if db::get_protection(conn, backup)?.is_none()
+            && db::get_meta(conn, &format!("deleted_backup:{backup}"))?.is_some()
+        {
+            continue;
+        }
         let readers: serde_json::Value =
             serde_json::from_str(&text).context("The saved list of backup readers is damaged.")?;
         if reader_ids(&readers).iter().any(|id| id == user_id) {
@@ -243,6 +250,12 @@ fn reader_versions(conn: &Connection, user_id: &str) -> Result<Vec<(String, i64)
     }
     out.sort();
     Ok(out)
+}
+
+/// [`reader_versions`] for tests in other modules.
+#[cfg(test)]
+pub(crate) fn reader_versions_for_test(conn: &Connection, user_id: &str) -> Vec<(String, i64)> {
+    reader_versions(conn, user_id).unwrap()
 }
 
 /// Return the latest key version for `protection_id` if it was created for exactly `recipients`
@@ -683,6 +696,8 @@ pub(crate) fn reseal_user_holding(
     let mut busy = Vec::new();
     for backup in &backups {
         match super::run::RunSlot::take(db, backup) {
+            // A run, delete or restore holds the drive-backup lock before it takes the cloud one.
+            Some(_) if crate::backup::drive_backup::is_running(backup) => busy.push(backup.clone()),
             Some(slot) => slots.push(slot),
             None => busy.push(backup.clone()),
         }

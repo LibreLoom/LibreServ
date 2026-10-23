@@ -80,6 +80,7 @@ export default function PhraseReplaceFlow({
   onRetire = () => {},
   retiring = false,
   retireError = "",
+  passwordRetry = 0,
 }) {
   const lost = kind === "lost";
   const [step, setStep] = useState(lost ? "warn" : "check");
@@ -92,6 +93,7 @@ export default function PhraseReplaceFlow({
   const [answers, setAnswers] = useState(["", "", ""]);
   const [copied, setCopied] = useState(false);
   const formRef = useRef(null);
+  const savingRef = useRef(false);
 
   // Wipe everything secret when the dialog closes.
   useEffect(() => {
@@ -104,8 +106,29 @@ export default function PhraseReplaceFlow({
     setExposed(false);
     setLocalError("");
     setCopied(false);
+    savingRef.current = false;
     /* eslint-enable react-hooks/set-state-in-effect */
   }, [open, lost]);
+
+  // The caller refused the password: drop the new phrase and ask for the password again.
+  const seenRetry = useRef(passwordRetry);
+  useEffect(() => {
+    if (passwordRetry === seenRetry.current) return;
+    seenRetry.current = passwordRetry;
+    /* eslint-disable react-hooks/set-state-in-effect -- the refused password sends the flow back */
+    setPassword("");
+    setEntropy(null);
+    setAnswers(["", "", ""]);
+    setCopied(false);
+    setLocalError("");
+    setStep("password");
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [passwordRetry]);
+
+  // A save is in flight until the caller finishes (busy ends) or answers (an error, or a refused password).
+  useEffect(() => {
+    if (!busy) savingRef.current = false;
+  }, [busy, error, passwordRetry]);
 
   const words = useMemo(() => (entropy ? entropyToPhrase(entropy).split(" ") : []), [entropy]);
   const privateLine = lost ? LOST_PRIVATE_LINES : null;
@@ -190,13 +213,14 @@ export default function PhraseReplaceFlow({
 
   function save(event) {
     event.preventDefault();
-    if (busy) return;
+    if (busy || savingRef.current) return;
     const wrong = positions.findIndex((pos, i) => answers[i].trim().toLowerCase() !== words[pos]);
     if (wrong !== -1) {
       fail(`Word ${positions[wrong] + 1} doesn't match. Check your phrase and try again.`);
       return;
     }
     setLocalError("");
+    savingRef.current = true;
     onSave({ exposed, newPhrase: words.join(" ") });
   }
 
@@ -380,4 +404,5 @@ PhraseReplaceFlow.propTypes = {
   onRetire: PropTypes.func,
   retiring: PropTypes.bool,
   retireError: PropTypes.string,
+  passwordRetry: PropTypes.number,
 };

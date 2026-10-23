@@ -190,7 +190,7 @@ async fn status(
         // True while Luna is still re-sealing this person's cloud backup keys to the new phrase.
         "resealing": resealing,
         // `{percent, paused_full}` while any backup's older packs are moving to the newest key, else null.
-        "moving": rewrap::status_for_luna(&conn),
+        "moving": rewrap::status_for_luna(&conn, &user),
         "luna_id": identity.as_ref().map(|i| i.luna_id()),
         // The browser seals this key with its self key, so Connect can never swap it.
         "signing_public": identity.as_ref().map(|i| STANDARD.encode(i.public())),
@@ -294,6 +294,7 @@ pub(crate) fn replace_message(
     auth_public: &[u8],
     self_sealed: &[u8],
     exposed: bool,
+    rescoped: &[(String, Vec<u8>)],
 ) -> Vec<u8> {
     crypto::canonical(&[
         ("challenge", challenge),
@@ -301,7 +302,21 @@ pub(crate) fn replace_message(
         ("auth_public", auth_public),
         ("self_sealed_hash", &crypto::pack_id(self_sealed)),
         ("exposed", &[u8::from(exposed)]),
+        ("rescoped_hash", &rescoped_hash(rescoped)),
     ])
+}
+
+/// A hash of the re-sealed private scopes, sorted by scope, so dropping or swapping one changes
+/// what the old phrase signed. The web side builds the same bytes in `cloudPhrase.js`.
+fn rescoped_hash(rescoped: &[(String, Vec<u8>)]) -> [u8; 32] {
+    let mut sorted: Vec<&(String, Vec<u8>)> = rescoped.iter().collect();
+    sorted.sort_by(|a, b| a.0.as_bytes().cmp(b.0.as_bytes()));
+    let mut fields: Vec<(&str, &[u8])> = Vec::with_capacity(sorted.len() * 2);
+    for (scope, sealed) in sorted {
+        fields.push(("scope", scope.as_bytes()));
+        fields.push(("sealed_scope_secret", sealed));
+    }
+    crypto::pack_id(&crypto::canonical(&fields))
 }
 
 fn proof_refused() -> ApiError {
@@ -372,6 +387,7 @@ async fn set_phrase(
                     &auth_public,
                     &self_sealed,
                     exposed,
+                    &rescoped,
                 );
                 if !crypto::verify(&old_auth, REPLACE_DOMAIN, &message, &signature) {
                     return Err(proof_refused());
@@ -462,9 +478,20 @@ async fn set_phrase(
     let resealing = keys::resealing_pending(&conn, &user.id).unwrap_or(false);
     drop(conn);
 
-    // Send the new keys to Luna Connect and finish the re-seal in the background, so the save never
-    // waits on the network. Then start a run for each backup marked to rotate, so new files are shut
-    // off from the old phrase within minutes. A failure here is only logged: the next run retries.
+    // Two background jobs, so the save never waits on the network. The first starts a run for each
+    // backup marked to rotate, so new files are shut off from the old phrase within minutes, and is
+    // not held up by the second's retries. The second sends the new keys to Luna Connect and
+    // finishes the re-seal. A failure in either is only logged: the next run retries.
+    {
+        let connect = state.connect.clone();
+        let db = state.db.clone();
+        tokio::task::spawn_blocking(move || {
+            let Some(store) = connect_store(&connect, &db) else {
+                return;
+            };
+            ops::run_marked(&db, &store, &connect, &marked, db::now_unix());
+        });
+    }
     let connect = state.connect.clone();
     let db = state.db.clone();
     tokio::task::spawn_blocking(move || {
@@ -484,7 +511,6 @@ async fn set_phrase(
         // Retried while a backup is copying: the re-seal waits for it, so a run can never write a
         // copy sealed to the old phrase after this. The next run retries it too.
         ops::reseal_until_done(&db, &store, 20, std::time::Duration::from_secs(30));
-        ops::run_marked(&db, &store, &connect, &marked, db::now_unix());
     });
     Ok(Json(json!({
         "set": true,
@@ -596,6 +622,31 @@ mod tests {
     use crate::drives::DriveManager;
     use crate::drives::mount::shared_mock;
     use crate::{AppState, db};
+
+    fn hex(bytes: &[u8]) -> String {
+        bytes.iter().map(|b| format!("{b:02x}")).collect()
+    }
+
+    // The same vectors are pinned in cloudPhrase.test.js: if either side drifts, both fail.
+    #[test]
+    fn rescoped_hash_and_replace_message_match_the_fixed_vectors() {
+        let unsorted = vec![
+            ("scope-b".to_string(), vec![2u8; 40]),
+            ("scope-a".to_string(), vec![1u8; 40]),
+        ];
+        assert_eq!(hex(&super::rescoped_hash(&unsorted)), RESCOPED_HASH_TWO);
+        assert_eq!(hex(&super::rescoped_hash(&[])), RESCOPED_HASH_EMPTY);
+        let message = replace_message(
+            &[7u8; 32], &[3u8; 32], &[4u8; 32], &[5u8; 48], true, &unsorted,
+        );
+        assert_eq!(hex(&message), REPLACE_MESSAGE_HEX);
+    }
+
+    const RESCOPED_HASH_TWO: &str =
+        "57825ea6ce207824ca047b67d2b5856af1df29c15afeb41e83d1d3b4a5742f28";
+    const RESCOPED_HASH_EMPTY: &str =
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+    const REPLACE_MESSAGE_HEX: &str = "000000096368616c6c656e67650000002007070707070707070707070707070707070707070707070707070707070707070000000b7365616c5f7075626c69630000002003030303030303030303030303030303030303030303030303030303030303030000000b617574685f7075626c69630000002004040404040404040404040404040404040404040404040404040404040404040000001073656c665f7365616c65645f6861736800000020bae0441407d7f6e0fe664fd07f8d144340acea5f88820f2ad0c800671c9479e3000000076578706f73656400000001010000000d726573636f7065645f686173680000002057825ea6ce207824ca047b67d2b5856af1df29c15afeb41e83d1d3b4a5742f28";
 
     struct Fixture {
         _dir: tempfile::TempDir,
@@ -803,15 +854,36 @@ mod tests {
         body
     }
 
+    /// Sets the body's `rescoped` list and signs the body again, since the signature covers it.
+    fn with_rescoped(mut body: Value, rescoped: Value, signer: &Signer, challenge: &[u8]) -> Value {
+        body["rescoped"] = rescoped;
+        body["signature"] = json!(sign_body(&body, signer, REPLACE_DOMAIN, challenge));
+        body
+    }
+
     /// Signature (base64) over the challenge and the values already in `body`.
     fn sign_body(body: &Value, signer: &Signer, domain: &str, challenge: &[u8]) -> String {
         let field = |name: &str| STANDARD.decode(body[name].as_str().unwrap()).unwrap();
+        let rescoped: Vec<(String, Vec<u8>)> = body["rescoped"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|e| {
+                (
+                    e["scope"].as_str().unwrap().to_string(),
+                    STANDARD
+                        .decode(e["sealed_scope_secret"].as_str().unwrap())
+                        .unwrap(),
+                )
+            })
+            .collect();
         let message = replace_message(
             challenge,
             &field("seal_public"),
             &field("auth_public"),
             &field("self_sealed"),
             body["exposed"].as_bool().unwrap_or(false),
+            &rescoped,
         );
         STANDARD.encode(signer.sign(domain, &message))
     }
@@ -1091,7 +1163,12 @@ mod tests {
 
         let challenge = fetch_challenge(&f.router, &f.admin_token).await;
         let mut body = signed_replace_body(&new, 8, &old, REPLACE_DOMAIN, &challenge, Some(true));
-        body["rescoped"] = json!([rescoped_entry("scope-1", 8)]);
+        body = with_rescoped(
+            body,
+            json!([rescoped_entry("scope-1", 8)]),
+            &old,
+            &challenge,
+        );
         let (status, reply) = send(&f.router, "PUT", PUT, &f.admin_token, Some(body)).await;
         assert_eq!(status, 200, "{reply}");
         assert_eq!(reply["rescope_failed"], json!(0));
@@ -1125,7 +1202,12 @@ mod tests {
 
         let challenge = fetch_challenge(&f.router, &f.admin_token).await;
         let mut body = signed_replace_body(&new, 8, &old, REPLACE_DOMAIN, &challenge, Some(false));
-        body["rescoped"] = json!([rescoped_entry("scope-1", 8)]);
+        body = with_rescoped(
+            body,
+            json!([rescoped_entry("scope-1", 8)]),
+            &old,
+            &challenge,
+        );
         let (status, reply) = send(&f.router, "PUT", PUT, &f.admin_token, Some(body)).await;
         assert_eq!(status, 200, "{reply}");
         assert_eq!(reply["rescope_failed"], json!(0));
@@ -1155,7 +1237,12 @@ mod tests {
 
         let challenge = fetch_challenge(&f.router, &f.admin_token).await;
         let mut body = signed_replace_body(&new, 8, &old, REPLACE_DOMAIN, &challenge, Some(false));
-        body["rescoped"] = json!([rescoped_entry("scope-1", 8)]);
+        body = with_rescoped(
+            body,
+            json!([rescoped_entry("scope-1", 8)]),
+            &old,
+            &challenge,
+        );
         let (status, reply) = send(&f.router, "PUT", PUT, &f.admin_token, Some(body)).await;
         assert_eq!(status, 200, "{reply}");
         assert_eq!(reply["rescope_failed"], json!(1));
@@ -1179,10 +1266,15 @@ mod tests {
         // Someone else's scope in the list.
         let challenge = fetch_challenge(&f.router, &f.admin_token).await;
         let mut body = signed_replace_body(&new, 8, &old, REPLACE_DOMAIN, &challenge, Some(false));
-        body["rescoped"] = json!([
-            rescoped_entry("scope-1", 8),
-            rescoped_entry("member-scope", 8)
-        ]);
+        body = with_rescoped(
+            body,
+            json!([
+                rescoped_entry("scope-1", 8),
+                rescoped_entry("member-scope", 8)
+            ]),
+            &old,
+            &challenge,
+        );
         let (status, _) = send(&f.router, "PUT", PUT, &f.admin_token, Some(body)).await;
         assert_ne!(status, 200);
         assert_eq!(stored_auth(&f, &f.admin_id), old.public().to_vec());
@@ -1192,12 +1284,54 @@ mod tests {
         // A sealed secret of the wrong size.
         let challenge = fetch_challenge(&f.router, &f.admin_token).await;
         let mut body = signed_replace_body(&new, 8, &old, REPLACE_DOMAIN, &challenge, Some(false));
-        body["rescoped"] =
-            json!([{ "scope": "scope-1", "sealed_scope_secret": STANDARD.encode([1u8; 10]) }]);
+        body = with_rescoped(
+            body,
+            json!([{ "scope": "scope-1", "sealed_scope_secret": STANDARD.encode([1u8; 10]) }]),
+            &old,
+            &challenge,
+        );
         let (status, _) = send(&f.router, "PUT", PUT, &f.admin_token, Some(body)).await;
         assert_eq!(status, 400);
         assert_eq!(stored_auth(&f, &f.admin_id), old.public().to_vec());
         assert_eq!(scope_of(&f, "scope-1").state, "active");
+    }
+
+    #[tokio::test]
+    async fn the_re_sealed_scopes_are_part_of_what_the_old_phrase_signed() {
+        let f = fixture();
+        let old = Signer::generate();
+        let new = Signer::generate();
+        set_first(&f, &f.admin_token, &old, 7).await;
+        seed_active_scope(&f, &f.admin_id, "scope-1");
+        seed_active_scope(&f, &f.admin_id, "scope-2");
+
+        let both = json!([rescoped_entry("scope-1", 8), rescoped_entry("scope-2", 8)]);
+        // Dropping an entry, or swapping one for another sealed secret, after signing is refused.
+        let mut variants = Vec::new();
+        let mut dropped = both.clone();
+        dropped.as_array_mut().unwrap().truncate(1);
+        variants.push(dropped);
+        let mut swapped = both.clone();
+        swapped[1] = rescoped_entry("scope-2", 8);
+        variants.push(swapped);
+        for altered in variants {
+            let challenge = fetch_challenge(&f.router, &f.admin_token).await;
+            let mut body =
+                signed_replace_body(&new, 8, &old, REPLACE_DOMAIN, &challenge, Some(false));
+            body = with_rescoped(body, both.clone(), &old, &challenge);
+            body["rescoped"] = altered;
+            let (status, _) = send(&f.router, "PUT", PUT, &f.admin_token, Some(body)).await;
+            assert_eq!(status, 403);
+            assert_eq!(stored_auth(&f, &f.admin_id), old.public().to_vec());
+        }
+
+        // The same list in another order is what was signed, so it is accepted.
+        let challenge = fetch_challenge(&f.router, &f.admin_token).await;
+        let mut body = signed_replace_body(&new, 8, &old, REPLACE_DOMAIN, &challenge, Some(false));
+        body = with_rescoped(body, both.clone(), &old, &challenge);
+        body["rescoped"] = json!([both[1].clone(), both[0].clone()]);
+        let (status, reply) = send(&f.router, "PUT", PUT, &f.admin_token, Some(body)).await;
+        assert_eq!(status, 200, "{reply}");
     }
 
     #[tokio::test]

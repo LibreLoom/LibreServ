@@ -94,6 +94,15 @@ describe("RecoveryPhraseCard", () => {
     expect(screen.queryByRole("button", { name: "Set up" })).toBeNull();
   });
 
+  it("leaves the set-up date out of the line when the date is 0", async () => {
+    stubStatus({ set: true, set_at: 0, last_checked_at: 1_700_500_000, check_due: false, luna_id: "luna-1" });
+    renderCard();
+
+    expect(await screen.findByText(/^Last checked .+/)).toBeInTheDocument();
+    expect(screen.queryByText(/Set up on/)).toBeNull();
+    expect(screen.queryByText(/^ ·/)).toBeNull();
+  });
+
   it("says Not checked yet when the phrase was never checked", async () => {
     stubStatus({ set: true, set_at: 1_700_000_000, last_checked_at: 0, luna_id: "luna-1" });
     renderCard();
@@ -150,6 +159,17 @@ describe("RecoveryPhraseCard", () => {
     await user.click(await screen.findByRole("button", { name: "Delete now" }));
     await user.click(screen.getAllByRole("button", { name: "Delete now" }).at(-1));
     expect(await screen.findByText("Connect is not reachable.")).toBeInTheDocument();
+  });
+
+  it("leaves the removal date out of the old-phrase row when the date is 0", async () => {
+    stubStatus({
+      set: true, set_at: 1_700_000_000, luna_id: "luna-1",
+      old_phrase_copies: { count: 2, removed_at: 0 },
+    });
+    renderCard();
+
+    expect(await screen.findByText("Backups made with your old phrase")).toBeInTheDocument();
+    expect(screen.queryByText(/removed on/)).toBeNull();
   });
 
   it("hides the old-phrase row when there are no old copies", async () => {
@@ -591,3 +611,63 @@ describe("RecoveryPhraseCard, private scopes on a phrase change", () => {
   });
 });
 
+
+describe("RecoveryPhraseCard, refused password and moving advice", () => {
+  async function openLostPassword(user) {
+    await user.click(await screen.findByRole("button", { name: "Lost your recovery phrase?" }));
+    await user.click(screen.getByRole("button", { name: "Get a new phrase" }));
+    await user.click(await screen.findByRole("button", { name: "Continue" }));
+    await user.click(await screen.findByText("No, it's just lost"));
+  }
+
+  it("goes back to the password step after a refusal and never sends that password again", async () => {
+    const user = userEvent.setup();
+    const api = routePhraseApi({ put: (calls) => (calls.filter((c) => c.key === "PUT /api/v1/cloud/phrase").length === 1 ? [403, { error: "no" }] : [200, { set: true, set_at: 1 }]) });
+    renderCard();
+    await openLostPassword(user);
+    await user.type(screen.getByLabelText("Your Luna password"), "wrong one");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    const firstPhrase = await confirmShownPhrase(user);
+
+    expect(await screen.findByText("That is not your Luna password. Try again.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Your Luna password")).toHaveValue("");
+    expect(screen.queryByRole("button", { name: "I wrote them down" })).toBeNull();
+
+    await user.type(screen.getByLabelText("Your Luna password"), "right one");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    const secondPhrase = await confirmShownPhrase(user);
+
+    expect(await screen.findByText("New recovery phrase saved.")).toBeInTheDocument();
+    const puts = api.puts();
+    expect(puts.map((p) => p.password)).toEqual(["wrong one", "right one"]);
+    expect(secondPhrase).not.toBe(firstPhrase);
+  });
+
+  it("shows the lockout message on the password step after a 429", async () => {
+    const user = userEvent.setup();
+    const api = routePhraseApi({ put: [429, { error: "slow" }] });
+    renderCard();
+    await openLostPassword(user);
+    await user.type(screen.getByLabelText("Your Luna password"), "pw");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await confirmShownPhrase(user);
+    expect(await screen.findByText("Too many wrong tries. Wait a few minutes, then try again.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Your Luna password")).toBeInTheDocument();
+    expect(api.puts()).toHaveLength(1);
+  });
+
+  it("shows the Admin advice to add storage to Admins, and a neutral line to Members", async () => {
+    const paused = { ...SET_STATUS, moving: { percent: 40, paused_full: true } };
+    routePhraseApi({ status: paused });
+    const { unmount } = renderCard();
+    expect(await screen.findByText(/Free up space or add storage on Luna Connect/)).toBeInTheDocument();
+    unmount();
+
+    mockRole = "user";
+    routePhraseApi({ status: paused });
+    renderCard();
+    expect(await screen.findByText(/Connect storage is full, so the move is paused\. Nothing old was deleted\./)).toBeInTheDocument();
+    expect(screen.queryByText(/add storage on Luna Connect/)).toBeNull();
+    expect(screen.getByText(/An Admin can free up space or add storage/)).toBeInTheDocument();
+  });
+});

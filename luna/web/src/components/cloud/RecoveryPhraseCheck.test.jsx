@@ -151,3 +151,75 @@ describe("RecoveryPhraseCheck", () => {
     expect(screen.getByLabelText("Word 1")).toHaveValue("");
   });
 });
+
+describe("RecoveryPhraseCheck, paste lengths and suggestions", () => {
+  const values = () => screen.getAllByRole("textbox").map((b) => /** @type {HTMLInputElement} */ (b).value);
+
+  it("fills a pasted 12-word phrase from box 1 even when pasted into box 3", async () => {
+    const user = userEvent.setup();
+    const phrase = entropyToPhrase(newEntropy(12));
+    setup();
+    await pasteInto(user, 3, phrase);
+    expect(values().join(" ")).toBe(phrase);
+  });
+
+  it("a pasted 12-word phrase while the switch is on 24 sets 12 boxes", async () => {
+    const user = userEvent.setup();
+    const phrase = entropyToPhrase(newEntropy(12));
+    setup();
+    await user.click(screen.getByRole("radio", { name: "24 words" }));
+    await pasteInto(user, 5, phrase);
+    expect(values().join(" ")).toBe(phrase);
+    expect(screen.getByRole("radio", { name: "12 words" })).toBeChecked();
+  });
+
+  it("a pasted 24-word phrase into box 7 fills from box 1 with 24 boxes", async () => {
+    const user = userEvent.setup();
+    const phrase = entropyToPhrase(newEntropy(24));
+    setup();
+    await pasteInto(user, 7, phrase);
+    expect(values().join(" ")).toBe(phrase);
+  });
+
+  it("other lengths fill from the pasted box and never past the box count", async () => {
+    const user = userEvent.setup();
+    setup();
+    await pasteInto(user, 10, "abandon ability able about above");
+    const v = values();
+    expect(v).toHaveLength(12);
+    expect(v.slice(9)).toEqual(["abandon", "ability", "able"]);
+    expect(v[8]).toBe("");
+  });
+
+  it("keeps the suggestions while focus moves onto one with Tab", async () => {
+    const user = userEvent.setup();
+    setup();
+    await user.type(screen.getByLabelText("Word 1"), "aban");
+    await user.tab();
+    expect(screen.getByRole("button", { name: "abandon" })).toHaveFocus();
+    expect(screen.getByRole("group", { name: "Suggestions for word 1" })).toBeInTheDocument();
+    await user.keyboard("{Enter}");
+    expect(screen.getByLabelText("Word 1")).toHaveValue("abandon");
+  });
+
+  it("ArrowDown highlights a suggestion and Enter takes it without submitting", async () => {
+    const user = userEvent.setup();
+    const { verify } = setup();
+    await user.type(screen.getByLabelText("Word 1"), "ab");
+    await user.keyboard("{ArrowDown}{ArrowDown}");
+    const second = screen.getAllByRole("button", { pressed: true })[0];
+    await user.keyboard("{Enter}");
+    expect(screen.getByLabelText("Word 1")).toHaveValue(second.textContent);
+    expect(screen.getByLabelText("Word 2")).toHaveFocus();
+    expect(verify).not.toHaveBeenCalled();
+  });
+
+  it("ArrowUp from nothing highlights the last suggestion", async () => {
+    const user = userEvent.setup();
+    setup();
+    await user.type(screen.getByLabelText("Word 1"), "ab");
+    const all = screen.getAllByRole("button", { name: /^ab/ });
+    await user.keyboard("{ArrowUp}");
+    expect(screen.getAllByRole("button", { pressed: true })[0].textContent).toBe(all[all.length - 1].textContent);
+  });
+});

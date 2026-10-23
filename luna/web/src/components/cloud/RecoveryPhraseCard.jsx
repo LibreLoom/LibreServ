@@ -31,14 +31,16 @@ const RESEAL_POLL_MS = 5000;
  * Neutral status for backups moving to a new phrase. Hidden when `moving` is null.
  * When Connect storage is full it adds what happened and what to do, inline (no toast).
  */
-export function MovingNote({ moving, className = "" }) {
+export function MovingNote({ moving, className = "", member = false }) {
   if (!moving) return null;
   return (
     <div className={`space-y-1 text-sm ${className}`}>
       <p>{`Moving to your new phrase · ${movingPercent(moving)}%`}</p>
       {moving.paused_full && (
         <p>
-          Connect storage is full, so the move is paused. Nothing old was deleted. Free up space or add storage on Luna Connect to continue.
+          {member
+            ? "Connect storage is full, so the move is paused. Nothing old was deleted. An Admin can free up space or add storage."
+            : "Connect storage is full, so the move is paused. Nothing old was deleted. Free up space or add storage on Luna Connect to continue."}
         </p>
       )}
     </div>
@@ -96,11 +98,16 @@ export default function RecoveryPhraseCard() {
   const [savedExposed, setSavedExposed] = useState(false);
   const [retireError, setRetireError] = useState("");
   const secrets = useRef({ oldEntropy: null, password: "" });
+  // Bumped by every save and every close, so an answer that arrives after the dialog closed is ignored.
+  const attemptRef = useRef(0);
+  // Bumped when a password was refused: the flow goes back to its password step.
+  const [passwordRetry, setPasswordRetry] = useState(0);
 
   const replace = useMutation({
     mutationFn: (/** @type {any} */ vars) =>
       replacePhrase({ proof: vars.proof, exposed: vars.exposed, newPhrase: vars.newPhrase, lunaId, userId, signingPublic }),
-    onSuccess: (data, { kind, exposed }) => {
+    onSuccess: (data, { kind, exposed, attempt }) => {
+      const stale = attempt !== attemptRef.current;
       const failed = Number(data?.rescope_failed) || 0;
       addToast({
         type: "success",
@@ -110,6 +117,7 @@ export default function RecoveryPhraseCard() {
         }),
       });
       queryClient.invalidateQueries({ queryKey: PHRASE_QUERY_KEY });
+      if (stale) return;
       // Changing with "Someone may have it" ends with the optional delete step, so stay open.
       if (kind === "change" && exposed) {
         secrets.current = { oldEntropy: null, password: "" };
@@ -119,7 +127,18 @@ export default function RecoveryPhraseCard() {
       closeReplace();
     },
     // Refused or failed: the message stays inline in the open dialog, with no toast and no retry.
-    onError: (err, { proof }) => setReplaceError(replaceErrorMessage(err, "oldEntropy" in proof ? "old" : "password")),
+    onError: (err, { proof, attempt }) => {
+      if (attempt !== attemptRef.current) return;
+      const isPassword = "password" in proof;
+      setReplaceError(replaceErrorMessage(err, isPassword ? "password" : "old"));
+      if (!isPassword) return;
+      if (err?.status === 403 || err?.status === 429) {
+        // Never send a refused password again: ask for it afresh, with a new phrase.
+        setPasswordRetry((n) => n + 1);
+      } else {
+        secrets.current.password = proof.password;
+      }
+    },
   });
 
   const status = useQuery({
@@ -163,6 +182,7 @@ export default function RecoveryPhraseCard() {
   const isSet = Boolean(status.data?.set);
 
   function closeReplace() {
+    attemptRef.current += 1;
     secrets.current = { oldEntropy: null, password: "" };
     setReplaceError("");
     setSavedExposed(false);
@@ -181,6 +201,7 @@ export default function RecoveryPhraseCard() {
   /** The lost flow's password is only checked when the save goes through, so it is kept for that call. */
   function proveLost({ password }) {
     secrets.current.password = password;
+    setReplaceError("");
     return true;
   }
 
@@ -191,9 +212,18 @@ export default function RecoveryPhraseCard() {
       setReplaceError("Enter your current phrase again, then try once more.");
       return;
     }
-    const proof = kind === "change" ? { oldEntropy } : { password: secrets.current.password };
+    const password = secrets.current.password;
+    if (kind === "lost" && !password) {
+      setReplaceError("Enter your Luna password again.");
+      setPasswordRetry((n) => n + 1);
+      return;
+    }
+    // The password is used once; a failure that isn't a refusal puts it back for a retry.
+    if (kind === "lost") secrets.current.password = "";
+    const proof = kind === "change" ? { oldEntropy } : { password };
     setReplaceError("");
-    replace.mutate({ kind, proof, exposed, newPhrase });
+    attemptRef.current += 1;
+    replace.mutate({ kind, proof, exposed, newPhrase, attempt: attemptRef.current });
   }
 
   /**
@@ -223,6 +253,10 @@ export default function RecoveryPhraseCard() {
 
   const isMember = auth?.user?.role !== undefined && auth.user.role !== "admin";
   const oldCopies = status.data?.old_phrase_copies;
+  const removedOn = formatDate(oldCopies?.removed_at, false);
+  const oldCopiesLine = removedOn
+    ? `Backups made with your old phrase · removed on ${removedOn}`
+    : "Backups made with your old phrase";
   const checkDue = Boolean(status.data?.check_due);
 
   let body;
@@ -256,9 +290,10 @@ export default function RecoveryPhraseCard() {
     const setOn = formatDate(status.data?.set_at);
     const checkedAt = status.data?.last_checked_at;
     const checked = checkedAt ? `Last checked ${formatDate(checkedAt, false)}` : "Not checked yet";
+    const setLine = [setOn ? `Set up on ${setOn}` : null, checked].filter(Boolean).join(" · ");
     body = (
       <>
-        <SettingsRow stack label="Recovery phrase" description={`Set up on ${setOn} · ${checked}`}>
+        <SettingsRow stack label="Recovery phrase" description={setLine}>
           <div className="flex flex-wrap items-center gap-2">
             {checkDue ? (
               <StatusPill tone="bg-warning/20 border-warning/30">Check due</StatusPill>
@@ -277,7 +312,7 @@ export default function RecoveryPhraseCard() {
               Change phrase
             </Button>
           </div>
-          <MovingNote moving={status.data?.moving} className="mt-3 text-primary" />
+          <MovingNote moving={status.data?.moving} member={isMember} className="mt-3 text-primary" />
           {status.data?.resealing && (
             <p className="mt-3 text-primary text-sm">Updating your cloud backups to the new phrase…</p>
           )}
@@ -286,7 +321,7 @@ export default function RecoveryPhraseCard() {
           <SettingsRow
             stack
             label="Old phrase backups"
-            description={`Backups made with your old phrase · removed on ${formatDate(oldCopies.removed_at, false)}`}
+            description={oldCopiesLine}
           >
             <Button variant="outline" size="sm" onClick={() => setConfirmingDelete(true)}>
               Delete now
@@ -365,6 +400,7 @@ export default function RecoveryPhraseCard() {
           onSave={saveReplace}
           busy={replace.isPending}
           error={replaceError}
+          passwordRetry={passwordRetry}
           saved={savedExposed}
           onRetire={() => { setRetireError(""); retireOlder.mutate(); }}
           retiring={retireOlder.isPending}

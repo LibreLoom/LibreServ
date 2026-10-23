@@ -254,8 +254,11 @@ pub fn ensure_scope(
     let mut dedup = [0u8; 32];
     getrandom::getrandom(&mut dedup).map_err(|e| anyhow!("{e}"))?;
     let (_, scope) = scope_of(&dedup);
-    let (scope_secret, scope_public) = crypto::new_scope_keys();
-    let sealed_scope_secret = seal_scope_secret(owner_public, luna_id, &scope, &scope_secret)?;
+    let (mut scope_secret, scope_public) = crypto::new_scope_keys();
+    let sealed = seal_scope_secret(owner_public, luna_id, &scope, &scope_secret);
+    // Best effort: only the sealed copy is kept. Other copies may remain in registers or on the stack.
+    zeroize::Zeroize::zeroize(&mut scope_secret);
+    let sealed_scope_secret = sealed?;
     let made = db::PrivateScope {
         scope,
         owner: owner.to_string(),

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import PhraseReplaceFlow from "./PhraseReplaceFlow.jsx";
 import { entropyToPhrase, newEntropy } from "@libreloom/ui/lib/cloud/backupCrypto.js";
@@ -310,5 +310,46 @@ describe("PhraseReplaceFlow, lost", () => {
     const newPhrase = await confirmNewPhrase(user);
     await user.click(screen.getByRole("button", { name: "Save recovery phrase" }));
     expect(onSave).toHaveBeenCalledWith({ exposed, newPhrase });
+  });
+});
+
+describe("PhraseReplaceFlow, refused password and double save", () => {
+  const props = { kind: "lost", onProve: async () => true, onSave: () => {}, onClose: () => {} };
+
+  async function toConfirm(user, onSave) {
+    const utils = render(<PhraseReplaceFlow {...props} onSave={onSave} />);
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.click(await screen.findByRole("button", { name: "No, it's just lost" }));
+    await user.type(screen.getByLabelText("Your Luna password"), "wrong one");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await screen.findByText("Your new recovery phrase");
+    return utils;
+  }
+
+  it("goes back to the password step, empty, with the new phrase dropped, when the password is refused", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    const { rerender } = await toConfirm(user, onSave);
+    const before = screen.getAllByRole("listitem").map((li) => li.textContent).join(" ");
+    rerender(<PhraseReplaceFlow {...props} onSave={onSave} error="That is not your Luna password. Try again." passwordRetry={1} />);
+    expect(await screen.findByLabelText("Your Luna password")).toHaveValue("");
+    expect(screen.getByText("That is not your Luna password. Try again.")).toBeInTheDocument();
+    expect(screen.queryByText("Your new recovery phrase")).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText("Your Luna password"), "right one");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await screen.findByText("Your new recovery phrase");
+    const after = screen.getAllByRole("listitem").map((li) => li.textContent).join(" ");
+    expect(after).not.toBe(before);
+  });
+
+  it("sends one save when the form is submitted twice before the caller answers", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    await toConfirm(user, onSave);
+    await confirmNewPhrase(user);
+    const form = screen.getByRole("button", { name: "Save recovery phrase" }).closest("form");
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+    expect(onSave).toHaveBeenCalledTimes(1);
   });
 });

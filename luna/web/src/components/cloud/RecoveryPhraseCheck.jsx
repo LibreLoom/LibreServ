@@ -7,6 +7,7 @@ import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.j
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import { phraseToEntropy } from "@libreloom/ui/lib/cloud/backupCrypto.js";
 import { shakeElement } from "@libreloom/ui/utils/shake.js";
+import { haptic } from "@libreloom/ui/utils/haptics.js";
 
 const LENGTH_OPTIONS = [
   { value: "12", label: "12 words" },
@@ -47,7 +48,9 @@ export default function RecoveryPhraseCheck({
   const [error, setError] = useState("");
   const [matched, setMatched] = useState(false);
   const [checking, setChecking] = useState(false);
+  const [activeSuggestion, setActiveSuggestion] = useState(-1);
   const inputs = useRef([]);
+  const suggestionsRef = useRef(null);
   const formRef = useRef(null);
 
   // Wipe the phrase whenever the dialog closes or goes away.
@@ -76,21 +79,26 @@ export default function RecoveryPhraseCheck({
     inputs.current[index]?.focus();
   }
 
-  /** Put `list` into boxes starting at `start`; switches to 24 when more than 12 fit the paste. */
+  /**
+   * Put `list` into boxes starting at `start`. A whole phrase (exactly 12 or 24 words) always fills
+   * from box 1 and sets the box count to its length. Any other length fills from `start` and never
+   * goes past the boxes shown.
+   */
   function spread(start, list) {
-    const needed = Math.min(24, start + list.length);
-    const nextCount = needed > 12 ? 24 : count;
+    const whole = list.length === 12 || list.length === 24;
+    const from = whole ? 0 : start;
+    const nextCount = whole ? list.length : count;
     setCount(nextCount);
     setWords((prev) => {
-      const next = [...prev];
+      const next = whole ? blankWords() : [...prev];
       list.forEach((w, i) => {
-        if (start + i < 24) next[start + i] = w;
+        if (from + i < nextCount) next[from + i] = w;
       });
       return next;
     });
     setError("");
     setMatched(false);
-    focusBox(Math.min(nextCount - 1, start + list.length));
+    focusBox(Math.min(nextCount - 1, from + list.length));
   }
 
   function onBoxChange(index, raw) {
@@ -113,7 +121,24 @@ export default function RecoveryPhraseCheck({
   }
 
   function pick(word) {
-    spread(focused, [word]);
+    const box = focused;
+    spread(box, [word]);
+    setActiveSuggestion(-1);
+  }
+
+  /** ArrowUp/ArrowDown walk the suggestions and Enter takes the highlighted one; Enter otherwise submits. */
+  function onBoxKeyDown(index, event) {
+    if (index !== focused || suggestions.length === 0) return;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const step = event.key === "ArrowDown" ? 1 : -1;
+      setActiveSuggestion((a) => (a < 0 ? (step === 1 ? 0 : suggestions.length - 1) : (a + step + suggestions.length) % suggestions.length));
+      haptic("selection");
+    } else if (event.key === "Enter" && activeSuggestion >= 0 && suggestions[activeSuggestion]) {
+      event.preventDefault();
+      haptic("selection");
+      pick(suggestions[activeSuggestion]);
+    }
   }
 
   function chooseCount(value) {
@@ -182,8 +207,13 @@ export default function RecoveryPhraseCheck({
                   aria-invalid={invalid[i] ? "true" : undefined}
                   onChange={(e) => onBoxChange(i, e.target.value)}
                   onPaste={(e) => onBoxPaste(i, e)}
-                  onFocus={() => setFocused(i)}
-                  onBlur={() => setFocused((f) => (f === i ? -1 : f))}
+                  onFocus={() => { setFocused(i); setActiveSuggestion(-1); }}
+                  onKeyDown={(e) => onBoxKeyDown(i, e)}
+                  onBlur={(e) => {
+                    // Moving onto a suggestion keeps the suggestions for this box.
+                    if (suggestionsRef.current?.contains(e.relatedTarget)) return;
+                    setFocused((f) => (f === i ? -1 : f));
+                  }}
                   autoComplete="off"
                   autoCapitalize="none"
                   spellCheck={false}
@@ -194,9 +224,26 @@ export default function RecoveryPhraseCheck({
           ))}
         </ol>
         {suggestions.length > 0 && (
-          <div className="flex flex-wrap gap-2" aria-label={`Suggestions for word ${focused + 1}`}>
-            {suggestions.map((s) => (
-              <Button key={s} variant="outline" surface="secondary" size="sm" onMouseDown={(e) => e.preventDefault()} onClick={() => pick(s)}>
+          <div
+            ref={suggestionsRef}
+            className="flex flex-wrap gap-2"
+            role="group"
+            aria-label={`Suggestions for word ${focused + 1}`}
+            onBlur={(e) => {
+              if (e.relatedTarget && (suggestionsRef.current?.contains(e.relatedTarget) || inputs.current.includes(e.relatedTarget))) return;
+              setFocused(-1);
+            }}
+          >
+            {suggestions.map((s, n) => (
+              <Button
+                key={s}
+                variant={n === activeSuggestion ? "primary" : "outline"}
+                surface="secondary"
+                size="sm"
+                aria-pressed={n === activeSuggestion}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => pick(s)}
+              >
                 {s}
               </Button>
             ))}

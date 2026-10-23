@@ -13,8 +13,8 @@ use super::format::{BackupMeta, SnapshotRecord, Tree};
 use super::identity;
 use super::private::{self, PRIVATE_SNAPSHOT_DOMAIN, PSNAPSHOTS_KIND};
 use super::run::{
-    CHECK_FAILED, CloudOutcome, RunContext, RunSlot, SOURCE_MISSING, Sealer, copy_and_commit, lock,
-    most_files_missing, problem_outcome, random_id, source_root,
+    CHECK_FAILED, CloudOutcome, RunContext, RunSlot, SOURCE_MISSING, Sealer, busy_outcome,
+    copy_and_commit, lock, most_files_missing, problem_outcome, random_id, source_root,
 };
 use super::store::CloudStore;
 use crate::db;
@@ -63,9 +63,7 @@ pub(super) fn run_with_root(
     now: i64,
 ) -> Result<CloudOutcome> {
     let Some(_slot) = RunSlot::take(db, protection_id) else {
-        return Ok(problem_outcome(
-            "A backup of this folder is already running. Wait for it to finish, then try again.",
-        ));
+        return Ok(busy_outcome());
     };
 
     // Held before any run row is opened, so nothing is committed and nothing needs closing.

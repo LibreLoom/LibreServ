@@ -386,11 +386,14 @@ export default [
     area: "Settings: Cloud backup",
     title: "Lost phrase, nobody else has it",
     url: "/settings#cloud_backup",
-    seed: (w) => setPhrase(w, { old_phrase_copies: { count: 2, removed_at: at(-30 * DAY) } }),
+    seed: (w) => {
+      setPhrase(w, { old_phrase_copies: { count: 2, removed_at: at(-30 * DAY) } });
+      w.passwordWrong = true;
+    },
     check: [
       "Under 'Lost your recovery phrase?', 'Get a new phrase' confirm says private items backed up with the old phrase can't be opened, and shared backups stay open",
       "'No, it's just lost' says the private line: Luna keeps them for 30 days",
-      "Asks for the Luna password; a wrong one is refused inline, not with a toast",
+      "Asks for the Luna password; the first save is refused inline (That is not your Luna password), not with a toast, and the dialog returns to the password step with a new phrase to write down",
       "After saving, the 'Old phrase backups' row shows with its removal date and Delete now",
     ],
   },

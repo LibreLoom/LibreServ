@@ -62,8 +62,13 @@ post("/api/v1/cloud/phrase/check", ({ world }) => {
 });
 // No private scopes in the gallery, so nothing to re-seal and nothing that fails to re-seal.
 get("/api/v1/cloud/phrase/scopes", () => ({ scopes: [] }));
-put("/api/v1/cloud/phrase", ({ world }) => {
-  world.phrase = { ...world.phrase, set: true, set_at: nowSec() };
+put("/api/v1/cloud/phrase", ({ world, body }) => {
+  if (world.passwordWrong && body?.proof === "password") {
+    world.passwordWrong = false; // refused once, so the next try can go through
+    return fail(403, "That is not your Luna password");
+  }
+  // A replacement leaves Luna moving the cloud backups to the new phrase in the background.
+  world.phrase = { ...world.phrase, set: true, set_at: nowSec(), resealing: true };
   return { set: true, set_at: world.phrase.set_at, rescope_failed: 0 };
 });
 

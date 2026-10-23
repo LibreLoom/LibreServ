@@ -111,7 +111,8 @@ export async function signFreshChallenge(entropy, lunaId, domain = CHECK_DOMAIN)
  * request, so a copied request can't be sent again with someone else's keys. Must match
  * `replace_message` in cloud_phrase.rs.
  * @param {Uint8Array} challenge
- * @param {{ seal_public: string, auth_public: string, self_sealed: string, exposed: boolean }} body
+ * The re-sealed private scopes are covered too, by a hash of the list sorted by scope.
+ * @param {{ seal_public: string, auth_public: string, self_sealed: string, exposed: boolean, rescoped?: Array<{ scope: string, sealed_scope_secret: string }> }} body
  */
 export function replaceMessage(challenge, body) {
   return canonical([
@@ -120,14 +121,40 @@ export function replaceMessage(challenge, body) {
     ["auth_public", fromBase64(body.auth_public)],
     ["self_sealed_hash", packId(fromBase64(body.self_sealed))],
     ["exposed", Uint8Array.of(body.exposed ? 1 : 0)],
+    ["rescoped_hash", rescopedHash(body.rescoped ?? [])],
   ]);
+}
+
+/**
+ * Hash of the re-sealed scopes, sorted by scope. Must match `rescoped_hash` in cloud_phrase.rs.
+ * @param {Array<{ scope: string, sealed_scope_secret: string }>} rescoped
+ */
+export function rescopedHash(rescoped) {
+  const items = rescoped.map((e) => ({ scope: encoder.encode(e.scope), sealed: fromBase64(e.sealed_scope_secret) }));
+  items.sort((a, b) => compareBytes(a.scope, b.scope));
+  /** @type {Array<[string, Uint8Array]>} */
+  const fields = [];
+  for (const item of items) {
+    fields.push(["scope", item.scope], ["sealed_scope_secret", item.sealed]);
+  }
+  return packId(canonical(fields));
+}
+
+/**
+ * @param {Uint8Array} a
+ * @param {Uint8Array} b
+ */
+function compareBytes(a, b) {
+  const n = Math.min(a.length, b.length);
+  for (let i = 0; i < n; i++) if (a[i] !== b[i]) return a[i] - b[i];
+  return a.length - b.length;
 }
 
 /**
  * Signs a replacement: asks for a fresh challenge and signs it together with the new values.
  * @param {Uint8Array} entropy the phrase being replaced
  * @param {string} lunaId
- * @param {{ seal_public: string, auth_public: string, self_sealed: string, exposed: boolean }} body
+ * @param {Parameters<typeof replaceMessage>[1]} body
  * @returns {Promise<string>} base64 signature
  */
 export async function signReplacement(entropy, lunaId, body) {

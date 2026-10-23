@@ -49,6 +49,9 @@ pub struct CloudOutcome {
     /// True when the run was held because most of the source looks gone. A person can
     /// then choose "Back up anyway", which runs it with `accept_missing`.
     pub source_missing: bool,
+    /// True when the backup's lock was taken by another run, a key move or a re-seal. This is not
+    /// a failure: nothing is recorded, and the next scheduled run tries again.
+    pub busy: bool,
 }
 
 /// The folder on disk for a backup's logical path. A private item's disk name differs from its path.
@@ -106,9 +109,7 @@ pub(crate) fn run_with_root(
     now: i64,
 ) -> Result<CloudOutcome> {
     let Some(_slot) = RunSlot::take(db, protection_id) else {
-        return Ok(problem_outcome(
-            "A backup of this folder is already running. Wait for it to finish, then try again.",
-        ));
+        return Ok(busy_outcome());
     };
 
     // Finish any re-seal owed after a phrase change. Best effort: a failure never holds this backup.
@@ -644,6 +645,7 @@ pub(crate) fn copy_and_commit(
         snapshot_id: Some(snapshot_id),
         problem: None,
         source_missing: false,
+        busy: false,
     })
 }
 
@@ -696,6 +698,17 @@ pub fn read_tree(
         ));
     }
     format::decrypt_tree(sealed, tree_key)
+}
+
+/// The outcome of a run that found the backup's lock taken. Never recorded as a protection error.
+pub(crate) fn busy_outcome() -> CloudOutcome {
+    CloudOutcome {
+        problem: Some(
+            "This backup is busy right now. Luna will try again in a few minutes.".to_string(),
+        ),
+        busy: true,
+        ..Default::default()
+    }
 }
 
 pub(crate) fn problem_outcome(message: &str) -> CloudOutcome {

@@ -23,7 +23,7 @@ use crate::net::connect::ConnectService;
 
 /// Shown on every cloud backup while Luna Connect is not set up for this Luna.
 pub const NOT_SET_UP: &str =
-    "Connect this Luna to Luna Connect to use cloud backups. Settings → Luna Connect.";
+    "Connect this Luna to Luna Connect to use cloud backups. Settings → About → Advanced.";
 
 const UNREACHABLE: &str = "Could not reach Luna Connect. Check your connection, then try again.";
 
@@ -244,6 +244,11 @@ pub fn run(
     } else {
         run::run_once(db, id, store, started_by, accept_missing, now)
     };
+    // A move or re-seal holds the backup's lock: skip quietly. Nothing is recorded, so the
+    // backup is not shown as failing, and the next run tries again.
+    if matches!(&ran, Ok(out) if out.busy) {
+        return ran.unwrap_or_default();
+    }
     let mut outcome = match ran {
         Ok(out) if out.problem.is_none() => match tidy(db, id, store, now) {
             Ok(()) => out,
@@ -479,8 +484,9 @@ pub fn reseal_until_done(
 }
 
 /// Starts a run for each backup a phrase save marked to rotate, so new files are shut off from the
-/// old phrase within minutes instead of at the next scheduled run. A failed run is only logged:
-/// the mark stays, and the next run starts the new key version.
+/// old phrase within minutes instead of at the next scheduled run. A backup that a re-seal or move
+/// is holding is tried again a few times. A failed run is only logged: the mark stays, and the
+/// next run starts the new key version.
 pub fn run_marked(
     db: &crate::Db,
     store: &dyn CloudStore,
@@ -488,12 +494,54 @@ pub fn run_marked(
     backups: &[String],
     now: i64,
 ) {
-    for backup in backups {
-        let outcome = run(db, backup, store, connect, "", false, now);
-        if let Some(problem) = outcome.problem {
-            tracing::warn!(backup = %backup, problem, "could not start the run for a new phrase");
+    let left = run_marked_retrying(
+        db,
+        store,
+        connect,
+        backups,
+        now,
+        MARKED_RUN_TRIES,
+        MARKED_RUN_DELAY,
+    );
+    for backup in left {
+        tracing::warn!(backup = %backup, "backup stayed busy; its run for a new phrase waits for the next run");
+    }
+}
+
+const MARKED_RUN_TRIES: u32 = 6;
+const MARKED_RUN_DELAY: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Runs each backup, trying again (up to `tries` passes, `delay` apart) for those that were busy.
+/// Returns the backups that were still busy after the last pass.
+fn run_marked_retrying(
+    db: &crate::Db,
+    store: &dyn CloudStore,
+    connect: &ConnectService,
+    backups: &[String],
+    now: i64,
+    tries: u32,
+    delay: std::time::Duration,
+) -> Vec<String> {
+    let mut pending: Vec<String> = backups.to_vec();
+    for attempt in 0..tries.max(1) {
+        if attempt > 0 {
+            std::thread::sleep(delay);
+        }
+        let mut busy = Vec::new();
+        for backup in &pending {
+            let outcome = run(db, backup, store, connect, "", false, now);
+            if outcome.busy {
+                busy.push(backup.clone());
+            } else if let Some(problem) = outcome.problem {
+                tracing::warn!(backup = %backup, problem, "could not start the run for a new phrase");
+            }
+        }
+        pending = busy;
+        if pending.is_empty() {
+            break;
         }
     }
+    pending
 }
 
 const SCOPE_PUBLISH_PREFIX: &str = "pscope_publish";
@@ -704,6 +752,10 @@ pub fn delete(db: &crate::Db, id: &str, store: &dyn CloudStore, now: i64) -> any
     let Some(_slot) = drive_backup::try_hold(id) else {
         bail!("This backup is copying right now. Try again in a minute.");
     };
+    // Also the cloud lock, so no key move or re-seal can write records for it while it is removed.
+    let Some(_cloud_slot) = super::run::RunSlot::take(db, id) else {
+        bail!("This backup is copying right now. Try again in a minute.");
+    };
     let scopes = {
         let conn = lock(db);
         if db::get_protection(&conn, id)?.is_none() {
@@ -752,6 +804,15 @@ pub fn delete(db: &crate::Db, id: &str, store: &dyn CloudStore, now: i64) -> any
         "DELETE FROM backup_keys WHERE protection_id = ?1",
         params![id],
     )?;
+    // Its reader lists and any pending rotation go too; left behind, a re-seal would look for key
+    // rows that no longer exist and never finish.
+    conn.execute(
+        "DELETE FROM meta WHERE key GLOB ?1 OR key = ?2",
+        params![
+            format!("cloud_recipients:{}:*", glob_escape(id)),
+            format!("cloud_rotate:{id}")
+        ],
+    )?;
     // With no cloud backup left, no run can be refused for a card, so the marker goes too.
     if !db::list_protections(&conn)?
         .iter()
@@ -760,6 +821,16 @@ pub fn delete(db: &crate::Db, id: &str, store: &dyn CloudStore, now: i64) -> any
         db::set_meta(&conn, CARD_MARKER, "")?;
     }
     Ok(())
+}
+
+/// Escape glob metacharacters so a backup id matches only itself.
+fn glob_escape(id: &str) -> String {
+    id.chars()
+        .flat_map(|c| match c {
+            '*' | '?' | '[' => vec!['[', c, ']'],
+            c => vec![c],
+        })
+        .collect()
 }
 
 fn remote_delete(store: &dyn CloudStore, kind: &str, name: &str) -> anyhow::Result<()> {
@@ -1002,6 +1073,133 @@ mod tests {
         create(&s.db, &s.connect, &s.admin, &s.src, "Docs")
             .unwrap()
             .id
+    }
+
+    #[test]
+    fn after_a_delete_a_reader_can_still_be_re_sealed() {
+        let s = setup();
+        let id = make_backup(&s);
+        let store = MemoryStore::new();
+        assert_eq!(
+            run(&s.db, &id, &store, &s.connect, "", false, NOW).problem,
+            None
+        );
+        assert!(!keys::reader_versions_for_test(&lock(&s.db), "admin").is_empty());
+        delete(&s.db, &id, &store, NOW).unwrap();
+        {
+            let conn = lock(&s.db);
+            let left: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM meta WHERE key LIKE 'cloud_recipients:%' OR key LIKE 'cloud_rotate:%'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(left, 0);
+            keys::queue_reseal(&conn, "admin").unwrap();
+        }
+        let report = keys::reseal_user(&s.db, &store, "admin").unwrap();
+        assert!(report.done, "{report:?}");
+        assert!(report.missing.is_empty());
+        assert!(!keys::resealing_pending(&lock(&s.db), "admin").unwrap());
+    }
+
+    #[test]
+    fn a_reader_list_left_by_a_deleted_backup_does_not_block_a_re_seal() {
+        let s = setup();
+        let id = make_backup(&s);
+        let store = MemoryStore::new();
+        assert_eq!(
+            run(&s.db, &id, &store, &s.connect, "", false, NOW).problem,
+            None
+        );
+        delete(&s.db, &id, &store, NOW).unwrap();
+        // An older build, or a crash, left the reader list behind.
+        lock(&s.db)
+            .execute(
+                "INSERT INTO meta (key, value) VALUES (?1, ?2)",
+                params![
+                    format!("cloud_recipients:{id}:1"),
+                    r#"[{"user_id":"admin"}]"#
+                ],
+            )
+            .unwrap();
+        keys::queue_reseal(&lock(&s.db), "admin").unwrap();
+        let report = keys::reseal_user(&s.db, &store, "admin").unwrap();
+        assert!(report.done, "{report:?}");
+    }
+
+    #[test]
+    fn a_run_that_finds_a_move_or_re_seal_holding_the_backup_skips_quietly() {
+        let s = setup();
+        let id = make_backup(&s);
+        let store = MemoryStore::new();
+        let before = db::get_protection(&lock(&s.db), &id).unwrap().unwrap();
+        let slot = run::RunSlot::take(&s.db, &id).unwrap();
+        let outcome = run(&s.db, &id, &store, &s.connect, "", false, NOW);
+        assert!(outcome.busy);
+        drop(slot);
+        // Nothing was recorded: no error on the backup, and no card marker.
+        let after = db::get_protection(&lock(&s.db), &id).unwrap().unwrap();
+        assert_eq!(after.last_error, before.last_error);
+        assert_eq!(after.failing_since, before.failing_since);
+        // Once the lock is free the run goes through.
+        let outcome = run(&s.db, &id, &store, &s.connect, "", false, NOW);
+        assert!(!outcome.busy);
+        assert_eq!(outcome.problem, None);
+    }
+
+    #[test]
+    fn a_marked_run_that_finds_the_backup_busy_tries_again() {
+        let s = setup();
+        let id = make_backup(&s);
+        let store = MemoryStore::new();
+        let slot = run::RunSlot::take(&s.db, &id).unwrap();
+        let ids = vec![id.clone()];
+        let delay = std::time::Duration::from_millis(20);
+        // Still held after every try: reported as left over.
+        let left = run_marked_retrying(&s.db, &store, &s.connect, &ids, NOW, 2, delay);
+        assert_eq!(left, ids);
+        // Released while the retries wait: a later try goes through.
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(60));
+            drop(slot);
+        });
+        let left = run_marked_retrying(
+            &s.db,
+            &store,
+            &s.connect,
+            &ids,
+            NOW,
+            50,
+            std::time::Duration::from_millis(20),
+        );
+        release.join().unwrap();
+        assert!(left.is_empty(), "{left:?}");
+    }
+
+    #[test]
+    fn delete_waits_out_a_move_and_a_move_waits_out_a_run() {
+        let s = setup();
+        let id = make_backup(&s);
+        let store = MemoryStore::new();
+        {
+            let _slot = run::RunSlot::take(&s.db, &id).unwrap();
+            let err = delete(&s.db, &id, &store, NOW).unwrap_err();
+            assert!(err.to_string().contains("copying right now"));
+            assert!(db::get_protection(&lock(&s.db), &id).unwrap().is_some());
+        }
+        // While a run or delete holds the drive-backup lock, a move step does nothing.
+        let _hold = drive_backup::try_hold(&id).unwrap();
+        assert_eq!(
+            rewrap::step(&s.db, &id, &store, NOW).unwrap(),
+            rewrap::Step::Busy
+        );
+    }
+
+    #[test]
+    fn the_not_set_up_message_points_to_about_advanced() {
+        assert!(NOT_SET_UP.contains("Settings → About → Advanced"));
     }
 
     #[test]

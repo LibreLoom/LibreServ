@@ -128,6 +128,21 @@ fn candidates(
     Ok(rows)
 }
 
+/// True when key version `version` of the backup has the same dedup key as the target.
+fn same_dedup_line(
+    conn: &Connection,
+    protection_id: &str,
+    version: i64,
+    dedup_key: &[u8; 32],
+) -> Result<bool> {
+    Ok(conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM backup_keys
+                        WHERE protection_id = ?1 AND version = ?2 AND dedup_key = ?3)",
+        params![protection_id, version, dedup_key.as_slice()],
+        |r| r.get(0),
+    )?)
+}
+
 /// True when a snapshot still links to a pack from an older version (even one with no chunks left).
 fn has_old_link(
     conn: &Connection,
@@ -152,6 +167,11 @@ fn next_work(
     scope: &str,
 ) -> Result<Option<Work>> {
     for snapshot in db::list_cloud_snapshots(conn, protection_id)? {
+        // A snapshot under a version with another dedup key (a membership change) is left alone:
+        // its readers open it with its own version key, and its chunks are not in this scope.
+        if !same_dedup_line(conn, protection_id, snapshot.key_version, &target.dedup_key)? {
+            continue;
+        }
         if let Some((pack, _)) = candidates(conn, &snapshot, scope, target.created_at)?
             .into_iter()
             .next()
@@ -173,6 +193,7 @@ fn remaining_bytes(
     protection_id: &str,
     scope: &str,
     target_created_at: i64,
+    dedup_key: &[u8; 32],
 ) -> Result<u64> {
     let bytes: i64 = conn.query_row(
         "SELECT COALESCE(SUM(p.size), 0) FROM cloud_packs p
@@ -180,9 +201,17 @@ fn remaining_bytes(
            AND EXISTS (SELECT 1 FROM cloud_chunks c WHERE c.pack_id = p.id)
            AND p.id IN (SELECT sp.pack_id FROM cloud_snapshot_packs sp
                         JOIN cloud_snapshots s ON s.id = sp.snapshot_id
-                        WHERE s.protection_id = ?3)
+                        WHERE s.protection_id = ?3
+                          AND EXISTS (SELECT 1 FROM backup_keys k
+                                      WHERE k.protection_id = s.protection_id
+                                        AND k.version = s.key_version AND k.dedup_key = ?4))
            AND p.id NOT IN (SELECT tree_pack_id FROM cloud_snapshots WHERE protection_id = ?3)",
-        params![scope, target_created_at, protection_id],
+        params![
+            scope,
+            target_created_at,
+            protection_id,
+            dedup_key.as_slice()
+        ],
         |r| r.get(0),
     )?;
     Ok(bytes.max(0) as u64)
@@ -259,7 +288,13 @@ pub fn status(conn: &Connection, protection_id: &str) -> Result<Option<MoveStatu
     if next_work(conn, protection_id, &target, &scope)?.is_none() {
         return Ok(None);
     }
-    let remaining = remaining_bytes(conn, protection_id, &scope, target.created_at)?;
+    let remaining = remaining_bytes(
+        conn,
+        protection_id,
+        &scope,
+        target.created_at,
+        &target.dedup_key,
+    )?;
     let moved = read_moved(conn, protection_id, target.version)?;
     Ok(Some(MoveStatus {
         percent: percent(moved, remaining),
@@ -279,14 +314,38 @@ pub fn status_json(conn: &Connection, protection_id: &str) -> Value {
     }
 }
 
-/// The `moving` value for the phrase page: the lowest percent across backups that are moving,
-/// and paused if any of them is paused. `null` when no backup is moving.
-pub fn status_for_luna(conn: &Connection) -> Value {
+/// Whether `row`'s move counts for `user`: the backup's newest reader list names them (`mine` holds
+/// those backups), or they are an Admin who can see the backup under the usual access rules.
+fn counts_for(row: &db::ProtectionRow, user: &crate::auth::CurrentUser, mine: &[String]) -> bool {
+    mine.contains(&row.id) || (user.role == "admin" && super::ops::visible_to(row, user))
+}
+
+/// The `moving` value for a backup row, as `user` sees it: `null` unless the move concerns them.
+pub fn status_json_for(
+    conn: &Connection,
+    row: &db::ProtectionRow,
+    user: &crate::auth::CurrentUser,
+) -> Value {
+    let mine = super::keys::current_backups_of(conn, &user.id).unwrap_or_default();
+    if counts_for(row, user, &mine) {
+        status_json(conn, &row.id)
+    } else {
+        Value::Null
+    }
+}
+
+/// The `moving` value for the phrase page: the lowest percent across the backups that are moving
+/// and concern `user` (see `counts_for`), and paused if any of them is paused. `null` when none is.
+pub fn status_for_luna(conn: &Connection, user: &crate::auth::CurrentUser) -> Value {
     let Ok(protections) = db::list_protections(conn) else {
         return Value::Null;
     };
+    let mine = super::keys::current_backups_of(conn, &user.id).unwrap_or_default();
     let mut combined: Option<MoveStatus> = None;
-    for row in protections {
+    for row in protections
+        .iter()
+        .filter(|row| counts_for(row, user, &mine))
+    {
         match status(conn, &row.id) {
             Ok(Some(s)) => {
                 combined = Some(match combined {
@@ -313,6 +372,10 @@ pub fn step(db: &crate::Db, protection_id: &str, store: &dyn CloudStore, now: i6
     let Some(_slot) = RunSlot::take(db, protection_id) else {
         return Ok(Step::Busy);
     };
+    // A run, delete or restore holds the drive-backup lock before it takes this one.
+    if crate::backup::drive_backup::is_running(protection_id) {
+        return Ok(Step::Busy);
+    }
     resync_records(db, protection_id, store)?;
     let (target, scope, work) = {
         let conn = run::lock(db);
@@ -1362,6 +1425,67 @@ mod tests {
         assert_eq!(on_unlive, 0);
     }
 
+    #[test]
+    fn a_rotation_with_a_new_dedup_key_leaves_older_snapshots_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = setup(dir.path());
+        let src = source(dir.path());
+        let store = MemoryStore::new();
+        run_at(&db, &src, &store, 100);
+        // A membership change rotates to version 2 with a fresh dedup key. Readers open the
+        // version 1 snapshot with their own version 1 key, so there is nothing to move.
+        db::insert_backup_key(
+            &run::lock(&db),
+            &BackupKey {
+                protection_id: "rw".into(),
+                version: 2,
+                key: random_vec(32),
+                dedup_key: random_vec(32),
+                created_at: 200,
+            },
+        )
+        .unwrap();
+        assert!(status(&run::lock(&db), "rw").unwrap().is_none());
+        assert_eq!(step(&db, "rw", &store, 300).unwrap(), Step::Done);
+        assert_eq!(step(&db, "rw", &store, 310).unwrap(), Step::Done);
+        // Nothing was rewritten: the snapshot is still under version 1.
+        assert_eq!(snapshots(&db)[0].key_version, 1);
+        assert_eq!(rewrap_run_count(&db), 0);
+    }
+
+    /// Runs opened by move steps. A backup run is not counted because it names no key move.
+    fn rewrap_run_count(db: &crate::Db) -> i64 {
+        run::lock(db)
+            .query_row(
+                "SELECT COUNT(*) FROM cloud_runs WHERE started_at >= 300",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or(0)
+    }
+
+    #[test]
+    fn the_move_shows_only_to_the_backups_readers() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = setup(dir.path());
+        let src = source(dir.path());
+        let store = MemoryStore::new();
+        build(&db, &src, &store);
+        let user = |id: &str, role: &str| crate::auth::CurrentUser {
+            id: id.into(),
+            username: id.into(),
+            role: role.into(),
+        };
+        let conn = run::lock(&db);
+        // The reader sees the move.
+        assert!(status_for_luna(&conn, &user("owner", "member")).is_object());
+        // Someone who is not on the backup's newest reader list and is no Admin does not.
+        assert!(status_for_luna(&conn, &user("stranger", "member")).is_null());
+        let row = db::get_protection(&conn, "rw").unwrap().unwrap();
+        assert!(status_json_for(&conn, &row, &user("stranger", "member")).is_null());
+        assert!(status_json_for(&conn, &row, &user("owner", "member")).is_object());
+    }
+
     /// Steps until the next piece of work is a snapshot rewrite.
     fn step_until_rewrite_is_next(db: &crate::Db, store: &dyn CloudStore, mut now: i64) -> i64 {
         for _ in 0..200 {
@@ -1669,7 +1793,12 @@ mod tests {
         let db = setup(dir.path());
         assert_eq!(status(&run::lock(&db), "rw").unwrap(), None);
         assert_eq!(status_json(&run::lock(&db), "rw"), Value::Null);
-        assert_eq!(status_for_luna(&run::lock(&db)), Value::Null);
+        let owner = crate::auth::CurrentUser {
+            id: "owner".into(),
+            username: "owner".into(),
+            role: "admin".into(),
+        };
+        assert_eq!(status_for_luna(&run::lock(&db), &owner), Value::Null);
     }
 
     fn tree_pack_ids(db: &crate::Db) -> Vec<String> {

@@ -36,14 +36,12 @@ function ErrorNotice({ children }) {
 /**
  * Shows 12 new words (or 24, if chosen), asks for three of them back, then saves the phrase.
  * `signingPublic` is Luna's signing public key (base64) from the status call.
- * `replacing` is set when a phrase already exists; the old phrase is not needed.
  * The words live only in this component's state.
  */
 export default function RecoveryPhraseSetup({
   lunaId,
   userId,
   signingPublic,
-  replacing = false,
   onClose,
   onSaved = null,
 }) {
@@ -57,8 +55,6 @@ export default function RecoveryPhraseSetup({
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-
-  const title = replacing ? "Set a new recovery phrase" : "Set up your recovery phrase";
 
   /** Make a new phrase of the chosen length. Nothing has been written down yet, so the old words are dropped. */
   function chooseLength(value) {
@@ -129,7 +125,7 @@ export default function RecoveryPhraseSetup({
       // Luna's signing public key is sealed into the save, so Connect cannot swap it.
       await savePhrase(buildPhraseBody(entropy, { lunaId, userId, signingPublic }));
       await queryClient.invalidateQueries({ queryKey: PHRASE_QUERY_KEY });
-      addToast({ type: "success", message: replacing ? "Recovery phrase changed." : "Recovery phrase saved." });
+      addToast({ type: "success", message: "Recovery phrase saved." });
       onSaved?.();
       onClose();
     } catch (err) {
@@ -140,7 +136,7 @@ export default function RecoveryPhraseSetup({
   }
 
   return (
-    <ModalCard open title={title} onClose={onClose} size="md">
+    <ModalCard open title="Set up your recovery phrase" onClose={onClose} size="md">
       {step === "show" ? (
         <div className="space-y-4">
           <p className="text-primary text-sm">

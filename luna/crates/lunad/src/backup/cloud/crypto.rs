@@ -23,6 +23,7 @@ use ml_kem::{B32, DecapsulationKey768, EncapsulationKey768, Seed};
 use rand_core::{OsRng, RngCore};
 use sha2::{Digest, Sha256};
 use x25519_dalek::{PublicKey, StaticSecret};
+use zeroize::Zeroize;
 
 /// Fixed HKDF salt for deriving keys from a recovery phrase.
 const DERIVE_SALT: &[u8] = b"luna-backup-v1";
@@ -145,7 +146,7 @@ const SCOPE_MLKEM_INFO: &[u8] = b"luna-scope-mlkem-v1";
 /// secret and its public key always agree.
 fn seal_pair(
     mut x25519_secret: [u8; X25519_LEN],
-    mlkem_seed: [u8; MLKEM_SEED_LEN],
+    mut mlkem_seed: [u8; MLKEM_SEED_LEN],
 ) -> (SealSecret, SealPublic) {
     x25519_secret[0] &= 248;
     x25519_secret[31] &= 127;
@@ -159,22 +160,35 @@ fn seal_pair(
     let mut seal_public = [0u8; SEAL_PUBLIC_LEN];
     seal_public[..X25519_LEN].copy_from_slice(&x25519_public);
     seal_public[X25519_LEN..].copy_from_slice(&mlkem_public);
+    // Best effort: these are this function's own copies of the secret parts.
+    x25519_secret.zeroize();
+    mlkem_seed.zeroize();
     (seal_secret, seal_public)
 }
 
 /// The key pair of one private scope, made from a 32-byte seed. Same layout and checks as a user's keys.
 pub fn scope_keys_from_seed(seed: &[u8; 32]) -> (SealSecret, SealPublic) {
     let x25519_secret = hkdf_32(seed, Some(DERIVE_SALT), SCOPE_X25519_INFO);
-    let mlkem_seed = hkdf_n::<MLKEM_SEED_LEN>(seed, Some(DERIVE_SALT), SCOPE_MLKEM_INFO);
-    seal_pair(x25519_secret, mlkem_seed)
+    let mut mlkem_seed = hkdf_n::<MLKEM_SEED_LEN>(seed, Some(DERIVE_SALT), SCOPE_MLKEM_INFO);
+    let mut x25519_secret = x25519_secret;
+    let pair = seal_pair(x25519_secret, mlkem_seed);
+    // `seal_pair` took copies of both arrays; wipe ours too.
+    x25519_secret.zeroize();
+    mlkem_seed.zeroize();
+    pair
 }
 
 /// A new random key pair for one private scope. The caller keeps only the public half and a copy
-/// sealed to the owner; the secret half is dropped once it is sealed.
+/// sealed to the owner; the secret half is wiped once it is sealed.
 pub fn new_scope_keys() -> (SealSecret, SealPublic) {
     let mut seed = [0u8; 32];
     OsRng.fill_bytes(&mut seed);
-    scope_keys_from_seed(&seed)
+    let keys = scope_keys_from_seed(&seed);
+    // Best effort: the seed is not needed once the pair exists. The returned secret half is the
+    // caller's to wipe after sealing it. Rust may have left other copies in registers or on the
+    // stack, which this cannot reach.
+    seed.zeroize();
+    keys
 }
 
 /// The length of a sealed copy of a `msg_len`-byte message (see `seal`).

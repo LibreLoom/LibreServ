@@ -10,6 +10,7 @@ import {
   normalizePhraseStatus,
   replaceErrorMessage,
   replaceMessage,
+  rescopedHash,
   replacePhrase,
   REPLACE_DOMAIN,
   signFreshChallenge,
@@ -277,6 +278,38 @@ describe("replacePhrase", () => {
     expect(opened).toEqual(secret);
   });
 
+  it("signs the re-sealed scopes too: dropping or swapping one breaks the signature", async () => {
+    const oldEntropy = newEntropy();
+    const { authPublic, sealPublic } = derive(oldEntropy, LUNA_ID);
+    const secret = new Uint8Array(96).map((_, i) => (i * 7) % 256);
+    const sealedFor = (scope) => toBase64(sealScopeSecret(secret, sealPublic, LUNA_ID, scope));
+    const { calls } = routePhrase({
+      "GET /api/v1/cloud/phrase/scopes": [200, {
+        scopes: [
+          { scope: "scope-b", sealed_scope_secret: sealedFor("scope-b") },
+          { scope: "scope-a", sealed_scope_secret: sealedFor("scope-a") },
+        ],
+      }],
+      "POST /api/v1/cloud/phrase/challenge": challengeReply,
+      "PUT /api/v1/cloud/phrase": [200, { set: true, set_at: 1 }],
+    });
+    await replacePhrase({ ...common, proof: { oldEntropy }, exposed: false });
+    const put = calls.find((c) => c.key === "PUT /api/v1/cloud/phrase").body;
+    const signature = fromBase64(put.signature);
+    expect(put.rescoped).toHaveLength(2);
+    expect(verify(authPublic, REPLACE_DOMAIN, replaceMessage(CHALLENGE, put), signature)).toBe(true);
+    // The order the list is sent in does not matter, only its content.
+    const reordered = { ...put, rescoped: [...put.rescoped].reverse() };
+    expect(verify(authPublic, REPLACE_DOMAIN, replaceMessage(CHALLENGE, reordered), signature)).toBe(true);
+    const dropped = { ...put, rescoped: put.rescoped.slice(0, 1) };
+    expect(verify(authPublic, REPLACE_DOMAIN, replaceMessage(CHALLENGE, dropped), signature)).toBe(false);
+    const swapped = {
+      ...put,
+      rescoped: [{ ...put.rescoped[0], sealed_scope_secret: toBase64(new Uint8Array(put.rescoped[0].sealed_scope_secret.length).fill(1)) }, put.rescoped[1]],
+    };
+    expect(verify(authPublic, REPLACE_DOMAIN, replaceMessage(CHALLENGE, swapped), signature)).toBe(false);
+  });
+
   it("reads the scopes before it signs the challenge, so the challenge is still fresh", async () => {
     const { calls } = routePhrase({
       "POST /api/v1/cloud/phrase/challenge": challengeReply,
@@ -336,5 +369,32 @@ describe("normalizePhraseStatus, resealing", () => {
   it("reads resealing as a boolean, false when missing", () => {
     expect(normalizePhraseStatus({ resealing: true }).resealing).toBe(true);
     expect(normalizePhraseStatus({}).resealing).toBe(false);
+  });
+});
+
+describe("signed bytes match the Rust side", () => {
+  // The same vectors are pinned in cloud_phrase.rs: if either side drifts, both tests fail.
+  const hex = (bytes) => [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+  const rescoped = [
+    { scope: "scope-b", sealed_scope_secret: toBase64(new Uint8Array(40).fill(2)) },
+    { scope: "scope-a", sealed_scope_secret: toBase64(new Uint8Array(40).fill(1)) },
+  ];
+
+  it("hashes the re-sealed scopes to the pinned bytes", () => {
+    expect(hex(rescopedHash(rescoped))).toBe("57825ea6ce207824ca047b67d2b5856af1df29c15afeb41e83d1d3b4a5742f28");
+    expect(hex(rescopedHash([]))).toBe("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+  });
+
+  it("builds the pinned replace message", () => {
+    const message = replaceMessage(new Uint8Array(32).fill(7), {
+      seal_public: toBase64(new Uint8Array(32).fill(3)),
+      auth_public: toBase64(new Uint8Array(32).fill(4)),
+      self_sealed: toBase64(new Uint8Array(48).fill(5)),
+      exposed: true,
+      rescoped,
+    });
+    expect(hex(message)).toBe(
+      "000000096368616c6c656e67650000002007070707070707070707070707070707070707070707070707070707070707070000000b7365616c5f7075626c69630000002003030303030303030303030303030303030303030303030303030303030303030000000b617574685f7075626c69630000002004040404040404040404040404040404040404040404040404040404040404040000001073656c665f7365616c65645f6861736800000020bae0441407d7f6e0fe664fd07f8d144340acea5f88820f2ad0c800671c9479e3000000076578706f73656400000001010000000d726573636f7065645f686173680000002057825ea6ce207824ca047b67d2b5856af1df29c15afeb41e83d1d3b4a5742f28",
+    );
   });
 });

@@ -80,7 +80,7 @@ struct Parsed {
 fn not_set_up() -> ApiError {
     json_error(
         StatusCode::CONFLICT,
-        "Set up Luna Connect first, in Settings → Luna Connect.",
+        "Set up Luna Connect first, in Settings → About → Advanced.",
     )
 }
 
@@ -490,6 +490,15 @@ mod tests {
     use crate::drives::DriveManager;
     use crate::drives::mount::shared_mock;
     use crate::{AppState, db};
+
+    #[test]
+    fn the_not_set_up_error_points_to_about_advanced() {
+        let (status, body) = super::not_set_up();
+        assert_eq!(status, StatusCode::CONFLICT);
+        let text = body.0["error"].as_str().unwrap().to_string();
+        assert!(text.contains("Settings → About → Advanced"), "{text}");
+        assert!(!text.contains("Settings → Luna Connect"), "{text}");
+    }
 
     const NOW: i64 = 1_800_000_000;
     const DEDUP_A: [u8; 32] = [3; 32];

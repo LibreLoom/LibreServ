@@ -185,7 +185,7 @@ async fn remove(
         // Its copies in the cloud can only be removed through Connect.
         Ok(None) => Err(json_error(
             StatusCode::CONFLICT,
-            "Connect this Luna to Luna Connect before deleting a cloud backup. Its copies in the cloud can't be removed until then. Settings → Luna Connect.",
+            "Connect this Luna to Luna Connect before deleting a cloud backup. Its copies in the cloud can't be removed until then. Settings → About → Advanced.",
         )),
         Err(_) => Err(json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -392,7 +392,7 @@ fn backup_json(conn: &Connection, row: &ProtectionRow, user: &CurrentUser, now: 
         "running": drive_backup::is_running(&row.id),
         "notes": row.notes.lines().filter(|l| !l.trim().is_empty()).collect::<Vec<_>>(),
         // `{percent, paused_full}` while older packs move to the newest recovery phrase, else null.
-        "moving": rewrap::status_json(conn, &row.id),
+        "moving": rewrap::status_json_for(conn, row, user),
     })
 }
 

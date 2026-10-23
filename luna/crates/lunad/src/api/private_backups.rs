@@ -212,7 +212,7 @@ async fn remove_owner(
             Ok(Ok(None)) => {
                 return Err(json_error(
                     StatusCode::SERVICE_UNAVAILABLE,
-                    "Connect this Luna to Luna Connect before deleting a cloud backup. Its copies in the cloud can't be removed until then. Settings → Luna Connect.",
+                    "Connect this Luna to Luna Connect before deleting a cloud backup. Its copies in the cloud can't be removed until then. Settings → About → Advanced.",
                 ));
             }
             Ok(Err(text)) => return Err(json_error(StatusCode::SERVICE_UNAVAILABLE, text)),
