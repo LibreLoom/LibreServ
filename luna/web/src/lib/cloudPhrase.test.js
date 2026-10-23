@@ -17,6 +17,21 @@ import {
   toBase64,
 } from "./cloudPhrase";
 
+const sealHooks = vi.hoisted(() => ({ corrupt: false }));
+vi.mock("@libreloom/ui/lib/cloud/cloudPrivate.js", async (importOriginal) => {
+  const actual = /** @type {any} */ (await importOriginal());
+  return {
+    ...actual,
+    sealScopeSecret: (...args) => {
+      const sealed = actual.sealScopeSecret(...args);
+      if (!sealHooks.corrupt) return sealed;
+      const bad = sealed.slice();
+      bad[bad.length - 1] ^= 1;
+      return bad;
+    },
+  };
+});
+
 const LUNA_ID = "luna-test-1";
 const USER_ID = "42";
 const encoder = new TextEncoder();
@@ -276,6 +291,29 @@ describe("replacePhrase", () => {
       "scope-1",
     );
     expect(opened).toEqual(secret);
+  });
+
+  it("stops with a plain message and sends nothing when a re-sealed scope does not open with the new phrase", async () => {
+    const oldEntropy = newEntropy();
+    const oldKeys = derive(oldEntropy, LUNA_ID);
+    const secret = new Uint8Array(96).map((_, i) => (i * 3) % 256);
+    const { calls } = routePhrase({
+      "GET /api/v1/cloud/phrase/scopes": [200, {
+        scopes: [{ scope: "scope-1", sealed_scope_secret: toBase64(sealScopeSecret(secret, oldKeys.sealPublic, LUNA_ID, "scope-1")) }],
+      }],
+      "POST /api/v1/cloud/phrase/challenge": challengeReply,
+      "PUT /api/v1/cloud/phrase": [200, { set: true, set_at: 1 }],
+    });
+    sealHooks.corrupt = true;
+    try {
+      await expect(replacePhrase({ ...common, proof: { oldEntropy }, exposed: false })).rejects.toThrow(
+        "Your phrase was not changed.",
+      );
+    } finally {
+      sealHooks.corrupt = false;
+    }
+    expect(calls.filter((c) => c.key.startsWith("PUT"))).toHaveLength(0);
+    expect(calls.filter((c) => c.key.startsWith("POST"))).toHaveLength(0);
   });
 
   it("signs the re-sealed scopes too: dropping or swapping one breaks the signature", async () => {

@@ -878,7 +878,7 @@ async fn restore(
         let (store, manifest) = find_visible(&conn, &user, &drive_id, &id)?;
         // Held until the copy below finishes, so no backup run can write into
         // the files being restored.
-        let Some(slot) = drive_backup::try_hold(&id) else {
+        let Some(slot) = drive_backup::try_hold(&state.db, &id) else {
             return Err(fail(
                 StatusCode::CONFLICT,
                 "This backup is copying right now. Try again in a minute.",
@@ -1651,7 +1651,7 @@ mod tests {
         };
         let store = make_store(&f, "p-held", "drive-src", shared);
         fs::write(store.current_dir().join("a.txt"), "hello").unwrap();
-        let _held = drive_backup::try_hold("p-held").expect("slot free");
+        let _held = drive_backup::try_hold(&f.state.db, "p-held").expect("slot free");
 
         let (status, bytes) = send(
             &f,

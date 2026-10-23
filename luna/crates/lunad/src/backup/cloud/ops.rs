@@ -220,7 +220,7 @@ pub fn run(
     accept_missing: bool,
     now: i64,
 ) -> CloudOutcome {
-    let Some(_slot) = drive_backup::try_hold(id) else {
+    let Some(_slot) = drive_backup::try_hold(db, id) else {
         return problem_outcome("This backup is copying right now. Try again in a minute.");
     };
     // Send the current recovery keys first. A failure does not stop the copy; it is reported here.
@@ -749,7 +749,7 @@ pub(crate) fn record(
 /// if Luna Connect can't be reached, nothing local is removed and the person
 /// can try again. Refuses while a run is copying.
 pub fn delete(db: &crate::Db, id: &str, store: &dyn CloudStore, now: i64) -> anyhow::Result<()> {
-    let Some(_slot) = drive_backup::try_hold(id) else {
+    let Some(_slot) = drive_backup::try_hold(db, id) else {
         bail!("This backup is copying right now. Try again in a minute.");
     };
     // Also the cloud lock, so no key move or re-seal can write records for it while it is removed.
@@ -1190,7 +1190,7 @@ mod tests {
             assert!(db::get_protection(&lock(&s.db), &id).unwrap().is_some());
         }
         // While a run or delete holds the drive-backup lock, a move step does nothing.
-        let _hold = drive_backup::try_hold(&id).unwrap();
+        let _hold = drive_backup::try_hold(&s.db, &id).unwrap();
         assert_eq!(
             rewrap::step(&s.db, &id, &store, NOW).unwrap(),
             rewrap::Step::Busy
@@ -1552,7 +1552,7 @@ mod tests {
         let s = setup();
         let id = make_backup(&s);
         let store = MemoryStore::new();
-        let _hold = drive_backup::try_hold(&id).unwrap();
+        let _hold = drive_backup::try_hold(&s.db, &id).unwrap();
         let err = delete(&s.db, &id, &store, NOW).unwrap_err();
         assert!(err.to_string().contains("copying right now"), "{err}");
     }

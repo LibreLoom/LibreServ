@@ -59,7 +59,7 @@ async fn list(State(state): State<AppState>, Extension(user): Extension<CurrentU
         .iter()
         .filter(|row| row.kind == db::PROTECTION_CLOUD)
         .filter(|row| ops::visible_to(row, &user))
-        .map(|row| backup_json(&conn, row, &user, now))
+        .map(|row| backup_json(&state.db, &conn, row, &user, now))
         .collect();
     Ok(Json(Value::Array(backups)))
 }
@@ -140,7 +140,13 @@ async fn create(
         }
     }));
     let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
-    Ok(Json(backup_json(&conn, &row, &user, db::now_unix())))
+    Ok(Json(backup_json(
+        &state.db,
+        &conn,
+        &row,
+        &user,
+        db::now_unix(),
+    )))
 }
 
 async fn remove(
@@ -160,7 +166,7 @@ async fn remove(
         ));
     }
     // A copy in progress would write into the backup while it is removed.
-    if drive_backup::is_running(&id) {
+    if drive_backup::is_running(&state.db, &id) {
         return Err(json_error(
             StatusCode::CONFLICT,
             "Luna is copying this backup right now. Delete it when the copy finishes.",
@@ -220,7 +226,7 @@ async fn run(
         accept_missing_allowed(&conn, &row, &user, wants_accept_missing)
     };
     // A run or a check already holds the backup. Say so instead of starting another.
-    if drive_backup::is_running(&id) {
+    if drive_backup::is_running(&state.db, &id) {
         return Ok(Json(json!({
             "done": false,
             "problem": "This backup is busy right now. Try again in a minute.",
@@ -263,7 +269,7 @@ async fn check(
             return Err(not_found());
         }
     }
-    if drive_backup::is_running(&id) {
+    if drive_backup::is_running(&state.db, &id) {
         return Ok(Json(json!({
             "done": false,
             "problem": "This backup is busy right now. Try again in a minute.",
@@ -360,7 +366,13 @@ fn can_delete(conn: &Connection, row: &ProtectionRow, user: &CurrentUser) -> boo
     user.role == "admin" || (row.created_by == user.id && ops::visible_to(row, user))
 }
 
-fn backup_json(conn: &Connection, row: &ProtectionRow, user: &CurrentUser, now: i64) -> Value {
+fn backup_json(
+    db: &crate::Db,
+    conn: &Connection,
+    row: &ProtectionRow,
+    user: &CurrentUser,
+    now: i64,
+) -> Value {
     let source_label = drive_label(conn, &row.source_drive);
     let next_check = if row.last_checked_at == 0 {
         now
@@ -389,7 +401,7 @@ fn backup_json(conn: &Connection, row: &ProtectionRow, user: &CurrentUser, now: 
         "can_delete": can_delete(conn, row, user),
         "private": !row.private_owner.is_empty(),
         "old_phrase_copies": old_phrase_copies_json(conn, row, user),
-        "running": drive_backup::is_running(&row.id),
+        "running": drive_backup::is_running(db, &row.id),
         "notes": row.notes.lines().filter(|l| !l.trim().is_empty()).collect::<Vec<_>>(),
         // `{percent, paused_full}` while older packs move to the newest recovery phrase, else null.
         "moving": rewrap::status_json_for(conn, row, user),

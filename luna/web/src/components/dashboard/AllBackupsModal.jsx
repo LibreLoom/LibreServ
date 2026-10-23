@@ -69,7 +69,7 @@ function CopiesLink({ backup }) {
   );
 }
 
-function BackupRow({ backup, onOpen, onRun, running }) {
+function BackupRow({ backup, onOpen, onRun, running, member = false }) {
   const active = backup.status === "active";
   return (
     <li>
@@ -79,7 +79,7 @@ function BackupRow({ backup, onOpen, onRun, running }) {
         note={
           (!active || backup.moving) && (
             <>
-              {backup.moving && <MovingNote moving={backup.moving} />}
+              {backup.moving && <MovingNote moving={backup.moving} member={member} />}
               {!active && backup.stop_reason && <p>{backup.stop_reason}</p>}
               {!active && (
                 <p>
@@ -293,6 +293,7 @@ export default function AllBackupsModal({ open, onClose, backups = [] }) {
                 )}
                 {group.items.map((b) => (
                   <BackupRow
+                    member={!isAdmin}
                     key={b.id}
                     backup={b}
                     onOpen={setSheet}

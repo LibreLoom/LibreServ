@@ -235,6 +235,12 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             created_at INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS cloud_private_scopes_owner ON cloud_private_scopes(owner);
+        CREATE TABLE IF NOT EXISTS cloud_private_kept (
+            scope TEXT PRIMARY KEY,
+            seal_public BLOB NOT NULL,
+            sealed_scope_secret BLOB NOT NULL,
+            expires_at INTEGER NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS cloud_private_trees (
             snapshot_id TEXT PRIMARY KEY,
             scope TEXT NOT NULL,
@@ -509,6 +515,7 @@ pub fn factory_reset(conn: &Connection) -> anyhow::Result<()> {
         "cloud_snapshot_packs",
         "cloud_runs",
         "cloud_private_scopes",
+        "cloud_private_kept",
         "cloud_private_trees",
     ] {
         conn.execute(&format!("DELETE FROM {table}"), [])?;
@@ -1971,10 +1978,80 @@ pub fn delete_private_scope(conn: &Connection, scope: &str) -> anyhow::Result<()
         params![scope],
     )?;
     tx.execute(
+        "DELETE FROM cloud_private_kept WHERE scope = ?1",
+        params![scope],
+    )?;
+    tx.execute(
         "DELETE FROM cloud_private_scopes WHERE scope = ?1",
         params![scope],
     )?;
     tx.commit()?;
+    Ok(())
+}
+
+/// The previous copy of a scope's secret key, kept until `expires_at` so the old phrase can still
+/// open the scope. Replaces any copy already kept for the scope.
+#[derive(Debug, Clone, PartialEq)]
+pub struct KeptScopeSecret {
+    pub scope: String,
+    pub seal_public: Vec<u8>,
+    pub sealed_scope_secret: Vec<u8>,
+    pub expires_at: i64,
+}
+
+pub fn keep_scope_secret(conn: &Connection, kept: &KeptScopeSecret) -> anyhow::Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO cloud_private_kept (scope, seal_public, sealed_scope_secret, expires_at)
+         VALUES (?1, ?2, ?3, ?4)",
+        params![
+            kept.scope,
+            kept.seal_public,
+            kept.sealed_scope_secret,
+            kept.expires_at
+        ],
+    )?;
+    Ok(())
+}
+
+/// One owner's kept copies that have not expired. Only ever called with the signed-in owner.
+pub fn list_kept_scope_secrets(
+    conn: &Connection,
+    owner: &str,
+    now: i64,
+) -> anyhow::Result<Vec<KeptScopeSecret>> {
+    let mut stmt = conn.prepare(
+        "SELECT k.scope, k.seal_public, k.sealed_scope_secret, k.expires_at
+         FROM cloud_private_kept k JOIN cloud_private_scopes s ON s.scope = k.scope
+         WHERE s.owner = ?1 AND k.expires_at > ?2 ORDER BY k.scope",
+    )?;
+    let rows = stmt
+        .query_map(params![owner, now], |r| {
+            Ok(KeptScopeSecret {
+                scope: r.get(0)?,
+                seal_public: r.get(1)?,
+                sealed_scope_secret: r.get(2)?,
+                expires_at: r.get(3)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+/// Drops every kept copy for one owner's scopes.
+pub fn clear_kept_scope_secrets(conn: &Connection, owner: &str) -> anyhow::Result<()> {
+    conn.execute(
+        "DELETE FROM cloud_private_kept WHERE scope IN (SELECT scope FROM cloud_private_scopes WHERE owner = ?1)",
+        params![owner],
+    )?;
+    Ok(())
+}
+
+/// Drops kept copies whose 30 days are over.
+pub fn clear_expired_kept_scope_secrets(conn: &Connection, now: i64) -> anyhow::Result<()> {
+    conn.execute(
+        "DELETE FROM cloud_private_kept WHERE expires_at <= ?1",
+        params![now],
+    )?;
     Ok(())
 }
 

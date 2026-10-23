@@ -70,7 +70,7 @@ async fn list(
                 .as_deref()
                 .is_none_or(|p| crate::access::normalize_subject_path(&row.source_path) == p)
         })
-        .map(|row| backup_json(&conn, row, &user, now))
+        .map(|row| backup_json(&state.db, &conn, row, &user, now))
         .collect();
     Ok(Json(Value::Array(backups)))
 }
@@ -137,7 +137,13 @@ async fn create(
     }));
 
     let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
-    Ok(Json(backup_json(&conn, &row, &user, db::now_unix())))
+    Ok(Json(backup_json(
+        &state.db,
+        &conn,
+        &row,
+        &user,
+        db::now_unix(),
+    )))
 }
 
 async fn remove(
@@ -154,13 +160,13 @@ async fn remove(
         ));
     }
     // A copy in progress would write into the backup's files as they go.
-    if drive_backup::is_running(&id) {
+    if drive_backup::is_running(&state.db, &id) {
         return Err(json_error(
             StatusCode::CONFLICT,
             "Luna is copying this backup right now. Delete it when the copy finishes.",
         ));
     }
-    drive_backup::delete(&conn, &row).map_err(|_| {
+    drive_backup::delete(&state.db, &conn, &row).map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Luna couldn't delete this backup. Try again.",
@@ -192,7 +198,7 @@ async fn run(
 
     // A run or a restore already holds the backup. Say so instead of starting
     // another run.
-    if drive_backup::is_running(&id) {
+    if drive_backup::is_running(&state.db, &id) {
         return Ok(Json(json!({
             "done": false,
             "problem": "This backup is busy right now. Try again in a minute.",
@@ -240,7 +246,13 @@ fn can_delete(conn: &Connection, row: &ProtectionRow, user: &CurrentUser) -> boo
     user.role == "admin" || (row.created_by == user.id && drive_backup::visible_to(row, user))
 }
 
-fn backup_json(conn: &Connection, row: &ProtectionRow, user: &CurrentUser, now: i64) -> Value {
+fn backup_json(
+    db: &crate::Db,
+    conn: &Connection,
+    row: &ProtectionRow,
+    user: &CurrentUser,
+    now: i64,
+) -> Value {
     let source_label = drive_label(conn, &row.source_drive);
     let target_label = drive_label(conn, &row.target_drive);
     json!({
@@ -262,7 +274,7 @@ fn backup_json(conn: &Connection, row: &ProtectionRow, user: &CurrentUser, now: 
         "created_by": row.created_by,
         "can_delete": can_delete(conn, row, user),
         "private": !row.private_owner.is_empty(),
-        "running": drive_backup::is_running(&row.id),
+        "running": drive_backup::is_running(db, &row.id),
         "notes": row.notes.lines().filter(|l| !l.trim().is_empty()).collect::<Vec<_>>(),
     })
 }
@@ -647,7 +659,7 @@ mod tests {
         seed(&f.state, "busy", "photos", &member_only, &f.member_id);
 
         // A restore holds the same slot as a run.
-        let _held = drive_backup::try_hold("busy").expect("slot free");
+        let _held = drive_backup::try_hold(&f.state.db, "busy").expect("slot free");
         let (status, json) = send(
             &f.router,
             "POST",

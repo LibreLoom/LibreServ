@@ -303,6 +303,9 @@ pub fn settle_scopes(
             _ => bail!("A private backup in the re-seal list is not this person's."),
         }
     }
+    if exposed {
+        db::clear_kept_scope_secrets(conn, owner)?;
+    }
     let mut settled = Settled::default();
     for scope in db::list_private_scopes(conn, Some(owner))? {
         let fresh = rescoped.iter().find(|(name, _)| *name == scope.scope);
@@ -310,6 +313,19 @@ pub fn settle_scopes(
             // Retiring with grace already, and the browser could not re-seal it: leave it be.
             ("old_phrase", None) => {}
             (_, Some((_, sealed))) => {
+                // Not exposed: the old phrase may still open this scope for 30 days. Exposed: the
+                // old phrase must not, so nothing is kept (plan §5).
+                if !exposed && scope.seal_public.as_slice() != new_public.as_slice() {
+                    db::keep_scope_secret(
+                        conn,
+                        &db::KeptScopeSecret {
+                            scope: scope.scope.clone(),
+                            seal_public: scope.seal_public.clone(),
+                            sealed_scope_secret: scope.sealed_scope_secret.clone(),
+                            expires_at: now + OLD_PHRASE_GRACE,
+                        },
+                    )?;
+                }
                 db::set_private_scope_seal(conn, &scope.scope, new_public, sealed)?;
                 if exposed && scope.state == "active" {
                     db::set_private_scope_state(conn, &scope.scope, "history", 0)?;
@@ -339,6 +355,9 @@ pub fn retire_scopes_without_key(
     now: i64,
 ) -> Result<()> {
     let retire_after = if exposed { now } else { now + OLD_PHRASE_GRACE };
+    if exposed {
+        db::clear_kept_scope_secrets(conn, owner)?;
+    }
     for scope in db::list_private_scopes(conn, Some(owner))? {
         if scope.state != "old_phrase" {
             db::set_private_scope_state(conn, &scope.scope, "old_phrase", retire_after)?;

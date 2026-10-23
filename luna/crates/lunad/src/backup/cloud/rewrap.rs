@@ -369,13 +369,15 @@ pub fn status_for_luna(conn: &Connection, user: &crate::auth::CurrentUser) -> Va
 /// Runs one step of the move for `protection_id`. Takes the backup's run lock, so a run and the
 /// move take turns. Each step moves one pack or rewrites one snapshot.
 pub fn step(db: &crate::Db, protection_id: &str, store: &dyn CloudStore, now: i64) -> Result<Step> {
+    // The drive-backup hold first, then the cloud run lock: the same order a run, delete or
+    // restore uses. Both are only tried, never waited on, so nothing can deadlock. A restore
+    // that starts mid-step is refused, and a step that finds a restore running does nothing.
+    let Some(_hold) = crate::backup::drive_backup::try_hold(db, protection_id) else {
+        return Ok(Step::Busy);
+    };
     let Some(_slot) = RunSlot::take(db, protection_id) else {
         return Ok(Step::Busy);
     };
-    // A run, delete or restore holds the drive-backup lock before it takes this one.
-    if crate::backup::drive_backup::is_running(protection_id) {
-        return Ok(Step::Busy);
-    }
     resync_records(db, protection_id, store)?;
     let (target, scope, work) = {
         let conn = run::lock(db);
@@ -946,6 +948,72 @@ fn commit_rewrite(
     )?;
     tx.commit()?;
     Ok(())
+}
+
+/// Test store that notes whether the backup's drive-backup hold was taken during any call.
+/// A restore tries that hold, so "held while the store is used" means a restore would be refused.
+#[cfg(test)]
+pub(crate) struct HoldProbe {
+    pub(crate) inner: super::store::MemoryStore,
+    holds: std::sync::Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
+    id: String,
+    pub(crate) saw_held: std::sync::atomic::AtomicBool,
+}
+
+#[cfg(test)]
+impl HoldProbe {
+    pub(crate) fn new(db: &crate::Db, id: &str) -> Self {
+        Self {
+            inner: super::store::MemoryStore::new(),
+            holds: std::sync::Arc::clone(db.backup_holds()),
+            id: id.to_string(),
+            saw_held: Default::default(),
+        }
+    }
+
+    fn note(&self) {
+        let held = self.holds.lock().unwrap().contains(&self.id);
+        if held {
+            self.saw_held
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+}
+
+#[cfg(test)]
+impl CloudStore for HoldProbe {
+    fn put_pack(&self, id: &[u8; 32], scope: Option<&str>, bytes: &[u8]) -> Result<(), StoreError> {
+        self.note();
+        self.inner.put_pack(id, scope, bytes)
+    }
+    fn get_pack(&self, id: &[u8; 32]) -> Result<Vec<u8>, StoreError> {
+        self.note();
+        self.inner.get_pack(id)
+    }
+    fn delete_pack(&self, id: &[u8; 32]) -> Result<(), StoreError> {
+        self.note();
+        self.inner.delete_pack(id)
+    }
+    fn put_record(&self, kind: &str, name: &str, bytes: &[u8]) -> Result<(), StoreError> {
+        self.note();
+        self.inner.put_record(kind, name, bytes)
+    }
+    fn get_record(&self, kind: &str, name: &str) -> Result<Option<Vec<u8>>, StoreError> {
+        self.note();
+        self.inner.get_record(kind, name)
+    }
+    fn delete_record(&self, kind: &str, name: &str) -> Result<(), StoreError> {
+        self.note();
+        self.inner.delete_record(kind, name)
+    }
+    fn list_records(&self, kind: &str) -> Result<Vec<String>, StoreError> {
+        self.note();
+        self.inner.list_records(kind)
+    }
+    fn usage(&self) -> Result<super::store::Usage, StoreError> {
+        self.note();
+        self.inner.usage()
+    }
 }
 
 #[cfg(test)]
@@ -1658,6 +1726,69 @@ mod tests {
         for (snap, want) in snaps.iter().take(2).zip(wanted) {
             assert_eq!(restore(&db, &store, &snap.id, &newest).unwrap(), want);
         }
+    }
+
+    #[test]
+    fn a_step_takes_the_drive_backup_hold_and_frees_it_after() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = setup(dir.path());
+        let src = source(dir.path());
+        let store = HoldProbe::new(&db, "rw");
+        build(&db, &src, &store);
+        store.saw_held.store(false, Ordering::SeqCst);
+
+        assert_eq!(step(&db, "rw", &store, 400).unwrap(), Step::Moved);
+        // While the step worked, a restore would have been refused.
+        assert!(store.saw_held.load(Ordering::SeqCst));
+        // Afterwards the hold is free again.
+        assert!(!crate::backup::drive_backup::is_running(&db, "rw"));
+        assert!(crate::backup::drive_backup::try_hold(&db, "rw").is_some());
+    }
+
+    #[test]
+    fn a_restore_holding_the_backup_makes_the_step_busy_and_changes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = setup(dir.path());
+        let src = source(dir.path());
+        let store = MemoryStore::new();
+        build(&db, &src, &store);
+        let index = chunk_index(&db);
+
+        let restore = crate::backup::drive_backup::try_hold(&db, "rw").unwrap();
+        assert_eq!(step(&db, "rw", &store, 400).unwrap(), Step::Busy);
+        assert_eq!(chunk_index(&db), index);
+        // The refused step did not leave the cloud run lock behind.
+        assert!(RunSlot::take(&db, "rw").is_some());
+        drop(restore);
+        assert_eq!(step(&db, "rw", &store, 400).unwrap(), Step::Moved);
+    }
+
+    #[test]
+    fn a_failed_step_frees_the_hold() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = setup(dir.path());
+        let src = source(dir.path());
+        let store = MemoryStore::new();
+        build(&db, &src, &store);
+
+        CRASH_AFTER_UPLOAD.with(|c| c.set(true));
+        assert!(step(&db, "rw", &store, 400).is_err());
+        assert!(!crate::backup::drive_backup::is_running(&db, "rw"));
+        assert!(RunSlot::take(&db, "rw").is_some());
+    }
+
+    #[test]
+    fn a_hold_in_another_database_does_not_make_the_step_busy() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = setup(dir.path());
+        let other_dir = tempfile::tempdir().unwrap();
+        let other = setup(other_dir.path());
+        let src = source(dir.path());
+        let store = MemoryStore::new();
+        build(&db, &src, &store);
+
+        let _elsewhere = crate::backup::drive_backup::try_hold(&other, "rw").unwrap();
+        assert_eq!(step(&db, "rw", &store, 400).unwrap(), Step::Moved);
     }
 
     #[test]

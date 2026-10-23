@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::io::{self, ErrorKind, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{LazyLock, Mutex};
+use std::sync::{Arc, Mutex};
 
 use rusqlite::Connection;
 
@@ -247,41 +247,47 @@ pub fn run_all(db: &crate::Db, now: i64) -> bool {
     changed
 }
 
-/// Backups being copied right now. Two runs of one backup at once (the
-/// schedule and "Back up now") would both move files into `versions/`.
-static RUNNING: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Default::default);
-
-/// Holds a backup's place in [`RUNNING`] until it is dropped. A run holds
-/// one while it copies; a restore or delete holds one so no run starts
-/// meanwhile.
-pub struct RunSlot(String);
+/// Holds a backup's place among the backups being copied right now. Two runs of
+/// one backup at once (the schedule and "Back up now") would both move files into
+/// `versions/`. The set lives in the [`crate::Db`], so databases never share it.
+/// A run holds a slot while it copies; a restore, delete, cloud run or key move
+/// holds one so nothing else touches the backup meanwhile. Always taken before the
+/// cloud run lock (`cloud::run::RunSlot`), and only ever tried, never waited on.
+pub struct RunSlot {
+    holds: Arc<Mutex<HashSet<String>>>,
+    id: String,
+}
 
 impl RunSlot {
-    fn take(id: &str) -> Option<Self> {
-        let mut running = RUNNING.lock().unwrap_or_else(|p| p.into_inner());
-        running.insert(id.to_string()).then(|| Self(id.to_string()))
+    fn take(db: &crate::Db, id: &str) -> Option<Self> {
+        let holds = db.backup_holds();
+        let mut running = holds.lock().unwrap_or_else(|p| p.into_inner());
+        running.insert(id.to_string()).then(|| Self {
+            holds: Arc::clone(holds),
+            id: id.to_string(),
+        })
     }
 }
 
 /// Holds the backup's slot, or returns `None` when a run or another holder
 /// already has it. While the slot is held, [`run`] refuses and
 /// [`is_running`] reports true.
-pub fn try_hold(id: &str) -> Option<RunSlot> {
-    RunSlot::take(id)
+pub fn try_hold(db: &crate::Db, id: &str) -> Option<RunSlot> {
+    RunSlot::take(db, id)
 }
 
 impl Drop for RunSlot {
     fn drop(&mut self) {
-        RUNNING
+        self.holds
             .lock()
             .unwrap_or_else(|p| p.into_inner())
-            .remove(&self.0);
+            .remove(&self.id);
     }
 }
 
-/// Is this backup being copied right now, or held by a restore or delete?
-pub fn is_running(id: &str) -> bool {
-    RUNNING
+/// Is this backup being copied right now, or held by a restore, delete or key move?
+pub fn is_running(db: &crate::Db, id: &str) -> bool {
+    db.backup_holds()
         .lock()
         .unwrap_or_else(|p| p.into_inner())
         .contains(id)
@@ -294,7 +300,7 @@ fn run_inner(
     allow_mass_delete: bool,
 ) -> anyhow::Result<RunOutcome> {
     // Already running: that run records its own result.
-    let Some(_slot) = RunSlot::take(id) else {
+    let Some(_slot) = RunSlot::take(db, id) else {
         return Ok(problem_outcome(
             "This backup is already running. Its status updates when it finishes.",
         ));
@@ -1569,7 +1575,7 @@ mod tests {
         let s = setup();
         write(&docs(&s).join("a.txt"), "one");
         let id = make_backup(&s);
-        let _slot = RunSlot::take(&id).unwrap();
+        let _slot = RunSlot::take(&s.db, &id).unwrap();
 
         let r = run(&s.db, &id, NOW).unwrap();
         assert_eq!(

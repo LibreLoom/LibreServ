@@ -695,10 +695,14 @@ pub(crate) fn reseal_user_holding(
     let mut slots = Vec::new();
     let mut busy = Vec::new();
     for backup in &backups {
+        // The drive-backup hold first, then the cloud run lock (the order a run uses), both
+        // only tried. A backup whose hold or lock is taken is left alone and reported busy.
+        let Some(hold) = crate::backup::drive_backup::try_hold(db, backup) else {
+            busy.push(backup.clone());
+            continue;
+        };
         match super::run::RunSlot::take(db, backup) {
-            // A run, delete or restore holds the drive-backup lock before it takes the cloud one.
-            Some(_) if crate::backup::drive_backup::is_running(backup) => busy.push(backup.clone()),
-            Some(slot) => slots.push(slot),
+            Some(slot) => slots.push((hold, slot)),
             None => busy.push(backup.clone()),
         }
     }
@@ -1898,6 +1902,53 @@ mod tests {
             .is_ok()
         );
         assert_eq!(v1.version, 1);
+    }
+
+    #[test]
+    fn a_reseal_takes_the_drive_backup_hold_and_frees_it_after() {
+        let (_dir, db) = shared_db();
+        let store = super::super::rewrap::HoldProbe::new(&db, PROTECTION);
+        let bob = user_keys("bob");
+        let bob_new = user_keys("bob-new");
+        {
+            let conn = locked(&db);
+            set_phrase(&conn, "bob", &bob);
+            ensure_key(&conn, PROTECTION, &set(&["bob"]), 10).unwrap();
+            set_phrase(&conn, "bob", &bob_new);
+            replace_reader(&conn, "bob", &bob_new.seal_public).unwrap();
+            queue_reseal(&conn, "bob").unwrap();
+        }
+        let report = reseal_pending(&db, &store).pop().unwrap().unwrap();
+        assert!(report.done);
+        assert!(store.saw_held.load(std::sync::atomic::Ordering::SeqCst));
+        assert!(!crate::backup::drive_backup::is_running(&db, PROTECTION));
+        assert!(super::super::run::RunSlot::take(&db, PROTECTION).is_some());
+    }
+
+    #[test]
+    fn a_restore_holding_the_backup_makes_the_reseal_wait_and_write_nothing() {
+        let (_dir, db) = shared_db();
+        let store = MemoryStore::new();
+        let bob = user_keys("bob");
+        let bob_new = user_keys("bob-new");
+        {
+            let conn = locked(&db);
+            set_phrase(&conn, "bob", &bob);
+            ensure_key(&conn, PROTECTION, &set(&["bob"]), 10).unwrap();
+            set_phrase(&conn, "bob", &bob_new);
+            replace_reader(&conn, "bob", &bob_new.seal_public).unwrap();
+            queue_reseal(&conn, "bob").unwrap();
+        }
+        let restore = crate::backup::drive_backup::try_hold(&db, PROTECTION).unwrap();
+        let report = reseal_pending(&db, &store).pop().unwrap().unwrap();
+        assert!(!report.done);
+        assert_eq!(report.busy, vec![PROTECTION.to_string()]);
+        assert!(resealing_pending(&locked(&db), "bob").unwrap());
+        // The refused re-seal freed the cloud lock it never needed.
+        assert!(super::super::run::RunSlot::take(&db, PROTECTION).is_some());
+        drop(restore);
+        let report = reseal_pending(&db, &store).pop().unwrap().unwrap();
+        assert!(report.done);
     }
 
     #[test]

@@ -117,6 +117,8 @@ pub fn thin(
 /// their packs follow the normal 24 h wait; the scope's own record goes once no packs are
 /// left. A pass that stops part-way is finished by the next one.
 pub fn retire_old_phrases(db: &crate::Db, store: &dyn CloudStore, now: i64) -> anyhow::Result<()> {
+    // Kept copies of the previous scope secret end with their 30 days too.
+    db::clear_expired_kept_scope_secrets(&*lock(db)?, now)?;
     let due: Vec<String> = {
         let conn = lock(db)?;
         db::list_private_scopes(&conn, None)?
@@ -521,6 +523,51 @@ mod tests {
         assert_eq!(out.packs_deleted, 0);
         assert!(store.get_pack(&reused).is_ok());
         assert!(packs_in_state(&db, "live").contains(&hex(&reused)));
+    }
+
+    #[test]
+    fn the_sweep_drops_kept_scope_secrets_after_their_30_days() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = setup(dir.path());
+        let store = MemoryStore::new();
+        {
+            let conn = db.lock().unwrap();
+            db::insert_private_scope(
+                &conn,
+                &db::PrivateScope {
+                    scope: SCOPE.into(),
+                    owner: "owner".into(),
+                    seal_public: vec![5; 32],
+                    scope_public: vec![5; 32],
+                    sealed_scope_secret: vec![6; 16],
+                    dedup_key: vec![6; 32],
+                    state: "active".into(),
+                    retire_after: 0,
+                    created_at: 1,
+                },
+            )
+            .unwrap();
+            db::keep_scope_secret(
+                &conn,
+                &db::KeptScopeSecret {
+                    scope: SCOPE.into(),
+                    seal_public: vec![1; 32],
+                    sealed_scope_secret: vec![9; 16],
+                    expires_at: NOW + 30 * DAY,
+                },
+            )
+            .unwrap();
+        }
+        retire_old_phrases(&db, &store, NOW + 29 * DAY).unwrap();
+        let count = |at: i64| {
+            let conn = db.lock().unwrap();
+            db::list_kept_scope_secrets(&conn, "owner", at)
+                .unwrap()
+                .len()
+        };
+        assert_eq!(count(NOW), 1);
+        retire_old_phrases(&db, &store, NOW + 30 * DAY).unwrap();
+        assert_eq!(count(0), 0);
     }
 
     #[test]

@@ -112,6 +112,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/cloud/phrase/challenge", post(challenge))
         .route("/api/v1/cloud/phrase/check", post(check))
         .route("/api/v1/cloud/phrase/scopes", get(scopes))
+        .route("/api/v1/cloud/phrase/kept-scopes", get(kept_scopes))
 }
 
 /// The signed-in person's private scopes, each with its secret key sealed to their phrase. The
@@ -132,6 +133,30 @@ async fn scopes(
         })
         .collect();
     Ok(Json(json!({ "scopes": out })))
+}
+
+/// The signed-in person's kept copies of earlier scope secrets (30 days after a phrase change made
+/// with the old phrase, when no one else could have it). A restore with the old phrase tries these
+/// when the current copy does not open. Only the owner's own copies are ever returned.
+async fn kept_scopes(
+    State(state): State<AppState>,
+    Extension(user): Extension<CurrentUser>,
+) -> ApiResult {
+    let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
+    let kept =
+        db::list_kept_scope_secrets(&conn, &user.id, db::now_unix()).map_err(|_| read_failed())?;
+    let out: Vec<Value> = kept
+        .iter()
+        .map(|k| {
+            json!({
+                "scope": k.scope,
+                "seal_public": STANDARD.encode(&k.seal_public),
+                "sealed_scope_secret": STANDARD.encode(&k.sealed_scope_secret),
+                "expires_at": k.expires_at,
+            })
+        })
+        .collect();
+    Ok(Json(json!({ "kept": out })))
 }
 
 /// Length of a sealed copy of a scope's secret key.
@@ -565,6 +590,8 @@ async fn check(
         },
     )
     .map_err(|_| save_failed())?;
+    // The new phrase is checked, so the old one no longer needs to open earlier private backups.
+    db::clear_kept_scope_secrets(&conn, &user.id).map_err(|_| save_failed())?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -1669,6 +1696,167 @@ mod tests {
             status_of(&f.router, &f.member_token).await["resealing"]
                 .as_bool()
                 .unwrap()
+        );
+    }
+
+    /// Changes the phrase with the old phrase's proof, re-sealing `scope-1`.
+    async fn change_keeping_scope(f: &Fixture, old: &Signer, exposed: bool) -> Signer {
+        let new = Signer::generate();
+        let challenge = fetch_challenge(&f.router, &f.admin_token).await;
+        let mut body = signed_replace_body(&new, 8, old, REPLACE_DOMAIN, &challenge, Some(exposed));
+        body = with_rescoped(body, json!([rescoped_entry("scope-1", 8)]), old, &challenge);
+        let (status, reply) = send(&f.router, "PUT", PUT, &f.admin_token, Some(body)).await;
+        assert_eq!(status, 200, "{reply}");
+        new
+    }
+
+    async fn kept_list(f: &Fixture, token: &str) -> Vec<Value> {
+        let (status, body) = send(
+            &f.router,
+            "GET",
+            "/api/v1/cloud/phrase/kept-scopes",
+            token,
+            None,
+        )
+        .await;
+        assert_eq!(status, 200, "{body}");
+        body["kept"].as_array().unwrap().clone()
+    }
+
+    #[tokio::test]
+    async fn an_unexposed_change_keeps_the_previous_secret_for_30_days_for_its_owner_only() {
+        let f = fixture();
+        let old = Signer::generate();
+        set_first(&f, &f.admin_token, &old, 7).await;
+        seed_active_scope(&f, &f.admin_id, "scope-1");
+        let before = db::now_unix();
+        change_keeping_scope(&f, &old, false).await;
+
+        let kept = kept_list(&f, &f.admin_token).await;
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0]["scope"], json!("scope-1"));
+        assert_eq!(
+            kept[0]["sealed_scope_secret"],
+            json!(STANDARD.encode(vec![6u8; 16]))
+        );
+        assert_eq!(
+            kept[0]["seal_public"],
+            json!(STANDARD.encode(vec![0u8; 32]))
+        );
+        let wait = kept[0]["expires_at"].as_i64().unwrap() - before;
+        assert!((29 * 86_400..=30 * 86_400 + 5).contains(&wait), "{wait}");
+        // The current copy is the new one, not the kept one.
+        assert_ne!(scope_of(&f, "scope-1").sealed_scope_secret, vec![6; 16]);
+        // Someone else never sees it.
+        assert!(kept_list(&f, &f.member_token).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn an_exposed_change_keeps_nothing_and_drops_copies_kept_earlier() {
+        let f = fixture();
+        let old = Signer::generate();
+        set_first(&f, &f.admin_token, &old, 7).await;
+        seed_active_scope(&f, &f.admin_id, "scope-1");
+        {
+            let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+            db::keep_scope_secret(
+                &conn,
+                &db::KeptScopeSecret {
+                    scope: "scope-1".into(),
+                    seal_public: vec![1; 32],
+                    sealed_scope_secret: vec![9; 16],
+                    expires_at: db::now_unix() + 1000,
+                },
+            )
+            .unwrap();
+        }
+        change_keeping_scope(&f, &old, true).await;
+        assert!(kept_list(&f, &f.admin_token).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn checking_the_new_phrase_drops_the_kept_copy() {
+        let f = fixture();
+        let old = Signer::generate();
+        set_first(&f, &f.admin_token, &old, 7).await;
+        seed_active_scope(&f, &f.admin_id, "scope-1");
+        let new = change_keeping_scope(&f, &old, false).await;
+        assert_eq!(kept_list(&f, &f.admin_token).await.len(), 1);
+
+        // A wrong phrase check leaves it.
+        let wrong = Signer::generate();
+        let challenge = fetch_challenge(&f.router, &f.admin_token).await;
+        let (status, _) = send(
+            &f.router,
+            "POST",
+            "/api/v1/cloud/phrase/check",
+            &f.admin_token,
+            Some(json!({ "signature": sign_challenge(&wrong, &challenge) })),
+        )
+        .await;
+        assert_eq!(status, 400);
+        assert_eq!(kept_list(&f, &f.admin_token).await.len(), 1);
+
+        // The new phrase checked successfully: the kept copy goes.
+        let challenge = fetch_challenge(&f.router, &f.admin_token).await;
+        let (status, _) = send(
+            &f.router,
+            "POST",
+            "/api/v1/cloud/phrase/check",
+            &f.admin_token,
+            Some(json!({ "signature": sign_challenge(&new, &challenge) })),
+        )
+        .await;
+        assert_eq!(status, 200);
+        assert!(kept_list(&f, &f.admin_token).await.is_empty());
+    }
+
+    #[test]
+    fn kept_copies_expire_and_go_with_their_scope() {
+        let conn = db::open(std::path::Path::new(":memory:")).unwrap();
+        db::insert_user(&conn, "u", "u", "U", "x", "admin").unwrap();
+        for scope in ["a", "b"] {
+            db::insert_private_scope(
+                &conn,
+                &db::PrivateScope {
+                    scope: scope.into(),
+                    owner: "u".into(),
+                    seal_public: vec![0; 32],
+                    scope_public: vec![5; 32],
+                    sealed_scope_secret: vec![6; 16],
+                    dedup_key: vec![0; 32],
+                    state: "active".into(),
+                    retire_after: 0,
+                    created_at: 0,
+                },
+            )
+            .unwrap();
+            db::keep_scope_secret(
+                &conn,
+                &db::KeptScopeSecret {
+                    scope: scope.into(),
+                    seal_public: vec![1; 32],
+                    sealed_scope_secret: vec![9; 16],
+                    expires_at: if scope == "a" { 100 } else { 500 },
+                },
+            )
+            .unwrap();
+        }
+        assert_eq!(
+            db::list_kept_scope_secrets(&conn, "u", 50).unwrap().len(),
+            2
+        );
+        // Expired copies are not listed, and the sweep removes them.
+        assert_eq!(
+            db::list_kept_scope_secrets(&conn, "u", 100).unwrap().len(),
+            1
+        );
+        db::clear_expired_kept_scope_secrets(&conn, 100).unwrap();
+        db::delete_private_scope(&conn, "b").unwrap();
+        assert!(
+            db::list_kept_scope_secrets(&conn, "u", 0)
+                .unwrap()
+                .is_empty()
         );
     }
 

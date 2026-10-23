@@ -25,7 +25,20 @@ export const LOCKED_OUT_MESSAGE = "Too many wrong tries. Wait a few minutes, the
 /** Refused by the server (HTTP 403 for a wrong proof; 400 for a phrase that doesn't match today). */
 const REFUSED_STATUSES = new Set([400, 403]);
 
+/** Shown when the new phrase could not open a re-sealed private backup key. Nothing is sent. */
+export const RESEAL_CHECK_FAILED = "Your phrase was not changed. Luna could not safely move your private backups to the new phrase. Your old phrase still works.";
+
 const encoder = new TextEncoder();
+
+/**
+ * @param {Uint8Array} a
+ * @param {Uint8Array} b
+ */
+function bytesEqual(a, b) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
 
 /** @param {Uint8Array} bytes */
 export function toBase64(bytes) {
@@ -191,9 +204,10 @@ export async function checkPhraseWords(phrase, lunaId) {
  * @param {Uint8Array} oldEntropy the phrase being replaced
  * @param {string} lunaId
  * @param {Uint8Array} newSealPublic the new phrase's public sealing key
+ * @param {Uint8Array} newSealSecret the new phrase's secret sealing key, used only to check the result opens
  * @returns {Promise<Array<{ scope: string, sealed_scope_secret: string }>>}
  */
-export async function resealScopes(oldEntropy, lunaId, newSealPublic) {
+export async function resealScopes(oldEntropy, lunaId, newSealPublic, newSealSecret) {
   const unreadable = "Could not read your private backups. Try again.";
   let reply;
   try {
@@ -212,6 +226,14 @@ export async function resealScopes(oldEntropy, lunaId, newSealPublic) {
       continue;
     }
     const sealed = sealScopeSecret(scopeSecret, newSealPublic, lunaId, entry.scope);
+    // Self-check: the new phrase must open what we are about to send, and get the same secret back.
+    let reopened;
+    try {
+      reopened = openScopeSecret(sealed, newSealSecret, lunaId, entry.scope);
+    } catch {
+      reopened = null;
+    }
+    if (!reopened || !bytesEqual(reopened, scopeSecret)) throw new Error(RESEAL_CHECK_FAILED);
     out.push({ scope: entry.scope, sealed_scope_secret: toBase64(sealed) });
   }
   return out;
@@ -233,7 +255,8 @@ export async function buildReplaceBody({ proof, exposed, newPhrase, lunaId, user
   };
   if ("oldEntropy" in proof) {
     // Re-seal before signing: the challenge is single use and expires after five minutes.
-    body.rescoped = await resealScopes(proof.oldEntropy, lunaId, derive(newEntropy, lunaId).sealPublic);
+    const newKeys = derive(newEntropy, lunaId);
+    body.rescoped = await resealScopes(proof.oldEntropy, lunaId, newKeys.sealPublic, newKeys.sealSecret);
     body.proof = "old_signature";
     body.signature = await signReplacement(proof.oldEntropy, lunaId, /** @type {any} */ (body));
   } else {

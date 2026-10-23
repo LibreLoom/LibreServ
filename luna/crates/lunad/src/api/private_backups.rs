@@ -181,7 +181,10 @@ async fn remove_owner(
             .collect()
     };
     // A copy in progress would write into the backup while it is removed.
-    if rows.iter().any(|r| drive_backup::is_running(&r.id)) {
+    if rows
+        .iter()
+        .any(|r| drive_backup::is_running(&state.db, &r.id))
+    {
         return Err(json_error(
             StatusCode::CONFLICT,
             "Luna is copying one of these backups right now. Remove them when the copy finishes.",
@@ -227,7 +230,7 @@ async fn remove_owner(
 
     for row in &local {
         let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
-        drive_backup::delete(&conn, row).map_err(|_| {
+        drive_backup::delete(&state.db, &conn, row).map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Luna couldn't delete this backup. Try again.",
