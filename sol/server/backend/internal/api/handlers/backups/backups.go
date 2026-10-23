@@ -2,6 +2,7 @@ package backups
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -454,23 +455,29 @@ func (h *BackupHandlers) ListRepositories(w http.ResponseWriter, r *http.Request
 	}
 
 	type safeRepo struct {
-		ID        string    `json:"id"`
-		AppID     string    `json:"app_id,omitempty"`
-		RepoType  string    `json:"repo_type"`
-		RepoPath  string    `json:"repo_path"`
-		CreatedAt time.Time `json:"created_at"`
-		UpdatedAt time.Time `json:"updated_at"`
+		ID                  string    `json:"id"`
+		AppID               string    `json:"app_id,omitempty"`
+		IsSystem            bool      `json:"is_system"`
+		ConnectManaged      bool      `json:"connect_managed"`
+		ConnectManagedKnown bool      `json:"connect_managed_known"`
+		RepoType            string    `json:"repo_type"`
+		RepoPath            string    `json:"repo_path"`
+		CreatedAt           time.Time `json:"created_at"`
+		UpdatedAt           time.Time `json:"updated_at"`
 	}
 
 	safe := make([]safeRepo, len(repos))
 	for i, repo := range repos {
 		safe[i] = safeRepo{
-			ID:        repo.ID,
-			AppID:     repo.AppID,
-			RepoType:  repo.RepoType,
-			RepoPath:  repo.RepoPath,
-			CreatedAt: repo.CreatedAt,
-			UpdatedAt: repo.UpdatedAt,
+			ID:                  repo.ID,
+			AppID:               repo.AppID,
+			IsSystem:            repo.IsSystem,
+			ConnectManaged:      repo.ConnectManaged,
+			ConnectManagedKnown: repo.ConnectManagedKnown,
+			RepoType:            repo.RepoType,
+			RepoPath:            repo.RepoPath,
+			CreatedAt:           repo.CreatedAt,
+			UpdatedAt:           repo.UpdatedAt,
 		}
 	}
 
@@ -498,6 +505,25 @@ func (h *BackupHandlers) CreateRepository(w http.ResponseWriter, r *http.Request
 
 	if req.RepoType == "" {
 		JSONError(w, http.StatusBadRequest, "Please choose a backup location type.")
+		return
+	}
+	switch req.RepoType {
+	case "s3", "b2", "sftp", "local":
+	default:
+		JSONError(w, http.StatusBadRequest, "Please choose a supported backup location type.")
+		return
+	}
+	if req.AppID == "" {
+		JSONError(w, http.StatusBadRequest, "Please choose an app for this backup destination.")
+		return
+	}
+	appExists, err := h.backupService.AppExists(r.Context(), req.AppID)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "We couldn't check that app. Please try again.")
+		return
+	}
+	if !appExists {
+		JSONError(w, http.StatusBadRequest, "Choose an installed app for this backup destination.")
 		return
 	}
 	if req.RepoPath == "" {
@@ -534,6 +560,10 @@ func (h *BackupHandlers) CreateRepository(w http.ResponseWriter, r *http.Request
 	}
 
 	if err := h.backupService.CreateRepository(r.Context(), repo); err != nil {
+		if errors.Is(err, storage.ErrAppBackupRepositoryExists) {
+			JSONError(w, http.StatusConflict, "This app already has a backup destination. Delete it before adding another.")
+			return
+		}
 		JSONError(w, http.StatusInternalServerError, "We couldn't create the backup location. Please try again.")
 		return
 	}
@@ -553,6 +583,10 @@ func (h *BackupHandlers) DeleteRepository(w http.ResponseWriter, r *http.Request
 	}
 
 	if err := h.backupService.DeleteRepository(r.Context(), repoID); err != nil {
+		if errors.Is(err, storage.ErrBackupRepositoryNotDeletable) {
+			JSONError(w, http.StatusConflict, "Sol couldn’t confirm this destination is safe to remove, so it is still saved.")
+			return
+		}
 		JSONError(w, http.StatusInternalServerError, "We couldn't delete that backup location. Please try again.")
 		return
 	}

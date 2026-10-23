@@ -640,17 +640,19 @@ export default function BackupsCategory() {
         </SettingsCard>
       )}
 
-      {/* S3 and B2 are remote services; an SFTP host may still be on this network. */}
-      {!loading && !loadError && !repos.some((repo) => ["s3", "b2"].includes(repo.repo_type)) && (
+      {/* A custom S3-compatible endpoint can still be on this network. */}
+      {!loading && !loadError && (
         <SettingsCard icon={CloudOff} title="Keep a copy somewhere else" padding={false} index={3}>
           <SettingsRow
-            label="Off-site backup storage"
-            description="No S3 or B2 destination is set. A folder or SFTP server on this network could be lost with this server; use S3 or B2, or confirm the SFTP server is somewhere else."
+            label={repos.some((repo) => ["s3", "b2"].includes(repo.repo_type)) ? "Check your backup location" : "Off-site backup storage"}
+            description={repos.some((repo) => ["s3", "b2"].includes(repo.repo_type))
+              ? "An S3 or B2 destination is configured. Confirm it is hosted somewhere else; a custom S3-compatible server on this network could be lost with this Sol."
+              : "No S3 or B2 destination is set. A folder or SFTP server on this network could be lost with this Sol; use S3 or B2, or confirm the SFTP server is somewhere else."}
             hideDivider
           >
             <Button variant="outline" surface="secondary" size="sm" asChild>
               <a href="#external_services">
-                Set up in External services
+                {repos.some((repo) => ["s3", "b2"].includes(repo.repo_type)) ? "Review in External services" : "Set up in External services"}
                 <ArrowRight size={ICON_SIZE.sm} aria-hidden="true" />
               </a>
             </Button>

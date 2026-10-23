@@ -148,6 +148,7 @@ CREATE TABLE IF NOT EXISTS backup_repositories (
     password TEXT NOT NULL,
     credentials TEXT,
     is_system BOOLEAN DEFAULT 0,
+    connect_managed BOOLEAN DEFAULT 0,
     limit_upload_kbps INTEGER DEFAULT 0,
     limit_download_kbps INTEGER DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -541,6 +542,8 @@ CREATE INDEX IF NOT EXISTS idx_backup_schedules_next_run ON backup_schedules(nex
 -- Backup repositories indexes
 CREATE INDEX IF NOT EXISTS idx_backup_repositories_app ON backup_repositories(app_id);
 CREATE INDEX IF NOT EXISTS idx_backup_repositories_type ON backup_repositories(repo_type);
+CREATE TRIGGER IF NOT EXISTS trg_backup_repositories_one_per_app_insert BEFORE INSERT ON backup_repositories WHEN NEW.app_id IS NOT NULL AND EXISTS (SELECT 1 FROM backup_repositories WHERE app_id = NEW.app_id) BEGIN SELECT RAISE(ABORT, 'app already has backup repository'); END;
+CREATE TRIGGER IF NOT EXISTS trg_backup_repositories_one_per_app_update BEFORE UPDATE OF app_id ON backup_repositories WHEN NEW.app_id IS NOT NULL AND EXISTS (SELECT 1 FROM backup_repositories WHERE app_id = NEW.app_id AND id != OLD.id) BEGIN SELECT RAISE(ABORT, 'app already has backup repository'); END;
 
 -- Token revocation indexes
 CREATE UNIQUE INDEX IF NOT EXISTS idx_revoked_tokens_jti ON revoked_tokens(token_jti);

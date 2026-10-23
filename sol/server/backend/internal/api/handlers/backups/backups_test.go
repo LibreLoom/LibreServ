@@ -47,6 +47,59 @@ func callBackupHandler(t *testing.T, call func(http.ResponseWriter, *http.Reques
 	return rec
 }
 
+func TestBackupHandlersListRepositoriesReportsConnectOwnership(t *testing.T) {
+	handler, service, _, _ := newBackupHandlerTest(t)
+	if err := service.CreateRepository(context.Background(), &storage.BackupRepository{
+		ID:             "connect-repo",
+		RepoType:       "s3",
+		RepoPath:       "s3:https://storage.example/backups",
+		Password:       "recovery-key",
+		ConnectManaged: true,
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+	}); err != nil {
+		t.Fatalf("create Connect repository: %v", err)
+	}
+	if err := service.CreateRepository(context.Background(), &storage.BackupRepository{
+		ID: "system-repo", RepoType: "local", RepoPath: "/tmp/system-repo",
+		Password: "system-secret", IsSystem: true, CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}); err != nil {
+		t.Fatalf("create system repository: %v", err)
+	}
+
+	rec := callBackupHandler(t, handler.ListRepositories, httptest.NewRequest(http.MethodGet, "/backups/repos", nil), http.StatusOK)
+	var response struct {
+		Repositories []struct {
+			ID                  string `json:"id"`
+			IsSystem            bool   `json:"is_system"`
+			ConnectManaged      bool   `json:"connect_managed"`
+			ConnectManagedKnown bool   `json:"connect_managed_known"`
+		} `json:"repositories"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode repository response: %v", err)
+	}
+	if len(response.Repositories) != 2 {
+		t.Fatalf("repository response = %+v", response.Repositories)
+	}
+	var foundConnect, foundSystem bool
+	for _, listed := range response.Repositories {
+		switch listed.ID {
+		case "connect-repo":
+			foundConnect = listed.ConnectManaged && listed.ConnectManagedKnown && !listed.IsSystem
+		case "system-repo":
+			foundSystem = listed.IsSystem && !listed.ConnectManaged && listed.ConnectManagedKnown
+		}
+	}
+	if !foundConnect || !foundSystem || strings.Contains(rec.Body.String(), "system-secret") {
+		t.Fatalf("repository ownership response = %+v", response.Repositories)
+	}
+	callBackupHandler(t, handler.DeleteRepository,
+		requestWithJobParam(http.MethodDelete, "/backups/repos/connect-repo", "repoID", "connect-repo"),
+		http.StatusConflict,
+	)
+}
+
 func TestBackupHandlersListGetDeleteAndValidation(t *testing.T) {
 	handler, _, db, dir := newBackupHandlerTest(t)
 	now := time.Now()
@@ -199,7 +252,11 @@ func requestWithBodyAndParam(method, target, body, key, value string) *http.Requ
 }
 
 func TestBackupRepositoryHandlers(t *testing.T) {
-	handler, service, _, dir := newBackupHandlerTest(t)
+	handler, service, db, dir := newBackupHandlerTest(t)
+	appPath := filepath.Join(dir, "apps", "app-1")
+	if _, err := db.Exec(`INSERT INTO apps (id, name, type, path, status) VALUES ('app-1', 'App', 'repo', ?, 'stopped')`, appPath); err != nil {
+		t.Fatalf("insert app: %v", err)
+	}
 	ctx := context.Background()
 	now := time.Now()
 	repo := &storage.BackupRepository{
@@ -218,16 +275,25 @@ func TestBackupRepositoryHandlers(t *testing.T) {
 	callBackupHandler(t, handler.CreateRepository, httptest.NewRequest(http.MethodPost, "/repositories", strings.NewReader(`{`)), http.StatusBadRequest)
 	callBackupHandler(t, handler.CreateRepository, httptest.NewRequest(http.MethodPost, "/repositories", strings.NewReader(`{}`)), http.StatusBadRequest)
 	callBackupHandler(t, handler.CreateRepository, httptest.NewRequest(http.MethodPost, "/repositories", strings.NewReader(`{"repo_type":"local"}`)), http.StatusBadRequest)
+	callBackupHandler(t, handler.CreateRepository, httptest.NewRequest(http.MethodPost, "/repositories", strings.NewReader(
+		`{"app_id":"app-1","repo_type":"unsupported","repo_path":"/tmp/unsupported"}`,
+	)), http.StatusBadRequest)
+	callBackupHandler(t, handler.CreateRepository, httptest.NewRequest(http.MethodPost, "/repositories", strings.NewReader(
+		`{"app_id":"missing-app","repo_type":"local","repo_path":"/tmp/missing-app"}`,
+	)), http.StatusBadRequest)
 	// These assertions depend on whether a restic binary is available in the
 	// environment: with restic, repo creation succeeds; without it, the
 	// handler returns 412 Precondition Failed.
 	if service.UseRestic() {
 		callBackupHandler(t, handler.CreateRepository, httptest.NewRequest(http.MethodPost, "/repositories", strings.NewReader(
-			`{"repo_type":"local","repo_path":"/tmp/new","credentials":{"token":"secret"}}`,
+			`{"app_id":"app-1","repo_type":"local","repo_path":"/tmp/new","credentials":{"token":"secret"}}`,
 		)), http.StatusCreated)
+		callBackupHandler(t, handler.CreateRepository, httptest.NewRequest(http.MethodPost, "/repositories", strings.NewReader(
+			`{"app_id":"app-1","repo_type":"local","repo_path":"/tmp/second"}`,
+		)), http.StatusConflict)
 	} else {
 		callBackupHandler(t, handler.CreateRepository, httptest.NewRequest(http.MethodPost, "/repositories", strings.NewReader(
-			`{"repo_type":"local","repo_path":"/tmp/new","credentials":{"token":"secret"}}`,
+			`{"app_id":"app-1","repo_type":"local","repo_path":"/tmp/new","credentials":{"token":"secret"}}`,
 		)), http.StatusPreconditionFailed)
 	}
 

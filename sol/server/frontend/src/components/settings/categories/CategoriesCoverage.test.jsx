@@ -796,7 +796,7 @@ describe("settings category coverage", () => {
     );
   });
 
-  it("hides the off-site setup card when the API has a destination", async () => {
+  it("asks users to confirm a configured S3 or B2 destination is hosted off-site", async () => {
     requestMock.mockImplementation(async (path) => {
       if (path === "/backups") return jsonResponse({ backups: [] });
       if (path === "/apps") return jsonResponse({ apps: [{ id: "notes", name: "Notes" }] });
@@ -807,7 +807,8 @@ describe("settings category coverage", () => {
     render(<BackupsCategory />);
     await screen.findByRole("button", { name: /Notes backups/ });
     await waitFor(() => expect(requestMock).toHaveBeenCalledWith("/backups/repos"));
-    await waitFor(() => expect(screen.queryByText("Off-site backup storage")).not.toBeInTheDocument());
+    expect(screen.getByText("Check your backup location")).toBeVisible();
+    expect(screen.getByText(/Confirm it is hosted somewhere else/)).toBeVisible();
   });
 
   it("keeps the off-site setup card when the only destination is on this device", async () => {

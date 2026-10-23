@@ -1,8 +1,12 @@
 package storage
 
 import (
+	"errors"
 	"time"
 )
+
+var ErrAppBackupRepositoryExists = errors.New("an app already has a backup repository")
+var ErrBackupRepositoryNotDeletable = errors.New("backup repository is managed or its owner is unknown")
 
 // BackupType represents the type of backup
 type BackupType string
@@ -83,17 +87,19 @@ type DatabaseRestoreOptions struct {
 
 // BackupRepository represents a restic backup repository configuration
 type BackupRepository struct {
-	ID                string    `json:"id"`
-	AppID             string    `json:"app_id,omitempty"`
-	RepoType          string    `json:"repo_type"`
-	RepoPath          string    `json:"repo_path"`
-	Password          string    `json:"-"`
-	Credentials       string    `json:"-"`
-	IsSystem          bool      `json:"is_system,omitempty"`
-	LimitUploadKbps   int       `json:"limit_upload_kbps,omitempty"`
-	LimitDownloadKbps int       `json:"limit_download_kbps,omitempty"`
-	CreatedAt         time.Time `json:"created_at"`
-	UpdatedAt         time.Time `json:"updated_at"`
+	ID                  string    `json:"id"`
+	AppID               string    `json:"app_id,omitempty"`
+	RepoType            string    `json:"repo_type"`
+	RepoPath            string    `json:"repo_path"`
+	Password            string    `json:"-"`
+	Credentials         string    `json:"-"`
+	IsSystem            bool      `json:"is_system,omitempty"`
+	ConnectManaged      bool      `json:"connect_managed,omitempty"`
+	ConnectManagedKnown bool      `json:"connect_managed_known"`
+	LimitUploadKbps     int       `json:"limit_upload_kbps,omitempty"`
+	LimitDownloadKbps   int       `json:"limit_download_kbps,omitempty"`
+	CreatedAt           time.Time `json:"created_at"`
+	UpdatedAt           time.Time `json:"updated_at"`
 }
 
 // BackupResult is the result of a backup operation
