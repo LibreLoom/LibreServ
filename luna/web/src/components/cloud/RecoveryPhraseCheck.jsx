@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { wordlist } from "@scure/bip39/wordlists/english.js";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
@@ -196,7 +196,8 @@ export default function RecoveryPhraseCheck({
         />
         <ol className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           {shown.map((word, i) => (
-            <li key={i} className="flex items-center gap-2">
+            <Fragment key={i}>
+            <li className="flex items-center gap-2">
               <label className="flex w-full items-center gap-2">
                 <span className="w-6 text-right text-xs font-mono">{i + 1}.</span>
                 <input
@@ -221,9 +222,9 @@ export default function RecoveryPhraseCheck({
                 />
               </label>
             </li>
-          ))}
-        </ol>
-        {suggestions.length > 0 && (
+            {/* Right after its box, so Tab from the box lands on the suggestions. */}
+            {i === focused && suggestions.length > 0 && (
+              <li className="col-span-full">
           <div
             ref={suggestionsRef}
             className="flex flex-wrap gap-2"
@@ -248,7 +249,12 @@ export default function RecoveryPhraseCheck({
               </Button>
             ))}
           </div>
-        )}
+        
+              </li>
+            )}
+            </Fragment>
+          ))}
+        </ol>
         {firstInvalid !== -1 && (
           <PageNotice variant="warning">{`Word ${firstInvalid + 1} is not on the recovery phrase list. Check the spelling.`}</PageNotice>
         )}

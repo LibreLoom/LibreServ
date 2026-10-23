@@ -132,7 +132,8 @@ export default function RecoveryPhraseCard() {
       const isPassword = "password" in proof;
       setReplaceError(replaceErrorMessage(err, isPassword ? "password" : "old"));
       if (!isPassword) return;
-      if (err?.status === 403 || err?.status === 429) {
+      const status = /** @type {{ status?: number } | undefined} */ (err)?.status;
+      if (status === 403 || status === 429) {
         // Never send a refused password again: ask for it afresh, with a new phrase.
         setPasswordRetry((n) => n + 1);
       } else {
