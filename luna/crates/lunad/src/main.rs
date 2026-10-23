@@ -118,14 +118,27 @@ async fn async_main() -> anyhow::Result<()> {
         .with_local_port(cfg.port),
     );
     connect.restore_tunnel_from_disk();
-    let tailscale_listener = lunad::net::tailscale_proxy::bind(&cfg.data_dir).await?;
-    let tailscale_port = tailscale_listener.local_addr()?.port();
+    let tailscale_listener = match lunad::net::tailscale_proxy::bind(&cfg.data_dir).await {
+        Ok(listener) => Some(listener),
+        Err(error) => {
+            tracing::warn!(%error, "Tailscale's optional web listener is unavailable; Luna will continue starting");
+            let data = cfg.data_dir.clone();
+            let result =
+                tokio::task::spawn_blocking(move || lunad::net::tailscale::disable(&data, 0)).await;
+            if let Err(error) = result {
+                tracing::error!(%error, "Could not finish Tailscale cleanup after its listener failed");
+            }
+            None
+        }
+    };
+    let tailscale_port = tailscale_listener
+        .as_ref()
+        .and_then(|listener| listener.local_addr().ok())
+        .map(|addr| addr.port())
+        .unwrap_or(0);
     let state = AppState::new(conn, drive_manager, &cfg.data_dir)
         .with_connect(connect.clone())
         .with_http_port(tailscale_port);
-    // Resume an explicitly enabled product-managed Tailscale node after a
-    // daemon restart. The default-off path never starts tailscaled.
-    let _ = lunad::net::tailscale::status(&cfg.data_dir, tailscale_port);
 
     // One-shot: pull pre-microdb index/hash/upload rows out of luna.db into
     // each mounted drive's marker database before gallery catch-up or search
@@ -716,18 +729,24 @@ async fn async_main() -> anyhow::Result<()> {
                 lunad::system::staticweb::handle(uri.path())
             }));
 
-    let tailscale_app = app.clone().layer(axum::middleware::from_fn(
-        lunad::net::tailscale_proxy::boundary,
-    ));
-    bg_tasks.push(tokio::spawn(async move {
-        if let Err(error) = axum::serve(
-            tailscale_listener,
-            tailscale_app.into_make_service_with_connect_info::<SocketAddr>(),
-        )
-        .await
-        {
-            tracing::error!(%error, "Tailscale's local web listener stopped");
-        }
+    if let Some(tailscale_listener) = tailscale_listener {
+        let tailscale_app = app.clone().layer(axum::middleware::from_fn(
+            lunad::net::tailscale_proxy::boundary,
+        ));
+        bg_tasks.push(tokio::spawn(async move {
+            if let Err(error) = axum::serve(
+                tailscale_listener,
+                tailscale_app.into_make_service_with_connect_info::<SocketAddr>(),
+            )
+            .await
+            {
+                tracing::error!(%error, "Tailscale's local web listener stopped");
+            }
+        }));
+    }
+    let tailscale_data = cfg.data_dir.clone();
+    bg_tasks.push(tokio::task::spawn_blocking(move || {
+        lunad::net::tailscale::restore(&tailscale_data, tailscale_port);
     }));
 
     let addr: SocketAddr = format!("{}:{}", cfg.host, cfg.port).parse()?;

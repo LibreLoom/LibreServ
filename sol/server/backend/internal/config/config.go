@@ -67,9 +67,10 @@ type WebAuthnConfig struct {
 
 // ServerConfig defines HTTP server settings.
 type ServerConfig struct {
-	Host string `mapstructure:"host" yaml:"host"`
-	Port int    `mapstructure:"port" yaml:"port"`
-	Mode string `mapstructure:"mode" yaml:"mode"`
+	DataDir string `mapstructure:"data_dir" yaml:"data_dir"`
+	Host    string `mapstructure:"host" yaml:"host"`
+	Port    int    `mapstructure:"port" yaml:"port"`
+	Mode    string `mapstructure:"mode" yaml:"mode"`
 }
 
 // DatabaseConfig defines database settings.
@@ -296,6 +297,7 @@ var configFilePath string
 func SetDefaults(v *viper.Viper) {
 	v.SetDefault("server.host", "127.0.0.1")
 	v.SetDefault("server.port", 8080)
+	v.SetDefault("server.data_dir", "/var/lib/sol")
 	v.SetDefault("server.mode", "production")
 	v.SetDefault("database.path", "/var/lib/sol/sol.db")
 	v.SetDefault("apps.data_path", "/var/lib/sol/apps")

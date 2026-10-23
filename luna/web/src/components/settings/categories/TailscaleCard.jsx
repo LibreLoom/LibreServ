@@ -11,16 +11,17 @@ export default function TailscaleCard() {
   const query = useQuery({
     queryKey: ["tailscale-status"],
     queryFn: () => getJson(`${PATH}/status`),
-    refetchInterval: 5000,
+    refetchInterval: (query) => query.state.data?.state === "error" || query.state.status === "error" ? 60000 : 15000,
+    retry: false,
   });
   const mutation = useMutation({
     mutationFn: (/** @type {{ action: string, body?: object }} */ { action, body = {} }) => postJson(`${PATH}/${action}`, body),
     onSuccess: (data) => {
       cache.setQueryData(["tailscale-status"], data);
       addToast({
-        type: "success",
+        type: data.residual_exposure ? "error" : "success",
         message:
-          data.auth_url || data.approval_url
+          data.residual_exposure ? "Tailscale could not be stopped" : data.auth_url || data.approval_url
             ? "Tailscale approval link ready"
             : "Tailscale settings updated",
       });

@@ -275,6 +275,11 @@ func TestOSSpecs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	hash := osHashSpec(b, t.TempDir())
+	hashArgs := strings.Join(e.RunArgs(img, hash, "hash"), " ")
+	if !strings.Contains(hashArgs, filepath.Join(b.SrcDir, "shared", "scripts")+":/shared/scripts:ro") {
+		t.Fatalf("OS input hashing cannot read the shared packaging helper: %s", hashArgs)
+	}
 	image, err := osImageSpec(b, "deadbeef")
 	if err != nil {
 		t.Fatal(err)
@@ -305,7 +310,7 @@ func TestOSSpecs(t *testing.T) {
 	}
 	os.MkdirAll(filepath.Join(b.SrcDir, "luna", "os"), 0o755)
 	osdir := filepath.Join(b.SrcDir, "luna", "os") + ":/luna/os:ro"
-	check("rootfs", rootfs, "luna-os", osdir, engine.VolumePrefix+"luna-os-rootfs:/rootfs", engine.VolumePrefix+"luna-os-cache:/cache", "/in/lunad:ro", "/in/console:ro", "LUNAD_BIN")
+	check("rootfs", rootfs, "luna-os", osdir, filepath.Join(b.SrcDir, "shared", "scripts")+":/shared/scripts:ro", engine.VolumePrefix+"luna-os-rootfs:/rootfs", engine.VolumePrefix+"luna-os-cache:/cache", "/in/lunad:ro", "/in/console:ro", "LUNAD_BIN")
 	check("image", image, "luna-os", osdir, engine.VolumePrefix+"luna-os-rootfs:/rootfs", b.PartOutDir("os")+":/out", "OS_INPUT_HASH")
 	check("live", live, "luna-iso", osdir, engine.VolumePrefix+"luna-iso-cache:/cache", "LIVE_ONLY")
 	check("iso", iso, "luna-iso", osdir, payload+":/payload:ro", b.PartOutDir("installer")+":/out", engine.VolumePrefix+"luna-iso-cache:/cache")

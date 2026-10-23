@@ -1,6 +1,8 @@
 package network
 
 import (
+	"encoding/json"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -34,6 +36,199 @@ func TestTailscaleCommandTimeoutReturnsPartialApprovalOutput(t *testing.T) {
 	}
 }
 
+func TestTailscaleStatusIgnoresStderrWarningsAndDoesNotRestart(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "tailscale-mock")
+	writeExecutable(t, bin, `echo 'harmless warning' >&2
+case "$*" in
+ *"serve status --json"*) echo '{}' ;;
+ *"status --json"*) echo '{"BackendState":"Running"}' ;;
+esac
+`)
+	t.Setenv("SOL_TAILSCALE_CLI", bin)
+	t.Setenv("SOL_TAILSCALED", filepath.Join(dir, "missing-daemon"))
+	svc := &TailscaleService{dir: dir, port: 8080}
+	if err := os.WriteFile(filepath.Join(dir, "enabled"), []byte("1"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if st := svc.Status(); st.State != "connected" || st.Error != "" {
+		t.Fatalf("warning broke status: %#v", st)
+	}
+	writeExecutable(t, bin, "exit 1\n")
+	if st := svc.Status(); st.State != "error" {
+		t.Fatalf("unavailable daemon => %#v", st)
+	}
+	if tailscaleFileExists(filepath.Join(dir, "tailscaled.pid")) {
+		t.Fatal("status polling attempted to start a daemon")
+	}
+}
+
+func TestTailscaleBrokenCLICanDisableAndForget(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "tailscale-mock")
+	writeExecutable(t, bin, "exit 1\n")
+	t.Setenv("SOL_TAILSCALE_CLI", bin)
+	t.Setenv("SOL_TAILSCALED", "/bin/bash")
+	svc := &TailscaleService{dir: dir, port: 8080}
+	state := filepath.Join(dir, "tailscaled.state")
+	process := exec.Command("bash", "-c", "while :; do sleep 1; done", "--state", state)
+	process.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := process.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = syscall.Kill(-process.Process.Pid, syscall.SIGKILL); _ = process.Wait() }()
+	for name, value := range map[string]string{"enabled": "1", "tailscaled.state": "identity", "tailscaled.sock": "", "tailscaled.pid": strconv.Itoa(process.Process.Pid)} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(value), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	deadline := time.Now().Add(time.Second)
+	for !svc.managedDaemonAlive() && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !svc.managedDaemonAlive() {
+		t.Fatal("fixture daemon is not ready")
+	}
+	st, err := svc.Disable()
+	if err != nil || st.Enabled || !st.IdentitySaved || svc.managedDaemonAlive() {
+		t.Fatalf("disable = %#v %v", st, err)
+	}
+	if !tailscaleFileExists(filepath.Join(dir, "reset-required")) {
+		t.Fatal("broken CLI did not preserve reset intent")
+	}
+	st, err = svc.Forget()
+	if err != nil || st.IdentitySaved || st.Enabled {
+		t.Fatalf("forget = %#v %v", st, err)
+	}
+}
+
+func TestTailscaleReconnectClearsSavedServeBeforeUp(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "tailscale-mock")
+	calls := filepath.Join(dir, "calls")
+	writeExecutable(t, bin, "echo \"$*\" >> \"$TS_LOG\"\ncase \"$*\" in *'status --json'*) echo '{}' ;; esac\n")
+	t.Setenv("SOL_TAILSCALE_CLI", bin)
+	t.Setenv("TS_LOG", calls)
+	svc := &TailscaleService{dir: dir, port: 8080}
+	if err := os.WriteFile(filepath.Join(dir, "tailscaled.state"), []byte(`{"_serve/old":"e30=","_machinekey":"a2V5"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"reset-required", "enabled"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("1"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := svc.Reconnect(); err != nil {
+		t.Fatal(err)
+	}
+	log, err := os.ReadFile(calls)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(log), "up --") {
+		t.Fatalf("reconnect did not bring up the node: %s", log)
+	}
+	state, err := os.ReadFile(filepath.Join(dir, "tailscaled.state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(state), "_serve/") || !strings.Contains(string(state), "_machinekey") {
+		t.Fatalf("saved access cleanup lost identity or kept Serve: %s", state)
+	}
+}
+
+func TestTailscaleOfflineCleanupPreservesIdentityAndRejectsCorruption(t *testing.T) {
+	dir := t.TempDir()
+	svc := &TailscaleService{dir: dir}
+	path := filepath.Join(dir, "tailscaled.state")
+	fixture := `{"_machinekey":"a2V5","profile-a":"cHJlZnM=","_serve/a":"e30=","_serve/b":"e30=","future":{"value":42}}`
+	if err := os.WriteFile(path, []byte(fixture), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.clearSavedServe(); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 || got["_machinekey"] != "a2V5" || got["profile-a"] != "cHJlZnM=" {
+		t.Fatalf("identity was changed: %s", raw)
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.Mode().Perm() != 0600 {
+		t.Fatal("identity permissions are not private")
+	}
+	for _, corrupt := range []string{"broken", "null", "[]"} {
+		if err := os.WriteFile(path, []byte(corrupt), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if svc.clearSavedServe() == nil {
+			t.Fatalf("accepted corrupt state %q", corrupt)
+		}
+		after, _ := os.ReadFile(path)
+		if string(after) != corrupt {
+			t.Fatal("corrupt identity was overwritten")
+		}
+	}
+}
+
+func TestTailscaleTeardownDoesNotKillUnverifiedSocketOwner(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "space here")
+	if err := os.Mkdir(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	svc := &TailscaleService{dir: dir}
+	t.Setenv("SOL_TAILSCALE_CLI", filepath.Join(dir, "missing-cli"))
+	listener, err := net.Listen("unix", svc.sock())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	for name, value := range map[string]string{"enabled": "1", "tailscaled.pid": strconv.Itoa(os.Getpid()), "tailscaled.state": "{}"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(value), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	st, err := svc.Disable()
+	if err != nil || st.Enabled || !st.ResidualExposure || st.State != "error" {
+		t.Fatalf("unverified owner => %#v, %v", st, err)
+	}
+	if _, err := svc.Forget(); err == nil {
+		t.Fatal("removed identity while an unverified listener was still live")
+	}
+	if !tailscaleFileExists(filepath.Join(dir, "tailscaled.state")) {
+		t.Fatal("identity was removed")
+	}
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Forget(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTailscaleFailedResetWriteStillClearsEnabledIntent(t *testing.T) {
+	dir := t.TempDir()
+	svc := &TailscaleService{dir: dir}
+	if err := os.WriteFile(filepath.Join(dir, "enabled"), []byte("1"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "reset-required"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Disable(); err == nil {
+		t.Fatal("failed persistence was reported as successful")
+	}
+	if tailscaleFileExists(filepath.Join(dir, "enabled")) {
+		t.Fatal("failed reset write preserved automatic restoration intent")
+	}
+}
+
 func TestTailscaleUsesPrivatePersistentUserspaceNodeAndServe(t *testing.T) {
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "tailscale-mock")
@@ -44,7 +239,7 @@ func TestTailscaleUsesPrivatePersistentUserspaceNodeAndServe(t *testing.T) {
 	writeExecutable(t, daemon, "echo \"$*\" >> \"$TS_LOG\"\nwhile [ $# -gt 0 ]; do if [ \"$1\" = --socket ] || [ \"$1\" = --state ]; then touch \"$2\"; fi; shift; done\ntouch \"$TS_READY\"\n")
 	writeExecutable(t, bin, `echo "$*" >> "$TS_LOG"
 	case "$*" in
-	  *"funnel status --json"*) if [ -f "$TS_SERVED" ]; then echo '{"Web":{"sol.tail-example.ts.net:443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:8080"}}}},"AllowFunnel":{"sol.tail-example.ts.net:443":false}}'; else echo '{}'; fi ;;
+	  *"serve status --json"*) if [ -f "$TS_SERVED" ]; then echo '{"Web":{"sol.tail-example.ts.net:443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:8080"}}}},"AllowFunnel":{"sol.tail-example.ts.net:443":false}}'; else echo '{}'; fi ;;
 	  *"serve --bg"*) touch "$TS_SERVED" ;;
 	  *"status --json"*) [ -f "$TS_READY" ] || exit 1; echo '{"BackendState":"Running","Self":{"DNSName":"sol.tail-example.ts.net."}}' ;;
   *"up "*) echo '{"AuthURL":"https://login.tailscale.com/a/approval"}' ;;
@@ -132,7 +327,7 @@ func TestTailscalePrivateListenerKeepsPendingFunnelApproval(t *testing.T) {
 	bin := filepath.Join(dir, "tailscale-mock")
 	configFile := filepath.Join(dir, "serve.json")
 	writeExecutable(t, bin, `case "$*" in
-  *"funnel status --json"*) cat "$TS_SERVE_CONFIG" ;;
+  *"serve status --json"*) cat "$TS_SERVE_CONFIG" ;;
   *"status --json"*) echo '{"BackendState":"Running","Self":{"DNSName":"sol.tail-example.ts.net."}}' ;;
 esac
 `)

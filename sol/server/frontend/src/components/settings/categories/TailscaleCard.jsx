@@ -29,9 +29,11 @@ export default function TailscaleCard() {
   }, []);
   useEffect(() => {
     void refresh();
-    const timer = window.setInterval(refresh, 5000);
-    return () => window.clearInterval(timer);
   }, [refresh]);
+  useEffect(() => {
+    const timer = window.setInterval(refresh, status?.state === "error" || error ? 60000 : 15000);
+    return () => window.clearInterval(timer);
+  }, [refresh, status?.state, error]);
   const run = async (action, body = {}) => {
     changing.current = true;
     ++requestVersion.current;
@@ -46,9 +48,9 @@ export default function TailscaleCard() {
       const data = await res.json();
       setStatus(data);
       addToast({
-        type: "success",
+        type: data.residual_exposure ? "error" : "success",
         message:
-          data.auth_url || data.approval_url
+          data.residual_exposure ? "Tailscale could not be stopped" : data.auth_url || data.approval_url
             ? "Tailscale approval link ready"
             : "Tailscale settings updated",
       });

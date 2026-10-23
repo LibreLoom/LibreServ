@@ -78,6 +78,7 @@ describe("TailscaleCard", () => {
       private_url: "https://luna.tail-demo.ts.net",
     });
     renderCard();
+    expect(screen.queryByText(/Install Tailscale on each/)).not.toBeInTheDocument();
     fireEvent.click(
       await screen.findByRole("button", { name: "Turn on private access" }),
     );
@@ -86,6 +87,16 @@ describe("TailscaleCard", () => {
         public: false,
       }),
     );
+  });
+
+  it("turns off private access while keeping Tailscale connected", async () => {
+    getJson.mockResolvedValue({ installed: true, enabled: true, state: "connected", private_url: "https://luna.tail-demo.ts.net" });
+    postJson.mockResolvedValue({ installed: true, enabled: true, state: "connected", private_url: "" });
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: "Turn off private access" }));
+    await waitFor(() => expect(postJson).toHaveBeenCalledWith("/api/v1/tailscale/stop-serve", {}));
+    expect(await screen.findByRole("button", { name: "Turn on private access" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Turn off Tailscale" })).toBeInTheDocument();
   });
 
   it("requires confirmation before making Funnel public", async () => {

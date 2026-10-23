@@ -346,14 +346,7 @@ func osInputHash(ctx context.Context, b *engine.BuildContext, j *engine.JobRun) 
 	}
 	out := filepath.Join(dir, "os-input-hash")
 	os.Remove(out)
-	spec := lunaShell(engine.RunSpec{
-		Name:    "luna-os-hash",
-		Image:   "luna-os",
-		Mounts:  []engine.Mount{osSrcMount(b), {Host: dir, Target: "/w"}},
-		Env:     osEnv(),
-		Network: "none",
-		Memory:  "256m",
-	}, "sh", "os-hash.sh")
+	spec := osHashSpec(b, dir)
 	if err := j.Container(ctx, spec); err != nil {
 		return "", err
 	}
@@ -366,6 +359,17 @@ func osInputHash(ctx context.Context, b *engine.BuildContext, j *engine.JobRun) 
 		return "", fmt.Errorf("input-hash.sh printed %q, not a sha256", h)
 	}
 	return h, nil
+}
+
+func osHashSpec(b *engine.BuildContext, dir string) engine.RunSpec {
+	return lunaShell(engine.RunSpec{
+		Name:    "luna-os-hash",
+		Image:   "luna-os",
+		Mounts:  []engine.Mount{osSrcMount(b), osSharedScriptsMount(b), {Host: dir, Target: "/w"}},
+		Env:     osEnv(),
+		Network: "none",
+		Memory:  "256m",
+	}, "sh", "os-hash.sh")
 }
 
 // osEnv passes through the knobs input-hash.sh and the build steps read, so a
@@ -875,6 +879,10 @@ func osSrcMount(b *engine.BuildContext) engine.Mount {
 	return engine.Mount{Host: filepath.Join(b.SrcDir, "luna", "os"), Target: "/luna/os", ReadOnly: true}
 }
 
+func osSharedScriptsMount(b *engine.BuildContext) engine.Mount {
+	return engine.Mount{Host: filepath.Join(b.SrcDir, "shared", "scripts"), Target: "/shared/scripts", ReadOnly: true}
+}
+
 func osRootfsSpec(b *engine.BuildContext) (engine.RunSpec, error) {
 	lunad := b.PartOutDir("lunad")
 	console := filepath.Dir(LunaConsolePath(b))
@@ -890,7 +898,7 @@ func osRootfsSpec(b *engine.BuildContext) (engine.RunSpec, error) {
 	return (engine.RunSpec{
 		Name:  "luna-os-rootfs",
 		Image: "luna-os",
-		Mounts: []engine.Mount{osSrcMount(b),
+		Mounts: []engine.Mount{osSrcMount(b), osSharedScriptsMount(b),
 			{Host: lunad, Target: "/in/lunad", ReadOnly: true},
 			{Host: console, Target: "/in/console", ReadOnly: true}},
 		Caches: []engine.Cache{{Volume: osRootfsCache, Target: "/rootfs"}, {Volume: "luna-os-cache", Target: "/cache"}},

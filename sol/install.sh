@@ -588,9 +588,9 @@ install_tailscale() {
             ;;
     esac
     url="https://pkgs.tailscale.com/stable/tailscale_${TAILSCALE_VERSION}_${arch}.tgz"
-    tmp="$(mktemp -d /tmp/sol-tailscale.XXXXXX)"
+    tmp="$(mktemp -d /tmp/sol-tailscale.XXXXXX)" || return 1
     archive="${tmp}/tailscale.tgz"
-    if ! curl -fsSL "${CURL_SECURE[@]}" "$url" -o "$archive"; then
+    if ! curl -fsSL --connect-timeout 10 --max-time 120 "${CURL_SECURE[@]}" "$url" -o "$archive"; then
         rm -rf "$tmp"
         log_error "Could not download the pinned Tailscale service."
         return 1
@@ -611,10 +611,39 @@ install_tailscale() {
         log_error "The Tailscale download did not contain its client and service."
         return 1
     fi
-    install -d -m 755 "$TAILSCALE_INSTALL_DIR"
-    install -m 755 "${extracted}/tailscale" "${TAILSCALE_INSTALL_DIR}/tailscale"
-    install -m 755 "${extracted}/tailscaled" "${TAILSCALE_INSTALL_DIR}/tailscaled"
+    if ! install -d -m 755 "$TAILSCALE_INSTALL_DIR" \
+        || ! install -m 755 "${extracted}/tailscale" "${TAILSCALE_INSTALL_DIR}/tailscale" \
+        || ! install -m 755 "${extracted}/tailscaled" "${TAILSCALE_INSTALL_DIR}/tailscaled"; then
+        rm -rf "$tmp"
+        return 1
+    fi
     rm -rf "$tmp"
+    prune_tailscale_versions
+}
+
+# Keep versions that are still running during an upgrade. A later successful
+# install can reclaim them after the service has moved to the new binaries.
+prune_tailscale_versions() {
+    local versions old name proc_exe running
+    versions="$(dirname "$TAILSCALE_INSTALL_DIR")"
+    for old in "$versions"/*; do
+        [ -d "$old" ] && [ ! -L "$old" ] || continue
+        [ "$old" != "$TAILSCALE_INSTALL_DIR" ] || continue
+        name="$(basename "$old")"
+        case "$name" in *[!0-9.]*|'') continue ;; esac
+        running=false
+        for proc_exe in /proc/[0-9]*/exe; do
+            case "$(readlink "$proc_exe" 2>/dev/null || true)" in
+                "$old/"*) running=true; break ;;
+            esac
+        done
+        if [ "$running" = false ]; then rm -rf -- "$old"; fi
+    done
+}
+
+# Remote access is optional. Its download must never block a Sol update.
+install_optional_tailscale() {
+    install_tailscale || log_warn "Tailscale could not be installed. Continuing without Tailscale remote access."
 }
 
 # Create catalog directory for repo-based apps
@@ -911,7 +940,7 @@ do_upgrade() {
         INSTALL_VERSION="$LATEST_RELEASE"
     fi
 
-    install_tailscale
+    install_optional_tailscale
 
     if ! download_binary; then
         log_error "Download or verification failed. Leaving the previous binary in place."
@@ -1038,7 +1067,7 @@ do_install() {
     create_directories
 
     prompt_version
-    install_tailscale
+    install_optional_tailscale
     download_binary
     create_catalog_dir
     download_restic

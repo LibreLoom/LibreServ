@@ -49,11 +49,11 @@ del("/api/v1/connect/device-token", ({ world }) => {
 
 // ── Tailscale remote access ──────────────────────────────────────────────────
 get("/api/v1/tailscale/status", ({ world, user }) => user?.role === "admin"
-  ? (world.tailscale || { installed: true, enabled: false, state: "off", public_supported: true })
+  ? (world.tailscale || { installed: true, enabled: false, state: "off" })
   : fail(403, "Only an Admin can change remote access."));
 post("/api/v1/tailscale/connect", ({ world, user }) => {
   if (user?.role !== "admin") return fail(403, "Only an Admin can change remote access.");
-  world.tailscale = { installed: true, enabled: true, state: "pending", identity_saved: true, auth_url: "https://login.tailscale.com/a/demo", public_supported: true };
+  world.tailscale = { installed: true, enabled: true, state: "pending", identity_saved: true, auth_url: "https://login.tailscale.com/a/demo" };
   return world.tailscale;
 });
 post("/api/v1/tailscale/reconnect", ({ world, user }) => {
@@ -68,14 +68,19 @@ post("/api/v1/tailscale/serve", ({ world, body, user }) => {
   world.tailscale = { ...world.tailscale, state: "connected", private_url: "https://luna.tail-demo.ts.net", public_url: body.public ? "https://luna.tail-demo.ts.net" : undefined, approval_url: undefined };
   return world.tailscale;
 });
+post("/api/v1/tailscale/stop-serve", ({ world, user }) => {
+  if (user?.role !== "admin") return fail(403, "Only an Admin can change remote access.");
+  world.tailscale = { ...world.tailscale, private_url: "", public_url: "", approval_url: "", approval_type: "" };
+  return world.tailscale;
+});
 post("/api/v1/tailscale/disable", ({ world, user }) => {
   if (user?.role !== "admin") return fail(403, "Only an Admin can change remote access.");
-  world.tailscale = { installed: true, enabled: false, identity_saved: true, state: "off", public_supported: true };
+  world.tailscale = { installed: true, enabled: false, identity_saved: true, state: "off" };
   return world.tailscale;
 });
 post("/api/v1/tailscale/forget", ({ world, user }) => {
   if (user?.role !== "admin") return fail(403, "Only an Admin can change remote access.");
-  world.tailscale = { installed: true, enabled: false, identity_saved: false, state: "off", public_supported: true };
+  world.tailscale = { installed: true, enabled: false, identity_saved: false, state: "off" };
   return world.tailscale;
 });
 

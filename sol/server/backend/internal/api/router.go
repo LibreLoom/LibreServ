@@ -3,7 +3,6 @@ package api
 import (
 	"net/http"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -106,7 +105,7 @@ func (s *Server) setupRoutes() {
 	connectivityHandler := handlersnetwork.NewConnectivityHandler(s.ddnsService, s.appManager, s.caddyManager)
 	wifiHandler := handlersnetwork.NewWifiHandler(wifi.Auto())
 	tunnelHandler := handlersnetwork.NewTunnelHandler(s.tunnelService, s.settingsService, s.connectClient)
-	tailscaleService := network.NewTailscaleService(filepath.Dir(config.Get().Database.Path), config.Get().Server.Port)
+	tailscaleService := network.NewTailscaleService(config.Get().Server.DataDir, config.Get().Server.Port)
 	tailscaleHandler := handlersnetwork.NewTailscaleHandler(tailscaleService)
 	factoryResetHandler.SetTailscale(tailscaleService)
 	reportHandler := handlerssystem.NewReportHandler(s.reportService)
@@ -619,6 +618,7 @@ func (s *Server) setupRoutes() {
 				r.Post("/connect", tailscaleHandler.Connect)
 				r.Post("/reconnect", tailscaleHandler.Reconnect)
 				r.Post("/serve", tailscaleHandler.Serve)
+				r.Post("/stop-serve", tailscaleHandler.StopServe)
 				r.Post("/disable", tailscaleHandler.Disable)
 				r.Post("/forget", tailscaleHandler.Forget)
 			})

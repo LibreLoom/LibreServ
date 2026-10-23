@@ -9,7 +9,7 @@ import { ICON_SIZE } from "../../lib/ui-tokens.js";
  * Settings category rail: user card on top, category list below.
  *
  * Category lists are product-specific — each app computes its own (e.g.
- * `visibleCategories(isAdmin, connectActive)` from its settingsCategories.js)
+ * `visibleCategories(isAdmin)` from its settingsCategories.js)
  * and passes the result in.
  *
  * @param {{

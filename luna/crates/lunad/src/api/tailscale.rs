@@ -13,6 +13,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/tailscale/connect", post(connect))
         .route("/api/v1/tailscale/reconnect", post(reconnect))
         .route("/api/v1/tailscale/serve", post(serve))
+        .route("/api/v1/tailscale/stop-serve", post(stop_serve))
         .route("/api/v1/tailscale/disable", post(disable))
         .route("/api/v1/tailscale/forget", post(forget))
 }
@@ -109,6 +110,19 @@ async fn disable(
     tokio::task::spawn_blocking(move || crate::net::tailscale::disable(&dir, port))
         .await
         .map_err(|_| failure("Luna could not turn off Tailscale.".into()))?
+        .map(Json)
+        .map_err(failure)
+}
+async fn stop_serve(
+    State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    admin(&user)?;
+    let dir = state.data_dir.clone();
+    let port = state.http_port;
+    tokio::task::spawn_blocking(move || crate::net::tailscale::stop_serve(&dir, port))
+        .await
+        .map_err(|_| failure("Luna could not turn off Tailscale web access.".into()))?
         .map(Json)
         .map_err(failure)
 }

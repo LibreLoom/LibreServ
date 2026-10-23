@@ -21,6 +21,9 @@ export LC_ALL=C
 # shellcheck source=../lib/disk.sh
 . "$OSDIR/lib/disk.sh"
 
+TAILSCALE_BAKE="$OSDIR/../../shared/scripts/tailscale-bake.sh"
+[ -r "$TAILSCALE_BAKE" ] || { echo "missing Tailscale packaging helper: $TAILSCALE_BAKE" >&2; exit 1; }
+
 {
 	printf 'arch=%s\n' "${ARCH:-x86_64}"
 	printf 'alpine_image=%s\n' "$ALPINE_IMAGE"
@@ -28,6 +31,7 @@ export LC_ALL=C
 	printf 'cloudflared=%s\n' "$CLOUDFLARED_VERSION"
 	printf 'slot_mib=%s\n' "${SIZE_MB:-$LUNA_SLOT_SIZE_MIB}"
 	printf 'refresh=%s\n' "${LUNA_OS_REFRESH:-}"
+	printf 'file=shared/scripts/tailscale-bake.sh %s\n' "$(sha256sum < "$TAILSCALE_BAKE" | awk '{print $1}')"
 	cd "$OSDIR"
 	for f in build/Containerfile.os build/rootfs.sh build/image.sh lib/alpine-image.sh \
 		lib/cloudflared-bake.sh lib/disk.sh lib/build-rootfs.d/*.frag; do

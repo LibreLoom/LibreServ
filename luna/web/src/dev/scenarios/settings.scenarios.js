@@ -20,7 +20,7 @@ export default [
     area: "Settings: Remote access",
     title: "Tailscale waiting for device approval",
     url: "/settings#external_services",
-    seed: (w) => { w.connectActive = false; w.connect = { enabled: false, connect_active: false }; w.tailscale = { installed: true, enabled: true, state: "pending", auth_url: "https://login.tailscale.com/a/demo", public_supported: true }; },
+    seed: (w) => { w.connectActive = false; w.connect = { enabled: false, connect_active: false }; w.tailscale = { installed: true, enabled: true, state: "pending", auth_url: "https://login.tailscale.com/a/demo" }; },
     check: ["External services remains available with Luna Connect off", "The Tailscale approval link opens in a new tab", "Public access remains off"],
   },
   {
@@ -28,7 +28,7 @@ export default [
     area: "Settings: Remote access",
     title: "Tailscale connection before private access",
     url: "/settings#external_services",
-    seed: (w) => { w.connectActive = false; w.connect = { enabled: false, connect_active: false }; w.tailscale = { installed: true, enabled: true, state: "connected", public_supported: true }; },
+    seed: (w) => { w.connectActive = false; w.connect = { enabled: false, connect_active: false }; w.tailscale = { installed: true, enabled: true, state: "connected" }; },
     check: ["Private access must be enabled before an address appears", "Public access is not offered before private access"],
   },
   {
@@ -36,7 +36,7 @@ export default [
     area: "Settings: Remote access",
     title: "Tailscale private access and public access confirmation",
     url: "/settings#external_services",
-    seed: (w) => { w.connectActive = false; w.connect = { enabled: false, connect_active: false }; w.tailscale = { installed: true, enabled: true, state: "connected", private_url: "https://luna.tail-demo.ts.net", public_supported: true }; },
+    seed: (w) => { w.connectActive = false; w.connect = { enabled: false, connect_active: false }; w.tailscale = { installed: true, enabled: true, state: "connected", private_url: "https://luna.tail-demo.ts.net" }; },
     check: ["Private address is shown", "Public access asks for confirmation and explains that visitors do not need Tailscale", "Sol apps and other network services are not described as shared"],
   },
   {
@@ -44,7 +44,7 @@ export default [
     area: "Settings: Remote access",
     title: "Tailscale service failed",
     url: "/settings#external_services",
-    seed: (w) => { w.connectActive = false; w.connect = { enabled: false, connect_active: false }; w.tailscale = { installed: true, enabled: true, state: "error", error: "Tailscale is not installed.", public_supported: true }; },
+    seed: (w) => { w.connectActive = false; w.connect = { enabled: false, connect_active: false }; w.tailscale = { installed: true, enabled: true, state: "error", error: "Tailscale is not installed." }; },
     check: ["The failure is visible without Luna Connect", "The rest of settings remains usable"],
   },
   {
@@ -52,7 +52,7 @@ export default [
     area: "Settings: Remote access",
     title: "Tailscale public access needs approval",
     url: "/settings#external_services",
-    seed: (w) => { w.connectActive = false; w.connect = { enabled: false, connect_active: false }; w.tailscale = { installed: true, enabled: true, state: "connected", private_url: "https://luna.tail-demo.ts.net", approval_type: "funnel", approval_url: "https://login.tailscale.com/admin/acls", public_supported: true }; },
+    seed: (w) => { w.connectActive = false; w.connect = { enabled: false, connect_active: false }; w.tailscale = { installed: true, enabled: true, state: "connected", private_url: "https://luna.tail-demo.ts.net", approval_type: "funnel", approval_url: "https://login.tailscale.com/admin/acls" }; },
     check: ["Approval button names public access", "The existing private address remains visible", "No public address is shown until Funnel is ready"],
   },
   {
@@ -60,7 +60,7 @@ export default [
     area: "Settings: Remote access",
     title: "Tailscale HTTPS approval is waiting",
     url: "/settings#external_services",
-    seed: (w) => { w.connectActive = false; w.connect = { enabled: false, connect_active: false }; w.tailscale = { installed: true, enabled: true, state: "connected", private_url: "", approval_type: "https", approval_url: "https://login.tailscale.com/admin/acls", public_supported: true }; },
+    seed: (w) => { w.connectActive = false; w.connect = { enabled: false, connect_active: false }; w.tailscale = { installed: true, enabled: true, state: "connected", private_url: "", approval_type: "https", approval_url: "https://login.tailscale.com/admin/acls" }; },
     check: ["No ready address is shown before HTTPS approval", "HTTPS approval opens in Tailscale", "The private access action is available to retry after approval"],
   },
   // ── Users ─────────────────────────────────────────────────────────────────

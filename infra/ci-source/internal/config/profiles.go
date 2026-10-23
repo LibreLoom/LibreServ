@@ -102,7 +102,7 @@ var Profiles = map[string]*Profile{
 			"connect-fmt", "connect-vet", "connect-test", "connect-build",
 			"luna-connect-fmt", "luna-connect-vet", "luna-connect-test", "luna-connect-build",
 			"connect-web-admin-lint", "connect-web-admin-typecheck", "connect-web-admin-build", "connect-web-customer-lint", "connect-web-customer-typecheck", "connect-web-customer-build", "luna-connect-web-lint", "luna-connect-web-test", "luna-connect-web-build", "luna-connect-web-colors", "luna-connect-web-typecheck", "luna-quick-start-check", "luna-connect-deploy-test",
-			"luna-ci", "release-test", "release-integration",
+			"luna-ci", "tailscale-packaging", "release-test", "release-integration",
 		},
 	},
 	"nofuzz": {
@@ -118,7 +118,7 @@ var Profiles = map[string]*Profile{
 			"connect-fmt", "connect-vet", "connect-test", "connect-build",
 			"luna-connect-fmt", "luna-connect-vet", "luna-connect-test", "luna-connect-build",
 			"connect-web-admin-lint", "connect-web-admin-typecheck", "connect-web-admin-build", "connect-web-customer-lint", "connect-web-customer-typecheck", "connect-web-customer-build", "luna-connect-web-lint", "luna-connect-web-test", "luna-connect-web-build", "luna-connect-web-colors", "luna-connect-web-typecheck", "luna-quick-start-check", "luna-connect-deploy-test",
-			"luna-ci", "release-test", "release-integration",
+			"luna-ci", "tailscale-packaging", "release-test", "release-integration",
 		},
 	},
 	"release": {
@@ -141,14 +141,20 @@ var Profiles = map[string]*Profile{
 			"go-fmt", "go-vet", "go-test", "go-race", "go-build", "go-rollback-test",
 			"frontend-lint", "frontend-test", "frontend-build", "frontend-typecheck", "frontend-colors",
 			"govulncheck", "gosec", "staticcheck",
-			"coverage", "podman-build",
+			"coverage", "podman-build", "tailscale-packaging",
 		},
 	},
 	"luna": {
 		ID:          "luna",
 		Name:        "Luna",
 		Description: "Luna daemon, web, desktop, and mobile CI (luna/ci.sh)",
-		TestIDs:     []string{"luna-ci"},
+		TestIDs:     []string{"luna-ci", "tailscale-packaging"},
+	},
+	"tailscale": {
+		ID:          "tailscale",
+		Name:        "Tailscale",
+		Description: "Remote access packaging, daemon and web checks without OS toolchains",
+		TestIDs:     []string{"tailscale-packaging", "luna-daemon-check", "luna-web-check", "go-test", "go-vet", "staticcheck", "frontend-test", "frontend-typecheck", "frontend-colors", "release-test"},
 	},
 	"nightly": {
 		ID:          "nightly",
@@ -163,7 +169,7 @@ var Profiles = map[string]*Profile{
 			"connect-fmt", "connect-vet", "connect-test", "connect-build",
 			"luna-connect-fmt", "luna-connect-vet", "luna-connect-test", "luna-connect-build",
 			"connect-web-admin-lint", "connect-web-admin-typecheck", "connect-web-admin-build", "connect-web-customer-lint", "connect-web-customer-typecheck", "connect-web-customer-build", "luna-connect-web-lint", "luna-connect-web-test", "luna-connect-web-build", "luna-connect-web-colors", "luna-connect-web-typecheck", "luna-quick-start-check", "luna-connect-deploy-test",
-			"luna-ci", "release-test", "release-integration",
+			"luna-ci", "tailscale-packaging", "release-test", "release-integration",
 		},
 	},
 }
@@ -174,7 +180,7 @@ func GetProfile(id string) *Profile {
 
 func ListProfiles() []*Profile {
 	result := make([]*Profile, 0, len(Profiles))
-	order := []string{"quick", "backend", "frontend", "deep", "security", "fuzz", "nofuzz", "connect", "sol", "luna", "nightly", "full"}
+	order := []string{"quick", "backend", "frontend", "deep", "security", "fuzz", "nofuzz", "connect", "sol", "luna", "tailscale", "nightly", "full"}
 	for _, id := range order {
 		if p, ok := Profiles[id]; ok {
 			result = append(result, p)

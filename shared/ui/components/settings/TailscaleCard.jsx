@@ -47,7 +47,7 @@ export default function TailscaleCard({
             Reach {product} away from home without {product} Connect.
           </p>
           {error && <PageNotice variant="error">{error}</PageNotice>}
-          {s.error && <PageNotice variant="error">{s.error}</PageNotice>}
+          {s.error && s.error !== error && <PageNotice variant="error">{s.error}</PageNotice>}
           {s.state === "pending" && (
             <div className="surface-primary rounded-large-element p-4 space-y-3">
               <p className="text-sm">
@@ -86,7 +86,7 @@ export default function TailscaleCard({
               </Button>
             </div>
           )}
-          {connected && !s.public_url && (
+          {s.private_url && !s.public_url && (
             <p className="text-primary text-sm">
               Install Tailscale on each phone or computer you want to use.
             </p>
@@ -138,9 +138,15 @@ export default function TailscaleCard({
               {product === "Luna"
                 ? "Access covers Luna’s web app and files."
                 : "Access covers the Sol dashboard. Apps and other network services are not shared."}
+              {product === "Sol" && <InfoHint content="Tailscale is managed here and is not included in Sol's Network checks." />}
             </p>
           )}
           <div className="flex flex-wrap gap-2">
+            {connected && s.private_url && !s.public_url && (
+              <Button variant="outline" disabled={busy} onClick={() => run("stop-serve")}>
+                Turn off private access
+              </Button>
+            )}
             {s.state === "connected" && !s.private_url && !s.public_url && (
               <Button
                 variant="primary"
@@ -238,9 +244,9 @@ export default function TailscaleCard({
           need Tailscale. {product}&apos;s sign-in and permissions still apply.
         </p>
         <p className="mt-3 text-primary text-sm">
-          Tailscale gives {product} an HTTPS address, an encrypted web address
-          ending in <InlinePill>ts.net</InlinePill>. Funnel is in beta and has
-          bandwidth limits. This makes the address public. Tailscale may ask you
+          Tailscale gives {product} an encrypted web address ending in{" "}
+          <InlinePill>ts.net</InlinePill>. Funnel is a beta service with bandwidth limits.
+          This makes the address public. Tailscale may ask you
           to approve it.
         </p>
       </ConfirmModal>

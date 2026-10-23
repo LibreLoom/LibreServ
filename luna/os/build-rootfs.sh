@@ -35,6 +35,7 @@ podman volume exists "$LUNA_CACHE_VOLUME" || podman volume create "$LUNA_CACHE_V
 echo "==> rootfs (volume $LUNA_ROOTFS_VOLUME)"
 podman run --rm --security-opt label=disable --memory "$LUNA_BUILD_MEMORY" \
 	-v "$OSDIR:/luna/os:ro" \
+	-v "$ROOT/../shared/scripts:/shared/scripts:ro" \
 	-v "$(dirname "$BIN"):/in/lunad:ro" \
 	-v "$(dirname "$CONSOLE_BIN"):/in/console:ro" \
 	-v "$LUNA_ROOTFS_VOLUME:/rootfs" \

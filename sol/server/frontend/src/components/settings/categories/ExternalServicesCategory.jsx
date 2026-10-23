@@ -225,12 +225,12 @@ export default function ExternalServicesCategory({
 
   return (
     <div className="space-y-4" data-slot="external-services-category">
-      <TailscaleCard />
       <p className="text-sm px-1">
         A server needs a few things from the outside world — a way to send email,
         a domain name to reach it, and a place to store backups. Here are all the
         external services your server depends on, in one place.
       </p>
+      <TailscaleCard />
 
       <div className="animate-in fade-in slide-in-from-bottom-1 duration-150">
         <ConnectStatusCard
