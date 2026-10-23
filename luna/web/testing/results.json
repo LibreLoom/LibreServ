@@ -2334,6 +2334,123 @@
       }
     ]
   },
+  "files/copy-fails-drive-full": {
+    "status": "fail",
+    "note": "Once again, a silent swallow. Fix during revamp.",
+    "at": "2026-10-23T03:02:11.569Z",
+    "viewport": "desktop",
+    "theme": "scenario default",
+    "faults": [],
+    "offline": false,
+    "latency": 0,
+    "lastRequests": [
+      {
+        "t": 1792324833935,
+        "method": "POST",
+        "path": "/api/v1/me/recents",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324832773,
+        "method": "GET",
+        "path": "/api/v1/drives/d2/files?path=Photos%2F2024",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324832650,
+        "method": "POST",
+        "path": "/api/v1/me/recents",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324830383,
+        "method": "GET",
+        "path": "/api/v1/drives/d2/files?path=Photos",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324828961,
+        "method": "GET",
+        "path": "/api/v1/drives/d2/files?path=",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324828928,
+        "method": "GET",
+        "path": "/api/v1/jobs",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324827901,
+        "method": "GET",
+        "path": "/api/v1/jobs",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324826861,
+        "method": "GET",
+        "path": "/api/v1/jobs",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324825835,
+        "method": "GET",
+        "path": "/api/v1/jobs",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324824777,
+        "method": "GET",
+        "path": "/api/v1/drives/d2/files?path=",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324824776,
+        "method": "GET",
+        "path": "/api/v1/jobs",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324824737,
+        "method": "POST",
+        "path": "/api/v1/jobs",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324822313,
+        "method": "GET",
+        "path": "/api/v1/drives/d2/backups",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324822313,
+        "method": "GET",
+        "path": "/api/v1/private-backups/item?drive=d2&path=",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324822313,
+        "method": "GET",
+        "path": "/api/v1/backups?drive=d2&path=",
+        "status": 200,
+        "note": ""
+      }
+    ]
+  },
   "files/copy-job": {
     "status": "fail",
     "note": "Good, but we need the stateful card revamp to not just be an upload card, but a file operation card!! Absolutely W!",
@@ -2450,6 +2567,13 @@
         "note": ""
       }
     ]
+  },
+  "files/copy-to-full-drive": {
+    "status": "pass",
+    "note": "",
+    "at": "2026-10-23T03:02:32.650Z",
+    "viewport": "desktop",
+    "theme": "scenario default"
   },
   "files/create-collision": {
     "status": "fail",
@@ -3057,6 +3181,131 @@
     "viewport": "desktop",
     "theme": "scenario default"
   },
+  "files/job-server-error": {
+    "status": "fail",
+    "note": "Says \"Luna's job queue isn't running\". Could be more accurate, i.e. \"Luna's job queue isn't responding.\"",
+    "at": "2026-10-23T03:07:23.181Z",
+    "viewport": "desktop",
+    "theme": "scenario default",
+    "faults": [
+      {
+        "id": "j0kjps",
+        "on": true,
+        "match": "POST /api/v1/jobs",
+        "mode": "500",
+        "message": "Luna's job queue isn't running."
+      }
+    ],
+    "offline": false,
+    "latency": 0,
+    "lastRequests": [
+      {
+        "t": 1792324800412,
+        "method": "GET",
+        "path": "/api/v1/jobs",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800412,
+        "method": "GET",
+        "path": "/api/v1/private-backups/mine",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800412,
+        "method": "GET",
+        "path": "/api/v1/drives/d1/backups",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800412,
+        "method": "GET",
+        "path": "/api/v1/private-backups/item?drive=d1&path=",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800412,
+        "method": "GET",
+        "path": "/api/v1/cloud/backups",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800412,
+        "method": "GET",
+        "path": "/api/v1/connect/status",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800412,
+        "method": "GET",
+        "path": "/api/v1/backups?drive=d1&path=",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800411,
+        "method": "GET",
+        "path": "/api/v1/drives/d1/files?path=Photos",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800173,
+        "method": "POST",
+        "path": "/api/v1/me/recents",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800113,
+        "method": "POST",
+        "path": "/api/v1/me/recents",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800109,
+        "method": "POST",
+        "path": "/api/v1/me/recents",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800108,
+        "method": "GET",
+        "path": "/api/v1/drives",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800024,
+        "method": "GET",
+        "path": "/api/v1/auth/status",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800024,
+        "method": "GET",
+        "path": "/api/v1/setup",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800024,
+        "method": "GET",
+        "path": "/api/v1/auth/status",
+        "status": 200,
+        "note": ""
+      }
+    ]
+  },
   "files/listing-error": {
     "status": "fail",
     "note": "No try again button is visible.",
@@ -3657,12 +3906,253 @@
       }
     ]
   },
+  "files/move-into-itself": {
+    "status": "fail",
+    "note": "Passed, but we could stop offering options that would move a folder into itself in the file move menu.",
+    "at": "2026-10-23T03:03:18.059Z",
+    "viewport": "desktop",
+    "theme": "scenario default",
+    "faults": [],
+    "offline": false,
+    "latency": 0,
+    "lastRequests": [
+      {
+        "t": 1792324830469,
+        "method": "GET",
+        "path": "/api/v1/cloud/backups",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324830469,
+        "method": "GET",
+        "path": "/api/v1/backups?drive=d1&path=",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324811150,
+        "method": "GET",
+        "path": "/api/v1/jobs",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324811149,
+        "method": "GET",
+        "path": "/api/v1/drives/d1/files?path=",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324811067,
+        "method": "POST",
+        "path": "/api/v1/jobs",
+        "status": 400,
+        "note": ""
+      },
+      {
+        "t": 1792324803853,
+        "method": "GET",
+        "path": "/api/v1/drives/d1/files?path=Music",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800396,
+        "method": "GET",
+        "path": "/api/v1/jobs",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800396,
+        "method": "GET",
+        "path": "/api/v1/private-backups/mine",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800396,
+        "method": "GET",
+        "path": "/api/v1/drives/d1/backups",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800395,
+        "method": "GET",
+        "path": "/api/v1/private-backups/item?drive=d1&path=",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800395,
+        "method": "GET",
+        "path": "/api/v1/cloud/backups",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800395,
+        "method": "GET",
+        "path": "/api/v1/connect/status",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800395,
+        "method": "GET",
+        "path": "/api/v1/backups?drive=d1&path=",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800394,
+        "method": "GET",
+        "path": "/api/v1/drives/d1/files?path=",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800162,
+        "method": "POST",
+        "path": "/api/v1/me/recents",
+        "status": 200,
+        "note": ""
+      }
+    ]
+  },
   "files/move-job": {
     "status": "pass",
     "note": "",
     "at": "2026-10-22T04:29:51.344Z",
     "viewport": "desktop",
     "theme": "scenario default"
+  },
+  "files/move-name-clash": {
+    "status": "pass",
+    "note": "",
+    "at": "2026-10-23T03:03:39.900Z",
+    "viewport": "desktop",
+    "theme": "scenario default"
+  },
+  "files/move-readonly-dest": {
+    "status": "fail",
+    "note": "It's... silently broken in the header's drive selector. I can't drop the folder there, but the drive still appears and such. There should be no behavioural change if the drive is RO, we should error out when the user drops it in the drives and it fails.",
+    "at": "2026-10-23T03:05:14.716Z",
+    "viewport": "desktop",
+    "theme": "scenario default",
+    "faults": [],
+    "offline": false,
+    "latency": 0,
+    "lastRequests": [
+      {
+        "t": 1792324860771,
+        "method": "GET",
+        "path": "/api/v1/cloud/backups",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324860771,
+        "method": "GET",
+        "path": "/api/v1/backups?drive=d1&path=",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324830749,
+        "method": "GET",
+        "path": "/api/v1/cloud/backups",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324830749,
+        "method": "GET",
+        "path": "/api/v1/backups?drive=d1&path=",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324815485,
+        "method": "GET",
+        "path": "/api/v1/drives/d1/files?path=Documents",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324814647,
+        "method": "GET",
+        "path": "/api/v1/drives/d1/files?path=",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324814643,
+        "method": "POST",
+        "path": "/api/v1/me/recents",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324801463,
+        "method": "GET",
+        "path": "/api/v1/drives/d1/files?path=Photos%2F2024",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800672,
+        "method": "GET",
+        "path": "/api/v1/jobs",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800672,
+        "method": "GET",
+        "path": "/api/v1/private-backups/mine",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800672,
+        "method": "GET",
+        "path": "/api/v1/drives/d1/backups",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800672,
+        "method": "GET",
+        "path": "/api/v1/private-backups/item?drive=d1&path=",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800671,
+        "method": "GET",
+        "path": "/api/v1/cloud/backups",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800671,
+        "method": "GET",
+        "path": "/api/v1/connect/status",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800671,
+        "method": "GET",
+        "path": "/api/v1/backups?drive=d1&path=",
+        "status": 200,
+        "note": ""
+      }
+    ]
   },
   "files/moved-link": {
     "status": "fail",
