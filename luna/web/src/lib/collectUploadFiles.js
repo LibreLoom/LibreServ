@@ -114,3 +114,104 @@ export function uploadDestForFile(destFolder, file) {
     : destFolder || "";
   return { destPath, name };
 }
+
+/**
+ * @typedef {{ entries: FileSystemEntry[], files: File[] }} DroppedItems
+ *   What a drop held. `entries` are files and folders the browser can walk;
+ *   `files` are plain Files (browsers or inputs without entry support).
+ */
+
+/**
+ * Read a drop into walkable pieces. Call it synchronously inside the `drop`
+ * event: `webkitGetAsEntry` and `getAsFile` only work while the event runs.
+ * The walk itself (`walkDropped`) can happen later.
+ *
+ * @param {DataTransfer|null|undefined} dataTransfer
+ * @returns {DroppedItems}
+ */
+export function takeDropped(dataTransfer) {
+  /** @type {FileSystemEntry[]} */
+  const entries = [];
+  /** @type {File[]} */
+  const files = [];
+  if (!dataTransfer) return { entries, files };
+  const items = dataTransfer.items;
+  if (items && items.length > 0) {
+    for (let i = 0; i < items.length; i += 1) {
+      const item = items[i];
+      if (item.kind !== "file") continue;
+      const entry = typeof item.webkitGetAsEntry === "function" ? item.webkitGetAsEntry() : null;
+      if (entry) {
+        entries.push(entry);
+        continue;
+      }
+      const file = item.getAsFile();
+      if (file) files.push(file);
+    }
+  }
+  if (!entries.length && !files.length) files.push(...filesFromFileList(dataTransfer.files));
+  return { entries, files };
+}
+
+/** @param {FileSystemFileEntry} entry @returns {Promise<File>} */
+function fileOf(entry) {
+  return new Promise((resolve, reject) => entry.file(resolve, reject));
+}
+
+/** @param {FileSystemDirectoryReader} reader @returns {Promise<FileSystemEntry[]>} */
+function nextBatch(reader) {
+  return new Promise((resolve, reject) => reader.readEntries(resolve, reject));
+}
+
+/**
+ * Walk what a drop (or a folder picker) held, reporting as it goes so uploads
+ * can start while the walk is still running. One bad entry never stops the
+ * others: its error goes to `onError` and the walk carries on.
+ *
+ * Paths are relative to the drop, with the dropped folder's own name first:
+ * `Photos/2024/a.jpg`.
+ *
+ * @param {DroppedItems} dropped
+ * @param {{
+ *   onFile: (file: File, relPath: string) => void,
+ *   onDir?: (relPath: string) => void,
+ *   onError?: (relPath: string, err: unknown) => void,
+ *   signal?: AbortSignal,
+ * }} handlers `onDir` is called for empty folders only.
+ * @returns {Promise<void>}
+ */
+export async function walkDropped(dropped, { onFile, onDir, onError, signal }) {
+  /** @param {FileSystemEntry} entry @param {string} prefix */
+  async function walk(entry, prefix) {
+    const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+    if (signal?.aborted) return;
+    try {
+      if (entry.isFile) {
+        onFile(await fileOf(/** @type {FileSystemFileEntry} */ (entry)), rel);
+      } else if (entry.isDirectory) {
+        const reader = /** @type {FileSystemDirectoryEntry} */ (entry).createReader();
+        let count = 0;
+        for (;;) {
+          if (signal?.aborted) return;
+          const batch = await nextBatch(reader);
+          if (!batch.length) break;
+          count += batch.length;
+          for (const child of batch) await walk(child, rel);
+        }
+        if (count === 0) onDir?.(rel);
+      }
+    } catch (err) {
+      onError?.(rel, err);
+    }
+  }
+
+  // Picker input and browsers without entry support: plain files, with
+  // webkitRelativePath when a folder was picked.
+  for (const file of dropped.files || []) {
+    if (signal?.aborted) return;
+    onFile(file, String(file.webkitRelativePath || file.name));
+  }
+  for (const entry of dropped.entries || []) {
+    await walk(entry, "");
+  }
+}
