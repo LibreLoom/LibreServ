@@ -346,9 +346,14 @@ export default [
     check: ["Protect on Diary works and mentions it stays private", "Dashboard 'private items' count updates"],
   },
   {
-    id: "files/protect-inside-private", area: A, title: "Protect a folder inside a private one", url: "/files/d1",
+    id: "files/protect-inside-private", area: A, title: "Protect a folder inside your private one", url: "/files/d1",
     seed: (w) => { demo(w); withBackupDrive(w); addDir(w, "d1", "Diary/2025", { private: false }); w.fs.d1.nodes.Diary.private = true; w.fs.d1.nodes.Diary.owner = "u1"; },
-    check: ["Protect on Diary/2025 says to back up the private folder itself instead"],
+    check: ["Protect on Diary/2025 says this folder is private and only you can back it up", "Choose a drive and Back up to the cloud both work"],
+  },
+  {
+    id: "files/protect-covered-by-parent", area: A, title: "Folder already held by a bigger folder's backup", url: "/files/d1",
+    seed: (w) => { demo(w); withBackupDrive(w); w.backups.push(backup({ source_drive: "d1", source_path: "Documents", source_name: "Documents", target_drive: "d2" })); },
+    check: ["Protect on a folder inside Documents says it is included in the backup of Documents", "No Choose a drive or Back up now for that drive", "Deleting the Documents backup lets the folder be backed up again"],
   },
   {
     id: "files/backups-browse", area: A, title: "Browse a backup drive's Backups folder", url: "/files/d2",
