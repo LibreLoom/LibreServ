@@ -1046,6 +1046,7 @@ mod tests {
                 self_sealed: vec![3; 48],
                 phrase_set_at: 1,
                 last_checked_at: 0,
+                phrase_words: 0,
             },
         )
         .unwrap();
@@ -1291,6 +1292,7 @@ mod tests {
                 self_sealed: vec![3; 48],
                 phrase_set_at: 2,
                 last_checked_at: 0,
+                phrase_words: 0,
             },
         )
         .unwrap();
@@ -1386,6 +1388,7 @@ mod tests {
                 self_sealed: b"sealed copy".to_vec(),
                 phrase_set_at: NOW,
                 last_checked_at: 0,
+                phrase_words: 0,
             },
         )
         .unwrap();
@@ -1679,6 +1682,7 @@ mod tests {
             self_sealed: vec![3; 48],
             phrase_set_at: 1,
             last_checked_at: 0,
+            phrase_words: 0,
         }
     }
 
@@ -1699,6 +1703,7 @@ mod tests {
                 self_sealed: vec![3; 48],
                 phrase_set_at: 1,
                 last_checked_at: 0,
+                phrase_words: 0,
             },
         )
         .unwrap();

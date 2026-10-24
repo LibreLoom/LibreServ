@@ -905,6 +905,7 @@ mod tests {
                 self_sealed: vec![3; 48],
                 phrase_set_at: 1,
                 last_checked_at: 0,
+                phrase_words: 0,
             },
         )
         .unwrap();
@@ -1039,6 +1040,7 @@ mod tests {
             self_sealed: vec![3; 48],
             phrase_set_at: 5,
             last_checked_at: 0,
+            phrase_words: 0,
         };
         db::set_user_keys(&conn, &alice_row).unwrap();
         let v1 = ensure_key(&conn, PROTECTION, &set(&["alice"]), 10).unwrap();

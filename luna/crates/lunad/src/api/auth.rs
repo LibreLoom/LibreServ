@@ -402,11 +402,17 @@ async fn me(State(state): State<AppState>, req: Request) -> Json<Value> {
                 .as_ref()
                 .map(|row| row.display_name.clone())
                 .unwrap_or_default();
+            // Whether this account has a recovery phrase yet. The web asks for one before the app opens.
+            let phrase_set = crate::db::get_user_keys(&conn, &user.id)
+                .ok()
+                .flatten()
+                .is_some();
             Json(json!({
                 "id": user.id,
                 "username": user.username,
                 "display_name": display_name,
                 "role": user.role,
+                "phrase_set": phrase_set,
             }))
         }
         None => Json(Value::Null),
@@ -760,6 +766,56 @@ mod tests {
             .await,
             StatusCode::OK
         );
+    }
+
+    #[tokio::test]
+    async fn me_reports_phrase_set() {
+        let (_dir, state) = state();
+        let user = state
+            .auth
+            .register("max", "Max", "hunter22hunter1", "admin")
+            .unwrap();
+        let router = axum::Router::new()
+            .merge(super::router())
+            .with_state(state.clone());
+        let me = |router: axum::Router| {
+            let u = user.clone();
+            async move {
+                let mut http = axum::http::Request::builder()
+                    .method(axum::http::Method::GET)
+                    .uri("/api/v1/auth/me")
+                    .body(axum::body::Body::empty())
+                    .unwrap();
+                http.extensions_mut().insert(CurrentUser {
+                    id: u.id,
+                    username: u.username,
+                    role: u.role,
+                });
+                let res = router.oneshot(http).await.unwrap();
+                let bytes = axum::body::to_bytes(res.into_body(), 1 << 20)
+                    .await
+                    .unwrap();
+                serde_json::from_slice::<Value>(&bytes).unwrap()
+            }
+        };
+        assert_eq!(me(router.clone()).await["phrase_set"], json!(false));
+        {
+            let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
+            crate::db::set_user_keys(
+                &conn,
+                &crate::db::UserKeys {
+                    user_id: user.id.clone(),
+                    seal_public: vec![1; 32],
+                    auth_public: vec![2; 32],
+                    self_sealed: vec![3; 48],
+                    phrase_set_at: 1,
+                    last_checked_at: 0,
+                    phrase_words: 12,
+                },
+            )
+            .unwrap();
+        }
+        assert_eq!(me(router).await["phrase_set"], json!(true));
     }
 
     #[tokio::test]

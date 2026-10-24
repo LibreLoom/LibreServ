@@ -597,6 +597,7 @@ mod tests {
                 self_sealed: vec![1; 8],
                 phrase_set_at: NOW,
                 last_checked_at: NOW,
+                phrase_words: 0,
             },
         )
         .unwrap();

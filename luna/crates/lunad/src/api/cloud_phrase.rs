@@ -92,6 +92,9 @@ struct SetBody {
     /// For `old_signature`: each private scope's secret key, re-sealed to the new phrase (plan §5).
     #[serde(default)]
     rescoped: Vec<RescopedBody>,
+    /// How many words the phrase has: 12 or 24. Left out when unknown, which stores 0.
+    #[serde(default)]
+    words: Option<u8>,
 }
 
 #[derive(Deserialize)]
@@ -197,7 +200,6 @@ async fn status(
     let keys = db::get_user_keys(&conn, &user.id).map_err(|_| read_failed())?;
     // Null until cloud backup is set up on this Luna. Setup never happens on a read.
     let identity = identity::load(&conn).map_err(|_| read_failed())?;
-    let admin_has_phrase = admin_has_phrase(&conn).map_err(|_| read_failed())?;
     let old_copies = old_phrase_copies(&conn, &user.id).map_err(|_| read_failed())?;
     let resealing = keys::resealing_pending(&conn, &user.id).map_err(|_| read_failed())?;
     let now = db::now_unix();
@@ -207,7 +209,8 @@ async fn status(
         "check_due": phrase_check_due(keys.as_ref(), now),
         // 0 means the phrase has never been checked (or is not set).
         "last_checked_at": keys.as_ref().map_or(0, |k| k.last_checked_at),
-        "admin_has_phrase": admin_has_phrase,
+        // 12 or 24 once the phrase has been saved with its length; 0 when unknown.
+        "phrase_words": keys.as_ref().map_or(0, |k| k.phrase_words),
         "old_phrase_copies": {
             "count": old_copies.count,
             "removed_at": old_copies.removed_at,
@@ -220,17 +223,6 @@ async fn status(
         // The browser seals this key with its self key, so Connect can never swap it.
         "signing_public": identity.as_ref().map(|i| STANDARD.encode(i.public())),
     })))
-}
-
-/// Whether at least one Admin has a recovery phrase set. Members are not counted.
-fn admin_has_phrase(conn: &Connection) -> anyhow::Result<bool> {
-    let admin_ids: HashSet<String> = db::list_admins(conn)?
-        .into_iter()
-        .map(|admin| admin.id)
-        .collect();
-    Ok(db::list_user_keys(conn)?
-        .iter()
-        .any(|keys| admin_ids.contains(&keys.user_id)))
 }
 
 /// Private copies a person still holds from before they changed their phrase.
@@ -356,6 +348,12 @@ async fn set_phrase(
     Extension(user): Extension<CurrentUser>,
     Json(body): Json<SetBody>,
 ) -> ApiResult {
+    if !matches!(body.words, None | Some(12) | Some(24)) {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "A recovery phrase has 12 or 24 words.",
+        ));
+    }
     let seal_public: crypto::SealPublic = decode_key(&body.seal_public)?;
     let auth_public: crypto::SigPublic = decode_key(&body.auth_public)?;
     let rescoped = parse_rescoped(&body.rescoped)?;
@@ -466,6 +464,7 @@ async fn set_phrase(
                 self_sealed,
                 phrase_set_at: now,
                 last_checked_at: 0,
+                phrase_words: i64::from(body.words.unwrap_or(0)),
             },
         )?;
         let mut marked = Vec::new();
@@ -578,7 +577,7 @@ async fn check(
         .is_some_and(|sig| crypto::verify(&auth_public, CHECK_DOMAIN, &challenge, &sig));
     if !proven {
         return Err(json_error(
-            StatusCode::BAD_REQUEST,
+            StatusCode::FORBIDDEN,
             "That doesn't match the recovery phrase set for your account.",
         ));
     }
@@ -1896,7 +1895,7 @@ mod tests {
             Some(json!({ "signature": sign_challenge(&wrong_key, &challenge) })),
         )
         .await;
-        assert_eq!(status, 400);
+        assert_eq!(status, 403);
         assert_eq!(
             body["error"],
             json!("That doesn't match the recovery phrase set for your account.")
@@ -2275,7 +2274,7 @@ mod tests {
         let body = status_of(&f.router, &f.admin_token).await;
         assert_eq!(body["set"], json!(false));
         assert_eq!(body["last_checked_at"], json!(0));
-        assert_eq!(body["admin_has_phrase"], json!(false));
+        assert_eq!(body["phrase_words"], json!(0));
         assert_eq!(
             body["old_phrase_copies"],
             json!({ "count": 0, "removed_at": null })
@@ -2297,7 +2296,7 @@ mod tests {
         let body = status_of(&f.router, &f.admin_token).await;
         assert_eq!(body["set"], json!(true));
         assert_eq!(body["last_checked_at"], json!(0));
-        assert_eq!(body["admin_has_phrase"], json!(true));
+        assert_eq!(body["phrase_words"], json!(0));
 
         // A passed check moves last_checked_at to the time of the check.
         let before = db::now_unix();
@@ -2321,41 +2320,61 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn member_sees_whether_an_admin_has_a_phrase_but_not_their_own_state() {
+    async fn words_is_stored_and_reported() {
         let f = fixture();
-        send(
-            &f.router,
-            "PUT",
-            "/api/v1/cloud/phrase",
-            &f.admin_token,
-            Some(set_body(&Signer::generate(), None)),
-        )
-        .await;
-        let body = status_of(&f.router, &f.member_token).await;
-        assert_eq!(body["set"], json!(false));
-        assert_eq!(body["last_checked_at"], json!(0));
-        assert_eq!(body["admin_has_phrase"], json!(true));
-    }
-
-    #[tokio::test]
-    async fn member_only_phrase_does_not_count_as_an_admin_phrase() {
-        let f = fixture();
-        let mut member_body = set_body(&Signer::generate(), None);
-        member_body["seal_public"] = json!(seal_key_b64(9));
+        let signer = Signer::generate();
+        let mut body = set_body(&signer, None);
+        body["words"] = json!(24);
         let (status, _) = send(
             &f.router,
             "PUT",
             "/api/v1/cloud/phrase",
-            &f.member_token,
-            Some(member_body),
+            &f.admin_token,
+            Some(body),
         )
         .await;
         assert_eq!(status, 200);
         let body = status_of(&f.router, &f.admin_token).await;
+        assert_eq!(body["phrase_words"], json!(24));
+
+        // A passed check keeps the length.
+        let challenge = fetch_challenge(&f.router, &f.admin_token).await;
+        let (status, _) = send(
+            &f.router,
+            "POST",
+            "/api/v1/cloud/phrase/check",
+            &f.admin_token,
+            Some(json!({ "signature": sign_challenge(&signer, &challenge) })),
+        )
+        .await;
+        assert_eq!(status, 200);
+        let body = status_of(&f.router, &f.admin_token).await;
+        assert_eq!(body["phrase_words"], json!(24));
+    }
+
+    #[tokio::test]
+    async fn words_other_than_12_or_24_are_refused() {
+        let f = fixture();
+        for words in [json!(0), json!(13), json!(11)] {
+            let mut body = set_body(&Signer::generate(), None);
+            body["words"] = words.clone();
+            let (status, body) = send(
+                &f.router,
+                "PUT",
+                "/api/v1/cloud/phrase",
+                &f.admin_token,
+                Some(body),
+            )
+            .await;
+            assert_eq!(status, 400, "words {words} should be refused");
+            assert_eq!(
+                body["error"],
+                json!("A recovery phrase has 12 or 24 words.")
+            );
+        }
+        // Nothing was saved.
+        let body = status_of(&f.router, &f.admin_token).await;
         assert_eq!(body["set"], json!(false));
-        assert_eq!(body["admin_has_phrase"], json!(false));
-        let body = status_of(&f.router, &f.member_token).await;
-        assert_eq!(body["admin_has_phrase"], json!(false));
     }
 
     #[tokio::test]
@@ -2477,6 +2496,7 @@ mod tests {
             self_sealed: vec![],
             phrase_set_at,
             last_checked_at,
+            phrase_words: 0,
         };
         // Set 91 days ago and never checked: due.
         assert!(phrase_check_due(Some(&keys(now - 91 * 86_400, 0)), now));

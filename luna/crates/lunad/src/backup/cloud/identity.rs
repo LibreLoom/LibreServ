@@ -86,13 +86,17 @@ pub fn load_or_create_connected(
     connect: &ConnectService,
     now: i64,
 ) -> Result<Identity> {
-    let roots = {
+    let (roots, existing) = {
         let conn = lock(db);
-        if let Some(identity) = load(&conn)? {
-            return Ok(identity);
+        match load(&conn)? {
+            Some(identity) => (Vec::new(), Some(identity)),
+            None => (connected_roots(&conn), None),
         }
-        connected_roots(&conn)
     };
+    if let Some(identity) = existing {
+        ensure_registered(db, connect, &identity);
+        return Ok(identity);
+    }
 
     // No DB lock from here to the store below.
     let known = known_luna_id(&roots, connect)?;
@@ -108,33 +112,33 @@ pub fn load_or_create_connected(
     let (identity, minted) = {
         let conn = lock(db);
         // Another request may have set this Luna up while the lock was free.
-        if let Some(identity) = load(&conn)? {
-            return Ok(identity);
-        }
-        match recovered {
-            Some((luna_id, seed, created_at)) => {
-                db::set_cloud_identity(&conn, &luna_id, &seed, created_at)?;
-                (
-                    Identity {
-                        luna_id,
-                        signer: Signer::from_seed(seed),
-                    },
-                    false,
-                )
-            }
-            None => {
-                let luna_id = mint_luna_id();
-                let signer = Signer::generate();
-                db::set_cloud_identity(&conn, &luna_id, &signer.seed(), now)?;
-                (Identity { luna_id, signer }, true)
-            }
+        match load(&conn)? {
+            Some(identity) => (identity, false),
+            None => match recovered {
+                Some((luna_id, seed, created_at)) => {
+                    db::set_cloud_identity(&conn, &luna_id, &seed, created_at)?;
+                    (
+                        Identity {
+                            luna_id,
+                            signer: Signer::from_seed(seed),
+                        },
+                        false,
+                    )
+                }
+                None => {
+                    let luna_id = mint_luna_id();
+                    let signer = Signer::generate();
+                    db::set_cloud_identity(&conn, &luna_id, &signer.seed(), now)?;
+                    (Identity { luna_id, signer }, true)
+                }
+            },
         }
     };
 
     if minted {
         copy_to_drives(&roots, &identity, now);
     }
-    register_public(connect, &identity);
+    ensure_registered(db, connect, &identity);
     Ok(identity)
 }
 
@@ -199,15 +203,45 @@ fn drive_luna_ids(roots: &[PathBuf]) -> Vec<String> {
     ids.into_iter().collect()
 }
 
-/// Send this Luna's signing public key to Luna Connect. Best-effort: a failure is logged only.
-fn register_public(connect: &ConnectService, identity: &Identity) {
+/// Meta key holding the Luna id whose signing key Luna Connect has accepted.
+const REGISTERED_KEY: &str = "cloud_identity_registered";
+
+/// Make sure Luna Connect has this Luna's signing key. A Luna id made while Connect was off
+/// is registered on the first load after Connect becomes reachable, and then never again
+/// for that id. No DB lock is held across the network call.
+fn ensure_registered(db: &crate::Db, connect: &ConnectService, identity: &Identity) {
+    if !connect.has_valid_device_code() {
+        return;
+    }
+    let registered = {
+        let conn = lock(db);
+        db::get_meta(&conn, REGISTERED_KEY).ok().flatten()
+    };
+    if registered.as_deref() == Some(identity.luna_id.as_str()) {
+        return;
+    }
+    if register_public(connect, identity) {
+        let conn = lock(db);
+        if let Err(e) = db::set_meta(&conn, REGISTERED_KEY, &identity.luna_id) {
+            tracing::warn!(error = %e, "could not remember that this Luna's signing key is registered");
+        }
+    }
+}
+
+/// Send this Luna's signing public key to Luna Connect. Returns true when Connect accepted it.
+/// A failure is logged only, and the next load tries again.
+fn register_public(connect: &ConnectService, identity: &Identity) -> bool {
     let hex: String = identity
         .public()
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect();
-    if let Err(e) = connect.register_signing_public(&identity.luna_id, &hex) {
-        tracing::warn!(error = %e, "could not register this Luna's signing key with Luna Connect");
+    match connect.register_signing_public(&identity.luna_id, &hex) {
+        Ok(()) => true,
+        Err(e) => {
+            tracing::warn!(error = %e, "could not register this Luna's signing key with Luna Connect");
+            false
+        }
     }
 }
 
@@ -835,6 +869,49 @@ mod tests {
         assert_eq!(
             load(&db.lock().unwrap()).unwrap().unwrap().luna_id,
             made.luna_id
+        );
+    }
+
+    #[test]
+    fn an_identity_made_while_connect_was_unreachable_registers_on_the_next_load() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = db_at(&dir.path().join("luna.db"));
+        let unreachable = connect_to(&dir.path().join("connect"), &unreachable_url());
+        let made = load_or_create_connected(&db, &unreachable, 1).unwrap();
+
+        // Connect is reachable now: the next load registers the key it never received.
+        let (url, seen) = fake_connect(&listing(&[&made.luna_id]), 1);
+        let reachable = connect_to(&dir.path().join("connect"), &url);
+        let again = load_or_create_connected(&db, &reachable, 2).unwrap();
+        assert_eq!(again.luna_id, made.luna_id);
+        let posts = |seen: &Arc<Mutex<Vec<String>>>| {
+            seen.lock()
+                .unwrap()
+                .iter()
+                .filter(|l| l.starts_with("POST") && l.contains("/signing-public"))
+                .count()
+        };
+        assert_eq!(posts(&seen), 1, "{:?}", seen.lock().unwrap());
+
+        // Once registered, later loads don't send it again.
+        load_or_create_connected(&db, &reachable, 3).unwrap();
+        assert_eq!(posts(&seen), 1, "{:?}", seen.lock().unwrap());
+    }
+
+    #[test]
+    fn no_device_token_means_no_registration_attempt() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = db_at(&dir.path().join("luna.db"));
+        let (url, seen) = fake_connect(&listing(&[]), 1);
+        // Connect is off: no device token, so nothing is sent even though a URL is set.
+        std::fs::create_dir_all(dir.path().join("connect")).unwrap();
+        let off = ConnectService::new(&dir.path().join("connect"), Some(url));
+        load_or_create_connected(&db, &off, 1).unwrap();
+        load_or_create_connected(&db, &off, 2).unwrap();
+        assert!(
+            seen.lock().unwrap().is_empty(),
+            "{:?}",
+            seen.lock().unwrap()
         );
     }
 

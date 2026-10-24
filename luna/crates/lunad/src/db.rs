@@ -172,7 +172,8 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             auth_public BLOB NOT NULL,
             self_sealed BLOB NOT NULL,
             phrase_set_at INTEGER NOT NULL,
-            last_checked_at INTEGER NOT NULL DEFAULT 0
+            last_checked_at INTEGER NOT NULL DEFAULT 0,
+            phrase_words INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS backup_keys (
             protection_id TEXT NOT NULL,
@@ -280,6 +281,12 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
         "INTEGER NOT NULL DEFAULT 0",
     )?;
     ensure_column(&conn, "device_tokens", "expires_at", "INTEGER")?;
+    ensure_column(
+        &conn,
+        "user_keys",
+        "phrase_words",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
     crate::files::forwarding::migrate(&conn)?;
     crate::files::recents::migrate(&conn)?;
     // Legacy sharing tables — replaced by access_members/access_links.
@@ -1487,10 +1494,12 @@ pub struct UserKeys {
     pub self_sealed: Vec<u8>,
     pub phrase_set_at: i64,
     pub last_checked_at: i64,
+    /// 12 or 24 words; 0 when unknown (phrases made before this was stored).
+    pub phrase_words: i64,
 }
 
-const USER_KEYS_COLUMNS: &str =
-    "user_id, seal_public, auth_public, self_sealed, phrase_set_at, last_checked_at";
+const USER_KEYS_COLUMNS: &str = "user_id, seal_public, auth_public, self_sealed, phrase_set_at, \
+     last_checked_at, phrase_words";
 
 fn user_keys_from_row(r: &rusqlite::Row) -> rusqlite::Result<UserKeys> {
     Ok(UserKeys {
@@ -1500,6 +1509,7 @@ fn user_keys_from_row(r: &rusqlite::Row) -> rusqlite::Result<UserKeys> {
         self_sealed: r.get(3)?,
         phrase_set_at: r.get(4)?,
         last_checked_at: r.get(5)?,
+        phrase_words: r.get(6)?,
     })
 }
 
@@ -1517,15 +1527,16 @@ pub fn get_user_keys(conn: &Connection, user_id: &str) -> anyhow::Result<Option<
 pub fn set_user_keys(conn: &Connection, keys: &UserKeys) -> anyhow::Result<()> {
     conn.execute(
         "INSERT OR REPLACE INTO user_keys
-            (user_id, seal_public, auth_public, self_sealed, phrase_set_at, last_checked_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            (user_id, seal_public, auth_public, self_sealed, phrase_set_at, last_checked_at, phrase_words)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![
             keys.user_id,
             keys.seal_public,
             keys.auth_public,
             keys.self_sealed,
             keys.phrase_set_at,
-            keys.last_checked_at
+            keys.last_checked_at,
+            keys.phrase_words
         ],
     )?;
     Ok(())
@@ -3249,10 +3260,18 @@ mod tests {
             self_sealed: vec![3; 48],
             phrase_set_at: 5,
             last_checked_at: 0,
+            phrase_words: 12,
         };
         set_user_keys(&conn, &keys).unwrap();
         assert_eq!(get_user_keys(&conn, "u1").unwrap(), Some(keys.clone()));
-        assert_eq!(list_user_keys(&conn).unwrap(), vec![keys]);
+        assert_eq!(list_user_keys(&conn).unwrap(), vec![keys.clone()]);
+        // A 24-word phrase round-trips too.
+        let keys24 = UserKeys {
+            phrase_words: 24,
+            ..keys.clone()
+        };
+        set_user_keys(&conn, &keys24).unwrap();
+        assert_eq!(get_user_keys(&conn, "u1").unwrap(), Some(keys24));
         delete_user_keys(&conn, "u1").unwrap();
         assert!(get_user_keys(&conn, "u1").unwrap().is_none());
         assert!(list_user_keys(&conn).unwrap().is_empty());

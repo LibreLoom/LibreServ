@@ -101,7 +101,7 @@ async fn create(
             return Err(json_error_code(
                 StatusCode::CONFLICT,
                 NEEDS_PHRASE_CODE,
-                "Set up your recovery phrase in Settings → Cloud backup first.",
+                "You need a recovery phrase first. Reload this page to set one up.",
             ));
         }
     }
@@ -902,6 +902,7 @@ mod tests {
                 self_sealed: vec![3; 48],
                 phrase_set_at: 1,
                 last_checked_at: 0,
+                phrase_words: 0,
             },
         )
         .unwrap();
@@ -980,7 +981,7 @@ mod tests {
         assert_eq!(body["code"], "needs_phrase");
         assert_eq!(
             body["error"],
-            "Set up your recovery phrase in Settings → Cloud backup first."
+            "You need a recovery phrase first. Reload this page to set one up."
         );
         assert_eq!(protection_count(&f.state), 0, "no backup row was written");
         let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());

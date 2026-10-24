@@ -21,8 +21,7 @@ use crate::db;
 use crate::drives::layout::Layout;
 use crate::files;
 
-const NO_PHRASE: &str =
-    "Set up your recovery phrase in Settings → Cloud backup to start this backup.";
+const NO_PHRASE: &str = "This private item's owner hasn't set up a recovery phrase yet, so its cloud backup can't start.";
 const NO_OWNER: &str =
     "This private item's owner no longer has an account. An Admin can remove its backups.";
 
@@ -326,6 +325,7 @@ mod tests {
                     self_sealed: vec![3; 48],
                     phrase_set_at: 1,
                     last_checked_at: 0,
+                    phrase_words: 0,
                 },
             )
             .unwrap();
@@ -495,6 +495,7 @@ mod tests {
                     self_sealed: vec![4; 48],
                     phrase_set_at: 2,
                     last_checked_at: 0,
+                    phrase_words: 0,
                 },
             )
             .unwrap();
