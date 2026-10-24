@@ -484,7 +484,8 @@ post("/api/v1/drives/:id/files/upload", async ({ world, user, params, query, bod
   const keepBoth = query.keep_both === "1" && !overwrite;
   if (fs.nodes[path]) {
     if (keepBoth) finalName = freeName(fs, folder, name);
-    else if (!overwrite) throw nameClash(kindOf(fs.nodes[path]));
+    // A folder is never replaced by an upload: the client offers Keep both or Skip only.
+    else if (!overwrite || fs.nodes[path].kind === "dir") throw nameClash(kindOf(fs.nodes[path]));
     else if (!hasCap(world, user, driveId, path, CAP_EDIT)) throw fail(403, "You don't have permission to change this file.");
   }
   path = join(folder, finalName);
@@ -555,7 +556,7 @@ post("/api/v1/uploads/:id/complete", ({ world, user, params, query }) => {
   // A name that appeared since the upload began is decided here, and the session stays usable.
   if (fs.nodes[path]) {
     if (keepBoth) { name = freeName(fs, u.path, name); path = join(u.path, name); }
-    else if (!overwrite) throw nameClash(kindOf(fs.nodes[path]));
+    else if (!overwrite || fs.nodes[path].kind === "dir") throw nameClash(kindOf(fs.nodes[path]));
     else if (!hasCap(world, user, u.drive_id, path, CAP_EDIT)) throw fail(403, "You don't have permission to change this file.");
   }
   saveBlockers(world, u.drive_id, 0);

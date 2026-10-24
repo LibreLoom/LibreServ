@@ -183,6 +183,12 @@ export default [
     check: ["Empty trash asks first and counts the items", "After confirming the list is empty and the toast says so", "Fail it (fault on POST …/files/purge) → error stays visible"],
   },
   {
+    id: "files/trash-empty-slow", area: A, title: "Emptying a big trash takes a while", url: "/files/d1?path=.luna-trash",
+    seed: (w) => { demo(w); for (let i = 0; i < 12; i += 1) trashed(w, `junk ${i}.txt`); },
+    faults: [{ match: "POST /api/v1/drives/d1/files/purge", mode: "slow:6000" }],
+    check: ["Confirming shows a spinner on the button and the row says it is working", "Nothing else is blocked while it runs", "When it ends the trash is empty and the toast says so"],
+  },
+  {
     id: "files/delete-to-trash", area: A, title: "Delete a file, then find it in Trash", url: "/files/d1?path=Documents",
     check: ["Delete notes.txt → toast says Moved to Trash", "It's gone from the list and present in Trash", "Delete a folder with files inside, restore it whole"],
   },
@@ -190,12 +196,12 @@ export default [
   // ── Uploads ───────────────────────────────────────────────────────────────
   {
     id: "files/upload-ok", area: A, title: "Upload a few files", url: "/files/d1?path=Documents",
-    check: ["Upload panel lists each file with progress", "Two at a time, rest wait", "Finished files appear in the list", "Panel can be closed and reopened"],
+    check: ["Upload panel lists each file with progress", "Three at a time, rest wait", "Finished files appear in the list", "Panel can be closed and reopened"],
   },
   {
     id: "files/upload-slow", area: A, title: "Upload crawls", url: "/files/d1?path=Documents",
     faults: [{ match: "POST /api/v1/drives/d1/files/upload", mode: "slow:15000" }],
-    check: ["Progress moves, does not look frozen", "Cancel stops it and nothing is left behind", "Leaving the page with an upload running asks first"],
+    check: ["Progress moves, does not look frozen", "Cancel stops it and nothing is left behind", "Leaving the page with an upload running asks first", "Navigate to Dashboard and back: the same upload is still running in the card"],
   },
   {
     id: "files/upload-fails", area: A, title: "Upload fails (server error)", url: "/files/d1?path=Documents",
@@ -233,6 +239,27 @@ export default [
     id: "files/upload-folder", area: A, title: "Upload a whole folder", url: "/files/d1?path=Documents",
     check: ["Drag a folder with sub-folders onto the list", "Structure is kept", "Empty folders are handled sensibly"],
   },
+  {
+    id: "files/upload-many-clashes", area: A, title: "Upload 15 files whose names are taken", url: "/files/d1?path=Documents",
+    seed: (w) => { demo(w); for (let i = 1; i <= 15; i += 1) addFile(w, "d1", `Documents/scan ${String(i).padStart(2, "0")}.pdf`, { sample: "pdf" }); },
+    check: [
+      "Drop 15 files named scan 01.pdf to scan 15.pdf → each asks for a decision, not one at a time",
+      "Only one problem shows in the card, with \"14 more problems →\" to see the rest",
+      "Keep both for all: each lands as \"scan 01 (1).pdf\" and so on, and the originals are untouched",
+      "Checking the list again shows no duplicates or lost files",
+    ],
+  },
+  {
+    id: "files/upload-folder-mixed", area: A, title: "Upload a folder with clashes and a refused name", url: "/files/d1?path=Documents",
+    seed: (w) => { demo(w); addFile(w, "d1", "Documents/Trip/Lisbon/tram.jpg", { sample: "png" }); addFile(w, "d1", "Documents/Trip/Lisbon/notes.txt", { text: "Old notes" }); addDir(w, "d1", "Documents/Trip/Photos"); },
+    faults: [{ match: "POST /api/v1/drives/d1/files/upload", mode: "400", message: "That file name can't be used. Try renaming it.", once: true }],
+    check: [
+      "Drop a folder called Trip that holds Lisbon/notes.txt, a Photos folder and new files",
+      "One file is refused with \"That file name can't be used. Try renaming it.\", and the row says which file",
+      "Folder clashes offer Keep both or Skip only, never Replace",
+      "Every other file uploads, and new folders are created on the drive",
+    ],
+  },
 
   // ── Copy and move ─────────────────────────────────────────────────────────
   {
@@ -246,9 +273,19 @@ export default [
     check: ["Move 2025 to Backup drive → the card shows progress while Luna copies", "When done it is on Backup drive and the original is in this drive's Trash", "A move inside one drive (drag notes.txt onto a folder) is a single rename: it finishes at once, with no progress"],
   },
   {
+    // A real failure: Backup drive fills up about halfway through copying Spain, so lunad
+    // answers with the drive-full words and the "Nothing was moved" suffix. The originals stay put.
     id: "files/move-fails-partway", area: A, title: "Move fails halfway through", url: "/files/d1?path=Photos",
-    seed: (w) => { demo(w); withBackupDrive(w); addMany(w, "d1", "Photos/2024/Spain", 40); fsOpts(w).jobMs = 6000; fsOpts(w).jobFailAt = 0.5; },
-    check: ["Move Spain to Backup drive → starts, then stops at about half", "Luna tells you it failed (not silent), and says nothing was moved", "Spain is still in Photos/2024 untouched, and no half copy is left on Backup drive"],
+    seed: (w) => {
+      demo(w); withBackupDrive(w); addMany(w, "d1", "Photos/2024/Spain", 40); fsOpts(w).jobMs = 6000;
+      const spain = Object.entries(w.fs.d1.nodes).filter(([p, n]) => n.kind === "file" && p.startsWith("Photos/2024/Spain/"));
+      w.summaries.d2.free_bytes = Math.floor(spain.reduce((t, [, n]) => t + (n.size || 0), 0) / 2);
+    },
+    check: [
+      "Move Spain to Backup drive → starts, then stops at about half",
+      "Row says it failed (not silent): \"Backup drive is full. Free up some space on it and try again. Nothing was moved. Your files are still where they were.\"",
+      "Spain is untouched in Photos/2024, and Backup drive has no partial copy",
+    ],
   },
   {
     id: "files/copy-fails-drive-full", area: A, title: "Copy runs out of space on the other drive", url: "/files/d1?path=Photos",
@@ -266,7 +303,7 @@ export default [
   },
   {
     id: "files/move-name-clash", area: A, title: "Copy onto a name that exists", url: "/files/d1?path=Documents",
-    check: ["Copy notes.txt into the same folder → Luna refuses with \"A file or folder with this name is already there. Choose a different destination.\" (code exists) unless the app asks to keep both", "Original untouched"],
+    check: ["Copy notes.txt into the same folder → the copy offers Keep both / Skip, and Keep both lands notes (1).txt", "Without a decision Luna refuses with \"A file or folder with this name is already there. Choose a different destination.\" (code exists)", "Original untouched"],
   },
   {
     id: "files/move-readonly-dest", area: A, title: "Move to a read-only drive", url: "/files/d1?path=Photos",
@@ -371,6 +408,12 @@ export default [
     seed: (w) => { demo(w); withBackupDrive(w); w.backups.push(backup({ source_drive: "d1", source_path: "Documents", source_name: "Documents", target_drive: "d2" })); },
     faults: [{ match: "POST /api/v1/drives/d2/backups/*/restore", mode: "409", message: "Connect Family photos to restore to the original folder." }],
     check: ["Error stays inside the Versions window, in words", "Window can be closed and reopened"],
+  },
+  {
+    id: "files/restore-backup-slow", area: A, title: "Restoring a folder from a backup takes a while", url: "/files/d2",
+    seed: (w) => { demo(w); withBackupDrive(w); w.backups.push(backup({ source_drive: "d1", source_path: "Documents", source_name: "Documents", target_drive: "d2" })); },
+    faults: [{ match: "POST /api/v1/drives/d2/backups/*/restore", mode: "slow:6000" }],
+    check: ["Restore shows a loading state on that row or in the Versions window", "Other rows stay usable while it runs", "Toast says it was restored as a new copy, and the current files are never replaced"],
   },
 
   // ── Search ────────────────────────────────────────────────────────────────
