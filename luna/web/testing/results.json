@@ -7,7 +7,6 @@
     "theme": "scenario default"
   },
   "auth/member": {
-    "status": "fail",
     "note": "in /settings/users/u1, the text on the blocked card is childish. \"This screen is for admins. Members can use folders and albums shared with them...\" is not what we need. \"This page is only for Admins. Members can only edit their own user settings.\" is much better copy.",
     "at": "2026-10-21T02:28:14.284Z",
     "viewport": "desktop",
@@ -110,7 +109,6 @@
     ]
   },
   "auth/session-dies-mid-use": {
-    "status": "fail",
     "note": "\"You were signed out\" popups spawn twice.",
     "at": "2026-10-21T02:29:44.661Z",
     "viewport": "desktop",
@@ -234,7 +232,6 @@
     "theme": "scenario default"
   },
   "auth/signed-out": {
-    "status": "fail",
     "note": "If one of the fields is empty and I click sign in, it does not error at that field with a clear message, rather, the log in button does nothing. We need to clearly error any empty fields, including if both fail.",
     "at": "2026-10-21T02:21:51.899Z",
     "viewport": "desktop",
@@ -475,14 +472,12 @@
     ]
   },
   "dashboard/backup-source-missing": {
-    "status": "fail",
     "note": "\"Needs another drive.\" should be in a pill: On other drives\nOff\nCopies this folder onto other drives plugged into Luna.\n\nNeeds another drive.\n\nUnlike the good details in On other drive backup sections, I see no such detail for the cloud backup:\nIn the cloud\n\nOn\nLink this Luna to Luna Connect. Then you can copy any folder or a whole drive off-site.",
     "at": "2026-10-21T02:45:00.668Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "dashboard/backup-stale": {
-    "status": "fail",
     "note": "We need to shrink the size of the body text in the needs you row by 1 whateverunit.\n\nWe also say \"in a day\", \"last copy 2 days ago\", and \"hasn't been backed up in over a day\" to describe the same backup. PICK ONE DAMMIT!\n\nIf it hasn't been backed up in 2 days, then it hasn't been backed up in 2 days. Not 1 day. We're also missing a period after 2 days ago: \nBack up\n\nLuna can keep copies of this folder on other drives, and in the cloud, so you still have it if something goes wrong.\n\nPrivate items inside aren't included. Their owners back them up separately.\n\nOn other drives\nOn\nCopies this folder onto other drives plugged into Luna.\n\nBacked up 2 days ago\nBackup drive\nThis folder hasn't been backed up in over a day.\n\nLast copy 2 days ago",
     "at": "2026-10-21T02:44:52.189Z",
     "viewport": "desktop",
@@ -496,7 +491,6 @@
     "theme": "scenario default"
   },
   "dashboard/check-overdue": {
-    "status": "fail",
     "note": "\"Check my words\" modal is poorly composed. \n\n1. \"Check my phase\" is better title than current. \n2. UI is lazy. We need to redesign the modal entirely as a first-class UI for recovery phrase verification.",
     "at": "2026-10-21T02:49:49.426Z",
     "viewport": "desktop",
@@ -627,7 +621,6 @@
     "theme": "scenario default"
   },
   "dashboard/connect-token-error": {
-    "status": "fail",
     "note": "When I open the Change the device token card, the Luna Connect no longer accepts this device token. message is confusing when I don't see anything typed into the device token box.This could be a mock bug, though.",
     "at": "2026-10-21T03:07:07.087Z",
     "viewport": "desktop",
@@ -765,7 +758,6 @@
     "theme": "scenario default"
   },
   "dashboard/drive-unhealthy": {
-    "status": "fail",
     "note": "Both report high temperatures. The user is told only \"This drive needs attention\nThe drive reported a problem. Copy your files somewhere else and don't use it for new photos. It's about 48°C.\"\n\nNothing useful, unless it's the temperature, but how am I supposed to know? Nothing says \"It's about 48 C, which is too hot for most drives to safely operate.\" Is 48C too hot? IDK!\n\nOh, and both drives say they need attention and the scenario says only one should.",
     "at": "2026-10-21T03:00:11.726Z",
     "viewport": "desktop",
@@ -882,7 +874,6 @@
     ]
   },
   "dashboard/drive-unmounted": {
-    "status": "fail",
     "note": "It says it's healthy & ready, the only indication is that \"Storage will show once Luna can read this drive.\" and nothing on the dashboard page. Clearly, someone did not put thought into this state.",
     "at": "2026-10-21T03:02:01.563Z",
     "viewport": "desktop",
@@ -999,7 +990,6 @@
     ]
   },
   "dashboard/drives-fail": {
-    "status": "fail",
     "note": "It just doesn't load in.",
     "at": "2026-10-21T03:27:36.150Z",
     "viewport": "desktop",
@@ -1123,7 +1113,6 @@
     ]
   },
   "dashboard/everything-wrong": {
-    "status": "fail",
     "note": "\"Photos backup didn't finish\n\nDrive full.\"\n\nWhat drive?",
     "at": "2026-10-21T03:19:32.675Z",
     "viewport": "phone",
@@ -1254,7 +1243,6 @@
     "theme": "scenario default"
   },
   "dashboard/member-calm": {
-    "status": "fail",
     "note": "I can see a drive that suposedly hasn't been shared me. Once again, could be a mock bug, but check it.",
     "at": "2026-10-21T03:26:29.195Z",
     "viewport": "desktop",
@@ -1357,7 +1345,6 @@
     ]
   },
   "dashboard/member-with-problems": {
-    "status": "fail",
     "note": "Yea definite fumble.\nWelcome! The pigeon is ready when you are,\nsam\nNeeds you\nPhotos backup didn't finish\n\nDrive full.\n\nOpen\n2 backups need a look\n\nSee all backups\nYour folders\nFamily photos\nProblem\nLuna ran into a problem with this drive. Ask an Admin to check it.\n\nNothing shared with you yet\n\nAsk an Admin to share a folder, drive, or album with you.",
     "at": "2026-10-21T03:27:01.633Z",
     "viewport": "desktop",
@@ -1481,7 +1468,6 @@
     "theme": "scenario default"
   },
   "dashboard/new-drive-found": {
-    "status": "fail",
     "note": "Add SanDisk Ultra\n\nLuna couldn't look at this drive safely. Make sure it's plugged in and try again.\n\nSeems like mock is bugged.",
     "at": "2026-10-21T03:02:37.117Z",
     "viewport": "desktop",
@@ -1612,7 +1598,6 @@
     "theme": "scenario default"
   },
   "dashboard/no-phrase": {
-    "status": "fail",
     "note": "Absolutely nothing. I'm also not quite sure why this would be a setting in \"Security / Devices\".\n\nThis scenario should just... not be able to happen lol. ",
     "at": "2026-10-21T02:56:37.633Z",
     "viewport": "desktop",
@@ -1736,7 +1721,6 @@
     "theme": "scenario default"
   },
   "dashboard/recents-many": {
-    "status": "fail",
     "note": "Something can appear twice in the list:\nRecents\nDocuments\nFamily photos\nJust now\nReport 1.pdf\nFamily photos · Documents\nJust now\nDocuments\nFamily photos\nJust now\n\nLikely a bug that only happens in the harness. Fix it nonetheless.",
     "at": "2026-10-21T03:25:29.531Z",
     "viewport": "desktop",
@@ -1867,7 +1851,6 @@
     "theme": "scenario default"
   },
   "dashboard/system-check-failed": {
-    "status": "fail",
     "note": "It's unclear what \"Storage space\" is gone. Is it a drive? What if I don't even know Luna has internal storage!",
     "at": "2026-10-21T03:07:49.191Z",
     "viewport": "desktop",
@@ -1984,7 +1967,6 @@
     ]
   },
   "dashboard/update-applying": {
-    "status": "fail",
     "note": "Doesn't say anything is installing. Just no button.",
     "at": "2026-10-21T03:05:40.990Z",
     "viewport": "desktop",
@@ -2101,7 +2083,6 @@
     ]
   },
   "dashboard/update-available": {
-    "status": "fail",
     "note": "Starting the update closes the modal, then s ends me to the login page. Nothing resembling progress or status or anything. It does send a \"Installing update. Luna will restart in a moment.\" toast, though, which could be sufficient if progress or status is too hard.",
     "at": "2026-10-21T03:04:48.902Z",
     "viewport": "desktop",
@@ -2218,7 +2199,6 @@
     ]
   },
   "dashboard/update-failed": {
-    "status": "fail",
     "note": "No dismiss button on the warning. ",
     "at": "2026-10-21T03:05:16.475Z",
     "viewport": "desktop",
@@ -2335,7 +2315,6 @@
     ]
   },
   "files/backups-browse": {
-    "status": "fail",
     "note": "harness is broken. There are not multiple version, but i know for fact it has worked outside of this harness.",
     "at": "2026-10-24T00:43:11.963Z",
     "viewport": "desktop",
@@ -2452,7 +2431,6 @@
     ]
   },
   "files/copy-fails-drive-full": {
-    "status": "fail",
     "note": "Once again, a silent swallow. Fix during revamp.",
     "at": "2026-10-23T03:02:11.569Z",
     "viewport": "desktop",
@@ -2569,7 +2547,6 @@
     ]
   },
   "files/copy-job": {
-    "status": "fail",
     "note": "Good, but we need the stateful card revamp to not just be an upload card, but a file operation card!! Absolutely W!",
     "at": "2026-10-22T04:28:44.338Z",
     "viewport": "desktop",
@@ -2693,7 +2670,6 @@
     "theme": "scenario default"
   },
   "files/create-collision": {
-    "status": "fail",
     "note": "In Names cannot include / or \\. Use a short name instead., \"Use a short name instead.\" is BS and can be dropped from the message.",
     "at": "2026-10-21T03:44:44.223Z",
     "viewport": "desktop",
@@ -2817,7 +2793,6 @@
     "theme": "scenario default"
   },
   "files/delete-to-trash": {
-    "status": "fail",
     "note": "Deleting a folder when an item inside of it was trashed causes it to be silently permanently deleted. This is a critical issue if real. The folder is not sent to trash and appears to be permanently deleted rather than being deleted properly.",
     "at": "2026-10-22T03:00:27.000Z",
     "viewport": "desktop",
@@ -2934,7 +2909,6 @@
     ]
   },
   "files/drive-database-missing": {
-    "status": "fail",
     "note": "Need to add \"No data on the drive will be lost.\"\n\nto the end of the missing db error",
     "at": "2026-10-22T02:49:57.032Z",
     "viewport": "desktop",
@@ -3051,7 +3025,6 @@
     ]
   },
   "files/empty-drive": {
-    "status": "fail",
     "note": "Likely mock bug, but uploading file does not work.",
     "at": "2026-10-21T03:36:50.219Z",
     "viewport": "desktop",
@@ -3168,7 +3141,6 @@
     ]
   },
   "files/failing-drive": {
-    "status": "fail",
     "note": "As mentioned in an earlier scenario, our reporting of drive issues is massively inadequate.",
     "at": "2026-10-22T02:50:41.129Z",
     "viewport": "desktop",
@@ -3299,7 +3271,6 @@
     "theme": "scenario default"
   },
   "files/job-server-error": {
-    "status": "fail",
     "note": "Says \"Luna's job queue isn't running\". Could be more accurate, i.e. \"Luna's job queue isn't responding.\"",
     "at": "2026-10-23T03:07:23.181Z",
     "viewport": "desktop",
@@ -3424,7 +3395,6 @@
     ]
   },
   "files/listing-error": {
-    "status": "fail",
     "note": "No try again button is visible.",
     "at": "2026-10-22T02:52:37.628Z",
     "viewport": "desktop",
@@ -3549,7 +3519,6 @@
     ]
   },
   "files/listing-slow": {
-    "status": "fail",
     "note": "No \"Still working [Loading Spinner]\" placeholder appears within the file browser during the loading time in this scenario. Need to add it when loading is taking a while.",
     "at": "2026-10-22T02:52:11.893Z",
     "viewport": "desktop",
@@ -3673,7 +3642,6 @@
     ]
   },
   "files/long-names": {
-    "status": "fail",
     "note": "Unrelated to the actual test, but instead of trying to display all action buttons for a file in one mobile row, we need to copy the way universal search does it with the lighting button.",
     "at": "2026-10-21T03:39:42.279Z",
     "viewport": "phone",
@@ -3790,7 +3758,6 @@
     ]
   },
   "files/missing-folder": {
-    "status": "fail",
     "note": "Fail. Instead of \"Open Files to look for it.\" We can say \"You can use Universal Search to try and find it.\" but have the uni search menu actually open when you click on that.",
     "at": "2026-10-21T03:42:32.868Z",
     "viewport": "desktop",
@@ -3907,7 +3874,6 @@
     ]
   },
   "files/move-fails-partway": {
-    "status": "fail",
     "note": "Silent failure. Source deleted. Critical issue. Can fix as part of stateful file operation card revamp.",
     "at": "2026-10-23T02:47:46.916Z",
     "viewport": "desktop",
@@ -4024,7 +3990,6 @@
     ]
   },
   "files/move-into-itself": {
-    "status": "fail",
     "note": "Passed, but we could stop offering options that would move a folder into itself in the file move menu.",
     "at": "2026-10-23T03:03:18.059Z",
     "viewport": "desktop",
@@ -4155,7 +4120,6 @@
     "theme": "scenario default"
   },
   "files/move-readonly-dest": {
-    "status": "fail",
     "note": "It's... silently broken in the header's drive selector. I can't drop the folder there, but the drive still appears and such. There should be no behavioural change if the drive is RO, we should error out when the user drops it in the drives and it fails.",
     "at": "2026-10-23T03:05:14.716Z",
     "viewport": "desktop",
@@ -4272,7 +4236,6 @@
     ]
   },
   "files/moved-link": {
-    "status": "fail",
     "note": "1 mock bug, it sends us to Drive not found\n\nLuna can't find this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in. instead of the current folder.",
     "at": "2026-10-21T03:43:19.580Z",
     "viewport": "desktop",
@@ -4403,7 +4366,6 @@
     "theme": "scenario default"
   },
   "files/protect-inside-private": {
-    "status": "fail",
     "note": "why should folders within private folders behave differently and *force* you to backup the parent? they should just be backed up as private and the usual object tree behaviour works as intended. no need to be fancy about it. \n\nthe only quirk, afaik, with private folders is that they ignore parent backups.",
     "at": "2026-10-24T00:44:13.378Z",
     "viewport": "desktop",
@@ -4541,7 +4503,6 @@
     "theme": "scenario default"
   },
   "files/rename-while-open": {
-    "status": "fail",
     "note": "The toast (notice) is not visible.",
     "at": "2026-10-21T03:45:37.339Z",
     "viewport": "desktop",
@@ -4658,7 +4619,6 @@
     ]
   },
   "files/thousands": {
-    "status": "fail",
     "note": "holy shit the lag i can barely type this feedback. oh and while we're at it we need a luna-wide performance review including frontend, backend, and companions.",
     "at": "2026-10-21T03:38:27.096Z",
     "viewport": "desktop",
@@ -4789,7 +4749,6 @@
     "theme": "scenario default"
   },
   "files/trash-restore-conflict": {
-    "status": "fail",
     "note": "Missing warning when changing file extension. Regular rename handles this properly.",
     "at": "2026-10-22T02:54:47.597Z",
     "viewport": "desktop",
@@ -4906,7 +4865,6 @@
     ]
   },
   "files/trash-restore-folder-gone": {
-    "status": "fail",
     "note": "Restore is not possible. Tree is not recreated.",
     "at": "2026-10-22T02:55:26.505Z",
     "viewport": "desktop",
@@ -5030,7 +4988,6 @@
     "theme": "scenario default"
   },
   "files/unicode-emoji": {
-    "status": "fail",
     "note": "In mobile editor frame, the Save detail beside the save button, i.e. \"Saved just now\", needs to be in a pill.",
     "at": "2026-10-21T03:40:56.610Z",
     "viewport": "phone",
@@ -5147,7 +5104,6 @@
     ]
   },
   "files/unplugged-at-start": {
-    "status": "fail",
     "note": "Cannot test member wording. Will also note that in the card, this is bound in width aggressively despite the plentiful x space available, causing it to be three lines instead of two.",
     "at": "2026-10-21T03:50:49.225Z",
     "viewport": "desktop",
@@ -5243,7 +5199,6 @@
     "theme": "scenario default"
   },
   "files/upload-duplicate": {
-    "status": "fail",
     "note": "As part of the stateful upload card revamp, we must offer the options to Replace, Keep both, and Skip within the corresponding row on the uploads card. As of right now, no options are shown. \n\nWe also must start supporting uploading entire folders, and we need to be careful to smoothly handle folders that are part problematic, continuing to process non-problematic files even if a problematic one is encounter. This should show in the form of parallel execution, with the progress still being shown and advancing while the decision is offered, and, if multiple files need decisions, we should have something that says \"14 more problems ->\" or similar.",
     "at": "2026-10-22T04:23:28.541Z",
     "viewport": "desktop",
@@ -5360,7 +5315,6 @@
     ]
   },
   "files/upload-fails": {
-    "status": "fail",
     "note": "The error is toasted, not shown in the upload card as it should be. As noted in another feedback, I want a more stateful-style revamp of the upload card so it's persistent through navigation in the current tab. ",
     "at": "2026-10-22T04:18:56.872Z",
     "viewport": "desktop",
@@ -5485,7 +5439,6 @@
     ]
   },
   "files/upload-folder": {
-    "status": "fail",
     "note": "Folder uploads aren't supported properly yet.",
     "at": "2026-10-22T04:27:02.623Z",
     "viewport": "desktop",
@@ -5616,7 +5569,6 @@
     "theme": "scenario default"
   },
   "files/upload-into-readonly": {
-    "status": "fail",
     "note": "Need show error in row for stateful revamp.",
     "at": "2026-10-22T04:26:44.613Z",
     "viewport": "desktop",
@@ -5733,7 +5685,6 @@
     ]
   },
   "files/upload-no-space-huge": {
-    "status": "fail",
     "note": "Need to show the error in-row for the stateful revamp.",
     "at": "2026-10-22T04:25:33.369Z",
     "viewport": "desktop",
@@ -5850,7 +5801,6 @@
     ]
   },
   "files/upload-offline": {
-    "status": "fail",
     "note": "Row shows no error. Need error in stateful revamp.",
     "at": "2026-10-22T04:26:26.572Z",
     "viewport": "desktop",
@@ -5974,7 +5924,6 @@
     "theme": "scenario default"
   },
   "files/upload-slow": {
-    "status": "fail",
     "note": "Progress bar did not move. Leaving the page with the upload running did not ask first, but I saw the file uploaded toast anyway, and the file successfully. Here's what needs to change:\n\na) Figure out why the progress bar isn't moving. Could be an issue with the test harness.\nb) We will make the uploads panel universal through the file explorer. When I navigate away and back (only on the same tab) I should still have the same uploads running the whole time, and I should be able to see all my running uploads in the card. \n\nc) Looks to me like I can, in fact, close/destroy the tab while an upload is running with no warning. Address.",
     "at": "2026-10-22T04:16:21.141Z",
     "viewport": "desktop",
