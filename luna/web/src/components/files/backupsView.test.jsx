@@ -2,7 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "@libreloom/ui/context/ThemeContext.jsx";
-import { VersionsModal } from "./backupsView.jsx";
+import { BackupRowActions, VersionsModal } from "./backupsView.jsx";
+import FileOpsDock from "./fileOps/FileOpsDock.jsx";
+import { FileOpsProvider } from "../../context/FileOpsContext.jsx";
+import { createFileOpsStore } from "../../lib/fileOps/store.js";
 import PropertiesSheet from "./PropertiesSheet.jsx";
 import { backupSegmentLabel, backupSource } from "./backupsSource.js";
 
@@ -150,6 +153,49 @@ describe("VersionsModal", () => {
       expect(screen.getByText("Connect Photo drive to restore this file.")).toBeInTheDocument(),
     );
     expect(within(screen.getByRole("dialog")).getAllByRole("button", { name: /Restore to original folder/ })).toHaveLength(2);
+  });
+});
+
+describe("backup folder restore", () => {
+  function renderRowActions() {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const store = createFileOpsStore({ queryClient, addToast: toasts.addToast, storage: null });
+    const ctx = { fullPath: ".luna-backups/b1/Holiday", displayName: "Holiday", entry: { kind: "dir" } };
+    render(
+      <ThemeProvider>
+        <QueryClientProvider client={queryClient}>
+          <FileOpsProvider store={store}>
+            <BackupRowActions driveId="d1" ctx={ctx} onVersions={() => {}} />
+            <FileOpsDock />
+          </FileOpsProvider>
+        </QueryClientProvider>
+      </ThemeProvider>,
+    );
+    return store;
+  }
+
+  it("hands the restore to the file task card and toasts once when it is done", async () => {
+    const calls = stubApi();
+    renderRowActions();
+    fireEvent.click(screen.getByRole("button", { name: "Restore Holiday to original folder" }));
+
+    await waitFor(() =>
+      expect(toasts.addToast).toHaveBeenCalledWith({ type: "success", message: "Restored as cat (2).jpg." }),
+    );
+    expect(toasts.addToast).toHaveBeenCalledTimes(1);
+    const post = calls.find((c) => c.method === "POST");
+    expect(JSON.parse(post.body)).toEqual({ path: "Holiday" });
+  });
+
+  it("keeps a failed restore in its card row instead of a toast", async () => {
+    stubApi({ restore: () => json({ error: "Connect Photo drive to restore this file." }, 409) });
+    renderRowActions();
+    fireEvent.click(screen.getByRole("button", { name: "Restore Holiday to original folder" }));
+
+    const dock = await screen.findByRole("region", { name: "File tasks" });
+    expect(await within(dock).findByText("Connect Photo drive to restore this file.")).toBeInTheDocument();
+    expect(within(dock).getByRole("button", { name: "Try again" })).toBeInTheDocument();
+    expect(toasts.addToast).not.toHaveBeenCalled();
   });
 });
 

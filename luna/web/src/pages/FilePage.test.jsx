@@ -4,6 +4,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
 import FilePage from "./FilePage";
+import FileOpsDock from "../components/files/fileOps/FileOpsDock.jsx";
+import { FileOpsProvider } from "../context/FileOpsContext.jsx";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 
 function filesPath(url) {
@@ -165,9 +167,12 @@ function renderFiles(path = "/files/d1") {
     <ToastProvider>
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[path]}>
-        <AuthProvider>
-          <Routes><Route path="/files/:id" element={<FilePage />} /></Routes>
-        </AuthProvider>
+        <FileOpsProvider>
+          <AuthProvider>
+            <Routes><Route path="/files/:id" element={<FilePage />} /></Routes>
+          </AuthProvider>
+          <FileOpsDock />
+        </FileOpsProvider>
       </MemoryRouter>
     </QueryClientProvider>
     </ToastProvider>
@@ -359,8 +364,10 @@ describe("FilePage", () => {
     };
     fireEvent.dragOver(item, { dataTransfer });
     fireEvent.drop(item, { dataTransfer });
-    const dialog = await screen.findByRole("dialog", { name: "Move it out of the private folder?" });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Move anyway" }));
+    // The question is a row in the file task card, not a dialog.
+    const dock = await screen.findByRole("region", { name: "File tasks" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    fireEvent.click(await within(dock).findByRole("button", { name: "Move anyway" }));
     await waitFor(() => expect(posts).toHaveLength(2));
     expect(posts[1].confirm_broaden).toBe(true);
   });
@@ -597,10 +604,13 @@ describe("FilePage", () => {
     fireEvent.click(emptyBtn);
     const dialog = await screen.findByRole("dialog", { name: "Empty trash?" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Empty trash" }));
-    expect(await within(dialog).findByText("Request failed (500)")).toBeInTheDocument();
+    // The dialog hands the work to the file task card, where the failure stays.
+    const dock = await screen.findByRole("region", { name: "File tasks" });
+    expect(await within(dock).findByText("Request failed (500)")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
-  it("shows copy/move progress and cancel", async () => {
+  it("draws no job cards on the page; running jobs belong to the file task card", async () => {
     stubFilesApi({
       "": [{ name: "photo.jpg", kind: "file", size: 1000, modified: 0, hidden: false }],
       __jobs: [{
@@ -613,9 +623,12 @@ describe("FilePage", () => {
       }],
     });
     renderFiles();
-    expect(await screen.findByText(/Copying photo.jpg/i)).toBeInTheDocument();
-    expect(screen.getByText(/50% done/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+    expect(await screen.findByText(/photo.jpg/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Copying photo.jpg/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/50% done/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Cancel" })).not.toBeInTheDocument();
+    // This tab started nothing, so the card stays away too.
+    expect(screen.queryByRole("region", { name: "File tasks" })).not.toBeInTheDocument();
   });
 
   it("starts a copy with CSRF and plain-language network errors", async () => {
@@ -653,7 +666,11 @@ describe("FilePage", () => {
     expect(await screen.findByRole("heading", { name: /Copy 4zjwE5no1WM.stl/i })).toBeInTheDocument();
     expect(screen.getByText(/Choose a folder, or use the one you are in now/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Start copying" }));
-    expect((await screen.findAllByText(/Couldn't reach Luna|Couldn't start that transfer/i)).length).toBeGreaterThan(0);
+    // The picker closes and the failure stays in the file task card, with no toast.
+    const dock = await screen.findByRole("region", { name: "File tasks" });
+    expect(await within(dock).findByText(/Couldn't reach Luna/i)).toBeInTheDocument();
+    expect(within(dock).getByRole("button", { name: "Try again" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.queryByText(/NetworkError/i)).not.toBeInTheDocument();
     const postJob = fetchMock.mock.calls.find(([url, init]) =>
       String(url).includes("/api/v1/jobs") && (init?.method || "GET").toUpperCase() === "POST"
@@ -677,8 +694,8 @@ describe("FilePage", () => {
     fireEvent.click(await screen.findByLabelText("Select all in this folder"));
     fireEvent.click(screen.getByRole("button", { name: "Copy" }));
     fireEvent.click(await screen.findByRole("button", { name: "Start copying" }));
-    const warning = await screen.findByRole("dialog", { name: "Copy it out of the private folder?" });
-    fireEvent.click(within(warning).getByRole("button", { name: "Copy anyway" }));
+    const dock = await screen.findByRole("region", { name: "File tasks" });
+    fireEvent.click(await within(dock).findByRole("button", { name: "Copy anyway" }));
     await waitFor(() => expect(posts).toHaveLength(3));
     expect(posts.map((body) => body.from_path)).toEqual(["Private/Nested", "Private/file.txt", "Private/file.txt"]);
     expect(posts[2].confirm_broaden).toBe(true);
