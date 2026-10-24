@@ -63,6 +63,8 @@ struct ContentQuery {
 struct UploadQuery {
     path: Option<String>,
     overwrite: Option<String>,
+    /// "1" saves a clash as `name (1).ext` beside the existing file.
+    keep_both: Option<String>,
     /// Diagram saves name the last live edit in the file, same as EuroOffice
     /// `?coverage=` on an Editor.bin PUT. Absent for every other upload.
     coverage: Option<String>,
@@ -1680,6 +1682,8 @@ async fn upload(
     let mut dest_rel = query_path.clone();
     check_access(&state, &user, &id, &dest_rel, crate::access::CAP_UPLOAD)?;
     let overwrite = query.overwrite.as_deref() == Some("1");
+    // Overwrite wins over keep-both when both are asked for.
+    let keep_both = query.keep_both.as_deref() == Some("1") && !overwrite;
 
     while let Some(mut field) = multipart
         .next_field()
@@ -1701,7 +1705,7 @@ async fn upload(
             Some("file") => {
                 check_access(&state, &user, &id, &dest_rel, crate::access::CAP_UPLOAD)?;
                 let original = field.file_name().unwrap_or("file").to_string();
-                let name = files::safe_name(&original).map_err(|_| {
+                let mut name = files::safe_name(&original).map_err(|_| {
                     json_error(
                         StatusCode::BAD_REQUEST,
                         "That file name can't be used. Try renaming it.",
@@ -1721,7 +1725,7 @@ async fn upload(
                     |conn| files::dest_dir_create(conn, &id, &dest_rel),
                 )
                 .map_err(map_files_err)?;
-                let dest = files::entry_path(&dir, &name);
+                let mut dest = files::entry_path(&dir, &name);
                 // Only a destination that existed — and passed the EDIT
                 // check — at this decision point may be replaced. Anything
                 // that lands between here and install_temp is covered by the
@@ -1729,22 +1733,26 @@ async fn upload(
                 // `overwrite` flag.
                 let mut may_overwrite = false;
                 if dest.exists() {
-                    if !overwrite {
-                        return Err(json_error(
-                            StatusCode::CONFLICT,
-                            "A file with this name is already here. Rename it or choose another.",
-                        ));
+                    if keep_both {
+                        // Keep both: the new file takes the next free name.
+                        name = crate::files::uploads::find_free_name(&dir, &name);
+                        dest = files::entry_path(&dir, &name);
+                    } else if !overwrite {
+                        return Err(crate::api::uploads::name_clash(Some(
+                            crate::files::uploads::existing_kind(&dir, &name),
+                        )));
+                    } else {
+                        // Overwriting is an edit, not an upload: a drop-only
+                        // member cannot replace a file that is already there.
+                        let file_rel = crate::gallery::gallery_indexer::join_rel(&dest_rel, &name);
+                        if !can_write(&state, &user, &id, &file_rel)? {
+                            return Err(json_error(
+                                StatusCode::FORBIDDEN,
+                                "You don't have permission to change this file.",
+                            ));
+                        }
+                        may_overwrite = true;
                     }
-                    // Overwriting is an edit, not an upload: a drop-only
-                    // member cannot replace a file that is already there.
-                    let file_rel = crate::gallery::gallery_indexer::join_rel(&dest_rel, &name);
-                    if !can_write(&state, &user, &id, &file_rel)? {
-                        return Err(json_error(
-                            StatusCode::FORBIDDEN,
-                            "You don't have permission to change this file.",
-                        ));
-                    }
-                    may_overwrite = true;
                 }
 
                 let rel = crate::gallery::gallery_indexer::join_rel(&dest_rel, &name);

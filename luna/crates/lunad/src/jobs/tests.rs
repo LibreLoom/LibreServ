@@ -528,7 +528,7 @@ async fn private_folders_keep_their_row_when_moved_between_drives_and_copies_res
     let clash = manager
         .enqueue("copy", "a", "Clash", "b", "", "user-1")
         .await;
-    assert!(matches!(clash, Err(JobError::Conflict)));
+    assert!(matches!(clash, Err(JobError::NameTaken { .. })));
     // Both drives sit on one filesystem, so a rename could succeed; the
     // item still has to arrive with its row on the new drive.
     let job = manager
@@ -552,7 +552,17 @@ fn private_copy_collision_does_not_remove_an_existing_boundary() {
     let prepared = {
         let conn = db.lock().unwrap();
         files::mkdir_as(&conn, "a", "Folder", Some("user-1")).unwrap();
-        let prepared = prepare(&conn, "copy", "a", "Folder", "b", "", "user-1").unwrap();
+        let prepared = prepare(
+            &conn,
+            "copy",
+            "a",
+            "Folder",
+            "b",
+            "",
+            "user-1",
+            OnConflict::Fail,
+        )
+        .unwrap();
         files::mkdir_as(&conn, "b", "Folder", Some("someone-else")).unwrap();
         files::create(&conn, "b", "Folder/keep.txt").unwrap();
         prepared
@@ -592,7 +602,7 @@ async fn conflict_is_reported_before_starting() {
         manager
             .enqueue("copy", "a", "x.txt", "b", "", "user-1")
             .await,
-        Err(JobError::Conflict)
+        Err(JobError::NameTaken { .. })
     ));
 }
 
@@ -1285,4 +1295,133 @@ async fn a_cross_drive_folder_move_that_fails_mid_copy_leaves_the_source_whole()
         !root_b.join("project").exists(),
         "partial copy left at the destination"
     );
+}
+
+#[tokio::test]
+async fn keep_both_saves_beside_the_clash() {
+    let (_dir, db, _a) = setup();
+    {
+        let conn = db.lock().unwrap();
+        let root = db::get_drive(&conn, "a").unwrap().unwrap().mount_point;
+        std::fs::write(format!("{root}/x.txt"), b"new").unwrap();
+        let root2 = db::get_drive(&conn, "b").unwrap().unwrap().mount_point;
+        std::fs::write(format!("{root2}/x.txt"), b"old").unwrap();
+    }
+    let manager = JobManager::new(
+        db.clone(),
+        crate::gallery::gallery_indexer::GalleryIndexer::start(),
+    );
+    let job = manager
+        .enqueue_on_conflict(
+            "copy",
+            "a",
+            "x.txt",
+            "b",
+            "",
+            "user-1",
+            OnConflict::KeepBoth,
+        )
+        .await
+        .unwrap();
+    wait_done(&manager, &job.id);
+    let done = manager.get(&job.id).unwrap().unwrap();
+    assert_eq!(done.state, "done", "{}", done.error);
+    let conn = db.lock().unwrap();
+    let root2 = db::get_drive(&conn, "b").unwrap().unwrap().mount_point;
+    assert_eq!(std::fs::read(format!("{root2}/x.txt")).unwrap(), b"old");
+    assert_eq!(std::fs::read(format!("{root2}/x (1).txt")).unwrap(), b"new");
+}
+
+#[tokio::test]
+async fn a_clash_with_a_folder_reports_it_as_a_folder() {
+    let (_dir, db, _a) = setup();
+    {
+        let conn = db.lock().unwrap();
+        let root = db::get_drive(&conn, "a").unwrap().unwrap().mount_point;
+        std::fs::create_dir_all(format!("{root}/Folder")).unwrap();
+        let root2 = db::get_drive(&conn, "b").unwrap().unwrap().mount_point;
+        std::fs::create_dir_all(format!("{root2}/Folder")).unwrap();
+    }
+    let manager = JobManager::new(
+        db.clone(),
+        crate::gallery::gallery_indexer::GalleryIndexer::start(),
+    );
+    let refused = manager
+        .enqueue("copy", "a", "Folder", "b", "", "user-1")
+        .await;
+    assert!(matches!(
+        refused,
+        Err(JobError::NameTaken { existing_dir: true })
+    ));
+}
+
+#[tokio::test]
+async fn keep_both_is_refused_for_a_private_item() {
+    let (_dir, db, _a) = setup();
+    {
+        let conn = db.lock().unwrap();
+        files::mkdir_as(&conn, "a", "Clash", Some("user-1")).unwrap();
+        files::create(&conn, "b", "Clash").unwrap();
+    }
+    let manager = JobManager::new(
+        db.clone(),
+        crate::gallery::gallery_indexer::GalleryIndexer::start(),
+    );
+    let refused = manager
+        .enqueue_on_conflict(
+            "copy",
+            "a",
+            "Clash",
+            "b",
+            "",
+            "user-1",
+            OnConflict::KeepBoth,
+        )
+        .await;
+    assert!(matches!(refused, Err(JobError::KeepBothUnsupported)));
+}
+
+#[test]
+fn a_failed_copy_keeps_its_progress_and_says_what_it_removed() {
+    let (_dir, db, _a) = setup();
+    let root = {
+        let conn = db.lock().unwrap();
+        db::get_drive(&conn, "a").unwrap().unwrap().mount_point
+    };
+    std::fs::create_dir_all(format!("{root}/docs")).unwrap();
+    std::fs::write(format!("{root}/docs/a.txt"), b"0123456789").unwrap();
+    std::fs::write(format!("{root}/docs/b.txt"), b"abcde").unwrap();
+    let prepared = {
+        let conn = db.lock().unwrap();
+        prepare(
+            &conn,
+            "copy",
+            "a",
+            "docs",
+            "b",
+            "",
+            "user-1",
+            OnConflict::Fail,
+        )
+        .unwrap()
+    };
+    // The second file vanishes after the job was prepared: the copy has
+    // written a.txt by then and fails on b.txt.
+    std::fs::remove_file(format!("{root}/docs/b.txt")).unwrap();
+    let id = prepared.row.id.clone();
+    run_job(
+        db.clone(),
+        crate::gallery::gallery_indexer::GalleryIndexer::start(),
+        prepared,
+        Arc::new(AtomicBool::new(false)),
+    );
+    let conn = db.lock().unwrap();
+    let failed = db::get_job(&conn, &id).unwrap().unwrap();
+    assert_eq!(failed.state, "error");
+    assert_eq!(
+        failed.error,
+        "A file disappeared while Luna was copying it. Luna removed the partial copy."
+    );
+    assert_eq!(failed.progress, 10, "a failed job keeps the bytes it moved");
+    assert_eq!(failed.total, 15);
 }
