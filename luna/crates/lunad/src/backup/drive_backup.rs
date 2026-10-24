@@ -542,9 +542,7 @@ fn run_inner(
                 fail(
                     db,
                     id,
-                    &format!(
-                        "{target_name} is full. Free up space on it, then the backup continues."
-                    ),
+                    &format!("{target_name} is full. Free up some space on it and try again."),
                     true,
                     now,
                 )

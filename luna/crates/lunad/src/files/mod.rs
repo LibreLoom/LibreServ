@@ -149,7 +149,7 @@ pub const TRASH_API_ALIAS: &str = ".luna-trash";
 
 /// Shown when the drive row exists and the mount is there, but the
 /// `.luna-<uuid>.sqlite3` microdb is gone. This is not an unplug.
-pub const MISSING_DRIVE_DB_MSG: &str = "Luna's database for this drive is missing. The drive is still plugged in. On the Files page, remove this drive, then add it again.";
+pub const MISSING_DRIVE_DB_MSG: &str = "Luna's database for this drive is missing. The drive is still plugged in. On the Files page, remove this drive, then add it again. Your files stay on the drive, but items in its Trash won't show up after you add it again.";
 
 #[derive(Debug, thiserror::Error)]
 pub enum FilesError {
@@ -2005,6 +2005,71 @@ pub fn trash_original_path(
     }))
 }
 
+/// Make the folders in `parent_rel` that do not exist yet, top-down. Returns
+/// the parent's real path and the api-relative paths of the folders made, so
+/// a failed restore can take them back out.
+///
+/// A missing folder that is a private item (or sits in a private boundary)
+/// is never made back as a plain folder. That case reports the folder as not
+/// found, as it did before folders were made again.
+fn make_missing_parents(
+    root: &Path,
+    parent_rel: &str,
+) -> Result<(PathBuf, Vec<String>), FilesError> {
+    let mut made: Vec<String> = Vec::new();
+    let mut so_far = String::new();
+    for seg in parent_rel.split('/').filter(|s| !s.is_empty() && *s != ".") {
+        so_far = if so_far.is_empty() {
+            seg.to_string()
+        } else {
+            format!("{so_far}/{seg}")
+        };
+        match resolve_child(root, &so_far) {
+            Ok(path) if path.is_dir() => {}
+            Ok(_) => {
+                remove_made_folders(root, &made);
+                return Err(FilesError::Io(std::io::Error::from(
+                    std::io::ErrorKind::NotADirectory,
+                )));
+            }
+            Err(luna_core::path::PathError::NotFound(_)) => {
+                let private_here = crate::private::item_at(root, &so_far).is_some()
+                    || crate::private::boundary_for(root, &so_far).is_some();
+                if private_here {
+                    remove_made_folders(root, &made);
+                    return Err(FilesError::Path(luna_core::path::PathError::NotFound(
+                        std::io::Error::from(std::io::ErrorKind::NotFound),
+                    )));
+                }
+                if let Err(e) = std::fs::create_dir(root.join(&so_far)) {
+                    remove_made_folders(root, &made);
+                    return Err(FilesError::Io(e));
+                }
+                made.push(so_far.clone());
+            }
+            Err(e) => {
+                remove_made_folders(root, &made);
+                return Err(FilesError::Path(e));
+            }
+        }
+    }
+    match resolve_child(root, parent_rel) {
+        Ok(parent) => Ok((parent, made)),
+        Err(e) => {
+            remove_made_folders(root, &made);
+            Err(FilesError::Path(e))
+        }
+    }
+}
+
+/// Take back folders [`make_missing_parents`] made, deepest first. Only
+/// empty folders are removed, so nothing that landed in them is lost.
+fn remove_made_folders(root: &Path, made: &[String]) {
+    for rel in made.iter().rev() {
+        let _ = std::fs::remove_dir(root.join(rel));
+    }
+}
+
 /// Move an item out of trash onto the same drive (atomic rename).
 /// `trash_rel` must use the `.luna-trash` API alias — a raw
 /// `{prefix}-trash` name would relocate any entry with no origin check.
@@ -2059,11 +2124,6 @@ pub fn restore_from_trash(
         .parent()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let parent = if parent_rel.is_empty() || parent_rel == "." {
-        resolve_child(&root, "")?
-    } else {
-        resolve_child(&root, &parent_rel)?
-    };
     // A private item keeps its `.luna-` disk name; its real name must be
     // free of plain and private items alike.
     let dest_real = dest_rel.as_str();
@@ -2073,13 +2133,23 @@ pub fn restore_from_trash(
     {
         return Err(already_exists());
     }
+    // The folders the item came from may be gone by now. Make them again so
+    // the item goes back where it was.
+    let (parent, made) = make_missing_parents(&root, &parent_rel)?;
     let dest = parent.join(private_leaf.as_deref().unwrap_or(&dest_name));
     // No-replace move: a concurrent restore to the same name gets
     // AlreadyExists instead of silently clobbering the earlier winner.
-    rename_noreplace(&src, &dest).map_err(FilesError::Io)?;
+    if let Err(e) = rename_noreplace(&src, &dest) {
+        remove_made_folders(&root, &made);
+        return Err(FilesError::Io(e));
+    }
     if let Err(e) = crate::private::repath(&root, &trash_rel, dest_real) {
         let _ = rename_noreplace(&dest, &src);
+        remove_made_folders(&root, &made);
         return Err(FilesError::Db(e));
+    }
+    for rel in &made {
+        note_write(conn, drive_id, rel);
     }
     crate::api::forms::repath_form_files_named(
         &root,
@@ -2557,3 +2627,62 @@ pub mod search;
 pub mod search_indexer;
 pub mod search_rank;
 pub mod uploads;
+
+#[cfg(test)]
+mod restore_folder_tests {
+    use super::*;
+
+    fn drive_dir() -> (tempfile::TempDir, rusqlite::Connection, String) {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        let id = "drive-restore";
+        let root = dir.path().join("drive");
+        std::fs::create_dir_all(&root).unwrap();
+        let marker = luna_core::marker::Marker::new(id, "Test");
+        let prefix = luna_core::marker::pick_prefix(&root).unwrap();
+        crate::drives::drive_db::create(&root, &marker, &prefix).unwrap();
+        db::upsert_drive(
+            &conn,
+            id,
+            "Test",
+            "as_is",
+            "ext4",
+            "sdz",
+            root.to_str().unwrap(),
+        )
+        .unwrap();
+        (dir, conn, id.into())
+    }
+
+    #[test]
+    fn restore_recreates_folders_that_are_gone() {
+        let (_dir, conn, id) = drive_dir();
+        let root = PathBuf::from(&db::get_drive(&conn, &id).unwrap().unwrap().mount_point);
+        mkdir(&conn, &id, "Docs").unwrap();
+        mkdir(&conn, &id, "Docs/2024").unwrap();
+        std::fs::write(root.join("Docs/2024/a.txt"), b"a").unwrap();
+        let trash_rel = delete_to_trash(&conn, &id, "Docs/2024").unwrap();
+        // The folder the item came from is gone now.
+        delete_to_trash(&conn, &id, "Docs").unwrap();
+        assert!(!root.join("Docs").exists());
+
+        restore_from_trash(&conn, &id, &trash_rel, "Docs/2024").unwrap();
+
+        assert!(root.join("Docs").is_dir());
+        assert_eq!(std::fs::read(root.join("Docs/2024/a.txt")).unwrap(), b"a");
+    }
+
+    #[test]
+    fn a_failed_restore_takes_back_the_folders_it_made() {
+        let (_dir, conn, id) = drive_dir();
+        let root = PathBuf::from(&db::get_drive(&conn, &id).unwrap().unwrap().mount_point);
+        std::fs::write(root.join("note.txt"), b"n").unwrap();
+        let trash_rel = delete_to_trash(&conn, &id, "note.txt").unwrap();
+        // A file where the destination's parent folder should go.
+        std::fs::write(root.join("Blocked"), b"x").unwrap();
+
+        assert!(restore_from_trash(&conn, &id, &trash_rel, "Blocked/note.txt").is_err());
+        assert!(root.join("Blocked").is_file());
+        assert!(root.join(real_rel(&root, &trash_rel).as_ref()).exists());
+    }
+}

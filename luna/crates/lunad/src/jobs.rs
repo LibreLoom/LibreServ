@@ -46,6 +46,8 @@ pub enum JobError {
     UnknownKind,
     #[error("Luna is already working on a lot of copies and moves. Try again when they finish.")]
     QueueFull,
+    #[error("Luna's job queue isn't responding.")]
+    Runner,
     #[error("{0}")]
     Files(FilesError),
     #[error("{0}")]
@@ -154,7 +156,10 @@ impl JobManager {
             )
         })
         .await
-        .map_err(|e| JobError::Db(anyhow::anyhow!("job task crashed: {e}")))??;
+        .map_err(|e| {
+            tracing::error!(error = %e, "job preparation task crashed");
+            JobError::Runner
+        })??;
 
         let cancel = Arc::new(AtomicBool::new(false));
         lock_cancels(&self.cancels).insert(prepared.row.id.clone(), cancel.clone());

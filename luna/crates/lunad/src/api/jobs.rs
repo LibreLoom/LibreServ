@@ -298,6 +298,10 @@ fn map_job_err(err: JobError) -> (StatusCode, Json<Value>) {
             StatusCode::SERVICE_UNAVAILABLE,
             "Luna is already working on a lot of copies and moves. Try again when they finish.",
         ),
+        JobError::Runner => json_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Luna's job queue isn't responding.",
+        ),
         JobError::NotFound => json_error(StatusCode::NOT_FOUND, "Luna doesn't know this job."),
         JobError::Denied => json_error(
             StatusCode::FORBIDDEN,
