@@ -677,7 +677,10 @@ async fn drive_summary(
 
     let root = std::path::PathBuf::from(mount_point);
     let space = if can_see_space {
-        crate::drives::summary::disk_space(&root)
+        let probe = root.clone();
+        tokio::task::spawn_blocking(move || crate::drives::summary::disk_space(&probe))
+            .await
+            .unwrap_or(None)
     } else {
         None
     };
@@ -1122,6 +1125,7 @@ mod tests {
             mount_point: None,
             fs_type: Some("ext4".into()),
             mount_readonly: false,
+            diskseq: None,
         };
         let row = drive_manager
             .adopt(&conn, &device, "Photos", false)

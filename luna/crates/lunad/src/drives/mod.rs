@@ -111,6 +111,9 @@ impl ReconcilePlan {
     }
 }
 
+/// Marker ids per `(kernel name, diskseq)` of an unmounted stick.
+type MarkerMemo = HashMap<(String, u64), Vec<String>>;
+
 #[derive(Clone)]
 pub struct DriveManager {
     mounter: Arc<dyn Mounter>,
@@ -123,6 +126,11 @@ pub struct DriveManager {
     /// Drives being ejected or removed right now. Background scans leave
     /// them alone, so one mid-eject is never mounted again or re-marked.
     closing: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
+    /// Marker ids read from unmounted sticks, keyed by `(kernel name, diskseq)`. A stick
+    /// that is not mounted only gets a brief read-only mount when its key is not here yet,
+    /// so a background scan does not mount the same stick every few seconds. Cleared by
+    /// every call that adopts, inspects, peeks, writes, ejects, releases or removes a drive.
+    marker_memo: Arc<std::sync::Mutex<MarkerMemo>>,
 }
 
 /// Keeps a drive out of background reconciliation until dropped.
@@ -161,7 +169,16 @@ impl DriveManager {
             adopted_base: data_dir.join("mounts/drives"),
             look_lock: Arc::new(std::sync::Mutex::new(())),
             closing: Arc::default(),
+            marker_memo: Arc::default(),
         }
+    }
+
+    /// Drop every remembered marker id. Called whenever a drive is changed on purpose.
+    fn forget_marker_memo(&self) {
+        self.marker_memo
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
     }
 
     /// Mark a drive as being ejected or removed until the guard is dropped.
@@ -186,6 +203,7 @@ impl DriveManager {
     /// Look at a detected device. Mounts it read-only only when it is not
     /// already mounted anywhere, then briefly probes whether writing works.
     pub fn inspect(&self, device: &DetectedDrive) -> anyhow::Result<Inspection> {
+        self.forget_marker_memo();
         let _look = self.look_lock.lock().unwrap_or_else(|e| e.into_inner());
         let choice = self.choice_for(device);
         let (mount_point, mounted_by_luna) = if let Some(existing) = &device.mount_point {
@@ -275,6 +293,7 @@ impl DriveManager {
     /// probe, no marker, and a mount Luna makes itself is read-only and
     /// dropped again before returning.
     pub fn peek(&self, device: &DetectedDrive) -> Peek {
+        self.forget_marker_memo();
         let _look = self.look_lock.lock().unwrap_or_else(|e| e.into_inner());
         let choice = self.choice_for(device);
         let fs_type = if choice.fs_type.is_empty() {
@@ -340,6 +359,7 @@ impl DriveManager {
         label: &str,
         erase: bool,
     ) -> anyhow::Result<db::DriveRow> {
+        self.forget_marker_memo();
         if label.trim().is_empty() {
             anyhow::bail!("Give the drive a name first.");
         }
@@ -624,6 +644,7 @@ impl DriveManager {
     /// Idempotent: already-ejected or already-unmounted drives succeed and
     /// stay marked `ejected`.
     pub fn eject(&self, conn: &Connection, id: &str) -> anyhow::Result<()> {
+        self.forget_marker_memo();
         let Some(drive) = db::get_drive(conn, id)? else {
             anyhow::bail!("Luna doesn't know this drive.");
         };
@@ -639,6 +660,7 @@ impl DriveManager {
     /// stick never holds the global DB lock. The caller records the new
     /// state afterwards.
     pub fn eject_unmount(&self, drive: &db::DriveRow) -> anyhow::Result<()> {
+        self.forget_marker_memo();
         if drive.mount_point.is_empty() {
             return Ok(());
         }
@@ -672,6 +694,7 @@ impl DriveManager {
     /// unregisters when deleting `.luna` fails. Unexpected I/O on a writable,
     /// plugged-in drive remains an error.
     pub fn remove(&self, conn: &Connection, id: &str) -> anyhow::Result<()> {
+        self.forget_marker_memo();
         let Some(drive) = db::get_drive(conn, id)? else {
             anyhow::bail!("Luna doesn't know this drive.");
         };
@@ -761,6 +784,7 @@ impl DriveManager {
                 Some(drive.fs_type.clone())
             },
             mount_readonly: false,
+            diskseq: None,
         };
         let choice = self.choice_for(&device);
         let target = if !drive.mount_point.is_empty() && self.is_ours(Path::new(&drive.mount_point))
@@ -860,6 +884,15 @@ impl DriveManager {
         rows: &[db::DriveRow],
         detected: &[DetectedDrive],
     ) -> ReconcilePlan {
+        // Forget remembered marker ids for sticks that are no longer plugged in.
+        self.marker_memo
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|(name, seq), _| {
+                detected
+                    .iter()
+                    .any(|d| &d.name == name && d.diskseq == Some(*seq))
+            });
         // Cache marker ids per detected device for this pass so a missing-row
         // loop does not RO-mount the same stick once per registry entry.
         let mut marker_cache: HashMap<String, Vec<String>> = HashMap::new();
@@ -1016,6 +1049,18 @@ impl DriveManager {
         if let Some(mp) = device.mount_point.as_deref() {
             return ids_at(Path::new(mp));
         }
+        // A stick we already read under this plug-in gets no second mount.
+        let memo_key = device.diskseq.map(|seq| (device.name.clone(), seq));
+        if let Some(key) = &memo_key
+            && let Some(ids) = self
+                .marker_memo
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get(key)
+                .cloned()
+        {
+            return ids;
+        }
         // Unmounted stick: brief RO foreign mount, read marker, tear down. Peek and
         // inspect use the same mount point, so take turns with them.
         let _look = self.look_lock.lock().unwrap_or_else(|e| e.into_inner());
@@ -1036,6 +1081,12 @@ impl DriveManager {
         let ids = ids_at(&target);
         let _ = self.mounter.unmount(&target);
         let _ = std::fs::remove_dir(&target);
+        if let Some(key) = memo_key {
+            self.marker_memo
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(key, ids.clone());
+        }
         ids
     }
 
@@ -1130,6 +1181,8 @@ impl DriveManager {
     pub fn release_foreign(&self, device_name: &str) -> anyhow::Result<()> {
         let target = self.foreign_mount_point(device_name);
         if target.exists() {
+            // Only a real release clears the memo: reconcile calls this on every pass.
+            self.forget_marker_memo();
             if let Err(err) = self.mounter.unmount(&target) {
                 tracing::debug!(error = %err, "normal unmount failed; detaching instead");
                 self.mounter.detach_stale(&target)?;
@@ -1370,6 +1423,7 @@ mod tests {
             mount_point: mount.map(String::from),
             fs_type: Some("ext4".into()),
             mount_readonly: false,
+            diskseq: None,
         }
     }
 
@@ -2012,6 +2066,7 @@ mod tests {
             mount_point: Some(row.mount_point.clone()),
             fs_type: Some("ext4".into()),
             mount_readonly: false,
+            diskseq: None,
         };
         let marker_on_sdd = luna_core::marker::read_marker(Path::new(&row.mount_point))
             .unwrap()
@@ -2080,6 +2135,7 @@ mod tests {
             mount_point: Some(probe.to_string_lossy().into_owned()),
             fs_type: Some("ext4".into()),
             mount_readonly: false,
+            diskseq: None,
         };
         mgr.reconcile(&conn, &[renamed]).unwrap();
         let after = db::get_drive(&conn, &row.id).unwrap().unwrap();

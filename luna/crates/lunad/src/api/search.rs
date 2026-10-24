@@ -2,6 +2,9 @@ use axum::extract::{Extension, Query, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use std::collections::HashMap;
+use std::path::PathBuf;
+
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -101,17 +104,25 @@ async fn search(
 }
 
 /// Whether `full` is itself a private item, and whether it is an ordinary
-/// item protected by a private parent's boundary.
-fn private_flags(conn: &rusqlite::Connection, drive_id: &str, full: &str) -> (bool, bool) {
-    crate::files::drive_root(conn, drive_id)
-        .map(|d| {
-            let root = std::path::Path::new(&d.mount_point);
-            (
-                crate::private::item_at(root, full).is_some(),
-                crate::private::boundary_for(root, full).is_some_and(|b| b.path != full),
-            )
-        })
-        .unwrap_or((false, false))
+/// item protected by a private parent's boundary. `root` is the drive's mount
+/// point, or `None` when the drive is not readable.
+fn private_flags(root: Option<&std::path::Path>, full: &str) -> (bool, bool) {
+    match root {
+        Some(root) => (
+            crate::private::item_at(root, full).is_some(),
+            crate::private::boundary_for(root, full).is_some_and(|b| b.path != full),
+        ),
+        None => (false, false),
+    }
+}
+
+/// The drive's mount point, the same lookup `caps_on_path_rows` does per call.
+fn mount_of(conn: &rusqlite::Connection, drive_id: &str) -> Option<String> {
+    crate::db::get_drive(conn, drive_id)
+        .ok()
+        .flatten()
+        .filter(|d| !d.mount_point.is_empty())
+        .map(|d| d.mount_point)
 }
 
 /// The first `limit` candidates, in rank order, that `user` may open. Access
@@ -130,6 +141,9 @@ fn visible_hits(
     } else {
         crate::db::list_access_members_for_user(conn, &user.id).unwrap_or_default()
     };
+    // One lookup per drive for the whole pass, not one per candidate.
+    let mut mounts: HashMap<String, Option<String>> = HashMap::new();
+    let mut roots: HashMap<String, Option<PathBuf>> = HashMap::new();
     let mut out = Vec::new();
     for candidate in candidates {
         let hit = candidate.hit;
@@ -144,14 +158,27 @@ fn visible_hits(
         {
             continue;
         }
-        let caps = crate::auth::caps_on_path_rows(user, conn, &hit.drive_id, &full, &grants);
+        let mount = mounts
+            .entry(hit.drive_id.clone())
+            .or_insert_with(|| mount_of(conn, &hit.drive_id))
+            .as_deref();
+        let caps =
+            crate::auth::caps_on_path_rows_at(user, conn, &hit.drive_id, &full, &grants, mount);
         if caps & crate::access::CAP_VIEW != crate::access::CAP_VIEW {
             continue;
         }
         if out.len() >= limit {
             return (out, true);
         }
-        let (private, in_private) = private_flags(conn, &hit.drive_id, &full);
+        let root = roots
+            .entry(hit.drive_id.clone())
+            .or_insert_with(|| {
+                crate::files::drive_root(conn, &hit.drive_id)
+                    .ok()
+                    .map(|d| PathBuf::from(d.mount_point))
+            })
+            .as_deref();
+        let (private, in_private) = private_flags(root, &full);
         out.push(json!({
             "drive_id": hit.drive_id,
             "path": full,
