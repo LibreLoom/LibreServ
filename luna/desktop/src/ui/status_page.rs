@@ -1,7 +1,9 @@
 //! Status page: files still being copied or synced, with progress.
 
+use std::cell::Cell;
 use std::rc::Rc;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use adw::prelude::*;
 use gtk::glib;
@@ -9,6 +11,9 @@ use gtk::glib;
 use luna_desktop::AppState;
 
 use super::spawn_blocking;
+
+/// The drive check asks Luna over HTTP, so it runs at most this often.
+const DRIVE_CHECK_EVERY: Duration = Duration::from_secs(30);
 
 pub struct StatusPage {
     root: gtk::Widget,
@@ -56,14 +61,25 @@ impl StatusPage {
         outer.append(&blurb);
         outer.append(&scrolled);
 
+        let last_drive_check: Rc<Cell<Option<Instant>>> = Rc::new(Cell::new(None));
+        let no_drives = Rc::new(Cell::new(false));
         let do_refresh = {
             let state = state.clone();
             let list = list.clone();
             let empty = empty.clone();
+            let last_drive_check = last_drive_check.clone();
+            let no_drives = no_drives.clone();
             Rc::new(move || {
                 let state = state.clone();
                 let list = list.clone();
                 let empty = empty.clone();
+                let no_drives = no_drives.clone();
+                let check_drives = last_drive_check
+                    .get()
+                    .is_none_or(|at| at.elapsed() >= DRIVE_CHECK_EVERY);
+                if check_drives {
+                    last_drive_check.set(Some(Instant::now()));
+                }
                 spawn_blocking(
                     move || {
                         let backups = state
@@ -78,12 +94,20 @@ impl StatusPage {
                             .unwrap_or_default();
                         let jobs = luna_desktop::backup::load_jobs();
                         let pairs = luna_desktop::sync::load_pairs();
-                        let drives = luna_desktop::list_drives(&state).unwrap_or_default();
+                        let checked_drives = check_drives.then(|| {
+                            luna_desktop::list_drives(&state)
+                                .unwrap_or_default()
+                                .is_empty()
+                        });
                         let mismatch = luna_desktop::current_compat(&state)
                             .and_then(luna_desktop::compat::message);
-                        (backups, syncs, jobs, pairs, drives.is_empty(), mismatch)
+                        (backups, syncs, jobs, pairs, checked_drives, mismatch)
                     },
-                    move |(backups, syncs, jobs, pairs, no_drives, mismatch)| {
+                    move |(backups, syncs, jobs, pairs, checked_drives, mismatch)| {
+                        if let Some(empty_now) = checked_drives {
+                            no_drives.set(empty_now);
+                        }
+                        let no_drives = no_drives.get();
                         while let Some(row) = list.row_at_index(0) {
                             list.remove(&row);
                         }
@@ -241,12 +265,20 @@ impl StatusPage {
         };
         do_refresh();
 
-        glib::timeout_add_local(std::time::Duration::from_secs(1), {
+        // Hidden pages skip their ticks. Mapping the page again refreshes it at once.
+        glib::timeout_add_local(Duration::from_secs(1), {
             let do_refresh = do_refresh.clone();
+            let outer = outer.clone();
             move || {
-                do_refresh();
+                if outer.is_mapped() {
+                    do_refresh();
+                }
                 glib::ControlFlow::Continue
             }
+        });
+        outer.connect_map({
+            let do_refresh = do_refresh.clone();
+            move |_| do_refresh()
         });
 
         Self {
