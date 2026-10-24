@@ -399,4 +399,23 @@ describe("NeedsYou", () => {
       expect(screen.getAllByRole("listitem")).toHaveLength(5);
     });
   });
+
+  describe("hints and detail segments", () => {
+    it("shows an info hint next to a row that has one", () => {
+      renderZone([
+        problem({
+          id: "check:disk_space",
+          title: ["Storage space"],
+          hint: "Luna keeps its own software and settings on a small built-in disk, separate from your drives.",
+        }),
+      ]);
+      expect(screen.getByRole("button", { name: "More about this" })).toBeInTheDocument();
+    });
+
+    it("puts names in a detail line in a pill", () => {
+      renderZone([problem({ detail: [{ name: "Backup drive" }, " (the backup drive) is full."] })]);
+      const pills = screen.getAllByText("Backup drive");
+      expect(pills.some((el) => el.getAttribute("data-slot") === "inline-pill")).toBe(true);
+    });
+  });
 });

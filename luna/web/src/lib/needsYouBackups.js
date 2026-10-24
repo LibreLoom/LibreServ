@@ -1,4 +1,4 @@
-import { needsALook } from "./backupRows.js";
+import { lastBackedUpLine, needsALook } from "./backupRows.js";
 
 /**
  * @typedef {{
@@ -6,7 +6,7 @@ import { needsALook } from "./backupRows.js";
  *   rank: number,
  *   tone: "problem" | "info",
  *   title: Array<string | { name: string }>,
- *   detail?: string,
+ *   detail?: string | Array<string | { name: string }>,
  *   action?: { label: string, ariaLabel?: string, href?: string, intent?: "open-backup" | "check-phrase", payload?: any },
  * }} NeedsYouItem
  */
@@ -46,27 +46,52 @@ export function visibleBackupRows(backupRows, viewer = {}) {
  */
 function backupTitle(row) {
   if (row.state === "failing") return [{ name: row.source_name }, " backup didn't finish"];
-  if (row.state === "stale") return [{ name: row.source_name }, " hasn't been copied in a day"];
+  if (row.state === "stale") return [{ name: row.source_name }, " backup is out of date"];
   if (row.kind === "cloud" && row.source_missing) {
     return [{ name: row.source_name }, " backup can't find its original"];
   }
   return [{ name: row.source_name }, " backup needs a look"];
 }
 
+/** lunad's short "Drive full." reads as no drive at all, so spell out which kind. */
+function plainError(error) {
+  return /^drive full\.?$/i.test(error.trim()) ? "Backup drive is full." : error;
+}
+
+/**
+ * The row's detail. A drive backup that failed names the backup drive; a stale one says
+ * when it last finished, in the one wording every screen uses.
+ * @param {BackupRow} row
+ * @param {number} now
+ * @returns {NeedsYouItem["detail"]}
+ */
+function backupDetail(row, now) {
+  const error = row.last_error ? plainError(row.last_error) : "";
+  const driveName = row.kind === "drive" ? row.destination : "";
+  if (row.state === "failing" && driveName) {
+    if (error === "Backup drive is full.") return [{ name: driveName }, " (the backup drive) is full."];
+    if (error) return ["Backup drive ", { name: driveName }, ": ", error];
+    return ["Backing up to ", { name: driveName }, " did not finish."];
+  }
+  if (row.state === "stale") {
+    const age = lastBackedUpLine(row.last_ok_at, now);
+    return error ? `${error} ${age}` : age;
+  }
+  return error || row.check_problem || (row.source_missing ? MISSING_SOURCE_DETAIL : FALLBACK_DETAIL);
+}
+
 /**
  * @param {BackupRow} row
+ * @param {number} now
  * @returns {NeedsYouItem}
  */
-function backupItem(row) {
+function backupItem(row, now) {
   return {
     id: `backup:${row.kind}:${row.id}`,
     rank: 40,
     tone: "problem",
     title: backupTitle(row),
-    detail:
-      row.last_error ||
-      row.check_problem ||
-      (row.source_missing ? MISSING_SOURCE_DETAIL : FALLBACK_DETAIL),
+    detail: backupDetail(row, now),
     action: {
       label: "Open",
       ariaLabel: `Open ${row.source_name} backup`,
@@ -85,13 +110,13 @@ function byId(a, b) {
 
 /**
  * One Needs you item per visible backup that needs a look, sorted by id.
- * @param {{ backupRows?: BackupRow[] | null, isAdmin?: boolean, userId?: string }} [input]
+ * @param {{ backupRows?: BackupRow[] | null, isAdmin?: boolean, userId?: string, now?: number }} [input]
  * @returns {NeedsYouItem[]}
  */
-export function buildBackupItems({ backupRows, isAdmin, userId } = {}) {
+export function buildBackupItems({ backupRows, isAdmin, userId, now = Date.now() } = {}) {
   return visibleBackupRows(backupRows, { isAdmin, userId })
     .filter(needsALook)
-    .map(backupItem)
+    .map((row) => backupItem(row, now))
     .sort(byId);
 }
 

@@ -229,3 +229,18 @@ describe("apiErrorMessage", () => {
     );
   });
 });
+
+describe("401 handling", () => {
+  it("raises one unauthorized event for a burst of 401s", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(9_000_000_000_000);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 401 })));
+    const seen = vi.fn();
+    window.addEventListener("luna:unauthorized", seen);
+    await apiFetch("/api/v1/files");
+    await apiFetch("/api/v1/drives");
+    await apiFetch("/api/v1/backups");
+    window.removeEventListener("luna:unauthorized", seen);
+    vi.unstubAllGlobals();
+    expect(seen).toHaveBeenCalledTimes(1);
+  });
+});

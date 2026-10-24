@@ -4,6 +4,7 @@ import { Info, TriangleAlert } from "lucide-react";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
+import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { cn } from "@libreloom/ui/lib/utils.js";
 
@@ -17,7 +18,8 @@ import { cn } from "@libreloom/ui/lib/utils.js";
  *   rank: number,
  *   tone: "problem" | "info",
  *   title: Array<string | { name: string }>,
- *   detail?: string,
+ *   detail?: string | Array<string | { name: string }>,
+ *   hint?: string,
  *   action?: { label: string, ariaLabel?: string, href?: string, intent?: "open-backup" | "check-phrase", payload?: any },
  * }} NeedsYouItem
  */
@@ -28,9 +30,9 @@ const VISIBLE_LIMIT = 5;
 /**
  * A row's title: plain text segments stay text, `{ name }` segments wear a pill.
  *
- * @param {{ segments: NeedsYouItem["title"] }} props
+ * @param {{ segments: NeedsYouItem["title"], hint?: string }} props
  */
-function Title({ segments }) {
+function Title({ segments, hint }) {
   return (
     <p className="font-mono text-base">
       {segments.map((segment, i) =>
@@ -40,6 +42,33 @@ function Title({ segments }) {
           <InlinePill key={i}>{segment.name}</InlinePill>
         ),
       )}
+      {hint && (
+        <>
+          {" "}
+          <InfoHint content={hint} surface="primary" />
+        </>
+      )}
+    </p>
+  );
+}
+
+/**
+ * The row's detail: a sentence, or segments where names wear a pill.
+ *
+ * @param {{ detail: NonNullable<NeedsYouItem["detail"]> }} props
+ */
+function Detail({ detail }) {
+  return (
+    <p className="text-xs">
+      {typeof detail === "string"
+        ? detail
+        : detail.map((segment, i) =>
+            typeof segment === "string" ? (
+              <Fragment key={i}>{segment}</Fragment>
+            ) : (
+              <InlinePill key={i}>{segment.name}</InlinePill>
+            ),
+          )}
     </p>
   );
 }
@@ -119,8 +148,8 @@ export default function NeedsYou({ items, onAction }) {
                     aria-hidden="true"
                   />
                   <div className="min-w-0 space-y-1">
-                    <Title segments={item.title} />
-                    {item.detail && <p className="text-sm">{item.detail}</p>}
+                    <Title segments={item.title} hint={item.hint} />
+                    {item.detail && <Detail detail={item.detail} />}
                   </div>
                 </div>
                 {item.action && (

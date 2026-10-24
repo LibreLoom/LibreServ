@@ -414,13 +414,13 @@ describe("Needs you on the dashboard", () => {
       expect(screen.getByTestId("protect-sheet")).toHaveTextContent("d1:Photos");
     });
 
-    it("lists a stale backup as not copied in a day", async () => {
+    it("lists a stale backup as out of date", async () => {
       const fetchMock = stubDashboardFetch({ backups: [backupRow({ state: "stale" })] });
       renderDashboard();
       await settle(fetchMock, ADMIN_QUERIES);
       const row = within(needsYouZone()).getByRole("listitem");
       expect(within(row).getByText("Photos")).toHaveAttribute("data-slot", "inline-pill");
-      expect(within(row).getByText("hasn't been copied in a day")).toBeInTheDocument();
+      expect(within(row).getByText("backup is out of date")).toBeInTheDocument();
     });
 
     it("never shows a stopped backup, even one that is failing", async () => {

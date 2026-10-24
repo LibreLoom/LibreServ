@@ -311,7 +311,7 @@ describe("ProtectSheet", () => {
     expect(
       await screen.findByText("Luna can't find the drive Backup, so photos wasn't copied."),
     ).toBeInTheDocument();
-    expect(screen.getByText("No copy yet")).toBeInTheDocument();
+    expect(screen.getByText("Not backed up yet.")).toBeInTheDocument();
   });
 
   it("says nothing extra while a backup is working", async () => {

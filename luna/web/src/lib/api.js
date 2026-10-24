@@ -42,10 +42,17 @@ export function withCsrfHeaders(method, headers = {}) {
  */
 export const UNAUTHORIZED_EVENT = "luna:unauthorized";
 
+/** A page fires many requests at once; one dead session must raise one event, not one per request. */
+const UNAUTHORIZED_COALESCE_MS = 2000;
+let lastUnauthorizedAt = 0;
+
 function notifyUnauthorized(path) {
   if (typeof window === "undefined") return;
   // /auth/* answers 401 for bad logins; those never mean the session ended.
   if (String(path).startsWith("/api/v1/auth/")) return;
+  const now = Date.now();
+  if (now - lastUnauthorizedAt < UNAUTHORIZED_COALESCE_MS) return;
+  lastUnauthorizedAt = now;
   window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT));
 }
 

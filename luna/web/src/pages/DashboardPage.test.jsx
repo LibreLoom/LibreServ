@@ -1,3 +1,4 @@
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { dashboard as greetingMessages } from "../lib/greetings.jsx";
@@ -171,6 +172,30 @@ describe("DashboardPage", () => {
     window.localStorage.clear();
     // The header tip is decided once per browser session; start each test with a fresh visit.
     window.sessionStorage.clear();
+  });
+
+  describe("when the drive list fails", () => {
+    it("says so and offers Try again", async () => {
+      const base = stubDashboardFetch();
+      let fail = true;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (/** @type {any} */ url, /** @type {any} */ init) => {
+          if (pathOf(url) === "/api/v1/drives" && fail) {
+            return new Response(JSON.stringify({ error: "boom" }), {
+              status: 500,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
+          return base(url, init);
+        }),
+      );
+      renderDashboard();
+      expect(await screen.findByText("Luna couldn't load your drives.", {}, { timeout: 5000 })).toBeInTheDocument();
+      fail = false;
+      await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+      expect(await screen.findByText("Family photos")).toBeInTheDocument();
+    });
   });
 
   describe("header and greeting", () => {

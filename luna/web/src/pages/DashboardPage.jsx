@@ -6,6 +6,7 @@ import { cn } from "@libreloom/ui/lib/utils.js";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
+import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { dashboard as greetingMessages } from "../lib/greetings.jsx";
@@ -141,6 +142,7 @@ export default function DashboardPage() {
   const memberHasNothingShared =
     !isAdmin &&
     !drives.isLoading &&
+    !drives.isError &&
     !memberSharesLoading &&
     grants.length === 0 &&
     albumsShared.length === 0;
@@ -149,8 +151,11 @@ export default function DashboardPage() {
   // with no drives and nothing new plugged in gets no column at all (the Needs you "No drives yet" row covers it).
   const hasRecents = recentItems.length > 0;
   const showAlbums = !isAdmin && !memberSharesLoading && albumsShared.length > 0;
-  const showNothingShared = !drives.isLoading && memberHasNothingShared;
+  const showNothingShared = !drives.isLoading && !drives.isError && memberHasNothingShared;
+  // A failed drive list is not an empty one: say so and offer a retry.
+  const drivesFailed = drives.isError && adopted.length === 0;
   const showDrivesColumn =
+    drivesFailed ||
     adopted.length > 0 ||
     (isAdmin && pluggedIn.length > 0) ||
     (!isAdmin && grants.length > 0) ||
@@ -224,6 +229,25 @@ export default function DashboardPage() {
             {showDrivesColumn && (
               <div className="min-w-0 space-y-4">
                 <h2 className="font-mono font-normal text-lg">{isAdmin ? "Drives" : "Your folders"}</h2>
+
+                {drivesFailed && (
+                  <PageNotice variant="error">
+                    <div className="space-y-3" role="alert">
+                      <p>
+                        {isAdmin ? "Luna couldn't load your drives." : "Luna couldn't load your folders."}
+                      </p>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        surface="primary"
+                        loading={drives.isFetching}
+                        onClick={() => drives.refetch()}
+                      >
+                        Try again
+                      </Button>
+                    </div>
+                  </PageNotice>
+                )}
 
                 {adopted.length > 0 && (
                   <div className="grid grid-cols-1 gap-6">

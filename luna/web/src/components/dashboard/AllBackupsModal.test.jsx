@@ -252,7 +252,7 @@ describe("AllBackupsModal", () => {
 
   it("maps status to pills", () => {
     expect(backupStatus(backup()).label).toBe("Backup successful");
-    expect(backupStatus(backup({ state: "stale" })).label).toBe("Not copied in a day");
+    expect(backupStatus(backup({ state: "stale" })).label).toBe("Not backed up yet.");
     expect(backupStatus(backup({ status: "source_gone" })).label).toBe("Original is gone");
   });
 });

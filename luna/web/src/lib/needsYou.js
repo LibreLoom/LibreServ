@@ -9,7 +9,8 @@ import { buildSystemCheckItems } from "./needsYouChecks.js";
  *   rank: number,
  *   tone: "problem" | "info",
  *   title: Array<string | { name: string }>,
- *   detail?: string,
+ *   detail?: string | Array<string | { name: string }>,
+ *   hint?: string,
  *   action?: { label: string, ariaLabel?: string, href?: string, intent?: "open-backup" | "check-phrase", payload?: any },
  * }} NeedsYouItem
  */
@@ -28,6 +29,7 @@ import { buildSystemCheckItems } from "./needsYouChecks.js";
  *   connect: { device_token_error?: string } | null,
  *   network: { has_default_route?: boolean } | null,
  *   detected: any[],
+ *   now?: number,
  * }} NeedsYouInput
  */
 
@@ -39,7 +41,7 @@ const ALMOST_FULL_RATIO = 0.1;
  * Admins see drive, system, network, token and storage rows. Everyone sees
  * the backup rows they may open and the recovery phrase reminder.
  *
- * Pure: it reads only its input, never fetches, and never reads the clock.
+ * Pure: it reads only its input and never fetches. It reads the clock only when `now` is not given.
  *
  * @param {NeedsYouInput} input
  * @returns {NeedsYouItem[]}
@@ -53,7 +55,7 @@ export function buildNeedsYouItems(input) {
   const items = [];
   if (isAdmin) items.push(...buildAdminItems(input));
 
-  items.push(...buildBackupItems({ backupRows, isAdmin, userId }));
+  items.push(...buildBackupItems({ backupRows, isAdmin, userId, now: input?.now }));
   const phraseItem = buildPhraseItem({ backupRows, phrase: input?.phrase ?? null, isAdmin, userId });
   if (phraseItem) items.push(phraseItem);
 
