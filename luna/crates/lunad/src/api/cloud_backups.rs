@@ -379,7 +379,10 @@ fn backup_json(
     } else {
         row.last_checked_at + CHECK_EVERY
     };
+    let covered_by = drive_backup::covered_by(conn, row)
+        .map(|(parent, _)| json!({ "path": parent.source_path, "name": folder_name(&parent.source_path, &source_label) }));
     json!({
+        "covered_by": covered_by,
         "id": row.id,
         "kind": row.kind,
         "source_drive": row.source_drive,
@@ -432,8 +435,7 @@ fn run_answer(outcome: &CloudOutcome) -> Value {
 }
 
 /// A refusal about who may do something is 403; anything else is 400.
-/// "Back up the private item itself, from its own shield." is a 400: it says how to
-/// do the thing, not who may do it.
+/// "Included in the backup of …" is a 400: it says why nothing is needed, not who may do it.
 fn refusal_status(msg: &str) -> StatusCode {
     if msg.starts_with("You need")
         || msg.starts_with("Only an Admin")

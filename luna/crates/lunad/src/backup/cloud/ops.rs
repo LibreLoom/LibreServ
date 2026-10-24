@@ -127,9 +127,8 @@ pub fn create(
         .ok_or_else(save_refused)
 }
 
-/// The owner a new backup of `norm` belongs to: the item's owner for a private item, "" for a
-/// shared folder. A private item is backed up by its owner only, and a folder inside one is not
-/// a backup source on its own (same rules as `drive_backup`).
+/// The owner a new backup of `norm` belongs to: the item's owner for a private item or a folder
+/// inside one, "" for a shared folder. Only the owner may back it up (same rules as `drive_backup`).
 fn private_owner_for(
     conn: &Connection,
     user: &crate::auth::CurrentUser,
@@ -138,13 +137,15 @@ fn private_owner_for(
 ) -> Result<String, Refused> {
     match access_list::private_source(conn, source_drive, norm) {
         access_list::PrivateSource::Shared => Ok(String::new()),
-        access_list::PrivateSource::OwnItem { owner } if owner == user.id => Ok(owner),
-        access_list::PrivateSource::OwnItem { .. } => Err(Refused(
-            "Only the owner of this private item can back it up.".into(),
-        )),
-        access_list::PrivateSource::Inside => Err(Refused(
-            "Back up the private item itself, not a folder inside it.".into(),
-        )),
+        access_list::PrivateSource::PrivateTrash => {
+            Err(Refused("Items in the trash can't be backed up.".into()))
+        }
+        other => match other.owner() {
+            Some(owner) if owner == user.id => Ok(owner.to_string()),
+            _ => Err(Refused(
+                "Only the owner of this private item can back it up.".into(),
+            )),
+        },
     }
 }
 
@@ -173,7 +174,7 @@ fn check_new_backup(
             "You need Read access to this folder to back it up.".into(),
         ));
     }
-    private_owner_for(conn, user, source_drive, norm)?;
+    let owner = private_owner_for(conn, user, source_drive, norm)?;
     if crate::files::drive_root(conn, source_drive).is_err() {
         return Err(Refused(
             "Luna can't reach this drive. Check that it is connected.".into(),
@@ -193,6 +194,12 @@ fn check_new_backup(
         .map_err(|_| save_refused())?
     {
         return Ok(Some(existing));
+    }
+
+    // A backup of a parent folder already holds this folder.
+    let probe = db::ProtectionRow::probe(db::PROTECTION_CLOUD, source_drive, norm, "", &owner);
+    if let Some((_, message)) = drive_backup::covered_by(conn, &probe) {
+        return Err(Refused(message));
     }
 
     // The creator's own key copy is what lets them see this backup later, so they need a phrase.
@@ -223,6 +230,16 @@ pub fn run(
     let Some(_slot) = drive_backup::try_hold(db, id) else {
         return problem_outcome("This backup is copying right now. Try again in a minute.");
     };
+    // A backup of a parent folder already holds these files. Nothing is recorded, so this
+    // backup starts again on its own if that parent backup stops or goes away.
+    {
+        let conn = lock(db);
+        if let Some(row) = db::get_protection(&conn, id).ok().flatten()
+            && let Some((_, message)) = drive_backup::covered_by(&conn, &row)
+        {
+            return problem_outcome(&message);
+        }
+    }
     // Send the current recovery keys first. A failure does not stop the copy; it is reported here.
     let users_problem = match publish_users(db, store, connect, now) {
         Ok(()) => None,
@@ -1222,6 +1239,39 @@ mod tests {
     }
 
     #[test]
+    fn create_refuses_a_folder_a_parent_cloud_backup_already_holds() {
+        let s = setup();
+        fs::create_dir_all(s._dir.path().join(&s.src).join("Docs/Sub/Deeper")).unwrap();
+        let parent = make_backup(&s);
+        // Until the parent finishes its first copy, the folder can have its own backup.
+        let child = create(&s.db, &s.connect, &s.admin, &s.src, "Docs/Sub").unwrap();
+        db::record_protection_ok(&lock(&s.db), &parent, NOW, "{}").unwrap();
+        let err = create(&s.db, &s.connect, &s.admin, &s.src, "Docs/Sub/Deeper").unwrap_err();
+        assert_eq!(err.0, "Included in the backup of \"Docs\".");
+        // The child that already exists stops while the parent runs, and nothing is recorded.
+        let outcome = run(
+            &s.db,
+            &child.id,
+            &MemoryStore::new(),
+            &s.connect,
+            "",
+            false,
+            NOW,
+        );
+        assert_eq!(
+            outcome.problem.as_deref(),
+            Some("Included in the backup of \"Docs\".")
+        );
+        assert_eq!(
+            db::get_protection(&lock(&s.db), &child.id)
+                .unwrap()
+                .unwrap()
+                .last_error,
+            ""
+        );
+    }
+
+    #[test]
     fn create_needs_the_creators_recovery_phrase() {
         let s = setup();
         crate::db::delete_user_keys(&lock(&s.db), "admin").unwrap();
@@ -1753,17 +1803,15 @@ mod tests {
     }
 
     #[test]
-    fn inside_is_refused() {
+    fn inside_is_allowed_for_the_owner_as_a_private_backup() {
         let s = private_setup();
         let disk = private_item(&s, "Docs");
         fs::create_dir_all(disk.join("Inner")).unwrap();
-        let err = create(&s.db, &s.connect, &s.owner, "drive-src", "Docs/Inner")
-            .err()
-            .unwrap();
-        assert_eq!(
-            err.0,
-            "Back up the private item itself, not a folder inside it."
-        );
+        let row = create(&s.db, &s.connect, &s.owner, "drive-src", "Docs/Inner").unwrap();
+        assert_eq!(row.private_owner, s.owner.id);
+        let list: access_list::AccessList = serde_json::from_str(&row.access_json).unwrap();
+        assert_eq!(list.users, vec![s.owner.id.clone()]);
+        assert!(!list.admins);
     }
 
     #[test]

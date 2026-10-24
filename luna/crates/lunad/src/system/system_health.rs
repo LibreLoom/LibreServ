@@ -979,6 +979,10 @@ pub fn backup_checks(conn: &Connection, now: i64) -> HashMap<String, HealthCheck
         if row.kind != crate::db::PROTECTION_DRIVE || !row.private_owner.is_empty() {
             continue;
         }
+        // A larger folder's backup holds these files, so this one is meant to stand still.
+        if crate::backup::drive_backup::covered_by(conn, &row).is_some() {
+            continue;
+        }
         let folder = folder_name(&row, &drive_label(&row.source_drive));
         let target = drive_label(&row.target_drive);
         let details = json!({
@@ -1052,6 +1056,9 @@ pub fn backup_checks(conn: &Connection, now: i64) -> HashMap<String, HealthCheck
 
     for row in crate::db::list_protections(conn).unwrap_or_default() {
         if row.kind != crate::db::PROTECTION_CLOUD || !row.private_owner.is_empty() {
+            continue;
+        }
+        if crate::backup::drive_backup::covered_by(conn, &row).is_some() {
             continue;
         }
         let folder = folder_name(&row, &drive_label(&row.source_drive));
@@ -1219,6 +1226,9 @@ fn row_needs_look(conn: &Connection, row: &crate::db::ProtectionRow, now: i64) -
     use crate::backup::drive_backup::state as drive_state;
     use crate::backup::status::BackupState;
     if row.state == "stopped" || row.state == "source_gone" {
+        return false;
+    }
+    if crate::backup::drive_backup::covered_by(conn, row).is_some() {
         return false;
     }
     if row.kind == crate::db::PROTECTION_DRIVE {

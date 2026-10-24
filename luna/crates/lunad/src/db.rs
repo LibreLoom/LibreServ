@@ -1132,6 +1132,38 @@ pub struct ProtectionRow {
     pub notes: String,
 }
 
+impl ProtectionRow {
+    /// A backup that doesn't exist yet, to ask whether another backup would cover it.
+    pub fn probe(
+        kind: &str,
+        source_drive: &str,
+        source_path: &str,
+        target_drive: &str,
+        private_owner: &str,
+    ) -> Self {
+        Self {
+            id: String::new(),
+            kind: kind.to_string(),
+            source_drive: source_drive.to_string(),
+            source_path: source_path.to_string(),
+            target_drive: target_drive.to_string(),
+            private_owner: private_owner.to_string(),
+            created_by: String::new(),
+            created_at: 0,
+            state: PROTECTION_ACTIVE.to_string(),
+            stop_reason: String::new(),
+            access_json: String::new(),
+            last_ok_at: 0,
+            last_error: String::new(),
+            hard: false,
+            failing_since: 0,
+            last_checked_at: 0,
+            first_done: false,
+            notes: String::new(),
+        }
+    }
+}
+
 pub struct NewProtection<'a> {
     pub id: &'a str,
     pub kind: &'a str,
@@ -1226,6 +1258,45 @@ pub fn get_protection(conn: &Connection, id: &str) -> anyhow::Result<Option<Prot
         Some(row) => Ok(Some(protection_from_row(row)?)),
         None => Ok(None),
     }
+}
+
+/// The backup that has taken over `row`: the nearest backup of a parent folder of the same kind,
+/// from the same drive to the same place, with the same privacy (a shared parent never holds a
+/// private item inside it). Only a parent that is running and has finished its first copy counts,
+/// so until then the child stays the up-to-date copy. When that parent is stopped or deleted the
+/// child is no longer covered and runs again.
+pub fn covering_protection(
+    conn: &Connection,
+    row: &ProtectionRow,
+) -> anyhow::Result<Option<ProtectionRow>> {
+    let child = crate::access::normalize_subject_path(&row.source_path);
+    if child.is_empty() {
+        return Ok(None);
+    }
+    let mut stmt = conn.prepare_cached(&format!(
+        "SELECT {PROTECTION_COLUMNS} FROM protections
+         WHERE kind = ?1 AND source_drive = ?2 AND target_drive = ?3 AND private_owner = ?4
+           AND state = 'active' AND first_done = 1 AND id != ?5"
+    ))?;
+    let parents = stmt
+        .query_map(
+            params![
+                row.kind,
+                row.source_drive,
+                row.target_drive,
+                row.private_owner,
+                row.id
+            ],
+            protection_from_row,
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(parents
+        .into_iter()
+        .filter(|p| {
+            let parent = crate::access::normalize_subject_path(&p.source_path);
+            parent != child && crate::access::path_contains(&parent, &child)
+        })
+        .max_by_key(|p| crate::access::normalize_subject_path(&p.source_path).len()))
 }
 
 /// Returns true when a row was removed.
@@ -2870,6 +2941,85 @@ mod tests {
             created_by: "u1",
             created_at: 100,
         }
+    }
+
+    #[test]
+    fn a_parent_backup_covers_only_the_same_kind_place_and_privacy() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&dir.path().join("luna.db")).unwrap();
+        let add = |id: &str, kind: &str, path: &str, target: &str, owner: &str| {
+            insert_protection(
+                &conn,
+                &NewProtection {
+                    kind,
+                    target_drive: target,
+                    private_owner: owner,
+                    ..new_protection(id, "d1", path)
+                },
+            )
+            .unwrap();
+        };
+        add("parent", PROTECTION_DRIVE, "docs", "b1", "");
+        add("child", PROTECTION_DRIVE, "docs/sub", "b1", "");
+        add("other-target", PROTECTION_DRIVE, "docs/sub", "b2", "");
+        add("cloud-child", PROTECTION_CLOUD, "docs/sub", "", "");
+        add("private-child", PROTECTION_DRIVE, "docs/vault", "b1", "ann");
+        add("sibling", PROTECTION_DRIVE, "docsy", "b1", "");
+        let row = |id: &str| get_protection(&conn, id).unwrap().unwrap();
+        let covered = |id: &str| covering_protection(&conn, &row(id)).unwrap().map(|p| p.id);
+
+        // Until the parent finishes its first copy, nothing is covered.
+        assert_eq!(covered("child"), None);
+        record_protection_ok(&conn, "parent", 5, "{}").unwrap();
+        assert_eq!(covered("child"), Some("parent".to_string()));
+        // Another backup drive, the cloud, a private item and a name that only
+        // starts the same way are all separate.
+        assert_eq!(covered("other-target"), None);
+        assert_eq!(covered("cloud-child"), None);
+        assert_eq!(covered("private-child"), None);
+        assert_eq!(covered("sibling"), None);
+        // The parent itself is never covered by itself.
+        assert_eq!(covered("parent"), None);
+
+        // A stopped parent gives the child back; so does a deleted one.
+        set_protection_state(
+            &conn,
+            "parent",
+            PROTECTION_STOPPED,
+            "You stopped this backup.",
+        )
+        .unwrap();
+        assert_eq!(covered("child"), None);
+        set_protection_state(&conn, "parent", PROTECTION_ACTIVE, "").unwrap();
+        assert_eq!(covered("child"), Some("parent".to_string()));
+        delete_protection(&conn, "parent").unwrap();
+        assert_eq!(covered("child"), None);
+    }
+
+    #[test]
+    fn the_nearest_parent_backup_is_the_one_that_covers() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&dir.path().join("luna.db")).unwrap();
+        for (id, path) in [("root", ""), ("mid", "a"), ("leaf", "a/b/c")] {
+            insert_protection(
+                &conn,
+                &NewProtection {
+                    target_drive: "b1",
+                    ..new_protection(id, "d1", path)
+                },
+            )
+            .unwrap();
+        }
+        record_protection_ok(&conn, "root", 5, "{}").unwrap();
+        record_protection_ok(&conn, "mid", 5, "{}").unwrap();
+        let leaf = get_protection(&conn, "leaf").unwrap().unwrap();
+        assert_eq!(
+            covering_protection(&conn, &leaf).unwrap().unwrap().id,
+            "mid"
+        );
+        // The whole-drive backup has no parent.
+        let root = get_protection(&conn, "root").unwrap().unwrap();
+        assert!(covering_protection(&conn, &root).unwrap().is_none());
     }
 
     #[test]

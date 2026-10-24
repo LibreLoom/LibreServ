@@ -169,6 +169,7 @@ get("/api/v1/private-backups/summary", ({ world }) => world.privateSummary);
 get("/api/v1/private-backups/item", () => ({ private: false, inside_private: false, mine: false, owner_name: "" }));
 
 // ── Backups ─────────────────────────────────────────────────────────────────
+get("/api/v1/backups/covered", () => []);
 get("/api/v1/backups", ({ world }) => world.backups);
 post("/api/v1/backups/:id/run", ({ world, params }) => {
   const b = world.backups.find((x) => x.id === params.id);

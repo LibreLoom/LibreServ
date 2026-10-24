@@ -45,8 +45,53 @@ struct RunBody {
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/v1/backups", get(list).post(create))
+        .route("/api/v1/backups/covered", get(covered))
         .route("/api/v1/backups/{id}", delete(remove))
         .route("/api/v1/backups/{id}/run", post(run))
+}
+
+/// Which backups of a larger folder already hold this one, per kind and place they go to.
+/// A drive backup covers it only for the same backup drive; the cloud covers it for the cloud.
+async fn covered(
+    State(state): State<AppState>,
+    Extension(user): Extension<CurrentUser>,
+    Query(query): Query<ListQuery>,
+) -> ApiResult {
+    let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
+    let drive = query.drive.unwrap_or_default();
+    let path = crate::access::normalize_subject_path(query.path.as_deref().unwrap_or(""));
+    if !crate::auth::has_cap(&user, &conn, &drive, &path, crate::access::CAP_VIEW) {
+        return Err(json_error(
+            StatusCode::NOT_FOUND,
+            "Luna can't find this folder.",
+        ));
+    }
+    let owner = crate::backup::access_list::private_source(&conn, &drive, &path)
+        .owner()
+        .unwrap_or_default()
+        .to_string();
+    let rows = db::list_protections(&conn).map_err(|_| read_failed())?;
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for row in rows
+        .iter()
+        .filter(|r| r.source_drive == drive && r.private_owner == owner)
+    {
+        if !seen.insert((row.kind.clone(), row.target_drive.clone())) {
+            continue;
+        }
+        let probe = ProtectionRow::probe(&row.kind, &drive, &path, &row.target_drive, &owner);
+        if let Some((parent, _)) = drive_backup::covered_by(&conn, &probe) {
+            let label = drive_label(&conn, &drive);
+            out.push(json!({
+                "kind": row.kind,
+                "target_drive": row.target_drive,
+                "path": parent.source_path,
+                "name": parent.source_path.rsplit('/').find(|s| !s.is_empty()).unwrap_or(&label),
+            }));
+        }
+    }
+    Ok(Json(Value::Array(out)))
 }
 
 async fn list(
@@ -255,7 +300,10 @@ fn backup_json(
 ) -> Value {
     let source_label = drive_label(conn, &row.source_drive);
     let target_label = drive_label(conn, &row.target_drive);
+    let covered_by = drive_backup::covered_by(conn, row)
+        .map(|(parent, _)| json!({ "path": parent.source_path, "name": folder_name(&parent.source_path, &source_label) }));
     json!({
+        "covered_by": covered_by,
         "id": row.id,
         "kind": row.kind,
         "source_drive": row.source_drive,
@@ -280,8 +328,7 @@ fn backup_json(
 }
 
 /// A refusal about who may do something is 403; anything else is 400.
-/// The private-item refusal "Back up the private item itself, from its own shield."
-/// is not a who-may refusal, so it stays 400.
+/// "Included in the backup of …" is not a who-may refusal, so it stays 400.
 fn refusal_status(msg: &str) -> StatusCode {
     let who_may = msg.starts_with("You need")
         || msg.starts_with("Only an Admin")
@@ -718,7 +765,7 @@ mod tests {
     fn refusal_status_keeps_other_refusals_at_400() {
         use axum::http::StatusCode;
         assert_eq!(
-            super::refusal_status("Back up the private item itself, from its own shield."),
+            super::refusal_status("Included in the backup of \"Docs\"."),
             StatusCode::BAD_REQUEST
         );
         assert_eq!(

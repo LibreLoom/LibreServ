@@ -65,10 +65,11 @@ async fn item(
             "Luna can't find this folder.",
         ));
     }
+    // A folder inside a private item is private too, owned by the item's owner.
     let (private, inside, owner) = match access_list::private_source(&conn, &query.drive, &path) {
         PrivateSource::OwnItem { owner } => (true, false, owner),
-        PrivateSource::Inside => (false, true, String::new()),
-        PrivateSource::Shared => (false, false, String::new()),
+        PrivateSource::Inside { owner, .. } => (true, true, owner),
+        PrivateSource::PrivateTrash | PrivateSource::Shared => (false, false, String::new()),
     };
     Ok(Json(json!({
         "private": private,
@@ -102,7 +103,10 @@ async fn mine(State(state): State<AppState>, Extension(user): Extension<CurrentU
                     r.private_owner == user.id
                         && r.source_drive == drive.id
                         && r.state == db::PROTECTION_ACTIVE
-                        && access::normalize_subject_path(&r.source_path) == item.path
+                        && access::path_contains(
+                            &item.path,
+                            &access::normalize_subject_path(&r.source_path),
+                        )
                 })
                 .collect();
             items.push(json!({
@@ -288,6 +292,10 @@ fn display_name(conn: &Connection, id: &str) -> String {
 fn needs_look(conn: &Connection, row: &ProtectionRow, now: i64) -> bool {
     if row.state != db::PROTECTION_ACTIVE {
         return true;
+    }
+    // A larger folder's backup holds these files, so this one is meant to stand still.
+    if drive_backup::covered_by(conn, row).is_some() {
+        return false;
     }
     if row.kind == db::PROTECTION_CLOUD {
         ops::state(row, now) != BackupState::Ok || ops::last_check_problem(conn, &row.id).is_some()

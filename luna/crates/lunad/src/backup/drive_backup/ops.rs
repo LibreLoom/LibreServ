@@ -42,8 +42,11 @@ pub(super) fn stop_reason(conn: &Connection, row: &ProtectionRow) -> Option<&'st
             access_list::PrivateSource::OwnItem { .. } => {
                 return Some("This folder is now a private item.");
             }
-            access_list::PrivateSource::Inside => {
+            access_list::PrivateSource::Inside { .. } => {
                 return Some("This folder is now inside a private item.");
+            }
+            access_list::PrivateSource::PrivateTrash => {
+                return Some("This folder is now in the trash.");
             }
         }
     } else if let Some(reason) = access_list::private_stop_reason(conn, row) {
@@ -738,12 +741,12 @@ mod tests {
     }
 
     #[test]
-    fn private_backup_stops_when_moved_inside_another_private_item() {
+    fn private_backup_stops_when_moved_inside_someone_elses_private_item() {
         let dir = tempfile::tempdir().unwrap();
         let conn = db::open(&dir.path().join("luna.db")).unwrap();
         let (src, root, _) = new_drive(dir.path(), &conn);
         let (target, _, _) = new_drive(dir.path(), &conn);
-        crate::private::create(&root, "Vault", "u1").unwrap();
+        crate::private::create(&root, "Vault", "u2").unwrap();
         crate::private::create(&root, "Docs", "u1").unwrap();
         let row = protect_private(&conn, &src, "Docs", &target, "u1");
         on_moved(&conn, &src, "Docs", &src, "Vault/Docs");
@@ -751,7 +754,7 @@ mod tests {
         assert_eq!(after.state, "stopped");
         assert_eq!(
             after.stop_reason,
-            "This private item is now inside another private item."
+            "This folder now belongs to someone else."
         );
     }
 }

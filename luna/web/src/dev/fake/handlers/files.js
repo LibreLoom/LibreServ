@@ -597,6 +597,30 @@ get("/api/v1/backups", ({ world, query }) => {
   return world.backups.filter((b) => b.source_drive === query.drive && cleanPath(b.source_path) === p);
 });
 
+// A backup of a bigger folder holds this one: same kind, same drive, same place, same privacy.
+get("/api/v1/backups/covered", ({ world, query }) => {
+  const p = cleanPath(query.path);
+  const fs = fsOf(world, query.drive);
+  const isPrivate = Boolean(fs.nodes[p]?.private || (p && privateAncestor(fs, p)));
+  const out = new Map();
+  const consider = (kind, rows) => {
+    for (const b of rows) {
+      const parent = cleanPath(b.source_path);
+      const holds = parent !== p && (parent === "" || p.startsWith(`${parent}/`));
+      if (b.source_drive !== query.drive || !holds || !b.first_done || (b.status && b.status !== "active")) continue;
+      if (Boolean(b.private) !== isPrivate) continue;
+      const key = `${kind}:${b.target_drive || ""}`;
+      const have = out.get(key);
+      if (!have || parent.length > have.path.length) {
+        out.set(key, { kind, target_drive: b.target_drive || "", path: parent, name: parent ? base(parent) : driveRow(world, query.drive)?.label });
+      }
+    }
+  };
+  consider("drive", world.backups);
+  consider("cloud", world.cloudBackups);
+  return [...out.values()];
+});
+
 post("/api/v1/backups", ({ world, user, body }) => {
   const { source_drive_id: src, source_path: path, target_drive_id: target } = body;
   if (!target) throw fail(400, "Pick a drive to keep the copy on.");
@@ -686,7 +710,7 @@ get("/api/v1/private-backups/item", ({ world, user, query }) => {
   const node = fs.nodes[path];
   if (node?.private) return { private: true, inside_private: false, mine: node.owner === user.id, owner_name: world.users.find((u) => u.id === node.owner)?.display_name || "" };
   const anc = path ? privateAncestor(fs, path) : null;
-  if (anc) return { private: false, inside_private: true, mine: anc.node.owner === user.id, owner_name: world.users.find((u) => u.id === anc.node.owner)?.display_name || "" };
+  if (anc) return { private: true, inside_private: true, mine: anc.node.owner === user.id, owner_name: world.users.find((u) => u.id === anc.node.owner)?.display_name || "" };
   return { private: false, inside_private: false, mine: false, owner_name: "" };
 });
 del("/api/v1/private-backups/old-copies", () => ({}));

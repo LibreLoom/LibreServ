@@ -81,6 +81,7 @@ function stubBackupApi({
   cloudRunReply = { status: 200, body: { done: true } },
   deleteReply = { status: 200, body: {} },
   privateItem = { private: false, inside_private: false, mine: false, owner_name: "" },
+  covered = [],
   onOldCopiesDelete,
   phrase = { set: true, set_at: 1, luna_id: "luna-1", signing_public: "sig" },
   cloudCreateReply = null,
@@ -101,6 +102,7 @@ function stubBackupApi({
   cloudRunReply?: { status: number, body: any },
   deleteReply?: { status: number, body: any },
   privateItem?: { private: boolean, inside_private: boolean, mine: boolean, owner_name: string },
+  covered?: Array<{ kind: string, target_drive: string, path: string, name: string }>,
   onOldCopiesDelete?: (url: string) => void,
   phrase?: any,
   cloudCreateReply?: { status: number, body: any } | null,
@@ -165,6 +167,9 @@ function stubBackupApi({
       }
       if (u.includes("/api/v1/drives") && !u.includes("/detected") && !u.includes("/files") && !u.includes("/health")) {
         return json(drives);
+      }
+      if (u.startsWith("/api/v1/backups/covered")) {
+        return json(covered);
       }
       if (u.includes("/api/v1/backups/") && u.endsWith("/run")) {
         onRun?.(JSON.parse(init?.body || "{}"));
@@ -629,7 +634,7 @@ describe("ProtectSheet", () => {
     expect(screen.queryByRole("button", { name: "Delete cloud backup" })).not.toBeInTheDocument();
   });
 
-  it("inside a private item points to the item's own shield", async () => {
+  it("a folder inside your own private item can be backed up like the item", async () => {
     stubBackupApi({
       drives: [
         { id: "d1", label: "Main", mount_point: "/mnt/main" },
@@ -638,15 +643,52 @@ describe("ProtectSheet", () => {
       backups: [],
       connect: { connect_active: true },
       cloudBackups: [],
-      privateItem: { private: false, inside_private: true, mine: false, owner_name: "" },
+      privateItem: { private: true, inside_private: true, mine: true, owner_name: "Max" },
     });
     renderSheet();
-    expect(await screen.findByText("This folder is inside a private item. Back up that item instead, from its shield.")).toBeInTheDocument();
+    expect(await screen.findByText("This folder is private, so only you can back it up.")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Choose a drive" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Back up to the cloud" })).toBeInTheDocument();
+  });
+
+  it("a folder a bigger backup already holds says so and offers no backup of its own", async () => {
+    stubBackupApi({
+      drives: [
+        { id: "d1", label: "Main", mount_point: "/mnt/main" },
+        { id: "d2", label: "Backup", mount_point: "/mnt/backup" },
+      ],
+      backups: [],
+      connect: { connect_active: true },
+      cloudBackups: [],
+      covered: [
+        { kind: "drive", target_drive: "d2", path: "family", name: "family" },
+        { kind: "cloud", target_drive: "", path: "family", name: "family" },
+      ],
+    });
+    renderSheet();
+    expect((await screen.findAllByText("family")).length).toBe(2);
+    expect(screen.getAllByText(/Included in the backup of/)).toHaveLength(2);
     expect(screen.queryByRole("button", { name: "Choose a drive" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Back up" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Back up to the cloud" })).not.toBeInTheDocument();
   });
 
+  it("an existing backup a bigger one has taken over shows a notice and no Back up now", async () => {
+    stubBackupApi({
+      drives: [
+        { id: "d1", label: "Main", mount_point: "/mnt/main" },
+        { id: "d2", label: "Backup", mount_point: "/mnt/backup" },
+      ],
+      backups: [
+        backup({ id: "b1", target_drive: "d2", target_drive_name: "Backup", covered_by: { path: "family", name: "family" } }),
+      ],
+      cloudBackups: [],
+      covered: [{ kind: "drive", target_drive: "d2", path: "family", name: "family" }],
+    });
+    renderSheet();
+    expect(await screen.findByText(/Included in the backup of/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Back up now" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete backup" })).toBeInTheDocument();
+  });
   it("owner sees both sections and the owner line", async () => {
     stubBackupApi({
       drives: [

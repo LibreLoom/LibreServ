@@ -42,6 +42,24 @@ function backupHeadline(backup) {
   return "Not backed up yet";
 }
 
+/** Says a bigger folder's backup already holds this one, and that this one resumes if that backup goes. */
+function CoveredNotice({ parent, thing }) {
+  return (
+    <p className="text-primary text-sm">
+      <span className="inline-flex flex-wrap items-center gap-1.5">
+        <span>
+          Included in the backup of <InlinePill>{parent.name}</InlinePill>
+        </span>
+        <InfoHint
+          surface="secondary"
+          label="Why this backup is paused"
+          content={`That backup already copies this ${thing}. If it is stopped or deleted, this one starts again by itself.`}
+        />
+      </span>
+    </p>
+  );
+}
+
 /** Absolute calendar date for a unix time in seconds, e.g. "3 March 2026" in the viewer's language. */
 function formatOnDate(unixSeconds) {
   return new Date(unixSeconds * 1000).toLocaleDateString(undefined, {
@@ -142,12 +160,26 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
       ),
   });
   const privateItem = privateItemQuery.data;
+  // Bigger folders whose backup already holds this one, per backup drive or the cloud.
+  const coveredQuery = useQuery({
+    queryKey: ["backups", "covered", driveId, objectPath],
+    queryFn: () =>
+      getJson(
+        `/api/v1/backups/covered?drive=${encodeURIComponent(driveId)}&path=${encodeURIComponent(objectPath)}`,
+      ),
+  });
   const matchingBackups = backups.data || [];
   const driveList = drives.data || [];
-  const usedTargetIds = new Set(matchingBackups.map((b) => b.target_drive));
+  const covers = coveredQuery.data || [];
+  const driveCovers = covers.filter((c) => c.kind === "drive");
+  const cloudCover = covers.find((c) => c.kind === "cloud");
+  // A cover on a drive that already has its own backup row shows on that row instead.
+  const ownTargetIds = new Set(matchingBackups.map((b) => b.target_drive));
+  const strayDriveCovers = driveCovers.filter((c) => !ownTargetIds.has(c.target_drive));
+  const usedTargetIds = new Set([...ownTargetIds, ...driveCovers.map((c) => c.target_drive)]);
   const availableTargets = driveList.filter((d) => d.id !== driveId && !usedTargetIds.has(d.id));
   const tooFewDrives = driveList.length < 2;
-  const hasBackups = matchingBackups.length > 0;
+  const hasBackups = matchingBackups.length > 0 || driveCovers.length > 0;
   const cloudConnected = Boolean(connect.data?.connect_active);
   // Missing from older status replies: treat as on file, so only a clear false blocks backups.
   const cardOnFile = connect.data?.card_on_file !== false;
@@ -158,10 +190,8 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
   const isOthersPrivate = privateItem?.private === true && privateItem?.mine !== true;
   // The owner's own private item: keeps every control.
   const isOwnPrivate = privateItem?.private === true && privateItem?.mine === true;
-  // A folder inside a private item: back it up from the item's own shield instead.
-  const isInside = privateItem?.inside_private === true && privateItem?.private !== true;
-  const blockedCreate = isOthersPrivate || isInside;
-  const showCloudSection = !isOthersPrivate && (!isInside || Boolean(cloudBackup));
+  const blockedCreate = isOthersPrivate;
+  const showCloudSection = !isOthersPrivate;
 
   // The "Private items" row in See all backups and the private item list show these,
   // so a change made from this sheet must refresh them too.
@@ -240,6 +270,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
     onSuccess: () => {
       addToast({ type: "success", message: "Cloud backup started." });
       setError(null);
+      queryClient.invalidateQueries({ queryKey: ["backups"] });
       queryClient.invalidateQueries({ queryKey: ["cloud-backups"] });
       refreshPrivateSummary();
     },
@@ -344,6 +375,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
     onSuccess: () => {
       addToast({ type: "success", message: "Cloud backup deleted." });
       setDeletingCloud(null);
+      queryClient.invalidateQueries({ queryKey: ["backups"] });
       queryClient.invalidateQueries({ queryKey: ["cloud-backups"] });
       refreshPrivateSummary();
     },
@@ -395,10 +427,6 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                 "Only the owner can back up this item."
               )}
             </p>
-          ) : isInside ? (
-            <p className="text-primary text-sm">
-              This {thingLabel} is inside a private item. Back up that item instead, from its shield.
-            </p>
           ) : isOwnPrivate ? (
             <>
               <p className="text-primary text-sm">This {thingLabel} is private, so only you can back it up.</p>
@@ -436,7 +464,12 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                     key={b.id}
                     className="rounded-large-element surface-secondary p-4 space-y-3"
                   >
-                    {b.status === "active" ? (
+                    {b.status === "active" && b.covered_by ? (
+                      <>
+                        <LayeredPill actionLabel={b.target_drive_name}>Included in a bigger backup</LayeredPill>
+                        <CoveredNotice parent={b.covered_by} thing={thingLabel} />
+                      </>
+                    ) : b.status === "active" ? (
                       <>
                         <LayeredPill actionLabel={b.target_drive_name}>{backupHeadline(b)}</LayeredPill>
                         <BackupStatusNotice
@@ -457,7 +490,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                       </>
                     )}
                     <div className="flex flex-wrap gap-2">
-                      {b.status === "active" && (!isOthersPrivate || b.can_delete) && (
+                      {b.status === "active" && !b.covered_by && (!isOthersPrivate || b.can_delete) && (
                         <Button
                           size="sm"
                           variant="outline"
@@ -496,6 +529,14 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                         </Button>
                       )}
                     </div>
+                  </div>
+                ))}
+                {strayDriveCovers.map((c) => (
+                  <div key={c.target_drive} className="rounded-large-element surface-secondary p-4 space-y-3">
+                    <LayeredPill actionLabel={driveList.find((d) => d.id === c.target_drive)?.label || "Another drive"}>
+                      Included in a bigger backup
+                    </LayeredPill>
+                    <CoveredNotice parent={c} thing={thingLabel} />
                   </div>
                 ))}
                 {!blockedCreate && availableTargets.length > 0 && (
@@ -537,7 +578,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
               <DestinationHeader
                 icon={Cloud}
                 title="In the cloud"
-                on={Boolean(cloudBackup)}
+                on={Boolean(cloudBackup) || Boolean(cloudCover)}
                 hint={
                   <InfoHint
                     surface="primary"
@@ -569,7 +610,9 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
 
               {cloudConnected && cloudBackup && (
                 <div className="rounded-large-element surface-secondary p-4 space-y-3">
-                  {cloudBackup.status === "active" ? (
+                  {cloudBackup.status === "active" && cloudBackup.covered_by ? (
+                    <CoveredNotice parent={cloudBackup.covered_by} thing={thingLabel} />
+                  ) : cloudBackup.status === "active" ? (
                     <BackupStatusNotice
                       state={cloudBackup.state}
                       lastError={cloudBackup.last_error}
@@ -593,7 +636,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                     </p>
                   )}
                   <div className="flex flex-wrap gap-2">
-                    {cloudBackup.status === "active" && (
+                    {cloudBackup.status === "active" && !cloudBackup.covered_by && (
                       <Button
                         size="sm"
                         variant="outline"
@@ -641,7 +684,13 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                 </div>
               )}
 
-              {cloudConnected && !cloudBackup && !blockedCreate && (
+              {cloudConnected && !cloudBackup && cloudCover && (
+                <div className="rounded-large-element surface-secondary p-4">
+                  <CoveredNotice parent={cloudCover} thing={thingLabel} />
+                </div>
+              )}
+
+              {cloudConnected && !cloudBackup && !cloudCover && !blockedCreate && (
                 <Button
                   size="sm"
                   variant="secondary"

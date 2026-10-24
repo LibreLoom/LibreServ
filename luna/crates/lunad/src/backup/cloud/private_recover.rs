@@ -16,7 +16,7 @@ use super::private::{
     self, PRIVATE_SNAPSHOT_DOMAIN, PSCOPES_KIND, PSNAPSHOTS_KIND, ScopeRecord, SignedScope,
 };
 use super::store::CloudStore;
-use crate::backup::access_list::{self, PrivateSource};
+use crate::backup::access_list;
 use crate::db;
 
 const RECOVERED_RUN: &str = "recovered";
@@ -157,10 +157,10 @@ pub fn write_private_index(
         }
 
         if db::get_protection(&tx, &snap.protection_id)?.is_none() {
-            let owned = matches!(
-                access_list::private_source(&tx, &snap.meta.source_drive, &snap.meta.source_path),
-                PrivateSource::OwnItem { ref owner } if owner == caller
-            );
+            let owned =
+                access_list::private_source(&tx, &snap.meta.source_drive, &snap.meta.source_path)
+                    .owner()
+                    == Some(caller);
             db::insert_protection(
                 &tx,
                 &db::NewProtection {
