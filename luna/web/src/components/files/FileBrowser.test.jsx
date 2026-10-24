@@ -281,6 +281,41 @@ describe("FileBrowser", () => {
     expect(onCopy).toHaveBeenCalledWith(["a.txt", "b.txt"]);
   });
 
+  it("filters by name without changing the sorted order", async () => {
+    stubListing({
+      "": [
+        { name: "b-notes.txt", kind: "file", size: 10, hidden: false },
+        { name: "zeta", kind: "dir", size: 0, hidden: false },
+        { name: "a-notes.txt", kind: "file", size: 10, hidden: false },
+        { name: "photo.jpg", kind: "file", size: 10, hidden: false },
+      ],
+    });
+    renderBrowser({ multiSelect: true });
+    expect(await screen.findByLabelText("Select a-notes.txt")).toBeInTheDocument();
+    const order = () => screen.getAllByLabelText(/^Select /).map((el) => el.getAttribute("aria-label"));
+    const all = order();
+    expect(all[0]).toBe("Select zeta");
+    fireEvent.change(screen.getByLabelText("Find in this folder"), { target: { value: "NOTES" } });
+    await waitFor(() => expect(screen.queryByLabelText("Select photo.jpg")).not.toBeInTheDocument());
+    expect(order()).toEqual(all.filter((l) => l.includes("notes")));
+  });
+
+  it("selects every row and clears the selection with Escape", async () => {
+    stubListing({
+      "": [
+        { name: "a.txt", kind: "file", size: 10, hidden: false },
+        { name: "b.txt", kind: "file", size: 10, hidden: false },
+      ],
+    });
+    renderBrowser({ multiSelect: true });
+    fireEvent.click(await screen.findByLabelText("Select a.txt"));
+    fireEvent.click(screen.getByLabelText("Select b.txt"));
+    expect(screen.getByLabelText("Select a.txt")).toBeChecked();
+    expect(screen.getByLabelText("Select b.txt")).toBeChecked();
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    await waitFor(() => expect(screen.getByLabelText("Select a.txt")).not.toBeChecked());
+  });
+
   it("calls parent action callbacks for a single row", async () => {
     const onCopy = vi.fn();
     stubListing({

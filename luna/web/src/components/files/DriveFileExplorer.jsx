@@ -237,9 +237,12 @@ export default function DriveFileExplorer({
       : "";
   // A file whose parent folder isn't browsable for this member is itself
   // the root: `?path=<file>` gets the one-entry listing, `?file=` opens it.
-  const rowFileHref = memberRows
-    ? (/** @type {string} */ d, /** @type {string} */ p) => memberFileHref(memberRows, d, p)
-    : fileHref;
+  const memberRowFileHref = useCallback(
+    (/** @type {string} */ d, /** @type {string} */ p) => memberFileHref(memberRows, d, p),
+    [memberRows],
+  );
+  // Same identity across renders, so memoized rows don't re-render with the explorer.
+  const rowFileHref = memberRows ? memberRowFileHref : fileHref;
 
   // The crumb trail inside trash reads "Trash / <where it was>" — the stat
   // endpoint reports the folder's pre-trash path ("" at the trash root).

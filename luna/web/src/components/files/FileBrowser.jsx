@@ -465,6 +465,16 @@ export default function FileBrowser({
     [entries, path, fileRoot],
   );
 
+  const entryPathSet = useMemo(() => new Set(entryPaths), [entryPaths]);
+  // First entry wins for a repeated path, like the linear find this replaces.
+  const entryByPath = useMemo(() => {
+    const map = new Map();
+    entries.forEach((e, i) => {
+      if (!map.has(entryPaths[i])) map.set(entryPaths[i], e);
+    });
+    return map;
+  }, [entries, entryPaths]);
+
   const [sortKey, setSortKey] = useState(readStoredSort);
   const [kindFilter, setKindFilter] = useState("all");
   const [filterText, setFilterText] = useState("");
@@ -482,19 +492,29 @@ export default function FileBrowser({
   // Folders stay grouped on top for every sort — see compareEntries.
   // Deferred: the input stays instant while a big folder re-filters behind it.
   const deferredFilterText = useDeferredValue(filterText);
+  const sortedEntries = useMemo(
+    () => [...entries].sort((a, b) => compareEntries(a, b, sortKey)),
+    [entries, sortKey],
+  );
+  const nameKeys = useMemo(
+    () => new Map(entries.map((e) => [e, displayNameOf(e).toLowerCase()])),
+    [entries],
+  );
   const visibleEntries = useMemo(() => {
     const query = deferredFilterText.trim().toLowerCase();
-    return entries
-      .filter((e) => (
-        (kindFilter === "all" || (kindFilter === "dir" ? e.kind === "dir" : e.kind !== "dir"))
-        && (!query || displayNameOf(e).toLowerCase().includes(query))
-      ))
-      .sort((a, b) => compareEntries(a, b, sortKey));
-  }, [entries, kindFilter, deferredFilterText, sortKey]);
+    return sortedEntries.filter((e) => (
+      (kindFilter === "all" || (kindFilter === "dir" ? e.kind === "dir" : e.kind !== "dir"))
+      && (!query || nameKeys.get(e).includes(query))
+    ));
+  }, [sortedEntries, nameKeys, kindFilter, deferredFilterText]);
 
   const visiblePaths = useMemo(
     () => visibleEntries.map((e) => (fileRoot ? path : joinPath(path, e.name))),
     [visibleEntries, path, fileRoot],
+  );
+  const visibleIndex = useMemo(
+    () => new Map(visiblePaths.map((p, i) => [p, i])),
+    [visiblePaths],
   );
   // Long folders mount only the rows near the viewport (the page scrolls on
   // the window). Short folders and pickers render every row.
@@ -506,6 +526,8 @@ export default function FileBrowser({
     count: virtualOn ? visibleEntries.length : 0,
     estimateSize: () => (dense ? 37 : 45),
     overscan: 12,
+    // Scrolling must not synchronously re-render the whole list on every event.
+    useFlushSync: false,
     scrollMargin,
     getItemKey: (i) => visibleEntries[i]?.name ?? i,
     initialRect: { width: 1024, height: typeof window === "undefined" ? 800 : window.innerHeight },
@@ -554,7 +576,7 @@ export default function FileBrowser({
    * @param {ScrollBehavior} [behavior]
    */
   function revealRow(rowPath, behavior = "auto") {
-    const idx = visiblePaths.indexOf(rowPath);
+    const idx = visibleIndex.get(rowPath) ?? -1;
     const find = () => listRef.current?.querySelector(`[data-file-path="${cssEscape(rowPath)}"]`);
     if (virtualOn && idx >= 0 && !find()) {
       virtualizer.scrollToIndex(idx, { align: "auto" });
@@ -573,12 +595,12 @@ export default function FileBrowser({
     setInnerSelected((prev) => prev.filter((p) => {
       const parent = parentPath(p);
       if (parent === path || (parent === "" && path === "")) {
-        return entryPaths.includes(p);
+        return entryPathSet.has(p);
       }
       // Keep selection that lives outside this folder (bulk ops across nav).
       return parent !== path;
     }));
-  }, [entryPaths, path, controlledSelected]);
+  }, [entryPathSet, path, controlledSelected]);
 
   // Link navigation (and search deep-links) change `path` without calling setPath,
   // so clear the previous folder's selection unless a fresh `select=` is pending.
@@ -612,7 +634,7 @@ export default function FileBrowser({
     }
     if (listBusy) return;
     if (appliedSelectRef.current === selectPath) return;
-    if (!entryPaths.includes(selectPath)) {
+    if (!entryPathSet.has(selectPath)) {
       appliedSelectRef.current = selectPath;
       onSelectPathApplied?.();
       return;
@@ -625,7 +647,7 @@ export default function FileBrowser({
     onSelectPathApplied?.();
     // setSelectedPaths is stable enough for this deep-link seed; listing/selectPath drive re-runs.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional seed-once-per-selectPath
-  }, [selectPath, entryPaths, listBusy, onSelectPathApplied]);
+  }, [selectPath, entryPathSet, listBusy, onSelectPathApplied]);
 
   const up = parentPath(path);
   const segments = path.split("/").filter(Boolean);
@@ -666,25 +688,25 @@ export default function FileBrowser({
 
   function selectedEntry() {
     if (selectedPaths.length !== 1) return null;
-    const i = visiblePaths.indexOf(selectedPaths[0]);
+    const i = visibleIndex.get(selectedPaths[0]) ?? -1;
     return i === -1 ? null : rowContext(visibleEntries[i]);
   }
 
   function moveSelection(delta, extend) {
     if (visiblePaths.length === 0) return false;
-    const current = cursorRef.current && selectedPaths.includes(cursorRef.current)
+    const current = cursorRef.current && selectedSet.has(cursorRef.current)
       ? cursorRef.current
       : selectedPaths[selectedPaths.length - 1];
-    const from = current ? visiblePaths.indexOf(current) : -1;
+    const from = current ? (visibleIndex.get(current) ?? -1) : -1;
     const index = from === -1
       ? (delta > 0 ? 0 : visiblePaths.length - 1)
       : Math.min(Math.max(from + delta, 0), visiblePaths.length - 1);
     const next = visiblePaths[index];
     cursorRef.current = next;
     haptic("selection");
-    const anchor = lastClicked && visiblePaths.includes(lastClicked) ? lastClicked : next;
+    const anchor = lastClicked && visibleIndex.has(lastClicked) ? lastClicked : next;
     if (extend && multiSelect) {
-      const [lo, hi] = [visiblePaths.indexOf(anchor), index].sort((a, b) => a - b);
+      const [lo, hi] = [visibleIndex.get(anchor), index].sort((a, b) => a - b);
       setSelectedPaths(visiblePaths.slice(lo, hi + 1));
       if (anchor === next) setLastClicked(next);
     } else {
@@ -798,6 +820,8 @@ export default function FileBrowser({
     });
   }, [hasFolderActions, showBreadcrumbs]);
 
+  // `folderActions` / `breadcrumbExtra` are JSX (new every render), so they are
+  // not deps; the observers on the container and probe catch their width changes.
   useEffect(() => {
     if (!hasFolderActions || !showBreadcrumbs) {
       return;
@@ -829,10 +853,8 @@ export default function FileBrowser({
     remeasureFolderChrome,
     driveLabel,
     path,
-    folderActions,
     enableUploadDrop,
     isPicker,
-    breadcrumbExtra,
   ]);
 
   function openFolder(folderPath, { feedback = true } = {}) {
@@ -945,9 +967,9 @@ export default function FileBrowser({
       setLastClicked(fullPath);
       return;
     }
-    if (range && lastClicked && visiblePaths.includes(lastClicked)) {
-      const a = visiblePaths.indexOf(lastClicked);
-      const b = visiblePaths.indexOf(fullPath);
+    if (range && lastClicked && visibleIndex.has(lastClicked)) {
+      const a = visibleIndex.get(lastClicked) ?? -1;
+      const b = visibleIndex.get(fullPath) ?? -1;
       if (a >= 0 && b >= 0) {
         const [lo, hi] = a < b ? [a, b] : [b, a];
         const slice = visiblePaths.slice(lo, hi + 1);
@@ -960,12 +982,12 @@ export default function FileBrowser({
     }
     if (additive) {
       setSelectedPaths(
-        selectedPaths.includes(fullPath)
+        selectedSet.has(fullPath)
           ? selectedPaths.filter((p) => p !== fullPath)
           : [...selectedPaths, fullPath],
       );
     } else {
-      setSelectedPaths(selectedPaths.includes(fullPath) && selectedPaths.length === 1 ? [] : [fullPath]);
+      setSelectedPaths(selectedSet.has(fullPath) && selectedPaths.length === 1 ? [] : [fullPath]);
     }
     setLastClicked(fullPath);
   }
@@ -1017,11 +1039,11 @@ export default function FileBrowser({
       return;
     }
     haptic("rigid");
-    const paths = selectedPaths.includes(ctx.fullPath) && selectedPaths.length
+    const paths = selectedSet.has(ctx.fullPath) && selectedPaths.length
       ? selectedPaths
       : [ctx.fullPath];
     dragPathsRef.current = paths;
-    dragIndexRef.current = visiblePaths.indexOf(ctx.fullPath);
+    dragIndexRef.current = visibleIndex.get(ctx.fullPath) ?? -1;
     setLunaDragActive(true);
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData(LUNA_PATHS_MIME, JSON.stringify(paths));
@@ -1139,9 +1161,7 @@ export default function FileBrowser({
     if (selectedCount !== 1 || !onShare) return null;
     const fullPath = selectedPaths[0];
     const name = fullPath.split("/").pop() || fullPath;
-    const entry = entries.find(
-      (e) => (fileRoot ? path : joinPath(path, e.name)) === fullPath,
-    ) || { name, kind: "file" };
+    const entry = entryByPath.get(fullPath) || { name, kind: "file" };
     if ((capsBits(entry.caps || "") & CAP.SHARE) === 0) return null;
     return { entry, fullPath };
   })();
@@ -1768,9 +1788,7 @@ export default function FileBrowser({
                 {renderSelectionActions?.(
                   selectedPaths,
                   selectedPaths
-                    .map((p) => entries.find(
-                      (e) => (fileRoot ? path : joinPath(path, e.name)) === p,
-                    ))
+                    .map((p) => entryByPath.get(p))
                     .filter(Boolean)
                     .map((e) => rowContext(e)),
                 )}
