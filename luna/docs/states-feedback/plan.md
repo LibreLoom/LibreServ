@@ -152,9 +152,11 @@ time, or the whole phrase with per-word feedback; clear success and failure; key
 
 ---
 
-## Decisions for Max
+## Decisions (23 Oct 2026)
 
-1. `dashboard/no-phrase`: required setup step, or a Needs-you row?
-2. Stream order after phases 0–3: A (file operation card) → C → D → B?
-3. Contract fixtures (1.8): generate them from lunad's API tests (recommended, and stays honest), or keep a
-   hand-written schema?
+Max: "the file operation card covers any file operation with length and is per-tab." Implement everything
+with subagents. The defaults below were taken because the questions were not answered, so Max can overrule them:
+
+1. `dashboard/no-phrase`: the recovery phrase becomes a required setup step, so a Luna can't be without one.
+2. Stream order: A (file operation card) → C → D → B. The perf frontend work lands after A, because both touch the file list.
+3. Contract fixtures (1.8) are generated from lunad's API tests.
