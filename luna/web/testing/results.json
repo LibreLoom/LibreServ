@@ -2334,6 +2334,123 @@
       }
     ]
   },
+  "files/backups-browse": {
+    "status": "fail",
+    "note": "harness is broken. There are not multiple version, but i know for fact it has worked outside of this harness.",
+    "at": "2026-10-24T00:43:11.963Z",
+    "viewport": "desktop",
+    "theme": "scenario default",
+    "faults": [],
+    "offline": false,
+    "latency": 0,
+    "lastRequests": [
+      {
+        "t": 1792324830462,
+        "method": "GET",
+        "path": "/api/v1/cloud/backups",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324830462,
+        "method": "GET",
+        "path": "/api/v1/backups?drive=d2&path=",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324805760,
+        "method": "GET",
+        "path": "/api/v1/drives/d2/backups/b1/list?path=",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324805760,
+        "method": "GET",
+        "path": "/api/v1/drives/d2/backups",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324805630,
+        "method": "GET",
+        "path": "/api/v1/drives/d2/backups",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324805629,
+        "method": "POST",
+        "path": "/api/v1/me/recents",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800419,
+        "method": "GET",
+        "path": "/api/v1/jobs",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800419,
+        "method": "GET",
+        "path": "/api/v1/drives/d2/backups",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800419,
+        "method": "GET",
+        "path": "/api/v1/private-backups/item?drive=d2&path=",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800418,
+        "method": "GET",
+        "path": "/api/v1/cloud/backups",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800418,
+        "method": "GET",
+        "path": "/api/v1/connect/status",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800418,
+        "method": "GET",
+        "path": "/api/v1/backups?drive=d2&path=",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800417,
+        "method": "GET",
+        "path": "/api/v1/drives/d2/files?path=",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800157,
+        "method": "POST",
+        "path": "/api/v1/me/recents",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800112,
+        "method": "POST",
+        "path": "/api/v1/me/recents",
+        "status": 200,
+        "note": ""
+      }
+    ]
+  },
   "files/copy-fails-drive-full": {
     "status": "fail",
     "note": "Once again, a silent swallow. Fix during revamp.",
@@ -4282,6 +4399,130 @@
     "status": "pass",
     "note": "",
     "at": "2026-10-21T03:36:07.815Z",
+    "viewport": "desktop",
+    "theme": "scenario default"
+  },
+  "files/protect-inside-private": {
+    "status": "fail",
+    "note": "why should folders within private folders behave differently and *force* you to backup the parent? they should just be backed up as private and the usual object tree behaviour works as intended. no need to be fancy about it. \n\nthe only quirk, afaik, with private folders is that they ignore parent backups.",
+    "at": "2026-10-24T00:44:13.378Z",
+    "viewport": "desktop",
+    "theme": "scenario default",
+    "faults": [],
+    "offline": false,
+    "latency": 0,
+    "lastRequests": [
+      {
+        "t": 1792324830456,
+        "method": "GET",
+        "path": "/api/v1/cloud/backups",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324830456,
+        "method": "GET",
+        "path": "/api/v1/backups?drive=d1&path=",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800360,
+        "method": "GET",
+        "path": "/api/v1/jobs",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800360,
+        "method": "GET",
+        "path": "/api/v1/drives/d1/backups",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800360,
+        "method": "GET",
+        "path": "/api/v1/private-backups/item?drive=d1&path=",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800360,
+        "method": "GET",
+        "path": "/api/v1/cloud/backups",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800359,
+        "method": "GET",
+        "path": "/api/v1/connect/status",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800359,
+        "method": "GET",
+        "path": "/api/v1/backups?drive=d1&path=",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800357,
+        "method": "GET",
+        "path": "/api/v1/drives/d1/files?path=",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800079,
+        "method": "POST",
+        "path": "/api/v1/me/recents",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800037,
+        "method": "POST",
+        "path": "/api/v1/me/recents",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800035,
+        "method": "POST",
+        "path": "/api/v1/me/recents",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800034,
+        "method": "GET",
+        "path": "/api/v1/drives",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800005,
+        "method": "GET",
+        "path": "/api/v1/auth/status",
+        "status": 200,
+        "note": ""
+      },
+      {
+        "t": 1792324800005,
+        "method": "GET",
+        "path": "/api/v1/setup",
+        "status": 200,
+        "note": ""
+      }
+    ]
+  },
+  "files/protect-private-own": {
+    "status": "pass",
+    "note": "",
+    "at": "2026-10-24T00:32:17.216Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
