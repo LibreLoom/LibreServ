@@ -396,26 +396,27 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
               )}
             </p>
           ) : isInside ? (
-            <p className="text-primary text-sm">Back up the private item itself, from its own shield.</p>
+            <p className="text-primary text-sm">
+              This {thingLabel} is inside a private item. Back up that item instead, from its shield.
+            </p>
+          ) : isOwnPrivate ? (
+            <>
+              <p className="text-primary text-sm">This {thingLabel} is private, so only you can back it up.</p>
+              {cloudConnected && (
+                <p className="text-primary text-sm">
+                  Its cloud copy opens only with your recovery phrase. Without the phrase, it can't be restored.
+                </p>
+              )}
+            </>
           ) : (
             <>
               <p className="text-primary text-sm">
-                Luna can keep copies of this {thingLabel} on other drives, and in the cloud, so you still have it if something goes wrong.
+                Copy this {thingLabel} to other drives plugged into Luna{cloudConnected ? " and to the cloud" : ""}, so you still have it if something goes wrong.
               </p>
-              {isOwnPrivate ? (
-                <>
-                  <p className="text-primary text-sm">
-                    Only you can back this up. Its cloud copy opens only with your recovery phrase.
-                  </p>
-                  <p className="text-primary text-sm">
-                    Private items inside aren't included. Their owners back them up separately.
-                  </p>
-                </>
-              ) : (
-                <p className="text-primary text-sm">
-                  Private items inside aren't included. Their owners back them up separately.
-                </p>
-              )}
+              <p className="text-primary text-sm">
+                Private items inside aren't backed up here. Each owner backs up their own.
+                <InfoHint content="Private items are ones someone has locked so only they can open them." />
+              </p>
             </>
           )}
         </div>

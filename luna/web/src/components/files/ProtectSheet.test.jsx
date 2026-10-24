@@ -220,7 +220,7 @@ describe("ProtectSheet", () => {
     renderSheet();
     expect(await screen.findByRole("heading", { name: /Back up/ })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /On other drives/i })).toBeInTheDocument();
-    expect(screen.getByText(/Private items inside aren't included/)).toBeInTheDocument();
+    expect(screen.getByText(/Private items inside aren't backed up here/)).toBeInTheDocument();
     const choose = await screen.findByRole("button", { name: "Choose a drive" });
     // Dropdown sits on the inverted option panel (surface-primary), so it uses the card surface.
     expect(choose.className).toMatch(/surface-secondary/);
@@ -641,7 +641,7 @@ describe("ProtectSheet", () => {
       privateItem: { private: false, inside_private: true, mine: false, owner_name: "" },
     });
     renderSheet();
-    expect(await screen.findByText("Back up the private item itself, from its own shield.")).toBeInTheDocument();
+    expect(await screen.findByText("This folder is inside a private item. Back up that item instead, from its shield.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Choose a drive" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Back up" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Back up to the cloud" })).not.toBeInTheDocument();
@@ -659,8 +659,9 @@ describe("ProtectSheet", () => {
       privateItem: { private: true, inside_private: false, mine: true, owner_name: "Max" },
     });
     renderSheet();
-    expect(await screen.findByText("Only you can back this up. Its cloud copy opens only with your recovery phrase.")).toBeInTheDocument();
-    expect(screen.getByText(/Private items inside aren't included/)).toBeInTheDocument();
+    expect(await screen.findByText("This folder is private, so only you can back it up.")).toBeInTheDocument();
+    expect(screen.getByText("Its cloud copy opens only with your recovery phrase. Without the phrase, it can't be restored.")).toBeInTheDocument();
+    expect(screen.queryByText(/Private items inside/)).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /On other drives/i })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /In the cloud/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete cloud backup" })).toBeInTheDocument();
