@@ -51,25 +51,8 @@ function formatOnDate(unixSeconds) {
   });
 }
 
-/** Shield that opens Protect. `notBackedUp` adds a text label for a folder with no backup yet. */
-export function ProtectButton({ label, onClick, notBackedUp = false }) {
-  if (notBackedUp) {
-    return (
-      <Tooltip content="Not backed up yet">
-        <Button
-          variant="ghost"
-          surface="secondary"
-          size="sm"
-          className="rounded-pill"
-          aria-label={`Back up ${label}`}
-          onClick={onClick}
-        >
-          <Shield size={ICON_SIZE.sm} aria-hidden="true" />
-          <span className="text-sm">Not backed up</span>
-        </Button>
-      </Tooltip>
-    );
-  }
+/** Shield that opens Protect. */
+export function ProtectButton({ label, onClick }) {
   return (
     <Tooltip content="Back up">
       <Button

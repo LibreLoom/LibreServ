@@ -87,26 +87,6 @@ describe("DriveFileExplorer private folders", () => {
     });
   });
 
-  it("shows Not backed up on my private folder that has no backups", async () => {
-    renderExplorer({
-      listing: [{ name: "Taxes", kind: "dir", size: 0, hidden: false }],
-      mine: [{ drive_id: "d1", path: "Taxes", name: "Taxes", drive_backups: 0, cloud_backup: false }],
-    });
-    const button = await screen.findByRole("button", { name: "Back up Taxes" });
-    expect(await within(button).findByText("Not backed up")).toBeInTheDocument();
-  });
-
-  it("does not show Not backed up once the private folder has a drive backup", async () => {
-    const calls = renderExplorer({
-      listing: [{ name: "Taxes", kind: "dir", size: 0, hidden: false }],
-      mine: [{ drive_id: "d1", path: "Taxes", name: "Taxes", drive_backups: 1, cloud_backup: false }],
-    });
-    await screen.findByRole("button", { name: "Back up Taxes" });
-    await waitFor(() => expect(calls.some(([, u]) => u.endsWith("/private-backups/mine"))).toBe(true));
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(screen.queryByText("Not backed up")).not.toBeInTheDocument();
-  });
-
   it("browses the Backups folder like Trash: each backup is a folder row", async () => {
     renderExplorer({
       path: ".luna-backups",

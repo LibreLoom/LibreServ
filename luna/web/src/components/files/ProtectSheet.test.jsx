@@ -734,15 +734,6 @@ describe("ProtectSheet", () => {
 });
 
 describe("ProtectButton", () => {
-  it("shows Not backed up beside the shield and keeps the Back up label", () => {
-    const onClick = vi.fn();
-    render(<ProtectButton label="Taxes" notBackedUp onClick={onClick} />);
-    const button = screen.getByRole("button", { name: "Back up Taxes" });
-    expect(within(button).getByText("Not backed up")).toBeInTheDocument();
-    button.click();
-    expect(onClick).toHaveBeenCalledTimes(1);
-  });
-
   describe("recovery phrase before the first cloud backup", () => {
     const noPhrase = { set: false, set_at: 0, luna_id: "luna-1", signing_public: "sig" };
     const connected = { connect_active: true, card_on_file: true };

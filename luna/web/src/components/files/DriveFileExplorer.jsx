@@ -320,29 +320,6 @@ export default function DriveFileExplorer({
   const inBackups = !guest && isBackupsPath(path);
   const bSource = useMemo(() => backupSource(driveId), [driveId]);
   const [versionsFile, setVersionsFile] = useState(/** @type {null|{ backup: object, rel: string, name: string }} */ (null));
-  // Only the signed-in owner's private items come back, so a match means "my private folder".
-  const privateMine = useQuery({
-    queryKey: ["private-backups-mine"],
-    queryFn: () => getJson("/api/v1/private-backups/mine"),
-    enabled: !guest,
-    retry: false,
-  });
-  const notBackedUpPaths = useMemo(() => {
-    const paths = new Set();
-    for (const item of privateMine.data?.items || []) {
-      if (item.drive_id !== driveId) continue;
-      if (item.drive_backups === 0 && !item.cloud_backup) {
-        paths.add((item.path || "").replace(/^\/+|\/+$/g, ""));
-      }
-    }
-    return paths;
-  }, [privateMine.data, driveId]);
-  /** True when `fullPath` is one of the owner's private folders with no backup yet. */
-  const isNotBackedUp = useCallback(
-    (fullPath) => notBackedUpPaths.has((fullPath || "").replace(/^\/+|\/+$/g, "")),
-    [notBackedUpPaths],
-  );
-
   const drivesQuery = useQuery({ queryKey: ["drives"], queryFn: getDrives, enabled: !guest });
   const availableDrives = useMemo(() => {
     const data = guest ? (propDrives || []) : (drivesQuery.data || propDrives || []);
@@ -847,7 +824,6 @@ export default function DriveFileExplorer({
         {showProtect && ctx.entry.kind === "dir" && !trashChild && (
           <ProtectButton
             label={ctx.displayName}
-            notBackedUp={isNotBackedUp(ctx.fullPath)}
             onClick={() => setProtectTarget({ path: ctx.fullPath })}
           />
         )}
@@ -944,7 +920,7 @@ export default function DriveFileExplorer({
     </ActionTooltipGroup>
     );
   },
-    [access.data, driveId, guest, guestCaps, source.isFile, isAdmin, showProtect, canView, isNotBackedUp, inBackups, openVersions]);
+    [access.data, driveId, guest, guestCaps, source.isFile, isAdmin, showProtect, canView, inBackups, openVersions]);
 
   return (
     <>
@@ -1070,7 +1046,6 @@ export default function DriveFileExplorer({
               {showProtect && !trashChildFolder && (path !== "" || isAdmin) && (
                 <ProtectButton
                   label={label}
-                  notBackedUp={isNotBackedUp(path)}
                   onClick={() => setProtectTarget({ path })}
                 />
               )}
