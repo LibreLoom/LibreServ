@@ -81,7 +81,7 @@ export default function RestoreForm({ words, onWords, onSubmit, error = "", pend
       <Button type="submit" variant="primary" size="sm" loading={pending} disabled={pending || !words.trim()}>
         {submitLabel}
       </Button>
-      {pending && progress?.type !== "finishing" && (
+      {pending && onCancel && progress?.type !== "finishing" && (
         <Button type="button" variant="outline" surface="secondary" size="sm" onClick={onCancel}>
           Stop restore
         </Button>

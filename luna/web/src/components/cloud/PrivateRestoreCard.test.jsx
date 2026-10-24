@@ -90,6 +90,24 @@ describe("PrivateRestoreCard", () => {
     expect(screen.getByRole("button", { name: "Find my private items" })).toBeInTheDocument();
   });
 
+  it("does not show a stop button while private restore runs without cancellation support", async () => {
+    /** @type {(value: { restored: number }) => void} */
+    let finishRestore = () => {};
+    restorePrivateFromPhraseMock.mockImplementation(() => new Promise((resolve) => {
+      finishRestore = resolve;
+    }));
+    const user = userEvent.setup();
+    renderCard();
+    await user.type(await screen.findByLabelText("Recovery phrase"), "one two three");
+    await user.click(screen.getByRole("button", { name: "Find my private items" }));
+
+    await waitFor(() => expect(restorePrivateFromPhrase).toHaveBeenCalled());
+    expect(screen.queryByRole("button", { name: "Stop restore" })).not.toBeInTheDocument();
+
+    finishRestore({ restored: 1 });
+    expect(await screen.findByText("Found 1 private version")).toBeInTheDocument();
+  });
+
   it("explains a missing signing key instead of the phrase form", async () => {
     getPrivateRestoreStatusMock.mockResolvedValue({ ...STATUS, signing_public: null });
     renderCard();
