@@ -120,7 +120,7 @@ describe("SystemHealthPill", () => {
     await userEvent.click(screen.getByRole("button", { name: /warning/ }));
     const dialog = await screen.findByRole("dialog", { name: "System health warnings" });
     expect(dialog).toHaveTextContent("Diagrams");
-    expect(dialog).not.toHaveTextContent("Storage space");
+    expect(dialog).not.toHaveTextContent("Luna's own storage");
     expect(dialog).not.toHaveTextContent("Low space");
   });
 
@@ -146,6 +146,19 @@ describe("SystemHealthPill", () => {
       "href",
       "/settings#about",
     );
+  });
+
+  it("explains Luna's own storage with a hint when that check warns", async () => {
+    mockChecks({
+      disk_space: { status: "warning", message: "Luna's own storage is getting full.", category: "storage" },
+      diagram_pack: WARN_DIAGRAMS,
+    });
+    renderPill();
+    await userEvent.click(screen.getByRole("button", { name: /warning/ }));
+    const dialog = await screen.findByRole("dialog", { name: "System health warnings" });
+    expect(dialog).toHaveTextContent("Luna's own storage");
+    // Only the one system-disk check gets the hint; Diagrams does not.
+    expect(dialog.querySelectorAll('[data-slot="info-hint-trigger"]')).toHaveLength(1);
   });
 
   it("titles the list in the singular for one warning", async () => {

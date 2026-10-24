@@ -16,7 +16,7 @@ import { cn } from "@libreloom/ui/lib/utils.js";
  * @typedef {{
  *   id: string,
  *   rank: number,
- *   tone: "problem" | "info",
+ *   tone: "problem" | "warning" | "info",
  *   title: Array<string | { name: string }>,
  *   detail?: string | Array<string | { name: string }>,
  *   hint?: string,
@@ -133,8 +133,9 @@ export default function NeedsYou({ items, onAction }) {
       <Card title="Needs you">
         <ul id={listId} className="flex flex-col gap-3">
           {visible.map((item) => {
-            const Icon = item.tone === "problem" ? TriangleAlert : Info;
-            const iconTone = item.tone === "problem" ? "text-error" : "text-info";
+            const Icon = item.tone === "info" ? Info : TriangleAlert;
+            const iconTone =
+              item.tone === "problem" ? "text-error" : item.tone === "warning" ? "text-warning" : "text-info";
             return (
               <li
                 key={item.id}

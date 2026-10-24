@@ -3,12 +3,18 @@ import { useQuery } from "@tanstack/react-query";
 import { HardDrive } from "lucide-react";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
+import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import DriveStatusPill from "../common/DriveStatusPill.jsx";
+import useDriveHealth from "../../hooks/useDriveHealth.js";
+import { isUnopenable } from "../../lib/drives.js";
 import { getJson } from "../../lib/api.js";
 import { formatBytes } from "../../lib/formatBytes.js";
 import { folderHref as driveFolderHref } from "../../lib/paths.js";
 import { CAP, sharedItemAction, sharedItemHref } from "../../lib/access.js";
 import { capsOnPath } from "../../lib/shareTree.js";
+
+const CANT_OPEN_HINT =
+  "Luna knows this drive but couldn't open it. This can happen after it was pulled out without Eject, or when the drive has a problem. Unplug it, wait a few seconds, and plug it back in. If that doesn't help, the drive may be failing.";
 
 function folderHref(driveId, folderPath) {
   return driveFolderHref(driveId, folderPath);
@@ -34,7 +40,7 @@ function pathDepth(path) {
  * unplugged or the summary is still loading.
  *
  * @param {{
- *   drive: { id: string, label?: string, state: "as_is" | "readonly" | "missing" | "ejected" | "failed" },
+ *   drive: { id: string, label?: string, state: "as_is" | "readonly" | "missing" | "ejected", mounted?: boolean },
  *   isAdmin?: boolean,
  *   grants?: any[],
  *   showSeeAllShared?: boolean,
@@ -47,12 +53,14 @@ export default function DriveHomeCard({
   showSeeAllShared = false,
 }) {
   const ready = drive.state === "as_is" || drive.state === "readonly";
+  const unopenable = isUnopenable(drive);
+  const health = useDriveHealth(drive, isAdmin);
   const summary = useQuery({
     queryKey: ["drive-summary", drive.id],
     queryFn: () => getJson(`/api/v1/drives/${drive.id}/summary`),
-    enabled: ready,
+    enabled: ready && !unopenable,
     staleTime: 30_000,
-    refetchInterval: ready ? 60_000 : false,
+    refetchInterval: ready && !unopenable ? 60_000 : false,
   });
 
   const data = summary.data;
@@ -97,24 +105,29 @@ export default function DriveHomeCard({
     ) : null;
 
   let body;
-  if (!ready) {
-    body = (
+  if (unopenable) {
+    body = isAdmin ? (
       <div className="space-y-3">
         <p className="text-primary text-sm">
-          {drive.state === "missing"
-            ? "Unplugged. Plug it back in when you want its files and space here."
-            : drive.state === "ejected"
-              ? "Safely removed. Plug it in again when you need it."
-              : isAdmin
-                ? "Luna ran into a problem with this drive. Open Files for details."
-                : "Luna ran into a problem with this drive. Ask an Admin to check it."}
+          Luna can't open this drive right now, so its files and free space aren't available.{" "}
+          <InfoHint content={CANT_OPEN_HINT} />
         </p>
-        {drive.state === "failed" && isAdmin ? (
-          <Button size="sm" variant="outline" asChild>
-            <Link to="/files">Open Files</Link>
-          </Button>
-        ) : null}
+        <Button size="sm" variant="outline" asChild>
+          <Link to={`/files#drive-${drive.id}`}>Open Files</Link>
+        </Button>
       </div>
+    ) : (
+      <p className="text-primary text-sm">
+        Luna can't open this drive right now. Ask an Admin to check it.
+      </p>
+    );
+  } else if (!ready) {
+    body = (
+      <p className="text-primary text-sm">
+        {drive.state === "missing"
+          ? "Unplugged. Plug it back in when you want its files and space here."
+          : "Safely removed. Plug it in again when you need it."}
+      </p>
     );
   } else if (summary.isError) {
     const showOpen = !isAdmin && Boolean(entryGrant);
@@ -189,7 +202,7 @@ export default function DriveHomeCard({
     <Card
       icon={HardDrive}
       title={drive.label || "Drive"}
-      headerActions={<DriveStatusPill drive={drive} />}
+      headerActions={<DriveStatusPill drive={drive} health={health.data} />}
     >
       {body}
     </Card>

@@ -45,7 +45,36 @@ const MEMBER_QUERIES = [
 
 const DUE_PHRASE = { set: true, set_at: 0, luna_id: "luna-1", signing_public: "", check_due: true };
 const FAMILY_PHOTOS = { id: "d1", label: "Family photos", state: "as_is", device: "sda1", fs_type: "exfat" };
-const BACKUP_DRIVE_FAILED = { id: "d2", label: "Backup drive", state: "failed" };
+const BACKUP_DRIVE_UNOPENABLE = { id: "d2", label: "Backup drive", state: "as_is", mounted: false };
+
+/** What lunad sends for a drive that failed its own self-check. */
+const HEALTH_FAILING = {
+  available: true,
+  reason: null,
+  verdict: "failing",
+  overall: "failed",
+  temperature_c: 55,
+  temperature_max_c: 60,
+  temperature_max_source: "typical",
+  reallocated_sectors: 120,
+  pending_sectors: 0,
+  uncorrectable_sectors: 0,
+  signals: [
+    { kind: "self_check_failed", level: "failing", value: null, limit: null },
+    { kind: "reallocated_sectors", level: "failing", value: 120, limit: 100 },
+    { kind: "temperature", level: "note", value: 55, limit: 60 },
+  ],
+};
+
+/** What lunad sends for a drive with a few worn spots. */
+const HEALTH_WEAR = {
+  ...HEALTH_FAILING,
+  verdict: "watch",
+  overall: "passed",
+  temperature_c: 48,
+  reallocated_sectors: 4,
+  signals: [{ kind: "reallocated_sectors", level: "watch", value: 4, limit: 100 }],
+};
 const NEW_DRIVE = { name: "sdb", model: "SanDisk", size_bytes: 32_000_000_000 };
 const FULL_SUMMARY = {
   d1: {
@@ -103,42 +132,67 @@ describe("Needs you on the dashboard", () => {
   });
 
   describe("drives (Admin)", () => {
-    it("shows a failed drive as a pill and a link to Files", async () => {
-      const fetchMock = stubDashboardFetch({ drives: [BACKUP_DRIVE_FAILED] });
+    it("shows a drive Luna can't open as a pill and a link to its card on Files", async () => {
+      const fetchMock = stubDashboardFetch({ drives: [BACKUP_DRIVE_UNOPENABLE] });
       renderDashboard();
       await settle(fetchMock, ADMIN_QUERIES);
       const zone = needsYouZone();
       const row = within(zone).getByRole("listitem");
       expect(within(row).getByText("Backup drive")).toHaveAttribute("data-slot", "inline-pill");
-      expect(within(row).getByText("ran into a problem")).toBeInTheDocument();
-      expect(within(zone).getByRole("link", { name: "Open Files" })).toHaveAttribute("href", "/files");
+      expect(within(row).getByText("can't be opened")).toBeInTheDocument();
+      expect(within(zone).getByRole("link", { name: "See what's wrong" })).toHaveAttribute(
+        "href",
+        "/files#drive-d2",
+      );
     });
 
-    it("says a drive with a worn spot is working, with a warning", async () => {
-      const fetchMock = stubDashboardFetch({
-        health: { d1: { available: true, overall: "passed", reallocated_sectors: 4 } },
-      });
+    it("says a drive with a few worn spots is showing wear, with a warning icon", async () => {
+      const fetchMock = stubDashboardFetch({ health: { d1: HEALTH_WEAR } });
       renderDashboard();
       await settle(fetchMock, ADMIN_QUERIES);
       const zone = needsYouZone();
       const row = within(zone).getByRole("listitem");
+      expect(row).toHaveAttribute("data-tone", "warning");
+      expect(row.querySelector("svg")).toHaveClass("text-warning");
       expect(within(row).getByText("Family photos")).toHaveAttribute("data-slot", "inline-pill");
-      expect(within(row).getByText("is working, with a warning")).toBeInTheDocument();
-      expect(within(row).getByText(/repaired a few worn spots/)).toBeInTheDocument();
-      expect(within(zone).getByRole("link", { name: "Open Files" })).toHaveAttribute("href", "/files");
+      expect(within(row).getByText("is showing wear")).toBeInTheDocument();
+      expect(within(row).getByText(/Keep using it, and make sure it's backed up\./)).toBeInTheDocument();
+      expect(within(zone).getByRole("link", { name: "See what's wrong" })).toHaveAttribute(
+        "href",
+        "/files#drive-d1",
+      );
     });
 
-    it("says a drive whose health report failed needs attention", async () => {
-      const fetchMock = stubDashboardFetch({
-        health: { d1: { available: true, overall: "failed", reallocated_sectors: 0 } },
-      });
+    it("says a drive that failed its self-check is failing, with a problem icon", async () => {
+      const fetchMock = stubDashboardFetch({ health: { d1: HEALTH_FAILING } });
       renderDashboard();
       await settle(fetchMock, ADMIN_QUERIES);
       const zone = needsYouZone();
       const row = within(zone).getByRole("listitem");
+      expect(row).toHaveAttribute("data-tone", "problem");
+      expect(row.querySelector("svg")).toHaveClass("text-error");
       expect(within(row).getByText("Family photos")).toHaveAttribute("data-slot", "inline-pill");
-      expect(within(row).getByText("needs attention")).toBeInTheDocument();
-      expect(within(zone).getByRole("link", { name: "Open Files" })).toHaveAttribute("href", "/files");
+      expect(within(row).getByText("is failing")).toBeInTheDocument();
+      expect(within(row).getByText(/Copy your files to another drive now\./)).toBeInTheDocument();
+      expect(within(zone).queryByText(/needs attention/)).not.toBeInTheDocument();
+    });
+
+    it("shows one failing row and one wear row for two drives, most urgent first", async () => {
+      const fetchMock = stubDashboardFetch({
+        drives: [
+          { ...FAMILY_PHOTOS, id: "d1", label: "Drive 1" },
+          { ...FAMILY_PHOTOS, id: "d2", label: "Drive 2" },
+        ],
+        health: { d1: HEALTH_FAILING, d2: HEALTH_WEAR },
+      });
+      renderDashboard();
+      await settle(fetchMock, ADMIN_QUERIES);
+      await waitFor(() => expect(within(needsYouZone()).getAllByRole("listitem")).toHaveLength(2));
+      const [failing, wear] = within(needsYouZone()).getAllByRole("listitem");
+      expect(failing).toHaveTextContent("Drive 1 is failing");
+      expect(failing).toHaveAttribute("data-tone", "problem");
+      expect(wear).toHaveTextContent("Drive 2 is showing wear");
+      expect(wear).toHaveAttribute("data-tone", "warning");
     });
 
     it("makes no row for a healthy drive", async () => {
@@ -148,11 +202,11 @@ describe("Needs you on the dashboard", () => {
       expect(screen.queryByRole("region", { name: "Needs you" })).not.toBeInTheDocument();
     });
 
-    it("makes no row for a drive whose health is unavailable or still unknown", async () => {
+    it("makes no row for a drive whose health report could not be read or is still unknown", async () => {
       const fetchMock = stubDashboardFetch({
         drives: [FAMILY_PHOTOS, { id: "d3", label: "Music drive", state: "as_is" }],
         health: {
-          d1: { available: false, overall: "failed", reallocated_sectors: 9 },
+          d1: { available: false, reason: "no_report", verdict: "unknown", overall: "unknown", signals: [] },
           d3: null,
         },
       });
@@ -229,7 +283,7 @@ describe("Needs you on the dashboard", () => {
       await settle(fetchMock, ADMIN_QUERIES);
       const zone = needsYouZone();
       const row = within(zone).getByRole("listitem");
-      expect(within(row).getByText("Storage space")).toBeInTheDocument();
+      expect(within(row).getByText("Luna's own storage")).toBeInTheDocument();
       expect(within(row).getByText("Low space on the Luna data drive.")).toBeInTheDocument();
       expect(within(zone).getByRole("link", { name: "Open system checks" })).toHaveAttribute(
         "href",
@@ -267,7 +321,7 @@ describe("Needs you on the dashboard", () => {
       const zone = needsYouZone();
       const rows = within(zone).getAllByRole("listitem");
       expect(rows).toHaveLength(1);
-      expect(within(rows[0]).getByText("Storage space")).toBeInTheDocument();
+      expect(within(rows[0]).getByText("Luna's own storage")).toBeInTheDocument();
       expect(within(zone).queryByText("Clock")).not.toBeInTheDocument();
     });
 
@@ -369,7 +423,7 @@ describe("Needs you on the dashboard", () => {
 
     it("shows a failed save test on its own row only when the drive has no row of its own", async () => {
       const fetchMock = stubDashboardFetch({
-        drives: [FAMILY_PHOTOS, BACKUP_DRIVE_FAILED],
+        drives: [FAMILY_PHOTOS, BACKUP_DRIVE_UNOPENABLE],
         systemChecks: {
           checks: {
             drive_d1_read_write: {
@@ -392,9 +446,30 @@ describe("Needs you on the dashboard", () => {
       const zone = needsYouZone();
       const rows = within(zone).getAllByRole("listitem");
       expect(rows).toHaveLength(2);
-      expect(rows[0]).toHaveTextContent("Backup drive ran into a problem");
+      expect(rows[0]).toHaveTextContent("Backup drive can't be opened");
       expect(within(rows[1]).getByText("Family photos — save test")).toBeInTheDocument();
       expect(within(rows[1]).getByRole("link", { name: "Open Files" })).toHaveAttribute("href", "/files");
+    });
+
+    it("shows a failed hard drive check only in system checks, never as a second Needs you row", async () => {
+      const fetchMock = stubDashboardFetch({
+        health: { d1: HEALTH_FAILING },
+        systemChecks: {
+          checks: {
+            drive_d1_smart: {
+              status: "failed",
+              message: "Family photos is failing. Copy your files to another drive now.",
+              category: "drives",
+              details: { drive_label: "Family photos" },
+            },
+          },
+        },
+      });
+      renderDashboard();
+      await settle(fetchMock, ADMIN_QUERIES);
+      const rows = within(needsYouZone()).getAllByRole("listitem");
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toHaveTextContent("Family photos is failing");
     });
   });
 
@@ -611,7 +686,7 @@ describe("Needs you on the dashboard", () => {
   describe("ordering and zone frame (Admin)", () => {
     it("orders rows by urgency: drive, backup, then the recovery phrase", async () => {
       const fetchMock = stubDashboardFetch({
-        drives: [FAMILY_PHOTOS, BACKUP_DRIVE_FAILED],
+        drives: [FAMILY_PHOTOS, BACKUP_DRIVE_UNOPENABLE],
         backups: [backupRow({ state: "failing", last_error: "The backup drive is full." })],
         detected: [NEW_DRIVE],
         cloudBackups: [cloudBackupRow()],
@@ -621,7 +696,7 @@ describe("Needs you on the dashboard", () => {
       await settle(fetchMock, ADMIN_QUERIES);
       await waitFor(() => expect(within(needsYouZone()).getAllByRole("listitem")).toHaveLength(3));
       const rows = within(needsYouZone()).getAllByRole("listitem");
-      expect(rows[0]).toHaveTextContent("Backup drive ran into a problem");
+      expect(rows[0]).toHaveTextContent("Backup drive can't be opened");
       expect(rows[1]).toHaveTextContent("Photos backup didn't finish");
       expect(rows[2]).toHaveTextContent("Check your recovery phrase");
     });
@@ -632,7 +707,7 @@ describe("Needs you on the dashboard", () => {
       const fetchMock = stubDashboardFetch({
         role: "user",
         userId: "u1",
-        drives: [FAMILY_PHOTOS, BACKUP_DRIVE_FAILED],
+        drives: [FAMILY_PHOTOS, BACKUP_DRIVE_UNOPENABLE],
         summaries: FULL_SUMMARY,
         backups: [
           backupRow({ state: "failing", last_error: "The backup drive is full." }),
@@ -666,7 +741,7 @@ describe("Needs you on the dashboard", () => {
       expect(screen.queryByText("Open Files")).not.toBeInTheDocument();
       expect(screen.queryByText(/almost full/)).not.toBeInTheDocument();
       expect(screen.queryByText(/internet/)).not.toBeInTheDocument();
-      expect(screen.queryByText("Storage space")).not.toBeInTheDocument();
+      expect(screen.queryByText("Luna's own storage")).not.toBeInTheDocument();
       expect(screen.queryByText("Luna Connect needs a new device token")).not.toBeInTheDocument();
 
       const paths = requestedPaths(fetchMock);
