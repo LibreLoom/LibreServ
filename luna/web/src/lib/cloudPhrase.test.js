@@ -14,6 +14,7 @@ import {
   replacePhrase,
   REPLACE_DOMAIN,
   signFreshChallenge,
+  splitPhraseText,
   toBase64,
 } from "./cloudPhrase";
 
@@ -57,6 +58,7 @@ describe("buildPhraseBody", () => {
     expect(fromBase64(body.seal_public)).toEqual(keys.sealPublic);
     expect(fromBase64(body.auth_public)).toEqual(keys.authPublic);
     expect(body).not.toHaveProperty("signature");
+    expect(body.words).toBe(12);
 
     const aad = canonical([
       ["luna_id", encoder.encode(LUNA_ID)],
@@ -65,6 +67,15 @@ describe("buildPhraseBody", () => {
     ]);
     const opened = decrypt(keys.selfKey, aad, fromBase64(body.self_sealed));
     expect(opened).toEqual(SIGNING_PUBLIC);
+  });
+
+  it("sends 24 for a 24-word phrase", () => {
+    const body = buildPhraseBody(newEntropy(24), {
+      lunaId: LUNA_ID,
+      userId: USER_ID,
+      signingPublic: toBase64(SIGNING_PUBLIC),
+    });
+    expect(body.words).toBe(24);
   });
 
   it("refuses a signing public key that is not 32 bytes", () => {
@@ -185,12 +196,12 @@ describe("checkPhraseWords", () => {
     expect(await checkPhraseWords(phrase, LUNA_ID)).toBeNull();
   });
 
-  it("refuses a phrase Luna answers with 400 too, since that is how it refuses today", async () => {
+  it("throws Luna's own message when the check expired (400), so it is not called a wrong phrase", async () => {
     routePhrase({
       "POST /api/v1/cloud/phrase/challenge": challengeReply,
-      "POST /api/v1/cloud/phrase/check": [400, { error: "That doesn't match." }],
+      "POST /api/v1/cloud/phrase/check": [400, { error: "That check took too long. Start it again." }],
     });
-    expect(await checkPhraseWords(phrase, LUNA_ID)).toBeNull();
+    await expect(checkPhraseWords(phrase, LUNA_ID)).rejects.toThrow("That check took too long. Start it again.");
   });
 
   it("surfaces the lockout message on 429 and does not retry", async () => {
@@ -407,6 +418,35 @@ describe("normalizePhraseStatus, resealing", () => {
   it("reads resealing as a boolean, false when missing", () => {
     expect(normalizePhraseStatus({ resealing: true }).resealing).toBe(true);
     expect(normalizePhraseStatus({}).resealing).toBe(false);
+  });
+});
+
+describe("normalizePhraseStatus, phrase length", () => {
+  it("keeps 12 and 24 and turns anything else into 0 (unknown)", () => {
+    expect(normalizePhraseStatus({ phrase_words: 24 }).phrase_words).toBe(24);
+    expect(normalizePhraseStatus({ phrase_words: 12 }).phrase_words).toBe(12);
+    expect(normalizePhraseStatus({ phrase_words: 7 }).phrase_words).toBe(0);
+    expect(normalizePhraseStatus({}).phrase_words).toBe(0);
+  });
+});
+
+describe("splitPhraseText", () => {
+  it("lowercases and splits on spaces, newlines and commas", () => {
+    expect(splitPhraseText("Abandon, ABILITY\nable")).toEqual(["abandon", "ability", "able"]);
+  });
+
+  it("drops numbering like 1. 2) and #3", () => {
+    expect(splitPhraseText("1. abandon 2) ability #3 able")).toEqual(["abandon", "ability", "able"]);
+  });
+
+  it("reads only the numbered lines of the downloaded file", () => {
+    const file = "Luna recovery phrase\n\n1. abandon\n2. ability\n3. able\n\nKeep these 3 words somewhere safe. Anyone with them can open your cloud backups.\n";
+    expect(splitPhraseText(file)).toEqual(["abandon", "ability", "able"]);
+  });
+
+  it("trims punctuation and returns nothing for empty text", () => {
+    expect(splitPhraseText("(abandon).")).toEqual(["abandon"]);
+    expect(splitPhraseText("")).toEqual([]);
   });
 });
 

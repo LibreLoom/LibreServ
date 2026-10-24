@@ -8,16 +8,6 @@ import ProtectSheet, { ProtectButton } from "./ProtectSheet";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import Toaster from "@libreloom/ui/components/common/Toaster.jsx";
 
-vi.mock("../cloud/RecoveryPhraseSetup.jsx", () => ({
-  default: ({ lunaId, signingPublic, userId, onClose, onSaved }) => (
-    <div role="dialog" aria-label="Phrase setup" data-luna={lunaId} data-sig={signingPublic} data-user={userId}>
-      <button onClick={() => { onSaved?.(); onClose(); }}>Save phrase</button>
-      <button onClick={onClose}>Close setup</button>
-      <button onClick={() => {}}>Fail save</button>
-    </div>
-  ),
-}));
-
 function nowSeconds() {
   return Math.floor(Date.now() / 1000);
 }
@@ -777,100 +767,42 @@ describe("ProtectSheet", () => {
 });
 
 describe("ProtectButton", () => {
-  describe("recovery phrase before the first cloud backup", () => {
-    const noPhrase = { set: false, set_at: 0, luna_id: "luna-1", signing_public: "sig" };
+  describe("starting a cloud backup without a phrase step", () => {
     const connected = { connect_active: true, card_on_file: true };
 
-    it("opens the setup first, then starts the backup once after it saves", async () => {
-      const user = userEvent.setup();
-      const onCloudCreate = vi.fn();
-      stubBackupApi({ connect: connected, phrase: noPhrase, onCloudCreate });
-      renderSheet();
-      await user.click(await screen.findByRole("button", { name: "Back up to the cloud" }));
-      expect(await screen.findByRole("dialog", { name: "Phrase setup" })).toBeInTheDocument();
-      expect(onCloudCreate).not.toHaveBeenCalled();
-      await user.click(screen.getByRole("button", { name: "Save phrase" }));
-      await waitFor(() => expect(onCloudCreate).toHaveBeenCalledTimes(1));
-      expect(onCloudCreate).toHaveBeenCalledWith({ source_drive_id: "d1", source_path: "photos" });
-      expect(await screen.findByText("Cloud backup started.")).toBeInTheDocument();
-      expect(screen.queryByRole("dialog", { name: "Phrase setup" })).not.toBeInTheDocument();
-    });
-
-    it("creates Luna's keys first when a fresh Luna has none", async () => {
-      const user = userEvent.setup();
-      const onIdentity = vi.fn();
-      stubBackupApi({ connect: connected, phrase: { set: false, luna_id: null, signing_public: null }, onIdentity });
-      renderSheet();
-      await user.click(await screen.findByRole("button", { name: "Back up to the cloud" }));
-      const dialog = await screen.findByRole("dialog", { name: "Phrase setup" });
-      expect(onIdentity).toHaveBeenCalledTimes(1);
-      expect(dialog).toHaveAttribute("data-luna", "luna-new");
-      expect(dialog).toHaveAttribute("data-sig", "sig-new");
-    });
-
-    it("starts no backup and shows no toast when the setup is closed", async () => {
-      const user = userEvent.setup();
-      const onCloudCreate = vi.fn();
-      stubBackupApi({ connect: connected, phrase: noPhrase, onCloudCreate });
-      renderSheet();
-      await user.click(await screen.findByRole("button", { name: "Back up to the cloud" }));
-      await user.click(await screen.findByRole("button", { name: "Close setup" }));
-      expect(screen.queryByRole("dialog", { name: "Phrase setup" })).not.toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Back up to the cloud" })).toBeEnabled();
-      expect(screen.queryByRole("status")).not.toBeInTheDocument();
-      expect(onCloudCreate).not.toHaveBeenCalled();
-    });
-
-    it("starts no backup and shows no toast while the setup is still failing to save", async () => {
-      const user = userEvent.setup();
-      const onCloudCreate = vi.fn();
-      stubBackupApi({ connect: connected, phrase: noPhrase, onCloudCreate });
-      renderSheet();
-      await user.click(await screen.findByRole("button", { name: "Back up to the cloud" }));
-      await user.click(await screen.findByRole("button", { name: "Fail save" }));
-      expect(screen.getByRole("dialog", { name: "Phrase setup" })).toBeInTheDocument();
-      expect(onCloudCreate).not.toHaveBeenCalled();
-      expect(screen.queryByText(/Cloud backup started/)).not.toBeInTheDocument();
-      expect(screen.queryByText(/Could not/)).not.toBeInTheDocument();
-    });
-
-    it("shows a normal error when the backup fails after the phrase was saved, and keeps the phrase", async () => {
-      const user = userEvent.setup();
-      const onCloudCreate = vi.fn();
-      stubBackupApi({
-        connect: connected,
-        phrase: noPhrase,
-        onCloudCreate,
-        cloudCreateReply: { status: 500, body: { error: "The cloud is not reachable right now." } },
-      });
-      renderSheet();
-      await user.click(await screen.findByRole("button", { name: "Back up to the cloud" }));
-      await user.click(await screen.findByRole("button", { name: "Save phrase" }));
-      expect(await screen.findByText("The cloud is not reachable right now.")).toBeInTheDocument();
-      expect(screen.queryByRole("dialog", { name: "Phrase setup" })).not.toBeInTheDocument();
-      expect(onCloudCreate).toHaveBeenCalledTimes(1);
-    });
-
-    it("shows the setup, not an error, when the server answers 409 needs_phrase", async () => {
-      const user = userEvent.setup();
-      stubBackupApi({
-        connect: connected,
-        cloudCreateReply: { status: 409, body: { error: "Set a recovery phrase first.", code: "needs_phrase" } },
-      });
-      renderSheet();
-      await user.click(await screen.findByRole("button", { name: "Back up to the cloud" }));
-      expect(await screen.findByRole("dialog", { name: "Phrase setup" })).toBeInTheDocument();
-      expect(screen.queryByText("Set a recovery phrase first.")).not.toBeInTheDocument();
-    });
-
-    it("skips the setup when a phrase already exists", async () => {
+    it("starts the backup straight away, once", async () => {
       const user = userEvent.setup();
       const onCloudCreate = vi.fn();
       stubBackupApi({ connect: connected, onCloudCreate });
       renderSheet();
       await user.click(await screen.findByRole("button", { name: "Back up to the cloud" }));
       await waitFor(() => expect(onCloudCreate).toHaveBeenCalledTimes(1));
+      expect(onCloudCreate).toHaveBeenCalledWith({ source_drive_id: "d1", source_path: "photos" });
+      expect(await screen.findByText("Cloud backup started.")).toBeInTheDocument();
+    });
+
+    it("shows Luna's message inline on a 409 needs_phrase, and opens no setup", async () => {
+      const user = userEvent.setup();
+      const message = "You need a recovery phrase first. Reload this page to set one up.";
+      stubBackupApi({
+        connect: connected,
+        cloudCreateReply: { status: 409, body: { error: message, code: "needs_phrase" } },
+      });
+      renderSheet();
+      await user.click(await screen.findByRole("button", { name: "Back up to the cloud" }));
+      expect(await screen.findByText(message)).toBeInTheDocument();
       expect(screen.queryByRole("dialog", { name: "Phrase setup" })).not.toBeInTheDocument();
+      expect(screen.queryByText("Cloud backup started.")).not.toBeInTheDocument();
+    });
+
+    it("does not look up the phrase before starting", async () => {
+      const user = userEvent.setup();
+      stubBackupApi({ connect: connected });
+      renderSheet();
+      await user.click(await screen.findByRole("button", { name: "Back up to the cloud" }));
+      await screen.findByText("Cloud backup started.");
+      const paths = vi.mocked(globalThis.fetch).mock.calls.map(([url]) => String(typeof url === "string" ? url : /** @type {any} */ (url)?.url));
+      expect(paths.some((u) => u.startsWith("/api/v1/cloud/phrase") || u.startsWith("/api/v1/cloud/identity"))).toBe(false);
     });
 
     it("sends only one backup request on rapid clicks", async () => {
@@ -886,58 +818,6 @@ describe("ProtectButton", () => {
       release();
       await waitFor(() => expect(onCloudCreate).toHaveBeenCalledTimes(1));
       expect(onCloudCreate).toHaveBeenCalledTimes(1);
-    });
-
-    it("opens the setup only once on rapid clicks with no phrase", async () => {
-      const user = userEvent.setup();
-      stubBackupApi({ connect: connected, phrase: noPhrase });
-      renderSheet();
-      const button = await screen.findByRole("button", { name: "Back up to the cloud" });
-      await user.dblClick(button);
-      expect(await screen.findAllByRole("dialog", { name: "Phrase setup" })).toHaveLength(1);
-    });
-
-    it("keeps the cloud backup button off and opens no setup when Luna has no signed-in account", async () => {
-      const user = userEvent.setup();
-      const onCloudCreate = vi.fn();
-      const onIdentity = vi.fn();
-      stubBackupApi({ connect: connected, phrase: noPhrase, onCloudCreate, onIdentity });
-      const base = globalThis.fetch;
-      // A clean "not signed in" answer: the sheet has no account to seal the phrase to.
-      vi.stubGlobal("fetch", vi.fn(async (url, init) => {
-        const u = typeof url === "string" ? url : url?.url || String(url);
-        if (u.includes("/auth/me")) return json(null);
-        return base(url, init);
-      }));
-      renderSheet();
-      const button = await screen.findByRole("button", { name: "Back up to the cloud" });
-      expect(button).toBeDisabled();
-      await user.click(button);
-      expect(screen.queryByRole("dialog", { name: "Phrase setup" })).not.toBeInTheDocument();
-      expect(onIdentity).not.toHaveBeenCalled();
-      expect(onCloudCreate).not.toHaveBeenCalled();
-    });
-
-    it("enables the cloud backup button for a signed-in account with no phrase", async () => {
-      stubBackupApi({ connect: connected, phrase: noPhrase });
-      renderSheet();
-      expect(await screen.findByRole("button", { name: "Back up to the cloud" })).toBeEnabled();
-    });
-
-    it("shows an error in the sheet when the phrase status cannot be loaded", async () => {
-      const user = userEvent.setup();
-      const onCloudCreate = vi.fn();
-      stubBackupApi({ connect: connected, onCloudCreate });
-      const base = globalThis.fetch;
-      vi.stubGlobal("fetch", vi.fn(async (url, init) => {
-        const u = typeof url === "string" ? url : url?.url || String(url);
-        if (u.startsWith("/api/v1/cloud/phrase")) return json({ error: "Luna is busy." }, 500);
-        return base(url, init);
-      }));
-      renderSheet();
-      await user.click(await screen.findByRole("button", { name: "Back up to the cloud" }));
-      expect(await screen.findByText("Luna is busy.")).toBeInTheDocument();
-      expect(onCloudCreate).not.toHaveBeenCalled();
     });
   });
 });

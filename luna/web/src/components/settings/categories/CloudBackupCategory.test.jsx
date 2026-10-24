@@ -4,6 +4,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import CloudBackupCategory from "./CloudBackupCategory.jsx";
 
+let mockRole = "admin";
+vi.mock("../../../context/AuthContext", () => ({
+  useOptionalAuth: () => ({ user: { id: "1", role: mockRole } }),
+}));
+
 const json = (body) =>
   new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
 
@@ -11,6 +16,7 @@ const json = (body) =>
 function stubApi({ connected = true, cardOnFile = true, backups = [], runResponse = /** @type {any} */ ({ done: true }) } = {}) {
   const fetchMock = vi.fn(async (url, options = {}) => {
     const method = options.method || "GET";
+    if (url === "/api/v1/auth/status") return json({ has_admin: true, connect_active: connected });
     if (url === "/api/v1/connect/status") return json({ connect_active: connected, card_on_file: cardOnFile });
     if (url === "/api/v1/cloud/backups" && method === "GET") return json(backups);
     if (/\/run(\?|$)/.test(url) && method === "POST") return json(runResponse);
@@ -51,7 +57,10 @@ const sampleBackup = {
 };
 
 describe("CloudBackupCategory", () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    mockRole = "admin";
+    vi.unstubAllGlobals();
+  });
 
   it("shows the recovery phrase card first, then the backup list", async () => {
     stubApi({ connected: true, backups: [sampleBackup] });
@@ -68,11 +77,32 @@ describe("CloudBackupCategory", () => {
     expect(screen.queryByText("Open Luna Connect")).toBeNull();
   });
 
-  it("explains how to get started before this Luna is linked", async () => {
+  it("with Connect off, an Admin sees the phrase card and a line pointing at the device token, with no list", async () => {
+    const fetchMock = stubApi({ connected: false });
+    renderCard();
+    expect(
+      await screen.findByText("Cloud backup needs Luna Connect. Add your device token in Settings → About → Advanced."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Recovery phrase")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Back up now" })).toBeNull();
+    const asked = fetchMock.mock.calls.map(([url]) => String(url));
+    expect(asked).not.toContain("/api/v1/cloud/backups");
+    expect(asked).not.toContain("/api/v1/connect/status");
+  });
+
+  it("with Connect off, a Member is told an Admin can turn it on", async () => {
+    mockRole = "member";
     stubApi({ connected: false });
     renderCard();
-    expect(await screen.findByText(/Link this Luna to Luna Connect/)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Back up now" })).toBeNull();
+    expect(await screen.findByText("Cloud backup needs Luna Connect. An Admin can turn it on.")).toBeInTheDocument();
+    expect(screen.getByText("Recovery phrase")).toBeInTheDocument();
+  });
+
+  it("with Connect off, leaves out the restore cards", async () => {
+    stubApi({ connected: false });
+    renderCard();
+    await screen.findByText(/Cloud backup needs Luna Connect/);
+    expect(screen.queryByText(/Bring back/i)).toBeNull();
   });
 
   it("asks for a payment card when this Luna is linked but no card is on file", async () => {

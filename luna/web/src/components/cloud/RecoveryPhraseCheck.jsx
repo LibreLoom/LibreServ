@@ -1,153 +1,70 @@
-import { Fragment, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import PropTypes from "prop-types";
-import { wordlist } from "@scure/bip39/wordlists/english.js";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
-import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import { phraseToEntropy } from "@libreloom/ui/lib/cloud/backupCrypto.js";
 import { shakeElement } from "@libreloom/ui/utils/shake.js";
-import { haptic } from "@libreloom/ui/utils/haptics.js";
+import { blankWords, WORD_SET } from "../../lib/cloudPhrase";
+import PhraseWordsInput from "./PhraseWordsInput.jsx";
 
-const LENGTH_OPTIONS = [
-  { value: "12", label: "12 words" },
-  { value: "24", label: "24 words" },
-];
-
-const WORDS = new Set(wordlist);
-const MAX_SUGGESTIONS = 5;
-const WRONG_PHRASE = "That is not the recovery phrase set up on this Luna. Check each word and try again.";
-
-const blankWords = () => Array(24).fill("");
-
-/** Words typed or pasted as one run of text, lowercased and split on any whitespace. */
-function splitWords(text) {
-  return text.toLowerCase().split(/\s+/).filter(Boolean);
-}
+const REFUSED = "That isn't the recovery phrase for your account. Check each word against what you wrote down.";
 
 /**
- * Asks for the recovery phrase one word per box and hands it to `verify`.
+ * Asks for the recovery phrase, every word in order, and hands it to `verify`.
  * Props only: the caller decides how the phrase is proven (`verify` resolves true or false).
- * `mode="check"` shows the result here; `mode="step"` hands the phrase to `onVerified`
- * straight away, as the first step of a change or a dashboard reminder.
- * The phrase lives only in this component's state and is wiped when it closes.
+ * Success is always `onVerified(phrase)`; the caller closes the dialog (and toasts, when it is a check).
+ * `words` is how many words the phrase has (12 or 24, or 0 when Luna doesn't know yet, which shows a switch).
+ * The phrase lives only in this component's state and is wiped when it closes or succeeds.
  */
 export default function RecoveryPhraseCheck({
   open = true,
   onClose,
   onVerified = null,
   verify,
+  // eslint-disable-next-line no-unused-vars -- kept so older callers can still pass it
   mode = "check",
   error: externalError = "",
   title = "Check my phrase",
   submitLabel = "Check",
+  words: knownCount = 0,
+  onLost = null,
 }) {
-  const [count, setCount] = useState(12);
-  const [words, setWords] = useState(blankWords);
-  const [focused, setFocused] = useState(-1);
+  const lengthKnown = knownCount === 12 || knownCount === 24;
+  const [pickedCount, setPickedCount] = useState(12);
+  const count = lengthKnown ? knownCount : pickedCount;
+  const [typed, setTyped] = useState(blankWords);
   const [error, setError] = useState("");
-  const [matched, setMatched] = useState(false);
+  const [refused, setRefused] = useState(false);
+  const [strict, setStrict] = useState(false);
   const [checking, setChecking] = useState(false);
-  const [activeSuggestion, setActiveSuggestion] = useState(-1);
-  const inputs = useRef([]);
-  const suggestionsRef = useRef(null);
+  const inputRef = useRef(null);
   const formRef = useRef(null);
 
   // Wipe the phrase whenever the dialog closes or goes away.
   useEffect(() => {
-    if (open) return undefined;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- clear secret state on close
-    setWords(blankWords());
+    if (open) return;
+    /* eslint-disable react-hooks/set-state-in-effect -- clear secret state on close */
+    setTyped(blankWords());
     setError("");
-    setMatched(false);
-    setCount(12);
-    return undefined;
+    setRefused(false);
+    setStrict(false);
+    setPickedCount(12);
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, [open]);
-  useEffect(() => () => { inputs.current = []; }, []);
 
-  const shown = words.slice(0, count);
-  const invalid = shown.map((w, i) => w !== "" && !WORDS.has(w) && !(i === focused && wordlist.some((x) => x.startsWith(w))));
-  const complete = shown.every((w) => WORDS.has(w));
+  const shown = typed.slice(0, count);
+  const filled = shown.filter((w) => WORD_SET.has(w)).length;
+  const message = error || externalError;
 
-  // Not memoized: `shown` is a new array on every render, so a memo here could never hold.
-  const focusedWord = focused >= 0 ? shown[focused] : "";
-  const suggestions = !focusedWord || WORDS.has(focusedWord)
-    ? []
-    : wordlist.filter((x) => x.startsWith(focusedWord)).slice(0, MAX_SUGGESTIONS);
-
-  function focusBox(index) {
-    inputs.current[index]?.focus();
-  }
-
-  /**
-   * Put `list` into boxes starting at `start`. A whole phrase (exactly 12 or 24 words) always fills
-   * from box 1 and sets the box count to its length. Any other length fills from `start` and never
-   * goes past the boxes shown.
-   */
-  function spread(start, list) {
-    const whole = list.length === 12 || list.length === 24;
-    const from = whole ? 0 : start;
-    const nextCount = whole ? list.length : count;
-    setCount(nextCount);
-    setWords((prev) => {
-      const next = whole ? blankWords() : [...prev];
-      list.forEach((w, i) => {
-        if (from + i < nextCount) next[from + i] = w;
-      });
-      return next;
-    });
+  function change(next) {
+    setTyped(next);
     setError("");
-    setMatched(false);
-    focusBox(Math.min(nextCount - 1, from + list.length));
+    setStrict(false);
   }
 
-  function onBoxChange(index, raw) {
-    const list = splitWords(raw);
-    const endsWithSpace = /\s$/.test(raw);
-    if (list.length > 1 || (list.length === 1 && endsWithSpace)) {
-      spread(index, list);
-      return;
-    }
-    setWords((prev) => prev.map((w, i) => (i === index ? (list[0] || "") : w)));
-    setError("");
-    setMatched(false);
-  }
-
-  function onBoxPaste(index, event) {
-    const list = splitWords(event.clipboardData?.getData("text") || "");
-    if (list.length < 2) return;
-    event.preventDefault();
-    spread(index, list);
-  }
-
-  function pick(word) {
-    const box = focused;
-    spread(box, [word]);
-    setActiveSuggestion(-1);
-  }
-
-  /** ArrowUp/ArrowDown walk the suggestions and Enter takes the highlighted one; Enter otherwise submits. */
-  function onBoxKeyDown(index, event) {
-    if (index !== focused || suggestions.length === 0) return;
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      event.preventDefault();
-      const step = event.key === "ArrowDown" ? 1 : -1;
-      setActiveSuggestion((a) => (a < 0 ? (step === 1 ? 0 : suggestions.length - 1) : (a + step + suggestions.length) % suggestions.length));
-      haptic("selection");
-    } else if (event.key === "Enter" && activeSuggestion >= 0 && suggestions[activeSuggestion]) {
-      event.preventDefault();
-      haptic("selection");
-      pick(suggestions[activeSuggestion]);
-    }
-  }
-
-  function chooseCount(value) {
-    setCount(value === "24" ? 24 : 12);
-    setError("");
-  }
-
-  function fail(message) {
-    setError(message);
+  function fail(text) {
+    setError(text);
     shakeElement(formRef.current);
   }
 
@@ -155,24 +72,37 @@ export default function RecoveryPhraseCheck({
     event.preventDefault();
     if (checking) return;
     setError("");
-    setMatched(false);
+    const empty = shown.findIndex((w) => !w);
+    if (empty !== -1) {
+      fail(`Fill in word ${empty + 1}.`);
+      inputRef.current?.focusBox(empty);
+      return;
+    }
+    const off = shown.map((w, i) => (WORD_SET.has(w) ? 0 : i + 1)).filter(Boolean);
+    if (off.length > 0) {
+      setStrict(true);
+      shakeElement(formRef.current);
+      inputRef.current?.focusBox(off[0] - 1);
+      return;
+    }
     const phrase = shown.join(" ");
     try {
       phraseToEntropy(phrase);
-    } catch (err) {
-      fail(err.message);
+    } catch {
+      fail(`These ${count} words don't form a recovery phrase. A word may be wrong or out of order.`);
       return;
     }
     setChecking(true);
     try {
       const ok = await verify(phrase);
       if (!ok) {
-        fail(WRONG_PHRASE);
+        setRefused(true);
+        fail(REFUSED);
         return;
       }
-      if (mode === "check") setMatched(true);
+      setTyped(blankWords());
+      setRefused(false);
       onVerified?.(phrase);
-      if (mode === "check") setWords(blankWords());
     } catch (err) {
       fail(err?.message || "Could not check your phrase. Try again.");
     } finally {
@@ -180,88 +110,37 @@ export default function RecoveryPhraseCheck({
     }
   }
 
-  const firstInvalid = invalid.findIndex(Boolean);
-  const message = error || externalError;
-
   return (
-    <ModalCard open={open} title={title} onClose={onClose} size="md">
-      <form ref={formRef} onSubmit={submit} className="space-y-4">
-        <p className="text-primary text-sm">Type your recovery phrase, one word in each box. You can also paste all of it into any box.</p>
-        <SegmentedControl
-          aria-label="Number of words"
-          surface="secondary"
-          value={String(count)}
-          options={LENGTH_OPTIONS}
-          onChange={chooseCount}
+    <ModalCard open={open} title={title} onClose={onClose} size="md" initialFocusRef={inputRef}>
+      <form ref={formRef} onSubmit={submit} noValidate className="space-y-4">
+        <div className="flex items-start justify-between gap-3">
+          <p className="text-primary text-sm">
+            {lengthKnown
+              ? `Type your ${count} words in order, from where you wrote them down.`
+              : "Type your recovery phrase in order, from where you wrote it down."}
+          </p>
+          <span className="shrink-0 text-xs font-mono">{`${filled} of ${count}`}</span>
+        </div>
+        <PhraseWordsInput
+          ref={inputRef}
+          count={count}
+          words={typed}
+          onChange={change}
+          onCountChange={(n) => {
+            setPickedCount(n);
+            setError("");
+          }}
+          lengthKnown={lengthKnown}
+          strict={strict}
         />
-        <ol className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          {shown.map((word, i) => (
-            <Fragment key={i}>
-            <li className="flex items-center gap-2">
-              <label className="flex w-full items-center gap-2">
-                <span className="w-6 text-right text-xs font-mono">{i + 1}.</span>
-                <input
-                  ref={(el) => { inputs.current[i] = el; }}
-                  type="text"
-                  value={word}
-                  aria-label={`Word ${i + 1}`}
-                  aria-invalid={invalid[i] ? "true" : undefined}
-                  onChange={(e) => onBoxChange(i, e.target.value)}
-                  onPaste={(e) => onBoxPaste(i, e)}
-                  onFocus={() => { setFocused(i); setActiveSuggestion(-1); }}
-                  onKeyDown={(e) => onBoxKeyDown(i, e)}
-                  onBlur={(e) => {
-                    // Moving onto a suggestion keeps the suggestions for this box.
-                    if (suggestionsRef.current?.contains(e.relatedTarget)) return;
-                    setFocused((f) => (f === i ? -1 : f));
-                  }}
-                  autoComplete="off"
-                  autoCapitalize="none"
-                  spellCheck={false}
-                  className={`w-full min-w-0 rounded-pill surface-primary border px-3 py-2 text-sm outline-none focus:border-accent motion-safe:transition-colors ${invalid[i] ? "border-error" : "border-transparent"}`}
-                />
-              </label>
-            </li>
-            {/* Right after its box, so Tab from the box lands on the suggestions. */}
-            {i === focused && suggestions.length > 0 && (
-              <li className="col-span-full">
-          <div
-            ref={suggestionsRef}
-            className="flex flex-wrap gap-2"
-            role="group"
-            aria-label={`Suggestions for word ${focused + 1}`}
-            onBlur={(e) => {
-              if (e.relatedTarget && (suggestionsRef.current?.contains(e.relatedTarget) || inputs.current.includes(e.relatedTarget))) return;
-              setFocused(-1);
-            }}
-          >
-            {suggestions.map((s, n) => (
-              <Button
-                key={s}
-                variant={n === activeSuggestion ? "primary" : "outline"}
-                surface="secondary"
-                size="sm"
-                aria-pressed={n === activeSuggestion}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => pick(s)}
-              >
-                {s}
-              </Button>
-            ))}
-          </div>
-        
-              </li>
-            )}
-            </Fragment>
-          ))}
-        </ol>
-        {firstInvalid !== -1 && (
-          <PageNotice variant="warning">{`Word ${firstInvalid + 1} is not on the recovery phrase list. Check the spelling.`}</PageNotice>
-        )}
         {message && <PageNotice variant="error">{message}</PageNotice>}
-        {matched && <PageNotice variant="info" surface="primary">Your phrase matches. You have the right recovery phrase.</PageNotice>}
-        <div className="flex justify-end">
-          <Button type="submit" variant="primary" size="sm" loading={checking} disabled={checking || !complete}>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {refused && onLost && (
+            <Button type="button" variant="ghost" surface="secondary" size="sm" onClick={onLost}>
+              Lost your phrase?
+            </Button>
+          )}
+          <Button type="submit" variant="primary" size="sm" loading={checking} disabled={checking}>
             {submitLabel}
           </Button>
         </div>
@@ -279,4 +158,6 @@ RecoveryPhraseCheck.propTypes = {
   error: PropTypes.string,
   title: PropTypes.string,
   submitLabel: PropTypes.string,
+  words: PropTypes.number,
+  onLost: PropTypes.func,
 };

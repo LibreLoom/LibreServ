@@ -1,10 +1,11 @@
 import { apiErrorMessage, getJson, postJson, putJson } from "./api";
 import { canonical, derive, encrypt, packId, phraseToEntropy, SIG_PUBLIC_LEN, sign } from "@libreloom/ui/lib/cloud/backupCrypto.js";
 import { openScopeSecret, sealScopeSecret } from "@libreloom/ui/lib/cloud/cloudPrivate.js";
+import { wordlist } from "@scure/bip39/wordlists/english.js";
 
 /**
  * Cloud recovery phrase: the API calls and the key steps behind it.
- * The recovery words never leave the browser. Only public keys, a sealed copy of the
+ * The recovery phrase never leaves the browser. Only public keys, a sealed copy of the
  * signing public key, and signatures are sent (see luna/crates/lunad/src/api/cloud_phrase.rs).
  */
 
@@ -19,11 +20,18 @@ const CHECK_DOMAIN = "phrase-check";
 /** Must match the phrase-replace domain in cloud_phrase.rs. A check signature can never be replayed as a replacement. */
 export const REPLACE_DOMAIN = "phrase-replace";
 
+/** The toast a passed "Check my phrase" shows (the check is due again after 90 days). */
+export const PHRASE_CHECKED_TOAST = {
+  type: "success",
+  message: "Your recovery phrase is correct.",
+  description: "Luna will ask you to check it again in 90 days.",
+};
+
 /** Shown when Luna stops taking tries for a while (HTTP 429). */
 export const LOCKED_OUT_MESSAGE = "Too many wrong tries. Wait a few minutes, then try again.";
 
-/** Refused by the server (HTTP 403 for a wrong proof; 400 for a phrase that doesn't match today). */
-const REFUSED_STATUSES = new Set([400, 403]);
+/** Refused by the server: a wrong phrase is 403. Any other 4xx (an expired check, say) throws Luna's own message. */
+const REFUSED_STATUSES = new Set([403]);
 
 /** Shown when the new phrase could not open a re-sealed private backup key. Nothing is sent. */
 export const RESEAL_CHECK_FAILED = "Your phrase was not changed. Luna could not safely move your private backups to the new phrase. Your old phrase still works.";
@@ -66,7 +74,7 @@ export function normalizePhraseStatus(raw) {
     set_at: Number(r.set_at) || 0,
     check_due: Boolean(r.check_due),
     last_checked_at: Number(r.last_checked_at) || 0,
-    admin_has_phrase: Boolean(r.admin_has_phrase),
+    phrase_words: r.phrase_words === 12 || r.phrase_words === 24 ? r.phrase_words : 0,
     luna_id: r.luna_id ?? null,
     signing_public: r.signing_public ?? null,
     resealing: Boolean(r.resealing),
@@ -77,7 +85,7 @@ export function normalizePhraseStatus(raw) {
   };
 }
 
-/** GET: `{ set, set_at, check_due, last_checked_at, admin_has_phrase, old_phrase_copies {count, removed_at}, luna_id, signing_public }` (`signing_public` is base64, Ed25519 and ML-DSA keys together). */
+/** GET: `{ set, set_at, check_due, last_checked_at, phrase_words (12, 24 or 0 when unknown), old_phrase_copies {count, removed_at}, luna_id, signing_public }` (`signing_public` is base64, Ed25519 and ML-DSA keys together). */
 export async function getPhraseStatus() {
   return normalizePhraseStatus(await getJson(PHRASE_PATH));
 }
@@ -186,8 +194,8 @@ export async function signReplacement(entropy, lunaId, body) {
  */
 export async function checkPhraseWords(phrase, lunaId) {
   const entropy = phraseToEntropy(phrase);
-  const signature = await signFreshChallenge(entropy, lunaId);
   try {
+    const signature = await signFreshChallenge(entropy, lunaId);
     await checkPhrase(signature);
     return entropy;
   } catch (err) {
@@ -318,6 +326,52 @@ export function buildPhraseBody(entropy, { lunaId, userId, signingPublic }) {
     seal_public: toBase64(keys.sealPublic),
     auth_public: toBase64(keys.authPublic),
     self_sealed: toBase64(encrypt(keys.selfKey, aad, signingBytes)),
+    // Lets the check show exactly the right number of boxes. Luna keeps it; Connect never gets it.
+    words: entropy.length === 32 ? 24 : 12,
   };
   return body;
+}
+
+/**
+ * Turns pasted or typed text into a list of lowercase words. Drops numbering such as `1.`, `1)` or `#1`,
+ * commas and other punctuation. When the text is the downloaded file (numbered lines among other lines),
+ * only the numbered lines count, so its title and closing sentence are left out.
+ * @param {string} text
+ * @returns {string[]}
+ */
+export function splitPhraseText(text) {
+  const lines = String(text ?? "").split(/\r?\n/);
+  const numbered = lines.filter((line) => /^\s*#?\d+\s*[.):]/.test(line));
+  const source = numbered.length >= 2 ? numbered.join("\n") : lines.join("\n");
+  return source
+    .toLowerCase()
+    .split(/[\s,]+/)
+    .map((token) => token.replace(/^#?\d+[.):]*/, "").replace(/^[^a-z]+|[^a-z]+$/g, ""))
+    .filter(Boolean);
+}
+
+/** Every word on the recovery phrase list. */
+export const WORD_SET = new Set(wordlist);
+
+/** Room for the longest phrase. Only the first 12 or 24 boxes show. */
+export const blankWords = () => Array(24).fill("");
+
+/**
+ * What one word box looks like, judged from the word list only.
+ * @param {string} value
+ * @param {boolean} focused
+ * @returns {"empty" | "typing" | "valid" | "invalid"}
+ */
+export function boxState(value, focused) {
+  if (!value) return "empty";
+  if (WORD_SET.has(value)) return "valid";
+  if (focused && wordlist.some((w) => w.startsWith(value))) return "typing";
+  return "invalid";
+}
+
+/** "Word 4 isn't on…", "Words 4 and 9 aren't on…". Positions are 1-based. */
+export function notOnListLine(positions) {
+  if (positions.length === 1) return `Word ${positions[0]} isn't on the recovery phrase list. Check the spelling.`;
+  const head = positions.slice(0, -1).join(", ");
+  return `Words ${head} and ${positions[positions.length - 1]} aren't on the recovery phrase list. Check the spelling.`;
 }

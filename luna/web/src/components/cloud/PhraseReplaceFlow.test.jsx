@@ -23,14 +23,13 @@ async function pasteOldPhrase(user) {
   return phrase;
 }
 
-/** Reads the shown new phrase, taps "I wrote them down" and types the three asked words. */
+/** Reads the shown new phrase, taps "I wrote it down" and types the three asked words. */
 async function confirmNewPhrase(user) {
   const items = screen.getAllByRole("listitem").map((li) => li.textContent.replace(/^\d+\./, ""));
-  await user.click(screen.getByRole("button", { name: "I wrote them down" }));
-  const prompts = screen.getAllByText(/^Word \d+$/);
-  for (const p of prompts) {
-    const n = Number(p.textContent.split(" ")[1]);
-    await user.type(p.closest("label").querySelector("input"), items[n - 1]);
+  await user.click(screen.getByRole("button", { name: "I wrote it down" }));
+  for (const input of screen.getAllByRole("textbox")) {
+    const n = Number(input.getAttribute("aria-label").replace("Word ", ""));
+    await user.type(input, items[n - 1]);
   }
   return items.join(" ");
 }
@@ -45,7 +44,7 @@ describe("PhraseReplaceFlow, change", () => {
     const user = userEvent.setup();
     setup({ onProve: vi.fn(async () => false) });
     await pasteOldPhrase(user);
-    expect(await screen.findByText(/not the recovery phrase set up on this Luna/)).toBeInTheDocument();
+    expect(await screen.findByText(/That isn't the recovery phrase for your account/)).toBeInTheDocument();
     expect(screen.queryByText("Could someone else have your phrase?")).not.toBeInTheDocument();
   });
 
@@ -107,14 +106,38 @@ describe("PhraseReplaceFlow, change", () => {
     expect(screen.getAllByRole("listitem")).toHaveLength(24);
   });
 
+  it("passes the phrase length to the check, so a 24-word phrase gets 24 boxes", () => {
+    setup({ words: 24 });
+    expect(screen.getAllByRole("textbox")).toHaveLength(24);
+  });
+
+  it("offers 'Lost your phrase?' after a refused old phrase and hands it to the caller", async () => {
+    const user = userEvent.setup();
+    const onLost = vi.fn();
+    setup({ onProve: vi.fn(async () => false), onLost });
+    await pasteOldPhrase(user);
+    await user.click(await screen.findByRole("button", { name: "Lost your phrase?" }));
+    expect(onLost).toHaveBeenCalled();
+  });
+
+  it("titles the new-phrase step, then the confirm step", async () => {
+    const user = userEvent.setup();
+    setup();
+    await pasteOldPhrase(user);
+    await user.click(await screen.findByRole("button", { name: "No, it's only mine" }));
+    expect(screen.getByText("Your new recovery phrase")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "I wrote it down" }));
+    expect(screen.getByText("Confirm your new phrase")).toBeInTheDocument();
+  });
+
   it("refuses a wrong confirm word without saving", async () => {
     const user = userEvent.setup();
     const { onSave } = setup();
     await pasteOldPhrase(user);
     await user.click(await screen.findByRole("button", { name: "No, it's only mine" }));
-    await user.click(screen.getByRole("button", { name: "I wrote them down" }));
+    await user.click(screen.getByRole("button", { name: "I wrote it down" }));
     await user.click(screen.getByRole("button", { name: "Save recovery phrase" }));
-    expect(await screen.findByText(/doesn't match. Check your phrase and try again./)).toBeInTheDocument();
+    expect(await screen.findByText(/doesn't match. Check what you wrote down./)).toBeInTheDocument();
     expect(onSave).not.toHaveBeenCalled();
   });
 
@@ -123,7 +146,7 @@ describe("PhraseReplaceFlow, change", () => {
     const { rerender, onProve, onSave, onClose } = setup();
     await pasteOldPhrase(user);
     await user.click(await screen.findByRole("button", { name: "No, it's only mine" }));
-    await user.click(screen.getByRole("button", { name: "I wrote them down" }));
+    await user.click(screen.getByRole("button", { name: "I wrote it down" }));
     rerender(<PhraseReplaceFlow kind="change" onProve={onProve} onSave={onSave} onClose={onClose} busy />);
     expect(screen.getByRole("button", { name: /Save recovery phrase/ })).toBeDisabled();
   });
@@ -133,7 +156,7 @@ describe("PhraseReplaceFlow, change", () => {
     const { rerender, onProve, onSave, onClose } = setup();
     await pasteOldPhrase(user);
     await user.click(await screen.findByRole("button", { name: "No, it's only mine" }));
-    await user.click(screen.getByRole("button", { name: "I wrote them down" }));
+    await user.click(screen.getByRole("button", { name: "I wrote it down" }));
     rerender(<PhraseReplaceFlow kind="change" onProve={onProve} onSave={onSave} onClose={onClose} error="Could not save your recovery phrase. Try again." />);
     expect(screen.getByText("Could not save your recovery phrase. Try again.")).toBeInTheDocument();
   });

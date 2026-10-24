@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, KeyRound } from "lucide-react";
+import { KeyRound } from "lucide-react";
 import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import CollapsibleSection from "@libreloom/ui/components/common/CollapsibleSection.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
@@ -14,15 +14,14 @@ import { apiErrorMessage, deleteJson } from "../../lib/api";
 import { movingPercent } from "../../lib/movingPercent.js";
 import {
   checkPhraseWords,
-  createIdentity,
   getPhraseStatus,
+  PHRASE_CHECKED_TOAST,
   PHRASE_QUERY_KEY,
   replaceErrorMessage,
   replacePhrase,
 } from "../../lib/cloudPhrase";
 import PhraseReplaceFlow from "./PhraseReplaceFlow.jsx";
 import RecoveryPhraseCheck from "./RecoveryPhraseCheck.jsx";
-import RecoveryPhraseSetup from "./RecoveryPhraseSetup.jsx";
 
 /** How often the card asks for status while Luna re-seals backups to the new phrase. */
 const RESEAL_POLL_MS = 5000;
@@ -44,16 +43,6 @@ export function MovingNote({ moving, className = "", member = false }) {
         </p>
       )}
     </div>
-  );
-}
-
-/** Error line for a failed start: the icon carries the red, the words stay neutral text. */
-function StartError({ children }) {
-  return (
-    <p role="alert" className="flex items-start gap-2 px-4 py-3 text-primary text-sm">
-      <AlertCircle size={ICON_SIZE.sm} className="mt-0.5 shrink-0 text-error" aria-hidden="true" />
-      <span>{children}</span>
-    </p>
   );
 }
 
@@ -79,7 +68,7 @@ function StatusPill({ tone, children }) {
 
 /**
  * Settings card for the cloud recovery phrase.
- * `dialog` is one of: null | {kind: "setup"} | {kind: "check"} | {kind: "change"} | {kind: "lost"}.
+ * `dialog` is one of: null | {kind: "check"} | {kind: "change"} | {kind: "lost"}.
  * "change" and "lost" open PhraseReplaceFlow. Closing a dialog unmounts it, which drops any
  * words and key material it held. The old phrase's key and the Luna password are kept in
  * `secrets` (a ref, never state, storage or the query cache) only while a replacement is open.
@@ -89,8 +78,6 @@ export default function RecoveryPhraseCard() {
   const userId = auth?.user?.id != null ? String(auth.user.id) : "";
   const queryClient = useQueryClient();
   const [dialog, setDialog] = useState(null);
-  const [starting, setStarting] = useState(false);
-  const [startError, setStartError] = useState("");
   const { addToast } = useToast();
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleteError, setDeleteError] = useState("");
@@ -206,6 +193,14 @@ export default function RecoveryPhraseCard() {
     return true;
   }
 
+  /** "Lost your phrase?" inside the change flow: start the lost flow from its first step. */
+  function switchToLost() {
+    attemptRef.current += 1;
+    secrets.current = { oldEntropy: null, password: "" };
+    setReplaceError("");
+    setDialog({ kind: "lost" });
+  }
+
   function saveReplace({ exposed, newPhrase }) {
     const kind = dialog?.kind;
     const oldEntropy = secrets.current.oldEntropy;
@@ -227,31 +222,6 @@ export default function RecoveryPhraseCard() {
     replace.mutate({ kind, proof, exposed, newPhrase, attempt: attemptRef.current });
   }
 
-  /**
-   * A fresh Luna has no identity yet. Create it on demand, then keep the answer in
-   * the status cache so the setup dialog can use it.
-   */
-  async function openSetup() {
-    setStartError("");
-    if (!lunaId) {
-      setStarting(true);
-      try {
-        const created = await createIdentity();
-        queryClient.setQueryData(PHRASE_QUERY_KEY, (/** @type {any} */ old) => ({
-          ...(old || {}),
-          luna_id: created.luna_id,
-          signing_public: created.signing_public,
-        }));
-      } catch (err) {
-        setStartError(apiErrorMessage(err, "Could not set up Luna's keys. Try again."));
-        return;
-      } finally {
-        setStarting(false);
-      }
-    }
-    setDialog({ kind: "setup" });
-  }
-
   const isMember = auth?.user?.role !== undefined && auth.user.role !== "admin";
   const oldCopies = status.data?.old_phrase_copies;
   const removedOn = formatDate(oldCopies?.removed_at, false);
@@ -266,32 +236,20 @@ export default function RecoveryPhraseCard() {
   } else if (status.isError) {
     body = <p className="px-4 py-3 text-primary text-sm">Could not load your recovery phrase. Try again later.</p>;
   } else if (!isSet) {
+    // Every account is asked for a phrase before it reaches the app, so this is only a stale read.
     body = (
-      <>
-        <SettingsRow
-          stack
-          label="Recovery phrase"
-          description="Cloud backups of your files can start once you set one up."
-          hideDivider={!startError}
-        >
-          <div className="flex flex-wrap items-center gap-3">
-            <StatusPill tone="bg-warning/20 border-warning/30">Not set up</StatusPill>
-            <Button variant="primary" size="sm" disabled={!userId || starting} loading={starting} onClick={() => openSetup()}>
-              Set up
-            </Button>
-          </div>
-        </SettingsRow>
-        {isMember && status.data?.admin_has_phrase === false && (
-          <p className="px-4 pb-3 text-primary text-sm">Shared backups also wait for an Admin to set up theirs.</p>
-        )}
-        {startError && <StartError>{startError}</StartError>}
-      </>
+      <p className="px-4 py-3 text-primary text-sm">
+        Your recovery phrase isn't saved yet. Reload this page to set it up.
+      </p>
     );
   } else {
     const setOn = formatDate(status.data?.set_at);
     const checkedAt = status.data?.last_checked_at;
     const checked = checkedAt ? `Last checked ${formatDate(checkedAt, false)}` : "Not checked yet";
-    const setLine = [setOn ? `Set up on ${setOn}` : null, checked].filter(Boolean).join(" · ");
+    const phraseWords = status.data?.phrase_words;
+    const setLine = [phraseWords ? `${phraseWords} words` : null, setOn ? `Set up on ${setOn}` : null, checked]
+      .filter(Boolean)
+      .join(" · ");
     body = (
       <>
         <SettingsRow stack label="Recovery phrase" description={setLine}>
@@ -339,7 +297,6 @@ export default function RecoveryPhraseCard() {
             </Button>
           </CollapsibleSection>
         </div>
-        {startError && <StartError>{startError}</StartError>}
       </>
     );
   }
@@ -378,24 +335,24 @@ export default function RecoveryPhraseCard() {
         {deleteError && <p role="alert" className="mt-2 text-primary text-sm">{deleteError}</p>}
       </ConfirmModal>
 
-      {dialog?.kind === "setup" && (
-        <RecoveryPhraseSetup
-          lunaId={lunaId}
-          userId={userId}
-          signingPublic={signingPublic}
-          onClose={close}
-          onSaved={() => queryClient.invalidateQueries({ queryKey: PHRASE_QUERY_KEY })}
-        />
-      )}
       {dialog?.kind === "check" && (
         <RecoveryPhraseCheck
           verify={(phrase) => checkPhraseWords(phrase, lunaId).then(Boolean)}
+          words={status.data?.phrase_words ?? 0}
+          onVerified={() => {
+            addToast(PHRASE_CHECKED_TOAST);
+            close();
+          }}
+          onLost={() => setDialog({ kind: "lost" })}
           onClose={close}
         />
       )}
       {(dialog?.kind === "change" || dialog?.kind === "lost") && (
         <PhraseReplaceFlow
+          key={dialog.kind}
           kind={dialog.kind}
+          words={status.data?.phrase_words ?? 0}
+          onLost={switchToLost}
           onClose={closeReplace}
           onProve={(proof) => ("phrase" in proof ? proveOldPhrase(proof.phrase) : proveLost(proof))}
           onSave={saveReplace}

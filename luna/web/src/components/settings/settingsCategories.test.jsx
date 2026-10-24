@@ -12,13 +12,13 @@ import RemoteCategory from "./categories/RemoteCategory.jsx";
 const ids = (isAdmin, connectActive) => visibleCategories(isAdmin, connectActive).map((c) => c.id);
 
 describe("visibleCategories", () => {
-  it("Member with Connect off sees neither Cloud backup nor Luna Connect", () => {
-    expect(ids(false, false)).not.toContain("cloud_backup");
+  it("Member with Connect off sees Cloud backup (the recovery phrase card) but not Luna Connect", () => {
+    expect(ids(false, false)).toContain("cloud_backup");
     expect(ids(false, false)).not.toContain("luna_connect");
   });
 
-  it("Admin with Connect off sees neither Cloud backup nor Luna Connect", () => {
-    expect(ids(true, false)).not.toContain("cloud_backup");
+  it("Admin with Connect off sees Cloud backup but not Luna Connect", () => {
+    expect(ids(true, false)).toContain("cloud_backup");
     expect(ids(true, false)).not.toContain("luna_connect");
   });
 

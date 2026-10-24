@@ -17,123 +17,124 @@ async function pasteInto(user, index, text) {
 }
 
 const submit = (user) => user.click(screen.getByRole("button", { name: "Check" }));
+const values = () => screen.getAllByRole("textbox").map((b) => /** @type {HTMLInputElement} */ (b).value);
 
 describe("RecoveryPhraseCheck", () => {
-  it("idle: titled 'Check my phrase' with 12 empty boxes and the button disabled", () => {
+  it("is titled 'Check my phrase' with 12 empty boxes, a 12/24 switch and a counter", () => {
     setup();
     expect(screen.getByText("Check my phrase")).toBeInTheDocument();
     expect(screen.getAllByRole("textbox")).toHaveLength(12);
-    expect(screen.getByRole("button", { name: "Check" })).toBeDisabled();
+    expect(screen.getByRole("radio", { name: "12 words" })).toBeInTheDocument();
+    expect(screen.getByText("0 of 12")).toBeInTheDocument();
+    expect(screen.getByText("Type your recovery phrase in order, from where you wrote it down.")).toBeInTheDocument();
   });
 
-  it("spreads a pasted 12-word phrase across the boxes and keeps 12", async () => {
-    const user = userEvent.setup();
-    const phrase = entropyToPhrase(newEntropy(12));
+  it("puts focus in box 1 when it opens", async () => {
     setup();
-    await pasteInto(user, 1, phrase);
-    const boxes = screen.getAllByRole("textbox");
-    expect(boxes.map((b) => /** @type {HTMLInputElement} */ (b).value).join(" ")).toBe(phrase);
+    await waitFor(() => expect(screen.getByLabelText("Word 1")).toHaveFocus());
+  });
+
+  it("words={24} gives 24 boxes and no switch", () => {
+    setup({ words: 24 });
+    expect(screen.getAllByRole("textbox")).toHaveLength(24);
+    expect(screen.queryByRole("radio", { name: "12 words" })).not.toBeInTheDocument();
+    expect(screen.getByText("Type your 24 words in order, from where you wrote them down.")).toBeInTheDocument();
+  });
+
+  it("submitting with gaps names the first empty word, focuses it, and the button is never disabled", async () => {
+    const user = userEvent.setup();
+    const { verify } = setup();
     expect(screen.getByRole("button", { name: "Check" })).toBeEnabled();
+    await submit(user);
+    expect(await screen.findByText("Fill in word 1.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Word 1")).toHaveFocus();
+    expect(verify).not.toHaveBeenCalled();
   });
 
-  it("switches to 24 boxes when 24 words are pasted", async () => {
+  it("a word that is not on the list is flagged and focused, without asking Luna", async () => {
     const user = userEvent.setup();
-    const phrase = entropyToPhrase(newEntropy(24));
-    setup();
-    await pasteInto(user, 1, phrase);
-    expect(screen.getAllByRole("textbox")).toHaveLength(24);
-    expect(screen.getAllByRole("textbox").map((b) => /** @type {HTMLInputElement} */ (b).value).join(" ")).toBe(phrase);
+    const { verify } = setup();
+    await pasteInto(user, 1, [...Array(11).fill("abandon"), "zzzz"].join(" "));
+    await submit(user);
+    expect(screen.getByLabelText("Word 12")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByText("Word 12 isn't on the recovery phrase list. Check the spelling.")).toBeInTheDocument();
+    expect(verify).not.toHaveBeenCalled();
   });
 
-  it("the 12/24 switch changes the number of boxes", async () => {
-    const user = userEvent.setup();
-    setup();
-    await user.click(screen.getByRole("radio", { name: "24 words" }));
-    expect(screen.getAllByRole("textbox")).toHaveLength(24);
-    await user.click(screen.getByRole("radio", { name: "12 words" }));
-    expect(screen.getAllByRole("textbox")).toHaveLength(12);
-  });
-
-  it("suggests words from the list as you type and fills the box when one is picked", async () => {
-    const user = userEvent.setup();
-    setup();
-    await user.type(screen.getByLabelText("Word 1"), "aban");
-    await user.click(await screen.findByRole("button", { name: "abandon" }));
-    expect(screen.getByLabelText("Word 1")).toHaveValue("abandon");
-  });
-
-  it("marks a box invalid, with a plain note, when its word is not on the list", async () => {
-    const user = userEvent.setup();
-    setup();
-    await user.type(screen.getByLabelText("Word 3"), "zzzz");
-    await user.click(screen.getByLabelText("Word 4"));
-    expect(screen.getByLabelText("Word 3")).toHaveAttribute("aria-invalid", "true");
-    expect(screen.getByText("Word 3 is not on the recovery phrase list. Check the spelling.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Check" })).toBeDisabled();
-  });
-
-  it("does not call verify when the words are on the list but the phrase is invalid", async () => {
+  it("a bad checksum shows its line and never calls verify", async () => {
     const user = userEvent.setup();
     const { verify } = setup();
     await pasteInto(user, 1, Array(12).fill("abandon").join(" "));
     await submit(user);
-    expect(await screen.findByText(/don't form a valid recovery phrase/)).toBeInTheDocument();
+    expect(
+      await screen.findByText("These 12 words don't form a recovery phrase. A word may be wrong or out of order."),
+    ).toBeInTheDocument();
     expect(verify).not.toHaveBeenCalled();
   });
 
-  it("check mode: a right phrase shows a clear match and wipes the boxes", async () => {
+  it("a refused phrase shows the refusal line and 'Lost your phrase?', and keeps the words", async () => {
     const user = userEvent.setup();
     const phrase = entropyToPhrase(newEntropy(12));
-    const { verify } = setup();
+    const onLost = vi.fn();
+    setup({ verify: vi.fn(async () => false), onLost });
+    expect(screen.queryByRole("button", { name: "Lost your phrase?" })).not.toBeInTheDocument();
     await pasteInto(user, 1, phrase);
     await submit(user);
-    expect(await screen.findByText("Your phrase matches. You have the right recovery phrase.")).toBeInTheDocument();
-    expect(verify).toHaveBeenCalledWith(phrase);
-    expect(screen.getByLabelText("Word 1")).toHaveValue("");
+    expect(
+      await screen.findByText("That isn't the recovery phrase for your account. Check each word against what you wrote down."),
+    ).toBeInTheDocument();
+    expect(values().join(" ")).toBe(phrase);
+    await user.click(screen.getByRole("button", { name: "Lost your phrase?" }));
+    expect(onLost).toHaveBeenCalled();
   });
 
-  it("step mode: hands the phrase to onVerified without showing a match", async () => {
+  it("success calls onVerified with the phrase and wipes the boxes", async () => {
     const user = userEvent.setup();
     const phrase = entropyToPhrase(newEntropy(12));
     const onVerified = vi.fn();
-    setup({ mode: "step", onVerified });
+    const { verify } = setup({ onVerified });
     await pasteInto(user, 1, phrase);
     await submit(user);
     await waitFor(() => expect(onVerified).toHaveBeenCalledWith(phrase));
+    expect(verify).toHaveBeenCalledWith(phrase);
     expect(screen.queryByText(/Your phrase matches/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Word 1")).toHaveValue("");
   });
 
-  it("a wrong phrase is refused inline and onVerified is not called", async () => {
+  it("shows the message verify throws (a lockout or an expired check) and keeps the words", async () => {
     const user = userEvent.setup();
-    const onVerified = vi.fn();
-    setup({ verify: vi.fn(async () => false), onVerified, mode: "step" });
-    await pasteInto(user, 1, entropyToPhrase(newEntropy(12)));
+    const phrase = entropyToPhrase(newEntropy(12));
+    setup({ verify: vi.fn(async () => { throw new Error("That check took too long. Start it again."); }) });
+    await pasteInto(user, 1, phrase);
     await submit(user);
-    expect(await screen.findByText(/not the recovery phrase set up on this Luna/)).toBeInTheDocument();
-    expect(onVerified).not.toHaveBeenCalled();
-  });
-
-  it("shows the error when verify fails, and the caller's own message", async () => {
-    const user = userEvent.setup();
-    setup({ verify: vi.fn(async () => { throw new Error("Too many tries. Wait 10 minutes."); }) });
-    await pasteInto(user, 1, entropyToPhrase(newEntropy(12)));
-    await submit(user);
-    expect(await screen.findByText("Too many tries. Wait 10 minutes.")).toBeInTheDocument();
+    expect(await screen.findByText("That check took too long. Start it again.")).toBeInTheDocument();
+    expect(values().join(" ")).toBe(phrase);
   });
 
   it("shows an error passed in by the caller", () => {
-    setup({ error: "Too many tries. Wait 10 minutes." });
-    expect(screen.getByText("Too many tries. Wait 10 minutes.")).toBeInTheDocument();
+    setup({ error: "Too many wrong tries. Wait a few minutes, then try again." });
+    expect(screen.getByText("Too many wrong tries. Wait a few minutes, then try again.")).toBeInTheDocument();
+  });
+
+  it("fills the boxes from the downloaded file's numbered lines", async () => {
+    const user = userEvent.setup();
+    const words = entropyToPhrase(newEntropy(12)).split(" ");
+    const file = `Luna recovery phrase\n\n${words.map((w, i) => `${i + 1}. ${w}`).join("\n")}\n\nKeep these 12 words somewhere safe.\n`;
+    setup();
+    await pasteInto(user, 1, file);
+    expect(values()).toEqual(words);
+    expect(screen.getByText("12 of 12")).toBeInTheDocument();
   });
 
   it("never writes the phrase to the console", async () => {
     const user = userEvent.setup();
     const spies = [vi.spyOn(console, "log"), vi.spyOn(console, "info"), vi.spyOn(console, "warn"), vi.spyOn(console, "error"), vi.spyOn(console, "debug")].map((spy) => spy.mockImplementation(() => {}));
     const phrase = entropyToPhrase(newEntropy(12));
-    setup();
+    const onVerified = vi.fn();
+    setup({ onVerified });
     await pasteInto(user, 1, phrase);
     await submit(user);
-    await screen.findByText(/Your phrase matches/);
+    await waitFor(() => expect(onVerified).toHaveBeenCalled());
     for (const spy of spies) {
       expect(JSON.stringify(spy.mock.calls)).not.toContain(phrase.split(" ")[0] + " " + phrase.split(" ")[1]);
       spy.mockRestore();
@@ -150,46 +151,6 @@ describe("RecoveryPhraseCheck", () => {
     rerender(<RecoveryPhraseCheck onClose={() => {}} verify={verify} />);
     expect(screen.getByLabelText("Word 1")).toHaveValue("");
   });
-});
-
-describe("RecoveryPhraseCheck, paste lengths and suggestions", () => {
-  const values = () => screen.getAllByRole("textbox").map((b) => /** @type {HTMLInputElement} */ (b).value);
-
-  it("fills a pasted 12-word phrase from box 1 even when pasted into box 3", async () => {
-    const user = userEvent.setup();
-    const phrase = entropyToPhrase(newEntropy(12));
-    setup();
-    await pasteInto(user, 3, phrase);
-    expect(values().join(" ")).toBe(phrase);
-  });
-
-  it("a pasted 12-word phrase while the switch is on 24 sets 12 boxes", async () => {
-    const user = userEvent.setup();
-    const phrase = entropyToPhrase(newEntropy(12));
-    setup();
-    await user.click(screen.getByRole("radio", { name: "24 words" }));
-    await pasteInto(user, 5, phrase);
-    expect(values().join(" ")).toBe(phrase);
-    expect(screen.getByRole("radio", { name: "12 words" })).toBeChecked();
-  });
-
-  it("a pasted 24-word phrase into box 7 fills from box 1 with 24 boxes", async () => {
-    const user = userEvent.setup();
-    const phrase = entropyToPhrase(newEntropy(24));
-    setup();
-    await pasteInto(user, 7, phrase);
-    expect(values().join(" ")).toBe(phrase);
-  });
-
-  it("other lengths fill from the pasted box and never past the box count", async () => {
-    const user = userEvent.setup();
-    setup();
-    await pasteInto(user, 10, "abandon ability able about above");
-    const v = values();
-    expect(v).toHaveLength(12);
-    expect(v.slice(9)).toEqual(["abandon", "ability", "able"]);
-    expect(v[8]).toBe("");
-  });
 
   it("keeps the suggestions while focus moves onto one with Tab", async () => {
     const user = userEvent.setup();
@@ -200,26 +161,5 @@ describe("RecoveryPhraseCheck, paste lengths and suggestions", () => {
     expect(screen.getByRole("group", { name: "Suggestions for word 1" })).toBeInTheDocument();
     await user.keyboard("{Enter}");
     expect(screen.getByLabelText("Word 1")).toHaveValue("abandon");
-  });
-
-  it("ArrowDown highlights a suggestion and Enter takes it without submitting", async () => {
-    const user = userEvent.setup();
-    const { verify } = setup();
-    await user.type(screen.getByLabelText("Word 1"), "ab");
-    await user.keyboard("{ArrowDown}{ArrowDown}");
-    const second = screen.getAllByRole("button", { pressed: true })[0];
-    await user.keyboard("{Enter}");
-    expect(screen.getByLabelText("Word 1")).toHaveValue(second.textContent);
-    expect(screen.getByLabelText("Word 2")).toHaveFocus();
-    expect(verify).not.toHaveBeenCalled();
-  });
-
-  it("ArrowUp from nothing highlights the last suggestion", async () => {
-    const user = userEvent.setup();
-    setup();
-    await user.type(screen.getByLabelText("Word 1"), "ab");
-    const all = screen.getAllByRole("button", { name: /^ab/ });
-    await user.keyboard("{ArrowUp}");
-    expect(screen.getAllByRole("button", { pressed: true })[0].textContent).toBe(all[all.length - 1].textContent);
   });
 });

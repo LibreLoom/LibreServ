@@ -1,11 +1,12 @@
 import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { HardDrive } from "lucide-react";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
+import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
@@ -16,7 +17,7 @@ import TipPill from "../components/common/TipPill.jsx";
 import { getDrives, getJson, getRecents } from "../lib/api.js";
 import { KIND_ALBUM } from "../lib/access.js";
 import { memberAccessRoots } from "../lib/shareTree.js";
-import { checkPhraseWords, PHRASE_QUERY_KEY } from "../lib/cloudPhrase.js";
+import { checkPhraseWords, PHRASE_CHECKED_TOAST, PHRASE_QUERY_KEY } from "../lib/cloudPhrase.js";
 import { readRecentItems } from "../lib/recentItems.js";
 import usePageTitle from "../hooks/usePageTitle.js";
 import useNeedsYou from "../hooks/useNeedsYou.js";
@@ -57,6 +58,8 @@ function getGreeting() {
 
 export default function DashboardPage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const { addToast } = useToast();
   const greeting = useMemo(() => getGreeting(), []);
   usePageTitle("Dashboard");
   const { user } = useAuth();
@@ -299,6 +302,12 @@ export default function DashboardPage() {
       {checkingPhrase && phrase?.luna_id && (
         <RecoveryPhraseCheck
           verify={(words) => checkPhraseWords(words, phrase.luna_id).then(Boolean)}
+          words={phrase.phrase_words}
+          onVerified={() => {
+            addToast(PHRASE_CHECKED_TOAST);
+            closeCheck();
+          }}
+          onLost={() => navigate("/settings#cloud_backup")}
           onClose={closeCheck}
         />
       )}

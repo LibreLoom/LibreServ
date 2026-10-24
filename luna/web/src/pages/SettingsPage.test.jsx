@@ -213,11 +213,11 @@ describe("SettingsPage", () => {
     expect(screen.getByRole("button", { name: /^About$/i })).toBeTruthy();
   });
 
-  it("hides Cloud backup and Luna Connect when Connect is inactive on the device", async () => {
+  it("keeps Cloud backup but hides Luna Connect when Connect is inactive on the device", async () => {
     stubFetch("admin", false);
     renderPage();
     await screen.findByText("max");
-    expect(screen.queryByRole("button", { name: /^Cloud backup$/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /^Cloud backup$/i })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^Luna Connect$/i })).toBeNull();
     expect(screen.getByRole("button", { name: /^About$/i })).toBeTruthy();
   });

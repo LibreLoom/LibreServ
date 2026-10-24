@@ -4,6 +4,7 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import { dashboard as greetingMessages } from "../lib/greetings.jsx";
 import {
   backupRow,
+  cloudBackupRow,
   jsonResponse,
   renderDashboard,
   stubDashboardFetch,
@@ -14,9 +15,12 @@ vi.mock("../components/files/ProtectSheet.jsx", () => ({
 }));
 
 vi.mock("../components/cloud/RecoveryPhraseCheck.jsx", () => ({
-  default: ({ lunaId, onClose }) => (
+  default: ({ lunaId, words, onVerified, onLost, onClose }) => (
     <div data-testid="phrase-check">
       <span>{lunaId}</span>
+      <span data-testid="phrase-check-words">{words}</span>
+      <button onClick={onVerified}>Phrase verified</button>
+      <button onClick={onLost}>Lost phrase</button>
       <button onClick={onClose}>Close check</button>
     </div>
   ),
@@ -798,6 +802,19 @@ describe("DashboardPage", () => {
       const links = within(recentsCard()).getAllByRole("link");
       expect(links).toHaveLength(1);
       expect(links[0]).toHaveAttribute("href", "/files/d1?file=67.excalidraw");
+    });
+  });
+
+  describe("recovery phrase check", () => {
+    const DUE = { set: true, set_at: 0, luna_id: "luna-1", signing_public: "", check_due: true, phrase_words: 24 };
+
+    it("opens the check with the phrase length Luna reports, and closes it once the phrase is verified", async () => {
+      stubDashboardFetch({ cloudBackups: [cloudBackupRow()], phrase: DUE });
+      renderDashboard();
+      await userEvent.click(await screen.findByRole("button", { name: "Check now" }));
+      expect(screen.getByTestId("phrase-check-words")).toHaveTextContent("24");
+      await userEvent.click(screen.getByRole("button", { name: "Phrase verified" }));
+      expect(screen.queryByTestId("phrase-check")).not.toBeInTheDocument();
     });
   });
 
