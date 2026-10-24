@@ -707,12 +707,10 @@ const TOTALS_TIME_BUDGET: std::time::Duration = std::time::Duration::from_millis
 /// is not a real directory; a tree too large to finish yields a partial
 /// (`complete: false`) lower-bound answer rather than nothing.
 pub fn folder_totals(
-    conn: &rusqlite::Connection,
-    drive_id: &str,
+    drive: &DriveRow,
     rel: &str,
     include: &mut impl FnMut(&str) -> bool,
 ) -> Result<Option<FolderTotals>, FilesError> {
-    let drive = drive_root(conn, drive_id)?;
     let root = PathBuf::from(&drive.mount_point);
     let rel = canonical_rel(rel)?;
     let real = real_rel(&root, &rel).into_owned();

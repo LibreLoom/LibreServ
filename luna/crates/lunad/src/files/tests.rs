@@ -1003,7 +1003,9 @@ fn folder_totals_counts_nested_content_and_respects_the_lens() {
     std::fs::write(root.join("a/.hidden"), b"h").unwrap();
 
     let mut all = |_: &str| true;
-    let totals = folder_totals(&conn, &id, "a", &mut all).unwrap().unwrap();
+    let totals = folder_totals(&drive_root(&conn, &id).unwrap(), "a", &mut all)
+        .unwrap()
+        .unwrap();
     assert_eq!(totals.bytes, 5 + 2 + 1);
     assert_eq!(totals.files, 3);
     assert_eq!(totals.dirs, 1);
@@ -1014,7 +1016,7 @@ fn folder_totals_counts_nested_content_and_respects_the_lens() {
     // the granted folder inside still counts — an unreadable parent must
     // not hide a deeper grant.
     let mut only_b = |p: &str| p == "a/b";
-    let scoped = folder_totals(&conn, &id, "a", &mut only_b)
+    let scoped = folder_totals(&drive_root(&conn, &id).unwrap(), "a", &mut only_b)
         .unwrap()
         .unwrap();
     assert_eq!(scoped.bytes, 2);
@@ -1036,12 +1038,12 @@ fn folder_totals_counts_nested_content_and_respects_the_lens() {
 
     // Files and missing paths have no totals.
     assert!(
-        folder_totals(&conn, &id, "a/one.txt", &mut all)
+        folder_totals(&drive_root(&conn, &id).unwrap(), "a/one.txt", &mut all)
             .unwrap()
             .is_none()
     );
     assert!(matches!(
-        folder_totals(&conn, &id, "../escape", &mut all),
+        folder_totals(&drive_root(&conn, &id).unwrap(), "../escape", &mut all),
         Err(FilesError::Path(_))
     ));
 }
@@ -1061,7 +1063,9 @@ fn folder_totals_counts_a_link_but_never_follows_it() {
     std::os::unix::fs::symlink(&outside, root.join("a/far")).unwrap();
 
     let mut all = |_: &str| true;
-    let totals = folder_totals(&conn, &id, "a", &mut all).unwrap().unwrap();
+    let totals = folder_totals(&drive_root(&conn, &id).unwrap(), "a", &mut all)
+        .unwrap()
+        .unwrap();
     assert_eq!(totals.bytes, 1);
     assert_eq!(totals.files, 1);
     assert_eq!(totals.dirs, 0);
@@ -1260,7 +1264,7 @@ fn zip_and_folder_totals_also_refuse_raw_trash_names() {
     let prefix = crate::drives::drive_db::prefix_for(&root).unwrap();
     let raw = format!("{prefix}-trash");
 
-    assert!(folder_totals(&conn, &id, &raw, &mut |_| true).is_err());
+    assert!(folder_totals(&drive_root(&conn, &id).unwrap(), &raw, &mut |_| true).is_err());
     assert!(zip_plan(&conn, &id, &raw, false).is_err());
 }
 
