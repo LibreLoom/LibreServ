@@ -109,7 +109,7 @@ export default [
       asMember(w);
       w.sharing = { subjects: [], withMe: [{ id: "a", kind: "path", drive_id: "d1", drive_label: "Family photos", path: "Photos", album_id: "", name: "Photos", is_file: false, caps: "full", shared_by: "Max", exists: true }] };
     },
-    faults: [{ match: "DELETE /api/v1/access/members", mode: "500" }],
+    faults: [{ match: "DELETE /api/v1/access/members/*", mode: "500" }],
     check: ["Leave → confirm: the error shows inside the dialog in plain words", "The row is still there"],
   },
   {
@@ -217,7 +217,7 @@ export default [
     title: "Removing a link fails",
     url: "/shared",
     seed: (w) => { subject(w, { links: [link()] }); },
-    faults: [{ match: "DELETE /api/v1/access/links", mode: "500" }],
+    faults: [{ match: "DELETE /api/v1/access/links/*", mode: "500" }],
     check: ["Confirm remove: the error shows in the confirm dialog", "The link is still listed"],
   },
   {
@@ -400,7 +400,7 @@ export default [
     title: "Link opens slowly",
     url: "/s/tokfolder",
     seed: (w) => { guest(w); subject(w, { links: [{ ...link(), token: "tokfolder" }] }); },
-    faults: [{ match: "GET /s/tokfolder", mode: "slow:5000" }],
+    faults: [{ match: "GET /s/tokfolder*", mode: "slow:5000" }],
     check: ["'Opening the shared link…' shows the whole wait", "Page then appears without a flash of an error"],
   },
   {

@@ -12,8 +12,8 @@ describe("state gallery harness", () => {
 
   it("puts the scenario id in the query string, before any hash", () => {
     expect(scenarioFrameUrl("/files", "files/empty")).toBe("/files?__mock=files%2Fempty");
-    expect(scenarioFrameUrl("/settings#cloud_backup", "settings/phrase-not-set"))
-      .toBe("/settings?__mock=settings%2Fphrase-not-set#cloud_backup");
+    expect(scenarioFrameUrl("/settings#cloud_backup", "settings/phrase-check-wrong"))
+      .toBe("/settings?__mock=settings%2Fphrase-check-wrong#cloud_backup");
     expect(scenarioFrameUrl("/files?path=/a#x", "s")).toBe("/files?path=/a&__mock=s#x");
     for (const s of scenarios) {
       const u = new URL(scenarioFrameUrl(s.url, s.id), "http://luna.test");

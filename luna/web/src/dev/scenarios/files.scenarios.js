@@ -1,6 +1,6 @@
 // Files: browsing, trash, uploads, copy/move, private folders, backups, search,
 // viewers and editors. Handlers live in ../fake/handlers/files.js.
-import { drive, summary, user, backup, cloudBackup } from "../fake/world.js";
+import { drive, smartHealth, summary, user, backup, cloudBackup } from "../fake/world.js";
 import { addDir, addFile, addMany, demoTree, fsOpts, viewerSamples } from "../fake/handlers/files.js";
 
 const ago = (s) => Math.floor(Date.now() / 1000) - s;
@@ -15,7 +15,8 @@ const withBackupDrive = (w, over = {}) => {
 const asMember = (w, rows) => {
   w.users.push(user({ id: "u2", username: "sam", display_name: "Sam", role: "user" }));
   w.sessionUserId = "u2";
-  w.access = rows;
+  // The grants belong to Sam (u2); anyone else who signs in starts with none.
+  w.access = rows.map((r) => ({ user_id: "u2", ...r }));
 };
 const trashed = (w, name, folder = "") => {
   const fs = w.fs.d1;
@@ -86,8 +87,8 @@ export default [
   },
   {
     id: "files/moved-link", area: A, title: "Old link to a moved folder", url: "/files/d1?path=Old%20place",
-    seed: (w) => { demo(w); w.fs.d1.moved = { "Old place": "Documents" }; },
-    check: ["Opens Documents on its own", "A notice says it moved and to update bookmarks"],
+    seed: (w) => { demo(w); w.moves = [{ drive_id: "d1", old_path: "Old place", new_drive: "d1", new_path: "Documents" }]; },
+    check: ["Opens Documents on its own, not \"Drive not found\"", "A notice says it moved and to update bookmarks"],
   },
 
   // ── Making things and name collisions ─────────────────────────────────────
@@ -101,7 +102,7 @@ export default [
   },
   {
     id: "files/rename-while-open", area: A, title: "Rename a file, old link still works", url: "/files/d1?path=Documents&file=notes.txt",
-    check: ["Rename it from the viewer if offered", "Reload the old URL: follows to the new name with a notice"],
+    check: ["Rename it from the viewer if offered", "Toast confirms the rename", "Reload the old URL: follows to the new name with a notice"],
   },
 
   // ── Drive condition ───────────────────────────────────────────────────────
@@ -113,7 +114,7 @@ export default [
   {
     id: "files/full-drive", area: A, title: "Drive with no space left", url: "/files/d1",
     seed: (w) => { demo(w); w.summaries.d1 = summary("d1", { free_bytes: 0, used_bytes: 64_000_000_000 }); },
-    check: ["Upload a file → says the drive is full, offers what to do", "Creating a folder still works, a new empty file may not", "Nothing half-uploaded is left in the list"],
+    check: ["Upload a file → says the drive is full, offers what to do", "Creating a folder still works", "Nothing half-uploaded is left in the list"],
   },
   {
     id: "files/unplugged-at-start", area: A, title: "Drive is unplugged", url: "/files/d1",
@@ -122,18 +123,28 @@ export default [
   },
   {
     id: "files/unplugged-mid-browse", area: A, title: "Drive pulled out while browsing", url: "/files/d1?path=Documents",
-    check: ["Faults panel: make 'GET /api/v1/drives/d1/files' fail with 404 (message 'drive', code unknown_drive), then open a folder", "The unplugged message shows, not a blank list", "Remove the fault and press Try again: the list returns"],
-    faults: [],
+    faults: [{ match: "GET /api/v1/drives/d1/files", mode: "404", code: "unknown_drive", message: "Luna can't find this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in.", on: false }],
+    check: ["In Break things, tick the prepared rule (GET /api/v1/drives/d1/files → 404), then open a folder", "The unplugged message shows, not a blank list", "Untick the rule and press Try again: the list returns"],
   },
   {
     id: "files/drive-database-missing", area: A, title: "Drive plugged in but Luna's database for it is gone", url: "/files/d1",
-    faults: [{ match: "GET /api/v1/drives/d1/files", mode: "500", code: "missing_drive_db", message: "Luna's database for this drive is missing, but the drive is still plugged in. Remove it on the Files page, then add it again." }],
+    seed: (w) => { demo(w); w.driveDbMissing = ["d1"]; },
     check: ["Explains the database is missing and the drive is fine", "Does not say 'unplugged'"],
   },
   {
     id: "files/failing-drive", area: A, title: "Drive reports it is failing", url: "/files/d1",
-    seed: (w) => { demo(w); w.health.d1 = { available: true, overall: "failed", reallocated_sectors: 120, temperature_c: 55 }; },
-    check: ["A clear warning to back up and replace the drive", "Browsing still works"],
+    seed: (w) => { demo(w); w.health.d1 = smartHealth({ verdict: "failing", overall: "failed", status_bits: 8, reallocated_sectors: 120, temperature_c: 55, signals: [{ kind: "self_check_failed", level: "failing", value: null, limit: null }, { kind: "reallocated_sectors", level: "failing", value: 120, limit: 100 }, { kind: "temperature", level: "note", value: 55, limit: 60 }] }); },
+    check: ["A notice above the files says the drive is failing, with a link to what's wrong", "Drive health on Files lists what tripped and What to do", "Browsing still works"],
+  },
+  {
+    id: "files/health-unknown", area: A, title: "Drive gives no health report", url: "/files/d1",
+    seed: (w) => { demo(w); w.health.d1 = smartHealth({ available: false, reason: "no_report", verdict: "unknown", overall: "unknown", model: null, serial: null, temperature_c: null, reallocated_sectors: null, pending_sectors: null, uncorrectable_sectors: null }); },
+    check: ["Drive health says Luna got no report from this drive, in plain words", "No warning notice above the files"],
+  },
+  {
+    id: "files/drive-healthy-details", area: A, title: "Healthy drive, a little warm", url: "/files/d1",
+    seed: (w) => { demo(w); w.health.d1 = smartHealth({ temperature_c: 52, signals: [{ kind: "temperature", level: "note", value: 52, limit: 60 }] }); },
+    check: ["Health details show a warm row for 52°C", "No warning notice above the files"],
   },
   {
     id: "files/listing-slow", area: A, title: "Folder takes ages to open", url: "/files/d1",
@@ -142,8 +153,8 @@ export default [
   },
   {
     id: "files/listing-error", area: A, title: "Listing fails with a server error", url: "/files/d1",
-    faults: [{ match: "GET /api/v1/drives/d1/files", mode: "500", message: "Something broke inside Luna." }],
-    check: ["Plain message and a Try again button", "No raw JSON or status codes"],
+    faults: [{ match: "GET /api/v1/drives/d1/files", mode: "500", message: "Luna couldn't read this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in." }],
+    check: ["Only the folder listing fails (the rest of the page still loads)", "Plain message and a Try again button", "No raw JSON or status codes"],
   },
 
   // ── Trash ─────────────────────────────────────────────────────────────────
@@ -164,7 +175,7 @@ export default [
   {
     id: "files/trash-restore-folder-gone", area: A, title: "Restore into a folder that was deleted", url: "/files/d1?path=.luna-trash",
     seed: (w) => { demo(w); trashed(w, "lost.txt", "Vanished/Deep"); },
-    check: ["Restore either re-creates the folders or explains clearly", "Nothing breaks"],
+    check: ["Restore re-creates Vanished/Deep and puts lost.txt back there", "Nothing breaks"],
   },
   {
     id: "files/trash-empty-all", area: A, title: "Empty the whole trash", url: "/files/d1?path=.luna-trash",
@@ -188,7 +199,7 @@ export default [
   },
   {
     id: "files/upload-fails", area: A, title: "Upload fails (server error)", url: "/files/d1?path=Documents",
-    faults: [{ match: "POST /api/v1/drives/d1/files/upload", mode: "500", message: "Luna couldn't write to the drive." }],
+    faults: [{ match: "POST /api/v1/drives/d1/files/upload", mode: "500", message: "Luna couldn't save this file. Check that the drive is connected and try again." }],
     check: ["Row shows the failure in plain words", "Retry is offered; Remove clears the row", "File does not appear in the list"],
   },
   {
@@ -201,13 +212,13 @@ export default [
   },
   {
     id: "files/upload-huge-flaky", area: A, title: "Huge upload, connection drops once", url: "/files/d1?path=Documents",
-    faults: [{ match: "PUT /api/v1/uploads", mode: "503", once: true }],
+    faults: [{ match: "PUT /api/v1/uploads/*", mode: "503", once: true }],
     check: ["Pick a file larger than 32 MB", "First piece fails, Luna retries by itself after a pause", "Upload completes without you doing anything"],
   },
   {
     id: "files/upload-no-space-huge", area: A, title: "Huge upload that can't fit", url: "/files/d1?path=Documents",
     seed: (w) => { demo(w); w.summaries.d1.free_bytes = 10_000_000; },
-    check: ["Pick a file larger than 32 MB → refused up front as 'drive is full'", "No endless retry"],
+    check: ["Pick a file larger than 32 MB → refused up front: \"This drive is full. Free up some space and try again.\"", "No endless retry"],
   },
   {
     id: "files/upload-offline", area: A, title: "Go offline during an upload", url: "/files/d1?path=Documents",
@@ -216,7 +227,7 @@ export default [
   {
     id: "files/upload-into-readonly", area: A, title: "Upload into a read-only drive", url: "/files/d1",
     seed: (w) => { demo(w); w.drives[0].state = "readonly"; },
-    check: ["Drop a file anyway → plain read-only message", "No row stuck at 100%"],
+    check: ["Drop a file anyway → the failure says the drive is read-only", "No row stuck at 100%"],
   },
   {
     id: "files/upload-folder", area: A, title: "Upload a whole folder", url: "/files/d1?path=Documents",
@@ -230,41 +241,41 @@ export default [
     check: ["Copy → pick Backup drive → progress card appears with %", "Card disappears when done, copy exists on the other drive", "Cancel mid-way stops it"],
   },
   {
-    id: "files/move-job", area: A, title: "Move files into another folder", url: "/files/d1?path=Documents",
-    seed: (w) => { demo(w); fsOpts(w).jobMs = 5000; },
-    check: ["Move notes.txt into Taxes → card shows Moving…", "When finished it is gone from here and inside Taxes", "Drag-and-drop onto a folder does the same"],
+    id: "files/move-job", area: A, title: "Move a folder to another drive", url: "/files/d1?path=Photos",
+    seed: (w) => { demo(w); withBackupDrive(w); fsOpts(w).jobMs = 5000; },
+    check: ["Move 2025 to Backup drive → the card shows progress while Luna copies", "When done it is on Backup drive and the original is in this drive's Trash", "A move inside one drive (drag notes.txt onto a folder) is a single rename: it finishes at once, with no progress"],
   },
   {
     id: "files/move-fails-partway", area: A, title: "Move fails halfway through", url: "/files/d1?path=Photos",
-    seed: (w) => { demo(w); addMany(w, "d1", "Photos/2024/Spain", 40); fsOpts(w).jobMs = 6000; fsOpts(w).jobFailAt = 0.5; fsOpts(w).jobFailMessage = "The drive stopped answering."; },
-    check: ["Move Spain into 2025 → starts, then stops at about half", "Luna tells you it failed (not silent)", "Some files moved, the rest are still in place; nothing is lost or duplicated"],
+    seed: (w) => { demo(w); withBackupDrive(w); addMany(w, "d1", "Photos/2024/Spain", 40); fsOpts(w).jobMs = 6000; fsOpts(w).jobFailAt = 0.5; },
+    check: ["Move Spain to Backup drive → starts, then stops at about half", "Luna tells you it failed (not silent), and says nothing was moved", "Spain is still in Photos/2024 untouched, and no half copy is left on Backup drive"],
   },
   {
     id: "files/copy-fails-drive-full", area: A, title: "Copy runs out of space on the other drive", url: "/files/d1?path=Photos",
-    seed: (w) => { demo(w); withBackupDrive(w); w.summaries.d2.free_bytes = 100_000_000_000; fsOpts(w).jobFailAt = 0.6; fsOpts(w).jobFailMessage = "The Backup drive is full."; },
-    check: ["Copy Photos to Backup drive → fails around 60%", "Message names the full drive", "Partial copy is explained or cleaned up"],
+    seed: (w) => { demo(w); withBackupDrive(w); w.summaries.d2.free_bytes = 2_000_000; },
+    check: ["Copy Photos to Backup drive → starts, then fails when the drive fills (under half way)", "Message is \"Backup drive is full. Free up some space on it and try again.\"", "It says Luna removed the partial copy, and none is left on Backup drive"],
   },
   {
     id: "files/copy-to-full-drive", area: A, title: "Copy to a drive with no room at all", url: "/files/d1?path=Photos",
     seed: (w) => { demo(w); withBackupDrive(w); w.summaries.d2.free_bytes = 1000; },
-    check: ["Copy Photos → refused straight away: not enough room", "No job card is left behind"],
+    check: ["Copy Photos → Luna does not check room first: the job starts and fails almost at once", "Message names Backup drive as full and says the partial copy was removed"],
   },
   {
     id: "files/move-into-itself", area: A, title: "Move a folder into itself", url: "/files/d1",
-    check: ["Move Photos into Photos/2024 → refused in plain words", "Nothing changes"],
+    check: ["Move Photos into Photos/2024 → refused (\"Luna can't use that path.\"); better still, the app should not offer it", "Nothing changes"],
   },
   {
     id: "files/move-name-clash", area: A, title: "Copy onto a name that exists", url: "/files/d1?path=Documents",
-    check: ["Copy notes.txt into the same folder → the copy gets a new name like 'notes (2).txt'", "Original untouched"],
+    check: ["Copy notes.txt into the same folder → Luna refuses with \"A file or folder with this name is already there. Choose a different destination.\" (code exists) unless the app asks to keep both", "Original untouched"],
   },
   {
     id: "files/move-readonly-dest", area: A, title: "Move to a read-only drive", url: "/files/d1?path=Photos",
     seed: (w) => { demo(w); withBackupDrive(w, { state: "readonly" }); },
-    check: ["The read-only drive is not offered, or refused with a reason"],
+    check: ["Dropping onto the read-only drive fails with an error on the job (lunad words it generically)", "The original is untouched"],
   },
   {
     id: "files/job-server-error", area: A, title: "Starting a copy fails", url: "/files/d1?path=Photos",
-    faults: [{ match: "POST /api/v1/jobs", mode: "500", message: "Luna's job queue isn't running." }],
+    faults: [{ match: "POST /api/v1/jobs", mode: "503", message: "Luna's job queue isn't responding." }],
     check: ["Error is visible next to what you did", "No ghost progress card"],
   },
 
@@ -277,16 +288,16 @@ export default [
   {
     id: "files/private-others", area: A, title: "Someone else's private folder (I'm an Admin)", url: "/files/d1",
     seed: (w) => { demo(w); w.users.push(user({ id: "u2", username: "sam", display_name: "Sam" })); addDir(w, "d1", "Sam's stuff", { private: true, owner: "u2" }); addFile(w, "d1", "Sam's stuff/x.txt", { text: "x" }); },
-    check: ["Folder is listed but marked private", "Opening it says it is private and whose it is — not a blank list or raw error", "Search never shows its contents", "Protect sheet says only the owner can back it up"],
+    check: ["The Admin does not see Sam's private folder in the list (the Admin role stops at a private wall)", "Opening its address directly says the Admin has no permission to view this folder — not a blank list or raw error", "Search never shows its contents"],
   },
   {
     id: "files/private-orphaned", area: A, title: "Private folders of a removed person", url: "/settings#users",
-    seed: (w) => { demo(w); addDir(w, "d1", "Ex's secrets", { private: true, owner: "u9", ownerName: "Jo (removed)" }); addFile(w, "d1", "Ex's secrets/y.txt", { text: "y" }); addDir(w, "d1", "Ex's other", { private: true, owner: "u9" }); },
+    seed: (w) => { demo(w); w.deletedUsers.push({ id: "u9", username: "jo", display_name: "Jo", deleted_at: ago(9 * 86400) }); addDir(w, "d1", "Ex's secrets", { private: true, owner: "u9" }); addFile(w, "d1", "Ex's secrets/y.txt", { text: "y" }); addDir(w, "d1", "Ex's other", { private: true, owner: "u9" }); },
     check: ["Users page offers to clean up leftover private folders for Jo", "Delete asks first and says the files go for good", "Afterwards the folders are gone from Files"],
   },
   {
     id: "files/private-orphaned-readonly", area: A, title: "Orphaned private folders on a read-only drive", url: "/settings#users",
-    seed: (w) => { demo(w); w.drives[0].state = "readonly"; addDir(w, "d1", "Left behind", { private: true, owner: "u9", ownerName: "Jo (removed)" }); },
+    seed: (w) => { demo(w); w.deletedUsers.push({ id: "u9", username: "jo", display_name: "Jo", deleted_at: ago(9 * 86400) }); w.drives[0].state = "readonly"; addDir(w, "d1", "Left behind", { private: true, owner: "u9" }); },
     check: ["Cleanup warns that the drive is read-only and some content remains", "Toast is a warning, not a success"],
   },
   {
@@ -312,7 +323,7 @@ export default [
   },
   {
     id: "files/protect-problem", area: A, title: "A backup reports a problem", url: "/files/d1",
-    seed: (w) => { demo(w); withBackupDrive(w); w.backups.push(backup({ source_drive: "d1", source_path: "Documents", source_name: "Documents", state: "problem", last_error: "The Backup drive is nearly full." })); fsOpts(w).backupProblem = "The Backup drive is nearly full. Free some space and try again."; },
+    seed: (w) => { demo(w); withBackupDrive(w); w.backups.push(backup({ source_drive: "d1", source_path: "Documents", source_name: "Documents", state: "failing", hard: true, last_error: "Backup drive is full. Free up some space on it and try again." })); fsOpts(w).backupProblem = "Backup drive is full. Free up some space on it and try again."; },
     check: ["Row shows the problem", "Back up now shows the same problem next to the backup, not in a toast"],
   },
   {
@@ -324,16 +335,6 @@ export default [
     id: "files/protect-cloud-on", area: A, title: "Cloud backup with Luna Connect on", url: "/files/d1",
     seed: (w) => { demo(w); w.connect = { enabled: true, card_on_file: true }; w.connectActive = true; w.cloudBackups.push(cloudBackup({ source_drive: "d1", source_path: "Documents", source_name: "Documents", source_missing: false })); },
     check: ["Documents shows a cloud backup row with last backed up time", "Photos offers to start one", "Older versions option asks first"],
-  },
-  {
-    id: "files/cloud-backup-no-phrase", area: A, title: "Cloud backup before a recovery phrase", url: "/files/d1",
-    seed: (w) => {
-      demo(w);
-      w.connect = { enabled: true, card_on_file: true };
-      w.connectActive = true;
-      w.phrase = { set: false, set_at: 0, luna_id: "", signing_public: "", check_due: false };
-    },
-    check: ["Open Protect on Documents and choose Back up to the cloud", "The recovery phrase setup opens first", "Closing it leaves the sheet as it was, with no backup started", "Saving the phrase starts the cloud backup"],
   },
   {
     id: "files/protect-cloud-no-card", area: A, title: "Cloud backup, no payment card", url: "/files/d1",
@@ -368,7 +369,7 @@ export default [
   {
     id: "files/backups-restore-fails", area: A, title: "Restoring a version fails", url: "/files/d2",
     seed: (w) => { demo(w); withBackupDrive(w); w.backups.push(backup({ source_drive: "d1", source_path: "Documents", source_name: "Documents", target_drive: "d2" })); },
-    faults: [{ match: "POST /api/v1/drives/d2/backups", mode: "500", message: "The original drive isn't plugged in." }],
+    faults: [{ match: "POST /api/v1/drives/d2/backups/*/restore", mode: "409", message: "Connect Family photos to restore to the original folder." }],
     check: ["Error stays inside the Versions window, in words", "Window can be closed and reopened"],
   },
 
@@ -393,7 +394,7 @@ export default [
   },
   {
     id: "files/search-error", area: A, title: "Search fails", url: "/files",
-    seed: (w) => { demo(w); fsOpts(w).search.error = "The search index is being rebuilt."; },
+    seed: (w) => { demo(w); fsOpts(w).search.error = "Luna's index is busy. Try again."; },
     check: ["Plain message in the search box", "Closing and reopening search works"],
   },
   {
@@ -432,7 +433,7 @@ export default [
   { id: "files/view-missing", area: A, title: "Open a file that was just deleted", url: "/files/d1?path=Documents&file=ghost.txt", check: ["Says the file isn't here anymore", "Doesn't spin forever"] },
   {
     id: "files/view-load-error", area: A, title: "File contents fail to load", url: open("notes.txt"), seed: viewerSamples,
-    faults: [{ match: "GET /api/v1/drives/d1/files/content", mode: "500", message: "Luna couldn't read this file." }],
+    faults: [{ match: "GET /api/v1/drives/d1/files/content", mode: "500", message: "Luna couldn't read this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in." }],
     check: ["Plain error with a way to retry or close", "Editor does not open on an empty document"],
   },
   {
@@ -450,12 +451,12 @@ export default [
   { id: "files/edit-text-save", area: A, title: "Edit and save a text file", url: open("notes.txt"), seed: viewerSamples, check: ["Type something: 'unsaved' indicator shows", "Save (button and Ctrl+S) → 'Saved just now'", "Close and reopen: change is there", "Autosave kicks in after a pause"] },
   {
     id: "files/edit-text-conflict", area: A, title: "Save conflict (file changed meanwhile)", url: open("notes.txt"), seed: viewerSamples,
-    faults: [{ match: "POST /api/v1/drives/d1/files/upload", mode: "409", message: "This file was changed by someone else since you opened it." }],
+    faults: [{ match: "POST /api/v1/drives/d1/files/upload", mode: "409", code: "exists", message: "A file with this name is already here. Rename it or choose another." }],
     check: ["Edit and press Save → conflict explained in plain words", "Your text is NOT lost; you can copy it", "Closing asks before throwing away unsaved work"],
   },
   {
     id: "files/edit-text-save-error", area: A, title: "Save fails (server error)", url: open("notes.txt"), seed: viewerSamples,
-    faults: [{ match: "POST /api/v1/drives/d1/files/upload", mode: "500", message: "Luna couldn't write to the drive." }],
+    faults: [{ match: "POST /api/v1/drives/d1/files/upload", mode: "500", message: "Luna couldn't save this file. Check that the drive is connected and try again." }],
     check: ["Edit, Save → error shown, still marked unsaved", "Autosave retries without a flood of messages", "Remove the fault, Save works"],
   },
   {

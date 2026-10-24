@@ -1,5 +1,6 @@
 import { SIG_PUBLIC_LEN } from "@libreloom/ui/lib/cloud/backupCrypto.js";
 import { cloudBackup, DAY, DEFAULT_NOW, drive, HOUR, summary, user } from "../fake/world.js";
+import { addDir } from "../fake/handlers/files.js";
 
 const at = (s) => Math.floor(DEFAULT_NOW / 1000) - s;
 
@@ -55,17 +56,24 @@ export default [
     title: "Private folders left by removed people",
     url: "/settings#users",
     seed: (w) => {
-      w.orphans = {
-        offline_drives: ["Old USB"],
-        owners: [
-          { user_id: "gone1", username: "alex", display_name: "Alex", total: 4, drives: [{ drive_label: "Family photos", count: 3, trash_count: 1, readonly: false }] },
-          { user_id: "gone2", username: "kit", display_name: "", total: 1, drives: [{ drive_label: "Backup drive", count: 1, trash_count: 0, readonly: true }] },
-        ],
-      };
-      w.ownerless = 2;
       withPeople(w);
+      w.deletedUsers.push(
+        { id: "gone1", username: "alex", display_name: "Alex", deleted_at: at(9 * DAY) },
+        { id: "gone2", username: "kit", display_name: "", deleted_at: at(30 * DAY) },
+      );
+      // Alex left three private folders on Family photos and one in its Trash.
+      for (let n = 1; n <= 3; n += 1) addDir(w, "d1", `Alex private ${n}`, { private: true, owner: "gone1" });
+      w.fs.d1.trash.push({ key: "1790000000-Alex old", original_path: "Alex old", trashed_at: at(5 * DAY), nodes: { "": { kind: "dir", modified: at(9 * DAY) } }, private_boundary: { path: "Alex old", owner: "gone1" } });
+      // Kit's is on a read-only drive, and Old USB is unplugged.
+      w.drives.push(drive({ id: "d2", label: "Backup drive", state: "readonly" }), drive({ id: "d3", label: "Old USB", state: "missing" }));
+      w.summaries.d2 = summary("d2");
+      w.summaries.d3 = { id: "d3", mounted: false, total_bytes: null, free_bytes: null, used_bytes: null, shortcuts: [] };
+      addDir(w, "d2", "Kit private", { private: true, owner: "gone2" });
+      // Two private folders nobody owns (they came with a drive from another Luna).
+      addDir(w, "d1", "Imported A", { private: true });
+      addDir(w, "d1", "Imported B", { private: true });
     },
-    check: ["Two removed people listed with where their folders are", "Delete is disabled for the read-only one", "A line says Old USB isn't connected", "'Give to' flow hands the 2 ownerless folders to someone"],
+    check: ["Two removed people listed with where their folders are (Alex: 3 folders and 1 item in Trash)", "Delete is disabled for the read-only one", "A line says Old USB isn't connected", "'Give to' flow hands the 2 ownerless folders to someone"],
   },
   {
     id: "settings/users-last-admin",
@@ -88,7 +96,7 @@ export default [
     title: "Removing a person fails",
     url: "/settings#users",
     seed: withPeople,
-    faults: [{ match: "DELETE /api/v1/users", mode: "409", message: "Sam is still signed in on another device." }],
+    faults: [{ match: "DELETE /api/v1/users/*", mode: "500", message: "Luna could not remove this user. Try again." }],
     check: ["The dialog shows the reason and stays open"],
   },
   // ── Edit user ─────────────────────────────────────────────────────────────
@@ -128,7 +136,7 @@ export default [
     title: "Saving fails",
     url: "/settings/users/u2",
     seed: withPeople,
-    faults: [{ match: "PATCH /api/v1/users", mode: "500" }],
+    faults: [{ match: "PATCH /api/v1/users/*", mode: "500", message: "Luna could not update users. Try again." }],
     check: ["Error shows on the page and typed changes stay"],
   },
   // ── Security (access) ─────────────────────────────────────────────────────
@@ -200,10 +208,10 @@ export default [
   {
     id: "settings/tokens-create-fails",
     area: "Settings: Security",
-    title: "Creating a token fails; duplicate name",
+    title: "Creating a token with a blank name",
     url: "/settings#security",
     seed: (w) => { w.tokens = [{ id: "t1", name: "Phone app", created_at: at(DAY), last_used_at: null, expires_at: null }]; },
-    check: ["Name 'Phone app' → 'already have a token' error inside the dialog", "An empty name is refused"],
+    check: ["An empty name is refused with \"Give this device a name between 1 and 80 characters.\" inside the dialog", "Luna allows two tokens with the same name: 'Phone app' again simply adds a second one"],
   },
   {
     id: "settings/tokens-load-fails",
@@ -220,8 +228,8 @@ export default [
     title: "Luna Connect is off",
     url: "/settings",
     check: [
-      "Neither Cloud backup nor Luna Connect is in the sidebar",
-      "No Cloud backup or Luna Connect card appears anywhere on the page",
+      "Cloud backup is in the sidebar, with the recovery phrase card and the line saying it needs Luna Connect",
+      "Luna Connect is not in the sidebar",
       "Settings opens on Appearance",
     ],
   },
@@ -255,7 +263,7 @@ export default [
     title: "Running a cloud backup fails",
     url: "/settings#cloud_backup",
     seed: (w) => { w.connect = { enabled: true, connect_active: true, card_on_file: true }; w.connectActive = true; w.cloudBackups = [cloudBackup()]; },
-    faults: [{ match: "POST /api/v1/cloud/backups", mode: "500", message: "Couldn't reach the cloud." }],
+    faults: [{ match: "POST /api/v1/cloud/backups/*/run", mode: "502", message: "Luna Connect couldn't be reached. Check your internet connection and try again." }],
     check: ["Problem stays on the backup card, not a toast"],
   },
   {
@@ -271,18 +279,6 @@ export default [
       w.phraseWrong = true;
     },
     check: ["Any valid-looking 12 or 24 words are refused with a plain message", "The reminder stays until a check succeeds"],
-  },
-  {
-    id: "settings/phrase-not-set",
-    area: "Settings: Cloud backup",
-    title: "Setting up a recovery phrase for the first time",
-    url: "/settings#cloud_backup",
-    seed: (w) => {
-      w.connect = { enabled: true, connect_active: true, card_on_file: true };
-      w.connectActive = true;
-      w.phrase = { set: false, set_at: 0, luna_id: "", signing_public: "", check_due: false };
-    },
-    check: ["Creating the phrase shows 12 words (or 24 if chosen) once", "Confirming them marks the phrase as set"],
   },
   {
     id: "settings/restore-needed",
@@ -309,21 +305,17 @@ export default [
     check: ["Private restore card appears with the number of private areas", "Wrong words give the 'check each word' message"],
   },
   {
-    id: "settings/phrase-member-not-set",
+    id: "settings/phrase-24-words",
     area: "Settings: Cloud backup",
-    title: "Member, Connect on, no recovery phrase",
+    title: "Recovery phrase check for a 24-word phrase",
     url: "/settings#cloud_backup",
     seed: (w) => {
-      asMember(w);
       w.connect = { enabled: true, connect_active: true, card_on_file: true };
       w.connectActive = true;
-      w.phrase = { set: false, set_at: 0, luna_id: "", signing_public: "", check_due: false, admin_has_phrase: false };
+      w.cloudBackups = [cloudBackup()];
+      w.phrase = { ...w.phrase, phrase_words: 24, check_due: true };
     },
-    check: [
-      "Sam sees Cloud backup in the sidebar and no Luna Connect or Users",
-      "The recovery phrase card shows, with a button to set up a phrase",
-      "With no Admin phrase, a line says shared backups wait until an Admin sets one",
-    ],
+    check: ["The check shows 24 boxes and no switch between 12 and 24", "Any valid 24 words pass"],
   },
   {
     id: "settings/phrase-set-check-due",
@@ -462,7 +454,7 @@ export default [
     area: "Settings: About",
     title: "Connect rejected the device token",
     url: "/settings#about",
-    seed: (w) => { w.connect = { enabled: true, connect_active: true, device_token_error: "Luna Connect no longer accepts this device token." }; w.connectActive = true; },
+    seed: (w) => { w.connect = { enabled: false, connect_active: false, device_token_error: "Luna Connect did not accept this device token. It may be mistyped, revoked, or meant for a different Luna. Open Luna on a phone or computer, then go to Settings → About → Advanced and paste a new device token." }; w.connectActive = false; },
     check: ["Error is shown in plain words", "Replacing the token clears it"],
   },
   {
@@ -475,9 +467,10 @@ export default [
       w.systemChecks = {
         overall_pass: false,
         checks: {
-          disk_space: { status: "failed", message: "Storage space is nearly gone.", category: "storage" },
-          clock: { status: "warning", message: "The clock may be wrong.", category: "system" },
-          database: { status: "passed", message: "Working", category: "system" },
+          drive_d1_smart: { status: "failed", message: "Drive 1 is failing. Copy your files to another drive now.", category: "drives" },
+          disk_space: { status: "failed", message: "Luna's own storage (its system disk) is almost full. Free some space on it, or Luna may stop working.", more: "This is the disk where Luna keeps its accounts and settings; your files are on your drives.", category: "system" },
+          clock: { status: "warning", message: "The clock may be off.", more: "Luna sets its clock over the internet and hasn't managed to yet, so new and changed files may get wrong dates. Check that your router or modem is online, then check again in a minute.", category: "system" },
+          database: { status: "passed", message: "Luna's database is working.", category: "system" },
         },
       };
     },

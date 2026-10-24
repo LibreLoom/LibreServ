@@ -177,7 +177,7 @@ del("/api/v1/access/links/:id", ({ world, params }) => {
   const hit = findLink(world, params.id);
   if (!hit) return fail(404, "That link is already gone.");
   hit.s.links = hit.s.links.filter((x) => x !== hit.l);
-  (sharing(world).revoked ||= new Set()).add(hit.l.token);
+  (sharing(world).revoked ||= []).push(hit.l.token);
   return {};
 });
 
@@ -220,7 +220,8 @@ get("/api/v1/access/mine", ({ world, user }) => {
 });
 
 get("/api/v1/me/access", ({ world, user }) => [
-  ...(world.access || []),
+  // Grants made straight on the world apply to the person named in `user_id`, or to any Member when none is named.
+  ...(world.access || []).filter((r) => !r.user_id || r.user_id === user.id).map(({ user_id: _who, ...row }) => ({ kind: "path", album_id: "", ...row })),
   ...myRows(world, user).filter((r) => r.exists !== false).map(({ kind, drive_id, path, album_id, caps }) => ({ kind, drive_id, path, album_id, caps })),
 ]);
 
