@@ -5,6 +5,7 @@ import { MemoryRouter } from "react-router-dom";
 import { ThemeProvider } from "@libreloom/ui/context/ThemeContext.jsx";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import { AuthProvider } from "../../context/AuthContext";
+import { FileOpsProvider } from "../../context/FileOpsContext.jsx";
 import DriveFileExplorer from "./DriveFileExplorer.jsx";
 
 const json = (data, status = 200) =>
@@ -42,9 +43,11 @@ function renderExplorer({ listing = [], mine = [], initialEntries = ["/"], path,
     <ToastProvider>
       <QueryClientProvider client={client}>
         <MemoryRouter initialEntries={initialEntries}>
-          <AuthProvider>
-            <DriveFileExplorer driveId="d1" driveLabel="Photos" isAdmin path={path} />
-          </AuthProvider>
+          <FileOpsProvider>
+            <AuthProvider>
+              <DriveFileExplorer driveId="d1" driveLabel="Photos" isAdmin path={path} />
+            </AuthProvider>
+          </FileOpsProvider>
         </MemoryRouter>
       </QueryClientProvider>
     </ToastProvider>

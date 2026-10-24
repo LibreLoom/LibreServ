@@ -131,6 +131,25 @@ export async function putBinary(path, body, options = {}) {
 }
 
 /**
+ * An ApiError from a failed XHR, carrying the parsed body as `code` and `data`
+ * the same way `request` does.
+ * @param {XMLHttpRequest} xhr
+ */
+function xhrApiError(xhr) {
+  let message = "";
+  let code = null;
+  let data;
+  try {
+    data = JSON.parse(xhr.responseText || "{}");
+    message = data?.error || "";
+    if (typeof data?.code === "string" && data.code) code = data.code;
+  } catch {
+    data = undefined;
+  }
+  return new ApiError(xhr.status, message || `Request failed (${xhr.status})`, code, data);
+}
+
+/**
  * PUT binary with upload-byte progress (XHR). Use for large chunked uploads so
  * the bar moves while a chunk is still in flight; fetch cannot report that.
  *
@@ -192,13 +211,7 @@ export function putBinaryProgress(path, body, options = {}) {
         }
         return;
       }
-      let message = "";
-      try {
-        message = JSON.parse(xhr.responseText || "{}").error || "";
-      } catch {
-        // fall through
-      }
-      reject(new ApiError(xhr.status, message || `Request failed (${xhr.status})`));
+      reject(xhrApiError(xhr));
     };
 
     xhr.onerror = () => {
@@ -270,13 +283,7 @@ export function postFormProgress(path, formData, options = {}) {
         }
         return;
       }
-      let message = "";
-      try {
-        message = JSON.parse(xhr.responseText || "{}").error || "";
-      } catch {
-        // fall through
-      }
-      reject(new ApiError(xhr.status, message || `Request failed (${xhr.status})`));
+      reject(xhrApiError(xhr));
     };
 
     xhr.onerror = () => {

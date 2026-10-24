@@ -51,11 +51,8 @@ export function existsDecision(existingKind, ctx = {}) {
  * @param {{
  *   existingKind?: "file"|"dir",
  *   sameFolder?: boolean,
- *   uncodedConflictIsExists?: boolean,
  * }} [ctx]
  *   `sameFolder`: a copy into its own folder (no Replace).
- *   `uncodedConflictIsExists`: multipart upload errors come back from the XHR
- *   helpers without `code`/`data`, so a bare 409 there means "name taken".
  * @returns {Classified}
  */
 export function classifyError(err, kind, ctx = {}) {
@@ -80,7 +77,7 @@ export function classifyError(err, kind, ctx = {}) {
     };
   }
 
-  const isExists = status === 409 && (code === "exists" || (!code && ctx.uncodedConflictIsExists));
+  const isExists = status === 409 && code === "exists";
   if (isExists) {
     const existingKind =
       e.data?.existing_kind === "dir" || e.data?.existing_kind === "file"

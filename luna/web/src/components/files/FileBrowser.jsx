@@ -5,6 +5,7 @@ import { defaultRangeExtractor, useWindowVirtualizer } from "@tanstack/react-vir
 import {
   Archive,
   Check,
+  ChevronDown,
   Copy,
   Download,
   Eye,
@@ -12,6 +13,7 @@ import {
   File as FileIcon,
   Folder,
   FolderInput,
+  FolderUp,
   Pencil,
   Search,
   SearchX,
@@ -81,7 +83,7 @@ function folderListingError(error) {
   if (unplugged) return UNPLUGGED_DRIVE_MESSAGE;
   return message || "Luna couldn't open this folder. Try again.";
 }
-import { filesFromDataTransfer, filesFromFileList } from "../../lib/collectUploadFiles.js";
+import { filesFromFileList, takeDropped } from "../../lib/collectUploadFiles.js";
 import {
   LUNA_DRIVE_MIME,
   LUNA_PATHS_MIME,
@@ -126,6 +128,19 @@ function cssEscape(value) {
   }
   return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
+
+/** `webkitdirectory` picks a whole folder; React's input types don't list it. */
+const FOLDER_INPUT = { webkitdirectory: "" };
+
+/** Folder pickers need `webkitdirectory`; a few browsers lack it. */
+function browserCanPickFolder() {
+  return typeof document !== "undefined" && "webkitdirectory" in document.createElement("input");
+}
+
+const UPLOAD_MENU_OPTIONS = [
+  { value: "files", label: "Upload files", icon: UploadCloud },
+  { value: "folder", label: "Upload a folder", icon: FolderUp },
+];
 
 const SORT_OPTIONS = [
   { value: "name-asc", label: "Name A–Z" },
@@ -228,7 +243,7 @@ function compareEntries(a, b, sortKey) {
  *   onRename?: (ctx: FileBrowserRowContext) => void,
  *   onDelete?: (paths: string[]) => void,
  *   onOpenFile?: (ctx: FileBrowserRowContext) => void,
- *   onUploadFiles?: (files: File[], destPath: string) => void | Promise<void>,
+ *   onUploadFiles?: (input: { dropped: import("../../lib/collectUploadFiles.js").DroppedItems } | { files: File[] }, destPath: string) => void,
  *   onInternalMove?: (paths: string[], destFolder: string, destDriveId?: string, sourceDriveId?: string) => void | Promise<void>,
  *   renderRowActions?: (ctx: FileBrowserRowContext) => import("react").ReactNode,
  *   renderSelectionActions?: (paths: string[], rows: FileBrowserRowContext[]) => import("react").ReactNode,
@@ -315,6 +330,8 @@ export default function FileBrowser({
   const springLoadTimerRef = useRef(/** @type {number|null} */ (null));
   const springLoadTargetRef = useRef(/** @type {string|null} */ (null));
   const filePicker = useRef(/** @type {HTMLInputElement|null} */ (null));
+  const folderPicker = useRef(/** @type {HTMLInputElement|null} */ (null));
+  const canPickFolder = browserCanPickFolder();
   const listRef = useRef(/** @type {HTMLUListElement|null} */ (null));
   const appliedSelectRef = useRef(/** @type {string|null} */ (null));
   const folderChromeRef = useRef(/** @type {HTMLDivElement|null} */ (null));
@@ -749,6 +766,11 @@ export default function FileBrowser({
     filePicker.current.click();
     return true;
   }, { label: "Upload files", group: "Files", enabled: keysOn && enableUploadDrop });
+  useShortcut("Shift+U", () => {
+    if (!folderPicker.current) return false;
+    folderPicker.current.click();
+    return true;
+  }, { label: "Upload a folder", group: "Files", enabled: keysOn && enableUploadDrop && canPickFolder });
   const listingForbidden = Boolean(
     listing.isError
       && forbiddenState
@@ -974,16 +996,16 @@ export default function FileBrowser({
     }
   }
 
-  async function handleOsDrop(event, destPath) {
+  function handleOsDrop(event, destPath) {
     event.preventDefault();
     clearSpringLoad();
     setDropTarget(null);
-    const files = await filesFromDataTransfer(event.dataTransfer);
-    if (files.length) {
+    // Entries only work while the drop event runs, so take them now; the
+    // file task store walks the folders later.
+    const dropped = takeDropped(event.dataTransfer);
+    if (dropped.entries.length || dropped.files.length) {
       haptic("heavy");
-      if (onUploadFiles) {
-        await onUploadFiles(files, destPath);
-      }
+      onUploadFiles?.({ dropped }, destPath);
     }
   }
 
@@ -1014,9 +1036,9 @@ export default function FileBrowser({
     setLunaDragActive(false);
     setDropTarget(null);
     haptic("heavy");
-    const osFiles = await filesFromDataTransfer(event.dataTransfer);
-    if (osFiles.length && onUploadFiles) {
-      await onUploadFiles(osFiles, destFolder);
+    const dropped = takeDropped(event.dataTransfer);
+    if ((dropped.entries.length || dropped.files.length) && onUploadFiles) {
+      onUploadFiles({ dropped }, destFolder);
       return;
     }
     if (!onInternalMove) return;
@@ -1210,22 +1232,82 @@ export default function FileBrowser({
             type="file"
             multiple
             className="sr-only"
-            onChange={async (e) => {
+            aria-label="Add files"
+            tabIndex={-1}
+            onChange={(e) => {
               const files = filesFromFileList(e.target.files);
               e.target.value = "";
-              if (files.length && onUploadFiles) await onUploadFiles(files, path);
+              if (files.length) onUploadFiles?.({ files }, path);
             }}
           />
-          <Button
-            variant="outline"
-            surface={surface}
-            size="sm"
-            type="button"
-            onClick={() => filePicker.current?.click()}
-          >
-            <UploadCloud size={14} aria-hidden="true" />
-            Upload
-          </Button>
+          {canPickFolder ? (
+            <input
+              ref={folderPicker}
+              type="file"
+              multiple
+              {...FOLDER_INPUT}
+              className="sr-only"
+              aria-label="Add a folder"
+              tabIndex={-1}
+              onChange={(e) => {
+                const files = filesFromFileList(e.target.files);
+                e.target.value = "";
+                if (files.length) onUploadFiles?.({ files }, path);
+              }}
+            />
+          ) : null}
+          {canPickFolder ? (
+            <Dropdown
+              menu
+              menuLabel="Upload"
+              options={UPLOAD_MENU_OPTIONS}
+              value=""
+              align="end"
+              onChange={(choice) => {
+                if (choice === "folder") folderPicker.current?.click();
+                else filePicker.current?.click();
+              }}
+              renderTrigger={({ open: isOpen, toggle, onKeyDown }) => (
+                <Button
+                  variant="outline"
+                  surface={surface}
+                  size="sm"
+                  type="button"
+                  haptic={false}
+                  aria-haspopup="menu"
+                  aria-expanded={isOpen}
+                  aria-label="Upload"
+                  onClick={() => {
+                    haptic("light");
+                    toggle();
+                  }}
+                  onKeyDown={onKeyDown}
+                >
+                  <UploadCloud size={14} aria-hidden="true" />
+                  Upload
+                  <ChevronDown
+                    size={14}
+                    aria-hidden="true"
+                    className={cn(
+                      "motion-safe:transition-transform motion-safe:duration-300",
+                      isOpen ? "rotate-180" : "rotate-0",
+                    )}
+                  />
+                </Button>
+              )}
+            />
+          ) : (
+            <Button
+              variant="outline"
+              surface={surface}
+              size="sm"
+              type="button"
+              onClick={() => filePicker.current?.click()}
+            >
+              <UploadCloud size={14} aria-hidden="true" />
+              Upload
+            </Button>
+          )}
         </>
       ) : null}
     </>
@@ -1338,6 +1420,7 @@ export default function FileBrowser({
                     <Button variant="outline" surface={surface} size="sm" type="button" tabIndex={-1}>
                       <UploadCloud size={14} aria-hidden="true" />
                       Upload
+                      {canPickFolder ? <ChevronDown size={14} aria-hidden="true" /> : null}
                     </Button>
                   ) : null}
                 </div>

@@ -46,7 +46,7 @@ import {
 } from "../../lib/shareTree.js";
 import { CAP_MANAGE, capsBits } from "../../lib/access.js";
 import { isPresentDrive, isWritableDrive } from "../../lib/drives.js";
-import { filesFromFileList, uploadDestForFile } from "../../lib/collectUploadFiles.js";
+import { useFileOps } from "../../context/FileOpsContext.jsx";
 import { parseCreateName } from "../../lib/createName.js";
 import { renameExtensionWarning } from "../../lib/renameExtension.js";
 import { blankOfficeStub } from "../../lib/officeStubs.js";
@@ -63,9 +63,6 @@ import {
   trashDisplayName,
   TRASH_PATH,
 } from "../../lib/paths.js";
-
-/** Parallel uploads — enough for multi-select without saturating the link. */
-const UPLOAD_PARALLEL = 2;
 
 function jobBusy(job) {
   return job.state === "running" || job.state === "queued";
@@ -100,17 +97,6 @@ DownloadButton.propTypes = {
   label: PropTypes.string.isRequired,
   kind: PropTypes.string,
 };
-
-/**
- * @typedef {{
- *   id: string,
- *   name: string,
- *   received: number,
- *   size: number,
- *   uploadId: string | null,
- *   abort: AbortController,
- * }} UploadRow
- */
 
 /**
  * Compact multi-file upload progress with per-file cancel.
@@ -199,32 +185,6 @@ UploadProgressList.propTypes = {
   onCancel: PropTypes.func.isRequired,
 };
 
-function isAbortError(err) {
-  return (
-    err?.name === "AbortError"
-    || (typeof DOMException !== "undefined" && err instanceof DOMException && err.name === "AbortError")
-  );
-}
-
-/**
- * Run async work over items with a fixed concurrency limit.
- * @template T
- * @param {T[]} items
- * @param {number} limit
- * @param {(item: T) => Promise<void>} worker
- */
-async function mapPool(items, limit, worker) {
-  const queue = [...items];
-  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (queue.length) {
-      const next = queue.shift();
-      if (next === undefined) return;
-      await worker(next);
-    }
-  });
-  await Promise.all(runners);
-}
-
 /**
  * Full file explorer used by the Files page.
  * Same core, same actions; page adds URL sync via linkNavigation.
@@ -275,6 +235,7 @@ export default function DriveFileExplorer({
   const guestCaps = source.capsBits || 0;
   const queryClient = useQueryClient();
   const { addToast } = useToast();
+  const fileOps = useFileOps();
   // Private items belong to a signed-in person; link guests never make them.
   const allowPrivate = !guest;
   const [innerPath, setInnerPath] = useState("");
@@ -286,8 +247,6 @@ export default function DriveFileExplorer({
   }
 
   const [actionError, setActionError] = useState(/** @type {string|null} */ (null));
-  const [uploads, setUploads] = useState(/** @type {UploadRow[]} */ ([]));
-  const uploadsRef = useRef(/** @type {UploadRow[]} */ ([]));
   const [deletePaths, setDeletePaths] = useState(/** @type {string[]|null} */ (null));
   const [renameTarget, setRenameTarget] = useState(/** @type {{ fullPath: string, name: string, isDir: boolean }|null} */ (null));
   const [renameValue, setRenameValue] = useState("");
@@ -426,21 +385,6 @@ export default function DriveFileExplorer({
     enabled: inTrash && path === TRASH_PATH,
   });
 
-  function setUploadRows(next) {
-    uploadsRef.current = next;
-    setUploads(next);
-  }
-
-  function patchUpload(id, patch) {
-    setUploadRows(
-      uploadsRef.current.map((row) => (row.id === id ? { ...row, ...patch } : row)),
-    );
-  }
-
-  function removeUpload(id) {
-    setUploadRows(uploadsRef.current.filter((row) => row.id !== id));
-  }
-
   function invalidate(paths = [path]) {
     // FileBrowser keys its listing on the source scope — a share token for
     // guests, the drive id signed in — so both sides invalidate the same key.
@@ -459,87 +403,21 @@ export default function DriveFileExplorer({
     }
   }
 
-  function cancelUpload(id) {
-    const row = uploadsRef.current.find((item) => item.id === id);
-    if (!row) return;
-    row.abort.abort();
-    if (row.uploadId) {
-      void source.cancelUpload(driveId, row.uploadId).catch(() => {});
-    }
-    removeUpload(id);
-  }
-
   /**
-   * Queue many files at once; upload a few in parallel with per-file cancel.
-   * @param {File[]} files
-   * @param {string} destFolder
+   * Hand an upload to the file task store. It keeps running (and showing in the
+   * dock) if this page goes away, and it owns every error and the success toast.
+   * @param {{ dropped: import("../../lib/collectUploadFiles.js").DroppedItems } | { files: File[] }} input
+   * @param {string} [destFolder]
    */
-  async function uploadFiles(files, destFolder) {
-    const list = filesFromFileList(files);
-    if (!list.length) return;
-    setActionError(null);
-    if (source.isFile && list.length > 1) {
-      setActionError("Choose one file to replace this file.");
-      return;
-    }
-
-    /** @type {Array<UploadRow & { file: File, destPath: string, leafName: string }>} */
-    const batch = list.map((file) => {
-      const { destPath, name } = uploadDestForFile(destFolder || "", file);
-      return {
-        id: crypto.randomUUID(),
-        name,
-        received: 0,
-        size: file.size,
-        uploadId: null,
-        abort: new AbortController(),
-        file,
-        destPath,
-        leafName: name,
-      };
+  function uploadFiles(input, destFolder) {
+    const folder = destFolder || "";
+    fileOps.startUpload({
+      source,
+      driveId,
+      destFolder: folder,
+      destLabel: folder ? pathBasename(folder) : driveLabel,
+      ...input,
     });
-
-    setUploadRows([...uploadsRef.current, ...batch.map(({ file: _f, destPath: _d, leafName: _n, ...row }) => row)]);
-
-    const touched = new Set(batch.map((item) => (item.destPath ? `${item.destPath}/x` : "x")));
-    let hadError = false;
-    let completed = 0;
-
-    await mapPool(batch, UPLOAD_PARALLEL, async (item) => {
-      const row = uploadsRef.current.find((u) => u.id === item.id) || item;
-      let lastProgressAt = 0;
-      try {
-        await source.uploadFile(driveId, item.file, item.destPath, item.leafName, {
-          signal: row.abort.signal,
-          onSession: (uploadId) => patchUpload(item.id, { uploadId }),
-          onProgress: (loaded, total) => {
-            // The browser reports progress many times a second; every report
-            // re-renders the whole explorer, so show at most ten a second.
-            const now = performance.now();
-            if (now - lastProgressAt < 100 && loaded < total) return;
-            lastProgressAt = now;
-            patchUpload(item.id, { received: Math.min(loaded, total), size: total });
-          },
-        });
-        completed += 1;
-        removeUpload(item.id);
-      } catch (err) {
-        removeUpload(item.id);
-        if (isAbortError(err) || item.abort.signal.aborted) return;
-        if (!hadError) {
-          hadError = true;
-          setActionError(apiErrorMessage(err, "Couldn't upload that file. Try again."));
-        }
-      }
-    });
-
-    invalidate([...touched]);
-    if (completed > 0) {
-      addToast({
-        type: "success",
-        message: completed === 1 ? "1 file uploaded." : `${completed} files uploaded.`,
-      });
-    }
   }
 
   const removeMutation = useMutation({
@@ -938,17 +816,13 @@ export default function DriveFileExplorer({
 
   return (
     <>
-      {uploads.length > 0 && (
-        <UploadProgressList uploads={uploads} onCancel={cancelUpload} />
-      )}
-
       {!guest && !isAdmin && access.isPending ? (
         <div className="flex justify-center py-16">
           <Spinner size="sm" decorative className="text-primary" />
         </div>
       ) : !canView && folderCanUpload ? (
         <UploadFilesPanel
-          onUploadFiles={(files) => uploadFiles(files, path)}
+          onUploadFiles={(input) => uploadFiles(input, path)}
           onMovePaths={
             // Guests never hold EDIT under an upload-only link, so the only
             // in-Luna drags that can land here come from a signed-in window.

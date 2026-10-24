@@ -207,16 +207,30 @@ describe("upload runner: name clashes", () => {
     expect(source.cancelUpload).toHaveBeenCalledWith("d", "u9");
   });
 
-  it("treats a bare 409 from a multipart upload as a name clash", async () => {
+  it("treats a coded 409 from a multipart upload as a name clash", async () => {
     const source = fakeSource({
       uploadFile: vi.fn(async () => {
-        throw new ApiError(409, "A file with this name is already here. Rename it or choose another.");
+        throw new ApiError(409, "A folder with this name is already here. Choose another name.", "exists", { existing_kind: "dir" });
       }),
     });
     const { store } = harness();
     store.startUpload({ source, driveId: "d", files: [file("a.txt")] });
     await tick();
-    expect(store.getState().ops[0].items[0].state).toBe("needs-decision");
+    const item = store.getState().ops[0].items[0];
+    expect(item.state).toBe("needs-decision");
+    expect(/** @type {any} */ (item.decision).existingKind).toBe("dir");
+  });
+
+  it("fails an uncoded 409 instead of guessing it is a name clash", async () => {
+    const source = fakeSource({
+      uploadFile: vi.fn(async () => {
+        throw new ApiError(409, "Something else is in the way.");
+      }),
+    });
+    const { store } = harness();
+    store.startUpload({ source, driveId: "d", files: [file("a.txt")] });
+    await tick();
+    expect(store.getState().ops[0].items[0].state).toBe("failed");
   });
 
   it("never asks on a single-file share link", async () => {

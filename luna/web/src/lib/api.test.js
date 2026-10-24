@@ -5,8 +5,10 @@ import {
   apiFetch,
   deleteJson,
   postForm,
+  postFormProgress,
   postJson,
   putBinary,
+  putBinaryProgress,
   withCsrfHeaders,
 } from "./api.js";
 
@@ -242,5 +244,55 @@ describe("401 handling", () => {
     window.removeEventListener("luna:unauthorized", seen);
     vi.unstubAllGlobals();
     expect(seen).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("XHR upload helpers", () => {
+  /** @param {number} status @param {string} body */
+  function stubXhr(status, body) {
+    class FakeXhr {
+      constructor() {
+        /** @type {any} */
+        this.onload = null;
+        this.upload = {};
+        this.status = status;
+        this.responseText = body;
+      }
+      open() {}
+      setRequestHeader() {}
+      send() {
+        queueMicrotask(() => this.onload());
+      }
+    }
+    vi.stubGlobal("XMLHttpRequest", FakeXhr);
+  }
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("postFormProgress attaches status, code and data to an error body", async () => {
+    stubXhr(409, JSON.stringify({ error: "That name is taken.", code: "exists", existing_kind: "dir" }));
+    const err = await postFormProgress("/x", new FormData()).catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.status).toBe(409);
+    expect(err.code).toBe("exists");
+    expect(err.data).toEqual({ error: "That name is taken.", code: "exists", existing_kind: "dir" });
+    expect(err.message).toBe("That name is taken.");
+  });
+
+  it("putBinaryProgress attaches status, code and data to an error body", async () => {
+    stubXhr(409, JSON.stringify({ error: "Taken.", code: "exists" }));
+    const err = await putBinaryProgress("/x", new Blob(["a"])).catch((e) => e);
+    expect(err.status).toBe(409);
+    expect(err.code).toBe("exists");
+    expect(err.data.code).toBe("exists");
+  });
+
+  it("keeps a null code and no data when the body is not JSON", async () => {
+    stubXhr(502, "<html>bad gateway</html>");
+    const err = await postFormProgress("/x", new FormData()).catch((e) => e);
+    expect(err.status).toBe(502);
+    expect(err.code).toBeNull();
+    expect(err.data).toBeUndefined();
+    expect(err.message).toBe("Request failed (502)");
   });
 });

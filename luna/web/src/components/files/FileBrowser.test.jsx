@@ -498,6 +498,96 @@ describe("FileBrowser", () => {
     expect(screen.getByRole("button", { name: /Upload/i })).toBeInTheDocument();
   });
 
+  describe("uploading", () => {
+    /** @param {boolean} supported */
+    function folderSupport(supported) {
+      Object.defineProperty(HTMLInputElement.prototype, "webkitdirectory", {
+        configurable: true,
+        writable: true,
+        value: supported ? false : undefined,
+      });
+      if (!supported) delete (/** @type {any} */ (HTMLInputElement.prototype)).webkitdirectory;
+    }
+
+    afterEach(() => {
+      delete (/** @type {any} */ (HTMLInputElement.prototype)).webkitdirectory;
+    });
+
+    it("offers Upload files and Upload a folder in a menu", async () => {
+      folderSupport(true);
+      stubListing({ "": [] });
+      renderBrowser({ multiSelect: false, enableUploadDrop: true, onUploadFiles: vi.fn() });
+      fireEvent.click(await screen.findByRole("button", { name: "Upload" }));
+      const menu = await screen.findByRole("menu", { name: "Upload" });
+      expect(within(menu).getByRole("menuitem", { name: "Upload files" })).toBeInTheDocument();
+      expect(within(menu).getByRole("menuitem", { name: "Upload a folder" })).toBeInTheDocument();
+    });
+
+    it("hands a picked folder to onUploadFiles with its relative paths", async () => {
+      folderSupport(true);
+      stubListing({ "": [] });
+      const onUploadFiles = vi.fn();
+      renderBrowser({ multiSelect: false, enableUploadDrop: true, onUploadFiles });
+      const input = await screen.findByLabelText("Add a folder");
+      expect(input).toHaveAttribute("webkitdirectory");
+      const f = new File(["x"], "a.txt");
+      Object.defineProperty(f, "webkitRelativePath", { value: "Trip/a.txt" });
+      fireEvent.change(input, { target: { files: [f] } });
+      expect(onUploadFiles).toHaveBeenCalledWith({ files: [f] }, "");
+    });
+
+    it("keeps a plain Upload button when the browser cannot pick folders", async () => {
+      folderSupport(false);
+      stubListing({ "": [] });
+      const onUploadFiles = vi.fn();
+      renderBrowser({ multiSelect: false, enableUploadDrop: true, onUploadFiles });
+      expect(await screen.findByRole("button", { name: "Upload" })).not.toHaveAttribute("aria-haspopup");
+      expect(screen.queryByLabelText("Add a folder")).not.toBeInTheDocument();
+      const f = new File(["x"], "a.txt");
+      fireEvent.change(screen.getByLabelText("Add files"), { target: { files: [f] } });
+      expect(onUploadFiles).toHaveBeenCalledWith({ files: [f] }, "");
+    });
+
+    it("takes a drop right away and passes the dropped entries on", async () => {
+      folderSupport(true);
+      stubListing({ "": [{ name: "Docs", kind: "dir", size: 0, hidden: false }] });
+      const onUploadFiles = vi.fn();
+      renderBrowser({ multiSelect: false, enableUploadDrop: true, onUploadFiles });
+      const row = (await screen.findByText("Docs")).closest("li");
+      const entry = { isFile: false, isDirectory: true, name: "Trip" };
+      fireEvent.drop(row, {
+        dataTransfer: {
+          types: ["Files"],
+          files: [],
+          items: [{ kind: "file", webkitGetAsEntry: () => entry, getAsFile: () => null }],
+          getData: () => "",
+        },
+      });
+      // No awaiting between the drop and the call: entries only work during the event.
+      expect(onUploadFiles).toHaveBeenCalledTimes(1);
+      expect(onUploadFiles.mock.calls[0][0].dropped.entries).toEqual([entry]);
+      expect(onUploadFiles.mock.calls[0][1]).toBe("Docs");
+    });
+
+    it("opens the folder picker with Shift+U", async () => {
+      folderSupport(true);
+      stubListing({ "": [] });
+      render(
+        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+          <MemoryRouter>
+            <ShortcutsProvider>
+              <FileBrowser driveId="d1" driveLabel="Photos" multiSelect={false} enableUploadDrop onUploadFiles={vi.fn()} />
+            </ShortcutsProvider>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+      const input = await screen.findByLabelText("Add a folder");
+      const click = vi.spyOn(/** @type {HTMLInputElement} */ (input), "click");
+      fireEvent.keyDown(document.body, { key: "U", code: "KeyU", shiftKey: true });
+      await waitFor(() => expect(click).toHaveBeenCalled());
+    });
+  });
+
   it("shows folderActions in picker mode without Upload", async () => {
     stubListing({ "": [] });
     renderBrowser({

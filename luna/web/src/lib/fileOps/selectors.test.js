@@ -102,7 +102,6 @@ describe("copy and errors", () => {
     expect(classifyError({ status: 409, code: "exists", data: { existing_kind: "dir" }, message: "x" }, "upload").decision).toMatchObject({ existingKind: "dir", options: ["keep_both", "skip"] });
     expect(classifyError({ status: 409, code: "exists", message: "x" }, "copy", { sameFolder: true }).decision.options).toEqual(["keep_both", "skip"]);
     expect(classifyError({ status: 409, message: "x" }, "upload").decision).toBeUndefined();
-    expect(classifyError({ status: 409, message: "x" }, "upload", { uncodedConflictIsExists: true }).decision.type).toBe("exists");
     expect(classifyError({ name: "AbortError" }, "upload").aborted).toBe(true);
     expect(classifyError({ status: 500 }, "purge").message).toBe("Luna couldn't delete this permanently. Try again.");
   });

@@ -329,7 +329,7 @@ export function createUploadRunner(env) {
       return;
     }
     const e = /** @type {any} */ (err);
-    const c = classifyError(err, op.kind, { uncodedConflictIsExists: true });
+    const c = classifyError(err, op.kind);
     if (c.decision?.type === "exists" && !op.source.isFile) {
       env.patchItem(op, item, { abort: null, retrying: false });
       clash(op, item, c.decision.existingKind, {
