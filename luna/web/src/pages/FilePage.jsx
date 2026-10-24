@@ -222,21 +222,26 @@ export default function FilePage() {
       )}
 
       {drive && drive.state === "missing" && (
-        <EmptyState
-          className="mt-4"
-          icon={HardDrive}
-          title="Drive unplugged"
-          description={
-            isAdmin
-              ? "This drive is unplugged. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in."
-              : "This drive is unplugged. Ask an Admin, or wait until it's plugged back in."
-          }
-          action={
-            <Button size="sm" variant="primary" asChild>
-              <Link to="/files">{isAdmin ? "Go to Files" : "Back to Files"}</Link>
-            </Button>
-          }
-        />
+        // Not EmptyState: its description is boxed to max-w-xs, which wraps this
+        // sentence onto three lines in a wide card.
+        <Card className="mt-4 text-center" data-slot="empty-state">
+          <div className="flex flex-col items-center justify-center py-4 px-2">
+            <div className="mb-3">
+              <HardDrive size={32} aria-hidden="true" />
+            </div>
+            <p className="font-mono mb-1 text-primary">Drive unplugged</p>
+            <p className="text-sm text-primary">
+              {isAdmin
+                ? "This drive is unplugged. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in."
+                : "This drive is unplugged. Ask an Admin, or wait until it's plugged back in."}
+            </p>
+            <div className="mt-4">
+              <Button size="sm" variant="primary" asChild>
+                <Link to="/files">{isAdmin ? "Go to Files" : "Back to Files"}</Link>
+              </Button>
+            </div>
+          </div>
+        </Card>
       )}
 
       {drive && drive.state !== "missing" && inTrash && !canOpenTrash && !access.isLoading && (

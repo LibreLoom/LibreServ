@@ -38,6 +38,7 @@ import { useShortcut } from "@libreloom/ui/context/ShortcutsContext.jsx";
 import ToastContext from "@libreloom/ui/context/ToastContext.jsx";
 import { fileListKey, fileSourceScope, useFileSource } from "../../lib/fileSource.jsx";
 import { CAP, capsBits } from "../../lib/access.js";
+import { openFileSearch } from "../../lib/fileSearch.js";
 
 const UNPLUGGED_DRIVE_MESSAGE =
   "Luna can't find this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in.";
@@ -51,20 +52,28 @@ function isMissingDriveDb(error) {
     .includes("database for this drive is missing");
 }
 
+const FOLDER_GONE_MESSAGE = "This folder isn't here anymore — it may have been deleted.";
+
+/** How long a folder may load before the list says it's still working. */
+const SLOW_LISTING_MS = 1500;
+
+function isFolderGone(error) {
+  return Boolean(error) && "code" in error && error.code === "not_found"
+    && !isMissingDriveDb(error);
+}
+
 function folderListingError(error) {
   const message = String(error?.message || "");
   if (isMissingDriveDb(error)) {
     return (
       message ||
-      "Luna's database for this drive is missing, but the drive is still plugged in. Remove it on the Files page, then add it again."
+      "Luna's database for this drive is missing. The drive is still plugged in. On the Files page, remove this drive, then add it again. Your files stay on the drive, but items in its Trash won't show up after you add it again."
     );
   }
   const code = error && "code" in error ? error.code : null;
   // A missing folder was moved, renamed, or deleted — the drive is fine.
   // (Moved folders are followed before this shows; see useMovedLinkForwarding.)
-  if (code === "not_found") {
-    return "This folder isn't here anymore — it may have been deleted. Open Files to look for it.";
-  }
+  if (code === "not_found") return FOLDER_GONE_MESSAGE;
   const unplugged =
     code === "unknown_drive" ||
     message.toLowerCase().includes("drive") ||
@@ -242,6 +251,7 @@ function compareEntries(a, b, sortKey) {
  *   listClassName?: string,
  *   dense?: boolean,
  *   surface?: "primary" | "secondary",
+ *   isPickBlocked?: (path: string) => boolean,
  * }} props
  */
 export default function FileBrowser({
@@ -286,6 +296,7 @@ export default function FileBrowser({
   folderActions = null,
   emptyTitle = "There's nothing here.",
   surface = "secondary",
+  isPickBlocked = undefined,
   className = "",
   listClassName = "",
   dense = false,
@@ -396,6 +407,28 @@ export default function FileBrowser({
     || Boolean(listing.isPlaceholderData)
     || (maybeFileRoot && rootStat.isPending);
   const showingStaleListing = Boolean(listing.isPlaceholderData);
+
+  // A slow listing says so after a beat; fast ones never flash it.
+  const [slowListing, setSlowListing] = useState(false);
+  useEffect(() => {
+    if (!listBusy) return undefined;
+    const id = setTimeout(() => setSlowListing(true), SLOW_LISTING_MS);
+    return () => {
+      clearTimeout(id);
+      setSlowListing(false);
+    };
+  }, [listBusy]);
+  const slowFg = surface === "primary" ? "text-secondary" : "text-primary";
+  const stillWorking = slowListing ? (
+    <div
+      data-slot="listing-slow"
+      role="status"
+      className={`flex items-center justify-center gap-2 py-6 px-3 text-center ${slowFg}`}
+    >
+      <Spinner size="sm" label="Loading folder" className={slowFg} />
+      <span className="font-mono text-base">Still working…</span>
+    </div>
+  ) : null;
 
   // Dotfile visibility is a view pref, not a permission — Luna-managed
   // `.luna-<uuid>*` names never reach the listing at all, so this only
@@ -1755,8 +1788,10 @@ export default function FileBrowser({
         {listingForbidden ? (
           <div className="px-3 py-5">{forbiddenState}</div>
         ) : listBusy && entries.length === 0 ? (
-          <div className="h-11" aria-hidden="true" />
+          stillWorking || <div className="h-11" aria-hidden="true" />
         ) : (
+          <>
+          {showingStaleListing ? stillWorking : null}
           <ul
             ref={listRef}
             className={[
@@ -1927,6 +1962,7 @@ export default function FileBrowser({
                       isPicker={isPicker}
                       pickerMode={pickerMode}
                       pickSelected={isPicker && selectedPath === rowPath}
+                      pickBlocked={isPicker && Boolean(isPickBlocked?.(rowPath))}
                       multiSelect={multiSelect}
                       linkNavigation={linkNavigation}
                       canDragRow={!isPicker && Boolean(onInternalMove)}
@@ -1963,7 +1999,35 @@ export default function FileBrowser({
                 <TriangleAlert size={32} className="mb-3 text-error" aria-hidden="true" />
                 <p className="font-mono text-base" role="alert">
                   {folderListingError(listing.error)}
+                  {isFolderGone(listing.error) ? (
+                    <>
+                      {" You can use "}
+                      <button
+                        type="button"
+                        className={`${fg} underline decoration-accent underline-offset-2 hover:decoration-current`}
+                        onClick={() => {
+                          haptic("light");
+                          openFileSearch();
+                        }}
+                      >
+                        Universal Search
+                      </button>
+                      {" to try and find it."}
+                    </>
+                  ) : null}
                 </p>
+                {isFolderGone(listing.error) ? null : (
+                  <Button
+                    variant="outline"
+                    surface={surface}
+                    size="sm"
+                    className="mt-4"
+                    disabled={listing.isFetching}
+                    onClick={() => listing.refetch()}
+                  >
+                    Try again
+                  </Button>
+                )}
               </li>
             ) : isFiltered ? (
             <li
@@ -2001,6 +2065,7 @@ export default function FileBrowser({
             </li>
           )}
         </ul>
+          </>
       )}
         {isPicker && pickerMode === "folder" && (
           <div className={`flex flex-wrap items-center gap-2 px-3 py-3 border-t ${hairline}/20`}>
@@ -2011,7 +2076,7 @@ export default function FileBrowser({
               variant={selectedPath === path ? well : "outline"}
               surface={surface}
               size="sm"
-              disabled={isTrashPath(path)}
+              disabled={isTrashPath(path) || Boolean(isPickBlocked?.(path))}
               onClick={() => onSelect?.({
                 entry: { name: pathBasenameSafe(path) || driveLabel, kind: "dir" },
                 path: parentPath(path) || "",
@@ -2090,4 +2155,5 @@ FileBrowser.propTypes = {
   listClassName: PropTypes.string,
   dense: PropTypes.bool,
   surface: PropTypes.oneOf(["primary", "secondary"]),
+  isPickBlocked: PropTypes.func,
 };

@@ -41,12 +41,49 @@ function renderBrowser(props = {}) {
 }
 
 describe("FileBrowser", () => {
+  it("offers Try again and Universal Search on listing failures", async () => {
+    const seen = vi.fn();
+    window.addEventListener("luna:open-file-search", seen);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(
+        JSON.stringify({ error: "Gone.", code: "not_found" }),
+        { status: 404, headers: { "Content-Type": "application/json" } },
+      )),
+    );
+    renderBrowser();
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("You can use Universal Search to try and find it.");
+    await userEvent.click(within(alert).getByRole("button", { name: "Universal Search" }));
+    expect(seen).toHaveBeenCalled();
+    window.removeEventListener("luna:open-file-search", seen);
+  });
+
+  it("shows a Try again button when the listing fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(
+        JSON.stringify({ error: "Something broke inside Luna." }),
+        { status: 500, headers: { "Content-Type": "application/json" } },
+      )),
+    );
+    renderBrowser();
+    expect(await screen.findByRole("button", { name: "Try again" })).toBeInTheDocument();
+  });
+
+  it("says it is still working when the listing is slow", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
+    renderBrowser();
+    expect(screen.queryByText("Still working…")).not.toBeInTheDocument();
+    expect(await screen.findByText("Still working…", {}, { timeout: 3000 })).toBeInTheDocument();
+  });
+
   it("says the drive database is missing instead of asking to unplug", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => new Response(
         JSON.stringify({
-          error: "Luna's database for this drive is missing. The drive is still plugged in. On the Files page, remove this drive, then add it again.",
+          error: "Luna's database for this drive is missing. The drive is still plugged in. On the Files page, remove this drive, then add it again. Your files stay on the drive, but items in its Trash won't show up after you add it again.",
           code: "missing_drive_db",
         }),
         { status: 500, headers: { "Content-Type": "application/json" } },
@@ -55,8 +92,9 @@ describe("FileBrowser", () => {
     renderBrowser();
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(
-      "On the Files page, remove this drive, then add it again.",
+      "items in its Trash won't show up after you add it again.",
     );
+    expect(alert).not.toHaveTextContent("No data on the drive will be lost");
     expect(alert).not.toHaveTextContent(/unplugg/i);
   });
 

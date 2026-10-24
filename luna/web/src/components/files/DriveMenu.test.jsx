@@ -87,7 +87,7 @@ describe("DriveMenu", () => {
     expect(screen.getByTestId("location").textContent).toBe("/files/d1");
   });
 
-  it("does not accept a drop on a read-only drive", async () => {
+  it("sends a drop on a read-only drive so the refusal can be shown", async () => {
     const onDropPaths = vi.fn();
     renderMenu({
       drives: [DRIVES[0], { id: "d4", label: "Read Only", state: "readonly" }],
@@ -97,9 +97,9 @@ describe("DriveMenu", () => {
     const item = await screen.findByRole("menuitem", { name: "Read Only" });
     const dataTransfer = lunaDrag();
     fireEvent.dragOver(item, { dataTransfer });
-    expect(item.className).not.toMatch(/ring-accent/);
+    expect(item.className).toMatch(/ring-accent/);
     fireEvent.drop(item, { dataTransfer });
-    expect(onDropPaths).not.toHaveBeenCalled();
+    expect(onDropPaths).toHaveBeenCalledWith("d4", "", ["a.txt"], "d1");
   });
 
   it("auto-opens when a file drag hovers the trigger", async () => {

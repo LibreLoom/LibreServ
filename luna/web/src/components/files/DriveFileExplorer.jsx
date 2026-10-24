@@ -306,8 +306,10 @@ export default function DriveFileExplorer({
   const [createKind, setCreateKind] = useState(/** @type {import("../../lib/createKinds.js").CreateKind|null} */ (null));
   const [createName, setCreateName] = useState("");
   const selectedRef = useRef(/** @type {string[]} */ ([]));
-  const [restoreTarget, setRestoreTarget] = useState(/** @type {null|{ fullPath: string, displayName: string, originalPath: string }} */ (null));
+  const [restoreTarget, setRestoreTarget] = useState(/** @type {null|{ fullPath: string, displayName: string, originalPath: string, isDir?: boolean }} */ (null));
   const [restoreName, setRestoreName] = useState("");
+  const restoreCloseRef = useRef(/** @type {null|(() => void)} */ (null));
+  const [restoreWarning, setRestoreWarning] = useState(/** @type {ReturnType<typeof renameExtensionWarning>} */ (null));
   const [purgeTarget, setPurgeTarget] = useState(/** @type {null|{ paths: string[], label: string }} */ (null));
   const [emptyTrashOpen, setEmptyTrashOpen] = useState(false);
   const backupsList = useQuery({
@@ -727,6 +729,17 @@ export default function DriveFileExplorer({
     },
   });
 
+  /** Send the restore under the typed name; the folder above may be gone, lunad re-creates it. */
+  function startRestore(/** @type {() => void} */ close) {
+    if (!restoreTarget) return Promise.resolve();
+    return restoreMutation.mutateAsync([{
+      path: restoreTarget.fullPath,
+      dest: joinPath(restoreDestFolder, restoreName.trim()),
+    }])
+      .then(() => close())
+      .catch(() => {});
+  }
+
   const purgeMutation = useMutation({
     mutationFn: async (/** @type {string[]} */ paths) => {
       for (const p of paths) {
@@ -848,6 +861,7 @@ export default function DriveFileExplorer({
                   fullPath: ctx.fullPath,
                   displayName: ctx.displayName,
                   originalPath: ctx.entry.original_path || "",
+                  isDir: ctx.entry.kind === "dir",
                 });
                 setRestoreName(ctx.displayName);
               }}
@@ -1147,6 +1161,7 @@ export default function DriveFileExplorer({
         drives={writableDrives.length > 0 ? writableDrives : [{ id: driveId, label: driveLabel }]}
         initialDriveId={driveId}
         initialPath={inTrash ? "" : path}
+        movingPaths={transfer?.kind === "move" ? transfer.paths : []}
         confirmLabel={transfer?.kind === "move" ? "Start moving" : "Start copying"}
         busy={transferMutation.isPending}
         error={transfer != null ? actionError : null}
@@ -1248,12 +1263,18 @@ export default function DriveFileExplorer({
                 loading={restoreMutation.isPending}
                 onClick={() => {
                   if (!restoreTarget) return;
-                  restoreMutation.mutateAsync([{
-                    path: restoreTarget.fullPath,
-                    dest: joinPath(restoreDestFolder, restoreName.trim()),
-                  }])
-                    .then(() => close())
-                    .catch(() => {});
+                  // Same ending check as rename; the name dialog stays open behind it.
+                  const warning = renameExtensionWarning(
+                    restoreTarget.displayName,
+                    restoreName,
+                    restoreTarget.isDir,
+                  );
+                  if (warning) {
+                    setRestoreWarning({ ...warning, confirmLabel: "Restore" });
+                    restoreCloseRef.current = close;
+                    return;
+                  }
+                  startRestore(close);
                 }}
               >
                 Restore
@@ -1263,6 +1284,21 @@ export default function DriveFileExplorer({
           </>
         )}
       </ModalCard>
+
+      <ConfirmModal
+        open={restoreWarning != null}
+        variant="warning"
+        title={restoreWarning?.title ?? ""}
+        message={restoreWarning?.message}
+        confirmLabel={restoreWarning?.confirmLabel ?? "Restore"}
+        loading={restoreMutation.isPending}
+        overlayClassName={NESTED_OVERLAY_CLASS}
+        onClose={() => !restoreMutation.isPending && setRestoreWarning(null)}
+        onConfirm={() => {
+          const close = restoreCloseRef.current ?? (() => setRestoreTarget(null));
+          startRestore(close).finally(() => setRestoreWarning(null));
+        }}
+      />
 
       <ModalCard
         open={purgeTarget != null}

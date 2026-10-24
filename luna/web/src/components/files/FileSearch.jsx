@@ -705,6 +705,7 @@ export default function FileSearch() {
         drives={drives.data || []}
         initialDriveId={copyTarget?.drive_id || ""}
         initialPath={copyTarget ? (copyTarget.parent != null ? copyTarget.parent : folderOf(copyTarget.path)) : ""}
+        movingPaths={copyKind === "move" && copyTarget ? [copyTarget.path] : []}
         confirmLabel={copyKind === "move" ? "Start moving" : "Start copying"}
         busy={copyMutation.isPending}
         error={copyTarget != null ? actionError : null}
