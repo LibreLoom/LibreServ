@@ -2233,6 +2233,16 @@ async fn multipart_keep_both_saves_beside_the_clash() {
         std::fs::read(mount.path().join("drop/x.txt")).unwrap(),
         b"old"
     );
+    // Small uploads land in the RAM dirty cache and flush on a blocking
+    // task; the content route reads the drive, so wait for the durable file.
+    let kept = mount.path().join("drop/x (1).txt");
+    for _ in 0..100 {
+        if kept.is_file() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert!(kept.is_file());
     let res = call(
         &app,
         json_req(

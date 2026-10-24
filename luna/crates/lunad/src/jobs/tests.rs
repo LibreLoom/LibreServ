@@ -1384,12 +1384,20 @@ async fn keep_both_is_refused_for_a_private_item() {
 #[test]
 fn a_failed_copy_keeps_its_progress_and_says_what_it_removed() {
     let (_dir, db, _a) = setup();
-    let root = {
+    let (root, root2) = {
         let conn = db.lock().unwrap();
-        db::get_drive(&conn, "a").unwrap().unwrap().mount_point
+        (
+            db::get_drive(&conn, "a").unwrap().unwrap().mount_point,
+            db::get_drive(&conn, "b").unwrap().unwrap().mount_point,
+        )
     };
+    // The copy lists a folder when it reaches it, so a file that is already
+    // gone is simply not listed. To fail on a file that vanishes mid-copy,
+    // the first file is big enough to keep the copy busy while the second
+    // one is removed as soon as the destination folder exists.
+    const FIRST: usize = 32 * 1024 * 1024;
     std::fs::create_dir_all(format!("{root}/docs")).unwrap();
-    std::fs::write(format!("{root}/docs/a.txt"), b"0123456789").unwrap();
+    std::fs::write(format!("{root}/docs/a.txt"), vec![7u8; FIRST]).unwrap();
     std::fs::write(format!("{root}/docs/b.txt"), b"abcde").unwrap();
     let prepared = {
         let conn = db.lock().unwrap();
@@ -1405,16 +1413,26 @@ fn a_failed_copy_keeps_its_progress_and_says_what_it_removed() {
         )
         .unwrap()
     };
-    // The second file vanishes after the job was prepared: the copy has
-    // written a.txt by then and fails on b.txt.
-    std::fs::remove_file(format!("{root}/docs/b.txt")).unwrap();
     let id = prepared.row.id.clone();
-    run_job(
-        db.clone(),
-        crate::gallery::gallery_indexer::GalleryIndexer::start(),
-        prepared,
-        Arc::new(AtomicBool::new(false)),
-    );
+    std::thread::scope(|scope| {
+        scope.spawn(|| {
+            let started = std::time::Instant::now();
+            while !std::path::Path::new(&format!("{root2}/docs")).exists() {
+                assert!(
+                    started.elapsed() < std::time::Duration::from_secs(30),
+                    "the copy never started"
+                );
+                std::thread::sleep(std::time::Duration::from_micros(100));
+            }
+            std::fs::remove_file(format!("{root}/docs/b.txt")).unwrap();
+        });
+        run_job(
+            db.clone(),
+            crate::gallery::gallery_indexer::GalleryIndexer::start(),
+            prepared,
+            Arc::new(AtomicBool::new(false)),
+        );
+    });
     let conn = db.lock().unwrap();
     let failed = db::get_job(&conn, &id).unwrap().unwrap();
     assert_eq!(failed.state, "error");
@@ -1422,6 +1440,10 @@ fn a_failed_copy_keeps_its_progress_and_says_what_it_removed() {
         failed.error,
         "A file disappeared while Luna was copying it. Luna removed the partial copy."
     );
-    assert_eq!(failed.progress, 10, "a failed job keeps the bytes it moved");
-    assert_eq!(failed.total, 15);
+    assert_eq!(
+        failed.progress, FIRST as u64,
+        "a failed job keeps the bytes it moved"
+    );
+    assert_eq!(failed.total, FIRST as u64 + 5);
+    assert!(!std::path::Path::new(&format!("{root2}/docs")).exists());
 }

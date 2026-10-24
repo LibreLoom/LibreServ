@@ -1793,7 +1793,7 @@ mod tests {
             Some(json!({ "signature": sign_challenge(&wrong, &challenge) })),
         )
         .await;
-        assert_eq!(status, 400);
+        assert_eq!(status, 403);
         assert_eq!(kept_list(&f, &f.admin_token).await.len(), 1);
 
         // The new phrase checked successfully: the kept copy goes.

@@ -682,7 +682,9 @@ mod http_tests {
                 "/api/v1/uploads",
                 &sam_cookie,
                 &sam_csrf,
-                Body::from(r#"{"drive_id":"photos","path":"drop","name":"x.bin","size":4}"#),
+                Body::from(
+                    r#"{"drive_id":"photos","path":"drop","name":"x.bin","size":4,"on_conflict":"overwrite"}"#,
+                ),
                 &[("content-type", "application/json")],
             ))
             .await
