@@ -1394,8 +1394,12 @@ fn a_failed_copy_keeps_its_progress_and_says_what_it_removed() {
     // The copy lists a folder when it reaches it, so a file that is already
     // gone is simply not listed. To fail on a file that vanishes mid-copy,
     // the first file is big enough to keep the copy busy while the second
-    // one is removed as soon as the destination folder exists.
-    const FIRST: usize = 32 * 1024 * 1024;
+    // one is removed. The signal is the hidden temp file the copy writes into
+    // the destination folder: it appears when the first file starts copying,
+    // so the removal lands well before the second file is reached. Watching
+    // for the finished name instead would leave no window at all, because a
+    // copied file is only renamed into place after it is fully written.
+    const FIRST: usize = 64 * 1024 * 1024;
     std::fs::create_dir_all(format!("{root}/docs")).unwrap();
     std::fs::write(format!("{root}/docs/a.txt"), vec![7u8; FIRST]).unwrap();
     std::fs::write(format!("{root}/docs/b.txt"), b"abcde").unwrap();
@@ -1417,7 +1421,13 @@ fn a_failed_copy_keeps_its_progress_and_says_what_it_removed() {
     std::thread::scope(|scope| {
         scope.spawn(|| {
             let started = std::time::Instant::now();
-            while !std::path::Path::new(&format!("{root2}/docs")).exists() {
+            let dest_docs = std::path::Path::new(&root2).join("docs");
+            let copying = || {
+                std::fs::read_dir(&dest_docs)
+                    .map(|mut entries| entries.next().is_some())
+                    .unwrap_or(false)
+            };
+            while !copying() {
                 assert!(
                     started.elapsed() < std::time::Duration::from_secs(30),
                     "the copy never started"
