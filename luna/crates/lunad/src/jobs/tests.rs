@@ -1085,3 +1085,204 @@ async fn a_restart_marks_stranded_jobs_interrupted() {
     let done = manager.get(&job.id).unwrap().unwrap();
     assert_eq!(done.state, "done", "{}", done.error);
 }
+
+// ---- The web app's job request, replayed against the real router ---------
+// The harness mirrors `api/jobs.rs` and `api/files/http_tests.rs`, which keep
+// their own copies.
+
+/// Two adopted drives on different filesystems (`a` on disk, `b` on tmpfs)
+/// behind the API router, as the web app reaches them.
+fn cross_fs_app() -> Option<(
+    tempfile::TempDir,
+    tempfile::TempDir,
+    axum::Router,
+    crate::AppState,
+)> {
+    use std::os::unix::fs::MetadataExt;
+    let shm = PathBuf::from("/dev/shm");
+    if std::fs::metadata(&shm).ok()?.dev() == std::fs::metadata(std::env::temp_dir()).ok()?.dev() {
+        return None;
+    }
+    let dir_a = tempfile::tempdir().ok()?;
+    let dir_b = tempfile::TempDir::new_in(&shm).ok()?;
+    let conn = db::open(&dir_a.path().join("luna.db")).ok()?;
+    let root_a = dir_a.path().join("a");
+    std::fs::create_dir_all(&root_a).ok()?;
+    adopt(&root_a, "a");
+    db::upsert_drive(&conn, "a", "A", "as_is", "ext4", "sda", root_a.to_str()?).ok()?;
+    let root_b = dir_b.path().join("b");
+    std::fs::create_dir_all(&root_b).ok()?;
+    adopt(&root_b, "b");
+    db::upsert_drive(&conn, "b", "B", "as_is", "ext4", "sdb", root_b.to_str()?).ok()?;
+    let drive_manager = std::sync::Arc::new(crate::drives::DriveManager::new(
+        crate::drives::mount::shared_mock(),
+        dir_a.path(),
+    ));
+    let state = crate::AppState::new(conn, drive_manager, dir_a.path());
+    let app = crate::api::router()
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::auth::guard,
+        ))
+        .with_state(state.clone());
+    Some((dir_a, dir_b, app, state))
+}
+
+fn api_request(
+    method: axum::http::Method,
+    uri: &str,
+    cookie: Option<&str>,
+    csrf: Option<&str>,
+    body: Option<&str>,
+) -> axum::http::Request<axum::body::Body> {
+    let mut builder = axum::http::Request::builder().method(method).uri(uri);
+    if body.is_some() {
+        builder = builder.header("content-type", "application/json");
+    }
+    if let Some(c) = cookie {
+        builder = builder.header("cookie", c);
+    }
+    if let Some(t) = csrf {
+        builder = builder.header("x-csrf-token", t);
+    }
+    let mut req = builder
+        .body(axum::body::Body::from(body.unwrap_or("").to_string()))
+        .unwrap();
+    req.extensions_mut()
+        .insert(axum::extract::ConnectInfo(std::net::SocketAddr::from((
+            [127, 0, 0, 1],
+            54321,
+        ))));
+    req
+}
+
+async fn api_send(
+    app: &axum::Router,
+    req: axum::http::Request<axum::body::Body>,
+) -> (
+    axum::http::StatusCode,
+    axum::http::HeaderMap,
+    serde_json::Value,
+) {
+    use tower::ServiceExt;
+    let res = app.clone().oneshot(req).await.unwrap();
+    let status = res.status();
+    let headers = res.headers().clone();
+    let bytes = axum::body::to_bytes(res.into_body(), 1 << 20)
+        .await
+        .unwrap();
+    let body = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
+    (status, headers, body)
+}
+
+/// Registers the first user (an admin) and logs in. Returns the cookie header
+/// and the CSRF token.
+async fn api_login(app: &axum::Router) -> (String, String) {
+    let (status, _, body) = api_send(
+        app,
+        api_request(
+            axum::http::Method::POST,
+            "/api/v1/auth/register",
+            None,
+            None,
+            Some(r#"{"username":"max","display_name":"Max","password":"hunter22hunter1"}"#),
+        ),
+    )
+    .await;
+    assert_eq!(status, axum::http::StatusCode::OK, "register: {body}");
+    let (status, headers, body) = api_send(
+        app,
+        api_request(
+            axum::http::Method::POST,
+            "/api/v1/auth/login",
+            None,
+            None,
+            Some(r#"{"username":"max","password":"hunter22hunter1"}"#),
+        ),
+    )
+    .await;
+    assert_eq!(status, axum::http::StatusCode::OK, "login: {body}");
+    let mut session = String::new();
+    let mut csrf = String::new();
+    for value in headers.get_all(axum::http::header::SET_COOKIE) {
+        let part = value.to_str().unwrap().split(';').next().unwrap_or("");
+        if part.starts_with("luna_session=") {
+            session = part.to_string();
+        } else if let Some(token) = part.strip_prefix("luna_csrf=") {
+            csrf = token.to_string();
+        }
+    }
+    (format!("{session}; luna_csrf={csrf}"), csrf)
+}
+
+#[tokio::test]
+async fn a_cross_drive_folder_move_that_fails_mid_copy_leaves_the_source_whole() {
+    use std::os::unix::fs::PermissionsExt;
+    let Some((dir_a, dir_b, app, state)) = cross_fs_app() else {
+        eprintln!("skip: no distinct /dev/shm filesystem for EXDEV test");
+        return;
+    };
+    let root_a = dir_a.path().join("a");
+    let root_b = dir_b.path().join("b");
+    std::fs::create_dir(root_a.join("project")).unwrap();
+    std::fs::write(root_a.join("project/a.txt"), b"first file").unwrap();
+    std::fs::write(root_a.join("project/b.txt"), b"second file").unwrap();
+    // The copy walks entries in name order, so c.txt is reached after a.txt
+    // and b.txt have landed in the destination. Making it unreadable fails the
+    // copy at that point, after bytes have already been written.
+    let locked = root_a.join("project/c.txt");
+    std::fs::write(&locked, b"third file").unwrap();
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+    if std::fs::File::open(&locked).is_ok() {
+        // Privileged users read files whatever their mode, so the failure
+        // can't be forced here.
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o644)).unwrap();
+        eprintln!("skip: file modes do not bind this user");
+        return;
+    }
+
+    let (cookie, csrf) = api_login(&app).await;
+    let (status, _, body) = api_send(
+        &app,
+        api_request(
+            axum::http::Method::POST,
+            "/api/v1/jobs",
+            Some(&cookie),
+            Some(&csrf),
+            Some(
+                r#"{"kind":"move","from_drive":"a","from_path":"project","to_drive":"b","to_path":""}"#,
+            ),
+        ),
+    )
+    .await;
+    assert_eq!(status, axum::http::StatusCode::OK, "{body}");
+    let id = body["id"].as_str().unwrap().to_string();
+    wait_done(&state.job_manager, &id);
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+    let done = state.job_manager.get(&id).unwrap().unwrap();
+    assert_eq!(done.state, "error", "{}", done.error);
+    assert!(!done.error.is_empty());
+
+    // Every source file is still where it was, with its own bytes.
+    assert_eq!(
+        std::fs::read(root_a.join("project/a.txt")).unwrap(),
+        b"first file"
+    );
+    assert_eq!(
+        std::fs::read(root_a.join("project/b.txt")).unwrap(),
+        b"second file"
+    );
+    assert_eq!(std::fs::read(&locked).unwrap(), b"third file");
+    // Nothing was trashed from the source.
+    let trash = root_a.join(trash_dir_name(&root_a));
+    assert!(
+        !trash.exists() || std::fs::read_dir(&trash).unwrap().next().is_none(),
+        "a failed move must not trash the source"
+    );
+    // The partial copy is gone from the destination.
+    assert!(
+        !root_b.join("project").exists(),
+        "partial copy left at the destination"
+    );
+}
