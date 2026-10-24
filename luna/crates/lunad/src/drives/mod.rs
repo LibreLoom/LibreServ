@@ -1098,6 +1098,14 @@ impl DriveManager {
         self.is_ours(path) && !self.mounter.is_mounted(path)
     }
 
+    /// True when a drive's mount point can be used: it is set, and if it is
+    /// a Luna-owned path it is really mounted. Paths outside Luna's `mounts/`
+    /// folders (test fixtures) are trusted.
+    pub fn mount_is_live(&self, mount_point: &str) -> bool {
+        let path = Path::new(mount_point);
+        !mount_point.is_empty() && !(self.is_ours(path) && !self.mounter.is_mounted(path))
+    }
+
     /// Best-effort remount after a drive returns from `missing`.
     /// Returns `true` when a mount was (re)created.
     fn ensure_mounted(&self, drive: &db::DriveRow) -> anyhow::Result<bool> {
