@@ -19,8 +19,8 @@ func TestBroadProfilesRunLunaRecoveryBrowserAndColorChecks(t *testing.T) {
 					t.Errorf("profile %q has %d entries for %q; want exactly one", profileID, counts[testID], testID)
 				}
 			}
-			if counts["luna-web-test"] != 0 {
-				t.Errorf("profile %q duplicates the focused web unit test alongside luna-ci", profileID)
+			if counts["luna-web-test"] != 1 {
+				t.Errorf("profile %q has %d entries for %q; want exactly one", profileID, counts["luna-web-test"], "luna-web-test")
 			}
 		})
 	}

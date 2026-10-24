@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { AuthProvider, useAuth } from "../context/AuthContext";
 import LoginPage from "./LoginPage";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
+import { findContrastProblems } from "@libreloom/ui/test/contrast.js";
 
 function stubFetch({ setupCompleted = true, loginOk = true } = {}) {
   vi.stubGlobal("fetch", vi.fn(async (url, options = {}) => {
@@ -62,6 +63,14 @@ describe("LoginPage", () => {
     expect(screen.getByText("Sign in to continue.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Login" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Create a USB recovery file" })).toHaveAttribute("href", "/recover");
+  });
+
+  it("keeps the recovery entry point visible and readable on its login panel", () => {
+    stubFetch();
+    renderLogin();
+    const recoveryLink = screen.getByRole("link", { name: "Create a USB recovery file" });
+    expect(recoveryLink).toBeVisible();
+    expect(findContrastProblems(screen.getByRole("main"))).toEqual([]);
   });
 
   it("logs in and returns to the page the user wanted", async () => {

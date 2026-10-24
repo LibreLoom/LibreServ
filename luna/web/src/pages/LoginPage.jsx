@@ -176,7 +176,7 @@ export default function LoginPage() {
                 >
                   {errorStatus && calculateErrorHTML()}
                 </div>
-                <p className="mt-5 text-center text-sm text-primary">
+                <p className="mt-5 text-center text-sm">
                   Forgot your password? <Link className="underline decoration-accent underline-offset-4" to="/recover">Create a USB recovery file</Link> to use at startup.
                 </p>
                 </div>

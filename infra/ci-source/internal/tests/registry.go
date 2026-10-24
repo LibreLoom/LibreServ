@@ -290,11 +290,11 @@ func addConnectWebTests() {
 
 	DefaultRegistry.Add(&Test{
 		ID:          "luna-web-test",
-		Name:        "Luna Recovery Wizard Unit Tests",
-		Description: "Run the password recovery wizard unit and regression tests",
+		Name:        "Luna Web Recovery and Login Unit Tests",
+		Description: "Run the password recovery and login page unit and regression tests",
 		Type:        TestTypeUnit,
 		Container:   "node:20-alpine",
-		Command:     "npm install --no-audit --no-fund && npm test -- --run src/pages/RecoveryWizardPage.test.jsx",
+		Command:     "npm install --no-audit --no-fund && npm test -- --run src/pages/RecoveryWizardPage.test.jsx src/pages/LoginPage.test.jsx",
 		WorkDir:     "/repo/luna/web",
 		Timeout:     10 * time.Minute,
 	})
