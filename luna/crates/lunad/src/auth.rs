@@ -893,25 +893,33 @@ pub async fn guard(State(state): State<AppState>, req: Request, next: Next) -> R
             let origin = client_origin_label(addr.as_ref(), req.headers(), state.connect.wan_ip());
             let (action, detail) = categorize_api_request(&method, &path);
 
-            if let Ok(conn) = state.db.lock() {
-                let _ = crate::db::note_device_token_activity_rich(
-                    &conn,
-                    &token_ctx.token_id,
-                    token_ctx.last_used_at,
-                    &action,
-                    &detail,
-                    &client,
-                    &origin,
-                );
-            }
+            // The global database lock is a std mutex: take it on a blocking thread so a slow
+            // write never holds one of the daemon's two async workers.
+            let st = state.clone();
+            let _ = tokio::task::spawn_blocking(move || {
+                if let Ok(conn) = st.db.lock() {
+                    let _ = crate::db::note_device_token_activity_rich(
+                        &conn,
+                        &token_ctx.token_id,
+                        token_ctx.last_used_at,
+                        &action,
+                        &detail,
+                        &client,
+                        &origin,
+                    );
+                }
+            })
+            .await;
         }
     }
 
-    if is_public {
-        return maybe_attach_csrf(next.run(req).await, issue_csrf, secure);
-    }
-    if req.extensions().get::<CurrentUser>().is_some() {
-        return maybe_attach_csrf(next.run(req).await, issue_csrf, secure);
+    if is_public || req.extensions().get::<CurrentUser>().is_some() {
+        #[cfg(test)]
+        let contract_key = crate::api::contract::key_of(&req);
+        let response = next.run(req).await;
+        #[cfg(test)]
+        let response = crate::api::contract::observe(contract_key, response).await;
+        return maybe_attach_csrf(response, issue_csrf, secure);
     }
     json_error(StatusCode::UNAUTHORIZED, "Sign in to Luna first.").into_response()
 }
@@ -1260,7 +1268,7 @@ pub fn caps_on_path_rows(
 }
 
 /// [`caps_on_path_rows`] with the drive's mount point already looked up too.
-fn caps_on_path_rows_at(
+pub(crate) fn caps_on_path_rows_at(
     user: &CurrentUser,
     conn: &Connection,
     drive_id: &str,

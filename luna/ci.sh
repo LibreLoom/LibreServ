@@ -32,7 +32,7 @@ echo "==> cargo clippy"
 cargo clippy --workspace --all-targets -- -D warnings
 
 echo "==> cargo test"
-cargo test --workspace
+LUNA_CONTRACT_RECORD=1 cargo test --workspace
 
 echo "==> luna-run version picker"
 bash os/luna_run_test.sh
