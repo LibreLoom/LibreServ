@@ -7,6 +7,10 @@ import Card from "@libreloom/ui/components/cards/Card.jsx";
 import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
+import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
+import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
+import useDriveHealth from "../hooks/useDriveHealth.js";
+import { describeDriveHealth } from "../lib/driveHealth.js";
 import { FileSearchButton } from "../components/files/FileSearch";
 import DriveFileExplorer from "../components/files/DriveFileExplorer";
 import DriveMenu from "../components/files/DriveMenu";
@@ -25,7 +29,7 @@ import useMovedLinkForwarding from "../hooks/useMovedLinkForwarding.js";
 import usePageTitle from "../hooks/usePageTitle.js";
 import { useAuth } from "../context/AuthContext";
 import { CAP, hasCapOnDrive, memberWritableRoots } from "../lib/shareTree.js";
-import { isPresentDrive } from "../lib/drives.js";
+import { isPresentDrive, isUnopenable } from "../lib/drives.js";
 
 function jobBusy(job) {
   return job.state === "running" || job.state === "queued";
@@ -80,6 +84,13 @@ export default function FilePage() {
     onError: setActionError,
     onBroaden: (retry) => setBroaden({ open: true, retry: async () => { await retry(); } }),
   });
+
+  const unopenable = drive != null && isUnopenable(drive);
+  const browsable = drive != null && drive.state !== "missing" && !unopenable;
+  // Only an Admin sees a drive's health; a failing or worn drive still browses.
+  const health = useDriveHealth(drive ?? { id: id ?? "" }, isAdmin && drive != null);
+  const healthCopy = health.data ? describeDriveHealth(health.data) : null;
+  const healthNotice = healthCopy?.needsYou ?? null;
 
   const activeJobs = (jobs.data || []).filter(jobBusy);
 
@@ -222,29 +233,56 @@ export default function FilePage() {
       )}
 
       {drive && drive.state === "missing" && (
-        // Not EmptyState: its description is boxed to max-w-xs, which wraps this
-        // sentence onto three lines in a wide card.
-        <Card className="mt-4 text-center" data-slot="empty-state">
-          <div className="flex flex-col items-center justify-center py-4 px-2">
-            <div className="mb-3">
-              <HardDrive size={32} aria-hidden="true" />
-            </div>
-            <p className="font-mono mb-1 text-primary">Drive unplugged</p>
-            <p className="text-sm text-primary">
-              {isAdmin
-                ? "This drive is unplugged. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in."
-                : "This drive is unplugged. Ask an Admin, or wait until it's plugged back in."}
-            </p>
-            <div className="mt-4">
-              <Button size="sm" variant="primary" asChild>
-                <Link to="/files">{isAdmin ? "Go to Files" : "Back to Files"}</Link>
-              </Button>
-            </div>
-          </div>
-        </Card>
+        <EmptyState
+          className="mt-4"
+          icon={HardDrive}
+          title="Drive unplugged"
+          description={
+            isAdmin
+              ? "This drive is unplugged. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in."
+              : "This drive is unplugged. Ask an Admin, or wait until it's plugged back in."
+          }
+          action={
+            <Button size="sm" variant="primary" asChild>
+              <Link to="/files">{isAdmin ? "Go to Files" : "Back to Files"}</Link>
+            </Button>
+          }
+        />
       )}
 
-      {drive && drive.state !== "missing" && inTrash && !canOpenTrash && !access.isLoading && (
+      {drive && unopenable && (
+        <EmptyState
+          className="mt-4"
+          icon={HardDrive}
+          title="Luna can't open this drive"
+          description={
+            isAdmin
+              ? "Unplug it and plug it back in, then try again."
+              : "Ask an Admin to check it."
+          }
+          action={
+            <Button size="sm" variant="primary" asChild>
+              <Link to="/files">{isAdmin ? "Go to Files" : "Back to Files"}</Link>
+            </Button>
+          }
+        />
+      )}
+
+      {drive && browsable && healthNotice && (
+        <PageNotice variant={healthNotice.tone === "problem" ? "error" : "warning"} className="mb-4">
+          <p>
+            <InlinePill>{drive.label}</InlinePill>
+            {healthNotice.title}
+            {". "}
+            <Link to={`/files#drive-${drive.id}`} className="underline decoration-accent underline-offset-2">
+              See what&apos;s wrong
+            </Link>
+            .
+          </p>
+        </PageNotice>
+      )}
+
+      {drive && browsable && inTrash && !canOpenTrash && !access.isLoading && (
         <EmptyState
           className="mt-4"
           icon={Trash2}
@@ -258,7 +296,7 @@ export default function FilePage() {
         />
       )}
 
-      {drive && drive.state !== "missing" && !(inTrash && !canOpenTrash) && (
+      {drive && browsable && !(inTrash && !canOpenTrash) && (
         <DriveFileExplorer
           driveId={id}
           driveLabel={drive.label}

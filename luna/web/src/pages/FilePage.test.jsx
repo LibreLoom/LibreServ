@@ -37,6 +37,10 @@ function stubFilesApi(byPath) {
         username: byPath.__role === "user" ? "sam" : "admin",
       }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
+    if (u.includes("/health")) {
+      if (!byPath.__health) return new Response("{}", { status: 500 });
+      return new Response(JSON.stringify(byPath.__health), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
     if (u.includes("/setup")) {
       return new Response(JSON.stringify({ setup_completed: true }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
@@ -985,5 +989,55 @@ describe("FilePage", () => {
     await waitFor(() => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
+  });
+
+  it("shows a failing-drive notice above the file list while browsing still works", async () => {
+    stubFilesApi({
+      __health: {
+        available: true, reason: null, verdict: "failing", overall: "failed", temperature_c: 40,
+        temperature_max_c: 60, temperature_max_source: "typical", reallocated_sectors: 120,
+        signals: [{ kind: "reallocated_sectors", level: "failing", value: 120, limit: 100 }],
+      },
+      "": [{ name: "photo.jpg", kind: "file", size: 1000, modified: 0, hidden: false }],
+    });
+    renderFiles();
+    expect(await screen.findByText(/photo.jpg/i)).toBeInTheDocument();
+    const notice = await screen.findByText(/is failing/i);
+    expect(within(notice.closest("[data-slot=page-notice]")).getByText("Photos Drive")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /See what's wrong/i })).toHaveAttribute("href", "/files#drive-d1");
+  });
+
+  it("shows no health notice to a member", async () => {
+    stubFilesApi({
+      __role: "user",
+      __access: [{ id: "g1", kind: "path", drive_id: "d1", path: "", caps: "full", name: "Photos Drive" }],
+      __health: { available: true, verdict: "failing", signals: [] },
+      "": [{ name: "photo.jpg", kind: "file", size: 1000, modified: 0, hidden: false }],
+    });
+    renderFiles();
+    expect(await screen.findByText(/photo.jpg/i)).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /See what's wrong/i })).not.toBeInTheDocument();
+  });
+
+  it("tells an Admin to replug a drive Luna can't open", async () => {
+    stubFilesApi({
+      __drives: [{ id: "d1", label: "Photos Drive", state: "as_is", mounted: false, fs_type: "ext4", device: "sdz" }],
+    });
+    renderFiles();
+    expect(await screen.findByText("Luna can't open this drive")).toBeInTheDocument();
+    expect(screen.getByText("Unplug it and plug it back in, then try again.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Go to Files" })).toHaveAttribute("href", "/files");
+    expect(screen.queryByRole("button", { name: /Upload/i })).not.toBeInTheDocument();
+  });
+
+  it("tells a Member to ask an Admin about a drive Luna can't open", async () => {
+    stubFilesApi({
+      __role: "user",
+      __drives: [{ id: "d1", label: "Photos Drive", state: "as_is", mounted: false, fs_type: "ext4", device: "sdz" }],
+    });
+    renderFiles();
+    expect(await screen.findByText("Luna can't open this drive")).toBeInTheDocument();
+    expect(screen.getByText("Ask an Admin to check it.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Back to Files" })).toHaveAttribute("href", "/files");
   });
 });
