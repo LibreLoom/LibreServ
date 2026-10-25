@@ -435,12 +435,14 @@ describe("connect component coverage", () => {
           {
             id: "custom",
             app_id: "notes",
+            connect_ownership_known: true,
             name: "Notes storage",
             repo_type: "sftp",
             repo_path: "/backups",
           },
           {
             id: "connect-repo",
+            connect_ownership_known: true,
             connect_managed: true,
             repo_type: "s3",
             repo_path: "bucket",
@@ -476,7 +478,7 @@ describe("connect component coverage", () => {
 
   it("validates, creates, refreshes, confirms, and deletes a backup destination", async () => {
     const user = userEvent.setup();
-    const destination = { id: "disposable", app_id: "notes", connect_managed: false, repo_type: "s3", repo_path: "s3:s3.amazonaws.com/disposable" };
+    const destination = { id: "disposable", app_id: "notes", connect_managed: false, connect_ownership_known: true, repo_type: "s3", repo_path: "s3:s3.amazonaws.com/disposable" };
     let saved = false;
     let repoReads = 0;
     apiMock.mockImplementation((path, options = {}) => {
@@ -540,7 +542,7 @@ describe("connect component coverage", () => {
   it("shows delete failures in the confirmation and lets the user retry", async () => {
     const user = userEvent.setup();
     let deleteCalls = 0;
-    const destination = { id: "retained", app_id: "notes", is_system: false, connect_managed: false, repo_type: "local", repo_path: "/tmp/retained" };
+    const destination = { id: "retained", app_id: "notes", is_system: false, connect_managed: false, connect_ownership_known: true, repo_type: "local", repo_path: "/tmp/retained" };
     apiMock.mockImplementation((path, options = {}) => {
       if (path === "/apps") return Promise.resolve(jsonResponse({ apps: [{ id: "notes", name: "Notes" }] }));
       if (path === "/backups/repos/retained" && options.method === "DELETE") {
@@ -564,22 +566,22 @@ describe("connect component coverage", () => {
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Delete this backup destination?" })).not.toBeInTheDocument());
   });
 
-  it("treats destinations without ownership metadata as custom and keeps system rows hidden", async () => {
-    const unmarkedRepo = { id: "legacy", app_id: "", connect_managed: false, repo_type: "s3", repo_path: "s3:legacy.example/backups" };
+  it("does not offer deletion for destinations with unknown ownership", async () => {
+    const unmarkedRepo = { id: "legacy", app_id: "", connect_ownership_known: false, connect_managed: false, repo_type: "s3", repo_path: "s3:legacy.example/backups" };
     apiMock.mockImplementation((path) => Promise.resolve(path === "/apps"
       ? jsonResponse({ apps: [{ id: "notes", name: "Notes" }] })
       : jsonResponse({ repositories: [unmarkedRepo, { id: "system", is_system: true, repo_type: "local", repo_path: "/tmp/system" }] })));
     render(<BackupServiceModal open service={{ state: "byo" }} repos={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
 
     expect(await screen.findByText("s3:legacy.example/backups")).toBeVisible();
-    expect(screen.queryByText("Existing backup destination")).not.toBeInTheDocument();
     expect(screen.queryByText("/tmp/system")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Delete s3 destination" })).toBeVisible();
+    expect(screen.getByText("Sol can't confirm who manages this destination.")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Delete s3 destination" })).not.toBeInTheDocument();
   });
 
   it("does not show system repositories as user-managed destinations", async () => {
     const systemRepo = { id: "system", app_id: "", is_system: true, connect_managed: false, repo_type: "local", repo_path: "/tmp/system-backup" };
-    const customRepo = { id: "custom", app_id: "notes", is_system: false, connect_managed: false, repo_type: "local", repo_path: "/tmp/custom-backup" };
+    const customRepo = { id: "custom", app_id: "notes", is_system: false, connect_managed: false, connect_ownership_known: true, repo_type: "local", repo_path: "/tmp/custom-backup" };
     apiMock.mockImplementation((path) => Promise.resolve(path === "/apps"
       ? jsonResponse({ apps: [{ id: "notes", name: "Notes" }] })
       : jsonResponse({ repositories: [systemRepo, customRepo] })));
@@ -644,6 +646,7 @@ describe("connect component coverage", () => {
             app_id: "app",
             name: "Fallback storage",
             connect_managed: false,
+            connect_ownership_known: true,
             repo_type: "s3",
             repo_path: "fallback",
           },

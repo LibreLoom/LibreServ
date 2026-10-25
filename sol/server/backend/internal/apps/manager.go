@@ -1496,7 +1496,7 @@ func (m *Manager) UninstallApp(ctx context.Context, instanceID string) error {
 
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE backup_repositories
-		SET app_id = NULL
+		SET app_id = NULL, is_app_specific = 1
 		WHERE app_id = ?
 		  AND EXISTS (SELECT 1 FROM backups WHERE backups.repo_id = backup_repositories.id)
 	`, instanceID); err != nil {

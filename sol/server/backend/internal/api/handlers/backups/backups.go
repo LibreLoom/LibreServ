@@ -459,6 +459,7 @@ func (h *BackupHandlers) ListRepositories(w http.ResponseWriter, r *http.Request
 		AppID          string    `json:"app_id,omitempty"`
 		IsSystem       bool      `json:"is_system"`
 		ConnectManaged bool      `json:"connect_managed"`
+		OwnershipKnown bool      `json:"connect_ownership_known"`
 		RepoType       string    `json:"repo_type"`
 		RepoPath       string    `json:"repo_path"`
 		CreatedAt      time.Time `json:"created_at"`
@@ -472,6 +473,7 @@ func (h *BackupHandlers) ListRepositories(w http.ResponseWriter, r *http.Request
 			AppID:          repo.AppID,
 			IsSystem:       repo.IsSystem,
 			ConnectManaged: repo.ConnectManaged,
+			OwnershipKnown: repo.ConnectManagedKnown,
 			RepoType:       repo.RepoType,
 			RepoPath:       repo.RepoPath,
 			CreatedAt:      repo.CreatedAt,

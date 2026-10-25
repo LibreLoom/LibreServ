@@ -371,6 +371,18 @@ func TestUninstallAppPreservesRepositoryForSavedBackups(t *testing.T) {
 	`); err != nil {
 		t.Fatalf("insert backup record: %v", err)
 	}
+	if _, err := m.db.Exec(`
+		INSERT INTO backup_repositories (id, repo_type, repo_path, password, connect_managed)
+		VALUES ('connect-default', 's3', 's3:shared/path', 'connect-key', 1)
+	`); err != nil {
+		t.Fatalf("insert shared Connect repository: %v", err)
+	}
+	if _, err := m.db.Exec(`
+		INSERT INTO backups (id, app_id, type, path, repo_id, format, snapshot_id)
+		VALUES ('connect-backup', 'inst-reconf', 'app', '/backup/connect-record', 'connect-default', 'restic', 'connect-snapshot')
+	`); err != nil {
+		t.Fatalf("insert backup on shared Connect repository: %v", err)
+	}
 
 	if err := m.UninstallApp(context.Background(), "inst-reconf"); err != nil {
 		t.Fatalf("uninstall app with saved backup: %v", err)
@@ -395,8 +407,20 @@ func TestUninstallAppPreservesRepositoryForSavedBackups(t *testing.T) {
 	if err != nil || repo.Password != "recovery-key" {
 		t.Fatalf("repository needed by saved backup was not retained: repo=%+v err=%v", repo, err)
 	}
-	if _, err := backupService.GetDefaultRepository(context.Background()); err == nil {
-		t.Fatal("retained app repository became the default destination after uninstall")
+	defaultRepo, err := backupService.GetDefaultRepository(context.Background())
+	if err != nil || defaultRepo.ID != "connect-default" {
+		t.Fatalf("shared Connect destination stopped being the default after uninstall: repo=%+v err=%v", defaultRepo, err)
+	}
+	var appSpecific int
+	if err := m.db.QueryRow(`SELECT is_app_specific FROM backup_repositories WHERE id = 'uninstall-repo'`).Scan(&appSpecific); err != nil || appSpecific != 1 {
+		t.Fatalf("retained app destination scope = %d, %v; want app-specific", appSpecific, err)
+	}
+	if _, err := m.db.Exec(`DELETE FROM backups WHERE id = 'uninstall-backup'`); err != nil {
+		t.Fatalf("delete retained app backup fixture: %v", err)
+	}
+	defaultRepo, err = backupService.GetDefaultRepository(context.Background())
+	if err != nil || defaultRepo.ID != "connect-default" {
+		t.Fatalf("former app destination was promoted after its last backup was deleted: repo=%+v err=%v", defaultRepo, err)
 	}
 }
 

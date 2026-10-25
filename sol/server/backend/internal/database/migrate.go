@@ -267,6 +267,7 @@ func (d *DB) reconcileSchema() error {
 				credentials TEXT,
 				is_system BOOLEAN DEFAULT 0,
 				connect_managed BOOLEAN DEFAULT 0,
+				is_app_specific BOOLEAN NOT NULL DEFAULT 0,
 				limit_upload_kbps INTEGER DEFAULT 0,
 				limit_download_kbps INTEGER DEFAULT 0,
 				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -399,6 +400,7 @@ func (d *DB) reconcileSchema() error {
 			// Leave old repository ownership unknown. A previous Connect destination
 			// is indistinguishable from an unassigned custom destination.
 			"connect_managed": `ALTER TABLE backup_repositories ADD COLUMN connect_managed BOOLEAN`,
+			"is_app_specific": `ALTER TABLE backup_repositories ADD COLUMN is_app_specific BOOLEAN NOT NULL DEFAULT 0`,
 		},
 		"updates": {
 			"backup_id": `ALTER TABLE updates ADD COLUMN backup_id TEXT`,
@@ -729,15 +731,17 @@ func (d *DB) migrateCloudBackupConfig() {
 		}
 
 		var appIDVal interface{}
+		isAppSpecific := false
 		if appID.Valid && appID.String != "" {
 			appIDVal = appID.String
+			isAppSpecific = true
 		}
 
 		_, err := d.db.Exec(`
 			INSERT OR IGNORE INTO backup_repositories
-				(id, app_id, repo_type, repo_path, password, credentials, is_system, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`,
-			id, appIDVal, repoType, repoPath, password, credentials, createdAt, createdAt)
+				(id, app_id, repo_type, repo_path, password, credentials, is_system, is_app_specific, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
+			id, appIDVal, repoType, repoPath, password, credentials, isAppSpecific, createdAt, createdAt)
 		if err != nil {
 			slog.Error("Failed to migrate cloud_backup_config row", "id", id, "error", err)
 			skipped++

@@ -89,10 +89,10 @@ export default function BackupServiceModal({ open, onClose, onSaved, service, re
   const backupOnPlan = service?.state !== "unavailable";
   // The backend marks Connect-owned repositories explicitly; app assignment is
   // independent because unassigned repositories are backup defaults.
-  const connectRepo = freshRepos.find((r) => r.connect_managed) || null;
+  const connectRepo = freshRepos.find((r) => r.connect_ownership_known === true && r.connect_managed === true) || null;
   const customRepos = freshRepos.filter((r) => r.is_system !== true && r.connect_managed !== true);
   const appsWithoutDestination = installedApps.filter((app) =>
-    !freshRepos.some((repo) => repo.connect_managed !== true && repo.app_id === app.id)
+    !freshRepos.some((repo) => repo.app_id === app.id)
   );
 
   const credentialFields = {
@@ -244,7 +244,7 @@ export default function BackupServiceModal({ open, onClose, onSaved, service, re
               <label className="block space-y-1 text-sm">Use this destination for
               <Dropdown value={selectedAppId} bg="primary" onChange={setSelectedAppId} options={appsWithoutDestination.map((app) => ({ value: app.id, label: app.name || app.app_id }))} fullWidth />
               </label>
-              {appsError ? <div role="alert" className="flex items-center gap-2 text-sm text-primary"><span>Could not load your apps.</span><Button size="sm" variant="outline" onClick={() => setAppsLoadAttempt((attempt) => attempt + 1)} disabled={appsLoading}>Try again</Button></div> : null}
+              {appsError ? <div role="alert" className="flex items-center gap-2 text-sm text-secondary"><span>Could not load your apps.</span><Button size="sm" variant="outline" surface="primary" onClick={() => setAppsLoadAttempt((attempt) => attempt + 1)} disabled={appsLoading}>Try again</Button></div> : null}
               {!appsLoading && !appsError && installedApps.length === 0 ? <p className="text-sm">Install an app before adding a backup destination.</p> : null}
               {!appsLoading && !appsError && installedApps.length > 0 && appsWithoutDestination.length === 0 ? <p className="text-sm">Each app can have one backup destination. Delete its current destination before adding another.</p> : null}
               <label className="block space-y-1 text-sm">{repoType === "local" ? "Folder path" : repoType === "sftp" ? "SFTP destination" : "Bucket path"}
@@ -255,8 +255,8 @@ export default function BackupServiceModal({ open, onClose, onSaved, service, re
                 <input className="w-full rounded-large-element border border-secondary/20 surface-primary px-3 py-2 focus:border-accent" type={/SECRET|KEY|PASSWORD/.test(key) ? "password" : "text"} value={credentials[key] || ""} onChange={(e) => setCredentials({ ...credentials, [key]: e.target.value })} autoComplete="off" />
               </label>)}
               <div className="flex gap-2">
-                <Button size="sm" variant="outline" onClick={() => setShowAddRepo(false)} disabled={repoPending}>Cancel</Button>
-                <Button size="sm" onClick={createRepo} loading={repoPending || appsLoading} disabled={repoPending || appsLoading || !selectedAppId}>Save destination</Button>
+                <Button size="sm" variant="outline" surface="primary" onClick={() => setShowAddRepo(false)} disabled={repoPending}>Cancel</Button>
+                <Button size="sm" variant="secondary" onClick={createRepo} loading={repoPending || appsLoading} disabled={repoPending || appsLoading || !selectedAppId}>Save destination</Button>
               </div>
             </div>
           )}
@@ -297,15 +297,19 @@ export default function BackupServiceModal({ open, onClose, onSaved, service, re
                 <Database size={ICON_SIZE.md} className="shrink-0" />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-secondary">{repo.name || repo.repo_type}</p>
-                  <p className="text-xs">{installedApps.find((app) => app.id === repo.app_id)?.name || "App-specific destination"}</p>
+                  <p className="text-xs">{repo.connect_ownership_known === false
+                    ? "Sol can't confirm who manages this destination."
+                    : installedApps.find((app) => app.id === repo.app_id)?.name || (repo.app_id ? "App-specific destination" : "Saved backup destination")}</p>
                   <p className="text-xs truncate"><InlinePill>{repo.repo_path}</InlinePill></p>
                 </div>
                 <span className="text-xs px-2.5 py-1 rounded-chip border border-accent font-medium capitalize">
                   {repo.repo_type}
                 </span>
-                <Button type="button" variant="ghost" surface="primary" size="sm" aria-label={`Delete ${repo.repo_type} destination`} disabled={repoPending} onClick={() => setDeleteTarget(repo)}>
-                  <Trash2 size={ICON_SIZE.sm} />
-                </Button>
+                {repo.connect_ownership_known !== false && (
+                  <Button type="button" variant="ghost" surface="primary" size="sm" aria-label={`Delete ${repo.repo_type} destination`} disabled={repoPending} onClick={() => setDeleteTarget(repo)}>
+                    <Trash2 size={ICON_SIZE.sm} />
+                  </Button>
+                )}
               </div>
             ))
           ) : (

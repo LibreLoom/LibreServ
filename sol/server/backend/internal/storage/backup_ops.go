@@ -66,14 +66,16 @@ func (s *BackupService) getOrCreateSystemRepo(ctx context.Context) (*restic.Repo
 
 func (s *BackupService) getSystemRepository(ctx context.Context) (*BackupRepository, error) {
 	var repo BackupRepository
+	var createdAt, updatedAt sql.NullTime
 	err := s.db.QueryRow(`
-		SELECT id, COALESCE(app_id, ''), repo_type, repo_path, password, credentials, COALESCE(is_system, 0), COALESCE(connect_managed, 0), COALESCE(limit_upload_kbps, 0), COALESCE(limit_download_kbps, 0), created_at, updated_at
+		SELECT id, COALESCE(app_id, ''), repo_type, repo_path, password, COALESCE(credentials, ''), COALESCE(is_system, 0), COALESCE(connect_managed, 0), COALESCE(limit_upload_kbps, 0), COALESCE(limit_download_kbps, 0), created_at, updated_at
 		FROM backup_repositories WHERE is_system = 1 LIMIT 1
-	`).Scan(&repo.ID, &repo.AppID, &repo.RepoType, &repo.RepoPath, &repo.Password, &repo.Credentials, &repo.IsSystem, &repo.ConnectManaged, &repo.LimitUploadKbps, &repo.LimitDownloadKbps, &repo.CreatedAt, &repo.UpdatedAt)
+	`).Scan(&repo.ID, &repo.AppID, &repo.RepoType, &repo.RepoPath, &repo.Password, &repo.Credentials, &repo.IsSystem, &repo.ConnectManaged, &repo.LimitUploadKbps, &repo.LimitDownloadKbps, &createdAt, &updatedAt)
 
 	if err != nil {
 		return nil, fmt.Errorf("system repository not found: %w", err)
 	}
+	repo.setTimestamps(createdAt, updatedAt)
 	return &repo, nil
 }
 
@@ -335,14 +337,15 @@ func (s *BackupService) CreateRepository(ctx context.Context, repo *BackupReposi
 	}
 
 	var appID interface{} = repo.AppID
+	isAppSpecific := repo.AppID != ""
 	if repo.AppID == "" {
 		appID = nil
 	}
 
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO backup_repositories (id, app_id, repo_type, repo_path, password, credentials, is_system, connect_managed, limit_upload_kbps, limit_download_kbps, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, repo.ID, appID, repo.RepoType, repo.RepoPath, password, credentials, repo.IsSystem, repo.ConnectManaged, repo.LimitUploadKbps, repo.LimitDownloadKbps, repo.CreatedAt, repo.UpdatedAt)
+		INSERT INTO backup_repositories (id, app_id, repo_type, repo_path, password, credentials, is_system, connect_managed, is_app_specific, limit_upload_kbps, limit_download_kbps, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, repo.ID, appID, repo.RepoType, repo.RepoPath, password, credentials, repo.IsSystem, repo.ConnectManaged, isAppSpecific, repo.LimitUploadKbps, repo.LimitDownloadKbps, repo.CreatedAt, repo.UpdatedAt)
 
 	if err != nil {
 		if strings.Contains(err.Error(), "app already has backup repository") {
@@ -350,6 +353,7 @@ func (s *BackupService) CreateRepository(ctx context.Context, repo *BackupReposi
 		}
 		return fmt.Errorf("failed to create backup repository: %w", err)
 	}
+	repo.ConnectManagedKnown = true
 	slog.Info("Backup repository created", "repo_id", repo.ID, "repo_type", repo.RepoType)
 	return nil
 }

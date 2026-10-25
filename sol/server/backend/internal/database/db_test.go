@@ -173,7 +173,7 @@ func TestReconcileSchemaRepairsOldDatabase(t *testing.T) {
 	columns := db.getExistingColumns()
 	checks := map[string][]string{
 		"backups":              {"format", "data_added", "snapshot_id", "repo_id"},
-		"backup_repositories":  {"connect_managed"},
+		"backup_repositories":  {"connect_managed", "is_app_specific"},
 		"apps":                 {"revocation_revoked_at", "revocation_acknowledged_at"},
 		"users":                {"mfa_required"},
 		"routes":               {"restricted_access"},

@@ -149,6 +149,7 @@ CREATE TABLE IF NOT EXISTS backup_repositories (
     credentials TEXT,
     is_system BOOLEAN DEFAULT 0,
     connect_managed BOOLEAN DEFAULT 0,
+    is_app_specific BOOLEAN NOT NULL DEFAULT 0,
     limit_upload_kbps INTEGER DEFAULT 0,
     limit_download_kbps INTEGER DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

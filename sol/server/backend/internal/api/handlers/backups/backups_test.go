@@ -48,7 +48,7 @@ func callBackupHandler(t *testing.T, call func(http.ResponseWriter, *http.Reques
 }
 
 func TestBackupHandlersListRepositoriesReportsConnectOwnership(t *testing.T) {
-	handler, service, _, _ := newBackupHandlerTest(t)
+	handler, service, db, _ := newBackupHandlerTest(t)
 	if err := service.CreateRepository(context.Background(), &storage.BackupRepository{
 		ID:             "connect-repo",
 		RepoType:       "s3",
@@ -66,6 +66,9 @@ func TestBackupHandlersListRepositoriesReportsConnectOwnership(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("create system repository: %v", err)
 	}
+	if _, err := db.Exec(`INSERT INTO backup_repositories (id, repo_type, repo_path, password, credentials, connect_managed, created_at, updated_at) VALUES ('unknown-repo', 's3', 's3:legacy/bucket', 'legacy-key', NULL, NULL, NULL, NULL)`); err != nil {
+		t.Fatalf("create repository with unknown owner: %v", err)
+	}
 
 	rec := callBackupHandler(t, handler.ListRepositories, httptest.NewRequest(http.MethodGet, "/backups/repos", nil), http.StatusOK)
 	var response struct {
@@ -73,21 +76,26 @@ func TestBackupHandlersListRepositoriesReportsConnectOwnership(t *testing.T) {
 			ID             string `json:"id"`
 			IsSystem       bool   `json:"is_system"`
 			ConnectManaged bool   `json:"connect_managed"`
+			OwnershipKnown bool   `json:"connect_ownership_known"`
 		} `json:"repositories"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode repository response: %v", err)
 	}
-	if len(response.Repositories) != 2 {
+	if len(response.Repositories) != 3 {
 		t.Fatalf("repository response = %+v", response.Repositories)
 	}
 	var foundConnect, foundSystem bool
 	for _, listed := range response.Repositories {
 		switch listed.ID {
 		case "connect-repo":
-			foundConnect = listed.ConnectManaged && !listed.IsSystem
+			foundConnect = listed.ConnectManaged && !listed.IsSystem && listed.OwnershipKnown
 		case "system-repo":
-			foundSystem = listed.IsSystem && !listed.ConnectManaged
+			foundSystem = listed.IsSystem && !listed.ConnectManaged && listed.OwnershipKnown
+		case "unknown-repo":
+			if listed.OwnershipKnown {
+				t.Fatal("legacy repository owner reported as known")
+			}
 		}
 	}
 	if !foundConnect || !foundSystem || strings.Contains(rec.Body.String(), "system-secret") {
@@ -95,6 +103,10 @@ func TestBackupHandlersListRepositoriesReportsConnectOwnership(t *testing.T) {
 	}
 	callBackupHandler(t, handler.DeleteRepository,
 		requestWithJobParam(http.MethodDelete, "/backups/repos/connect-repo", "repoID", "connect-repo"),
+		http.StatusConflict,
+	)
+	callBackupHandler(t, handler.DeleteRepository,
+		requestWithJobParam(http.MethodDelete, "/backups/repos/unknown-repo", "repoID", "unknown-repo"),
 		http.StatusConflict,
 	)
 }

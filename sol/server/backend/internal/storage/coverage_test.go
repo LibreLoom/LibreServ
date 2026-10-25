@@ -241,6 +241,24 @@ func TestBackupRepositoryValidationAndAutoCreation(t *testing.T) {
 	}
 }
 
+func TestGetSystemRepositoryHandlesNullableOptionalFields(t *testing.T) {
+	svc, _ := newStorageService(t)
+	if _, err := svc.db.Exec(`
+		INSERT INTO backup_repositories (id, repo_type, repo_path, password, credentials, is_system, connect_managed, created_at, updated_at)
+		VALUES ('legacy-system-repo', 'local', '/tmp/system-backups', 'recovery-key', NULL, 1, NULL, NULL, NULL)
+	`); err != nil {
+		t.Fatalf("insert legacy system repository: %v", err)
+	}
+
+	repo, err := svc.getSystemRepository(context.Background())
+	if err != nil {
+		t.Fatalf("load system repository with nullable optional fields: %v", err)
+	}
+	if repo.ID != "legacy-system-repo" || repo.Credentials != "" || repo.CreatedAt.IsZero() || repo.UpdatedAt.IsZero() {
+		t.Fatalf("system repository = %+v", repo)
+	}
+}
+
 func TestDeleteRepositoryKeepsRepositoryReferencedByBackup(t *testing.T) {
 	svc, dir := newStorageService(t)
 	ctx := context.Background()
