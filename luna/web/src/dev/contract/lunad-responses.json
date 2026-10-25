@@ -577,7 +577,13 @@
       },
       "heic_tools": {
         "category": "string",
+        "details": {
+          "missing": [
+            "string"
+          ]
+        },
         "message": "string",
+        "more": "string",
         "status": "string"
       },
       "logs_path_writable": {
@@ -592,13 +598,7 @@
       },
       "ntfs_support": {
         "category": "string",
-        "details": {
-          "missing": [
-            "string"
-          ]
-        },
         "message": "string",
-        "more": "string",
         "status": "string"
       },
       "office_pack": {
@@ -614,7 +614,13 @@
       },
       "smart_tool": {
         "category": "string",
+        "details": {
+          "missing": [
+            "string"
+          ]
+        },
         "message": "string",
+        "more": "string",
         "status": "string"
       },
       "trim_tool": {
@@ -629,7 +635,13 @@
       },
       "video_tools": {
         "category": "string",
+        "details": {
+          "missing": [
+            "string"
+          ]
+        },
         "message": "string",
+        "more": "string",
         "status": "string"
       },
       "whiteboard": {
