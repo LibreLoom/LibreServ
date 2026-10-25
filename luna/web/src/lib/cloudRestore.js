@@ -9,7 +9,8 @@ export const RESTORE_PATH = "/api/v1/cloud/restore";
 const RECORD_KINDS = ["self", "recipients", "keys"];
 
 /**
- * Whether Luna has lost its list of cloud backups, and how many versions exist.
+ * Whether any shared cloud backup version is missing from Luna's index.
+ * The cloud and indexed counts are independent totals and do not determine `needed`.
  * @returns {Promise<{ needed: boolean, luna_id: string, signing_public: string, cloud_snapshots: number, indexed_snapshots: number }>}
  */
 export function getRestoreStatus() {
