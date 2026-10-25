@@ -5,7 +5,7 @@ import Button from "@libreloom/ui/components/ui/Button.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import FormInput from "../components/common/forms/FormInput";
 import usePageTitle from "../hooks/usePageTitle.js";
-import { MIN_PASSWORD_LENGTH } from "@libreloom/ui/lib/passwordPolicy.js";
+import { MIN_PASSWORD_LENGTH, passwordPolicyError } from "@libreloom/ui/lib/passwordPolicy.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { isValidUsername, USERNAME_POLICY_HINT } from "../lib/usernamePolicy.js";
 
@@ -20,17 +20,6 @@ const SELECTORS = [
 
 function normalizedToken(value) {
   return value.trim().replace(/[-_ ]/g, "").toUpperCase().replace(/[ILO]/g, (char) => ({ I: "1", L: "1", O: "0" })[char]);
-}
-
-function recoveryPasswordPolicyError(password) {
-  if (!password) return "Enter a password.";
-  if (new TextEncoder().encode(password).length < MIN_PASSWORD_LENGTH) {
-    return "Passwords need at least 12 characters. Accented letters and some symbols count as more than one.";
-  }
-  if (!/[a-z]/i.test(password) || !/[0-9]/.test(password)) {
-    return "Passwords need an English letter and a number.";
-  }
-  return null;
 }
 
 export default function RecoveryWizardPage() {
@@ -74,7 +63,7 @@ export default function RecoveryWizardPage() {
       setErrorField("username");
       return;
     }
-    const passwordError = recoveryPasswordPolicyError(password);
+    const passwordError = passwordPolicyError(password, { lengthUnit: "utf8-bytes" });
     if (passwordError) { setError(passwordError); setErrorField("password"); return; }
     if (password !== confirm) { setError("The passwords do not match."); setErrorField("confirm"); return; }
 

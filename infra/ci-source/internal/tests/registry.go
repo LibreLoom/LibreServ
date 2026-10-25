@@ -40,6 +40,7 @@ func (r *Registry) GetByIDs(ids []string) []*Test {
 func init() {
 	addGoTests()
 	addFrontendTests()
+	addSharedUIRecoveryTests()
 	addConnectWebTests()
 	addFuzzTests()
 	addSecurityTests()
@@ -289,12 +290,12 @@ func addConnectWebTests() {
 	})
 
 	DefaultRegistry.Add(&Test{
-		ID:          "luna-web-test",
+		ID:          "luna-web-recovery-login-test",
 		Name:        "Luna Web Recovery and Login Unit Tests",
-		Description: "Run the password recovery and login page unit and regression tests",
+		Description: "Run the password recovery and login page unit tests",
 		Type:        TestTypeUnit,
 		Container:   "node:20-alpine",
-		Command:     "npm install --no-audit --no-fund && npm test -- --run src/pages/RecoveryWizardPage.test.jsx src/pages/LoginPage.test.jsx",
+		Command:     "npm ci --no-audit --no-fund && npm test -- --run src/pages/RecoveryWizardPage.test.jsx src/pages/LoginPage.test.jsx",
 		WorkDir:     "/repo/luna/web",
 		Timeout:     10 * time.Minute,
 	})
@@ -305,7 +306,7 @@ func addConnectWebTests() {
 		Description: "Scan Luna web pages for hardcoded colors and surface mismatches",
 		Type:        TestTypeUnit,
 		Container:   "node:20-alpine",
-		Command:     "npm install --no-audit --no-fund && node ../../shared/ui/scripts/scan-hardcoded-colors.js src/pages && node ../../shared/ui/scripts/scan-surfaces.js src/pages",
+		Command:     "npm ci --no-audit --no-fund && node ../../shared/ui/scripts/scan-hardcoded-colors.js src/pages && node ../../shared/ui/scripts/scan-surfaces.js src/pages",
 		WorkDir:     "/repo/luna/web",
 		Timeout:     10 * time.Minute,
 	})
@@ -452,6 +453,19 @@ func addConnectWebTests() {
 		Command:     "bash deploy/deploy_test.sh",
 		WorkDir:     "/repo/luna/connect",
 		Timeout:     5 * time.Minute,
+	})
+}
+
+func addSharedUIRecoveryTests() {
+	DefaultRegistry.Add(&Test{
+		ID:          "luna-shared-ui-recovery-test",
+		Name:        "Luna Shared Recovery UI Helper Tests",
+		Description: "Test shared password byte counting and browser contrast calculations used by recovery",
+		Type:        TestTypeUnit,
+		Container:   "node:20-alpine",
+		Command:     "npm ci --no-audit --no-fund && npm test -- lib/passwordPolicy.test.js lib/colorContrast.test.js",
+		WorkDir:     "/repo/shared/ui",
+		Timeout:     10 * time.Minute,
 	})
 }
 

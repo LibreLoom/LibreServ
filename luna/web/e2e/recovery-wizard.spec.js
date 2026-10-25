@@ -1,26 +1,24 @@
 import { expect, test } from "@playwright/test";
 import { readFile } from "node:fs/promises";
+import { contrastRatio } from "../../../shared/ui/lib/colorContrast.js";
 
 const PASSWORD = "recoveryPassword123";
 const DEVICE_TOKEN = "ABCD-EFGH-JKLM-NPQR";
 
 async function expectReadableText(locator) {
-  const ratio = await locator.evaluate((element) => {
+  const colors = await locator.evaluate((element) => {
     const surface = element.closest(".surface-primary, .surface-secondary");
     const ownBackground = getComputedStyle(element).backgroundColor;
     const ownChannels = ownBackground.match(/[\d.]+/g) ?? [];
-    const hasOpaqueBackground = ownChannels.length === 3 || Number(ownChannels[3]) > 0;
-    const luminance = (color) => {
-      const [red, green, blue] = color.match(/[\d.]+/g).slice(0, 3).map(Number).map((channel) => {
-        const value = channel / 255;
-        return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
-      });
-      return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+    const hasOpaqueBackground = ownChannels.length === 3 || Number(ownChannels[3]) >= 1;
+    if (!hasOpaqueBackground && !surface) throw new Error("Text has no opaque background surface to compare against");
+    return {
+      foreground: getComputedStyle(element).color,
+      background: ownBackground,
+      backdrop: hasOpaqueBackground ? null : getComputedStyle(surface).backgroundColor,
     };
-    const foreground = luminance(getComputedStyle(element).color);
-    const background = luminance(hasOpaqueBackground ? ownBackground : getComputedStyle(surface).backgroundColor);
-    return (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05);
   });
+  const ratio = contrastRatio(colors.foreground, colors.background, colors.backdrop ?? undefined);
   expect(ratio).toBeGreaterThanOrEqual(4.5);
 }
 
@@ -51,7 +49,9 @@ test("downloads a token-bound file with exact filename and JSON bytes", async ({
   await fillPassword(page, "éééééééééa1");
 
   await downloadFile(page, "u-sam", "éééééééééa1", "luna-recover-abcdefghjk1mnpqr.luna");
-  await expect(page.getByRole("status")).toContainText("luna-recover-abcdefghjk1mnpqr.luna");
+  const downloadStatus = page.locator('[role="status"]');
+  await expect(downloadStatus).toBeVisible();
+  await expect(downloadStatus.getByText("luna-recover-abcdefghjk1mnpqr.luna", { exact: true })).toBeVisible();
 });
 
 test("downloads the tokenless filename when no token is configured", async ({ page }) => {

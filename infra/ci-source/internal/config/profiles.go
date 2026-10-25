@@ -102,7 +102,7 @@ var Profiles = map[string]*Profile{
 			"connect-fmt", "connect-vet", "connect-test", "connect-build",
 			"luna-connect-fmt", "luna-connect-vet", "luna-connect-test", "luna-connect-build",
 			"connect-web-admin-lint", "connect-web-admin-typecheck", "connect-web-admin-build", "connect-web-customer-lint", "connect-web-customer-typecheck", "connect-web-customer-build", "luna-connect-web-lint", "luna-connect-web-test", "luna-connect-web-build", "luna-connect-web-colors", "luna-connect-web-typecheck", "luna-quick-start-check", "luna-connect-deploy-test",
-			"luna-web-test", "luna-web-colors", "luna-web-e2e", "luna-ci", "release-test", "release-integration",
+			"luna-web-recovery-login-test", "luna-shared-ui-recovery-test", "luna-web-colors", "luna-web-e2e", "luna-ci", "release-test", "release-integration",
 		},
 	},
 	"nofuzz": {
@@ -118,7 +118,7 @@ var Profiles = map[string]*Profile{
 			"connect-fmt", "connect-vet", "connect-test", "connect-build",
 			"luna-connect-fmt", "luna-connect-vet", "luna-connect-test", "luna-connect-build",
 			"connect-web-admin-lint", "connect-web-admin-typecheck", "connect-web-admin-build", "connect-web-customer-lint", "connect-web-customer-typecheck", "connect-web-customer-build", "luna-connect-web-lint", "luna-connect-web-test", "luna-connect-web-build", "luna-connect-web-colors", "luna-connect-web-typecheck", "luna-quick-start-check", "luna-connect-deploy-test",
-			"luna-web-test", "luna-web-colors", "luna-web-e2e", "luna-ci", "release-test", "release-integration",
+			"luna-web-recovery-login-test", "luna-shared-ui-recovery-test", "luna-web-colors", "luna-web-e2e", "luna-ci", "release-test", "release-integration",
 		},
 	},
 	"release": {
@@ -148,7 +148,7 @@ var Profiles = map[string]*Profile{
 		ID:          "luna",
 		Name:        "Luna",
 		Description: "Luna daemon, web, desktop, and mobile CI (luna/ci.sh), with web unit, browser, and color checks",
-		TestIDs:     []string{"luna-web-test", "luna-web-colors", "luna-web-e2e", "luna-ci"},
+		TestIDs:     []string{"luna-web-recovery-login-test", "luna-shared-ui-recovery-test", "luna-web-colors", "luna-web-e2e", "luna-ci"},
 	},
 	"nightly": {
 		ID:          "nightly",
@@ -163,7 +163,7 @@ var Profiles = map[string]*Profile{
 			"connect-fmt", "connect-vet", "connect-test", "connect-build",
 			"luna-connect-fmt", "luna-connect-vet", "luna-connect-test", "luna-connect-build",
 			"connect-web-admin-lint", "connect-web-admin-typecheck", "connect-web-admin-build", "connect-web-customer-lint", "connect-web-customer-typecheck", "connect-web-customer-build", "luna-connect-web-lint", "luna-connect-web-test", "luna-connect-web-build", "luna-connect-web-colors", "luna-connect-web-typecheck", "luna-quick-start-check", "luna-connect-deploy-test",
-			"luna-web-test", "luna-web-colors", "luna-web-e2e", "luna-ci", "release-test", "release-integration",
+			"luna-web-recovery-login-test", "luna-shared-ui-recovery-test", "luna-web-colors", "luna-web-e2e", "luna-ci", "release-test", "release-integration",
 		},
 	},
 }

@@ -6,6 +6,7 @@ import { login as loginQuips } from "../lib/greetings.jsx";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import StepTransition from "@libreloom/ui/components/common/StepTransition.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
+import { shakeElement } from "@libreloom/ui/utils/shake.js";
 import FormInput from "../components/common/forms/FormInput";
 import usePageTitle from "../hooks/usePageTitle.js";
 
@@ -25,6 +26,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [errorStatus, setErrorStatus] = useState(null);
+  const [fieldErrors, setFieldErrors] = useState(/** @type {{ username?: string, password?: string }} */ ({}));
 
   const { login, hasAdmin, loading: authLoading, sessionEnded } = useAuth();
   const loginQuip = useMemo(() => getLoginQuip(), []);
@@ -91,7 +93,23 @@ export default function LoginPage() {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!username || !password || loading) return;
+    if (loading) return;
+    /** @type {{ username?: string, password?: string }} */
+    const missing = {};
+    if (!username.trim()) missing.username = "Enter your username.";
+    if (!password) missing.password = "Enter your password.";
+    if (missing.username || missing.password) {
+      setErrorStatus(null);
+      for (const name of Object.keys(missing)) {
+        if (fieldErrors[name]) {
+          const input = e.currentTarget.querySelector(`#${name}`);
+          shakeElement(name === "password" ? input?.parentElement : input);
+        }
+      }
+      setFieldErrors(missing);
+      return;
+    }
+    setFieldErrors({});
     setLoading(true);
     try {
       await login(username.trim(), password);
@@ -134,26 +152,30 @@ export default function LoginPage() {
                   label="Username"
                   name="username"
                   value={username}
-                  onChange={(e) => setUsername(e.target.value)}
+                  onChange={(e) => {
+                    setUsername(e.target.value);
+                    setFieldErrors((f) => (f.username ? { ...f, username: undefined } : f));
+                  }}
                   placeholder="e.g. admin"
                   autoComplete="username"
                   surface="primary"
-                  aria-invalid={Boolean(errorStatus)}
-                  aria-describedby={errorStatus ? "login-error" : undefined}
+                  error={fieldErrors.username}
                 />
                 <FormInput
                   label="Password"
                   name="password"
                   type="password"
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    setFieldErrors((f) => (f.password ? { ...f, password: undefined } : f));
+                  }}
                   placeholder="e.g. hunter2"
                   autoComplete="current-password"
                   surface="primary"
+                  error={fieldErrors.password}
                   shake={errorStatus}
                   loading={loading}
-                  aria-invalid={Boolean(errorStatus)}
-                  aria-describedby={errorStatus ? "login-error" : undefined}
                 />
                 <Button
                   type="submit"
