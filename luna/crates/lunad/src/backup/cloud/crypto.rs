@@ -727,8 +727,6 @@ mod tests {
 
     #[test]
     fn vectors_match_file() {
-        // TEMP-REGEN-HOOK
-        std::fs::write("/home/plainskill/.cache/claude-tmp/claude-1000/-home-plainskill-Projects-LibreServ/c3733bb5-615b-4987-8122-c64be26d4337/scratchpad/vectors.json", serde_json::to_string_pretty(&build_vectors()).unwrap() + "\n").unwrap();
         let file: Value = serde_json::from_str(include_str!("vectors.json")).unwrap();
         assert_eq!(build_vectors(), file);
     }

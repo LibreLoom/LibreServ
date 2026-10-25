@@ -197,10 +197,12 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) *RunSummary {
 		r.jobs = max(workerCount, 1)
 	}
 
-	// Pre-warm shared Go module cache for the selected Go tests. This turns
-	// the cold-cache, concurrent go-mod download storm that flakes the quick
-	// profile into one serial, cachable pass per module.
-	r.warmGoModuleCaches(ctx, testList)
+	// Pre-warm the shared caches for the selected tests. This turns the
+	// cold-cache, concurrent go-mod download storm that flakes the quick
+	// profile into one cachable pass per module, and gives every node test
+	// workdir one warmed npm install instead of a cold install per test.
+	// Warms run in parallel, bounded by the same job slots as the tests.
+	r.warmCaches(ctx, testList)
 
 	summary := &RunSummary{
 		StartTime: time.Now(),
@@ -681,9 +683,6 @@ func (r *Runner) createContainer(ctx context.Context, t *tests.Test, fuzzDuratio
 	cacheDir := filepath.Join(r.repoPath, ".cache")
 	os.MkdirAll(cacheDir, 0755)
 
-	testCacheDir := filepath.Join(cacheDir, "test-"+t.ID)
-	os.MkdirAll(testCacheDir, 0755)
-
 	// Bind mounts use the :z SELinux relabel option so containers can read the
 	// repo under SELinux-enforcing hosts (required by Podman rootless; harmless
 	// for Docker). The shared :z (not private :Z) is used because several test
@@ -694,13 +693,32 @@ func (r *Runner) createContainer(ctx context.Context, t *tests.Test, fuzzDuratio
 		cacheDir + ":/cache:z",
 	}
 
-	if strings.HasPrefix(t.ID, "frontend-") {
-		nodeModulesCache := filepath.Join(testCacheDir, "node_modules")
-		os.MkdirAll(nodeModulesCache, 0755)
-		binds = append(binds, nodeModulesCache+":/repo/sol/server/frontend/node_modules:z")
-		npmCache := filepath.Join(testCacheDir, "npm")
-		os.MkdirAll(npmCache, 0755)
-		env = append(env, "NPM_CONFIG_CACHE="+npmCache)
+	// Node tests share one warmed node_modules and one npm cache per workdir
+	// (populated by warmCaches before the workers start), so every test that
+	// touches the same project skips a full cold install.
+	if strings.HasPrefix(t.Container, "node:") && strings.Contains(t.Command, "npm") {
+		shared := filepath.Join(cacheDir, "npm", npmWorkDirSlug(t.WorkDir))
+		os.MkdirAll(filepath.Join(shared, "node_modules"), 0755)
+		os.MkdirAll(filepath.Join(shared, "npm-cache"), 0755)
+		binds = append(binds, filepath.Join(shared, "node_modules")+":"+t.WorkDir+"/node_modules:z")
+		env = append(env, "NPM_CONFIG_CACHE="+filepath.Join(shared, "npm-cache"))
+		// Node sizes its heap from the cgroup, which is far too small for a
+		// vite build under a bounded job; give it half the job's share.
+		if m := r.jobMemoryLimit(); m > 0 {
+			heapMB := m / 2 / 1024 / 1024
+			if heapMB < 1024 {
+				heapMB = 1024
+			}
+			env = append(env, fmt.Sprintf("NODE_OPTIONS=--max-old-space-size=%d", heapMB))
+		}
+	}
+
+	// Go tests share one apk package cache, so the per-test `apk add` (gcc,
+	// musl-dev, ...) restores from the cache instead of re-downloading.
+	if strings.HasPrefix(t.Container, "golang:") {
+		apkCache := filepath.Join(cacheDir, "apk")
+		os.MkdirAll(apkCache, 0755)
+		binds = append(binds, apkCache+":/etc/apk/cache:z")
 	}
 
 	config := &container.Config{
@@ -1030,50 +1048,132 @@ func ensurePodmanSocket(sp string) bool {
 	return err == nil
 }
 
-// warmGoModuleCaches runs one serial "go mod download" for each Go module
-// root needed by the selected tests. This pre-populates the shared
-// /cache/gomodcache before parallel test containers try to download the same
-// modules concurrently, which is the main cause of quick-profile flakiness.
-func (r *Runner) warmGoModuleCaches(ctx context.Context, testList []*tests.Test) {
-	moduleRoots := make(map[string]struct{})
+// warmCaches pre-populates the shared Go module and npm caches for the
+// selected tests (see warmGoTasks and warmNodeTasks), so the parallel test
+// containers neither race on concurrent go-mod downloads (the main cause of
+// quick-profile flakiness) nor each pay a cold npm install. Warms run in
+// parallel, bounded by the same job slots as the tests themselves.
+func (r *Runner) warmCaches(ctx context.Context, testList []*tests.Test) {
+	tasks := append(r.warmGoTasks(testList), r.warmNodeTasks(testList)...)
+	if len(tasks) == 0 {
+		return
+	}
+
+	workers := min(max(r.jobs, 1), len(tasks))
+	var wg sync.WaitGroup
+	for _, task := range tasks {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if ctx.Err() != nil {
+				return
+			}
+			release, err := r.acquireSlot(ctx, task.ID)
+			if err != nil {
+				return
+			}
+			defer release()
+			r.outputChan <- OutputLine{TestID: task.ID, Type: OutputStatus, Line: "pre-warming " + task.Name + "..."}
+			exitCode, err := r.runOneOffContainer(ctx, task.Test, task.ID)
+			if err != nil || exitCode != 0 {
+				r.outputChan <- OutputLine{TestID: task.ID, Type: OutputStderr, Line: fmt.Sprintf("pre-warm failed (exit %d): %v; tests will proceed with a cold cache", exitCode, err)}
+			} else {
+				r.outputChan <- OutputLine{TestID: task.ID, Type: OutputStatus, Line: task.Name + " warmed"}
+			}
+		}()
+		// No more warms than job slots: each goroutine holds one slot while
+		// it runs, so a pool larger than the slot count would just pile up.
+		if workers--; workers == 0 {
+			// Wait for the first wave before spawning the rest.
+			wg.Wait()
+			workers = min(max(r.jobs, 1), len(tasks))
+		}
+	}
+	wg.Wait()
+}
+
+type warmTask struct {
+	ID   string
+	Name string
+	Test *tests.Test
+}
+
+// warmGoTasks returns one "go mod download" per Go module root needed by the
+// selected tests.
+func (r *Runner) warmGoTasks(testList []*tests.Test) []warmTask {
+	seen := make(map[string]bool)
+	var tasks []warmTask
 	for _, t := range testList {
 		if t.Container == "" || !strings.HasPrefix(t.Container, "golang:") {
 			continue
 		}
 		root := r.findGoModuleRoot(t.WorkDir)
-		if root == "" {
+		if root == "" || seen[root] {
 			continue
 		}
-		moduleRoots[root] = struct{}{}
+		seen[root] = true
+		tasks = append(tasks, warmTask{
+			ID:   "_warm-go-" + strings.Trim(strings.ReplaceAll(root, "/", "-"), "-"),
+			Name: "Go modules " + root,
+			Test: &tests.Test{
+				Container:   "golang:1.27-alpine",
+				Command:     "go mod download",
+				WorkDir:     root,
+				Timeout:     5 * time.Minute,
+				Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache", "GOTOOLCHAIN=auto"},
+				Description: "Pre-fetch Go modules for " + root,
+			},
+		})
 	}
+	return tasks
+}
 
-	for root := range moduleRoots {
-		warmID := "_warm-" + strings.Trim(strings.ReplaceAll(root, "/", "-"), "-")
-		r.outputChan <- OutputLine{TestID: warmID, Type: OutputStatus, Line: "pre-warming Go module cache..."}
-
-		warmTest := &tests.Test{
-			ID:          warmID,
-			Name:        "Warm " + root,
-			Container:   "golang:1.27-alpine",
-			Command:     "go mod download",
-			WorkDir:     root,
-			Timeout:     5 * time.Minute,
-			Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache", "GOTOOLCHAIN=auto"},
-			Description: "Pre-fetch Go modules for " + root,
+// warmNodeTasks returns one npm install per node test workdir. It populates
+// the shared per-workdir node_modules and npm caches (see createContainer), so
+// the tests' own installs turn into cheap no-op verifications instead of one
+// cold install per test — or, for workdirs that had no cache at all, a full
+// download every run.
+func (r *Runner) warmNodeTasks(testList []*tests.Test) []warmTask {
+	seen := make(map[string]bool)
+	var tasks []warmTask
+	for _, t := range testList {
+		if !strings.HasPrefix(t.Container, "node:") || !strings.Contains(t.Command, "npm") {
+			continue
 		}
-
-		release, err := r.acquireSlot(ctx, warmID)
-		if err != nil {
-			return
+		if seen[t.WorkDir] {
+			continue
 		}
-		exitCode, err := r.runOneOffContainer(ctx, warmTest, warmID)
-		release()
-		if err != nil || exitCode != 0 {
-			r.outputChan <- OutputLine{TestID: warmID, Type: OutputStderr, Line: fmt.Sprintf("pre-warm failed (exit %d): %v; tests will proceed with cold cache", exitCode, err)}
-		} else {
-			r.outputChan <- OutputLine{TestID: warmID, Type: OutputStatus, Line: "module cache warmed"}
+		seen[t.WorkDir] = true
+		if _, err := os.Stat(filepath.Join(r.hostWorkDir(t.WorkDir), "package.json")); err != nil {
+			continue
 		}
+		tasks = append(tasks, warmTask{
+			ID:   "_warm-npm-" + npmWorkDirSlug(t.WorkDir),
+			Name: "npm " + t.WorkDir,
+			Test: &tests.Test{
+				Container:   t.Container,
+				Command:     "npm install --no-audit --no-fund",
+				WorkDir:     t.WorkDir,
+				Timeout:     15 * time.Minute,
+				Description: "Pre-install npm dependencies for " + t.WorkDir,
+			},
+		})
 	}
+	return tasks
+}
+
+// npmWorkDirSlug turns a container workdir like /repo/sol/server/frontend into
+// a stable host-dir slug (sol-server-frontend) for the shared npm caches.
+func npmWorkDirSlug(workDir string) string {
+	return strings.ReplaceAll(strings.Trim(strings.TrimPrefix(workDir, "/repo"), "/"), "/", "-")
+}
+
+// hostWorkDir maps an in-container workdir under /repo to the host path.
+func (r *Runner) hostWorkDir(inContainerWorkDir string) string {
+	if rel, ok := strings.CutPrefix(inContainerWorkDir, "/repo"); ok {
+		return filepath.Join(r.repoPath, strings.TrimPrefix(rel, "/"))
+	}
+	return inContainerWorkDir
 }
 
 // findGoModuleRoot maps an in-container work dir to the nearest go.mod

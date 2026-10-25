@@ -74,15 +74,17 @@ func addGoTests() {
 		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache"},
 	})
 
+	// go-test also writes coverage.out / coverage.html (same run, one extra
+	// flag): the separate coverage test re-ran the whole suite for the report.
 	DefaultRegistry.Add(&Test{
 		ID:          "go-test",
 		Name:        "Go Unit Tests",
-		Description: "Run all Go unit tests",
+		Description: "Run all Go unit tests and write coverage.out / coverage.html",
 		Type:        TestTypeUnit,
 		Container:   "golang:1.27-alpine",
-		Command:     "apk add --no-cache gcc musl-dev bash && CGO_ENABLED=1 go test -v ./...",
+		Command:     "apk add gcc musl-dev bash && CGO_ENABLED=1 go test -v -covermode=atomic -coverprofile=coverage.out ./... && go tool cover -func=coverage.out | tail -n 15 && go tool cover -html=coverage.out -o coverage.html",
 		WorkDir:     "/repo/sol/server/backend",
-		Timeout:     10 * time.Minute,
+		Timeout:     15 * time.Minute,
 		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache", "GOTOOLCHAIN=auto"},
 	})
 
@@ -92,7 +94,7 @@ func addGoTests() {
 		Description: "Run tests with race detector enabled",
 		Type:        TestTypeUnit,
 		Container:   "golang:1.27-alpine",
-		Command:     "apk add --no-cache gcc musl-dev && CGO_ENABLED=1 go test -race -v ./internal/api/middleware/... ./internal/auth/... ./internal/jobqueue/...",
+		Command:     "apk add gcc musl-dev && CGO_ENABLED=1 go test -race -v ./internal/api/middleware/... ./internal/auth/... ./internal/jobqueue/...",
 		WorkDir:     "/repo/sol/server/backend",
 		Timeout:     20 * time.Minute,
 		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache", "GORACE=halt_on_error=1"},
@@ -104,7 +106,7 @@ func addGoTests() {
 		Description: "Verify that the Go code compiles successfully",
 		Type:        TestTypeUnit,
 		Container:   "golang:1.27-alpine",
-		Command:     "apk add --no-cache make && make build",
+		Command:     "apk add make && make build",
 		WorkDir:     "/repo/sol/server/backend",
 		Timeout:     5 * time.Minute,
 		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache"},
@@ -116,7 +118,7 @@ func addGoTests() {
 		Description: "Test automatic rollback from failed platform updates",
 		Type:        TestTypeUnit,
 		Container:   "golang:1.27-alpine",
-		Command:     "apk add --no-cache gcc musl-dev && CGO_ENABLED=1 go test -v -run 'TestVerifyAndUpdate|TestUpdateState|TestCheckHealth' ./internal/system/...",
+		Command:     "apk add gcc musl-dev && CGO_ENABLED=1 go test -v -run 'TestVerifyAndUpdate|TestUpdateState|TestCheckHealth' ./internal/system/...",
 		WorkDir:     "/repo/sol/server/backend",
 		Timeout:     5 * time.Minute,
 		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache", "GOTOOLCHAIN=auto"},
@@ -152,7 +154,7 @@ func addGoTests() {
 		Description: "Run all Connect Go unit tests",
 		Type:        TestTypeUnit,
 		Container:   "golang:1.27-alpine",
-		Command:     "apk add --no-cache gcc musl-dev && CGO_ENABLED=1 go test -v ./...",
+		Command:     "apk add gcc musl-dev && CGO_ENABLED=1 go test -v ./...",
 		WorkDir:     "/repo/sol/connect",
 		Timeout:     5 * time.Minute,
 		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache", "GOTOOLCHAIN=auto"},
@@ -226,7 +228,7 @@ func addFrontendTests() {
 		Description: "Run ESLint on frontend code",
 		Type:        TestTypeUnit,
 		Container:   "node:20-alpine",
-		Command:     "npm install --no-fund && npm run lint",
+		Command:     "npm run lint",
 		WorkDir:     "/repo/sol/server/frontend",
 		Timeout:     10 * time.Minute,
 	})
@@ -237,7 +239,7 @@ func addFrontendTests() {
 		Description: "Run Vitest unit tests for frontend components and hooks",
 		Type:        TestTypeUnit,
 		Container:   "node:20-alpine",
-		Command:     "npm install --no-fund && npm test",
+		Command:     "npm test",
 		WorkDir:     "/repo/sol/server/frontend",
 		Timeout:     10 * time.Minute,
 	})
@@ -248,7 +250,7 @@ func addFrontendTests() {
 		Description: "Build the frontend application",
 		Type:        TestTypeUnit,
 		Container:   "node:20-alpine",
-		Command:     "npm install --no-fund && npm run build",
+		Command:     "npm run build",
 		WorkDir:     "/repo/sol/server/frontend",
 		Timeout:     15 * time.Minute,
 	})
@@ -259,7 +261,7 @@ func addFrontendTests() {
 		Description: "Scan for hardcoded colors that should use CSS variables",
 		Type:        TestTypeUnit,
 		Container:   "node:20-alpine",
-		Command:     "npm install --no-fund && npm run scan:colors",
+		Command:     "npm run scan:colors",
 		WorkDir:     "/repo/sol/server/frontend",
 		Timeout:     10 * time.Minute,
 	})
@@ -270,7 +272,7 @@ func addFrontendTests() {
 		Description: "Run tsc --noEmit to validate types across JSX files",
 		Type:        TestTypeUnit,
 		Container:   "node:20-alpine",
-		Command:     "npm install --no-fund && npm run typecheck",
+		Command:     "npm run typecheck",
 		WorkDir:     "/repo/sol/server/frontend",
 		Timeout:     10 * time.Minute,
 	})
@@ -283,7 +285,7 @@ func addConnectWebTests() {
 		Description: "Run ESLint on the Luna Connect web frontend",
 		Type:        TestTypeUnit,
 		Container:   "node:20-alpine",
-		Command:     "npm install --no-fund && npm run lint",
+		Command:     "npm run lint",
 		WorkDir:     "/repo/luna/connect/web",
 		Timeout:     10 * time.Minute,
 	})
@@ -294,7 +296,7 @@ func addConnectWebTests() {
 		Description: "Run Vitest unit tests for the Luna Connect web frontend",
 		Type:        TestTypeUnit,
 		Container:   "node:20-alpine",
-		Command:     "npm install --no-fund && npm test",
+		Command:     "npm test",
 		WorkDir:     "/repo/luna/connect/web",
 		Timeout:     10 * time.Minute,
 	})
@@ -305,7 +307,7 @@ func addConnectWebTests() {
 		Description: "Build the Luna Connect web frontend",
 		Type:        TestTypeUnit,
 		Container:   "node:20-alpine",
-		Command:     "npm install --no-fund && npm run build",
+		Command:     "npm run build",
 		WorkDir:     "/repo/luna/connect/web",
 		Timeout:     15 * time.Minute,
 	})
@@ -316,7 +318,7 @@ func addConnectWebTests() {
 		Description: "Scan Luna Connect web for hardcoded colors that should use CSS variables",
 		Type:        TestTypeUnit,
 		Container:   "node:20-alpine",
-		Command:     "npm install --no-fund && npm run scan:colors",
+		Command:     "npm run scan:colors",
 		WorkDir:     "/repo/luna/connect/web",
 		Timeout:     10 * time.Minute,
 	})
@@ -327,7 +329,7 @@ func addConnectWebTests() {
 		Description: "Type-check the Luna Connect web frontend (JSDoc via tsc)",
 		Type:        TestTypeUnit,
 		Container:   "node:20-alpine",
-		Command:     "npm install --no-fund && npm run typecheck",
+		Command:     "npm run typecheck",
 		WorkDir:     "/repo/luna/connect/web",
 		Timeout:     10 * time.Minute,
 	})
@@ -338,7 +340,7 @@ func addConnectWebTests() {
 		Description: "Lint, type-check and build the printable quick-start page",
 		Type:        TestTypeUnit,
 		Container:   "node:20-alpine",
-		Command:     "npm install --no-fund && npm run lint && npm run typecheck && npm run build",
+		Command:     "npm run lint && npm run typecheck && npm run build",
 		WorkDir:     "/repo/luna/quick-start",
 		Timeout:     10 * time.Minute,
 	})
@@ -349,7 +351,7 @@ func addConnectWebTests() {
 		Description: "Run ESLint on the Connect admin frontend",
 		Type:        TestTypeUnit,
 		Container:   "node:20-alpine",
-		Command:     "npm install --no-fund && npm run lint",
+		Command:     "npm run lint",
 		WorkDir:     "/repo/sol/connect/web/admin",
 		Timeout:     10 * time.Minute,
 	})
@@ -360,7 +362,7 @@ func addConnectWebTests() {
 		Description: "Run tsc --noEmit on the Connect admin frontend",
 		Type:        TestTypeUnit,
 		Container:   "node:20-alpine",
-		Command:     "npm install --no-fund && npm run typecheck",
+		Command:     "npm run typecheck",
 		WorkDir:     "/repo/sol/connect/web/admin",
 		Timeout:     10 * time.Minute,
 	})
@@ -371,7 +373,7 @@ func addConnectWebTests() {
 		Description: "Build the Connect admin frontend",
 		Type:        TestTypeUnit,
 		Container:   "node:20-alpine",
-		Command:     "npm install --no-fund && npm run build",
+		Command:     "npm run build",
 		WorkDir:     "/repo/sol/connect/web/admin",
 		Timeout:     15 * time.Minute,
 	})
@@ -382,7 +384,7 @@ func addConnectWebTests() {
 		Description: "Run ESLint on the Connect customer frontend",
 		Type:        TestTypeUnit,
 		Container:   "node:20-alpine",
-		Command:     "npm install --no-fund && npm run lint",
+		Command:     "npm run lint",
 		WorkDir:     "/repo/sol/connect/web/customer",
 		Timeout:     10 * time.Minute,
 	})
@@ -393,7 +395,7 @@ func addConnectWebTests() {
 		Description: "Run tsc --noEmit on the Connect customer frontend",
 		Type:        TestTypeUnit,
 		Container:   "node:20-alpine",
-		Command:     "npm install --no-fund && npm run typecheck",
+		Command:     "npm run typecheck",
 		WorkDir:     "/repo/sol/connect/web/customer",
 		Timeout:     10 * time.Minute,
 	})
@@ -404,7 +406,7 @@ func addConnectWebTests() {
 		Description: "Build the Connect customer frontend",
 		Type:        TestTypeUnit,
 		Container:   "node:20-alpine",
-		Command:     "npm install --no-fund && npm run build",
+		Command:     "npm run build",
 		WorkDir:     "/repo/sol/connect/web/customer",
 		Timeout:     15 * time.Minute,
 	})
@@ -522,18 +524,6 @@ func addSecurityTests() {
 
 func addIntegrationTests() {
 	DefaultRegistry.Add(&Test{
-		ID:          "coverage",
-		Name:        "Coverage Report",
-		Description: "Generate test coverage report",
-		Type:        TestTypeIntegration,
-		Container:   "golang:1.27-alpine",
-		Command:     "apk add --no-cache gcc musl-dev bash && CGO_ENABLED=1 go test -coverprofile=coverage.out -covermode=atomic ./... && go tool cover -func=coverage.out && go tool cover -html=coverage.out -o coverage.html",
-		WorkDir:     "/repo/sol/server/backend",
-		Timeout:     10 * time.Minute,
-		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache"},
-	})
-
-	DefaultRegistry.Add(&Test{
 		ID:          "podman-build",
 		Name:        "Podman Build",
 		Description: "Build the container image with podman (runs on host)",
@@ -558,7 +548,7 @@ func addReleaseTests() {
 		Description: "Release and ci tool unit tests (no podman)",
 		Type:        TestTypeUnit,
 		Container:   "golang:1.27-alpine",
-		Command:     "apk add --no-cache git bash && go test -short ./...",
+		Command:     "apk add git bash && go test -short ./...",
 		WorkDir:     "/repo/infra/ci-source",
 		Timeout:     15 * time.Minute,
 		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache", "GOTOOLCHAIN=auto", "LIBRESERV_RELEASE_NO_PODMAN_TESTS=1"},

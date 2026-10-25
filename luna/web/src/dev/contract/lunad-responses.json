@@ -9,13 +9,40 @@
   "DELETE /api/v1/backups/{id}": {
     "ok": "boolean"
   },
+  "DELETE /api/v1/connect/device-token": {
+    "ok": "boolean"
+  },
   "DELETE /api/v1/drives/{id}/files": {
     "ok": "boolean",
     "trash_path": "string"
   },
+  "DELETE /api/v1/gallery/albums/{home}/{id}/items": {
+    "ok": "boolean"
+  },
+  "DELETE /api/v1/private-backups/old-copies": {
+    "ok": "boolean"
+  },
+  "DELETE /api/v1/private-backups/older-versions": {
+    "ok": "boolean"
+  },
+  "DELETE /api/v1/private-backups/owners/{owner}": {
+    "removed": "number"
+  },
+  "DELETE /api/v1/private/orphans/{owner}": {
+    "failed_drives": [],
+    "offline_drives": [],
+    "ok": "boolean",
+    "skipped_readonly": []
+  },
+  "DELETE /api/v1/users/{id}": {
+    "ok": "boolean"
+  },
   "DELETE /s/{token}/file": {
     "ok": "boolean",
     "trash_path": "string"
+  },
+  "DELETE /s/{token}/responses": {
+    "ok": "boolean"
   },
   "GET /api/v1/access/mine": {
     "sharing": [],
@@ -116,6 +143,18 @@
       "private_folder": "boolean"
     }
   },
+  "GET /api/v1/auth/me": {
+    "$oneOf": [
+      "null",
+      {
+        "display_name": "string",
+        "id": "string",
+        "phrase_set": "boolean",
+        "role": "string",
+        "username": "string"
+      }
+    ]
+  },
   "GET /api/v1/backups": [
     {
       "can_delete": "boolean",
@@ -203,6 +242,75 @@
       }
     ]
   },
+  "GET /api/v1/cloud/phrase/scopes": {
+    "scopes": [
+      {
+        "scope": "string",
+        "sealed_scope_secret": "string"
+      }
+    ]
+  },
+  "GET /api/v1/cloud/restore": {
+    "cloud_snapshots": "number",
+    "indexed_snapshots": "number",
+    "luna_id": "null",
+    "needed": "boolean",
+    "signing_public": "null"
+  },
+  "GET /api/v1/cloud/restore-private": {
+    "luna_id": "null",
+    "needed": "boolean",
+    "scopes": "number",
+    "signing_public": "null"
+  },
+  "GET /api/v1/connect/status": {
+    "backup_sources": [],
+    "backup_unlocked": "boolean",
+    "base_url": "string",
+    "card_on_file": "boolean",
+    "connect_active": "boolean",
+    "connect_unreachable?": "string",
+    "device_code": "null",
+    "domain": "null",
+    "enabled": "boolean",
+    "hostname": "null",
+    "paired": "boolean",
+    "subdomain": "null",
+    "tunnel_active": "boolean",
+    "unclaimed": "boolean"
+  },
+  "GET /api/v1/device-tokens": [
+    {
+      "created_at": "number",
+      "expires_at": "null",
+      "id": "string",
+      "last_used_at": "number",
+      "name": "string",
+      "revoked": "boolean"
+    }
+  ],
+  "GET /api/v1/device-tokens/{id}/usage": [
+    {
+      "action": "string",
+      "client": "string",
+      "detail": "string",
+      "origin": "string",
+      "used_at": "number"
+    }
+  ],
+  "GET /api/v1/drives": [
+    {
+      "caps": "string",
+      "device": "string",
+      "fs_type": "string",
+      "id": "string",
+      "label": "string",
+      "mount_point": "string",
+      "mounted": "boolean",
+      "state": "string",
+      "writable": "boolean"
+    }
+  ],
   "GET /api/v1/drives/{drive_id}/backups": [
     {
       "id": "string",
@@ -233,6 +341,115 @@
       "size": "number"
     }
   ],
+  "GET /api/v1/drives/{id}/files": [
+    {
+      "caps": "string",
+      "hidden": "boolean",
+      "in_private?": "boolean",
+      "kind": "string",
+      "modified": "number",
+      "name": "string",
+      "original_name?": "string",
+      "original_path?": "string",
+      "private?": "boolean",
+      "size": "number"
+    }
+  ],
+  "GET /api/v1/drives/{id}/files/resolve": {
+    "drive_id": "string",
+    "kind": "string",
+    "path": "string"
+  },
+  "GET /api/v1/drives/{id}/files/stat": {
+    "caps": "string",
+    "children?": {
+      "dirs": "number",
+      "files": "number",
+      "other": "number"
+    },
+    "created?": "number",
+    "hidden": "boolean",
+    "kind": "string",
+    "modified": "number",
+    "name": "string",
+    "private?": "boolean",
+    "size": "number",
+    "totals?": {
+      "bytes": "number",
+      "complete": "boolean",
+      "dirs": "number",
+      "files": "number",
+      "other": "number"
+    },
+    "trashed_from?": "string",
+    "writable": "boolean"
+  },
+  "GET /api/v1/drives/{id}/summary": {
+    "files": "null|number",
+    "folders": "null|number",
+    "free_bytes": "null|number",
+    "id": "string",
+    "mounted": "boolean",
+    "shortcuts": [
+      "string"
+    ],
+    "total_bytes": "null|number",
+    "used_bytes": "null|number"
+  },
+  "GET /api/v1/forms/responses": {
+    "responses": [
+      {
+        "answers": {
+          "q_1": "string"
+        },
+        "at": "number",
+        "id": "string",
+        "sent_at": "number"
+      }
+    ]
+  },
+  "GET /api/v1/gallery/albums": [
+    {
+      "cover_thumb": "string",
+      "created_at": "number",
+      "home_drive_id": "string",
+      "id": "string",
+      "item_count": "number",
+      "locked": "boolean",
+      "name": "string"
+    }
+  ],
+  "GET /api/v1/gallery/albums/{home}/{id}": {
+    "contrib_path?": "string",
+    "cover_drive_id?": "string",
+    "cover_path?": "string",
+    "cover_thumb": "string",
+    "created_at": "number",
+    "home_drive_id": "string",
+    "id": "string",
+    "item_count": "number",
+    "locked": "boolean",
+    "name": "string",
+    "owner_user_id?": "string"
+  },
+  "GET /api/v1/gallery/albums/{home}/{id}/items": [
+    {
+      "drive_id": "string",
+      "id": "string",
+      "name": "string",
+      "path": "string"
+    }
+  ],
+  "GET /api/v1/gallery/status": {
+    "busy": "boolean",
+    "drive_id": "null",
+    "drive_label": "null",
+    "found_count": "null|number",
+    "last_error": "null|string",
+    "pending": "number",
+    "phase": "string",
+    "scanning": "boolean"
+  },
   "GET /api/v1/jobs/{id}": {
     "error": "string",
     "from_drive": "string",
@@ -262,12 +479,241 @@
       "shared_by": "string"
     }
   ],
+  "GET /api/v1/me/recents": [
+    {
+      "at": "number",
+      "driveId": "string",
+      "kind": "string",
+      "path": "string"
+    }
+  ],
+  "GET /api/v1/network/status": {
+    "ethernet_connected": "boolean",
+    "has_default_route": "boolean",
+    "wifi_connected": "boolean"
+  },
+  "GET /api/v1/private-backups/item": {
+    "inside_private": "boolean",
+    "mine": "boolean",
+    "owner_name": "string",
+    "private": "boolean"
+  },
+  "GET /api/v1/private-backups/mine": {
+    "items": [
+      {
+        "cloud_backup": "boolean",
+        "drive_backups": "number",
+        "drive_id": "string",
+        "name": "string",
+        "path": "string"
+      }
+    ]
+  },
+  "GET /api/v1/private-backups/summary": {
+    "owners": [
+      {
+        "backups": "number",
+        "deleted": "boolean",
+        "name": "string",
+        "needs_look": "boolean",
+        "owner_id": "string"
+      }
+    ]
+  },
+  "GET /api/v1/private/orphans": {
+    "offline_drives": [],
+    "owners": []
+  },
+  "GET /api/v1/setup": {
+    "current_step": "string",
+    "name": "string",
+    "setup_completed": "boolean",
+    "step_data": {
+      "network_connected": "boolean",
+      "preflight_passed?": "boolean"
+    }
+  },
+  "GET /api/v1/system/health/check": {
+    "checks": {
+      "clock": {
+        "category": "string",
+        "message": "string",
+        "status": "string"
+      },
+      "data_path_writable": {
+        "category": "string",
+        "message": "string",
+        "status": "string"
+      },
+      "database": {
+        "category": "string",
+        "message": "string",
+        "status": "string"
+      },
+      "diagram_pack": {
+        "category": "string",
+        "message": "string",
+        "more": "string",
+        "status": "string"
+      },
+      "disk_space": {
+        "category": "string",
+        "details": {
+          "free_bytes": "number",
+          "free_human": "string"
+        },
+        "message": "string",
+        "status": "string"
+      },
+      "drive_tools": {
+        "category": "string",
+        "message": "string",
+        "status": "string"
+      },
+      "erase_tools": {
+        "category": "string",
+        "message": "string",
+        "status": "string"
+      },
+      "heic_tools": {
+        "category": "string",
+        "message": "string",
+        "status": "string"
+      },
+      "logs_path_writable": {
+        "category": "string",
+        "message": "string",
+        "status": "string"
+      },
+      "network": {
+        "category": "string",
+        "message": "string",
+        "status": "string"
+      },
+      "ntfs_support": {
+        "category": "string",
+        "details": {
+          "missing": [
+            "string"
+          ]
+        },
+        "message": "string",
+        "more": "string",
+        "status": "string"
+      },
+      "office_pack": {
+        "category": "string",
+        "details": {
+          "missing": [
+            "string"
+          ]
+        },
+        "message": "string",
+        "more": "string",
+        "status": "string"
+      },
+      "smart_tool": {
+        "category": "string",
+        "message": "string",
+        "status": "string"
+      },
+      "trim_tool": {
+        "category": "string",
+        "message": "string",
+        "status": "string"
+      },
+      "update_signing": {
+        "category": "string",
+        "message": "string",
+        "status": "string"
+      },
+      "video_tools": {
+        "category": "string",
+        "message": "string",
+        "status": "string"
+      },
+      "whiteboard": {
+        "category": "string",
+        "message": "string",
+        "status": "string"
+      }
+    },
+    "overall_pass": "boolean",
+    "status": "string",
+    "summary": {
+      "failed": "number",
+      "passed": "number",
+      "total_checks": "number",
+      "warnings": "number"
+    },
+    "timestamp": "number"
+  },
+  "GET /api/v1/system/updates": {
+    "binary_name": "string",
+    "checksum": "string",
+    "current_version": "string",
+    "latest_version": "string",
+    "os_update_failed": {
+      "$oneOf": [
+        "null",
+        {
+          "version": "string"
+        }
+      ]
+    },
+    "reboot_required": "boolean",
+    "release_notes": "string",
+    "update_available": "boolean"
+  },
+  "GET /api/v1/system/updates/source": {
+    "channel": "string",
+    "default_keys": "boolean",
+    "defaults": {
+      "channel": "string",
+      "feed_url": "string",
+      "keys": [
+        "string"
+      ]
+    },
+    "effective_keys": [
+      "string"
+    ],
+    "feed_url": "string",
+    "keys": []
+  },
+  "GET /api/v1/users/directory": [
+    {
+      "admin": "boolean",
+      "display_name": "string",
+      "id": "string",
+      "shareable": "boolean",
+      "username": "string"
+    }
+  ],
   "GET /s/{token}": {
     "accepting?": "boolean",
     "caps?": "string",
     "closed_message?": "string",
     "form?": {
-      "questions": [],
+      "questions": [
+        {
+          "config?": {
+            "options": [
+              "string"
+            ]
+          },
+          "id": "string",
+          "label": "string",
+          "required?": "boolean",
+          "type": "string"
+        }
+      ],
+      "settings?": {
+        "allowEdits": "boolean",
+        "collecting": "boolean",
+        "maxResponses?": "number",
+        "responseLimit?": "string"
+      },
       "title": "string",
       "version": "number"
     },
@@ -286,6 +732,26 @@
         "modified": "number",
         "name": "string",
         "size": "number"
+      }
+    ]
+  },
+  "GET /s/{token}/respond": {
+    "answers": {
+      "q_1": "string"
+    },
+    "id": "string",
+    "ok": "boolean"
+  },
+  "GET /s/{token}/responses": {
+    "count?": "number",
+    "responses?": [
+      {
+        "answers": {
+          "q_1": "string"
+        },
+        "at": "number",
+        "id": "string",
+        "sent_at": "number"
       }
     ]
   },
@@ -318,6 +784,16 @@
     "has_password": "boolean",
     "id": "string",
     "url": "string"
+  },
+  "PATCH /api/v1/gallery/albums/{home}/{id}": {
+    "ok": "boolean"
+  },
+  "PATCH /api/v1/users/{id}": {
+    "display_name": "string",
+    "id": "string",
+    "role": "string",
+    "username": "string",
+    "warning?": "string"
   },
   "POST /api/v1/access/links": {
     "caps": "string",
@@ -397,14 +873,55 @@
   "POST /api/v1/cloud/phrase/check": {
     "ok": "boolean"
   },
+  "POST /api/v1/connect/device-token": {
+    "message": "string",
+    "ok": "boolean"
+  },
+  "POST /api/v1/device-tokens": {
+    "created_at": "number",
+    "expires_at": "null|number",
+    "id": "string",
+    "last_used_at": "number",
+    "name": "string",
+    "revoked": "boolean",
+    "token": "string"
+  },
   "POST /api/v1/drives/{drive_id}/backups/{id}/restore": {
     "name": "string",
     "path": "string"
+  },
+  "POST /api/v1/drives/{id}/eject": {
+    "ok": "boolean"
+  },
+  "POST /api/v1/drives/{id}/files/create": {
+    "ok": "boolean",
+    "path": "string"
+  },
+  "POST /api/v1/drives/{id}/files/mkdir": {
+    "ok": "boolean",
+    "path": "string"
+  },
+  "POST /api/v1/drives/{id}/files/purge": {
+    "ok": "boolean"
   },
   "POST /api/v1/drives/{id}/files/rename": {
     "ok": "boolean"
   },
   "POST /api/v1/drives/{id}/files/restore": {
+    "ok": "boolean"
+  },
+  "POST /api/v1/drives/{id}/files/upload": {
+    "hidden": "boolean",
+    "kind": "string",
+    "modified": "number",
+    "name": "string",
+    "saving": "boolean",
+    "size": "number"
+  },
+  "POST /api/v1/drives/{id}/remove": {
+    "ok": "boolean"
+  },
+  "POST /api/v1/drives/{name}/release": {
     "ok": "boolean"
   },
   "POST /api/v1/gallery/albums": {
@@ -420,6 +937,17 @@
     "name": "string",
     "owner_user_id": "string"
   },
+  "POST /api/v1/gallery/albums/{home}/{id}/items": {
+    "added": "number",
+    "ok": "boolean",
+    "skipped_forbidden": "number",
+    "skipped_not_media": "number"
+  },
+  "POST /api/v1/gallery/rescan": {
+    "busy": "boolean",
+    "ok": "boolean",
+    "queued": "number"
+  },
   "POST /api/v1/jobs": {
     "id": "string",
     "kind": "string",
@@ -427,12 +955,62 @@
     "state": "string",
     "total": "number"
   },
+  "POST /api/v1/me/recents": {
+    "ok": "boolean"
+  },
+  "POST /api/v1/office/session": {
+    "bundle_url": "string",
+    "can_write": "boolean",
+    "document_type": "string",
+    "document_url": "string",
+    "file_type": "string",
+    "key": "string",
+    "title": "string",
+    "token": "string",
+    "user": {
+      "id": "string",
+      "name": "string"
+    }
+  },
+  "POST /api/v1/setup": {
+    "current_step": "string",
+    "name": "string",
+    "setup_completed": "boolean",
+    "step_data": {
+      "network_connected?": "boolean",
+      "preflight_passed?": "boolean"
+    }
+  },
+  "POST /api/v1/system/factory-reset": {
+    "message": "string",
+    "ok": "boolean"
+  },
+  "POST /api/v1/system/updates/os-failed/clear": {
+    "ok": "boolean"
+  },
+  "POST /api/v1/uploads": {
+    "name": "string",
+    "received": "number",
+    "size": "number",
+    "upload_id": "string"
+  },
+  "POST /api/v1/uploads/{id}/complete": {
+    "caps": "string",
+    "hidden": "boolean",
+    "kind": "string",
+    "modified": "number",
+    "name": "string",
+    "size": "number"
+  },
   "POST /api/v1/users": {
     "display_name": "string",
     "id": "string",
     "role": "string",
     "username": "string",
     "warning": "string"
+  },
+  "POST /api/v1/users/{id}/adopt-private": {
+    "count": "number"
   },
   "POST /s/{token}/create": {
     "ok": "boolean",
@@ -450,7 +1028,30 @@
       }
     ]
   },
+  "POST /s/{token}/office/session": {
+    "bundle_url": "string",
+    "can_write": "boolean",
+    "document_type": "string",
+    "document_url": "string",
+    "file_type": "string",
+    "key": "string",
+    "title": "string",
+    "token": "string",
+    "user": {
+      "id": "string",
+      "name": "string"
+    }
+  },
   "POST /s/{token}/rename": {
+    "ok": "boolean"
+  },
+  "POST /s/{token}/respond": {
+    "edit_token": "null|string",
+    "id": "string",
+    "ok": "boolean"
+  },
+  "POST /s/{token}/respond-file": {
+    "name": "string",
     "ok": "boolean"
   },
   "POST /s/{token}/upload": {
@@ -464,6 +1065,32 @@
     "resealing": "boolean",
     "set": "boolean",
     "set_at": "number"
+  },
+  "PUT /api/v1/system/updates/source": {
+    "channel": "string",
+    "default_keys": "boolean",
+    "defaults": {
+      "channel": "string",
+      "feed_url": "string",
+      "keys": [
+        "string"
+      ]
+    },
+    "effective_keys": [
+      "string"
+    ],
+    "feed_url": "string",
+    "keys": [
+      "string"
+    ],
+    "ok": "boolean"
+  },
+  "PUT /api/v1/uploads/{id}": {
+    "received": "number",
+    "upload_id": "string"
+  },
+  "PUT /s/office-bundle/{key}/{bundle_id}/{*name}": {
+    "ok": "boolean"
   },
   "PUT /s/{token}/upload/{id}": {
     "received": "number",

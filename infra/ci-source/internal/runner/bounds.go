@@ -149,6 +149,11 @@ func hostThrottle(args []string, cpuQuota, memLimit int64, nice int, look func(s
 		}
 	}
 	env = parallelismEnv(cpuQuota)
+	// Tell host-run scripts how much memory the job may use, so they can size
+	// their own parallelism (luna/ci.sh picks its lane count and node's heap).
+	if memLimit > 0 {
+		env = append(env, "LIBRESERV_CI_MEM_BYTES="+strconv.FormatInt(memLimit, 10))
+	}
 	if cpuQuota > 0 || memLimit > 0 {
 		p, err := look("systemd-run")
 		if err != nil {
